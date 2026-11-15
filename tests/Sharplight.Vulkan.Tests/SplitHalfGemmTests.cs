@@ -60,7 +60,44 @@ public sealed class SplitHalfGemmTests
         }
     }
 
-    private static float[] Run(float[] x, float[] w, int rows, int k, int n, bool split, bool reduced)
+    /// <summary>
+    /// Fast matrix precision (<see cref="MatrixPrecision.Fast"/>): one f16 product of row-scaled inputs per multiply-add. Its
+    /// error is that of rounding both inputs to 11 significant bits (TF32's class, about 2e-4 relative RMS), on the ranges
+    /// plain f16 products cannot hold too.
+    /// </summary>
+    [Theory]
+    [InlineData(1024, 768, 2048, 0.03f, 1f, false)]
+    [InlineData(1000, 384, 1536, 0.03f, 1f, false)]
+    [InlineData(197, 768, 2304, 0.03f, 1f, false)]
+    [InlineData(300, 96, 200, 1f, 1f, false)]
+    [InlineData(1024, 768, 1024, 1e-7f, 1e6f, false)]
+    [InlineData(1024, 768, 1024, 1e3f, 1e-6f, false)]
+    [InlineData(1024, 768, 1024, 0.03f, 1f, true)]
+    public void FastPrecisionErrorLikeTf32(int rows, int k, int n, float weightScale, float activationScale, bool wideRange)
+    {
+        Gpu.Require();
+        var x = Rnd.F((long)rows * k, 1, activationScale);
+        var w = Rnd.F((long)n * k, 2, weightScale);
+        if (wideRange)
+        {
+            var rng = new Random(3);
+            for (long i = 0; i < x.Length; i++)
+            {
+                x[i] = MathF.ScaleB(x[i], rng.Next(-20, 21));
+            }
+        }
+
+        var expected = Reference(x, w, rows, k, n);
+        var fastResult = Run(x, w, rows, k, n, split: true, reduced: false, MatrixPrecision.Fast);
+        double fast = RelativeRms(fastResult, expected);
+        double tf32 = RelativeRms(Tf32Reference(x, w, rows, k, n), expected);
+        TestContext.Current.TestOutputHelper?.WriteLine($"[{rows} x {k}] x [{k} -> {n}] w~{weightScale} x~{activationScale}{(wideRange ? " wide" : "")}: relative rms fast {fast:E2}, TF32 inputs {tf32:E2}");
+        Assert.All(fastResult, v => Assert.True(float.IsFinite(v)));
+        Assert.True(fast < 5e-4, $"fast {fast:E2}");
+        Assert.True(fast <= tf32 * 1.5, $"fast {fast:E2} vs TF32 inputs {tf32:E2}");
+    }
+
+    private static float[] Run(float[] x, float[] w, int rows, int k, int n, bool split, bool reduced, MatrixPrecision precision = MatrixPrecision.Strict)
     {
         var tg = new TG();
         var xi = tg.InF("x", TG.T, k);
@@ -69,7 +106,7 @@ public sealed class SplitHalfGemmTests
         using var model = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
         {
             Devices = [new DeviceSlot { Device = Gpu.Vulkan! }],
-            Compile = new CompileOptions { MaxTokens = rows, AllowReducedPrecision = reduced, SplitHalfMatMul = split },
+            Compile = new CompileOptions { MaxTokens = rows, AllowReducedPrecision = reduced, SplitHalfMatMul = split, MatrixPrecision = precision },
             ReservePerDevice = 0,
         });
         model.SetInput(xi, MemoryMarshal.AsBytes(x.AsSpan()));
@@ -98,6 +135,19 @@ public sealed class SplitHalfGemmTests
             }
         });
         return y;
+    }
+
+    /// <summary>The f64 product of x and w with both inputs rounded to TF32 (10 explicit mantissa bits, nearest even).</summary>
+    private static float[] Tf32Reference(float[] x, float[] w, int rows, int k, int n)
+    {
+        static float Tf32(float v)
+        {
+            uint bits = BitConverter.SingleToUInt32Bits(v);
+            return BitConverter.UInt32BitsToSingle((bits + 0xFFFu + ((bits >> 13) & 1u)) & 0xFFFFE000u);
+        }
+
+        var exact = Reference([.. x.Select(Tf32)], [.. w.Select(Tf32)], rows, k, n);
+        return [.. exact.Select(v => (float)v)];
     }
 
     private static double RelativeRms(float[] got, double[] expected)

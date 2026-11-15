@@ -15,6 +15,8 @@
 //            products sum from zero on the tensor cores and are added, times the block's inverse scale, to f32
 //            accumulators (the tensor cores' truncating accumulation then only rounds step sums). Needs every block's
 //            pixels in one subgroup: TBN * 4 / NT (B_ITEMS) of 2 or 4.
+//            HI_ONLY = 1 (fast matrix precision): the same scaling with the hi parts only, one product per step (11
+//            significant bits per input, like TF32); the weights hold KTOT hi halves per output channel.
 // Same layout and macros as conv_gemm (conv.slang): x [N, C, H, W] strided (XS_*), w [O, CG, KH, KW] dense (WFMT
 // f32/f16/bf16), y dense [N, O, HO, WO]. SPLITK > 1 writes partials [SPLITK][N][O][HO*WO] for conv_splitk_reduce.
 // Extra macros: PARTS (1-3) FRAG_N (1 or 2 pixel fragments per subgroup) WARPS_M (1 or 2) A_VEC (K % 8 == 0: weights loaded in groups of 8) SPLITK KPS (K per split,
@@ -22,6 +24,21 @@
 #include "common.slang"
 #include "conv_epilogue.slang"
 using namespace linalg;
+
+#ifndef HI_ONLY
+#define HI_ONLY 0
+#endif
+// Lo parts staged and multiplied (bf16 forms and the strict split-f16 form).
+#if PARTS > 1 && !HI_ONLY
+#define HAS_LO 1
+#else
+#define HAS_LO 0
+#endif
+#if HI_ONLY
+#define W_BYTES_PER_K 2
+#else
+#define W_BYTES_PER_K 4
+#endif
 
 #define KHW (KH * KW)
 #define KTOT (CG * KH * KW)
@@ -74,7 +91,7 @@ struct ConvParams
 // A: weights [o][k] (row-major), B: im2col [pix][k] (column-major B); 8 packed operands per uint4, one tile per part.
 groupshared uint4 sAh[TBM * SAS / 8];
 groupshared uint4 sBh[TBN * SAS / 8];
-#if PARTS > 1
+#if HAS_LO
 groupshared uint4 sAl[TBM * SAS / 8];
 groupshared uint4 sBl[TBN * SAS / 8];
 #endif
@@ -166,10 +183,12 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
         am[it] = 0;
         if (mBase + r < OG && kk < kEnd)
         {
-            uint64_t row = uint64_t(p.w) + uint64_t(g * OG + mBase + r) * 4 * uint64_t(KTOT);
+            uint64_t row = uint64_t(p.w) + uint64_t(g * OG + mBase + r) * W_BYTES_PER_K * uint64_t(KTOT);
 #if A_VEC
             ah[it] = *(uint4*)(row + uint64_t(kk) * 2);
+#if !HI_ONLY
             al[it] = *(uint4*)(row + (uint64_t(KTOT) + kk) * 2);
+#endif
 #else
             uint h[8];
             uint l[8];
@@ -177,7 +196,7 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
             for (uint j = 0; j < 8; j++)
             {
                 h[j] = kk + j < kEnd ? uint(*(uint16_t*)(row + uint64_t(kk + j) * 2)) : 0u;
-                l[j] = kk + j < kEnd ? uint(*(uint16_t*)(row + (uint64_t(KTOT) + kk + j) * 2)) : 0u;
+                l[j] = kk + j < kEnd && HI_ONLY == 0 ? uint(*(uint16_t*)(row + (uint64_t(KTOT) + kk + j) * 2)) : 0u;
             }
             ah[it] = pack_words(h);
             al[it] = pack_words(l);
@@ -343,7 +362,7 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
             uint idx = tid + it * NT;
             uint o = (idx / 4) * (SAS / 8) + idx % 4;
             sAh[o] = ah[it];
-#if PARTS > 1
+#if HAS_LO
             sAl[o] = al[it];
 #endif
 #if PARTS == 3
@@ -355,7 +374,7 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         {
             uint o = bcol * (SAS / 8) + bq0 + it * B_STRIDE;
             sBh[o] = bh[it];
-#if PARTS > 1
+#if HAS_LO
             sBl[o] = bl[it];
 #endif
 #if PARTS == 3
@@ -380,19 +399,30 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         for (uint kk = 0; kk < TBK; kk += 16)
         {
             MatB b[FRAG_N];
+#if !HI_ONLY
             MatB bLo[FRAG_N];
+#endif
             [ForceUnroll]
             for (int j = 0; j < FRAG_N; j++)
             {
                 uint ob = ((wn + j * 16) * SAS + kk) / 8;
                 b[j] = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(sBh, ob, SAS / 8);
+#if !HI_ONLY
                 bLo[j] = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(sBl, ob, SAS / 8);
+#endif
             }
             [ForceUnroll]
             for (int i = 0; i < FRAG_M; i++)
             {
                 uint oa = ((wm + i * 16) * SAS + kk) / 8;
                 MatA a = MatA.Load<CoopMatMatrixLayout.RowMajor>(sAh, oa, SAS / 8);
+#if HI_ONLY
+                [ForceUnroll]
+                for (int j = 0; j < FRAG_N; j++)
+                {
+                    t[i][j] = mma(a, b[j], kk == 0 ? Acc(0.0) : t[i][j]);
+                }
+#else
                 MatA aLo = MatA.Load<CoopMatMatrixLayout.RowMajor>(sAl, oa, SAS / 8);
                 [ForceUnroll]
                 for (int j = 0; j < FRAG_N; j++)
@@ -401,6 +431,7 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
                     t[i][j] = mma(a, bLo[j], t[i][j]);
                     t[i][j] = mma(a, b[j], t[i][j]);
                 }
+#endif
             }
         }
         [ForceUnroll]

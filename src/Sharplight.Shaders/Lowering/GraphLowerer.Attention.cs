@@ -416,7 +416,7 @@ public sealed partial class GraphLowerer
         long halfTiles = 32 * (paddedD + 8) * 2 + 32 * (paddedKV + 8) * 2 + 32 * 40 * 2;
         long sharedBytes = halfTiles * (SplitFlash(plan) ? 2 : 1) + 32 * 32 * 4 + 32 * 64 * 4;
         bool typeAllowed = plan.K.Type == DataType.F16 || IsQuantizedKv(plan.K.Type)
-                           || (plan.K.Type == DataType.F32 && (_opt.Compile.AllowReducedPrecision || SplitFlash(plan)));
+                           || (plan.K.Type == DataType.F32 && (_opt.Compile.AllowReducedPrecision || FastMatrixProducts || SplitFlash(plan)));
         return DiagnosticSwitches.AttentionFlash && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16)
                && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32 && typeAllowed
                && plan.D % 8 == 0 && plan.DV % 8 == 0 && paddedD <= 256 && paddedDV <= 256
@@ -524,11 +524,11 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Whether flash attention over f32 K/V runs in the split-f16 form (FA_SPLIT: hi·hi + hi·lo + lo·hi products, near-f32
-    /// accuracy): under strict precision, unless disabled with <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c>. Reduced precision uses
-    /// single f16 products.
+    /// accuracy): under strict precision, unless disabled with <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c>. Reduced precision and fast
+    /// matrix precision use single f16 products.
     /// </summary>
     private bool SplitFlash(AttentionPlan plan)
-        => plan.K.Type == DataType.F32 && !_opt.Compile.AllowReducedPrecision && DiagnosticSwitches.AttentionSplitHalf;
+        => plan.K.Type == DataType.F32 && !_opt.Compile.AllowReducedPrecision && !FastMatrixProducts && DiagnosticSwitches.AttentionSplitHalf;
 
     /// <summary>
     /// Key ranges per query block of bidirectional flash attention (FA_KSPLIT): enough workgroups for about

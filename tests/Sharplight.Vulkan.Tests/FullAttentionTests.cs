@@ -30,6 +30,18 @@ public sealed class FullAttentionTests
             what: $"b={batch} rows={rows} H={heads} D={d} reduced={reduced}");
     }
 
+    /// <summary>Fast matrix precision runs f32 attention on the single-product f16 flash kernel, with f16-level error.</summary>
+    [Theory]
+    [InlineData(1, 197, 12, 64)]
+    [InlineData(1, 1500, 6, 64)]
+    [InlineData(3, 50, 4, 64)]
+    public void FastPrecision(int batch, int rows, int heads, int d)
+    {
+        var (g, step) = Graph(batch, rows, rows, heads, d, mask: 0, seed: 1, magnitude: 2f);
+        Diff.Check("Attention.full.fast", g, step, atol: 2e-2, rtol: 2e-2, maxTokens: batch * rows, precision: MatrixPrecision.Fast,
+            what: $"b={batch} rows={rows} H={heads} D={d}");
+    }
+
     /// <summary>Key-padding biases (one per key row) and per-query masks, on the scalar and flash kernels.</summary>
     [Theory]
     [InlineData(1, 3, 1)]
