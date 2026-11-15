@@ -624,7 +624,8 @@ internal sealed partial class OnnxTranslator
 
         int leadingUnits = ins.Select(t => t?.LeadingUnits ?? 0).DefaultIfEmpty().Max();   // generators (RandomNormal) have no inputs
         bool indicesOnly = n.OpType == "Gather" && ins[0]!.LeadingUnits == 0 && n.Int("axis", 0) == 0;   // [1, count] indices into axis 0
-        if (leadingUnits > 0 && !indicesOnly && !s_leadingUnitAware.Contains(n.OpType) && !s_unary.ContainsKey(n.OpType) && !s_binary.ContainsKey(n.OpType))
+        bool projection = n.OpType == "MatMul" && ins[0] is { V.Rank: >= 2 } && ins[1] is { IsConst: true, C.Rank: 2 };   // rows times a weight
+        if (leadingUnits > 0 && !indicesOnly && !projection && !s_leadingUnitAware.Contains(n.OpType) && !s_unary.ContainsKey(n.OpType) && !s_binary.ContainsKey(n.OpType))
         {
             throw new NotSupportedException($"{n.OpType} of a tensor with unit dims in front of its symbolic dim");
         }
