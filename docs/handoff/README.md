@@ -79,7 +79,7 @@ torchao, Quark), weight formats B leftovers (FP-Quant unvalidated, EXL2/3, VPTQ,
 Orpheus+SNAC, CSM+Mimi, Dia, qwen3tts, pockettts), audio (codecs, MusicGen, Stable Audio, CLAP, VAD, Demucs), SAM 2,
 video generation, then the rest of waves 2-3.
 
-Machine notes: tests read ~/models through a local mirror (`/workspace/tools/scripts/sl-test`, `run-suites.sh`,
+Machine notes: tests read ~/models through a local mirror (the machine scripts `sl-test`, `run-suites.sh`,
 `sync-local-models.sh`); keep builds niced (`nice -n 15 ionice -c3`, `-m:4`) and at most ~6 agents.
 
 ## 3. State of `main` (5f16fc09 + this folder)
