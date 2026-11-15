@@ -1,5 +1,5 @@
-using Sharplight.Gguf;
-using Sharplight.Onnx;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.Onnx;
 using Sharplight.Studio.Services.Compatibility;
 
 namespace Sharplight.Studio.Services.Hub;

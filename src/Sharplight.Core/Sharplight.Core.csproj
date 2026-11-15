@@ -6,6 +6,6 @@
     <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
     <InternalsVisibleTo Include="Sharplight.Cpu" />
     <InternalsVisibleTo Include="Sharplight.Shaders" />
-    <InternalsVisibleTo Include="Sharplight.Gguf" />
+    <InternalsVisibleTo Include="Sharplight.Import.Gguf" />
   </ItemGroup>
 </Project>

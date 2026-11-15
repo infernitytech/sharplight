@@ -6,7 +6,7 @@ namespace Sharplight.Cpu.Tests;
 /// <summary>
 /// The group-scaled weight formats of quantized Hugging Face checkpoints (q4z_g32 / q4z_g128, q8z_g32 / q8z_g128, nf4_b64,
 /// nvfp4_gs) against a scalar decoding of their documented layouts, on random blocks. The importer-level checks against the
-/// libraries' own dequantization are in Sharplight.HuggingFace.Tests.QuantizedImportTests.
+/// libraries' own dequantization are in Sharplight.Import.HuggingFace.Tests.QuantizedImportTests.
 /// </summary>
 public unsafe class GroupedDequantTests
 {

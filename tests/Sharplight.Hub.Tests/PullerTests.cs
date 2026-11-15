@@ -1,5 +1,5 @@
 using System.Net;
-using Sharplight.Package.Import;
+using Sharplight.Package;
 
 namespace Sharplight.Hub.Tests;
 

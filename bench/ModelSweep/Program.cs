@@ -14,9 +14,9 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Gguf;
 using Sharplight.Hub;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Templating;

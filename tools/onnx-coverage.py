@@ -4,7 +4,7 @@
 Inputs:
   * the operator schemas of the installed onnx package (every domain, every since_version) and, when onnxruntime is installed, its
     com.microsoft contrib operator schemas,
-  * one or more conformance reports written by tests/Sharplight.Onnx.Conformance (SHARPLIGHT_CONFORMANCE_REPORT=<file>,
+  * one or more conformance reports written by tests/Sharplight.Import.Onnx.Conformance (SHARPLIGHT_CONFORMANCE_REPORT=<file>,
     JSON lines with test, suite, provider, status, message, skip, ops, fallback) and the `<file>.supported` list of operators the
     importer accepts,
   * optional notes (tools/onnx-coverage-notes.tsv: `<domain.op>\t<note>`), e.g. known limitations.

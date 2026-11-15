@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generates src/Sharplight.Gguf/GgmlNarrowIq1Grids.cs from the ggml-common.h of unsloth's llama.cpp fork.
+"""Generates src/Sharplight.Import.Gguf/GgmlNarrowIq1Grids.cs from the ggml-common.h of unsloth's llama.cpp fork.
 
-usage: gen-narrow-iq1-grids.py <ggml/src/ggml-common.h> > src/Sharplight.Gguf/GgmlNarrowIq1Grids.cs
+usage: gen-narrow-iq1-grids.py <ggml/src/ggml-common.h> > src/Sharplight.Import.Gguf/GgmlNarrowIq1Grids.cs
 """
 import re
 import sys
@@ -17,7 +17,7 @@ def table(name):
 base = table('iq1s_grid')
 pos = {v: i for i, v in enumerate(base)}
 out = []
-out.append('namespace Sharplight.Gguf;')
+out.append('namespace Sharplight.Import.Gguf;')
 out.append('')
 out.append('/// <summary>')
 out.append("/// The codebooks of the narrow IQ1 types of unsloth's llama.cpp fork (ggml ids 64-66: IQ1_XS, IQ1_XXS, IQ1_XXXS) as indices into the")

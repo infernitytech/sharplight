@@ -9,7 +9,7 @@ reference implementation of these operators; cases the CPU provider cannot run a
 Usage (in a venv with onnx, onnxruntime and numpy, never the system Python):
     python -I tools/gen-onnx-contrib-tests.py [-o ~/models/onnx/sharplight-contrib-tests]
 
-tests/Sharplight.Onnx.Conformance (ExtraConformanceTests) finds the directory as one of ~/models/onnx/sharplight-*-tests.
+tests/Sharplight.Import.Onnx.Conformance (ExtraConformanceTests) finds the directory as one of ~/models/onnx/sharplight-*-tests.
 """
 
 from __future__ import annotations

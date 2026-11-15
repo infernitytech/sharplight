@@ -5,7 +5,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../../src/Sharplight.Onnx/Sharplight.Onnx.csproj" />
+    <ProjectReference Include="../../../src/Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
     <ProjectReference Include="../../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
   </ItemGroup>
