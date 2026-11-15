@@ -52,6 +52,13 @@ public interface IComputeDevice : IDisposable
     public IReadOnlyList<ArtifactTarget> ArtifactTargets => [];
 
     /// <summary>
+    /// The persistent artifact store this device's compilations consult after the model's own artifact sets and record into (see
+    /// <see cref="Runtime.ArtifactStore"/>; per user by default, <see cref="DeviceOptions.UseCompilationCache"/> turns it off), or
+    /// <see langword="null"/>.
+    /// </summary>
+    public ArtifactStore? ArtifactStore => null;
+
+    /// <summary>
     /// What code generation on this opened device depends on (<see cref="DeviceProfile"/>), so its portable code can be generated
     /// without it (<see cref="IExecutionProvider.CompilePortableAsync"/>), here or on another machine; <see langword="null"/> when the
     /// provider has no portable stage. Its features are <see cref="EnabledFeatures"/>.

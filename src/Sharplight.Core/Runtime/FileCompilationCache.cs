@@ -5,7 +5,7 @@ using System.Text;
 namespace Sharplight.Runtime;
 
 /// <summary>
-/// A persistent, size-capped compilation cache in a directory shared by processes (the per-user kernel cache): one file per entry,
+/// The entries of persistent artifact sets (see <see cref="ArtifactStore"/>) in a directory shared by processes: one file per entry,
 /// named by a hash of the key, holding the key, the data and its SHA-256, so a truncated, corrupted or colliding file is detected and
 /// ignored (and removed) instead of trusted. Keys must identify the content completely (kernel source, macros, compiler and target, as
 /// the content-addressed keys of the code tier do). Writes go to a temporary file that atomically replaces the entry; hits refresh the
@@ -13,8 +13,9 @@ namespace Sharplight.Runtime;
 /// processes: every file is complete or absent, and a file deleted by another process is just a miss. Thread-safe.
 /// </summary>
 /// <remarks>
-/// Diagnostic environment switch: <c>SHARPLIGHT_COMPILATION_CACHE</c> = a directory (used instead of the per-user default) or
-/// <c>off</c> (no persistent cache), see <see cref="ResolveDirectory"/>.
+/// A cache may be split into partitions (<see cref="Partition"/>, one per artifact set of a store): each partition is a subdirectory,
+/// and the size cap and eviction cover the whole tree. Diagnostic environment switch: <c>SHARPLIGHT_COMPILATION_CACHE</c> = a directory
+/// (used instead of the per-user default) or <c>off</c> (no persistent store), see <see cref="ResolveDirectory"/>.
 /// </remarks>
 public sealed class FileCompilationCache : ICompilationCache
 {
@@ -32,6 +33,8 @@ public sealed class FileCompilationCache : ICompilationCache
     private static readonly TimeSpan s_staleTemporary = TimeSpan.FromHours(1);
 
     private readonly Lock _lock = new();
+    /// <summary>The cache that owns the size cap of the tree (this one, or the parent of a partition).</summary>
+    private readonly FileCompilationCache _owner;
     private long _approximateBytes = -1;
     private long _writtenSinceScan;
 
@@ -44,7 +47,24 @@ public sealed class FileCompilationCache : ICompilationCache
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxBytes);
         Directory = directory;
         MaxBytes = maxBytes;
+        _owner = this;
         System.IO.Directory.CreateDirectory(directory);
+    }
+
+    private FileCompilationCache(FileCompilationCache owner, string directory)
+    {
+        Directory = directory;
+        MaxBytes = owner.MaxBytes;
+        _owner = owner;
+        System.IO.Directory.CreateDirectory(directory);
+    }
+
+    /// <summary>A partition in the subdirectory <paramref name="name"/>, sharing this cache's size cap and eviction.</summary>
+    /// <param name="name">The subdirectory name (a file name, e.g. an artifact set id).</param>
+    public FileCompilationCache Partition(string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        return new FileCompilationCache(_owner, Path.Combine(Directory, name));
     }
 
     /// <summary>The cache directory.</summary>
@@ -124,26 +144,38 @@ public sealed class FileCompilationCache : ICompilationCache
             return;
         }
 
-        if (Interlocked.Add(ref _writtenSinceScan, encoded.Length) > MaxBytes / 16 || Volatile.Read(ref _approximateBytes) < 0)
+        _owner.OnWritten(encoded.Length);
+    }
+
+    /// <summary>Removes the entry of <paramref name="key"/> (e.g. data the consumer found unusable); absent entries are ignored.</summary>
+    /// <param name="key">The entry key.</param>
+    public void Remove(string key) => TryDelete(PathOf(key));
+
+    private void OnWritten(long bytes)
+    {
+        if (Interlocked.Add(ref _writtenSinceScan, bytes) > MaxBytes / 16 || Volatile.Read(ref _approximateBytes) < 0)
         {
             Trim();
         }
-        else
+        else if (Interlocked.Add(ref _approximateBytes, bytes) > MaxBytes)
         {
-            Interlocked.Add(ref _approximateBytes, encoded.Length);
-            if (Volatile.Read(ref _approximateBytes) > MaxBytes)
-            {
-                Trim();
-            }
+            Trim();
         }
     }
 
     /// <summary>
-    /// Deletes the least recently used files (entries, and files of older cache layouts in the directory) until the directory is under
-    /// 90% of <see cref="MaxBytes"/>, and temporary files left behind by processes that died while writing.
+    /// Deletes the least recently used files of the whole tree (entries, and files of older cache layouts) until it is under 90% of
+    /// <see cref="MaxBytes"/>, and temporary files left behind by processes that died while writing. Descriptor files (<c>*.json</c>)
+    /// are kept.
     /// </summary>
     public void Trim()
     {
+        if (_owner != this)
+        {
+            _owner.Trim();
+            return;
+        }
+
         lock (_lock)
         {
             Interlocked.Exchange(ref _writtenSinceScan, 0);
@@ -151,8 +183,13 @@ public sealed class FileCompilationCache : ICompilationCache
             long total = 0;
             try
             {
-                foreach (var file in new DirectoryInfo(Directory).EnumerateFiles())
+                foreach (var file in new DirectoryInfo(Directory).EnumerateFiles("*", SearchOption.AllDirectories))
                 {
+                    if (file.Name.EndsWith(".json", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
                     if (file.Name.EndsWith(".tmp", StringComparison.Ordinal))
                     {
                         if (file.LastWriteTimeUtc < DateTime.UtcNow - s_staleTemporary)

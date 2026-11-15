@@ -153,8 +153,12 @@ public sealed class CompilationArtifacts(ICompilationCacheStore? stored = null)
     {
         if (!_sets.TryGetValue(target.Id, out var set))
         {
+            // Lookup order: the model's own sets, then the device's artifact store, then compile (recorded into both). Only portable
+            // code goes through the store here: device code in the store (driver state such as a pipeline cache covering every model
+            // used on the device) is consulted by the device itself and never recorded into, or exported with, a model's sets.
             var fallbacks = stored is null ? [] : Matching(stored, device, target).Select(s => s.Entries);
-            set = new CompilationCache(target.Descriptor, fallbacks);
+            var shared = target.Tier == ArtifactTiers.Code ? device.ArtifactStore?.SetFor(target).Entries : null;
+            set = new CompilationCache(target.Descriptor, fallbacks, shared);
             _sets[target.Id] = set;
             _order.Add(set);
         }
