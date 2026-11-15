@@ -14,7 +14,7 @@ graph generation for model architectures (adapters) are separate assemblies, so 
 | `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
 | `Sharplight.Architectures` | Execution-graph generation: architecture adapters that turn canonical model sources into Sharplight graphs | `BuiltinAdapters` |
 | `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter` |
-| `Sharplight.Package` | Read and write `.slm` packages (every model kind: description, components, attachments), convert models to them and precompile kernels into them | `ModelPackage`, `ModelPackageReader`, `ModelConverter`, `PackagePrecompiler` |
+| `Sharplight.Package` | Read and write `.slm` packages (every model kind: description, components, attachments), convert models to them and precompile them for every provider and device (portable code, then device code) | `ModelPackage`, `ModelPackageReader`, `ModelConverter`, `PackagePrecompiler` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` (+ `Sharplight.Shaders`) | Execution providers | `CpuExecutionProvider`, `VulkanProvider` |
 | `Sharplight.Defaults` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplight`, `UseSharplight`, `MapSharplight`, `AddSharplightEmbeddings`, `AddSharplightReranker` |
@@ -354,6 +354,38 @@ The other task kinds map the same way: `SharplightSpeechToTextClient` (`ISpeechT
 `SharplightTextToSpeechClient` (`ITextToSpeechClient` over an `ISpeechSynthesizer`, WAVE output) and `SharplightImageGenerator`
 (`IImageGenerator` over a Sharplight image generator, PNG output). `services.AddSharplightSpeechToTextClient(key)`,
 `.AddSharplightTextToSpeechClient(key)` and `.AddSharplightImageGenerator(key)` wrap the container's task clients.
+
+## 7. Precompilation: portable code and device code for every provider
+
+Every execution provider implements a two-stage code generation contract on `IExecutionProvider`; the CPU returns empty sets, so
+hosts treat all providers alike (details and the Metal mapping: [model-format.md](model-format.md#two-stage-precompilation)).
+
+```csharp
+using var services = SharplightDefaults.CreateServiceProvider();
+foreach (var (provider, availability) in ProviderRegistry.Discover().Where(p => p.Availability.IsAvailable))
+{
+    foreach (var info in provider.GetDevices())
+    {
+        using var device = provider.OpenDevice(info);
+        // Stage 1: portable code (SPIR-V for Vulkan) for the device's profile; needs no driver, works for absent devices too.
+        PortableCodeSet portable = await provider.CompilePortableAsync(new PortableCompilationRequest(device.CreateProfile(), workload), ct);
+        // Stage 2: the driver's compiled form for exactly this device and driver (Vulkan: pipeline binaries or a pipeline cache).
+        DeviceCodeSet binaries = await provider.CompileDeviceSpecificAsync(device, portable, ct);
+        ModelPackage.AddArtifacts(path, [portable.ToArtifactSet(), binaries.ToArtifactSet()]);
+    }
+}
+```
+
+`workload` (a `CompilationWorkload`) compiles the model's graphs on the device it is given, recording into the
+`CompilationArtifacts` it is given. For packages, `PackagePrecompiler.PrecompileAsync(path, providers, options, progress, ct)` does
+all of this: the loaders' graphs as the workload, identical devices sharing their sets, a `PackagePrecompileReport`, and one
+crash-safe in-place write. Loads pick the best stored stage per kernel on their own (device binary, else portable code, else
+compile), and validate device code before the driver sees it. After a load, `CompilationArtifacts.CompileDeviceCodeAsync(providers)`
+turns what it compiled into device code (`LlmModel.Artifacts`, `TaskModel.Artifacts`).
+
+Kernels that are not precompiled are kept in the persistent compilation cache (`FileCompilationCache`, per user by default; entries
+are validated by key and SHA-256, written atomically and evicted least recently used past 2 GiB; `SHARPLIGHT_COMPILATION_CACHE=<dir>`
+relocates it, `=off` disables it, and `DeviceOptions.UseCompilationCache = false` turns it off for a device).
 
 ## Conventions
 
