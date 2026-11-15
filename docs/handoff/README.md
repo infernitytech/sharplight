@@ -109,6 +109,13 @@ registry (`XxxImporter.Register()`, provider registration) becomes `IServiceColl
 utilities shaped like Microsoft.Extensions.AI (IChatClient, ISpeechToTextClient, IImageGenerator, IEmbeddingGenerator);
 samples, Server, Studio and docs follow. Rules in docs/code-style.md.
 
+**Step 3 – Cleanup / dead-code removal / refactoring pass** (scheduled by the user 2026-11-15): after the public API
+pass and the two-stage precompilation refactor are merged, run parallel cleanup agents per project area (Sonnet,
+docs/cleanup-brief.md, non-overlapping project lists, behavior- and performance-preserving): dead code, duplication,
+single-line scopes, one type per file, extension blocks, visibility, XML docs, simplification of complex code, shared
+patterns across model kinds. Feature agents merge develop right after it lands. Repeat a smaller cleanup round after
+every wave (and whenever a merge round leaves warnings or style debt).
+
 **Wave 1** (in parallel after step 2; ONNX ops, weight formats and performance may start during step 2):
 - ONNX ops (`wip/onnx-ops`): GroupQueryAttention, RotaryEmbedding, (Skip)SimplifiedLayerNormalization, NonMaxSuppression,
   RoiAlign, Loop, STFT (generic Core DSP op), runtime Range, bertsquad CPU i32 Scale; vs onnxruntime.
@@ -160,6 +167,9 @@ history, outputs gallery, export) so every type looks and behaves the same; chat
   - Discover highlights per model type (Trending / New / Most downloaded per kind) with the Supported-only switch.
   - Multi-component repos (diffusers folders, encoder + decoder + vocoder sets, whisper.cpp files, ONNX) downloaded as
     one model, with per-kind compatibility badges and fit estimates; conversion to `.slm` for every kind.
+- S1b: precompilation for every execution provider and device available on the machine through an explicit two-stage
+  provider contract (portable code such as SPIR-V, then device-specific driver binaries; CPU: empty), written into the
+  `.slm` in place (crash-safe) while the model is not resident; inspector shows the stages per provider/device.
 - S2: a dedicated inference page per model type, added as each type lands on main: Transcribe (file/microphone, timestamps,
   subtitles export), Speak (voices, streaming playback, WAV export), Image (txt2img, img2img, inpaint, seeds, gallery),
   Vision (drop an image: labels, boxes, masks, depth, OCR overlays), Audio (music generation, separation, codec playground),

@@ -34,12 +34,22 @@ internal sealed partial class OnnxTranslator
     private void NonZero(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = ins[0]!.V ?? AsValue(ins[0]!);
-        if (ins[0]!.LeadingUnits > 0 || x.Rank == 0)
+        int leadingUnits = ins[0]!.LeadingUnits;
+        if (x.Rank == 0)
         {
-            throw new NotSupportedException("NonZero of a scalar or of a tensor with leading unit dims");
+            throw new NotSupportedException("NonZero of a scalar");
         }
 
-        if (x.Rank == 1 && IsNonZeroFill(x))
+        if (leadingUnits > 0)
+        {
+            // The coordinate along each leading unit dim is 0: zero columns in front of the IR result.
+            string symbol = NewDynamicSymbol("nonzero", Sym(x) ? x.Shape[0] * x.Shape.InnerElements : (Dim)x.Shape.Elements());
+            var inner = Emit("NonZero", [x], Attributes.From(("count_symbol", symbol)));
+            var zeros = Emit("Fill", [], Attributes.From(("shape", new[] { 0L, leadingUnits }), ("outer_symbol", symbol), ("start", 0.0), ("delta", 0.0),
+                ("type", DataType.I32.Name)));
+            SetDyn(n, 0, _b.Concat(1, zeros, inner));
+        }
+        else if (x.Rank == 1 && IsNonZeroFill(x))
         {
             // NonZero(ConstantOfShape([n], c != 0)) is the exporters' arange(n): every index, without a data-dependent count.
             var attributes = Attributes.From(("shape", new[] { 0L, 1L }), ("outer_symbol", x.Shape[0].Symbol!), ("start", 0.0), ("delta", 1.0),

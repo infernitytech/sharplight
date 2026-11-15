@@ -17,8 +17,8 @@ public static class HfSupport
     /// </summary>
     private static readonly HashSet<string> s_unsupportedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
-        "aqlm", "hqq", "eetq", "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
-        "spqr", "auto-round", "autoround", "fp_quant",
+        "hqq", "eetq", "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
+        "spqr", "fp_quant",
     };
 
     /// <summary>ModelOpt algorithms whose weights are read (<see cref="HfFp8Weights"/>, <see cref="HfFp4Weights"/>).</summary>
@@ -71,8 +71,8 @@ public static class HfSupport
     /// The checkpoint's quantization method and whether the importer reads it. Read: FP8 (<c>fp8</c> block scales, compressed-tensors
     /// with 8-bit float weights, ModelOpt <c>FP8</c>), NVFP4 (ModelOpt, compressed-tensors), MXFP4 (compressed-tensors; <c>mxfp4</c>
     /// for gpt-oss, AMD Quark), GPTQ (2, 3, 4 and 8 bits), AWQ (<c>gemm</c> / <c>gemv</c>), compressed-tensors integer weights,
-    /// bitsandbytes and MLX affine quantization. Not read: MLX's FP4 modes and the methods with codebook or framework-specific
-    /// layouts (AQLM, HQQ, EXL2, quanto, torchao, ...).
+    /// bitsandbytes, MLX quantization (affine and the <c>mxfp4</c> / <c>nvfp4</c> / <c>mxfp8</c> modes), AutoRound (GPTQ / AWQ packings)
+    /// and AQLM (dequantized while read). Not read: the methods with codebook or framework-specific layouts (HQQ, EXL2, quanto, torchao, ...).
     /// </summary>
     /// <param name="configJson">The text of <c>config.json</c> (its <c>quantization_config</c>).</param>
     /// <param name="quantizationConfigJson">The text of <c>hf_quant_config.json</c> when the checkpoint has one (ModelOpt), else null.</param>
@@ -102,7 +102,9 @@ public static class HfSupport
         // MLX writes {"group_size": 64, "bits": 4} without a method (as "quantization", and often also as "quantization_config").
         if (HfMlxWeights.Settings(config) is { } mlx)
         {
-            return new HfQuantizationSupport($"mlx ({mlx.GetProperty("bits").GetRawText()}-bit)", SupportLevel.Supported);
+            string mode = String(mlx, "mode") ?? "affine";
+            return new HfQuantizationSupport(mode == "affine" ? $"mlx ({mlx.GetProperty("bits").GetRawText()}-bit)" : $"mlx ({mode})",
+                mode == "affine" || HfMlxFloatWeights.IsFloatMode(mode) ? SupportLevel.Supported : SupportLevel.Unsupported);
         }
 
         if (!config.TryGetQuantization("quantization_config", out var settings))
@@ -134,7 +136,12 @@ public static class HfSupport
                 return Gptq(method, settings);
             case "awq":
                 return Awq(method, settings);
+            case "auto-round" or "autoround" or "intel/auto-round":
+                return AutoRound(settings);
             case "bitsandbytes":
+                return new HfQuantizationSupport(method, SupportLevel.Supported);
+            case "aqlm":
+                // Dequantized to the codebook dtype while the weights are read (HfAqlmWeights).
                 return new HfQuantizationSupport(method, SupportLevel.Supported);
             case "quark":
                 return Quark(settings);
@@ -150,6 +157,21 @@ public static class HfSupport
         string format = String(settings, "checkpoint_format") ?? "gptq";
         bool read = bits is 2 or 3 or 4 or 8 && format is "gptq" or "gptq_v2";
         return new HfQuantizationSupport(string.Create(CultureInfo.InvariantCulture, $"{method} ({bits}-bit)"), read ? SupportLevel.Supported : SupportLevel.Unsupported);
+    }
+
+    /// <summary>AutoRound: integer weights packed like GPTQ or AWQ GEMM (<see cref="HfAutoRound"/>).</summary>
+    private static HfQuantizationSupport AutoRound(JsonElement settings)
+    {
+        string? layout = HfAutoRound.Layout(settings);
+        int bits = HfPackedBits.Int(settings, "bits", 4);
+        bool read = layout switch
+        {
+            "gptq" => bits is 2 or 3 or 4 or 8,
+            "awq" => bits == 4,
+            _ => false,
+        };
+        return new HfQuantizationSupport(string.Create(CultureInfo.InvariantCulture, $"auto-round ({layout ?? String(settings, "packing_format") ?? "unknown"}, {bits}-bit)"),
+            read ? SupportLevel.Supported : SupportLevel.Unsupported);
     }
 
     /// <summary>AWQ: 4-bit codes in the <c>gemm</c> and <c>gemv</c> layouts (<see cref="HfAwqLayouts"/>).</summary>

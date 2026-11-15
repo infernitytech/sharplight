@@ -624,7 +624,8 @@ internal sealed partial class OnnxTranslator
 
         int leadingUnits = ins.Select(t => t?.LeadingUnits ?? 0).DefaultIfEmpty().Max();   // generators (RandomNormal) have no inputs
         bool indicesOnly = n.OpType == "Gather" && ins[0]!.LeadingUnits == 0 && n.Int("axis", 0) == 0;   // [1, count] indices into axis 0
-        if (leadingUnits > 0 && !indicesOnly && !s_leadingUnitAware.Contains(n.OpType) && !s_unary.ContainsKey(n.OpType) && !s_binary.ContainsKey(n.OpType))
+        bool projection = n.OpType == "MatMul" && ins[0] is { V.Rank: >= 2 } && ins[1] is { IsConst: true, C.Rank: 2 };   // rows times a weight
+        if (leadingUnits > 0 && !indicesOnly && !projection && !s_leadingUnitAware.Contains(n.OpType) && !s_unary.ContainsKey(n.OpType) && !s_binary.ContainsKey(n.OpType))
         {
             throw new NotSupportedException($"{n.OpType} of a tensor with unit dims in front of its symbolic dim");
         }
@@ -655,8 +656,8 @@ internal sealed partial class OnnxTranslator
 
     // Ops that accept tensors with leading unit dims (see TranslatedTensor.LeadingUnits) besides unary and binary elementwise ops;
     // the setters compute the leading units of their outputs themselves.
-    private static readonly HashSet<string> s_leadingUnitAware = ["Identity", "Cast", "Unsqueeze", "Squeeze", "Shape", "Clip", "NonMaxSuppression"];
-    private static readonly HashSet<string> s_leadingUnitSetters = ["Unsqueeze", "Squeeze", "Shape", "NonMaxSuppression"];
+    private static readonly HashSet<string> s_leadingUnitAware = ["Identity", "Cast", "Unsqueeze", "Squeeze", "Shape", "Clip", "NonMaxSuppression", "NonZero", "ScatterND"];
+    private static readonly HashSet<string> s_leadingUnitSetters = ["Unsqueeze", "Squeeze", "Shape", "NonMaxSuppression", "NonZero"];
 
     private static readonly HashSet<string> s_scalarPreserving =
         ["Cast", "Add", "Sub", "Mul", "Div", "Neg", "Abs", "Sqrt", "Exp", "Log", "Sin", "Cos", "Tanh", "Sigmoid", "Relu", "Identity", "Pow", "Floor", "Ceil", "Round"];
