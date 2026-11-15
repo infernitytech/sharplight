@@ -1,0 +1,117 @@
+name: Native audio
+
+# Builds Sharplight's native audio library (native/sharplight_audio: miniaudio, libopus, libogg, opusfile and stb_vorbis from third_party/)
+# for win-x64, win-arm64, linux-x64, linux-arm64 and osx-arm64 and uploads the binaries as the artifacts `native-audio-*`. The binaries are
+# never committed: ci.yml, packages.yml and studio.yml call this workflow and download the artifacts into native/sharplight_audio/out/
+# before building, testing or packing (src/Sharplight.Audio packs them as runtimes/<rid>/native/).
+#
+#   linux-x64, linux-arm64, win-x64, win-arm64   cross-compiled with zig cc on ubuntu (exports, glibc baseline 2.28 and dependencies verified)
+#   osx-arm64                                    built with the system clang on macOS (the Apple SDK provides the CoreAudio headers)
+#   native tests                                 C tests with ASan + UBSan (round-trips, null-backend devices, decoder fuzzing) on linux-x64
+#   smoke                                        the managed audio tests on the other native runners (decode fixtures, null-backend devices)
+#
+# Triggered by the workflows that need the binaries; run it by hand to check a change to native/ or third_party/ in isolation.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross:
+    name: linux + windows (zig)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install zig
+        run: echo "ZIG=$(native/sharplight_audio/install-zig.sh "$RUNNER_TEMP/zig" | tail -1)" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          SLA_OUT: ${{ github.workspace }}/native-out
+          SLA_BUILD: ${{ runner.temp }}/sla-obj
+        run: native/sharplight_audio/build.sh all --jobs "$(nproc)"
+
+      - name: Verify
+        run: native/sharplight_audio/verify.sh native-out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-audio-zig
+          path: native-out/*/
+          if-no-files-found: error
+
+  native-tests:
+    name: native tests (linux-x64, ASan + UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install zig
+        run: echo "ZIG=$(native/sharplight_audio/install-zig.sh "$RUNNER_TEMP/zig" | tail -1)" >> "$GITHUB_ENV"
+
+      - name: Build the sanitizer variant
+        env:
+          SLA_OUT: ${{ runner.temp }}/sla-asan
+          SLA_BUILD: ${{ runner.temp }}/sla-asan-obj
+        run: native/sharplight_audio/build.sh host-sanitize --jobs "$(nproc)"
+
+      - name: Run
+        env:
+          SLA_OUT: ${{ runner.temp }}/sla-asan
+        run: native/sharplight_audio/tests/run.sh "$SLA_OUT/linux-x64-asan" tests/Sharplight.Audio.Tests/Fixtures 500
+
+  macos:
+    name: osx-arm64 (clang)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        env:
+          SLA_OUT: ${{ github.workspace }}/native-out
+          SLA_BUILD: ${{ runner.temp }}/sla-obj
+        run: native/sharplight_audio/build.sh osx-arm64 --jobs "$(sysctl -n hw.ncpu)"
+
+      - name: Verify
+        run: native/sharplight_audio/verify.sh native-out osx-arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-audio-osx
+          path: native-out/*/
+          if-no-files-found: error
+
+  smoke:
+    name: smoke (${{ matrix.rid }})
+    needs: [cross, macos]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: win-x64, os: windows-latest }
+          - { rid: win-arm64, os: windows-11-arm }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm }
+          - { rid: osx-arm64, os: macos-15 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-audio-*
+          merge-multiple: true
+          path: native/sharplight_audio/out
+
+      # Decodes every fixture format against the analytic signal and runs the null-backend device tests on the real platform; ffmpeg is
+      # not installed there, so the ffmpeg comparison skips itself.
+      - name: Audio tests
+        shell: bash
+        run: dotnet run --project tests/Sharplight.Audio.Tests -c Release

@@ -5,7 +5,9 @@ using CommunityToolkit.Mvvm.Input;
 using Sharplight.Hub;
 using Sharplight.Runtime;
 using Sharplight.Studio.Models;
+using Sharplight.Audio;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.ViewModels.Models;
 using Sharplight.Studio.ViewModels.Updates;
 
@@ -199,6 +201,23 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     [ObservableProperty]
     public partial bool UseSystemTitleBar { get; set; }
 
+    /// <summary>Audio output choices: the system default and the devices found.</summary>
+    public IReadOnlyList<AudioDeviceChoice> OutputDevices { get; private set; } = [AudioDeviceChoice.SystemDefault];
+
+    /// <summary>Microphone choices: the system default and the devices found.</summary>
+    public IReadOnlyList<AudioDeviceChoice> InputDevices { get; private set; } = [AudioDeviceChoice.SystemDefault];
+
+    /// <summary>The device Studio plays audio through.</summary>
+    [ObservableProperty]
+    public partial AudioDeviceChoice SelectedOutputDevice { get; set; } = AudioDeviceChoice.SystemDefault;
+
+    /// <summary>The microphone Studio records.</summary>
+    [ObservableProperty]
+    public partial AudioDeviceChoice SelectedInputDevice { get; set; } = AudioDeviceChoice.SystemDefault;
+
+    /// <summary>The audio backend in use, or why there is none.</summary>
+    public string AudioStatus => _services.AudioDevices.IsAvailable ? $"Audio backend: {_services.AudioDevices.Description}." : _services.AudioDevices.Description;
+
     /// <summary>Feedback of the last action.</summary>
     [ObservableProperty]
     public partial string? Message { get; set; }
@@ -298,6 +317,10 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
 
     partial void OnUseSystemTitleBarChanged(bool value) => Save();
 
+    partial void OnSelectedOutputDeviceChanged(AudioDeviceChoice value) => Save();
+
+    partial void OnSelectedInputDeviceChanged(AudioDeviceChoice value) => Save();
+
     [RelayCommand]
     private async Task BrowseModelsDirectoryAsync()
     {
@@ -388,6 +411,10 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         UseCompilationCache = settings.UseCompilationCache;
         KeepSourceFiles = settings.KeepSourceFiles;
         UseSystemTitleBar = settings.UseSystemTitleBar;
+        OutputDevices = AudioDeviceChoice.List(_services.AudioDevices, AudioDeviceKind.Playback);
+        InputDevices = AudioDeviceChoice.List(_services.AudioDevices, AudioDeviceKind.Capture);
+        SelectedOutputDevice = OutputDevices.FirstOrDefault(choice => choice.Name == settings.AudioOutputDevice) ?? AudioDeviceChoice.SystemDefault;
+        SelectedInputDevice = InputDevices.FirstOrDefault(choice => choice.Name == settings.AudioInputDevice) ?? AudioDeviceChoice.SystemDefault;
         Features.Clear();
         var disabled = settings.DisabledFeatures.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var feature in DeviceFeatures.All)
@@ -458,6 +485,8 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
             UseCompilationCache = UseCompilationCache,
             KeepSourceFiles = KeepSourceFiles,
             UseSystemTitleBar = UseSystemTitleBar,
+            AudioOutputDevice = SelectedOutputDevice.Name,
+            AudioInputDevice = SelectedInputDevice.Name,
         });
         RefreshStore();
     }

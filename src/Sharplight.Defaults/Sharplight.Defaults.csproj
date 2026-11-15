@@ -18,5 +18,6 @@
     <ProjectReference Include="../Sharplight.Package/Sharplight.Package.csproj" />
     <ProjectReference Include="../Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <ProjectReference Include="../Sharplight.Audio/Sharplight.Audio.csproj" />
   </ItemGroup>
 </Project>

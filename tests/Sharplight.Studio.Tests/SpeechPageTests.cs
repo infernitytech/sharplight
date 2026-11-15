@@ -155,7 +155,7 @@ public sealed class SpeechPageTests
     }
 
     [Fact]
-    public async Task Transcribe_RefusesOtherFormats_AndMissingFiles()
+    public async Task Transcribe_RefusesUnreadableFiles_AndMissingFiles()
     {
         using var services = new TestServices();
         Recognizer(services, out _);
@@ -164,7 +164,7 @@ public sealed class SpeechPageTests
         await File.WriteAllBytesAsync(mp3, [1, 2, 3], TestContext.Current.CancellationToken);
 
         Assert.False(await page.SetAudioAsync(mp3));
-        Assert.Contains("WAV", page.Notice, StringComparison.Ordinal);
+        Assert.Contains("cannot be read", page.Notice, StringComparison.Ordinal);
         Assert.False(await page.SetAudioAsync(services.Directory + "/missing.wav"));
         Assert.Contains("does not exist", page.Notice, StringComparison.Ordinal);
         string broken = services.Directory + "/broken.wav";
