@@ -931,6 +931,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         }
 
         _disposed = true;
+        VulkanShutdown.Untrack(this);
         Api.vkDeviceWaitIdle();
         foreach (var p in _pipelines.Values.Where(l => l.IsValueCreated).Select(l => l.Value))
         {
