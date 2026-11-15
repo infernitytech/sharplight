@@ -26,6 +26,9 @@ internal static class SpeechRecognitionDescription
     /// <summary>The attachment that stores the tokenizer.</summary>
     public const string TokenizerAttachment = "tokenizer/tokenizer.json";
 
+    /// <summary>The symbol of the decoder's logits rows (the speech decoder reads the last row only).</summary>
+    private const string OutputRowsSymbol = "R";
+
     /// <summary>The description, the definition's attachments and its metadata without the tokenizer keys.</summary>
     /// <param name="src">The model source (hyper-parameters, tokenizer metadata, filter bank attachment).</param>
     /// <param name="decoderContext">The decoder's context length in tokens.</param>
@@ -79,6 +82,7 @@ internal static class SpeechRecognitionDescription
                         [WellKnown.TokenSymbol] = decoderContext,
                         [WellKnown.ContextSymbol] = decoderContext,
                         [WellKnown.EncoderSymbol] = sourceRows,
+                        [OutputRowsSymbol] = 1,
                     },
                 },
                 new ModelComponent
