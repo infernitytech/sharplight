@@ -26,6 +26,10 @@ internal static class HfQuantizedWeights
         resolved = HfBitsAndBytesWeights.Resolve(resolved);
         resolved = HfMlxWeights.Resolve(config, resolved);
         resolved = HfAqlmWeights.Resolve(resolved);
+        resolved = HfFpQuantWeights.Resolve(config, resolved);
+        resolved = HfHiggsWeights.Resolve(config, resolved);
+        resolved = HfVptqWeights.Resolve(config, resolved);
+        resolved = HfExl2Weights.Resolve(resolved);
         if (ReferenceEquals(resolved, tensors) && !config.TryGetQuantization("quantization_config", out _))
         {
             return tensors;
