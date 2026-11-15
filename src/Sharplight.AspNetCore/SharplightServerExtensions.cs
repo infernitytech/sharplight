@@ -107,6 +107,7 @@ public static class SharplightServerExtensions
             }
 
             routes.MapSharplightRetrieval();
+            routes.MapSharplightImages();
             return routes;
         }
 

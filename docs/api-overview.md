@@ -136,6 +136,10 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
   (multiples of 64) rebuilds the model once per size through `TaskModel.DefinitionFor(dimensions)` (the adapter rebuilds from the
   canonical metadata and weights, so `.slm` packages work too).
 - `sharplight-generate-image` (samples/Sharplight.GenerateImage) is a command-line front end for all of this.
+- HTTP: `services.AddSharplightImageGenerator(name: "sd15")` serves the container's `IImageGenerator` on the OpenAI-compatible
+  `POST /v1/images/generations` (`prompt`, `n`, `size`, `response_format: "b64_json"` with PNG data, plus the extensions
+  `negative_prompt`, `steps`, `guidance_scale`, `seed` and `sampler`); `MapSharplight()` maps it when a generator is registered,
+  `MapSharplightImages()` maps it alone. Requests to one generator run one at a time.
 
 ## 1. Load a model (text generation)
 
