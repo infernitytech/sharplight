@@ -118,7 +118,8 @@ def violations(path: str):
                 # An empty lambda (`_ => { }`) is a no-op callback, not a scope.
                 continue
             window = code[max(0, m.start() - 200): m.end()]
-            if INITIALIZER.search(window) and ";" not in body:
+            if ";" not in body and (INITIALIZER.search(window) or (text.startswith(")") and body.strip())):
+                # new Foo(...) { A = 1 } (possibly with the arguments on earlier lines): an initializer, not a block
                 continue
             if NON_BLOCK.search(code[max(0, m.start() - 10): m.start() + len(text)]):
                 continue

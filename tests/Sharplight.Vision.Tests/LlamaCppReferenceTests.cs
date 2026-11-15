@@ -76,7 +76,12 @@ public class LlamaCppReferenceTests
         Assert.Equal(rows * dim, emb.Length);
         double sum = 0;
         double abs = 0;
-        foreach (var v in emb) { sum += v; abs += Math.Abs(v); }
+        foreach (var v in emb)
+        {
+            sum += v;
+            abs += Math.Abs(v);
+        }
+
         float[] Head(int r) => emb[(r * dim)..(r * dim + 3)];
         float[] Tail(int r) => emb[(r * dim + dim - 3)..((r + 1) * dim)];
         double worst = 0;

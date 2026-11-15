@@ -132,8 +132,8 @@ internal sealed unsafe class ReduceOp : CpuOp
             }
         }
 
-        if (special) { }
-        else if (ri >= 0 && rd[ri] >= 8)
+        // Prod and the other special kinds keep the generic strategy.
+        if (!special && ri >= 0 && rd[ri] >= 8)
         {
             _strategy = 0;
             _innerItem = ri;
@@ -141,7 +141,7 @@ internal sealed unsafe class ReduceOp : CpuOp
             rd.RemoveAt(ri);
             rx.RemoveAt(ri);
         }
-        else if (ki >= 0 && kd[ki] >= 8 && rd.Count > 0)
+        else if (!special && ki >= 0 && kd[ki] >= 8 && rd.Count > 0)
         {
             _strategy = 1;
             _innerItem = ki;

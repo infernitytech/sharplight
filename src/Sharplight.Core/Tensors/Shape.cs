@@ -37,7 +37,9 @@ public sealed class Shape : IEquatable<Shape>
     /// </summary>
     /// <param name="dims">Dimensions, outermost first.</param>
     /// <exception cref="ArgumentException">A dimension other than the outermost is symbolic.</exception>
-    public Shape(IEnumerable<Dim> dims) : this([.. dims]) { }
+    public Shape(IEnumerable<Dim> dims) : this([.. dims])
+    {
+    }
 
     /// <summary>The rank-0 shape (one element).</summary>
     public static Shape Scalar { get; } = new();

@@ -9,7 +9,14 @@ public class OnnxParserTests : IDisposable
     public OnnxParserTests() => Directory.CreateDirectory(_dir);
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        try
+        {
+            Directory.Delete(_dir, true);
+        }
+        catch (IOException)
+        {
+            // Best effort: a leftover temp directory does not fail the test.
+        }
     }
 
     [Fact]

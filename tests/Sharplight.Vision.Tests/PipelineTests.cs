@@ -169,7 +169,10 @@ public class PipelineTests
             var img = Image(48, 24);
             Assert.Equal(Encode(def, Env.Cpu(), img), Encode(def2, Env.Cpu(), img));
         }
-        finally { File.Delete(tmp); }
+        finally
+        {
+            File.Delete(tmp);
+        }
     }
 
     [Fact]

@@ -342,7 +342,10 @@ public class FamilyGenerationTests
         }
         (int[] ids, string text) result;
         var reference = Directory.Exists(path) && c.Kind == "ids" ? ReferenceLogits.TryLoad(path) : null;
-        try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback, reference, c.F32KvCache); }
+        try
+        {
+            result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback, reference, c.F32KvCache);
+        }
         catch (SkipException s)
         {
             Assert.Skip(s.Message);

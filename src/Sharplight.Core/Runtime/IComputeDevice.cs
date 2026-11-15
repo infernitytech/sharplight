@@ -55,7 +55,9 @@ public interface IComputeDevice : IDisposable
     /// Adds device-level compilation state (e.g. a driver pipeline cache covering every kernel compiled so far) to
     /// <paramref name="cache"/> before it is saved.
     /// </summary>
-    public void ExportCompilationState(ICompilationCache cache) { }
+    public void ExportCompilationState(ICompilationCache cache)
+    {
+    }
 
     /// <summary>
     /// What code generation on this opened device depends on (<see cref="DeviceProfile"/>), so code for it can be generated

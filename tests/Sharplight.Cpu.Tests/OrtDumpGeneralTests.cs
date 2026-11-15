@@ -74,7 +74,12 @@ public class OrtDumpGeneralTests
                         }
                     }
 
-                    Run($"grid_{mode}_{pad}_{(ac ? 1 : 0)}", tg => { var xi = tg.InF("x", 1, 2, 5, 6); var gi = tg.InF("g", 1, 4, 5, 2); return ([xi, gi], [tg.B.Emit1("GridSample", [xi, gi], GeneralKit.A(("mode", mode), ("padding", pad), ("align_corners", ac)))]); }, x, g);
+                    Run($"grid_{mode}_{pad}_{(ac ? 1 : 0)}", tg =>
+                    {
+                        var xi = tg.InF("x", 1, 2, 5, 6);
+                        var gi = tg.InF("g", 1, 4, 5, 2);
+                        return ([xi, gi], [tg.B.Emit1("GridSample", [xi, gi], GeneralKit.A(("mode", mode), ("padding", pad), ("align_corners", ac)))]);
+                    }, x, g);
         }
             }
         }
@@ -82,10 +87,34 @@ public class OrtDumpGeneralTests
         foreach (var largest in new[] { true, false })
         {
             var x = Kit.Rand(3 * 10, 203).Select(v => (float)Math.Round(v * 3)).ToArray();
-            Run($"topk_{(largest ? 1 : 0)}", tg => { var xi = tg.InF("x", 3, 10); var o = tg.B.Emit("TopK", [xi], GeneralKit.A(("k", 4L), ("largest", largest))); return ([xi], [o[0], o[1]]); }, x);
+            Run($"topk_{(largest ? 1 : 0)}", tg =>
+            {
+                var xi = tg.InF("x", 3, 10);
+                var o = tg.B.Emit("TopK", [xi], GeneralKit.A(("k", 4L), ("largest", largest)));
+                return ([xi], [o[0], o[1]]);
+            }, x);
         }
-        { var a = Kit.Rand(40, 204, 7f); var b = Kit.Rand(40, 205, 3f); Run("mod_fmod", tg => { var ai = tg.InF("a", 40); var bi = tg.InF("b", 40); return ([ai, bi], [tg.B.Emit1("Mod", [ai, bi], GeneralKit.A(("fmod", true)))]); }, a, b); }
-        { var a = new float[] { 0.5f, 1.5f, 2.5f, -0.5f, -1.5f, -2.5f, 2.4f, 2.6f, 3.5f, -3.5f, 0f, 100.5f }; Run("round", tg => { var ai = tg.InF("a", 12); return ([ai], [tg.B.Emit1("Round", [ai])]); }, a); }
+
+        {
+            var a = Kit.Rand(40, 204, 7f);
+            var b = Kit.Rand(40, 205, 3f);
+            Run("mod_fmod", tg =>
+            {
+                var ai = tg.InF("a", 40);
+                var bi = tg.InF("b", 40);
+                return ([ai, bi], [tg.B.Emit1("Mod", [ai, bi], GeneralKit.A(("fmod", true)))]);
+            }, a, b);
+        }
+
+        {
+            var a = new float[] { 0.5f, 1.5f, 2.5f, -0.5f, -1.5f, -2.5f, 2.4f, 2.6f, 3.5f, -3.5f, 0f, 100.5f };
+            Run("round", tg =>
+            {
+                var ai = tg.InF("a", 12);
+                return ([ai], [tg.B.Emit1("Round", [ai])]);
+            }, a);
+        }
+
         {
             var x = Kit.Rand(4 * 5 * 6, 206);
             var w = Kit.Rand(4 * 2 * 9, 207, 0.5f);
@@ -100,7 +129,12 @@ public class OrtDumpGeneralTests
             var d = Kit.Rand(3 * 4 * 5, 209);
             int[] idx = [0, 2, 1, 3, 3, 0, 1, 2, 2, 1, 0, 3]; // batch_dims=1: [3, 2, 2] -> indexes dims 1,2
             int[] idx2 = [0, 1, 3, 2, 1, 0, 3, 4, 2, 2, 0, 0];
-            Run("gathernd_b1", tg => { var di = tg.InF("d", 3, 4, 5); var ii = tg.In("i", DataType.I32, 3, 2, 2); return ([di, ii], [tg.B.Emit1("GatherND", [di, ii], GeneralKit.A(("batch_dims", 1L)))]); }, d, idx2);
+            Run("gathernd_b1", tg =>
+            {
+                var di = tg.InF("d", 3, 4, 5);
+                var ii = tg.In("i", DataType.I32, 3, 2, 2);
+                return ([di, ii], [tg.B.Emit1("GatherND", [di, ii], GeneralKit.A(("batch_dims", 1L)))]);
+            }, d, idx2);
         }
     }
 }

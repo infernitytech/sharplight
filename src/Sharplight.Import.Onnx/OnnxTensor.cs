@@ -12,6 +12,6 @@ internal sealed class OnnxTensor
     public IWeightSource? Source { get; init; }
     /// <summary>Elements of a string tensor (UTF-8 decoded, row-major); null for other types.</summary>
     public string[]? Strings { get; init; }
-    public long Elements { get { long n = 1; foreach (var d in Dims) { n *= d; } return n; } }
+    public long Elements => Dims.Aggregate(1L, (product, dim) => product * dim);
     public override string ToString() => $"{Name} {OnnxType.Name(ElemType)}[{string.Join(", ", Dims)}]";
 }

@@ -17,7 +17,22 @@ public class SyntheticImporterTests : IDisposable
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "slvision-imp-" + Guid.NewGuid().ToString("N")[..8]);
     private readonly List<IDisposable> _open = [];
     public SyntheticImporterTests() => Directory.CreateDirectory(_dir);
-    public void Dispose() { foreach (var d in _open) { d.Dispose(); } try { Directory.Delete(_dir, true); } catch { } }
+    public void Dispose()
+    {
+        foreach (var d in _open)
+        {
+            d.Dispose();
+        }
+
+        try
+        {
+            Directory.Delete(_dir, true);
+        }
+        catch (IOException)
+        {
+            // Best effort: a leftover temp directory does not fail the test.
+        }
+    }
 
     private static readonly VisionParameters P = Tiny.Vision;
     private static readonly float[] Mean = [0.48f, 0.46f, 0.41f];
@@ -31,7 +46,11 @@ public class SyntheticImporterTests : IDisposable
         void Add(string n, params long[] shape)
         {
             var d = new float[shape.Aggregate(1L, (a, b) => a * b)];
-            for (int i = 0; i < d.Length; i++) { d[i] = (float)(rng.NextDouble() * 2 - 1); }
+            for (int i = 0; i < d.Length; i++)
+            {
+                d[i] = (float)(rng.NextDouble() * 2 - 1);
+            }
+
             t["model.visual." + n] = (shape, d);
         }
         long H = P.HiddenSize;

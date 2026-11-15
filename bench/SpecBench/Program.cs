@@ -18,7 +18,12 @@ const string Text = "Write a detailed essay about the history of the printing pr
     + "Explain the technical inventions involved, name the most important people and give concrete examples of books that changed the world.\n\n";
 
 var argv = args.ToList();
-string? Opt(string n, string? d = null) { int i = argv.IndexOf(n); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d; }
+string? Opt(string n, string? d = null)
+{
+    int i = argv.IndexOf(n);
+    return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d;
+}
+
 using var services = SharplightDefaults.CreateServiceProvider();
 var loader = services.GetRequiredService<ModelLoader>();
 int ctx = int.Parse(Opt("--ctx", "4608")!), reps = int.Parse(Opt("--reps", "5")!);
@@ -37,7 +42,11 @@ int[] Prompt(int n, bool text)
     return text ? [.. p, .. textIds] : p;
 }
 
-double Median(List<double> l) { var s = l.Order().ToList(); return s[s.Count / 2]; }
+double Median(List<double> l)
+{
+    var s = l.Order().ToList();
+    return s[s.Count / 2];
+}
 
 foreach (int k in drafts)
 {

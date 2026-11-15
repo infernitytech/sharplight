@@ -231,7 +231,14 @@ internal static class PyFormat
             string text;
             switch (conv)
             {
-                case 's': text = Ops.Str(arg); if (prec >= 0 && text.Length > prec) { text = text.Substring(0, prec); } break;
+                case 's':
+                    text = Ops.Str(arg);
+                    if (prec >= 0 && text.Length > prec)
+                    {
+                        text = text.Substring(0, prec);
+                    }
+
+                    break;
                 case 'r': text = Ops.Repr(arg); break;
                 case 'd':
                 case 'i':
@@ -452,7 +459,11 @@ internal static class PyFormat
 
         if (align == '\0')
         {
-            if (zero) { align = '>'; fill = '0'; }
+            if (zero)
+            {
+                align = '>';
+                fill = '0';
+            }
             else
             {
                 align = Ops.IsNum(val) ? '>' : '<';

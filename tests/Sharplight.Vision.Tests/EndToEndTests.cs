@@ -62,7 +62,10 @@ public class EndToEndTests
                 Assert.True(loaded.SupportsImages);
                 Assert.Equal(text, Describe(loaded, Env.Shapes()));   // identical weights, graphs and preprocessing: identical greedy text
             }
-            finally { File.Delete(tmp); }
+            finally
+            {
+                File.Delete(tmp);
+            }
         }
     }
 

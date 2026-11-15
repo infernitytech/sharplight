@@ -237,7 +237,7 @@ public class ViewAndNormTests
         var p = Kit.P(3);
         m.Run(p);
         Kit.AssertClose(x.Select(v => (float)(Half)v).ToArray(), Kit.Out(m, "h", p), 0, 0);
-        Kit.AssertClose(x.Select(v => { uint b = BitConverter.SingleToUInt32Bits(v); b += 0x7FFF + ((b >> 16) & 1); return BitConverter.UInt32BitsToSingle(b & 0xFFFF0000); }).ToArray(), Kit.Out(m, "bf", p), 0, 0);
+        Kit.AssertClose(x.Select(RoundToBFloat16).ToArray(), Kit.Out(m, "bf", p), 0, 0);
         Assert.Equal(x.Select(v => (int)v).ToArray(), Kit.OutI(m, "i", p));
     }
 
@@ -263,5 +263,13 @@ public class ViewAndNormTests
         }
 
         Kit.AssertClose(exp.ToArray(), Kit.Out(m, "y", p));
+    }
+
+    /// <summary>Round-to-nearest-even to bf16, kept as f32.</summary>
+    private static float RoundToBFloat16(float v)
+    {
+        uint b = BitConverter.SingleToUInt32Bits(v);
+        b += 0x7FFF + ((b >> 16) & 1);
+        return BitConverter.UInt32BitsToSingle(b & 0xFFFF0000);
     }
 }

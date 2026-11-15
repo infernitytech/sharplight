@@ -230,7 +230,17 @@ public class EndToEndTests
             }
 
             var conv = Ref.Conv(qkv, T, qkvDim, W["l1.conv1d"], ConvK, new float[(ConvK - 1) * qkvDim], true);
-            float[] Cut(int col, int n) { var r = new float[T * n]; for (int t = 0; t < T; t++) { Array.Copy(conv, t * qkvDim + col, r, t * n, n); } return r; }
+            float[] Cut(int col, int n)
+            {
+                var r = new float[T * n];
+                for (int t = 0; t < T; t++)
+                {
+                    Array.Copy(conv, t * qkvDim + col, r, t * n, n);
+                }
+
+                return r;
+            }
+
             var q = Ref.L2Norm(Cut(0, Hk * Dk), T * Hk, Dk, Eps);
             var k = Ref.L2Norm(Cut(Hk * Dk, Hk * Dk), T * Hk, Dk, Eps);
             var v = Cut(2 * Hk * Dk, Hv * Dv);

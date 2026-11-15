@@ -268,7 +268,7 @@ public sealed class LlmModel : IDisposable
     /// sequences of up to <paramref name="contextLength"/> tokens (prompt plus span; the remaining parameters do not apply).
     /// </summary>
     /// <param name="slots">Sequences decoded together.</param>
-    /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
     /// <param name="memoryLimit">Device bytes the decoder may use, or null for the devices as configured.</param>
     /// <param name="maxLogitsRows">
     /// Logits rows one step may return (default <paramref name="slots"/>, one per sequence). Speculative decoding needs
@@ -346,7 +346,7 @@ public sealed class LlmModel : IDisposable
     /// </summary>
     /// <param name="slots">Slots of the target decoder.</param>
     /// <param name="draftTokens">Drafts proposed per sequence and step (1 to 4 are typical).</param>
-    /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
     /// <param name="kvCacheTokens">The target decoder's paged KV cache size, or null for a contiguous cache.</param>
     /// <exception cref="NotSupportedException">The model has no draft head.</exception>
     public Serving.Speculative.ISpeculator CreateMtpSpeculator(int slots, int draftTokens, int? contextLength = null, long? kvCacheTokens = null)
@@ -410,7 +410,7 @@ public sealed class LlmModel : IDisposable
     /// <param name="memoryLimit">Bytes the primary device may hold, or null for the devices as configured.</param>
     /// <param name="contextLength">KV-cache rows per sequence.</param>
     /// <param name="rowBound">Upper bound of the <c>R</c> symbol (rows whose logits are read per step).</param>
-    /// <param name="maxTokens">Rows per forward pass (default <see cref="LlmLoadOptions.MaxBatchTokens"/>).</param>
+    /// <param name="maxTokens">Rows per forward pass (default <see cref="TaskLoadOptions.MaxBatchTokens"/>).</param>
     private PlacementOptions PlacementFor(long? memoryLimit, int contextLength, long rowBound, long? maxTokens = null) => new()
     {
         Devices = DevicesWithLimit(memoryLimit),
@@ -458,7 +458,7 @@ public sealed class LlmModel : IDisposable
     /// denoising pass over <paramref name="contextLength"/> rows (it has no per-sequence state).
     /// </summary>
     /// <param name="slots">Concurrent sequences.</param>
-    /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
     /// <param name="kvCacheTokens">Paged KV cache of this many tokens shared by the slots (see <see cref="CreateBatchDecoder"/>), or null.</param>
     /// <param name="draftTokens">
     /// Speculative decoding (as <see cref="CreateBatchDecoder"/>'s <c>draftTokens</c>): adds the rollback record states of the

@@ -22,7 +22,12 @@ using Sharplight.Package;
 using Sharplight.Runtime;
 
 var argv = args.ToList();
-string? Opt(string n, string? d = null) { int i = argv.IndexOf(n); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d; }
+string? Opt(string n, string? d = null)
+{
+    int i = argv.IndexOf(n);
+    return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d;
+}
+
 using var services = SharplightDefaults.CreateServiceProvider();
 var loader = services.GetRequiredService<ModelLoader>();
 int slots = int.Parse(Opt("--slots", "64")!), ctx = int.Parse(Opt("--ctx", "512")!), depth = int.Parse(Opt("--depth", "256")!);
@@ -37,7 +42,12 @@ Console.WriteLine($"decoder: {dec.GetType().Name}, slots {dec.SlotCount}, vocab 
 var rng = new Random(1);
 int[] Toks(int n) => Enumerable.Range(0, n).Select(_ => rng.Next(1000, 30000)).ToArray();
 for (int s = 0; s < slots; s++) dec.Step([new SequenceInput(s, Toks(depth), false)]);   // prefill each slot
-double Median(List<double> l) { l.Sort(); return l[l.Count / 2]; }
+double Median(List<double> l)
+{
+    l.Sort();
+    return l[l.Count / 2];
+}
+
 var segments = dec.Compiled.Segments.OfType<VulkanSegment>().ToList();
 var tokens = new int[slots];
 var logprobs = new float[slots];
@@ -130,9 +140,18 @@ if (mixed is not null)
         Console.WriteLine($"| {d} | {p * n} ({n}) | {firstMs:F1} | {stats.Item1} / {stats.Item2} | {wall.Min():F2} / {Median(wall):F2}, {gpu:F2} | {perRow} |");
         if (profileSizes.Contains(entry))
         {
-            foreach (var seg in segments) { seg.Profile = true; seg.ResetProfile(); }
+            foreach (var seg in segments)
+            {
+                seg.Profile = true;
+                seg.ResetProfile();
+            }
+
             for (int i = 0; i < 10; i++) Step(mode, Inputs());
-            foreach (var seg in segments) { Console.WriteLine($"--- profile mixed {spec} ({mode})\n{seg.ProfileReport(profileTop)}"); seg.Profile = false; }
+            foreach (var seg in segments)
+            {
+                Console.WriteLine($"--- profile mixed {spec} ({mode})\n{seg.ProfileReport(profileTop)}");
+                seg.Profile = false;
+            }
         }
 
         entry++;
@@ -153,8 +172,17 @@ foreach (int b in sizes)
     if (profileSizes.Contains(b))
     {
         string mode = Opt("--profile-mode", "logits")!;
-        foreach (var seg in segments) { seg.Profile = true; seg.ResetProfile(); }
+        foreach (var seg in segments)
+        {
+            seg.Profile = true;
+            seg.ResetProfile();
+        }
+
         for (int i = 0; i < 20; i++) Step(mode, inputs);
-        foreach (var seg in segments) { Console.WriteLine($"--- profile batch {b} ({mode})\n{seg.ProfileReport(profileTop)}"); seg.Profile = false; }
+        foreach (var seg in segments)
+        {
+            Console.WriteLine($"--- profile batch {b} ({mode})\n{seg.ProfileReport(profileTop)}");
+            seg.Profile = false;
+        }
     }
 }
