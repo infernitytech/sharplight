@@ -8,6 +8,7 @@ namespace Sharplight.ImageGeneration.Tests;
 /// Stable Diffusion 1.5 on Vulkan against diffusers references (tools/make-diffusion-references.py, 512×512, 20 steps) in
 /// ~/models/sd/sd15-reference. Skips when the model, the references or a GPU are missing.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class Sd15Tests
 {
     private static readonly string Reference = Path.Combine(Path.GetDirectoryName(Env.Sd15Diffusers)!, "sd15-reference");
