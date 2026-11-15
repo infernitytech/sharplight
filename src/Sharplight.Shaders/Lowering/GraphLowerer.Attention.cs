@@ -131,8 +131,9 @@ public sealed partial class GraphLowerer
         var o = plan.Output;
 
         bool flash = CanUseFlashAttention(plan);
+        bool simtFlash = !flash && SimtEncoderFlash(plan);
         long maxRows = q.Symbol is null ? q.Shape[0] : Bound(Dim.Sym(q.Symbol));
-        long sliceRows = SliceRows(plan, flash, maxRows);
+        long sliceRows = SliceRows(plan, flash || simtFlash, maxRows);
         int slices = (int)((maxRows + sliceRows - 1) / sliceRows);
 
         // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
@@ -141,7 +142,7 @@ public sealed partial class GraphLowerer
         var decode = DecodeAttention(plan, flash, sliceRows);
         int splits = (int)Math.Clamp((256 + plan.HQ - 1) / plan.HQ, 1, 32);
         bool split = decode is null && !plan.Full && splits > 1 && DiagnosticSwitches.AttentionSplit;
-        int keySplits = flash && slices == 1 ? FlashKeySplits(plan, maxRows) : 1;
+        int keySplits = (flash || simtFlash) && slices == 1 ? FlashKeySplits(plan, maxRows) : 1;
         var part = decode is not null ? DecodeScratch(plan, decode, maxRows) : split ? SplitScratch(plan, splits)
             : keySplits > 1 ? AttentionScratch(keySplits * maxRows * plan.HQ * (plan.DV + 2) * 4) : o;
         var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
@@ -179,6 +180,11 @@ public sealed partial class GraphLowerer
             if (slice == 0 && flash)
             {
                 variants.Add(FlashVariant(plan, keySplits));
+            }
+
+            if (slice == 0 && simtFlash)
+            {
+                variants.Add(SimtFlashVariant(plan, keySplits));
             }
 
             if (slices == 1)
@@ -477,9 +483,43 @@ public sealed partial class GraphLowerer
         long paddedDV = (plan.DV + 15) / 16 * 16;
         long kvHalves = 2 * 32 * (paddedD + 8) + 2 * 32 * (paddedDV + 8);
         long buffer = Math.Max(kvHalves, 2 * 64 * (paddedD + 8)) * 2;
-        long sharedBytes = buffer + 4 * 16 * 32 * 4 + 4 * 16 * 40 * 2 * (SplitFlash(plan) ? 2 : 1) + 4 * 256 * 4;
+        long sharedBytes = buffer + 4 * 16 * 36 * 4 + 4 * 16 * 40 * 2 * (SplitFlash(plan) ? 2 : 1) + 4 * 256 * 4;
         return DiagnosticSwitches.AttentionEncoderFlash && plain && kv && paddedD <= 128 && paddedDV <= 128
                && sharedBytes <= _opt.MaxSharedMemory;
+    }
+
+    /// <summary>
+    /// Whether bidirectional attention on a device without the tensor-core flash kernels runs the f32 encoder flash kernel
+    /// <c>fes</c> (64 queries per workgroup, one per thread, K/V tiles shared): the forms <c>fe</c> serves (see
+    /// <see cref="EncoderFlash"/>) with head sizes that are multiples of 8 up to 64, unless <c>SHARPLIGHT_ATTN_FES=0</c>.
+    /// The per-query kernel re-reads every key for each query (vit-base on an integrated GPU: 16.5 ms per layer).
+    /// </summary>
+    private bool SimtEncoderFlash(AttentionPlan plan)
+    {
+        var a = plan.Node.Attributes;
+        bool plain = plan.Full && plan.Spans is null && plan.Sinks is null && plan.Runs is null && plan.Selection is null
+                     && a.Get("window", 0) == 0 && !a.Get("causal", false) && a.Get("softcap", 0f) <= 0
+                     && a.Get<float[]?>("alibi_slopes", null) is null && a.Get<float[]?>("position_bias", null) is null;
+        bool kv = (plan.K.Type == DataType.F32 || plan.K.Type == DataType.F16) && plan.V.Type == plan.K.Type;
+        long sharedBytes = 32 * (plan.D + plan.DV) * 4;
+        return DiagnosticSwitches.AttentionSimtFlash && plain && kv && plan.HQ % plan.HKV == 0 && plan.D % 8 == 0 && plan.DV % 8 == 0
+               && plan.D <= 64 && plan.DV <= 64 && sharedBytes <= _opt.MaxSharedMemory;
+    }
+
+    /// <summary>The <c>fes</c> variant (see <see cref="SimtEncoderFlash"/>): grid (heads, 64-query blocks, sequences x key ranges).</summary>
+    private KernelVariant SimtFlashVariant(AttentionPlan plan, int keySplits)
+    {
+        var q = plan.Q;
+        var macros = new Dictionary<string, string>(plan.Macros) { ["FA_KSPLIT"] = keySplits.ToString(CultureInfo.InvariantCulture) };
+        var kernel = Lib("attention.slang", "fes", macros);
+        if (plan.SequenceRows > 0)
+        {
+            long sequenceRows = plan.SequenceRows;
+            return new KernelVariant(FlashWhen(plan), kernel,
+                b => new Grid((uint)plan.HQ, Grid.Div(sequenceRows, 64), (uint)(Rows(b, q) / sequenceRows * keySplits)));
+        }
+
+        return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 64), (uint)keySplits));
     }
 
     /// <summary>
@@ -507,7 +547,7 @@ public sealed partial class GraphLowerer
         long sequences = plan.SequenceRows > 0 ? Math.Max(1, maxRows / plan.SequenceRows) : 1;
         long rowsPerSequence = plan.SequenceRows > 0 ? plan.SequenceRows : maxRows;
         long keys = plan.SequenceRows > 0 ? BatchedAttention.SequenceKeys(plan.Node) : plan.K.Symbol is null ? plan.K.Shape[0] : Bound(Dim.Sym(plan.K.Symbol));
-        long blockRows = EncoderFlash(plan) ? 64 : 32;
+        long blockRows = EncoderFlash(plan) || !CanUseFlashAttention(plan) ? 64 : 32;
         long workgroups = plan.HQ * ((rowsPerSequence + blockRows - 1) / blockRows) * sequences;
         long wanted = (FlashTargetWorkgroups + workgroups - 1) / workgroups;
         return (int)Math.Clamp(Math.Min(wanted, (keys + 31) / 32 / 2), 1, 8);

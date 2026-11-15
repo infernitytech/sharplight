@@ -71,6 +71,32 @@ public sealed class RowOpTests
         Diff.Check("LayerNorm", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * 5 * d, 3, 3f))), atol: 2e-5, rtol: 1e-4);
     }
 
+    /// <summary>LayerNorm over the channels-last view of an NCHW tensor (normalized in place, rows spanning images).</summary>
+    [Theory]
+    [InlineData(3, 96, 7, 7, true, true)]
+    [InlineData(2, 50, 5, 9, true, false)]
+    [InlineData(1, 768, 4, 4, false, true)]
+    [InlineData(4, 33, 3, 2, false, false)]
+    public void LayerNormChannelsLastView(int t, int c, int h, int wd, bool w, bool b)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, c, h, wd);
+        var args = new List<Value> { tg.B.Permute(x, 0, 2, 3, 1) };
+        if (w)
+        {
+            args.Add(tg.RandW("w", DataType.F32, 1f, c));
+        }
+
+        if (b)
+        {
+            args.Add(tg.RandW("b", DataType.F32, 1f, c));
+        }
+
+        tg.B.Output("y", tg.B.Emit1("LayerNorm", args, Attributes.From(("eps", 1e-6f))));
+        Diff.Check("LayerNorm.channelsLast", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * c * h * wd, 3, 3f))), atol: 2e-5, rtol: 1e-4);
+    }
+
     [Fact]
     public void LayerNormHalfWeights()
     {

@@ -83,7 +83,7 @@ public sealed partial class GraphLowerer
         return form is { } f && columns * Math.Max(1, batchBound) >= ConvMatrixMinColumns && ConvMatrixSharedBytes(1, f) <= _opt.MaxSharedMemory ? f : null;
     }
 
-    /// <summary>K split for conv_cm: aims for <see cref="TargetWorkgroups"/>, at least 4 K steps per split.</summary>
+    /// <summary>K split for conv_cm: aims for <see cref="ConvTargetWorkgroups"/>, at least 4 K steps per split.</summary>
     private static (int Split, long Kps) ChooseConvMatrixSplit(long N, long OG, long G, long HW, long K, long tileRows, long tileColumns)
     {
         long tiles = (N * HW + tileColumns - 1) / tileColumns * ((OG + tileRows - 1) / tileRows) * G;
@@ -94,7 +94,7 @@ public sealed partial class GraphLowerer
         }
 
         long kTiles = (K + ConvMatrixTileK - 1) / ConvMatrixTileK;
-        long split = Math.Min(Math.Min((TargetWorkgroups + tiles - 1) / tiles, kTiles / 4), 16);
+        long split = Math.Min(Math.Min((ConvTargetWorkgroups + tiles - 1) / tiles, kTiles / 4), 16);
         if (split < 2)
         {
             return (1, K);

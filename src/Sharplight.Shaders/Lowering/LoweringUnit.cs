@@ -30,6 +30,12 @@ internal sealed class LoweringUnit
     public Node? ConvHead;
 
     /// <summary>
+    /// A weight matmul whose output only feeds this group: the split-f16 GEMM applies the group in its store (bias, activation,
+    /// per-column scale, residual), other kernels run the matmul and the group as separate launches.
+    /// </summary>
+    public Node? MatMulHead;
+
+    /// <summary>
     /// An Add of a constant row vector (a bias) that is the only consumer of this single-node unit's MatMul: single activation
     /// rows add it in the matvec's store instead of a separate elementwise launch.
     /// </summary>
@@ -66,7 +72,7 @@ internal sealed class LoweringUnit
                 return BiasAdd is null ? [.. Absorbed ?? [], Node!] : [.. Absorbed ?? [], Node!, BiasAdd];
             }
 
-            Node[] dual = Dual is { } pair ? [pair.A, pair.B] : ConvHead is null ? [] : [ConvHead];
+            Node[] dual = Dual is { } pair ? [pair.A, pair.B] : ConvHead is not null ? [ConvHead] : MatMulHead is not null ? [MatMulHead] : [];
             Node[] head = NormHead is null ? [] : [NormHead];
             Node[] tail = NormTail is null ? [] : [NormTail];
             if (ExpertSum is { } sum)

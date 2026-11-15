@@ -188,6 +188,11 @@ public sealed partial class GraphLowerer
             LowerConv2d(conv, new ConvEpilogue(unit.Fused!, unit.FusedOutputs![0]));
             FreeTemps();
         }
+        else if (unit.MatMulHead is { } matmulHead)
+        {
+            LowerMatMulEpilogue(matmulHead, new MatMulEpilogue(unit.Fused!, unit.FusedOutputs![0]));
+            FreeTemps();
+        }
         else if (unit.Fused is not null)
         {
             LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);

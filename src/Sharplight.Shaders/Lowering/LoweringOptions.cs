@@ -20,6 +20,8 @@ public sealed class LoweringOptions
     public bool Has(string feature) => Features.Contains(feature);
     /// <summary>See <see cref="DeviceInfo.SubmissionBudgetMs"/>: when > 0, single dispatches whose work grows with the batch (attention) are sliced to about this duration.</summary>
     public double SubmissionBudgetMs { get; init; }
+    /// <summary>See <see cref="DeviceInfo.ConcurrentWorkgroups"/>: workgroups the device runs at once, 0 = unknown (a large GPU).</summary>
+    public int ConcurrentWorkgroups { get; init; }
     /// <summary>Model-level compile options (symbol bounds, context length, precision policy).</summary>
     public required CompileOptions Compile { get; init; }
     /// <summary>Model-level compilation cache for this device (see <see cref="CompileOptions.CacheFor"/>).</summary>

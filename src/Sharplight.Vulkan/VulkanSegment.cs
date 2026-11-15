@@ -24,6 +24,9 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
     private readonly Dictionary<string, VkCommandBuffer[]> _recorded = [];
+
+    /// <summary>Barrier placement of each recorded launch set (see <see cref="HazardTracker.Order(IReadOnlyList{KernelLaunch}, Bindings, bool, Dictionary{string, ValueTuple{int, bool}[]}, int)"/>).</summary>
+    private readonly Dictionary<string, (int Index, bool BarrierBefore)[]> _orders = [];
     /// <summary>Inputs copied from an earlier segment's device output instead of from staging (<see cref="TryForwardFrom"/>).</summary>
     private readonly Dictionary<BufferDecl, (Allocation Source, long SourceOffset)> _forwarded = [];
     private readonly Queue<string> _recordOrder = new();
@@ -720,7 +723,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         // Profiling serializes every launch (one timestamp delta per kernel) and keeps program order, as does bisecting.
         bool reorder = afterDispatch is null && DiagnosticSwitches.MaxLaunches == int.MaxValue && DiagnosticSwitches.ReorderLaunches;
         int skippedUpTo = 0;
-        foreach (var (launch, index, variant, barrierBefore) in HazardTracker.Order(launches, bindings, reorder))
+        foreach (var (launch, index, variant, barrierBefore) in HazardTracker.Order(launches, bindings, reorder, _orders, firstIndex))
         {
             if (firstIndex + index >= DiagnosticSwitches.MaxLaunches)
             {

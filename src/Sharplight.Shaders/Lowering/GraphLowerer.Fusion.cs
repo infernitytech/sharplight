@@ -52,6 +52,11 @@ public sealed partial class GraphLowerer
             FoldConvEpilogues(units, consumers);
         }
 
+        if (!DiagnosticSwitches.NoMatMulEpilogue)
+        {
+            FoldMatMulEpilogues(units, consumers);
+        }
+
         FindFusedOutputs(units, consumers);
         return units;
     }
@@ -458,6 +463,95 @@ public sealed partial class GraphLowerer
         }
 
         units.RemoveAll(removed.Contains);
+    }
+
+    /// <summary>
+    /// A plain elementwise group whose inputs are one weight MatMul's output (read nowhere else) and at most
+    /// <see cref="MaxMatMulEpilogueArgs"/> other f32 values, each a scalar, a row vector over the matmul's output columns (a bias,
+    /// a per-channel scale) or a tensor of the output's shape (a residual), becomes the matmul's store epilogue
+    /// (<see cref="LoweringUnit.MatMulHead"/>). The matmul then runs at the group's place, so no unit in between may write state.
+    /// </summary>
+    private void FoldMatMulEpilogues(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var position = new Dictionary<Node, int>();
+        for (int i = 0; i < units.Count; i++)
+        {
+            if (units[i].Node is { Op.Name: "MatMul" } matmul && units[i].BiasAdd is null && units[i].Absorbed is null)
+            {
+                position[matmul] = i;
+            }
+        }
+
+        var removed = new HashSet<LoweringUnit>();
+        for (int j = 0; j < units.Count; j++)
+        {
+            var unit = units[j];
+            if (unit.Fused is not { } group || unit.Dual is not null || unit.NormHead is not null || unit.NormTail is not null
+                || unit.Gathers is not null || unit.Absorbed is not null || unit.ConvHead is not null || unit.ExpertSum is not null)
+            {
+                continue;
+            }
+
+            var inGroup = group.ToHashSet();
+            var external = group.SelectMany(n => n.Inputs).Where(v => v.Producer is null || !inGroup.Contains(v.Producer)).Distinct().ToList();
+            var matmul = external.Select(v => v.Producer).OfType<Node>().FirstOrDefault(p => p.Op.Name == "MatMul" && position.ContainsKey(p));
+            if (matmul is null || external.Count > MaxMatMulEpilogueArgs + 1 || _segmentOutputs.Contains(matmul.Output)
+                || matmul.Output.Type != DataType.F32 || consumers[matmul.Output].Any(c => !inGroup.Contains(c)))
+            {
+                continue;
+            }
+
+            var w = matmul.Inputs[1];
+            var shape = matmul.Output.Shape;
+            if (w.Kind is not (ValueKind.Weight or ValueKind.Constant) || w.Type != DataType.F32 || w.Shape.Rank != 2 || w.Shape[0].IsSymbolic
+                || group.Any(n => !n.Output.Shape.Equals(shape) || n.Output.Type != DataType.F32 || n.Inputs.Any(i => i.Type != DataType.F32))
+                || external.Any(v => v != matmul.Output && MatMulEpilogueArgKind(v, shape, w.Shape[0]) < 0))
+            {
+                continue;
+            }
+
+            var withMatMul = new HashSet<Node>(inGroup) { matmul };
+            var escaping = group.Select(n => n.Output).Where(v => EscapesGroup(v, consumers, withMatMul)).ToList();
+            int at = position[matmul];
+            if (escaping.Count != 1 || at > j || removed.Contains(units[at])
+                || units.Skip(at + 1).Take(j - at - 1).Any(u => u.Nodes.Any(n => !n.Writes.IsEmpty)))
+            {
+                continue;
+            }
+
+            unit.MatMulHead = matmul;
+            removed.Add(units[at]);
+        }
+
+        units.RemoveAll(removed.Contains);
+    }
+
+    /// <summary>Most extra tensors (besides the product) a matmul store epilogue reads.</summary>
+    private const int MaxMatMulEpilogueArgs = 3;
+
+    /// <summary>
+    /// How a matmul epilogue reads <paramref name="v"/>: 0 one scalar, 1 a row vector indexed by the output column (its last
+    /// dimension is the matmul's <paramref name="columns"/>, every other dimension 1), 2 a tensor of the output's shape
+    /// <paramref name="shape"/> indexed like the output; -1 when it fits none of these or is not f32.
+    /// </summary>
+    private static int MatMulEpilogueArgKind(Value v, Shape shape, Dim columns)
+    {
+        if (v.Type != DataType.F32)
+        {
+            return -1;
+        }
+
+        if (v.Shape.Equals(shape))
+        {
+            return 2;
+        }
+
+        if (v.Shape.Rank == 0 || v.Shape.Dims.All(d => !d.IsSymbolic && d.Fixed == 1))
+        {
+            return 0;
+        }
+
+        return v.Shape[v.Shape.Rank - 1].Equals(columns) && v.Shape.Dims.Take(v.Shape.Rank - 1).All(d => !d.IsSymbolic && d.Fixed == 1) ? 1 : -1;
     }
 
     /// <summary>Two expert products (MatMulId) of the same x and routing over expert weights of one type and shape.</summary>
