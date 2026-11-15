@@ -7,8 +7,8 @@ using Sharplight.Samples;
 namespace Sharplight.Convert;
 
 /// <summary>
-/// <c>precompile &lt;slm&gt; (--device provider:index | --profile file|name) [--tier code|binary|all]</c>: compiles every graph and
-/// appends the artifact sets.
+/// <c>precompile &lt;slm&gt; (--all-devices | --device provider:index | --profile file|name) [--tier code|binary|all]</c>: runs the
+/// two precompilation stages of the execution providers (portable code, then device code) and appends the artifact sets.
 /// </summary>
 internal sealed class PrecompileCommand
 {
@@ -23,19 +23,24 @@ internal sealed class PrecompileCommand
 
     private readonly Option<string?> _device = new("--device")
     {
-        Description = "Device to compile on, as provider:index (e.g. vulkan:0); produces the code and binary tiers.",
+        Description = "Device to compile for, as provider:index (e.g. vulkan:0); produces portable code (code tier) and device code (binary tier).",
         HelpName = "provider:index",
+    };
+
+    private readonly Option<bool> _allDevices = new("--all-devices")
+    {
+        Description = "Compile for every device of every available provider (identical devices share their code), as Sharplight Studio does.",
     };
 
     private readonly Option<string?> _profile = new("--profile")
     {
-        Description = "Device profile to compile for without the device (a JSON file from 'profile', or a well-known name from 'profile --list'); produces the code tier.",
+        Description = "Device profile to compile for without the device (a JSON file from 'profile', or a well-known name from 'profile --list'); produces portable code only.",
         HelpName = "file|name",
     };
 
     private readonly Option<string> _tier = new("--tier")
     {
-        Description = "Artifact tiers to store: code (driver-independent kernels), binary (driver pipeline cache) or all.",
+        Description = "Artifact tiers to store: code (portable kernels, e.g. SPIR-V), binary (device code: pipeline binaries or pipeline cache) or all.",
         DefaultValueFactory = _ => AllTiers,
         HelpName = "tier",
     };
@@ -68,7 +73,7 @@ internal sealed class PrecompileCommand
 
     private readonly Option<bool> _userCache = new("--use-kernel-cache")
     {
-        Description = "Compile with the per-user kernel and pipeline cache. Faster; the stored sets still hold only this model's kernels and pipelines.",
+        Description = "Compile with the per-user artifact store (compiled kernels and the driver pipeline cache). Faster; the stored sets still hold only this model's kernels and pipelines.",
     };
 
     public PrecompileCommand(SampleRuntime runtime)
@@ -87,10 +92,11 @@ internal sealed class PrecompileCommand
 
     public Command Build()
     {
-        var command = new Command("precompile", "Compiles every graph of a package on a device, or for a device profile without the device, and appends the "
-            + "resulting artifact sets (kernel code and/or driver binaries).");
+        var command = new Command("precompile", "Compiles every graph of a package for devices (portable code, then device code) or for a device profile "
+            + "without the device (portable code), and appends the resulting artifact sets.");
         command.Arguments.Add(_package);
         command.Options.Add(_device);
+        command.Options.Add(_allDevices);
         command.Options.Add(_profile);
         command.Options.Add(_tier);
         command.Options.Add(_disable);
@@ -105,19 +111,20 @@ internal sealed class PrecompileCommand
         {
             bool device = result.GetValue(_device) is not null;
             bool profile = result.GetValue(_profile) is not null;
-            if (device == profile)
+            bool all = result.GetValue(_allDevices);
+            if ((device ? 1 : 0) + (profile ? 1 : 0) + (all ? 1 : 0) != 1)
             {
-                result.AddError("Give exactly one of --device and --profile.");
+                result.AddError("Give exactly one of --device, --all-devices and --profile.");
             }
             else if (profile && result.GetValue(_tier) == ArtifactTiers.Binary)
             {
-                result.AddError("A profile produces only the code tier; driver binaries need the device (--device).");
+                result.AddError("A profile produces only portable code; device code needs the device (--device or --all-devices).");
             }
         });
-        command.SetAction(CommandRunner.Guard((parseResult, _) =>
+        command.SetAction(CommandRunner.Guard(async (parseResult, cancellationToken) =>
         {
-            new PrecompileRunner(_runtime, Console.Out).Run(Read(parseResult));
-            return Task.FromResult(ExitCodes.Success);
+            await new PrecompileRunner(_runtime, Console.Out).RunAsync(Read(parseResult), cancellationToken);
+            return ExitCodes.Success;
         }));
         return command;
     }
@@ -156,6 +163,7 @@ internal sealed class PrecompileCommand
         return new PrecompileSettings(
             PackageArgument.Require(parseResult.GetValue(_package)!),
             device,
+            parseResult.GetValue(_allDevices),
             profile,
             tier == AllTiers ? null : new HashSet<string>(StringComparer.Ordinal) { tier },
             parseResult.GetValue(_disable) ?? [],

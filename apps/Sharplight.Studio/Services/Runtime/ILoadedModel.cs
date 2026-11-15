@@ -63,6 +63,17 @@ internal interface ILoadedModel
     /// <summary>Streams an answer (loading the model first when it sleeps); cancelling stops generation.</summary>
     public IAsyncEnumerable<ChatStreamUpdate> StreamChatAsync(ChatInput input, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Leases the model's task client (<see cref="Sharplight.Speech.ISpeechRecognizer"/> for speech recognition, ...), loading the model
+    /// first when it sleeps. Text generation has no task client here (chats use <see cref="StreamChatAsync"/>).
+    /// </summary>
+    /// <typeparam name="TClient">The client interface of the model's kind.</typeparam>
+    /// <param name="cancellationToken">Cancels waiting for the load.</param>
+    /// <exception cref="NotSupportedException">The model's kind has no client of this type.</exception>
+    public Task<TaskClientLease<TClient>> AcquireClientAsync<TClient>(CancellationToken cancellationToken)
+        where TClient : class, Sharplight.Tasks.ITaskClient
+        => throw new NotSupportedException($"{Id} ({Kind}) has no {typeof(TClient).Name}.");
+
     /// <summary>Tokens <paramref name="text"/> occupies (an estimate until the model loaded once).</summary>
     public int CountTokens(string text);
 

@@ -41,16 +41,13 @@ internal sealed unsafe class SafetensorsFile : IDisposable
     private SafetensorsFile(string path)
     {
         Path = path;
-        // The stream's length is the target's when the path is a symbolic link (FileInfo reports the link's own size).
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        long fileLength = stream.Length;
+        long fileLength = FileLength(path);
         if (fileLength < HeaderLengthBytes)
         {
-            stream.Dispose();
             throw new InvalidDataException($"{path}: too small to be a safetensors file.");
         }
 
-        _mmf = MemoryMappedFile.CreateFromFile(stream, null, 0, MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
+        _mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
         try
         {
             _view = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
@@ -193,5 +190,12 @@ internal sealed unsafe class SafetensorsFile : IDisposable
         _view = null;
         _mmf?.Dispose();
         _mmf = null;
+    }
+
+    /// <summary>The size of the file <paramref name="path"/> names, following symbolic links (<see cref="FileInfo.Length"/> reports the link's own size).</summary>
+    private static long FileLength(string path)
+    {
+        using var handle = File.OpenHandle(path);
+        return RandomAccess.GetLength(handle);
     }
 }

@@ -23,14 +23,18 @@ public sealed class ModelImporterCatalog
     /// <summary>The importers, in the order they are tried.</summary>
     public IReadOnlyList<IModelImporter> Importers => _importers;
 
-    /// <summary>Finds the first importer whose <see cref="IModelImporter.CanOpen"/> accepts <paramref name="path"/>.</summary>
+    /// <summary>
+    /// Finds the importer with the highest <see cref="IModelImporter.Priority"/> whose <see cref="IModelImporter.CanOpen"/> accepts
+    /// <paramref name="path"/> (ties: by format name). A format that shares a container with another (a diffusion checkpoint in a GGUF or
+    /// safetensors file) claims its files by checking their content and ranking above the generic importer.
+    /// </summary>
     /// <param name="path">File or directory.</param>
     /// <param name="importer">The importer, or <see langword="null"/> when none accepts the path.</param>
     /// <returns><see langword="true"/> when an importer was found.</returns>
     public bool TryFind(string path, [NotNullWhen(true)] out IModelImporter? importer)
     {
         ArgumentNullException.ThrowIfNull(path);
-        importer = _importers.FirstOrDefault(i => i.CanOpen(path));
+        importer = _importers.OrderByDescending(i => i.Priority).ThenBy(i => i.Format, StringComparer.Ordinal).FirstOrDefault(i => i.CanOpen(path));
         return importer is not null;
     }
 

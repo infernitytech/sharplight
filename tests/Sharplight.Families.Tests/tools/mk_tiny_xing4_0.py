@@ -17,6 +17,8 @@ import shutil
 import sys
 
 import torch
+
+import remote_code_compat  # noqa: F401  (transformers 4.x / early 5.x remote code on transformers 5.23)
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
 

@@ -13,8 +13,8 @@ graph generation for model architectures (adapters) are separate assemblies, so 
 |---|---|---|
 | `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
 | `Sharplight.Architectures` | Execution-graph generation: architecture adapters that turn canonical model sources into Sharplight graphs | `services.AddBuiltinArchitectures()` |
-| `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.WhisperCpp`, `.PyTorch` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter`, `WhisperCppImporter`, `services.AddXxxImporter()` |
-| `Sharplight.Package` | Read and write `.slm` packages (every model kind: description, components, attachments), convert models to them and precompile kernels into them | `ModelPackage`, `ModelPackageReader`, `ModelConverter`, `PackagePrecompiler`, `services.AddPackageImporter()` |
+| `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.WhisperCpp`, `.Diffusers`, `.PyTorch` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter`, `WhisperCppImporter`, `DiffusersImporter`, `services.AddXxxImporter()` |
+| `Sharplight.Package` | Read and write `.slm` packages (every model kind: description, components, attachments), convert models to them and precompile them for every provider and device (portable code, then device code) | `ModelPackage`, `ModelPackageReader`, `ModelConverter`, `PackagePrecompiler`, `services.AddPackageImporter()` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` (+ `Sharplight.Shaders`) | Execution providers | `CpuExecutionProvider`, `VulkanProvider` |
 | `Sharplight.Defaults` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplightServer`, `UseSharplightServer`, `MapSharplightServer`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
@@ -29,14 +29,15 @@ they need no extra `using`):
 
 | package | registration | registers |
 |---|---|---|
-| `Sharplight.Core` | `AddSharplightTasks()` | `TaskClientProvider`, the built-in factories (text generation, Whisper-family speech recognition, image classification/embedding), the `ModelLoader` |
+| `Sharplight.Core` | `AddSharplightTasks()` | `TaskClientProvider`, the built-in factories (text generation, Whisper-family speech recognition, image classification/embedding, object detection, depth estimation, latent-diffusion image generation), the `ModelLoader` |
 | | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddCompositeModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
 | | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
 | | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
-| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddImageGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
-| `Sharplight.Architectures` | `AddBuiltinArchitectures()` | the built-in adapters (incl. the image encoders), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
+| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
+| `Sharplight.Architectures` | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
 | `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => ...)`, `AddOnnxImporter()` | the format (ONNX also its graph adapter) |
 | `Sharplight.Import.WhisperCpp` | `AddWhisperCppImporter()` | whisper.cpp `ggml` model files |
+| `Sharplight.Import.Diffusers` | `AddDiffusersImporter()` | diffusers folders and single-file Stable Diffusion checkpoints (ranks above the generic importers: `IModelImporter.Priority`) |
 | `Sharplight.Import.PyTorch` | `AddPyTorchImporter(o => ...)` | the restricted-unpickler settings (`TorchCheckpointOptions`) for pickle checkpoints (`pytorch_model*.bin` shards of the Hugging Face importer) |
 | `Sharplight.Package` | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order) |
@@ -53,7 +54,7 @@ also bind from configuration. What the container hands out:
   `LlmModel.Load(loader, path, options)`, `EmbeddingModel.Load(loader, ...)`, `Reranker.Load(loader, ...)`, `SpanScorer.Load(loader, ...)`,
   `new LlmChatModelLoader(loader, ...)`.
 - `ExecutionProviderCatalog` lists the providers (`Discover()` → `DiscoveredProvider(Provider, Availability)`, `TryFind(name)`,
-  `OpenProfile(profile)`); the container owns the providers.
+  `TryFindForProfile(profile, out provider)` for offline precompilation); the container owns the providers.
 - `ModelConverter` converts any loadable model to `.slm`; `ModelPuller` (Sharplight.Hub) takes one.
 
 ```csharp
@@ -90,7 +91,8 @@ leak when instances are created repeatedly), so only the options of the provider
 | `services.AddSharplightSpeechSynthesis()` (Sharplight.Architectures) | part of `services.AddBuiltinArchitectures()` |
 | `CpuExecutionProvider.Register()`, `ProviderRegistry.Register(() => new VulkanProvider())`, `VulkanProvider.EnableValidation = true` | `services.AddCpuProvider()`, `.AddVulkanProvider(o => o.EnableValidation = true)` |
 | `ModelImporterRegistry.Open/OpenSet(path)`, `ModelAdapterRegistry.Build(sources)` | `loader.Importers.Open(path)`, `loader.Open(path, auxiliary)`, `loader.Build(sources)` (or `loader.Build(path)`) |
-| `ProviderRegistry.Discover()` (tuples), `ProviderRegistry.OpenProfile(p)`, `devicePool.Open("vulkan", 0)` | `providers.Discover()` (`DiscoveredProvider`), `providers.OpenProfile(p)`, `devicePool.Open(providers, "vulkan", 0)` |
+| `ProviderRegistry.Discover()` (tuples), `ProviderRegistry.ForProfile(p)`, `devicePool.Open("vulkan", 0)` | `providers.Discover()` (`DiscoveredProvider`), `providers.TryFindForProfile(p, out var provider)`, `devicePool.Open(providers, "vulkan", 0)` |
+| `DiffusersImporter.Register()`, `WhisperCppImporter.Register()` | `services.AddDiffusersImporter()`, `.AddWhisperCppImporter()` |
 | `MultimodalRegistry.Find(arch)` | `model.Architectures.TryFindMultimodal(arch, out var m)`, or `visionEncoder.Multimodal` |
 | `LlmModel.Load(path, o)`, `EmbeddingModel.Load(path, o)`, `Reranker.Load`, `SpanScorer.Load`, `TaskModel.Load(o)` | the same with the `ModelLoader` first |
 | `ModelConverter.Convert(...)` (static), `new ModelPuller(hub, downloader, store)`, `PackagePrecompiler.Precompile(path, profile, o)` | `converter.Convert(...)` (service), `new ModelPuller(hub, downloader, store, converter)`, `PackagePrecompiler.Precompile(path, providers, profile, o)` |
@@ -112,6 +114,8 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `image-generation` | `IImageGenerator` | `GenerateAsync(ImageGenerationRequest)` | `GenerateStreamingAsync` → `ImageGenerationUpdate` | `ImageGenerationOptions` | `ImageGenerationResult` |
 | `image-classification` | `IImageClassifier` | `ClassifyAsync(ImageInput)` | - (one image, one result) | `ImageClassificationOptions` | `ImageClassification` |
 | `image-embedding` | `IImageEmbedder` | `EmbedImageAsync(ImageInput)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `ImageEmbeddingOptions` | `float[]`, `ImageClassification` |
+| `depth-estimation` | `IDepthEstimator` | `EstimateAsync(ImageInput)` | - | `DepthEstimationOptions` | `DepthMap` (per-pixel values, `ToGrayscale()`) |
+| `object-detection` | `IObjectDetector` | `DetectAsync(ImageInput)` | - | `ObjectDetectionOptions` (score threshold, max detections, optional NMS) | `ObjectDetection` (`DetectedObject`: class, label, score, `BoundingBox` in pixels) |
 
 Every client is an `ITaskClient`: `Metadata` (kind, model name, architecture), `GetService(Type)` for the objects behind it,
 `IDisposable` (it owns its compiled graphs, not the model), async calls with a `CancellationToken`. The shape mirrors
@@ -189,10 +193,64 @@ the neutral form of a model's processor configuration, stored in the `feature-ex
 the model's own processor file into the config; the image clients never see a format name. Models with a `vision-encoder` component
 (graph `image_encode`: patches in, pooled embedding and optionally logits out) run through the built-in classifier / embedder
 implementation (`ImageEncoderAdapter`: ViT, DINOv2, ...); `services.AddImageClassifier(...)` and `services.AddImageEmbedder(...)` register
-configured models like every other kind.
+configured models like every other kind. CLIP and SigLIP (adapter `ImageTextAdapter`, `vision-encoder` + `text-encoder` + `tokenizer` components, graphs `image_encode` and `text_encode`) add the text tower
+to the same embedder: `EmbedTextAsync` embeds a prompt into the image space and `ClassifyZeroShotAsync` scores an image against candidate prompts (softmax for CLIP, sigmoid for SigLIP, with the model's learned scale and bias).
+Object detectors (DETR: `DetrAdapter`; RT-DETR: `RtDetrAdapter`; graph `detect`: normalized `pixels` in, per-query `logits` and `boxes` out) run through `services.AddObjectDetector(...)`; the box decoding, thresholding and
+non-maximum suppression are generic host-side utilities in Core (`BoundingBox`, `BoxUtilities.NonMaxSuppression`, `ObjectDetectionOptions`). `samples/Sharplight.Vision` (`sharplight-vision classify|detect|depth model image.png [--label prompt]... [-o out.png]`)
+is this in a command-line tool (`depth` writes a grayscale PNG, `detect` draws the boxes). Depth Anything (`DepthEstimationAdapter`, graph `estimate_depth`) runs through `services.AddDepthEstimator(...)`.
 
 The importers and architecture adapters for speech and image models come in their own workstreams; the task layer defines the
 interfaces, options, results, the description and the host-side plumbing they plug into.
+
+### Image generation
+
+`Sharplight.Import.Diffusers` reads Stable Diffusion 1.x / 2.x / XL checkpoints (diffusers folders, original single-file `.safetensors` or
+`.ckpt` (through the restricted unpickler of Sharplight.Import.PyTorch),
+stable-diffusion.cpp GGUF files) into the canonical `latent_diffusion` source; `LatentDiffusionAdapter` (Sharplight.Architectures)
+builds a text encoder, a UNet denoiser and the VAE decoder / encoder as graphs of generic Core ops and describes them as an
+`image-generation` model (components `text-encoder`, `tokenizer`, `denoiser`, `vae`, `scheduler`; SDXL's second text encoder is a
+second graph of the `text-encoder` component whose pooled embedding and the size conditions feed the UNet). Core's built-in latent-diffusion
+pipeline (`LatentDiffusionGeneratorFactory`, registered by `AddSharplightTasks()`) serves every model whose graphs follow
+`DiffusionGraphs`; a family with another pipeline registers its own factory.
+
+```csharp
+var services = new ServiceCollection()
+    .AddSharplight()
+    .AddImageGenerator(o => { o.ModelPath = "v1-5-pruned-emaonly-Q8_0.gguf"; o.Devices = [slot]; });
+await using var provider = services.BuildServiceProvider();
+var generator = provider.GetRequiredService<IImageGenerator>();
+
+var request = new ImageGenerationRequest { Prompt = "a lighthouse at dusk", NegativePrompt = "blurry" };
+var options = new ImageGenerationOptions { Steps = 20, GuidanceScale = 7.5f, Seed = 42, Scheduler = Samplers.DpmPlusPlus2MKarras, PreviewInterval = 5 };
+await foreach (var update in generator.GenerateStreamingAsync(request, options))
+{
+    Console.Write($"\r{update.Step}/{update.TotalSteps}");        // update.Preview: a latent-resolution preview every 5 steps
+    if (update.Result is { } result)
+    {
+        PngCodec.Write("lighthouse.png", result.Images[0]);
+    }
+}
+```
+
+- Samplers (`Samplers`): `euler`, `euler-karras`, `euler-ancestral`, `ddim`, `pndm`, `dpm++2m`, `dpm++2m-karras`; each follows the
+  diffusers scheduler step by step and is configured from the model's `scheduler` component (`NoiseSchedule`: betas, prediction type,
+  timestep spacing, offset; the original scheduler configuration is kept as the attachment `scheduler/source-config.json`). The
+  default is the sampler the model was published with.
+- Classifier-free guidance runs on the host: the negative prompt (or the empty prompt) and the prompt are one batched denoiser run
+  per step. Image i of a request uses `Seed + i`; the noise is a counter-based Gaussian stream, identical on every machine and
+  provider. `ImageGenerationOptions.InitialNoise` replaces it (reproducing another implementation's run).
+- Image-to-image: `ImageGenerationRequest.Image` with `Strength`; inpainting: plus `Mask` (white = regenerate; the input is
+  re-imposed outside the mask after every step).
+- Sizes: the graphs are built for the native size (512×512 for SD 1.x, 768×768 for SD 2.x 768-v, 1024×1024 for SDXL) and stored
+  that way in `.slm`; another `Width` / `Height` (multiples of 64) rebuilds the model once per size through
+  `TaskModel.DefinitionFor(dimensions)` (the adapter rebuilds from the canonical metadata and weights, so `.slm` packages work too).
+- Classifier-free guidance with SDXL: without a negative prompt the unconditional row is all zeros (the model's
+  `force_zeros_for_empty_prompt`); an explicit `NegativePrompt = ""` encodes the empty prompt.
+- `sharplight-generate-image` (samples/Sharplight.GenerateImage) is a command-line front end for all of this.
+- HTTP: `services.AddSharplightImageGenerator(name: "sd15")` serves the container's `IImageGenerator` on the OpenAI-compatible
+  `POST /v1/images/generations` (`prompt`, `n`, `size`, `response_format: "b64_json"` with PNG data, plus the extensions
+  `negative_prompt`, `steps`, `guidance_scale`, `seed` and `sampler`); `MapSharplight()` maps it when a generator is registered,
+  `MapSharplightImages()` maps it alone. Requests to one generator run one at a time.
 
 ## 1. Load a model (text generation)
 
@@ -457,6 +515,57 @@ The other task kinds map the same way: `SharplightSpeechToTextClient` (`ISpeechT
 `SharplightTextToSpeechClient` (`ITextToSpeechClient` over an `ISpeechSynthesizer`, WAVE output) and `SharplightImageGenerator`
 (`IImageGenerator` over a Sharplight image generator, PNG output). `services.AddSharplightSpeechToTextClient(key)`,
 `.AddSharplightTextToSpeechClient(key)` and `.AddSharplightImageGenerator(key)` wrap the container's task clients.
+
+## 7. Precompilation: portable code and device code for every provider
+
+Every execution provider implements a two-stage code generation contract on `IExecutionProvider`; the CPU returns empty sets, so
+hosts treat all providers alike (details and the Metal mapping: [model-format.md](model-format.md#two-stage-precompilation)).
+
+```csharp
+using var services = SharplightDefaults.CreateServiceProvider();
+foreach (var (provider, availability) in services.GetRequiredService<ExecutionProviderCatalog>().Discover().Where(p => p.Availability.IsAvailable))
+{
+    foreach (var info in provider.GetDevices())
+    {
+        using var device = provider.OpenDevice(info);
+        // Stage 1: portable code (SPIR-V for Vulkan) for the device's profile; needs no driver, works for absent devices too.
+        PortableCodeSet portable = await provider.CompilePortableAsync(new PortableCompilationRequest(device.CreateProfile(), workload), ct);
+        // Stage 2: the driver's compiled form for exactly this device and driver (Vulkan: pipeline binaries or a pipeline cache).
+        DeviceCodeSet binaries = await provider.CompileDeviceSpecificAsync(device, portable, ct);
+        ModelPackage.AddArtifacts(path, [portable.ToArtifactSet(), binaries.ToArtifactSet()]);
+    }
+}
+```
+
+`workload` (a `CompilationWorkload`) compiles the model's graphs on the device it is given, recording into the
+`CompilationArtifacts` it is given. For packages, `PackagePrecompiler.PrecompileAsync(path, providers, options, progress, ct)` does
+all of this: the loaders' graphs as the workload, identical devices sharing their sets, a `PackagePrecompileReport`, and one
+crash-safe in-place write. Loads pick the best stored stage per kernel on their own (device binary, else portable code, else
+compile), and validate device code before the driver sees it. After a load, `CompilationArtifacts.CompileDeviceCodeAsync(providers)`
+turns what it compiled into device code (`LlmModel.Artifacts`, `TaskModel.Artifacts`).
+
+The same artifact sets also live in a second place: the per-user `ArtifactStore` (`sharplight/artifacts` in the local application
+data folder). It uses the descriptors, set ids, keys, tiers and matching of the sets in a package, one subdirectory per set with
+its descriptor in `descriptor.json`. Loads look in the package's sets first, then in the store, and only then compile. New SPIR-V
+is written to the store, and so is the driver's pipeline cache, in the pipeline-cache set of the device and driver. Packages change
+only when a host precompiles or converts on purpose. The store helps whenever a package cannot: GGUF, Hugging Face and ONNX models
+loaded straight from their files, graphs built in code (tests), and kernel development (entries are content addressed, so only
+changed kernels compile again). Device code a host made for such a model can be kept there with `ArtifactStore.Add(deviceCodeSet)`.
+Every entry file holds its key and a SHA-256, and every descriptor must hash to its directory name, so damaged, foreign or stale
+entries are ignored rather than trusted. Writes are atomic, several processes can share the store, and it is size capped
+(least recently used entries are evicted past 2 GiB). `SHARPLIGHT_COMPILATION_CACHE=<dir>` moves the store, `=off` turns it off,
+and per device `DeviceOptions.KernelCacheDirectory` picks the directory and `DeviceOptions.UseCompilationCache = false` turns it
+off.
+
+```csharp
+var options = new DeviceOptions { KernelCacheDirectory = "/data/sharplight-artifacts" };  // or leave it null: the per-user store
+using var device = provider.OpenDevice(info, options);
+ArtifactStore? store = device.ArtifactStore;                // the store this device reads and records into
+foreach (var set in store?.ArtifactSets ?? [])
+{
+    Console.WriteLine(ArtifactDescriptor.Format(set.Descriptor));
+}
+```
 
 ## Conventions
 

@@ -76,9 +76,20 @@ internal sealed class ModelLibrary : IModelLibrary
         return destination;
     }
 
+    /// <inheritdoc/>
+    public Task<LibraryEntry> ReloadAsync(LibraryEntry entry, CancellationToken cancellationToken)
+    {
+        return Task.Run(() => entry.Manifest is { } manifest ? FromManifest(manifest) : FromFile(entry.Path), cancellationToken);
+    }
+
+    /// <summary>
+    /// A stored model. Size and precompiled sets come from the package itself, not the manifest, so they stay right when the package is
+    /// precompiled again after the pull.
+    /// </summary>
     private static LibraryEntry FromManifest(ModelManifest manifest)
     {
         var inspected = ModelInspector.Inspect(manifest.PackagePath);
+        var file = new FileInfo(manifest.PackagePath);
         return new LibraryEntry
         {
             Id = manifest.ShortName,
@@ -87,13 +98,13 @@ internal sealed class ModelLibrary : IModelLibrary
             Architecture = manifest.Architecture ?? inspected.Architecture,
             Quantization = manifest.Tag.Length == 0 ? null : manifest.Tag,
             Format = manifest.Format.ToString(),
-            SizeBytes = manifest.PackageBytes,
+            SizeBytes = file.Exists ? file.Length : manifest.PackageBytes,
             Capabilities = inspected.Capabilities,
             TrainedContextLength = inspected.ContextLength,
             Kind = inspected.Kind,
             KindInferred = inspected.KindInferred,
             AddedAt = manifest.PulledAt,
-            Precompiled = manifest.Precompiled,
+            Precompiled = inspected.Precompiled,
             Manifest = manifest,
         };
     }
@@ -119,6 +130,7 @@ internal sealed class ModelLibrary : IModelLibrary
             Kind = inspected.Kind,
             KindInferred = inspected.KindInferred,
             AddedAt = directory ? null : File.GetLastWriteTimeUtc(path),
+            Precompiled = inspected.Precompiled,
         };
     }
 }

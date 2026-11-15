@@ -4,7 +4,8 @@ namespace Sharplight.Convert;
 
 /// <summary>Parsed <c>precompile</c> options.</summary>
 /// <param name="PackagePath">The package to compile and append to.</param>
-/// <param name="Device">The live device to compile on, or null when compiling for <paramref name="Profile"/>.</param>
+/// <param name="Device">The live device to compile for, or null when compiling for every device or <paramref name="Profile"/>.</param>
+/// <param name="AllDevices">Compile for every device of every available provider.</param>
 /// <param name="Profile">The device profile to compile for without the device, or null when compiling on <paramref name="Device"/>.</param>
 /// <param name="Tiers">Artifact tiers to store (<see cref="ArtifactTiers"/>), or null for every tier the device produces.</param>
 /// <param name="DisabledFeatures">Device features not to use, as when the model runs with <c>--disable-features</c>.</param>
@@ -18,6 +19,7 @@ namespace Sharplight.Convert;
 internal sealed record PrecompileSettings(
     string PackagePath,
     DeviceSpec? Device,
+    bool AllDevices,
     DeviceProfile? Profile,
     IReadOnlySet<string>? Tiers,
     IReadOnlyList<string> DisabledFeatures,

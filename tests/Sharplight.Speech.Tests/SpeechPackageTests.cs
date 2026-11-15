@@ -3,6 +3,7 @@ using Sharplight.Audio;
 using Sharplight.Models;
 using Sharplight.Package;
 using Sharplight.Runtime;
+using Sharplight.Vulkan;
 using Xunit;
 
 namespace Sharplight.Speech.Tests;
@@ -65,7 +66,9 @@ public sealed class SpeechPackageTests : IDisposable
         string package = Path.Combine(_directory, "tiny.en.slm");
         TestHost.Converter.Convert(source, package);
         var logs = new List<string>();
-        PackagePrecompiler.Precompile(package, SpeechEnvironment.OpenVulkan, new PrecompileOptions { Log = logs.Add });
+        var vulkan = new VulkanProvider();
+        await PackagePrecompiler.PrecompileAsync(package, vulkan, vulkan.GetDevices()[0], new PrecompileOptions { Log = logs.Add },
+            cancellationToken: TestContext.Current.CancellationToken);
         Assert.Contains(logs, l => l.Contains("Component 'encoder'", StringComparison.Ordinal));
         Assert.Contains(logs, l => l.Contains("Component 'decoder'", StringComparison.Ordinal));
         Assert.NotEmpty(ModelPackageReader.Open(package).ArtifactSets);

@@ -483,7 +483,7 @@ public sealed partial class GraphLowerer
             return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), blockRows), (uint)keySplits));
         }
 
-        return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 32), (uint)Rows(b, runs)));
+        return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), blockRows), (uint)Rows(b, runs)));
     }
 
     /// <summary>
@@ -505,14 +505,16 @@ public sealed partial class GraphLowerer
     /// queries per workgroup, query fragments and output accumulators in registers, K/V tiles fetched one tile ahead, blocks
     /// only read the keys their last query sees) instead of <c>fa</c> (32 queries, scores and outputs staged through shared
     /// memory, five workgroup barriers per key tile): plain causal attention over f32 or f16 K/V with padded head sizes up to
-    /// 128, opt-in with <c>SHARPLIGHT_ATTN_FE_CAUSAL=1</c> because its sums round differently and change greedy output (OLMoE,
-    /// Nemotron-3-Nano). RTX PRO 4500, pp2048 in 512-token chunks: Qwen3-0.6B Q8_0 +30-50 %, Llama-3.2-1B / Gemma-3-1B Q8_0
-    /// +5-10 %. Windows, chunks, score biases, soft caps, sinks and the multi-sequence form keep <c>fa</c>.
+    /// 128, unless <c>SHARPLIGHT_ATTN_FE_CAUSAL=0</c> (its sums round differently from <c>fa</c>'s). RTX PRO 4500, pp2048 in
+    /// 512-token chunks: Qwen3-0.6B Q8_0 +38 %, Qwen3-8B +7.5 %, Llama-3.2-1B +7 %, Mistral-7B +6 %. Multi-sequence steps run
+    /// it per run (also in mixed steps), with the tiles of the single-sequence form, so a prompt's rows sum alike in the session
+    /// and the batch decoder (speculative decoding reproduces plain decoding). Windows, chunks, score biases, soft caps and
+    /// sinks keep <c>fa</c>.
     /// </summary>
     private bool CausalFlash(AttentionPlan plan)
     {
         var a = plan.Node.Attributes;
-        bool plain = !plan.Full && plan.Runs is null && plan.Seq is null && plan.Spans is null && plan.Sinks is null && plan.Selection is null
+        bool plain = !plan.Full && (plan.Seq is null || plan.Runs is not null) && plan.Spans is null && plan.Sinks is null && plan.Selection is null
                      && plan.Compressed is null && plan.RelativeBias is null && a.Get("causal", true) && a.Get("window", 0) == 0
                      && a.Get("chunk", 0) == 0 && a.Get("softcap", 0f) <= 0 && a.Get<float[]?>("alibi_slopes", null) is null
                      && a.Get<float[]?>("position_bias", null) is null;
@@ -791,8 +793,16 @@ public sealed partial class GraphLowerer
             ["DEC_SPLIT_ROWS"] = decode.MaxRows.ToString(CultureInfo.InvariantCulture),
         };
         var flashMacros = new Dictionary<string, string>(plan.Macros) { ["MIX_RUN"] = MixedFlashMinRunRows.ToString(CultureInfo.InvariantCulture) };
+        bool causal = CausalFlash(plan);
+        if (causal)
+        {
+            // The same kernel as the flash variant, so a prompt's rows sum alike in mixed and prompt-only steps.
+            flashMacros["FA_SPLIT"] = SplitFlash(plan) ? "1" : "0";
+            flashMacros["FA_KSPLIT"] = "1";
+            flashMacros["FE_CAUSAL"] = "1";
+        }
         return (new KernelVariant(when, Lib("attention.slang", "decode", decodeMacros), b => new Grid((uint)decode.Groups, (uint)Rows(b, q), 1)),
-            new KernelVariant(when, Lib("attention.slang", "fa", flashMacros), b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 32), (uint)Rows(b, runs))));
+            new KernelVariant(when, Lib("attention.slang", causal ? "fe" : "fa", flashMacros), b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), causal ? 64 : 32), (uint)Rows(b, runs))));
     }
 
     /// <summary>Merges the partials of the rows that split-K decoding ran in more than one key range.</summary>

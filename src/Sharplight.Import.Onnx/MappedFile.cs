@@ -15,16 +15,13 @@ internal sealed unsafe class MappedFile : IDisposable
     public MappedFile(string path)
     {
         Path = path;
-        // The stream's length is the target's when the path is a symbolic link (FileInfo reports the link's own size).
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        Length = stream.Length;
+        Length = FileLength(path);
         if (Length == 0)
         {
-            stream.Dispose();
             throw new InvalidDataException($"{path} is empty.");
         }
 
-        _mmf = MemoryMappedFile.CreateFromFile(stream, null, 0, MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
+        _mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
         _view = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
         _view.SafeMemoryMappedViewHandle.AcquirePointer(ref _base);
         _base += _view.PointerOffset;
@@ -49,5 +46,12 @@ internal sealed unsafe class MappedFile : IDisposable
         }
         _view.Dispose();
         _mmf.Dispose();
+    }
+
+    /// <summary>The size of the file <paramref name="path"/> names, following symbolic links (<see cref="FileInfo.Length"/> reports the link's own size).</summary>
+    private static long FileLength(string path)
+    {
+        using var handle = File.OpenHandle(path);
+        return RandomAccess.GetLength(handle);
     }
 }

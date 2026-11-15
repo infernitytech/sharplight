@@ -39,6 +39,13 @@ public sealed class AdapterOptions
     public Tensors.DataType RecurrentStateType { get; set; } = Tensors.DataType.F32;
 
     /// <summary>
+    /// Fixed sizes for graphs whose spatial shapes depend on the input (e.g. <c>height</c> and <c>width</c> in pixels of an image
+    /// generator's denoiser and VAE graphs), by name; empty for the model's native sizes. Adapters document the names they read;
+    /// <c>TaskModel.DefinitionFor</c> rebuilds a model with other sizes through this option.
+    /// </summary>
+    public IReadOnlyDictionary<string, long> Dimensions { get; init; } = new Dictionary<string, long>();
+
+    /// <summary>
     /// The type of a KV cache whose rows (per position and head) hold <paramref name="rowLength"/> values: <see cref="KvCacheType"/>,
     /// or f16 when that type is block-quantized and the row is not a whole number of blocks.
     /// </summary>
@@ -65,6 +72,15 @@ public sealed class AdapterOptions
     {
         KvCacheType = kvCacheType, IncludeAuxiliaryGraphs = IncludeAuxiliaryGraphs, ContextLength = contextLength,
         EmbeddingPooling = EmbeddingPooling, EmbeddingNormalize = EmbeddingNormalize, OptimizeGraphs = OptimizeGraphs,
-        RecurrentStateType = recurrentStateType,
+        RecurrentStateType = recurrentStateType, Dimensions = Dimensions,
+    };
+
+    /// <summary>Returns a copy of these options with other <see cref="Dimensions"/>.</summary>
+    /// <param name="dimensions">The sizes by name.</param>
+    public AdapterOptions WithDimensions(IReadOnlyDictionary<string, long> dimensions) => new()
+    {
+        KvCacheType = KvCacheType, IncludeAuxiliaryGraphs = IncludeAuxiliaryGraphs, ContextLength = ContextLength,
+        EmbeddingPooling = EmbeddingPooling, EmbeddingNormalize = EmbeddingNormalize, OptimizeGraphs = OptimizeGraphs,
+        RecurrentStateType = RecurrentStateType, Dimensions = dimensions,
     };
 }

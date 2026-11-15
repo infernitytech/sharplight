@@ -73,6 +73,7 @@ public static class SharplightServerExtensions
 
             routes.MapSharplightRetrieval();
             routes.MapSharplightAudio();
+            routes.MapSharplightImages();
             return routes;
         }
 

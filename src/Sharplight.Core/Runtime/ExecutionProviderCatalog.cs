@@ -58,24 +58,17 @@ public sealed class ExecutionProviderCatalog
     }
 
     /// <summary>
-    /// Opens a compile-only device for <paramref name="profile"/> (see <see cref="IOfflineCompilationProvider.OpenProfile"/>) through
-    /// the first provider that compiles for it, without probing drivers.
+    /// Finds the first provider whose portable stage generates code for <paramref name="profile"/>
+    /// (<see cref="IExecutionProvider.CanCompileFor"/>), for offline precompilation (<see cref="IExecutionProvider.CompilePortableAsync"/>),
+    /// without probing drivers.
     /// </summary>
     /// <param name="profile">The device profile.</param>
-    /// <param name="options">Device options, or <see langword="null"/> for the defaults.</param>
-    /// <returns>The device; the caller disposes it.</returns>
-    /// <exception cref="NotSupportedException">No registered provider compiles for the profile.</exception>
-    public IComputeDevice OpenProfile(DeviceProfile profile, DeviceOptions? options = null)
+    /// <param name="provider">The provider (owned by the catalog's container), or <see langword="null"/> when none compiles for the profile.</param>
+    /// <returns><see langword="true"/> when a provider was found.</returns>
+    public bool TryFindForProfile(DeviceProfile profile, [NotNullWhen(true)] out IExecutionProvider? provider)
     {
         ArgumentNullException.ThrowIfNull(profile);
-        foreach (var provider in _providers)
-        {
-            if (provider is IOfflineCompilationProvider offline && offline.CanCompileFor(profile))
-            {
-                return offline.OpenProfile(profile, options);
-            }
-        }
-
-        throw new NotSupportedException($"No registered provider compiles for {profile}.");
+        provider = _providers.FirstOrDefault(p => p.CanCompileFor(profile));
+        return provider is not null;
     }
 }

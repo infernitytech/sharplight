@@ -551,13 +551,19 @@ public sealed class LlmModel : IDisposable
     private ICompilationCache? CacheFor(IComputeDevice device) => _artifacts.For(device);
 
     /// <summary>
-    /// Compilation artifacts of every graph compiled so far (call after <see cref="CreateSession"/>), one set per device artifact
-    /// target (<see cref="IComputeDevice.ArtifactTargets"/>: e.g. a code tier with the kernels and a binary tier with the driver
-    /// pipeline cache). Store them with the model source (e.g. Sharplight.Package's <c>ModelPackage.Save</c> or
-    /// <c>ModelPackage.AddArtifacts</c>) so later loads skip kernel compilation.
+    /// The portable code of every graph compiled so far (call after <see cref="CreateSession"/>): the code tier of each device's profile
+    /// (<see cref="ArtifactTiers.Code"/>, e.g. SPIR-V). Store it with the model source (e.g. Sharplight.Package's <c>ModelPackage.Save</c> or
+    /// <c>ModelPackage.AddArtifacts</c>) so later loads skip kernel generation; add device code with
+    /// <see cref="CompilationArtifacts.CompileDeviceCodeAsync"/> of <see cref="Artifacts"/>.
     /// </summary>
     /// <param name="tiers">Only sets of these tiers (<see cref="ArtifactTiers"/>), or <see langword="null"/> for all.</param>
     public IReadOnlyList<CompilationCache> ExportCompilation(IReadOnlySet<string>? tiers = null) => _artifacts.Export(tiers);
+
+    /// <summary>
+    /// The compilation artifacts of the model: seeded from the sets stored with it, recording everything its graphs compile (see
+    /// <see cref="ExportCompilation"/>).
+    /// </summary>
+    public CompilationArtifacts Artifacts => _artifacts;
 
     /// <summary>Releases the weight memory (mapped files, host buffers). Sessions and decoders created from the model must be disposed first.</summary>
     public void Dispose()

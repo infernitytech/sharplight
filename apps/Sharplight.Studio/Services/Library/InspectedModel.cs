@@ -8,4 +8,6 @@ namespace Sharplight.Studio.Services.Library;
 /// <param name="Architecture">The architecture id, when known.</param>
 /// <param name="Kind">The model kind (<see cref="Sharplight.Models.ModelKinds"/>).</param>
 /// <param name="KindInferred">The kind is a guess from the file type: the file has no model description to read.</param>
-internal sealed record InspectedModel(ModelCapabilities Capabilities, int? ContextLength, string? Architecture, string Kind, bool KindInferred);
+/// <param name="Precompiled">Descriptors (formatted) of the precompiled artifact sets stored in the package.</param>
+internal sealed record InspectedModel(ModelCapabilities Capabilities, int? ContextLength, string? Architecture, string Kind, bool KindInferred,
+    IReadOnlyList<string> Precompiled);

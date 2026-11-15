@@ -68,8 +68,29 @@ internal sealed partial class ArtifactSetViewModel : ObservableObject
     /// <summary>Length of the section.</summary>
     public long SectionLength { get; }
 
-    /// <summary><c>provider · tier</c> for the list.</summary>
-    public string Heading => IsLegacy ? $"{Provider} · {Tier} · version 1" : $"{Provider} · {Tier}";
+    /// <summary>
+    /// The precompilation stage the set holds: portable code (code tier, generated for a device profile), device code (binary tier,
+    /// compiled by one device's driver) or the mixed kernel sets of version 1 packages.
+    /// </summary>
+    public string Stage => Tier switch
+    {
+        ArtifactTiers.Code => "Portable code",
+        ArtifactTiers.Binary => "Device code",
+        ArtifactTiers.Mixed => "Legacy kernels",
+        _ => Tier,
+    };
+
+    /// <summary>Sort order of <see cref="Stage"/>: portable, device, legacy, others.</summary>
+    public int StageOrder => Tier switch
+    {
+        ArtifactTiers.Code => 0,
+        ArtifactTiers.Binary => 1,
+        ArtifactTiers.Mixed => 2,
+        _ => 3,
+    };
+
+    /// <summary><c>provider · stage</c> for the list.</summary>
+    public string Heading => IsLegacy ? $"{Provider} · {Stage} · version 1" : $"{Provider} · {Stage}";
 
     /// <summary>Kind, entry count and size for the list.</summary>
     public string Label => $"{Kind} · {ByteFormat.Count(EntryCount, "entry", "entries")} · {ByteFormat.Format(TotalBytes)}";
@@ -147,9 +168,10 @@ internal sealed partial class ArtifactSetViewModel : ObservableObject
         ArtifactDescriptorKeys.Tier => 1,
         ArtifactDescriptorKeys.Kind => 2,
         ArtifactDescriptorKeys.Target => 3,
-        ArtifactDescriptorKeys.Vendor => 4,
-        ArtifactDescriptorKeys.Device => 5,
-        ArtifactDescriptorKeys.Driver => 6,
+        ArtifactDescriptorKeys.DeviceName => 4,
+        ArtifactDescriptorKeys.Vendor => 5,
+        ArtifactDescriptorKeys.Device => 6,
+        ArtifactDescriptorKeys.Driver => 7,
         _ => 10,
     };
 }

@@ -75,6 +75,9 @@ public static class CanonicalKeys
     public const string TokenizerLowercase = "tokenizer.lowercase";
     /// <summary>WordPiece / text normalization: strip accents (bool; defaults to the lowercase setting like BERT).</summary>
     public const string TokenizerStripAccents = "tokenizer.strip_accents";
+
+    /// <summary>Characters (string) a unigram tokenizer removes before tokenizing, with the text lower-cased by <see cref="TokenizerLowercase"/>.</summary>
+    public const string TokenizerStripChars = "tokenizer.strip_chars";
     /// <summary>Longest input in tokens the model was trained for (int; embedding / reranking models).</summary>
     public const string TokenizerMaxLength = "tokenizer.max_length";
 

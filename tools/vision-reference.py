@@ -15,7 +15,7 @@ import os
 import numpy as np
 import torch
 from PIL import Image
-from transformers import AutoConfig, AutoImageProcessor, AutoModel, AutoModelForImageClassification, AutoTokenizer
+from transformers import AutoModelForDepthEstimation, AutoConfig, AutoImageProcessor, AutoModel, AutoModelForImageClassification, AutoModelForObjectDetection, AutoTokenizer
 
 
 def main() -> None:
@@ -23,6 +23,7 @@ def main() -> None:
     parser.add_argument("model_dir")
     parser.add_argument("image")
     parser.add_argument("--text", action="append", default=[])
+    parser.add_argument("--size", type=int, default=0, help="resize to a square of this side (detection models with a fixed-size graph)")
     args = parser.parse_args()
 
     image = Image.open(args.image).convert("RGB")
@@ -30,21 +31,46 @@ def main() -> None:
     image = Image.open(os.path.join(args.model_dir, "sharplight-sample.png")).convert("RGB")
     config = AutoConfig.from_pretrained(args.model_dir)
     processor = AutoImageProcessor.from_pretrained(args.model_dir)
-    pixels = processor(images=image, return_tensors="pt")["pixel_values"]
+    extra = {"size": {"height": args.size, "width": args.size}} if args.size else {}
+    if args.size and config.model_type in ("depth_anything", "dpt"):
+        extra["keep_aspect_ratio"] = False
+    pixels = processor(images=image, return_tensors="pt", **extra)["pixel_values"]
     result: dict = {"model_type": config.model_type, "pixel_sample": pixels.flatten()[:16].tolist()}
 
     with torch.no_grad():
         if config.model_type in ("clip", "siglip"):
             model = AutoModel.from_pretrained(args.model_dir).eval()
-            result["image_embedding"] = model.get_image_features(pixel_values=pixels)[0].tolist()
+            # Projected features computed from the towers (the return type of get_*_features differs between transformers versions).
+            project_image = model.visual_projection if config.model_type == "clip" else (lambda x: x)
+            project_text = model.text_projection if config.model_type == "clip" else (lambda x: x)
+            result["image_embedding"] = project_image(model.vision_model(pixel_values=pixels).pooler_output)[0].tolist()
             if args.text:
                 tokenizer = AutoTokenizer.from_pretrained(args.model_dir)
                 padding = "max_length" if config.model_type == "siglip" else True
                 tokens = tokenizer(args.text, padding=padding, max_length=64 if config.model_type == "siglip" else None, return_tensors="pt")
                 result["texts"] = args.text
-                result["text_embeddings"] = model.get_text_features(**tokens).tolist()
+                result["token_ids"] = tokens["input_ids"].tolist()
+                result["text_embeddings"] = project_text(model.text_model(**tokens).pooler_output).tolist()
                 outputs = model(pixel_values=pixels, **tokens)
                 result["logits_per_image"] = outputs.logits_per_image[0].tolist()
+        elif getattr(config, "architectures", None) and "ForObjectDetection" in config.architectures[0]:
+            model = AutoModelForObjectDetection.from_pretrained(args.model_dir).eval()
+            outputs = model(pixel_values=pixels)
+            result["logits"] = outputs.logits[0].flatten().tolist()
+            result["logits_shape"] = list(outputs.logits[0].shape)
+            result["boxes"] = outputs.pred_boxes[0].flatten().tolist()
+            found = processor.post_process_object_detection(outputs, threshold=0.5, target_sizes=[(image.height, image.width)])[0]
+            result["detections"] = [
+                {"label": model.config.id2label[int(l)], "score": float(sc), "box": [float(v) for v in b]}
+                for sc, l, b in zip(found["scores"], found["labels"], found["boxes"])
+            ]
+        elif getattr(config, "architectures", None) and "ForDepthEstimation" in config.architectures[0]:
+            model = AutoModelForDepthEstimation.from_pretrained(args.model_dir).eval()
+            depth = model(pixel_values=pixels).predicted_depth[0]
+            result["depth_shape"] = list(depth.shape)
+            result["depth"] = depth.flatten().tolist()
+            resized = torch.nn.functional.interpolate(depth[None, None], size=(image.height, image.width), mode="bilinear", align_corners=False)[0, 0]
+            result["depth_resized_sample"] = resized.flatten()[::997].tolist()
         elif getattr(config, "architectures", None) and "ForImageClassification" in config.architectures[0]:
             model = AutoModelForImageClassification.from_pretrained(args.model_dir).eval()
             outputs = model(pixel_values=pixels, output_hidden_states=True)

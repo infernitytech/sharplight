@@ -162,15 +162,17 @@ public class ModelDescriptionPackageTests
     }
 
     [Fact]
-    public void PrecompilationCompilesEveryComponentGraph()
+    public async Task PrecompilationCompilesEveryComponentGraph()
     {
         using var tmp = new TempDir();
         var path = tmp.File("speech.slm");
         ModelPackage.Save(path, SpeechDefinition(), []);
-        var result = PackagePrecompiler.Precompile(path, _ => new RecordingArtifactDevice(s_cpu.Value), new PrecompileOptions
+        var provider = new FakeCodeProvider(s_cpu.Value, ["1"]);
+        var result = await PackagePrecompiler.PrecompileAsync(path, [provider], new PrecompileOptions
         {
             SymbolBounds = new Dictionary<string, long> { ["T"] = 4 },
-        });
+            Tiers = new HashSet<string> { ArtifactTiers.Code },
+        }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Single(result.StoredSets);
         using var file = new PackageFile(path);

@@ -9,8 +9,8 @@ public static class ArchitectureServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the built-in architecture adapters (decoder, encoder, encoder-decoder, hybrid, recurrent, latent-attention, image-encoder and multimodal
-        /// families), the multimodal prompt assembly of the Qwen-VL family, the text-to-speech families (OuteTTS with the WavTokenizer
+        /// Adds the built-in architecture adapters (decoder, encoder, encoder-decoder, hybrid, recurrent, latent-attention, image-encoder, image-text, detection, depth, latent-diffusion and
+        /// multimodal families), the multimodal prompt assembly of the Qwen-VL family, the text-to-speech families (OuteTTS with the WavTokenizer
         /// decoder as its <see cref="AuxiliaryRoles.Vocoder"/> source, and its <see cref="Sharplight.Speech.ISpeechSynthesizer"/> factory),
         /// and the drafter architectures that only load as the <see cref="AuxiliaryRoles.Draft"/> source of another model. Idempotent. <c>services.AddSharplight()</c> of the
         /// Sharplight.Defaults package calls it.
@@ -31,6 +31,11 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<Rwkv6Adapter>()
                 .AddModelAdapter<LatentDecoderAdapter>()
                 .AddModelAdapter<ImageEncoderAdapter>()
+                .AddModelAdapter<ImageTextAdapter>()
+                .AddModelAdapter<DetrAdapter>()
+                .AddModelAdapter<RtDetrAdapter>()
+                .AddModelAdapter<DepthEstimationAdapter>()
+                .AddModelAdapter<LatentDiffusionAdapter>()
                 .AddCompositeModelAdapter<OuteTtsAdapter>()
                 .AddTaskClientFactory<OuteTtsSynthesizerFactory>()
                 .AddAuxiliaryArchitecture(WavTokenizerParameters.Architecture, AuxiliaryRoles.Vocoder)

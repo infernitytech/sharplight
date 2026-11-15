@@ -701,6 +701,35 @@ Tiny random checkpoints (weights random, structure real) are for graph/shape/map
 | Qwen3-Coder-Next | 18.3 MB | model_type `qwen3_next`, config + tokenizer + safetensors index only (weights deliberately not downloaded: too large) |
 | Qwen3.6-35B-A3B | 23.0 MB | model_type `qwen3_5_moe`, config + tokenizer + safetensors index only (weights deliberately not downloaded: too large) |
 
+### 8.3 Regenerating the test assets
+
+The tests skip a case whose model file is missing, so a fresh machine only needs the files below (no network access at test time). Use a
+Python venv (torch CPU, transformers 5.23, gguf, safetensors, sentencepiece, huggingface_hub, diffusers, onnx) and a llama.cpp checkout
+(`LLAMA_SRC`, a build of 8ca5a80 / b11177 for the llama.cpp references). `MODELS` is `~/models`.
+
+| Asset | How |
+|---|---|
+| `hf/tiny-random-*` that come from the Hub | `huggingface_hub.snapshot_download` of `hf-internal-testing/tiny-random-<Class>`, `tiny-random/<name>` (the local name is `tiny-random-<name>`), `optimum-internal-testing/` and `katuni4ka/`; `tiny-random-nemotron-h` is `optimum-intel-internal-testing/tiny-random-nemotron-h`. Repositories that ship only `pytorch_model.bin` get a safetensors file from `tools/model-assets/bin_to_safetensors.py` |
+| `hf/tiny-random-*` made here | `tests/Sharplight.Families.Tests/tools/mk_tiny_*.py` (the usage line of each script), seeds fixed; they print the transformers greedy ids that the case files hold. The tokenizer-only inputs are Hub files: `Qwen2.5-0.5B-Instruct`, `ERNIE-4.5-0.3B-PT`, `gemma-4-E2B-it`, `Qwen3.5-0.8B`, `Llama-3.2-1B-Instruct`, `DeepSeek-OCR`, `HunyuanOCR`, `google/paligemma-3b-pt-224` (gated: `HF_TOKEN`) |
+| remote-code generators (kimi_k3, k2_horizon, xing4_0, clef, vllm_decision2, cogvlm, `mk_tiny_remote_code.py` families) | run the model repository's own code: `tools/model-assets/stage_remote.py` downloads code and configs first, `tools/model-assets/run_remote_sandboxed.sh` then runs them in a venv of their own with an empty environment (no tokens) and offline flags |
+| `gguf/tiny-random-*-f32.gguf` of HF checkpoints | `tools/model-assets/convert_all.py` (llama.cpp's converter through `convert_tiny_gguf.py`; `TINY_PRE=falcon` for the Falcon file, `TINY_PRE=auto` for the real tokenizers of glm4v, hunyuan-vl and deepseek-ocr, `TINY_CONVERT_ARGS=--mtp` for the MTP draft file of nemotron-h, `--no-mtp` for its trunk) |
+| `gguf/tiny-random-*-f32.gguf` of llama.cpp-only families | `mk_tiny_gguf.py <falcon GGUF> <out dir>`; the Falcon GGUF supplies the tokenizer and **must carry the `falcon` pre-tokenizer** (otherwise every prompt tokenizes differently and the llama.cpp ids change) |
+| GGUF references | `tools/model-assets/llamacpp_ids.py <runtime dir> <gguf> <prompt> <n>` (llama-server, CPU, greedy, `return_tokens`) |
+| `sd/`, `whisper.cpp/`, `audio/jfk.wav` | `ggerganov/whisper.cpp` (`ggml-*.bin`), `stable-diffusion-v1-5/stable-diffusion-v1-5` (diffusers files, `v1-5-pruned-emaonly.safetensors`), `second-state/stable-diffusion-v1-5-GGUF`, whisper.cpp `samples/jfk.wav`; the tiny SD pipeline is `tools/make-tiny-diffusion-models.py` (wip/diffusers) |
+| `onnx/` | `bench/onnx/download_models.py`; the conformance data with `tools/gen-onnx-node-tests.py`, `gen-onnx-ml-tests.py`, `gen-onnx-contrib-tests.py` in a venv with onnx 1.23.2 and onnxruntime 1.31 |
+
+Not reproducible from public sources alone: the `-sparse` variants (their seeds, budgets and prompts are arguments of `mk_tiny_dsa_sparse.py`,
+`mk_tiny_group_sparse.py` and `mk_tiny_qwen4exp_sparse.py` that were not recorded).
+
+Converter notes. A GGUF made from a checkpoint with a real tokenizer (lfm3-hf, clef, vllm-decision2, glm4v, hunyuan-vl, deepseek-ocr) needs `TINY_PRE=auto`: with the default
+GPT-2 pre-tokenizer llama.cpp splits the prompt differently from transformers (clef: `\n\n` as two tokens) and every id differs; `convert_all.py` sets it per
+name. `convert_tiny_gguf.py` copies sub-directories (the `backbone/` of a Decision 2.0 package). The GGUF references of the minimax-m2 file come from
+llama.cpp b11177 (CPU) and those of the lfm3 files from 8ca5a80 (b11177 predates lfm3).
+
+Still missing (cannot be rebuilt from what is recorded): `kimi_k3` / `kimi-k31*` and the `-sparse` variants (seeds unknown), `gguf/tiny-random-clover-moe*.gguf`
+(the retargeting script `retarget_gguf.py` that the case comment names was never committed), and the cogvlm GGUF + mmproj (the stock converter cannot
+read the original cogvlm config).
+
 ## 9. Reproducing the references
 
 ```bash
@@ -1077,15 +1106,80 @@ Tests: `tests/Sharplight.Speech.Tests` (`WhisperTransformersParityTests`, `Whisp
 
 ## 14. Vision models (task layer)
 
-Vision models run through the task layer (kinds `image-classification`, `image-embedding`; see docs/api-overview.md "Tasks"). The host-side
+Vision models run through the task layer (kinds `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`; see docs/api-overview.md "Tasks"). The host-side
 preprocessing is the neutral `ImageProcessorConfig` stored with the model. Reference outputs come from `tools/vision-reference.py`
-(transformers, CPU) on one sample image; checkpoints live in `~/models/vision/<name>`.
+(transformers, CPU) on one sample image (`--size 640` for the fixed-canvas detectors); checkpoints live in `~/models/vision/<name>`.
 
 | Model | Importer | Kind | Status | Parity vs transformers (relative rms, CPU / Vulkan) |
 |---|---|---|---|---|
 | ViT (`google/vit-base-patch16-224`) | HF `vit` | image-classification | supported, same top-1 | 1.2e-3 / 1.2e-3 (logits) |
 | DINOv2 (`facebook/dinov2-small`, 518 px table resampled to the 224 px processor grid, LayerScale, registers) | HF `dinov2`, `dinov2_with_registers` | image-embedding | supported | 1.2e-3 / 1.2e-3 (CLS embedding) |
-| CLIP, SigLIP (image + text towers, zero-shot) | - | image-embedding | not yet (`IImageEmbedder` already has the text API) | - |
-| DETR, RT-DETR, YOLO, SAM 2, Mask2Former, Depth Anything, DPT, TrOCR, Florence-2, Real-ESRGAN, SwinIR | - | - | not started | - |
+| CLIP (`openai/clip-vit-base-patch32`: image tower with projection, causal text tower pooled at the end-of-text token, CLIP byte-level BPE tokenizer) | HF `clip` | image-embedding (+ text) | supported: `EmbedImageAsync`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | image 2.6e-3, text 1e-6, zero-shot logits 4.5e-4 (identical on both backends) |
+| SigLIP (`google/siglip-base-patch16-224`: attention-pooling head, bidirectional text tower padded to 64 tokens, unigram tokenizer with SigLIP's lower-casing and punctuation removal, sigmoid scoring) | HF `siglip` | image-embedding (+ text) | supported, same API | image 2.2e-3, text 1e-6, zero-shot logits 6.3e-4 |
+| DETR (`facebook/detr-resnet-50`: timm ResNet-50 with folded frozen batch norm, 6+6 layer transformer, 100 queries) | HF `detr` | object-detection | supported: same four detections, boxes within 2 px, scores within 0.02 | CPU = Vulkan (identical detections) |
+| RT-DETR (`PekingU/rtdetr_r18vd`: ResNet-D backbone, hybrid encoder with AIFI and CSP-RepVGG FPN/PAN, top-k query selection with anchors, multi-scale deformable attention through `GridSample`, box refinement) | HF `rt_detr` | object-detection | supported: same five detections | CPU = Vulkan |
+| Depth Anything V2 (`depth-anything/Depth-Anything-V2-Small-hf`: DINOv2 backbone with four tapped layers, DPT reassemble and feature-fusion neck, convolutional head; relative depth) | HF `depth_anything` | depth-estimation | supported: `IDepthEstimator.EstimateAsync` | depth map 1.5e-4 (CPU = Vulkan) |
+| SAM 2 (promptable segmentation), Mask2Former, DPT (other heads), YOLO, TrOCR, Florence-2, Real-ESRGAN, SwinIR | - | - | not started | - |
 
-The residual 1e-3 is the resize (Pillow rounds to 8 bits per pass; the sample's pixel difference is not yet bit-exact), identical on both backends.
+The residual 1e-3 of the image towers is the resize (Pillow rounds to 8 bits per pass; the sample's pixel difference is not yet bit-exact), identical on both backends. Text towers match to float rounding.
+
+Depth Anything runs on a fixed 518 px square canvas like the detectors (the reference uses `--size 518`, `keep_aspect_ratio=False`); the map is resampled bilinearly to the input size.
+
+Detector limits: the graphs run on a fixed square canvas (640 px, `DetrHfMapping.InputSize`; RT-DETR's own processor size): every image is resized to it without keeping the aspect ratio, where the checkpoints' own processors
+resize DETR to 800/1333 px keeping the aspect ratio (a static graph cannot follow; the reference is generated with the same 640 px resize, `vision-reference.py --size 640`). Boxes are returned in pixels of the original image.
+DETR needs the timm backbone layout (`use_timm_backbone`, ResNet-18/34/50/101), RT-DETR the ResNet-D backbone with one AIFI level and box refinement; others are rejected by `Validate` with a reason.
+SigLIP's tokenizer removes all ASCII punctuation as transformers' `SiglipTokenizer` does (the fast tokenizer.json spares `/ < >`).
+
+## 15. Image generation (2026-11-15)
+
+Image generators are regular models of kind `image-generation` (see [api-overview.md](api-overview.md) "Image generation"): the
+importer `Sharplight.Import.Diffusers` translates checkpoints into the canonical `latent_diffusion` source, `LatentDiffusionAdapter`
+builds the CLIP text encoder, UNet and VAE as graphs of generic Core ops (Conv, GroupNorm, LayerNorm, Resize, batched Attention;
+no new ops were needed), and Core's latent-diffusion pipeline runs them with host-side samplers and classifier-free guidance.
+
+| family | formats | status | verified |
+|---|---|---|---|
+| Stable Diffusion 1.x (SD 1.5) | diffusers folder (with or without `model_index.json`), original single-file `.safetensors` or `.ckpt` (restricted unpickler, nothing executed), stable-diffusion.cpp GGUF (f16, Q8_0, Q4_0, any ggml type for linear weights) | **supported** (txt2img, negative prompts, img2img, mask-blend inpainting, any size that is a multiple of 64, `.slm` with per-component precompilation) | below |
+| Stable Diffusion 2.x (2.1 768-v, 2.1 base) | diffusers folder, original single-file `.safetensors` / `.ckpt` (OpenCLIP ViT-H tower; 768 files default to v-prediction at 768×768, files named like the 512 / base releases to epsilon at 512×512) | **supported** (as SD 1.x) | below |
+| SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, SD3, FLUX, Chroma, Qwen-Image, video (Wan, LTX) | - | missing | the graph contract (`DiffusionGraphs`), the description and the pipeline are kind-generic; SD3 / FLUX need a DiT and flow-matching samplers |
+| LoRA (kohya / diffusers), ControlNet, TAESD | - | missing | |
+
+Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
+
+- Tiny random SD 1.x pipeline (`~/models/sd/tiny-random-sd`, tools/make-tiny-diffusion-models.py): text encoder, UNet, VAE decode
+  and encode within 1e-4 relative RMS of transformers / diffusers on CPU and Vulkan; whole txt2img runs from the same initial
+  noise with Euler, Euler Karras, DDIM, PNDM, DPM++ 2M and DPM++ 2M Karras above 40 dB PSNR on both; the single-file checkpoint
+  is bit-identical to the diffusers folder after import; the CLIP tokenizer (rebuilt from the embedded OpenAI merges) gives
+  transformers' ids.
+- SD 1.5 (fp32 diffusers folder) on Vulkan, 512×512, 20 steps, guidance 7.5, same initial noise as diffusers (fp32, CUDA):
+  Euler 76.3 dB, Euler Karras 76.7 dB, DDIM 76.2 dB, PNDM 58.8 dB, DPM++ 2M 60.5 dB, DPM++ 2M Karras 73.8 dB PSNR; text encoder,
+  UNet and VAE decode within 2e-3 / 5e-3 / 5e-3 relative RMS. The single-file checkpoint, the original `.ckpt` and the three GGUF
+  files map to exactly the diffusers folder's canonical names and shapes; the `.ckpt` weights are byte-identical to the `.safetensors` ones.
+- stable-diffusion.cpp 5dcfa79 (CUDA and Vulkan builds), Euler, 20 steps, `--rng cpu` (torch CPU noise, the same as the
+  diffusers references): on the f16 GGUF Sharplight (Vulkan) is 48.7 dB from diffusers fp32 and 44.3 dB from sd.cpp CUDA (sd.cpp
+  CUDA 43.5 dB from diffusers, sd.cpp Vulkan 28 dB from both); on Q8_0 all implementations give visually the same image but drift
+  apart along the trajectory (Sharplight vs sd.cpp Vulkan 30.0 dB, vs CUDA 20.2 dB); the published Q4_0 file produces a degenerate
+  image in every implementation (Sharplight vs sd.cpp CUDA / Vulkan 37.8 / 41.0 dB).
+- Tiny random SD 2.x pipeline (`~/models/sd/tiny-random-sd2`, `make-tiny-diffusion-models.py --family sd2`: linear projections,
+  per-level head counts, upcast attention, GELU text encoder, v-prediction, DDIM): graphs within 1e-4 and txt2img above 40 dB for
+  all six samplers on CPU and Vulkan; its OpenCLIP single file (`.safetensors` and `.ckpt`, with an extra last block that the
+  importer drops) imports to exactly the folder's weights. Sharplight's `pndm` is diffusers' PLMS form (`skip_prk_steps`), also for
+  DDIM-configured models.
+- SD 2.1 768-v (sd2-community mirror) on Vulkan, 768×768, 20 steps, same initial noise as diffusers: fp32 folder Euler 70.2 dB,
+  DDIM 64.1 dB, DPM++ 2M Karras 51.8 dB, graphs within the SD 1.5 tolerances; with the fp16 files (computed in f16 on Vulkan) the
+  images are visually identical but 37.8 / 34.1 / 28.1 dB from diffusers' fp32-upcast run (UNet 2.2 % relative RMS on random
+  inputs). The 768-v single file maps to the diffusers folder's names, shapes and configuration.
+- Tiny random SDXL pipeline (`~/models/sd/tiny-random-sdxl`, tools/make-tiny-sdxl.py): both text encoders (penultimate layers),
+  the pooled projection, the UNet with added conditioning and the VAE within 1e-4, txt2img above 40 dB (Euler, DDIM, DPM++ 2M
+  Karras; without a negative prompt the zero unconditional row) on CPU and Vulkan. The SDXL base single file maps to the diffusers
+  folder's names, shapes and configuration. When a scheduler config omits `set_alpha_to_one`, DDIM / PNDM follow diffusers'
+  per-scheduler defaults.
+- SDXL base 1.0 on Vulkan (published fp16 files), 1024×1024, 20 steps, guidance 7.5, same initial noise as diffusers (fp16 files
+  upcast to fp32, CUDA): UNet 5.7e-5, VAE decode 1.5e-5, second text encoder 6e-4 relative RMS; Euler 42.4 dB, DPM++ 2M Karras
+  30.0 dB (visually identical; the multistep sampler drifts further). Unlike SD 2.1 (attention upcast in its config, 2.2 % UNet
+  error in f16), SDXL keeps its accuracy with f16 weights.
+- Indicative speed on the shared RTX PRO 4500 (GPU 0, other agents active, not a benchmark): Sharplight denoises at about 0.1 s per
+  step (CFG batch of 2, 512×512, f16 GGUF), sd.cpp sampled 20 steps in 17.1 s (Vulkan) and 22.8 s (CUDA) in the same session.
+  Without a precompiled `.slm` the first load spends 50–130 s compiling the UNet kernels (Slang, CPU-bound); `sharplight-convert
+  precompile` stores them in the package.

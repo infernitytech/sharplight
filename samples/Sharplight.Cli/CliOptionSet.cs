@@ -172,7 +172,7 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
             parseResult.GetValue(_speculateNgram));
 
         var runtime = _runtime.Read(parseResult);
-        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(sampleRuntime, true, runtime.UseCpu, runtime.DeviceIndex, runtime.ContextLength,
+        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(sampleRuntime, true, runtime.UseCpu, runtime.ContextLength,
             runtime.BatchTokens, runtime.DisabledFeatures, log));
         return new CliSettings(
             modelPath,

@@ -30,7 +30,7 @@ internal static class CliApplication
 
         if (settings.SavePath is { } savePath)
         {
-            PackageSaver.Save(loaded.Model, savePath, Console.Error);
+            await PackageSaver.SaveAsync(runtime.Providers, loaded.Model, savePath, Console.Error, cancellationToken);
         }
 
         if (settings.BenchmarkTokens is { } benchmarkTokens)

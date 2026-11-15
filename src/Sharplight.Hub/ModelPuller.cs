@@ -100,7 +100,7 @@ public sealed class ModelPuller
 
         cancellationToken.ThrowIfCancellationRequested();
         stopwatch.Restart();
-        var precompiled = options.Precompile is { } target ? await PrecompileAsync(pending, target, log).ConfigureAwait(false) : [];
+        var precompiled = options.Precompile is { } target ? await PrecompileAsync(pending, target, log, cancellationToken).ConfigureAwait(false) : [];
         var precompileTime = options.Precompile is null ? TimeSpan.Zero : stopwatch.Elapsed;
 
         var manifest = Register(directory, pending, repository, selection, conversion, precompiled, options);
@@ -176,13 +176,16 @@ public sealed class ModelPuller
         return progress.Transferred;
     }
 
-    private static async Task<IReadOnlyList<string>> PrecompileAsync(string package, PrecompileTarget target, Action<string>? log)
+    private static async Task<IReadOnlyList<string>> PrecompileAsync(string package, PrecompileTarget target, Action<string>? log,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var result = await Task.Run(() => PackagePrecompiler.Precompile(package, target.Provider, target.Device, target.Options)).ConfigureAwait(false);
-            log?.Invoke($"Precompiled for {result.Device}: {result.StoredSets.Count + result.UnchangedSets.Count} artifact set(s), {ByteCount.Format(result.StoredBytes)}");
-            return [.. result.StoredSets, .. result.UnchangedSets];
+            var report = await Task.Run(() => PackagePrecompiler.PrecompileAsync(package, target.Providers, target.Options, target.Progress, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+            log?.Invoke($"Precompiled for {report.Devices.Count(d => d.Portable is not null || d.DeviceCode is not null)} device(s): "
+                + $"{report.StoredSets.Count + report.UnchangedSets.Count} artifact set(s), {ByteCount.Format(report.StoredBytes)}");
+            return [.. report.StoredSets, .. report.UnchangedSets];
         }
         catch (NotSupportedException error)
         {

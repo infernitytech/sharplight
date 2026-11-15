@@ -6,18 +6,18 @@ using Sharplight.Samples;
 namespace Sharplight.Convert;
 
 /// <summary>
-/// Runs <c>precompile</c>: compiles the package on a live device or for a device profile through <see cref="PackagePrecompiler"/>
-/// and appends the artifact sets.
+/// Runs <c>precompile</c>: the two precompilation stages of the execution providers (portable code, then device code) through
+/// <see cref="PackagePrecompiler"/>, for one device, every device, or a device profile, and appends the artifact sets.
 /// </summary>
 internal sealed class PrecompileRunner(SampleRuntime runtime, TextWriter output)
 {
     private const long DefaultOnnxBatch = 1;
 
-    public void Run(PrecompileSettings settings)
+    public async Task RunAsync(PrecompileSettings settings, CancellationToken cancellationToken)
     {
         // ONNX graphs run with the CPU as fallback for data-dependent ops, so they are compiled that way too.
         var devices = new DeviceOpener(runtime.Providers);
-        using var cpu = settings.Profile is null && settings.Device is { Provider: not "cpu" } ? devices.OpenCpu() : null;
+        using var cpu = settings.Profile is null && settings.Device is not { Provider: "cpu" } ? devices.OpenCpu() : null;
         var options = new PrecompileOptions
         {
             ContextLength = settings.ContextLength,
@@ -34,12 +34,10 @@ internal sealed class PrecompileRunner(SampleRuntime runtime, TextWriter output)
             Log = output.WriteLine,
         };
 
-        PrecompileResult result;
+        PackagePrecompileReport report;
         try
         {
-            result = settings.Profile is { } profile
-                ? PackagePrecompiler.Precompile(settings.PackagePath, runtime.Providers, profile, options)
-                : PackagePrecompiler.Precompile(settings.PackagePath, deviceOptions => devices.Open(settings.Device!.Value, deviceOptions), options);
+            report = await PrecompileAsync(devices, settings, options, cancellationToken);
         }
         catch (NotSupportedException error)
         {
@@ -50,10 +48,58 @@ internal sealed class PrecompileRunner(SampleRuntime runtime, TextWriter output)
             throw new SampleException($"{error.Message} Give it with --bound SYMBOL=VALUE.", ExitCodes.InvalidInput);
         }
 
+        Print(report);
+    }
+
+    private static Task<PackagePrecompileReport> PrecompileAsync(DeviceOpener devices, PrecompileSettings settings, PrecompileOptions options, CancellationToken cancellationToken)
+    {
+        if (settings.Profile is { } profile)
+        {
+            return PackagePrecompiler.PrecompileAsync(settings.PackagePath, devices.ForProfile(profile), profile, options, null, cancellationToken);
+        }
+
+        if (settings.Device is { } spec)
+        {
+            var (provider, device) = devices.Find(spec);
+            return PackagePrecompiler.PrecompileAsync(settings.PackagePath, provider, device, options, null, cancellationToken);
+        }
+
+        return PackagePrecompiler.PrecompileAsync(settings.PackagePath, devices.All(), options, null, cancellationToken);
+    }
+
+    private void Print(PackagePrecompileReport report)
+    {
+        foreach (var device in report.Devices)
+        {
+            output.WriteLine($"{device.Provider} {device.Device}:");
+            output.WriteLine($"  portable: {Describe(device.Portable)}");
+            output.WriteLine($"  device:   {Describe(device.DeviceCode)}");
+            if (device.Note is { } note)
+            {
+                output.WriteLine($"  {note}");
+            }
+        }
+
+        foreach (var skipped in report.Skipped)
+        {
+            output.WriteLine($"Skipped {skipped.Provider}{(skipped.Device.Length == 0 ? "" : " " + skipped.Device)}: {skipped.Reason}");
+        }
+
         output.WriteLine($"slang {Shaders.SlangCompiler.Statistics}");
-        output.WriteLine(result.StoredSets.Count == 0
+        output.WriteLine(report.StoredSets.Count == 0
             ? "Nothing new to store."
-            : $"{settings.PackagePath}: {ByteSize.Format(result.PackageBytes)} ({ByteSize.Format(result.StoredBytes)} of artifacts added)");
+            : $"{report.PackagePath}: {ByteSize.Format(report.PackageBytes)} ({ByteSize.Format(report.StoredBytes)} of artifacts added) in {report.Elapsed.TotalSeconds:F1} s");
+    }
+
+    private static string Describe(CodeSetSummary? set)
+    {
+        if (set is null)
+        {
+            return "none";
+        }
+
+        var shared = set.SharedWith is null ? $"{set.Elapsed.TotalMilliseconds:F0} ms" : $"shared with {set.SharedWith}";
+        return $"{set.Kind}, {set.Entries} entries, {ByteSize.Format(set.Bytes)} ({set.ReusedEntries} already stored; {shared})";
     }
 
     /// <summary>An ONNX model's batch dimension is bounded to 1 unless <c>--bound</c> gives the batch it will run with.</summary>

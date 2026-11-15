@@ -57,17 +57,19 @@ internal sealed partial class KindCardViewModel : ObservableObject
     }
 
     /// <summary>The text of the button that opens the kind's page.</summary>
-    public string OpenText => Info.Id == Sharplight.Models.ModelKinds.TextGeneration ? "Open chat" : "Open library";
+    public string OpenText => Info.Id switch
+    {
+        Sharplight.Models.ModelKinds.TextGeneration => "Open chat",
+        Sharplight.Models.ModelKinds.SpeechRecognition => "Open transcribe",
+        Sharplight.Models.ModelKinds.SpeechSynthesis => "Open speak",
+        _ => "Open library",
+    };
 
-    /// <summary>Opens the page of the kind: the chat for text generation, the filtered library for the others.</summary>
+    /// <summary>Opens the page of the kind (the chat, transcribe or speak page), or the filtered library for a kind without a page.</summary>
     [CommunityToolkit.Mvvm.Input.RelayCommand]
     private void Open()
     {
-        if (Info.Id == Sharplight.Models.ModelKinds.TextGeneration)
-        {
-            _navigator.OpenChat(null);
-        }
-        else
+        if (!_navigator.OpenKind(Info.Id, null))
         {
             _navigator.OpenLibrary(Info.Id);
         }

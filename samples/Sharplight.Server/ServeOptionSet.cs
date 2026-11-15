@@ -191,7 +191,7 @@ internal sealed class ServeOptionSet
     private ServeSettings Read(ParseResult parseResult)
     {
         var runtime = _runtime.Read(parseResult);
-        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(_sampleRuntime, true, runtime.UseCpu, runtime.DeviceIndex, runtime.ContextLength,
+        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(_sampleRuntime, true, runtime.UseCpu, runtime.ContextLength,
             runtime.BatchTokens, runtime.DisabledFeatures, log));
         return new ServeSettings(
             parseResult.GetValue(_positional) ?? [],

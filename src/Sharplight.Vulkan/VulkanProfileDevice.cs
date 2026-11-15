@@ -6,9 +6,10 @@ using Sharplight.Shaders;
 namespace Sharplight.Vulkan;
 
 /// <summary>
-/// A compile-only Vulkan device for a <see cref="DeviceProfile"/> (see <see cref="IOfflineCompilationProvider.OpenProfile"/>):
-/// lowers segments and compiles their kernels to SPIR-V exactly like a <see cref="VulkanDevice"/> with that profile, without a
-/// Vulkan driver. Only the code tier is produced; the compiled segments cannot run.
+/// A compile-only Vulkan device for a <see cref="DeviceProfile"/>, the device of the portable stage
+/// (<see cref="VulkanProvider.CompilePortableAsync"/>): lowers segments and compiles their kernels to SPIR-V exactly like a
+/// <see cref="VulkanDevice"/> with that profile, without a Vulkan driver. Only the code tier is produced; the compiled segments
+/// cannot run. Memory figures come from <see cref="DeviceProfile.TotalMemory"/> (plenty when unknown) so placement works as usual.
 /// </summary>
 internal sealed class VulkanProfileDevice : IComputeDevice
 {
@@ -16,6 +17,8 @@ internal sealed class VulkanProfileDevice : IComputeDevice
     private const long UnknownMemoryBytes = 1L << 40;
 
     private readonly SpirvCodeGenerator _code;
+    /// <summary>Records compilations that come without a model-level cache (graphs built in code) into the artifact store.</summary>
+    private readonly CompilationArtifacts _ownArtifacts = new();
 
     public VulkanProfileDevice(DeviceProfile profile, DeviceOptions options)
     {
@@ -36,9 +39,13 @@ internal sealed class VulkanProfileDevice : IComputeDevice
         EnabledFeatures = DeviceFeatures.Effective(Info.Features, options.DisabledFeatures);
         _code = new SpirvCodeGenerator(profile.SubgroupSize, profile.MaxSharedMemory, EnabledFeatures,
             SpirvCodeGenerator.EffectiveSubmissionBudget(profile.SubmissionBudgetMs, options), profile.ConcurrentWorkgroups,
-            SpirvCodeGenerator.ComputeUnitsOf(profile.Properties), options.KernelCacheDirectory ?? SlangCompiler.DefaultCacheDirectory);
+            SpirvCodeGenerator.ComputeUnitsOf(profile.Properties));
+        ArtifactStore = ArtifactStore.For(options);
         ArtifactTargets = [_code.CreateCodeTarget(Info.Provider)];
     }
+
+    /// <summary>The persistent artifact store this device's compilations consult and record into.</summary>
+    public ArtifactStore? ArtifactStore { get; }
 
     /// <summary>The profile the device was opened for.</summary>
     public DeviceProfile Profile { get; }
@@ -58,7 +65,7 @@ internal sealed class VulkanProfileDevice : IComputeDevice
     /// <exception cref="KernelCompilationException">Slang rejected one of the kernels.</exception>
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
     {
-        var cache = options.CacheFor?.Invoke(this);
+        var cache = options.CacheFor?.Invoke(this) ?? _ownArtifacts.For(this);
         var program = _code.Lower(segment, this, options, cache, out var kernels);
         var stopwatch = Stopwatch.StartNew();
         try

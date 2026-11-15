@@ -71,7 +71,7 @@ suffix). An ambiguous name lists the candidates. `run` and `serve` also accept f
    precompile kernels (code and binary tiers) for the local GPU with `PackagePrecompiler`, the code path of
    `sharplight-convert precompile` (`--no-precompile` skips; `--cpu`, `--device`, `--ctx`, `--batch` pick the target).
    The decode, multimodal and vision graphs and the serving batch decoder for the server's default 4 slots are compiled,
-   using the per-user kernel cache (the stored sets still hold only this model's kernels). A precompile failure is reported
+   using the per-user artifact store (the stored sets still hold only this model's kernels). A precompile failure is reported
    but does not fail the pull. To precompile for other GPUs without them, use
    `sharplight-convert precompile model.slm --profile NAME` on the stored package.
 5. Register: rename to `model.slm` and write `manifest.json`. A model without a manifest is invisible, so an interrupted
@@ -118,8 +118,9 @@ Studio offers once to keep using the user folder or to move or copy the models (
 (`source/*.partial`), the pending package and the manifest inside the model's directory; Studio converts local models into
 `converted/` in the store by default. `sharplight-convert convert` writes exactly the `dst` it is given.
 
-The kernel cache is not part of the store: compiled kernels are cached per user in `sharplight/kernels` in the local application
-data directory (`~/.local/share/sharplight/kernels` on Linux) and shared by every model and tool.
+The compilation cache is not part of the model store. Compiled kernels and driver pipeline caches go into the per-user artifact
+store, `sharplight/artifacts` in the local application data directory (`~/.local/share/sharplight/artifacts` on Linux), which every
+model and tool shares (see [model-format.md](model-format.md#the-per-user-artifact-store)).
 
 `ModelStore.Resolve` returns the root with its source (`ModelStoreResolution`); applications with their own settings pass
 their choice as `ModelStoreSettings`. `list` prints the store it reads. Each model lives in `<root>/<owner>/<repo>/<tag>/` with:

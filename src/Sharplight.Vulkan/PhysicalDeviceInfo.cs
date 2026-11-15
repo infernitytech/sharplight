@@ -20,6 +20,13 @@ internal sealed unsafe class PhysicalDeviceInfo
     public int DeviceLocalHeap { get; }
     /// <summary>VK_EXT_memory_budget is available.</summary>
     public bool MemoryBudgetExt { get; }
+    /// <summary>
+    /// VK_KHR_pipeline_binary with the pipelineBinaries feature (and VK_KHR_maintenance5, which it needs) is available: compiled
+    /// pipelines can be exported and imported as individual binaries (<see cref="DeviceFeatures.KernelBinaries"/>).
+    /// </summary>
+    public bool PipelineBinaries { get; }
+    /// <summary>The driver prefers its internal cache over application-managed pipeline binaries (pipelineBinaryPrefersInternalCache).</summary>
+    public bool PrefersInternalPipelineCache { get; }
     public uint SubgroupSize { get; }
     public uint MinSubgroupSize { get; }
     public uint MaxSubgroupSize { get; }
@@ -313,6 +320,26 @@ internal sealed unsafe class PhysicalDeviceInfo
         DeviceLocalBytes = local;
         DeviceLocalHeap = heap;
         MemoryBudgetExt = Extensions.Contains("VK_EXT_memory_budget");
+        (PipelineBinaries, PrefersInternalPipelineCache) = DetectPipelineBinaries(api, pd);
+    }
+
+    /// <summary>Whether VK_KHR_pipeline_binary is usable (extension, maintenance5 and the pipelineBinaries feature) and whether the driver prefers its internal cache.</summary>
+    private (bool Supported, bool PrefersInternalCache) DetectPipelineBinaries(VkInstanceApi api, VkPhysicalDevice pd)
+    {
+        bool maintenance5 = ApiVersion >= VkVersion.Version_1_4 || Extensions.Contains("VK_KHR_maintenance5");
+        if (!Extensions.Contains("VK_KHR_pipeline_binary") || !maintenance5)
+        {
+            return (false, false);
+        }
+
+        var binaryFeatures = new VkPhysicalDevicePipelineBinaryFeaturesKHR();
+        var maintenance5Features = new VkPhysicalDeviceMaintenance5Features { pNext = &binaryFeatures };
+        var features = new VkPhysicalDeviceFeatures2 { pNext = &maintenance5Features };
+        api.vkGetPhysicalDeviceFeatures2(pd, &features);
+        var binaryProperties = new VkPhysicalDevicePipelineBinaryPropertiesKHR();
+        var properties = new VkPhysicalDeviceProperties2 { pNext = &binaryProperties };
+        api.vkGetPhysicalDeviceProperties2(pd, &properties);
+        return (binaryFeatures.pipelineBinaries && maintenance5Features.maintenance5, binaryProperties.pipelineBinaryPrefersInternalCache);
     }
 
     /// <summary><see cref="DeviceInfo.ConcurrentWorkgroups"/> of integrated GPUs and CPU implementations.</summary>
@@ -359,6 +386,7 @@ internal sealed unsafe class PhysicalDeviceInfo
             ["threads_per_compute_unit"] = ThreadsPerComputeUnit.ToString(),
             ["max_push_constants"] = MaxPushConstants.ToString(),
             ["memory_budget"] = MemoryBudgetExt.ToString(),
+            ["kernel_binaries"] = PipelineBinaries.ToString(),
         },
     };
 }

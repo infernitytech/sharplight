@@ -193,34 +193,34 @@ public sealed class DiscoverFiltersTests
     public async Task ChoosingAModelType_ShowsThatTypesHighlights_AndNamesTheKindsTheEngineCannotRun()
     {
         using var services = new TestServices();
-        var whisper = Model("ggerganov/whisper.cpp", pipeline: "automatic-speech-recognition", formats: [ModelFormat.WhisperCpp], variants: []);
-        services.Hub.TaskHighlights[ModelTask.SpeechToText] =
+        var diffuser = Model("stabilityai/sd-turbo", pipeline: "text-to-image", formats: [ModelFormat.Safetensors], variants: []);
+        services.Hub.TaskHighlights[ModelTask.ImageGeneration] =
         [
-            new HighlightSection(HighlightKind.Trending, [whisper]),
+            new HighlightSection(HighlightKind.Trending, [diffuser]),
             new HighlightSection(HighlightKind.New, []),
-            new HighlightSection(HighlightKind.Popular, [whisper with { Id = "openai/whisper-small" }]),
+            new HighlightSection(HighlightKind.Popular, [diffuser with { Id = "stabilityai/sdxl" }]),
         ];
         var search = CreateSearch(services);
         await search.LoadHighlightsAsync();
         Assert.Equal([(ModelTask?)null], services.Hub.HighlightTasks);
 
-        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.SpeechToText);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ImageGeneration);
         await Task.Delay(100, TestContext.Current.CancellationToken);
         await search.LoadHighlightsAsync();
 
-        Assert.Equal([(ModelTask?)null, ModelTask.SpeechToText], services.Hub.HighlightTasks);
+        Assert.Equal([(ModelTask?)null, ModelTask.ImageGeneration], services.Hub.HighlightTasks);
         Assert.True(search.IsShowingHighlights);
-        Assert.Equal("Speech to text models", search.HighlightsHeading);
+        Assert.Equal("Image generation models", search.HighlightsHeading);
         Assert.Equal(["Trending", "Most downloaded"], search.Highlights.Select(section => section.Title));
         var badge = search.Highlights[0].Items[0].Compatibility;
-        Assert.Equal("Not yet supported: Speech to text", badge.Text);
+        Assert.Equal("Not yet supported: Image generation", badge.Text);
         Assert.True(badge.IsBad);
-        Assert.Contains("Speech to text", search.Highlights[0].Items[0].KindTitle, StringComparison.Ordinal);
+        Assert.Contains("Image generation", search.Highlights[0].Items[0].KindTitle, StringComparison.Ordinal);
 
         // "Supported only" hides them, and says why the page is empty; turning it off brings them back.
         search.ShowOnlySupported = true;
         Assert.Empty(search.Highlights);
-        Assert.Contains("cannot run speech to text models yet", search.HighlightsStatus, StringComparison.Ordinal);
+        Assert.Contains("cannot run image generation models yet", search.HighlightsStatus, StringComparison.Ordinal);
         search.ShowOnlySupported = false;
         Assert.Equal(2, search.Highlights.Count);
         Assert.Equal("", search.HighlightsStatus);

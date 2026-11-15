@@ -3,8 +3,8 @@ using Sharplight.Samples;
 
 namespace Sharplight.Convert;
 
-/// <summary>Opens the live devices the subcommands compile on (<see cref="DeviceSpec"/>).</summary>
-/// <param name="providers">The execution providers to open devices on.</param>
+/// <summary>Finds the providers and devices the subcommands compile for: a live device (<see cref="DeviceSpec"/>), every device, or a device profile.</summary>
+/// <param name="providers">The execution providers of the container.</param>
 internal sealed class DeviceOpener(ExecutionProviderCatalog providers)
 {
     private const string CpuProviderName = "cpu";
@@ -15,6 +15,29 @@ internal sealed class DeviceOpener(ExecutionProviderCatalog providers)
     {
         var provider = Provider(spec.Provider);
         return provider.OpenDevice(SampleRuntime.GetDevice(provider, spec.Index), options);
+    }
+
+    /// <summary>The provider and device a <see cref="DeviceSpec"/> names.</summary>
+    /// <exception cref="SampleException">The provider is unknown or unavailable, or the index is out of range.</exception>
+    public (IExecutionProvider Provider, DeviceInfo Device) Find(DeviceSpec spec)
+    {
+        var provider = Provider(spec.Provider);
+        return (provider, SampleRuntime.GetDevice(provider, spec.Index));
+    }
+
+    /// <summary>Every registered provider (available or not: the precompiler reports why it skips one).</summary>
+    public IReadOnlyList<IExecutionProvider> All() => [.. providers.Discover().Select(p => p.Provider)];
+
+    /// <summary>The registered provider whose portable stage generates code for <paramref name="profile"/>; needs no driver.</summary>
+    /// <exception cref="SampleException">No registered provider compiles for the profile.</exception>
+    public IExecutionProvider ForProfile(DeviceProfile profile)
+    {
+        if (!providers.TryFindForProfile(profile, out var provider))
+        {
+            throw new SampleException($"No registered provider compiles for {profile}.", ExitCodes.InvalidInput);
+        }
+
+        return provider;
     }
 
     /// <summary>The CPU device (fallback for ops an accelerator cannot run).</summary>

@@ -1219,8 +1219,8 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 // in two f16 parts (three products each, near-f32 accuracy); otherwise single f16 products. SCALE multiplies the f32 scores; P
 // is scaled by 2^12 before its f16 conversion. Head sizes are zero-padded to 16 (D % 8 == DV % 8 == 0, padded sizes <= 128);
 // 32-wide subgroups.
-// FE_CAUSAL (not FULL_ATTN; single-sequence prefill against a contiguous KV cache): query t sees keys [0, n_past + t];
-// a block reads only the keys its last query sees and the blocks run longest first.
+// FE_CAUSAL (not FULL_ATTN; prefill against a KV cache): query t sees keys [0, n_past + t]; a block reads only the keys its
+// last query sees. One sequence: the blocks run longest first. MULTI_SEQ: grid z = runs (optionally paged, MIX_RUN).
 using namespace linalg;
 #ifndef FE_CAUSAL
 #define FE_CAUSAL 0
@@ -1339,7 +1339,21 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint h = gid.x, t0 = gid.y * FE_BR;
     uint tid = ltid.x, sg = tid / 32, lane = tid % 32;
     uint hk = h / (HQ / HKV);
-#if FE_CAUSAL
+#if FE_CAUSAL && MULTI_SEQ
+    // Runs of a multi-sequence step: workgroup (h, blk, u) handles query tile blk of run u (grid z = runs); tiles past a run's
+    // end exit. A run's tiles are those of the single-sequence form, so its rows' sums are the same.
+#if PAGED
+    g_pages = p.pages;
+#endif
+    int4 run = int4(p.runs[gid.z * 4], p.runs[gid.z * 4 + 1], p.runs[gid.z * 4 + 2], p.runs[gid.z * 4 + 3]);
+    if (gid.y * FE_BR >= uint(run.z)) return;
+#if MIX_RUN > 0
+    if (uint(run.z) < MIX_RUN) return;
+#endif
+    uint nPast = uint(run.w);
+    uint qT = uint(run.z), qRow0 = uint(run.y), keyBase = 0, L = nPast + min(qT, t0 + FE_BR);
+    uint64_t kvRow = kv_base(uint(run.x));
+#elif FE_CAUSAL
     uint nPast = p.rt[RT_N_PAST];
     t0 = ((p.T + FE_BR - 1) / FE_BR - 1 - gid.y) * FE_BR;   // the longest blocks first
     uint qT = p.T, qRow0 = 0, keyBase = 0, L = nPast + min(qT, t0 + FE_BR);
@@ -1351,7 +1365,9 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 #else
     uint qT = p.T, qRow0 = 0, keyBase = 0, L = p.T;
 #endif
+#if !(FE_CAUSAL && MULTI_SEQ)
     uint64_t kvRow = uint64_t(keyBase) * HKV;
+#endif
     uint ksplit = gid.z % FA_KSPLIT;
     uint kPer = ((L + FA_KSPLIT - 1) / FA_KSPLIT + FE_BC - 1) / FE_BC * FE_BC;
     uint jStart = min(L, ksplit * kPer), jStop = min(L, jStart + kPer);
@@ -1572,7 +1588,9 @@ void fes(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p
 #else
     uint qT = p.T, qRow0 = 0, keyBase = 0, L = p.T;
 #endif
+#if !(FE_CAUSAL && MULTI_SEQ)
     uint64_t kvRow = uint64_t(keyBase) * HKV;
+#endif
     uint ksplit = gid.z % FA_KSPLIT;
     uint kPer = ((L + FA_KSPLIT - 1) / FA_KSPLIT + FS_BC - 1) / FS_BC * FS_BC;
     uint jStart = min(L, ksplit * kPer), jStop = min(L, jStart + kPer);

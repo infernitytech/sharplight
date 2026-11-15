@@ -79,4 +79,8 @@ internal static class Env
         }
         return (maxAbs, maxRel, Math.Sqrt(sq / Math.Max(refSq, 1e-30)));
     }
+
+    /// <summary>The task client factories of the test container (<c>services.AddSharplight()</c>).</summary>
+    public static IEnumerable<Sharplight.Tasks.ITaskClientFactory> TaskFactories()
+        => Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetServices<Sharplight.Tasks.ITaskClientFactory>(TestHost.Services);
 }

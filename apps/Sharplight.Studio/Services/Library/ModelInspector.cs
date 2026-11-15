@@ -5,11 +5,11 @@ using Sharplight.Studio.Services.Runtime;
 
 namespace Sharplight.Studio.Services.Library;
 
-/// <summary>Reads a package's capabilities without loading it (graphs, chat template, trained context length).</summary>
+/// <summary>Reads a package's capabilities without loading it (graphs, chat template, trained context length, precompiled artifact sets).</summary>
 internal static class ModelInspector
 {
     /// <summary>
-    /// Capabilities, trained context and kind of a <c>.slm</c> package (the kind its model description names, for packages without
+    /// Capabilities, trained context, kind and precompiled artifact sets of a <c>.slm</c> package (the kind its model description names, for packages without
     /// one the resolved default); for other files and unreadable packages no capabilities and the kind their file type suggests
     /// (<see cref="InspectedModel.KindInferred"/>).
     /// </summary>
@@ -17,12 +17,13 @@ internal static class ModelInspector
     {
         if (!path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
         {
-            return new InspectedModel(ModelCapabilities.None, null, null, InferKind(path), KindInferred: true);
+            return new InspectedModel(ModelCapabilities.None, null, null, InferKind(path), KindInferred: true, Precompiled: []);
         }
 
         try
         {
-            var definition = ModelPackageReader.Open(path).Definition;
+            var package = ModelPackageReader.Open(path);
+            var definition = package.Definition;
             var graphs = definition.Graphs.Select(graph => graph.Name).ToHashSet(StringComparer.Ordinal);
             var template = definition.Metadata.TryGetValue(CanonicalKeys.ChatTemplate, out var value) ? value as string : null;
             var capabilities = TemplateCapabilities.From(template);
@@ -42,23 +43,66 @@ internal static class ModelInspector
             }
 
             int? context = definition.Properties.TryGetValue(WellKnown.ContextLength, out var raw) ? ToInt(raw) : null;
-            return new InspectedModel(capabilities, context, definition.Architecture, kind, KindInferred: false);
+            var precompiled = package.ArtifactSets.Select(set => set.ToString()).ToList();
+            return new InspectedModel(capabilities, context, definition.Architecture, kind, KindInferred: false, precompiled);
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException)
         {
-            return new InspectedModel(ModelCapabilities.None, null, null, ModelKinds.TextGeneration, KindInferred: true);
+            return new InspectedModel(ModelCapabilities.None, null, null, ModelKinds.TextGeneration, KindInferred: true, Precompiled: []);
         }
     }
 
-    /// <summary>The kind a model file that is not a package probably has: GGUF files and checkpoint folders are language models.</summary>
+    /// <summary>
+    /// The kind a model file that is not a package probably has: whisper.cpp <c>.bin</c> files (by their magic number) and Whisper
+    /// checkpoint folders recognize speech, a GGUF named like OuteTTS speaks, other GGUF files and checkpoint folders are language models.
+    /// </summary>
     private static string InferKind(string path)
     {
         if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
         {
-            return ModelKinds.TextGeneration;
+            return System.IO.Path.GetFileName(path).Contains("outetts", StringComparison.OrdinalIgnoreCase) ? ModelKinds.SpeechSynthesis : ModelKinds.TextGeneration;
         }
 
-        return Directory.Exists(path) && File.Exists(System.IO.Path.Combine(path, "config.json")) ? ModelKinds.TextGeneration : ModelKindCatalog.Other;
+        if (path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) && HasGgmlMagic(path))
+        {
+            return ModelKinds.SpeechRecognition;
+        }
+
+        string config = System.IO.Path.Combine(path, "config.json");
+        if (Directory.Exists(path) && File.Exists(config))
+        {
+            return IsWhisperConfig(config) ? ModelKinds.SpeechRecognition : ModelKinds.TextGeneration;
+        }
+
+        return ModelKindCatalog.Other;
+    }
+
+    /// <summary>Whether the file starts with the ggml magic number of whisper.cpp model files.</summary>
+    private static bool HasGgmlMagic(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            Span<byte> magic = stackalloc byte[4];
+            return stream.Read(magic) == 4 && System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(magic) == 0x67676d6c;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsWhisperConfig(string config)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(config));
+            return document.RootElement.TryGetProperty("model_type", out var type) && type.GetString() == "whisper";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return false;
+        }
     }
 
     private static int? ToInt(object value)

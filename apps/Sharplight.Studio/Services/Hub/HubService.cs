@@ -1,8 +1,8 @@
 using Sharplight.Hub;
 using Sharplight.Package;
 using Sharplight.Runtime;
-using Sharplight.Studio.Models;
 using Sharplight.Studio.Services.Compatibility;
+using Sharplight.Studio.Services.Precompile;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Services.Settings;
 
@@ -14,7 +14,6 @@ namespace Sharplight.Studio.Services.Hub;
 /// </summary>
 internal sealed class HubService : IHubService, IDisposable
 {
-    private const int PrecompileSlots = 4;
 
     private readonly ISettingsService _settings;
     private readonly HttpClient _http = HubClientOptions.CreateHttpClient();
@@ -196,7 +195,7 @@ internal sealed class HubService : IHubService, IDisposable
         var options = new PullOptions
         {
             KeepSource = settings.KeepSourceFiles,
-            Precompile = settings.PrecompileAfterDownload ? CreatePrecompileTarget(tracker, cancellationToken) : null,
+            Precompile = settings.PrecompileAfterDownload ? CreatePrecompileTarget(tracker) : null,
             Log = tracker.Log,
             Progress = tracker,
         };
@@ -249,31 +248,14 @@ internal sealed class HubService : IHubService, IDisposable
             selection.PrimaryPath, shards);
     }
 
-    private PrecompileTarget? CreatePrecompileTarget(PullProgressTracker tracker, CancellationToken cancellationToken)
+    /// <summary>
+    /// Precompiles a pulled package for every device of every available execution provider (portable code, then device code), with the
+    /// options the library's Precompile action uses (<see cref="PrecompileService.CreateOptions"/>).
+    /// </summary>
+    private PrecompileTarget CreatePrecompileTarget(PullProgressTracker tracker)
     {
-        var settings = _settings.Current;
-        var gpus = DeviceCatalog.Discover(_engine.Providers).Where(entry => entry.Option.IsGpu).ToList();
-        var gpu = gpus.FirstOrDefault(entry => entry.Option.Id == settings.DefaultLoad.DeviceId);
-        if (gpu.Provider is null && settings.DefaultLoad.DeviceId is null or ComputeDeviceOption.AllGpusId)
-        {
-            gpu = gpus.FirstOrDefault();
-        }
-        if (gpu.Provider is null)
-        {
-            return null;
-        }
-
-        var options = new PrecompileOptions
-        {
-            ContextLength = settings.DefaultLoad.ContextLength,
-            BatchTokens = settings.DefaultLoad.BatchTokens,
-            Slots = PrecompileSlots,
-            DisabledFeatures = settings.DisabledFeatures,
-            UseUserKernelCache = true,
-            Log = tracker.Log,
-            Progress = new SynchronousProgress<LoadProgress>(tracker.Report),
-            CancellationToken = cancellationToken,
-        };
-        return new PrecompileTarget(gpu.Provider, gpu.Info, options);
+        var providers = _engine.Providers.Discover().Select(p => p.Provider).ToList();
+        var options = PrecompileService.CreateOptions(_settings.Current, null, tracker.Log, new SynchronousProgress<LoadProgress>(tracker.Report));
+        return new PrecompileTarget(providers, options, new SynchronousProgress<PrecompileProgress>(tracker.Report));
     }
 }

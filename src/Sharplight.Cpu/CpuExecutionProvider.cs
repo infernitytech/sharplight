@@ -39,6 +39,36 @@ public sealed class CpuExecutionProvider : IExecutionProvider
     }
 
     /// <inheritdoc />
+    /// <remarks>Always <see langword="null"/>: CPU kernels are compiled ahead of time with Sharplight itself.</remarks>
+    public string? PortableCodeFormat => null;
+
+    /// <inheritdoc />
+    /// <remarks>Always false: the CPU has no portable code stage.</remarks>
+    public bool CanCompileFor(DeviceProfile profile) => false;
+
+    /// <inheritdoc />
+    /// <remarks>Always an empty set: there is nothing to precompile for the CPU.</remarks>
+    public Task<PortableCodeSet> CompilePortableAsync(PortableCompilationRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Task.FromResult(PortableCodeSet.Empty(Name));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Always an empty set: there is nothing to precompile for the CPU.</remarks>
+    public Task<DeviceCodeSet> CompileDeviceSpecificAsync(IComputeDevice device, PortableCodeSet portable, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(portable);
+        if (device.Info.Provider != Name)
+        {
+            throw new ArgumentException($"Device {device.Info} does not belong to the cpu provider.", nameof(device));
+        }
+
+        return Task.FromResult(DeviceCodeSet.Empty(Name, device.Info.Name));
+    }
+
+    /// <inheritdoc />
     public void Dispose()
     {
     }

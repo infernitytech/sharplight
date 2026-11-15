@@ -22,7 +22,6 @@ public sealed class PullCommand(StoreOptionSet store, SampleRuntime runtime)
         command.Arguments.Add(_models);
         _pull.AddTo(command);
         command.Options.Add(_runtime.Cpu);
-        command.Options.Add(_runtime.Device);
         command.Options.Add(_runtime.Context);
         command.Options.Add(_runtime.Batch);
         command.SetAction(HubGuard.Guard(RunAsync));
@@ -33,10 +32,9 @@ public sealed class PullCommand(StoreOptionSet store, SampleRuntime runtime)
     {
         var references = parseResult.GetValue(_models)!.Select(Parse).ToList();
         bool cpu = parseResult.GetValue(_runtime.Cpu);
-        int device = parseResult.GetValue(_runtime.Device);
         int context = parseResult.GetValue(_runtime.Context);
         int batch = parseResult.GetValue(_runtime.Batch);
-        var settings = _pull.Read(parseResult, log => PrecompileTargets.Create(runtime, true, cpu, device, context, batch, [], log));
+        var settings = _pull.Read(parseResult, log => PrecompileTargets.Create(runtime, true, cpu, context, batch, [], log));
 
         using var hub = new HubContext(runtime, store.ReadRoot(parseResult));
         foreach (var reference in references)
