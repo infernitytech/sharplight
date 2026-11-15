@@ -134,6 +134,13 @@ samples, Server, Studio and docs follow. Rules in docs/code-style.md.
 - Bio: ESM-2/ESM-3, Evo, DNA models (Nucleotide Transformer, DNABERT, Caduceus).
 - Robotics VLA: OpenVLA, pi0.
 
+**Unified (user, 2026-11-15: "Everything should be unified"):** one system for all model types, no per-type silos.
+Engine: one model concept (kind + components), one load path (`.slm`, importers convert into it), one task API pattern
+(DI-registered clients with options, async, MEAI-shaped), one registration (`services.AddSharplight()`), one serving
+surface. Studio: one library, one Discover/download flow with type filters, one convert / inspect / load / unload /
+residency model, and inference pages built from shared components (model picker, parameter panel, presets, run queue,
+history, outputs gallery, export) so every type looks and behaves the same; chat is one of these pages.
+
 **Studio track** (one agent continuously from wave 1 on; docs/studio.md):
 - S0: Studio on the DI API and the task layer; the library reads the `.slm` model kind and shows every model by type.
 - S1: Model download overhaul for all model types:
