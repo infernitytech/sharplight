@@ -18,6 +18,7 @@ namespace Sharplight.HuggingFace;
 /// block, also a multiplier. <c>X.input_scale</c> (static activation scales) is dropped: activations are quantized dynamically (or
 /// not at all), so the per-tensor activation calibration is not needed. KV-cache scales (<c>k_scale</c> / <c>v_scale</c>) are dropped
 /// too: FP8 KV caches are not used.</item>
+/// <item>DeepSeek's own layout (DeepSeek-V4, <c>scale_fmt ue8m0</c>): <c>X.scale</c> F8_E8M0 per 128 x 128 block, a power of two.</item>
 /// </list>
 /// A weight becomes <see cref="DataType.F8E4M3_B128"/> when K and the scale granularity along K are multiples of 128, else
 /// <see cref="DataType.F8E4M3_B32"/> when they are multiples of 32 (the scale repeated in each block it covers), else
@@ -30,6 +31,12 @@ internal static class HfFp8Weights
 
     /// <summary>Scale tensor suffixes that replace <c>.weight</c> (DeepSeek style first).</summary>
     private static readonly string[] s_weightScaleSuffixes = [".weight_scale_inv", ".weight_scale"];
+
+    /// <summary>
+    /// The scale suffix of DeepSeek's own checkpoint layout (DeepSeek-V4: <c>X.weight</c> E4M3 with <c>X.scale</c> E8M0 per
+    /// 128 x 128 block), accepted only with an E8M0 dtype since <c>.scale</c> also names other parameters.
+    /// </summary>
+    private const string E8m0ScaleSuffix = ".scale";
 
     /// <summary>Calibration tensors of FP8 checkpoints that the runtime does not use (activation and KV-cache scales).</summary>
     private static readonly string[] s_ignoredSuffixes = [".input_scale", ".k_scale", ".v_scale", ".q_scale", ".prob_scale"];
@@ -80,6 +87,11 @@ internal static class HfFp8Weights
             {
                 return scale;
             }
+        }
+
+        if (tensors.TryGetValue(stem + E8m0ScaleSuffix, out var e8m0) && e8m0.DType == SafetensorsTensor.E8m0DType)
+        {
+            return e8m0;
         }
 
         // A weight stored in parts (X.shard_0.weight, X.shard_1.weight, ...; Qwen3.8-Flash-Next's n-gram table) with one scale X.weight_scale
@@ -155,7 +167,7 @@ internal static class HfFp8Weights
             Name = weight.Name,
             Type = target,
             Shape = codes.Shape,
-            Source = new HfFp8WeightSource(codes.Source, scale.ToWeightInfo(), layout, target, rows, columns),
+            Source = new HfFp8WeightSource(codes.Source, scale.DecodeScales, layout, target, rows, columns),
         };
         return new SafetensorsTensor
         {

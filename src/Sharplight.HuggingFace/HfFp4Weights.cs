@@ -20,7 +20,9 @@ namespace Sharplight.HuggingFace;
 /// 64-value block keeps g in front: <see cref="DataType.NVFP4_GS"/> (5 bits per weight instead of 4.5). The ModelOpt multiplier
 /// is applied exactly as ModelOpt dequantizes (scale product first); compressed-tensors divides the scale by its global scale,
 /// which the reciprocal multiplier reproduces to within one f32 rounding.</item>
-/// <item>MXFP4: <c>X.weight_scale</c> U8 (E8M0, bias 127) [..., N, K/32]; becomes <see cref="DataType.MXFP4"/> bit-exactly.</item>
+/// <item>MXFP4: <c>X.weight_scale</c> U8 (E8M0, bias 127) [..., N, K/32]; becomes <see cref="DataType.MXFP4"/> bit-exactly. DeepSeek's
+/// own FP4 experts (DeepSeek-V4, <c>expert_dtype fp4</c>) use the same packing with I8 codes <c>X.weight</c> and an F8_E8M0
+/// <c>X.scale</c>.</item>
 /// <item>Static activation scales (<c>input_scale</c>, <c>input_global_scale</c>) are dropped: activations are not quantized.</item>
 /// <item>NVFP4 rows whose K is not a multiple of 64 have no block type and are decoded to BF16.</item>
 /// </list>
@@ -30,6 +32,9 @@ internal static class HfFp4Weights
 {
     private const string ScaleSuffix = ".weight_scale";
 
+    /// <summary>The scale suffix of DeepSeek's own FP4 experts (<c>X.scale</c>, F8_E8M0 only).</summary>
+    private const string E8m0ScaleSuffix = ".scale";
+
     /// <summary>The checkpoint tensors with packed FP4 weights converted and their scale tensors removed.</summary>
     /// <exception cref="InvalidDataException">A packed FP4 weight's scale tensor does not match its shape.</exception>
     public static IReadOnlyDictionary<string, SafetensorsTensor> Resolve(IReadOnlyDictionary<string, SafetensorsTensor> tensors)
@@ -38,15 +43,17 @@ internal static class HfFp4Weights
         var consumed = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (name, scale) in tensors)
         {
-            if (!name.EndsWith(ScaleSuffix, StringComparison.Ordinal))
+            // DeepSeek's own layout names the E8M0 scale X.scale and stores the packed codes as I8.
+            bool deepSeek = name.EndsWith(E8m0ScaleSuffix, StringComparison.Ordinal) && scale.DType == SafetensorsTensor.E8m0DType;
+            if (!name.EndsWith(ScaleSuffix, StringComparison.Ordinal) && !deepSeek)
             {
                 continue;
             }
 
-            string stem = name[..^ScaleSuffix.Length];
-            var codes = Codes(tensors, stem);
-            bool nvfp4 = scale.DType == "F8_E4M3";
-            bool mxfp4 = scale.DType is "U8" or "F8_E8M0";
+            string stem = name[..^(deepSeek ? E8m0ScaleSuffix : ScaleSuffix).Length];
+            var codes = Codes(tensors, stem, deepSeek);
+            bool nvfp4 = !deepSeek && scale.DType == "F8_E4M3";
+            bool mxfp4 = scale.DType is "U8" or SafetensorsTensor.E8m0DType;
             if (codes is null || !(nvfp4 || mxfp4) || codes.Shape.Length < 2 || scale.Shape.Length != codes.Shape.Length)
             {
                 continue;
@@ -92,11 +99,11 @@ internal static class HfFp4Weights
         return result;
     }
 
-    private static SafetensorsTensor? Codes(IReadOnlyDictionary<string, SafetensorsTensor> tensors, string stem)
+    private static SafetensorsTensor? Codes(IReadOnlyDictionary<string, SafetensorsTensor> tensors, string stem, bool signedBytes)
     {
         foreach (var suffix in new[] { ".weight_packed", ".weight" })
         {
-            if (tensors.TryGetValue(stem + suffix, out var codes) && codes.DType == "U8")
+            if (tensors.TryGetValue(stem + suffix, out var codes) && (codes.DType == "U8" || (signedBytes && codes.DType == "I8")))
             {
                 return codes;
             }
