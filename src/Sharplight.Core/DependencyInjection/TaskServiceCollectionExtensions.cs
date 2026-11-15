@@ -12,7 +12,7 @@ namespace Microsoft.Extensions.DependencyInjection;
 /// <summary>
 /// Registers the task layer with Microsoft.Extensions.DependencyInjection: the <see cref="TaskClientProvider"/>, the client factories,
 /// and task clients for configured models. Every task kind is registered the same way: <c>services.AddTaskClient&lt;TClient&gt;(...)</c>
-/// (or its named forms such as <see cref="AddSpeechRecognizer"/>) loads the model as a singleton <see cref="TaskModel"/> on first
+/// (or its named forms such as <c>AddSpeechRecognizer</c>) loads the model as a singleton <see cref="TaskModel"/> on first
 /// resolution, with <see cref="TaskLoadOptions"/> from Microsoft.Extensions.Options, and creates the client from it; the container
 /// disposes the client before the model.
 /// </summary>
