@@ -4,6 +4,10 @@ usage: make_survey_refs.py [name ...]    (default: every model file under ~/mode
 Writes ~/models/onnx/ref/survey/<name>.json + <name>.b<B>.in<k>.bin / .out<k>.bin (float32; integer/bool tensors stored as float32 values).
 Shapes of dynamic inputs come from heuristics (batch = dim 0 -> -1; sequence 16 (4 with KV cache), past 8, images 224) plus OVERRIDES.
 Source: ONNX Runtime CPU (falls back to the CUDA EP when the CPU EP lacks a kernel, e.g. fp16 MatMulNBits; recorded in "refProvider").
+Models with f32ref=True in OVERRIDES take their reference from an f32 copy of the fp16 graph (fp16 initializers, casts and
+value types widened; quantized weights unchanged), run on the CPU EP. onnxruntime's fp16 CPU kernels round every
+intermediate to fp16, so over a deep decoder their outputs drift from the f32 result by more than the tolerance (phi-3.5:
+4.8e-2 relative RMS on the logits), while an engine that computes fp16 graphs in f32 lands within 1e-4 of the f32 copy.
 """
 import json, os, sys, glob, re, traceback
 import numpy as np
@@ -45,7 +49,7 @@ OVERRIDES = {
   "trocr-small-printed.encoder_model": dict(shapes={"pixel_values": [-1, 3, 384, 384]}),
   "dpt-hybrid-midas": dict(shapes={"pixel_values": [-1, 3, 384, 384]}),
   "grounding-dino-tiny": dict(sym={"L": 6}, gen={"input_ids": ("vals", [[101, 4937, 1012, 4937, 1012, 102]]), "pixel_values": "imgnorm"}),
-  "phi35-mini-q4f16": dict(sym={"L": 1, "past": 8}),
+  "phi35-mini-q4f16": dict(sym={"L": 1, "past": 8}, f32ref=True),
   "zipformer-encoder": dict(sym={"N": 1}),
   "efficientnet-lite4-int8": dict(gen={"*": "img255norm"}, rms=0.25),
 }
@@ -126,6 +130,39 @@ def make(rs, name, spec, shape, elem, ctx):
     else: raise ValueError(spec)
     return np.asarray(a).astype({1: np.float32, 2: np.uint8, 3: np.int8, 5: np.int16, 6: np.int32, 7: np.int64, 9: np.bool_, 10: np.float16, 11: np.float64, 16: np.float32}.get(elem, np.float32))
 
+def widen_fp16(graph):
+    """Widens every fp16 tensor, cast target and value type of graph (and its subgraphs) to f32, in place."""
+    from onnx import numpy_helper, TensorProto
+    def tensor(t):
+        if t.data_type == TensorProto.FLOAT16:
+            t.CopyFrom(numpy_helper.from_array(numpy_helper.to_array(t).astype(np.float32), t.name))
+    for t in graph.initializer: tensor(t)
+    for vi in list(graph.input) + list(graph.output) + list(graph.value_info):
+        if vi.type.HasField("tensor_type") and vi.type.tensor_type.elem_type == TensorProto.FLOAT16:
+            vi.type.tensor_type.elem_type = TensorProto.FLOAT
+    for n in graph.node:
+        for a in n.attribute:
+            if a.type == onnx.AttributeProto.TENSOR: tensor(a.t)
+            elif a.type == onnx.AttributeProto.GRAPH: widen_fp16(a.g)
+            elif a.name == "to" and a.i == TensorProto.FLOAT16: a.i = TensorProto.FLOAT
+
+def f32_reference(path, outs, feeds):
+    """Runs an f32 copy of the fp16 model at path on the CPU EP; fp16 feeds are widened. The copy is deleted afterwards."""
+    import tempfile, shutil
+    tmp = tempfile.mkdtemp(dir=os.path.dirname(path))
+    try:
+        m = onnx.load(path)
+        widen_fp16(m.graph)
+        f32 = os.path.join(tmp, "model_f32.onnx")
+        onnx.save(m, f32, save_as_external_data=True, location="model_f32.onnx_data")
+        del m
+        so = ort.SessionOptions(); so.log_severity_level = 3
+        sess = ort.InferenceSession(f32, so, providers=["CPUExecutionProvider"])
+        wide = {k: (v.astype(np.float32) if v.dtype == np.float16 else v) for k, v in feeds.items()}
+        return sess.run(outs, wide)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
 def open_session(path):
     last = None
     for prov in (["CPUExecutionProvider"], ["CUDAExecutionProvider", "CPUExecutionProvider"]):
@@ -162,7 +199,11 @@ def run(name, d, f):
         feeds[i.name] = a
         if i.name in pin: consts[i.name] = a
         a.astype(np.float32).tofile(f"{OUT}/{name}.b{b}.in{k}.bin")
-    res = sess.run(outs, feeds)
+    if ov.get("f32ref"):
+        res = f32_reference(path, outs, feeds)
+        refprov = "CPUExecutionProvider (f32 copy of the fp16 graph)"
+    else:
+        res = sess.run(outs, feeds)
     for k, o in enumerate(res):
         np.ascontiguousarray(o, dtype=np.float32).tofile(f"{OUT}/{name}.b{b}.out{k}.bin")
     man = {"model": f"{d}/{f}", "batches": [b], "refProvider": refprov,
