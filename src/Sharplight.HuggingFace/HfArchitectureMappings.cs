@@ -28,6 +28,8 @@ internal static class HfArchitectureMappings
         Register(new DeepseekV4HfMapping());
         Register(new Eagle3HfMapping());
         Register(new Gemma4AssistantHfMapping());
+        Register(new PaliGemmaHfMapping());
+        Register(new LlavaOneVision2HfMapping());
         Register(new DecoderHfMapping());
         Register(new EncoderHfMapping());
         Register(new T5HfMapping());

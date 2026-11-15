@@ -34,7 +34,7 @@ public class FamilyGenerationTests
 
     private static readonly string P1 = "Once upon a time, in a small village by the sea, there lived";
     private static readonly string P2 = "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art";
-    private static readonly int[] NemotronLatentIds = [84012, 129322, 91089, 61166, 57719, 115899, 122038, 107646, 54732, 45163, 112622, 59619, 129776, 92402, 51306, 104421];
+    internal static readonly int[] NemotronLatentIds = [84012, 129322, 91089, 61166, 57719, 115899, 122038, 107646, 54732, 45163, 112622, 59619, 129776, 92402, 51306, 104421];
     private const string Gemma4Story = " a young girl named Lily. Lily had hair the color of spun gold and eyes the deep blue of the ocean. She loved spending her days by the sparkling sea, collecting seashells and watching the waves dance";
 
     /// <summary>The case names; <c>SHARPLIGHT_TEST_CASE</c> limits them to those containing that text (to run one family).</summary>

@@ -19,7 +19,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
     public string Architecture => "qwen3_5";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["qwen3_5", "qwen3_5_text", "qwen3_5_moe", "qwen3_5_moe_text", Qwen3NextModelType, Qwen4ExpModelType, Qwen4ExpTextModelType];
+    public IReadOnlyList<string> ModelTypes { get; } = ["qwen3_5", "qwen3_5_text", "qwen3_5_moe", "qwen3_5_moe_text", Qwen3NextModelType, Qwen4ExpModelType, Qwen4ExpTextModelType, CloverModelType];
 
     // ---- hyper-parameters ---------------------------------------------------------------------
 
@@ -67,7 +67,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
             // Plain (partial) RoPE, linear-attention value heads stay grouped by key head (no reorder).
             md[a + "linear_attention.grouped_value_heads"] = true;
         }
-        else
+        else if (!IsClover(c))
         {
             md[a + "rope.sections"] = MropeSections(c);
         }
@@ -248,9 +248,9 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
             return TensorOutcome.Skipped;
         }
 
-        if (rawName.EndsWith("rotary_emb.inv_freq", StringComparison.Ordinal))
+        if (rawName.EndsWith("rotary_emb.inv_freq", StringComparison.Ordinal) || IsCloverPreviewTensor(c, rawName))
         {
-            return TensorOutcome.Skipped;   // derived buffer
+            return TensorOutcome.Skipped;   // derived buffer, or a tensor of Clover's block-diffusion preview
         }
 
         string name = rawName.Replace("language_model.", "");   // llama.cpp: model.language_model.layers.N → model.layers.N

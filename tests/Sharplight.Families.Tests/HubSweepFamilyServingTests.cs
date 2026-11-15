@@ -30,6 +30,12 @@ public class HubSweepFamilyServingTests
         [
             "hf/tiny-random-lfm3",
             "hf/tiny-random-spark2_5",
+            "hf/tiny-random-clover-moe",
+            "hf/tiny-random-nemotron-h-omni-puzzle",
+            "hf/tiny-random-paligemma",
+            "hf/tiny-random-paligemma2",
+            "hf/tiny-random-mimo-v2",
+            "hf/tiny-random-llava-onevision2",
         ];
         foreach (string model in models)
         {
