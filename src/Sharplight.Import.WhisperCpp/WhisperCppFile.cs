@@ -23,8 +23,10 @@ internal sealed unsafe class WhisperCppFile : IDisposable
 
     private WhisperCppFile(string path)
     {
-        _length = new FileInfo(path).Length;
-        _file = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
+        // The stream's length is the target's when the path is a symbolic link (FileInfo reports the link's own size).
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        _length = stream.Length;
+        _file = MemoryMappedFile.CreateFromFile(stream, null, 0, MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
         try
         {
             _view = _file.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
