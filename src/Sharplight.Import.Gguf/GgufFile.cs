@@ -204,10 +204,11 @@ public sealed unsafe class GgufFile : IDisposable
 
     /// <summary>
     /// The bytes a tensor takes in the file, given its size as <see cref="GgmlTypes.TryGetDataType"/>'s type: smaller than that for the
-    /// narrow IQ1 types, which widen when read.
+    /// narrow IQ1 types and I2_S, which widen when read.
     /// </summary>
     internal static long StoredByteSize(int ggmlType, long size) => GgmlNarrowIq1.Is(ggmlType)
-        ? size / GgmlNarrowIq1.WideBlockBytes * GgmlNarrowIq1.StoredBlockBytes(ggmlType) : size;
+        ? size / GgmlNarrowIq1.WideBlockBytes * GgmlNarrowIq1.StoredBlockBytes(ggmlType)
+        : ggmlType == GgmlTypes.I2S ? GgufI2sSource.StoredBytes(size) : size;
 
     internal static long ComputeByteSize(DataType dt, long[] ne, string name)
     {

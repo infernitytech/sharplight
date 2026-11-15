@@ -68,6 +68,17 @@ internal static partial class GgmlBlockDecoder
         {
             DecodeTq2(block, y);
         }
+        else if (type == DataType.Q2S_G128)
+        {
+            float d = BinaryPrimitives.ReadSingleLittleEndian(block);
+            for (int j = 0; j < 32; j++)
+            {
+                for (int plane = 0; plane < 4; plane++)
+                {
+                    y[32 * plane + j] = (((block[4 + j] >> (6 - 2 * plane)) & 3) - 1) * d;
+                }
+            }
+        }
         else if (type == DataType.MXFP4)
         {
             DecodeFp4(E8M0Half(block[0]), block.Slice(1, 16), y);

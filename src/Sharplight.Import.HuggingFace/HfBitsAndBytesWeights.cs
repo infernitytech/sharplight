@@ -15,10 +15,11 @@ namespace Sharplight.Import.HuggingFace;
 /// nested_quant_map[code] * nested_absmax[i / 256] + offset); <c>X.weight.quant_map</c> the 16-entry code book;
 /// <c>X.weight.quant_state.bitsandbytes__nf4</c> (or <c>__fp4</c>) a JSON blob with the type, block size and shape. value =
 /// quant_map[code] * absmax, in f32 as bitsandbytes computes it. NF4 weights become <see cref="DataType.NF4_B64"/> bit-exactly (the
-/// f32 absmax repeated in each 64-value block of a larger block). FP4 code books and blocks that do not cover whole 64-value runs of
-/// a row are decoded to BF16.</item>
+/// f32 absmax repeated in each 64-value block of a larger block); FP4 weights become <see cref="DataType.FP4_B64"/> the same way.
+/// Unknown code books and blocks that do not cover whole 64-value runs of a row are decoded to BF16.</item>
 /// <item>8-bit (LLM.int8, <c>load_in_8bit</c>): <c>X.weight</c> I8 [N, K] with <c>X.SCB</c> F32 [N]; value = q * SCB / 127. These
-/// weights are decoded to BF16 (no block type carries an f32 row scale with 8-bit codes). The outlier threshold is an
+/// weights become <see cref="DataType.Q8A_G32"/> (the row's f32 SCB in each 32-value block, value = q * SCB * (1/127) as
+/// bitsandbytes computes it) when the row is a multiple of 32 wide, and BF16 otherwise. The outlier threshold is an
 /// inference-time split of the activations into an int8 product and an f16 product for the outlier columns; activations are not
 /// quantized here, so every column takes the precise path bitsandbytes reserves for outliers.</item>
 /// </list>
@@ -114,10 +115,11 @@ internal static unsafe class HfBitsAndBytesWeights
             return codeBook[code] * scales[index / blocksize];
         }
 
-        bool nf4 = codeBook.AsSpan().SequenceEqual(Nf4CodeBook);
-        if (nf4 && columns % 64 == 0 && blocksize % 64 == 0)
+        DataType? lookup = codeBook.AsSpan().SequenceEqual(Nf4CodeBook) ? DataType.NF4_B64
+            : codeBook.AsSpan().SequenceEqual(Fp4CodeBook) ? DataType.FP4_B64 : null;
+        if (lookup is { } lookupType && columns % 64 == 0 && blocksize % 64 == 0)
         {
-            return Result(name, codes, DataType.NF4_B64, shape, rows, columns / 64 * 36, (row, destination) =>
+            return Result(name, codes, lookupType, shape, rows, columns / 64 * 36, (row, destination) =>
             {
                 for (long b = 0; b < columns / 64; b++)
                 {
@@ -158,12 +160,29 @@ internal static unsafe class HfBitsAndBytesWeights
         0.44070982933044434f, 0.5626170039176941f, 0.7229568362236023f, 1.0f,
     ];
 
+    /// <summary>The FP4 code book as bitsandbytes stores it (f32).</summary>
+    private static ReadOnlySpan<float> Fp4CodeBook => Sharplight.Tensors.Grids.Fp4CodeBook.Values;
+
     private static SafetensorsTensor EightBit(SafetensorsTensor codes, SafetensorsTensor rowScales)
     {
         long rows = codes.Shape[0];
         long columns = codes.Shape[1];
         float[] scb = HfTransforms.DecodeF32(rowScales.ToWeightInfo());
         nint values = (nint)codes.Pointer;
+        if (columns % 32 == 0)
+        {
+            return Result(codes.Name, codes, DataType.Q8A_G32, codes.Shape, rows, columns / 32 * 36, (row, destination) =>
+            {
+                sbyte* source = (sbyte*)values + row * columns;
+                for (long b = 0; b < columns / 32; b++)
+                {
+                    var block = destination.Slice((int)(b * 36), 36);
+                    BinaryPrimitives.WriteSingleLittleEndian(block, scb[row]);
+                    new ReadOnlySpan<byte>(source + b * 32, 32).CopyTo(block[4..]);
+                }
+            });
+        }
+
         return Result(codes.Name, codes, DataType.BF16, codes.Shape, rows, columns * 2, (row, destination) =>
         {
             sbyte* source = (sbyte*)values + row * columns;

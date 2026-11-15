@@ -191,7 +191,7 @@ internal static class Rnd
                 int maxCode = t == DataType.Q4Z_G32 || t == DataType.Q4Z_G128 ? 15 : 255;
                 PutHalf(bytes, o + 2, rng.Next(maxCode + 1));
             }
-            else if (t == DataType.NF4_B64)
+            else if (t == DataType.NF4_B64 || t == DataType.FP4_B64 || t == DataType.Q8A_G32 || t == DataType.Q2S_G128)
             {
                 BitConverter.TryWriteBytes(bytes.AsSpan((int)o, 4), d() * 8);
             }

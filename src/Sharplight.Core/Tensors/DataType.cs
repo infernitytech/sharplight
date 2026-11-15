@@ -175,6 +175,22 @@ public sealed class DataType : IEquatable<DataType>
     /// two 32-value runs laid out like <see cref="Q4_0"/>'s; value = d * NF4[q], NF4 the 16-entry table of normal quantiles.
     /// </summary>
     public static readonly DataType NF4_B64 = Register("nf4_b64", DataTypeKind.Quantized, 64, 36);
+    /// <summary>
+    /// 4-bit float lookup blocks of 64 with an f32 absmax, laid out like <see cref="NF4_B64"/> ({ f32 d; u8 qs[32] }, 36 bytes);
+    /// value = d * FP4[q], FP4 the 16-entry table of the sign / 2-bit exponent / 1-bit mantissa code of the bitsandbytes
+    /// FP4 data type (<see cref="Grids.Fp4CodeBook"/>).
+    /// </summary>
+    public static readonly DataType FP4_B64 = Register("fp4_b64", DataTypeKind.Quantized, 64, 36);
+    /// <summary>
+    /// Signed 8-bit codes, group 32, with an f32 absolute maximum: { f32 d; i8 q[32] } (36 bytes); value = q * d * (1/127), computed
+    /// in that order in f32 (the row-wise absmax int8 quantization of LLM.int8 and its siblings).
+    /// </summary>
+    public static readonly DataType Q8A_G32 = Register("q8a_g32", DataTypeKind.Quantized, 32, 36);
+    /// <summary>
+    /// Ternary 2-bit codes, group 128, with an f32 scale: { f32 d; u8 qs[32] } (36 bytes); byte j holds the codes of values j, 32 + j,
+    /// 64 + j and 96 + j in bits 6, 4, 2 and 0 (the BitNet I2_S layout); value = (code - 1) * d, codes 0..2.
+    /// </summary>
+    public static readonly DataType Q2S_G128 = Register("q2s_g128", DataTypeKind.Quantized, 128, 36);
 
     // Group-wise 1-bit / ternary formats (Bonsai): one f16 scale per group, w = scale * code.
     /// <summary>1 bit per weight, group 128: { f16 d; u8 bits[16] }, bit j (LSB first) set = +d, clear = -d (18 bytes).</summary>

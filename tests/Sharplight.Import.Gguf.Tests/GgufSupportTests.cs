@@ -43,7 +43,8 @@ public class GgufSupportTests
         Assert.Equal(DataType.Q4_K, GgufSupport.GetTensorType(12));
         Assert.Equal(DataType.Q8_K, GgufSupport.GetTensorType(15));
         Assert.Equal(DataType.Q4_0, GgufSupport.GetTensorType(31));   // Q4_0_4_4, deinterleaved on read
-        Assert.Null(GgufSupport.GetTensorType(36));
+        Assert.Equal(DataType.Q2S_G128, GgufSupport.GetTensorType(36));   // I2_S of the BitNet fork
+        Assert.Null(GgufSupport.GetTensorType(37));
         Assert.Null(GgufSupport.GetTensorType(99));
     }
 

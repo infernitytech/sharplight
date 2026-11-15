@@ -122,8 +122,21 @@ def autoround_case(base, out, fmt, bits, group, sym):
         os.rmdir(os.path.join(out, inner[0]))
 
 
+def bnb_case(base, out, **settings):
+    """bitsandbytes through transformers (CPU build of bitsandbytes, or a CUDA device with SHARPLIGHT_BNB_DEVICE=cuda)."""
+    from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+    device = os.environ.get("SHARPLIGHT_BNB_DEVICE", "cpu")
+    model = AutoModelForCausalLM.from_pretrained(base, quantization_config=BitsAndBytesConfig(**settings), device_map=device,
+                                                 dtype=torch.bfloat16)
+    model.save_pretrained(out)
+    AutoTokenizer.from_pretrained(base).save_pretrained(out)
+
+
 def extra_cases(base, out_dir):
     return [
+        ("bnb-nf4", lambda out: bnb_case(base, out, load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16)),
+        ("bnb-fp4", lambda out: bnb_case(base, out, load_in_4bit=True, bnb_4bit_quant_type="fp4", bnb_4bit_compute_dtype=torch.bfloat16)),
+        ("bnb-int8", lambda out: bnb_case(base, out, load_in_8bit=True)),
         ("autoround-gptq-4bit-sym", lambda out: autoround_case(base, out, "auto_round:auto_gptq", 4, 128, True)),
         ("autoround-gptq-4bit-asym-g32", lambda out: autoround_case(base, out, "auto_round:auto_gptq", 4, 32, False)),
         ("autoround-gptq-2bit-g64", lambda out: autoround_case(base, out, "auto_round:auto_gptq", 2, 64, False)),
