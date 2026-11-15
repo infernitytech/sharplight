@@ -17,15 +17,25 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     /// <param name="services">The runtime that lists the resident models.</param>
     /// <param name="kind">The model kind the picker offers (<see cref="Sharplight.Models.ModelKinds"/>).</param>
     public ModelPickerViewModel(StudioServices services, string kind)
+        : this(services, [kind])
+    {
+    }
+
+    /// <param name="services">The runtime that lists the resident models.</param>
+    /// <param name="kinds">The model kinds the picker offers; the first is the primary one (a page that runs several kinds, such as vision).</param>
+    public ModelPickerViewModel(StudioServices services, IReadOnlyList<string> kinds)
     {
         _services = services;
-        Kind = kind;
+        Kinds = kinds;
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(Refresh);
         Refresh();
     }
 
-    /// <summary>The model kind the picker offers.</summary>
-    public string Kind { get; }
+    /// <summary>The model kinds the picker offers.</summary>
+    public IReadOnlyList<string> Kinds { get; }
+
+    /// <summary>The primary model kind.</summary>
+    public string Kind => Kinds[0];
 
     /// <summary>The resident models of the kind.</summary>
     public ObservableCollection<ModelOptionViewModel> Models { get; } = [];
@@ -42,7 +52,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     {
         var selectedId = SelectedModel?.Id;
         Models.Clear();
-        foreach (var model in _services.Runtime.LoadedModels.Where(model => string.Equals(model.Kind, Kind, StringComparison.OrdinalIgnoreCase)))
+        foreach (var model in _services.Runtime.LoadedModels.Where(model => Kinds.Contains(model.Kind, StringComparer.OrdinalIgnoreCase)))
         {
             Models.Add(new ModelOptionViewModel(model));
         }

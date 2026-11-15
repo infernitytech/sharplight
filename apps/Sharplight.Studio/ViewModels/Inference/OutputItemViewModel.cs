@@ -10,15 +10,30 @@ internal sealed partial class OutputItemViewModel : ObservableObject
 {
     private readonly Action<OutputItemViewModel> _delete;
     private readonly IPlatformServices _platform;
+    private readonly Action<RunRecord>? _reuse;
 
-    internal OutputItemViewModel(RunRecord record, PageArchive archive, IPlatformServices platform, Action<OutputItemViewModel> delete)
+    internal OutputItemViewModel(RunRecord record, PageArchive archive, IPlatformServices platform, Action<OutputItemViewModel> delete, Action<RunRecord>? reuse = null)
     {
         Record = record;
         _platform = platform;
         _delete = delete;
+        _reuse = reuse;
         Directory = archive.DirectoryOf(record);
         Files = [.. record.Files.Select(name => new OutputFileViewModel(archive.PathOf(record, name), platform))];
+        ThumbnailPath = Files.FirstOrDefault(file => file.Name.EndsWith(".png", StringComparison.OrdinalIgnoreCase))?.Path;
     }
+
+    /// <summary>The first PNG of the output (shown as its thumbnail), or null for outputs without an image.</summary>
+    public string? ThumbnailPath { get; }
+
+    /// <summary>The output has an image to show.</summary>
+    public bool HasThumbnail => ThumbnailPath is not null && File.Exists(ThumbnailPath);
+
+    /// <summary>The thumbnail's bytes (decoded small by the view), or null.</summary>
+    public byte[]? Thumbnail => HasThumbnail ? File.ReadAllBytes(ThumbnailPath!) : null;
+
+    /// <summary>The page takes over the run's parameters and result.</summary>
+    public bool CanReuse => _reuse is not null;
 
     /// <summary>The run.</summary>
     public RunRecord Record { get; }
@@ -61,6 +76,10 @@ internal sealed partial class OutputItemViewModel : ObservableObject
             _platform.Open(Directory);
         }
     }
+
+    /// <summary>Sets the page's parameters (and result) to the ones of this run.</summary>
+    [RelayCommand]
+    private void Reuse() => _reuse?.Invoke(Record);
 
     /// <summary>Opens the folder with the files.</summary>
     [RelayCommand]

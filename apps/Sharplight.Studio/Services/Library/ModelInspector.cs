@@ -54,10 +54,16 @@ internal static class ModelInspector
 
     /// <summary>
     /// The kind a model file that is not a package probably has: whisper.cpp <c>.bin</c> files (by their magic number) and Whisper
-    /// checkpoint folders recognize speech, a GGUF named like OuteTTS speaks, other GGUF files and checkpoint folders are language models.
+    /// checkpoint folders recognize speech, a GGUF named like OuteTTS speaks, Stable Diffusion checkpoints and the vision checkpoints
+    /// are recognized by <see cref="ImageModelProbe"/>, other GGUF files and checkpoint folders are language models.
     /// </summary>
     private static string InferKind(string path)
     {
+        if (ImageModelProbe.KindOf(path) is { } imageKind)
+        {
+            return imageKind;
+        }
+
         if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
         {
             return System.IO.Path.GetFileName(path).Contains("outetts", StringComparison.OrdinalIgnoreCase) ? ModelKinds.SpeechSynthesis : ModelKinds.TextGeneration;
