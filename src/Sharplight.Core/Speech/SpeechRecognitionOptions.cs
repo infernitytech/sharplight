@@ -23,8 +23,14 @@ public sealed record SpeechRecognitionOptions
     /// </summary>
     public bool ConditionOnPreviousText { get; init; }
 
-    /// <summary>Token selection of the text decoder; greedy by default, as recognizers are evaluated.</summary>
+    /// <summary>Token selection of the text decoder; greedy by default, as recognizers are evaluated. Ignored with beam search.</summary>
     public SamplingOptions Sampling { get; init; } = SamplingOptions.Greedy;
+
+    /// <summary>
+    /// Beams of a beam search over the text tokens (scores normalized by length, as in Hugging Face transformers' <c>num_beams</c>); 1 (the
+    /// default) decodes with <see cref="Sampling"/>. More beams cost one decoder pass per beam and token.
+    /// </summary>
+    public int BeamSize { get; init; } = 1;
 
     /// <summary>The defaults.</summary>
     public static SpeechRecognitionOptions Default { get; } = new();

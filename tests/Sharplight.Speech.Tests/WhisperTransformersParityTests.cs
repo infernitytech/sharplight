@@ -3,6 +3,7 @@ using Sharplight.Audio;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tasks;
+using Sharplight.Tensors;
 using Xunit;
 
 namespace Sharplight.Speech.Tests;
@@ -44,7 +45,7 @@ public sealed class WhisperTransformersParityTests
         Assert.True(error < 2e-5 * Math.Max(1, scale), $"log-mel max abs error {error:G3} (scale {scale:G3})");
     }
 
-    /// <summary>The encoder output matches transformers' encoder (relative to its largest value).</summary>
+    /// <summary>The encoder output matches transformers' encoder (relative to its largest value; looser for f16 weights on the GPU).</summary>
     [Theory]
     [MemberData(nameof(Cases))]
     public void EncoderMatchesTransformers(string name, string device)
@@ -63,7 +64,10 @@ public sealed class WhisperTransformersParityTests
         encoder.GetOutput<float>(WellKnown.EncoderOutput, output);
         double error = MaxError(output, fixture.RootElement.GetProperty("encoder"), out double scale);
         TestContext.Current.TestOutputHelper?.WriteLine($"{name} {device}: encoder max abs error {error:G3} of max abs {scale:G3}");
-        Assert.True(error < 2e-5 * scale, $"encoder max abs error {error:G3} of max |value| {scale:G3} on {device}");
+        // Half-precision checkpoints (distil-small.en) run f16 matrix products on the GPU; transformers upcasts them to f32.
+        bool halfWeights = model.Definition.Weights.Values.Any(w => w.Type == DataType.F16);
+        double tolerance = halfWeights && device != "cpu" ? 2e-3 : 2e-5;
+        Assert.True(error < tolerance * scale, $"encoder max abs error {error:G3} of max |value| {scale:G3} on {device}");
     }
 
     /// <summary>Greedy decoding with a given language gives transformers' tokens, with and without timestamps.</summary>
@@ -82,6 +86,29 @@ public sealed class WhisperTransformersParityTests
             var expected = fixture.RootElement.GetProperty(key);
             Assert.Equal(Generated(expected, model), result.Segments.SelectMany(s => s.Tokens).ToArray());
             Assert.Equal(expected.GetProperty("text").GetString()!.Trim(), result.Text);
+        }
+    }
+
+    /// <summary>A 5-beam search gives transformers' <c>num_beams=5</c> tokens, with and without timestamps.</summary>
+    [Theory]
+    [InlineData("whisper-tiny", "cpu")]
+    [InlineData("whisper-tiny.en", "vulkan")]
+    [InlineData("whisper-base", "cpu")]
+    [InlineData("whisper-small", "vulkan")]
+    [InlineData("distil-small.en", "cpu")]
+    public async Task BeamSearchMatchesTransformers(string name, string device)
+    {
+        using var model = Load(name, device);
+        using var recognizer = (ISpeechRecognizer)new EncoderDecoderSpeechRecognizerFactory().Create(model);
+        using var fixture = SpeechEnvironment.Fixture($"jfk.{name}.json");
+        var audio = WavFile.Read(SpeechEnvironment.Jfk);
+        string? language = name.EndsWith(".en", StringComparison.Ordinal) ? null : "en";
+        foreach (var (key, timestamps) in new[] { ("beam_plain", TimestampGranularity.None), ("beam_timestamps", TimestampGranularity.Segment) })
+        {
+            var options = new SpeechRecognitionOptions { Language = language, Timestamps = timestamps, BeamSize = 5 };
+            var result = await recognizer.TranscribeAsync(audio, options);
+            var expected = fixture.RootElement.GetProperty(key);
+            Assert.Equal(Generated(expected, model), result.Segments.SelectMany(s => s.Tokens).ToArray());
         }
     }
 

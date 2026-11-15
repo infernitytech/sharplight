@@ -1030,14 +1030,14 @@ adapter, the model knowledge lives in the importers, and only the feature extrac
 | Family | Formats | Status | Verified against | Test assets |
 |---|---|---|---|---|
 | Whisper tiny, base, small (and `.en`); medium, large-v1/v2/v3 and turbo map the same way but are not verified yet | Hugging Face `whisper` checkpoints; whisper.cpp ggml `.bin` (f32, f16, q4_0/q4_1/q5_0/q5_1/q8_0, k-quants); `.slm` | **supported** (CPU and Vulkan) | transformers (log-mel, encoder output, token-exact greedy ids with and without timestamps, language detection) and whisper.cpp 5922450f CPU build (segments and texts) | hf/whisper-{tiny,tiny.en,base,small}, whisper.cpp/ggml-{tiny,tiny.en,base,base.en,small,small.en}[-q5_1].bin, audio/jfk.wav |
-| Distil-Whisper | Hugging Face (`whisper` model type) | maps (same graph; 2-layer decoders); not yet verified | - | - |
+| Distil-Whisper (distil-small.en, distil-large-v3.5) | Hugging Face (`whisper` model type; f16 `model.safetensors` beside an `fp32` variant) | **supported** (CPU and Vulkan; same graph, 2-layer decoders) | transformers (encoder output, token-exact greedy ids with and without timestamps, beam search) | hf/distil-small.en, hf/distil-large-v3.5 |
 | Moonshine, Parakeet (CTC / TDT), Canary, Voxtral | - | **missing** (next in the speech queue: raw-waveform conv front end, conformer encoder with CTC / transducer decoding loops, Voxtral's audio encoder in front of an LLM) | - | - |
 
 How it is built (2026-11-15):
 
 - **Model**: canonical architecture `encoder_decoder` with `encoder.input` "audio" (`EncoderDecoderAdapter`): the encode graph takes one
-  window of log-mel features [mel bins, 3000] (`InputRole.AudioFeatures`) and runs the `AudioConvStem` (two 1-D convolutions as 2-D
-  `Conv`, GELU, learned positions) and pre-norm LayerNorm layers; the decode graph has a KV cache for self-attention and caches the
+  window of log-mel features [mel bins, 3000] (`InputRole.AudioFeatures`) and runs the `AudioConvStem` (two generic time-major
+  `Conv1d` ops, the op the text-to-speech codecs use, with GELU, then learned positions) and pre-norm LayerNorm layers; the decode graph has a KV cache for self-attention and caches the
   cross-attention keys and values per window (`cross_attention.cached`: projected once on the window's first pass, E = 1500, later
   passes carry no source rows). The adapter sets the model description (`SpeechRecognitionDescription`): components `encoder`,
   `decoder` (row and context bound 448), `tokenizer` (the canonical `TokenizerData` JSON as the attachment `tokenizer/tokenizer.json`)
@@ -1049,9 +1049,13 @@ How it is built (2026-11-15):
   encodes exactly like the transformers tokenizer and yields the same suppress lists).
 - **Host**: `LogMelSpectrogram` (feature-extractor type `log-mel`, behind the internal `IAudioFeatureExtractor`; a graph-based
   extractor on the generic STFT op that `wip/onnx-ops` adds can replace it) and `EncoderDecoderSpeechRecognizer`: language detection,
-  transcribe / translate, greedy or sampled decoding with the timestamp rules, no-speech detection, and long-form transcription that
-  advances window by window to the last complete timestamp segment (optionally conditioned on the previous text). Not yet: beam
-  search, temperature fallback, word timestamps (cross-attention alignment heads).
+  transcribe / translate, greedy, sampled or beam-search decoding with the timestamp rules (`SpeechRecognitionOptions.BeamSize`;
+  `SpeechBeamSearch` follows transformers' `num_beams` selection and length normalization, and evaluates the beams on the single KV
+  cache by rewinding it to each beam's shared prefix), no-speech detection, and long-form transcription that advances window by window
+  to the last complete timestamp segment (optionally conditioned on the previous text). Not yet: temperature fallback, word timestamps
+  (cross-attention alignment heads).
+- Hugging Face checkpoints that ship weight variants next to `model.safetensors` (`model.fp32.safetensors`, ...) load the default file
+  only, as transformers does.
 
 Parity on jfk.wav (11 s):
 
@@ -1060,6 +1064,8 @@ Parity on jfk.wav (11 s):
 | log-mel features vs transformers (`WhisperFeatureExtractor`) | max abs error 3.8e-6 (values up to 1.33) |
 | encoder output vs transformers, f32 checkpoints | max abs error 1.1e-5 to 1.4e-4 for values up to 10 to 28 (≤ 5e-6 relative), CPU and Vulkan |
 | greedy ids vs transformers `generate` (tiny, tiny.en, base, small; without and with timestamps) | identical, CPU and Vulkan |
+| greedy ids vs transformers, Distil-Whisper (distil-small.en, distil-large-v3.5) | identical, CPU and Vulkan; encoder within 2e-5 relative (distil-small.en's f16 weights on Vulkan: within 2e-3, f16 matrix products) |
+| 5-beam search vs transformers `generate(num_beams=5)` (tiny, tiny.en, base, small, distil-small.en; without and with timestamps) | identical ids (tiny, tiny.en and distil-small.en pick different sequences than greedy), CPU and Vulkan |
 | language detection (tiny, base) | `en`, then identical ids to transformers without a language |
 | whisper.cpp f16 files (6 models): segments with timestamps and `-nt` text | identical to whisper.cpp's CPU build, CPU and Vulkan |
 | whisper.cpp q5_1 files (6 models) | same words; 3 of 24 runs differ in one punctuation mark. ggml multiplies quantized weights with activations quantized to 8 bits, Sharplight with the dequantized weights; whisper.cpp's own CPU and CUDA builds disagree on the same commas (e.g. small.en-q5_1) |

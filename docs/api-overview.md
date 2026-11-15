@@ -99,11 +99,11 @@ checkpoints, whisper.cpp `.bin` files or `.slm` packages); `AddSharplightTasks()
 `encoder` and a `decoder` component (graphs), a `tokenizer` component (the tokenizer as a JSON attachment) and a `feature-extractor`
 component (log-mel configuration and the mel filter bank as an attachment); the decoder's canonical metadata carries the control
 tokens (`SpeechKeys`). A request computes the log-mel features of the whole recording on the host, then per 30 s window runs the
-encoder, detects the language when `SpeechRecognitionOptions.Language` is null, and decodes greedily (or with `Sampling`) with
-Whisper's timestamp rules. Long recordings advance to the last complete timestamp segment of each window; `ConditionOnPreviousText`
+encoder, detects the language when `SpeechRecognitionOptions.Language` is null, and decodes greedily (or with `Sampling`, or with a
+beam search of `BeamSize` beams scored like transformers' `num_beams`) with Whisper's timestamp rules. Long recordings advance to the last complete timestamp segment of each window; `ConditionOnPreviousText`
 prompts each window with the text so far, `Prompt` conditions the first. `Timestamps = TimestampGranularity.None` decodes without
 timestamp tokens (one segment per window, as transformers does by default). Each `TranscriptionSegment` carries its token ids, mean log
-probability and no-speech probability. Not yet: beam search, temperature fallback, word timestamps.
+probability and no-speech probability. Not yet: temperature fallback, word timestamps.
 
 ```csharp
 var services = new ServiceCollection().AddSharplight()
@@ -117,7 +117,7 @@ foreach (var segment in result.Segments)
 }
 ```
 
-The sample `samples/Sharplight.Transcribe` (`sharplight-transcribe model audio.wav [--language en] [--translate] [--format srt]`) is this
+The sample `samples/Sharplight.Transcribe` (`sharplight-transcribe model audio.wav [--language en] [--translate] [--beam-size 5] [--format srt]`) is this
 in a command-line tool. Models of other speech families (CTC, transducers, audio LLMs) plug in as their own `ITaskClientFactory` for the
 same kind; the feature extraction sits behind a small internal interface so a graph-based front end can replace the host one.
 

@@ -3,7 +3,8 @@
 Usage (in a venv with torch, transformers and soundfile):
     python make_whisper_fixtures.py <checkpoint dir> <wav> <fixture.json>
 
-The fixture holds the greedy token ids (without timestamps, with timestamps, and with language detection for multilingual models), and
+The fixture holds the greedy token ids (without timestamps, with timestamps, and with language detection for multilingual models), the
+ids of a 5-beam search (without and with timestamps), and
 every 997th value of the log-mel features [mels, 3000] and of the encoder output [1500, d_model] with their full sizes, so the tests
 compare against transformers without storing megabytes of reference tensors.
 """
@@ -15,6 +16,7 @@ import torch
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 STRIDE = 997
+BEAMS = 5
 
 
 def sample(tensor: torch.Tensor) -> dict:
@@ -38,6 +40,8 @@ def main(model_dir: str, wav: str, out: str) -> None:
         for key, timestamps in (("plain", False), ("timestamps", True)):
             ids = model.generate(features, return_timestamps=timestamps, **language)[0].tolist()
             fixture[key] = {"ids": ids, "text": processor.decode(ids, skip_special_tokens=True)}
+            ids = model.generate(features, return_timestamps=timestamps, num_beams=BEAMS, **language)[0].tolist()
+            fixture["beam_" + key] = {"ids": ids, "text": processor.decode(ids, skip_special_tokens=True)}
         if multilingual:
             ids = model.generate(features)[0].tolist()
             fixture["detected"] = {"ids": ids, "text": processor.decode(ids, skip_special_tokens=True)}

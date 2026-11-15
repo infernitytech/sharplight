@@ -10,7 +10,7 @@ namespace Sharplight.Speech;
 /// <summary>
 /// The <see cref="ISpeechRecognizer"/> of encoder-decoder speech models whose decoder is prompted with control tokens (Whisper and its
 /// derivatives): host-side features over the whole recording, then window by window (the encoder's fixed window, e.g. 30 s) the encoder,
-/// language detection when no language is given, and the decoding loop with the timestamp rules. Long recordings advance by the last
+/// language detection when no language is given, and the decoding loop with the timestamp rules (greedy, sampled or beam search). Long recordings advance by the last
 /// complete timestamp segment of each window, as the reference implementations do. The graphs compile on the first request. One
 /// request runs at a time; concurrent requests wait.
 /// </summary>
@@ -81,6 +81,7 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
         ArgumentNullException.ThrowIfNull(audio);
         ObjectDisposedException.ThrowIf(_disposed, this);
         options ??= SpeechRecognitionOptions.Default;
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.BeamSize, 1, nameof(options));
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -271,16 +272,22 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
         }
 
         var filter = new SpeechLogitFilter(_protocol, timestamps);
+        int limit = Math.Min(_protocol.MaxTextTokens, network.ContextLength - network.Position);
+        if (state.Options.BeamSize > 1)
+        {
+            var best = new SpeechBeamSearch(network, filter, _protocol.EndId, state.Options.BeamSize).Run(logits, limit, cancellationToken);
+            return new WindowDecoding(best.Tokens, best.LogProbability / (best.Tokens.Length + 1), noSpeech);
+        }
+
         var sampler = new Sampler(state.Options.Sampling);
         var generated = new List<int>();
         double sumLogProbability = 0;
-        int limit = Math.Min(_protocol.MaxTextTokens, network.ContextLength - network.Position);
         for (int step = 0; step < limit; step++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             filter.Apply(logits, generated);
             int token = sampler.Sample(logits);
-            sumLogProbability += LogSoftmax(logits, token);
+            sumLogProbability += LogProbabilities.Of(logits, token);
             if (token == _protocol.EndId)
             {
                 break;
@@ -296,22 +303,5 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
         return new WindowDecoding(generated, sumLogProbability / (generated.Count + 1), noSpeech);
     }
 
-    private static double Softmax(ReadOnlySpan<float> logits, int index) => Math.Exp(LogSoftmax(logits, index));
-
-    private static double LogSoftmax(ReadOnlySpan<float> logits, int index)
-    {
-        float max = float.NegativeInfinity;
-        foreach (float value in logits)
-        {
-            max = MathF.Max(max, value);
-        }
-
-        double sum = 0;
-        foreach (float value in logits)
-        {
-            sum += Math.Exp(value - max);
-        }
-
-        return logits[index] - max - Math.Log(sum);
-    }
+    private static double Softmax(ReadOnlySpan<float> logits, int index) => Math.Exp(LogProbabilities.Of(logits, index));
 }

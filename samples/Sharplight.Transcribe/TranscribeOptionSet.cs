@@ -37,6 +37,9 @@ public sealed class TranscribeOptionSet
         Description = "Prompt each 30 s window with the text recognized so far (long recordings).",
     };
 
+    /// <summary><c>--beam-size</c>.</summary>
+    public Option<int> BeamSize { get; } = OptionFactory.Integer("--beam-size", "Beams of a beam search (1 = greedy).", 1, minimum: 1, helpName: "beams");
+
     /// <summary><c>--format</c>.</summary>
     public Option<TranscriptFormat> Format { get; } = new("--format", "-f")
     {
@@ -54,7 +57,7 @@ public sealed class TranscribeOptionSet
         var command = new RootCommand("Transcribes a WAV file with a speech-recognition model (Whisper and compatible).");
         command.Arguments.Add(Model);
         command.Arguments.Add(Audio);
-        foreach (Option option in new Option[] { Cpu, Device, Language, Translate, NoTimestamps, Prompt, ConditionOnPreviousText, Format, Verbose })
+        foreach (Option option in new Option[] { Cpu, Device, Language, Translate, NoTimestamps, Prompt, ConditionOnPreviousText, BeamSize, Format, Verbose })
         {
             command.Options.Add(option);
         }
@@ -72,6 +75,7 @@ public sealed class TranscribeOptionSet
             Timestamps = parseResult.GetValue(NoTimestamps) ? TimestampGranularity.None : TimestampGranularity.Segment,
             Prompt = parseResult.GetValue(Prompt),
             ConditionOnPreviousText = parseResult.GetValue(ConditionOnPreviousText),
+            BeamSize = parseResult.GetValue(BeamSize),
         };
         return new TranscribeSettings(parseResult.GetValue(Model)!, parseResult.GetValue(Audio)!, parseResult.GetValue(Cpu), parseResult.GetValue(Device),
             recognition, parseResult.GetValue(Format), parseResult.GetValue(Verbose));
