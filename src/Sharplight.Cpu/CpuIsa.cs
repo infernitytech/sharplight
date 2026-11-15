@@ -100,6 +100,7 @@ internal static class CpuIsa
         _ => "avx512vnni",
     };
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static CpuIsaLevel? Parse(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -118,6 +119,7 @@ internal static class CpuIsa
         throw new InvalidOperationException($"{EnvironmentVariable}='{text}' is not one of scalar, v128, avx2, avxvnni, avx512, avx512vnni.");
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static CpuIsaLevel Highest(CpuIsaLevel cap)
     {
         var level = cap;

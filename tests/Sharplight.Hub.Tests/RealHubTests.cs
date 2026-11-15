@@ -1,5 +1,5 @@
-using Sharplight.Gguf;
-using Sharplight.Llm;
+using Sharplight.Import.Gguf;
+using Sharplight.Architectures;
 using Sharplight.Package;
 
 namespace Sharplight.Hub.Tests;

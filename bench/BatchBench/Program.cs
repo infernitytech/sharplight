@@ -13,9 +13,10 @@
 // in each of the last slots, as the serving engine's chunked prefill feeds them); "D+PxN" splits P*N prompt rows over N sequences.
 // --batch sets the decoder's rows per step (default 512). With --mixed, --profile takes the index of the mixed entry instead.
 using System.Diagnostics;
-using Sharplight.Gguf;
+using Sharplight.Architectures;
 using Sharplight.Graph;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Package;
@@ -25,6 +26,7 @@ using Sharplight.Vulkan;
 var argv = args.ToList();
 string? Opt(string n, string? d = null) { int i = argv.IndexOf(n); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d; }
 ProviderRegistry.Register(() => new VulkanProvider());
+BuiltinAdapters.RegisterAll();
 GgufImporter.Register();
 HuggingFaceImporter.Register();
 ModelPackageImporter.Register();

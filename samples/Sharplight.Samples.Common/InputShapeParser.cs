@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace Sharplight.Samples;
 
-/// <summary>Parses <c>--shape name=-1x3x224x224</c> values (a non-positive dimension marks the batch axis).</summary>
+/// <summary>Parses <c>--shape name=-1x3x224x224</c> values (a negative dimension marks the batch axis, 0 an empty axis).</summary>
 public static class InputShapeParser
 {
     private const char NameSeparator = '=';

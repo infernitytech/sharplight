@@ -42,6 +42,15 @@ internal sealed record AppSettings
     /// <summary>Device features never to use (provider-neutral names such as <c>matrix_f16</c>).</summary>
     public IReadOnlyList<string> DisabledFeatures { get; init; } = [];
 
+    /// <summary>
+    /// Frame the main window with the system's title bar instead of Studio's own one (which is used only where the window manager
+    /// moves and resizes windows on request).
+    /// </summary>
+    public bool UseSystemTitleBar { get; init; }
+
+    /// <summary>Discover lists only repositories and quantizations whose compatibility badge is <c>Supported</c>.</summary>
+    public bool ShowOnlySupported { get; init; }
+
     /// <summary>Compile the GPU kernels into a package right after it was downloaded and converted.</summary>
     public bool PrecompileAfterDownload { get; init; } = true;
 
@@ -65,4 +74,16 @@ internal sealed record AppSettings
 
     /// <summary>Hide the welcome hints after the first model was downloaded.</summary>
     public bool OnboardingDone { get; init; }
+
+    /// <summary>Check for a new Studio version at startup and every few hours (installed builds only).</summary>
+    public bool AutoCheckForUpdates { get; init; } = true;
+
+    /// <summary>When the last update check finished (successfully or not); null when none ran.</summary>
+    public DateTimeOffset? LastUpdateCheck { get; init; }
+
+    /// <summary>
+    /// Update feed URL that replaces the one baked into the build; null keeps it. The <c>SHARPLIGHT_STUDIO_UPDATE_URL</c>
+    /// environment variable still takes precedence.
+    /// </summary>
+    public string? UpdateUrl { get; init; }
 }

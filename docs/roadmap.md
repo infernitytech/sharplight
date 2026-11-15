@@ -20,20 +20,29 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - close the remaining gap to f16's ~1.65 TB/s;
   - fold the small [5120→48] split-K matmuls (~0.9 ms per step);
   - make Q8_0 at 5–8 rows use the direct GEMM (10–13 % faster) without changing greedy MTP output (§23.3);
-  - serving against vLLM (§24.5): 0.93x / 0.85x / 0.73x / 0.65x at 1 / 4 / 16 / 64 streams; the batched decode step
-    is the gap.
+  - serving against vLLM (§28.6): 0.81x / 0.82x / 0.69x / 0.77x at 1 / 4 / 16 / 64 streams (bf16 state opt-in: 0.83x /
+    0.85x / 0.71x / 0.80x); mixed decode + prompt steps are 70 % fp8 GEMM at 100-500 rows and 20 % delta rule (§28.4).
+  - sustained serving steps on the 300 W Max-Q card run at the power cap (SM clock 1.6-1.8 GHz, §29.2): narrow fp8
+    tiles that were 5-24 % faster in micro-benchmarks gave no end-to-end gain (§29.1). Prefer changes that move fewer
+    bytes or do fewer operations over wave-fill and occupancy tuning, and confirm every kernel win on full steps.
+  - the f32 delta-rule state already streams at the memory bandwidth (§29.4); only the opt-in bf16 state makes it cheaper.
 - **Reduced-precision delta-rule state**: done as an opt-in (`--reduced-precision` stores it as bf16; 64-row step
   -8.6 %, 16-row -2.7 % on the 27B FP8, §24.6). Next: round the chunked prefill per chunk like the token-by-token
   kernel, and 16-bit states for Mamba / RWKV.
-- **Fewer glue launches per batched step**: f16 activation copies, fp8 quantization and split-K reductions are 3–7 % of
-  GPU time. Produce the copy in the preceding norm / elementwise epilogue (§19.6).
+- **Fewer glue launches per batched step**: row norms now write the f16 activation copy for 2-16-row steps (1334 → 1158
+  dispatches, 917 → 789 barriers at 16 rows on the 27B FP8; Blackwell GPU time unchanged, §28.3). Left: the copies after
+  elementwise and matmul epilogues (attention gate, SwiGLU output), fp8 quantization and split-K reductions.
+- **Single-stream gaps** (§28.5): 27B Q8_0 decode (0.90x of llama.cpp; single matvecs at 1.34-1.42 TB/s) and Mistral-7B
+  Q4_K_M pp512 (0.91x). Both need a different summation order, i.e. a deliberate change of greedy output.
+- **Row-invariant MTP verification** (§28.1): verification rows now reproduce plain decoding bit for bit. Next: a
+  row-invariant skinny GEMM so k = 3 on FP8 regains its 5-8 %, and bit-exact int-dot variants for K-quant weights.
 - **MTP follow-ups** (§17): share the embedding / LM-head buffers between the target and the draft head (2.5 GB on the
   27B); verify drafts on the device instead of reading back 1 MB of logits per row; count rollback records and the draft
   head in `EstimateFootprint`; wire up DeepSeek-V3 and GLM-4.5 NextN heads.
 - **Chunked delta rule in rollback-form graphs**: with speculation on, prompt prefill uses the token-serial kernels and
   loses the 5–25 % prefill gain of §18. Replay the committed rows, then hand long runs to the chunked kernel.
 - **ONNX operator coverage**: control flow (Loop, If, Scan), sequences and the rest of the opset.
-- **ONNX latency parity with onnxruntime** (§21, §25, §26, §27). Done:
+- **ONNX latency parity with onnxruntime** (§21, §25-§27, §30, §31, §33). Done:
   - conv / matmul epilogues on CPU and Vulkan, prepacked weights, decomposed LayerNorm / GELU and attention-scale
     translation, block-quantized MatMulNBits;
   - the 128x128 SIMT GEMM, bmm split-K, the CPU conv as one implicit GEMM (with a shifted stride-1 form);
@@ -41,19 +50,34 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - the reduced-precision device loss and its batch-1 slowness;
   - fused encoder attention (decomposed MatMul → Softmax → MatMul and com.microsoft Attention / MultiHeadAttention)
     on the CPU tiled kernel and a Vulkan flash kernel with split-f16 products in strict precision;
-  - an opt-in split-f16 tensor-core GEMM for f32 matmuls (`SplitHalfMatMul`, not f32-exact);
+  - the split-f16 tensor-core GEMM and conv at f32 accuracy (row / block scales, promoted tensor-core sums) as the
+    strict default for f32 weights (`SplitHalfMatMul`, §30);
   - CPU conv task planning by operand traffic, subsampled strided 1x1 convs, row-form max pooling, core-affine
     parallel loops; fused sibling (Q / K / V) projections; Vulkan Det / Inverse / volumetric GridSample / int64
-    CumSum (§27).
+    CumSum (§27);
+  - CPU channels-last (NHWC) convs, depthwise convs and pooling with layout propagation; Vulkan attention over strided
+    K / V; data-dependent counts grouped by level with device-side forwarding (R-CNN wall 119 → 12 ms);
+    LinearAttention / DeformConv / Unique / TfIdf / tree ensembles / SVM on Vulkan; AggressiveOptimization on the
+    CPU kernels for package consumers (§30);
+  - elementwise groups in the split-f16 GEMM's store, 64-token split tiles for few hundred rows, a reworked encoder
+    flash kernel, in-place LayerNorm over channel-strided views, conv_narrow for few output channels, sub-millisecond
+    re-recording for new detection counts; for devices without matrix units an f32 encoder flash kernel and tiles
+    sized by `DeviceInfo.ConcurrentWorkgroups` (integrated GPU: whisper-tiny 16x, vit-base 3.2x) (§31);
+  - opt-in fast matrix precision (TF32 class) for GEMMs, convs and attention: 0.60-1.00x of ORT's TF32 default on the
+    encoders and convnets (raft 1.04x); ScatterND over a symbolic axis on Vulkan (qwen2.5 q4 in one segment); phi-3.5 parity against
+    an f32-copy reference; conformance 1863 / 1884 node and 171 / 172 extra tests (§33).
 
   Open gaps:
-  - Vulkan f32 GEMMs against ORT's TF32 in strict precision: vit, raft, whisper, resnet50 / convnext b8 at 1.5-2.4x;
-    split f16 at f32-level accuracy (subnormal lo parts), split f16 for convs and bmm, the SIMT GEMM;
-  - Vulkan attention over strided K / V (the fused projections add two copies per layer);
-  - CPU convolution at b8 and depthwise convs (resnet50 b8 1.5x, mobilenetv2 / efficientnet 1.2-1.6x): a blocked
-    NCHWc / NHWC layout with propagation, and Winograd on top of it;
-  - CPU encoder GEMMs stream each layer's weights from DRAM (vit [3072 → 768]: 640 µs in the model, 400 µs warm);
-  - detection models round-trip each data-dependent count through the host (R-CNN: 100 ms wall, 34 ms GPU).
+  - strict Vulkan encoders against ORT's TF32: vit 1.5-1.9x, whisper 1.3x, bert b8 1.25x (0.78-1.02x of ORT with TF32
+    off; fast precision closes the gap). The split GEMM's three products cost about 1.5x by construction; beyond that
+    its 128-token tiles run one workgroup per SM, and the activation split is a pre-pass that the producing LayerNorm /
+    GELU could write (needs a row max, about 3.5 % of vit b8);
+  - convnext b8 1.5x strict (low-K GEMMs, split-K reductions); raft 1.25x strict / 1.04x fast (SIMT bmm for the
+    correlation volume, about 290 small concats); Faster / Mask R-CNN on the CPU backend 2.1-2.3x of ORT CPU;
+  - `fes` for head sizes above 64; a compute-unit query (VK_NV_shader_sm_builtins / VK_AMD_shader_core_properties)
+    instead of the per-device-type `ConcurrentWorkgroups`; qwen2.5 fp16 on Vulkan 6x the CPU backend's error;
+  - CPU Winograd on the channels-last layout for 64 / 128-channel 3x3 convs; encoder GEMMs stream each layer's weights
+    from DRAM (vit b1 1.1x, resnet50 b8 1.05x).
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
 
 ## Performance ideas
@@ -66,7 +90,8 @@ GPU (Vulkan):
 - **K-quant MMQ**: the integer-dot path for Q4_K / Q5_K / Q6_K is still 6 % slower than the f16 path on the 27B
   Q4_K_M (§24.4) and stays opt-in; any int8 path changes greedy output against the f16 default. 27B Q4_K_M prefill
   is still 2–4 % behind llama.cpp CUDA (§18).
-- **MoE expert GEMMs**: gpt-oss is at 0.95x / 1.10x of llama.cpp CUDA at pp512 / pp2048 and 0.97x in decode (§24).
+- **MoE expert GEMMs**: gpt-oss is at 0.95x / 1.10x of llama.cpp CUDA at pp512 / pp2048 and 0.97x in decode (§24);
+  the two split-tile launches no longer wait on a barrier (pp512 +10 %, §28.2).
   Left: the expert GEMM's weight fetch (64-row tiles still about 65 % full before the split launch), and the
   dual gate/up and slot-sum fusions for the batched expert GEMM (they cover the int-dot matvec only).
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
@@ -98,6 +123,13 @@ verification still matches plain decoding), the chunked prefill once per run. On
 kernel (226 → 108 us per layer at 64 decode rows) and cuts the step GPU time by about 3 % at 16 rows and 9 % at 64. f16 is
 more accurate but its integer round-to-nearest-even conversion eats most of the gain (−1.4 % at 64 rows). Open: rounding the
 chunked form per chunk instead of per run, and 16-bit states for the other recurrences (`SelectiveScan`, `Wkv6/7`).
+
+`CompileOptions.MatrixPrecision = MatrixPrecision.Fast` (`SHARPLIGHT_MATRIX_PRECISION=fast`, OnnxBench `--fast-precision`)
+is the opt-in TF32-class mode for f32 GEMMs, convs and encoder attention on Vulkan (§33). It uses one tensor-core product
+of row-scaled 11-bit inputs per multiply-add instead of the strict three-product split. Its error against an f64
+reference is 5.6-6.8e-4 (ORT TF32: 5.5-7.9e-4). It is 1.1-2.2x faster than strict on encoders, and matches or beats ORT's
+TF32 default on vit, whisper, bert, convnext and resnet50. `AllowReducedPrecision` takes precedence when both are set.
+Devices without f16 matrix units keep strict. Open: the q4 decoders and the SIMT bmm (raft) do not use it yet.
 
 ## Multi-node inference
 

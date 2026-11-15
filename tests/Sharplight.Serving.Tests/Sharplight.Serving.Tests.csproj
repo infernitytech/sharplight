@@ -12,10 +12,11 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <ProjectReference Include="../../src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Llm/Sharplight.Llm.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
   </ItemGroup>
 </Project>

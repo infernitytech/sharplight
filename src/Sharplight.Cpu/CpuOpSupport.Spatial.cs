@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 
@@ -119,6 +120,7 @@ internal static partial class CpuOpSupport
         return CheckSpatialAttributes("Pool", a);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static OpSupport CheckReduce(Node node)
     {
         var input = RequireF32Input(node);

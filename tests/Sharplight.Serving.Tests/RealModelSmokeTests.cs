@@ -1,5 +1,5 @@
 using Sharplight.Cpu;
-using Sharplight.Gguf;
+using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;

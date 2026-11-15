@@ -7,6 +7,7 @@ namespace Sharplight.Models;
 public static class ModelAdapterRegistry
 {
     private static readonly ConcurrentDictionary<string, IModelAdapter> s_adapters = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, string> s_auxiliaryOnly = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Registers an adapter for each of its architectures; a later registration for the same architecture replaces the earlier one.
@@ -18,6 +19,14 @@ public static class ModelAdapterRegistry
             s_adapters[a] = adapter;
         }
     }
+
+    /// <summary>
+    /// Registers a canonical architecture whose models are never loaded on their own but only as an auxiliary source of another model (e.g. a
+    /// speculative-decoding drafter as the <c>draft</c> source of its target), so loading one on its own fails with a message that says so.
+    /// </summary>
+    /// <param name="architecture">The canonical architecture id.</param>
+    /// <param name="role">The auxiliary role its models are loaded in (e.g. <c>draft</c>).</param>
+    public static void RegisterAuxiliaryOnly(string architecture, string role) => s_auxiliaryOnly[architecture] = role;
 
     /// <summary>
     /// Finds the adapter for a source: the one registered for its architecture, else any adapter whose <see cref="IModelAdapter.CanLoad"/> accepts it.
@@ -51,8 +60,16 @@ public static class ModelAdapterRegistry
 
             return GraphOptimizer.PrepareForLoad(prebuilt, options.OptimizeGraphs, log);
         }
-        var adapter = Find(sources.Primary)
-            ?? throw new NotSupportedException($"No adapter for architecture '{sources.Primary.Architecture}'. Registered: {string.Join(", ", s_adapters.Keys)}");
+        var adapter = Find(sources.Primary) ?? throw NoAdapter(sources.Primary);
         return GraphOptimizer.PrepareForLoad(adapter.Build(sources, options), options.OptimizeGraphs, log);
     }
+
+    private static NotSupportedException NoAdapter(ModelSource source)
+        => s_auxiliaryOnly.TryGetValue(source.Architecture, out var role)
+            ? new NotSupportedException($"'{source.Path}' is a {role} model (architecture '{source.Architecture}'), not a model of its own: load it as the "
+                + $"'{role}' auxiliary source of the model it was made for.")
+            : s_adapters.IsEmpty
+                ? new NotSupportedException($"No adapter for architecture '{source.Architecture}': no architecture adapters are registered. Register them at startup "
+                    + "with services.AddSharplight() (Sharplight.Defaults package) or BuiltinAdapters.RegisterAll() (Sharplight.Architectures).")
+                : new NotSupportedException($"No adapter for architecture '{source.Architecture}'. Registered: {string.Join(", ", s_adapters.Keys)}");
 }

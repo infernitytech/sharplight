@@ -14,6 +14,11 @@ internal static unsafe partial class Quant
             return fp8;
         }
 
+        if (GroupedFormatOf(t) is { } grouped)
+        {
+            return grouped;
+        }
+
         if (t == DataType.F32)
         {
             return WeightFormat.F32;
@@ -164,6 +169,12 @@ internal static unsafe partial class Quant
             return WeightFormat.Tern1_G128;
         }
 
+        int trellis = Array.IndexOf(s_trellisTypes, t);
+        if (trellis >= 0)
+        {
+            return WeightFormat.TrellisV4K8 + trellis;
+        }
+
         return null;
     }
 
@@ -172,9 +183,11 @@ internal static unsafe partial class Quant
         WeightFormat.Q4_K or WeightFormat.Q5_K or WeightFormat.Q6_K or WeightFormat.IQ4_XS or WeightFormat.Q2_K or WeightFormat.Q3_K or
         WeightFormat.IQ2_XXS or WeightFormat.IQ2_XS or WeightFormat.IQ2_S or WeightFormat.IQ3_XXS or WeightFormat.IQ3_S or
         WeightFormat.IQ1_S or WeightFormat.IQ1_M or WeightFormat.TQ1_0 or WeightFormat.TQ2_0 => 256,
-        WeightFormat.NVFP4 => 64,
-        WeightFormat.MXFP4 => 32,
+        WeightFormat.NVFP4 or WeightFormat.NVFP4_GS or WeightFormat.NF4_B64 => 64,
+        WeightFormat.MXFP4 or WeightFormat.Q4Z_G32 or WeightFormat.Q8Z_G32 => 32,
+        WeightFormat.Q4Z_G128 or WeightFormat.Q8Z_G128 => 128,
         WeightFormat.Q1_0 or WeightFormat.Q2_0_G128 or WeightFormat.Tern1_G128 => 128,
+        >= WeightFormat.TrellisV4K8 and <= WeightFormat.TrellisV2K7 => TrellisBlocks.BlockSize,
         WeightFormat.Q2_0 => 64,
         WeightFormat.F8E4M3_B32 => 32,
         WeightFormat.F8E4M3_B128 => 128,
@@ -198,6 +211,7 @@ internal static unsafe partial class Quant
         WeightFormat.IQ4_XS => 136,
         WeightFormat.Q2_0_G128 => 34,
         WeightFormat.Tern1_G128 => 28,
+        >= WeightFormat.TrellisV4K8 and <= WeightFormat.TrellisV2K7 => TrellisType(f).BlockBytes,
         WeightFormat.Q2_K => 84,
         WeightFormat.Q3_K => 110,
         WeightFormat.IQ2_XXS or WeightFormat.TQ2_0 => 66,
@@ -210,6 +224,11 @@ internal static unsafe partial class Quant
         WeightFormat.TQ1_0 => 54,
         WeightFormat.MXFP4 => 17,
         WeightFormat.NVFP4 => 36,
+        WeightFormat.NVFP4_GS => 40,
+        WeightFormat.Q4Z_G32 => 20,
+        WeightFormat.Q4Z_G128 => 68,
+        WeightFormat.Q8Z_G32 or WeightFormat.NF4_B64 => 36,
+        WeightFormat.Q8Z_G128 => 132,
         WeightFormat.F8E4M3 or WeightFormat.F8E5M2 => 1,
         WeightFormat.F8E4M3_B32 => 36,
         WeightFormat.F8E4M3_B128 => 132,
@@ -277,6 +296,9 @@ internal static unsafe partial class Quant
             case WeightFormat.Tern1_G128:
                 Tern1(src, nb, dst);
                 break;
+            case >= WeightFormat.TrellisV4K8 and <= WeightFormat.TrellisV2K7:
+                Trellis(TrellisType(f), src, nb, dst);
+                break;
             case WeightFormat.Q2_K:
                 Q2_K(src, nb, dst);
                 break;
@@ -310,6 +332,18 @@ internal static unsafe partial class Quant
             case WeightFormat.NVFP4:
                 NVFP4(src, nb, dst);
                 break;
+            case WeightFormat.NVFP4_GS:
+                NVFP4_GS(src, nb, dst);
+                break;
+            case WeightFormat.Q4Z_G32 or WeightFormat.Q4Z_G128:
+                Q4Z(src, nb, (int)bs, dst);
+                break;
+            case WeightFormat.Q8Z_G32 or WeightFormat.Q8Z_G128:
+                Q8Z(src, nb, (int)bs, dst);
+                break;
+            case WeightFormat.NF4_B64:
+                NF4_B64(src, nb, dst);
+                break;
             case WeightFormat.TQ1_0:
                 TQ1_0(src, nb, dst);
                 break;
@@ -337,6 +371,7 @@ internal static unsafe partial class Quant
         return BitConverter.UInt32BitsToSingle(((h & 0x8000) << 16) | (((h & 0x7FFF) << 13) + 0x38000000));
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q8_0(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 34, dst += 32)
@@ -347,6 +382,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q4_0(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -364,6 +400,7 @@ internal static unsafe partial class Quant
     private static readonly sbyte[] s_kvalues = [-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113];
 
     /// <summary>IQ4_NL: 32 values = { f16 d; u8 qs[16] }; value j&lt;16: d·kvalues[lo nibble of qs[j]], j&gt;=16: d·kvalues[hi nibble of qs[j-16]].</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ4_NL(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 18, dst += 32)
@@ -378,6 +415,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>IQ4_XS: 256 values = { f16 d; u16 scales_h; u8 scales_l[4]; u8 qs[128] }: eight 32-value sub-blocks with 6-bit scales (ls - 32), each laid out like IQ4_NL.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ4_XS(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 136, dst += 256)
@@ -398,6 +436,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q4_1(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -411,6 +450,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q5_0(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -430,6 +470,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q5_1(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -465,6 +506,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q4_K(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -493,6 +535,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q5_K(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -529,6 +572,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q6_K(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -569,6 +613,7 @@ internal static unsafe partial class Quant
     private static readonly float[] s_signLut = BuildSignLut();     // [256][8]: bit i of the byte -> +1 / -1
     private static readonly float[] s_codeLut = BuildCodeLut();     // [256][4]: 2-bit code i of the byte -> code-1
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] BuildSignLut()
     {
         var t = new float[256 * 8];
@@ -583,6 +628,7 @@ internal static unsafe partial class Quant
         return t;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] BuildCodeLut()
     {
         var t = new float[256 * 4];
@@ -597,6 +643,7 @@ internal static unsafe partial class Quant
         return t;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q1_0(byte* p, long nb, float* dst)
     {
         fixed (float* lut = s_signLut)
@@ -613,6 +660,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>2-bit codes, <paramref name="qBytes"/> code bytes per block after the f16 scale.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q2_0(byte* p, long nb, float* dst, int qBytes)
     {
         fixed (float* lut = s_codeLut)
@@ -628,6 +676,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Tern1(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 28, dst += 128)
@@ -677,6 +726,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DotQ8_0x4(float* x, byte* r0, byte* r1, byte* r2, byte* r3, long nb, float* res)
     {
         var a0 = Vector512<float>.Zero;
@@ -708,6 +758,7 @@ internal static unsafe partial class Quant
         return Vector512.FusedMultiplyAdd(s, Vector512.Create(H(p)), acc);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DotQ4_0x4(float* x, byte* r0, byte* r1, byte* r2, byte* r3, long nb, float* res)
     {
         var a0 = Vector512<float>.Zero;

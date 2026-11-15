@@ -11,6 +11,20 @@ dotnet run -c Release --project apps/Sharplight.Studio -- --models-dir /data/mod
 
 ![Chat](images/studio/studio-chat.png)
 
+## Window
+
+On Linux, Studio draws its own title bar in the app's colors (light and dark): the app icon, the title, and minimize, maximize and
+close buttons. Dragging the title bar moves the window, double-clicking it maximizes, the edges and corners resize, and dragging to
+a screen edge snaps as usual. All of this is asked of the window manager (`_NET_WM_MOVERESIZE`), so Studio uses its own title bar
+only when the window manager announces that request (KWin, Mutter and most others, on X11 and for XWayland windows); otherwise the
+system frames the window. *Use the system title bar* in the settings, or `SHARPLIGHT_STUDIO_TITLE_BAR=system` (or `custom`),
+overrides the choice. Other platforms use the system title bar.
+
+The icon is embedded in the app (window and taskbar icon, sidebar logo, and the Windows executable icon). The sizes in
+`apps/Sharplight.Studio/Assets/Icons` are rendered from `packaging/linux/sharplight-studio.svg` by `packaging/make-studio-icons.py`.
+The X11 window class is `sharplight-studio`, the `StartupWMClass` of the desktop file, so the taskbar groups the window under its
+launcher.
+
 ## Pages
 
 **Chat.** Conversations are stored, one per entry in the list. Answers stream as Markdown (code blocks have a copy button, tables,
@@ -24,6 +38,21 @@ different models run at the same time. Images and documents can be attached by d
 **Models.**
 
 ![Discover](images/studio/studio-discover.png)
+
+- Before anything is searched, *Discover* shows highlighted models in three sections: *Trending*, *New* (created in the last few
+  months) and *Most downloaded*. They come from the Hub's listings (trending, likes and downloads, GGUF and safetensors,
+  text-generation and image-text-to-text) and keep only repositories whose badge is *Supported*. The answer is kept for six hours in
+  `discover-highlights.json` next to `studio.db`, so opening Discover again or restarting does not ask the Hub again, and an older answer
+  is shown while the Hub cannot be reached.
+
+  ![Discover highlights](images/studio/studio-discover-highlights.png)
+  ![Discover highlights, light theme](images/studio/studio-discover-highlights-light.png)
+
+- *Supported only* hides repositories and quantizations whose compatibility badge is not *Supported*, and says how many it hid.
+  The choice is kept in the settings.
+
+  ![Supported only](images/studio/studio-discover-supported-only.png)
+  ![Supported only, light theme](images/studio/studio-discover-supported-only-light.png)
 
 - *Discover* searches Hugging Face (format filter, gated models hidden on request) and lists a repository's quantizations with
   their sizes. Each quantization gets an approximate fit badge for this machine (*Fits*, *Fits on 2 GPUs*, *Fits after unloading*,
@@ -42,11 +71,14 @@ different models run at the same time. Images and documents can be attached by d
   ![Discover with an unsupported architecture](images/studio/studio-discover-unsupported.png)
 
   The checks come from the importers, not from lists in Studio:
-  - GGUF: `general.architecture` against the registered mappings (`GgufSupport`). Partial support is what a mapping declares, e.g.
-    Qwen3.8-Flash-Next (`qwen4exp`), whose block indexer runs in its dense regime only. When the recommended quantization is
-    opened, or another one is selected, its tensor table is read too: a prefix of up to 32 MiB, fetched in steps. Every ggml type id
-    must be known and have CPU kernels (`CpuExecutionProvider.SupportsWeightType`). Every provider falls back to the CPU, so a type
-    without CPU kernels, such as `Q8_K`, cannot load. Of a split GGUF only the first shard's tensors are read.
+  - GGUF: `general.architecture` against the registered mappings (`GgufSupport`). Partial support is what a mapping declares (none
+    does at the moment). When the recommended quantization is opened, or another one is selected, its whole tensor table is read too (of every shard of a split GGUF): a prefix of up to
+    64 MiB per file, fetched in steps. Every ggml type id must be known and have CPU kernels
+    (`CpuExecutionProvider.SupportsWeightType`). Every provider falls back to the CPU, so a type without CPU kernels, such as `Q8_K`,
+    cannot load. The header then goes through the importer's own mapping steps (`GgufSupport.Validate`): the mapping's feature and
+    hyper-parameter checks (`IGgufArchitectureMapping.Validate`, which the importer runs too) and the canonical name of every tensor.
+    A tensor the mapping does not know gives *Unsupported variant of &lt;architecture&gt;*. When part of a tensor table lies beyond
+    what was read, the verdict is *Unknown*, never *Supported*.
   - Hugging Face checkpoints: the `model_type` against the mappings (`HfSupport`), and the quantization in `config.json` (and
     ModelOpt's `hf_quant_config.json`). FP8 (block scales, compressed-tensors with 8-bit float weights, ModelOpt FP8) and MXFP4 for
     gpt-oss are read. GPTQ, AWQ, bitsandbytes, MLX, integer or 4-bit compressed-tensors, ModelOpt NVFP4 and similar packed formats
@@ -149,18 +181,56 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
   - pinning of manual loads;
   - on-demand loading.
 - New-chat defaults.
+- *Use the system title bar* (see [Window](#window)).
 - The engine's device features, each of which can be switched off to fall back to a portable path.
 - **Reduced precision** (off by default) opts in to faster f16 kernel paths where the default keeps near-f32 accuracy. Outputs may
   differ slightly.
 
 ![Settings](images/studio/studio-settings.png)
 
+## Installing and updating
+
+Studio is published for Windows x64 and ARM64, Linux x64 and ARM64, and macOS ARM64 (Apple Silicon), self-contained (no .NET
+needed), as [Velopack](https://velopack.io) packages:
+
+| Platform | Install with | Also |
+|---|---|---|
+| Windows | `SharplightStudio-<rid>-<channel>-Setup.exe` | portable zip |
+| Linux | `SharplightStudio-<rid>-<channel>.AppImage` (updates itself in place) | `sharplight-studio-<version>-<rid>.tar.gz` |
+| macOS | `.pkg` installer (the `.app` bundle) | zip |
+
+The macOS and Windows packages are not signed yet (Windows SmartScreen and macOS Gatekeeper warn on first start); signing hooks are in
+`packaging/pack-studio.sh` and `.github/workflows/studio.yml`. On macOS the Vulkan provider needs MoltenVK, which is not part of
+the package yet, so the app runs on the CPU provider.
+
+**Channels.** Every build belongs to one of ten update channels, `<rid>-stable` (built from `release/*` branches) and `<rid>-unstable`
+(built from `develop`), for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64` and `osx-arm64`, for example `win-x64-stable` or
+`osx-arm64-unstable`. An installed app only checks the channel it was installed from; to switch from unstable to stable, install the
+stable package.
+
+**Updates.** Studio checks for a new version at startup and every six hours (*Settings > Updates > Check for updates automatically*).
+When one is found, a dialog shows the version and its release notes (Markdown), then *Download and install* (with progress; Velopack
+downloads a delta package when it can) and *Restart to update*, or *Later*. The Settings section shows the current version and
+channel, the automatic check switch, *Check for updates now* and the time of the last check. Builds that were not installed with
+Velopack (`dotnet run`, a plain build) show "updates unavailable for this build" and never check.
+
+**Update feed.** The packages are served from a public URL (Cloudflare R2 on a custom domain, see `docs/releasing.md`). The URL is
+taken from, in this order:
+
+1. the environment variable `SHARPLIGHT_STUDIO_UPDATE_URL`;
+2. the `UpdateUrl` entry of the settings file;
+3. the URL baked into the build: MSBuild property `StudioUpdateUrl` (assembly metadata `StudioUpdateUrl`). CI sets it from the
+   repository variable `STUDIO_UPDATE_URL` (official builds: `https://download.sharplight.dev/studio`). A local build has none.
+
+Without a URL the update checks are disabled, and the Settings section says so. All channels share that one folder; each has its
+own `releases.<channel>.json` feed.
+
 ## Where things are kept
 
 | What | Where |
 |---|---|
 | Settings (`settings.json`), including the download queue | `sharplight/studio` under the roaming application data directory (`~/.config` on Linux) |
-| Conversations and statistics (`studio.db`) | `sharplight/studio` under the local application data directory (`~/.local/share` on Linux) |
+| Conversations and statistics (`studio.db`), Discover's highlights (`discover-highlights.json`) | `sharplight/studio` under the local application data directory (`~/.local/share` on Linux) |
 | Models | The model store: `data` next to the app by default, else the folder chosen in the settings (see above); converted local models go to `converted/` in it by default |
 | Compiled kernels | `sharplight/kernels` under the local application data directory (`~/.local/share` on Linux), shared by every tool |
 
@@ -182,6 +252,7 @@ keep using the user folder or to move or copy the models into the new store.
   - `IDocumentExtractor`
   - `ISystemMonitor`
   - `IPlatformServices`
+  - `IUpdateService` (the Velopack wrapper, registered through `Microsoft.Extensions.DependencyInjection`)
 
   Tests run every view model against fakes of these services.
 - **Runtime.** `EngineModelRuntime` owns a `ModelHost` (from `Sharplight.Llm.Serving.Hosting`, the same registry the server uses)
@@ -199,10 +270,16 @@ keep using the user folder or to move or copy the models into the new store.
 - the downloads queue (pause, resume, cancel, restore after restart);
 - fit estimates: the planner (unloading, offload, system memory, split GPUs), the load panel's estimate and suggestions, and the
   download badges;
+- the title bar choice (own or system), and Discover's highlights (sections, filtering, the cache and its lifetime) and the
+  *Supported only* filter;
+- the header-only import check on the header of a Gemma 4 mixture-of-experts GGUF (every tensor of the table, compared with the
+  importer on the same header);
 - compatibility checks before downloading, on the tiny GGUFs and Hugging Face configs under `~/models` when present (an unmapped
-  architecture, an mmproj projector, a partial architecture, real quantized tensor tables read from a prefix, synthetic `Q8_K` and
+  architecture, an mmproj projector, real quantized tensor tables read from a prefix, synthetic `Q8_K` and
   unknown type ids, quantized checkpoints, ONNX opsets read behind the graph), the result order, the per-quantization badges and the
   library's import errors;
+- update checks and the update dialog: auto and manual checks, up-to-date and failure messages, *Later*, download progress and
+  restart (against a fake update service), the feed URL precedence, and a headless render of the dialog;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
 - the server page;
 - a headless render of every page that fails on binding errors;
@@ -223,9 +300,10 @@ packages in both themes.
 - **Fit estimates.** The load panel's estimate is the engine's own, but free memory can change before the load (other
   applications), and the vision tower of an image conversation is not counted. Download badges are approximate: they know the
   file sizes and, where readable, the attention dimensions, not the exact graph.
-- **Compatibility checks.** They are likely verdicts, not guarantees. A mapped architecture can still use a hyper-parameter or
-  tensor layout its mapping rejects; that only shows at import. Quantizations other than the recommended one share the
-  architecture's verdict until they are selected and their tensor tables are read. A tensor table beyond 32 MiB from the start of
-  the file is not read. ONNX operators are not checked before import.
+- **Compatibility checks.** They are likely verdicts, not guarantees: a GGUF header that maps can still fail on something only its
+  tensor data shows. Quantizations other than the recommended one share the architecture's verdict until they are selected and
+  their tensor tables are read. A tensor table beyond 64 MiB from the start of a file is not read (the verdict is *Unknown*). ONNX
+  operators are not checked before import.
+- **Title bar.** Studio's own title bar is used on Linux only, where the window manager moves and resizes windows on request.
 - **GPU utilisation.** The "Engine busy" chart is the share of time the engines spend stepping, not GPU utilisation read from the
   driver.

@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:setvm="using:Sharplight.Studio.ViewModels.Settings"
              xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:upvm="using:Sharplight.Studio.ViewModels.Updates"
              xmlns:models="using:Sharplight.Studio.Models"
              x:Class="Sharplight.Studio.Views.SettingsPage"
              x:DataType="setvm:SettingsPageViewModel">
@@ -50,6 +51,7 @@
               </ListBox.ItemTemplate>
             </ListBox>
           </Grid>
+          <ToggleSwitch Content="Use the system title bar" IsChecked="{Binding UseSystemTitleBar}" />
         </StackPanel>
       </Border>
 
@@ -81,7 +83,7 @@
               <Run Text="{Binding StoreRootSource, Mode=OneWay, StringFormat='({0})'}" />
             </TextBlock>
             <TextBlock Classes="caption" TextWrapping="Wrap"
-                       Text="--models-dir and SHARPLIGHT_MODELS take precedence over this setting. Compiled GPU kernels are cached per user, not in the model store." />
+                       Text="A folder given when Sharplight is started takes precedence over this setting." />
           </StackPanel>
           <StackPanel>
             <TextBlock Classes="label" Text="Hugging Face token (for gated models and higher rate limits)" />
@@ -127,11 +129,11 @@
               <NumericUpDown Value="{Binding Slots}" Minimum="1" Maximum="64" FormatString="0" />
             </StackPanel>
             <StackPanel Grid.Row="2" Grid.Column="2">
-              <TextBlock Classes="label" Text="N-gram drafts" />
+              <TextBlock Classes="label" Text="Lookup draft tokens" />
               <NumericUpDown Value="{Binding NgramDraftTokens}" Minimum="0" Maximum="16" FormatString="0" />
             </StackPanel>
             <StackPanel Grid.Row="2" Grid.Column="4">
-              <TextBlock Classes="label" Text="MTP drafts (models with a draft head)" />
+              <TextBlock Classes="label" Text="Draft head tokens (models that have one)" />
               <NumericUpDown Value="{Binding MtpDraftTokens}" Minimum="0" Maximum="8" FormatString="0" />
             </StackPanel>
           </Grid>
@@ -205,7 +207,7 @@
       <Border Classes="card">
         <StackPanel Spacing="12">
           <TextBlock Classes="h3" Text="Engine features" />
-          <TextBlock Classes="caption" TextWrapping="Wrap" Text="Engine features. Switch one off to fall back to a portable path, e.g. to rule out a driver problem. Applies to models loaded afterwards." />
+          <TextBlock Classes="caption" TextWrapping="Wrap" Text="Switch a feature off if a model misbehaves: a slower path that works everywhere is used instead. Applies to models loaded afterwards." />
           <Border Classes="panel" Padding="14,12">
             <DockPanel>
               <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding AllowReducedPrecision}" OnContent="On" OffContent="Off" VerticalAlignment="Center" />
@@ -216,7 +218,7 @@
                     <TextBlock Text="Opt-in" />
                   </Border>
                 </StackPanel>
-                <TextBlock Classes="caption" TextWrapping="Wrap" Text="Off by default. Allows faster f16 kernel paths where the default keeps near-f32 accuracy, such as the chunked delta rule of linear-attention models. Outputs may differ slightly from the reference." />
+                <TextBlock Classes="caption" TextWrapping="Wrap" Text="Off by default. Uses faster, lower-precision math in some models. Answers may differ slightly." />
               </StackPanel>
             </DockPanel>
           </Border>
@@ -234,6 +236,32 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
           <TextBlock Classes="caption" Text="{Binding EnvironmentDisabled}" IsVisible="{Binding EnvironmentDisabled, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Updates -->
+      <Border Classes="card">
+        <StackPanel Spacing="10" x:DataType="upvm:UpdatesViewModel" DataContext="{Binding Updates}">
+          <TextBlock Classes="h3" Text="Updates" />
+          <Grid ColumnDefinitions="200,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+            <TextBlock Classes="label" Text="Version" />
+            <TextBlock Grid.Column="1" Text="{Binding CurrentVersion}" />
+            <TextBlock Grid.Row="1" Classes="label" Text="Channel" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ChannelText}" />
+            <TextBlock Grid.Row="2" Classes="label" Text="Last checked" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding LastCheckedText}" />
+          </Grid>
+          <Border Classes="hint" IsVisible="{Binding !IsSupported}">
+            <TextBlock Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
+          </Border>
+          <ToggleSwitch Content="Check for updates automatically" IsChecked="{Binding AutoCheck}" IsEnabled="{Binding IsSupported}" />
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsSupported}">
+            <Button Classes="small" Content="Check for updates now" Command="{Binding CheckNowCommand}" />
+            <Button Classes="small" Content="Download update" Command="{Binding DownloadCommand}" IsVisible="{Binding CanDownload}" />
+            <Button Classes="small" Content="Restart to update" Command="{Binding RestartCommand}" IsVisible="{Binding IsReady}" />
+          </StackPanel>
+          <TextBlock Classes="caption" Text="{Binding StatusText}" TextWrapping="Wrap"
+                     IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
       </Border>
 

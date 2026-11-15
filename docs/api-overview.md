@@ -3,28 +3,101 @@
 This is a short tour of the types an application uses. Every public type and member carries XML documentation (shipped as
 `*.xml` next to the assemblies), which is the reference; this page shows how the pieces fit together.
 
+## Assemblies
+
+The core engine and everything an application calls to run a model live in `Sharplight.Core`. Model formats (importers) and the
+graph generation for model architectures (adapters) are separate assemblies, so the core never knows a file format: format names
+(GGUF, safetensors, ONNX, diffusers, whisper.cpp, ...) appear only in `Sharplight.Import.*`.
+
 | Assembly | Role | Main entry points |
 |---|---|---|
-| `Sharplight.Llm` | Load models, generate, batch, host several models, embed and rerank | `LlmModel`, `InferenceSession`, `Generator`, `InferenceEngine`, `ModelService`, `ModelHost`, `EmbeddingModel`, `Reranker`, `VisionEncoder` |
+| `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
+| `Sharplight.Architectures` | Execution-graph generation: architecture adapters that turn canonical model sources into Sharplight graphs | `BuiltinAdapters` |
+| `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter` |
+| `Sharplight.Package` | Read and write `.slm` packages (every model kind: description, components, attachments), convert models to them and precompile kernels into them | `ModelPackage`, `ModelPackageReader`, `ModelConverter`, `PackagePrecompiler` |
+| `Sharplight.Cpu`, `Sharplight.Vulkan` (+ `Sharplight.Shaders`) | Execution providers | `CpuExecutionProvider`, `VulkanProvider` |
+| `Sharplight.Defaults` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplight`, `UseSharplight`, `MapSharplight`, `AddSharplightEmbeddings`, `AddSharplightReranker` |
-| `Sharplight.Package.Import` | Convert models to `.slm` packages and precompile kernels into them | `ModelConverter`, `PackagePrecompiler` |
 | `Sharplight.Hub` | Search and pull Hugging Face models into a local store ([model-hub.md](model-hub.md)) | `HubClient`, `ModelPuller`, `ModelStore` |
-| `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `AddSharplightChatClient`, `AddSharplightEmbeddingGenerator` |
+| `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `SharplightSpeechToTextClient`, `SharplightTextToSpeechClient`, `SharplightImageGenerator` |
 
-Format support is not part of these assemblies. The host registers the importers it wants once at startup
-(`GgufImporter.Register()` from `Sharplight.Gguf`, `HuggingFaceImporter.Register()` from `Sharplight.HuggingFace`, ...), and
-opens the compute devices (`Sharplight.Cpu`, `Sharplight.Vulkan`) that it hands to the load options as `DeviceSlot`s.
+## Registration
+
+Composition goes through Microsoft.Extensions.DependencyInjection. `services.AddSharplight()` (Sharplight.Defaults) registers the
+model formats (GGUF, Hugging Face, ONNX, `.slm`), the built-in architecture adapters, the execution providers (Vulkan, CPU) and the
+task layer; hosts without a container use `SharplightDefaults.CreateServiceProvider()`. Narrower setups call
+`services.AddSharplightModelFormats()`, `.AddSharplightProviders()` and `.AddSharplightTasks()` (Core) individually.
 
 ```csharp
-GgufImporter.Register();
+var services = new ServiceCollection().AddSharplight();
 var provider = new VulkanProvider();
 var device = provider.OpenDevice(provider.GetDevices()[0]);
 var load = new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 8192 };
 ```
 
-## 1. Load a model
+The importers, adapters and providers still keep process-wide registries (`ModelImporterRegistry`, `ModelAdapterRegistry`,
+`ProviderRegistry`, filled by `GgufImporter.Register()` and friends, which `AddSharplight()` calls once); they become services in a
+later pass. The task layer has no static state.
 
-`LlmModel.Load` reads the file and builds the compute graphs. Nothing is compiled or uploaded to a device until you create a
+## Tasks: one model concept, one client pattern
+
+Every model kind is the same thing to the engine: a `ModelDefinition` with graphs and weights plus a `ModelDescription` (kind and
+components, see [model-format.md](model-format.md)), loaded through one load path (importer, then adapter, or the prebuilt definition
+of an `.slm` package) into a `TaskModel`. What an application calls is a **task client**, and all kinds follow the same pattern:
+
+| kind (`ModelKinds`) | client | whole result | streaming | request options | result |
+|---|---|---|---|---|---|
+| `text-generation` | `ITextGenerator` | `GenerateAsync(prompt)` | `GenerateStreamingAsync` → `GeneratedToken` | `GenerationOptions` | `TextGenerationResult` |
+| `speech-recognition` | `ISpeechRecognizer` | `TranscribeAsync(AudioBuffer)` | `TranscribeStreamingAsync` → `TranscriptionSegment` | `SpeechRecognitionOptions` | `Transcription` |
+| `speech-synthesis` | `ISpeechSynthesizer` | `SynthesizeAsync(text)` | `SynthesizeStreamingAsync` → `AudioBuffer` | `SpeechSynthesisOptions` | `SpeechSynthesisResult` |
+| `image-generation` | `IImageGenerator` | `GenerateAsync(ImageGenerationRequest)` | `GenerateStreamingAsync` → `ImageGenerationUpdate` | `ImageGenerationOptions` | `ImageGenerationResult` |
+
+Every client is an `ITaskClient`: `Metadata` (kind, model name, architecture), `GetService(Type)` for the objects behind it,
+`IDisposable` (it owns its compiled graphs, not the model), async calls with a `CancellationToken`. The shape mirrors
+Microsoft.Extensions.AI (`IChatClient`, `ISpeechToTextClient`, `ITextToSpeechClient`, `IImageGenerator`), and
+`Sharplight.Extensions.AI` adapts the clients to those interfaces; Core itself does not depend on Microsoft.Extensions.AI, whose speech
+and image abstractions are still experimental.
+
+Implementations are `ITaskClientFactory` services (kind, client type, `CanCreate(model)`, `Create(model)`), resolved by the
+`TaskClientProvider` from the model's kind; the last registration that accepts a model wins. Architecture packages register theirs
+next to their adapters (`services.AddTaskClientFactory<ISpeechRecognizer>(ModelKinds.SpeechRecognition, model => ...)`); a new kind
+(depth estimation, audio codecs, time series, ...) is a new kind string, client interface and factory, without changes to Core types.
+Text generation is built in: `LlmModel` is the text-generation model and `LlmModel.CreateTextGenerator()` its client.
+
+A client for a configured model is one registration; the model is loaded once on first use with `TaskLoadOptions` from
+Microsoft.Extensions.Options (named per client, so keyed registrations can load different models) and disposed by the container
+after the client:
+
+```csharp
+var services = new ServiceCollection()
+    .AddSharplight()
+    .AddTextGenerator(o => { o.ModelPath = "qwen3-4b-q4_k_m.gguf"; o.Devices = [slot]; o.ContextLength = 8192; })
+    .AddSpeechRecognizer(o => { o.ModelPath = "whisper-small.slm"; o.Devices = [slot]; }, serviceKey: "whisper");
+await using var provider = services.BuildServiceProvider();
+
+var generator = provider.GetRequiredService<ITextGenerator>();
+TextGenerationResult completion = await generator.GenerateAsync("The capital of France is", new GenerationOptions { MaxNewTokens = 32 });
+
+var recognizer = provider.GetRequiredKeyedService<ISpeechRecognizer>("whisper");
+Transcription text = await recognizer.TranscribeAsync(WavFile.Read("talk.wav"));
+```
+
+Without a container: `using var model = TaskModel.Load(new TaskLoadOptions { ModelPath = path, Devices = [slot] })`, then
+`taskClientProvider.Create<ISpeechRecognizer>(model)`. Task implementations use `TaskModel.CompileComponent(role)` (compiles a
+component graph with the component's default bounds, consulting the package's precompiled artifacts), `CreateTokenizer(role)`,
+`Metadata(role)` and `ReadAttachment(role, name)`.
+
+Audio and image I/O for the task layer: `AudioBuffer` (interleaved float samples; `ToMono`, `Resample`, `ToModelInput`),
+`AudioResampler` (band-limited windowed sinc), `WavFile` (read: integer PCM 8/16/24/32-bit and float 32/64-bit, plain or
+`WAVE_FORMAT_EXTENSIBLE`; write: PCM16, PCM24, PCM32, float32), `PngCodec` (encode RGB; decode 8-bit gray, gray+alpha, RGB, RGBA and
+palette PNGs) and `PlanarImage` (8-bit interleaved RGB to and from `[3, height, width]` float planes in any value range).
+
+The importers and architecture adapters for speech and image models come in their own workstreams; the task layer defines the
+interfaces, options, results, the description and the host-side plumbing they plug into.
+
+## 1. Load a model (text generation)
+
+The rest of this page covers text generation in depth: `LlmModel` and the serving stack around it. `LlmModel.Load` reads the file and builds the compute graphs. Nothing is compiled or uploaded to a device until you create a
 session, a batch decoder or a vision encoder from the model. Dispose the model after everything created from it.
 
 ```csharp
@@ -263,8 +336,7 @@ becomes `TextReasoningContent`, tool calls become `FunctionCallContent` (wrap wi
 images are `DataContent`. `SharplightEmbeddingGenerator` implements `IEmbeddingGenerator<string, Embedding<float>>`.
 
 ```csharp
-GgufImporter.Register();
-var services = new ServiceCollection();
+var services = new ServiceCollection().AddSharplight();
 services.AddSharplightChatClient("qwen3-4b-q4_k_m.gguf", load, o => o.EnableThinking = false).UseFunctionInvocation();
 services.AddSharplightEmbeddingGenerator("bge-small-en-v1.5", new EmbeddingLoadOptions { Devices = [slot] });
 
@@ -278,12 +350,26 @@ The default backend runs one generation at a time. To let many concurrent caller
 `ITextGenerationBackend` over an `InferenceEngine` and pass it to the `SharplightChatClient` constructor. See also
 [extensions-ai.md](extensions-ai.md).
 
+The other task kinds map the same way: `SharplightSpeechToTextClient` (`ISpeechToTextClient` over an `ISpeechRecognizer`, WAVE input),
+`SharplightTextToSpeechClient` (`ITextToSpeechClient` over an `ISpeechSynthesizer`, WAVE output) and `SharplightImageGenerator`
+(`IImageGenerator` over a Sharplight image generator, PNG output). `services.AddSharplightSpeechToTextClient(key)`,
+`.AddSharplightTextToSpeechClient(key)` and `.AddSharplightImageGenerator(key)` wrap the container's task clients.
+
 ## Conventions
 
-- Types that own device memory or threads (`LlmModel`, `InferenceSession`, `InferenceEngine`, `ModelHost`, `EmbeddingModel`,
-  `Reranker`, `VisionEncoder`) are `IDisposable`; dispose them in reverse order of creation.
+- Types that own device memory or threads (`LlmModel`, `TaskModel`, every task client, `InferenceSession`, `InferenceEngine`,
+  `ModelHost`, `EmbeddingModel`, `Reranker`, `VisionEncoder`) are `IDisposable`; dispose them in reverse order of creation (a
+  service container does that for the clients and models it created).
 - `InferenceEngine`, `ModelHost`, `ModelService`, `EmbeddingModel` and `Reranker` are thread-safe. Sessions, generators and
   samplers are not: one thread at a time.
-- Options are immutable records or `init`-only classes with defaults that work; only `Devices` is required.
+- Request options are immutable records with defaults that work. Load options are classes: `TaskLoadOptions` has settable
+  properties for Microsoft.Extensions.Options; the older `LlmLoadOptions` / `EmbeddingLoadOptions` are `init`-only. Only `Devices` is
+  required.
 - Failures that a caller can act on are typed exceptions: `EngineException` and its subclasses for admission, `ModelHostException`
   and its subclasses for hosting.
+- The CPU provider's kernels do not depend on the application's JIT settings. By default .NET first compiles a method with loops as
+  unoptimized tier-0 code and switches to optimized code only after on-stack replacement and tiering catch up, so the first runs of a
+  model (and short benchmarks) would measure unoptimized kernels. Every method with a loop in `Sharplight.Cpu` is marked
+  `MethodImplOptions.AggressiveOptimization` and compiled fully optimized on first use, whatever `TieredCompilationQuickJitForLoops`
+  the application sets. In an application with the .NET defaults, runs 1-5 of resnet50 on the CPU averaged about 48 ms without the
+  attribute and 10 ms with it.

@@ -1,0 +1,129 @@
+using System.Collections.Concurrent;
+
+namespace Sharplight.Import.HuggingFace;
+
+/// <summary>Registry of <see cref="IHfArchitectureMapping"/>s keyed by HF <c>model_type</c> (case-insensitive).</summary>
+internal static class HfArchitectureMappings
+{
+    private static readonly ConcurrentDictionary<string, IHfArchitectureMapping> s_byModelType = new(StringComparer.OrdinalIgnoreCase);
+
+    static HfArchitectureMappings()
+    {
+        Register(new Qwen35HfMapping());
+        Register(new Qwen3VlHfMapping());
+        Register(new Qwen2VlHfMapping());
+        Register(new PaddleOcrVlHfMapping());
+        Register(new DeepseekOcrHfMapping());
+        Register(new Glm4vHfMapping());
+        Register(new HunyuanVlHfMapping());
+        Register(new CogVlmHfMapping());
+        Register(new NemotronHHfMapping());
+        Register(new GraniteHybridHfMapping());
+        Register(new FalconH1HfMapping());
+        Register(new InklingHfMapping());
+        Register(new Mamba2HfMapping());
+        Register(new Lfm2HfMapping());
+        Register(new MiniMaxHfMapping());
+        Register(new MambaHfMapping());
+        Register(new LatentDecoderHfMapping());
+        Register(new DeepseekV4HfMapping());
+        Register(new Eagle3HfMapping());
+        Register(new Gemma4AssistantHfMapping());
+        Register(new PaliGemmaHfMapping());
+        Register(new LlavaOneVision2HfMapping());
+        Register(new DecoderHfMapping());
+        Register(new EncoderHfMapping());
+        Register(new T5HfMapping());
+        Register(new BartHfMapping());
+        Register(new WhisperHfMapping());
+        foreach (var family in DecoderFamilies())
+        {
+            Register(family);
+        }
+    }
+
+    /// <summary>The decoder-only families that map onto the canonical decoder through <see cref="HfDecoderFamilyMapping"/>.</summary>
+    private static IEnumerable<IHfArchitectureMapping> DecoderFamilies()
+    {
+        yield return new MixtralHfMapping();
+        yield return new AfmoeHfMapping();
+        yield return new PhimoeHfMapping();
+        yield return new Kolibri1HfMapping();
+        yield return new MiMoV2FlashHfMapping();
+        yield return new LagunaHfMapping();
+        yield return new BloomHfMapping();
+        yield return new MptHfMapping();
+        yield return new SmolLm3HfMapping();
+        yield return new Olmo2HfMapping();
+        yield return new ChameleonHfMapping();
+        yield return new EmbeddingGemma2HfMapping();
+        yield return new Glm4HfMapping();
+        yield return new Ernie45HfMapping();
+        yield return new HunyuanDenseHfMapping();
+        yield return new Glm4MoeHfMapping();
+        yield return new Ernie45MoeHfMapping();
+        yield return new HunyuanMoeHfMapping();
+        yield return new MiniMaxM2HfMapping();
+        yield return new MiniMaxM3HfMapping();
+        yield return new BailingMoeV2HfMapping();
+        yield return new GptOssHfMapping();
+        yield return new Llama4HfMapping();
+        yield return new Dots1HfMapping();
+        yield return new Qwen2MoeHfMapping();
+        yield return new Jais2HfMapping();
+        yield return new GraniteSwaHfMapping();
+        yield return new MellumHfMapping();
+        yield return new DbrxHfMapping();
+        yield return new Cohere2MoeHfMapping();
+        yield return new HyV3HfMapping();
+        yield return new ExaoneMoeHfMapping();
+        yield return new BitnetHfMapping();
+        yield return new Ministral3HfMapping();
+        yield return new ExaoneHfMapping();
+        yield return new Exaone4HfMapping();
+        yield return new SeedOssHfMapping();
+        yield return new InternLm2HfMapping();
+        yield return new GraniteHfMapping();
+        yield return new MiniCpmHfMapping();
+        yield return new PhiHfMapping();
+        yield return new Starcoder2HfMapping();
+        yield return new CohereHfMapping();
+        yield return new FalconHfMapping();
+        yield return new GptNeoXHfMapping();
+        yield return new GptJHfMapping();
+        yield return new Gpt2HfMapping();
+        yield return new OlmoHfMapping();
+        yield return new NemotronDenseHfMapping();
+        yield return new StableLmHfMapping();
+        yield return new ApertusHfMapping();
+        yield return new ArceeHfMapping();
+        yield return new Gemma1HfMapping();
+        yield return new EuroBertHfMapping();
+        yield return new DreamHfMapping();
+        yield return new LladaHfMapping();
+        yield return new ModernBertHfMapping();
+        yield return new HrmTextHfMapping();
+        yield return new SenseNovaU1HfMapping();
+        yield return new LimiteHfMapping();
+        yield return new GroveMoeHfMapping();
+        yield return new K2HorizonHfMapping();
+        yield return new GraniteSwitchHfMapping();
+        yield return new Spark25HfMapping();
+    }
+
+    /// <summary>Registers <paramref name="mapping"/> for each of its model types; later registrations win.</summary>
+    public static void Register(IHfArchitectureMapping mapping)
+    {
+        foreach (var modelType in mapping.ModelTypes)
+        {
+            s_byModelType[modelType] = mapping;
+        }
+    }
+
+    /// <summary>Every registered mapping once.</summary>
+    public static IEnumerable<IHfArchitectureMapping> All => s_byModelType.Values.Distinct();
+
+    /// <summary>The mapping for a <c>model_type</c>, or null.</summary>
+    public static IHfArchitectureMapping? Find(string? modelType)
+        => modelType != null && s_byModelType.TryGetValue(modelType, out var m) ? m : null;
+}

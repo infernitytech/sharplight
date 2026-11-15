@@ -1,7 +1,10 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Sharplight.Cpu;
-using Sharplight.Gguf;
+using Sharplight.Import.Gguf;
 using Sharplight.Models;
 using Sharplight.Package;
+using Sharplight.Studio.Services.Hub;
 
 namespace Sharplight.Studio.Services.Compatibility;
 
@@ -9,10 +12,10 @@ namespace Sharplight.Studio.Services.Compatibility;
 /// Says which compatibility reason explains a failed import or load (unsupported architecture, unsupported weight format), so the
 /// library's error names it instead of only the importer's message.
 /// </summary>
-internal static class ImportFailure
+internal static partial class ImportFailure
 {
     /// <summary>Bytes of a local GGUF file read for its metadata and tensor table.</summary>
-    private const int GgufPrefixBytes = 32 << 20;
+    private const int GgufPrefixBytes = VariantProbe.MaxGgufPrefixBytes;
 
     /// <summary>The longest original message quoted after the verdict.</summary>
     private const int MaxQuotedMessage = 240;
@@ -84,8 +87,7 @@ internal static class ImportFailure
 
             if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
             {
-                var prefix = ReadPrefix(path, GgufPrefixBytes);
-                return CompatibilityChecker.FromGguf(GgufHeaderProbe.ReadMetadata(prefix), GgufHeaderProbe.ReadTensorTypes(prefix));
+                return FromLocalGguf(path);
             }
 
             if (path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase))
@@ -100,6 +102,34 @@ internal static class ImportFailure
             return null;
         }
     }
+
+    /// <summary>A GGUF file on disk, with the tensor tables of all its shards when it is the first shard of a split model.</summary>
+    private static ModelCompatibility FromLocalGguf(string path)
+    {
+        var prefix = ReadPrefix(path, GgufPrefixBytes);
+        var metadata = GgufHeaderProbe.ReadMetadata(prefix);
+        var tensors = GgufHeaderProbe.ReadTensorTable(prefix)?.ToList();
+        var shard = ShardPattern().Match(Path.GetFileName(path));
+        if (tensors is not null && shard.Success && int.Parse(shard.Groups[1].Value, CultureInfo.InvariantCulture) == 1)
+        {
+            int count = int.Parse(shard.Groups[2].Value, CultureInfo.InvariantCulture);
+            for (int i = 2; i <= count && tensors is not null; i++)
+            {
+                string next = Path.Combine(Path.GetDirectoryName(path) ?? "",
+                    Path.GetFileName(path)[..shard.Index] + string.Create(CultureInfo.InvariantCulture, $"-{i:D5}-of-{shard.Groups[2].Value}.gguf"));
+                var more = File.Exists(next) ? GgufHeaderProbe.ReadTensorTable(ReadPrefix(next, GgufPrefixBytes)) : null;
+                tensors = more is null ? null : [.. tensors, .. more];
+            }
+        }
+
+        var verdict = CompatibilityChecker.FromGguf(metadata, tensors);
+        return tensors is null && verdict.State is CompatibilityState.Supported or CompatibilityState.Partial
+            ? ModelCompatibility.Unknown($"{verdict.Reason} The tensor table could not be read completely.")
+            : verdict;
+    }
+
+    [GeneratedRegex(@"-(\d{5})-of-(\d{5})\.gguf$", RegexOptions.IgnoreCase)]
+    private static partial Regex ShardPattern();
 
     /// <summary>A package's stored weight types: any without CPU kernels (the fallback of every provider) keeps the model from loading.</summary>
     private static ModelCompatibility? FromPackage(PackageInfo package)

@@ -38,7 +38,7 @@ internal sealed class ConvertCommand
     private readonly Option<string[]> _shapes = new("--shape")
     {
         HelpName = "NAME=DIMxDIM...",
-        Description = "ONNX sources: full shape of an input with dynamic dimensions, e.g. pixel_values=-1x3x224x224 (a dimension <= 0 is the batch axis). Repeatable.",
+        Description = "ONNX sources: full shape of an input with dynamic dimensions, e.g. pixel_values=-1x3x224x224 (a negative dimension is the batch axis, 0 an empty axis). Repeatable.",
         DefaultValueFactory = _ => [],
     };
 

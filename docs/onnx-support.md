@@ -26,7 +26,7 @@ Of the 66 new models: 48 pass strictly on Vulkan, 2 are within 5e-2 relative RMS
 Only the *first failing op set* of a model is visible; models listed under the same op may fail on a second limitation afterwards (NMS-based detectors also produce data-dependent output shapes, which the importer's static-shape model may reject next).
 
 **Notes on the headline gaps**
-* `SimplifiedLayerNormalization` appears in the default ai.onnx domain in the onnxruntime-genai style exports (Gemma-3, LFM2, Phi-3.5). `src/Sharplight.Onnx` implements it only as `com.microsoft:SimplifiedLayerNormalization` (listed in `OnnxTranslator.Dispatch.cs`), so a domain-agnostic match would unblock the norm part of those three models; GroupQueryAttention (Gemma-3, LFM2) and RotaryEmbedding (Phi-3.5, whose attention is `com.microsoft:MultiHeadAttention`) are the real work.
+* `SimplifiedLayerNormalization` appears in the default ai.onnx domain in the onnxruntime-genai style exports (Gemma-3, LFM2, Phi-3.5). `src/Sharplight.Import.Onnx` implements it only as `com.microsoft:SimplifiedLayerNormalization` (listed in `OnnxTranslator.Dispatch.cs`), so a domain-agnostic match would unblock the norm part of those three models; GroupQueryAttention (Gemma-3, LFM2) and RotaryEmbedding (Phi-3.5, whose attention is `com.microsoft:MultiHeadAttention`) are the real work.
 * Models with `dim_param` batch axes that are reshaped across the batch (`Reshape [-1, 256]` etc.) fail with a symbolic batch and are retried with the concrete batch: 20 of 130 rows are marked `fb`. This is a limitation of the "outermost dim is the symbolic batch" convention, not an op gap.
 * All other dynamic dims (sequence length, image size, KV-cache length) must be pinned through `OnnxImportOptions.InputShapes`; every dynamic-shape model in this survey was run that way (sequence 16/4, past 8, images 224-800). No model was tried with a varying sequence length at run time.
 * `use_cache_branch` merged decoders (T5, distilBART, Florence-2, TrOCR, ViT-GPT2) import fine once the flag is pinned (`ConstantInputs`) and run on both backends with exact parity; they were run with the no-past branch (`use_cache_branch=0`).
@@ -42,7 +42,8 @@ Vulkan compile time ("VK compile s" column, minimum over the sessions) is a sepa
 |---|---|---|
 | `bertsquad-12` | Vulkan | The graph returns its `unique_ids_raw_output___9:0` input through an `Identity`-like path as output `unique_ids:0` (int64): Vulkan returns `1065353216` = 0x3F800000, the bit pattern of the float `1.0f`, instead of the integer `1` (an i32 value went through an f32 `Scale` op and its float bits were read back as an integer). Other outputs match to 9e-7 RMS. |
 | `bertsquad-12` | CPU | Does not compile: `Op Scale (node 796) is not supported on ... Scale: inputs must be f32 (or a convertible weight), got i32 for unique_ids_raw_output___9:0` - the same i32 pass-through reaches an f32-only op on the CPU backend. Vulkan compiles it (and produces the wrong integer, above). |
-| `qwen2.5-0.5b.model_fp16` | CPU and Vulkan | rel. RMS 7.3e-2 on logits, `present.0.key` max abs 1.2 (scale 130). onnxruntime's own CUDA EP differs from its CPU reference by only 2.2e-2 (logits) and 8e-5 (`present.0.key`), so this is probably *not* only fp16 reference noise: worth checking Cast handling (fp16 -> f32 `Cast` is treated as identity) on this graph. The q4 variant of the same model matches to 8.7e-6. |
+| `qwen2.5-0.5b.model_fp16` | CPU and Vulkan | rel. RMS 7.3e-2 on logits against ORT CPU's fp16 run. Round 7 (benchmarks §33) compared both engines with an f32 copy of the same graph run by ORT CPU. Against that copy, ORT's fp16 run is 7.3e-2 off, Sharplight CPU 2.3e-4 and Sharplight Vulkan 1.5e-3, so the fp16 reference is the noisy side. Vulkan's 6x larger error than CPU in the deep layers is still open. Part of the remaining difference is the f32 → fp16 rounding of the `past` inputs, which the widened copy removes. The q4 variant matches to 8.7e-6. |
+| `phi35-mini-q4f16` | all engines | Failed parity on every engine, ORT CUDA included. The reference was ORT CPU's fp16 run, which is 4.8e-2 relative RMS from an f32 copy of the same graph (logits max abs diff 0.35); ORT CUDA fp16 is 5.5e-2 from it. Sharplight computes in f32 and lands at 1.2e-4 (Vulkan and CPU) from the copy. Since round 7 the survey reference is the f32 copy (`bench/onnx/make_survey_refs.py`, `f32ref`), and parity passes. |
 | `qwen2.5-0.5b.model_quantized` | CPU and Vulkan | dynamic-int8 (MatMulInteger + DynamicQuantizeLinear) variant: rel. RMS 2.7e-1 (Vulkan) / 1.9e-1 (CPU). Activation quantization is sensitive to rounding mode / scale arithmetic; same class as the BERT dynamic-int8 case (2.6e-2 Vulkan vs 1.5e-3 CPU) where Vulkan is 17x less accurate than CPU. |
 | `yolo26n` | CPU | rel. RMS 4.2e-2 on `pred_boxes` (Vulkan: 4e-7): end-to-end TopK head with near-tied scores on random input, likely a different ordering of tied rows on the CPU backend (not verified). |
 | `yolov10n`, `yolov10n-int8` (existing) | both | Parity is judged on the score column only (existing ReferenceTests behaviour, also applied by the harness), because tied detections reorder. |
@@ -390,14 +391,14 @@ Existing models are measured from their existing fixtures (`ref/*.json`, `ref/zo
 
 ## Operator coverage
 
-Generated by `tools/onnx-coverage.py` from the conformance report of `tests/Sharplight.Onnx.Conformance`. It covers the onnx 1.23.2 backend node tests and the extra suites in `~/models/onnx/sharplight-*-tests`: ai.onnx.ml, strings and signal ops, and com.microsoft contrib ops from `tools/gen-onnx-contrib-tests.py` with onnxruntime 1.31 reference outputs. An operator counts as passing when all of its tests pass. "via CPU" means the test passed on Vulkan with some IR ops placed on the CPU fallback device.
+Generated by `tools/onnx-coverage.py` from the conformance report of `tests/Sharplight.Import.Onnx.Conformance`. It covers the onnx 1.23.2 backend node tests and the extra suites in `~/models/onnx/sharplight-*-tests`: ai.onnx.ml, strings and signal ops, and com.microsoft contrib ops from `tools/gen-onnx-contrib-tests.py` with onnxruntime 1.31 reference outputs. An operator counts as passing when all of its tests pass. "via CPU" means the test passed on Vulkan with some IR ops placed on the CPU fallback device.
 
 ```sh
 dotnet build Sharplight.slnx -c Release
 ~/venvs/ort/bin/python -I tools/gen-onnx-contrib-tests.py      # -> ~/models/onnx/sharplight-contrib-tests
 SHARPLIGHT_CONFORMANCE_REPORT=report.jsonl SHARPLIGHT_CONFORMANCE_PROVIDERS=cpu,vulkan \
-  dotnet tests/Sharplight.Onnx.Conformance/bin/Release/net11.0/Sharplight.Onnx.Conformance.dll \
-  -method Sharplight.Onnx.Conformance.NodeConformanceTests.Report      # SHARPLIGHT_CONFORMANCE_FILTER=<regex> for a subset
+  dotnet tests/Sharplight.Import.Onnx.Conformance/bin/Release/net11.0/Sharplight.Import.Onnx.Conformance.dll \
+  -method Sharplight.Import.Onnx.Conformance.NodeConformanceTests.Report      # SHARPLIGHT_CONFORMANCE_FILTER=<regex> for a subset
 ~/venvs/ort/bin/python -I tools/onnx-coverage.py --report report.jsonl > matrix.md
 ```
 
@@ -405,54 +406,66 @@ SHARPLIGHT_CONFORMANCE_REPORT=report.jsonl SHARPLIGHT_CONFORMANCE_PROVIDERS=cpu,
 
 | | before | after |
 |---|---|---|
-| ai.onnx ops: all tests pass (cpu / vulkan / vulkan without CPU fallback) | 134 / 133 / 121 of 192 | 161 / 161 / 147 of 192 |
+| ai.onnx ops: all tests pass (cpu / vulkan / vulkan without CPU fallback) | 134 / 133 / 121 of 192 | 161 / 161 / 158 of 192 |
 | ai.onnx.preview.training ops passing | 0 / 3 | 3 / 3 |
 | com.microsoft ops imported (all / common set) | 22 / 22 | 53 / 52 |
 | com.microsoft ops with all tests passing | 7 / 47 | 45 / 47 |
 | node tests, cpu | 1800 / 1884 (95.5%) | 1829 / 1884 (97.1%) |
-| node tests, vulkan | 1790 (95.0%), 1706 (90.6%) without fallback | 1829 (97.1%), 1778 (94.4%) without fallback |
+| node tests, vulkan | 1790 (95.0%), 1706 (90.6%) without fallback | 1829 (97.1%), 1809 (96.0%) without fallback |
 | extra tests, cpu | 108 / 172 (62.8%) | 170 / 172 (98.8%) |
-| extra tests, vulkan | 108 (62.8%), 66 (38.4%) without fallback | 170 (98.8%), 128 (74.4%) without fallback |
+| extra tests, vulkan | 108 (62.8%), 66 (38.4%) without fallback | 170 (98.8%), 158 (91.9%) without fallback |
 
-The remaining node-test failures are the same on CPU and Vulkan:
+### ONNX round 7: the 57 remaining failures classified
 
-* random ops (Bernoulli, training-mode Dropout), whose reference depends on the onnxruntime RNG;
-* ImageDecoder and StringSplit, which are not implemented;
-* zero-size tensors: empty-set reductions, zero-size Split, Tril/Triu of an empty matrix, an empty RegexFullMatch input and Reshape allowzero;
-* Unique along an axis;
-* 64-bit BitCast (64-bit types travel as 32-bit values);
-* NonZero of a rank-2 input with a data-dependent count (the IR result is the transpose `[count, rank]`);
-* a `[1, N]` string normalizer output;
-* CausalConvWithState with kernel size 1 (an empty state).
+Round 7 (benchmarks section 33) classified the 55 node-test and 2 extra-test failures that were left and fixed 36 of them.
+Node tests went from 1829 to 1863 of 1884 on cpu and vulkan, and from 1778 to 1802 on vulkan without the CPU fallback.
+Extra tests went from 170 to 171 of 172.
 
-The extra-suite failures are com.microsoft MurmurHash3 and WordConvEmbedding, which are not implemented.
+| test(s) | class | status |
+|---|---|---|
+| 16 × `test_reduce_*_empty_set*` | zero-size tensor | fixed: a zero-size input is an empty constant, and reductions over an empty set fold to their identity |
+| `test_tril_zero`, `test_triu_zero`, `test_regex_full_match_empty`, 2 × `test_split_zero_size_splits_*`, `test_reshape_allowzero_reordered` | zero-size tensor | fixed: shape-preserving ops on an empty constant stay empty, and Split / Reshape fold |
+| `test_causal_conv_with_state_kernel_size_one` | zero-size tensor | fixed: `present_state` is an empty `[B, C, 0]` constant |
+| `test_nonzero_example` | output layout | fixed: the `[count, rank]` IR result is transposed back via `OnnxOutputLayout` |
+| `test_strnormalizer_export_monday_insensintive_upper_twodim` | output layout | fixed: the leading unit dim is restored via `OnnxOutputLayout` |
+| 3 × `test_unique_sorted_with_axis*` | unsupported attribute | fixed: Unique along an axis (IR "slices" mode, CPU kernel) |
+| 6 × `test_string_split_*` | unsupported op | fixed: StringSplit (CPU kernel, at most `maxsplit + 1` or `OnnxImportOptions.StringSplitBound` parts) |
+| `ms_murmur_hash3` (extra) | unsupported op | fixed: com.microsoft MurmurHash3 (CPU kernel) |
+| `ms_word_conv_embedding` (extra) | test-harness issue | the op is implemented from existing IR ops and runs on Vulkan. onnxruntime never writes the output row of a word whose first id is 0, so the stored reference for that word is uninitialized memory. `tools/gen-onnx-contrib-tests.py` now avoids such words; the test passes once the contrib tests are regenerated |
+| 9 × `test_image_decoder_*` | unsupported op | open: needs image codecs |
+| 6 × `test_bernoulli*` | not reproducible | open: the reference depends on the reference implementation's RNG |
+| 4 × `test_training_dropout*` | not reproducible | open: random training masks |
+| 2 × `test_bitcast_*64*` | unsupported type | open: 64-bit values travel as 32-bit |
 
-These ops run on Vulkan only through the CPU fallback: LinearAttention, DeformConv, Unique, the string and ai.onnx.ml tree / label ops, and TfIdfVectorizer. CumSum and CumProd (since benchmarks section 26, int32 / int64 inputs since section 27), GridSample (4-D, and 5-D linear / nearest since section 27), Det and Inverse (section 27, one thread per matrix in f32) have Vulkan kernels.
+A 0 in `OnnxImportOptions.InputShapes` now means an empty axis; only a negative value selects the batch axis. A declared
+`dim_value 0` in a model file still means an unknown dimension, as exporters write it.
+
+These ops run on Vulkan only through the CPU fallback: the string ops (StringConcat, StringNormalizer, RegexFullMatch, string Cast / Equal, CategoryMapper and string LabelEncoder maps) and Cast to FLOAT8E8M0. CumSum and CumProd (since benchmarks section 26, int32 / int64 inputs since section 27), GridSample (4-D, and 5-D linear / nearest since section 27), Det and Inverse (section 27, one thread per matrix in f32) have Vulkan kernels, and so, since ONNX round 5, do LinearAttention (all four update rules), DeformConv, Unique (flattened, up to 65536 elements; the kernels compare every pair), TfIdfVectorizer, the tree ensembles, SVM one-vs-one voting and probability coupling, numeric LabelEncoder and DFTs longer than the importer's basis matmul.
 
 Operator schemas of onnx 1.23.2 (ai.onnx opset 28) and onnxruntime's com.microsoft contrib schemas.
 
 | domain | operators | importer | cpu: all tests pass | vulkan: all tests pass | vulkan: without CPU fallback |
 |---|---|---|---|---|---|
-| ai.onnx | 203 | 201 | 161 / 192 with tests | 161 / 192 with tests | 152 |
-| ai.onnx.ml | 19 | 16 | 16 / 16 with tests | 16 / 16 with tests | 9 |
+| ai.onnx | 203 | 201 | 161 / 192 with tests | 161 / 192 with tests | 158 |
+| ai.onnx.ml | 19 | 16 | 16 / 16 with tests | 16 / 16 with tests | 12 |
 | ai.onnx.preview | 1 | 1 | 1 / 1 with tests | 1 / 1 with tests | 1 |
 | ai.onnx.preview.training | 4 | 3 | 3 / 3 with tests | 3 / 3 with tests | 3 |
-| com.microsoft | 136 | 53 | 45 / 47 with tests | 45 / 47 with tests | 44 |
-| com.microsoft (common set) | 61 | 52 | 44 / 46 with tests | 44 / 46 with tests | 43 |
+| com.microsoft | 136 | 53 | 45 / 47 with tests | 45 / 47 with tests | 45 |
+| com.microsoft (common set) | 61 | 52 | 44 / 46 with tests | 44 / 46 with tests | 44 |
 
 Node tests:
 
 | provider | tests | pass | pass without CPU fallback | wrong | import fail | compile fail | run fail | harness unsupported |
 |---|---|---|---|---|---|---|---|---|
 | cpu | 1884 | 1829 (97.1%) | 1829 (97.1%) | 8 | 47 | 0 | 0 | 0 |
-| vulkan | 1884 | 1829 (97.1%) | 1772 (94.1%) | 8 | 47 | 0 | 0 | 0 |
+| vulkan | 1884 | 1829 (97.1%) | 1809 (96.0%) | 8 | 47 | 0 | 0 | 0 |
 
 Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 
 | provider | tests | pass | pass without CPU fallback | wrong | import fail | compile fail | run fail | harness unsupported |
 |---|---|---|---|---|---|---|---|---|
 | cpu | 172 | 170 (98.8%) | 170 (98.8%) | 0 | 2 | 0 | 0 | 0 |
-| vulkan | 172 | 170 (98.8%) | 127 (73.8%) | 0 | 2 | 0 | 0 | 0 |
+| vulkan | 172 | 170 (98.8%) | 158 (91.9%) | 0 | 2 | 0 | 0 | 0 |
 
 
 #### ai.onnx
@@ -502,11 +515,11 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | Cosh | 9, 22 | yes | 2/2 | 2/2 |  |
 | CumProd | 26 | yes | 9/9 | 9/9 |  |
 | CumSum | 11, 14 | yes | 9/9 | 9/9 |  |
-| DFT | 17, 20 | yes | 12/12 | 12/12 (2 via CPU) |  |
-| DeformConv | 19, 22 | yes | 4/4 | 4/4 (4 via CPU) |  |
+| DFT | 17, 20 | yes | 12/12 | 12/12 |  |
+| DeformConv | 19, 22 | yes | 4/4 | 4/4 |  |
 | DepthToSpace | 1, 11, 13, 28 | yes | 2/2 | 2/2 |  |
 | DequantizeLinear | 10, 13, 19, 21, 23, 24, 25, 28 | yes | 14/14 | 14/14 |  |
-| Det | 11, 22 | yes | 2/2 | 2/2 (2 via CPU) |  |
+| Det | 11, 22 | yes | 2/2 | 2/2 |  |
 | Div | 1, 6, 7, 13, 14 | yes | 250/250 | 250/250 |  |
 | Dropout | 1, 6, 7, 10, 12, 13, 22 | yes | 8/12 | 8/12 |  |
 | DynamicQuantizeLinear | 11 | yes | 3/3 | 3/3 |  |
@@ -530,7 +543,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | GlobalMaxPool | 1, 22 | yes | 2/2 | 2/2 |  |
 | Greater | 1, 7, 9, 13 | yes | 16/19 | 16/19 |  |
 | GreaterOrEqual | 12, 16 | yes | 9/9 | 9/9 |  |
-| GridSample | 16, 20, 22 | yes | 18/18 | 18/18 (4 via CPU) |  |
+| GridSample | 16, 20, 22 | yes | 18/18 | 18/18 |  |
 | GroupNormalization | 18, 21 | yes | 2/2 | 2/2 |  |
 | HammingWindow | 17 | yes | 2/2 | 2/2 |  |
 | HannWindow | 17 | yes | 2/2 | 2/2 |  |
@@ -549,7 +562,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | LeakyRelu | 1, 6, 16 | yes | 3/3 | 3/3 |  |
 | Less | 1, 7, 9, 13 | yes | 76/76 | 76/76 |  |
 | LessOrEqual | 12, 16 | yes | 18/18 | 18/18 |  |
-| LinearAttention | 27 | yes | 14/14 | 14/14 (14 via CPU) |  |
+| LinearAttention | 27 | yes | 14/14 | 14/14 |  |
 | Log | 1, 6, 13 | yes | 30/32 | 30/32 |  |
 | LogSoftmax | 1, 11, 13 | yes | 41/41 | 41/41 |  |
 | Loop | 1, 11, 13, 16, 19, 21, 23, 24, 25 | yes | 13/13 | 13/13 |  |
@@ -611,7 +624,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | RoiAlign | 10, 16, 22 | yes | 3/3 | 3/3 |  |
 | RotaryEmbedding | 23 | yes | 8/8 | 8/8 |  |
 | Round | 11, 22 | yes | 4/4 | 4/4 |  |
-| STFT | 17 | yes | 3/3 | 3/3 (1 via CPU) |  |
+| STFT | 17 | yes | 3/3 | 3/3 |  |
 | Scan | 8, 9, 11, 16, 19, 21, 23, 24, 25 | yes | 18/18 | 18/18 |  |
 | Scatter | 9, 11 | yes | 2/2 | 2/2 |  |
 | ScatterElements | 11, 13, 16, 18 | yes | 7/7 | 7/7 |  |
@@ -651,13 +664,13 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | Tan | 7, 22 | yes | 2/2 | 2/2 |  |
 | Tanh | 1, 6, 13 | yes | 17/17 | 17/17 |  |
 | TensorScatter | 24 | yes | 3/3 | 3/3 |  |
-| TfIdfVectorizer | 9 | yes | 8/8 | 8/8 (8 via CPU) |  |
+| TfIdfVectorizer | 9 | yes | 8/8 | 8/8 (1 via CPU) |  |
 | ThresholdedRelu | 10, 22 | yes | 3/3 | 3/3 |  |
 | Tile | 1, 6, 13 | yes | 2/2 | 2/2 |  |
 | TopK | 1, 10, 11, 24 | yes | 7/7 | 7/7 |  |
 | Transpose | 1, 13, 21, 23, 24, 25 | yes | 176/176 | 176/176 |  |
 | Trilu | 14 | yes | 16/18 | 16/18 |  |
-| Unique | 11, 28 | yes | 4/7 | 4/7 (4 via CPU) |  |
+| Unique | 11, 28 | yes | 4/7 | 4/7 |  |
 | Unsqueeze | 1, 11, 13, 21, 23, 24, 25 | yes | 141/141 | 141/141 |  |
 | Upsample | 1, 7, 9, 10 | yes | 1/1 | 1/1 |  |
 | Where | 9, 16 | yes | 129/129 | 129/129 |  |
@@ -674,17 +687,17 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | DictVectorizer | 1 | no | - | - |  |
 | FeatureVectorizer | 1 | yes | 1/1 | 1/1 |  |
 | Imputer | 1 | yes | 2/2 | 2/2 |  |
-| LabelEncoder | 1, 2, 4 | yes | 11/11 | 11/11 (11 via CPU) |  |
+| LabelEncoder | 1, 2, 4 | yes | 11/11 | 11/11 (7 via CPU) |  |
 | LinearClassifier | 1 | yes | 7/7 | 7/7 (1 via CPU) |  |
 | LinearRegressor | 1 | yes | 1/1 | 1/1 |  |
 | Normalizer | 1 | yes | 3/3 | 3/3 |  |
 | OneHotEncoder | 1 | yes | 1/1 | 1/1 |  |
-| SVMClassifier | 1 | yes | 7/7 | 7/7 (6 via CPU) |  |
+| SVMClassifier | 1 | yes | 7/7 | 7/7 |  |
 | SVMRegressor | 1 | yes | 5/5 | 5/5 |  |
 | Scaler | 1 | yes | 2/2 | 2/2 |  |
-| TreeEnsemble | 5 | yes | 6/6 | 6/6 (6 via CPU) |  |
-| TreeEnsembleClassifier | 1, 3, 5 | yes | 10/10 | 10/10 (10 via CPU) |  |
-| TreeEnsembleRegressor | 1, 3, 5 | yes | 4/4 | 4/4 (4 via CPU) |  |
+| TreeEnsemble | 5 | yes | 6/6 | 6/6 |  |
+| TreeEnsembleClassifier | 1, 3, 5 | yes | 10/10 | 10/10 (1 via CPU) |  |
+| TreeEnsembleRegressor | 1, 3, 5 | yes | 4/4 | 4/4 |  |
 | ZipMap | 1 | no | - | - |  |
 
 #### ai.onnx.preview
@@ -732,7 +745,7 @@ The common set (`COMMON_CONTRIB` in tools/onnx-coverage.py) and every other cont
 | GemmFastGelu | 1 | yes | 1/1 | 1/1 |  |
 | GroupNorm | 1 | yes | 3/3 | 3/3 |  |
 | GroupQueryAttention | 1 | yes | 13/13 | 13/13 |  |
-| Inverse | 1 | yes | 1/1 | 1/1 (1 via CPU) |  |
+| Inverse | 1 | yes | 1/1 | 1/1 |  |
 | MatMulInteger16 | 1 | yes | 1/1 | 1/1 |  |
 | MatMulIntegerToFloat | 1 | yes | 1/1 | 1/1 |  |
 | MatMulNBits | 1 | yes | 6/6 | 6/6 |  |

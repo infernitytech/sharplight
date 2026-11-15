@@ -22,8 +22,14 @@ internal sealed class DecodeAttentionPlan
     public required Func<Bindings, bool> When { get; init; }
 
     /// <summary>
-    /// Key ranges per row for a launch of <paramref name="rows"/> query rows; mirrors <c>decode_max_splits</c> (one range
-    /// beyond <see cref="MaxRows"/>, <c>DEC_SPLIT_ROWS</c>).
+    /// Launches of up to this many query rows split each row's keys as a single-row launch does (<c>DEC_INVARIANT_ROWS</c>),
+    /// so every row's result is the same as in a launch of its own.
     /// </summary>
-    public long MaxSplits(long rows) => rows > MaxRows ? 1 : Math.Clamp(TargetWorkgroups / Math.Max(1, rows * Groups), 1, MaxSplitCount);
+    public long InvariantRows { get; init; }
+
+    /// <summary>
+    /// Key ranges per row for a launch of <paramref name="rows"/> query rows; mirrors <c>decode_max_splits</c> (one range
+    /// beyond <see cref="MaxRows"/>, <c>DEC_SPLIT_ROWS</c>; the single-row count up to <see cref="InvariantRows"/>).
+    /// </summary>
+    public long MaxSplits(long rows) => rows > MaxRows ? 1 : Math.Clamp(TargetWorkgroups / Math.Max(1, (rows <= InvariantRows ? 1 : rows) * Groups), 1, MaxSplitCount);
 }

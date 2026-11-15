@@ -37,7 +37,7 @@ public static class PlacementPlanner
         var (groupOrder, groupBytes) = MeasureGroups(graph, options.Compile);
         var groupDevice = AssignGroups(groupOrder, groupBytes, options, slots.Count, fallbackSlot, out long[] used);
         var nodeSlot = AssignNodes(graph, slots, groupDevice, fallbackSlot);
-        var segments = BuildSegments(graph, nodeSlot, slots);
+        var segments = BuildSegments(graph, nodeSlot, slots, options.GroupDataDependentCounts);
         return new PlacementPlan
         {
             Slots = slots,
@@ -352,22 +352,30 @@ public static class PlacementPlanner
         => n.Op.Category != OpCategory.ControlFlow && n.Attributes.Get("count_symbol", "") is { Length: > 0 } symbol
            && graph.DynamicSymbols.Any(d => d.Key == symbol);
 
-    private static List<GraphSegment> BuildSegments(ComputeGraph graph, int[] nodeSlot, List<DeviceSlot> slots)
+    private static List<GraphSegment> BuildSegments(ComputeGraph graph, int[] nodeSlot, List<DeviceSlot> slots, bool groupCounts)
     {
+        // A GPU learns a data-dependent count only when its segment has finished (the count is read back with the outputs); the CPU
+        // publishes it as soon as the node has run. Ordered by count level, the counts of one level share a segment, which ends where
+        // the level changes; in graph order (SHARPLIGHT_COUNT_LEVELS=0) a node that publishes a count ends its segment.
+        var schedule = groupCounts && !CountLevelSchedule.DisabledByEnvironment
+            ? CountLevelSchedule.Build(graph, i => slots[nodeSlot[i]].Device.Info.Kind != DeviceKind.Cpu && graph.Nodes[i].Op.Category != OpCategory.ControlFlow)
+            : null;
         var runs = new List<(int Slot, List<Node> Nodes)>();
-        for (int i = 0; i < graph.Nodes.Count; i++)
+        int previous = -1;
+        foreach (int i in schedule?.Order ?? Enumerable.Range(0, graph.Nodes.Count))
         {
             // A control-flow node runs alone in a host segment.
             bool controlFlow = graph.Nodes[i].Op.Category == OpCategory.ControlFlow;
-            // A GPU learns a data-dependent count only when its segment has finished (the count is read back with the outputs), so
-            // a node that publishes one ends its segment there; the CPU publishes it as soon as the node has run.
-            bool afterCount = runs.Count > 0 && slots[runs[^1].Slot].Device.Info.Kind != DeviceKind.Cpu && PublishesCount(runs[^1].Nodes[^1], graph);
+            bool afterCount = schedule is { } s
+                ? previous >= 0 && s.Level[previous] != s.Level[i]
+                : runs.Count > 0 && slots[runs[^1].Slot].Device.Info.Kind != DeviceKind.Cpu && PublishesCount(runs[^1].Nodes[^1], graph);
             if (runs.Count == 0 || runs[^1].Slot != nodeSlot[i] || controlFlow || runs[^1].Nodes[^1].Op.Category == OpCategory.ControlFlow || afterCount)
             {
                 runs.Add((nodeSlot[i], []));
             }
 
             runs[^1].Nodes.Add(graph.Nodes[i]);
+            previous = i;
         }
 
         var producerRun = new Dictionary<Value, int>();

@@ -50,6 +50,26 @@ uint64_t seq_row(int* pages, uint slot, uint pos)
 #endif
 }
 
+// Compressed caches (KV_COMP positions per row, see StateDefinition.Compression): row of entry `e` (positions [e * KV_COMP,
+// (e + 1) * KV_COMP)) of slot `slot`, with COMP_SLOT_CTX rows per slot, or through the block table with ceil(PAGE_BS / KV_COMP) rows per
+// block. Position `pos` closes the window of entry (pos + 1) / KV_COMP - 1 when (pos + 1) % KV_COMP == 0.
+#ifndef KV_COMP
+#define KV_COMP 1
+#endif
+#ifndef COMP_SLOT_CTX
+#define COMP_SLOT_CTX 0
+#endif
+uint64_t seq_row_c(int* pages, uint slot, uint e)
+{
+#if PAGED
+    uint first = e * KV_COMP;
+    int block = pages[slot * PAGE_MB + min(first / PAGE_BS, uint(PAGE_MB - 1))];
+    return uint64_t(uint(max(block, 0))) * ((PAGE_BS + KV_COMP - 1) / KV_COMP) + (first % PAGE_BS) / KV_COMP;
+#else
+    return uint64_t(slot) * COMP_SLOT_CTX + e;
+#endif
+}
+
 float gelu_tanh(float x) { return 0.5 * x * (1.0 + tanh(0.7978845608 * (x + 0.044715 * x * x * x))); }
 float erf_approx(float x)
 {
@@ -93,6 +113,13 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 #define FMT_Q2_0 42
 #define FMT_Q2_0_G128 142
 #define FMT_TERN1_G128 143
+// Trellis-coded formats (TrellisBlocks.cs), decoded through the codebook grid.
+#define FMT_TRELLIS_V4K8 144
+#define FMT_TRELLIS_V4K6 145
+#define FMT_TRELLIS_V4K7 146
+#define FMT_TRELLIS_V2K5 147
+#define FMT_TRELLIS_V2K6 148
+#define FMT_TRELLIS_V2K7 149
 // ggml type ids of the formats decoded in quant_k.slang / quant_iq.slang.
 #define FMT_Q2_K 10
 #define FMT_Q3_K 11
@@ -116,11 +143,23 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 // The same in the aligned split layout [K codes][K / B f32 scales] (WeightRepack.Fp8B32Split / Fp8B128Split).
 #define FMT_F8E4M3_B32R 152
 #define FMT_F8E4M3_B128R 153
+// Group-scaled formats of quantized Hugging Face checkpoints, decoded in quant_group.slang.
+#define FMT_NVFP4_GS 60
+#define FMT_Q4Z_G32 61
+#define FMT_Q4Z_G128 62
+#define FMT_Q8Z_G32 63
+#define FMT_Q8Z_G128 64
+#define FMT_NF4_B64 65
 
-// IQ formats decode through a lookup grid that lives in a device buffer (GridTables.cs). The lowering prepends its address to the parameter block
+// IQ formats (and NF4, its 16 f32 code values) decode through a lookup grid that lives in a device buffer (GridTables.cs). The lowering prepends its address to the parameter block
 // of every kernel that reads such a weight: those kernels declare `uint* grid` first under HAS_GRID and call GRID_BIND(p) at the start of each entry
 // point, which stores it in g_grid for the decoders (quant_iq.slang).
-#if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S || WFMT == FMT_IQ1_S || WFMT == FMT_IQ1_M
+#if WFMT >= FMT_TRELLIS_V4K8 && WFMT <= FMT_TRELLIS_V2K7
+#define WFMT_TRELLIS 1
+#else
+#define WFMT_TRELLIS 0
+#endif
+#if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S || WFMT == FMT_IQ1_S || WFMT == FMT_IQ1_M || WFMT_TRELLIS || WFMT == FMT_NF4_B64
 #define HAS_GRID 1
 static uint* g_grid;
 #define GRID_BIND(p) g_grid = (p).grid;
@@ -387,6 +426,60 @@ void load8_tern1(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
     }
 }
 
+#if WFMT_TRELLIS
+// Trellis-coded group-128 blocks { f16 d; u8 qs[steps * k / 8] } (TrellisBlocks.cs): the 16-bit state of step t, from the byte path
+// (k = 8: qs[t - 1] << 8 | qs[t]) or the circular bit stream (16 bits from bit (steps - 1 - t) * k, LSB first).
+uint trellis_state(uint8_t* qs, uint steps, uint k, uint t)
+{
+    if (k == 8)
+    {
+        return (uint(qs[(t + steps - 1) % steps]) << 8) | uint(qs[t]);
+    }
+    uint nbytes = steps * k / 8;
+    uint off = (steps - 1 - t) * k;
+    uint i0 = off >> 3;
+    uint i1 = i0 + 1 >= nbytes ? i0 + 1 - nbytes : i0 + 1;
+    uint i2 = i0 + 2 >= nbytes ? i0 + 2 - nbytes : i0 + 2;
+    uint w = uint(qs[i0]) | (uint(qs[i1]) << 8) | (uint(qs[i2]) << 16);
+    return (w >> (off & 7)) & 0xFFFFu;
+}
+
+// The codebook grid holds point p as one word (f16 value 0 | f16 value 1 << 16).
+void trellis_point(uint p, float d, out float a, out float b)
+{
+    uint w = g_grid[p];
+    a = d * f16tof32(w & 0xFFFFu);
+    b = d * f16tof32(w >> 16);
+}
+
+// Four values per step (32 steps of k bits): group g covers steps 2 (g % 16) and 2 (g % 16) + 1 of block g / 16.
+void load8_trellis4(uint8_t* base, uint64_t rowBytes, uint row, uint g, uint k, out float v[8])
+{
+    uint8_t* blk = base + rowBytes * row + uint64_t(g >> 4) * (2 + 4 * k);
+    float d = h2f(*(uint16_t*)blk);
+    [ForceUnroll]
+    for (uint i = 0; i < 2; i++)
+    {
+        uint x = (trellis_state(blk + 2, 32, k, (g & 15) * 2 + i) & 0x7FFFu) * 0x9E3779B1u;
+        trellis_point(x >> 21, d, v[4 * i], v[4 * i + 1]);
+        trellis_point((x >> 10) & 2047u, d, v[4 * i + 2], v[4 * i + 3]);
+    }
+}
+
+// Two values per step (64 steps of k bits): group g covers steps 4 (g % 16) .. + 3 of block g / 16.
+void load8_trellis2(uint8_t* base, uint64_t rowBytes, uint row, uint g, uint k, out float v[8])
+{
+    uint8_t* blk = base + rowBytes * row + uint64_t(g >> 4) * (2 + 8 * k);
+    float d = h2f(*(uint16_t*)blk);
+    [ForceUnroll]
+    for (uint i = 0; i < 4; i++)
+    {
+        uint x = (trellis_state(blk + 2, 64, k, (g & 15) * 4 + i) & 0x7FFFu) * 0x9E3779B1u;
+        trellis_point(x >> 21, d, v[2 * i], v[2 * i + 1]);
+    }
+}
+#endif
+
 // 16 bytes at any byte address: 4 or 5 aligned words, funnel-shifted (the fifth word is read only when the address is not
 // word aligned, as the bytes may end the buffer).
 uint4 load16_any(uint64_t at)
@@ -422,7 +515,7 @@ uint8_t* rowStart(uint8_t* base, uint64_t rowBytes, uint row)
     return (uint8_t*)(uint64_t(base) + rowBytes * row);
 }
 
-#if defined(WFMT) && (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K || WFMT == FMT_Q4_0 || WFMT == FMT_Q5_0)
+#if defined(WFMT) && (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K || WFMT == FMT_Q4_0 || WFMT == FMT_Q5_0 || WFMT == FMT_Q4Z_G32 || WFMT == FMT_Q4Z_G128)
 // Packed-half decoding of quantized codes for the tensor-core GEMMs (needs Float16).
 
 // Bytes 0,1 (hi false) or 2,3 of u (codes 0..255) as half2 (code - offset) * scale + add.
@@ -489,6 +582,7 @@ uint4 load8h_kquant(uint8_t* w, uint64_t rowBytes, uint row, uint g)
 #include "quant_k.slang"
 #include "quant_iq.slang"
 #include "quant_fp8.slang"
+#include "quant_group.slang"
 
 void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v[8])
 {
@@ -531,6 +625,18 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
     load8_q2(base, rowBytes, row, g >> 4, g & 15, 34, v);
 #elif WFMT == FMT_TERN1_G128
     load8_tern1(base, rowBytes, row, g, v);
+#elif WFMT == FMT_TRELLIS_V4K8
+    load8_trellis4(base, rowBytes, row, g, 8, v);
+#elif WFMT == FMT_TRELLIS_V4K6
+    load8_trellis4(base, rowBytes, row, g, 6, v);
+#elif WFMT == FMT_TRELLIS_V4K7
+    load8_trellis4(base, rowBytes, row, g, 7, v);
+#elif WFMT == FMT_TRELLIS_V2K5
+    load8_trellis2(base, rowBytes, row, g, 5, v);
+#elif WFMT == FMT_TRELLIS_V2K6
+    load8_trellis2(base, rowBytes, row, g, 6, v);
+#elif WFMT == FMT_TRELLIS_V2K7
+    load8_trellis2(base, rowBytes, row, g, 7, v);
 #elif WFMT == FMT_Q2_K
     load8_q2_k(base, rowBytes, row, g, v);
 #elif WFMT == FMT_Q3_K
@@ -564,6 +670,18 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
         v[i] = fp4_value(((i < 4 ? q.x : q.y) >> (8 * (i & 3))) & 0xF) * d;
 #elif WFMT == FMT_NVFP4
     load8_nvfp4(base, rowBytes, row, g, v);
+#elif WFMT == FMT_NVFP4_GS
+    load8_nvfp4_gs(base, rowBytes, row, g, v);
+#elif WFMT == FMT_Q4Z_G32
+    load8_q4z(base, rowBytes, row, g, 1, v);
+#elif WFMT == FMT_Q4Z_G128
+    load8_q4z(base, rowBytes, row, g, 4, v);
+#elif WFMT == FMT_Q8Z_G32
+    load8_q8z(base, rowBytes, row, g, 32, v);
+#elif WFMT == FMT_Q8Z_G128
+    load8_q8z(base, rowBytes, row, g, 128, v);
+#elif WFMT == FMT_NF4_B64
+    load8_nf4_b64(base, rowBytes, row, g, v);
 #elif WFMT == FMT_F8E4M3
     load8_fp8(base, rowBytes, row, g, 0, false, v);
 #elif WFMT == FMT_F8E5M2
@@ -577,3 +695,34 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
 #endif
 }
 #endif
+
+// ---------------------------------------------------------------------------------------------
+// Split f16 form of f32 values (the split-f16 tensor-core GEMM): a value v becomes an f16 hi part (v rounded to 11
+// significant bits on the bits, which compilers cannot fold away) and an f16 lo part (the rest), so hi + lo keeps about
+// 22 bits when both are normal f16 numbers. split_scale gives the power of two that brings a row whose largest magnitude
+// is m into [2^14, 2^15) (both parts in f16 range for every value of the row); 1 / split_scale(m) undoes it exactly.
+float split_scale(float m)
+{
+    int e = int((asuint(m) >> 23) & 0xFFu);
+    return asfloat(uint(clamp(268 - e, 1, 253)) << 23);
+}
+
+// Two values as packed f16 hi parts (returned) and lo parts.
+uint split_h2(float a, float b, out uint lo)
+{
+    float ha = asfloat((asuint(a) + 0x1000u) & 0xFFFFE000u);
+    float hb = asfloat((asuint(b) + 0x1000u) & 0xFFFFE000u);
+    lo = f32tof16(a - ha) | (f32tof16(b - hb) << 16);
+    return f32tof16(ha) | (f32tof16(hb) << 16);
+}
+
+// 8 values times s as packed hi parts (returned) and lo parts.
+uint4 split8_scaled(float v[8], float s, out uint4 lo)
+{
+    uint4 hi;
+    hi.x = split_h2(v[0] * s, v[1] * s, lo.x);
+    hi.y = split_h2(v[2] * s, v[3] * s, lo.y);
+    hi.z = split_h2(v[4] * s, v[5] * s, lo.z);
+    hi.w = split_h2(v[6] * s, v[7] * s, lo.w);
+    return hi;
+}

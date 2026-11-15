@@ -26,7 +26,7 @@ public sealed partial class GraphLowerer
     private long IntDotSkinnyMinRows(DataType type, long k, long n)
     {
         long cap = IntDotMaxRows(type, k);
-        return (cap < MatvecMaxRows && SkinnyMaxRowsFor(n) >= MatvecMaxRows ? cap : Math.Max(MatvecMaxRows, cap)) + 1;
+        return Math.Max((cap < MatvecMaxRows && SkinnyMaxRowsFor(n) >= MatvecMaxRows ? cap : Math.Max(MatvecMaxRows, cap)) + 1, InvariantRows + 1);
     }
 
     /// <summary>Threads an int-dot matvec launch aims for (splitting K inside workgroups when there are few weight rows).</summary>
@@ -61,8 +61,15 @@ public sealed partial class GraphLowerer
     private bool QuantizedActivationsAllowed(Node n)
         => _opt.Compile.AllowReducedPrecision || !n.Attributes.Get(StandardOps.F32ActivationsAttribute, false);
 
-    /// <summary>32-value block formats of the integer-dot matvec (one block per chunk).</summary>
-    private static readonly HashSet<DataType> s_intDotBlockFormats = [DataType.Q8_0, DataType.Q4_0, DataType.Q5_0, DataType.IQ4_NL, DataType.MXFP4, ShaderTypes.MXFP4R];
+    /// <summary>
+    /// Block formats of the integer-dot matvec read 32 values per chunk: the 32-value GGUF blocks, and the group-scaled formats of
+    /// quantized Hugging Face checkpoints (integer codes with a zero point, NVFP4 with and without a global scale).
+    /// </summary>
+    private static readonly HashSet<DataType> s_intDotBlockFormats =
+    [
+        DataType.Q8_0, DataType.Q4_0, DataType.Q5_0, DataType.IQ4_NL, DataType.MXFP4, ShaderTypes.MXFP4R,
+        DataType.Q4Z_G32, DataType.Q4Z_G128, DataType.Q8Z_G32, DataType.Q8Z_G128, DataType.NVFP4, DataType.NVFP4_GS,
+    ];
 
     /// <summary>Rows (inclusive) from which the int-dot path serves a matmul; single rows may stay on the f32 matvec.</summary>
     private static long IntDotMinRows(DataType type) => (type == ShaderTypes.Q8_0R || type == DataType.Q8_0) && !DiagnosticSwitches.IntDotDecodeQ8 ? 2 : 1;
@@ -76,7 +83,7 @@ public sealed partial class GraphLowerer
         long n, long k, Func<Dictionary<string, string>, CompiledKernel> compile)
     {
         var w = weights[0];
-        long minRows = IntDotMinRows(w.Type);
+        long minRows = IntDotFirstRow(w.Type);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
         long maxRows = IntDotMaxRows(w.Type, k);
         bool InRange(Bindings b) => rows(b) >= minRows && rows(b) <= maxRows;
@@ -92,7 +99,8 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
-            var layout = IntDotLayout(columns, n, chunks);
+            // Buckets with row-invariant rows keep the single-row layout (same K split per row).
+            var layout = IntDotLayout(InvariantBucket(columns) ? 1 : columns, n, chunks);
             var macros = Macros(("WFMT", format), ("K", k), ("N", n), ("Y_STRIDE", n), ("ROW_BYTES", w.Type.ByteSize(k) + "ull"),
                 ("MQ_COLS", columns), ("MQ_ROWS", layout.Rows), ("MQ_SG", layout.Subgroups), ("MQ_LPR", layout.LanesPerRow),
                 ("DUAL", weights.Length - 1), ("KERNEL_MMVQ", 1));
@@ -125,8 +133,24 @@ public sealed partial class GraphLowerer
             return cached;
         }
 
+        if (code == ActivationCode.F16 && shareable && NormHalfCopy(root, x, xStride, k, minRows) is { } normCopy)
+        {
+            // The norm writes the copy for small steps only; larger steps convert into the same buffer.
+            if (maxRows > normCopy.MaxRows)
+            {
+                long from = Math.Max(minRows, normCopy.MaxRows + 1);
+                var extensionKey = (root, x.ByteOffset, xStride, k, from, maxRows, code, (object?)_launchCondition);
+                if (_quantizedActivations.TryAdd(extensionKey, normCopy.Copy))
+                {
+                    EmitActivationConversion(label, nodes, x, xStride, rowsPerLead, k, from, maxRows, code, normCopy.Copy);
+                }
+            }
+
+            return normCopy.Copy;
+        }
+
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.F16 => 2 * k, _ => k + k / 4 }];
+        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.F16 => 2 * k, ActivationCode.SplitF16 => 4 * k + 16, ActivationCode.ScaledF16 => 2 * k + 16, _ => k + k / 4 }];
         TensorRef quantized;
         if (shareable)
         {
@@ -146,19 +170,32 @@ public sealed partial class GraphLowerer
             quantized = Temp(DataType.U8, shape, x.Symbol);
         }
 
+        EmitActivationConversion(label, nodes, x, xStride, rowsPerLead, k, minRows, maxRows, code, quantized);
+        return quantized;
+    }
+
+    /// <summary>The launch converting x into <paramref name="quantized"/> while x has <paramref name="minRows"/> to <paramref name="maxRows"/> rows.</summary>
+    private void EmitActivationConversion(string label, Node[] nodes, TensorRef x, long xStride, long rowsPerLead, long k, long minRows, long maxRows,
+        ActivationCode code, TensorRef quantized)
+    {
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
         var kernel = code switch
         {
             ActivationCode.Fp8 => Lib("gemm_fp8.slang", "quantize_fp8", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_FP8", 1))),
             ActivationCode.F16 => Lib("data.slang", "to_f16", Macros(("K", k), ("X_STRIDE", xStride))),
+            ActivationCode.SplitF16 => Lib("data.slang", "split_rows", Macros(("K", k), ("X_STRIDE", xStride))),
+            ActivationCode.ScaledF16 => Lib("data.slang", "split_rows", Macros(("K", k), ("X_STRIDE", xStride), ("SPLIT_PARTS", 1))),
             _ => Lib("mmvq.slang", "quantize_q8_1", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_Q8_1", 1))),
         };
         long valuesPerThread = code == ActivationCode.F16 ? 8 : 4;
-        Emit(code switch { ActivationCode.Fp8 => $"{label} x→fp8", ActivationCode.F16 => $"{label} x→f16", _ => $"{label} x→q8" }, nodes,
-            [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows, kernel, b => new Grid(Grid.Div(rows(b) * (k / valuesPerThread), 256)))],
+        Func<Bindings, Grid> grid = code is ActivationCode.SplitF16 or ActivationCode.ScaledF16
+            ? b => new Grid((uint)rows(b))
+            : b => new Grid(Grid.Div(rows(b) * (k / valuesPerThread), 256));
+        string what = code switch { ActivationCode.Fp8 => "fp8", ActivationCode.F16 => "f16", ActivationCode.SplitF16 => "split f16", ActivationCode.ScaledF16 => "scaled f16", _ => "q8" };
+        Emit($"{label} x→{what}", nodes,
+            [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows, kernel, grid)],
             [Pointer(x), Pointer(quantized), TokenArg(x, rowsPerLead)],
             [x], [quantized]);
-        return quantized;
     }
 
     /// <summary>
@@ -223,6 +260,7 @@ public sealed partial class GraphLowerer
             _alloc.Free(allocation);
         }
 
+        _halfCopies.Remove(root);
         foreach (var key in _quantizedActivations.Keys.Where(key => key.Root == root).ToList())
         {
             _quantizedActivations.Remove(key);
@@ -258,7 +296,7 @@ public sealed partial class GraphLowerer
     /// <summary>The launch-condition guard that keeps the f32 matvec/GEMM launches off the int-dot row range.</summary>
     private Func<Bindings, bool> OutsideIntDotRange(TensorRef x, long rowsPerLead, DataType weightType, long k)
     {
-        long minRows = IntDotMinRows(weightType);
+        long minRows = IntDotFirstRow(weightType);
         long maxRows = IntDotMaxRows(weightType, k);
         return b => Rows(b, x) * rowsPerLead is var r && (r < minRows || r > maxRows);
     }

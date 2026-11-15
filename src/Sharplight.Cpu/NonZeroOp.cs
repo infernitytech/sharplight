@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -10,6 +11,7 @@ internal sealed unsafe class NonZeroOp(TRef x, TRef y, string countSymbol) : Cpu
 {
     public override string Name => "NonZero";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         var dims = OpHelpers.Dims(x, p);

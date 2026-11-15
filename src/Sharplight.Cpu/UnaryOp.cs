@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -49,6 +50,7 @@ internal sealed unsafe class UnaryOp : CpuOp
         CpuParallel.For(_chunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int c)
     {
         if (_x.IsDense)

@@ -54,4 +54,29 @@ public static partial class StandardOps
     /// accepted, unparsable text gives NaN or 0), or f32 / i32 → str (shortest round-trip text; <c>type</c> "str").
     /// </summary>
     public static readonly OpSchema StringCast = new("StringCast", OpCategory.Data, 1, 1, (i, a) => [new(DataType.Get(a.Get<string>("type")), i[0].Shape)]);
+
+    /// <summary>
+    /// ONNX StringSplit: splits each string of x (str, static shape) like Python's <c>str.split(delimiter, maxsplit)</c> → substrings str
+    /// <c>[count, ...x dims]</c> (token-major, padded with empty strings; the transpose of the ONNX layout, so that the data-dependent count
+    /// is the outer dim) and the number of substrings of each string i32 (x's shape). Attributes: <c>delimiter</c> (string; empty: split on
+    /// runs of whitespace), <c>maxsplit</c> (long, negative: unlimited), <c>count_symbol</c> (the largest number of substrings, at most
+    /// <c>max_tokens</c>, long; a run that needs more fails).
+    /// </summary>
+    public static readonly OpSchema StringSplit = new("StringSplit", OpCategory.Data, 1, 1, (i, a) =>
+    {
+        if (!i[0].Shape.IsStatic)
+        {
+            throw new ArgumentException($"StringSplit expects a static shape, got {i[0].Shape}.");
+        }
+
+        Dim[] tokens = [Dim.Sym(a.Get<string>("count_symbol")), .. i[0].Shape.Dims];
+        return [new(DataType.Str, new Shape(tokens)), new(DataType.I32, i[0].Shape)];
+    });
+
+    /// <summary>
+    /// MurmurHash3 (x86, 32 bit) of each element → i32, same shape: of the UTF-8 bytes of a str element, or of the little-endian bytes of an
+    /// i32 element (<c>element_bytes</c> 4) or of its sign extension to 64 bits (<c>element_bytes</c> 8: an int64 value carried as i32).
+    /// Attribute <c>seed</c> (long). The result is the hash's bit pattern (an unsigned hash is the same i32 bits).
+    /// </summary>
+    public static readonly OpSchema MurmurHash3 = new("MurmurHash3", OpCategory.Data, 1, 1, (i, a) => [new(DataType.I32, i[0].Shape)]);
 }

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
 
@@ -36,6 +37,7 @@ internal sealed unsafe class ReduceOp : CpuOp
         _body = Body;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         int r = _x.Rank;
@@ -172,6 +174,7 @@ internal sealed unsafe class ReduceOp : CpuOp
         _ => a + b,
     };
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float RunReduce(ReduceKind k, float* p, long n)
     {
         switch (k)
@@ -210,6 +213,7 @@ internal sealed unsafe class ReduceOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int chunk)
     {
         long s = chunk * _per;
@@ -398,6 +402,7 @@ internal sealed unsafe class ReduceOp : CpuOp
     }
 
     /// <summary>pass 0: max; pass 1: the mode's accumulation (sumexp relative to m for logsumexp).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private float SpecialPass(float* x, long* ridx, int nr, int pass, float m)
     {
         float a = pass == 0 ? float.NegativeInfinity : _kind == ReduceKind.Prod ? 1f : 0f;
@@ -455,6 +460,7 @@ internal sealed unsafe class ReduceOp : CpuOp
         return a;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void VecCombine(ReduceKind k, float* o, float* s, long n)
     {
         long i = 0;

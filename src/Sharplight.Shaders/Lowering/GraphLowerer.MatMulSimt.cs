@@ -17,7 +17,7 @@ public sealed partial class GraphLowerer
     private const long SimtTileColumns = 64;
     private const long SimtTileK = 32;
 
-    /// <summary>Workgroups the split-K SIMT gemm aims for (a couple per multiprocessor of a large GPU).</summary>
+    /// <summary>Workgroups the split-K SIMT gemm aims for on a large GPU (a couple per multiprocessor).</summary>
     private const long SimtTargetWorkgroups = 1024;
 
     /// <summary>Largest K split of the SIMT gemm.</summary>
@@ -31,11 +31,22 @@ public sealed partial class GraphLowerer
     private const long SimtWideTile = 128;
     private const long SimtWideTileK = 16;
 
-    /// <summary>True when <paramref name="rows"/> rows of an <paramref name="n"/>-wide output use <c>gemm_wide</c>.</summary>
-    private static bool SimtWide(long rows, long n) => rows >= SimtWideMinRows && n >= SimtWideMinColumns && DiagnosticSwitches.WideSimtGemm;
+    /// <summary>Smallest row count served by <c>gemm_wide</c> on devices that run few workgroups at once (its grid fills them).</summary>
+    private const long SimtWideMinRowsSmallDevice = 128;
+
+    /// <summary>Workgroups the split-K SIMT gemm aims for: <see cref="LoweringOptions.ConcurrentWorkgroups"/> when known.</summary>
+    private long SimtWorkgroupTarget => _opt.ConcurrentWorkgroups > 0 ? _opt.ConcurrentWorkgroups : SimtTargetWorkgroups;
+
+    /// <summary>
+    /// True when <paramref name="rows"/> rows of an <paramref name="n"/>-wide output use <c>gemm_wide</c>: from 512 rows, or from 128
+    /// on devices that run few workgroups at once (vit-base's 197-row matmuls on an integrated GPU: 4.5 -> 2.8 ms).
+    /// </summary>
+    private bool SimtWide(long rows, long n)
+        => rows >= (SimtWorkgroupTarget < SimtTargetWorkgroups ? SimtWideMinRowsSmallDevice : SimtWideMinRows) && n >= SimtWideMinColumns
+           && DiagnosticSwitches.WideSimtGemm;
 
     /// <summary>Token rows per SIMT gemm tile for <paramref name="rows"/> activation rows of an <paramref name="n"/>-wide output.</summary>
-    private static long SimtTileRows(long rows, long n) => SimtWide(rows, n) ? SimtWideTile : rows <= SimtSmallTileMaxRows ? 16 : 64;
+    private long SimtTileRows(long rows, long n) => SimtWide(rows, n) ? SimtWideTile : rows <= SimtSmallTileMaxRows ? 16 : 64;
 
     private Dictionary<string, string> SimtMacros(MatMulPlan p, long tileRows, int split) => new(p.Macros)
     {
@@ -47,7 +58,7 @@ public sealed partial class GraphLowerer
     private CompiledKernel SimtKernel(MatMulPlan p, long tileRows, int split)
         => tileRows == SimtWideTile ? Lib("matmul.slang", "gemm_wide", SimtMacros(p, tileRows, split)) : Lib("matmul.slang", "gemm", SimtMacros(p, tileRows, split));
 
-    private static Grid SimtGrid(MatMulPlan p, Bindings b, uint split)
+    private Grid SimtGrid(MatMulPlan p, Bindings b, uint split)
     {
         long rows = p.RowCount(b);
         long tileRows = SimtTileRows(rows, p.N);
@@ -66,7 +77,7 @@ public sealed partial class GraphLowerer
     /// K split of the SIMT gemm for <paramref name="rows"/> activation rows: doubles while the grid is below the target
     /// and every split keeps at least two K steps; 1 for rows the matvecs handle.
     /// </summary>
-    private static int ChooseSimtSplit(long N, long K, long rows)
+    private int ChooseSimtSplit(long N, long K, long rows)
     {
         if (rows <= MatvecMaxRows)
         {
@@ -80,7 +91,7 @@ public sealed partial class GraphLowerer
         long steps = (K + (wide ? SimtWideTileK : SimtTileK) - 1) / (wide ? SimtWideTileK : SimtTileK);
         // A wide workgroup does four times the work of a 64 x 64 one: a quarter of the workgroups fills the GPU, and each
         // split keeps at least four 16-value K steps.
-        long target = wide ? SimtTargetWorkgroups / 4 : SimtTargetWorkgroups;
+        long target = wide ? SimtWorkgroupTarget / 4 : SimtWorkgroupTarget;
         long minSteps = wide ? 4 : 2;
         int split = 1;
         while (split < SimtMaxSplit && tiles * split < target && steps / (split * 2) >= minSteps)

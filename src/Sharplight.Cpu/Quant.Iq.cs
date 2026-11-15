@@ -20,6 +20,7 @@ internal static unsafe partial class Quant
     private static float[]? s_iq1Floats;
 
     /// <summary>[256][8]: -1 where bit j of the index is set, +1 elsewhere (ggml's kmask_iq2xs test).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] BuildNegSigns()
     {
         var table = new float[256 * 8];
@@ -34,6 +35,7 @@ internal static unsafe partial class Quant
         return table;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] ExpandUnsigned(ReadOnlySpan<ulong> grid)
     {
         var floats = new float[grid.Length * 8];
@@ -48,6 +50,7 @@ internal static unsafe partial class Quant
         return floats;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] ExpandSigned(ReadOnlySpan<ulong> grid)
     {
         var floats = new float[grid.Length * 8];
@@ -62,6 +65,7 @@ internal static unsafe partial class Quant
         return floats;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] ExpandUnsigned(ReadOnlySpan<uint> grid)
     {
         var floats = new float[grid.Length * 4];
@@ -104,6 +108,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>IQ2_XXS: 256 values = { f16 d; u16 qs[32] } (66 bytes). Per 32 values two words: four 8-bit grid indices, then four 7-bit sign indices and a 4-bit scale.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ2_XXS(byte* p, long nb, float* dst)
     {
         fixed (float* grid = Iq2XxsFloats())
@@ -129,6 +134,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>IQ2_XS: 256 values = { f16 d; u16 qs[32]; u8 scales[8] } (74 bytes). Each u16 holds a 9-bit grid index and a 7-bit sign index; scales are two nibbles per 32 values.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ2_XS(byte* p, long nb, float* dst)
     {
         fixed (float* grid = Iq2XsFloats())
@@ -154,6 +160,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>IQ2_S: 256 values = { f16 d; u8 qs[64]; u8 qh[8]; u8 scales[8] } (82 bytes). qs[0..32) are the low grid index bits, qs[32..64) the sign bytes, qh the two high index bits per group of 8.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ2_S(byte* p, long nb, float* dst)
     {
         fixed (float* grid = Iq2SFloats())
@@ -181,6 +188,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>IQ3_XXS: 256 values = { f16 d; u8 qs[96] } (98 bytes). qs[0..64) are 8-bit indices of four-value grid entries, qs[64..96) one word per 32 values: four 7-bit sign indices and a 4-bit scale.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ3_XXS(byte* p, long nb, float* dst)
     {
         fixed (float* grid = Iq3XxsFloats())
@@ -207,6 +215,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>IQ3_S: 256 values = { f16 d; u8 qs[64]; u8 qh[8]; u8 signs[32]; u8 scales[4] } (110 bytes). Nine-bit indices of four-value grid entries (the ninth bit in qh), explicit sign bytes, odd 4-bit scales (1 + 2 s) per 32 values.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ3_S(byte* p, long nb, float* dst)
     {
         fixed (float* grid = Iq3SFloats())
@@ -248,6 +257,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>IQ1_S: 256 values = { f16 d; u8 qs[32]; u16 qh[8] } (50 bytes). Per 32 values a u16 of qh: three high index bits for each of four groups, a 3-bit scale (2s+1) and a delta sign.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ1_S(byte* p, long nb, float* dst)
     {
         fixed (float* grid = Iq1Floats())
@@ -271,6 +281,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>IQ1_M: 256 values = { u8 qs[32]; u8 qh[16]; u16 scales[4] } (56 bytes). Like IQ1_S with a 3-bit scale per 16 values and a delta sign per 8; the f16 super-scale is spread over the top nibbles of the four scale words.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ1_M(byte* p, long nb, float* dst)
     {
         fixed (float* grid = Iq1Floats())

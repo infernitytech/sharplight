@@ -49,6 +49,24 @@ internal sealed class PackageReport(PackageInfo info, TextWriter output)
         var definition = info.Definition;
         output.WriteLine();
         output.WriteLine($"Model: {definition.Name} ({definition.Architecture}), {definition.States.Count} state(s)");
+        string stored = definition.HasDescription ? "" : " (no description stored)";
+        output.WriteLine($"Kind: {definition.Description.Kind}{stored}");
+        foreach (var component in definition.Description.Components)
+        {
+            var parts = new List<string>();
+            if (component.Graphs.Count > 0)
+            {
+                parts.Add($"graphs {string.Join(", ", component.Graphs)}");
+            }
+
+            if (component.Attachments.Count > 0)
+            {
+                parts.Add($"attachments {string.Join(", ", component.Attachments.Keys)}");
+            }
+
+            output.WriteLine($"  component {component.Role}{(parts.Count > 0 ? ": " + string.Join("; ", parts) : "")}");
+        }
+
         foreach (var graph in definition.Graphs)
         {
             output.WriteLine($"  graph {graph.Name}: {graph.NodeCount} nodes, {graph.WeightCount} weights ({ByteSize.Format(graph.WeightBytes)}), {graph.StateCount} states");

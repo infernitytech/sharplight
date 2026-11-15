@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
@@ -66,6 +67,7 @@ internal static partial class CpuOpSupport
             "SequencePool" => CheckSequencePool(node),
             "NGramHash" => node.Inputs[0].Type == DataType.F32 && node.Inputs[0].Rank == 2 ? OpSupport.Yes : OpSupport.No("NGramHash window must be f32 [T, N]"),
             "CausalConv1d" => CheckCausalConv1d(node),
+            "WindowPool" => CheckWindowPool(node),
             "SelectiveScan" => CheckSelectiveScan(node),
             "GatedDeltaRule" => CheckGatedDeltaRule(node),
             "Wkv7" => CheckWkv(node, 7),
@@ -81,7 +83,9 @@ internal static partial class CpuOpSupport
             "TreeEnsemble" or "OneVsOne" => AllF32(node),
             "LabelEncode" => node.Inputs[0].Type == DataType.F32 || node.Inputs[0].Type == DataType.I32 || node.Inputs[0].Type == DataType.Str
                 ? OpSupport.Yes : OpSupport.No("LabelEncode expects f32, i32 or str"),
-            "StringConst" or "StringBinary" or "StringNormalize" or "RegexMatch" or "StringCast" => OpSupport.Yes,
+            "StringConst" or "StringBinary" or "StringNormalize" or "RegexMatch" or "StringCast" or "StringSplit" => OpSupport.Yes,
+            "MurmurHash3" => node.Inputs[0].Type == DataType.Str || node.Inputs[0].Type == DataType.I32
+                ? OpSupport.Yes : OpSupport.No("MurmurHash3 expects str or i32"),
             "TfIdf" => node.Inputs[0].Type == DataType.I32 ? OpSupport.Yes : OpSupport.No("TfIdf expects i32 token ids"),
             "Multinomial" => node.Inputs[0].Type == DataType.F32 ? OpSupport.Yes : OpSupport.No("Multinomial expects f32 logits"),
             _ => OpSupport.No($"op '{op}' is not implemented by the CPU provider"),
@@ -104,6 +108,7 @@ internal static partial class CpuOpSupport
     private static bool IsQuantizedKvCache(Value cache) => (cache.Type == DataType.Q8_0 || cache.Type == DataType.Q4_0)
         && cache.Shape[-1] is { IsSymbolic: false } rowDims && rowDims.Fixed % 32 == 0;
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static OpSupport AllF32(Node node, string what = "inputs")
     {
         foreach (var v in node.Inputs)

@@ -13,4 +13,8 @@ internal enum PackageSectionKind : uint
     KernelSet = 4,
     /// <summary>ARTS: one artifact set (descriptor and entries), version 2.</summary>
     ArtifactSet = 5,
+    /// <summary>DESC: the model description (<see cref="Models.ModelDescription"/>) as UTF-8 JSON; absent in LLM-only packages.</summary>
+    Description = 6,
+    /// <summary>ATCH: one attachment (<see cref="Models.ModelDefinition.Attachments"/>), named by the section name, 64 KiB aligned.</summary>
+    Attachment = 7,
 }

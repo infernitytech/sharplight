@@ -1,6 +1,6 @@
 using Sharplight.Cpu;
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -26,12 +26,15 @@ public class FamilyGenerationTests
 
     /// <summary>
     /// One model to generate with. <c>Kind</c> "ids": <c>Ids</c> are the expected generated token ids (transformers); "text": <c>Text</c> is the
-    /// expected continuation of <c>Tokens</c> greedy tokens (llama.cpp).
+    /// expected continuation of <c>Tokens</c> greedy tokens (llama.cpp). <c>F32KvCache</c> keeps the KV caches in f32 (models whose top-k selection
+    /// of cache entries has near-ties that f16 rounding flips).
     /// </summary>
-    public sealed record Case(string Name, string Path, string Prompt, string Kind, int[] Ids, string Text, bool NeedsCpuFallback = false, bool Large = false, int Tokens = 40);
+    public sealed record Case(string Name, string Path, string Prompt, string Kind, int[] Ids, string Text, bool NeedsCpuFallback = false, bool Large = false, int Tokens = 40,
+        bool F32KvCache = false);
 
     private static readonly string P1 = "Once upon a time, in a small village by the sea, there lived";
     private static readonly string P2 = "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art";
+    internal static readonly int[] NemotronLatentIds = [84012, 129322, 91089, 61166, 57719, 115899, 122038, 107646, 54732, 45163, 112622, 59619, 129776, 92402, 51306, 104421];
     private const string Gemma4Story = " a young girl named Lily. Lily had hair the color of spun gold and eyes the deep blue of the ocean. She loved spending her days by the sparkling sea, collecting seashells and watching the waves dance";
 
     /// <summary>The case names; <c>SHARPLIGHT_TEST_CASE</c> limits them to those containing that text (to run one family).</summary>
@@ -48,6 +51,12 @@ public class FamilyGenerationTests
             [496, 3184, 3953, 7489, 60708, 236761, 60708, 1053, 5324, 506, 2258, 529, 69597, 5122, 532, 6114, 506, 5268, 3730, 529, 506, 12461, 236761, 2625, 9312, 11704, 1116, 2668, 684, 506, 52160, 5442, 236764, 24595, 228535, 532, 10685, 506, 11707, 12847], ""),
         new("gemma-4-E2B-it BF16 GGUF (llama.cpp)", "gguf/gemma-4-E2B-it/gemma-4-E2B-it-BF16.gguf", P1, "text", [], Gemma4Story),
         new("gemma-4-E2B-it Q8_0 GGUF (llama.cpp CPU)", "gguf/gemma-4-E2B-it/gemma-4-E2B-it-Q8_0.gguf", P1, "text", [], Gemma4Story),
+        // Gemma 4 26B-A4B (MoE: a dense MLP and 128 routed experts side by side in every layer), Unsloth's UD-Q4_K_XL mix (Q8_0, Q5_1, Q4_K,
+        // Q5_K). The prompt is the chat turn written out (the raw continuation of an instruct prompt degenerates); llama.cpp b11177 (CPU and
+        // Vulkan) gives this text with log-probability margins of at least 13.
+        new("gemma-4-26B-A4B-it UD-Q4_K_XL GGUF (gemma4 MoE, llama.cpp)", "gguf/gemma-4-26B-A4B-it/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf",
+            "<|turn>user\nList the first ten prime numbers, separated by commas.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>", "text", [],
+            "2, 3, 5, 7, 11, 13, 17, 19, 23, ", Large: true, Tokens: 32),
         // Nemotron-H Nano 4B: Mamba-2 / attention / relu² MLP hybrid.
         new("NVIDIA-Nemotron-3-Nano-4B HF (transformers)", "hf/NVIDIA-Nemotron-3-Nano-4B", "The capital of France is", "ids",
             [6993, 2613, 5646, 1681, 2925, 1338, 3890, 1395, 2156, 2258, 31544, 1063, 1531, 4098, 8223, 1429, 11018, 1307, 1278, 3629, 21166, 1395, 2925, 10555, 1321, 2342, 1925, 1395, 2925, 1338, 3890, 2878], ""),
@@ -56,6 +65,23 @@ public class FamilyGenerationTests
         // Nemotron-H with every layer kind (Mamba-2 with 2 groups, MoE with biased sigmoid routing + shared expert, attention, MLP): tiny random HF model (embedding tensor renamed to backbone.embeddings.weight).
         new("tiny-random-nemotron-h HF (transformers)", "hf/tiny-random-nemotron-h", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
             [24000,92554,26777,83490,2319,37593,69072,35539,21983,120599,93,62682,121133,65255,47383,128871], "", NeedsCpuFallback: true),
+        // A latent mixture of experts (moe_latent_size, Nemotron 3 Super / Ultra): experts in a 16-wide latent space entered by
+        // fc1_latent_proj / ffn_latent_down and left by fc2_latent_proj / ffn_latent_up, router and shared expert on the full rows
+        // (tools/mk_tiny_nemotron_h_latent.py; its f32 GGUF from llama.cpp's converter gives the same ids on llama.cpp 8ca5a80, CPU and Vulkan).
+        new("tiny-random-nemotron-h-latent HF (transformers)", "hf/tiny-random-nemotron-h-latent", P2, "ids", NemotronLatentIds, "", NeedsCpuFallback: true),
+        new("tiny-random-nemotron-h-latent f32 GGUF (transformers, llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-latent-f32.gguf", P2, "ids",
+            NemotronLatentIds, "", NeedsCpuFallback: true),
+        // The same file with a multi-token-prediction block appended as llama.cpp's converter writes the Nemotron 3.5 MTP head
+        // (nextn_predict_layers 1, tools/mk_tiny_nemotron_h_mtp.py): the trunk loads without it and decodes as before (llama.cpp 8ca5a80 too).
+        // The HF form (mtp.layers.0 fusion + attention, mtp.layers.1 experts + head norm; tools/mk_tiny_nemotron_h_mtp_hf.py), whose
+        // llama.cpp conversion has the block layout of the GGUF case below.
+        new("tiny-random-nemotron-h-mtp HF (trunk)", "hf/tiny-random-nemotron-h-mtp", P2, "ids", NemotronLatentIds, "", NeedsCpuFallback: true),
+        new("tiny-random-nemotron-h-mtp f32 GGUF (trunk, llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-mtp-f32.gguf", P2, "ids",
+            NemotronLatentIds, "", NeedsCpuFallback: true),
+        // Heterogeneous ("Puzzle", Nemotron 3.5 Bolt): the second MoE layer has 6 of the 8 experts and selects 3, the first 2
+        // (expert_used_count per layer; tools/mk_tiny_nemotron_h_puzzle.py), vs llama.cpp 8ca5a80 (CPU and Vulkan agree).
+        new("tiny-random-nemotron-h-puzzle f32 GGUF (llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-puzzle-f32.gguf", P2, "text", [],
+            "emblance 얼른 propuls shortestombo�ှိ� 시장odu Dio pojedaccepted últim+(-toggle힌 Moyen", NeedsCpuFallback: true, Tokens: 16),
         // Gemma 4 E4B finetune (NVIDIA Nemotron 3.5 Bolt E4B, arch gemma4): IQ4_NL per-layer embedding table, 42 layers with 18 shared-KV layers.
         new("NVIDIA-Nemotron-3.5-Bolt-E4B UD-Q4_K_XL GGUF (llama.cpp)", "gguf/NVIDIA-Nemotron-3.5-Bolt-E4B/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf", "def fibonacci(n):", "text", [],
             "\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)\n\n# Test cases\nprint"),
@@ -171,9 +197,29 @@ public class FamilyGenerationTests
         .. LinearAttentionFamilyCases.All,
         // Bring-up round 7: Chameleon (per-head q/k layer norms, swin norm, suppressed image-token logits), ...
         .. ExtendedFamilyCases.All,
+        // Bring-up round 9: vision-language families (HunyuanOCR with XD-RoPE).
+        .. VisionLanguageFamilyCases.All,
+        // Bring-up round 9: HRM-Text (hierarchical cycles), SenseNova-U1, Limite.
+        .. CrossLayerFamilyCases.All,
+        // Bring-up round 9: the DeepSeek-OCR language model (deepseek2-ocr: DeepSeek-V2 MoE with multi-head attention).
+        .. DeepseekOcrFamilyCases.All,
+        // Bring-up round 9: MoE variants (GroveMoE adjugate experts, ...).
+        .. MoeVariantFamilyCases.All,
+        // Bring-up round 11: Hugging Face model types the round-10 Hub sweep found unsupported (LFM3, ...).
+        .. HubSweepFamilyCases.All,
+        // Bring-up round 9: per-token switched adapters (Granite Switch).
+        .. AdapterFamilyCases.All,
+        // Bring-up round 9: QSA block selection (Qwen3.8-Flash-Next) in its sparse regime.
+        .. SparseQsaCases.All,
+        // Bring-up round 9: Kimi K3 (attention residuals, situ, latent MoE on Kimi-Linear) and K3.1 (DSA indexer without rope).
+        .. KimiK3FamilyCases.All,
+        // Bring-up round 9: DeepSeek-V4 (compressed-KV attention, hash routing).
+        .. DeepSeekV4Cases.All,
+        // Bring-up round 11: Inkling (relative bias, residual short convolutions, router-scored shared experts).
+        .. InklingFamilyCases.All,
     ];
 
-    private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
+    private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback, bool f32Kv)
     {
         DeviceSlot slot, fallback = null!;
         if (vulkan)
@@ -205,7 +251,7 @@ public class FamilyGenerationTests
         var model = LlmModel.Load(path, new LlmLoadOptions
         {
             Devices = [slot], Fallback = vulkan && cpuFallback ? fallback : null, ContextLength = 256, MaxBatchTokens = 256,
-            DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot },
+            DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot }, KvCacheType = f32Kv ? Sharplight.Tensors.DataType.F32 : null,
         });
         return (model, vulkan && cpuFallback ? [slot, fallback] : [slot]);
     }
@@ -241,10 +287,16 @@ public class FamilyGenerationTests
     {
         using var session = model.CreateSession(WellKnown.DecodeGraph);
         var logits = session.Process(reference.PromptIds);
-        Assert.Equal(reference.Logits.Length, logits.Length);
+        // A reference cut to the unpadded vocabulary (Inkling): the padded ids beyond it must be suppressed.
+        Assert.True(logits.Length >= reference.Logits.Length, $"{logits.Length} logits, the reference has {reference.Logits.Length}");
+        for (int i = reference.Logits.Length; i < logits.Length; i++)
+        {
+            Assert.True(logits[i] < -1e30f, $"padded token {i} has logit {logits[i]}");
+        }
+
         double scale = reference.Logits.Max(MathF.Abs);
         double worst = 0;
-        for (int i = 0; i < logits.Length; i++)
+        for (int i = 0; i < reference.Logits.Length; i++)
         {
             worst = Math.Max(worst, Math.Abs(logits[i] - reference.Logits[i]));
         }
@@ -252,9 +304,9 @@ public class FamilyGenerationTests
         Assert.True(worst <= LogitTolerance(vulkan) * scale, $"prompt logits differ from transformers by {worst:G4} (largest reference logit {scale:G4})");
     }
 
-    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, bool vulkan, bool cpuFallback, ReferenceLogits? reference = null)
+    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, bool vulkan, bool cpuFallback, ReferenceLogits? reference = null, bool f32Kv = false)
     {
-        var (model, slots) = Load(path, vulkan, cpuFallback);
+        var (model, slots) = Load(path, vulkan, cpuFallback, f32Kv);
         try
         {
             if (reference is not null)
@@ -298,7 +350,7 @@ public class FamilyGenerationTests
         }
         (int[] ids, string text) result;
         var reference = Directory.Exists(path) && c.Kind == "ids" ? ReferenceLogits.TryLoad(path) : null;
-        try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback, reference); }
+        try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback, reference, c.F32KvCache); }
         catch (SkipException s)
         {
             Assert.Skip(s.Message);

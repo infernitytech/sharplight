@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using Sharplight.Graph;
@@ -348,6 +349,8 @@ public sealed partial class GraphLowerer
         var indexCoords = Enumerable.Range(0, iq).Select(Dn).ToArray();
         var sb = new StringBuilder();
         var ycoords = new string[data.Rank];
+        // An indexed symbolic data axis (the outermost, with batch_dims 0) is bounded by its run-time extent.
+        List<(string Name, KernelArg Value)> scalars = data.Symbol is not null && b == 0 ? [("extent0", new SymbolArg(data.Symbol, 1))] : [];
         for (int j = 0; j < data.Rank; j++)
         {
             if (j < b)
@@ -357,7 +360,8 @@ public sealed partial class GraphLowerer
             else if (j < b + q)
             {
                 var ic = indexCoords.Append((j - b).ToString()).ToArray();
-                sb.AppendLine($"  int i{j} = int(p.in0[{Lin(ix, ic)}]); if (i{j} < 0) i{j} += {data.Shape[j]}; if (i{j} < 0 || i{j} >= {data.Shape[j]}) return;");
+                string extent = j == 0 && scalars.Count > 0 ? "int(p.extent0)" : data.Shape[j].ToString(CultureInfo.InvariantCulture);
+                sb.AppendLine($"  int i{j} = int(p.in0[{Lin(ix, ic)}]); if (i{j} < 0) i{j} += {extent}; if (i{j} < 0 || i{j} >= {extent}) return;");
                 ycoords[j] = $"uint(i{j})";
             }
             else
@@ -368,6 +372,6 @@ public sealed partial class GraphLowerer
 
         var ucoords = indexCoords.Concat(Enumerable.Range(0, tailRank).Select(t => Dn(iq + t))).ToArray();
         sb.AppendLine($"  p.out0[{Lin(y, ycoords)}] = p.in1[{Lin(upd, ucoords)}];");
-        EmitGen("scatter_nd", [n], iter, ix.Symbol, [ix, upd], [y], sb.ToString(), outsAreReads: true);
+        EmitGen("scatter_nd", [n], iter, ix.Symbol, [ix, upd], [y], sb.ToString(), outsAreReads: true, scalars: scalars);
     }
 }

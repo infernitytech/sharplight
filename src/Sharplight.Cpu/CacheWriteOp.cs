@@ -1,9 +1,13 @@
-using Sharplight.Tensors;
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 
 namespace Sharplight.Cpu;
 
-/// <summary>Writes x [T, ...] into rows [offset, offset+T) of a state [ctx, ...] (f32 → state type: f32, f16, bf16, or q8_0 / q4_0 blocks).</summary>
+/// <summary>
+/// Writes x [T, ...] into rows [offset, offset+T) of a state [ctx, ...] (f32 → state type: f32, f16, bf16, or q8_0 / q4_0 blocks). A compressed cache
+/// (compression r &gt; 1) takes only the rows that close a window of r positions, at entry (position + 1) / r − 1.
+/// </summary>
 internal sealed unsafe class CacheWriteOp : CpuOp
 {
     private readonly TRef _state;
@@ -17,14 +21,16 @@ internal sealed unsafe class CacheWriteOp : CpuOp
     private readonly KvPages? _pages;   // paged cache: rows through the block table
     private readonly long _rowsPerToken;
     private readonly WeightFormat? _quantized;   // q8_0 / q4_0 cache: rows are quantized in 32-value blocks
+    private readonly long _compression;          // positions per cache row (compressed cache: only window-closing rows are written)
     private long _past;
     private long _rows;
     private long _per;
     public override string Name => "CacheWrite";
 
-    public CacheWriteOp(TRef state, TRef x, string offset, TRef? seqRows = null, int slots = 1, KvPages? pages = null)
+    public CacheWriteOp(TRef state, TRef x, string offset, TRef? seqRows = null, int slots = 1, KvPages? pages = null, long compression = 1)
     {
-        _pages = pages;
+        _compression = Math.Max(1, compression);
+        _pages = pages?.Compressed(_compression);
         _state = state;
         _x = x;
         _offset = offset;
@@ -66,6 +72,7 @@ internal sealed unsafe class CacheWriteOp : CpuOp
         _body = Body;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long t = _x.Dim(0, p);
@@ -80,11 +87,17 @@ internal sealed unsafe class CacheWriteOp : CpuOp
             long slots = _state.Dims[0] / _slotCtx;
             for (long i = 0; i < t; i++)
             {
+                long entry = Entry(rw[i * 4 + 1]);
+                if (entry < 0)
+                {
+                    continue;
+                }
+
                 if (_pages is not null)
                 {
-                    _pages.Check(rw[i * 4], rw[i * 4 + 1], _state.Dims[0]);
+                    _pages.Check(rw[i * 4], entry, _state.Dims[0]);
                 }
-                else if ((uint)rw[i * 4] >= slots || (uint)rw[i * 4 + 1] >= _slotCtx)
+                else if ((uint)rw[i * 4] >= slots || (ulong)entry >= (ulong)_slotCtx)
                 {
                     throw new InvalidOperationException($"KV cache overflow: sequence row {i} slot {rw[i * 4]} position {rw[i * 4 + 1]} (slot context {_slotCtx}).");
                 }
@@ -94,7 +107,7 @@ internal sealed unsafe class CacheWriteOp : CpuOp
         {
             throw new InvalidOperationException($"Runtime scalar '{_offset}' was not provided.");
         }
-        else if (_past < 0 || _past + t > _state.Dims[0])
+        else if (_past < 0 || (_compression == 1 ? _past + t : (_past + t) / _compression) > _state.Dims[0])
         {
             throw new InvalidOperationException($"KV cache overflow: n_past {_past} + T {t} > context {_state.Dims[0]}.");
         }
@@ -103,8 +116,10 @@ internal sealed unsafe class CacheWriteOp : CpuOp
         int chunks = (int)Math.Min(_rows, CpuParallel.Chunks(_rows * _rowLen, 8192));
         _per = (_rows + chunks - 1) / chunks;
         CpuParallel.For(chunks, _body);
+
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int c)
     {
         long s = c * _per;
@@ -113,17 +128,29 @@ internal sealed unsafe class CacheWriteOp : CpuOp
         for (long r = s; r < e; r++)
         {
             float* src = _x.F(r);
+            long tok = r / _rowsPerToken;
             long dstElem;
             if (_seqRows is not null)
             {
-                long tok = r / _rowsPerToken;
                 int* rw = (int*)_seqRows.P + tok * 4;
-                long row = _pages?.Row(rw[0], rw[1]) ?? rw[0] * _slotCtx + rw[1];
+                long entry = Entry(rw[1]);
+                if (entry < 0)
+                {
+                    continue;
+                }
+
+                long row = _pages?.Row(rw[0], entry) ?? rw[0] * _slotCtx + entry;
                 dstElem = row * _inner + (r - tok * _rowsPerToken) * _rowLen;
             }
             else
             {
-                dstElem = _past * _inner + r * _rowLen;
+                long entry = Entry(_past + tok);
+                if (entry < 0)
+                {
+                    continue;
+                }
+
+                dstElem = entry * _inner + (r - tok * _rowsPerToken) * _rowLen;
             }
 
             if (type == DataType.F32)
@@ -150,4 +177,7 @@ internal sealed unsafe class CacheWriteOp : CpuOp
             }
         }
     }
+
+    // The cache row a position writes: itself, or for a compressed cache the entry of the window it closes (-1 when it closes none).
+    private long Entry(long position) => _compression == 1 ? position : (position + 1) % _compression == 0 ? (position + 1) / _compression - 1 : -1;
 }

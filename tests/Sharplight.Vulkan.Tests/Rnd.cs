@@ -137,7 +137,8 @@ internal static class Rnd
             {
                 PutHalf(bytes, o + 208, d());
             }
-            else if (t == DataType.Q1_0 || t == DataType.Q2_0 || t == DataType.Q2_0_G128 || t == DataType.IQ4_NL || t == DataType.IQ4_XS)
+            else if (t == DataType.Q1_0 || t == DataType.Q2_0 || t == DataType.Q2_0_G128 || t == DataType.IQ4_NL || t == DataType.IQ4_XS ||
+                t.Name.StartsWith("trellis_", StringComparison.Ordinal))
             {
                 PutHalf(bytes, o, d());
             }
@@ -174,6 +175,25 @@ internal static class Rnd
                 {
                     bytes[o + s] = (byte)(0x28 + rng.Next(16));
                 }
+            }
+            else if (t == DataType.NVFP4_GS)
+            {
+                // A global scale around 1/64 times the sub-block scales of the NVFP4 case times 64: the same value range.
+                BitConverter.TryWriteBytes(bytes.AsSpan((int)o, 4), (1f / 64) * (1 + (float)rng.NextDouble()) * scale);
+                for (int s = 0; s < 4; s++)
+                {
+                    bytes[o + 4 + s] = (byte)(0x58 + rng.Next(16));
+                }
+            }
+            else if (t == DataType.Q4Z_G32 || t == DataType.Q4Z_G128 || t == DataType.Q8Z_G32 || t == DataType.Q8Z_G128)
+            {
+                PutHalf(bytes, o, d());
+                int maxCode = t == DataType.Q4Z_G32 || t == DataType.Q4Z_G128 ? 15 : 255;
+                PutHalf(bytes, o + 2, rng.Next(maxCode + 1));
+            }
+            else if (t == DataType.NF4_B64)
+            {
+                BitConverter.TryWriteBytes(bytes.AsSpan((int)o, 4), d() * 8);
             }
             else
             {

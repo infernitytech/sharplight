@@ -1,5 +1,5 @@
 using Sharplight.Hub;
-using Sharplight.Package.Import;
+using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services.Compatibility;
@@ -18,11 +18,18 @@ internal sealed class HubService : IHubService, IDisposable
 
     private readonly ISettingsService _settings;
     private readonly HttpClient _http = HubClientOptions.CreateHttpClient();
+    private readonly HighlightsCatalog _highlights;
 
-    public HubService(ISettingsService settings)
+    /// <param name="settings">The settings (token, model store).</param>
+    /// <param name="highlightsFile">Where the highlighted models are cached, or null to keep them in memory only.</param>
+    public HubService(ISettingsService settings, string? highlightsFile = null)
     {
         _settings = settings;
+        _highlights = new HighlightsCatalog(SearchAsync, highlightsFile);
     }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<HighlightSection>> GetHighlightsAsync(CancellationToken cancellationToken) => _highlights.GetAsync(cancellationToken);
 
     /// <inheritdoc/>
     public Task<IReadOnlyList<HubModelSummary>> SearchAsync(HubSearchQuery query, CancellationToken cancellationToken)
@@ -77,8 +84,9 @@ internal sealed class HubService : IHubService, IDisposable
             switch (details.Format)
             {
                 case ModelFormat.Gguf when variant.PrimaryPath.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase):
-                    return await VariantProbe.ProbeGgufAsync((offset, count, token) => client.GetFileRangeAsync(repo, variant.PrimaryPath, offset, count, token),
-                        readWeightFormats, cancellationToken).ConfigureAwait(false);
+                    Func<long, int, CancellationToken, Task<byte[]>> Reader(string path) => (offset, count, token) => client.GetFileRangeAsync(repo, path, offset, count, token);
+                    return await VariantProbe.ProbeGgufAsync(Reader(variant.PrimaryPath), readWeightFormats, cancellationToken,
+                        [.. variant.OtherShards.Select(Reader)]).ConfigureAwait(false);
                 case ModelFormat.Safetensors or ModelFormat.Onnx:
                     bool onnx = variant.PrimaryPath.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase);
                     var directory = onnx ? variant.PrimaryPath[..Math.Max(0, variant.PrimaryPath.LastIndexOf('/'))] : variant.PrimaryPath;
@@ -188,7 +196,13 @@ internal sealed class HubService : IHubService, IDisposable
 
     private static VariantInfo ToVariant(ModelSelection selection, bool recommended)
     {
-        return new VariantInfo(selection.Tag, selection.TotalBytes, selection.Files.Count, selection.ProjectorPath is not null, recommended, selection.PrimaryPath);
+        var shards = selection.Format == ModelFormat.Gguf
+            ? selection.Files.Select(file => file.Path)
+                .Where(path => path != selection.PrimaryPath && path != selection.ProjectorPath && path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.Ordinal).ToList()
+            : [];
+        return new VariantInfo(selection.Tag, selection.TotalBytes, selection.Files.Count, selection.ProjectorPath is not null, recommended,
+            selection.PrimaryPath, shards);
     }
 
     private PrecompileTarget? CreatePrecompileTarget(PullProgressTracker tracker, CancellationToken cancellationToken)

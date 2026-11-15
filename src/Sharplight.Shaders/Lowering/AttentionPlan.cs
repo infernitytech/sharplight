@@ -35,7 +35,13 @@ internal sealed class AttentionPlan
     public TensorRef? Pages { get; init; }
 
     /// <summary>Sparse attention: the key positions each query row attends, i32 [rows, K] (entries below 0 are skipped).</summary>
+    /// <summary>Query-conditioned relative position bias [T, HQ, E] (attribute <c>relative_bias</c> = E), or null.</summary>
+    public TensorRef? RelativeBias { get; init; }
+
     public TensorRef? Selection { get; init; }
+
+    /// <summary>Compressed cache of a compressed attention (entries of pooled windows joining the softmax); null otherwise.</summary>
+    public TensorRef? Compressed { get; init; }
 
     /// <summary>"Attention" with i32 spans: the key range each query may see.</summary>
     public TensorRef? Spans { get; init; }

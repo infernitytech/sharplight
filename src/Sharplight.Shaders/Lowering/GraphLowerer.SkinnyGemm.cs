@@ -7,8 +7,11 @@ namespace Sharplight.Shaders.Lowering;
 
 public sealed partial class GraphLowerer
 {
-    /// <summary>Smallest activation row count served by the skinny GEMM (single rows stay on the bandwidth-bound matvec).</summary>
-    private const long SkinnyMinRows = 2;
+    /// <summary>
+    /// Smallest activation row count served by the skinny GEMM: 2 (single rows stay on the bandwidth-bound matvec), or above
+    /// the row-invariant range (<see cref="InvariantRows"/>), whose rows keep the single-row matvec's arithmetic.
+    /// </summary>
+    private long SkinnyMinRows => Math.Max(2, InvariantRows + 1);
 
     /// <summary>
     /// Largest activation row count the skinny GEMM serves at any output width. Up to 16 rows it reads the weights at the 1-row
@@ -74,7 +77,7 @@ public sealed partial class GraphLowerer
     /// pays from 2 rows (Blackwell, FP8 [17408→5120] at 2-4 rows: 60 µs with the copy vs 75 µs from f32 rows).
     /// <c>SHARPLIGHT_SKINNY_X16=0</c> reads f32 rows at every row count.
     /// </summary>
-    private static long SkinnyHalfMinRows => DiagnosticSwitches.SkinnyGemmHalfActivations == false ? long.MaxValue : SkinnyMinRows;
+    private long SkinnyHalfMinRows => DiagnosticSwitches.SkinnyGemmHalfActivations == false ? long.MaxValue : SkinnyMinRows;
 
     /// <summary>
     /// Emits the skinny GEMM launches of a matmul (or of a dual matmul when <paramref name="weights"/> holds two matrices and

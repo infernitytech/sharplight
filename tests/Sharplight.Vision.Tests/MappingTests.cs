@@ -1,5 +1,5 @@
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Tensors;
 
 namespace Sharplight.Vision.Tests;

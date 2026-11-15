@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Sharplight.Cpu;
@@ -24,6 +25,7 @@ internal static unsafe class Mem
     }
 
     /// <summary>N-d strided copy into a row-major (or strided) destination. Effective dims[0] is <paramref name="dim0"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void CopyStrided(byte* src, long[] srcStrides, byte* dst, long[] dstStrides, long[] dims, long dim0, int es)
     {
         int rank = dims.Length;
@@ -32,6 +34,31 @@ internal static unsafe class Mem
             Buffer.MemoryCopy(src, dst, es, es);
             return;
         }
+        if (rank >= 3 && (srcStrides[rank - 1] != 1 || dstStrides[rank - 1] != 1) && UnitAxis(srcStrides, dstStrides, dims) is int unit and > 0)
+        {
+            // An inner axis is contiguous on both sides (e.g. the channels of channels-last views): copy along it, walking the
+            // other axes in their order (for channels-last, row by row).
+            var ss2 = new long[rank];
+            var ds2 = new long[rank];
+            var dims2 = new long[rank];
+            for (int k = 0, j = 0; k < rank; k++)
+            {
+                if (k != unit)
+                {
+                    ss2[j] = srcStrides[k];
+                    ds2[j] = dstStrides[k];
+                    dims2[j] = dims[k];
+                    j++;
+                }
+            }
+
+            ss2[rank - 1] = 1;
+            ds2[rank - 1] = 1;
+            dims2[rank - 1] = dims[unit];
+            CopyStrided(src, ss2, dst, ds2, dims2, dim0, es);
+            return;
+        }
+
         Span<long> dm = stackalloc long[rank];
         dims.CopyTo(dm);
         dm[0] = dim0;
@@ -92,6 +119,21 @@ internal static unsafe class Mem
         }
     }
 
+    /// <summary>An axis in [1, rank - 1) with unit stride on both sides and more than one index, or -1.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static int UnitAxis(long[] srcStrides, long[] dstStrides, long[] dims)
+    {
+        for (int k = dims.Length - 2; k >= 1; k--)
+        {
+            if (srcStrides[k] == 1 && dstStrides[k] == 1 && dims[k] > 1)
+            {
+                return k;
+            }
+        }
+
+        return -1;
+    }
+
     /// <summary>Tile edge of the blocked transpose copy (a 16 x 16 tile of both sides stays in L1).</summary>
     private const int TransposeTile = 16;
 
@@ -100,6 +142,7 @@ internal static unsafe class Mem
     /// <c>a</c> (a transposed view): copies 2-D tiles of (axis a, last axis) for every index of the other axes, reading
     /// and writing whole cache lines instead of one element per line. False when no source axis has unit stride.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool TryCopyTransposed(byte* src, long[] srcStrides, byte* dst, long[] dstStrides, Span<long> dims)
     {
         int rank = dims.Length;

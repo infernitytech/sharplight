@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -46,6 +47,7 @@ internal sealed unsafe class LinearAttentionOp : CpuOp
         CpuParallel.For((int)(d[0] * _kvHeads), _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int task)
     {
         int b = task / _kvHeads;

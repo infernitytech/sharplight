@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace Sharplight.Hub;
@@ -78,7 +79,8 @@ internal static class HubJson
                 gguf.ValueKind == JsonValueKind.Object ? String(gguf, "architecture") : null,
                 config.ValueKind == JsonValueKind.Object ? String(config, "model_type") : null,
                 config.ValueKind == JsonValueKind.Object ? QuantizationMethod(config) : null,
-                files.Any(GgufFileName.IsGguf) && files.Where(GgufFileName.IsGguf).All(GgufFileName.IsProjector)));
+                files.Any(GgufFileName.IsGguf) && files.Where(GgufFileName.IsGguf).All(GgufFileName.IsProjector),
+                Date(model, "createdAt")));
         }
 
         return results;
@@ -156,6 +158,12 @@ internal static class HubJson
     private static string? String(JsonElement element, string name)
     {
         return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    }
+
+    private static DateTimeOffset? Date(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            && DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var date) ? date : null;
     }
 
     private static long? Int64(JsonElement element, string name)

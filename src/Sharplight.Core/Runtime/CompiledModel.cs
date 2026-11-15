@@ -12,6 +12,10 @@ public sealed class CompiledModel : IDisposable
     private readonly ICompiledSegment[] _segments;
     private static readonly HashSet<Value> s_noSkips = [];
     private readonly Dictionary<Value, byte[]> _hostValues = [];
+    /// <summary>Per segment: the inputs it reads from an earlier segment's device memory (<see cref="IDeviceForwardingSegment"/>).</summary>
+    private readonly HashSet<Value>[] _forwardedInputs;
+    /// <summary>Per segment: the outputs that only reach device-forwarding consumers, so they are never downloaded.</summary>
+    private readonly HashSet<Value>[] _deviceOnlyOutputs;
     private readonly Dictionary<Value, string[]> _stringInputs = [];
     private RunParameters? _lastRun;
 
@@ -30,6 +34,58 @@ public sealed class CompiledModel : IDisposable
         Plan = plan;
         Options = options;
         _segments = segments;
+        (_forwardedInputs, _deviceOnlyOutputs) = ForwardOnDevice(graph, segments);
+    }
+
+    /// <summary>
+    /// Connects boundary values whose consumer segment can read them from the producer segment's device memory, and finds the outputs
+    /// that then need no download. <c>SHARPLIGHT_DEVICE_FORWARDING=0</c> passes every boundary value through host memory.
+    /// </summary>
+    private static (HashSet<Value>[] Forwarded, HashSet<Value>[] DeviceOnly) ForwardOnDevice(ComputeGraph graph, ICompiledSegment[] segments)
+    {
+        var forwarded = segments.Select(_ => new HashSet<Value>()).ToArray();
+        var deviceOnly = segments.Select(_ => new HashSet<Value>()).ToArray();
+        if (segments.Length < 2 || Environment.GetEnvironmentVariable("SHARPLIGHT_DEVICE_FORWARDING") is "0" or "false")
+        {
+            return (forwarded, deviceOnly);
+        }
+
+        var producer = new Dictionary<Value, int>();
+        var hostRead = new HashSet<Value>(graph.Outputs.Values);
+        for (int i = 0; i < segments.Length; i++)
+        {
+            foreach (var v in segments[i].Segment.Inputs)
+            {
+                if (v.Kind != ValueKind.Intermediate || !producer.TryGetValue(v, out int p))
+                {
+                    continue;
+                }
+
+                if (segments[i] is IDeviceForwardingSegment consumer && consumer.TryForwardFrom(v, segments[p]))
+                {
+                    forwarded[i].Add(v);
+                }
+                else
+                {
+                    hostRead.Add(v);
+                }
+            }
+
+            foreach (var v in segments[i].Segment.Outputs)
+            {
+                producer[v] = i;
+            }
+        }
+
+        foreach (var (v, p) in producer)
+        {
+            if (!hostRead.Contains(v) && forwarded.Any(f => f.Contains(v)))
+            {
+                deviceOnly[p].Add(v);
+            }
+        }
+
+        return (forwarded, deviceOnly);
     }
 
     /// <summary>
@@ -51,7 +107,7 @@ public sealed class CompiledModel : IDisposable
         placing.Complete();
         // Segments report through one combined count per stage.
         var progress = placement.Compile.Progress is { } target ? new SegmentProgress(target) : null;
-        var segmentOptions = progress is null ? placement.Compile : placement.Compile.WithProgress(progress);
+        var segmentOptions = (progress is null ? placement.Compile : placement.Compile.WithProgress(progress)).WithStateScope(new object());
         var compiled = new List<ICompiledSegment>();
         try
         {
@@ -191,7 +247,7 @@ public sealed class CompiledModel : IDisposable
             // Forward activations produced by earlier segments.
             foreach (var v in seg.Segment.Inputs)
             {
-                if (v.Kind == ValueKind.Intermediate && _hostValues.TryGetValue(v, out var bytes))
+                if (v.Kind == ValueKind.Intermediate && !_forwardedInputs[i].Contains(v) && _hostValues.TryGetValue(v, out var bytes))
                 {
                     seg.SetInput(v, bytes.AsSpan(0, (int)ByteCount(v, parameters)));
                 }
@@ -212,7 +268,7 @@ public sealed class CompiledModel : IDisposable
             {
                 foreach (var o in seg.Segment.Outputs)
                 {
-                    if (!IsConsumedAfter(i, o))
+                    if (!IsConsumedAfter(i, o) || _deviceOnlyOutputs[i].Contains(o))
                     {
                         continue;
                     }
@@ -231,15 +287,18 @@ public sealed class CompiledModel : IDisposable
 
     private bool IsConsumedAfter(int segment, Value v) => _segments.Skip(segment + 1).Any(s => s.Segment.Inputs.Contains(v));
 
-    /// <summary>Graph outputs of segment <paramref name="segment"/> listed in <see cref="RunParameters.SkipOutputs"/> that no later segment needs.</summary>
+    /// <summary>
+    /// Outputs of segment <paramref name="segment"/> that are not read back: graph outputs listed in <see cref="RunParameters.SkipOutputs"/>
+    /// that no later segment needs, and the outputs that only reach device-forwarding consumers.
+    /// </summary>
     private HashSet<Value> SkippedDownloads(int segment, RunParameters parameters)
     {
         if (parameters.SkipOutputs.Count == 0)
         {
-            return s_noSkips;
+            return _deviceOnlyOutputs[segment].Count == 0 ? s_noSkips : _deviceOnlyOutputs[segment];
         }
 
-        var skip = new HashSet<Value>();
+        var skip = new HashSet<Value>(_deviceOnlyOutputs[segment]);
         foreach (var name in parameters.SkipOutputs)
         {
             if (Graph.Outputs.TryGetValue(name, out var v) && _segments[segment].Segment.Outputs.Contains(v) && !IsConsumedAfter(segment, v))

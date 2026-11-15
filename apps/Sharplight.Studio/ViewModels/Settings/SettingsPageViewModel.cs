@@ -7,6 +7,7 @@ using Sharplight.Runtime;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.ViewModels.Models;
+using Sharplight.Studio.ViewModels.Updates;
 
 namespace Sharplight.Studio.ViewModels.Settings;
 
@@ -35,8 +36,12 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     public SettingsPageViewModel(StudioServices services)
     {
         _services = services;
+        Updates = new UpdatesViewModel(services);
         Load();
     }
+
+    /// <summary>Update checks: version, channel, automatic check and the pending update (shared with the update dialog).</summary>
+    public UpdatesViewModel Updates { get; }
 
     /// <inheritdoc/>
     public override string Title => "Settings";
@@ -186,6 +191,10 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     [ObservableProperty]
     public partial bool KeepSourceFiles { get; set; }
 
+    /// <summary>Use the system's title bar instead of Studio's own one.</summary>
+    [ObservableProperty]
+    public partial bool UseSystemTitleBar { get; set; }
+
     /// <summary>Feedback of the last action.</summary>
     [ObservableProperty]
     public partial string? Message { get; set; }
@@ -281,6 +290,8 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
 
     partial void OnKeepSourceFilesChanged(bool value) => Save();
 
+    partial void OnUseSystemTitleBarChanged(bool value) => Save();
+
     [RelayCommand]
     private async Task BrowseModelsDirectoryAsync()
     {
@@ -369,6 +380,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         LoadOnDemand = residency.LoadOnDemand;
         PrecompileAfterDownload = settings.PrecompileAfterDownload;
         KeepSourceFiles = settings.KeepSourceFiles;
+        UseSystemTitleBar = settings.UseSystemTitleBar;
         Features.Clear();
         var disabled = settings.DisabledFeatures.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var feature in DeviceFeatures.All)
@@ -437,6 +449,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
             DisabledFeatures = [.. Features.Where(feature => !feature.IsEnabled).Select(feature => feature.Name)],
             PrecompileAfterDownload = PrecompileAfterDownload,
             KeepSourceFiles = KeepSourceFiles,
+            UseSystemTitleBar = UseSystemTitleBar,
         });
         RefreshStore();
     }

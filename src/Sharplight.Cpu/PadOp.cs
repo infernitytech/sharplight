@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -59,6 +60,7 @@ internal sealed unsafe class PadOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         int r = _x.Rank;
@@ -86,6 +88,7 @@ internal sealed unsafe class PadOp : CpuOp
         CpuParallel.For(chunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int chunk)
     {
         int r = _x.Rank;

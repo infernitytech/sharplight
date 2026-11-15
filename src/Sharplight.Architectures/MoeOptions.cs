@@ -33,10 +33,17 @@ namespace Sharplight.Architectures;
 /// <param name="SparseMixerJitter">The ε of <see cref="MoeScoreFunction.SparseMixer"/> routing (<c>moe.sparsemixer_jitter</c>, default 0.01).</param>
 /// <param name="NormEps">Epsilon of the latent input norm (<c>norm_eps</c>).</param>
 /// <param name="PostNormEps">Epsilon of the expert output norm (<c>post_norm_eps</c>, default <c>norm_eps</c>).</param>
+/// <param name="AdjugateGroupSize">Consecutive routed experts that share one adjugate expert (<c>moe.adjugate_group_size</c>, GroveMoE 2);
+/// see <see cref="MoeBlock"/>.</param>
+/// <param name="AdjugateScale">Factor on the adjugate experts' output (<c>moe.adjugate_scale</c>, GroveMoE 0.05).</param>
+/// <param name="SharedSinks">Shared experts scored by the router (<c>moe.shared_sink_count</c>, Inkling): the router weight has
+/// <c>Experts + SharedSinks</c> rows, the last ones scoring the shared experts of the bank <c>shared_sinks.*</c>, whose scores join the
+/// renormalization of the selected weights (they act as a sink) and weight their outputs; see <see cref="MoeBlock"/>.</param>
 internal sealed record MoeOptions(
     int Experts, int ExpertsUsed, MoeScoreFunction ScoreFunction, bool NormalizeWeights, float WeightsScale,
     int Groups = 1, int GroupsUsed = 1, MoeGroupScore GroupScore = MoeGroupScore.TopTwoSum, bool WeightsBeforeExperts = false, float SharedScale = 1f,
-    bool SelectionBiasOnLogits = false, float RouterSoftCap = 0f, float SparseMixerJitter = 0.01f, float NormEps = 1e-5f, float PostNormEps = 1e-5f)
+    bool SelectionBiasOnLogits = false, float RouterSoftCap = 0f, float SparseMixerJitter = 0.01f, float NormEps = 1e-5f, float PostNormEps = 1e-5f,
+    int AdjugateGroupSize = 1, float AdjugateScale = 1f, int SharedSinks = 0)
 {
     /// <summary>Reads the <c>moe.*</c> keys of <paramref name="source"/>.</summary>
     /// <param name="source">The model source.</param>
@@ -44,16 +51,7 @@ internal sealed record MoeOptions(
     /// <exception cref="InvalidDataException">The router activation or group score is unknown.</exception>
     public static MoeOptions Read(ModelSource source, bool normalizeDefault = false)
     {
-        string activation = source.Arch("moe.router_activation", "softmax");
-        var score = activation switch
-        {
-            "softmax" => MoeScoreFunction.Softmax,
-            "sigmoid" => MoeScoreFunction.Sigmoid,
-            "softmax_topk" => MoeScoreFunction.SoftmaxSelected,
-            "sqrt_softplus" => MoeScoreFunction.SqrtSoftplus,
-            "sparsemixer" => MoeScoreFunction.SparseMixer,
-            _ => throw new InvalidDataException($"{source.Architecture}: unknown moe.router_activation '{activation}'."),
-        };
+        var score = ScoreFunctionOf(source, "moe.router_activation");
         string groupScore = source.Arch("moe.group_score", "top2_sum");
         var group = groupScore switch
         {
@@ -77,7 +75,26 @@ internal sealed record MoeOptions(
             RouterSoftCap: source.Arch("moe.router_logit_softcap", 0f),
             SparseMixerJitter: source.Arch("moe.sparsemixer_jitter", 0.01f),
             NormEps: source.Arch("norm_eps", 1e-5f),
-            PostNormEps: source.Arch("post_norm_eps", source.Arch("norm_eps", 1e-5f)));
+            PostNormEps: source.Arch("post_norm_eps", source.Arch("norm_eps", 1e-5f)),
+            AdjugateGroupSize: Math.Max(1, source.Arch("moe.adjugate_group_size", 1)),
+            AdjugateScale: source.Arch("moe.adjugate_scale", 1f),
+            SharedSinks: Math.Max(0, source.Arch("moe.shared_sink_count", 0)));
+    }
+
+    /// <summary>Reads a router activation key ("softmax" (default), "sigmoid", "softmax_topk", "sqrt_softplus" or "sparsemixer").</summary>
+    /// <exception cref="InvalidDataException">The activation is unknown.</exception>
+    public static MoeScoreFunction ScoreFunctionOf(ModelSource source, string key)
+    {
+        string activation = source.Arch(key, "softmax");
+        return activation switch
+        {
+            "softmax" => MoeScoreFunction.Softmax,
+            "sigmoid" => MoeScoreFunction.Sigmoid,
+            "softmax_topk" => MoeScoreFunction.SoftmaxSelected,
+            "sqrt_softplus" => MoeScoreFunction.SqrtSoftplus,
+            "sparsemixer" => MoeScoreFunction.SparseMixer,
+            _ => throw new InvalidDataException($"{source.Architecture}: unknown {key} '{activation}'."),
+        };
     }
 
     /// <summary>Whether the counts describe a usable configuration.</summary>

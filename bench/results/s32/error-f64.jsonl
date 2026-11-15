@@ -1,0 +1,40 @@
+{"engine": "ort-cpu", "model": "vit-base-patch16-224", "batch": 1, "worstRms": 4.917692426229145e-07, "firstRms": 4.917692426229145e-07}
+{"engine": "ort-cuda", "model": "vit-base-patch16-224", "batch": 1, "worstRms": 0.0005542594363910318, "firstRms": 0.0005542594363910318}
+{"engine": "ort-cuda-strict", "model": "vit-base-patch16-224", "batch": 1, "worstRms": 3.038162511324604e-07, "firstRms": 3.038162511324604e-07}
+{"engine": "sl-vulkan", "model": "vit-base-patch16-224", "batch": 1, "worstRms": 1.3410505123838652e-06, "firstRms": 1.3410505123838652e-06, "stage": "ok"}
+{"engine": "sl-vulkan-fast", "model": "vit-base-patch16-224", "batch": 1, "worstRms": 0.0006457882965286736, "firstRms": 0.0006457882965286736, "stage": "ok"}
+{"engine": "sl-vulkan-rp", "model": "vit-base-patch16-224", "batch": 1, "worstRms": 0.0004410704275892188, "firstRms": 0.0004410704275892188, "stage": "ok"}
+{"engine": "sl-vulkan-simt", "model": "vit-base-patch16-224", "batch": 1, "worstRms": 1.2662669089782672e-06, "firstRms": 1.2662669089782672e-06, "stage": "ok"}
+{"engine": "sl-cpu", "model": "vit-base-patch16-224", "batch": 1, "worstRms": 1.2553185904714017e-05, "firstRms": 1.2553185904714017e-05, "stage": "ok"}
+{"engine": "ort-cpu", "model": "whisper-tiny-encoder", "batch": 1, "worstRms": 9.326937186830359e-07, "firstRms": 9.326937186830359e-07}
+{"engine": "ort-cuda", "model": "whisper-tiny-encoder", "batch": 1, "worstRms": 0.000671816766157393, "firstRms": 0.000671816766157393}
+{"engine": "ort-cuda-strict", "model": "whisper-tiny-encoder", "batch": 1, "worstRms": 1.8595898402353034e-06, "firstRms": 1.8595898402353034e-06}
+{"engine": "sl-vulkan", "model": "whisper-tiny-encoder", "batch": 1, "worstRms": 1.7610600457987002e-06, "firstRms": 1.7610600457987002e-06, "stage": "ok"}
+{"engine": "sl-vulkan-fast", "model": "whisper-tiny-encoder", "batch": 1, "worstRms": 0.0006539155171357594, "firstRms": 0.0006539155171357594, "stage": "ok"}
+{"engine": "sl-vulkan-rp", "model": "whisper-tiny-encoder", "batch": 1, "worstRms": 0.0005749742066396454, "firstRms": 0.0005749742066396454, "stage": "ok"}
+{"engine": "sl-vulkan-simt", "model": "whisper-tiny-encoder", "batch": 1, "worstRms": 1.6469255071253208e-06, "firstRms": 1.6469255071253208e-06, "stage": "ok"}
+{"engine": "sl-cpu", "model": "whisper-tiny-encoder", "batch": 1, "worstRms": 5.734049109800547e-06, "firstRms": 5.734049109800547e-06, "stage": "ok"}
+{"engine": "ort-cpu", "model": "bert-base-uncased.model", "batch": 1, "worstRms": 7.24911208148049e-07, "firstRms": 7.24911208148049e-07}
+{"engine": "ort-cuda", "model": "bert-base-uncased.model", "batch": 1, "worstRms": 0.0007532422832699777, "firstRms": 0.0007532422832699777}
+{"engine": "ort-cuda-strict", "model": "bert-base-uncased.model", "batch": 1, "worstRms": 9.155175679606988e-07, "firstRms": 9.155175679606988e-07}
+{"engine": "sl-vulkan", "model": "bert-base-uncased.model", "batch": 1, "worstRms": 1.7260221508787005e-06, "firstRms": 1.7260221508787005e-06, "stage": "ok"}
+{"engine": "sl-vulkan-fast", "model": "bert-base-uncased.model", "batch": 1, "worstRms": 0.0006524859807554712, "firstRms": 0.0006524859807554712, "stage": "ok"}
+{"engine": "sl-vulkan-rp", "model": "bert-base-uncased.model", "batch": 1, "worstRms": 0.0002702285153507781, "firstRms": 0.0002702285153507781, "stage": "ok"}
+{"engine": "sl-vulkan-simt", "model": "bert-base-uncased.model", "batch": 1, "worstRms": 1.7423056285748083e-06, "firstRms": 1.7423056285748083e-06, "stage": "ok"}
+{"engine": "sl-cpu", "model": "bert-base-uncased.model", "batch": 1, "worstRms": 1.8304921057229265e-06, "firstRms": 1.8304921057229265e-06, "stage": "ok"}
+{"engine": "ort-cpu", "model": "convnext-tiny", "batch": 1, "worstRms": 5.372248377303061e-07, "firstRms": 5.372248377303061e-07}
+{"engine": "ort-cuda", "model": "convnext-tiny", "batch": 1, "worstRms": 0.0006007988913180666, "firstRms": 0.0006007988913180666}
+{"engine": "ort-cuda-strict", "model": "convnext-tiny", "batch": 1, "worstRms": 3.155240055799208e-07, "firstRms": 3.155240055799208e-07}
+{"engine": "sl-vulkan", "model": "convnext-tiny", "batch": 1, "worstRms": 3.1571945968239343e-06, "firstRms": 3.1571945968239343e-06, "stage": "ok"}
+{"engine": "sl-vulkan-fast", "model": "convnext-tiny", "batch": 1, "worstRms": 0.0005564304706837596, "firstRms": 0.0005564304706837596, "stage": "ok"}
+{"engine": "sl-vulkan-rp", "model": "convnext-tiny", "batch": 1, "worstRms": 0.00015735807457001959, "firstRms": 0.00015735807457001959, "stage": "ok"}
+{"engine": "sl-vulkan-simt", "model": "convnext-tiny", "batch": 1, "worstRms": 2.8670114908786377e-06, "firstRms": 2.8670114908786377e-06, "stage": "ok"}
+{"engine": "sl-cpu", "model": "convnext-tiny", "batch": 1, "worstRms": 3.996462952201387e-06, "firstRms": 3.996462952201387e-06, "stage": "ok"}
+{"engine": "ort-cpu", "model": "resnet50-v1-12", "batch": 1, "worstRms": 3.976691520080532e-07, "firstRms": 3.976691520080532e-07}
+{"engine": "ort-cuda", "model": "resnet50-v1-12", "batch": 1, "worstRms": 0.0007894268199673725, "firstRms": 0.0007894268199673725}
+{"engine": "ort-cuda-strict", "model": "resnet50-v1-12", "batch": 1, "worstRms": 0.0001954919653248205, "firstRms": 0.0001954919653248205}
+{"engine": "sl-vulkan", "model": "resnet50-v1-12", "batch": 1, "worstRms": 9.336984216548905e-07, "firstRms": 9.336984216548905e-07, "stage": "ok"}
+{"engine": "sl-vulkan-fast", "model": "resnet50-v1-12", "batch": 1, "worstRms": 0.0006766692422009244, "firstRms": 0.0006766692422009244, "stage": "ok"}
+{"engine": "sl-vulkan-rp", "model": "resnet50-v1-12", "batch": 1, "worstRms": 0.0008855415376524014, "firstRms": 0.0008855415376524014, "stage": "ok"}
+{"engine": "sl-vulkan-simt", "model": "resnet50-v1-12", "batch": 1, "worstRms": 8.291771919472159e-07, "firstRms": 8.291771919472159e-07, "stage": "ok"}
+{"engine": "sl-cpu", "model": "resnet50-v1-12", "batch": 1, "worstRms": 1.1444196612098571e-06, "firstRms": 1.1444196612098571e-06, "stage": "ok"}

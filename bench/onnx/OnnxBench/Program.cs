@@ -20,5 +20,7 @@ if (string.IsNullOrEmpty(modelRoot))
 var result = new Dictionary<string, object?> { ["manifest"] = Path.GetFileName(arguments.ManifestPath), ["provider"] = arguments.Provider };
 int exitCode = new ModelBench(arguments, ReferenceManifest.Load(arguments.ManifestPath, modelRoot), result).Run();
 Console.Out.Flush();
-Console.WriteLine("RESULT " + JsonSerializer.Serialize(result));
+// Non-finite errors (a broken output) are written as "NaN" / "Infinity" strings instead of failing the report.
+var json = new JsonSerializerOptions { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
+Console.WriteLine("RESULT " + JsonSerializer.Serialize(result, json));
 return exitCode;

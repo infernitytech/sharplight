@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -67,6 +68,7 @@ internal sealed unsafe class WhereOp : CpuOp
         CpuParallel.For(ch, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int chunk)
     {
         int r = _y.Rank;

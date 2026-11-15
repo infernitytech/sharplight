@@ -11,6 +11,11 @@
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
+    <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <ProjectReference Include="../../apps/Sharplight.Studio/Sharplight.Studio.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Header-only GGUF fixtures (metadata and tensor table, no data), shared with the importer tests. -->
+    <Content Include="../Sharplight.Import.Gguf.Tests/Fixtures/*.gguf" Link="Fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

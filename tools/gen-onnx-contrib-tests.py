@@ -9,7 +9,7 @@ reference implementation of these operators; cases the CPU provider cannot run a
 Usage (in a venv with onnx, onnxruntime and numpy, never the system Python):
     python -I tools/gen-onnx-contrib-tests.py [-o ~/models/onnx/sharplight-contrib-tests]
 
-tests/Sharplight.Onnx.Conformance (ExtraConformanceTests) finds the directory as one of ~/models/onnx/sharplight-*-tests.
+tests/Sharplight.Import.Onnx.Conformance (ExtraConformanceTests) finds the directory as one of ~/models/onnx/sharplight-*-tests.
 """
 
 from __future__ import annotations
@@ -79,6 +79,13 @@ def ref_complex_mul(a, b, conj):
     a, b = np.broadcast_arrays(a, b)
     ar, ai, br, bi = a[..., 0], a[..., 1], b[..., 0], (-b[..., 1] if conj else b[..., 1])
     return np.stack([ar * br - ai * bi, ar * bi + ai * br], axis=-1)
+
+
+def words(chars):
+    """Character ids [S, L] whose words all start with a character: onnxruntime's WordConvEmbedding leaves the output of a word that
+    starts with padding (id 0) unwritten, so its reference would be uninitialized memory."""
+    chars[:, 0] = np.maximum(chars[:, 0], 1)
+    return chars
 
 
 class Case:
@@ -391,7 +398,7 @@ def cases():
              [("x", f32(2, 3, 8, 8)), ("rois", np.array([[0.1, 0.1, 0.8, 0.9], [0.0, 0.2, 0.5, 0.6]], np.float32)),
               ("bi", np.array([0, 1], np.int32)), ("size", None)], ["y"], {"mode": "bilinear"}, inits={"size": np.array([4, 5], np.int32)}),
         Case("ms_murmur_hash3", "MurmurHash3", [("x", RNG.integers(-1000, 1000, (6,), dtype=np.int32))], ["y"], {"seed": 42, "positive": 0}),
-        Case("ms_word_conv_embedding", "WordConvEmbedding", [("seq", RNG.integers(0, 10, (3, 6), dtype=np.int32)), ("w", None), ("b", None), ("c", None)],
+        Case("ms_word_conv_embedding", "WordConvEmbedding", [("seq", words(RNG.integers(0, 10, (3, 6), dtype=np.int32))), ("w", None), ("b", None), ("c", None)],
              ["y"], {"conv_window_size": 2, "embedding_size": 4, "char_embedding_size": 3},
              inits={"w": f32(4, 1, 2, 3), "b": f32(4), "c": f32(10, 3)}),
         Case("ms_ngram_repeat_block", "NGramRepeatBlock", [("ids", np.array([[1, 2, 3, 1, 2], [4, 4, 4, 5, 6]], np.int64)), ("scores", f32(2, 8))],

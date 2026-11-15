@@ -43,7 +43,8 @@ public sealed class SparseAttentionTests
 
     /// <summary>
     /// Group selection: per-head block selection by the best position score with forced local blocks (MiniMax), and pooled groups whose keys are
-    /// softmax-gated averages, with the incomplete group's positions appended (GLM-5.3 k-pool); exact positions against the CPU oracle.
+    /// softmax-gated averages, with the incomplete group's positions appended (GLM-5.3 k-pool), and mean groups, RMS-normed and rotated at their
+    /// first position ("mean", Qwen QSA) or plain ("mean-plain"); exact positions against the CPU oracle.
     /// </summary>
     [Theory]
     [InlineData("f32", 2, 16, 4, 12, "max", 1, false, true)]
@@ -51,6 +52,9 @@ public sealed class SparseAttentionTests
     [InlineData("f32", 4, 16, 4, 8, "pooled", 0, true, false)]
     [InlineData("f16", 8, 32, 8, 16, "pooled", 0, true, false)]
     [InlineData("f32", 4, 16, 4, 8, "max", 0, false, false)]
+    [InlineData("f32", 4, 32, 4, 8, "mean", 0, true, false)]
+    [InlineData("f16", 4, 128, 4, 8, "mean", 0, true, false)]
+    [InlineData("f32", 2, 16, 4, 12, "mean-plain", 0, true, false)]
     public void IndexerTopKGroupsAcrossSteps(string cacheType, int heads, int dims, int group, int k, string score, int local, bool tail, bool perHead)
     {
         Gpu.Require();
@@ -77,8 +81,14 @@ public sealed class SparseAttentionTests
             inputs.Add(tg.WF("gate", Rnd.F(group * dims, 11), group, dims));
         }
 
-        var attributes = Attributes.From(("k", (long)k), ("offset", "n_past"), ("group", (long)group), ("group_score", score), ("local", (long)local),
-            ("tail", tail), ("per_head", perHead));
+        var attributes = Attributes.From(("k", (long)k), ("offset", "n_past"), ("group", (long)group), ("group_score", score == "mean-plain" ? "mean" : score),
+            ("local", (long)local), ("tail", tail), ("per_head", perHead));
+        if (score == "mean")
+        {
+            inputs.Add(tg.WF("norm", Rnd.F(dims, 12), dims));
+            attributes = attributes.With("pool_norm_eps", 1e-6f).With("pool_rope_dims", (long)dims / 4).With("pool_rope_base", 1e7f);
+        }
+
         tg.B.Output("selection", tg.B.Emit1("IndexerTopK", inputs, attributes));
         var q = Rnd.F(total * heads * dims, 1);
         var key = Rnd.F(total * rowValues, 2);

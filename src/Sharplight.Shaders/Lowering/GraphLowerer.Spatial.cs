@@ -165,15 +165,27 @@ public sealed partial class GraphLowerer
     private static readonly ConvTile[] s_convTiles =
         [new(128, 128, 8, 8), new(128, 64, 8, 4), new(64, 64, 4, 4), new(64, 32, 4, 4), new(32, 64, 4, 4), new(32, 32, 4, 4)];
     private const int ConvBK = 32;
-    private const long TargetWorkgroups = 480;
+    private const long ConvTargetWorkgroups = 480;
+
+    /// <summary>
+    /// Workgroups the convolution and batched-matmul tilings aim for: 480 on a large GPU, fewer on devices that run few at once
+    /// (<see cref="LoweringOptions.ConcurrentWorkgroups"/>), where K splits only add partial-sum traffic.
+    /// </summary>
+    private long TargetWorkgroups => _opt.ConcurrentWorkgroups > 0 ? Math.Min(ConvTargetWorkgroups, _opt.ConcurrentWorkgroups) : ConvTargetWorkgroups;
 
     private sealed record ConvCfg(ConvTile Tile, int Split, long Kps);
 
-    private static ConvCfg ChooseConv(long N, long OG, long G, long HW, long K)
+    /// <summary>Most output channels of a single-group convolution served by conv_narrow.</summary>
+    private const long ConvNarrowMaxOutputs = 8;
+
+    private ConvCfg ChooseConv(long N, long OG, long G, long HW, long K)
     {
         long NC = N * HW;
         ConvTile? best = null;
         long bestWgs = 0;
+        // Devices with a known capacity count workgroups in 256-thread units (the small tiles have 64 threads).
+        bool weighted = _opt.ConcurrentWorkgroups > 0;
+        long Units(long wgs, ConvTile t) => weighted ? Math.Max(1, wgs * t.NT / 256) : wgs;
         foreach (var t in s_convTiles)
         {
             // Avoid grossly oversized tiles for small problems.
@@ -187,7 +199,7 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
-            long wgs = ((NC + t.BN - 1) / t.BN) * ((OG + t.BM - 1) / t.BM) * G;
+            long wgs = Units(((NC + t.BN - 1) / t.BN) * ((OG + t.BM - 1) / t.BM) * G, t);
             if (wgs >= TargetWorkgroups)
             {
                 return new ConvCfg(t, 1, K);
@@ -322,6 +334,16 @@ public sealed partial class GraphLowerer
             var k = ConvKernel("conv.slang", "conv_dw", Macros(common), epilogue);
             Emit(name, nodes, [Always(k, b => new Grid(Grid.Div(Rows(b, xr) * O * HW, 256)))],
                 [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(y), .. resArgs, CountArg(x, O * HW)],
+                [.. bias is null ? [x, w] : new[] { x, w, bias }, .. resReads], [y]);
+            return;
+        }
+
+        // Few output channels (flow, depth and mask heads): the GEMM tiles would mostly compute padding.
+        if (G == 1 && O <= ConvNarrowMaxOutputs && !w.Type.IsQuantized && !DiagnosticSwitches.NoNarrowConv)
+        {
+            var k = ConvKernel("conv.slang", "conv_narrow", Macros(common), epilogue);
+            Emit(name + " narrow", nodes, [Always(k, b => new Grid(Grid.Div(Rows(b, xr) * HW, 32)))],
+                [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(y), .. resArgs, CountArg(x, HW)],
                 [.. bias is null ? [x, w] : new[] { x, w, bias }, .. resReads], [y]);
             return;
         }
@@ -633,6 +655,11 @@ public sealed partial class GraphLowerer
 
     private void LowerLayerNorm(Node n)
     {
+        if (TryLowerChannelStridedLayerNorm(n))
+        {
+            return;
+        }
+
         var x = RowsInput(n.Inputs[0], "layernorm", out long r1, out long s0, out long s1);
         var w = n.Inputs.Length > 1 ? AsDenseF32(Ref(n.Inputs[1]), "ln-w") : null;
         var bi = n.Inputs.Length > 2 ? AsDenseF32(Ref(n.Inputs[2]), "ln-b") : null;
@@ -657,6 +684,43 @@ public sealed partial class GraphLowerer
         Emit($"layernorm {n.Output.Name}", [n], variants,
             [Pointer(x), Pointer(wp), Pointer(bp), Pointer(y), TokenArg(x)],
             [.. new[] { x, w, bi }.Where(t => t is not null).Select(t => t!)], [y]);
+    }
+
+    /// <summary>
+    /// LayerNorm <paramref name="n"/> over a channel-strided view (rows adjacent in memory, their values a constant stride apart,
+    /// such as the channels-last Transpose of an NCHW tensor in ConvNeXt blocks) read in place by layernorm_cs, instead of a
+    /// dense copy of the view followed by the row kernel. False when the input is not such a view.
+    /// </summary>
+    private bool TryLowerChannelStridedLayerNorm(Node n)
+    {
+        if (DiagnosticSwitches.NoStridedLayerNorm)
+        {
+            return false;
+        }
+
+        var x = AsF32(Ref(n.Inputs[0]), "layernorm");
+        long valueStride = x.Strides[^1];
+        if (x.Rank < 2 || valueStride <= 1 || x.Shape[^1] < 2)
+        {
+            return false;
+        }
+
+        var unit = x with { Strides = [.. x.Strides[..^1], 1] };
+        if (!TryRows3(unit, out long r1, out long s0, out long s1) || (s1 != 1 && r1 > 1) || (r1 == 1 && s0 != 1))
+        {
+            return false;
+        }
+
+        var w = n.Inputs.Length > 1 ? AsDenseF32(Ref(n.Inputs[1]), "ln-w") : null;
+        var bi = n.Inputs.Length > 2 ? AsDenseF32(Ref(n.Inputs[2]), "ln-b") : null;
+        var y = Produce(n.Output);
+        var k = Lib("rows.slang", "layernorm_cs", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", r1 == 1 ? 1 : s1),
+            ("SI", valueStride), ("EPS", n.Attributes.Get<float>("eps")), ("HAS_W", w is not null), ("HAS_B", bi is not null)));
+        var tx = x;
+        Emit($"layernorm {n.Output.Name} channel-strided", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 32)))],
+            [Pointer(x), Pointer(w ?? x), Pointer(bi ?? x), Pointer(y), TokenArg(x)],
+            [.. new[] { x, w, bi }.Where(t => t is not null).Select(t => t!)], [y]);
+        return true;
     }
 
     /// <summary>Widest row reduced by one thread per row (rowreduce_narrow).</summary>

@@ -213,6 +213,59 @@
     </Style.Animations>
   </Style>
 
+  <!-- Title bar (custom chrome) -->
+  <Style Selector="Border.titlebar">
+    <Setter Property="Height" Value="34" />
+    <Setter Property="Background" Value="{DynamicResource SidebarBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+  <Style Selector="TextBlock.titlebar">
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+  </Style>
+  <Style Selector="Window:not(:focus-within) TextBlock.titlebar">
+    <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+  </Style>
+  <Style Selector="Button.caption">
+    <Setter Property="Width" Value="46" />
+    <Setter Property="Height" Value="33" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Focusable" Value="False" />
+  </Style>
+  <Style Selector="Button.caption:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+  </Style>
+  <Style Selector="Button.caption:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+  </Style>
+  <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource DangerBrush}" />
+  </Style>
+  <Style Selector="Button.caption.close:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource DangerBrush}" />
+    <Setter Property="Opacity" Value="0.8" />
+  </Style>
+  <Style Selector="Path.caption">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="10" />
+    <Setter Property="Stretch" Value="None" />
+    <Setter Property="Stroke" Value="{DynamicResource TextSecondaryBrush}" />
+    <Setter Property="StrokeThickness" Value="1" />
+  </Style>
+  <Style Selector="Button.caption.close:pointerover Path.caption">
+    <Setter Property="Stroke" Value="White" />
+  </Style>
+  <Style Selector="Border.edge">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+
   <!-- Buttons -->
   <Style Selector="Button">
     <Setter Property="CornerRadius" Value="8" />
@@ -326,6 +379,7 @@
   </Style>
   <Style Selector="ListBox.plain">
     <Setter Property="Background" Value="Transparent" />
+    <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
   </Style>
   <Style Selector="ListBox.plain ListBoxItem">
     <Setter Property="Padding" Value="0" />
@@ -337,6 +391,26 @@
   </Style>
   <Style Selector="ListBox.plain ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+  </Style>
+  <!-- A result card outside a list (Discover highlights): looks like a ListBox.plain item -->
+  <Style Selector="Button.resultcard">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0,2" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="Button.resultcard:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Button.resultcard:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+  </Style>
+  <Style Selector="Button.resultcard.selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
   </Style>
   <Style Selector="TabControl.pills TabItem">
     <Setter Property="FontSize" Value="14" />
