@@ -51,6 +51,8 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `speech-recognition` | `ISpeechRecognizer` | `TranscribeAsync(AudioBuffer)` | `TranscribeStreamingAsync` → `TranscriptionSegment` | `SpeechRecognitionOptions` | `Transcription` |
 | `speech-synthesis` | `ISpeechSynthesizer` | `SynthesizeAsync(text)` | `SynthesizeStreamingAsync` → `AudioBuffer` | `SpeechSynthesisOptions` | `SpeechSynthesisResult` |
 | `image-generation` | `IImageGenerator` | `GenerateAsync(ImageGenerationRequest)` | `GenerateStreamingAsync` → `ImageGenerationUpdate` | `ImageGenerationOptions` | `ImageGenerationResult` |
+| `image-classification` | `IImageClassifier` | `ClassifyAsync(ImageInput)` | - (one image, one result) | `ImageClassificationOptions` | `ImageClassification` |
+| `image-embedding` | `IImageEmbedder` | `EmbedImageAsync(ImageInput)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `ImageEmbeddingOptions` | `float[]`, `ImageClassification` |
 
 Every client is an `ITaskClient`: `Metadata` (kind, model name, architecture), `GetService(Type)` for the objects behind it,
 `IDisposable` (it owns its compiled graphs, not the model), async calls with a `CancellationToken`. The shape mirrors
@@ -121,8 +123,16 @@ The sample `samples/Sharplight.Transcribe` (`sharplight-transcribe model audio.w
 in a command-line tool. Models of other speech families (CTC, transducers, audio LLMs) plug in as their own `ITaskClientFactory` for the
 same kind; the feature extraction sits behind a small internal interface so a graph-based front end can replace the host one.
 
-The importers and architecture adapters for image models come in their own workstream; the task layer defines the interfaces, options,
-results, the description and the host-side plumbing they plug into.
+Vision models share host-side preprocessing in Core: `ImageProcessorConfig` (resize mode and filter, center crop, rescale, mean and std;
+the neutral form of a model's processor configuration, stored in the `feature-extractor` component's configuration under
+`imageProcessor`) and `ImageProcessor` (Pillow-exact antialiased resize, crop, normalize to planar floats, `Patchify`). Importers translate
+the model's own processor file into the config; the image clients never see a format name. Models with a `vision-encoder` component
+(graph `image_encode`: patches in, pooled embedding and optionally logits out) run through the built-in classifier / embedder
+implementation (`ImageEncoderAdapter`: ViT, DINOv2, ...); `services.AddImageClassifier(...)` and `services.AddImageEmbedder(...)` register
+configured models like every other kind.
+
+The importers and architecture adapters for speech and image models come in their own workstreams; the task layer defines the
+interfaces, options, results, the description and the host-side plumbing they plug into.
 
 ## 1. Load a model (text generation)
 

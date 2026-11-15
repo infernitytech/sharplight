@@ -56,6 +56,12 @@ internal interface IHfArchitectureMapping
     public IReadOnlyDictionary<string, IWeightSource> MapAttachments(HfConfig config, string directory) => new Dictionary<string, IWeightSource>();
 
     /// <summary>
+    /// Whether the checkpoint has a tokenizer the importer translates into the canonical tokenizer keys. False for models without text
+    /// (image encoders, detectors, ...). Default: true.
+    /// </summary>
+    public bool NeedsTokenizer => true;
+
+    /// <summary>
     /// Adds canonical metadata that needs more than <c>config.json</c> (companion files of the checkpoint, the translated tokenizer in
     /// <paramref name="metadata"/>). Called after the hyper-parameters and the tokenizer keys are in place. Default: nothing.
     /// </summary>

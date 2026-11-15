@@ -1,0 +1,5 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 12.84 W, 180 MHz, 405 MHz, 32, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 8227 MiB, 176.52 W, 2700 MHz, 14001 MHz, 54, P0
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 509 MiB, 19.21 W, 2400 MHz, 14001 MHz, 32, P0
+359499, <path>, 8175 MiB
+362113, dotnet, 492 MiB
