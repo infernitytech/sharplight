@@ -58,6 +58,11 @@ internal static class GridTables
             return "nf4";
         }
 
+        if (type == DataType.FP4_B64)
+        {
+            return "fp4";
+        }
+
         return null;
     }
 
@@ -72,6 +77,7 @@ internal static class GridTables
         "iq1" => Pack(CompactIq1Entries(), withSigns: false),
         "trellis" => TrellisEntries(),
         "nf4" => Pack([.. Nf4CodeBook.Values.ToArray().Select(BitConverter.SingleToUInt32Bits)], withSigns: false),
+        "fp4" => Pack([.. Fp4CodeBook.Values.ToArray().Select(BitConverter.SingleToUInt32Bits)], withSigns: false),
         _ => throw new ArgumentOutOfRangeException(nameof(key), key, "unknown grid"),
     };
 

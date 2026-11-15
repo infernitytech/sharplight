@@ -150,6 +150,9 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 #define FMT_Q8Z_G32 63
 #define FMT_Q8Z_G128 64
 #define FMT_NF4_B64 65
+#define FMT_FP4_B64 66
+#define FMT_Q8A_G32 67
+#define FMT_Q2S_G128 68
 
 // IQ formats (and NF4, its 16 f32 code values) decode through a lookup grid that lives in a device buffer (GridTables.cs). The lowering prepends its address to the parameter block
 // of every kernel that reads such a weight: those kernels declare `uint* grid` first under HAS_GRID and call GRID_BIND(p) at the start of each entry
@@ -159,7 +162,7 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 #else
 #define WFMT_TRELLIS 0
 #endif
-#if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S || WFMT == FMT_IQ1_S || WFMT == FMT_IQ1_M || WFMT_TRELLIS || WFMT == FMT_NF4_B64
+#if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S || WFMT == FMT_IQ1_S || WFMT == FMT_IQ1_M || WFMT_TRELLIS || WFMT == FMT_NF4_B64 || WFMT == FMT_FP4_B64
 #define HAS_GRID 1
 static uint* g_grid;
 #define GRID_BIND(p) g_grid = (p).grid;
@@ -680,8 +683,12 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
     load8_q8z(base, rowBytes, row, g, 32, v);
 #elif WFMT == FMT_Q8Z_G128
     load8_q8z(base, rowBytes, row, g, 128, v);
-#elif WFMT == FMT_NF4_B64
+#elif WFMT == FMT_NF4_B64 || WFMT == FMT_FP4_B64
     load8_nf4_b64(base, rowBytes, row, g, v);
+#elif WFMT == FMT_Q8A_G32
+    load8_q8a(base, rowBytes, row, g, v);
+#elif WFMT == FMT_Q2S_G128
+    load8_q2s(base, rowBytes, row, g, v);
 #elif WFMT == FMT_F8E4M3
     load8_fp8(base, rowBytes, row, g, 0, false, v);
 #elif WFMT == FMT_F8E5M2

@@ -25,6 +25,12 @@ internal static class GgmlTypes
     /// <summary>The ggml id of the first trellis type of agentionai's fork (TQ2_T).</summary>
     internal const int FirstTrellis = 144;
 
+    /// <summary>
+    /// ggml id of I2_S, the ternary type of Microsoft's BitNet fork of llama.cpp: 2-bit codes in 128-value groups followed, after the
+    /// codes of the whole tensor, by one f32 scale (see <see cref="GgufI2sSource"/>). Read as <see cref="DataType.Q2S_G128"/>.
+    /// </summary>
+    internal const int I2S = 36;
+
     /// <summary>The interleaved Q4_0 types of older llama.cpp releases (Q4_0_4_4, Q4_0_4_8, Q4_0_8_8), read as Q4_0.</summary>
     internal const int Q4_0_4_4 = 31;
 
@@ -76,6 +82,7 @@ internal static class GgmlTypes
         types[30] = DataType.BF16;
         types[34] = DataType.TQ1_0;
         types[35] = DataType.TQ2_0;
+        types[I2S] = DataType.Q2S_G128;
         types[39] = DataType.MXFP4;
         types[40] = DataType.NVFP4;
         types[41] = DataType.Q1_0;
@@ -89,7 +96,7 @@ internal static class GgmlTypes
         var reverse = new Dictionary<DataType, int>();
         for (int id = 0; id < s_byId.Length; id++)
         {
-            if (s_byId[id] is { } type)
+            if (s_byId[id] is { } type && id != I2S)
             {
                 reverse[type] = id;
             }

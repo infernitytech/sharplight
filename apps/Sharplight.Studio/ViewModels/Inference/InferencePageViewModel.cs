@@ -15,7 +15,7 @@ namespace Sharplight.Studio.ViewModels.Inference;
 internal abstract partial class InferencePageViewModel : PageViewModel
 {
     private readonly INavigator _navigator;
-    private readonly string _kind;
+    private readonly IReadOnlyList<string> _kinds;
 
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
@@ -23,17 +23,27 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     /// <param name="pageId">The page's stable id (the name of its storage directory).</param>
     /// <param name="parameters">The page's parameter panel.</param>
     protected InferencePageViewModel(StudioServices services, INavigator navigator, string kind, string pageId, ParameterPanelViewModel parameters)
+        : this(services, navigator, [kind], pageId, parameters)
+    {
+    }
+
+    /// <param name="services">The services.</param>
+    /// <param name="navigator">Moves to the library and Discover.</param>
+    /// <param name="kinds">The model kinds the page runs; the first is the primary kind (a page for several kinds, such as vision, picks the mode by the model's kind).</param>
+    /// <param name="pageId">The page's stable id (the name of its storage directory).</param>
+    /// <param name="parameters">The page's parameter panel.</param>
+    protected InferencePageViewModel(StudioServices services, INavigator navigator, IReadOnlyList<string> kinds, string pageId, ParameterPanelViewModel parameters)
     {
         Services = services;
         _navigator = navigator;
-        _kind = kind;
+        _kinds = kinds;
         PageId = pageId;
         Parameters = parameters;
-        Picker = new Inference.ModelPickerViewModel(services, kind);
+        Picker = new Inference.ModelPickerViewModel(services, kinds);
         Queue = new RunQueueViewModel(services.Dispatcher);
         Archive = new PageArchive(services.Pages, pageId);
         History = new RunHistoryViewModel(Archive, Restore);
-        Gallery = new OutputGalleryViewModel(Archive, services.Platform);
+        Gallery = new OutputGalleryViewModel(Archive, services.Platform, record => Restore(record));
         Picker.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(ModelPickerViewModel.SelectedModel))
@@ -139,12 +149,22 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     }
 
     [RelayCommand]
-    private void OpenLibrary() => _navigator.OpenLibrary(_kind);
+    private void OpenLibrary()
+    {
+        if (_kinds.Count == 1)
+        {
+            _navigator.OpenLibrary(_kinds[0]);
+        }
+        else
+        {
+            _navigator.OpenLibrary();
+        }
+    }
 
     [RelayCommand]
     private void OpenDiscover()
     {
-        var info = ModelKindCatalog.For(_kind);
+        var info = ModelKindCatalog.For(_kinds[0]);
         if (info.Tasks.Count > 0)
         {
             _navigator.OpenDiscover(info.Tasks[0]);

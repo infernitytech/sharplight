@@ -10,12 +10,17 @@ namespace Sharplight.Import.HuggingFace;
 /// <item><c>gemv</c>: <c>X.qweight</c> I32 [N, K / 8] packed along K in order, <c>X.qzeros</c> I32 [N, W] (group g in nibble g % 8
 /// of word g / 8), <c>X.scales</c> F16 [N, 8 W] (padded past the last group).</item>
 /// </list>
-/// <c>gemv_fast</c>, <c>exllama</c> and <c>marlin</c> repacks are not read.
+/// <c>gemv_fast</c> (<see cref="HfAwqGemvFastLayouts"/>) and <c>marlin</c> (<see cref="HfMarlinLayouts"/>) are read by their own classes;
+/// <c>exllama</c> repacks are not read.
 /// </summary>
 internal static unsafe class HfAwqLayouts
 {
     /// <summary>The nibble that holds column c % 8 of a GEMM-packed word (AutoAWQ's AWQ_REVERSE_ORDER).</summary>
     private static readonly int[] s_reverseOrder = [0, 4, 1, 5, 2, 6, 3, 7];
+
+    /// <summary>The packing version of an AWQ configuration (lower case; <c>gemm</c> when it names none).</summary>
+    /// <param name="settings">The <c>quantization_config</c>.</param>
+    public static string Version(JsonElement settings) => (HfPackedBits.String(settings, "version") ?? "gemm").ToLowerInvariant();
 
     /// <summary>The layouts of the AWQ modules among <paramref name="tensors"/>; their tensors are added to <paramref name="consumed"/>.</summary>
     /// <exception cref="NotSupportedException">The packing version or bit width is not read.</exception>

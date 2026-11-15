@@ -8,7 +8,7 @@ namespace Sharplight.Import.HuggingFace;
 
 /// <summary>
 /// Packed integer checkpoints, the "integer codes with a group scale and zero point" family: GPTQ (auto-gptq / gptqmodel,
-/// <see cref="HfGptqLayouts"/>), AWQ (<see cref="HfAwqLayouts"/>) and compressed-tensors integer weights (<c>pack-quantized</c>,
+/// <see cref="HfGptqLayouts"/>), AWQ (<see cref="HfAwqLayouts"/>) and HQQ (<see cref="HfHqqLayouts"/>), EETQ (<see cref="HfEetqLayouts"/>) and compressed-tensors integer weights (<c>pack-quantized</c>,
 /// <c>int-quantized</c>, <see cref="HfCompressedIntLayouts"/>). Each weight becomes one of the integer block types
 /// <see cref="DataType.Q4Z_G128"/> / <see cref="DataType.Q4Z_G32"/> (up to 4 bits) or <see cref="DataType.Q8Z_G128"/> /
 /// <see cref="DataType.Q8Z_G32"/> (5 to 8 bits), value = (code - zero) * scale with the checkpoint's f16 scale and zero point
@@ -45,10 +45,32 @@ internal static class HfIntegerWeights
         switch (method?.ToLowerInvariant())
         {
             case "gptq":
-                layouts.AddRange(HfGptqLayouts.Find(settings, tensors, consumed));
+                layouts.AddRange(HfMarlinLayouts.IsMarlin(settings)
+                    ? HfMarlinLayouts.Find(settings, tensors, consumed)
+                    : HfGptqLayouts.Find(settings, tensors, consumed));
                 break;
             case "awq":
-                layouts.AddRange(HfAwqLayouts.Find(settings, tensors, consumed));
+                layouts.AddRange(HfAwqLayouts.Version(settings) switch
+                {
+                    "gemv_fast" => HfAwqGemvFastLayouts.Find(settings, tensors, consumed),
+                    "marlin" => HfMarlinLayouts.Find(settings, tensors, consumed),
+                    _ => HfAwqLayouts.Find(settings, tensors, consumed),
+                });
+                break;
+            case "quark":
+                layouts.AddRange(HfQuarkLayouts.Find(settings, tensors, consumed));
+                break;
+            case "quanto" or "optimum-quanto":
+                layouts.AddRange(HfQuantoLayouts.Find(config, tensors, consumed));
+                break;
+            case "torchao":
+                layouts.AddRange(HfTorchAoLayouts.Find(tensors, consumed));
+                break;
+            case "hqq":
+                layouts.AddRange(HfHqqLayouts.Find(tensors, consumed));
+                break;
+            case "eetq":
+                layouts.AddRange(HfEetqLayouts.Find(settings, tensors, consumed));
                 break;
             case "compressed-tensors":
                 layouts.AddRange(HfCompressedIntLayouts.Find(settings, tensors, consumed));
@@ -123,6 +145,11 @@ internal static class HfIntegerWeights
 
     private static SafetensorsTensor Encode(HfIntegerLayout layout)
     {
+        if (layout.Affine)
+        {
+            return HfAffineWeights.Encode(layout);
+        }
+
         var order = ColumnOrder(layout, out bool sorted);
         var type = sorted ? TargetType(layout) : DataType.BF16;
         if (type == DataType.BF16)

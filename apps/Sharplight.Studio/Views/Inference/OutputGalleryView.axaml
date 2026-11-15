@@ -12,6 +12,9 @@
           <DataTemplate x:DataType="inf:OutputItemViewModel">
             <Border Classes="inset" Margin="0,0,0,8" Padding="10,8">
               <StackPanel Spacing="5">
+                <Border CornerRadius="6" ClipToBounds="True" IsVisible="{Binding HasThumbnail}" HorizontalAlignment="Left">
+                  <Image Source="{Binding Thumbnail, Converter={x:Static conv:BytesToBitmapConverter.Instance}, ConverterParameter=280}" MaxHeight="140" Stretch="Uniform" />
+                </Border>
                 <TextBlock Text="{Binding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
                 <TextBlock Classes="caption" TextTrimming="CharacterEllipsis">
                   <Run Text="{Binding When}" /><Run Text=" · " /><Run Text="{Binding Model}" />
@@ -44,10 +47,11 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <Button Classes="small" Content="Open folder" Command="{Binding OpenFolderCommand}" />
-                  <Button Classes="small danger" Content="{Binding ConfirmDelete, Converter={x:Static conv:ConfirmTextConverter.Instance}}" Command="{Binding DeleteCommand}" />
-                </StackPanel>
+                <WrapPanel>
+                  <Button Classes="small" Content="Reuse parameters" Command="{Binding ReuseCommand}" IsVisible="{Binding CanReuse}" ToolTip.Tip="Set the page's parameters and result to this run's" Margin="0,0,6,4" />
+                  <Button Classes="small" Content="Open folder" Command="{Binding OpenFolderCommand}" Margin="0,0,6,4" />
+                  <Button Classes="small danger" Content="{Binding ConfirmDelete, Converter={x:Static conv:ConfirmTextConverter.Instance}}" Command="{Binding DeleteCommand}" Margin="0,0,0,4" />
+                </WrapPanel>
               </StackPanel>
             </Border>
           </DataTemplate>
