@@ -40,6 +40,8 @@ internal static class HfImageProcessorConfig
             var size = root.GetProperty("size");
             config = size.ValueKind switch
             {
+                // A bare number is the shortest edge for processors that center-crop afterwards (CLIP), a square otherwise.
+                JsonValueKind.Number when Flag("do_center_crop", false) => config with { ResizeMode = ImageResizeMode.ShortestEdge, ShortestEdge = size.GetInt32() },
                 JsonValueKind.Number => config with { Width = size.GetInt32(), Height = size.GetInt32() },
                 _ when size.TryGetProperty("shortest_edge", out var shortest) => config with { ResizeMode = ImageResizeMode.ShortestEdge, ShortestEdge = shortest.GetInt32() },
                 _ when size.TryGetProperty("longest_edge", out var longest) => config with { ResizeMode = ImageResizeMode.LongestEdge, LongestEdge = longest.GetInt32() },

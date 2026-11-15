@@ -39,6 +39,8 @@ public static class TaskServiceCollectionExtensions
                 services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageClassification, typeof(IImageClassifier)));
                 services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageEmbedding, typeof(IImageEmbedder)));
                 services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageClassification, typeof(IImageEmbedder)));
+                services.AddSingleton<ITaskClientFactory>(new ObjectDetectorFactory());
+                services.AddSingleton<ITaskClientFactory>(new DepthEstimatorFactory());
             }
 
             return services;
@@ -126,6 +128,18 @@ public static class TaskServiceCollectionExtensions
         /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
         public IServiceCollection AddImageEmbedder(Action<TaskLoadOptions> configure, object? serviceKey = null)
             => services.AddTaskClient<IImageEmbedder>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IObjectDetector"/> for one model (see <see cref="AddTaskClient{TClient}"/>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        public IServiceCollection AddObjectDetector(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IObjectDetector>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IDepthEstimator"/> for one model (see <see cref="AddTaskClient{TClient}"/>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        public IServiceCollection AddDepthEstimator(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IDepthEstimator>(configure, serviceKey);
 
         /// <summary>Adds an <see cref="IImageGenerator"/> for one model (see <see cref="AddTaskClient{TClient}"/>).</summary>
         /// <param name="configure">Configures the model path, devices and compile settings.</param>

@@ -3,7 +3,6 @@ using System.Text.Json.Nodes;
 using Sharplight.Graph;
 using Sharplight.Imaging;
 using Sharplight.Models;
-using Sharplight.Tensors;
 
 namespace Sharplight.Architectures;
 
@@ -50,8 +49,6 @@ public sealed class ImageEncoderAdapter : IModelAdapter
         float eps = src.Arch("norm_eps", 1e-6f);
         string act = src.Arch("mlp.activation", "gelu");
         string pooling = src.Arch("pooling", "cls");
-        int head = hidden / heads;
-        int grid = imageSize / patch;
         bool classifier = src.Weight("classifier.out.weight") is not null;
         var graph = BuildGraph();
 
@@ -98,79 +95,7 @@ public sealed class ImageEncoderAdapter : IModelAdapter
             Description = description,
         };
 
-        ComputeGraph BuildGraph()
-        {
-            var b = new GraphBuilder(WellKnown.ImageEncodeGraph, src.Weight);
-            int n = grid * grid;
-            var patches = b.Input("patches", InputRole.Media, DataType.F32, new Shape(n, 3 * patch * patch));
-            Value x;
-            using (b.Group("embedding"))
-            {
-                x = b.Linear(patches, "patch_embed.weight", "patch_embed.bias", "patch_embd");
-                var cls = b.Reshape(b.Weight("class_embedding"), 1, hidden);
-                x = b.Concat(0, cls, x);
-                x = b.Add(x, b.Weight("position_embedding.weight"), "inp_pos_embd");
-                if (registers > 0)
-                {
-                    x = b.Concat(0, b.Slice(x, 0, 0, 1), b.Weight("register_embedding.weight"), b.Slice(x, 0, 1, n));
-                }
-            }
-
-            int rows = 1 + registers + n;
-            for (int il = 0; il < layers; il++)
-            {
-                using var _ = b.Group($"layers.{il}");
-                string p = $"layers.{il}.";
-                var h = LayerNorm(b, x, p + "input_norm");
-                var q = b.Reshape(b.Linear(h, p + "attention.q.weight", p + "attention.q.bias"), rows, heads, head);
-                var k = b.Reshape(b.Linear(h, p + "attention.k.weight", p + "attention.k.bias"), rows, heads, head);
-                var v = b.Reshape(b.Linear(h, p + "attention.v.weight", p + "attention.v.bias"), rows, heads, head);
-                var attn = b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(head)), ("causal", false)), $"{p}attn");
-                var o = b.Linear(b.Reshape(attn, rows, hidden), p + "attention.o.weight", p + "attention.o.bias");
-                x = b.Add(x, Scaled(b, o, p + "layer_scale_1.weight"), $"{p}attn_residual");
-                h = LayerNorm(b, x, p + "post_attention_norm");
-                var mlp = b.Linear(Activation(b, b.Linear(h, p + "mlp.up.weight", p + "mlp.up.bias")), p + "mlp.down.weight", p + "mlp.down.bias");
-                x = b.Add(x, Scaled(b, mlp, p + "layer_scale_2.weight"), $"{p}l_out");
-            }
-
-            using (b.Group("output"))
-            {
-                x = LayerNorm(b, x, "output_norm");
-                Value pooled;
-                if (pooling == "mean")
-                {
-                    var patchRows = b.Slice(x, 0, 1 + registers, n);
-                    var sum = b.Emit1("ReduceSum", [b.Contiguous(b.Permute(patchRows, 1, 0))]);
-                    pooled = b.Reshape(b.Scale(sum, 1f / n), 1, hidden);
-                }
-                else
-                {
-                    pooled = b.Slice(x, 0, 0, 1);
-                }
-
-                b.Output(WellKnown.PooledOutput, pooled);
-                if (classifier)
-                {
-                    b.Output(WellKnown.LogitsOutput, b.Linear(pooled, "classifier.out.weight", "classifier.out.bias", "logits"));
-                }
-            }
-
-            return b.Build();
-        }
-
-        Value LayerNorm(GraphBuilder b, Value v, string name)
-            => b.Emit1("LayerNorm", [v, b.Weight(name + ".weight"), b.Weight(name + ".bias")], Attributes.From(("eps", eps)));
-
-        Value Scaled(GraphBuilder b, Value v, string scale) => b.HasWeight(scale) ? b.Mul(v, b.Weight(scale)) : v;
-
-        Value Activation(GraphBuilder b, Value t) => act switch
-        {
-            "gelu" => b.Unary("Gelu", t),
-            "gelu_tanh" => b.Unary("GeluTanh", t),
-            "quick_gelu" => b.Mul(t, b.Sigmoid(b.Scale(t, 1.702f))),
-            "relu" => b.Unary("Relu", t),
-            "silu" => b.Silu(t),
-            _ => throw new NotSupportedException($"vit: unknown mlp.activation '{act}'."),
-        };
+        ComputeGraph BuildGraph() => ImageTowerGraph.Build(WellKnown.ImageEncodeGraph, src, new ImageTowerOptions(
+            new TowerOptions(layers, hidden, heads, eps, act, ""), patch, imageSize, registers, pooling));
     }
 }
