@@ -213,6 +213,13 @@ internal static partial class HfTokenizerTranslator
             return "flint";
         }
 
+        // MiniCPM 5: digit groups, then the Llama 3 word expression with digit runs.
+        if (regexes.Count == 2 && regexes[0] == @"\p{N}{1,3}"
+            && regexes[1] == @"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}+| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+")
+        {
+            return "minicpm5";
+        }
+
         foreach (var regex in regexes)
         {
             foreach (var (preset, known) in s_knownRegexes)

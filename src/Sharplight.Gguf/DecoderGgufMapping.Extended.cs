@@ -9,7 +9,7 @@ namespace Sharplight.Gguf;
 /// </summary>
 internal sealed partial class DecoderGgufMapping
 {
-    private static bool IsExtended(string architecture) => architecture is "gemma4" or "gemma3n" or "muse-glimmer";
+    private static bool IsExtended(string architecture) => architecture is "gemma4" or "gemma3n" or "muse-glimmer" or "gemma-embedding2";
 
     /// <summary>Per-layer tensors of the extended architectures, GGUF suffix to canonical suffix.</summary>
     private static readonly Dictionary<string, string> s_extended = new(StringComparer.Ordinal)
@@ -169,6 +169,26 @@ internal sealed partial class DecoderGgufMapping
         }
 
         GgufMappingHelpers.AddContextLength(md, a, g);
+        return md;
+    }
+
+    /// <summary>
+    /// llama.cpp <c>gemma-embedding2</c> (EmbeddingGemma 2): the Gemma 4 layers (per-layer head sizes and key/value heads, unscaled attention, v norm,
+    /// per-layer embeddings from the projection of the token embeddings alone, layer scalars) with bidirectional attention, sliding layers within a
+    /// symmetric window of <c>attention.sliding_window</c> keys, the pooling of <c>pooling_type</c> and <c>output.weight</c> as the projection to
+    /// the embedding size.
+    /// </summary>
+    private IReadOnlyDictionary<string, object> EmbeddingGemma2Hyper(GgufMetadataView g)
+    {
+        var md = new Dictionary<string, object>(Gemma4Hyper(g), StringComparer.Ordinal);
+        string a = Architecture + ".";
+        md[a + "attention.causal"] = false;
+        md[a + "attention.sliding_window"] = GgufMappingHelpers.SymmetricWindow(g.Int("attention.sliding_window"));
+        if (GgufMappingHelpers.Pooling(g) is { } pooling and not "none")
+        {
+            md[CanonicalKeys.EmbeddingPooling] = pooling;
+        }
+
         return md;
     }
 

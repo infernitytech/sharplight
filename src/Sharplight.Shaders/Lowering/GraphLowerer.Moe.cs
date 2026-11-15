@@ -61,14 +61,17 @@ public sealed partial class GraphLowerer
     }
 
     // Routing (expert tiles + sorted items) is shared by the MatMulIds of one expert block (same ids, same E, same tiling: the
-    // tensor-core path depends on K, so the projections of one block may tile differently).
+    // tensor-core path depends on K, so the projections of one block may tile differently) that also run their grouped GEMMs for
+    // the same batches: the same matvec bound (an int-dot gate / up serves up to 128 items per step, a down projection in a format
+    // without int-dot only 16, and reusing the gate's routing left the down GEMM without one for 17-128 items) under the same
+    // launch condition.
     private BufferDecl? _moeScratch;
-    private (Value Ids, long E, long MaxTiles, bool Coop)? _moeRouted;
+    private (Value Ids, long E, long MaxTiles, bool Coop, long MatvecMaxItems, object? Condition)? _moeRouted;
 
     // Expert-sorted f16 copy of the activations of the grouped GEMMs, shared by the MatMulIds that read the same x with the same
     // routing (gate and up of an expert block).
     private BufferDecl? _moeHalfActivations;
-    private (Value X, Value Ids, long MaxTiles)? _moeGathered;
+    private (Value X, Value Ids, long MaxTiles, long MatvecMaxItems, object? Condition)? _moeGathered;
 
     /// <summary>
     /// Emits (once per activations and routing) the gather of the routed rows of x into expert-sorted f16 rows and returns them
@@ -81,7 +84,8 @@ public sealed partial class GraphLowerer
         _moeHalfActivations ??= NewBuffer(BufferKind.Activations, "moe-x16", 0);
         _moeHalfActivations.Bytes = Math.Max(_moeHalfActivations.Bytes, maxItems * K * 2);
         var half = new TensorRef(_moeHalfActivations, 0, DataType.F16, [maxItems, K], [K, 1], null);
-        if (_moeGathered is { } g && g.X == n.Inputs[0] && g.Ids == n.Inputs[2] && g.MaxTiles == maxTiles)
+        if (_moeGathered is { } g && g.X == n.Inputs[0] && g.Ids == n.Inputs[2] && g.MaxTiles == maxTiles && g.MatvecMaxItems == matvecMaxItems
+            && ReferenceEquals(g.Condition, _launchCondition))
         {
             return half;
         }
@@ -92,7 +96,7 @@ public sealed partial class GraphLowerer
                 b => new Grid(Grid.Div(t * K / 8, 256), tiles(b))))],
             [Pointer(x), scratchArg, Pointer(half), TokenArg(ids)],
             [x, scratch], [half]);
-        _moeGathered = (n.Inputs[0], n.Inputs[2], maxTiles);
+        _moeGathered = (n.Inputs[0], n.Inputs[2], maxTiles, matvecMaxItems, _launchCondition);
         return half;
     }
 
@@ -318,7 +322,8 @@ public sealed partial class GraphLowerer
         Func<Bindings, uint> tiles = b => (uint)Math.Max(1, Math.Min(items(b), items(b) / tile(b) + E));
         var scratchArg = new PointerArg(_moeScratch, 0);
 
-        if (_moeRouted is not { } r || r.Ids != n.Inputs[2] || r.E != E || r.MaxTiles != maxTiles || r.Coop != coop)
+        if (_moeRouted is not { } r || r.Ids != n.Inputs[2] || r.E != E || r.MaxTiles != maxTiles || r.Coop != coop || r.MatvecMaxItems != mv
+            || !ReferenceEquals(r.Condition, _launchCondition))
         {
             int[] tiling = coop ? coopTiles : [64];
             Emit($"moe-route {n.Inputs[2].Name} [{E} experts]", [n],
@@ -327,7 +332,7 @@ public sealed partial class GraphLowerer
                     _ => new Grid(1)))],
                 [Pointer(ids), scratchArg, TokenArg(ids)],
                 [ids], [scratch]);
-            _moeRouted = (n.Inputs[2], E, maxTiles, coop);
+            _moeRouted = (n.Inputs[2], E, maxTiles, coop, mv, _launchCondition);
         }
 
         var gm = new Dictionary<string, string>(m) { ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture) };

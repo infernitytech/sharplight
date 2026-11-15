@@ -9,7 +9,11 @@ namespace Sharplight.Gguf;
 /// Every step of the mapping ran on the header; false when a step needs tensor data or the architecture has no mapping, so an empty
 /// <paramref name="Problems"/> does not prove that the import succeeds.
 /// </param>
-public sealed record GgufImportCheck(IReadOnlyList<string> Problems, bool IsComplete)
+/// <param name="IsDraftModel">
+/// The file holds only the draft layers of another model (e.g. the multi-token-prediction layers of a split <c>MTP/</c> file), so it is
+/// loaded as that model's draft source, not on its own; <paramref name="Problems"/> then says so.
+/// </param>
+public sealed record GgufImportCheck(IReadOnlyList<string> Problems, bool IsComplete, bool IsDraftModel = false)
 {
     /// <summary>No problem was found and every step was checked.</summary>
     public bool IsAccepted => Problems.Count == 0 && IsComplete;

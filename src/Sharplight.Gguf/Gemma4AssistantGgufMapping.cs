@@ -20,6 +20,9 @@ internal sealed class Gemma4AssistantGgufMapping : IGgufArchitectureMapping
     public string Architecture => "shared_kv_draft";
 
     /// <inheritdoc/>
+    public bool IsDraftModel => true;
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         string decoderPrefix = s_layers.Architecture + ".";

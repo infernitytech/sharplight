@@ -38,6 +38,13 @@ public static class GgufSupport
     public static bool IsProjector(string? ggufArchitecture) => GgufArchitectureMappings.Find(ggufArchitecture)?.IsProjector == true;
 
     /// <summary>
+    /// Files of this architecture are speculative-decoding drafters (EAGLE-3, Gemma 4 assistants, e.g. the <c>MTP/</c> files of a GGUF repository):
+    /// they are loaded as the draft source of the model they were trained for, not as models of their own.
+    /// </summary>
+    /// <param name="ggufArchitecture">The <c>general.architecture</c> value.</param>
+    public static bool IsDraftModel(string? ggufArchitecture) => GgufArchitectureMappings.Find(ggufArchitecture)?.IsDraftModel == true;
+
+    /// <summary>
     /// The element type of a ggml tensor type id, or null when the id is unknown to this version (or was removed from ggml); files
     /// with such tensors do not import. A known type may still lack compute kernels (e.g. <c>Q8_K</c>, an activation-only type).
     /// </summary>
@@ -63,6 +70,15 @@ public static class GgufSupport
         if (GgufArchitectureMappings.Find(architecture) is not { } mapping)
         {
             return new GgufImportCheck([$"GGUF architecture '{architecture}' has no canonical mapping."], IsComplete: true);
+        }
+
+        // A split model declares the tensor count of all its shards: fewer entries mean a shard is missing (an incomplete upload).
+        if (metadata.GetValueOrDefault("split.tensors.count") is IConvertible declared && Convert.ToInt64(declared, System.Globalization.CultureInfo.InvariantCulture) is var total
+            && tensors.Count < total)
+        {
+            string shards = metadata.GetValueOrDefault("split.count") is IConvertible count ? $"{Convert.ToInt64(count, System.Globalization.CultureInfo.InvariantCulture)} files" : "several files";
+            return new GgufImportCheck([$"The model is split into {shards} holding {total} tensors, but the files present hold {tensors.Count}: a shard is missing."],
+                IsComplete: true);
         }
 
         var infos = new List<GgufTensorInfo>(tensors.Count);
@@ -91,6 +107,7 @@ public static class GgufSupport
         }
 
         var view = new GgufMetadataView(metadata, architecture, name => byName.GetValueOrDefault(name));
+        bool nextnOnly = GgufTensorNames.HoldsOnlyNextnBlocks(byName.Keys, view);   // an mtp-*.gguf draft file, whatever its mapping imports
         try
         {
             if (mapping.Validate(view).ToList() is { Count: > 0 } problems)
@@ -98,7 +115,14 @@ public static class GgufSupport
                 return new GgufImportCheck(problems, IsComplete: true);
             }
 
-            GgufImporter.Map("", metadata, infos, mapping, view);
+            var (_, _, weights) = GgufImporter.Map("", metadata, infos, mapping, view);
+            if (IsDraftLayersOnly(weights.Keys))
+            {
+                return new GgufImportCheck(
+                    ["The file holds only multi-token-prediction layers (an MTP draft file): it is loaded as the draft source of the model it was made for."],
+                    IsComplete: true, IsDraftModel: true);
+            }
+
             return new GgufImportCheck([], IsComplete: true);
         }
         catch (GgufHeaderOnlyDataException)
@@ -108,7 +132,24 @@ public static class GgufSupport
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             // Every other failure of these steps fails the import the same way.
-            return new GgufImportCheck([error.Message.TrimStart(':', ' ')], IsComplete: true);
+            return new GgufImportCheck([error.Message.TrimStart(':', ' ')], IsComplete: true, IsDraftModel: nextnOnly);
         }
+    }
+
+    /// <summary>Canonical weights with multi-token-prediction layers (<c>mtp.layers.*</c>) but no trunk layers (<c>layers.*</c>).</summary>
+    private static bool IsDraftLayersOnly(IEnumerable<string> canonicalNames)
+    {
+        bool draft = false;
+        foreach (string name in canonicalNames)
+        {
+            if (name.StartsWith("layers.", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            draft |= name.StartsWith("mtp.layers.", StringComparison.Ordinal);
+        }
+
+        return draft;
     }
 }

@@ -1,6 +1,7 @@
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Tensors;
+using Sharplight.Vision;
 
 namespace Sharplight.Architectures;
 
@@ -26,6 +27,27 @@ public static class MtpDraftHead
 {
     private const string FirstModule = "mtp.layers.0.";
     private static readonly string[] s_moduleWeights = ["fc.weight", "embedding_norm.weight", "hidden_norm.weight", "output_norm.weight"];
+
+    /// <summary>
+    /// True for a source with multi-token-prediction layers (<c>mtp.layers.*</c>) but no trunk layers (<c>layers.*</c>): the NextN
+    /// layers of a model stored on their own (an <c>mtp-*</c> draft file).
+    /// </summary>
+    /// <param name="source">The source.</param>
+    public static bool IsSidecar(ModelSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return source.Weights.Keys.Any(k => k.StartsWith("mtp.layers.", StringComparison.Ordinal))
+               && !source.Weights.Keys.Any(k => k.StartsWith("layers.", StringComparison.Ordinal));
+    }
+
+    /// <summary>The error for an MTP draft file loaded as a model of its own (see <see cref="IsSidecar"/>).</summary>
+    /// <param name="source">The draft file.</param>
+    public static NotSupportedException SidecarAsModelError(ModelSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return new NotSupportedException($"'{source.Path}' holds only multi-token-prediction layers (an MTP draft file), not a model of its own: "
+            + $"load it as the '{AuxiliaryRoles.Draft}' auxiliary source of the model it was made for.");
+    }
 
     /// <summary>True when <paramref name="lookup"/> has the shared MTP weights (fc and the two input norms).</summary>
     public static bool IsPresent(Func<string, WeightInfo?> lookup)

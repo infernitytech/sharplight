@@ -1,16 +1,17 @@
 """Writes a header-only GGUF fixture: the metadata and the complete tensor table of a GGUF file, without tensor data.
 
-Usage: python make-gguf-header-fixture.py <model.gguf> <out.gguf>
+Usage: python make-gguf-header-fixture.py <model.gguf> [<shard 2.gguf> ...] <out.gguf>
 
 The tokenizer arrays (tokens, scores, token types, merges) and the chat template are replaced by empty values, so the fixture of a
 multi-gigabyte model is a few tens of kilobytes; every other key and every tensor entry (name, dimensions, type, offset) is copied
-unchanged. Compatibility and importer-mapping tests read such fixtures with GgufHeaderProbe, as Studio reads the start of a file
+unchanged. For a split model, pass every shard: the fixture has the first shard's metadata and the tensor entries of all shards
+(offsets as in their own shards), as the compatibility check sees the model. Compatibility and importer-mapping tests read such fixtures with GgufHeaderProbe, as Studio reads the start of a file
 on the Hub before downloading it.
 """
 import struct
 import sys
 
-source, target = sys.argv[1], sys.argv[2]
+sources, target = sys.argv[1:-1], sys.argv[-1]
 EMPTIED = {"tokenizer.ggml.tokens", "tokenizer.ggml.scores", "tokenizer.ggml.token_type", "tokenizer.ggml.merges", "tokenizer.chat_template"}
 SCALAR = {0: "B", 1: "b", 2: "H", 3: "h", 4: "I", 5: "i", 6: "f", 7: "?", 10: "Q", 11: "q", 12: "d"}
 
@@ -37,27 +38,36 @@ def empty_value(kind, raw):
     return raw
 
 
-with open(source, "rb") as f:
-    magic, version = f.read(4), f.read(4)
-    assert magic == b"GGUF", "not a GGUF file"
-    tensor_count, kv_count = struct.unpack("<QQ", f.read(16))
-    pairs = []
-    for _ in range(kv_count):
-        key_length = f.read(8)
-        key = f.read(struct.unpack("<Q", key_length)[0])
-        kind_bytes = f.read(4)
-        kind = struct.unpack("<I", kind_bytes)[0]
-        raw = read_value(f, kind)
-        if key.decode() in EMPTIED:
-            raw = empty_value(kind, raw)
-        pairs.append(key_length + key + kind_bytes + raw)
-    tensors = []
-    for _ in range(tensor_count):
-        name_length = f.read(8)
-        name = f.read(struct.unpack("<Q", name_length)[0])
-        dimensions = f.read(4)
-        dims = f.read(8 * struct.unpack("<I", dimensions)[0])
-        tensors.append(name_length + name + dimensions + dims + f.read(4 + 8))
+def read_header(source):
+    """The magic, version, metadata entries and tensor entries of one file."""
+    with open(source, "rb") as f:
+        magic, version = f.read(4), f.read(4)
+        assert magic == b"GGUF", "not a GGUF file"
+        tensor_count, kv_count = struct.unpack("<QQ", f.read(16))
+        pairs = []
+        for _ in range(kv_count):
+            key_length = f.read(8)
+            key = f.read(struct.unpack("<Q", key_length)[0])
+            kind_bytes = f.read(4)
+            kind = struct.unpack("<I", kind_bytes)[0]
+            raw = read_value(f, kind)
+            if key.decode() in EMPTIED:
+                raw = empty_value(kind, raw)
+            pairs.append(key_length + key + kind_bytes + raw)
+        tensors = []
+        for _ in range(tensor_count):
+            name_length = f.read(8)
+            name = f.read(struct.unpack("<Q", name_length)[0])
+            dimensions = f.read(4)
+            dims = f.read(8 * struct.unpack("<I", dimensions)[0])
+            tensors.append(name_length + name + dimensions + dims + f.read(4 + 8))
+    return magic, version, pairs, tensors
+
+
+magic, version, pairs, tensors = read_header(sources[0])
+for shard in sources[1:]:
+    tensors += read_header(shard)[3]
+kv_count, tensor_count = len(pairs), len(tensors)
 
 with open(target, "wb") as out:
     out.write(magic + version + struct.pack("<QQ", tensor_count, kv_count))

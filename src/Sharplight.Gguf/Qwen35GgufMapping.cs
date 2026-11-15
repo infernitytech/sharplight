@@ -256,6 +256,12 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
             return [];
         }
 
+        // The released Clef-Flash files store the one-output scorer as a vector [W] (the converter dropped the unit dimension): one row [1, W].
+        if (gguf.GgufArchitecture == ClefGgufHead.Architecture && ggufName == "decision.scorer_out.weight" && tensor.Shape.Rank == 1)
+        {
+            return [tensor.As("span_head.scorer_out.weight", new Shape(1, tensor.Shape[0].Fixed))];
+        }
+
         foreach (var (fused, first, second, secondRowsKey) in s_fused)
         {
             if (ggufName.Contains(fused, StringComparison.Ordinal))

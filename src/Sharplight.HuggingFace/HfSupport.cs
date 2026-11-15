@@ -56,6 +56,13 @@ public static class HfSupport
     public static string? GetPartialSupportNote(string? modelType) => HfArchitectureMappings.Find(modelType)?.PartialSupport(modelType!);
 
     /// <summary>
+    /// Checkpoints of this model type are speculative-decoding drafters (EAGLE-3, Gemma 4 assistants): they are loaded as the draft source of the
+    /// model they were trained for, not as models of their own.
+    /// </summary>
+    /// <param name="modelType">The <c>model_type</c> (see <see cref="GetModelType"/>).</param>
+    public static bool IsDraftModel(string? modelType) => HfArchitectureMappings.Find(modelType)?.IsDraftModel == true;
+
+    /// <summary>
     /// The checkpoint's quantization method and whether the importer reads it. Read: FP8 (<c>fp8</c> block scales, compressed-tensors
     /// with 8-bit float weights, ModelOpt <c>FP8</c>) and <c>mxfp4</c> for gpt-oss. Not read: integer and 4-bit packed formats (GPTQ, AWQ,
     /// bitsandbytes, MLX, compressed-tensors with integer or 4-bit weights, ModelOpt NVFP4, ...).
