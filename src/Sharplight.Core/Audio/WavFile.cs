@@ -176,13 +176,13 @@ public static class WavFile
             switch (format)
             {
                 case WavSampleFormat.Pcm16:
-                    BinaryPrimitives.WriteInt16LittleEndian(data[(i * 2)..], (short)Math.Round(clipped * short.MaxValue));
+                    BinaryPrimitives.WriteInt16LittleEndian(data[(i * 2)..], (short)Quantize(clipped, 32768.0));
                     break;
                 case WavSampleFormat.Pcm24:
-                    WritePcm24(data[(i * 3)..], (int)Math.Round(clipped * 8388607f));
+                    WritePcm24(data[(i * 3)..], (int)Quantize(clipped, 8388608.0));
                     break;
                 case WavSampleFormat.Pcm32:
-                    BinaryPrimitives.WriteInt32LittleEndian(data[(i * 4)..], (int)Math.Round(clipped * (double)int.MaxValue));
+                    BinaryPrimitives.WriteInt32LittleEndian(data[(i * 4)..], (int)Quantize(clipped, 2147483648.0));
                     break;
                 default:
                     BinaryPrimitives.WriteSingleLittleEndian(data[(i * 4)..], samples[i]);
@@ -190,6 +190,12 @@ public static class WavFile
             }
         }
     }
+
+    /// <summary>
+    /// Scales a sample in [-1, 1] by <paramref name="scale"/> (2^(bits-1), the divisor reading uses, so a round trip only adds the
+    /// rounding error) and clamps to the integer range, where +1 maps to the largest positive value.
+    /// </summary>
+    private static long Quantize(float sample, double scale) => (long)Math.Clamp(Math.Round(sample * scale), -scale, scale - 1);
 
     private static void WritePcm24(Span<byte> destination, int value)
     {

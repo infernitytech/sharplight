@@ -30,7 +30,7 @@ public sealed class TaskModel : IDisposable
     private const long DefaultReserve = 1L << 30;
     private bool _disposed;
 
-    private TaskModel(ModelDefinition definition, ModelSource source, TaskLoadOptions options)
+    internal TaskModel(ModelDefinition definition, ModelSource source, TaskLoadOptions options)
     {
         Definition = definition;
         Source = source;
