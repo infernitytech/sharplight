@@ -213,6 +213,39 @@ second graph of the `text-encoder` component whose pooled embedding and the size
 pipeline (`LatentDiffusionGeneratorFactory`, registered by `AddSharplightTasks()`) serves every model whose graphs follow
 `DiffusionGraphs`; a family with another pipeline registers its own factory.
 
+FLUX.1 (schnell, dev and fine-tunes) is the second family on the same pipeline: the importer translates diffusers folders,
+original-name single files and transformer-only GGUF files (city96 / stable-diffusion.cpp) into the canonical `flux` source and
+`FluxAdapter` builds the MMDiT transformer (dual- and single-stream blocks, 3-axis RoPE, modulation), the T5 encoder, the CLIP
+encoder (pooled embedding only) and the 16-channel VAE from generic Core ops (components `text-encoder`, `text-encoder-2`,
+`tokenizer`, `tokenizer-2`, `denoiser`, `vae`, `scheduler`). The scheduler component describes a rectified-flow schedule
+(`predictionType: flow`, static or resolution-dependent shift), which the pipeline samples with `FlowMatchEulerSampler` (the
+`euler` sampler of flow models); the transformer takes the pooled embedding and, for guidance-distilled models, the guidance scale
+as inputs (`DiffusionGraphs.Guidance`), and the model turns classifier-free guidance off (`DiffusionConfigKeys.ClassifierFreeGuidance`).
+The denoiser is built for one row; the pipeline runs a guided step row by row for such denoisers. The same contract fits the
+other DiTs (SD3, Chroma, Qwen-Image; video DiTs add a frame axis to the latents).
+
+Transformer-only checkpoints need companion files, given as auxiliary sources by role (`AuxiliaryRoles.TextEncoder` = CLIP-L,
+`AuxiliaryRoles.SecondTextEncoder` = T5-XXL as GGUF or safetensors, `AuxiliaryRoles.Vae`); `FluxCompanionAdapter` merges them into
+the canonical source, so the model is rebuilt for other sizes and saved as one `.slm` like a complete checkpoint. Roles the caller
+leaves out are filled with the files the importer finds beside the transformer (`IModelImporter.FindCompanions`, also offered as
+`ModelImporterCatalog.FindCompanions` for UIs):
+
+```csharp
+using var model = TaskModel.Load(loader, new TaskLoadOptions
+{
+    ModelPath = "flux1-schnell-Q8_0.gguf",
+    Auxiliary = new Dictionary<string, string>
+    {
+        [AuxiliaryRoles.TextEncoder] = "clip_l.safetensors",
+        [AuxiliaryRoles.SecondTextEncoder] = "t5-v1_1-xxl-encoder-Q8_0.gguf",
+        [AuxiliaryRoles.Vae] = "ae.safetensors",
+    },
+    Devices = [slot],
+});
+using var generator = clients.Create<IImageGenerator>(model);
+var result = await generator.GenerateAsync(new ImageGenerationRequest { Prompt = "a lighthouse at dusk" });   // 4 steps, 1024 × 1024
+```
+
 ```csharp
 var services = new ServiceCollection()
     .AddSharplight()
@@ -232,17 +265,20 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
 }
 ```
 
-- Samplers (`Samplers`): `euler`, `euler-karras`, `euler-ancestral`, `ddim`, `pndm`, `dpm++2m`, `dpm++2m-karras`; each follows the
-  diffusers scheduler step by step and is configured from the model's `scheduler` component (`NoiseSchedule`: betas, prediction type,
+- Samplers (`Samplers`): `euler`, `euler-karras`, `euler-ancestral`, `ddim`, `pndm`, `dpm++2m`, `dpm++2m-karras` (flow models:
+  `euler`, diffusers' `FlowMatchEulerDiscreteScheduler`); each follows the diffusers scheduler step by step and is configured from the model's `scheduler` component (`NoiseSchedule`: betas, prediction type,
   timestep spacing, offset; the original scheduler configuration is kept as the attachment `scheduler/source-config.json`). The
   default is the sampler the model was published with.
 - Classifier-free guidance runs on the host: the negative prompt (or the empty prompt) and the prompt are one batched denoiser run
-  per step. Image i of a request uses `Seed + i`; the noise is a counter-based Gaussian stream, identical on every machine and
+  per step (two runs for denoisers built for one row). Guidance-distilled models take the scale as a denoiser input instead, and
+  models without either (FLUX.1-schnell) ignore it.
+- Memory: when the weights take more than 80 % of the device memory (FLUX's bf16 files on a 32 GB GPU), the text encoders are
+  released after encoding a request's prompts and compiled again for the next one. Image i of a request uses `Seed + i`; the noise is a counter-based Gaussian stream, identical on every machine and
   provider. `ImageGenerationOptions.InitialNoise` replaces it (reproducing another implementation's run).
 - Image-to-image: `ImageGenerationRequest.Image` with `Strength`; inpainting: plus `Mask` (white = regenerate; the input is
   re-imposed outside the mask after every step).
-- Sizes: the graphs are built for the native size (512×512 for SD 1.x, 768×768 for SD 2.x 768-v, 1024×1024 for SDXL) and stored
-  that way in `.slm`; another `Width` / `Height` (multiples of 64) rebuilds the model once per size through
+- Sizes: the graphs are built for the native size (512×512 for SD 1.x, 768×768 for SD 2.x 768-v, 1024×1024 for SDXL and FLUX) and stored
+  that way in `.slm`; another `Width` / `Height` (multiples of 64; FLUX: of 16) rebuilds the model once per size through
   `TaskModel.DefinitionFor(dimensions)` (the adapter rebuilds from the canonical metadata and weights, so `.slm` packages work too).
 - Classifier-free guidance with SDXL: without a negative prompt the unconditional row is all zeros (the model's
   `force_zeros_for_empty_prompt`); an explicit `NegativePrompt = ""` encodes the empty prompt.

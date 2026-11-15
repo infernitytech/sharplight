@@ -200,7 +200,7 @@ internal static class ComponentCheckpoint
         }
         else
         {
-            T5Vocabulary.WriteTo(metadata);
+            T5Vocabulary.WriteTo(metadata, hfConfig);
         }
 
         return new ModelSource
@@ -229,7 +229,7 @@ internal static class ComponentCheckpoint
         long heads = bias[1];
         bool gated = tensors.ContainsKey("encoder.block.0.layer.1.DenseReluDense.wi_0.weight");
         return string.Create(CultureInfo.InvariantCulture,
-            $$"""{"model_type": "t5", "architectures": ["T5EncoderModel"], "d_model": {{q[1]}}, "num_layers": {{layers}}, "num_heads": {{heads}}, "d_kv": {{q[0] / heads}}, "d_ff": {{up[0]}}, "feed_forward_proj": "{{(gated ? "gated-gelu" : "relu")}}", "layer_norm_epsilon": 1e-6, "relative_attention_num_buckets": {{bias[0]}}, "relative_attention_max_distance": 128, "vocab_size": 32128}""");
+            $$"""{"model_type": "t5", "architectures": ["T5EncoderModel"], "d_model": {{q[1]}}, "num_layers": {{layers}}, "num_heads": {{heads}}, "d_kv": {{q[0] / heads}}, "d_ff": {{up[0]}}, "feed_forward_proj": "{{(gated ? "gated-gelu" : "relu")}}", "layer_norm_epsilon": 1e-6, "relative_attention_num_buckets": {{bias[0]}}, "relative_attention_max_distance": 128, "vocab_size": 32128, "eos_token_id": 1, "pad_token_id": 0}""");
     }
 
     private static JsonElement ReadJson(string path)

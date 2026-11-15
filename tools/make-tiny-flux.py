@@ -15,6 +15,9 @@ Written to OUT/{variant} (default OUT ~/models/flux/tiny-random-flux):
   single/flux-Q8_0.gguf        the same as a transformer-only GGUF (city96 layout: matrices Q8_0, the rest F16)
   reference/*.f32              raw little-endian f32 reference tensors, described by reference/index.json
 
+The CLIP encoder (one 64-wide head), the T5 encoder and the VAE (32 groups) have shapes from which a configuration-less copy of their
+files is configured correctly (the layout transformer-only checkpoints come with).
+
 The Q8_0 references (transformer_q8_out, q8_image) come from the diffusers transformer with the dequantized GGUF weights.
 Requires torch, diffusers, transformers, safetensors and gguf. The tokenizers come from --tokenizers (a FLUX.1 diffusers folder
 with tokenizer/ and tokenizer_2/) or the Hugging Face hub.
@@ -57,13 +60,13 @@ def build_models(guidance):
     torch.manual_seed(0 if guidance else 1)
     transformer = FluxTransformer2DModel(
         patch_size=1, in_channels=64, num_layers=2, num_single_layers=2, attention_head_dim=32, num_attention_heads=2,
-        joint_attention_dim=32, pooled_projection_dim=32, guidance_embeds=guidance, axes_dims_rope=(4, 14, 14))
+        joint_attention_dim=32, pooled_projection_dim=64, guidance_embeds=guidance, axes_dims_rope=(4, 14, 14))
     vae = AutoencoderKL(
-        in_channels=3, out_channels=3, latent_channels=16, layers_per_block=2, norm_num_groups=8, block_out_channels=(16, 16, 32, 32),
+        in_channels=3, out_channels=3, latent_channels=16, layers_per_block=2, norm_num_groups=32, block_out_channels=(32, 32, 64, 64),
         down_block_types=("DownEncoderBlock2D",) * 4, up_block_types=("UpDecoderBlock2D",) * 4, scaling_factor=0.3611, shift_factor=0.1159,
         use_quant_conv=False, use_post_quant_conv=False)
     text = CLIPTextModel(CLIPTextConfig(
-        vocab_size=49408, hidden_size=32, intermediate_size=64, num_attention_heads=4, num_hidden_layers=2, max_position_embeddings=77,
+        vocab_size=49408, hidden_size=64, intermediate_size=128, num_attention_heads=1, num_hidden_layers=2, max_position_embeddings=77,
         hidden_act="quick_gelu", bos_token_id=0, eos_token_id=2, pad_token_id=1))
     text_2 = T5EncoderModel(T5Config(
         vocab_size=32128, d_model=32, d_kv=8, d_ff=64, num_layers=2, num_heads=4, feed_forward_proj="gated-gelu",
@@ -270,7 +273,7 @@ def make_variant(out, variant, tokenizers):
         lh, lw = HEIGHT // 8, WIDTH // 8
         latent = torch.randn(1, 16, lh, lw, generator=g)
         context = torch.randn(1, context_length, 32, generator=g)
-        pooled = torch.randn(1, 32, generator=g)
+        pooled = torch.randn(1, 64, generator=g)
         timestep = torch.tensor([0.7317])
         img_ids = FluxPipeline._prepare_latent_image_ids(1, lh // 2, lw // 2, "cpu", torch.float32)
         txt_ids = torch.zeros(context_length, 3)

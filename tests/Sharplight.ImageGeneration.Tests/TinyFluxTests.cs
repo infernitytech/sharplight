@@ -44,6 +44,8 @@ public sealed class TinyFluxTests
         });
     }
 
+    public static TheoryData<string> Devices => ["cpu", "vulkan"];
+
     public static TheoryData<string, string, string> Cases()
     {
         var data = new TheoryData<string, string, string>();
@@ -107,7 +109,9 @@ public sealed class TinyFluxTests
 
         var prediction = GraphRunner.Run(model, ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, DiffusionGraphs.Prediction, 1, dims, [.. inputs]);
         var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor(variant, source == "gguf" ? "transformer_q8_out" : "transformer_out"));
-        Assert.True(transformerRms < 1e-4, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
+        // Q8_0 matrices: the backends' integer dot products quantize the activations as well (llama.cpp's convention).
+        double tolerance = source == "gguf" ? 5e-3 : 1e-4;
+        Assert.True(transformerRms < tolerance, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
 
         const float scaling = 0.3611f;
         const float shift = 0.1159f;
@@ -146,5 +150,96 @@ public sealed class TinyFluxTests
         var expected = PlanarImage.FromPlanar(Tensor(variant, source == "gguf" ? "q8_image" : "image"), width, height, 0f, 1f);
         double psnr = Env.Psnr(result.Images[0].Rgb, expected.Rgb);
         Assert.True(psnr > 40, $"{variant} from {source} on {device}: PSNR {psnr:F1} dB");
+    }
+
+    [Fact]
+    public void StandaloneT5FileUsesTheEmbeddedVocabulary()
+    {
+        Assert.SkipUnless(Present("schnell"), "tiny-random-flux missing");
+        // A T5 encoder file alone (no config.json, no tokenizer beside it), as t5xxl_fp16.safetensors is distributed.
+        string folder = Directory.CreateTempSubdirectory("sl-t5-").FullName;
+        try
+        {
+            string file = Path.Combine(folder, "t5-encoder.safetensors");
+            File.Copy(Path.Combine(Root("schnell"), "diffusers", "text_encoder_2", "model.safetensors"), file);
+            var source = TestHost.Loader.Importers.Open(file);
+            try
+            {
+                Assert.Equal("encoder_decoder", source.Architecture);
+                Assert.Equal(2, source.Get<int>("encoder_decoder.encoder.layer_count"));
+                Assert.Equal(8, source.Get<int>("encoder_decoder.attention.head_dim"));
+                var tokenizer = Tokenizers.TokenizerFactory.Create(Tokenizers.TokenizerData.FromMetadata(source.Metadata));
+                foreach (var prompt in Index("schnell").GetProperty("tokens_2").EnumerateObject())
+                {
+                    int[] expected = [.. prompt.Value.EnumerateArray().Select(t => t.GetInt32()).TakeWhile(t => t != 0)];
+                    Assert.Equal(expected, tokenizer.Encode(prompt.Name, addSpecial: true, parseSpecial: false));
+                }
+            }
+            finally
+            {
+                foreach (var resource in source.OwnedResources)
+                {
+                    resource.Dispose();
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Copies the Q8_0 transformer with its companions as bare files (no configuration or tokenizer beside them, as clip_l.safetensors,
+    /// t5xxl_fp16.safetensors and ae.safetensors are distributed) into a scratch folder; the caller deletes it.
+    /// </summary>
+    internal static string BareLayout(string variant)
+    {
+        string folder = Directory.CreateTempSubdirectory("sl-flux-").FullName;
+        string diffusers = Path.Combine(Root(variant), "diffusers");
+        File.Copy(Path.Combine(Root(variant), "single", "flux-Q8_0.gguf"), Path.Combine(folder, "flux-tiny-Q8_0.gguf"));
+        File.Copy(Path.Combine(diffusers, "text_encoder", "model.safetensors"), Path.Combine(folder, "clip_l.safetensors"));
+        File.Copy(Path.Combine(diffusers, "text_encoder_2", "model.safetensors"), Path.Combine(folder, "t5xxl_fp16.safetensors"));
+        File.Copy(Path.Combine(diffusers, "vae", "diffusion_pytorch_model.safetensors"), Path.Combine(folder, "ae.safetensors"));
+        return folder;
+    }
+
+    [Theory]
+    [MemberData(nameof(Devices))]
+    public async Task TransformerOnlyFileFindsBareCompanionsBesideIt(string device)
+    {
+        Assert.SkipUnless(Present("dev"), "tiny-random-flux missing");
+        var slot = Env.Device(device);
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        string folder = BareLayout("dev");
+        try
+        {
+            string file = Path.Combine(folder, "flux-tiny-Q8_0.gguf");
+            var companions = TestHost.Loader.Importers.FindCompanions(file);
+            Assert.Equal(Path.Combine(folder, "clip_l.safetensors"), companions[AuxiliaryRoles.TextEncoder]);
+            Assert.Equal(Path.Combine(folder, "t5xxl_fp16.safetensors"), companions[AuxiliaryRoles.SecondTextEncoder]);
+            Assert.Equal(Path.Combine(folder, "ae.safetensors"), companions[AuxiliaryRoles.Vae]);
+            using var model = Env.Load(file, slot!);
+            using var generator = Env.Clients.Create<IImageGenerator>(model);
+            var index = Index("dev");
+            int height = index.GetProperty("height").GetInt32();
+            int width = index.GetProperty("width").GetInt32();
+            var options = new ImageGenerationOptions
+            {
+                Width = width,
+                Height = height,
+                Steps = index.GetProperty("steps").GetInt32(),
+                GuidanceScale = index.GetProperty("guidance_scale").GetSingle(),
+                InitialNoise = Tensor("dev", "noise"),
+            };
+            var result = await generator.GenerateAsync(new ImageGenerationRequest { Prompt = index.GetProperty("prompt").GetString()! }, options,
+                TestContext.Current.CancellationToken);
+            double psnr = Env.Psnr(result.Images[0].Rgb, PlanarImage.FromPlanar(Tensor("dev", "q8_image"), width, height, 0f, 1f).Rgb);
+            Assert.True(psnr > 40, $"bare companions on {device}: PSNR {psnr:F1} dB");
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
     }
 }

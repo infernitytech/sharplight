@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Text.Json;
 using Sharplight.Imaging;
 using Sharplight.Models;
-using Sharplight.Tasks;
 using Sharplight.Vision;
 
 namespace Sharplight.ImageGeneration.Tests;

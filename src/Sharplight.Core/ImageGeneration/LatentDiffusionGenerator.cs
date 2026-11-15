@@ -30,6 +30,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly string? _secondEncoderRole;
     private readonly bool _embeddedGuidance;
     private readonly bool _classifierFree;
+    private readonly bool _releaseTextEncoders;
     private readonly int _patchSize;
     private readonly int _latentChannels;
     private readonly int _downscale;
@@ -79,6 +80,11 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         _defaultSteps = description.ConfigValue(DiffusionConfigKeys.Steps, 25);
         _defaultGuidance = description.ConfigValue(DiffusionConfigKeys.GuidanceScale, 7.5f);
         _classifierFree = description.ConfigValue(DiffusionConfigKeys.ClassifierFreeGuidance, true);
+        // Models that barely fit (FLUX with bf16 weights on a 32 GB GPU: a 24 GB transformer and a 9.5 GB T5) do not keep the text
+        // encoders resident during denoising: they are compiled again (from the cached kernels) for the next request.
+        long weightBytes = model.Definition.Weights.Values.Sum(w => w.ByteSize);
+        long deviceBytes = model.Options.Devices.Sum(slot => slot.Device.Info.TotalMemory);
+        _releaseTextEncoders = deviceBytes > 0 && weightBytes > deviceBytes * 0.8;
         Metadata = TaskClientMetadata.For(model.Definition);
     }
 
@@ -115,6 +121,12 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         ObjectDisposedException.ThrowIf(_disposed, this);
         var run = Plan(request, options ?? ImageGenerationOptions.Default);
         var context = await Task.Run(() => EncodePrompts(request, run.Guided), cancellationToken).ConfigureAwait(false);
+        if (_releaseTextEncoders)
+        {
+            Release(DiffusionGraphs.TextEncode);
+            Release(DiffusionGraphs.TextEncode2);
+        }
+
         var reference = request.Image is null ? null : await Task.Run(() => EncodeImage(request.Image, run), cancellationToken).ConfigureAwait(false);
         var mask = request.Mask is null ? null : LatentMask(request.Mask, run);
         var images = new List<ImageInput>(run.Count);
@@ -526,6 +538,14 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         }
 
         return compiled;
+    }
+
+    private void Release(string graph)
+    {
+        if (_compiled.Remove(graph, out var compiled))
+        {
+            compiled.Dispose();
+        }
     }
 
     private static Graph.Value Input(CompiledModel model, string name) => model.Graph.Inputs.Single(i => i.Name == name);
