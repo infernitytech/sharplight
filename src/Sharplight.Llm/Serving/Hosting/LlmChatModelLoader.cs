@@ -81,7 +81,7 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
                 engine = new InferenceEngine(decoder, model.Tokenizer, options);
                 var service = new ModelService(engine, model.ChatTemplate, owner._chat.Service with { ModelName = owner.ModelName });
                 _consumed = true;   // the instance owns the model now
-                long head = speculator is Speculative.MtpSpeculator mtp ? mtp.DeviceMemoryBytes : 0;
+                long head = speculator?.DeviceMemoryBytes ?? 0;
                 return new ChatModelInstance(model, engine, service, decoder.DeviceMemoryBytes + head);
             }
             catch

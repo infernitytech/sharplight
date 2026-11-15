@@ -70,6 +70,10 @@ internal static partial class GgmlBlockDecoder
         {
             DecodeQ6K(block, y);
         }
+        else if (TrellisBlocks.Is(type))
+        {
+            TrellisBlocks.DecodeBlock(type, block, y);
+        }
         else if (!DecodeLowBit(type, block, y))
         {
             throw new NotSupportedException($"No managed decoder for {type}.");

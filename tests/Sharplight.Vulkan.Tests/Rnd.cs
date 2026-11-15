@@ -137,7 +137,8 @@ internal static class Rnd
             {
                 PutHalf(bytes, o + 208, d());
             }
-            else if (t == DataType.Q1_0 || t == DataType.Q2_0 || t == DataType.Q2_0_G128 || t == DataType.IQ4_NL || t == DataType.IQ4_XS)
+            else if (t == DataType.Q1_0 || t == DataType.Q2_0 || t == DataType.Q2_0_G128 || t == DataType.IQ4_NL || t == DataType.IQ4_XS ||
+                t.Name.StartsWith("trellis_", StringComparison.Ordinal))
             {
                 PutHalf(bytes, o, d());
             }

@@ -7,6 +7,8 @@ rotary_dim keys; llama.cpp supports only equal alpha factors and beta factors of
 minimax_m3_vl (the published sparse_attention_config / moe_layer_freq / n_shared_experts / scoring_func keys added) and glm5_next
 (the published linear_attn_config / mla_use_nope / first_k_dense_replace keys added). kimi_k3 (Kimi K3 / K3.1 in the published layout,
 mk_tiny_kimi_k3.py) is taken as it is, except that latent-attention layers without an indexer are allowed (indexer.types false).
+inkling (Inkling in the published layout, mk_tiny_inkling.py) is taken as it is, with the tokens past unpadded_vocab_size marked unused and
+the GPT-2 pre-tokenizer of the tiny tokenizer.
 The converter is patched to take the GPT-2 style tokenizer.json of the tiny checkpoints.
 
     python convert_tiny_gguf.py <llama.cpp source> <checkpoint directory> <output .gguf>
@@ -66,6 +68,21 @@ with tempfile.TemporaryDirectory() as work:
         from conversion import glm
         glm.GlmMoeDsaModel.set_vocab = lambda self: self._set_vocab_gpt2()   # the tiny tokenizer has no GLM special tokens
 
+    if kind == "inkling_mm_model":
+        # The tiny tokenizer is GPT-2's (no Inkling end-of-turn ids), and its ids past unpadded_vocab_size are real tokens, which the
+        # converter's padded-vocabulary check refuses: they are marked unused, as in the published vocabulary.
+        from conversion import inkling
+        import gguf as gguf_module
+        base_vocab = TextModel.get_vocab_base
+        def vocab(self):
+            tokens, types, pre = base_vocab(self)
+            unpadded = self.hparams.get("unpadded_vocab_size") or len(tokens)
+            return tokens, [gguf_module.TokenType.UNUSED if i >= unpadded else t for i, t in enumerate(types)], pre
+        TextModel.get_vocab_base = vocab
+        # The converter names Inkling's o200k-style pre-tokenizer; the tiny tokenizer splits like GPT-2.
+        inkling_vocab = inkling.InklingModel.get_vocab_base
+        inkling.InklingModel.get_vocab_base = lambda self: inkling_vocab(self)[:2] + ("gpt-2",)
+        inkling.InklingModel.set_vocab = lambda self: self._set_vocab_gpt2()
     if kind in ("kimi_linear", "bailing_hybrid"):
         config["score_function"] = "sigmoid"
         config["n_group"] = config["num_expert_group"]

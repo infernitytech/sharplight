@@ -48,6 +48,11 @@ internal static class GridTables
             return "iq1";
         }
 
+        if (TrellisBlocks.Is(type))
+        {
+            return "trellis";
+        }
+
         return null;
     }
 
@@ -60,8 +65,22 @@ internal static class GridTables
         "iq3_xxs" => Pack([.. Iq3XxsGrid.Values], withSigns: true),
         "iq3_s" => Pack([.. Iq3SGrid.Values], withSigns: false),
         "iq1" => Pack(CompactIq1Entries(), withSigns: false),
+        "trellis" => TrellisEntries(),
         _ => throw new ArgumentOutOfRangeException(nameof(key), key, "unknown grid"),
     };
+
+    /// <summary>The trellis codebook, one word per point: f16 value 0 in the low half, value 1 in the high half.</summary>
+    private static byte[] TrellisEntries()
+    {
+        var bits = TrellisCodebook.Values;
+        var bytes = new byte[bits.Length * 2];
+        for (int i = 0; i < bits.Length; i++)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(2 * i), bits[i]);
+        }
+
+        return bytes;
+    }
 
     private static uint[] WideEntries(ReadOnlySpan<ulong> grid)
     {

@@ -112,7 +112,7 @@ public static class GgufSupport
         {
             if (mapping.Validate(view).ToList() is { Count: > 0 } problems)
             {
-                return new GgufImportCheck(problems, IsComplete: true);
+                return new GgufImportCheck(problems, IsComplete: true, IsDraftModel: mapping.IsDraftModel);
             }
 
             var (_, _, weights) = GgufImporter.Map("", metadata, infos, mapping, view);
@@ -120,6 +120,13 @@ public static class GgufSupport
             {
                 return new GgufImportCheck(
                     ["The file holds only multi-token-prediction layers (an MTP draft file): it is loaded as the draft source of the model it was made for."],
+                    IsComplete: true, IsDraftModel: true);
+            }
+
+            if (mapping.IsDraftModel)
+            {
+                return new GgufImportCheck(
+                    [$"The file is a speculative-decoding drafter (GGUF architecture '{architecture}'): it maps, and is loaded as the draft source of the model it was made for."],
                     IsComplete: true, IsDraftModel: true);
             }
 
@@ -132,7 +139,7 @@ public static class GgufSupport
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             // Every other failure of these steps fails the import the same way.
-            return new GgufImportCheck([error.Message.TrimStart(':', ' ')], IsComplete: true, IsDraftModel: nextnOnly);
+            return new GgufImportCheck([error.Message.TrimStart(':', ' ')], IsComplete: true, IsDraftModel: nextnOnly || mapping.IsDraftModel);
         }
     }
 

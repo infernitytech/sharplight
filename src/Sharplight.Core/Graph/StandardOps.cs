@@ -195,6 +195,8 @@ public static partial class StandardOps
     /// Attributes <c>position_bias</c> (float[Hq · (2R + 1)]) and <c>position_bias_range</c> (int R): a learned relative position bias, every score of head h
     /// gets <c>position_bias[h · (2R + 1) + clamp(key position − query position, −R, R) + R]</c> added before the softmax (T5's bucketed bias, expanded per
     /// distance by the adapter; distances beyond R share the bucket of ±R).
+    /// Attribute <c>causal</c> (bool, default true): false makes the attention bidirectional over the rows of the step, query t attending cache rows
+    /// [0, offset + T − 1] (multi-sequence form: its slot's rows up to the last row of its run; a window then counts from that row).
     /// Attribute <c>sinks</c> (bool): the input after V is <c>sinks</c> (f32 [Hq]), a learned per-head logit that joins the softmax denominator but has no value (attention sinks).
     /// Attribute <c>v_dims</c> (int &gt; 0): the values are the first <c>v_dims</c> entries of each vcache row, so Dv = v_dims and
     /// vcache may be the very same state as kcache (multi-head latent attention: one latent row per token serves as key and,
@@ -207,9 +209,14 @@ public static partial class StandardOps
     /// prefix): a query at position p attends its visible rows of the K/V caches (with <c>window</c>, the last <c>window</c> positions) and,
     /// in the same softmax, the compressed entries [0, (p + 1) / r) (complete windows only). With <c>selection</c> the selection lists compressed
     /// entries instead of cache positions (the K/V caches are then attended densely).
+    /// Attribute <c>relative_bias</c> (int E &gt; 0): a query-conditioned relative position bias. The input after the selection (after V, the sinks,
+    /// the compressed cache and the selection when present) is f32 [T, Hq, E]; the score of query row t, head h and a key at distance
+    /// d = query position − key position gets <c>bias[t, h, d]</c> added after the scale (and soft cap) when 0 ≤ d &lt; E, nothing otherwise (Inkling).
+    /// Not combined with <c>compression</c>.
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
-    /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks and selection) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
-    /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot.
+    /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks, selection and relative bias) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
+    /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot (bidirectional: the rows table
+    /// is the <see cref="Models.InputRole.SequenceRunEndRows"/> table, whose position is that of the run's last row).
     /// Paged form: attribute <c>block_size</c> = B and a last input, the block table [S, blocks per slot] i32
     /// (<see cref="Models.InputRole.KvBlockTable"/>); position p of slot s is cache row table[s, p / B] · B + p % B. A compressed cache with r
     /// positions per row keeps ceil(B / r) rows per block: entry e of slot s is row table[s, e·r / B] · ceil(B / r) + (e·r mod B) / r.

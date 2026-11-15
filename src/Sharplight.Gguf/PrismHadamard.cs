@@ -240,6 +240,10 @@ internal static class PrismHadamard
                     }
                 }
             }
+            else if (TrellisBlocks.Is(t))
+            {
+                TrellisBlocks.DecodeBlock(t, src.AsSpan((int)o, t.BlockBytes), dst.AsSpan(e0, (int)bs));
+            }
             else
             {
                 throw new NotSupportedException($"Hadamard-rotated weights of type {t} are not supported.");

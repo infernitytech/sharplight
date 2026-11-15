@@ -76,4 +76,10 @@ public enum InputRole
     /// (CogVLM's visual experts), 0 = through the text weights. Rows of text tokens are always 0.
     /// </summary>
     MediaWeightMask,
+    /// <summary>
+    /// Multi-sequence graphs with bidirectional cached attention (<see cref="Graph.StandardOps.CachedAttention"/> with <c>causal</c> false):
+    /// the <see cref="SequenceRows"/> table [T, 4] with the position of the last row of each row's run in place of the row's own position, so
+    /// every row of a run sees the keys of the whole run.
+    /// </summary>
+    SequenceRunEndRows,
 }
