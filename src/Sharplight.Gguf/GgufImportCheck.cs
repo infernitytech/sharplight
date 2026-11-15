@@ -10,8 +10,9 @@ namespace Sharplight.Gguf;
 /// <paramref name="Problems"/> does not prove that the import succeeds.
 /// </param>
 /// <param name="IsDraftModel">
-/// The file holds only the draft layers of another model (e.g. the multi-token-prediction layers of a split <c>MTP/</c> file), so it is
-/// loaded as that model's draft source, not on its own; <paramref name="Problems"/> then says so.
+/// The file holds only the draft layers of another model (e.g. the multi-token-prediction layers of a split <c>MTP/</c> file) or is a drafter of
+/// its own architecture (EAGLE-3, DFlash, Gemma 4 assistants), so it is loaded as that model's draft source, not on its own;
+/// <paramref name="Problems"/> then says so (and names what keeps a drafter from loading, if anything).
 /// </param>
 public sealed record GgufImportCheck(IReadOnlyList<string> Problems, bool IsComplete, bool IsDraftModel = false)
 {

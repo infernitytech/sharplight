@@ -133,17 +133,19 @@ public sealed class DecoderAdapter : IModelAdapter
     {
         var src = sources.Primary;
         var hp = DecoderHyperParameters.Read(src);
-        // A drafter becomes the draft graph. An EAGLE-3 drafter: the decode graphs export the inputs of the layers it fuses; a shared-KV drafter
+        // A drafter becomes the draft graph. An EAGLE-3 or DFlash drafter: the decode graphs export the inputs of the layers it fuses; a shared-KV drafter
         // (Gemma 4 assistant): they export the final hidden state with the keys and values of the layers it attends.
         var drafter = sources.Auxiliary.GetValueOrDefault(AuxiliaryRoles.Draft);
-        if (drafter is not null && !Eagle3DraftHead.IsDrafter(drafter) && !SharedKvDraftHead.IsDrafter(drafter))
+        if (drafter is not null && !Eagle3DraftHead.IsDrafter(drafter) && !SharedKvDraftHead.IsDrafter(drafter) && !DflashDraftHead.IsDrafter(drafter))
         {
-            throw new NotSupportedException($"The draft source '{drafter.Path}' is a '{drafter.Architecture}' model, not an EAGLE-3 or shared-KV drafter.");
+            throw new NotSupportedException($"The draft source '{drafter.Path}' is a '{drafter.Architecture}' model, not an EAGLE-3, DFlash or shared-KV drafter.");
         }
 
         var sharedKvDrafter = SharedKvDraftHead.IsDrafter(drafter) ? drafter : null;
-        var eagle = sharedKvDrafter is null ? drafter : null;
-        var graphBuilder = new DecoderGraphBuilder(src, options, hp, eagle is null ? null : Eagle3DraftHead.TargetLayers(eagle),
+        var dflash = DflashDraftHead.IsDrafter(drafter) ? drafter : null;
+        var eagle = Eagle3DraftHead.IsDrafter(drafter) ? drafter : null;
+        int[]? taps = eagle is not null ? Eagle3DraftHead.TargetLayers(eagle) : dflash is not null ? DflashDraftHead.TargetLayers(dflash) : null;
+        var graphBuilder = new DecoderGraphBuilder(src, options, hp, taps,
             sharedKvDrafter is null ? null : SharedKvDraftHead.TargetKvLayers(sharedKvDrafter, hp));
         var graphs = graphBuilder.BuildGraphs();
 
@@ -203,6 +205,21 @@ public sealed class DecoderAdapter : IModelAdapter
             {
                 draftProperties[WellKnown.DraftTokenMap] = tokenMap;
             }
+        }
+        else if (dflash is not null)
+        {
+            var merged = new Dictionary<string, WeightInfo>(weights, StringComparer.Ordinal);
+            foreach (var (name, w) in DflashDraftHead.PrefixedWeights(dflash))
+            {
+                merged[name] = w;
+            }
+
+            weights = merged;
+            owned.AddRange(dflash.OwnedResources);
+            var draftStates = DflashDraftHead.States(dflash, options);
+            states = [.. states.Where(st => !st.Group.StartsWith("mtp.", StringComparison.Ordinal)), .. draftStates];
+            graphs[WellKnown.DraftGraph] = DflashDraftHead.Build(dflash, n => merged.GetValueOrDefault(n), hp.NEmbd, hp.PositionAxes, draftStates);
+            draftProperties = DflashDraftHead.Properties(dflash);
         }
         else if (sharedKvDrafter is not null)
         {

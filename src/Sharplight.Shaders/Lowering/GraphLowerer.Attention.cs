@@ -294,6 +294,12 @@ public sealed partial class GraphLowerer
             pages = PageTable(n, 5 + sinksInputs);
         }
 
+        if (!full && !n.Attributes.Get("causal", true) && seq is null)
+        {
+            // Bidirectional cached attention reaches the kernels through the multi-sequence run-end rows table only.
+            throw new NotSupportedException("Bidirectional cached attention (causal false) needs the multi-sequence form.");
+        }
+
         var macros = Macros(
             [.. PageMacros(n, pages),
             ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, k)), ("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("VRS", valueRowStride),
@@ -420,7 +426,8 @@ public sealed partial class GraphLowerer
         return DiagnosticSwitches.AttentionFlash && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16)
                && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32 && typeAllowed
                && plan.D % 8 == 0 && plan.DV % 8 == 0 && paddedD <= 256 && paddedDV <= 256
-               && plan.HQ % plan.HKV == 0 && sharedBytes <= _opt.MaxSharedMemory;
+               && plan.HQ % plan.HKV == 0 && sharedBytes <= _opt.MaxSharedMemory
+               && (plan.Full || plan.Node.Attributes.Get("causal", true));   // the multi-sequence flash kernel takes its limits from the runs table
     }
 
     /// <summary>

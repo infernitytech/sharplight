@@ -271,7 +271,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                 else
                 {
                     queryPosition = _offsetScalar is not null ? _past + t : t + _s - _t;
-                    n = _offsetScalar is not null ? _past + t + 1
+                    n = _offsetScalar is not null ? _causal ? _past + t + 1 : _past + _t
                        : _causal ? Math.Min(_s, t + _s - _t + 1) : _s;
                 }
 
