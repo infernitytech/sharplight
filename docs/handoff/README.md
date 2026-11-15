@@ -160,6 +160,9 @@ history, outputs gallery, export) so every type looks and behaves the same; chat
   - Discover highlights per model type (Trending / New / Most downloaded per kind) with the Supported-only switch.
   - Multi-component repos (diffusers folders, encoder + decoder + vocoder sets, whisper.cpp files, ONNX) downloaded as
     one model, with per-kind compatibility badges and fit estimates; conversion to `.slm` for every kind.
+- S1b: precompilation for every execution provider and device available on the machine through an explicit two-stage
+  provider contract (portable code such as SPIR-V, then device-specific driver binaries; CPU: empty), written into the
+  `.slm` in place (crash-safe) while the model is not resident; inspector shows the stages per provider/device.
 - S2: a dedicated inference page per model type, added as each type lands on main: Transcribe (file/microphone, timestamps,
   subtitles export), Speak (voices, streaming playback, WAV export), Image (txt2img, img2img, inpaint, seeds, gallery),
   Vision (drop an image: labels, boxes, masks, depth, OCR overlays), Audio (music generation, separation, codec playground),
