@@ -6,6 +6,7 @@ using Sharplight.Import.Gguf;
 using Sharplight.Import.HuggingFace;
 using Sharplight.Import.Onnx;
 using Sharplight.Models;
+using Sharplight.Studio.Models;
 using Sharplight.Tensors;
 
 namespace Sharplight.Studio.Services.Compatibility;
@@ -156,6 +157,11 @@ internal static class CompatibilityChecker
                 "The repository holds only multimodal projectors (mmproj), not models: each is loaded together with the language model it belongs to.");
         }
 
+        if (summary.Task != ModelTask.Other && ModelKindCatalog.For(summary.Task) is { Runnable: false } kind)
+        {
+            return FromKind(kind);
+        }
+
         if (summary.Formats.Contains(ModelFormat.Gguf))
         {
             return summary.GgufArchitecture is { } architecture
@@ -184,6 +190,13 @@ internal static class CompatibilityChecker
             ? FromOnnx(null) with { WeightsChecked = false }
             : ModelCompatibility.Unknown("The repository has no GGUF, safetensors or ONNX model files.");
     }
+
+    /// <summary>The verdict for a model of a kind the engine cannot run yet: the kind is named, nothing else is checked.</summary>
+    /// <param name="kind">The kind.</param>
+    public static ModelCompatibility FromKind(ModelKindInfo kind)
+        => new(CompatibilityState.UnsupportedKind, kind.Title,
+            $"This is a {kind.Title.ToLowerInvariant()} model. Sharplight cannot run models of this kind yet, so it is listed but not checked further.",
+            WeightsChecked: false);
 
     /// <summary>The verdict for a speculative-decoding drafter: it runs, but only next to the model it was trained for.</summary>
     private static ModelCompatibility DraftModel(string architecture, string what)

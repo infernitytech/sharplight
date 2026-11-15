@@ -31,6 +31,7 @@ internal sealed class HighlightsCatalog
 
     private readonly Func<HubSearchQuery, CancellationToken, Task<IReadOnlyList<HubModelSummary>>> _search;
     private readonly string? _cacheFile;
+    private readonly ModelTask? _task;
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private HighlightsCacheFile? _current;
@@ -39,9 +40,15 @@ internal sealed class HighlightsCatalog
     /// <param name="search">Lists repositories on the Hub.</param>
     /// <param name="cacheFile">The file the answer is kept in between sessions, or null to keep it in memory only.</param>
     /// <param name="time">The clock; null for the system clock.</param>
-    public HighlightsCatalog(Func<HubSearchQuery, CancellationToken, Task<IReadOnlyList<HubModelSummary>>> search, string? cacheFile, TimeProvider? time = null)
+    /// <param name="task">
+    /// The model type to highlight (every format and every compatibility verdict: Discover marks the models the engine cannot run), or
+    /// null for the supported language models.
+    /// </param>
+    public HighlightsCatalog(Func<HubSearchQuery, CancellationToken, Task<IReadOnlyList<HubModelSummary>>> search, string? cacheFile, TimeProvider? time = null,
+        ModelTask? task = null)
     {
         _search = search;
+        _task = task;
         _cacheFile = cacheFile;
         _time = time ?? TimeProvider.System;
     }
@@ -92,9 +99,11 @@ internal sealed class HighlightsCatalog
     /// <param name="trending">Trending listings, one per format, best first.</param>
     /// <param name="downloaded">Most-downloaded listings, one per format, best first.</param>
     /// <param name="now">The current time.</param>
+    /// <param name="isEligible">Which repositories are listed; null for <see cref="IsEligible"/>.</param>
     public static IReadOnlyList<HighlightSection> Build(IReadOnlyList<IReadOnlyList<HubModelSummary>> trending,
-        IReadOnlyList<IReadOnlyList<HubModelSummary>> downloaded, DateTimeOffset now)
+        IReadOnlyList<IReadOnlyList<HubModelSummary>> downloaded, DateTimeOffset now, Func<HubModelSummary, bool>? isEligible = null)
     {
+        isEligible ??= IsEligible;
         var shown = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         List<HubModelSummary> Take(IEnumerable<HubModelSummary> candidates)
         {
@@ -106,7 +115,7 @@ internal sealed class HighlightsCatalog
                     break;
                 }
 
-                if (IsEligible(model) && shown.Add(model.Id))
+                if (isEligible(model) && shown.Add(model.Id))
                 {
                     picked.Add(model);
                 }
@@ -135,13 +144,16 @@ internal sealed class HighlightsCatalog
 
     private async Task<IReadOnlyList<HighlightSection>> FetchAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
-        Task<IReadOnlyList<HubModelSummary>> List(HubSortOrder sort, ModelFormat format)
-            => _search(new HubSearchQuery { Sort = sort, Format = format, Limit = ListingSize }, cancellationToken);
+        Task<IReadOnlyList<HubModelSummary>> List(HubSortOrder sort, ModelFormat? format)
+            => _search(new HubSearchQuery { Sort = sort, Format = format, Task = _task, Limit = ListingSize }, cancellationToken);
 
-        var trending = s_formats.Select(format => List(HubSortOrder.Trending, format)).ToList();
-        var downloaded = s_formats.Select(format => List(HubSortOrder.Downloads, format)).ToList();
+        // A task lists every format in one listing; the default highlights list GGUF and safetensors separately and interleave them.
+        ModelFormat?[] formats = _task is null ? [.. s_formats.Cast<ModelFormat?>()] : [null];
+        var trending = formats.Select(format => List(HubSortOrder.Trending, format)).ToList();
+        var downloaded = formats.Select(format => List(HubSortOrder.Downloads, format)).ToList();
         await Task.WhenAll([.. trending, .. downloaded]).ConfigureAwait(false);
-        return Build([.. trending.Select(task => task.Result)], [.. downloaded.Select(task => task.Result)], now);
+        return Build([.. trending.Select(list => list.Result)], [.. downloaded.Select(list => list.Result)], now,
+            _task is null ? null : model => !model.HasProjectorOnly);
     }
 
     /// <summary>The first of every list, then the second of every list, and so on.</summary>
