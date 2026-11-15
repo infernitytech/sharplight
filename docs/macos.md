@@ -1,6 +1,7 @@
 # macOS and Apple Silicon
 
-Status of macOS round 1 (branch `macos/round-1`, up to date with `develop`, not merged yet). Sharplight runs on Apple Silicon Macs with the
+Status of macOS round 1 (merged into `develop`) and round 2 (branch `macos/round-2`: the MoltenVK prefill regression, see
+[below](#moltenvk-prefill-regression-round-2)). Sharplight runs on Apple Silicon Macs with the
 CPU provider (NEON kernels) and with the Vulkan provider through a bundled MoltenVK. A native Metal provider is planned
 (see [the plan](#native-metal-provider-plan)); it is not part of this round.
 
@@ -19,8 +20,10 @@ only active on macOS or Arm64 hosts. The x64 kernels, their greedy outputs and t
 | `Sharplight Studio.app` (unsigned, ad-hoc signed zip artifact) | ✓ | — |
 | Studio Velopack package (`studio.yml`, `osx-arm64`) with MoltenVK | ✓ (`pack-studio.sh` requires `libMoltenVK.dylib`) | — |
 
-The workflow is [`.github/workflows/macos.yml`](../.github/workflows/macos.yml). It runs only for the `macos/round-1`
-branch and on manual dispatch. Last full run: 43736304439 (all three jobs green).
+The workflow is [`.github/workflows/macos.yml`](../.github/workflows/macos.yml). It runs only for `macos/**`
+branches and on manual dispatch. Round 1's last full run: 43736304439 (all three jobs green). The MoltenVK LLM benchmark
+runs in its own job (`macos-bench`, in parallel with the suites): the defaults and a set of switches at 128 and 512 prompt
+tokens, then the prefill's kernel list.
 
 The macOS job runs the Vulkan suite in four time-boxed parts (`-class` filters in the workflow's `env`):
 
@@ -90,10 +93,48 @@ Shading Language with SPIRV-Cross). Sharplight ships it in a separate NuGet pack
 
 On the CI runner (paravirtual GPU of an M1 VM; numbers are indicative only), Qwen2.5-0.5B-Instruct Q4_K_M with
 `--bench 128` runs 544 tok/s prefill and 53.6 tok/s decode through MoltenVK (485 dispatches and 340 barriers per decode
-step), against 158 / 13.7 tok/s on the VM's 3 CPU cores. Run 43736304439 (after the merge of `develop`) measured
-88 tok/s prefill and 51.7 tok/s decode (best); the prefill drop is not investigated yet. Creating the 104 pipelines of the decode graph takes about 50 s
+step), against 158 / 13.7 tok/s on the VM's 3 CPU cores. After the merge of `develop` the prefill fell to about 100 tok/s;
+round 2 found and fixed the cause ([below](#moltenvk-prefill-regression-round-2)). Creating the 104 pipelines of the decode graph takes about 50 s
 the first time (SPIR-V to MSL, then Metal compilation). That is also why CI runs the Vulkan suite in four time-boxed parts (see
 [Status](#status)).
+
+### MoltenVK prefill regression (round 2)
+
+**Symptom.** The `--bench 128` prefill of Qwen2.5-0.5B-Instruct Q4_K_M on the CI's Apple GPU fell from 557 tok/s (run
+43659665611, `c1b3c706`) to 101 tok/s (run 43680525445, `d3b6fa00`, the first merge of `develop` into round 1) and stayed
+there (87.8 in run 43736304439, a noisier runner); decode did not move. The suspects named at the time (the causal `fe`
+attention kernel, SM-sized GEMM K splits, the two-row split-K matvec, pipeline binaries) all came later than `d3b6fa00`, and
+switching each off changes nothing (run 43762256231, about 99-101 tok/s each).
+
+**Cause.** ONNX performance round 6 (in that merge) gave `DeviceInfo.ConcurrentWorkgroups` a value of 64 for integrated GPUs
+and CPU implementations. MoltenVK reports the Apple GPU as `IntegratedGpu`, so the SIMT GEMM (the prefill path of every
+device without matrix units; the int8 MMQ GEMM needs `matrix_int8`) started to choose the 128 x 128 `gemm_wide` tile from
+128 rows instead of 512, which helped the AMD iGPU it was tuned on. `gemm_wide` stages 2 x 16 x 128 f32 values of
+activations and weights, double-buffered: 32 KB of workgroup memory, which is the whole `maxComputeSharedMemorySize` of the
+Apple GPU, plus 64 accumulators per thread. Each core then runs one workgroup with nothing to hide its loads behind. Run
+43762256231 isolates it:
+
+| `--bench 128`, MoltenVK, CI Apple GPU | prefill tok/s | prefill kernels of the large matmuls |
+| --- | --- | --- |
+| defaults of `develop` | 99.8 | `gemm_wide` (split-K) |
+| `SHARPLIGHT_CONCURRENT_WORKGROUPS=0` (sized as a large GPU) | 552.3 | `gemm`, deep K splits |
+| `SHARPLIGHT_CONCURRENT_WORKGROUPS=256` | 101.3 | `gemm_wide` |
+| `SHARPLIGHT_GEMM_WIDE=0` (64 x 64 tile, small-device K splits) | 629.0 | `gemm`, small-device K splits |
+| `SHARPLIGHT_ATTN_FE_CAUSAL=0` / `SHARPLIGHT_GEMM_WAVE=fixed` / `SHARPLIGHT_MV_ROWS=1` / `SHARPLIGHT_DISABLE_FEATURES=kernel_binaries` | 99.2 / 99.9 / 100.6 / 98.5 | `gemm_wide` |
+
+**Fix.** The SIMT lowering uses `gemm_wide` only on devices whose workgroup memory limit is larger than the tile's 32 KB
+(`GraphLowerer.SimtWideFits`), a device property every provider reports (`LoweringOptions.MaxSharedMemory`). NVIDIA (48 KB) and
+AMD (64 KB) keep their selection and outputs unchanged; on 32 KB devices (Apple GPUs through MoltenVK) large SIMT
+matmuls take the 64 x 64 `gemm` tile, which keeps the small-device K splits. `SHARPLIGHT_GEMM_WIDE=force` restores the old
+choice for comparison. `ConcurrentWorkgroups` itself stays 64 for the Apple GPU: with the 64 x 64 tile the small-device K
+splits are faster than the large-GPU ones (629 against 552 tok/s).
+
+RESULTS_PLACEHOLDER
+
+**Diagnostics added.** `SHARPLIGHT_CONCURRENT_WORKGROUPS=n` (or the device setting `concurrent_workgroups`) overrides the
+sizing hint per device, like `SHARPLIGHT_SUBMISSION_BUDGET_MS`; `sharplight --devices` prints `concurrent_workgroups` and
+`submission_budget_ms`. `SHARPLIGHT_VK_PROFILE=1` lists the kernels on MoltenVK, but its per-dispatch times read 0 there:
+Metal samples GPU timestamps only at encoder boundaries, so per-kernel timing needs Xcode's Metal tools.
 
 ### Device features MoltenVK exposes
 

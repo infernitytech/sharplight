@@ -191,28 +191,32 @@ jobs:
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/models/smoke.gguf" "$SMOKE_MODEL_URL"
           echo "path=$RUNNER_TEMP/models/smoke.gguf" >> "$GITHUB_OUTPUT"
 
-      - name: Vulkan benchmark (MoltenVK), defaults and opt-outs
+      - name: Vulkan benchmark (MoltenVK), defaults and switches
         continue-on-error: true
         timeout-minutes: 90
         run: |
           cli=samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll
           model="${{ steps.model.outputs.path }}"
           bench() {
-            echo "=== $*"
-            env "$@" dotnet $cli "$model" --bench 128 2>&1 | grep -E 'dispatches|prefill [0-9]+ tok' || echo "(failed)"
+            tokens=$1; shift
+            echo "=== --bench $tokens $*"
+            env "$@" dotnet $cli "$model" --bench $tokens 2>&1 | grep -E 'dispatches|prefill [0-9]+ tok' || echo "(failed)"
           }
-          bench SHARPLIGHT_NONE=1
-          bench SHARPLIGHT_CONCURRENT_WORKGROUPS=0
-          bench SHARPLIGHT_CONCURRENT_WORKGROUPS=256
-          bench SHARPLIGHT_GEMM_WIDE=0
-          bench SHARPLIGHT_ATTN_FE_CAUSAL=0
-          bench SHARPLIGHT_GEMM_WAVE=fixed
-          bench SHARPLIGHT_MV_ROWS=1
-          bench SHARPLIGHT_DISABLE_FEATURES=kernel_binaries
-          echo "=== prefill profile, defaults"
-          SHARPLIGHT_VK_PROFILE=1 dotnet $cli "$model" --bench 128 2>&1 | sed -n '/--- prefill T=/,/--- decode x/p' | head -60
-          echo "=== prefill profile, SHARPLIGHT_CONCURRENT_WORKGROUPS=0"
-          SHARPLIGHT_CONCURRENT_WORKGROUPS=0 SHARPLIGHT_VK_PROFILE=1 dotnet $cli "$model" --bench 128 2>&1 | sed -n '/--- prefill T=/,/--- decode x/p' | head -60
+          # SHARPLIGHT_GEMM_WIDE=force: the 128 x 128 SIMT tile also where its 32 KB fill the workgroup memory (the selection
+          # before round 2); the other switches are develop's perf defaults, which round 2 found neutral here.
+          for tokens in 128 512; do
+            bench $tokens
+            bench $tokens SHARPLIGHT_GEMM_WIDE=force
+            bench $tokens SHARPLIGHT_CONCURRENT_WORKGROUPS=0
+            bench $tokens SHARPLIGHT_CONCURRENT_WORKGROUPS=0 SHARPLIGHT_GEMM_WIDE=force
+          done
+          bench 128 SHARPLIGHT_ATTN_FE_CAUSAL=0
+          bench 128 SHARPLIGHT_GEMM_WAVE=fixed
+          bench 128 SHARPLIGHT_MV_ROWS=1
+          bench 128 SHARPLIGHT_DISABLE_FEATURES=kernel_binaries
+          # Kernels of the prefill (MoltenVK reports no per-dispatch times: Metal samples timestamps at encoder boundaries).
+          echo "=== prefill kernels, defaults"
+          SHARPLIGHT_VK_PROFILE=1 dotnet $cli "$model" --bench 128 2>&1 | sed -n '/--- prefill T=/,/--- decode x/p' | grep -E 'matmul|attention' | sed -E 's/.*[0-9]+x  min +[0-9.]+ us  //'
 
   linux-arm64:
     name: Linux arm64 (Cpu)
