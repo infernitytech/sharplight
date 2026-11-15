@@ -1,9 +1,5 @@
-using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
-using Sharplight.Package;
+using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Runtime;
-using Sharplight.Vulkan;
 
 namespace Sharplight.Samples;
 
@@ -12,15 +8,11 @@ public static class SampleRuntime
 {
     private const string CpuProviderName = "cpu";
 
-    /// <summary>Registers the Vulkan and CPU providers and the GGUF, Hugging Face and model-package importers.</summary>
-    public static void RegisterProvidersAndImporters()
-    {
-        ProviderRegistry.Register(() => new VulkanProvider());
-        CpuExecutionProvider.Register();
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-        ModelPackageImporter.Register();
-    }
+    /// <summary>
+    /// Registers the Vulkan and CPU providers, the built-in architecture adapters and the GGUF, Hugging Face, ONNX and model-package
+    /// importers (<c>services.AddSharplight()</c>; the samples keep no container, they use the loaders directly).
+    /// </summary>
+    public static void RegisterProvidersAndImporters() => new ServiceCollection().AddSharplight();
 
     /// <summary>Returns the first available provider: the CPU provider when <paramref name="cpu"/> is set, otherwise a GPU provider.</summary>
     /// <exception cref="SampleException">No matching provider is available on this machine.</exception>
