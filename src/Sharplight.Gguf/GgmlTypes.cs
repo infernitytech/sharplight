@@ -12,6 +12,19 @@ internal static class GgmlTypes
     /// <summary>PrismML fork id (llama.cpp "prism" branch) of PTQ1_0, a group-128 dense ternary type.</summary>
     internal const int PrismPTQ1_0 = 143;
 
+    /// <summary>
+    /// The trellis types of agentionai's llama.cpp fork (TQ2_T, TQK6, TQK7, TQP5, TQP6, TQP7: ids 144-149, the Gyro TQ*_0
+    /// releases), in id order.
+    /// </summary>
+    private static readonly DataType[] s_trellisById =
+    [
+        DataType.TrellisV4K8_G128, DataType.TrellisV4K6_G128, DataType.TrellisV4K7_G128,
+        DataType.TrellisV2K5_G128, DataType.TrellisV2K6_G128, DataType.TrellisV2K7_G128,
+    ];
+
+    /// <summary>The ggml id of the first trellis type of agentionai's fork (TQ2_T).</summary>
+    internal const int FirstTrellis = 144;
+
     /// <summary>The interleaved Q4_0 types of older llama.cpp releases (Q4_0_4_4, Q4_0_4_8, Q4_0_8_8), read as Q4_0.</summary>
     internal const int Q4_0_4_4 = 31;
 
@@ -103,6 +116,11 @@ internal static class GgmlTypes
             return s_byId[ggmlType];
         }
 
+        if (ggmlType >= FirstTrellis && ggmlType < FirstTrellis + s_trellisById.Length)
+        {
+            return s_trellisById[ggmlType - FirstTrellis];
+        }
+
         return ggmlType switch
         {
             PrismPQ2_0 => DataType.Q2_0_G128,
@@ -149,6 +167,13 @@ internal static class GgmlTypes
         if (type == DataType.Tern1_G128)
         {
             id = PrismPTQ1_0;
+            return true;
+        }
+
+        int trellis = Array.IndexOf(s_trellisById, type);
+        if (trellis >= 0)
+        {
+            id = FirstTrellis + trellis;
             return true;
         }
 
