@@ -70,6 +70,6 @@ public static class ModelAdapterRegistry
                 + $"'{role}' auxiliary source of the model it was made for.")
             : s_adapters.IsEmpty
                 ? new NotSupportedException($"No adapter for architecture '{source.Architecture}': no architecture adapters are registered. Register them at startup "
-                    + "with SharplightDefaults.Register() (Sharplight.Defaults package) or BuiltinAdapters.RegisterAll() (Sharplight.Architectures).")
+                    + "with services.AddSharplight() (Sharplight.Defaults package) or BuiltinAdapters.RegisterAll() (Sharplight.Architectures).")
                 : new NotSupportedException($"No adapter for architecture '{source.Architecture}'. Registered: {string.Join(", ", s_adapters.Keys)}");
 }

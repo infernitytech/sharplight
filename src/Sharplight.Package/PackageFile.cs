@@ -54,7 +54,14 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
         var idx = sections.Single(s => s.Kind == PackageSectionKind.WeightIndex);
         Weights = ReadIndex(Reader(idx));
         var def = sections.Single(s => s.Kind == PackageSectionKind.Definition);
-        Definition = DefinitionCodec.Read(Reader(def), Weights, [this], def.Name);
+        var description = sections.Where(s => s.Kind == PackageSectionKind.Description).Select(ReadDescription).LastOrDefault();
+        var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
+        foreach (var s in sections.Where(s => s.Kind == PackageSectionKind.Attachment))
+        {
+            attachments[s.Name] = new MappedSource(this, s.Offset, s.Length);
+        }
+
+        Definition = DefinitionCodec.Read(Reader(def), Weights, [this], def.Name, description, attachments);
         var sets = new List<StoredArtifactSet>();
         foreach (var s in sections.Where(s => s.IsArtifactSet).Reverse())
         {
@@ -63,6 +70,9 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
         }
         ArtifactSets = sets;
     }
+
+    private ModelDescription ReadDescription(PackageSection s)
+        => ModelDescription.FromJson(Encoding.UTF8.GetString(new ReadOnlySpan<byte>(_base + s.Offset, checked((int)s.Length))));
 
     private BinaryReader Reader(PackageSection s)
         => new(new UnmanagedMemoryStream(_base + s.Offset, s.Length), Encoding.UTF8);
