@@ -21,6 +21,15 @@ with per-task venvs (transformers, torch CPU, onnxruntime, gguf, diffusers, mlx 
 dir, never into system Python). llama.cpp reference binaries `runtime.llama-b11177-{cuda13,vulkan,cpu}` and a build of
 llama.cpp 8ca5a80 go under `$LLAMA_ROOT` (set it in the shell profile; the docs refer to `$LLAMA_ROOT`).
 
+Multi-GPU machines: `SHARPLIGHT_VK_DEVICES=<i>[,<j>...]` makes the Vulkan provider list only the devices with those
+enumeration indices (see `sharplight --devices`), so every test, sample or app that picks "the first discrete GPU" runs on
+the pinned one. Give each GPU-heavy agent or test run its own index. `DeviceInfo.Index` keeps the real enumeration index.
+Test-only overrides that index into the filtered list also exist (`SHARPLIGHT_TEST_DEVICE` in the Vulkan tests,
+`SHARPLIGHT_TEST_VK_DEVICE` in the ONNX/Vision/Families tests); prefer `SHARPLIGHT_VK_DEVICES`.
+
+Containers (e.g. RunPod with the NVIDIA runtime): the NVIDIA Vulkan ICD needs glvnd's `libEGL.so.1`. Without it the
+loader reports `ErrorIncompatibleDriver`. Fix: `apt-get install libegl1 libgl1`.
+
 Model assets are not in git (~900 GB on the old machine). Layout expected by tests and docs:
 
 | dir | content | size (old machine) | priority to copy |
