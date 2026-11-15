@@ -27,8 +27,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     internal readonly SpirvCodeGenerator Code;
     private readonly ConcurrentDictionary<string, Lazy<VkPipeline>> _pipelines = new();
     private readonly Lock _pipelineCacheLock = new();
-    /// <summary>The persistent compilation cache directory (also holds the driver pipeline cache file), or null when disabled.</summary>
-    private readonly string? _kernelCacheDirectory;
+    /// <summary>Records compilations that come without a model-level cache (graphs built in code) into the artifact store.</summary>
+    private readonly CompilationArtifacts _ownArtifacts = new();
     private VkPipelineCache _pipelineCache;
     private int _pipelinesAtLastSave;
     /// <summary>Model-level cache key of the driver pipeline cache blob (device code without kernel binaries).</summary>
@@ -76,6 +76,9 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// driver binary key and kernel ABI), and the driver pipeline cache (matched on device model and driver cache id).
     /// </summary>
     public IReadOnlyList<ArtifactTarget> ArtifactTargets { get; }
+
+    /// <summary>The persistent artifact store (per user unless the options say otherwise), or null when disabled.</summary>
+    public ArtifactStore? ArtifactStore { get; }
     private bool Has(string feature) => EnabledFeatures.Contains(feature);
     public long AvailableMemory => GetMemoryInfo().Available;
     /// <inheritdoc />
@@ -113,9 +116,9 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         Info = info;
         Options = options;
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
-        _kernelCacheDirectory = SlangCompiler.CacheDirectory(options);
+        ArtifactStore = ArtifactStore.For(options);
         Code = new SpirvCodeGenerator((int)phys.SubgroupSize, phys.MaxSharedMemory, EnabledFeatures,
-            SpirvCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options), info.ConcurrentWorkgroups, _kernelCacheDirectory);
+            SpirvCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options), info.ConcurrentWorkgroups);
         _kernelBinaries = phys.PipelineBinaries && !phys.PrefersInternalPipelineCache
             && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
 
@@ -384,7 +387,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
     {
-        var cache = options.CacheFor?.Invoke(this);
+        var cache = options.CacheFor?.Invoke(this) ?? _ownArtifacts.For(this);
         EnsurePipelineCache(cache);
         var program = Code.Lower(segment, this, options, cache, out var kernels);
         options.CancellationToken.ThrowIfCancellationRequested();
@@ -455,8 +458,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
     /// <summary>
     /// Creates the driver pipeline cache on first compile, seeded from a saved model's cache when present and its header names this
-    /// device and driver build, else from the cache file of this device in the kernel cache directory (the driver validates the blob's
-    /// header too and ignores data from another device/driver).
+    /// device and driver build, else from this device's pipeline cache set in the artifact store (same descriptor and key as the
+    /// package's; the driver validates the blob's header too and ignores data from another device/driver).
     /// </summary>
     private void EnsurePipelineCache(ICompilationCache? cache)
     {
@@ -467,24 +470,12 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
                 return;
             }
 
-            ReadOnlyMemory<byte> data = default;
-            bool fromFile = false;
-            if (cache is not null && cache.TryGet(PipelineCacheKey, out var d))
+            var data = ValidPipelineCache(cache);
+            bool fromStore = false;
+            if (data.IsEmpty && StoredPipelineCache is { } store)
             {
-                if (PipelineCacheHeader.Matches(d.Span, Phys.VendorId, Phys.DeviceId, Phys.PipelineCacheUuid))
-                {
-                    data = d;
-                }
-                else
-                {
-                    Interlocked.Increment(ref RejectedDeviceCode);
-                }
-            }
-
-            if (data.IsEmpty && TryReadPipelineCacheFile() is { } fromDisk)
-            {
-                data = fromDisk;
-                fromFile = true;
+                data = ValidPipelineCache(store);
+                fromStore = !data.IsEmpty;
             }
 
             if (TryCreatePipelineCache(data.Span, out var pc))
@@ -494,10 +485,10 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             }
 
             // The driver refused the seed blob (seen on NVIDIA with very large blobs as VK_ERROR_UNKNOWN): start empty, and drop
-            // a refused cache file so later processes do not retry it.
-            if (fromFile && PipelineCachePath is { } refused)
+            // a refused stored blob so later processes do not retry it.
+            if (fromStore)
             {
-                TryDeleteFile(refused);
+                StoredPipelineCache?.Remove(PipelineCacheKey);
             }
 
             if (!TryCreatePipelineCache(ReadOnlySpan<byte>.Empty, out pc))
@@ -507,6 +498,24 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
             _pipelineCache = pc;
         }
+    }
+
+    /// <summary>The pipeline cache blob in <paramref name="cache"/> when its header names this device and driver build, else empty.</summary>
+    private ReadOnlyMemory<byte> ValidPipelineCache(ICompilationCache? cache)
+    {
+        if (cache is null || !cache.TryGet(PipelineCacheKey, out var data) || data.IsEmpty)
+        {
+            return default;
+        }
+
+        if (data.Length > MaxPipelineCacheBytes || !PipelineCacheHeader.Matches(data.Span, Phys.VendorId, Phys.DeviceId, Phys.PipelineCacheUuid))
+        {
+            // Damaged, oversized, or written by another driver build: never handed to the driver.
+            Interlocked.Increment(ref RejectedDeviceCode);
+            return default;
+        }
+
+        return data;
     }
 
     private bool TryCreatePipelineCache(ReadOnlySpan<byte> data, out VkPipelineCache pipelineCache)
@@ -641,114 +650,50 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         return data.AsSpan(0, (int)size).ToArray();
     }
 
-    /// <summary>The driver pipeline cache file of this device and driver in the kernel cache directory.</summary>
-    private string? PipelineCachePath
-        => _kernelCacheDirectory is null ? null : Path.Combine(_kernelCacheDirectory, $"pipelines-{Phys.VendorId:x}-{Phys.Uuid}-{Phys.DriverVersion:x}.bin");
-
     /// <summary>
-    /// Largest pipeline cache file that is loaded or written. The driver blob accumulates every pipeline ever created on the
-    /// device (all models, all specializations); past this size it is reset so it is rebuilt from the pipelines in actual use.
+    /// This device's pipeline cache set in the artifact store (the binary-tier set a package stores the blob in, keyed by device model
+    /// and driver cache id), or null without a store.
     /// </summary>
-    private const long MaxPipelineCacheFileBytes = 256L * 1024 * 1024;
-
-    private byte[]? TryReadPipelineCacheFile()
-    {
-        if (PipelineCachePath is not { } path)
-        {
-            return null;
-        }
-
-        try
-        {
-            DeleteStaleTemporaryFiles(path);
-            var file = new FileInfo(path);
-            if (!file.Exists)
-            {
-                return null;
-            }
-
-            if (file.Length > MaxPipelineCacheFileBytes)
-            {
-                TryDeleteFile(file.FullName);
-                return null;
-            }
-
-            var data = File.ReadAllBytes(file.FullName);
-            if (!PipelineCacheHeader.Matches(data, Phys.VendorId, Phys.DeviceId, Phys.PipelineCacheUuid))
-            {
-                // Damaged, or written by another driver build: never handed to the driver.
-                Interlocked.Increment(ref RejectedDeviceCode);
-                TryDeleteFile(file.FullName);
-                return null;
-            }
-
-            return data;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>Removes temporary cache files left behind by processes that died while saving.</summary>
-    private static void DeleteStaleTemporaryFiles(string path)
-    {
-        var name = Path.GetFileName(path);
-        foreach (var temporary in Directory.EnumerateFiles(Path.GetDirectoryName(path)!, name + ".*.tmp"))
-        {
-            if (File.GetLastWriteTimeUtc(temporary) < DateTime.UtcNow - TimeSpan.FromHours(1))
-            {
-                TryDeleteFile(temporary);
-            }
-        }
-    }
-
-    private static void TryDeleteFile(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            // Another process may hold or have removed it; the cache is only an accelerator.
-        }
-    }
+    private FileCompilationCache? StoredPipelineCache
+        => ArtifactStore?.EntriesFor(ArtifactTargets.Single(t => t.Kind == PipelineCacheKind));
 
     /// <summary>
-    /// Persists the driver pipeline cache next to the kernel cache when pipelines were created since it was last saved, so
-    /// that the next process skips the driver's SPIR-V compilation. Failing to write it is not an error.
+    /// This device's kernel binary set in the artifact store (device code a host stored with <see cref="ArtifactStore.Add"/>, e.g. for a
+    /// model loaded straight from a GGUF file), or null without a store or kernel binaries.
+    /// </summary>
+    private FileCompilationCache? StoredKernelBinaries
+        => _kernelBinaries ? ArtifactStore?.EntriesFor(ArtifactTargets.Single(t => t.Kind == PipelineBinaryKind)) : null;
+
+    /// <summary>
+    /// Largest pipeline cache blob that is loaded or stored. The driver blob accumulates every pipeline ever created on the device (all
+    /// models, all specializations); past this size it is reset so it is rebuilt from the pipelines in actual use.
+    /// </summary>
+    private const long MaxPipelineCacheBytes = 256L * 1024 * 1024;
+
+    /// <summary>
+    /// Stores the driver pipeline cache in the artifact store when pipelines were created since it was last saved, so that the next
+    /// process skips the driver's SPIR-V compilation. Failing to write it is not an error.
     /// </summary>
     private void SavePipelineCache()
     {
         lock (_pipelineCacheLock)
         {
             int created = Volatile.Read(ref PipelinesCreated);
-            if (_pipelineCache == VkPipelineCache.Null || created == _pipelinesAtLastSave || PipelineCachePath is not { } path)
+            if (_pipelineCache == VkPipelineCache.Null || created == _pipelinesAtLastSave || StoredPipelineCache is not { } store)
             {
                 return;
             }
 
             _pipelinesAtLastSave = created;
-            var temporary = $"{path}.{Environment.ProcessId}.tmp";
-            try
+            var data = GetPipelineCacheData(_pipelineCache);
+            if (data.Length > MaxPipelineCacheBytes)
             {
-                var data = GetPipelineCacheData(_pipelineCache);
-                if (data.Length > MaxPipelineCacheFileBytes)
-                {
-                    // Too large to keep: reset, so the next process rebuilds the cache from the pipelines it uses.
-                    TryDeleteFile(path);
-                    return;
-                }
+                // Too large to keep: reset, so the next process rebuilds the cache from the pipelines it uses.
+                store.Remove(PipelineCacheKey);
+                return;
+            }
 
-                File.WriteAllBytes(temporary, data);
-                File.Move(temporary, path, overwrite: true);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                // Read-only or full cache directory: the cache is only an accelerator.
-                TryDeleteFile(temporary);
-            }
+            store.Put(PipelineCacheKey, data);
         }
     }
 
@@ -807,7 +752,10 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// <summary>The pipeline from the kernel's stored binary, or null when there is none, it is damaged or the driver rejects it.</summary>
     private VkPipeline? TryCreateFromStoredBinary(CompiledKernel kernel, VkShaderModule module, ICompilationCache? cache)
     {
-        if (!_kernelBinaries || cache is null || !cache.TryGet(PipelineBinaryPrefix + kernel.CacheKey, out var stored))
+        var key = PipelineBinaryPrefix + kernel.CacheKey;
+        ReadOnlyMemory<byte> stored = default;
+        if (!_kernelBinaries
+            || !((cache is not null && cache.TryGet(key, out stored)) || (StoredKernelBinaries is { } store && store.TryGet(key, out stored))))
         {
             return null;
         }

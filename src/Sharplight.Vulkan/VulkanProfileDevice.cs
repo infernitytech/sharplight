@@ -17,6 +17,8 @@ internal sealed class VulkanProfileDevice : IComputeDevice
     private const long UnknownMemoryBytes = 1L << 40;
 
     private readonly SpirvCodeGenerator _code;
+    /// <summary>Records compilations that come without a model-level cache (graphs built in code) into the artifact store.</summary>
+    private readonly CompilationArtifacts _ownArtifacts = new();
 
     public VulkanProfileDevice(DeviceProfile profile, DeviceOptions options)
     {
@@ -36,10 +38,13 @@ internal sealed class VulkanProfileDevice : IComputeDevice
         };
         EnabledFeatures = DeviceFeatures.Effective(Info.Features, options.DisabledFeatures);
         _code = new SpirvCodeGenerator(profile.SubgroupSize, profile.MaxSharedMemory, EnabledFeatures,
-            SpirvCodeGenerator.EffectiveSubmissionBudget(profile.SubmissionBudgetMs, options), profile.ConcurrentWorkgroups,
-            SlangCompiler.CacheDirectory(options));
+            SpirvCodeGenerator.EffectiveSubmissionBudget(profile.SubmissionBudgetMs, options), profile.ConcurrentWorkgroups);
+        ArtifactStore = ArtifactStore.For(options);
         ArtifactTargets = [_code.CreateCodeTarget(Info.Provider)];
     }
+
+    /// <summary>The persistent artifact store this device's compilations consult and record into.</summary>
+    public ArtifactStore? ArtifactStore { get; }
 
     /// <summary>The profile the device was opened for.</summary>
     public DeviceProfile Profile { get; }
@@ -59,7 +64,7 @@ internal sealed class VulkanProfileDevice : IComputeDevice
     /// <exception cref="KernelCompilationException">Slang rejected one of the kernels.</exception>
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
     {
-        var cache = options.CacheFor?.Invoke(this);
+        var cache = options.CacheFor?.Invoke(this) ?? _ownArtifacts.For(this);
         var program = _code.Lower(segment, this, options, cache, out var kernels);
         var stopwatch = Stopwatch.StartNew();
         try

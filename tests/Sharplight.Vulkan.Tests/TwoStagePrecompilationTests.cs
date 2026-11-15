@@ -142,6 +142,37 @@ public sealed class TwoStagePrecompilationTests
         await Assert.ThrowsAsync<ArgumentException>(() => provider.CompileDeviceSpecificAsync(Gpu.Cpu, portable, TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public void AWarmArtifactStoreServesAModelWithoutAPackageWithoutCompiling()
+    {
+        Gpu.Require();
+        var (provider, info) = Device();
+        var directory = Directory.CreateTempSubdirectory("sharplight-store-vulkan-").FullName;
+        try
+        {
+            var options = new DeviceOptions { KernelCacheDirectory = directory };
+            int before = Shaders.SlangCompiler.Statistics.Compiled;
+            var cold = Run(provider.OpenDevice(info, options), new CompilationArtifacts(), out _);
+            int compiledCold = Shaders.SlangCompiler.Statistics.Compiled - before;
+            var store = new ArtifactStore(directory);
+            var code = Assert.Single(store.ArtifactSets, s => s.Tier == ArtifactTiers.Code);
+            Assert.Equal("vulkan", ArtifactDescriptor.Get(code.Descriptor, ArtifactDescriptorKeys.Provider));
+            // The driver pipeline cache is stored as the package stores it: the pipeline-cache set of this device and driver.
+            Assert.Contains(store.ArtifactSets, s => s.Tier == ArtifactTiers.Binary && s.Entries.TryGet(VulkanDevice.PipelineCacheKey, out _));
+
+            before = Shaders.SlangCompiler.Statistics.Compiled;
+            var warm = Run(provider.OpenDevice(info, options), new CompilationArtifacts(), out var counters);
+            Assert.True(compiledCold > 0);
+            Assert.Equal(0, Shaders.SlangCompiler.Statistics.Compiled - before);
+            Assert.Equal(0, counters.RejectedDeviceCode);
+            Assert.Equal(cold, warm);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static (VulkanProvider Provider, DeviceInfo Info) Device()
     {
         var provider = new VulkanProvider();

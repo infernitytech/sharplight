@@ -17,15 +17,14 @@ internal sealed class SpirvCodeGenerator
     /// <summary>Artifact kind of the code tier.</summary>
     public const string CodeKind = "spirv";
 
-    public SpirvCodeGenerator(int subgroupSize, long maxSharedMemory, IReadOnlySet<string> enabledFeatures, double submissionBudgetMs, int concurrentWorkgroups,
-        string kernelCacheDirectory)
+    public SpirvCodeGenerator(int subgroupSize, long maxSharedMemory, IReadOnlySet<string> enabledFeatures, double submissionBudgetMs, int concurrentWorkgroups)
     {
         ConcurrentWorkgroups = concurrentWorkgroups;
         SubgroupSize = subgroupSize;
         MaxSharedMemory = maxSharedMemory;
         EnabledFeatures = enabledFeatures;
         SubmissionBudgetMs = submissionBudgetMs;
-        Compiler = new SlangCompiler(kernelCacheDirectory);
+        Compiler = new SlangCompiler();
     }
 
     /// <summary>The Slang profile of every kernel (<c>spirv_1_6</c>).</summary>

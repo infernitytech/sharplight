@@ -9,37 +9,27 @@ namespace Sharplight.Shaders;
 
 /// <summary>
 /// Thin, thread-safe wrapper over the Slang compiler that compiles kernels of the embedded kernel
-/// library (or generated source) for any backend target. Kernels are looked up in the model-level cache (artifacts stored with the
-/// model) first, then in the persistent per-user compilation cache (<see cref="Runtime.FileCompilationCache"/>: validated, size capped,
-/// shared by processes), keyed by the source text, macros, compiler and target, and only then compiled. Shared by all providers.
+/// library (or generated source) for any backend target. Kernels are looked up in the model-level cache first (keyed by the source
+/// text, macros, compiler and target: the package's artifact sets, then the per-user <see cref="Runtime.ArtifactStore"/>, see
+/// <see cref="Runtime.CompilationArtifacts"/>) and only then compiled. Shared by all providers.
 /// </summary>
 public sealed class SlangCompiler : IDisposable
 {
     private static long s_compileTicks;
     private static int s_compiled;
-    private static int s_diskHits;
 
     private readonly string _libraryDir;
-    /// <summary>One persistent cache per directory in the process, so its size accounting is shared by every compiler using it.</summary>
-    private static readonly ConcurrentDictionary<string, Runtime.FileCompilationCache> s_diskCaches = new(StringComparer.Ordinal);
-
-    private readonly Runtime.FileCompilationCache? _disk;
     private readonly ConcurrentDictionary<string, CompiledKernel> _memCache = new();
 
     /// <summary>Creates a compiler, extracting the embedded kernel library on first use.</summary>
-    /// <param name="cacheDirectory">Directory of the persistent compilation cache, shared by processes (null disables it).</param>
-    public SlangCompiler(string? cacheDirectory = null)
+    public SlangCompiler()
     {
-        _disk = cacheDirectory is null ? null : s_diskCaches.GetOrAdd(Path.GetFullPath(cacheDirectory), directory => new Runtime.FileCompilationCache(directory));
         _libraryDir = KernelLibrary.Extract();
     }
 
-    /// <summary>The persistent compilation cache, or <see langword="null"/> when disabled.</summary>
-    public Runtime.FileCompilationCache? DiskCache => _disk;
-
-    /// <summary>Process-wide totals of the kernels this process compiled with Slang or read from the disk cache (diagnostics).</summary>
+    /// <summary>Process-wide totals of the kernels this process compiled with Slang (diagnostics).</summary>
     public static CompileStatistics Statistics
-        => new(Volatile.Read(ref s_compiled), Volatile.Read(ref s_diskHits), TimeSpan.FromSeconds((double)Volatile.Read(ref s_compileTicks) / Stopwatch.Frequency));
+        => new(Volatile.Read(ref s_compiled), TimeSpan.FromSeconds((double)Volatile.Read(ref s_compileTicks) / Stopwatch.Frequency));
 
     /// <summary>Slang build tag, part of every cache key (the native library ships with the SlangShaderSharp package).</summary>
     private static string Version { get; } = typeof(Slang).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -56,17 +46,6 @@ public sealed class SlangCompiler : IDisposable
 
     /// <summary>The Slang profile code for <paramref name="target"/> is generated with (e.g. <c>spirv_1_6</c>).</summary>
     public static string TargetProfile(ShaderTarget target) => Profile(target);
-
-    /// <summary>
-    /// The persistent compilation cache directory: the per-user <c>sharplight/kernels</c> directory, or what
-    /// <see cref="Runtime.FileCompilationCache.EnvironmentVariable"/> says (another directory, or <see langword="null"/> for <c>off</c>).
-    /// </summary>
-    public static string? DefaultCacheDirectory => Runtime.FileCompilationCache.ResolveDirectory(
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "sharplight", "kernels"));
-
-    /// <summary>The cache directory a device with <paramref name="options"/> uses, or <see langword="null"/> when it uses none.</summary>
-    public static string? CacheDirectory(Runtime.DeviceOptions options)
-        => !options.UseCompilationCache ? null : options.KernelCacheDirectory ?? DefaultCacheDirectory;
 
     /// <summary>Compiles an entry point of a library kernel file (e.g. "matmul.slang", "matvec").</summary>
     /// <param name="file">Kernel file name in the embedded library.</param>
@@ -126,21 +105,12 @@ public sealed class SlangCompiler : IDisposable
         return kernel;
     }
 
-    /// <summary>Fills a new kernel from the model cache or the disk cache, or queues its compilation.</summary>
+    /// <summary>Fills a new kernel from the model-level cache (artifact sets, then the artifact store), or queues its compilation.</summary>
     private void Resolve(CompiledKernel kernel, string source, string modelCacheKey, IReadOnlyDictionary<string, string> macros, Runtime.ICompilationCache? cache)
     {
         if (cache is not null && cache.TryGet(modelCacheKey, out var stored))
         {
             kernel.CompleteFromCache(stored.ToArray());
-            return;
-        }
-
-        // The disk cache is shared by processes and validates every entry; a damaged or evicted entry is a miss.
-        var diskKey = DiskKey(kernel);
-        if (_disk is not null && _disk.TryGet(diskKey, out var cached))
-        {
-            Interlocked.Increment(ref s_diskHits);
-            kernel.CompleteFromCache(cached.ToArray());
             return;
         }
 
@@ -151,8 +121,6 @@ public sealed class SlangCompiler : IDisposable
                 var code = CompileUncached(session, kernel.Name, source, kernel.EntryPoint, kernel.Target, macros);
                 Interlocked.Add(ref s_compileTicks, Stopwatch.GetTimestamp() - start);
                 Interlocked.Increment(ref s_compiled);
-                _disk?.Put(diskKey, code);
-
                 kernel.Complete(code);
             },
             error =>
@@ -162,9 +130,6 @@ public sealed class SlangCompiler : IDisposable
                 kernel.Fail(error);
             });
     }
-
-    /// <summary>Key of a kernel in the persistent cache (the cache key already covers source, macros, compiler and target).</summary>
-    private static string DiskKey(CompiledKernel kernel) => $"slang/{kernel.CacheKey}{Extension(kernel.Target)}";
 
     private byte[] CompileUncached(IGlobalSession gs, string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
     {
@@ -213,15 +178,6 @@ public sealed class SlangCompiler : IDisposable
         ShaderTarget.CudaSource or ShaderTarget.Ptx => "sm_8_0",
         ShaderTarget.Metal => "metal",
         _ => "",
-    };
-
-    private static string Extension(ShaderTarget t) => t switch
-    {
-        ShaderTarget.SpirV => ".spv",
-        ShaderTarget.CudaSource => ".cu",
-        ShaderTarget.Ptx => ".ptx",
-        ShaderTarget.Metal => ".metal",
-        _ => ".bin",
     };
 
     private static string CacheKey(string sourceDigest, string entry, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
