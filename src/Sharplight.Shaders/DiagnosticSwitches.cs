@@ -414,6 +414,9 @@ internal static class DiagnosticSwitches
     /// <summary>Keeps conv_cm's channel-major reduction order for the split-f16 forms (no tap-major weights).</summary>
     public static bool ConvNoTapMajor { get; } = IsSet("SHARPLIGHT_CONV_NO_TAP_MAJOR");
 
+    /// <summary>One output per thread in the depthwise conv (conv_dw) instead of up to 4 of a row.</summary>
+    public static bool ConvDwSingle { get; } = IsSet("SHARPLIGHT_CONV_DW_SINGLE");
+
     private static string? Read(string name) => Environment.GetEnvironmentVariable(name);
 
     private static bool IsSet(string name) => Read(name) == "1";

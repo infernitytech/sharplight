@@ -331,9 +331,12 @@ public sealed partial class GraphLowerer
         // Depthwise (channel multiplier OG) on float weights.
         if (G == C && CG == 1 && !w.Type.IsQuantized)
         {
-            var k = ConvKernel("conv.slang", "conv_dw", Macros(common), epilogue);
-            Emit(name, nodes, [Always(k, b => new Grid(Grid.Div(Rows(b, xr) * O * HW, 256)))],
-                [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(y), .. resArgs, CountArg(x, O * HW)],
+            // Wide kernels: several outputs of a row per thread share the input row segments and weights (3x fewer loads for
+            // 7x7; convnext-tiny b8's 7x7 depthwise convs 2x faster). 3x3 kernels gain nothing and lose threads at batch 1.
+            long dwV = DiagnosticSwitches.ConvDwSingle || KW < 5 ? 1 : WO % 4 == 0 ? 4 : WO % 2 == 0 ? 2 : 1;
+            var k = ConvKernel("conv.slang", "conv_dw", Macros([.. common, ("DW_V", dwV)]), epilogue);
+            Emit(name, nodes, [Always(k, b => new Grid(Grid.Div(Rows(b, xr) * O * HW / dwV, 256)))],
+                [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(y), .. resArgs, CountArg(x, O * HW / dwV)],
                 [.. bias is null ? [x, w] : new[] { x, w, bias }, .. resReads], [y]);
             return;
         }

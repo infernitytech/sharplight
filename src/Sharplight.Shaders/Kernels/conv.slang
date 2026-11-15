@@ -227,44 +227,81 @@ float dw_weight(uint8_t* base, uint idx)
 #endif
 }
 
+// DW_V consecutive outputs of a row per thread (WO % DW_V == 0): each input row segment and weight is loaded once for all of
+// them. p.total counts threads: N * O * HO * WO / DW_V.
+#ifndef DW_V
+#define DW_V 1
+#endif
+#define DW_SPAN ((DW_V - 1) * SW + (KW - 1) * DW + 1)
+
 [shader("compute")]
 [numthreads(256, 1, 1)]
 void conv_dw(uint3 dtid : SV_DispatchThreadID, uniform DwParams p)
 {
     uint idx = dtid.x;
-    if (idx >= p.total) return;
-    uint ow = idx % WO;
-    uint t = idx / WO;
+    if (idx >= p.total)
+    {
+        return;
+    }
+    uint ow0 = (idx % (WO / DW_V)) * DW_V;
+    uint t = idx / (WO / DW_V);
     uint oh = t % HO;
     uint no = t / HO;
-    uint o = no % O, n = no / O;
+    uint o = no % O;
+    uint n = no / O;
     uint c = o / OG;
     float* xp = p.x + uint64_t(n) * XS_N + uint64_t(c) * XS_C;
     int ih0 = int(oh) * SH - PH;
-    int iw0 = int(ow) * SW - PW;
-    float acc = 0.0;
+    int iw0 = int(ow0) * SW - PW;
+    float acc[DW_V];
+    [ForceUnroll]
+    for (int v = 0; v < DW_V; v++)
+    {
+        acc[v] = 0.0;
+    }
     [ForceUnroll]
     for (int kh = 0; kh < KH; kh++)
     {
         int ih = ih0 + kh * DH;
 #if !NOPAD
-        if (uint(ih) >= uint(H)) continue;
+        if (uint(ih) >= uint(H))
+        {
+            continue;
+        }
 #endif
+        float row[DW_SPAN];
+        [ForceUnroll]
+        for (int i = 0; i < DW_SPAN; i++)
+        {
+            int iw = iw0 + i;
+#if NOPAD
+            row[i] = xp[ih * XS_H + iw * XS_W];
+#else
+            row[i] = uint(iw) < uint(W) ? xp[ih * XS_H + clamp(iw, 0, int(W) - 1) * XS_W] : 0.0;
+#endif
+        }
         [ForceUnroll]
         for (int kw = 0; kw < KW; kw++)
         {
-            int iw = iw0 + kw * DW;
-#if !NOPAD
-            if (uint(iw) >= uint(W)) continue;
-#endif
-            acc = fma(xp[ih * XS_H + iw * XS_W], dw_weight(p.w, o * KHW + kh * KW + kw), acc);
+            float wv = dw_weight(p.w, o * KHW + kh * KW + kw);
+            [ForceUnroll]
+            for (int v = 0; v < DW_V; v++)
+            {
+                acc[v] = fma(row[v * SW + kw * DW], wv, acc[v]);
+            }
         }
     }
+    uint64_t base = (uint64_t(no) * HO + oh) * WO + ow0;
+    [ForceUnroll]
+    for (int v = 0; v < DW_V; v++)
+    {
+        float r = acc[v];
 #if HAS_BIAS
-    acc += p.bias[o];
+        r += p.bias[o];
 #endif
-    CONV_EPI(acc, idx);
-    p.y[idx] = acc;
+        CONV_EPI(r, base + v);
+        p.y[base + v] = r;
+    }
 }
 #endif
 
