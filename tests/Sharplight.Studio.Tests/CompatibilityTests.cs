@@ -135,8 +135,8 @@ public sealed class CompatibilityTests
     {
         var aqlm = CompatibilityChecker.FromConfig("""{"model_type": "qwen2", "quantization_config": {"bits": 4, "quant_method": "aqlm"}}""");
         Assert.Equal("Unsupported weight format aqlm", aqlm.Text);
-        var mlx = CompatibilityChecker.FromConfig("""{"model_type": "qwen3", "quantization_config": {"group_size": 32, "bits": 4, "mode": "mxfp4"}}""");
-        Assert.Equal("Unsupported weight format mlx (mxfp4)", mlx.Text);
+        var mlx = CompatibilityChecker.FromConfig("""{"model_type": "qwen3", "quantization_config": {"group_size": 32, "bits": 4, "mode": "mxfp6"}}""");
+        Assert.Equal("Unsupported weight format mlx (mxfp6)", mlx.Text);
         var modelOpt = CompatibilityChecker.FromConfig("""{"model_type": "nemotron_h"}""", """{"quantization": {"quant_algo": "INT4_AWQ"}}""");
         Assert.Equal("Unsupported weight format modelopt INT4_AWQ", modelOpt.Text);
         Assert.Equal(CompatibilityState.Unknown, CompatibilityChecker.FromConfig("""{"model_type": "qwen3", "quantization_config": {"quant_method": "new-thing"}}""").State);

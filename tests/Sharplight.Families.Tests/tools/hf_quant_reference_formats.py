@@ -26,12 +26,40 @@ def mlx_float_modes(state, quant):
         yield stem, torch.from_numpy(np.array(weight.astype(mx.float32))).to(torch.bfloat16), {stem + ".weight", key}
 
 
-EXTRA = {}
+def autoround(directory, state, quant):
+    """AutoRound's own dequantizers: the AWQ packing through export_to_awq.utils.dequantize_gemm, the GPTQ packing through its
+    torch QuantLinear (auto_round_extension.torch.qlinear_torch_zp) applied to the identity matrix (a product with a one-hot row is
+    exact, so the output is the library's dequantized weight in the f16 it computes in)."""
+    awq = "awq" in quant.get("packing_format", "")
+    bits, group = quant["bits"], quant["group_size"]
+    weights, consumed = {}, set()
+    for key in sorted(k for k in state if k.endswith(".qweight")):
+        stem = key[:-len(".qweight")]
+        qweight, qzeros, scales = state[key], state[stem + ".qzeros"], state[stem + ".scales"]
+        if awq:
+            from auto_round.export.export_to_awq.utils import dequantize_gemm
+            weight = dequantize_gemm(qweight, qzeros, scales, bits, group).T
+        else:
+            from auto_round_extension.torch.qlinear_torch_zp import QuantLinear
+            k, n = qweight.shape[0] * 32 // bits, qweight.shape[1]
+            layer = QuantLinear(bits, group, k, n, False)
+            layer.qweight, layer.qzeros, layer.scales = qweight, qzeros, scales
+            if hasattr(layer, "post_init"):
+                layer.post_init()
+            with torch.no_grad():
+                weight = layer(torch.eye(k, dtype=torch.float16)).T
+        weights[stem] = weight.to(torch.float16).contiguous()
+        consumed |= {key, stem + ".qzeros", stem + ".scales", stem + ".g_idx"}
+    return weights, {k: v for k, v in state.items() if k not in consumed}
+
+
 original = base.dequantized
 
 
 def dequantized(directory, config):
     quant = config.get("quantization") or {}
+    if config.get("quantization_config", {}).get("quant_method") in ("auto-round", "autoround"):
+        return autoround(directory, base.tensors(directory), config["quantization_config"])
     if config.get("quantization_config", {}).get("quant_method") is None and quant.get("mode", "affine") != "affine":
         state = base.tensors(directory)
         weights, consumed = {}, set()

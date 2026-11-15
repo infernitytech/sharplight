@@ -20,6 +20,10 @@ public sealed class QuantizedFormatsImportTests(ITestOutputHelper output)
         { "tiny/tiny-llama-mlx-mxfp4", "mxfp4" },
         { "tiny/tiny-llama-mlx-nvfp4", "nvfp4" },
         { "tiny/tiny-llama-mlx-mxfp8", "f8e4m3_b32" },
+        { "tiny/tiny-llama-autoround-gptq-4bit-sym", "q4z_g128" },
+        { "tiny/tiny-llama-autoround-gptq-4bit-asym-g32", "q4z_g32" },
+        { "tiny/tiny-llama-autoround-gptq-2bit-g64", "q4z_g32" },
+        { "tiny/tiny-llama-autoround-awq-4bit", "q4z_g128" },
     };
 
     [Theory]
