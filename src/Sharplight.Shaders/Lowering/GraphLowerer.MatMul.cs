@@ -919,21 +919,15 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// Tensor-core GEMM tiles assumed to run at once (<paramref name="wave"/> of <see cref="ChooseSplit"/>):
-    /// <see cref="DefaultGemmWaveTiles"/>, or <c>SHARPLIGHT_GEMM_WAVE=n</c>. With <c>SHARPLIGHT_GEMM_WAVE=device</c>, one tile per
-    /// compute unit the device reports (<see cref="LoweringOptions.ComputeUnits"/>; a 128x128 tile takes most of a unit's shared
-    /// memory, so units ≈ concurrent tiles). That is opt-in because other K splits round the partial sums differently and change
-    /// greedy output (Qwen3-8B Q4_K_M, gpt-oss-20b). RTX PRO 4500 (82 SMs): Llama-3.2-1B Q8_0 pp2048 +9 %, Qwen3-8B Q4_K_M
-    /// +2.5 % (fewer split-K launches and reductions).
+    /// Tensor-core GEMM tiles assumed to run at once (<paramref name="wave"/> of <see cref="ChooseSplit"/>): one per compute unit
+    /// the device reports (<see cref="LoweringOptions.ComputeUnits"/>; a 128x128 tile takes most of a unit's shared memory, so
+    /// units ≈ concurrent tiles), else <see cref="DefaultGemmWaveTiles"/>. <c>SHARPLIGHT_GEMM_WAVE=n</c> forces n,
+    /// <c>fixed</c> the earlier 192 (other splits round the partial sums differently, so greedy output differs). RTX PRO 4500
+    /// (82 SMs) against 192: pp2048 Gemma-3-1B +17 %, Llama-3.2-1B +9 %, Qwen3-0.6B +7 %, Mistral-7B +2.5 %, Qwen3-8B +2 %.
     /// </summary>
-    private long GemmWaveTiles => DiagnosticSwitches.GemmWaveTiles switch
-    {
-        null => DefaultGemmWaveTiles,
-        0 => _opt.ComputeUnits > 0 ? _opt.ComputeUnits : DefaultGemmWaveTiles,
-        long n => n,
-    };
+    private long GemmWaveTiles => DiagnosticSwitches.GemmWaveTiles ?? (_opt.ComputeUnits > 0 ? _opt.ComputeUnits : DefaultGemmWaveTiles);
 
-    /// <summary>Concurrent GEMM tiles of the default K splits (tuned on a 188-SM GPU).</summary>
+    /// <summary>Concurrent GEMM tiles assumed when the device does not report its compute units (tuned on a 188-SM GPU).</summary>
     private const long DefaultGemmWaveTiles = 192;
 
     /// <summary>
