@@ -8,5 +8,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.HuggingFace.Tests" />
     <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Import.Diffusers" />
   </ItemGroup>
 </Project>
