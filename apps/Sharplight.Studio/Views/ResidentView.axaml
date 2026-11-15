@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
              xmlns:views="using:Sharplight.Studio.Views"
+             xmlns:conv="using:Sharplight.Studio.Converters"
              x:Class="Sharplight.Studio.Views.ResidentView"
              x:DataType="mvm:ResidentModelsViewModel">
   <DockPanel Margin="0,0,0,16">
@@ -49,10 +50,10 @@
                 <StackPanel Spacing="8">
                   <DockPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                      <Button Classes="small" Command="{Binding $parent[ItemsControl].((mvm:ResidentModelsViewModel)DataContext).ChatWithCommand}" CommandParameter="{Binding}">
+                      <Button Classes="small" Command="{Binding $parent[ItemsControl].((mvm:ResidentModelsViewModel)DataContext).OpenPageCommand}" CommandParameter="{Binding}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                          <Path Classes="icon" Data="{StaticResource IconChat}" Width="12" Height="12" />
-                          <TextBlock Text="Chat" />
+                          <Path Classes="icon" Data="{Binding OpenIcon, Converter={x:Static conv:IconConverter.Instance}}" Width="12" Height="12" />
+                          <TextBlock Text="{Binding OpenText}" />
                         </StackPanel>
                       </Button>
                       <Button Classes="small danger" IsEnabled="{Binding !IsUnloading}" Command="{Binding $parent[ItemsControl].((mvm:ResidentModelsViewModel)DataContext).UnloadCommand}" CommandParameter="{Binding}"

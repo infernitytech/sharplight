@@ -1,0 +1,83 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sp="using:Sharplight.Studio.ViewModels.Speech"
+             xmlns:iv="using:Sharplight.Studio.Views.Inference"
+             x:Class="Sharplight.Studio.Views.TranscribePage"
+             x:DataType="sp:TranscribePageViewModel">
+  <iv:InferenceFrame>
+    <iv:InferenceFrame.Workspace>
+      <Grid RowDefinitions="Auto,*" RowSpacing="14">
+        <!-- Input -->
+        <Border x:Name="InputCard" Classes="card" DragDrop.AllowDrop="True">
+          <StackPanel Spacing="12">
+            <TextBlock Classes="h2" Text="Audio" />
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                <Button Classes="small" Content="Choose file" Command="{Binding ChooseFileCommand}" />
+                <Button Classes="small" Content="{Binding RecordText}" Command="{Binding ToggleRecordingCommand}" IsEnabled="{Binding CanRecord}" ToolTip.Tip="{Binding RecordHint}">
+                  <Button.ContentTemplate>
+                    <DataTemplate x:DataType="x:String">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Path Classes="icon" Data="{StaticResource IconMic}" Width="12" Height="12" />
+                        <TextBlock Text="{Binding}" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </Button.ContentTemplate>
+                </Button>
+              </StackPanel>
+              <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="{Binding AudioName}" TextTrimming="CharacterEllipsis" FontWeight="Medium" IsVisible="{Binding HasAudio}" ToolTip.Tip="{Binding AudioPath}" />
+                <TextBlock Classes="caption" Text="{Binding AudioSummary}" IsVisible="{Binding HasAudio}" />
+                <TextBlock Classes="muted" Text="Drop a WAV file here, choose one, or record from the microphone." IsVisible="{Binding !HasAudio}" TextWrapping="Wrap" />
+              </StackPanel>
+            </DockPanel>
+            <TextBlock Classes="caption" Text="{Binding RecordHint}" IsVisible="{Binding !CanRecord}" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Classes="accent" Content="Transcribe" Command="{Binding RunCommand}" />
+              <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsTranscribing}" />
+              <TextBlock Classes="caption" Text="{Binding RunHint}" VerticalAlignment="Center" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <!-- Result -->
+        <Border Grid.Row="1" Classes="card">
+          <DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResult}">
+                <Button Classes="small" Content="Copy" Command="{Binding CopyCommand}" />
+                <Button Classes="small" Content=".txt" Command="{Binding ExportCommand}" CommandParameter="txt" ToolTip.Tip="Export the text" />
+                <Button Classes="small" Content=".srt" Command="{Binding ExportCommand}" CommandParameter="srt" ToolTip.Tip="Export SubRip subtitles" />
+                <Button Classes="small" Content=".vtt" Command="{Binding ExportCommand}" CommandParameter="vtt" ToolTip.Tip="Export WebVTT subtitles" />
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Classes="h2" Text="Transcript" />
+                <Border Classes="badge accent" IsVisible="{Binding ResultLanguage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="{Binding ResultLanguage}" />
+                </Border>
+              </StackPanel>
+            </DockPanel>
+            <TextBlock DockPanel.Dock="Bottom" Classes="caption" Text="{Binding ResultSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
+            <Panel>
+              <StackPanel IsVisible="{Binding !HasResult}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                <Path Classes="icon huge" Data="{StaticResource IconDocument}" HorizontalAlignment="Center" />
+                <TextBlock Classes="muted" Text="The transcript appears here, segment by segment." HorizontalAlignment="Center" />
+              </StackPanel>
+              <ScrollViewer IsVisible="{Binding HasResult}">
+                <ItemsControl ItemsSource="{Binding Segments}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="sp:TranscriptSegmentViewModel">
+                      <Grid ColumnDefinitions="156,*" Margin="0,0,0,6">
+                        <TextBlock Classes="caption mono" Text="{Binding Time}" VerticalAlignment="Top" Margin="0,3,0,0" />
+                        <SelectableTextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Panel>
+          </DockPanel>
+        </Border>
+      </Grid>
+    </iv:InferenceFrame.Workspace>
+  </iv:InferenceFrame>
+</UserControl>

@@ -170,7 +170,10 @@ history, outputs gallery, export) so every type looks and behaves the same; chat
 - S1b: precompilation for every execution provider and device available on the machine through an explicit two-stage
   provider contract (portable code such as SPIR-V, then device-specific driver binaries; CPU: empty), written into the
   `.slm` in place (crash-safe) while the model is not resident; inspector shows the stages per provider/device.
-- S2: a dedicated inference page per model type, added as each type lands on main: Transcribe (file/microphone, timestamps,
+- S2 (branch `studio/s2`: shared blocks `InferencePageViewModel` / `InferenceFrame` = picker, parameter panel with JSON presets,
+  run queue, history, outputs gallery, export; task models resident on the `ModelHost` as `ModelKind.Task`; Transcribe and Speak
+  pages done, see docs/studio.md *Inference pages*; later pages derive from `InferencePageViewModel` and add one `TaskKindClients`
+  line): a dedicated inference page per model type, added as each type lands on main: Transcribe (file/microphone, timestamps,
   subtitles export), Speak (voices, streaming playback, WAV export), Image (txt2img, img2img, inpaint, seeds, gallery),
   Vision (drop an image: labels, boxes, masks, depth, OCR overlays), Audio (music generation, separation, codec playground),
   Video (text-to-video and image-to-video: prompt, frames / fps / resolution, seed, scheduler, live frame preview,
