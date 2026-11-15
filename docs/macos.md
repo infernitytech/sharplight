@@ -1,6 +1,6 @@
 # macOS and Apple Silicon
 
-Status of macOS round 1 (branch `macos/round-1`, not merged into `main`). Sharplight runs on Apple Silicon Macs with the
+Status of macOS round 1 (branch `macos/round-1`, up to date with `develop`, not merged yet). Sharplight runs on Apple Silicon Macs with the
 CPU provider (NEON kernels) and with the Vulkan provider through a bundled MoltenVK. A native Metal provider is planned
 (see [the plan](#native-metal-provider-plan)); it is not part of this round.
 
@@ -12,14 +12,28 @@ only active on macOS or Arm64 hosts. The x64 kernels, their greedy outputs and t
 | Area | macOS arm64 (CI: `macos-15`, Apple M1 VM) | Linux arm64 (CI: `ubuntu-24.04-arm`, Neoverse N2) |
 | --- | --- | --- |
 | Build (`osx-arm64` / `linux-arm64`) | ✓ | ✓ |
-| CPU provider, `Sharplight.Cpu.Tests` | ✓ | ✓ (also at the `neon` tier) |
-| Vulkan provider via MoltenVK, `Sharplight.Vulkan.Tests` | ✓ (all 1312 tests: 1285 pass, 27 skip: benchmarks, an opt-in large test, the workgroup-matrix GEMM) | — (no GPU) |
+| CPU provider, `Sharplight.Cpu.Tests` | ✓ (1287 tests: 1251 pass, 36 skip) | ✓ (same counts; kernel tests also at the `neon` tier) |
+| Vulkan provider via MoltenVK, `Sharplight.Vulkan.Tests` | ✓ (all 1454 tests in four parts: 1425 pass, 29 skip: benchmarks, opt-in large tests, the workgroup-matrix GEMM) | — (no GPU) |
 | LLM smoke test, Qwen2.5-0.5B-Instruct Q4_K_M, CPU | ✓ | ✓ |
 | LLM smoke test, Vulkan via MoltenVK | ✓ (same text as the CPU) | — |
 | `Sharplight Studio.app` (unsigned, ad-hoc signed zip artifact) | ✓ | — |
+| Studio Velopack package (`studio.yml`, `osx-arm64`) with MoltenVK | ✓ (`pack-studio.sh` requires `libMoltenVK.dylib`) | — |
 
 The workflow is [`.github/workflows/macos.yml`](../.github/workflows/macos.yml). It runs only for the `macos/round-1`
-branch and on manual dispatch.
+branch and on manual dispatch. Last full run: 43736304439 (all three jobs green).
+
+The macOS job runs the Vulkan suite in four time-boxed parts (`-class` filters in the workflow's `env`):
+
+| Part | Classes | Tests (pass / skip) | Time on `macos-15` |
+| --- | --- | --- | --- |
+| core | elementwise, norms, RoPE, row ops, reductions, gathers, views, data ops, casts, matmuls, fusion, SIMT / skinny / split-half GEMMs, row invariance, stateful | 612 / 0 | 31 min |
+| MMQ GEMMs | `MmqTests` | 48 / 0 | 6 min |
+| quantized formats and data kernels | quant formats, Bonsai, IQ4, FP8 GEMM, MoE, top-k, pad, resize | 433 / 0 | 10 min |
+| remaining classes | everything else (attention, SSM, convolutions, vision and audio kernels, precompilation...) | 332 / 29 | 7 min |
+
+Compiled kernels persist between runs: the workflow points `SHARPLIGHT_COMPILATION_CACHE` (the per-user artifact store,
+`FileCompilationCache`) at `.kernel-cache` in the workspace and restores / saves it with `actions/cache`, keyed by the kernel
+sources. Stale entries never hit, so an older cache is only a partial speed-up.
 
 ## Vulkan through MoltenVK
 
@@ -60,9 +74,11 @@ Shading Language with SPIRV-Cross). Sharplight ships it in a separate NuGet pack
     matvecs and attention came out wrong (the smoke test produced garbage tokens). Each `OpGroupNonUniform*` result gets a
     second, unused `OpCopyObject` use, which makes SPIRV-Cross evaluate it into a temporary where the kernel computes it.
 
-  The rewrite runs at pipeline creation, only on devices that report `VK_KHR_portability_subset`.
+  The rewrite runs in `PipelineBuilder.CreateModule`, so every path that creates a shader module (pipelines on demand,
+  stored pipeline binaries, precompilation captures for `VK_KHR_pipeline_binary` and the pipeline cache) gets the rewritten
+  kernels; only on devices that report `VK_KHR_portability_subset`.
   `SHARPLIGHT_VK_SPIRV_PORTABILITY=0` turns it off; `=all` applies it on every device, which is how it is checked on a native
-  driver: the full Vulkan suite passes with it on an x64 GPU, and all 600 cached kernels still pass `spirv-val` and translate
+  driver: the full Vulkan suite (1454 tests) passes with it on an x64 GPU, and all 600 cached kernels still pass `spirv-val` and translate
   to MSL without any of the patterns. All three are upstream SPIRV-Cross bugs (the access-chain and subgroup ones are still
   in its current main); once a MoltenVK release fixes them, the rewrite can go.
 - **Metal fast math off.** MoltenVK compiles its MSL with Metal fast math by default, which may reassociate sums (the
@@ -74,9 +90,10 @@ Shading Language with SPIRV-Cross). Sharplight ships it in a separate NuGet pack
 
 On the CI runner (paravirtual GPU of an M1 VM; numbers are indicative only), Qwen2.5-0.5B-Instruct Q4_K_M with
 `--bench 128` runs 544 tok/s prefill and 53.6 tok/s decode through MoltenVK (485 dispatches and 340 barriers per decode
-step), against 158 / 13.7 tok/s on the VM's 3 CPU cores. Creating the 104 pipelines of the decode graph takes about 50 s
-the first time (SPIR-V to MSL, then Metal compilation). That is also why CI runs the Vulkan suite in two time-boxed parts
-(core kernels about 19 min, the rest about 30 min).
+step), against 158 / 13.7 tok/s on the VM's 3 CPU cores. Run 43736304439 (after the merge of `develop`) measured
+88 tok/s prefill and 51.7 tok/s decode (best); the prefill drop is not investigated yet. Creating the 104 pipelines of the decode graph takes about 50 s
+the first time (SPIR-V to MSL, then Metal compilation). That is also why CI runs the Vulkan suite in four time-boxed parts (see
+[Status](#status)).
 
 ### Device features MoltenVK exposes
 
@@ -161,6 +178,11 @@ prefetch intrinsic).
   (`Sharplight-Studio-<version>-macos-arm64.zip`, made with `ditto` to keep the bundle intact).
 
 The CI job `studio-app` uploads the zip as an artifact.
+
+Releases use Velopack instead (`.github/workflows/studio.yml`, `osx-arm64` on `macos-15`, through
+`packaging/pack-studio.sh`): the publish on macOS brings `libMoltenVK.dylib` along next to the executable, where the
+Vulkan provider finds it, and the script copies the MoltenVK license and notice into the package. It fails if the dylib is
+missing, so a macOS Studio package always has the Vulkan provider.
 
 ### Opening the unsigned app
 
