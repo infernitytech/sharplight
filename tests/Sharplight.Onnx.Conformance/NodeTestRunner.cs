@@ -104,6 +104,7 @@ internal static class NodeTestRunner
         // but the first (float scales, bounds and weights), then every input (operators whose every operand defines the output shape,
         // such as a float Range). String inputs are never pinned.
         ComputeGraph? graph = null;
+        IReadOnlyDictionary<string, OnnxOutputLayout> layouts = new Dictionary<string, OnnxOutputLayout>();
         string importError = "";
         int pinLevel = 0;
         for (; pinLevel <= 3 && graph is null; pinLevel++)
@@ -148,6 +149,10 @@ internal static class NodeTestRunner
             {
                 var definition = OnnxGraphAdapter.Build(OnnxImporter.FromModel(attempt, modelPath));
                 graph = definition.Graph(OnnxGraphAdapter.MainGraph);
+                if (definition.Properties.TryGetValue(OnnxGraphAdapter.OutputLayoutsProperty, out var property))
+                {
+                    layouts = (IReadOnlyDictionary<string, OnnxOutputLayout>)property;
+                }
                 pinnedNames = [.. pinned.Keys];
             }
             catch (Exception e)
@@ -217,17 +222,19 @@ internal static class NodeTestRunner
                 {
                     var shape = compiled.OutputShape(name, run);
                     long elements = shape.Aggregate(1L, (a, b) => a * b);
+                    var layout = layouts.GetValueOrDefault(name);
                     if (value.Type == DataType.Str)
                     {
                         var strings = new string[elements];
                         compiled.GetOutput(name, strings.AsSpan());
-                        actual[name] = (shape, [], strings);
+                        actual[name] = layout is null ? (shape, [], strings) : (layout.OnnxShape(shape), [], layout.ToOnnx<string>(strings, shape));
                         continue;
                     }
 
                     var buffer = new byte[value.Type.ByteSize(elements)];
                     compiled.GetOutput(name, buffer);
-                    actual[name] = (shape, ElementCodec.Decode(value.Type, buffer), null);
+                    var decoded = ElementCodec.Decode(value.Type, buffer);
+                    actual[name] = layout is null ? (shape, decoded, null) : (layout.OnnxShape(shape), layout.ToOnnx<double>(decoded, shape), null);
                 }
             }
             catch (Exception e)

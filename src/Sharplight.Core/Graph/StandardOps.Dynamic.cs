@@ -45,11 +45,20 @@ public static partial class StandardOps
     /// <summary>
     /// ONNX Unique over the flattened input x → values [count] (x's type), first-occurrence indices i32 [count], inverse indices i32 [n]
     /// (n = elements of x) and counts i32 [count]. Attributes: <c>count_symbol</c>, <c>sorted</c> (bool, default true: ascending values;
-    /// otherwise first-occurrence order).
+    /// otherwise first-occurrence order), <c>slices</c> (bool, default false: when set, the unique elements are the slices
+    /// <c>x[i, ...]</c> along the outermost axis, compared and sorted lexicographically; values are then [count, inner dims of x] and n is
+    /// the outer extent of x).
     /// </summary>
     public static readonly OpSchema Unique = new("Unique", OpCategory.Data, 1, 1, (i, a) =>
     {
         var count = Dim.Sym(a.Get<string>("count_symbol"));
+        if (a.Get("slices", false))
+        {
+            Dim[] valueDims = [count, .. i[0].Shape.Dims.Skip(1)];
+            return [new(i[0].Type, new Shape(valueDims)), new(DataType.I32, new Shape(count)), new(DataType.I32, new Shape(i[0].Shape[0])),
+                new(DataType.I32, new Shape(count))];
+        }
+
         var n = i[0].Shape.Rank == 0 ? Dim.Of(1) : i[0].Shape[0] * i[0].Shape.InnerElements;
         return [new(i[0].Type, new Shape(count)), new(DataType.I32, new Shape(count)), new(DataType.I32, new Shape(n)), new(DataType.I32, new Shape(count))];
     });

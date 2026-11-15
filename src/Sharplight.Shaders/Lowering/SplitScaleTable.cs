@@ -33,25 +33,31 @@ internal static class SplitScaleTable
 
     /// <summary>
     /// The split rows of <paramref name="matrix"/> (<paramref name="rows"/> x <paramref name="k"/> f32): per row the
-    /// <paramref name="k"/> f16 hi parts, then the <paramref name="k"/> f16 lo parts of the scaled values (4 bytes per value).
+    /// <paramref name="k"/> f16 hi parts, then (unless <paramref name="hiOnly"/>) the <paramref name="k"/> f16 lo parts of the
+    /// scaled values (4 bytes per value, 2 with <paramref name="hiOnly"/>: the single-product form of
+    /// <see cref="Runtime.MatrixPrecision.Fast"/>).
     /// </summary>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> holds fewer than <paramref name="rows"/> x <paramref name="k"/> values.</exception>
-    public static byte[] Split(ReadOnlySpan<byte> matrix, long rows, long k)
+    public static byte[] Split(ReadOnlySpan<byte> matrix, long rows, long k, bool hiOnly = false)
     {
         var values = Values(matrix, rows, k);
-        var parts = new Half[rows * 2 * k];
+        long halves = hiOnly ? 1 : 2;
+        var parts = new Half[rows * halves * k];
         for (long r = 0; r < rows; r++)
         {
             var row = values.Slice((int)(r * k), (int)k);
             float s = Scale(MaxAbs(row));
-            var hi = parts.AsSpan((int)(r * 2 * k), (int)k);
-            var lo = parts.AsSpan((int)(r * 2 * k + k), (int)k);
+            var hi = parts.AsSpan((int)(r * halves * k), (int)k);
+            var lo = hiOnly ? [] : parts.AsSpan((int)(r * 2 * k + k), (int)k);
             for (int i = 0; i < row.Length; i++)
             {
                 float v = row[i] * s;
                 float h = BitConverter.UInt32BitsToSingle((BitConverter.SingleToUInt32Bits(v) + 0x1000u) & 0xFFFFE000u);
                 hi[i] = (Half)h;
-                lo[i] = (Half)(v - h);
+                if (!hiOnly)
+                {
+                    lo[i] = (Half)(v - h);
+                }
             }
         }
 

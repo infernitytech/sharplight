@@ -661,7 +661,20 @@ using namespace linalg;
 #ifndef GEMM_SPLIT
 #define GEMM_SPLIT 0
 #endif
-#if GBK == 32 && !GEMM_SPLIT
+// SPLIT_PARTS = 1 with GEMM_SPLIT (fast matrix precision): the row-scaled hi parts only, one product per multiply-add (11
+// significant bits per input, like TF32) accumulated in f32 on the tensor cores; x rows from split_rows with SPLIT_PARTS 1
+// (K hi halves, then the inverse scale), W per row K hi halves. Double buffered like the f16 GEMM.
+#ifndef SPLIT_PARTS
+#define SPLIT_PARTS 3
+#endif
+#if GEMM_SPLIT && SPLIT_PARTS > 1
+#define SPLIT_LO 1
+#define SPLIT_HALVES 2
+#else
+#define SPLIT_LO 0
+#define SPLIT_HALVES 1
+#endif
+#if GBK == 32 && !SPLIT_LO
 #define GNBUF 2
 #else
 #define GNBUF 1
@@ -685,7 +698,7 @@ typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.M
 // Tiles hold packed halves, 8 per uint4, so staging is one 16-byte store per 8 values (offsets/strides in uint4s).
 groupshared uint4 gA[GNBUF * GBM * GAS / 8];
 groupshared uint4 gB[GNBUF * GBN * GAS / 8];
-#if GEMM_SPLIT
+#if SPLIT_LO
 groupshared uint4 gAl[GBM * GAS / 8];
 groupshared uint4 gBl[GBN * GAS / 8];
 #endif
@@ -987,7 +1000,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #else
     uint4 ws[GPF][GB_PER_T][2];
 #endif
-#if GEMM_SPLIT
+#if SPLIT_LO
     uint4 xsl[GPF][GA_PER_T];   // lo parts (GEMM_SPLIT)
     uint4 wsl[GPF][GB_PER_T][2];
 #endif
@@ -996,15 +1009,20 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #if GEMM_SPLIT
     // Split mode: x rows from split_rows (SPLIT_ROW_BYTES each: K hi halves, K lo halves, the inverse scale); the lo parts go
     // to `lo` (xsl of FETCH's register set and item). Per-item row addresses as for X_F16.
-    #define SPLIT_ROW_BYTES (4 * uint64_t(K) + 16)
+    #define SPLIT_ROW_BYTES (2 * SPLIT_HALVES * uint64_t(K) + 16)
     uint64_t xrb[GA_PER_T];
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)
     {
         uint t = t0 + (tid + it * GTHREADS) / GQ;
         xrb[it] = uint64_t(p.x) + uint64_t(ROW_OF(t < ROWS_LIVE ? t : t0)) * SPLIT_ROW_BYTES + ((tid + it * GTHREADS) % GQ) * 16;
     }
+#if SPLIT_LO
     #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
         { dst = 0; lo = 0; if ((t) < ROWS_LIVE) { dst = *(uint4*)(xrb[it] + uint64_t(k) * 2); lo = *(uint4*)(xrb[it] + (uint64_t(K) + (k)) * 2); } }
+#else
+    #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
+        { dst = 0; if ((t) < ROWS_LIVE) dst = *(uint4*)(xrb[it] + uint64_t(k) * 2); }
+#endif
 #elif X_F16
     // Per-item row addresses are loop invariant (the row is clamped; rows past the tile load zeros).
     uint64_t xrb[GA_PER_T];
@@ -1032,6 +1050,13 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     // Rows past N stage the decode of zero codes, which the stores never read back.
     #define WLOAD(set, it, row, g) { [ForceUnroll] for (uint u = 0; u < GW_RAW; u++) ws[set][it][u] = 0; if (N % GBN == 0 || (row) < N) wload(wr[it], g, ws[set][it]); }
     #define WSTAGE(set, it, ob, row) { uint4 d[GW_UNIT / 8]; wdecode(ws[set][it], d); [ForceUnroll] for (uint u = 0; u < GW_UNIT / 8; u++) gB[(ob) + u] = d[u]; }
+#elif GEMM_SPLIT && !SPLIT_LO
+    #define WLOAD(set, it, row, g)                                                                      \
+        { ws[set][it][0] = 0; ws[set][it][1] = 0;                                                       \
+          if (N % GBN == 0 || (row) < N)                                                                \
+          { uint4* hp = (uint4*)(uint64_t(wbase) + uint64_t(row) * 2 * uint64_t(K) + uint64_t(g) * 32);  \
+            ws[set][it][0] = hp[0]; ws[set][it][1] = hp[1]; } }
+    #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
 #elif GEMM_SPLIT
     #define WLOAD(set, it, row, g)                                                                      \
         { ws[set][it][0] = 0; ws[set][it][1] = 0; wsl[set][it][0] = 0; wsl[set][it][1] = 0;             \
@@ -1045,7 +1070,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #define WLOAD(set, it, row, g) { ws[set][it][0] = 0; ws[set][it][1] = 0; if (N % GBN == 0 || (row) < N) load16h(wbase, row, g, ws[set][it][0], ws[set][it][1]); }
     #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
 #endif
-#if GEMM_SPLIT
+#if SPLIT_LO
     #define XS_LO(set, it) xsl[set][it]
     #define STAGE_LO_A(set, it, ia) gAl[ia] = xsl[set][it];
 #else
@@ -1083,7 +1108,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         uint ob = ((buf) * GBN * GAS + r * GAS + q * GW_UNIT) / 8;                                      \
         WSTAGE(set, it, ob, n0 + r)                                                                     \
     }
-#if GEMM_SPLIT
+#if SPLIT_LO
     // The three products of a 16-value K slice (hi·lo, lo·hi, then hi·hi) accumulate on the tensor cores from zero, and the
     // slice sum is added to the f32 accumulator with an IEEE add: the tensor cores' accumulation (truncating alignment)
     // then only rounds 16-term slice sums instead of the whole running sum. GNBUF = 1: the tiles are at offset 0.
@@ -1209,7 +1234,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         for (uint e = 0; e < 8; e++)
         {
             uint t = t0 + wm + i * 16 + (lane + e * 32) / 16;
-            xr[e] = t < p.T ? *(float*)(uint64_t(p.x) + uint64_t(t) * SPLIT_ROW_BYTES + 4 * uint64_t(K)) : 0.0;
+            xr[e] = t < p.T ? *(float*)(uint64_t(p.x) + uint64_t(t) * SPLIT_ROW_BYTES + 2 * SPLIT_HALVES * uint64_t(K)) : 0.0;
         }
         [ForceUnroll]
         for (int j = 0; j < FRAG_N; j++)

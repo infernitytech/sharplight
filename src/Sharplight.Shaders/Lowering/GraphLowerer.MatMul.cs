@@ -282,9 +282,13 @@ public sealed partial class GraphLowerer
     private static Dictionary<string, string> Gemm2Macros(Dictionary<string, string> m, int tileRows, bool large)
     {
         bool split = m.TryGetValue("GEMM_SPLIT", out var splitMacro) && splitMacro == "1";
-        bool wideK = !split && DiagnosticSwitches.GemmBlockK == 64 && long.Parse(m["K"], CultureInfo.InvariantCulture) % 64 == 0;
+        // The single-product form (SPLIT_PARTS 1, fast matrix precision) stages 64-value K blocks like the f16 GEMM (vit-base b1
+        // 1.38 -> 1.24 ms, whisper-tiny 1.13 -> 1.00 ms of GPU time against 32-value blocks).
+        bool splitLo = split && !(m.TryGetValue("SPLIT_PARTS", out var parts) && parts == "1");
+        bool wideK = !splitLo && DiagnosticSwitches.GemmBlockK == 64 && long.Parse(m["K"], CultureInfo.InvariantCulture) % 64 == 0;
         // The split form keeps two accumulator sets live (the step's products, then the f32 sums): the 8-warp layout's
         // 64x32 subgroup tiles leave registers for them, the 4-warp layout's 64x64 tiles spill (vit [768 → 3072]: 151 against 196 us).
+        // The single-product form is also faster on the 8-warp layout (whisper-tiny 1.00 -> 0.93 ms).
         int[] layout = Gemm2Layout(tileRows, large || split, wideK);
         int threads = layout[0] * layout[1] * 32;
         int columns = layout[1] * layout[3] * 16;
@@ -494,7 +498,7 @@ public sealed partial class GraphLowerer
         }
 
         var split = QuantizedActivations(MatMulLabel(p), [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, p.K, MatvecMaxRows + 1,
-            p.X.Shape[0] * p.RowsPerLead, ActivationCode.SplitF16);
+            p.X.Shape[0] * p.RowsPerLead, p.Macros.ContainsKey("SPLIT_PARTS") ? ActivationCode.ScaledF16 : ActivationCode.SplitF16);
         var y = epilogue?.Output ?? p.Y;
         Emit(MatMulLabel(p) + (epilogue?.Label ?? ""), [p.Node, .. epilogue?.Group ?? []],
             Gemm2Variants(p, p.Macros, b => p.RowCount(b) > MatvecMaxRows,
@@ -516,8 +520,15 @@ public sealed partial class GraphLowerer
     {
         var copy = new Dictionary<string, string>(m);
         copy.Remove("GEMM_SPLIT");
+        copy.Remove("SPLIT_PARTS");
         return copy;
     }
+
+    /// <summary>
+    /// True when f32 matrix products use one f16 product of row-scaled inputs (<see cref="MatrixPrecision.Fast"/>) instead of the
+    /// split form's three; reduced precision, where allowed, takes precedence with its own kernels.
+    /// </summary>
+    private bool FastMatrixProducts => _opt.Compile.MatrixPrecision == MatrixPrecision.Fast && !_opt.Compile.AllowReducedPrecision;
 
     /// <summary>
     /// The split f16 form of the constant f32 weights <paramref name="weight"/> ([N, K] or a conv's [O, CG, KH, KW], read as
@@ -551,15 +562,18 @@ public sealed partial class GraphLowerer
             return bytes;
         }
 
+        // Fast matrix precision: the hi parts only (one product per multiply-add).
+        bool hiOnly = FastMatrixProducts;
+        long halves = hiOnly ? 1 : 2;
         (WeightInfo Parts, WeightInfo Scales) Create()
-            => (Transient(weight.Name + ":split-f16", DataType.F16, new Shape(rows, 2 * k), () => SplitScaleTable.Split(Source(), rows, k)),
+            => (Transient(weight.Name + (hiOnly ? ":scaled-f16" : ":split-f16"), DataType.F16, new Shape(rows, halves * k), () => SplitScaleTable.Split(Source(), rows, k, hiOnly)),
                 Transient(weight.Name + ":split-scale", DataType.F32, new Shape(rows), () => SplitScaleTable.Scales(Source(), rows, k)));
         static WeightInfo Transient(string name, DataType type, Shape shape, Func<byte[]> produce)
             => new() { Name = name, Type = type, Shape = shape, Source = new TransientWeightSource(type.ByteSize(shape.Elements()), produce) };
 
         // Model weights: one derived pair per source tensor, so shared-weight registries upload it once for every compilation.
-        var (partsInfo, scalesInfo) = weight.Kind == ValueKind.Weight ? SplitWeightCache.Get(weight.Weight!, rows, k, Create) : Create();
-        var parts = new TensorRef(NewBuffer(BufferKind.Weight, partsInfo.Name, partsInfo.ByteSize, w: partsInfo), 0, DataType.F16, [rows, 2 * k], [2 * k, 1], null);
+        var (partsInfo, scalesInfo) = weight.Kind == ValueKind.Weight ? SplitWeightCache.Get(weight.Weight!, rows, k, hiOnly, Create) : Create();
+        var parts = new TensorRef(NewBuffer(BufferKind.Weight, partsInfo.Name, partsInfo.ByteSize, w: partsInfo), 0, DataType.F16, [rows, halves * k], [halves * k, 1], null);
         var scales = new TensorRef(NewBuffer(BufferKind.Weight, scalesInfo.Name, scalesInfo.ByteSize, w: scalesInfo), 0, DataType.F32, [rows], [1], null);
         _splitWeights[weight] = (parts, scales);
         return (parts, scales);
@@ -587,7 +601,9 @@ public sealed partial class GraphLowerer
         // grids large enough for tensor cores to beat the f32 SIMT GEMM.
         long rowsBound = (x.Symbol is null ? x.Shape[0] : _opt.Compile.Bound(x.Symbol)) * rowsPerLead;
         (TensorRef Parts, TensorRef Scales)? splitWeights = null;
-        if (!coop && SplitHalfGemmUsable(n, w.Type, K) && !SmallCoopGrid(N, K, rowsBound, splitHalf: true))
+        // The single-product form of fast matrix precision beats the SIMT GEMM on small grids too (convnext-tiny b1 1.17 -> 0.97 ms,
+        // bert-base b8 2.39 -> 2.27 ms of GPU time).
+        if (!coop && SplitHalfGemmUsable(n, w.Type, K) && (FastMatrixProducts || !SmallCoopGrid(N, K, rowsBound, splitHalf: true)))
         {
             splitWeights = SplitWeights(n.Inputs[1], w);
         }
@@ -597,6 +613,10 @@ public sealed partial class GraphLowerer
         {
             coop = true;
             macros["GEMM_SPLIT"] = "1";
+            if (FastMatrixProducts)
+            {
+                macros["SPLIT_PARTS"] = "1";
+            }
         }
 
         // Workgroup-scope matrix GEMM (device-staged tiles, decode on load) for the formats it decodes.
@@ -606,7 +626,7 @@ public sealed partial class GraphLowerer
             ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK)
             : coop
                 ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0), Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)),
-                    !splitHalf && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32)
+                    (!splitHalf || FastMatrixProducts) && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32)
                 : rows => ChooseSimtSplit(N, K, rows);
 
         return new MatMulPlan

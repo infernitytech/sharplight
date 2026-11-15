@@ -59,4 +59,24 @@ internal sealed unsafe partial class CpuCompiledSegment
         AddStep(new StringCastOp(x, y), x, y);
         _refs[n.Output] = y;
     }
+
+    private void LowerMurmurHash3(Node n)
+    {
+        var x = Dense(Ref(n.Inputs[0]));
+        var y = NewDense(n.Output);
+        AddStep(new MurmurHash3Op(x, y, unchecked((uint)n.Attributes.Get("seed", 0L)), (int)n.Attributes.Get("element_bytes", 4L)), x, y);
+        _refs[n.Output] = y;
+    }
+
+    private void LowerStringSplit(Node n)
+    {
+        var a = n.Attributes;
+        var x = Dense(Ref(n.Inputs[0]));
+        var tokens = NewDense(n.Outputs[0]);
+        var counts = NewDense(n.Outputs[1]);
+        AddStep(new StringSplitOp(x, tokens, counts, a.Get("delimiter", ""), a.Get("maxsplit", -1L), a.Get<string>("count_symbol"), a.Get<long>("max_tokens")),
+            [x, tokens, counts]);
+        _refs[n.Outputs[0]] = tokens;
+        _refs[n.Outputs[1]] = counts;
+    }
 }

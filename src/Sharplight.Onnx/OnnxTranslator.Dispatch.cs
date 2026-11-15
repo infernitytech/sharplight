@@ -24,7 +24,7 @@ internal sealed partial class OnnxTranslator
         "DFT", "STFT",
         "RandomNormal", "RandomUniform", "RandomNormalLike", "RandomUniformLike", "Bernoulli", "Multinomial",
         "TfIdfVectorizer",
-        "StringNormalizer", "StringConcat", "RegexFullMatch",
+        "StringNormalizer", "StringConcat", "RegexFullMatch", "StringSplit",
         "Attention", "RotaryEmbedding", "NegativeLogLikelihoodLoss", "SoftmaxCrossEntropyLoss", "SwiGLU", "Shrink", "CumProd",
         "ReverseSequence",
         "Det",
@@ -41,6 +41,7 @@ internal sealed partial class OnnxTranslator
         "TransposeMatMul", "FusedGemm", "GemmFastGelu", "ScaledSiLU", "BiasSplitGelu", "GatedRMSNorm", "CDist", "ComplexMul", "ComplexMulConj",
         "GroupNorm", "SkipGroupNorm", "NhwcMaxPool", "UnfoldTensor", "EmbedLayerNormalization", "CropAndResize", "MoE", "GatherBlockQuantized",
         "NGramRepeatBlock", "Inverse", "ExpandDims", "MatMulIntegerToFloat", "DynamicQuantizeMatMul", "QGemm", "MatMulInteger16", "QLinearWhere",
+        "WordConvEmbedding", "MurmurHash3",
     ];
 
     // ai.onnx.preview operators.

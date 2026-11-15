@@ -22,6 +22,7 @@ internal sealed partial class OnnxTranslator
     private readonly HashSet<OnnxNode> _skip = [];
     private readonly Dictionary<OnnxNode, IReadOnlyList<string>> _reads = [];
     private readonly HashSet<string> _graphOutputs;
+    private readonly Dictionary<string, OnnxOutputLayout> _outputLayouts = new(StringComparer.Ordinal);
     private GraphBuilder _b = null!;
     private IDisposable? _groupScope;
     private int _groupIndex;
@@ -37,6 +38,9 @@ internal sealed partial class OnnxTranslator
     }
 
     public IReadOnlyDictionary<string, WeightInfo> Weights => _weights;
+
+    /// <summary>Graph outputs whose IR tensor is laid out differently from the ONNX tensor (see <see cref="OnnxOutputLayout"/>).</summary>
+    public IReadOnlyDictionary<string, OnnxOutputLayout> OutputLayouts => _outputLayouts;
     public ComputeGraph Graph { get; private set; } = null!;
     public long Opset => _model.Opset();
 
@@ -175,6 +179,11 @@ internal sealed partial class OnnxTranslator
             return TranslatedTensor.Const(constant);
         }
 
+        if (EmptyInputDims(info) is { } emptyDims)
+        {
+            return TranslatedTensor.Const(EmptyConst(info.ElemType, emptyDims, info.Name));
+        }
+
         var shape = InputShape(info);
         if (info.ElemType == OnnxType.String)
         {
@@ -245,11 +254,41 @@ internal sealed partial class OnnxTranslator
     private void DeclareTensorOutput(string name, TranslatedTensor tensor)
     {
         // A constant-folded output (Shape, Size, ConstantOfShape of pinned shapes, ...) is materialized as a constant and copied out.
-        var source = tensor.V ?? (OnnxType.IsInteger(tensor.C!.ElemType) ? Idx(tensor) : ConstValue(tensor.C, name + ".constant"));
+        var source = tensor.V ?? (tensor.C!.Strings is not null ? StrValue(tensor, name + ".constant")
+            : OnnxType.IsInteger(tensor.C.ElemType) ? Idx(tensor) : ConstValue(tensor.C, name + ".constant"));
         _b.Output(name, OutputCopy(source, name));
+        int[] permutation = tensor.TransposedNonZero ? [1, 0] : tensor.OnnxPermutation ?? [];
+        if (tensor.LeadingUnits > 0 || permutation.Length > 0)
+        {
+            _outputLayouts[name] = new OnnxOutputLayout(tensor.LeadingUnits, permutation);
+        }
     }
 
     // ---- inputs ------------------------------------------------------------------------------------
+    /// <summary>
+    /// The dims of a graph input pinned to a zero extent through <see cref="OnnxImportOptions.InputShapes"/>, else null. Such a tensor carries
+    /// no data, so it is fully known at import: it becomes an empty constant, and its consumers fold. (A declared dim_value 0 is not a zero
+    /// extent: exporters use it for unknown dims.)
+    /// </summary>
+    private long[]? EmptyInputDims(OnnxValueInfo vi)
+    {
+        var pinned = _opts.InputShapes.GetValueOrDefault(vi.Name);
+        if (pinned is null || !pinned.Contains(0L))
+        {
+            return null;
+        }
+
+        return pinned.Any(d => d < 0)
+            ? throw new NotSupportedException($"Graph input '{vi.Name}' has a zero extent and a symbolic batch ({string.Join(", ", pinned)}).")
+            : pinned;
+    }
+
+    /// <summary>A constant without elements of the given ONNX type and shape.</summary>
+    private static OnnxConst EmptyConst(int elemType, long[] dims, string name)
+        => elemType == OnnxType.String ? OnnxConst.FromStrings(dims, [], name)
+            : OnnxType.IsFloat(elemType) ? OnnxConst.FromFloats(elemType, dims, [], name)
+            : OnnxConst.FromInts(elemType, dims, [], name);
+
     private Shape InputShape(OnnxValueInfo vi)
     {
         long[]? ov = _opts.InputShapes.GetValueOrDefault(vi.Name);
@@ -566,10 +605,21 @@ internal sealed partial class OnnxTranslator
 
             return;
         }
+
+        if (allConst && TryEmptyResult(n, ins))
+        {
+            return;
+        }
+
         if (ins.Any(t => t is { TransposedNonZero: true }))
         {
             NonZeroConsumer(n, ins);
             return;
+        }
+
+        if (ins.Any(t => t is { OnnxPermutation: not null }))
+        {
+            throw new NotSupportedException($"{n.OpType} of a tensor whose data-dependent extent is on an inner axis (only graph outputs accept it)");
         }
 
         int leadingUnits = ins.Select(t => t?.LeadingUnits ?? 0).DefaultIfEmpty().Max();   // generators (RandomNormal) have no inputs

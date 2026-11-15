@@ -1,0 +1,264 @@
+r0 resnet50 b1 sl-vulkan: ok min 0.746 med 2.03 parity True 
+r0 resnet50 b1 sl-vulkan-fast: ok min 0.622 med 1.015 parity False 
+r0 resnet50 b1 sl-vulkan-simt: ok min 0.846 med 2.075 parity True 
+r0 resnet50 b1 sl-vulkan-rp: ok min 0.737 med 1.987 parity False 
+r0 resnet50 b1 ort-cuda: ok min 1.084 med 2.605 parity None 
+r0 resnet50 b1 ort-cuda-strict: ok min 2.177 med 5.074 parity None 
+r0 resnet50 b8 sl-vulkan: ok min 2.355 med 5.358 parity True 
+r0 resnet50 b8 sl-vulkan-fast: ok min 1.923 med 4.332 parity False 
+r0 resnet50 b8 sl-vulkan-simt: ok min 3.494 med 7.145 parity True 
+r0 resnet50 b8 sl-vulkan-rp: ok min 2.259 med 4.428 parity False 
+r0 resnet50 b8 ort-cuda: ok min 2.154 med 3.579 parity None 
+r0 resnet50 b8 ort-cuda-strict: ok min 5.564 med 7.039 parity None 
+r0 convnext-tiny b1 sl-vulkan: ok min 1.236 med 2.853 parity True 
+r0 convnext-tiny b1 sl-vulkan-fast: ok min 1.024 med 1.68 parity False 
+r0 convnext-tiny b1 sl-vulkan-simt: ok min 1.417 med 2.824 parity True 
+r0 convnext-tiny b1 sl-vulkan-rp: ok min 1.25 med 2.882 parity True 
+r0 convnext-tiny b1 ort-cuda: ok min 1.256 med 2.503 parity None 
+r0 convnext-tiny b1 ort-cuda-strict: ok min 1.958 med 3.048 parity None 
+r0 convnext-tiny b8 sl-vulkan: ok min 4.386 med 8.92 parity True 
+r0 convnext-tiny b8 sl-vulkan-fast: ok min 2.462 med 5.738 parity False 
+r0 convnext-tiny b8 sl-vulkan-simt: ok min 5.626 med 9.929 parity True 
+r0 convnext-tiny b8 sl-vulkan-rp: ok min 3.413 med 6.516 parity False 
+r0 convnext-tiny b8 ort-cuda: ok min 4.128 med 5.532 parity None 
+r0 convnext-tiny b8 ort-cuda-strict: ok min 6.202 med 7.374 parity None 
+r0 bert-base (16 tok) b1 sl-vulkan: ok min 1.361 med 2.702 parity True 
+r0 bert-base (16 tok) b1 sl-vulkan-fast: ok min 1.249 med 2.563 parity False 
+r0 bert-base (16 tok) b1 sl-vulkan-simt: ok min 1.288 med 2.884 parity True 
+r0 bert-base (16 tok) b1 sl-vulkan-rp: ok min 1.195 med 2.692 parity False 
+r0 bert-base (16 tok) b1 ort-cuda: ok min 1.368 med 2.442 parity None 
+r0 bert-base (16 tok) b1 ort-cuda-strict: ok min 1.702 med 2.75 parity None 
+r0 bert-base (16 tok) b8 sl-vulkan: ok min 5.008 med 7.053 parity True 
+r0 bert-base (16 tok) b8 sl-vulkan-fast: ok min 3.777 med 6.089 parity False 
+r0 bert-base (16 tok) b8 sl-vulkan-simt: ok min 4.791 med 7.363 parity True 
+r0 bert-base (16 tok) b8 sl-vulkan-rp: ok min 4.58 med 7.298 parity False 
+r0 bert-base (16 tok) b8 ort-cuda: ok min 3.271 med 4.069 parity None 
+r0 bert-base (16 tok) b8 ort-cuda-strict: ok min 3.793 med 4.59 parity None 
+r0 vit-base b1 sl-vulkan: ok min 2.05 med 4.942 parity True 
+r0 vit-base b1 sl-vulkan-fast: ok min 1.275 med 2.651 parity False 
+r0 vit-base b1 sl-vulkan-simt: ok min 3.021 med 5.688 parity True 
+r0 vit-base b1 sl-vulkan-rp: ok min 2.581 med 4.764 parity True 
+r0 vit-base b1 ort-cuda: ok min 1.497 med 2.806 parity None 
+r0 vit-base b1 ort-cuda-strict: ok min 4.516 med 5.55 parity None 
+r0 vit-base b8 sl-vulkan: ok min 14.399 med 18.754 parity True 
+r0 vit-base b8 sl-vulkan-fast: ok min 5.463 med 8.937 parity False 
+r0 vit-base b8 sl-vulkan-simt: ok min 16.695 med 23.959 parity True 
+r0 vit-base b8 sl-vulkan-rp: ok min 5.505 med 9.575 parity False 
+r0 vit-base b8 ort-cuda: ok min 4.838 med 7.415 parity None 
+r0 vit-base b8 ort-cuda-strict: ok min 14.158 med 19.554 parity None 
+r0 whisper-tiny-encoder b1 sl-vulkan: ok min 1.771 med 4.318 parity True 
+r0 whisper-tiny-encoder b1 sl-vulkan-fast: ok min 1.313 med 2.465 parity False 
+r0 whisper-tiny-encoder b1 sl-vulkan-simt: ok min 2.028 med 4.347 parity True 
+r0 whisper-tiny-encoder b1 sl-vulkan-rp: ok min 1.273 med 3.399 parity False 
+r0 whisper-tiny-encoder b1 ort-cuda: ok min 1.26 med 1.953 parity None 
+r0 whisper-tiny-encoder b1 ort-cuda-strict: ok min 2.436 med 3.778 parity None 
+r0 raft-large b1 sl-vulkan: ok min 74.091 med 81.913 parity True 
+r0 raft-large b1 sl-vulkan-fast: ok min 51.251 med 66.298 parity False 
+r0 raft-large b1 sl-vulkan-simt: ok min 101.555 med 110.244 parity True 
+r0 raft-large b1 sl-vulkan-rp: ok min 63.278 med 73.989 parity False 
+r0 raft-large b1 ort-cuda: ok min 43.336 med 48.784 parity None 
+r0 raft-large b1 ort-cuda-strict: ok min 118.779 med 124.979 parity None 
+r0 fasterrcnn-12 (counts) b1 sl-vulkan: ok min 14.046 med 17.492 parity True 
+r0 fasterrcnn-12 (counts) b1 sl-vulkan-fast: ok min 8.951 med 12.226 parity True 
+r0 fasterrcnn-12 (counts) b1 sl-vulkan-simt: ok min 15.796 med 22.376 parity True 
+r0 fasterrcnn-12 (counts) b1 sl-vulkan-rp: ok min 9.027 med 16.669 parity True 
+r0 fasterrcnn-12 (counts) b1 ort-cuda: ok min 16.878 med 24.693 parity None 
+r0 fasterrcnn-12 (counts) b1 ort-cuda-strict: ok min 23.156 med 35.124 parity None 
+r1 resnet50 b1 sl-vulkan: ok min 0.764 med 1.991 parity True 
+r1 resnet50 b1 sl-vulkan-fast: ok min 0.652 med 1.991 parity False 
+r1 resnet50 b1 sl-vulkan-simt: ok min 0.815 med 2.12 parity True 
+r1 resnet50 b1 sl-vulkan-rp: ok min 0.739 med 2.178 parity False 
+r1 resnet50 b1 ort-cuda: ok min 1.301 med 2.571 parity None 
+r1 resnet50 b1 ort-cuda-strict: ok min 2.376 med 5.322 parity None 
+r1 resnet50 b8 sl-vulkan: ok min 2.702 med 5.251 parity True 
+r1 resnet50 b8 sl-vulkan-fast: ok min 1.897 med 4.013 parity False 
+r1 resnet50 b8 sl-vulkan-simt: ok min 3.761 med 7.143 parity True 
+r1 resnet50 b8 sl-vulkan-rp: ok min 2.158 med 4.531 parity False 
+r1 resnet50 b8 ort-cuda: ok min 2.808 med 3.445 parity None 
+r1 resnet50 b8 ort-cuda-strict: ok min 5.312 med 6.641 parity None 
+r1 convnext-tiny b1 sl-vulkan: ok min 1.244 med 2.523 parity True 
+r1 convnext-tiny b1 sl-vulkan-fast: ok min 1.012 med 2.322 parity False 
+r1 convnext-tiny b1 sl-vulkan-simt: ok min 1.263 med 2.607 parity True 
+r1 convnext-tiny b1 sl-vulkan-rp: ok min 1.37 med 2.631 parity True 
+r1 convnext-tiny b1 ort-cuda: ok min 1.09 med 2.383 parity None 
+r1 convnext-tiny b1 ort-cuda-strict: ok min 1.659 med 2.809 parity None 
+r1 convnext-tiny b8 sl-vulkan: ok min 5.267 med 7.38 parity True 
+r1 convnext-tiny b8 sl-vulkan-fast: ok min 2.647 med 5.065 parity False 
+r1 convnext-tiny b8 sl-vulkan-simt: ok min 4.485 med 8.954 parity True 
+r1 convnext-tiny b8 sl-vulkan-rp: ok min 3.177 med 5.788 parity False 
+r1 convnext-tiny b8 ort-cuda: ok min 4.447 med 5.395 parity None 
+r1 convnext-tiny b8 ort-cuda-strict: ok min 5.887 med 7.004 parity None 
+r1 bert-base (16 tok) b1 sl-vulkan: ok min 1.222 med 2.57 parity True 
+r1 bert-base (16 tok) b1 sl-vulkan-fast: ok min 1.188 med 2.568 parity False 
+r1 bert-base (16 tok) b1 sl-vulkan-simt: ok min 1.199 med 2.428 parity True 
+r1 bert-base (16 tok) b1 sl-vulkan-rp: ok min 1.172 med 2.375 parity False 
+r1 bert-base (16 tok) b1 ort-cuda: ok min 1.393 med 2.313 parity None 
+r1 bert-base (16 tok) b1 ort-cuda-strict: ok min 1.548 med 2.727 parity None 
+r1 bert-base (16 tok) b8 sl-vulkan: ok min 4.285 med 6.3 parity True 
+r1 bert-base (16 tok) b8 sl-vulkan-fast: ok min 3.634 med 6.646 parity False 
+r1 bert-base (16 tok) b8 sl-vulkan-simt: ok min 4.821 med 7 parity True 
+r1 bert-base (16 tok) b8 sl-vulkan-rp: ok min 4.531 med 6.858 parity False 
+r1 bert-base (16 tok) b8 ort-cuda: ok min 3.127 med 3.925 parity None 
+r1 bert-base (16 tok) b8 ort-cuda-strict: ok min 3.862 med 4.739 parity None 
+r1 vit-base b1 sl-vulkan: ok min 2.232 med 4.718 parity True 
+r1 vit-base b1 sl-vulkan-fast: ok min 1.269 med 2.779 parity False 
+r1 vit-base b1 sl-vulkan-simt: ok min 2.812 med 5.322 parity True 
+r1 vit-base b1 sl-vulkan-rp: ok min 2.133 med 4.391 parity True 
+r1 vit-base b1 ort-cuda: ok min 1.759 med 2.659 parity None 
+r1 vit-base b1 ort-cuda-strict: ok min 4.183 med 5.235 parity None 
+r1 vit-base b8 sl-vulkan: ok min 12.799 med 17.311 parity True 
+r1 vit-base b8 sl-vulkan-fast: ok min 4.205 med 8.097 parity False 
+r1 vit-base b8 sl-vulkan-simt: ok min 15.645 med 22.94 parity True 
+r1 vit-base b8 sl-vulkan-rp: ok min 6.593 med 10.447 parity False 
+r1 vit-base b8 ort-cuda: ok min 4.71 med 7.016 parity None 
+r1 vit-base b8 ort-cuda-strict: ok min 16.597 med 17.645 parity None 
+r1 whisper-tiny-encoder b1 sl-vulkan: ok min 1.645 med 3.45 parity True 
+r1 whisper-tiny-encoder b1 sl-vulkan-fast: ok min 1.038 med 2.304 parity False 
+r1 whisper-tiny-encoder b1 sl-vulkan-simt: ok min 2.063 med 4.15 parity True 
+r1 whisper-tiny-encoder b1 sl-vulkan-rp: ok min 1.264 med 2.584 parity False 
+r1 whisper-tiny-encoder b1 ort-cuda: ok min 1.276 med 2.263 parity None 
+r1 whisper-tiny-encoder b1 ort-cuda-strict: ok min 2.473 med 3.289 parity None 
+r1 raft-large b1 sl-vulkan: ok min 71.67 med 79.24 parity True 
+r1 raft-large b1 sl-vulkan-fast: ok min 56.195 med 63.035 parity False 
+r1 raft-large b1 sl-vulkan-simt: ok min 90.593 med 103.762 parity True 
+r1 raft-large b1 sl-vulkan-rp: ok min 56.628 med 60.995 parity False 
+r1 raft-large b1 ort-cuda: ok min 41.49 med 47.36 parity None 
+r1 raft-large b1 ort-cuda-strict: ok min 114.872 med 120.591 parity None 
+r1 fasterrcnn-12 (counts) b1 sl-vulkan: ok min 16.139 med 19.125 parity True 
+r1 fasterrcnn-12 (counts) b1 sl-vulkan-fast: ok min 13.921 med 16.493 parity True 
+r1 fasterrcnn-12 (counts) b1 sl-vulkan-simt: ok min 18.244 med 22.997 parity True 
+r1 fasterrcnn-12 (counts) b1 sl-vulkan-rp: ok min 9.11 med 15.732 parity True 
+r1 fasterrcnn-12 (counts) b1 ort-cuda: ok min 10.066 med 21.922 parity None 
+r1 fasterrcnn-12 (counts) b1 ort-cuda-strict: ok min 18.04 med 26.544 parity None 
+r2 resnet50 b1 sl-vulkan: ok min 0.754 med 1.011 parity True 
+r2 resnet50 b1 sl-vulkan-fast: ok min 0.62 med 0.85 parity False 
+r2 resnet50 b1 sl-vulkan-simt: ok min 0.826 med 1.579 parity True 
+r2 resnet50 b1 sl-vulkan-rp: ok min 0.716 med 1.999 parity False 
+r2 resnet50 b1 ort-cuda: ok min 1.067 med 2.402 parity None 
+r2 resnet50 b1 ort-cuda-strict: ok min 2.254 med 4.846 parity None 
+r2 resnet50 b8 sl-vulkan: ok min 2.363 med 5.172 parity True 
+r2 resnet50 b8 sl-vulkan-fast: ok min 1.982 med 3.97 parity False 
+r2 resnet50 b8 sl-vulkan-simt: ok min 3.54 med 6.466 parity True 
+r2 resnet50 b8 sl-vulkan-rp: ok min 1.956 med 3.406 parity False 
+r2 resnet50 b8 ort-cuda: ok min 2.123 med 3.449 parity None 
+r2 resnet50 b8 ort-cuda-strict: ok min 4.361 med 6.604 parity None 
+r2 convnext-tiny b1 sl-vulkan: ok min 1.24 med 1.882 parity True 
+r2 convnext-tiny b1 sl-vulkan-fast: ok min 1.004 med 1.167 parity False 
+r2 convnext-tiny b1 sl-vulkan-simt: ok min 1.232 med 1.61 parity True 
+r2 convnext-tiny b1 sl-vulkan-rp: ok min 1.254 med 1.601 parity True 
+r2 convnext-tiny b1 ort-cuda: ok min 1.023 med 2.142 parity None 
+r2 convnext-tiny b1 ort-cuda-strict: ok min 1.492 med 2.774 parity None 
+r2 convnext-tiny b8 sl-vulkan: ok min 3.948 med 6.678 parity True 
+r2 convnext-tiny b8 sl-vulkan-fast: ok min 2.308 med 3.746 parity False 
+r2 convnext-tiny b8 sl-vulkan-simt: ok min 4.546 med 7.409 parity True 
+r2 convnext-tiny b8 sl-vulkan-rp: ok min 2.845 med 4.166 parity False 
+r2 convnext-tiny b8 ort-cuda: ok min 2.88 med 4.409 parity None 
+r2 convnext-tiny b8 ort-cuda-strict: ok min 4.74 med 7.031 parity None 
+r2 bert-base (16 tok) b1 sl-vulkan: ok min 1.239 med 1.702 parity True 
+r2 bert-base (16 tok) b1 sl-vulkan-fast: ok min 1.079 med 1.374 parity False 
+r2 bert-base (16 tok) b1 sl-vulkan-simt: ok min 1.195 med 1.645 parity True 
+r2 bert-base (16 tok) b1 sl-vulkan-rp: ok min 1.21 med 1.552 parity False 
+r2 bert-base (16 tok) b1 ort-cuda: ok min 1.298 med 1.585 parity None 
+r2 bert-base (16 tok) b1 ort-cuda-strict: ok min 1.478 med 1.776 parity None 
+r2 bert-base (16 tok) b8 sl-vulkan: ok min 4.184 med 5.732 parity True 
+r2 bert-base (16 tok) b8 sl-vulkan-fast: ok min 3.316 med 5.172 parity False 
+r2 bert-base (16 tok) b8 sl-vulkan-simt: ok min 4.206 med 4.924 parity True 
+r2 bert-base (16 tok) b8 sl-vulkan-rp: ok min 4.206 med 5.975 parity False 
+r2 bert-base (16 tok) b8 ort-cuda: ok min 2.994 med 3.539 parity None 
+r2 bert-base (16 tok) b8 ort-cuda-strict: ok min 4.1 med 4.56 parity None 
+r2 vit-base b1 sl-vulkan: ok min 2.035 med 2.37 parity True 
+r2 vit-base b1 sl-vulkan-fast: ok min 1.232 med 1.269 parity False 
+r2 vit-base b1 sl-vulkan-simt: ok min 2.581 med 2.818 parity True 
+r2 vit-base b1 sl-vulkan-rp: ok min 2.186 med 2.535 parity True 
+r2 vit-base b1 ort-cuda: ok min 1.365 med 1.658 parity None 
+r2 vit-base b1 ort-cuda-strict: ok min 2.495 med 2.94 parity None 
+r2 vit-base b8 sl-vulkan: ok min 8.154 med 9.329 parity True 
+r2 vit-base b8 sl-vulkan-fast: ok min 3.647 med 4.077 parity False 
+r2 vit-base b8 sl-vulkan-simt: ok min 10.63 med 13.7 parity True 
+r2 vit-base b8 sl-vulkan-rp: ok min 5.043 med 5.395 parity False 
+r2 vit-base b8 ort-cuda: ok min 4.224 med 5.522 parity None 
+r2 vit-base b8 ort-cuda-strict: ok min 10.221 med 13.689 parity None 
+r2 whisper-tiny-encoder b1 sl-vulkan: ok min 1.612 med 1.946 parity True 
+r2 whisper-tiny-encoder b1 sl-vulkan-fast: ok min 1.056 med 1.304 parity False 
+r2 whisper-tiny-encoder b1 sl-vulkan-simt: ok min 1.744 med 3.056 parity True 
+r2 whisper-tiny-encoder b1 sl-vulkan-rp: ok min 1.204 med 1.544 parity False 
+r2 whisper-tiny-encoder b1 ort-cuda: ok min 1.218 med 1.526 parity None 
+r2 whisper-tiny-encoder b1 ort-cuda-strict: ok min 2.192 med 3.295 parity None 
+r2 raft-large b1 sl-vulkan: ok min 60.883 med 66.449 parity True 
+r2 raft-large b1 sl-vulkan-fast: ok min 34.419 med 36.349 parity False 
+r2 raft-large b1 sl-vulkan-simt: ok min 53.472 med 54.516 parity True 
+r2 raft-large b1 sl-vulkan-rp: ok min 37.76 med 38.283 parity False 
+r2 raft-large b1 ort-cuda: ok min 32.348 med 33.539 parity None 
+r2 raft-large b1 ort-cuda-strict: ok min 83.836 med 85.04 parity None 
+r2 fasterrcnn-12 (counts) b1 sl-vulkan: ok min 9.945 med 10.421 parity True 
+r2 fasterrcnn-12 (counts) b1 sl-vulkan-fast: ok min 8.506 med 8.821 parity True 
+r2 fasterrcnn-12 (counts) b1 sl-vulkan-simt: ok min 11.513 med 12.21 parity True 
+r2 fasterrcnn-12 (counts) b1 sl-vulkan-rp: ok min 8.285 med 8.866 parity True 
+r2 fasterrcnn-12 (counts) b1 ort-cuda: ok min 8.777 med 9.187 parity None 
+r2 fasterrcnn-12 (counts) b1 ort-cuda-strict: ok min 15.931 med 17.008 parity None 
+r3 resnet50 b1 sl-vulkan: ok min 0.743 med 0.78 parity True 
+r3 resnet50 b1 sl-vulkan-fast: ok min 0.614 med 0.62 parity False 
+r3 resnet50 b1 sl-vulkan-simt: ok min 0.814 med 0.967 parity True 
+r3 resnet50 b1 sl-vulkan-rp: ok min 0.685 med 0.899 parity False 
+r3 resnet50 b1 ort-cuda: ok min 1.025 med 1.184 parity None 
+r3 resnet50 b1 ort-cuda-strict: ok min 2.182 med 2.523 parity None 
+r3 resnet50 b8 sl-vulkan: ok min 2.458 med 2.658 parity True 
+r3 resnet50 b8 sl-vulkan-fast: ok min 1.731 med 2.027 parity False 
+r3 resnet50 b8 sl-vulkan-simt: ok min 3.165 med 3.752 parity True 
+r3 resnet50 b8 sl-vulkan-rp: ok min 1.938 med 2.272 parity False 
+r3 resnet50 b8 ort-cuda: ok min 1.991 med 2.229 parity None 
+r3 resnet50 b8 ort-cuda-strict: ok min 3.937 med 4.196 parity None 
+r3 convnext-tiny b1 sl-vulkan: ok min 1.18 med 1.356 parity True 
+r3 convnext-tiny b1 sl-vulkan-fast: ok min 0.998 med 1.133 parity False 
+r3 convnext-tiny b1 sl-vulkan-simt: ok min 1.219 med 1.409 parity True 
+r3 convnext-tiny b1 sl-vulkan-rp: ok min 1.21 med 1.405 parity True 
+r3 convnext-tiny b1 ort-cuda: ok min 0.999 med 1.182 parity None 
+r3 convnext-tiny b1 ort-cuda-strict: ok min 1.398 med 1.621 parity None 
+r3 convnext-tiny b8 sl-vulkan: ok min 3.916 med 4.074 parity True 
+r3 convnext-tiny b8 sl-vulkan-fast: ok min 2.249 med 2.674 parity False 
+r3 convnext-tiny b8 sl-vulkan-simt: ok min 4.292 med 4.655 parity True 
+r3 convnext-tiny b8 sl-vulkan-rp: ok min 2.675 med 3.118 parity False 
+r3 convnext-tiny b8 ort-cuda: ok min 2.573 med 3.024 parity None 
+r3 convnext-tiny b8 ort-cuda-strict: ok min 4.495 med 4.547 parity None 
+r3 bert-base (16 tok) b1 sl-vulkan: ok min 1.187 med 1.227 parity True 
+r3 bert-base (16 tok) b1 sl-vulkan-fast: ok min 1.053 med 1.187 parity False 
+r3 bert-base (16 tok) b1 sl-vulkan-simt: ok min 1.187 med 1.388 parity True 
+r3 bert-base (16 tok) b1 sl-vulkan-rp: ok min 1.151 med 1.284 parity False 
+r3 bert-base (16 tok) b1 ort-cuda: ok min 1.241 med 1.325 parity None 
+r3 bert-base (16 tok) b1 ort-cuda-strict: ok min 1.456 med 1.53 parity None 
+r3 bert-base (16 tok) b8 sl-vulkan: ok min 3.477 med 3.9 parity True 
+r3 bert-base (16 tok) b8 sl-vulkan-fast: ok min 2.786 med 3.234 parity False 
+r3 bert-base (16 tok) b8 sl-vulkan-simt: ok min 3.953 med 4.1 parity True 
+r3 bert-base (16 tok) b8 sl-vulkan-rp: ok min 3.442 med 3.916 parity False 
+r3 bert-base (16 tok) b8 ort-cuda: ok min 2.79 med 2.854 parity None 
+r3 bert-base (16 tok) b8 ort-cuda-strict: ok min 3.421 med 3.467 parity None 
+r3 vit-base b1 sl-vulkan: ok min 2.042 med 2.365 parity True 
+r3 vit-base b1 sl-vulkan-fast: ok min 1.23 med 1.398 parity False 
+r3 vit-base b1 sl-vulkan-simt: ok min 2.536 med 2.794 parity True 
+r3 vit-base b1 sl-vulkan-rp: ok min 1.884 med 2.211 parity True 
+r3 vit-base b1 ort-cuda: ok min 1.356 med 1.544 parity None 
+r3 vit-base b1 ort-cuda-strict: ok min 2.485 med 2.967 parity None 
+r3 vit-base b8 sl-vulkan: ok min 7.987 med 8.494 parity True 
+r3 vit-base b8 sl-vulkan-fast: ok min 3.839 med 4.08 parity False 
+r3 vit-base b8 sl-vulkan-simt: ok min 10.572 med 11.165 parity True 
+r3 vit-base b8 sl-vulkan-rp: ok min 5.039 med 5.253 parity False 
+r3 vit-base b8 ort-cuda: ok min 4.342 med 4.789 parity None 
+r3 vit-base b8 ort-cuda-strict: ok min 10.402 med 11.5 parity None 
+r3 whisper-tiny-encoder b1 sl-vulkan: ok min 1.62 med 2.018 parity True 
+r3 whisper-tiny-encoder b1 sl-vulkan-fast: ok min 1.047 med 1.248 parity False 
+r3 whisper-tiny-encoder b1 sl-vulkan-simt: ok min 1.725 med 2.068 parity True 
+r3 whisper-tiny-encoder b1 sl-vulkan-rp: ok min 1.2 med 1.467 parity False 
+r3 whisper-tiny-encoder b1 ort-cuda: ok min 1.248 med 1.407 parity None 
+r3 whisper-tiny-encoder b1 ort-cuda-strict: ok min 2.098 med 2.243 parity None 
+r3 raft-large b1 sl-vulkan: ok min 40.413 med 41.639 parity True 
+r3 raft-large b1 sl-vulkan-fast: ok min 33.657 med 34.058 parity False 
+r3 raft-large b1 sl-vulkan-simt: ok min 53.14 med 53.97 parity True 
+r3 raft-large b1 sl-vulkan-rp: ok min 37.72 med 38.319 parity False 
+r3 raft-large b1 ort-cuda: ok min 32.499 med 33.036 parity None 
+r3 raft-large b1 ort-cuda-strict: ok min 82.955 med 84.013 parity None 
+r3 fasterrcnn-12 (counts) b1 sl-vulkan: ok min 9.978 med 10.249 parity True 
+r3 fasterrcnn-12 (counts) b1 sl-vulkan-fast: ok min 8.242 med 8.57 parity True 
+r3 fasterrcnn-12 (counts) b1 sl-vulkan-simt: ok min 11.42 med 12.144 parity True 
+r3 fasterrcnn-12 (counts) b1 sl-vulkan-rp: ok min 8.277 med 8.839 parity True 
+r3 fasterrcnn-12 (counts) b1 ort-cuda: ok min 8.687 med 9.337 parity None 
+r3 fasterrcnn-12 (counts) b1 ort-cuda-strict: ok min 15.289 med 15.932 parity None 

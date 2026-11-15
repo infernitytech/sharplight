@@ -146,6 +146,9 @@ public sealed partial class GraphLowerer
         var macros = common.Where(c => c.Item1 != "HAS_BIAS").ToList();
         macros.Add(("HAS_BIAS", bias is not null && !useWorkspace));
         macros.Add(("PARTS", form.Parts));
+        // Fast matrix precision: the split form with the hi parts only (the weights were split that way, see SplitWeights).
+        bool hiOnly = form.Parts == 4 && FastMatrixProducts;
+        macros.Add(("HI_ONLY", hiOnly));
         macros.Add(("FRAG_N", form.FragN));
         macros.Add(("WARPS_M", warpsM));
         macros.Add(("A_VEC", K % 8 == 0));
@@ -154,7 +157,7 @@ public sealed partial class GraphLowerer
             var kernel = ConvKernel("conv_cm.slang", "conv_cm", Macros([.. macros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]), useWorkspace ? null : epilogue);
             return (kernel, batch => new Grid(Grid.Div(batch * HW, form.TileColumns), Grid.Div(OG, tileRows), (uint)(G * cfg.Split)));
         });
-        string label = $"{name} {form.Parts switch { 4 => "split-f16", 3 => "bf16x6", 2 => "bf16x3", _ => "f16" }} cm";
+        string label = $"{name} {form.Parts switch { 4 => hiOnly ? "scaled-f16" : "split-f16", 3 => "bf16x6", 2 => "bf16x3", _ => "f16" }} cm";
         var dst = ws ?? y;
         var resArgs = epilogue?.Residual is { } resRef ? new KernelArg[] { Pointer(resRef) } : [];
         var resReads = epilogue?.Residual is { } resRead ? new[] { resRead } : [];

@@ -11,7 +11,7 @@ internal static partial class OnnxFold
         "Constant", "Identity", "Dropout", "Cast", "Shape", "Size", "Add", "Sub", "Mul", "Div", "Pow", "Max", "Min", "Sum", "Neg", "Abs", "Sqrt", "Exp", "Log",
         "Reciprocal", "Floor", "Ceil", "Relu", "Sigmoid", "Tanh", "Erf", "Not", "Equal", "Less", "Greater", "LessOrEqual", "GreaterOrEqual", "And", "Or",
         "Where", "Gather", "Unsqueeze", "Squeeze", "Concat", "Slice", "Reshape", "Flatten", "Transpose", "Expand", "Range", "ConstantOfShape", "Split",
-        "ReduceProd", "ReduceSum", "ReduceMean", "ReduceMax", "ReduceMin", "Clip",
+        "ReduceProd", "ReduceSum", "ReduceMean", "ReduceMax", "ReduceMin", "ReduceL1", "ReduceL2", "ReduceSumSquare", "ReduceLogSum", "ReduceLogSumExp", "Clip",
         "Sin", "Cos", "Tan", "Asin", "Acos", "Atan", "Sinh", "Cosh", "Asinh", "Acosh", "Atanh", "Round", "Sign", "Softplus", "Softsign", "Mod", "IsNaN", "IsInf",
         "Tile", "NonZero", "EyeLike", "QuantizeLinear", "DequantizeLinear", "CastLike", "ArgMax", "ArgMin", "BatchNormalization",
         "MatMul",
@@ -244,6 +244,7 @@ internal static partial class OnnxFold
             case "ReduceMean":
             case "ReduceMax":
             case "ReduceMin":
+            case "ReduceL1" or "ReduceL2" or "ReduceSumSquare" or "ReduceLogSum" or "ReduceLogSumExp":
                 return [Reduce(n, Input(n, ins, 0), Optional(ins, 1))];
             case "MatMul":
                 return [MatMul(n, Input(n, ins, 0), Input(n, ins, 1))];
@@ -1361,6 +1362,16 @@ internal static partial class OnnxFold
         }
 
         var axesL = n.Has("axes") ? n.Ints("axes") : axesIn?.Ints();
+        if (axesL is { Length: 0 })
+        {
+            if (n.Int("noop_with_empty_axes", 0) != 0)
+            {
+                return x;
+            }
+
+            axesL = null;
+        }
+
         var axes = (axesL ?? Enumerable.Range(0, x.Rank).Select(i => (long)i).ToArray()).Select(a => (int)(a < 0 ? a + x.Rank : a)).ToHashSet();
         bool keep = n.Int("keepdims", 1) != 0;
         var outDims = new List<long>();
@@ -1384,10 +1395,13 @@ internal static partial class OnnxFold
             outCount *= d;
         }
 
+        // Accumulators start at the reduction's identity, which is the result over an empty set (0, 1, -inf, +inf; log 0 = -inf).
         var acc = new double[outCount];
         var cnt = new long[outCount];
         string op = n.OpType;
         Array.Fill(acc, op switch { "ReduceProd" => 1.0, "ReduceMax" => double.NegativeInfinity, "ReduceMin" => double.PositiveInfinity, _ => 0.0 });
+        // LogSumExp sums exp(v - shift) with the largest element as the shift, for stability.
+        double shift = op == "ReduceLogSumExp" && vals.Length > 0 ? vals.Where(double.IsFinite).DefaultIfEmpty(0).Max() : 0;
         var idx = new long[x.Rank];
         for (long i = 0; i < x.Count; i++)
         {
@@ -1401,7 +1415,16 @@ internal static partial class OnnxFold
             }
 
             double v = vals[i];
-            acc[o] = op switch { "ReduceProd" => acc[o] * v, "ReduceMax" => Math.Max(acc[o], v), "ReduceMin" => Math.Min(acc[o], v), _ => acc[o] + v };
+            acc[o] = op switch
+            {
+                "ReduceProd" => acc[o] * v,
+                "ReduceMax" => Math.Max(acc[o], v),
+                "ReduceMin" => Math.Min(acc[o], v),
+                "ReduceL1" => acc[o] + Math.Abs(v),
+                "ReduceL2" or "ReduceSumSquare" => acc[o] + v * v,
+                "ReduceLogSumExp" => acc[o] + Math.Exp(v - shift),
+                _ => acc[o] + v,
+            };
             cnt[o]++;
             for (int d = x.Rank - 1; d >= 0; d--)
             {
@@ -1412,14 +1435,36 @@ internal static partial class OnnxFold
                 idx[d] = 0;
             }
         }
-        if (op == "ReduceMean")
+        for (long i = 0; i < outCount; i++)
         {
-            for (long i = 0; i < outCount; i++)
+            acc[i] = op switch
             {
-                acc[i] /= Math.Max(cnt[i], 1);
-            }
+                "ReduceMean" => acc[i] / Math.Max(cnt[i], 1),
+                "ReduceL2" => Math.Sqrt(acc[i]),
+                "ReduceLogSum" => Math.Log(acc[i]),
+                "ReduceLogSumExp" => Math.Log(acc[i]) + shift,
+                _ => acc[i],
+            };
         }
 
-        return x.IsFloat ? OnnxConst.FromFloats(x.ElemType, [.. outDims], acc) : OnnxConst.FromInts(x.ElemType, [.. outDims], acc.Select(v => (long)v).ToArray());
+        return x.IsFloat ? OnnxConst.FromFloats(x.ElemType, [.. outDims], acc)
+            : OnnxConst.FromInts(x.ElemType, [.. outDims], acc.Select(v => ReducedInteger(v, x.ElemType)).ToArray());
+    }
+
+    /// <summary>An integer reduction result; the infinite identities of max and min over an empty set become the type's limits.</summary>
+    private static long ReducedInteger(double v, int elemType)
+    {
+        if (double.IsFinite(v))
+        {
+            return (long)v;
+        }
+
+        return elemType switch
+        {
+            OnnxType.Bool => v > 0 ? 1 : 0,
+            OnnxType.Int64 => v > 0 ? long.MaxValue : long.MinValue,
+            OnnxType.UInt64 or OnnxType.UInt32 => v > 0 ? (long)uint.MaxValue : 0,
+            _ => (long)(v > 0 ? Range(elemType).Hi : Range(elemType).Lo),
+        };
     }
 }

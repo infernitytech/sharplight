@@ -42,7 +42,8 @@ Vulkan compile time ("VK compile s" column, minimum over the sessions) is a sepa
 |---|---|---|
 | `bertsquad-12` | Vulkan | The graph returns its `unique_ids_raw_output___9:0` input through an `Identity`-like path as output `unique_ids:0` (int64): Vulkan returns `1065353216` = 0x3F800000, the bit pattern of the float `1.0f`, instead of the integer `1` (an i32 value went through an f32 `Scale` op and its float bits were read back as an integer). Other outputs match to 9e-7 RMS. |
 | `bertsquad-12` | CPU | Does not compile: `Op Scale (node 796) is not supported on ... Scale: inputs must be f32 (or a convertible weight), got i32 for unique_ids_raw_output___9:0` - the same i32 pass-through reaches an f32-only op on the CPU backend. Vulkan compiles it (and produces the wrong integer, above). |
-| `qwen2.5-0.5b.model_fp16` | CPU and Vulkan | rel. RMS 7.3e-2 on logits, `present.0.key` max abs 1.2 (scale 130). onnxruntime's own CUDA EP differs from its CPU reference by only 2.2e-2 (logits) and 8e-5 (`present.0.key`), so this is probably *not* only fp16 reference noise: worth checking Cast handling (fp16 -> f32 `Cast` is treated as identity) on this graph. The q4 variant of the same model matches to 8.7e-6. |
+| `qwen2.5-0.5b.model_fp16` | CPU and Vulkan | rel. RMS 7.3e-2 on logits against ORT CPU's fp16 run. Round 7 (benchmarks §33) compared both engines with an f32 copy of the same graph run by ORT CPU. Against that copy, ORT's fp16 run is 7.3e-2 off, Sharplight CPU 2.3e-4 and Sharplight Vulkan 1.5e-3, so the fp16 reference is the noisy side. Vulkan's 6x larger error than CPU in the deep layers is still open. Part of the remaining difference is the f32 → fp16 rounding of the `past` inputs, which the widened copy removes. The q4 variant matches to 8.7e-6. |
+| `phi35-mini-q4f16` | all engines | Failed parity on every engine, ORT CUDA included. The reference was ORT CPU's fp16 run, which is 4.8e-2 relative RMS from an f32 copy of the same graph (logits max abs diff 0.35); ORT CUDA fp16 is 5.5e-2 from it. Sharplight computes in f32 and lands at 1.2e-4 (Vulkan and CPU) from the copy. Since round 7 the survey reference is the f32 copy (`bench/onnx/make_survey_refs.py`, `f32ref`), and parity passes. |
 | `qwen2.5-0.5b.model_quantized` | CPU and Vulkan | dynamic-int8 (MatMulInteger + DynamicQuantizeLinear) variant: rel. RMS 2.7e-1 (Vulkan) / 1.9e-1 (CPU). Activation quantization is sensitive to rounding mode / scale arithmetic; same class as the BERT dynamic-int8 case (2.6e-2 Vulkan vs 1.5e-3 CPU) where Vulkan is 17x less accurate than CPU. |
 | `yolo26n` | CPU | rel. RMS 4.2e-2 on `pred_boxes` (Vulkan: 4e-7): end-to-end TopK head with near-tied scores on random input, likely a different ordering of tied rows on the CPU backend (not verified). |
 | `yolov10n`, `yolov10n-int8` (existing) | both | Parity is judged on the score column only (existing ReferenceTests behaviour, also applied by the harness), because tied detections reorder. |
@@ -414,18 +415,30 @@ SHARPLIGHT_CONFORMANCE_REPORT=report.jsonl SHARPLIGHT_CONFORMANCE_PROVIDERS=cpu,
 | extra tests, cpu | 108 / 172 (62.8%) | 170 / 172 (98.8%) |
 | extra tests, vulkan | 108 (62.8%), 66 (38.4%) without fallback | 170 (98.8%), 158 (91.9%) without fallback |
 
-The remaining node-test failures are the same on CPU and Vulkan:
+### ONNX round 7: the 57 remaining failures classified
 
-* random ops (Bernoulli, training-mode Dropout), whose reference depends on the onnxruntime RNG;
-* ImageDecoder and StringSplit, which are not implemented;
-* zero-size tensors: empty-set reductions, zero-size Split, Tril/Triu of an empty matrix, an empty RegexFullMatch input and Reshape allowzero;
-* Unique along an axis;
-* 64-bit BitCast (64-bit types travel as 32-bit values);
-* NonZero of a rank-2 input with a data-dependent count (the IR result is the transpose `[count, rank]`);
-* a `[1, N]` string normalizer output;
-* CausalConvWithState with kernel size 1 (an empty state).
+Round 7 (benchmarks section 33) classified the 55 node-test and 2 extra-test failures that were left and fixed 36 of them.
+Node tests went from 1829 to 1863 of 1884 on cpu and vulkan, and from 1778 to 1802 on vulkan without the CPU fallback.
+Extra tests went from 170 to 171 of 172.
 
-The extra-suite failures are com.microsoft MurmurHash3 and WordConvEmbedding, which are not implemented.
+| test(s) | class | status |
+|---|---|---|
+| 16 × `test_reduce_*_empty_set*` | zero-size tensor | fixed: a zero-size input is an empty constant, and reductions over an empty set fold to their identity |
+| `test_tril_zero`, `test_triu_zero`, `test_regex_full_match_empty`, 2 × `test_split_zero_size_splits_*`, `test_reshape_allowzero_reordered` | zero-size tensor | fixed: shape-preserving ops on an empty constant stay empty, and Split / Reshape fold |
+| `test_causal_conv_with_state_kernel_size_one` | zero-size tensor | fixed: `present_state` is an empty `[B, C, 0]` constant |
+| `test_nonzero_example` | output layout | fixed: the `[count, rank]` IR result is transposed back via `OnnxOutputLayout` |
+| `test_strnormalizer_export_monday_insensintive_upper_twodim` | output layout | fixed: the leading unit dim is restored via `OnnxOutputLayout` |
+| 3 × `test_unique_sorted_with_axis*` | unsupported attribute | fixed: Unique along an axis (IR "slices" mode, CPU kernel) |
+| 6 × `test_string_split_*` | unsupported op | fixed: StringSplit (CPU kernel, at most `maxsplit + 1` or `OnnxImportOptions.StringSplitBound` parts) |
+| `ms_murmur_hash3` (extra) | unsupported op | fixed: com.microsoft MurmurHash3 (CPU kernel) |
+| `ms_word_conv_embedding` (extra) | test-harness issue | the op is implemented from existing IR ops and runs on Vulkan. onnxruntime never writes the output row of a word whose first id is 0, so the stored reference for that word is uninitialized memory. `tools/gen-onnx-contrib-tests.py` now avoids such words; the test passes once the contrib tests are regenerated |
+| 9 × `test_image_decoder_*` | unsupported op | open: needs image codecs |
+| 6 × `test_bernoulli*` | not reproducible | open: the reference depends on the reference implementation's RNG |
+| 4 × `test_training_dropout*` | not reproducible | open: random training masks |
+| 2 × `test_bitcast_*64*` | unsupported type | open: 64-bit values travel as 32-bit |
+
+A 0 in `OnnxImportOptions.InputShapes` now means an empty axis; only a negative value selects the batch axis. A declared
+`dim_value 0` in a model file still means an unknown dimension, as exporters write it.
 
 These ops run on Vulkan only through the CPU fallback: the string ops (StringConcat, StringNormalizer, RegexFullMatch, string Cast / Equal, CategoryMapper and string LabelEncoder maps) and Cast to FLOAT8E8M0. CumSum and CumProd (since benchmarks section 26, int32 / int64 inputs since section 27), GridSample (4-D, and 5-D linear / nearest since section 27), Det and Inverse (section 27, one thread per matrix in f32) have Vulkan kernels, and so, since ONNX round 5, do LinearAttention (all four update rules), DeformConv, Unique (flattened, up to 65536 elements; the kernels compare every pair), TfIdfVectorizer, the tree ensembles, SVM one-vs-one voting and probability coupling, numeric LabelEncoder and DFTs longer than the importer's basis matmul.
 
