@@ -169,8 +169,21 @@ GitHub's macOS / Linux-arm64 runners. Pushing only `macos/round-1` is allowed fo
 - M3: NEON CPU kernel performance against llama.cpp on the Arm64 runners.
 - Studio `.app` stays an unsigned CI artifact until the user asks for signing.
 
-**Per round:** privacy scan of the diff (no personal email, no home paths), merge to main, build, all suites in parallel
-across the GPUs, remove the worktree, `/workspace/tools/scripts/cleanup.sh`, start the next item. Keep
+**Branches (user, 2026-11-15):** `main` is stable; `develop` is the unstable integration branch that every agent branch
+merges into; develop merges into main once everything is green; releases come from `release/vX.Y` branches
+(Nerdbank.GitVersioning).
+
+**Release track (Studio for Linux, Windows, macOS):**
+- R1: versioning and CI for the branch model: NBGV public releases from main and release/*, prerelease versions on
+  develop; CI builds and tests develop, main and release/*; NuGet packages publish from release branches.
+- R2: Studio app packages per OS: Linux (AppImage + tar.gz), Windows (Velopack Setup.exe, portable zip), macOS (.app in
+  a Velopack .pkg / zip; signing and notarization when the user provides certificates). Self-contained, trimmed where safe.
+- R3: Velopack install / update in Studio (startup hook, update check and apply in the settings, release notes),
+  channels per OS and stability (stable from release branches, preview from develop), releases and delta packages
+  uploaded to the user's Cloudflare R2 bucket (S3 API) from CI; credentials only in GitHub secrets.
+
+**Per round:** privacy scan of the diff (no personal email, no home paths), merge to develop, build, all suites in parallel
+across the GPUs, remove the worktree, the machine cleanup (prune worktrees, old temp files), start the next item. Keep
 docs/model-support.md, docs/onnx-support.md and this file current. Push to GitHub only when the user says so; never push
 a `v*` tag; `macos/round-1` stays separate.
 
