@@ -37,6 +37,34 @@ internal sealed partial class HfConfig : IDisposable
         }
     }
 
+    /// <summary>
+    /// A quantization object of the checkpoint (<c>quantization_config</c>, or MLX's <c>quantization</c>): the root's, else the nested
+    /// <c>text_config</c> / <c>llm_config</c>'s (Kimi-K3 keeps its compressed-tensors config there). Unlike the merged lookups, the root
+    /// wins: it describes the whole checkpoint.
+    /// </summary>
+    /// <param name="name">The property name.</param>
+    /// <param name="settings">The object when found.</param>
+    /// <returns>Whether an object of that name exists.</returns>
+    public bool TryGetQuantization(string name, out JsonElement settings)
+    {
+        if (Root.TryGetProperty(name, out settings) && settings.ValueKind == JsonValueKind.Object)
+        {
+            return true;
+        }
+
+        foreach (string nested in (string[])["text_config", "llm_config"])
+        {
+            if (Root.TryGetProperty(nested, out var inner) && inner.ValueKind == JsonValueKind.Object
+                && inner.TryGetProperty(name, out settings) && settings.ValueKind == JsonValueKind.Object)
+            {
+                return true;
+            }
+        }
+
+        settings = default;
+        return false;
+    }
+
     [System.Text.RegularExpressions.GeneratedRegex(@"(?<=[:\[,]\s*)(-?Infinity|NaN)")]
     private static partial System.Text.RegularExpressions.Regex NonFiniteLiteral();
 

@@ -32,7 +32,7 @@ internal static class HfIntegerWeights
     /// <exception cref="NotSupportedException">The packing variant is not read (e.g. AWQ <c>gemv_fast</c>).</exception>
     public static IReadOnlyDictionary<string, SafetensorsTensor> Resolve(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors)
     {
-        var settings = config.Root.TryGetProperty("quantization_config", out var q) && q.ValueKind == JsonValueKind.Object ? q : default;
+        var settings = config.TryGetQuantization("quantization_config", out var q) ? q : default;
         var consumed = new HashSet<string>(StringComparer.Ordinal);
         var layouts = new List<HfIntegerLayout>();
         string? method = settings.ValueKind == JsonValueKind.Object && settings.TryGetProperty("quant_method", out var m) ? m.GetString() : null;

@@ -70,7 +70,7 @@ internal static unsafe class HfMlxWeights
     {
         foreach (string name in (string[])["quantization", "quantization_config"])
         {
-            if (config.Root.TryGetProperty(name, out var settings) && settings.ValueKind == JsonValueKind.Object
+            if (config.TryGetQuantization(name, out var settings)
                 && !settings.TryGetProperty("quant_method", out _) && settings.TryGetProperty("bits", out var bits)
                 && bits.ValueKind == JsonValueKind.Number && (HfPackedBits.String(settings, "mode") ?? "affine") == "affine")
             {

@@ -105,9 +105,9 @@ public static class HfSupport
             return new HfQuantizationSupport($"mlx ({mlx.GetProperty("bits").GetRawText()}-bit)", SupportLevel.Supported);
         }
 
-        if (!config.Root.TryGetProperty("quantization_config", out var settings) || settings.ValueKind != JsonValueKind.Object)
+        if (!config.TryGetQuantization("quantization_config", out var settings))
         {
-            return config.Root.TryGetProperty("quantization", out var other) && other.ValueKind == JsonValueKind.Object
+            return config.TryGetQuantization("quantization", out var other)
                 ? new HfQuantizationSupport($"mlx ({String(other, "mode") ?? "unknown"})", SupportLevel.Unsupported)
                 : new HfQuantizationSupport(null, SupportLevel.Supported);
         }

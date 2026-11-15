@@ -105,7 +105,7 @@ internal static class HfFp8Weights
     /// </summary>
     private static (long Rows, long Columns)? DeclaredBlockSize(HfConfig config)
     {
-        if (!config.Root.TryGetProperty("quantization_config", out var quantization) || quantization.ValueKind != JsonValueKind.Object)
+        if (!config.TryGetQuantization("quantization_config", out var quantization))
         {
             return null;
         }

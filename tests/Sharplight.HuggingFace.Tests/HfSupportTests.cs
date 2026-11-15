@@ -101,6 +101,7 @@ public sealed class HfSupportTests : IDisposable
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "quark", "global_quant_config": {"weight": {"dtype": "fp8_e4m3"}}, "layer_quant_config": {"*mlp*": {"weight": {"dtype": "fp4", "group_size": 32, "scale_format": "e8m0"}}}}}""", "quark (fp8, mxfp4)", SupportLevel.Supported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "quark", "global_quant_config": {"weight": {"dtype": "int4", "group_size": 128}}}}""", "quark (int4)", SupportLevel.Unsupported)]
     [InlineData("""{"model_type": "kimi_k3", "quantization_config": {"quant_method": "compressed-tensors", "format": "mxfp4-pack-quantized", "config_groups": {"g": {"format": "mxfp4-pack-quantized", "weights": {"type": "float", "num_bits": 4}}}}}""", "compressed-tensors (mxfp4)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "kimi_k3", "text_config": {"model_type": "kimi_k3", "quantization_config": {"quant_method": "compressed-tensors", "format": "mxfp4-pack-quantized", "config_groups": {"g": {"weights": {"type": "float", "num_bits": 4}}}}}}""", "compressed-tensors (mxfp4)", SupportLevel.Supported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "something-new"}}""", "something-new", null)]
     public void Quantization_ReadOrNot(string config, string? method, SupportLevel? expected)
     {
