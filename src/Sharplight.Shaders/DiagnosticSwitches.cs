@@ -66,10 +66,10 @@ namespace Sharplight.Shaders;
 /// 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its weight fragments per workgroup, subgroups per workgroup and K block.
 /// <c>SHARPLIGHT_SKINNY_X16=0</c>: convert f32 activation rows while staging instead of reading the shared f16 copy.
 /// <c>SHARPLIGHT_SKINNY_DIRECT=0</c>: always stage its operands in shared memory (no direct fragment loads).</item>
-/// <item><c>SHARPLIGHT_GEMM_WAVE=n</c>: tensor-core GEMM tiles assumed to run at once when choosing K splits (default 192);
-/// <c>device</c> uses the device's compute units (opt-in: other K splits change greedy output).</item>
-/// <item><c>SHARPLIGHT_ATTN_FE_CAUSAL=1</c>: causal single-sequence prefill attention on the <c>fe</c> flash kernel (opt-in: it
-/// changes greedy output).</item>
+/// <item><c>SHARPLIGHT_GEMM_WAVE=n</c>: tensor-core GEMM tiles assumed to run at once when choosing K splits (default: the
+/// device's compute units, 192 when unknown); <c>fixed</c> restores the earlier 192-tile splits.</item>
+/// <item><c>SHARPLIGHT_ATTN_FE_CAUSAL=0</c>: causal single-sequence prefill attention on the general flash kernel <c>fa</c>
+/// instead of <c>fe</c>.</item>
 /// <item><c>SHARPLIGHT_MV_ROWS=n</c>: output rows per workgroup of the single-row split-K matvec (default 2 for single matrices
 /// with at least 1024 rows, else 1; 1 restores one row per workgroup).</item>
 /// <item><c>SHARPLIGHT_FP8_DUAL_TALL=0</c>: the dual fp8 gate / up GEMM keeps 64-row tiles above 64 rows.</item>
@@ -227,11 +227,11 @@ internal static class DiagnosticSwitches
     public static int[]? Gemm2Layout64 { get; } = Read("SHARPLIGHT_GEMM2_CFG64")?.Split(',').Select(int.Parse).ToArray();
 
     /// <summary>
-    /// Tensor-core GEMM tiles assumed to run at once when choosing K splits (<c>SHARPLIGHT_GEMM_WAVE=n</c>), 0 for the device's
-    /// compute units (<c>SHARPLIGHT_GEMM_WAVE=device</c>), or null for the default.
+    /// Tensor-core GEMM tiles assumed to run at once when choosing K splits (<c>SHARPLIGHT_GEMM_WAVE=n</c>; <c>fixed</c> = 192,
+    /// the splits before 2026-11-15), or null for the default (the device's compute units).
     /// </summary>
     public static long? GemmWaveTiles { get; } = Read("SHARPLIGHT_GEMM_WAVE") is { } v
-        ? v == "device" ? 0 : long.Parse(v, CultureInfo.InvariantCulture)
+        ? v == "fixed" ? 192 : long.Parse(v, CultureInfo.InvariantCulture)
         : null;
 
     /// <summary>Forced output rows per workgroup of the single-row split-K matvec, or null for the default.</summary>
@@ -292,10 +292,10 @@ internal static class DiagnosticSwitches
     public static bool AttentionEncoderFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE");
 
     /// <summary>
-    /// True with <c>SHARPLIGHT_ATTN_FE_CAUSAL=1</c> (opt-in, it changes greedy output): plain causal prefill attention of one
-    /// sequence uses <c>fe</c> in its causal form instead of the general flash kernel <c>fa</c>.
+    /// True (default): plain causal prefill attention of one sequence uses <c>fe</c> in its causal form;
+    /// <c>SHARPLIGHT_ATTN_FE_CAUSAL=0</c> uses the general flash kernel <c>fa</c> (the summation order before 2026-11-15).
     /// </summary>
-    public static bool AttentionCausalFlash { get; } = IsSet("SHARPLIGHT_ATTN_FE_CAUSAL");
+    public static bool AttentionCausalFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_CAUSAL");
 
     /// <summary>False keeps bidirectional attention on devices without the tensor-core flash kernels off the f32 encoder flash kernel (fes).</summary>
     public static bool AttentionSimtFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FES");
