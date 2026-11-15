@@ -11,7 +11,7 @@ namespace Sharplight.Hub;
 /// </summary>
 public sealed partial class HubClient
 {
-    private static readonly string[] s_searchExpansions = ["downloads", "likes", "gated", "library_name", "pipeline_tag", "gguf", "safetensors", "siblings", "config", "createdAt"];
+    private static readonly string[] s_searchExpansions = ["downloads", "likes", "gated", "library_name", "pipeline_tag", "gguf", "safetensors", "siblings", "config", "createdAt", "lastModified", "tags"];
 
     private readonly HttpClient _http;
     private readonly HubClientOptions _options;
@@ -34,16 +34,67 @@ public sealed partial class HubClient
     /// <returns>Up to <see cref="HubSearchQuery.Limit"/> results.</returns>
     public async Task<IReadOnlyList<HubModelSummary>> SearchAsync(HubSearchQuery query, CancellationToken cancellationToken = default)
     {
-        var url = new StringBuilder($"api/models?sort={SortKey(query.Sort)}&direction=-1");
-        if (query.Text.Length > 0)
+        if (query.Task is not { } task)
         {
-            url.Append(CultureInfo.InvariantCulture, $"&search={Uri.EscapeDataString(query.Text)}");
+            return await SearchOnceAsync(query, null, query.Text, query.Limit, cancellationToken).ConfigureAwait(false);
         }
 
-        url.Append(CultureInfo.InvariantCulture, $"&limit={Math.Max(1, query.Limit)}");
+        // The Hub filters one pipeline tag per request: a task with several tags is searched once per tag and merged.
+        var tags = ModelTasks.SearchTags(task);
+        var text = query.Text.Length == 0 ? ModelTasks.SearchHint(task) : query.Text;
+        int limit = ModelTasks.IsRefinedByName(task) ? query.Limit * 2 : query.Limit;
+        var requests = (tags.Count == 0 ? [null] : tags.Select(tag => (string?)tag)).Select(tag => SearchOnceAsync(query, tag, text, limit, cancellationToken)).ToList();
+        var lists = await Task.WhenAll(requests).ConfigureAwait(false);
+        var merged = Interleave(lists.Select(list => (IReadOnlyList<HubModelSummary>)[.. list.Where(model => model.Task == task)]).ToList())
+            .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase);
+        var ordered = query.Sort switch
+        {
+            HubSortOrder.Downloads => merged.OrderByDescending(model => model.Downloads),
+            HubSortOrder.Likes => merged.OrderByDescending(model => model.Likes),
+            HubSortOrder.Newest => merged.OrderByDescending(model => model.CreatedAt),
+            HubSortOrder.Modified => merged.OrderByDescending(model => model.LastModified),
+            _ => merged,
+        };
+        return [.. ordered.Take(Math.Max(1, query.Limit))];
+    }
+
+    private static IEnumerable<HubModelSummary> Interleave(IReadOnlyList<IReadOnlyList<HubModelSummary>> lists)
+    {
+        int longest = lists.Count == 0 ? 0 : lists.Max(list => list.Count);
+        for (int i = 0; i < longest; i++)
+        {
+            foreach (var list in lists)
+            {
+                if (i < list.Count)
+                {
+                    yield return list[i];
+                }
+            }
+        }
+    }
+
+    private async Task<IReadOnlyList<HubModelSummary>> SearchOnceAsync(HubSearchQuery query, string? pipeline, string text, int limit, CancellationToken cancellationToken)
+    {
+        var url = new StringBuilder($"api/models?sort={SortKey(query.Sort)}&direction=-1");
+        if (text.Length > 0)
+        {
+            url.Append(CultureInfo.InvariantCulture, $"&search={Uri.EscapeDataString(text)}");
+        }
+
+        url.Append(CultureInfo.InvariantCulture, $"&limit={Math.Max(1, limit)}");
+        if (pipeline is not null)
+        {
+            url.Append(CultureInfo.InvariantCulture, $"&pipeline_tag={Uri.EscapeDataString(pipeline)}");
+        }
+
         if (query.Format is { } format)
         {
             url.Append(CultureInfo.InvariantCulture, $"&filter={FormatFilter(format)}");
+        }
+
+        if (query.License is { Length: > 0 } license)
+        {
+            url.Append(CultureInfo.InvariantCulture, $"&filter={Uri.EscapeDataString("license:" + license)}");
         }
 
         foreach (var expansion in s_searchExpansions)
@@ -51,7 +102,7 @@ public sealed partial class HubClient
             url.Append(CultureInfo.InvariantCulture, $"&expand%5B%5D={expansion}");
         }
 
-        string what = query.Text.Length > 0 ? $"Search '{query.Text}'" : "Model listing";
+        string what = text.Length > 0 ? $"Search '{text}'" : "Model listing";
         var json = await GetStringAsync(new Uri(_options.Endpoint, url.ToString()), what, "", cancellationToken).ConfigureAwait(false);
         return HubJson.ParseSearch(json);
     }
@@ -171,6 +222,7 @@ public sealed partial class HubClient
         HubSortOrder.Likes => "likes",
         HubSortOrder.Trending => "trendingScore",
         HubSortOrder.Newest => "createdAt",
+        HubSortOrder.Modified => "lastModified",
         _ => "downloads",
     };
 
@@ -178,6 +230,9 @@ public sealed partial class HubClient
     {
         ModelFormat.Gguf => "gguf",
         ModelFormat.Safetensors => "safetensors",
+        ModelFormat.Diffusers => "diffusers",
+        ModelFormat.WhisperCpp => "ggml",
+        ModelFormat.Slm => "slm",
         _ => "onnx",
     };
 

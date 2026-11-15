@@ -31,8 +31,11 @@ internal sealed class FakeHub : IHubService
         Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    public Task<IReadOnlyList<HubModelSummary>> SearchAsync(HubSearchQuery query, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<HubModelSummary>>([.. Results]);
+    public Task<IReadOnlyList<HubModelSummary>> SearchAsync(HubSearchQuery query, CancellationToken cancellationToken)
+    {
+        Queries.Add(query);
+        return Task.FromResult<IReadOnlyList<HubModelSummary>>([.. Results]);
+    }
 
     /// <summary>The sections <see cref="GetHighlightsAsync"/> returns; none by default.</summary>
     public List<HighlightSection> Highlights { get; } = [];
@@ -43,9 +46,24 @@ internal sealed class FakeHub : IHubService
     /// <summary>How often the highlights were asked for.</summary>
     public int HighlightRequests { get; private set; }
 
-    public Task<IReadOnlyList<HighlightSection>> GetHighlightsAsync(CancellationToken cancellationToken)
+    /// <summary>The model types the highlights were asked for, in order (null for the default highlights).</summary>
+    public List<ModelTask?> HighlightTasks { get; } = [];
+
+    /// <summary>The sections <see cref="GetHighlightsAsync"/> returns for a model type; the default ones when not set.</summary>
+    public Dictionary<ModelTask, List<HighlightSection>> TaskHighlights { get; } = [];
+
+    /// <summary>The queries that were searched, in order.</summary>
+    public List<HubSearchQuery> Queries { get; } = [];
+
+    public Task<IReadOnlyList<HighlightSection>> GetHighlightsAsync(ModelTask? task, CancellationToken cancellationToken)
     {
         HighlightRequests++;
+        HighlightTasks.Add(task);
+        if (task is { } value && TaskHighlights.TryGetValue(value, out var sections))
+        {
+            return Task.FromResult<IReadOnlyList<HighlightSection>>([.. sections]);
+        }
+
         return HighlightsError is { } error ? Task.FromException<IReadOnlyList<HighlightSection>>(error) : Task.FromResult<IReadOnlyList<HighlightSection>>([.. Highlights]);
     }
 
@@ -84,8 +102,12 @@ internal sealed class FakeHub : IHubService
         return Task.FromResult(new ModelProbe(Shape, readWeightFormats ? verdict : architecture, architecture));
     }
 
+    /// <summary>Details <see cref="GetDetailsAsync"/> returns instead of the GGUF ones, by repository; null falls back to them.</summary>
+    public Func<string, RepositoryDetails?>? Details { get; set; }
+
     public Task<RepositoryDetails> GetDetailsAsync(string repository, CancellationToken cancellationToken) =>
-        Task.FromResult(new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], "qwen3"), ModelFormat.Gguf, Variants(repository)));
+        Task.FromResult(Details?.Invoke(repository)
+            ?? new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], "qwen3"), ModelFormat.Gguf, Variants(repository)));
 
     public async Task<ModelManifest> PullAsync(ModelReference reference, IProgress<PullUpdate> progress, CancellationToken cancellationToken)
     {
