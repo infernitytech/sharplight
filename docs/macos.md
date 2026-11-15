@@ -229,8 +229,29 @@ and kernel library. Planned design (not started):
 - **Matrix units.** `simdgroup_matrix<half|float|bfloat, 8, 8>` (`simdgroup_multiply_accumulate`) for the GEMM and attention
   kernels on M1 and later; **Metal 4 tensor operations** (`MTLTensor`, `mpp::tensor_ops::matmul2d`) on M5 where the neural
   accelerators in the GPU cores are exposed, detected per device and with the simdgroup path as fallback.
-- **Precompiled artifacts.** Metal binary archives (`MTLBinaryArchive`) as the binary tier of `.slm` packages, keyed by GPU
-  family and OS build like the Vulkan pipeline cache (`ArtifactTargets`), with MSL source as the portable code tier.
+- **Two-stage code generation** (the provider contract of [model-format.md](model-format.md#two-stage-precompilation); no
+  change to the package format, only new `ArtifactTargets`):
+  - *Portable stage* (`PortableCodeFormat` = `air`, `CompilePortableAsync`): Slang's Metal output (MSL) for the request's
+    `DeviceProfile`, compiled offline to AIR and linked into a **metallib** (`xcrun metal -c` / `metallib`, or
+    `MTLDevice.newLibraryWithSource` + `MTLLibrary` serialization where no toolchain is installed). A metallib is
+    GPU-independent within a Metal language version and target OS, so it plays SPIR-V's role: keyed by content hash, stored in
+    the `code` tier and shared by every Apple GPU of a profile (Metal version, SIMD width 32, threadgroup memory, features). It
+    needs no device, so `sharplight-convert precompile --profile` can produce it on any Mac.
+  - *Device stage* (`CompileDeviceSpecificAsync`): an **`MTLBinaryArchive`** with one compute pipeline descriptor per kernel
+    (`addComputePipelineFunctionsWithDescriptor`, `serializeToURL`), i.e. the GPU machine code of exactly this GPU family and OS
+    build, stored in the `binary` tier and keyed like the Vulkan pipeline binaries (device identity = GPU family / registry id
+    class, driver = OS build). Loads pass the archive in `MTLComputePipelineDescriptor.binaryArchives`, so pipeline creation
+    skips the backend compiler; a stale or foreign archive is simply a miss (Metal falls back to compiling the metallib). The
+    feature name `kernel_binaries` disables the stage, as on Vulkan.
+  - Precedence and the per-user `ArtifactStore` stay as they are (package sets, then the store, then compilation).
+- **Registration** (DI, like every provider, see [api-overview.md](api-overview.md#registration)): a `Sharplight.Metal`
+  assembly with `services.AddMetalProvider(o => ...)` (`MetalProviderOptions`: validation via `MTL_DEBUG_LAYER`, shader
+  validation, capture directory), registering `MetalProvider` as an `IExecutionProvider` in the `ExecutionProviderCatalog`.
+  `AddSharplight()` adds it on macOS ahead of `AddVulkanProvider()` so discovery prefers it; MoltenVK stays available
+  (hosts that do not register the Metal provider, or pick the Vulkan device explicitly) as the fallback and the reference for
+  kernel parity.
+- **Device properties**: `ConcurrentWorkgroups` and compute units from the GPU core count (IOKit `gpu-core-count`) and
+  `maxThreadsPerThreadgroup`, not from the device type (see [the prefill regression](#moltenvk-prefill-regression-round-2)).
 - **Argument passing** through `setBytes` (≤ 4 KB, the push-constant equivalent) and GPU addresses (`MTLBuffer.gpuAddress`,
   Metal 3) for the pointer-based kernels; residency sets (`MTLResidencySet`, macOS 15) for large models.
 - **Tests:** the same suites as Vulkan (`Sharplight.Vulkan.Tests` structure) on the `macos-15` runners, whose paravirtual

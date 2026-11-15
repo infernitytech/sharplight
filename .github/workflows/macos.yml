@@ -1,14 +1,14 @@
 name: macOS and ARM64
 
-# macOS round 1 (docs/macos.md): Apple Silicon through the bundled MoltenVK, the ARM64 (NEON) CPU kernels, and the
-# Sharplight Studio .app bundle. Runs only for the macos/round-1 branch or by hand; main's workflows are unaffected.
+# macOS (docs/macos.md): Apple Silicon through the bundled MoltenVK, the ARM64 (NEON) CPU kernels, and the Sharplight
+# Studio .app bundle. Runs only for macos/* branches or by hand; main's workflows are unaffected.
 #
 # Runners are small (macos-15: 3 cores, 7 GB; ubuntu-24.04-arm: 4 cores, 16 GB), so the suites run with few threads and
 # the LLM smoke test uses Qwen2.5-0.5B-Instruct Q4_K_M (0.5 GB).
 
 on:
   push:
-    branches: ['macos/round-1']
+    branches: ['macos/**']
   workflow_dispatch:
 
 permissions:
@@ -118,12 +118,6 @@ jobs:
             SHARPLIGHT_CPU_ISA=$isa dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu --bench 128 2>&1 | tail -4
           done
 
-      - name: Vulkan benchmark (MoltenVK)
-        if: (success() || failure()) && steps.model.outcome == 'success'
-        continue-on-error: true
-        timeout-minutes: 15
-        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --bench 128 2>&1 | tail -6
-
       # The paravirtual runner GPU compiles pipelines slowly (MSL translation and Metal compilation, about 0.6 s each) and Slang
       # compiles on 3 cores, so the suite runs in time-boxed parts: the core kernels (elementwise, norms, matmuls, attention),
       # the MMQ GEMMs, the quantized formats and data kernels, then everything else. -longRunning reports tests that run longer
@@ -161,6 +155,64 @@ jobs:
           name: macos-arm64-test-results
           path: ${{ runner.temp }}/*.xml
           if-no-files-found: ignore
+
+  # The MoltenVK LLM benchmark in its own job (in parallel with the suites, its log is readable as soon as it ends): the
+  # defaults, then each perf default of develop switched off, with the per-kernel GPU profile of the prefill for the defaults.
+  macos-bench:
+    name: macOS arm64 LLM benchmark (MoltenVK)
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Build
+        run: dotnet build samples/Sharplight.Cli -c Release
+
+      - name: Devices and features (MoltenVK)
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll --devices
+
+      - name: Restore the kernel cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.kernel-cache
+          key: macos-kernels-${{ hashFiles('src/Sharplight.Shaders/Kernels/**', 'Directory.Packages.props') }}
+          restore-keys: macos-kernels-
+
+      - name: Smoke model
+        id: model
+        run: |
+          mkdir -p "$RUNNER_TEMP/models"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/models/smoke.gguf" "$SMOKE_MODEL_URL"
+          echo "path=$RUNNER_TEMP/models/smoke.gguf" >> "$GITHUB_OUTPUT"
+
+      - name: Vulkan benchmark (MoltenVK), defaults and opt-outs
+        continue-on-error: true
+        timeout-minutes: 90
+        run: |
+          cli=samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll
+          model="${{ steps.model.outputs.path }}"
+          bench() {
+            echo "=== $*"
+            env "$@" dotnet $cli "$model" --bench 128 2>&1 | grep -E 'dispatches|prefill [0-9]+ tok' || echo "(failed)"
+          }
+          bench SHARPLIGHT_NONE=1
+          bench SHARPLIGHT_CONCURRENT_WORKGROUPS=0
+          bench SHARPLIGHT_CONCURRENT_WORKGROUPS=256
+          bench SHARPLIGHT_GEMM_WIDE=0
+          bench SHARPLIGHT_ATTN_FE_CAUSAL=0
+          bench SHARPLIGHT_GEMM_WAVE=fixed
+          bench SHARPLIGHT_MV_ROWS=1
+          bench SHARPLIGHT_DISABLE_FEATURES=kernel_binaries
+          echo "=== prefill profile, defaults"
+          SHARPLIGHT_VK_PROFILE=1 dotnet $cli "$model" --bench 128 2>&1 | sed -n '/--- prefill T=/,/--- decode x/p' | head -60
+          echo "=== prefill profile, SHARPLIGHT_CONCURRENT_WORKGROUPS=0"
+          SHARPLIGHT_CONCURRENT_WORKGROUPS=0 SHARPLIGHT_VK_PROFILE=1 dotnet $cli "$model" --bench 128 2>&1 | sed -n '/--- prefill T=/,/--- decode x/p' | head -60
 
   linux-arm64:
     name: Linux arm64 (Cpu)
