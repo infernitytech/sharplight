@@ -1,4 +1,3 @@
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -29,11 +28,6 @@ public class DequantizedCheckpointParityTests(ITestOutputHelper output)
         + "baskets of zucchini whether they asked for them or not.";
 
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    static DequantizedCheckpointParityTests()
-    {
-        HuggingFaceImporter.Register();
-    }
 
     [Theory]
     [InlineData("Qwen3-1.7B", 26.642, "Paris. The capital of")]
@@ -72,7 +66,7 @@ public class DequantizedCheckpointParityTests(ITestOutputHelper output)
         var slot = new DeviceSlot { Device = provider.OpenDevice(device) };
         try
         {
-            using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [slot], ContextLength = 512, MaxBatchTokens = 64 });
+            using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [slot], ContextLength = 512, MaxBatchTokens = 64 });
             double perplexity;
             using (var session = model.CreateSession(WellKnown.DecodeGraph))
             {
