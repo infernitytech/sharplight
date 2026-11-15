@@ -23,7 +23,7 @@ namespace Sharplight.Llm;
 /// </summary>
 /// <example>
 /// <code>
-/// GgufImporter.Register();   // from Sharplight.Import.Gguf; the host registers the formats it supports
+/// SharplightDefaults.Register();   // from the Sharplight.Defaults package: importers, architecture adapters and providers
 /// using var model = LlmModel.Load("qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
 /// using var session = model.CreateSession();
 /// var generator = new Generator(session, model.Tokenizer);
@@ -36,8 +36,6 @@ namespace Sharplight.Llm;
 /// </example>
 public sealed class LlmModel : IDisposable
 {
-    static LlmModel() => BuiltinAdapters.RegisterAll();
-
     /// <summary>The built model: architecture, hyper-parameters, weights and compute graphs.</summary>
     public ModelDefinition Definition { get; }
     /// <summary>The canonical model source the definition was built from (what a saved package stores).</summary>
@@ -67,8 +65,9 @@ public sealed class LlmModel : IDisposable
     }
 
     /// <summary>
-    /// Loads a model through <see cref="ModelImporterRegistry"/>; the host must have registered an
-    /// importer for the file's format (e.g. <c>GgufImporter.Register()</c> from Sharplight.Import.Gguf).
+    /// Loads a model through <see cref="ModelImporterRegistry"/> and <see cref="ModelAdapterRegistry"/>; the host must have registered an
+    /// importer for the file's format and the architecture adapters (<c>SharplightDefaults.Register()</c> from the Sharplight.Defaults package
+    /// does both; or e.g. <c>GgufImporter.Register()</c> plus <c>BuiltinAdapters.RegisterAll()</c>).
     /// </summary>
     /// <param name="path">Model file (GGUF, ...) or directory (Hugging Face layout), as understood by the registered importers.</param>
     /// <param name="options">Devices and compile settings; also kept for later session / decoder creation.</param>

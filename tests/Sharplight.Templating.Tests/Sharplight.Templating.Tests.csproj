@@ -9,7 +9,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Sharplight.Templating\Sharplight.Templating.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Goldens\*.json" CopyToOutputDirectory="PreserveNewest" />

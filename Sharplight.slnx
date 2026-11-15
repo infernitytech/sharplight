@@ -1,13 +1,11 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Sharplight.Core/Sharplight.Core.csproj" />
+    <Project Path="src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
     <Project Path="src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
-    <Project Path="src/Sharplight.Tokenizers/Sharplight.Tokenizers.csproj" />
     <Project Path="src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
-    <Project Path="src/Sharplight.Llm/Sharplight.Llm.csproj" />
-    <Project Path="src/Sharplight.Templating/Sharplight.Templating.csproj" />
     <Project Path="src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <Project Path="src/Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />

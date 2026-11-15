@@ -1,11 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Format-agnostic tensor graph IR, model definition and execution-provider abstractions.</Description>
+    <Description>Format-agnostic tensor graph IR, model definition and execution-provider abstractions, plus the task-level inference utilities on top of compiled models: LLM generation, sampling, serving, structured output, scoring and embeddings (Sharplight.Llm), tokenizers, Jinja chat templates, and the speech, image-generation, audio and image I/O task layer.</Description>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
     <InternalsVisibleTo Include="Sharplight.Cpu" />
     <InternalsVisibleTo Include="Sharplight.Shaders" />
     <InternalsVisibleTo Include="Sharplight.Import.Gguf" />
+    <InternalsVisibleTo Include="Sharplight.Serving.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Embeddings.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Families.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Extensions.AI.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Tokenizers.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Templating.Tests" />
+    <InternalsVisibleTo Include="BatchBench" />
   </ItemGroup>
 </Project>

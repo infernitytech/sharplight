@@ -1,12 +1,13 @@
-using Sharplight.Architectures;
 using Sharplight.Models;
 
-namespace Sharplight.Llm;
+namespace Sharplight.Architectures;
 
 /// <summary>
 /// Registers the architecture adapters shipped with Sharplight (decoder, encoder, hybrid and multimodal families) with
-/// <see cref="ModelAdapterRegistry"/>. <see cref="LlmModel"/> calls this itself; call it directly only when building
-/// <see cref="ModelDefinition"/>s from an importer without going through <see cref="LlmModel"/>.
+/// <see cref="ModelAdapterRegistry"/> and their multimodal handlers with <see cref="Sharplight.Vision.MultimodalRegistry"/>. The core
+/// loaders (<c>LlmModel</c>, <c>EmbeddingModel</c>, <c>TaskModel</c>) only consult the registries, so a host calls this once at
+/// startup, directly or through <c>SharplightDefaults.Register()</c> of the <c>Sharplight.Defaults</c> package (which also registers the
+/// importers and execution providers).
 /// </summary>
 public static class BuiltinAdapters
 {

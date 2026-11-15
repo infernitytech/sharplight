@@ -13,7 +13,6 @@ internal static class PackedModelLoader
     /// <summary>Opens the model files at <paramref name="path"/>, builds its definition and creates its tokenizer.</summary>
     internal static (ModelDefinition Def, ModelSource Source, ITokenizer Tokenizer) Open(string path, PackedModelLoadOptions o, AdapterOptions adapter)
     {
-        BuiltinAdapters.RegisterAll();
         var sw = Stopwatch.StartNew();
         var sources = ModelImporterRegistry.OpenSet(path);
         if (o.HalfPrecisionMatrices ?? o.Devices.FirstOrDefault()?.Device.Info.Kind is not (null or DeviceKind.Cpu))
