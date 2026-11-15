@@ -55,6 +55,22 @@ def samplers(config):
     }
 
 
+def load_pipeline(folder):
+    """Loads the pipeline; folders without model_index.json are assembled from their component folders."""
+    from diffusers import AutoencoderKL, PNDMScheduler, StableDiffusionPipeline, UNet2DConditionModel
+    from transformers import CLIPTextModel, CLIPTokenizer
+    if os.path.exists(os.path.join(folder, "model_index.json")):
+        return StableDiffusionPipeline.from_pretrained(folder, torch_dtype=torch.float32, safety_checker=None,
+                                                       requires_safety_checker=False)
+    return StableDiffusionPipeline(
+        vae=AutoencoderKL.from_pretrained(folder, subfolder="vae"),
+        text_encoder=CLIPTextModel.from_pretrained(folder, subfolder="text_encoder"),
+        tokenizer=CLIPTokenizer.from_pretrained(folder, subfolder="tokenizer"),
+        unet=UNet2DConditionModel.from_pretrained(folder, subfolder="unet"),
+        scheduler=PNDMScheduler.from_pretrained(folder, subfolder="scheduler"),
+        safety_checker=None, feature_extractor=None, requires_safety_checker=False)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("model")
@@ -69,8 +85,7 @@ def main():
     from diffusers import StableDiffusionPipeline
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
-    pipe = StableDiffusionPipeline.from_pretrained(args.model, torch_dtype=torch.float32, safety_checker=None,
-                                                   requires_safety_checker=False).to(args.device)
+    pipe = load_pipeline(args.model).to(args.device)
     pipe.set_progress_bar_config(disable=True)
     device = args.device
     ref = Reference(args.out)

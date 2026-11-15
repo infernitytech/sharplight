@@ -9,11 +9,13 @@ namespace Sharplight.Import.Diffusers;
 /// </summary>
 internal static class DiffusersFolder
 {
-    /// <summary>Whether <paramref name="path"/> is a diffusers pipeline folder with a UNet.</summary>
+    /// <summary>
+    /// Whether <paramref name="path"/> is a diffusers pipeline folder with a UNet and a VAE (with or without <c>model_index.json</c>:
+    /// partial downloads often lack it).
+    /// </summary>
     /// <param name="path">A directory.</param>
     public static bool IsFolder(string path)
-        => Directory.Exists(path) && File.Exists(Path.Combine(path, "model_index.json")) && Directory.Exists(Path.Combine(path, "unet"))
-           && Directory.Exists(Path.Combine(path, "vae"));
+        => Directory.Exists(path) && File.Exists(Path.Combine(path, "unet", "config.json")) && File.Exists(Path.Combine(path, "vae", "config.json"));
 
     /// <summary>Opens the folder as a canonical source.</summary>
     /// <param name="path">The pipeline folder.</param>
