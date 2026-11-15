@@ -9,14 +9,15 @@ namespace Sharplight.Convert;
 /// Runs <c>precompile</c>: the two precompilation stages of the execution providers (portable code, then device code) through
 /// <see cref="PackagePrecompiler"/>, for one device, every device, or a device profile, and appends the artifact sets.
 /// </summary>
-internal sealed class PrecompileRunner(TextWriter output)
+internal sealed class PrecompileRunner(SampleRuntime runtime, TextWriter output)
 {
     private const long DefaultOnnxBatch = 1;
 
     public async Task RunAsync(PrecompileSettings settings, CancellationToken cancellationToken)
     {
         // ONNX graphs run with the CPU as fallback for data-dependent ops, so they are compiled that way too.
-        using var cpu = settings.Profile is null && settings.Device is not { Provider: "cpu" } ? DeviceOpener.OpenCpu() : null;
+        var devices = new DeviceOpener(runtime.Providers);
+        using var cpu = settings.Profile is null && settings.Device is not { Provider: "cpu" } ? devices.OpenCpu() : null;
         var options = new PrecompileOptions
         {
             ContextLength = settings.ContextLength,
@@ -36,7 +37,7 @@ internal sealed class PrecompileRunner(TextWriter output)
         PackagePrecompileReport report;
         try
         {
-            report = await PrecompileAsync(settings, options, cancellationToken);
+            report = await PrecompileAsync(devices, settings, options, cancellationToken);
         }
         catch (NotSupportedException error)
         {
@@ -50,20 +51,20 @@ internal sealed class PrecompileRunner(TextWriter output)
         Print(report);
     }
 
-    private static Task<PackagePrecompileReport> PrecompileAsync(PrecompileSettings settings, PrecompileOptions options, CancellationToken cancellationToken)
+    private static Task<PackagePrecompileReport> PrecompileAsync(DeviceOpener devices, PrecompileSettings settings, PrecompileOptions options, CancellationToken cancellationToken)
     {
         if (settings.Profile is { } profile)
         {
-            return PackagePrecompiler.PrecompileAsync(settings.PackagePath, DeviceOpener.ForProfile(profile), profile, options, null, cancellationToken);
+            return PackagePrecompiler.PrecompileAsync(settings.PackagePath, devices.ForProfile(profile), profile, options, null, cancellationToken);
         }
 
         if (settings.Device is { } spec)
         {
-            var (provider, device) = DeviceOpener.Find(spec);
+            var (provider, device) = devices.Find(spec);
             return PackagePrecompiler.PrecompileAsync(settings.PackagePath, provider, device, options, null, cancellationToken);
         }
 
-        return PackagePrecompiler.PrecompileAsync(settings.PackagePath, DeviceOpener.All(), options, null, cancellationToken);
+        return PackagePrecompiler.PrecompileAsync(settings.PackagePath, devices.All(), options, null, cancellationToken);
     }
 
     private void Print(PackagePrecompileReport report)

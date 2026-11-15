@@ -4,7 +4,8 @@ namespace Sharplight.Llm.Embeddings;
 public sealed class RerankerLoadOptions : PackedModelLoadOptions
 {
     /// <summary>How pairs are scored (default: from the model).</summary>
-    public RerankerKind Kind { get; init; } = RerankerKind.Auto;
+    public RerankerKind Kind { get; set; } = RerankerKind.Auto;
+
     /// <summary>Task instruction of <see cref="RerankerKind.YesNo"/> rerankers (default: the model's, else a web-search instruction).</summary>
-    public string? Instruction { get; init; }
+    public string? Instruction { get; set; }
 }

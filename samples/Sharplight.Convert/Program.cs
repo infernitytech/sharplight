@@ -1,6 +1,5 @@
 using Sharplight.Convert;
 using Sharplight.Samples;
 
-SampleRuntime.RegisterProvidersAndImporters();
-
-return await CommandRunner.RunAsync(ConvertCommandLine.Build(), args);
+using var runtime = new SampleRuntime();
+return await CommandRunner.RunAsync(ConvertCommandLine.Build(runtime), args);

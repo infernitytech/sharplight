@@ -76,7 +76,12 @@ public class LlamaCppReferenceTests
         Assert.Equal(rows * dim, emb.Length);
         double sum = 0;
         double abs = 0;
-        foreach (var v in emb) { sum += v; abs += Math.Abs(v); }
+        foreach (var v in emb)
+        {
+            sum += v;
+            abs += Math.Abs(v);
+        }
+
         float[] Head(int r) => emb[(r * dim)..(r * dim + 3)];
         float[] Tail(int r) => emb[(r * dim + dim - 3)..((r + 1) * dim)];
         double worst = 0;
@@ -102,7 +107,7 @@ public class LlamaCppReferenceTests
     public void Qwen3_5_0_8b_tower_matches_llama_cpp()
     {
         Assert.SkipUnless(File.Exists(Env.Gguf08) && File.Exists(Env.Mmproj08), "Qwen3.5-0.8B GGUF or converted mmproj not available");
-        using var model = LlmModel.Load(Env.Gguf08, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, Env.Mmproj08)], ImageTokens = new ImageTokenLimits(null, 64) });
+        using var model = LlmModel.Load(TestHost.Loader, Env.Gguf08, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = Env.Mmproj08 }, ImageTokens = new ImageTokenLimits(null, 64) });
         Check("0.8B cb 224", Encode(model, Cb(224), 224), 49, 1024, Cb08);
         Check("0.8B rainbow 224", Encode(model, Rainbow(224), 224), 49, 1024, Rainbow08);
     }
@@ -111,7 +116,7 @@ public class LlamaCppReferenceTests
     public void Qwen3_5_0_8b_hf_tower_matches_llama_cpp()
     {
         Assert.SkipUnless(Directory.Exists(Env.Hf08), "Qwen3.5-0.8B (HF) not available");
-        using var model = LlmModel.Load(Env.Hf08, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, ImageTokens = new ImageTokenLimits(null, 64) });
+        using var model = LlmModel.Load(TestHost.Loader, Env.Hf08, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, ImageTokens = new ImageTokenLimits(null, 64) });
         Check("0.8B (HF) rainbow 224", Encode(model, Rainbow(224), 224), 49, 1024, Rainbow08);
     }
 
@@ -122,7 +127,7 @@ public class LlamaCppReferenceTests
     public void Qwen3_8_27b_tower_matches_llama_cpp()
     {
         Assert.SkipUnless(File.Exists(Env.Gguf27) && File.Exists(Env.Mmproj27), "Qwen3.8-27B GGUF or mmproj not available");
-        using var model = LlmModel.Load(Env.Gguf27, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, Env.Mmproj27)], ImageTokens = new ImageTokenLimits(null, 64) });
+        using var model = LlmModel.Load(TestHost.Loader, Env.Gguf27, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = Env.Mmproj27 }, ImageTokens = new ImageTokenLimits(null, 64) });
         // llama.cpp's CPU backend multiplies bf16 weights with bf16-rounded activations (and f16 flash attention): it differs from
         // itself by ~2e-3 between flash-attention settings, so allow 1e-2 on these O(1) values.
         Check("27B rainbow 224", Encode(model, Rainbow(224), 224), 49, 5120, Rainbow27, tolerance: 1e-2);
@@ -136,7 +141,7 @@ public class LlamaCppReferenceTests
     public void Qwen3_vl_2b_deepstack_tower_matches_llama_cpp()
     {
         Assert.SkipUnless(File.Exists(Env.GgufVl2b) && File.Exists(Env.MmprojVl2b), "Qwen3-VL-2B GGUF or mmproj not available");
-        using var model = LlmModel.Load(Env.GgufVl2b, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, Env.MmprojVl2b)], ImageTokens = new ImageTokenLimits(null, 64) });
+        using var model = LlmModel.Load(TestHost.Loader, Env.GgufVl2b, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = Env.MmprojVl2b }, ImageTokens = new ImageTokenLimits(null, 64) });
         Check("Qwen3-VL-2B rainbow 224", Encode(model, Rainbow(224), 224), 49, 8192, RainbowVl2b, tolerance: 1e-2);
     }
 
@@ -157,7 +162,7 @@ public class LlamaCppReferenceTests
         string gguf = v25 ? Env.GgufQwen25Vl3b : Env.GgufQwen2Vl2b;
         string mmproj = v25 ? Env.MmprojQwen25Vl3b : Env.MmprojQwen2Vl2b;
         Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), $"{which} GGUF or mmproj not available");
-        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        using var model = LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj }, ImageTokens = new ImageTokenLimits(null, 100) });
         Check($"{which} rainbow 280", Encode(model, Rainbow(280), 280), 100, v25 ? 2048 : 1536, v25 ? RainbowQwen25Vl3b : RainbowQwen2Vl2b, tolerance: 0.08, sumTolerance: 1e-3);
     }
 
@@ -176,7 +181,7 @@ public class LlamaCppReferenceTests
         string gguf = Path.Combine(home, $"models/gguf/tiny-random-{which}-f32.gguf");
         string mmproj = Path.Combine(home, $"models/gguf/mmproj-tiny-random-{which}-f32.gguf");
         Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), $"tiny {which} GGUF or mmproj not available");
-        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        using var model = LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj }, ImageTokens = new ImageTokenLimits(null, 100) });
         Check($"tiny {which} rainbow 280", Encode(model, Rainbow(280), 280), 100, 64, which == "qwen2-vl-wide" ? RainbowTinyQwen2Vl : RainbowTinyQwen25Vl, tolerance: 2e-4);
     }
 
@@ -193,7 +198,7 @@ public class LlamaCppReferenceTests
         string gguf = Path.Combine(home, "models/gguf/tiny-random-glm4v-f32.gguf");
         string mmproj = Path.Combine(home, "models/gguf/mmproj-tiny-random-glm4v-f32.gguf");
         Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny GLM-4.1V GGUF or mmproj not available");
-        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        using var model = LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj }, ImageTokens = new ImageTokenLimits(null, 100) });
         // transformers on the same images gives sums 3.0902 and 76.8782 and the corner values Sharplight prints to 1e-4; llama.cpp (f16
         // attention on the CPU backend) is ~1e-3 away from both.
         Check("tiny glm4v rainbow 56", Encode(model, Rainbow(56), 56), 4, 64, RainbowTinyGlm4v56, tolerance: 3e-3, sumTolerance: 1e-3);
@@ -213,7 +218,7 @@ public class LlamaCppReferenceTests
         string gguf = Path.Combine(home, "models/gguf/tiny-random-paddleocr-vl-f32.gguf");
         string mmproj = Path.Combine(home, "models/gguf/mmproj-tiny-random-paddleocr-vl-f32.gguf");
         Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny PaddleOCR-VL GGUF or mmproj not available");
-        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        using var model = LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj }, ImageTokens = new ImageTokenLimits(null, 100) });
         // Sharplight follows transformers (TinyQwenVlImageTests), where llama.cpp deviates twice: its projector uses the tanh GELU (the reference the
         // exact one; ~1e-3 here), and it resamples the learned position grid without align_corners (the reference with), which only matters when
         // the patch grid differs from the learned one: at 56 pixels (the 4×4 grid itself) the towers agree to the GELU difference, at 280 to ~2e-2.
@@ -235,7 +240,7 @@ public class LlamaCppReferenceTests
         string gguf = Path.Combine(home, "models/gguf/tiny-random-hunyuan-vl-f32.gguf");
         string mmproj = Path.Combine(home, "models/gguf/mmproj-tiny-random-hunyuan-vl-f32.gguf");
         Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny HunyuanOCR GGUF or mmproj not available");
-        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        using var model = LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj }, ImageTokens = new ImageTokenLimits(null, 100) });
         // Sharplight follows transformers (TinyQwenVlImageTests), where llama.cpp deviates: it resamples the learned position grid with scale
         // (n + 0.1) / grid (the reference to exactly n), which shifts the grid slightly even at the native size, and its GELUs are the tanh
         // approximation.
@@ -258,7 +263,7 @@ public class LlamaCppReferenceTests
         string gguf = Path.Combine(home, "models/gguf/tiny-random-cogvlm-f32.gguf");
         string mmproj = Path.Combine(home, "models/gguf/mmproj-tiny-random-cogvlm-f32.gguf");
         Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny CogVLM GGUF or mmproj not available");
-        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        using var model = LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj }, ImageTokens = new ImageTokenLimits(null, 100) });
         Check("tiny cogvlm rainbow 56", Encode(model, Rainbow(56), 56), 18, 64, RainbowTinyCogVlm56, tolerance: 2e-4, sumTolerance: 1e-5);
     }
 }

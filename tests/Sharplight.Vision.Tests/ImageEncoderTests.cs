@@ -22,7 +22,7 @@ public class ImageEncoderTests
     private static float[] Floats(JsonElement e) => [.. e.EnumerateArray().Select(v => v.GetSingle())];
 
     private static TaskModel Load(string name, DeviceSlot device)
-        => TaskModel.Load(new TaskLoadOptions { ModelPath = Model(name), Devices = [device] });
+        => TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = Model(name), Devices = [device] });
 
     private static IEnumerable<(string Backend, DeviceSlot Slot)> Backends()
     {

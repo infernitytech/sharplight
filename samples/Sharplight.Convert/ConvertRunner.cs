@@ -6,7 +6,7 @@ using Sharplight.Samples;
 namespace Sharplight.Convert;
 
 /// <summary>Runs <c>convert</c>: opens the source (ONNX with the given input shapes) and writes the package through <see cref="ModelConverter"/>.</summary>
-internal sealed class ConvertRunner(TextWriter output)
+internal sealed class ConvertRunner(SampleRuntime runtime, TextWriter output)
 {
     private const string OnnxExtension = ".onnx";
 
@@ -27,7 +27,7 @@ internal sealed class ConvertRunner(TextWriter output)
         };
         try
         {
-            var result = ModelConverter.Convert(Open(settings), settings.DestinationPath, options);
+            var result = runtime.Converter.Convert(Open(settings), settings.DestinationPath, options);
             output.WriteLine($"Built {result.ModelName} ({result.SourceArchitecture ?? result.Architecture}) from {result.SourceFormat}: {result.GraphCount} graph(s), "
                 + $"{result.WeightCount} weights [{result.BuildTime.TotalMilliseconds:F0} ms]");
             output.WriteLine($"Saved {result.PackagePath}: {ByteSize.Format(result.PackageBytes)}, {result.KeptArtifactSets} artifact set(s) "
@@ -39,7 +39,7 @@ internal sealed class ConvertRunner(TextWriter output)
         }
     }
 
-    private static ModelSourceSet Open(ConvertSettings settings)
+    private ModelSourceSet Open(ConvertSettings settings)
     {
         if (string.Equals(Path.GetExtension(settings.SourcePath), OnnxExtension, StringComparison.OrdinalIgnoreCase))
         {
@@ -52,7 +52,7 @@ internal sealed class ConvertRunner(TextWriter output)
             return new ModelSourceSet { Primary = OnnxImporter.Open(settings.SourcePath, onnxOptions) };
         }
 
-        (string, string)[] auxiliary = settings.MmprojPath is { } mmproj ? [(Vision.AuxiliaryRoles.Mmproj, mmproj)] : [];
-        return ModelImporterRegistry.OpenSet(settings.SourcePath, auxiliary);
+        KeyValuePair<string, string>[] auxiliary = settings.MmprojPath is { } mmproj ? [new(Vision.AuxiliaryRoles.Mmproj, mmproj)] : [];
+        return runtime.Loader.Open(settings.SourcePath, auxiliary);
     }
 }

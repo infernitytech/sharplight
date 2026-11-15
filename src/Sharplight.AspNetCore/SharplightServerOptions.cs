@@ -13,9 +13,9 @@ public sealed class SharplightServerOptions
     /// <summary>Expose the Anthropic-compatible API (<c>/v1/messages</c>, <c>/v1/messages/count_tokens</c>).</summary>
     public bool Anthropic { get; set; } = true;
     /// <summary>Accepted API keys (<c>Authorization: Bearer</c> or <c>x-api-key</c>). Empty = no authentication.</summary>
-    public List<string> ApiKeys { get; set; } = [];
+    public IList<string> ApiKeys { get; set; } = [];
     /// <summary>Allowed CORS origins ("*" for any). Empty = CORS headers are not sent.</summary>
-    public List<string> CorsOrigins { get; set; } = [];
+    public IList<string> CorsOrigins { get; set; } = [];
     /// <summary>Largest accepted request body (images arrive base64 encoded in the body).</summary>
     public long MaxRequestBodyBytes { get; set; } = 32 * 1024 * 1024;
     /// <summary>Largest <c>n</c> a request may ask for.</summary>

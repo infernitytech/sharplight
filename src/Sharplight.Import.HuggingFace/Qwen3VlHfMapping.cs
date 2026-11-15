@@ -28,7 +28,7 @@ internal sealed partial class Qwen3VlHfMapping : IHfArchitectureMapping
     private static int? ExpertCount(HfConfig c) => c.GetInt("num_experts") ?? c.GetInt("num_local_experts");
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HuggingFaceImportOptions options)
     {
         var md = new Dictionary<string, object>(_text.MapHyperParameters(config, options), StringComparer.Ordinal);
         if (config.RopeIntArray("mrope_section") is { } sections)
@@ -63,7 +63,7 @@ internal sealed partial class Qwen3VlHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         // model.language_model.X → model.X, the layout of the plain text model; the tower is mapped separately.
         var text = tensors

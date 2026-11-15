@@ -113,7 +113,7 @@ public class TaskClientProviderTests
             Weights = new Dictionary<string, WeightInfo>(),
             Definition = definition,
         };
-        return new TaskModel(definition, source, new TaskLoadOptions());
+        return new TaskModel(definition, source, new TaskLoadOptions(), new ArchitectureCatalog([]));
     }
 
     private sealed class FakeRecognizer(TaskModel model, string variant) : ISpeechRecognizer

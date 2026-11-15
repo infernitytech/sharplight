@@ -1,5 +1,3 @@
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -31,12 +29,6 @@ public class Fp8CheckpointTests(ITestOutputHelper output)
         + "baskets of zucchini whether they asked for them or not.";
 
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    static Fp8CheckpointTests()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-    }
 
     public static TheoryData<string, string, double> Models() => new()
     {
@@ -92,7 +84,7 @@ public class Fp8CheckpointTests(ITestOutputHelper output)
         var slot = new DeviceSlot { Device = provider.OpenDevice(device) };
         try
         {
-            using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [slot], ContextLength = 512, MaxBatchTokens = 128 });
+            using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [slot], ContextLength = 512, MaxBatchTokens = 128 });
             using var session = model.CreateSession(WellKnown.DecodeGraph);
             var ids = model.Tokenizer.Encode(Text, addSpecial: true, parseSpecial: false);
             var result = new List<(int, double, float[])>();

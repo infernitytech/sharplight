@@ -5,7 +5,8 @@ These rules apply to all C# code in the repository (libraries, samples, tests). 
 - `.editorconfig` + `Directory.Build.props` make the mechanical rules **build errors**: braces (IDE0011), explicit
   accessibility (IDE0040), file-scoped namespaces (IDE0161), unused usings/members/parameters (IDE0005/0051/0052/0060,
   CS0169, CS9113), and XML docs on every public member of the libraries (CS1591, CS1573).
-- `python3 tools/check-one-type-per-file.py` checks the one-type-per-file rule (run it before committing).
+- `python3 tools/check-one-type-per-file.py` checks the one-type-per-file rule and `python3 tools/check-single-line-scopes.py`
+  the no-single-line-scopes rule (run both before committing; CI runs them too).
 - `dotnet format style Sharplight.slnx` fixes most mechanical violations automatically.
 - Everything else is checked in review.
 
@@ -41,8 +42,9 @@ public static class TensorExtensions
 
 - Always use braces for the bodies of `if`, `else`, `for`, `foreach`, `while`, `do`, `using` and `lock`, even for one
   statement. Brace-less bodies break silently during merges.
-- No single-line scopes: a braced block never sits on one line (`if (x) { return; }` is not allowed). The opening and
-  closing braces go on their own lines.
+- No single-line scopes: a braced block never sits on one line (`if (x) { return; }`, `void Dispose() { }`,
+  `x => { a(); b(); }` are not allowed). The opening and closing braces go on their own lines. Not blocks, and fine on one line:
+  object and collection initializers, auto-property accessor lists (`{ get; set; }`) and an empty no-op lambda (`_ => { }`).
 - Prefer early returns over deep nesting; keep methods short and focused.
 
 ## Visibility and API surface
@@ -61,7 +63,11 @@ public static class TensorExtensions
   exceptions instead of error codes).
 - No static registries or global mutable state for wiring. Composition goes through Microsoft.Extensions.DependencyInjection:
   each library ships `IServiceCollection` extensions (`services.AddSharplight()`, `.AddVulkanProvider()`, `.AddGgufImporter()`, ...)
-  in an extension block, and consumers resolve services from the container. Options use `Microsoft.Extensions.Options`.
+  in an extension block, and consumers resolve services from the container (docs/api-overview.md "Registration"). The extension
+  classes live in a `DependencyInjection/` folder of the project, in the `Microsoft.Extensions.DependencyInjection` namespace (the
+  Microsoft convention, and the one exception to "folders mirror namespaces"), are idempotent (`TryAdd*`), and are named
+  `<Area>ServiceCollectionExtensions`. Options use `Microsoft.Extensions.Options`: options classes have settable properties so they
+  bind from configuration; per-request options stay immutable records.
 - File formats Sharplight defines (package metadata, configs, profiles, manifests, reports) are JSON
   (`System.Text.Json`, source-generated contexts); no YAML, TOML, INI or ad-hoc text formats.
 

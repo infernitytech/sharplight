@@ -241,7 +241,7 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         RequireModels(fx);
         var adapter = new Qwen35Adapter();
         var dg = adapter.Build(new ModelSourceSet { Primary = fx.Gguf! }, new AdapterOptions());
-        var dh = ModelAdapterRegistryBuild(fx.Hf!);
+        var dh = BuildWithQwen35Adapter(fx.Hf!);
         // The text GGUF has no vision tower: its graphs are the HF model's minus the vision ones.
         var visionGraphs = new[] { WellKnown.VisionEncodeGraph, WellKnown.DecodeMultimodalGraph };
         Assert.Equal(dg.Graphs.Keys.Order(), dh.Graphs.Keys.Except(visionGraphs).Order());
@@ -274,10 +274,10 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         Assert.Equal(new Shape(1024, 2048), s.Weights["mtp.fc.weight"].Shape);
         Assert.Equal(DataType.F32, s.Weights["mtp.embedding_norm.weight"].Type);
         // trunk is unaffected and the adapter reports the MTP layer separately
-        var d = ModelAdapterRegistryBuild(s);
+        var d = BuildWithQwen35Adapter(s);
         Assert.Equal(24, d.Property<int>("n_layer"));
         Assert.Equal(1, d.Property<int>("mtp_layers"));
-        var plain = ModelAdapterRegistryBuild(fx.Hf!);
+        var plain = BuildWithQwen35Adapter(fx.Hf!);
         Assert.Equal(plain.Graphs[WellKnown.DecodeGraph].Nodes.Count, d.Graphs[WellKnown.DecodeGraph].Nodes.Count);
     }
 
@@ -328,11 +328,8 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
 
     // ---- helpers ------------------------------------------------------------------------------
 
-    private static ModelDefinition ModelAdapterRegistryBuild(ModelSource src)
-    {
-        ModelAdapterRegistry.Register(new Qwen35Adapter());
-        return ModelAdapterRegistry.Build(new ModelSourceSet { Primary = src });
-    }
+    private static ModelDefinition BuildWithQwen35Adapter(ModelSource src)
+        => new ArchitectureCatalog([new Qwen35Adapter()]).Build(new ModelSourceSet { Primary = src });
 
     private static string Fmt(object v) => v is Array a ? $"[{string.Join(",", a.Cast<object>().Take(8))}{(a.Length > 8 ? ",..." : "")}] (len {a.Length})" : v is string s && s.Length > 60 ? s[..60] + "..." : v.ToString() ?? "";
 

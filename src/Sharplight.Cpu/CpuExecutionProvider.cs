@@ -9,7 +9,7 @@ namespace Sharplight.Cpu;
 /// </summary>
 public sealed class CpuExecutionProvider : IExecutionProvider
 {
-    /// <summary>The provider name used in <see cref="DeviceInfo.Provider"/> and for registry lookups.</summary>
+    /// <summary>The provider name used in <see cref="DeviceInfo.Provider"/> and for <see cref="ExecutionProviderCatalog.TryFind"/>.</summary>
     public const string ProviderName = "cpu";
 
     /// <inheritdoc />
@@ -72,9 +72,6 @@ public sealed class CpuExecutionProvider : IExecutionProvider
     public void Dispose()
     {
     }
-
-    /// <summary>Registers the CPU provider with <see cref="ProviderRegistry"/>.</summary>
-    public static void Register() => ProviderRegistry.Register(() => new CpuExecutionProvider());
 
     /// <summary>
     /// The CPU provider has kernels for weights of this element type (float, the supported ggml block quantizations, FP8). Every graph op that

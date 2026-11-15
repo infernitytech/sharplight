@@ -50,7 +50,7 @@ public class ObjectDetectorTests
 
         foreach (var (backend, slot) in backends)
         {
-            using var model = TaskModel.Load(new TaskLoadOptions { ModelPath = Model(name), Devices = [slot] });
+            using var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = Model(name), Devices = [slot] });
             Assert.Equal("object-detection", model.Description.Kind);
             using var detector = new TaskClientProvider([.. Env.TaskFactories()]).Create<IObjectDetector>(model);
             var result = await detector.DetectAsync(image, new ObjectDetectionOptions { ScoreThreshold = 0.5f }, TestContext.Current.CancellationToken);
@@ -94,7 +94,7 @@ public class ObjectDetectorTests
 
         foreach (var (backend, slot) in backends)
         {
-            using var model = TaskModel.Load(new TaskLoadOptions { ModelPath = Model(Name), Devices = [slot] });
+            using var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = Model(Name), Devices = [slot] });
             Assert.Equal("depth-estimation", model.Description.Kind);
             using var estimator = new TaskClientProvider([.. Env.TaskFactories()]).Create<IDepthEstimator>(model);
             var native = await estimator.EstimateAsync(image, new DepthEstimationOptions { ResizeToInput = false }, TestContext.Current.CancellationToken);

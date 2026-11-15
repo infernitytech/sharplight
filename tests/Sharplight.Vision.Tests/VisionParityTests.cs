@@ -7,7 +7,7 @@ namespace Sharplight.Vision.Tests;
 public class VisionParityTests(ITestOutputHelper output)
 {
     private static LlmModel LoadHf(DeviceSlot slot, ImageTokenLimits? limits = null)
-        => LlmModel.Load(Env.Hf08, new LlmLoadOptions { Devices = [slot], ContextLength = 256, MaxBatchTokens = 64, ImageTokens = limits });
+        => LlmModel.Load(TestHost.Loader, Env.Hf08, new LlmLoadOptions { Devices = [slot], ContextLength = 256, MaxBatchTokens = 64, ImageTokens = limits });
 
     [Fact]
     public void Cpu_embeddings_match_torch()

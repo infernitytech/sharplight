@@ -25,7 +25,7 @@ public sealed class ParityFixture : IDisposable
         }
 
         Gguf = GgufImporter.Open(GgufPath);
-        Hf = HuggingFaceImporter.Open(HfDir, new HfImportOptions { IncludeMtp = false });
+        Hf = HuggingFaceImporter.Open(HfDir, new HuggingFaceImportOptions { IncludeMtp = false });
         HfMtp = HuggingFaceImporter.Open(HfDir);
     }
 

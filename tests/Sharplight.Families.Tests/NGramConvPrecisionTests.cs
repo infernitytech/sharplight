@@ -1,5 +1,4 @@
 using Sharplight.Import.Gguf;
-using Sharplight.Architectures;
 using Sharplight.Models;
 using Sharplight.Tensors;
 
@@ -14,8 +13,6 @@ public class NGramConvPrecisionTests
 {
     private static readonly string s_model = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "gguf",
         "tiny-random-qwen3.8-flash-next-sparse-f32.gguf");
-
-    static NGramConvPrecisionTests() => BuiltinAdapters.RegisterAll();
 
     [Theory]
     [InlineData("bf16")]
@@ -67,7 +64,7 @@ public class NGramConvPrecisionTests
     }
 
     private static ModelDefinition Build(ModelSource source, Dictionary<string, WeightInfo> weights)
-        => ModelAdapterRegistry.Build(new ModelSourceSet
+        => TestHost.Loader.Build(new ModelSourceSet
         {
             Primary = new ModelSource
             {

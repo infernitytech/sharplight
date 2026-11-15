@@ -50,7 +50,7 @@ public class ReferenceTests
         {
             if (!s_embedders.TryGetValue((path, device), out var m))
             {
-                s_embedders[(path, device)] = m = EmbeddingModel.Load(path, new EmbeddingLoadOptions { Devices = [Env.Device(device)], MaxBatchTokens = 2048, MaxBatchSequences = 64 });
+                s_embedders[(path, device)] = m = EmbeddingModel.Load(TestHost.Loader, path, new EmbeddingLoadOptions { Devices = [Env.Device(device)], MaxBatchTokens = 2048, MaxBatchSequences = 64 });
             }
 
             return m;
@@ -129,7 +129,7 @@ public class ReferenceTests
         {
             if (!s_rerankers.TryGetValue((path, device), out r!))
             {
-                s_rerankers[(path, device)] = r = Reranker.Load(path, new RerankerLoadOptions { Devices = [dev], MaxBatchTokens = 2048, MaxBatchSequences = 64 });
+                s_rerankers[(path, device)] = r = Reranker.Load(TestHost.Loader, path, new RerankerLoadOptions { Devices = [dev], MaxBatchTokens = 2048, MaxBatchSequences = 64 });
             }
         }
 

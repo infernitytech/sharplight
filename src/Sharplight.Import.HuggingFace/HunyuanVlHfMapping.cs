@@ -22,7 +22,7 @@ internal sealed class HunyuanVlHfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } = ["hunyuan_vl", "hunyuan_vl_text"];
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HuggingFaceImportOptions options)
     {
         var md = new Dictionary<string, object>(_text.MapHyperParameters(config, options), StringComparer.Ordinal);
         if ((config.RopeIntArray("mrope_section") ?? config.RopeIntArray("xdrope_section")) is { } sections)
@@ -43,7 +43,7 @@ internal sealed class HunyuanVlHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var text = tensors
             .Where(t => !HunyuanVlVisionHfMapping.IsVisionTensor(t.Key))

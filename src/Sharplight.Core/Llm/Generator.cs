@@ -42,7 +42,7 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer, Vi
         }
 
         var enc = vision ?? throw new InvalidOperationException("Images need a Generator created with a VisionEncoder (LlmModel.CreateVisionEncoder).");
-        var arch = MultimodalRegistry.Find(enc.Definition.Architecture)
+        var arch = enc.Multimodal
             ?? throw new NotSupportedException($"Architecture '{enc.Definition.Architecture}' has no multimodal prompt support.");
         var tokens = tokenizer.Encode(prompt, addSpecial: session.Position == 0, parseSpecial: parseSpecial);
         var sw = Stopwatch.StartNew();

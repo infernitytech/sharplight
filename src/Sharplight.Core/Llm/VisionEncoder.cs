@@ -32,11 +32,17 @@ public sealed class VisionEncoder : IDisposable
     public CompiledModel Compiled => _compiled;
 
     /// <summary>
+    /// The architecture's prompt assembly for images (from the <see cref="ArchitectureCatalog"/> the model was loaded with), or
+    /// <see langword="null"/> when the architecture has none.
+    /// </summary>
+    public IMultimodalArchitecture? Multimodal { get; }
+
+    /// <summary>
     /// Compiles the vision encoder of a built model onto devices. <paramref name="limits"/> bound the image size: the encoder
     /// handles images of up to <c>MaxTokens</c> (default 1024) output tokens, larger images are resized to fit.
     /// </summary>
-    public static VisionEncoder Create(ModelDefinition def, IReadOnlyList<DeviceSlot> devices, DeviceSlot? fallback = null, ImageTokenLimits? limits = null,
-        IReadOnlySet<string>? disabledFeatures = null, Func<IComputeDevice, ICompilationCache?>? cacheFor = null)
+    internal static VisionEncoder Create(ModelDefinition def, IReadOnlyList<DeviceSlot> devices, DeviceSlot? fallback = null, ImageTokenLimits? limits = null,
+        IReadOnlySet<string>? disabledFeatures = null, Func<IComputeDevice, ICompilationCache?>? cacheFor = null, IMultimodalArchitecture? multimodal = null)
     {
         var p = VisionParameters.Of(def) ?? throw new NotSupportedException("This model has no vision tower (for GGUF models pass the projector file as the \"mmproj\" auxiliary file).");
         if (p.Sam is not null)
@@ -50,7 +56,7 @@ public sealed class VisionEncoder : IDisposable
             });
             var global = CompileView(WellKnown.VisionEncodeGraph);
             var tile = def.Graphs.ContainsKey(SamParameters.TileGraph) ? CompileView(SamParameters.TileGraph) : null;
-            return new VisionEncoder(def, p, global, tile, new VisionPreprocessor(p), 0);
+            return new VisionEncoder(def, p, global, tile, new VisionPreprocessor(p), 0, multimodal);
         }
 
         int maxTokens = limits?.MaxTokens ?? 1024;
@@ -75,12 +81,14 @@ public sealed class VisionEncoder : IDisposable
             },
         });
         var pre = new VisionPreprocessor(p, new ImageTokenLimits(limits?.MinTokens, maxTokens));
-        return new VisionEncoder(def, p, compiled, null, pre, maxPatches);
+        return new VisionEncoder(def, p, compiled, null, pre, maxPatches, multimodal);
     }
 
-    private VisionEncoder(ModelDefinition def, VisionParameters p, CompiledModel compiled, CompiledModel? tile, VisionPreprocessor pre, int maxPatches)
+    private VisionEncoder(ModelDefinition def, VisionParameters p, CompiledModel compiled, CompiledModel? tile, VisionPreprocessor pre, int maxPatches,
+        IMultimodalArchitecture? multimodal)
     {
         Definition = def;
+        Multimodal = multimodal;
         Parameters = p;
         _compiled = compiled;
         _tile = tile;

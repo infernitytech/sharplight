@@ -1,6 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
@@ -15,12 +13,6 @@ namespace Sharplight.Families.Tests;
 public class HubSweepFamilyServingTests
 {
     private static readonly string Models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models");
-
-    static HubSweepFamilyServingTests()
-    {
-        HuggingFaceImporter.Register();
-        GgufImporter.Register();
-    }
 
     /// <summary>Model paths under ~/models, each on the CPU and on Vulkan, with whether the KV cache is kept in f32.</summary>
     public static TheoryData<string, bool, bool> Cases()
@@ -56,7 +48,7 @@ public class HubSweepFamilyServingTests
         string path = Path.Combine(Models, name);
         Assert.SkipUnless(Directory.Exists(path) || File.Exists(path), $"{path} not present");
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(path, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 128, MaxBatchTokens = 16,
             KvCacheType = f32Kv ? Sharplight.Tensors.DataType.F32 : null,

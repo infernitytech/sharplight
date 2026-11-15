@@ -13,36 +13,41 @@
 // in each of the last slots, as the serving engine's chunked prefill feeds them); "D+PxN" splits P*N prompt rows over N sequences.
 // --batch sets the decoder's rows per step (default 512). With --mixed, --profile takes the index of the mixed entry instead.
 using System.Diagnostics;
-using Sharplight.Architectures;
+using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Graph;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
+using Sharplight.Models;
 using Sharplight.Llm.Serving;
 using Sharplight.Package;
 using Sharplight.Runtime;
-using Sharplight.Vulkan;
 
 var argv = args.ToList();
-string? Opt(string n, string? d = null) { int i = argv.IndexOf(n); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d; }
-ProviderRegistry.Register(() => new VulkanProvider());
-BuiltinAdapters.RegisterAll();
-GgufImporter.Register();
-HuggingFaceImporter.Register();
-ModelPackageImporter.Register();
+string? Opt(string n, string? d = null)
+{
+    int i = argv.IndexOf(n);
+    return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d;
+}
+
+using var services = SharplightDefaults.CreateServiceProvider();
+var loader = services.GetRequiredService<ModelLoader>();
 int slots = int.Parse(Opt("--slots", "64")!), ctx = int.Parse(Opt("--ctx", "512")!), depth = int.Parse(Opt("--depth", "256")!);
 int reps = int.Parse(Opt("--reps", "30")!);
 var sizes = Opt("--sizes", "1,2,4,8,16,32,64")!.Split(',').Select(int.Parse).Where(s => s <= slots).ToArray();
-var provider = ProviderRegistry.Discover().First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu").Provider;
+var provider = services.GetRequiredService<ExecutionProviderCatalog>().Discover().First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu").Provider;
 using var device = provider.OpenDevice(provider.GetDevices()[0], new DeviceOptions());
-using var model = LlmModel.Load(argv[0], new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = int.Parse(Opt("--batch", "512")!) });
+using var model = LlmModel.Load(loader, argv[0], new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = int.Parse(Opt("--batch", "512")!) });
 using var dec = (MultiSequenceDecoder)model.CreateBatchDecoder(slots, ctx);
 var sampler = (IDeviceSamplingDecoder)dec;
 Console.WriteLine($"decoder: {dec.GetType().Name}, slots {dec.SlotCount}, vocab {dec.VocabSize}, device sampling: {sampler.SamplesOnDevice}");
 var rng = new Random(1);
 int[] Toks(int n) => Enumerable.Range(0, n).Select(_ => rng.Next(1000, 30000)).ToArray();
 for (int s = 0; s < slots; s++) dec.Step([new SequenceInput(s, Toks(depth), false)]);   // prefill each slot
-double Median(List<double> l) { l.Sort(); return l[l.Count / 2]; }
+double Median(List<double> l)
+{
+    l.Sort();
+    return l[l.Count / 2];
+}
+
 var segments = dec.Compiled.Segments.OfType<VulkanSegment>().ToList();
 var tokens = new int[slots];
 var logprobs = new float[slots];
@@ -135,9 +140,18 @@ if (mixed is not null)
         Console.WriteLine($"| {d} | {p * n} ({n}) | {firstMs:F1} | {stats.Item1} / {stats.Item2} | {wall.Min():F2} / {Median(wall):F2}, {gpu:F2} | {perRow} |");
         if (profileSizes.Contains(entry))
         {
-            foreach (var seg in segments) { seg.Profile = true; seg.ResetProfile(); }
+            foreach (var seg in segments)
+            {
+                seg.Profile = true;
+                seg.ResetProfile();
+            }
+
             for (int i = 0; i < 10; i++) Step(mode, Inputs());
-            foreach (var seg in segments) { Console.WriteLine($"--- profile mixed {spec} ({mode})\n{seg.ProfileReport(profileTop)}"); seg.Profile = false; }
+            foreach (var seg in segments)
+            {
+                Console.WriteLine($"--- profile mixed {spec} ({mode})\n{seg.ProfileReport(profileTop)}");
+                seg.Profile = false;
+            }
         }
 
         entry++;
@@ -158,8 +172,17 @@ foreach (int b in sizes)
     if (profileSizes.Contains(b))
     {
         string mode = Opt("--profile-mode", "logits")!;
-        foreach (var seg in segments) { seg.Profile = true; seg.ResetProfile(); }
+        foreach (var seg in segments)
+        {
+            seg.Profile = true;
+            seg.ResetProfile();
+        }
+
         for (int i = 0; i < 20; i++) Step(mode, inputs);
-        foreach (var seg in segments) { Console.WriteLine($"--- profile batch {b} ({mode})\n{seg.ProfileReport(profileTop)}"); seg.Profile = false; }
+        foreach (var seg in segments)
+        {
+            Console.WriteLine($"--- profile batch {b} ({mode})\n{seg.ProfileReport(profileTop)}");
+            seg.Profile = false;
+        }
     }
 }

@@ -80,7 +80,7 @@ public class MultiSequenceTests
         // The integer-dot matvec (DeviceFeatures.IntDot) quantizes activations to 8 bits, so whether a chunk runs there or in a
         // larger tensor-core batch would change its logits by percents (tens of percents on outlier-heavy Mamba layers); it is
         // off here so the comparison checks the multi-sequence bookkeeping. Its precision is covered by the Vulkan kernel tests.
-        using var llm = LlmModel.Load(path, new LlmLoadOptions
+        using var llm = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
         {
             Devices = [slot!], ContextLength = 256, MaxBatchTokens = 128, DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot },
         });

@@ -11,7 +11,7 @@ namespace Sharplight.Llm.Embeddings;
 /// </summary>
 /// <example>
 /// <code>
-/// using var reranker = Reranker.Load("bge-reranker-v2-m3", new RerankerLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
+/// using var reranker = Reranker.Load(loader, "bge-reranker-v2-m3", new RerankerLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
 /// RerankResult result = reranker.Score("what is a vector?", ["a quantity with direction", "a kind of animal"]);
 /// // result.Scores[i] in [0, 1] belongs to documents[i]; sort descending to rank.
 /// </code>
@@ -66,10 +66,14 @@ public sealed class Reranker : ITextReranker, IDisposable
         }
     }
 
-    /// <summary>Loads a model (GGUF file, Hugging Face directory, ...) through the registered importers and compiles its classify graph.</summary>
-    public static Reranker Load(string path, RerankerLoadOptions options)
+    /// <summary>Loads a model (GGUF file, Hugging Face directory, ...) through the loader's importers and architectures and compiles its classify graph.</summary>
+    /// <param name="loader">The model loader (from the service container: <c>services.AddSharplight()</c>).</param>
+    /// <param name="path">Model file or directory, as understood by the registered importers.</param>
+    /// <param name="options">Devices and batch settings.</param>
+    /// <returns>The loaded model; the caller disposes it.</returns>
+    public static Reranker Load(ModelLoader loader, string path, RerankerLoadOptions options)
     {
-        var (def, source, tok) = PackedModelLoader.Open(path, options, new AdapterOptions
+        var (def, source, tok) = PackedModelLoader.Open(loader, path, options, new AdapterOptions
         {
             KvCacheType = options.Adapter.KvCacheType, IncludeAuxiliaryGraphs = true, ContextLength = options.Adapter.ContextLength,
         });
@@ -87,8 +91,8 @@ public sealed class Reranker : ITextReranker, IDisposable
             }
 
             var artifacts = options.Artifacts ?? new CompilationArtifacts(source.CompilationCaches);
-            var runner = PackedBatchRunner.Compile(def, WellKnown.ClassifyGraph, WellKnown.LogitsOutput, options.Devices, options.Fallback,
-                options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures, artifacts.For, options.Log);
+            var runner = PackedBatchRunner.Compile(def, WellKnown.ClassifyGraph, WellKnown.LogitsOutput, [.. options.Devices], options.Fallback,
+                options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures.ToHashSet(StringComparer.Ordinal), artifacts.For, options.Log);
             return new Reranker(def, tok, runner, artifacts, kind, options.ResolveMaxLength(def), options.Instruction);
         }
         catch

@@ -1,4 +1,6 @@
+using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Llm.Serving.Hosting;
+using Sharplight.Models;
 using Sharplight.Tasks;
 
 namespace Sharplight.Studio.Services.Runtime;
@@ -8,7 +10,7 @@ namespace Sharplight.Studio.Services.Runtime;
 /// footprint is estimated from the files before anything is read (the weights plus room for activations and state), so the host can
 /// evict other models first; <see cref="IPreparedModel.Load"/> reads the model and creates the client of its kind.
 /// </summary>
-internal sealed class TaskModelLoader : IModelLoader
+internal sealed class TaskModelLoader : IHostedModelLoader
 {
     private const double OverheadFactor = 1.25;
     private const long OverheadBytes = 256L << 20;
@@ -71,7 +73,7 @@ internal sealed class TaskModelLoader : IModelLoader
         /// <inheritdoc/>
         public LoadedModel Load(long? primaryLimit)
         {
-            var model = TaskModel.Load(owner._options, owner._cancellation);
+            var model = TaskModel.Load(owner._services.GetRequiredService<ModelLoader>(), owner._options, owner._cancellation);
             try
             {
                 var provider = owner._services.GetService(typeof(TaskClientProvider)) as TaskClientProvider

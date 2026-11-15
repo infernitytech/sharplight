@@ -203,7 +203,14 @@ internal static class Builtins
                         }
                     else
                     {
-                        try { return Convert.ToInt64(s, bas); } catch (Exception) { }
+                        try
+                        {
+                            return Convert.ToInt64(s, bas);
+                        }
+                        catch (Exception)
+                        {
+                            // Not a number in this base: the default applies.
+                        }
                     }
                     return def;
                 }
@@ -348,7 +355,12 @@ internal static class Builtins
             List<object?>? cur = null;
             foreach (var x in Seq(v))
             {
-                if (cur != null && cur.Count == n) { res.Add(cur); cur = null; }
+                if (cur != null && cur.Count == n)
+                {
+                    res.Add(cur);
+                    cur = null;
+                }
+
                 (cur ??= new List<object?>()).Add(x);
             }
             if (cur != null)
@@ -475,7 +487,12 @@ internal static class Builtins
                     continue;
                 }
 
-                if (i == 0 && !first) { sb.Append(lines[i]); continue; }
+                if (i == 0 && !first)
+                {
+                    sb.Append(lines[i]);
+                    continue;
+                }
+
                 sb.Append(pad).Append(lines[i]);
             }
             return sb.ToString();

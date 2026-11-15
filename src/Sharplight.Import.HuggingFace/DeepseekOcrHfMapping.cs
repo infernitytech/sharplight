@@ -23,7 +23,7 @@ internal sealed class DeepseekOcrHfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } = ["deepseek_vl_v2", "deepseek_ocr2", "unlimited_ocr", "deepseek_ocr2_text", "unlimited_ocr_text"];
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HuggingFaceImportOptions options)
     {
         if (config.GetBool("use_mla") == true || config.GetInt("kv_lora_rank") is > 0)
         {
@@ -42,7 +42,7 @@ internal sealed class DeepseekOcrHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var text = tensors
             .Where(t => !IsTowerTensor(t.Key))

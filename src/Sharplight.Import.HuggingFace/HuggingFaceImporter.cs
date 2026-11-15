@@ -9,18 +9,15 @@ namespace Sharplight.Import.HuggingFace;
 /// config's <c>model_type</c>; Hugging Face naming stays inside this assembly.
 /// </summary>
 /// <remarks>
-/// Register the importer once with <see cref="Register"/> to let <see cref="ModelImporterRegistry"/> open checkpoint
+/// Register the importer with <c>services.AddHuggingFaceImporter()</c> to let the <see cref="ModelLoader"/> open checkpoint
 /// directories, or call <see cref="Open"/> directly. Weights are zero-copy views over the memory-mapped safetensors
 /// shards where names are the only change, and lazily derived otherwise.
 /// </remarks>
-/// <param name="options">Import options used when opened through <see cref="ModelImporterRegistry"/>; null for the defaults.</param>
-public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IModelImporter
+/// <param name="options">Import options used when opened through the <see cref="ModelLoader"/>; null for the defaults.</param>
+public sealed class HuggingFaceImporter(HuggingFaceImportOptions? options = null) : IModelImporter
 {
     /// <inheritdoc/>
     public string Format => "hf";
-
-    /// <summary>Registers the Hugging Face importer with <see cref="ModelImporterRegistry"/>.</summary>
-    public static void Register() => ModelImporterRegistry.Register(new HuggingFaceImporter());
 
     /// <inheritdoc/>
     /// <remarks>True for a directory (or a <c>.safetensors</c> file inside one) that holds <c>config.json</c> and at least one <c>*.safetensors</c> file (a Decision 2.0 package keeps its weights in <c>backbone/</c>) or PyTorch <c>pytorch_model*.bin</c> shard (read through the restricted unpickler).</remarks>
@@ -66,7 +63,7 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
 
     /// <summary>Opens a Hugging Face checkpoint directory (or any <c>.safetensors</c> file inside one).</summary>
     /// <param name="path">The checkpoint directory, or a <c>.safetensors</c> file whose directory is the checkpoint.</param>
-    /// <param name="options">Import options; null for <see cref="HfImportOptions.Default"/>.</param>
+    /// <param name="options">Import options; null for <see cref="HuggingFaceImportOptions.Default"/>.</param>
     /// <returns>
     /// A model source named after the directory. It owns the memory-mapped shards; dispose it to unmap them.
     /// </returns>
@@ -77,9 +74,9 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
     /// </exception>
     /// <exception cref="UnsupportedArchitectureException">The <c>model_type</c> has no mapping.</exception>
     /// <exception cref="UnsupportedWeightFormatException">The checkpoint is quantized with a method the importer does not read (see <see cref="HfSupport.GetQuantizationSupport"/>).</exception>
-    public static ModelSource Open(string path, HfImportOptions? options = null)
+    public static ModelSource Open(string path, HuggingFaceImportOptions? options = null)
     {
-        options ??= HfImportOptions.Default;
+        options ??= HuggingFaceImportOptions.Default;
         string dir = ResolveDirectory(path) ?? throw new FileNotFoundException($"'{path}' is neither a directory nor a .safetensors file.");
         // A Decision 2.0 package keeps the backbone checkpoint in a subdirectory and the span scoring head beside it.
         var decision = HfDecisionPackage.Find(dir);
@@ -95,7 +92,7 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
             throw new NotSupportedException($"{dir}: {string.Join(" ", problems)}");
         }
 
-        var checkpoint = SafetensorsCheckpoint.Open(weightsDir);
+        var checkpoint = SafetensorsCheckpoint.Open(weightsDir, options.PyTorch);
         List<IDisposable> owned = [checkpoint];
         try
         {

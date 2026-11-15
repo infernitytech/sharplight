@@ -37,7 +37,13 @@ public class PreprocessorTests
         var rgb = new byte[w * h * 3];
         for (int y = 0; y < h; y++)
         {
-            for (int x = 0; x < w; x++) { int o = (y * w + x) * 3; rgb[o] = (byte)x; rgb[o + 1] = (byte)y; rgb[o + 2] = 255; }
+            for (int x = 0; x < w; x++)
+            {
+                int o = (y * w + x) * 3;
+                rgb[o] = (byte)x;
+                rgb[o + 1] = (byte)y;
+                rgb[o + 2] = 255;
+            }
         }
 
         var im = new VisionPreprocessor(p).Process(new ImageInput(w, h, rgb));
@@ -80,7 +86,12 @@ public class PreprocessorTests
         for (int i = 0; i < im.PatchCount; i++)
         {
             float sum = 0;
-            for (int k = 0; k < 4; k++) { sum += im.EmbeddingWeight[i * 4 + k]; Assert.InRange(im.EmbeddingIndex[i * 4 + k], 0, 2303); }
+            for (int k = 0; k < 4; k++)
+            {
+                sum += im.EmbeddingWeight[i * 4 + k];
+                Assert.InRange(im.EmbeddingIndex[i * 4 + k], 0, 2303);
+            }
+
             Assert.Equal(1f, sum, 1e-5f);
         }
         // Patch 0 is (row 0, col 0): all weight on grid cell (0, 0). The window-order patch at (row 5, col 3) is the last grid cell (47, 47).
@@ -99,7 +110,13 @@ public class PreprocessorTests
     public void Resize_keeps_flat_colours_and_identity_sizes()
     {
         var flat = new byte[50 * 30 * 3];
-        for (int i = 0; i < flat.Length; i += 3) { flat[i] = 200; flat[i + 1] = 100; flat[i + 2] = 7; }
+        for (int i = 0; i < flat.Length; i += 3)
+        {
+            flat[i] = 200;
+            flat[i + 1] = 100;
+            flat[i + 2] = 7;
+        }
+
         foreach (var (w, h) in new[] { (25, 15), (100, 60), (64, 32), (50, 30) })
         {
             var r = VisionPreprocessor.ResizeBicubic(flat, 50, 30, w, h);
@@ -151,7 +168,7 @@ public class PreprocessorTests
         var p = Qwen with { MinPixels = 0, MaxPixels = 0 };
         var im = new VisionPreprocessor(p).Process(new ImageInput(96, 64, new byte[96 * 64 * 3]));   // 4 rows × 6 cols of patches → 2 × 3 tokens
         Assert.Equal((2, 3), (im.MergedHeight, im.MergedWidth));
-        var arch = MultimodalRegistry.Find("qwen3_5") ?? new Qwen35Multimodal();
+        IMultimodalArchitecture arch = new Qwen35Multimodal();
         var prompt = arch.Assemble(ctx, [1, 2, Start, Pad, End, 3], [im], startPosition: 5);
 
         Assert.Equal(3 + 6 + 2, prompt.Length);

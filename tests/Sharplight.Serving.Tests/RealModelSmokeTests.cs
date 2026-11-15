@@ -1,10 +1,7 @@
-using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
 using Sharplight.Runtime;
-using Sharplight.Vulkan;
 
 namespace Sharplight.Serving.Tests;
 
@@ -18,13 +15,10 @@ public class RealModelSmokeTests
     public async Task Qwen3_Chat_Streams_Stops_And_ParsesToolCall()
     {
         Assert.SkipUnless(File.Exists(ModelPath), "model not found: " + ModelPath);
-        ProviderRegistry.Register(() => new VulkanProvider());
-        CpuExecutionProvider.Register();
-        GgufImporter.Register();
-        var avail = ProviderRegistry.Discover().Where(x => x.Availability.IsAvailable).ToList();
+        var avail = TestHost.Providers.Discover().Where(x => x.Availability.IsAvailable).ToList();
         var provider = avail.Where(x => x.Provider.Name != "cpu").Concat(avail).First().Provider;
         using var device = provider.OpenDevice(provider.GetDevices()[0], new DeviceOptions());
-        using var model = LlmModel.Load(ModelPath, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 2048, MaxBatchTokens = 256 });
+        using var model = LlmModel.Load(TestHost.Loader, ModelPath, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 2048, MaxBatchTokens = 256 });
         using var engine = new InferenceEngine(new SessionBatchDecoder(model.CreateSession()), model.Tokenizer);
         var svc = new ModelService(engine, model.ChatTemplate, new ModelServiceOptions { ModelName = "qwen3" });
 

@@ -34,7 +34,7 @@ internal sealed class PaliGemmaHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string textType = TextModelType(c) ?? "gemma";
         using var text = c.AsModelType(textType);
@@ -63,7 +63,7 @@ internal sealed class PaliGemmaHfMapping : IHfArchitectureMapping
         => "text decoder only, decoded causally: the bidirectional prefix PaliGemma's processor marks (image and prompt tokens) is not modelled";
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         string textType = TextModelType(c) ?? "gemma";
         var textTensors = new Dictionary<string, SafetensorsTensor>(StringComparer.Ordinal);

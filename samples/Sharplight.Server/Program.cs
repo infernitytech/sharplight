@@ -1,6 +1,5 @@
 using Sharplight.Samples;
 using Sharplight.Server;
 
-SampleRuntime.RegisterProvidersAndImporters();
-
-return await CommandRunner.RunAsync(ServerCommandLine.Build(), args);
+using var runtime = new SampleRuntime();
+return await CommandRunner.RunAsync(ServerCommandLine.Build(runtime), args);

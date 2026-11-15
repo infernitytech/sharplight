@@ -1,40 +1,33 @@
 using Sharplight.Models;
-using Sharplight.Runtime;
+using Sharplight.Tasks;
 
 namespace Sharplight.Llm.Embeddings;
 
-/// <summary>Options for loading an embedding model or a reranker.</summary>
-public class PackedModelLoadOptions
+/// <summary>
+/// Options for loading an embedding model, a reranker or a span scorer: the settings every model kind shares
+/// (<see cref="TaskLoadOptions"/>; <see cref="TaskLoadOptions.MaxBatchTokens"/> is the most tokens of all sequences of a batch
+/// together and defaults to 8192 here, so longer inputs cannot be processed) plus the packed-batch ones.
+/// </summary>
+public class PackedModelLoadOptions : TaskLoadOptions
 {
-    /// <summary>Devices in pipeline order (layers are split across them). Required.</summary>
-    public required IReadOnlyList<DeviceSlot> Devices { get; init; }
-    /// <summary>Fallback device (e.g. CPU) for layers that don't fit and unsupported ops.</summary>
-    public DeviceSlot? Fallback { get; init; }
-    /// <summary>Most tokens per forward pass (all sequences of a batch together). Longer inputs than this cannot be embedded.</summary>
-    public int MaxBatchTokens { get; init; } = 8192;
+    /// <summary>Creates options with the packed-batch defaults (8192 tokens per batch).</summary>
+    public PackedModelLoadOptions()
+    {
+        MaxBatchTokens = 8192;
+    }
+
     /// <summary>Most sequences per forward pass.</summary>
-    public int MaxBatchSequences { get; init; } = 256;
+    public int MaxBatchSequences { get; set; } = 256;
+
     /// <summary>Longest input in tokens (longer inputs are truncated or rejected); 0 = the model's limit.</summary>
-    public int MaxSequenceLength { get; init; }
-    /// <summary>Device features (<see cref="DeviceFeatures"/>) not to use, e.g. "matrix_f16".</summary>
-    public IReadOnlySet<string> DisabledFeatures { get; init; } = new HashSet<string>();
-    /// <summary>Options passed to the model adapter.</summary>
-    public AdapterOptions Adapter { get; init; } = new();
-    /// <summary>Receives load progress messages.</summary>
-    public Action<string>? Log { get; init; }
+    public int MaxSequenceLength { get; set; }
+
     /// <summary>
     /// Store F32 matrices (rank ≥ 2 weights, e.g. of Hugging Face checkpoints saved in float32) as F16 at load: half the memory and
     /// f16 matrix units on GPUs, at a cosine similarity to the F32 result of ~0.99999. Null (default) = on when the first device is
     /// a GPU; norms, biases and quantized / 16-bit weights are never changed.
     /// </summary>
-    public bool? HalfPrecisionMatrices { get; init; }
-    /// <summary>
-    /// Compilation artifacts to compile with: consulted before compiling, and recording everything compilation uses
-    /// (<c>ExportCompilation</c>). Null (default) = one instance per model, seeded from the artifact sets stored in the model file.
-    /// Share one instance (seeded from the file's <see cref="ModelSource.CompilationCaches"/>) to collect what several loads of the
-    /// same model compile into one export.
-    /// </summary>
-    public CompilationArtifacts? Artifacts { get; init; }
+    public bool? HalfPrecisionMatrices { get; set; }
 
     internal int ResolveMaxLength(ModelDefinition def)
     {

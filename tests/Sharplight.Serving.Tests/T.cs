@@ -10,7 +10,11 @@ public static class T
         var sw = System.Diagnostics.Stopwatch.StartNew();
         while (sw.ElapsedMilliseconds < timeoutMs)
         {
-            if (cond()) { return true; }
+            if (cond())
+            {
+                return true;
+            }
+
             await Task.Delay(2);
         }
         return cond();

@@ -8,7 +8,7 @@ namespace Sharplight.Llm;
 /// <item><c>SHARPLIGHT_DEVICE_SAMPLING=0</c>: never sample tokens on the accelerator; logits are downloaded and sampled on the CPU
 /// (same as <see cref="LlmLoadOptions.DeviceSampling"/> = false).</item>
 /// <item><c>SHARPLIGHT_RECURRENT_STATE=f32|bf16|f16</c>: element type of 16-bit-capable recurrent states, overriding
-/// <see cref="LlmLoadOptions.RecurrentStateType"/> and the bf16 default of <see cref="LlmLoadOptions.AllowReducedPrecision"/>
+/// <see cref="LlmLoadOptions.RecurrentStateType"/> and the bf16 default of <see cref="Tasks.TaskLoadOptions.AllowReducedPrecision"/>
 /// (e.g. f32 isolates the other reduced-precision paths, bf16 without reduced precision isolates the state).</item>
 /// </list>
 /// </summary>

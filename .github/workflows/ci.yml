@@ -29,6 +29,11 @@ jobs:
         with:
           dotnet-version: '11.0.x'
 
+      - name: Style checks
+        run: |
+          python3 tools/check-one-type-per-file.py
+          python3 tools/check-single-line-scopes.py
+
       - name: Restore
         run: dotnet restore Sharplight.slnx
 

@@ -40,8 +40,8 @@ internal sealed class InspectCommand
             throw new SampleException($"Model '{modelPath}' does not exist.");
         }
 
-        new ServiceCollection().AddSharplightModelFormats();
-        var definition = BuildDefinition(modelPath);
+        using var services = new ServiceCollection().AddSharplightModelFormats().BuildServiceProvider();
+        var definition = BuildDefinition(services.GetRequiredService<ModelLoader>(), modelPath);
         if (!definition.Graphs.ContainsKey(graphName))
         {
             throw new SampleException($"The model has no graph '{graphName}'; available graphs: {string.Join(", ", definition.Graphs.Keys)}.");
@@ -50,11 +50,11 @@ internal sealed class InspectCommand
         new GraphReport(definition, definition.Graph(graphName), Console.Out).Write();
     }
 
-    private static ModelDefinition BuildDefinition(string modelPath)
+    private static ModelDefinition BuildDefinition(ModelLoader loader, string modelPath)
     {
         try
         {
-            return ModelAdapterRegistry.Build(ModelImporterRegistry.OpenSet(modelPath));
+            return loader.Build(modelPath);
         }
         catch (NotSupportedException error)
         {

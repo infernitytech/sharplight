@@ -17,10 +17,10 @@ internal static class PackageSaver
     /// Writes <paramref name="savePath"/>. When the model already is that package, the artifact sets are appended to it
     /// instead of rewriting the weights.
     /// </summary>
-    public static async Task SaveAsync(LlmModel model, string savePath, TextWriter log, CancellationToken cancellationToken)
+    public static async Task SaveAsync(ExecutionProviderCatalog providerCatalog, LlmModel model, string savePath, TextWriter log, CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
-        var providers = ProviderRegistry.Discover().Select(p => p.Provider).ToList();
+        var providers = providerCatalog.Discover().Select(p => p.Provider).ToList();
         var deviceCode = await model.Artifacts.CompileDeviceCodeAsync(providers, cancellationToken);
         var artifacts = model.ExportCompilation().Concat(deviceCode.Select(set => set.ToArtifactSet())).ToList();
         if (IsSamePackage(model, savePath))

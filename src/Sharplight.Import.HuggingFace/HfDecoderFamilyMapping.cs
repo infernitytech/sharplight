@@ -167,7 +167,7 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
     public virtual IEnumerable<string> Validate(HfConfig config) => [];
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         const string prefix = "decoder.";
         int hidden = HiddenSize(c);
@@ -208,7 +208,7 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var collector = new HfWeightCollector();
         bool tied = c.GetBool("tie_word_embeddings") ?? false;

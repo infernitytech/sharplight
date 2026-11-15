@@ -40,7 +40,7 @@ internal sealed partial class DepthAnythingHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string a = Architecture + ".";
         var md = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -60,7 +60,7 @@ internal sealed partial class DepthAnythingHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         using var backbone = BackboneConfig(c);
         var inner = tensors.Where(t => t.Key.StartsWith("backbone.", StringComparison.Ordinal)).ToDictionary(t => t.Key["backbone.".Length..], t => t.Value, StringComparer.Ordinal);

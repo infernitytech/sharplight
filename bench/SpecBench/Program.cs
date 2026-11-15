@@ -6,33 +6,33 @@
 // draft acceptance (accepted / verified drafts) and the mean accepted length per verification step (1 + accepted / steps).
 // Draft count 0 is the plain decoder (no speculator). "prompt + 1 token" is t(1 new token): prefill of the depth plus one step.
 using System.Diagnostics;
-using Sharplight.Architectures;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
+using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Llm;
+using Sharplight.Models;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Speculative;
 using Sharplight.Package;
 using Sharplight.Runtime;
-using Sharplight.Vulkan;
 
 const string Text = "Write a detailed essay about the history of the printing press and its influence on science, religion and politics in Europe. "
     + "Explain the technical inventions involved, name the most important people and give concrete examples of books that changed the world.\n\n";
 
 var argv = args.ToList();
-string? Opt(string n, string? d = null) { int i = argv.IndexOf(n); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d; }
-ProviderRegistry.Register(() => new VulkanProvider());
-BuiltinAdapters.RegisterAll();
-GgufImporter.Register();
-HuggingFaceImporter.Register();
-ModelPackageImporter.Register();
+string? Opt(string n, string? d = null)
+{
+    int i = argv.IndexOf(n);
+    return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d;
+}
+
+using var services = SharplightDefaults.CreateServiceProvider();
+var loader = services.GetRequiredService<ModelLoader>();
 int ctx = int.Parse(Opt("--ctx", "4608")!), reps = int.Parse(Opt("--reps", "5")!);
 var drafts = Opt("--drafts", "0,1,2,3")!.Split(',').Select(int.Parse).ToArray();
 var depths = Opt("--depths", "16,4096")!.Split(',').Select(int.Parse).ToArray();
 string method = Opt("--method", "mtp")!;
-var provider = ProviderRegistry.Discover().First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu").Provider;
+var provider = services.GetRequiredService<ExecutionProviderCatalog>().Discover().First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu").Provider;
 using var device = provider.OpenDevice(provider.GetDevices()[0], new DeviceOptions());
-using var model = LlmModel.Load(argv[0], new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = 512 });
+using var model = LlmModel.Load(loader, argv[0], new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = 512 });
 var textIds = model.Tokenizer.Encode(Text, addSpecial: false);
 var rng = new Random(1);
 int[] Prompt(int n, bool text)
@@ -42,7 +42,11 @@ int[] Prompt(int n, bool text)
     return text ? [.. p, .. textIds] : p;
 }
 
-double Median(List<double> l) { var s = l.Order().ToList(); return s[s.Count / 2]; }
+double Median(List<double> l)
+{
+    var s = l.Order().ToList();
+    return s[s.Count / 2];
+}
 
 foreach (int k in drafts)
 {

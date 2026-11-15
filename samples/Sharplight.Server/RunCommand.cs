@@ -5,7 +5,7 @@ using Sharplight.Samples;
 namespace Sharplight.Server;
 
 /// <summary><c>run &lt;model&gt;</c>: an interactive chat with one model, pulling it first when it is not stored.</summary>
-internal sealed class RunCommand(StoreOptionSet store)
+internal sealed class RunCommand(StoreOptionSet store, SampleRuntime sampleRuntime)
 {
     private const float DefaultTemperature = 0.7f;
     private const int DefaultMaxTokens = 2048;
@@ -43,9 +43,9 @@ internal sealed class RunCommand(StoreOptionSet store)
         command.SetAction(HubGuard.Guard(async (parseResult, cancellationToken) =>
         {
             var settings = Read(parseResult);
-            using var hub = new HubContext(store.ReadRoot(parseResult));
+            using var hub = new HubContext(sampleRuntime, store.ReadRoot(parseResult));
             var path = await new ModelResolver(hub, settings.Pull).ResolveAsync(settings.Model, cancellationToken);
-            await new ChatRepl(settings).RunAsync(path, cancellationToken);
+            await new ChatRepl(sampleRuntime, settings).RunAsync(path, cancellationToken);
             return ExitCodes.Success;
         }));
         return command;
@@ -54,7 +54,7 @@ internal sealed class RunCommand(StoreOptionSet store)
     private RunSettings Read(ParseResult parseResult)
     {
         var runtime = _runtime.Read(parseResult);
-        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(true, runtime.UseCpu, runtime.ContextLength,
+        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(sampleRuntime, true, runtime.UseCpu, runtime.ContextLength,
             runtime.BatchTokens, runtime.DisabledFeatures, log));
         return new RunSettings(
             parseResult.GetValue(_model)!,

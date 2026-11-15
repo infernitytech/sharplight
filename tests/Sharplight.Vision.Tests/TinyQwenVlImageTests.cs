@@ -58,7 +58,7 @@ public class TinyQwenVlImageTests
         Assert.SkipUnless(File.Exists(refPath), $"{name} or its reference_image.json not available");
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        using var model = LlmModel.Load(dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 256, ImageTokens = new ImageTokenLimits(null, 128) });
+        using var model = LlmModel.Load(TestHost.Loader, dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 256, ImageTokens = new ImageTokenLimits(null, 128) });
         CheckImagePrompt(model, refPath, name, gpu);
     }
 
@@ -83,9 +83,9 @@ public class TinyQwenVlImageTests
         Assert.SkipUnless(File.Exists(refPath) && File.Exists(gguf) && File.Exists(mmproj), $"{name}: reference_image.json, GGUF or mmproj not available");
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        using var model = LlmModel.Load(gguf, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions
         {
-            Devices = [slot!], ContextLength = 256, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 128),
+            Devices = [slot!], ContextLength = 256, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj }, ImageTokens = new ImageTokenLimits(null, 128),
         });
         CheckImagePrompt(model, refPath, name + " GGUF", gpu);
     }
@@ -108,7 +108,7 @@ public class TinyQwenVlImageTests
         Assert.True(maxAbs < (gpu ? 3e-3f : 2e-4f), $"embeddings differ by {maxAbs}");
 
         var promptIds = r.GetProperty("prompt_ids").EnumerateArray().Select(e => e.GetInt32()).ToArray();
-        var mm = MultimodalRegistry.Find(model.Definition.Architecture)!.Assemble(new MultimodalContext(model.Definition, t => Single(model, t)), promptIds, [image], 0);
+        var mm = Multimodal(model).Assemble(new MultimodalContext(model.Definition, t => Single(model, t)), promptIds, [image], 0);
         using var session = model.CreateSession(WellKnown.DecodeMultimodalGraph);
         var logits = session.Process(mm, [embeddings]);
         var topIds = r.GetProperty("top_ids").EnumerateArray().Select(e => e.GetInt32()).ToArray();
@@ -136,4 +136,9 @@ public class TinyQwenVlImageTests
         var ids = model.Tokenizer.Encode(text, addSpecial: false, parseSpecial: true);
         return ids.Length == 1 ? ids[0] : null;
     }
+
+    private static IMultimodalArchitecture Multimodal(LlmModel model)
+        => model.Architectures.TryFindMultimodal(model.Definition.Architecture, out var multimodal)
+            ? multimodal
+            : throw new InvalidOperationException($"No multimodal prompt assembly for {model.Definition.Architecture}.");
 }

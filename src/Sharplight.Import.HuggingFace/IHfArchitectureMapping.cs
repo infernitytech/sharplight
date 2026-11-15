@@ -25,14 +25,14 @@ internal interface IHfArchitectureMapping
     public IEnumerable<string> Validate(HfConfig config) => [];
 
     /// <summary>Canonical <c>{arch}.*</c> hyper-parameters (full keys, including the architecture prefix).</summary>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HfImportOptions options);
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HuggingFaceImportOptions options);
 
     /// <summary>
     /// Canonical weights. Unchanged tensors must be zero-copy views (<see cref="SafetensorsTensor.ToWeightInfo"/> + <c>As</c>);
     /// transformed ones lazy (<see cref="WeightInfo.Derived"/>). Tensors that belong to other models/sources
     /// (vision tower, ...) are skipped; tensors that are neither mapped nor skipped must throw.
     /// </summary>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options);
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options);
 
     /// <summary>
     /// What restricts one of <see cref="ModelTypes"/> when it runs only in part (as <c>docs/model-support.md</c> lists it as partial),

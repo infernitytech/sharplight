@@ -31,7 +31,7 @@ internal sealed partial class EncoderHfMapping : IHfArchitectureMapping
     private static bool IsJinaV3(HfConfig c) => c.ModelType == "jina_embeddings_v3";
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string a = Architecture + ".";
         var md = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -153,7 +153,7 @@ internal sealed partial class EncoderHfMapping : IHfArchitectureMapping
     };
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var collector = new HfWeightCollector();
         int positionOffset = IsRoberta(c) ? (c.GetInt("pad_token_id") ?? DefaultPaddingIndex) + 1 : 0;

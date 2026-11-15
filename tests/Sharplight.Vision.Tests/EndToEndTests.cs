@@ -40,14 +40,17 @@ public class EndToEndTests
         Assert.Contains("square", text, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static LlmLoadOptions Options(DeviceSlot slot, params (string, string)[] aux) => new() { Devices = [slot], ContextLength = 1024, MaxBatchTokens = 256, Auxiliary = aux, ImageTokens = new ImageTokenLimits(null, 256) };
+    private static LlmLoadOptions Options(DeviceSlot slot, params KeyValuePair<string, string>[] aux) => new()
+    {
+        Devices = [slot], ContextLength = 1024, MaxBatchTokens = 256, Auxiliary = aux.ToDictionary(), ImageTokens = new ImageTokenLimits(null, 256),
+    };
 
     [Fact]
     public void Hf_0_8b_on_cpu_describes_the_image_and_survives_a_package_round_trip()
     {
         Assert.SkipUnless(Directory.Exists(Env.Hf08), "Qwen3.5-0.8B (HF) not available");
         string text;
-        using (var model = LlmModel.Load(Env.Hf08, Options(Env.Cpu())))
+        using (var model = LlmModel.Load(TestHost.Loader, Env.Hf08, Options(Env.Cpu())))
         {
             text = Describe(model, Env.Shapes());
             AssertShapes(text);
@@ -55,11 +58,14 @@ public class EndToEndTests
             try
             {
                 ModelPackage.Save(tmp, model.Definition, []);
-                using var loaded = LlmModel.Load(tmp, Options(Env.Cpu()));
+                using var loaded = LlmModel.Load(TestHost.Loader, tmp, Options(Env.Cpu()));
                 Assert.True(loaded.SupportsImages);
                 Assert.Equal(text, Describe(loaded, Env.Shapes()));   // identical weights, graphs and preprocessing: identical greedy text
             }
-            finally { File.Delete(tmp); }
+            finally
+            {
+                File.Delete(tmp);
+            }
         }
     }
 
@@ -67,7 +73,7 @@ public class EndToEndTests
     public void Gguf_0_8b_with_mmproj_on_cpu_describes_the_image()
     {
         Assert.SkipUnless(File.Exists(Env.Gguf08) && File.Exists(Env.Mmproj08), "Qwen3.5-0.8B GGUF or its converted mmproj (.work/mmproj-0.8B-f32.gguf) not available");
-        using var model = LlmModel.Load(Env.Gguf08, Options(Env.Cpu(), (AuxiliaryRoles.Mmproj, Env.Mmproj08)));
+        using var model = LlmModel.Load(TestHost.Loader, Env.Gguf08, Options(Env.Cpu(), KeyValuePair.Create(AuxiliaryRoles.Mmproj, Env.Mmproj08)));
         Assert.True(model.SupportsImages);
         AssertShapes(Describe(model, Env.Shapes()));
     }
@@ -81,7 +87,7 @@ public class EndToEndTests
         Assert.SkipUnless(File.Exists(Env.GgufVl2b) && File.Exists(Env.MmprojVl2b), "Qwen3-VL-2B GGUF or mmproj not available");
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        using var model = LlmModel.Load(Env.GgufVl2b, Options(slot!, (AuxiliaryRoles.Mmproj, Env.MmprojVl2b)));
+        using var model = LlmModel.Load(TestHost.Loader, Env.GgufVl2b, Options(slot!, KeyValuePair.Create(AuxiliaryRoles.Mmproj, Env.MmprojVl2b)));
         Assert.True(model.SupportsImages);
         AssertShapes(Describe(model, Env.Shapes()));
     }
@@ -105,7 +111,7 @@ public class EndToEndTests
         Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), $"{which} GGUF or mmproj not available");
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        using var model = LlmModel.Load(gguf, Options(slot!, (AuxiliaryRoles.Mmproj, mmproj)));
+        using var model = LlmModel.Load(TestHost.Loader, gguf, Options(slot!, KeyValuePair.Create(AuxiliaryRoles.Mmproj, mmproj)));
         Assert.True(model.SupportsImages);
         var text = Describe(model, Env.Shapes());
         Console.Error.WriteLine("  -> " + text.ReplaceLineEndings(" "));
@@ -166,7 +172,7 @@ public class EndToEndTests
     {
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        using var model = LlmModel.Load(dir, Options(slot!));
+        using var model = LlmModel.Load(TestHost.Loader, dir, Options(slot!));
         using var vision = model.CreateVisionEncoder();
         Assert.Equal(embeddingSize, vision.EmbeddingSize);
         using var session = model.CreateSession(WellKnown.DecodeMultimodalGraph);
@@ -174,7 +180,7 @@ public class EndToEndTests
         var prompt = template.Render([new ChatMessage("user", Parts: [ChatContentPart.Image(), ChatContentPart.FromText(Question)])], addGenerationPrompt: true);
         var tokens = model.Tokenizer.Encode(prompt, addSpecial: true, parseSpecial: true);
         var images = new[] { vision.Preprocess(Env.Shapes()) };
-        var mm = MultimodalRegistry.Find(vision.Definition.Architecture)!.Assemble(new MultimodalContext(vision.Definition, t => Single(model, t)), tokens, images, 0);
+        var mm = vision.Multimodal!.Assemble(new MultimodalContext(vision.Definition, t => Single(model, t)), tokens, images, 0);
         Assert.Equal(rows, mm.Length);
         var logits = session.Process(mm, images.Select(vision.Encode).ToList());
         var top = Enumerable.Range(0, logits.Length).OrderByDescending(i => logits[i]).Take(5).ToArray();
@@ -207,7 +213,7 @@ public class EndToEndTests
     public void Gguf_without_mmproj_has_no_images()
     {
         Assert.SkipUnless(File.Exists(Env.Gguf08), "Qwen3.5-0.8B GGUF not available");
-        using var model = LlmModel.Load(Env.Gguf08, Options(Env.Cpu()));
+        using var model = LlmModel.Load(TestHost.Loader, Env.Gguf08, Options(Env.Cpu()));
         Assert.False(model.SupportsImages);
         Assert.Throws<NotSupportedException>(() => model.CreateVisionEncoder());
     }
@@ -218,7 +224,7 @@ public class EndToEndTests
         Assert.SkipUnless(Directory.Exists(Env.Hf08), "Qwen3.5-0.8B (HF) not available");
         var slot = Env.Vulkan();
         Assert.SkipUnless(slot is not null, "no Vulkan device");
-        using var model = LlmModel.Load(Env.Hf08, Options(slot!));
+        using var model = LlmModel.Load(TestHost.Loader, Env.Hf08, Options(slot!));
         AssertShapes(Describe(model, Env.Shapes()));
     }
 
@@ -230,7 +236,7 @@ public class EndToEndTests
         Assert.SkipUnless(File.Exists(Env.Gguf27) && File.Exists(Env.Mmproj27), "Qwen3.8-27B GGUF or mmproj not available");
         var slot = Env.Vulkan();
         Assert.SkipUnless(slot is not null, "no Vulkan device");
-        using var model = LlmModel.Load(Env.Gguf27, Options(slot!, (AuxiliaryRoles.Mmproj, Env.Mmproj27)));
+        using var model = LlmModel.Load(TestHost.Loader, Env.Gguf27, Options(slot!, KeyValuePair.Create(AuxiliaryRoles.Mmproj, Env.Mmproj27)));
         AssertShapes(Describe(model, Env.Shapes()));
     }
 
@@ -239,7 +245,7 @@ public class EndToEndTests
     public void Text_only_prompts_work_on_the_multimodal_session()
     {
         Assert.SkipUnless(Directory.Exists(Env.Hf08), "Qwen3.5-0.8B (HF) not available");
-        using var model = LlmModel.Load(Env.Hf08, Options(Env.Cpu()));
+        using var model = LlmModel.Load(TestHost.Loader, Env.Hf08, Options(Env.Cpu()));
         string Run(string graph)
         {
             using var session = model.CreateSession(graph);
