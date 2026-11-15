@@ -373,133 +373,94 @@ void decode_range(uint t, uint* rt, int* seq, out uint jLo, out uint L, out uint
 #else
 #define DC_K 16
 #endif
-// Heads merged side by side: two in the fused combine of decode (HPW heads per workgroup), one in decode_combine.
-#if defined(KERNEL_DECODE) && HPW % 2 == 0
-#define DC_NH 2
-#else
-#define DC_NH 1
-#endif
+groupshared float dcW[DEC_MAX_SPLITS];
+groupshared float dcRed[DC_WG / SG];
+groupshared float4 dcAcc[DC_SL * DC_D4];
 
 float4 load4(float* ptr)
 {
     return *(float4*)ptr;
 }
 
-// Merges the ns split partials of the NH heads h0 .. h0 + NH - 1 of query row t into o (DC_WG threads, tid the thread's index).
-// The split statistics and the partial rows are loaded in the same round trip; weights go through shared memory. Several
-// heads are merged side by side (their loads in flight together); every head's arithmetic is that of a single-head call.
-groupshared float dcW[DC_NH][DEC_MAX_SPLITS];
-groupshared float dcRed[DC_NH][DC_WG / SG];
-groupshared float4 dcAcc[DC_NH][DC_SL * DC_D4];
-
-void decode_combine_rows<let NH : int>(float* part, float* o, float* sinks, uint h0, uint t, uint ns, uint T, uint tid)
+// Merges the ns split partials of head h of query row t into o (DC_WG threads, tid the thread's index). The split
+// statistics and the partial rows are loaded in the same round trip; weights go through shared memory.
+void decode_combine_row(float* part, float* o, float* sinks, uint h, uint t, uint ns, uint T, uint tid)
 {
     uint64_t rowStride = uint64_t(T) * HQ * DEC_PS;   // floats between the partials of consecutive splits
+    float* base = part + (uint64_t(t) * HQ + h) * DEC_PS;
     uint sl = tid / DC_D4, c = tid % DC_D4;
     bool active = sl < DC_SL;
-    float* base[NH];
-    [ForceUnroll] for (int g = 0; g < NH; g++) base[g] = part + (uint64_t(t) * HQ + h0 + g) * DEC_PS;
 
     // Statistics of split tid (tid < ns <= DEC_MAX_SPLITS, several per thread when DC_WG < DEC_MAX_SPLITS).
-    float ms[NH][(DEC_MAX_SPLITS + DC_WG - 1) / DC_WG], ls[NH][(DEC_MAX_SPLITS + DC_WG - 1) / DC_WG];
-    float M[NH];
+    float ms[(DEC_MAX_SPLITS + DC_WG - 1) / DC_WG], ls[(DEC_MAX_SPLITS + DC_WG - 1) / DC_WG];
+    float M = -1e30;
     [ForceUnroll]
-    for (int g = 0; g < NH; g++)
+    for (uint k = 0; k < (DEC_MAX_SPLITS + DC_WG - 1) / DC_WG; k++)
     {
-        M[g] = -1e30;
-        [ForceUnroll]
-        for (uint k = 0; k < (DEC_MAX_SPLITS + DC_WG - 1) / DC_WG; k++)
-        {
-            uint s = tid + k * DC_WG;
-            ms[g][k] = s < ns ? base[g][s * rowStride + DV] : -1e30;
-            ls[g][k] = s < ns ? base[g][s * rowStride + DV + 1] : 0.0;
-            M[g] = max(M[g], ms[g][k]);
-        }
+        uint s = tid + k * DC_WG;
+        ms[k] = s < ns ? base[s * rowStride + DV] : -1e30;
+        ls[k] = s < ns ? base[s * rowStride + DV + 1] : 0.0;
+        M = max(M, ms[k]);
     }
     // First round of partial rows, issued before the statistics are reduced.
-    float4 a[NH][DC_K];
+    float4 a[DC_K];
     [ForceUnroll]
-    for (int g = 0; g < NH; g++)
+    for (uint k = 0; k < DC_K; k++)
+    {
+        uint s = sl + k * DC_SL;
+        a[k] = active && s < ns ? load4(base + s * rowStride + c * 4) : float4(0);
+    }
+
+    M = WaveActiveMax(M);
+    if (tid % SG == 0) dcRed[tid / SG] = M;
+    GroupMemoryBarrierWithGroupSync();
+    M = dcRed[0];
+    [ForceUnroll] for (uint i = 1; i < DC_WG / SG; i++) M = max(M, dcRed[i]);
+#if HAS_SINKS
+    M = max(M, sinks[h]);
+#endif
+    float den = 0;
+    [ForceUnroll]
+    for (uint k = 0; k < (DEC_MAX_SPLITS + DC_WG - 1) / DC_WG; k++)
+    {
+        uint s = tid + k * DC_WG;
+        float w = s < ns ? exp(ms[k] - M) : 0.0;
+        if (s < DEC_MAX_SPLITS) dcW[s] = w;
+        den += w * ls[k];
+    }
+    den = WaveActiveSum(den);
+    GroupMemoryBarrierWithGroupSync();   // dcW visible; everyone has read dcRed
+    if (tid % SG == 0) dcRed[tid / SG] = den;
+    GroupMemoryBarrierWithGroupSync();
+    den = 0;
+    [ForceUnroll] for (uint i = 0; i < DC_WG / SG; i++) den += dcRed[i];
+#if HAS_SINKS
+    den += exp(sinks[h] - M);
+#endif
+
+    float4 num = float4(0);
+    [ForceUnroll] for (uint k = 0; k < DC_K; k++) num += (sl + k * DC_SL < ns ? dcW[sl + k * DC_SL] : 0.0) * a[k];
+    for (uint s0 = DC_K * DC_SL; s0 < ns; s0 += DC_K * DC_SL)   // only for very wide rows (few split lanes)
     {
         [ForceUnroll]
         for (uint k = 0; k < DC_K; k++)
         {
-            uint s = sl + k * DC_SL;
-            a[g][k] = active && s < ns ? load4(base[g] + s * rowStride + c * 4) : float4(0);
+            uint s = s0 + sl + k * DC_SL;
+            if (active && s < ns) num += dcW[s] * load4(base + s * rowStride + c * 4);
         }
     }
-
-    [ForceUnroll]
-    for (int g = 0; g < NH; g++)
+    if (active)
     {
-        M[g] = WaveActiveMax(M[g]);
-        if (tid % SG == 0) dcRed[g][tid / SG] = M[g];
+        dcAcc[sl * DC_D4 + c] = num;
     }
     GroupMemoryBarrierWithGroupSync();
-    float den[NH];
-    [ForceUnroll]
-    for (int g = 0; g < NH; g++)
+    float inv = 1.0 / den;
+    float* orow = o + (uint64_t(t) * HQ + h) * DV;
+    for (uint i = tid; i < DC_D4; i += DC_WG)
     {
-        M[g] = dcRed[g][0];
-        [ForceUnroll] for (uint i = 1; i < DC_WG / SG; i++) M[g] = max(M[g], dcRed[g][i]);
-#if HAS_SINKS
-        M[g] = max(M[g], sinks[h0 + g]);
-#endif
-        den[g] = 0;
-        [ForceUnroll]
-        for (uint k = 0; k < (DEC_MAX_SPLITS + DC_WG - 1) / DC_WG; k++)
-        {
-            uint s = tid + k * DC_WG;
-            float w = s < ns ? exp(ms[g][k] - M[g]) : 0.0;
-            if (s < DEC_MAX_SPLITS) dcW[g][s] = w;
-            den[g] += w * ls[g][k];
-        }
-        den[g] = WaveActiveSum(den[g]);
-    }
-    GroupMemoryBarrierWithGroupSync();   // dcW visible; everyone has read dcRed
-    [ForceUnroll]
-    for (int g = 0; g < NH; g++)
-    {
-        if (tid % SG == 0) dcRed[g][tid / SG] = den[g];
-    }
-    GroupMemoryBarrierWithGroupSync();
-    [ForceUnroll]
-    for (int g = 0; g < NH; g++)
-    {
-        den[g] = 0;
-        [ForceUnroll] for (uint i = 0; i < DC_WG / SG; i++) den[g] += dcRed[g][i];
-#if HAS_SINKS
-        den[g] += exp(sinks[h0 + g] - M[g]);
-#endif
-
-        float4 num = float4(0);
-        [ForceUnroll] for (uint k = 0; k < DC_K; k++) num += (sl + k * DC_SL < ns ? dcW[g][sl + k * DC_SL] : 0.0) * a[g][k];
-        for (uint s0 = DC_K * DC_SL; s0 < ns; s0 += DC_K * DC_SL)   // only for very wide rows (few split lanes)
-        {
-            [ForceUnroll]
-            for (uint k = 0; k < DC_K; k++)
-            {
-                uint s = s0 + sl + k * DC_SL;
-                if (active && s < ns) num += dcW[g][s] * load4(base[g] + s * rowStride + c * 4);
-            }
-        }
-        if (active)
-        {
-            dcAcc[g][sl * DC_D4 + c] = num;
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-    [ForceUnroll]
-    for (int g = 0; g < NH; g++)
-    {
-        float inv = 1.0 / den[g];
-        float* orow = o + (uint64_t(t) * HQ + h0 + g) * DV;
-        for (uint i = tid; i < DC_D4; i += DC_WG)
-        {
-            float4 sum = float4(0);
-            [ForceUnroll] for (uint k = 0; k < DC_SL; k++) sum += dcAcc[g][k * DC_D4 + i];
-            *(float4*)(orow + i * 4) = sum * inv;
-        }
+        float4 sum = float4(0);
+        [ForceUnroll] for (uint k = 0; k < DC_SL; k++) sum += dcAcc[k * DC_D4 + i];
+        *(float4*)(orow + i * 4) = sum * inv;
     }
 }
 #endif
@@ -544,7 +505,7 @@ void decode_combine(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, unifo
         return;
     }
 
-    decode_combine_rows<1>(p.part, p.o, p.sinks, h, t, ns, p.T, tid);
+    decode_combine_row(p.part, p.o, p.sinks, h, t, ns, p.T, tid);
 }
 #endif
 
@@ -2370,9 +2331,9 @@ void decode(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
         if (dLast != 0)
         {
             DeviceMemoryBarrier();
-            for (uint g = 0; g < HPW; g += DC_NH)
+            for (uint g = 0; g < HPW; g++)
             {
-                decode_combine_rows<DC_NH>(p.part, p.o, p.sinks, h0 + g, t, ns, p.T, tid);
+                decode_combine_row(p.part, p.o, p.sinks, h0 + g, t, ns, p.T, tid);
                 GroupMemoryBarrierWithGroupSync();
             }
             if (tid == 0)
