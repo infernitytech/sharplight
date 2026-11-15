@@ -88,8 +88,12 @@ internal static class Env
         return new DeviceSlot { Device = provider.OpenDevice(provider.GetDevices()[0]) };
     }
 
-    /// <summary>The first discrete Vulkan GPU (SHARPLIGHT_VK_DEVICES pins one), or null.</summary>
-    public static DeviceSlot? Vulkan()
+    private static readonly Lazy<DeviceSlot?> s_vulkan = new(OpenVulkan);
+
+    /// <summary>The first discrete Vulkan GPU (SHARPLIGHT_VK_DEVICES pins one), shared by the tests (opened once), or null.</summary>
+    public static DeviceSlot? Vulkan() => s_vulkan.Value;
+
+    private static DeviceSlot? OpenVulkan()
     {
         var provider = new VulkanProvider();
         if (!provider.CheckAvailability().IsAvailable)
