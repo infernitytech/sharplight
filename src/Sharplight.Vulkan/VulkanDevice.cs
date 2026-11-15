@@ -420,7 +420,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         SavePipelineCache();
         if (DiagnosticSwitches.LoadTiming)
         {
-            Console.Error.WriteLine($"[load] kernels and pipelines segment {segment.Index}: waited {swWait.ElapsedMilliseconds} ms for {kernels.Count} kernels; slang {SlangCompiler.Statistics}; {PipelinesCreated} pipelines, {(double)PipelineTicks / Stopwatch.Frequency * 1000:F0} ms summed");
+            Console.Error.WriteLine($"[load] kernels and pipelines segment {segment.Index}: waited {swWait.ElapsedMilliseconds} ms for {kernels.Count} kernels; slang {SlangCompiler.Statistics}; {PipelinesCreated} pipelines, {(double)PipelineTicks / Stopwatch.Frequency * 1000:F0} ms summed ({PipelinesFromBinaries} from kernel binaries, {RejectedDeviceCode} stored device code rejected)");
         }
 
         return compiled;
