@@ -1,14 +1,12 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Sharplight.Core/Sharplight.Core.csproj" />
+    <Project Path="src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
     <Project Path="src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
-    <Project Path="src/Sharplight.Tokenizers/Sharplight.Tokenizers.csproj" />
     <Project Path="src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <Project Path="src/Sharplight.Vulkan.MoltenVK/Sharplight.Vulkan.MoltenVK.csproj" />
-    <Project Path="src/Sharplight.Llm/Sharplight.Llm.csproj" />
-    <Project Path="src/Sharplight.Templating/Sharplight.Templating.csproj" />
     <Project Path="src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <Project Path="src/Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
@@ -32,6 +30,7 @@
     <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Sharplight.Core.Tests/Sharplight.Core.Tests.csproj" />
     <Project Path="tests/Sharplight.Cpu.Tests/Sharplight.Cpu.Tests.csproj" />
     <Project Path="tests/Sharplight.Embeddings.Tests/Sharplight.Embeddings.Tests.csproj" />
     <Project Path="tests/Sharplight.Families.Tests/Sharplight.Families.Tests.csproj" />
@@ -42,10 +41,8 @@
     <Project Path="tests/Sharplight.Import.Onnx.Tests/Sharplight.Import.Onnx.Tests.csproj" />
     <Project Path="tests/Sharplight.Import.Onnx.Conformance/Sharplight.Import.Onnx.Conformance.csproj" />
     <Project Path="tests/Sharplight.Package.Tests/Sharplight.Package.Tests.csproj" />
-    <Project Path="tests/Sharplight.Templating.Tests/Sharplight.Templating.Tests.csproj" />
     <Project Path="tests/Sharplight.Serving.Tests/Sharplight.Serving.Tests.csproj" />
     <Project Path="tests/Sharplight.Studio.Tests/Sharplight.Studio.Tests.csproj" />
-    <Project Path="tests/Sharplight.Tokenizers.Tests/Sharplight.Tokenizers.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
     <Project Path="tests/Sharplight.Vision.Tests/Sharplight.Vision.Tests.csproj" />
   </Folder>

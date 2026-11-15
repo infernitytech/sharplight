@@ -57,6 +57,15 @@ Model assets are not in git (~900 GB on the old machine). Layout expected by tes
 5. For now: feature work first; no benchmark rounds until the user asks again. Performance parity (vLLM, llama.cpp,
    onnxruntime) remains a goal for later.
 
+## 3a. State of `develop` (2026-11-15, new machine)
+
+`develop` = `main` + SHARPLIGHT_VK_DEVICES, release engineering (CI for develop/main/release/*, NuGet from release/*,
+Velopack Studio packages for 5 RIDs x stable/unstable, update UI; first unstable release live), the Studio test fixes and
+the Core restructure (Llm/Tokenizers/Templating in Core, DI task layer, `.slm` description + attachments,
+`services.AddSharplight()`). Suites on develop: everything green except 99 Families tests (regenerated tiny models whose
+weights differ from the old machine's; identical failures on main, being fixed by regenerating goldens from the
+reference implementations), 49 ONNX conformance (as on main) and 1 Hub test (tests run as root).
+
 ## 3. State of `main` (5f16fc09 + this folder)
 
 Merged on 2026-11-15: quantized HF checkpoints (NVFP4, MXFP4, GPTQ, AWQ, bitsandbytes NF4, MLX 4-bit, DeepSeek-V4
@@ -151,6 +160,9 @@ history, outputs gallery, export) so every type looks and behaves the same; chat
   - Discover highlights per model type (Trending / New / Most downloaded per kind) with the Supported-only switch.
   - Multi-component repos (diffusers folders, encoder + decoder + vocoder sets, whisper.cpp files, ONNX) downloaded as
     one model, with per-kind compatibility badges and fit estimates; conversion to `.slm` for every kind.
+- S1b: precompilation for every execution provider and device available on the machine through an explicit two-stage
+  provider contract (portable code such as SPIR-V, then device-specific driver binaries; CPU: empty), written into the
+  `.slm` in place (crash-safe) while the model is not resident; inspector shows the stages per provider/device.
 - S2: a dedicated inference page per model type, added as each type lands on main: Transcribe (file/microphone, timestamps,
   subtitles export), Speak (voices, streaming playback, WAV export), Image (txt2img, img2img, inpaint, seeds, gallery),
   Vision (drop an image: labels, boxes, masks, depth, OCR overlays), Audio (music generation, separation, codec playground),
@@ -178,9 +190,12 @@ merges into; develop merges into main once everything is green; releases come fr
   develop; CI builds and tests develop, main and release/*; NuGet packages publish from release branches.
 - R2: Studio app packages per OS: Linux (AppImage + tar.gz), Windows (Velopack Setup.exe, portable zip), macOS (.app in
   a Velopack .pkg / zip; signing and notarization when the user provides certificates). Self-contained, trimmed where safe.
-- R3: Velopack install / update in Studio (startup hook, update check and apply in the settings, release notes),
-  channels per OS and stability (stable from release branches, preview from develop), releases and delta packages
-  uploaded to the user's Cloudflare R2 bucket (S3 API) from CI; credentials only in GitHub secrets.
+- R3: Velopack install / update in Studio: startup hook; update checks; an update-available dialog with release notes,
+  download progress and restart-to-apply; a settings section (version, channel, auto-check, check now). 10 channels:
+  `<rid>-stable` (from release/*) and `<rid>-unstable` (from develop) for win-x64, win-arm64, linux-x64, linux-arm64,
+  osx-arm64. CI uploads releases and delta packages to the user's Cloudflare R2 bucket (S3 API; GitHub secrets
+  R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET); apps download from its public custom domain
+  (configurable, repository variable STUDIO_UPDATE_URL).
 
 **Per round:** privacy scan of the diff (no personal email, no home paths), merge to develop, build, all suites in parallel
 across the GPUs, remove the worktree, the machine cleanup (prune worktrees, old temp files), start the next item. Keep

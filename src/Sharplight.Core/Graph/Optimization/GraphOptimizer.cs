@@ -115,6 +115,8 @@ public sealed class GraphOptimizer
             States = definition.States,
             Properties = properties,
             SourceMetadata = definition.SourceMetadata,
+            Description = definition.Description,
+            Attachments = definition.Attachments,
             OwnedResources = definition.OwnedResources,
         };
         return new ModelOptimizationResult(optimizedDefinition, statistics, before, after, watch.Elapsed);

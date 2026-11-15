@@ -15,7 +15,18 @@ public sealed class DefinitionInfo
         States = definition.States;
         Properties = definition.Properties;
         Metadata = definition.SourceMetadata;
+        Description = ModelDescription.Resolve(definition);
+        HasDescription = definition.Description is not null;
     }
+
+    /// <summary>
+    /// The model description: kind and components (<see cref="ModelDescription"/>). For packages without a DESC section the resolved
+    /// default (text generation, one <c>decoder</c> component running every graph); see <see cref="HasDescription"/>.
+    /// </summary>
+    public ModelDescription Description { get; }
+
+    /// <summary>True when the package stores its own description; false when <see cref="Description"/> is the resolved default.</summary>
+    public bool HasDescription { get; }
 
     /// <summary>Canonical architecture id.</summary>
     public string Architecture { get; }

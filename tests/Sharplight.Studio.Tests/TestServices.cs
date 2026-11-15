@@ -19,7 +19,7 @@ internal sealed class TestServices : IDisposable
         Conversations = new SqliteConversationStore(database);
         Stats = new SqliteStatsStore(database);
         Services = new StudioServices(Settings, Runtime, Hub, Library, Conversations, Stats, Server, new DocumentExtractor(), Platform,
-            Platform, dispatcher ?? Platform, Platform);
+            Platform, dispatcher ?? Platform, Platform, Updates);
     }
 
     public FakeSettings Settings { get; }
@@ -33,6 +33,8 @@ internal sealed class TestServices : IDisposable
     public FakeApiServer Server { get; } = new();
 
     public FakePlatform Platform { get; } = new();
+
+    public FakeUpdates Updates { get; } = new();
 
     public SqliteConversationStore Conversations { get; }
 

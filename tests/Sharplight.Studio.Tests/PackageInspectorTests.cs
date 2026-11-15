@@ -105,6 +105,45 @@ public sealed class PackageInspectorTests
     }
 
     [Fact]
+    public async Task DescribedPackage_ShowsKindComponentsAndAttachments()
+    {
+        using var tmp = new TempDir();
+        var path = tmp.File("described.slm");
+        TestPackages.WriteDescribed(path);
+        var inspector = new PackageInspectorViewModel(path, null, () => { });
+        Assert.True(await inspector.LoadAsync(), inspector.Error);
+        var overview = inspector.Package!.Overview;
+        Assert.Contains(overview.Model, f => f.Label == "Kind" && f.Value == "image-generation");
+        Assert.True(overview.HasComponents);
+        Assert.Equal(["denoiser", "vae", "scheduler"], overview.Components.Select(c => c.Role));
+        Assert.Equal("denoise", overview.Components[0].Graphs);
+        Assert.StartsWith("1 · ", overview.Components[1].Weights, StringComparison.Ordinal);
+        Assert.Equal("predictionType, steps", overview.Components[2].Config);
+        Assert.Equal("config (2 B)", overview.Components[2].Attachments);
+
+        var sections = inspector.Package.Sections;
+        Assert.Single(sections.Rows, r => r.Kind == "DESC");
+        var attachment = Assert.Single(sections.Rows, r => r.Kind == "ATCH");
+        Assert.Equal("scheduler/scheduler_config.json", attachment.Name);
+        inspector.ShowSection(attachment);
+        Assert.Equal((int)InspectorTab.Overview, inspector.SelectedTab);
+    }
+
+    [Fact]
+    public async Task PackageWithoutDescription_ShowsTheDefaultKind()
+    {
+        using var tmp = new TempDir();
+        var path = tmp.File("small.slm");
+        TestPackages.WriteSmall(path);
+        var inspector = new PackageInspectorViewModel(path, null, () => { });
+        Assert.True(await inspector.LoadAsync(), inspector.Error);
+        var overview = inspector.Package!.Overview;
+        Assert.Contains(overview.Model, f => f.Label == "Kind" && f.Value == "text-generation (no description stored)");
+        var component = Assert.Single(overview.Components);
+        Assert.Equal(("decoder", "decode"), (component.Role, component.Graphs));
+    }
+
+    [Fact]
     public void EverySectionKindOfTheFormat_HasAView()
     {
         Assert.NotEmpty(ModelPackageReader.SectionKinds);
