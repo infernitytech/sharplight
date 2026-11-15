@@ -27,7 +27,7 @@ internal static class TinyGgufFamilyCases
         new("tiny-random-dots1-llamacpp f32 GGUF (dots1, llama.cpp)", "gguf/tiny-random-dots1-llamacpp-f32.gguf", Prompt, "ids",
             [820, 516, 621, 510, 717, 849, 856, 220, 297, 531, 824, 103, 805, 797, 856, 121, 196, 634, 411, 705, 129, 989, 949, 256], ""),
         new("tiny-random-minimax-m2 f32 GGUF (minimax-m2, llama.cpp)", "gguf/tiny-random-minimax-m2-f32.gguf", Prompt, "ids",
-            [108901, 160365, 105383, 63553, 129839, 20635, 2142, 44831, 81757, 93989, 25901, 167829, 89763, 11988, 12126, 116522, 144764, 174145, 2142, 48222, 32525, 198871, 129586, 856], ""),
+            [108901, 160365, 105383, 63553, 129839, 20635, 2142, 44831, 81757, 93989, 25901, 167829, 89763, 11988, 12126, 116522, 144764, 174145, 2142, 44831, 81757, 93989, 25901, 167829], ""),
         // The tiny Hunyuan models have near-tied logits (llama.cpp itself picks the 4th dense token at a 0.005 margin, the 7th MoE token at 0.001): only the leading tokens are compared.
         new("tiny-random-hunyuan-dense-v1 f32 GGUF (hunyuan-dense, llama.cpp)", "gguf/tiny-random-hunyuan-dense-v1-f32.gguf", Prompt, "ids",
             [57469, 83323, 57469], ""),
