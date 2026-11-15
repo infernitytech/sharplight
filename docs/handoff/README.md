@@ -183,7 +183,7 @@ merges into; develop merges into main once everything is green; releases come fr
   uploaded to the user's Cloudflare R2 bucket (S3 API) from CI; credentials only in GitHub secrets.
 
 **Per round:** privacy scan of the diff (no personal email, no home paths), merge to develop, build, all suites in parallel
-across the GPUs, remove the worktree, `/workspace/tools/scripts/cleanup.sh`, start the next item. Keep
+across the GPUs, remove the worktree, the machine cleanup (prune worktrees, old temp files), start the next item. Keep
 docs/model-support.md, docs/onnx-support.md and this file current. Push to GitHub only when the user says so; never push
 a `v*` tag; `macos/round-1` stays separate.
 
