@@ -24,7 +24,8 @@ Start with the [public API overview](docs/api-overview.md). Benchmarks against l
 | `.slm` package | ✓ | ✓ |
 
 Of the 172 architectures llama.cpp knows, 168 are supported end to end and
-4 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
+4 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix; its section 10 is a sweep of 1138 released
+GGUF files and 72 Hugging Face checkpoints, 1051 and 43 of which import). Supported (llama.cpp architecture names):
 
 | Family | Architectures |
 |---|---|
