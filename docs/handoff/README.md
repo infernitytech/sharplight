@@ -162,6 +162,13 @@ history, outputs gallery, export) so every type looks and behaves the same; chat
   /v1/embeddings).
 - S4: screenshot tests per page, docs, then a Linux Studio release when the user says.
 
+**macOS track** (branch `macos/round-1`, docs/macos.md; user decisions 2026-11-15): no Mac locally, so testing runs on
+GitHub's macOS / Linux-arm64 runners. Pushing only `macos/round-1` is allowed for CI runs (privacy scan first).
+- M1: merge main into it (again after each big merge), keep macOS + Linux CI green, then merge it into main.
+- M2: native Metal execution provider (plan in docs/macos.md), behind the same provider abstraction and device features.
+- M3: NEON CPU kernel performance against llama.cpp on the Arm64 runners.
+- Studio `.app` stays an unsigned CI artifact until the user asks for signing.
+
 **Per round:** privacy scan of the diff (no personal email, no home paths), merge to main, build, all suites in parallel
 across the GPUs, remove the worktree, `/workspace/tools/scripts/cleanup.sh`, start the next item. Keep
 docs/model-support.md, docs/onnx-support.md and this file current. Push to GitHub only when the user says so; never push
