@@ -7,6 +7,7 @@ using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Services.Server;
 using Sharplight.Studio.Services.Settings;
 using Sharplight.Studio.Services.Storage;
+using Sharplight.Studio.Services.Updates;
 
 namespace Sharplight.Studio.Services;
 
@@ -23,4 +24,5 @@ internal sealed record StudioServices(
     ISystemMonitor Monitor,
     IPlatformServices Platform,
     IUiDispatcher Dispatcher,
-    IThemeService Theme);
+    IThemeService Theme,
+    IUpdateService Updates);

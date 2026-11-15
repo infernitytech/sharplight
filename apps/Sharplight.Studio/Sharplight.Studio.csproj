@@ -9,6 +9,14 @@
     <ApplicationIcon>Assets/Icons/sharplight-studio.ico</ApplicationIcon>
     <Description>Sharplight Studio: desktop app to find, download, convert, run, chat with and serve local models.</Description>
   </PropertyGroup>
+  <PropertyGroup>
+    <!-- Update feed baked into the build (CI passes the repository variable STUDIO_UPDATE_URL); empty disables update checks unless
+         SHARPLIGHT_STUDIO_UPDATE_URL or the UpdateUrl setting provides one. See docs/studio.md, "Installing and updating". -->
+    <StudioUpdateUrl Condition="'$(StudioUpdateUrl)' == ''">$(STUDIO_UPDATE_URL)</StudioUpdateUrl>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(StudioUpdateUrl)' != ''">
+    <AssemblyMetadata Include="StudioUpdateUrl" Value="$(StudioUpdateUrl)" />
+  </ItemGroup>
   <ItemGroup>
     <!-- The OpenAI / Anthropic endpoints run in-process on Kestrel. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
@@ -20,6 +28,7 @@
     <PackageReference Include="Avalonia.Fonts.Inter" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Markdig" />
+    <PackageReference Include="Velopack" />
     <PackageReference Include="PdfPig" />
     <PackageReference Include="DocumentFormat.OpenXml" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
