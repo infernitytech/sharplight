@@ -65,11 +65,11 @@ public sealed class DiscoverFiltersTests
         var service = new Studio.Services.Settings.JsonSettingsService(directory.File("settings.json"), null);
         service.Update(settings => settings with
         {
-            Discover = new DiscoverFilterSettings { Task = ModelTask.ImageGeneration, Format = ModelFormat.Diffusers, Gated = GatedFilter.Only, Sort = HubSortOrder.Modified },
+            Discover = new DiscoverFilterSettings { Task = ModelTask.VideoGeneration, Format = ModelFormat.Diffusers, Gated = GatedFilter.Only, Sort = HubSortOrder.Modified },
         });
 
         var reread = new Studio.Services.Settings.JsonSettingsService(directory.File("settings.json"), null).Current.Discover;
-        Assert.Equal(ModelTask.ImageGeneration, reread.Task);
+        Assert.Equal(ModelTask.VideoGeneration, reread.Task);
         Assert.Equal(ModelFormat.Diffusers, reread.Format);
         Assert.Equal(GatedFilter.Only, reread.Gated);
         Assert.Equal(HubSortOrder.Modified, reread.Sort);
@@ -193,8 +193,8 @@ public sealed class DiscoverFiltersTests
     public async Task ChoosingAModelType_ShowsThatTypesHighlights_AndNamesTheKindsTheEngineCannotRun()
     {
         using var services = new TestServices();
-        var diffuser = Model("stabilityai/sd-turbo", pipeline: "text-to-image", formats: [ModelFormat.Safetensors], variants: []);
-        services.Hub.TaskHighlights[ModelTask.ImageGeneration] =
+        var diffuser = Model("stabilityai/sd-turbo", pipeline: "text-to-video", formats: [ModelFormat.Safetensors], variants: []);
+        services.Hub.TaskHighlights[ModelTask.VideoGeneration] =
         [
             new HighlightSection(HighlightKind.Trending, [diffuser]),
             new HighlightSection(HighlightKind.New, []),
@@ -204,23 +204,23 @@ public sealed class DiscoverFiltersTests
         await search.LoadHighlightsAsync();
         Assert.Equal([(ModelTask?)null], services.Hub.HighlightTasks);
 
-        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ImageGeneration);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.VideoGeneration);
         await Task.Delay(100, TestContext.Current.CancellationToken);
         await search.LoadHighlightsAsync();
 
-        Assert.Equal([(ModelTask?)null, ModelTask.ImageGeneration], services.Hub.HighlightTasks);
+        Assert.Equal([(ModelTask?)null, ModelTask.VideoGeneration], services.Hub.HighlightTasks);
         Assert.True(search.IsShowingHighlights);
-        Assert.Equal("Image generation models", search.HighlightsHeading);
+        Assert.Equal("Video generation models", search.HighlightsHeading);
         Assert.Equal(["Trending", "Most downloaded"], search.Highlights.Select(section => section.Title));
         var badge = search.Highlights[0].Items[0].Compatibility;
-        Assert.Equal("Not yet supported: Image generation", badge.Text);
+        Assert.Equal("Not yet supported: Video generation", badge.Text);
         Assert.True(badge.IsBad);
-        Assert.Contains("Image generation", search.Highlights[0].Items[0].KindTitle, StringComparison.Ordinal);
+        Assert.Contains("Video generation", search.Highlights[0].Items[0].KindTitle, StringComparison.Ordinal);
 
         // "Supported only" hides them, and says why the page is empty; turning it off brings them back.
         search.ShowOnlySupported = true;
         Assert.Empty(search.Highlights);
-        Assert.Contains("cannot run image generation models yet", search.HighlightsStatus, StringComparison.Ordinal);
+        Assert.Contains("cannot run video generation models yet", search.HighlightsStatus, StringComparison.Ordinal);
         search.ShowOnlySupported = false;
         Assert.Equal(2, search.Highlights.Count);
         Assert.Equal("", search.HighlightsStatus);
@@ -232,20 +232,20 @@ public sealed class DiscoverFiltersTests
         using var services = new TestServices();
         services.Hub.Results.AddRange(
         [
-            new HubModelSummary("black-forest-labs/FLUX.1-schnell", 5000, 900, false, "diffusers", "text-to-image", null, [ModelFormat.Diffusers], []),
+            new HubModelSummary("black-forest-labs/FLUX.1-schnell", 5000, 900, false, "diffusers", "text-to-video", null, [ModelFormat.Diffusers], []),
             Model("a/qwen-chat"),
         ]);
         var search = CreateSearch(services);
-        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ImageGeneration);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.VideoGeneration);
         search.Query = "flux";
         await search.SearchCommand.ExecuteAsync(null);
 
-        Assert.Equal(ModelTask.ImageGeneration, services.Hub.Queries[^1].Task);
+        Assert.Equal(ModelTask.VideoGeneration, services.Hub.Queries[^1].Task);
         // The kind is named, nothing is hidden silently, and the supported result comes first.
         Assert.Equal(["a/qwen-chat", "black-forest-labs/FLUX.1-schnell"], search.Results.Select(result => result.Id));
         var flux = search.Results[1];
-        Assert.Equal("Not yet supported: Image generation", flux.Compatibility.Text);
-        Assert.Equal("Image generation", flux.KindTitle);
+        Assert.Equal("Not yet supported: Video generation", flux.Compatibility.Text);
+        Assert.Equal("Video generation", flux.KindTitle);
         Assert.Equal("DIFFUSERS", flux.Formats);
 
         search.ShowOnlySupported = true;
@@ -257,12 +257,12 @@ public sealed class DiscoverFiltersTests
     public async Task DiffusersRepository_IsShownAsOneModelWithItsComponents_AndCannotBeDownloaded()
     {
         using var services = new TestServices();
-        var summary = new HubModelSummary("o/tiny-sd", 10, 1, false, "diffusers", "text-to-image", null, [ModelFormat.Diffusers], []);
+        var summary = new HubModelSummary("o/tiny-sd", 10, 1, false, "diffusers", "text-to-video", null, [ModelFormat.Diffusers], []);
         services.Hub.Results.Add(summary);
         services.Hub.Details = repository => new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], null), null, [], ModelFormat.Diffusers,
             [new HubComponent("unet", 3_400_000_000, 1), new HubComponent("text_encoder", 490_000_000, 1), new HubComponent("vae", 330_000_000, 1)]);
         var search = CreateSearch(services);
-        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ImageGeneration);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.VideoGeneration);
         search.Query = "tiny";
         await search.SearchCommand.ExecuteAsync(null);
         await search.FitEstimate;
@@ -270,11 +270,11 @@ public sealed class DiscoverFiltersTests
         Assert.True(search.IsMultiComponent);
         Assert.Equal(["unet", "text_encoder", "vae"], search.Components.Select(component => component.Name));
         Assert.Contains("Diffusers · 3 parts", search.DetailFormat, StringComparison.Ordinal);
-        Assert.Contains("Not yet supported: image generation", search.NoDownloadReason, StringComparison.Ordinal);
+        Assert.Contains("Not yet supported: video generation", search.NoDownloadReason, StringComparison.Ordinal);
         Assert.Empty(search.Variants);
         Assert.False(search.DownloadCommand.CanExecute(null));
         // The kind verdict stays; it is not replaced by "no model files".
-        Assert.Equal("Not yet supported: Image generation", search.SelectedResult!.Compatibility.Text);
+        Assert.Equal("Not yet supported: Video generation", search.SelectedResult!.Compatibility.Text);
     }
 
     [Fact]
@@ -301,9 +301,9 @@ public sealed class DiscoverFiltersTests
     [Fact]
     public void KindVerdict_NamesTheKind_AndLeavesLanguageModelsToTheArchitectureCheck()
     {
-        var image = CompatibilityChecker.FromSummary(new HubModelSummary("a/sd", 1, 1, false, "diffusers", "text-to-image", null, [ModelFormat.Diffusers], []));
+        var image = CompatibilityChecker.FromSummary(new HubModelSummary("a/sd", 1, 1, false, "diffusers", "text-to-video", null, [ModelFormat.Diffusers], []));
         Assert.Equal(CompatibilityState.UnsupportedKind, image.State);
-        Assert.Equal("Not yet supported: Image generation", image.Text);
+        Assert.Equal("Not yet supported: Video generation", image.Text);
         Assert.True(image.IsUnsupported);
 
         // No pipeline tag: judged by the files, as before. Language and embedding tasks run, so they are checked by architecture.
@@ -323,7 +323,7 @@ public sealed class DiscoverFiltersTests
         }
 
         Assert.True(ModelKindCatalog.For(ModelKinds.TextGeneration).Runnable);
-        Assert.False(ModelKindCatalog.For(ModelKinds.ImageGeneration).Runnable);
+        Assert.False(ModelKindCatalog.For("video-generation").Runnable);
         // A kind nobody listed gets a readable generic entry.
         var unknown = ModelKindCatalog.For("point-cloud-segmentation");
         Assert.Equal("point cloud segmentation", unknown.Title);

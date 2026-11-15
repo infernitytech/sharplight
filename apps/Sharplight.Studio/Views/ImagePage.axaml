@@ -69,7 +69,7 @@
                 <Image Source="{Binding PreviewPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" MinHeight="200" MinWidth="200" />
               </Border>
               <Border CornerRadius="8" ClipToBounds="True" IsVisible="{Binding !ShowPreview}" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Image Source="{Binding SelectedImage.Png, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+                <Image Source="{Binding SelectedPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
               </Border>
             </Panel>
           </DockPanel>

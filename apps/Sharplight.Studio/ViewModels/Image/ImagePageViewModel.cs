@@ -89,8 +89,11 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
 
     /// <summary>The image shown large.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasResult), nameof(ShowPreview), nameof(ShowPlaceholder), nameof(CanReuseSeed))]
+    [NotifyPropertyChangedFor(nameof(HasResult), nameof(ShowPreview), nameof(ShowPlaceholder), nameof(CanReuseSeed), nameof(SelectedPng))]
     public partial GeneratedImageViewModel? SelectedImage { get; set; }
+
+    /// <summary>The shown image's PNG, or null.</summary>
+    public byte[]? SelectedPng => SelectedImage?.Png;
 
     /// <summary>The live preview of the image being generated (at latent resolution), as PNG, or null.</summary>
     [ObservableProperty]

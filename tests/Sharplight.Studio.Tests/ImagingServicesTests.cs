@@ -88,7 +88,7 @@ public sealed class ImagingServicesTests
         Assert.Equal(ModelKinds.ImageGeneration, ModelInspector.Inspect(checkpoint).Kind);
         string llm = directory.File("llm.safetensors");
         WriteSafetensors(llm, "model.layers.0.self_attn.q_proj.weight");
-        Assert.Equal(ModelKinds.TextGeneration, ModelKindOf(llm));
+        Assert.Equal(ModelKindCatalog.Other, ModelKindOf(llm));
         Assert.Equal(ModelKinds.ImageGeneration, ModelInspector.Inspect(directory.File("v1-5-pruned-emaonly.ckpt").Touch()).Kind);
         Assert.Equal(ModelKindCatalog.Other, ModelInspector.Inspect(directory.File("weights.ckpt").Touch()).Kind);
 

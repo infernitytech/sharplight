@@ -1,9 +1,7 @@
 using System.Text.Json;
 using Sharplight.Imaging;
 using Sharplight.Models;
-using Sharplight.Studio.Models;
 using Sharplight.Studio.Tests.Fakes;
-using Sharplight.Studio.ViewModels.Inference;
 using Sharplight.Studio.ViewModels.Inference.Parameters;
 using Sharplight.Studio.ViewModels.Vision;
 using Sharplight.Vision;

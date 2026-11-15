@@ -431,10 +431,10 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                 var top = file.Labels!.Take(3).ToList();
                 if (top.Count > 0)
                 {
-                    metadata["top"] = $"{top[0].Label} {top[0].Score:P0}";
+                    metadata["top"] = $"{top[0].Label} {VisionRowViewModel.Percent(top[0].Score)}";
                 }
 
-                return string.Join(", ", top.Select(label => $"{label.Label} {label.Score:P0}"));
+                return string.Join(", ", top.Select(label => $"{label.Label} {VisionRowViewModel.Percent(label.Score)}"));
             case "detection":
                 int count = file.Boxes!.Count(box => box.Score >= file.Threshold);
                 metadata["objects"] = count.ToString(CultureInfo.InvariantCulture);
@@ -453,7 +453,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         var annotator = new ImageAnnotator(image);
         foreach (var box in boxes.Where(box => box.Score >= threshold))
         {
-            annotator.DrawBox(new BoundingBox(box.X1, box.Y1, box.X2, box.Y2), box.ClassIndex, $"{box.Label} {box.Score:P0}");
+            annotator.DrawBox(new BoundingBox(box.X1, box.Y1, box.X2, box.Y2), box.ClassIndex, $"{box.Label} {VisionRowViewModel.Percent(box.Score)}");
         }
 
         return annotator.ToImage();

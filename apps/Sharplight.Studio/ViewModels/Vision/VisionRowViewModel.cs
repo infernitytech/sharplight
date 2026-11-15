@@ -24,7 +24,12 @@ internal sealed class VisionRowViewModel
     public float Score { get; }
 
     /// <summary>The score as text.</summary>
-    public string ScoreText => Score >= 0.1f ? $"{Score:P0}" : $"{Score:P1}";
+    public string ScoreText => Percent(Score);
+
+    /// <summary>A score as a percentage without a space before the sign (<c>93%</c>, <c>4.5%</c>), whatever the culture.</summary>
+    /// <param name="score">The score, 0 to 1.</param>
+    public static string Percent(float score)
+        => (score >= 0.1f ? (score * 100).ToString("0", System.Globalization.CultureInfo.InvariantCulture) : (score * 100).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)) + "%";
 
     /// <summary>More about the row, or empty.</summary>
     public string Detail { get; }

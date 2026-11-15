@@ -301,7 +301,7 @@ public sealed class SpeechPageTests
 
         Assert.True(main.OpenKind(ModelKinds.SpeechSynthesis, null));
         await WaitFor(() => ReferenceEquals(main.CurrentPage, main.Speak));
-        Assert.False(main.OpenKind(ModelKinds.ImageGeneration, null));
+        Assert.False(main.OpenKind("video-generation", null));
         Assert.Contains(main.Pages, page => page is TranscribePageViewModel);
         Assert.Contains(main.Pages, page => page is SpeakPageViewModel);
 
@@ -315,7 +315,7 @@ public sealed class SpeechPageTests
     {
         Assert.True(ModelKindCatalog.For(ModelKinds.SpeechRecognition).Runnable);
         Assert.True(ModelKindCatalog.For(ModelKinds.SpeechSynthesis).Runnable);
-        Assert.False(ModelKindCatalog.For(ModelKinds.ImageGeneration).Runnable);
+        Assert.False(ModelKindCatalog.For("video-generation").Runnable);
 
         using var services = new TestServices();
         var navigator = new FakeNavigator();
