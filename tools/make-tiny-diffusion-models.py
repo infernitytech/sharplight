@@ -7,6 +7,7 @@ real checkpoints. Written to OUT (default ~/models/sd/tiny-random-sd):
 
   diffusers/                 diffusers folder (model_index.json, unet/, vae/, text_encoder/, tokenizer/, scheduler/)
   tiny-sd.safetensors        the same weights as a single-file checkpoint with the original (LDM) tensor names
+  tiny-sd.ckpt               the same single-file checkpoint as a PyTorch (pickle) file
   reference/*.f32            raw little-endian f32 reference tensors, described by reference/index.json
 
 Requires torch, diffusers, transformers and safetensors, plus diffusers' scripts/convert_diffusers_to_original_stable_diffusion.py
@@ -114,6 +115,8 @@ def main():
                   if not k.endswith("position_ids")})
     from safetensors.torch import save_file
     save_file({k: v.contiguous() for k, v in state.items()}, os.path.join(out, "tiny-sd.safetensors"))
+    # The same weights as a Lightning-style PyTorch checkpoint (state dict nested under "state_dict").
+    torch.save({"state_dict": {k: v.contiguous() for k, v in state.items()}, "global_step": 0, "epoch": 1}, os.path.join(out, "tiny-sd.ckpt"))
     script_copy = os.path.join(out, "convert_diffusers_to_original_stable_diffusion.py")
     if os.path.exists(script_copy):
         os.remove(script_copy)
