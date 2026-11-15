@@ -23,7 +23,7 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } = ["deepseek_v4"];
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string a = Architecture + ".";
         int layers = c.Int("num_hidden_layers");
@@ -148,7 +148,7 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
     private static readonly Dictionary<string, string> s_expertKinds = new(StringComparer.Ordinal) { ["w1"] = "gate", ["w2"] = "down", ["w3"] = "up" };
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var collector = new HfWeightCollector();
         var experts = new SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>>();

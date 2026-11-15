@@ -6,6 +6,7 @@ using Sharplight.Llm.Serving.Hosting;
 using Sharplight.Llm.Serving.Speculative;
 using Sharplight.Runtime;
 using Sharplight.Samples;
+using Sharplight.Vision;
 
 namespace Sharplight.Server;
 
@@ -17,14 +18,16 @@ internal sealed class ModelHostBuilder
 {
     private const string CpuDevice = "cpu";
 
+    private readonly SampleRuntime _runtime;
     private readonly ServeSettings _settings;
     private readonly ServerPlan _plan;
     private readonly DevicePool _devices;
     private readonly DeviceOptions _gpuOptions;
     private IComputeDevice? _cpuDevice;
 
-    public ModelHostBuilder(ServeSettings settings, ServerPlan plan, DevicePool devices)
+    public ModelHostBuilder(SampleRuntime runtime, ServeSettings settings, ServerPlan plan, DevicePool devices)
     {
+        _runtime = runtime;
         _settings = settings;
         _plan = plan;
         _devices = devices;
@@ -87,7 +90,7 @@ internal sealed class ModelHostBuilder
 
     private ModelRegistration CreateRegistration(ModelSpec spec)
     {
-        var loader = new LlmChatModelLoader(spec.Name, spec.Path, CreateLoadOptions(spec), CreateChatOptions(spec));
+        var loader = new LlmChatModelLoader(_runtime.Loader, spec.Name, spec.Path, CreateLoadOptions(spec), CreateChatOptions(spec));
         return new ModelRegistration
         {
             Name = spec.Name,
@@ -114,7 +117,7 @@ internal sealed class ModelHostBuilder
 
         return new LlmLoadOptions
         {
-            Auxiliary = mmproj is not null ? [("mmproj", mmproj)] : [],
+            Auxiliary = mmproj is not null ? new Dictionary<string, string> { [AuxiliaryRoles.Mmproj] = mmproj } : [],
             Devices = [new DeviceSlot { Device = OpenDevice(deviceName) }],
             Fallback = offload ? new DeviceSlot { Device = GetCpuDevice() } : null,
             ContextLength = spec.Ctx ?? runtime.ContextLength,
@@ -162,7 +165,7 @@ internal sealed class ModelHostBuilder
             throw new SampleException($"Device '{deviceName}' is neither a device index nor 'cpu'.");
         }
 
-        var provider = SampleRuntime.SelectProvider(cpu);
+        var provider = _runtime.SelectProvider(cpu);
         var info = SampleRuntime.GetDevice(provider, cpu ? 0 : int.Parse(deviceName, System.Globalization.CultureInfo.InvariantCulture));
         return _devices.Open(provider, info, cpu ? new DeviceOptions() : _gpuOptions);
     }

@@ -19,13 +19,6 @@ public sealed class OnnxImporter : IModelImporter
     /// <inheritdoc />
     public string Format => FormatName;
 
-    /// <summary>Registers the importer and the generic ONNX graph adapter.</summary>
-    public static void Register()
-    {
-        ModelImporterRegistry.Register(new OnnxImporter());
-        ModelAdapterRegistry.Register(new OnnxGraphAdapter());
-    }
-
     /// <summary>
     /// Cheap sniff test: true for an existing <c>.onnx</c> file whose top-level protobuf structure looks like a ModelProto.
     /// Never throws for unreadable or malformed files.

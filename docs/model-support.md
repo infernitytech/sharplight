@@ -1046,7 +1046,7 @@ codecs and vocoders are graphs of generic Core ops; the host runs only the token
 | qwen3tts, pockettts (llama.cpp archs), Kokoro, Orpheus + SNAC, CSM + Mimi, Dia | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
-`samples/Sharplight.Speak`). `OuteTtsAdapter` is a composite adapter (`ModelAdapterRegistry.RegisterComposite`): it builds the language model with the adapter of its
+`samples/Sharplight.Speak`). `OuteTtsAdapter` is a composite adapter (`ICompositeModelAdapter`, `services.AddCompositeModelAdapter<T>()`): it builds the language model with the adapter of its
 architecture, adds the codec weights under `codec.` and the `codec_decode` graph, and describes the model: components `text-model`, `tokenizer`, `codec-decoder`
 (config: sample rate, FFT size, hop, vocabulary; symbol bound `T` = 4096 frames). Voices are `voices/<name>.json` attachments of the `text-model` component
 (OuteTTS speaker profiles: words with durations and codec tokens); none ship by default.

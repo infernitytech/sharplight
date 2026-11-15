@@ -34,7 +34,7 @@ public sealed class RealModelTests
     public async Task TwoResidentModels_ChatAndServe()
     {
         Assert.SkipUnless(File.Exists(s_qwen) && File.Exists(s_smol), "small test models not found");
-        using var runtime = new EngineModelRuntime(() => new ResidencySettings());
+        using var runtime = new EngineModelRuntime(EngineServices.From(TestHost.Services), () => new ResidencySettings());
         Assert.SkipWhen(runtime.Devices.Count == 0, "no compute device");
         var device = runtime.Devices[0];
         var load = new LoadSettings { DeviceId = device.Id, ContextLength = 1024, BatchTokens = 128, Slots = 1 };
@@ -95,7 +95,7 @@ public sealed class RealModelTests
     public async Task EstimateFootprint_FollowsTheSettings_AndDeviceMemoryListsSystemMemory()
     {
         Assert.SkipUnless(File.Exists(s_qwen), "small test model not found");
-        using var runtime = new EngineModelRuntime(() => new ResidencySettings());
+        using var runtime = new EngineModelRuntime(EngineServices.From(TestHost.Services), () => new ResidencySettings());
         var ct = TestContext.Current.CancellationToken;
         var settings = new LoadSettings { ContextLength = 1024, BatchTokens = 128, Slots = 1 };
         var request = new ModelLoadRequest("qwen", s_qwen, settings, []);

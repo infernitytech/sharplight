@@ -41,5 +41,7 @@ internal sealed class FakeBackend(params string[] pieces) : ITextGenerationBacke
         result.ReachedTokenLimit = ReachedLimit;
     }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+    }
 }

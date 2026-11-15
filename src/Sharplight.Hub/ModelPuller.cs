@@ -8,8 +8,9 @@ namespace Sharplight.Hub;
 /// Pulls a model from the Hub into a <see cref="ModelStore"/>: resolves the revision to a commit, chooses the variant's files,
 /// checks the free disk space, downloads (resumable, verified), converts to a package with graph optimization, verifies that
 /// the package opens, optionally precompiles it for a device, registers it (manifest written last) and deletes the sources.
-/// An interrupted pull leaves the model unregistered; running it again resumes the downloads. The host registers the
-/// importers and adapters for the formats it wants to convert (e.g. <c>GgufImporter.Register()</c>).
+/// An interrupted pull leaves the model unregistered; running it again resumes the downloads. Conversion goes through the
+/// <see cref="ModelConverter"/>, so the formats and architectures it can convert are the ones registered with the container
+/// (<c>services.AddSharplight()</c>).
 /// </summary>
 public sealed class ModelPuller
 {
@@ -19,23 +20,31 @@ public sealed class ModelPuller
     private readonly HubClient _hub;
     private readonly FileDownloader _downloader;
     private readonly ModelStore _store;
+    private readonly ModelConverter _converter;
 
     /// <summary>Creates a puller.</summary>
     /// <param name="hub">Resolves repositories and file addresses.</param>
     /// <param name="downloader">Downloads the files.</param>
     /// <param name="store">Receives the models.</param>
-    public ModelPuller(HubClient hub, FileDownloader downloader, ModelStore store)
+    /// <param name="converter">Converts the downloaded files to packages.</param>
+    public ModelPuller(HubClient hub, FileDownloader downloader, ModelStore store, ModelConverter converter)
     {
+        ArgumentNullException.ThrowIfNull(hub);
+        ArgumentNullException.ThrowIfNull(downloader);
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(converter);
         _hub = hub;
         _downloader = downloader;
         _store = store;
+        _converter = converter;
+        Converter = ConvertAndVerify;
     }
 
     /// <summary>Free bytes on the volume of a directory (replaceable for tests).</summary>
     internal Func<string, long> FreeSpace { get; init; } = directory => new DriveInfo(directory).AvailableFreeSpace;
 
     /// <summary>Builds and verifies the package: primary source, vision projector (or null), destination, log (replaceable for tests).</summary>
-    internal Func<string, string?, string, Action<string>?, ConversionResult> Converter { get; init; } = ConvertAndVerify;
+    internal Func<string, string?, string, Action<string>?, ConversionResult> Converter { get; init; }
 
     /// <summary>Pulls <paramref name="reference"/> unless it is already stored at the resolved commit.</summary>
     /// <param name="reference">The repository and optional variant tag.</param>
@@ -220,14 +229,14 @@ public sealed class ModelPuller
         return manifest;
     }
 
-    private static ConversionResult ConvertAndVerify(string primary, string? projector, string destination, Action<string>? log)
+    private ConversionResult ConvertAndVerify(string primary, string? projector, string destination, Action<string>? log)
     {
         var options = new ConversionOptions { Log = log };
         ConversionResult result;
         try
         {
             result = projector is null
-                ? ModelConverter.Convert(primary, destination, options)
+                ? _converter.Convert(primary, destination, options)
                 : ConvertWithProjector(primary, projector, destination, options, log);
         }
         catch (NotSupportedException error)
@@ -239,16 +248,16 @@ public sealed class ModelPuller
         return result;
     }
 
-    private static ConversionResult ConvertWithProjector(string primary, string projector, string destination, ConversionOptions options, Action<string>? log)
+    private ConversionResult ConvertWithProjector(string primary, string projector, string destination, ConversionOptions options, Action<string>? log)
     {
         try
         {
-            return ModelConverter.Convert(primary, destination, options, [(AuxiliaryRoles.Mmproj, projector)]);
+            return _converter.Convert(primary, destination, options, [new(AuxiliaryRoles.Mmproj, projector)]);
         }
         catch (NotSupportedException error)
         {
             log?.Invoke($"The vision projector is not supported ({error.Message}); converting the language model alone.");
-            return ModelConverter.Convert(primary, destination, options);
+            return _converter.Convert(primary, destination, options);
         }
     }
 

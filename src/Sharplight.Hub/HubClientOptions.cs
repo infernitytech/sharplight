@@ -13,25 +13,25 @@ public sealed class HubClientOptions
     public static readonly Uri DefaultEndpoint = new("https://huggingface.co");
 
     /// <summary>Base address of the Hub.</summary>
-    public Uri Endpoint { get; init; } = DefaultEndpoint;
+    public Uri Endpoint { get; set; } = DefaultEndpoint;
 
     /// <summary>
     /// Access token for private and gated repositories, sent as a bearer token to <see cref="Endpoint"/> only (redirects to the
     /// download CDN drop it). Never logged.
     /// </summary>
-    public string? Token { get; init; }
+    public string? Token { get; set; }
 
     /// <summary>User-Agent sent with every request; generic, without user or machine data.</summary>
-    public string UserAgent { get; init; } = "sharplight/0.1";
+    public string UserAgent { get; set; } = "sharplight/0.1";
 
     /// <summary>Timeout of a metadata request (search, file listing, small files).</summary>
-    public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    public TimeSpan RequestTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>A download attempt that receives no bytes for this long is abandoned and retried.</summary>
-    public TimeSpan StallTimeout { get; init; } = TimeSpan.FromSeconds(60);
+    public TimeSpan StallTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
     /// <summary>Retry behaviour for transient failures.</summary>
-    public RetryOptions Retry { get; init; } = new();
+    public RetryOptions Retry { get; set; } = new();
 
     /// <summary>Options with the token from <c>HF_TOKEN</c> and the endpoint from <c>HF_ENDPOINT</c> when they are set.</summary>
     public static HubClientOptions FromEnvironment()

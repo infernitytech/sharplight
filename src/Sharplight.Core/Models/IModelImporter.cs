@@ -21,7 +21,7 @@ public interface IModelImporter
     public bool CanOpen(string path);
 
     /// <summary>
-    /// Rank among importers that accept the same path (<see cref="ModelImporterRegistry.Find"/> asks the highest first). Generic
+    /// Rank among importers that accept the same path (<see cref="ModelImporterCatalog.TryFind"/> asks the highest first). Generic
     /// container importers keep the default 0; an importer for one kind of content inside a shared container (e.g. diffusion
     /// checkpoints stored as GGUF or safetensors) returns a higher value and checks the content in <see cref="CanOpen"/>.
     /// </summary>

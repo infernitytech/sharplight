@@ -53,6 +53,13 @@ internal sealed unsafe class PhysicalDeviceInfo
     /// <summary>VK_NV_cooperative_vector matrix-vector type combinations, for diagnostics.</summary>
     public IReadOnlyList<string> CoopVecTypes { get; } = [];
     public bool IntegerDotProduct { get; }
+    /// <summary>
+    /// VK_KHR_portability_subset is reported (a layered implementation such as MoltenVK): the extension must be enabled, and
+    /// the features in <see cref="PortabilityRestrictions"/> must not be used.
+    /// </summary>
+    public bool PortabilitySubset { get; }
+    /// <summary>The VkPhysicalDevicePortabilitySubsetFeaturesKHR members the device does not support, for diagnostics.</summary>
+    public IReadOnlyList<string> PortabilityRestrictions { get; } = [];
     /// <summary>Provider-neutral features (<see cref="DeviceFeatures"/>) this device supports.</summary>
     public IReadOnlySet<string> Features { get; }
     public bool VulkanMemoryModel { get; }
@@ -149,9 +156,23 @@ internal sealed unsafe class PhysicalDeviceInfo
         bool bf16Extension = Extensions.Contains("VK_KHR_shader_bfloat16");
         var bf16 = new VkPhysicalDeviceShaderBfloat16FeaturesKHR { pNext = tail };
         var f2 = new VkPhysicalDeviceFeatures2 { pNext = bf16Extension ? &bf16 : tail };
+        PortabilitySubset = Extensions.Contains("VK_KHR_portability_subset");
+        var subset = new VkPhysicalDevicePortabilitySubsetFeaturesKHR { pNext = f2.pNext };
+        if (PortabilitySubset)
+        {
+            f2.pNext = &subset;
+        }
+
         api.vkGetPhysicalDeviceFeatures2(pd, &f2);
-        SubgroupSizeControl = f13.subgroupSizeControl;
-        ComputeFullSubgroups = f13.computeFullSubgroups;
+        if (PortabilitySubset)
+        {
+            PortabilityRestrictions = UnsupportedPortabilityFeatures(subset);
+        }
+
+        // The Vulkan 1.3 features only count on a 1.3 device; a 1.2 device (e.g. an older MoltenVK) cannot enable them.
+        bool vulkan13 = ApiVersion >= VkVersion.Version_1_3;
+        SubgroupSizeControl = vulkan13 && f13.subgroupSizeControl;
+        ComputeFullSubgroups = vulkan13 && f13.computeFullSubgroups;
         ShaderFloat16 = f12.shaderFloat16;
         VulkanMemoryModel = f12.vulkanMemoryModel;
         CooperativeMatrix = coop.cooperativeMatrix;
@@ -221,7 +242,7 @@ internal sealed unsafe class PhysicalDeviceInfo
                 .Distinct().ToArray();
         }
         BFloat16CooperativeMatrix = ShaderBFloat16 && bf16.shaderBFloat16CooperativeMatrix;
-        IntegerDotProduct = f13.shaderIntegerDotProduct;
+        IntegerDotProduct = vulkan13 && f13.shaderIntegerDotProduct;
 
         // Map Vulkan mechanisms onto provider-neutral feature names. A matrix feature is only reported
         // when the exact tile configuration our kernels use is supported.
@@ -285,7 +306,14 @@ internal sealed unsafe class PhysicalDeviceInfo
 
         Features = feats;
 
-        void Need(bool ok, string what) { if (!ok) { MissingFeatures.Add(what); } }
+        void Need(bool ok, string what)
+        {
+            if (!ok)
+            {
+                MissingFeatures.Add(what);
+            }
+        }
+
         Need(ApiVersion >= VkVersion.Version_1_2, "Vulkan 1.2");
         Need(f12.bufferDeviceAddress, "bufferDeviceAddress");
         Need(f12.storageBuffer8BitAccess, "storageBuffer8BitAccess");
@@ -335,6 +363,39 @@ internal sealed unsafe class PhysicalDeviceInfo
         return (binaryFeatures.pipelineBinaries && maintenance5Features.maintenance5, binaryProperties.pipelineBinaryPrefersInternalCache);
     }
 
+    /// <summary>
+    /// Names of the portability-subset features the device lacks. The compute kernels use none of them (no events, image
+    /// views, samplers or graphics state), so they only matter for diagnostics.
+    /// </summary>
+    private static string[] UnsupportedPortabilityFeatures(VkPhysicalDevicePortabilitySubsetFeaturesKHR f)
+    {
+        var missing = new List<string>();
+        void Check(bool supported, string name)
+        {
+            if (!supported)
+            {
+                missing.Add(name);
+            }
+        }
+
+        Check(f.constantAlphaColorBlendFactors, "constantAlphaColorBlendFactors");
+        Check(f.events, "events");
+        Check(f.imageViewFormatReinterpretation, "imageViewFormatReinterpretation");
+        Check(f.imageViewFormatSwizzle, "imageViewFormatSwizzle");
+        Check(f.imageView2DOn3DImage, "imageView2DOn3DImage");
+        Check(f.multisampleArrayImage, "multisampleArrayImage");
+        Check(f.mutableComparisonSamplers, "mutableComparisonSamplers");
+        Check(f.pointPolygons, "pointPolygons");
+        Check(f.samplerMipLodBias, "samplerMipLodBias");
+        Check(f.separateStencilMaskRef, "separateStencilMaskRef");
+        Check(f.shaderSampleRateInterpolationFunctions, "shaderSampleRateInterpolationFunctions");
+        Check(f.tessellationIsolines, "tessellationIsolines");
+        Check(f.tessellationPointMode, "tessellationPointMode");
+        Check(f.triangleFans, "triangleFans");
+        Check(f.vertexAttributeAccessBeyondStride, "vertexAttributeAccessBeyondStride");
+        return [.. missing];
+    }
+
     /// <summary><see cref="DeviceInfo.ConcurrentWorkgroups"/> of integrated GPUs and CPU implementations.</summary>
     private const int SmallDeviceWorkgroups = 64;
 
@@ -360,7 +421,13 @@ internal sealed unsafe class PhysicalDeviceInfo
         SubmissionBudgetMs = Type == VkPhysicalDeviceType.IntegratedGpu ? 250 : 0,
         // Integrated GPUs and CPU implementations run a few dozen workgroups at once; discrete GPUs are sized by default.
         ConcurrentWorkgroups = Type is VkPhysicalDeviceType.IntegratedGpu or VkPhysicalDeviceType.Cpu ? SmallDeviceWorkgroups : 0,
-        Capabilities = new Dictionary<string, string>
+        Capabilities = Describe(),
+    };
+
+    /// <summary>Driver-specific properties for diagnostics (<see cref="DeviceInfo.Capabilities"/>).</summary>
+    private Dictionary<string, string> Describe()
+    {
+        var capabilities = new Dictionary<string, string>
         {
             ["api_version"] = ApiVersion.ToString(),
             ["subgroup_size"] = SubgroupSize.ToString(),
@@ -380,6 +447,13 @@ internal sealed unsafe class PhysicalDeviceInfo
             ["max_push_constants"] = MaxPushConstants.ToString(),
             ["memory_budget"] = MemoryBudgetExt.ToString(),
             ["kernel_binaries"] = PipelineBinaries.ToString(),
-        },
-    };
+        };
+        if (PortabilitySubset)
+        {
+            capabilities["portability_subset"] = "True";
+            capabilities["portability_restrictions"] = string.Join(" ", PortabilityRestrictions);
+        }
+
+        return capabilities;
+    }
 }

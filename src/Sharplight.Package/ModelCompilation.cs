@@ -26,6 +26,9 @@ internal sealed class ModelCompilation(string packagePath, ModelDefinition defin
 {
     private const string MissingBoundPrefix = "No bound";
 
+    /// <summary>Opens packages only: their definitions are prebuilt, so no architecture is needed. Immutable.</summary>
+    private static readonly ModelLoader s_packageLoader = new(new ModelImporterCatalog([new ModelPackageImporter()]), new ArchitectureCatalog([]));
+
     /// <summary>The workload delegate.</summary>
     public CompilationWorkload Workload => Run;
 
@@ -54,10 +57,10 @@ internal sealed class ModelCompilation(string packagePath, ModelDefinition defin
 
     private void CompileLanguageModel(IComputeDevice device, CompilationArtifacts artifacts)
     {
-        IReadOnlyList<DeviceSlot> devices = [new DeviceSlot { Device = device }];
+        IList<DeviceSlot> devices = [new DeviceSlot { Device = device }];
         if (definition.Graphs.ContainsKey(WellKnown.DecodeGraph))
         {
-            using var model = LlmModel.Load(packagePath, new LlmLoadOptions
+            using var model = LlmModel.Load(s_packageLoader, packagePath, new LlmLoadOptions
             {
                 Devices = devices,
                 ContextLength = options.ContextLength,
@@ -89,13 +92,13 @@ internal sealed class ModelCompilation(string packagePath, ModelDefinition defin
         if (definition.Graphs.ContainsKey(WellKnown.EmbedGraph))
         {
             Optional(WellKnown.EmbedGraph,
-                () => EmbeddingModel.Load(packagePath, new EmbeddingLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
+                () => EmbeddingModel.Load(s_packageLoader, packagePath, new EmbeddingLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
         }
 
         if (definition.Graphs.ContainsKey(WellKnown.ClassifyGraph))
         {
             Optional(WellKnown.ClassifyGraph,
-                () => Reranker.Load(packagePath, new RerankerLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
+                () => Reranker.Load(s_packageLoader, packagePath, new RerankerLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
         }
     }
 

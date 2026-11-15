@@ -18,14 +18,17 @@ internal sealed class HubService : IHubService, IDisposable
     private readonly ISettingsService _settings;
     private readonly HttpClient _http = HubClientOptions.CreateHttpClient();
     private readonly HighlightsCatalog _highlights;
+    private readonly EngineServices _engine;
     private readonly Dictionary<ModelTask, HighlightsCatalog> _taskHighlights = [];
     private readonly string? _highlightsFile;
 
     /// <param name="settings">The settings (token, model store).</param>
+    /// <param name="engine">The engine services (conversion, providers for precompilation).</param>
     /// <param name="highlightsFile">Where the highlighted models are cached, or null to keep them in memory only.</param>
-    public HubService(ISettingsService settings, string? highlightsFile = null)
+    public HubService(ISettingsService settings, EngineServices engine, string? highlightsFile = null)
     {
         _settings = settings;
+        _engine = engine;
         _highlightsFile = highlightsFile;
         _highlights = new HighlightsCatalog(SearchAsync, highlightsFile);
     }
@@ -183,12 +186,11 @@ internal sealed class HubService : IHubService, IDisposable
     /// <inheritdoc/>
     public async Task<ModelManifest> PullAsync(ModelReference reference, IProgress<PullUpdate> progress, CancellationToken cancellationToken)
     {
-        EngineBootstrap.Register();
         var settings = _settings.Current;
         var clientOptions = ClientOptions();
         var client = new HubClient(_http, clientOptions);
         var store = new ModelStore(_settings.StoreRoot);
-        var puller = new ModelPuller(client, new FileDownloader(_http, clientOptions), store);
+        var puller = new ModelPuller(client, new FileDownloader(_http, clientOptions), store, _engine.Converter);
         var tracker = new PullProgressTracker(progress);
         var options = new PullOptions
         {
@@ -252,7 +254,7 @@ internal sealed class HubService : IHubService, IDisposable
     /// </summary>
     private PrecompileTarget CreatePrecompileTarget(PullProgressTracker tracker)
     {
-        var providers = ProviderRegistry.Discover().Select(p => p.Provider).ToList();
+        var providers = _engine.Providers.Discover().Select(p => p.Provider).ToList();
         var options = PrecompileService.CreateOptions(_settings.Current, null, tracker.Log, new SynchronousProgress<LoadProgress>(tracker.Report));
         return new PrecompileTarget(providers, options, new SynchronousProgress<PrecompileProgress>(tracker.Report));
     }

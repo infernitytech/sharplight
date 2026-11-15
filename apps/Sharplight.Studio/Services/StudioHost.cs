@@ -23,10 +23,13 @@ internal sealed class StudioHost : IDisposable
     private readonly HubService _hub;
     private readonly StatsRecorder _recorder;
     private readonly KestrelApiServer _server;
+    private readonly ServiceProvider _container;
 
-    private StudioHost(StudioServices services, EngineModelRuntime runtime, HubService hub, StatsRecorder recorder, KestrelApiServer server)
+    private StudioHost(StudioServices services, EngineModelRuntime runtime, HubService hub, StatsRecorder recorder, KestrelApiServer server,
+        ServiceProvider container)
     {
         Services = services;
+        _container = container;
         _runtime = runtime;
         _hub = hub;
         _recorder = recorder;
@@ -41,19 +44,20 @@ internal sealed class StudioHost : IDisposable
     {
         var paths = StudioPaths.Default();
         var settings = new JsonSettingsService(paths.SettingsFile, modelsDirectory);
-        var precompiler = new PrecompileService(settings);
-        var runtime = new EngineModelRuntime(() => settings.Current.Residency, name => ResolveOnDemand(settings, name, precompiler.IsBusy),
+        var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddStudioUpdates().AddSharplight().BuildServiceProvider();
+        var engine = EngineServices.From(container);
+        var precompiler = new PrecompileService(settings, engine);
+        var runtime = new EngineModelRuntime(engine, () => settings.Current.Residency, name => ResolveOnDemand(settings, name, precompiler.IsBusy),
             () => settings.Current.UseCompilationCache);
-        var hub = new HubService(settings, paths.HighlightsFile);
+        var hub = new HubService(settings, engine, paths.HighlightsFile);
         var database = new StudioDatabase(paths.DatabaseFile);
         var stats = new SqliteStatsStore(database);
         var server = new KestrelApiServer(runtime.Host);
-        var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddStudioUpdates().BuildServiceProvider();
-        var services = new StudioServices(settings, runtime, hub, new ModelLibrary(settings), new SqliteConversationStore(database), stats, server,
+        var services = new StudioServices(settings, runtime, hub, new ModelLibrary(settings, engine.Converter), new SqliteConversationStore(database), stats, server,
             new DocumentExtractor(), new SystemMonitor(runtime), platform, dispatcher, theme,
             container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(Path.Combine(paths.DataDirectory, "pages")),
             new ProcessAudioPlayer(), new ProcessAudioRecorder());
-        return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), server);
+        return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), server, container);
     }
 
     /// <summary>
@@ -104,5 +108,6 @@ internal sealed class StudioHost : IDisposable
         _recorder.Dispose();
         _runtime.Dispose();
         _hub.Dispose();
+        _container.Dispose();
     }
 }

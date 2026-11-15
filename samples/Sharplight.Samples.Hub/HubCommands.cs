@@ -11,11 +11,12 @@ public static class HubCommands
     /// <summary>Adds <c>--models-dir</c> and the store subcommands to <paramref name="root"/>.</summary>
     /// <param name="root">The root command of the executable.</param>
     /// <param name="store">The store option, also used by the executable's own commands that take a model.</param>
-    public static void AddTo(Command root, StoreOptionSet store)
+    /// <param name="runtime">The Sharplight services (conversion and precompilation of pulled models).</param>
+    public static void AddTo(Command root, StoreOptionSet store, SampleRuntime runtime)
     {
         root.Options.Add(store.ModelsDirectory);
-        root.Subcommands.Add(new PullCommand(store).Build());
-        root.Subcommands.Add(new SearchCommand(store).Build());
+        root.Subcommands.Add(new PullCommand(store, runtime).Build());
+        root.Subcommands.Add(new SearchCommand(store, runtime).Build());
         root.Subcommands.Add(new ListCommand(store).Build());
         root.Subcommands.Add(new ShowCommand(store).Build());
         root.Subcommands.Add(new RemoveCommand(store).Build());

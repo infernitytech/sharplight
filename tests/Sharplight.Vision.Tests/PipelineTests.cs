@@ -1,4 +1,3 @@
-using Sharplight.Architectures;
 using Sharplight.Graph;
 using Sharplight.Llm;
 using Sharplight.Models;
@@ -155,7 +154,7 @@ public class PipelineTests
             ModelPackage.Save(tmp, def, []);
             var src = new ModelPackageImporter().Open(tmp);
             using var _ = new Disposer(src.OwnedResources);
-            var def2 = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = src });
+            var def2 = TestHost.Loader.Build(new ModelSourceSet { Primary = src });
             foreach (var name in new[] { WellKnown.VisionEncodeGraph, WellKnown.DecodeMultimodalGraph })
             {
                 var g = def.Graph(name);
@@ -166,12 +165,14 @@ public class PipelineTests
             }
             Assert.Equal(VisionParameters.Of(def), VisionParameters.Of(def2), new ParamComparer());
             // The architecture's prompt assembly is found by id, no adapter involved.
-            BuiltinAdapters.RegisterAll();
-            Assert.NotNull(MultimodalRegistry.Find(def2.Architecture));
+            Assert.True(TestHost.Loader.Architectures.TryFindMultimodal(def2.Architecture, out var multimodal) && multimodal is not null);
             var img = Image(48, 24);
             Assert.Equal(Encode(def, Env.Cpu(), img), Encode(def2, Env.Cpu(), img));
         }
-        finally { File.Delete(tmp); }
+        finally
+        {
+            File.Delete(tmp);
+        }
     }
 
     [Fact]

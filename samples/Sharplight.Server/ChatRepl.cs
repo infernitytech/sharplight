@@ -14,7 +14,7 @@ namespace Sharplight.Server;
 /// tool-call parsing, prefix caching between turns) and streams each answer. Reasoning is shown dimmed on a terminal and
 /// left out when stdout is redirected.
 /// </summary>
-internal sealed class ChatRepl(RunSettings settings)
+internal sealed class ChatRepl(SampleRuntime sampleRuntime, RunSettings settings)
 {
     private const string UserPrompt = ">>> ";
     private const string ExitCommand = "/bye";
@@ -35,7 +35,7 @@ internal sealed class ChatRepl(RunSettings settings)
             deviceOptions.DisabledFeatures.Add(feature);
         }
 
-        var provider = SampleRuntime.SelectProvider(runtime.UseCpu);
+        var provider = sampleRuntime.SelectProvider(runtime.UseCpu);
         using var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, runtime.DeviceIndex), deviceOptions);
         using var fallback = runtime.CpuOffload && !runtime.UseCpu ? OpenCpu() : null;
         var progress = new ConsoleLoadProgress();
@@ -61,7 +61,7 @@ internal sealed class ChatRepl(RunSettings settings)
             Service = new ModelServiceOptions { DefaultMaxTokens = settings.MaxTokens },
         };
 
-        using var prepared = new LlmChatModelLoader(settings.Model, modelPath, load, chat).Prepare(cancellationToken);
+        using var prepared = new LlmChatModelLoader(sampleRuntime.Loader, settings.Model, modelPath, load, chat).Prepare(cancellationToken);
         using var instance = prepared.Load(primaryLimit: null);
         var service = ((IChatModel)instance).Service;
         if (!service.HasChatTemplate)
@@ -79,9 +79,9 @@ internal sealed class ChatRepl(RunSettings settings)
         await ChatAsync(service, cancellationToken);
     }
 
-    private static IComputeDevice OpenCpu()
+    private IComputeDevice OpenCpu()
     {
-        var provider = SampleRuntime.SelectProvider(cpu: true);
+        var provider = sampleRuntime.SelectProvider(cpu: true);
         return provider.OpenDevice(SampleRuntime.GetDevice(provider, 0));
     }
 

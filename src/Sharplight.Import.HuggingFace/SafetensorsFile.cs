@@ -107,8 +107,11 @@ internal sealed unsafe class SafetensorsFile : IDisposable
     /// Opens a PyTorch checkpoint (<c>.bin</c> / <c>.pt</c> / <c>.pth</c> / <c>.ckpt</c>) through the restricted unpickler of
     /// <c>Sharplight.Import.PyTorch</c> and presents its tensors like safetensors entries (offsets are absolute file offsets).
     /// </summary>
+    /// <param name="path">The checkpoint file.</param>
+    /// <param name="options">Unpickler settings, or <see langword="null"/> for <see cref="TorchCheckpointOptions.Default"/>.</param>
+    /// <returns>The opened file.</returns>
     /// <exception cref="UnsafePickleException">The pickle uses an opcode or global outside the tensor state-dict subset.</exception>
-    public static SafetensorsFile OpenTorch(string path) => new(TorchCheckpointFile.Open(path));
+    public static SafetensorsFile OpenTorch(string path, TorchCheckpointOptions? options = null) => new(TorchCheckpointFile.Open(path, options));
 
     private static string TorchDTypeName(TorchDType dtype) => dtype switch
     {

@@ -27,7 +27,7 @@ public sealed class SpeechRealModelTests
     {
         Assert.SkipUnless(File.Exists(s_whisper) && File.Exists(s_jfk), "ggml-tiny.en.bin and jfk.wav not found");
         using var fakes = new TestServices();
-        using var runtime = new EngineModelRuntime(() => new ResidencySettings());
+        using var runtime = new EngineModelRuntime(EngineServices.From(TestHost.Services), () => new ResidencySettings());
         Assert.SkipWhen(runtime.Devices.Count == 0, "no compute device");
         var services = fakes.Services with { Runtime = runtime };
         var ct = TestContext.Current.CancellationToken;
@@ -65,7 +65,7 @@ public sealed class SpeechRealModelTests
     {
         Assert.SkipUnless(File.Exists(s_outetts) && File.Exists(s_vocoder), "OuteTTS and WavTokenizer files not found");
         using var fakes = new TestServices();
-        using var runtime = new EngineModelRuntime(() => new ResidencySettings());
+        using var runtime = new EngineModelRuntime(EngineServices.From(TestHost.Services), () => new ResidencySettings());
         Assert.SkipWhen(runtime.Devices.Count == 0, "no compute device");
         var services = fakes.Services with { Runtime = runtime };
         var ct = TestContext.Current.CancellationToken;

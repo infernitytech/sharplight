@@ -7,32 +7,36 @@ public sealed class AdapterOptions
     /// Data type of attention KV caches: f16 (default), f32, or the block-quantized q8_0 / q4_0 (see <see cref="KvCacheTypeFor"/>
     /// for rows that are not whole blocks).
     /// </summary>
-    public Tensors.DataType KvCacheType { get; init; } = Tensors.DataType.F16;
+    public Tensors.DataType KvCacheType { get; set; } = Tensors.DataType.F16;
+
     /// <summary>Emit auxiliary graphs (multi-token prediction heads, embedding-input decode, ...).</summary>
-    public bool IncludeAuxiliaryGraphs { get; init; } = true;
+    public bool IncludeAuxiliaryGraphs { get; set; } = true;
+
     /// <summary>
     /// Context length the model will run with (0 = unknown, use the model's maximum). Lets an adapter make context-dependent
     /// choices, e.g. longrope's short vs. long frequency factors.
     /// </summary>
-    public int ContextLength { get; init; }
+    public int ContextLength { get; set; }
+
     /// <summary>Pooling of the <see cref="WellKnown.EmbedGraph"/> ("mean", "cls", "last", "none"); null = what the model declares.</summary>
-    public string? EmbeddingPooling { get; init; }
+    public string? EmbeddingPooling { get; set; }
+
     /// <summary>Whether <see cref="WellKnown.EmbedGraph"/> L2-normalizes; null = what the model declares.</summary>
-    public bool? EmbeddingNormalize { get; init; }
+    public bool? EmbeddingNormalize { get; set; }
 
     /// <summary>
     /// Run the device-independent graph optimization phase (<see cref="Graph.Optimization.GraphOptimizer"/>) on the built definition
     /// when it was not optimized by the current pipeline yet (default true). Set false, or the environment variable
     /// <c>SHARPLIGHT_NO_GRAPH_OPT=1</c>, to compile the graphs exactly as the adapter built them (debugging, bisecting).
     /// </summary>
-    public bool OptimizeGraphs { get; init; } = true;
+    public bool OptimizeGraphs { get; set; } = true;
 
     /// <summary>
     /// Element type of the recurrent state matrices of ops that can keep their state in 16 bits (currently the gated delta rule):
     /// f32 (default), or bf16 / f16, which halve the state memory and its traffic in decode at reduced precision (the ops still
     /// compute in f32 and round the state after every token row). States of other ops stay f32.
     /// </summary>
-    public Tensors.DataType RecurrentStateType { get; init; } = Tensors.DataType.F32;
+    public Tensors.DataType RecurrentStateType { get; set; } = Tensors.DataType.F32;
 
     /// <summary>
     /// Fixed sizes for graphs whose spatial shapes depend on the input (e.g. <c>height</c> and <c>width</c> in pixels of an image

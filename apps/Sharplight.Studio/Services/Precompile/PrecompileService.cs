@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using Sharplight.Cpu;
 using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Studio.Models;
@@ -12,7 +11,7 @@ namespace Sharplight.Studio.Services.Precompile;
 /// <see cref="IPrecompileService"/> over <see cref="PackagePrecompiler"/> and every registered execution provider (unavailable ones are
 /// reported as skipped), compiling with the default load settings so the stored code is what a load from the library asks for.
 /// </summary>
-internal sealed class PrecompileService(ISettingsService settings) : IPrecompileService
+internal sealed class PrecompileService(ISettingsService settings, EngineServices engine) : IPrecompileService
 {
     private readonly ConcurrentDictionary<string, bool> _busy = new(StringComparer.Ordinal);
 
@@ -30,10 +29,9 @@ internal sealed class PrecompileService(ISettingsService settings) : IPrecompile
 
         try
         {
-            EngineBootstrap.Register();
             return await Task.Run(async () =>
             {
-                var providers = ProviderRegistry.Discover().Select(p => p.Provider).ToList();
+                var providers = engine.Providers.Discover().Select(p => p.Provider).ToList();
                 using var cpu = OpenCpu();
                 var options = CreateOptions(settings.Current, cpu, log: null, kernels: null);
                 return await PackagePrecompiler.PrecompileAsync(path, providers, options, progress, cancellationToken).ConfigureAwait(false);
@@ -65,9 +63,8 @@ internal sealed class PrecompileService(ISettingsService settings) : IPrecompile
         Progress = kernels,
     };
 
-    private static IComputeDevice? OpenCpu()
+    private IComputeDevice? OpenCpu()
     {
-        var provider = new CpuExecutionProvider();
-        return provider.OpenDevice(provider.GetDevices()[0]);
+        return engine.Providers.TryFind("cpu", out var provider) ? provider.OpenDevice(provider.GetDevices()[0]) : null;
     }
 }

@@ -27,7 +27,7 @@ public sealed class ImageRealModelTests
     {
         Assert.SkipUnless(Directory.Exists(s_tinySd), "tiny-random-sd not found");
         using var fakes = new TestServices();
-        using var runtime = new EngineModelRuntime(() => new ResidencySettings());
+        using var runtime = new EngineModelRuntime(EngineServices.From(TestHost.Services), () => new ResidencySettings());
         Assert.SkipWhen(runtime.Devices.Count == 0, "no compute device");
         var services = fakes.Services with { Runtime = runtime };
         var ct = TestContext.Current.CancellationToken;
@@ -63,7 +63,7 @@ public sealed class ImageRealModelTests
         string sample = Path.Combine(s_vit, "sharplight-sample.png");
         Assert.SkipUnless(File.Exists(Path.Combine(s_vit, "model.safetensors")) && File.Exists(sample), "vit-base-patch16-224 not found");
         using var fakes = new TestServices();
-        using var runtime = new EngineModelRuntime(() => new ResidencySettings());
+        using var runtime = new EngineModelRuntime(EngineServices.From(TestHost.Services), () => new ResidencySettings());
         Assert.SkipWhen(runtime.Devices.Count == 0, "no compute device");
         var services = fakes.Services with { Runtime = runtime };
         var ct = TestContext.Current.CancellationToken;

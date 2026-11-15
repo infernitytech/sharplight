@@ -453,7 +453,12 @@ public sealed partial class GraphLowerer
         // decompose m over idx dims b..iq-1
         var mc = new List<string>();
         long rem = M;
-        for (int k = b; k < iq; k++) { rem /= ix.Shape[k]; mc.Add($"((m / {rem}u) % {ix.Shape[k]}u)"); }
+        for (int k = b; k < iq; k++)
+        {
+            rem /= ix.Shape[k];
+            mc.Add($"((m / {rem}u) % {ix.Shape[k]}u)");
+        }
+
         var e = Enumerable.Range(0, b).Select(Dn).Concat(mc).ToArray();
         var ycoords = new string[data.Rank];
         for (int j = 0; j < data.Rank; j++)

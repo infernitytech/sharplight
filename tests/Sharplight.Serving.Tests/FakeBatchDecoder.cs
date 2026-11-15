@@ -265,5 +265,7 @@ public sealed class FakeBatchDecoder : IBatchDecoder
         return res;
     }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+    }
 }

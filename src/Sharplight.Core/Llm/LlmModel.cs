@@ -24,8 +24,9 @@ namespace Sharplight.Llm;
 /// </summary>
 /// <example>
 /// <code>
-/// new ServiceCollection().AddSharplight();   // Sharplight.Defaults: importers, architecture adapters, providers, task layer
-/// using var model = LlmModel.Load("qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
+/// using var services = SharplightDefaults.CreateServiceProvider();   // Sharplight.Defaults: formats, architectures, providers, task layer
+/// var loader = services.GetRequiredService&lt;ModelLoader&gt;();
+/// using var model = LlmModel.Load(loader, "qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
 /// using var session = model.CreateSession();
 /// var generator = new Generator(session, model.Tokenizer);
 /// var options = new GenerationOptions { MaxNewTokens = 128, Sampling = SamplingOptions.Greedy };
@@ -52,6 +53,9 @@ public sealed class LlmModel : IDisposable
     /// </summary>
     public SharedWeights SharedWeights => _sharedWeights;
 
+    /// <summary>The architectures the model was built with (prompt assembly for images: <see cref="ArchitectureCatalog.TryFindMultimodal"/>).</summary>
+    public ArchitectureCatalog Architectures { get; }
+
     /// <summary>
     /// What the model is: its <see cref="ModelDefinition.Description"/>, or for models without one (every decoder LLM) the resolved
     /// text-generation description with one <c>decoder</c> component.
@@ -63,9 +67,11 @@ public sealed class LlmModel : IDisposable
     private readonly CompilationArtifacts _artifacts;
     private readonly bool _ownsDefinition;
 
-    private LlmModel(ModelDefinition def, ModelSource source, ITokenizer tok, LlmLoadOptions options, bool ownsDefinition, SharedWeights? sharedWeights)
+    private LlmModel(ModelDefinition def, ModelSource source, ITokenizer tok, LlmLoadOptions options, bool ownsDefinition, SharedWeights? sharedWeights,
+        ArchitectureCatalog architectures)
     {
         Definition = def;
+        Architectures = architectures;
         Source = source;
         Tokenizer = tok;
         _options = options;
@@ -83,7 +89,7 @@ public sealed class LlmModel : IDisposable
     public static LlmModel FromTaskModel(TaskModel model)
     {
         var load = model.Options;
-        var options = new LlmLoadOptions
+        var options = load as LlmLoadOptions ?? new LlmLoadOptions
         {
             Devices = [.. load.Devices],
             Fallback = load.Fallback,
@@ -98,7 +104,7 @@ public sealed class LlmModel : IDisposable
             Artifacts = model.Artifacts,
         };
         var tokenizer = model.CreateTokenizer();
-        return new LlmModel(model.Definition, model.Source, tokenizer, options, ownsDefinition: false, model.SharedWeights);
+        return new LlmModel(model.Definition, model.Source, tokenizer, options, ownsDefinition: false, model.SharedWeights, model.Architectures);
     }
 
     /// <summary>
@@ -109,21 +115,46 @@ public sealed class LlmModel : IDisposable
     public ITextGenerator CreateTextGenerator(string graph = WellKnown.DecodeGraph) => new TextGenerator(this, graph, ownsModel: false);
 
     /// <summary>
-    /// Loads a model through <see cref="ModelImporterRegistry"/> and <see cref="ModelAdapterRegistry"/>; the host must have registered an
-    /// importer for the file's format and the architecture adapters (<c>services.AddSharplight()</c> from the Sharplight.Defaults package
-    /// does both; or e.g. <c>GgufImporter.Register()</c> plus <c>BuiltinAdapters.RegisterAll()</c>).
+    /// Loads <see cref="TaskLoadOptions.ModelPath"/> through the loader's importers and architectures (see
+    /// <see cref="Load(ModelLoader, string, LlmLoadOptions)"/>).
     /// </summary>
+    /// <param name="loader">The model loader (from the service container: <c>services.AddSharplight()</c>).</param>
+    /// <param name="options">Model path, devices and compile settings; also kept for later session / decoder creation.</param>
+    /// <returns>The loaded model; the caller disposes it.</returns>
+    /// <exception cref="ArgumentException">No model path is configured.</exception>
+    /// <exception cref="NotSupportedException">No registered importer or architecture adapter handles the model.</exception>
+    public static LlmModel Load(ModelLoader loader, LlmLoadOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (string.IsNullOrEmpty(options.ModelPath))
+        {
+            throw new ArgumentException("LlmLoadOptions.ModelPath is not set.", nameof(options));
+        }
+
+        return Load(loader, options.ModelPath, options);
+    }
+
+    /// <summary>
+    /// Loads a model through the loader's importers and architectures (the host registers the formats and architectures it supports:
+    /// <c>services.AddSharplight()</c> of the Sharplight.Defaults package, or e.g. <c>services.AddGgufImporter().AddBuiltinArchitectures()</c>).
+    /// </summary>
+    /// <param name="loader">The model loader (from the service container).</param>
     /// <param name="path">Model file (GGUF, ...) or directory (Hugging Face layout), as understood by the registered importers.</param>
     /// <param name="options">Devices and compile settings; also kept for later session / decoder creation.</param>
+    /// <returns>The loaded model; the caller disposes it. Nothing is compiled yet, so <see cref="TaskLoadOptions.Devices"/> may still be empty
+    /// for a model that is only inspected.</returns>
     /// <exception cref="NotSupportedException">No registered importer or architecture adapter handles the model.</exception>
-    public static LlmModel Load(string path, LlmLoadOptions options)
+    public static LlmModel Load(ModelLoader loader, string path, LlmLoadOptions options)
     {
+        ArgumentNullException.ThrowIfNull(loader);
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        ArgumentNullException.ThrowIfNull(options);
         var sw = Stopwatch.StartNew();
         var ct = options.CancellationToken;
         ct.ThrowIfCancellationRequested();
         var adapter = options.Adapter.With(options.KvCacheType ?? options.Adapter.KvCacheType,
             options.Adapter.ContextLength > 0 ? options.Adapter.ContextLength : options.ContextLength, RecurrentStateType(options));
-        var (def, source) = ModelLoader.Load(path, options.Auxiliary, adapter, options.Progress, options.Log, ct);
+        var (def, source) = loader.Load(path, options.Auxiliary, adapter, options.Progress, options.Log, ct);
         var kvStates = def.States.Where(st => st.Kind is StateKind.KeyCache or StateKind.ValueCache).ToList();
         int kept = kvStates.Count(st => st.Type != adapter.KvCacheType);
         if (kept > 0 && adapter.KvCacheType.BlockSize > 1)
@@ -133,7 +164,7 @@ public sealed class LlmModel : IDisposable
 
         var tok = TokenizerFactory.Create(TokenizerData.FromMetadata(def.SourceMetadata));
         options.Log?.Invoke($"Loaded {def.Name} ({def.Architecture}): {def.Weights.Count} tensors, {def.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB, vocab {tok.VocabSize} [{sw.ElapsedMilliseconds} ms]");
-        return new LlmModel(def, source, tok, options, ownsDefinition: true, sharedWeights: null);
+        return new LlmModel(def, source, tok, options, ownsDefinition: true, sharedWeights: null, loader.Architectures);
     }
 
     /// <summary>The recurrent state type of <see cref="LlmLoadOptions.RecurrentStateType"/>, after the diagnostic override.</summary>
@@ -182,8 +213,8 @@ public sealed class LlmModel : IDisposable
     {
         int maskToken = DiffusionMaskToken();
         int context = DiffusionContext(null);
-        var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, _options.Devices, _options.Fallback, context, 1,
-            _options.DisabledFeatures, CacheFor, _options.Log);
+        var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, [.. _options.Devices], _options.Fallback, context, 1,
+            _options.DisabledFeatures.ToHashSet(StringComparer.Ordinal), CacheFor, _options.Log);
         ReportReady(WellKnown.DenoiseGraph);
         return new DiffusionGenerator(runner, Tokenizer, maskToken, Definition.Property(WellKnown.DiffusionShiftLogits, false));
     }
@@ -195,8 +226,8 @@ public sealed class LlmModel : IDisposable
     private Serving.DiffusionBatchDecoder CreateDiffusionDecoder(int slots, int context)
     {
         int maskToken = DiffusionMaskToken();
-        var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, _options.Devices, _options.Fallback, context,
-            Math.Max(1, slots), _options.DisabledFeatures, CacheFor, _options.Log);
+        var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, [.. _options.Devices], _options.Fallback, context,
+            Math.Max(1, slots), _options.DisabledFeatures.ToHashSet(StringComparer.Ordinal), CacheFor, _options.Log);
         ReportReady(WellKnown.DenoiseGraph);
         return new Serving.DiffusionBatchDecoder(runner, Math.Max(1, slots), context, maskToken, Definition.Property(WellKnown.DiffusionShiftLogits, false));
     }
@@ -237,7 +268,7 @@ public sealed class LlmModel : IDisposable
     /// sequences of up to <paramref name="contextLength"/> tokens (prompt plus span; the remaining parameters do not apply).
     /// </summary>
     /// <param name="slots">Sequences decoded together.</param>
-    /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
     /// <param name="memoryLimit">Device bytes the decoder may use, or null for the devices as configured.</param>
     /// <param name="maxLogitsRows">
     /// Logits rows one step may return (default <paramref name="slots"/>, one per sequence). Speculative decoding needs
@@ -315,7 +346,7 @@ public sealed class LlmModel : IDisposable
     /// </summary>
     /// <param name="slots">Slots of the target decoder.</param>
     /// <param name="draftTokens">Drafts proposed per sequence and step (1 to 4 are typical).</param>
-    /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
     /// <param name="kvCacheTokens">The target decoder's paged KV cache size, or null for a contiguous cache.</param>
     /// <exception cref="NotSupportedException">The model has no draft head.</exception>
     public Serving.Speculative.ISpeculator CreateMtpSpeculator(int slots, int draftTokens, int? contextLength = null, long? kvCacheTokens = null)
@@ -379,7 +410,7 @@ public sealed class LlmModel : IDisposable
     /// <param name="memoryLimit">Bytes the primary device may hold, or null for the devices as configured.</param>
     /// <param name="contextLength">KV-cache rows per sequence.</param>
     /// <param name="rowBound">Upper bound of the <c>R</c> symbol (rows whose logits are read per step).</param>
-    /// <param name="maxTokens">Rows per forward pass (default <see cref="LlmLoadOptions.MaxBatchTokens"/>).</param>
+    /// <param name="maxTokens">Rows per forward pass (default <see cref="TaskLoadOptions.MaxBatchTokens"/>).</param>
     private PlacementOptions PlacementFor(long? memoryLimit, int contextLength, long rowBound, long? maxTokens = null) => new()
     {
         Devices = DevicesWithLimit(memoryLimit),
@@ -390,7 +421,7 @@ public sealed class LlmModel : IDisposable
             MaxTokens = maxTokens ?? _options.MaxBatchTokens,
             ContextLength = contextLength,
             SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = MaxSourceTokens(contextLength) },
-            DisabledFeatures = _options.DisabledFeatures,
+            DisabledFeatures = _options.DisabledFeatures.ToHashSet(StringComparer.Ordinal),
             AllowReducedPrecision = _options.AllowReducedPrecision,
             CacheFor = CacheFor,
             Progress = _options.Progress,
@@ -412,7 +443,7 @@ public sealed class LlmModel : IDisposable
     {
         if (memoryLimit is not { } limit || _options.Devices.Count == 0)
         {
-            return _options.Devices;
+            return [.. _options.Devices];
         }
 
         var d0 = _options.Devices[0];
@@ -427,7 +458,7 @@ public sealed class LlmModel : IDisposable
     /// denoising pass over <paramref name="contextLength"/> rows (it has no per-sequence state).
     /// </summary>
     /// <param name="slots">Concurrent sequences.</param>
-    /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
     /// <param name="kvCacheTokens">Paged KV cache of this many tokens shared by the slots (see <see cref="CreateBatchDecoder"/>), or null.</param>
     /// <param name="draftTokens">
     /// Speculative decoding (as <see cref="CreateBatchDecoder"/>'s <c>draftTokens</c>): adds the rollback record states of the
@@ -509,7 +540,9 @@ public sealed class LlmModel : IDisposable
     public VisionEncoder CreateVisionEncoder()
     {
         var sw = Stopwatch.StartNew();
-        var enc = VisionEncoder.Create(Definition, _options.Devices, _options.Fallback, _options.ImageTokens, _options.DisabledFeatures, CacheFor);
+        Architectures.TryFindMultimodal(Definition.Architecture, out var multimodal);
+        var enc = VisionEncoder.Create(Definition, [.. _options.Devices], _options.Fallback, _options.ImageTokens,
+            new HashSet<string>(_options.DisabledFeatures, StringComparer.Ordinal), CacheFor, multimodal);
         _options.Log?.Invoke($"Compiled '{WellKnown.VisionEncodeGraph}' (up to {enc.MaxPatches / enc.Parameters.MergeUnit} image tokens) in {sw.ElapsedMilliseconds} ms\n{enc.Compiled.Plan.Describe()}");
         return enc;
     }

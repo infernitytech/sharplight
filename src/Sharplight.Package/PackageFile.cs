@@ -158,7 +158,12 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
     {
         public override Span<byte> GetSpan() => new(ptr, length);
         public override MemoryHandle Pin(int elementIndex = 0) => new(ptr + elementIndex);
-        public override void Unpin() { }
-        protected override void Dispose(bool disposing) { }
+        public override void Unpin()
+        {
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+        }
     }
 }

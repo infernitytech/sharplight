@@ -148,7 +148,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string a = Architecture + ".";
         string? type = c.ModelType;
@@ -351,7 +351,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         bool extended = IsGemma4OrMuse(c.ModelType);
         bool gemma = IsGemma(c.ModelType) || extended;

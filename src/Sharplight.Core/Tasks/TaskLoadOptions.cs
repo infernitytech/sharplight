@@ -4,11 +4,12 @@ using Sharplight.Runtime;
 namespace Sharplight.Tasks;
 
 /// <summary>
-/// How a model is loaded (<see cref="TaskModel.Load(TaskLoadOptions, CancellationToken)"/>) and how its graphs are compiled. One options class for every
-/// model kind. Configured in code or through Microsoft.Extensions.Options (named after the service key when registered with
+/// How a model is loaded (<see cref="TaskModel.Load(ModelLoader, TaskLoadOptions, CancellationToken)"/>) and how its graphs are compiled:
+/// the settings every model kind shares. Kind-specific loaders extend it (<c>LlmLoadOptions</c>, <c>EmbeddingLoadOptions</c>, ...).
+/// Configured in code or through Microsoft.Extensions.Options (named after the service key when registered with
 /// <c>services.AddTaskClient&lt;TClient&gt;(...)</c>).
 /// </summary>
-public sealed class TaskLoadOptions
+public class TaskLoadOptions
 {
     /// <summary>Model file or directory, as understood by the registered importers (an <c>.slm</c> package, a GGUF file, ...).</summary>
     public string? ModelPath { get; set; }
@@ -31,8 +32,11 @@ public sealed class TaskLoadOptions
     /// <summary>Upper bound of the row symbol (tokens, frames, latent positions) per forward pass.</summary>
     public int MaxBatchTokens { get; set; } = 512;
 
-    /// <summary>Auxiliary model files by role, opened with the primary one (e.g. a separately shipped vision projector or VAE).</summary>
-    public IList<(string Role, string Path)> Auxiliary { get; set; } = [];
+    /// <summary>
+    /// Auxiliary model files by role (<see cref="Vision.AuxiliaryRoles"/>), opened with the primary one (e.g. a separately shipped
+    /// vision projector or VAE).
+    /// </summary>
+    public IDictionary<string, string> Auxiliary { get; set; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
     /// <summary>Architecture-adapter settings (KV cache type, graph optimization, ...).</summary>
     public AdapterOptions Adapter { get; set; } = new();

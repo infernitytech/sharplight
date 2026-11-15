@@ -5,7 +5,7 @@ using Sharplight.Hub;
 namespace Sharplight.Samples.Hub;
 
 /// <summary><c>search &lt;query&gt; [--format gguf|safetensors|onnx] [--limit N]</c>: lists Hub repositories, most downloaded first.</summary>
-public sealed class SearchCommand(StoreOptionSet store)
+public sealed class SearchCommand(StoreOptionSet store, SampleRuntime runtime)
 {
     private const int MaxVariantsShown = 6;
     private const string FormatGguf = "gguf";
@@ -41,7 +41,7 @@ public sealed class SearchCommand(StoreOptionSet store)
             Format = ParseFormat(parseResult.GetValue(_format)),
             Limit = parseResult.GetValue(_limit),
         };
-        using var hub = new HubContext(store.ReadRoot(parseResult));
+        using var hub = new HubContext(runtime, store.ReadRoot(parseResult));
         var results = await hub.Hub.SearchAsync(query, cancellationToken);
         if (results.Count == 0)
         {

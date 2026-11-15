@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -21,11 +20,6 @@ public class QuantizedModelTests
     private const double MaxCpuVulkanDifference = 0.1;
 
     private static readonly string ModelDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "gguf", "quant-test");
-
-    static QuantizedModelTests()
-    {
-        GgufImporter.Register();
-    }
 
     private sealed record Reference(string Prompt, int[] Ids, double[] Probs);
 
@@ -69,7 +63,7 @@ public class QuantizedModelTests
             slot = new DeviceSlot { Device = provider.OpenDevice(provider.GetDevices()[0]) };
         }
 
-        using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [slot], ContextLength = 256, MaxBatchTokens = 256 });
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [slot], ContextLength = 256, MaxBatchTokens = 256 });
         try
         {
             using var session = model.CreateSession(WellKnown.DecodeGraph);

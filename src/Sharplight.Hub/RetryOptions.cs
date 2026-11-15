@@ -8,11 +8,11 @@ namespace Sharplight.Hub;
 public sealed class RetryOptions
 {
     /// <summary>Attempts per request (or per download without progress) before giving up; at least 1.</summary>
-    public int MaxAttempts { get; init; } = 8;
+    public int MaxAttempts { get; set; } = 8;
 
     /// <summary>Delay before the first retry; doubled for every further one.</summary>
-    public TimeSpan InitialDelay { get; init; } = TimeSpan.FromSeconds(1);
+    public TimeSpan InitialDelay { get; set; } = TimeSpan.FromSeconds(1);
 
     /// <summary>Upper bound of a single delay (also caps <c>Retry-After</c>).</summary>
-    public TimeSpan MaxDelay { get; init; } = TimeSpan.FromSeconds(60);
+    public TimeSpan MaxDelay { get; set; } = TimeSpan.FromSeconds(60);
 }

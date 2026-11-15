@@ -1,5 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Runtime;
 
@@ -14,15 +13,13 @@ public class DiffusionBackendTests
     private static readonly string Path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         "models", "gguf", "tiny-random-dream-f32.gguf");
 
-    static DiffusionBackendTests() => GgufImporter.Register();
-
     [Fact]
     public async Task ChatClientPicksDiffusionBackendAndMatchesGenerator()
     {
         Assert.SkipUnless(File.Exists(Path), $"model not found: {Path}");
         var cpu = new CpuExecutionProvider();
         using var device = cpu.OpenDevice(cpu.GetDevices()[0]);
-        using var model = LlmModel.Load(Path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64, MaxBatchTokens = 64 });
+        using var model = LlmModel.Load(TestHost.Loader, Path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64, MaxBatchTokens = 64 });
         var options = new GenerationOptions { MaxNewTokens = 16, StopAtEog = false, Diffusion = new DiffusionOptions { Steps = 8 } };
         const string prompt = "The quick brown fox";
 

@@ -3,7 +3,6 @@ using Sharplight.Audio;
 using Sharplight.Models;
 using Sharplight.Package;
 using Sharplight.Runtime;
-using Sharplight.Tasks;
 using Sharplight.Vulkan;
 using Xunit;
 
@@ -34,7 +33,7 @@ public sealed class SpeechPackageTests : IDisposable
         }
 
         string package = Path.Combine(_directory, name + ".slm");
-        ModelConverter.Convert(source, package);
+        TestHost.Converter.Convert(source, package);
 
         var info = ModelPackageReader.Open(package);
         Assert.True(info.Definition.HasDescription);
@@ -65,7 +64,7 @@ public sealed class SpeechPackageTests : IDisposable
         }
 
         string package = Path.Combine(_directory, "tiny.en.slm");
-        ModelConverter.Convert(source, package);
+        TestHost.Converter.Convert(source, package);
         var logs = new List<string>();
         var vulkan = new VulkanProvider();
         await PackagePrecompiler.PrecompileAsync(package, vulkan, vulkan.GetDevices()[0], new PrecompileOptions { Log = logs.Add },

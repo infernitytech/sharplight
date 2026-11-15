@@ -5,12 +5,12 @@ namespace Sharplight.Architectures;
 
 /// <summary>
 /// OuteTTS: a decoder language model that generates codec tokens after a text prompt, plus the WavTokenizer decoder that turns the tokens into
-/// a waveform. A composite adapter (<see cref="ModelAdapterRegistry.RegisterComposite"/>): the primary source is the language model, built by
+/// a waveform. A composite adapter (<see cref="ICompositeModelAdapter"/>): the primary source is the language model, built by
 /// whichever adapter handles its architecture (OuteTTS 0.2 is a Qwen2 decoder), the <see cref="AuxiliaryRoles.Vocoder"/> source the codec
 /// (<see cref="WavTokenizerGraph"/>, weights under <c>codec.</c>). The result is a <see cref="ModelKinds.SpeechSynthesis"/> model with the
 /// components <c>text-model</c> (the decoder graphs), <c>tokenizer</c> and <c>codec-decoder</c>; <see cref="OuteTtsSynthesizer"/> runs it.
 /// </summary>
-internal sealed class OuteTtsAdapter : IModelAdapter
+internal sealed class OuteTtsAdapter : ICompositeModelAdapter
 {
     /// <summary>The role of the language model component.</summary>
     public const string TextModelRole = "text-model";
@@ -31,20 +31,21 @@ internal sealed class OuteTtsAdapter : IModelAdapter
     public string Name => "OuteTTS";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> Architectures { get; } = [];
-
-    /// <inheritdoc/>
     public bool CanLoad(ModelSourceSet sources)
         => sources.Auxiliary.TryGetValue(AuxiliaryRoles.Vocoder, out var codec) && codec.Architecture == WavTokenizerParameters.Architecture
            && OuteTtsPrompt.VersionOf(sources.Primary) is not null;
 
     /// <inheritdoc/>
-    public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
+    public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options, ArchitectureCatalog architectures)
     {
         var primary = sources.Primary;
         string version = OuteTtsPrompt.VersionOf(primary) ?? throw new NotSupportedException("The language model is not an OuteTTS checkpoint.");
         var codecSource = sources.Auxiliary[AuxiliaryRoles.Vocoder];
-        var textAdapter = ModelAdapterRegistry.Find(primary) ?? throw new NotSupportedException($"No adapter for the OuteTTS language model architecture '{primary.Architecture}'.");
+        if (!architectures.TryFindAdapter(primary, out var textAdapter))
+        {
+            throw new NotSupportedException($"No adapter for the OuteTTS language model architecture '{primary.Architecture}'.");
+        }
+
         var text = textAdapter.Build(new ModelSourceSet { Primary = primary }, options);
 
         var codec = WavTokenizerParameters.From(codecSource);

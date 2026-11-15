@@ -39,7 +39,7 @@ internal sealed partial class VitHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string a = Architecture + ".";
         int hidden = c.Int("hidden_size");
@@ -111,7 +111,7 @@ internal sealed partial class VitHfMapping : IHfArchitectureMapping
     };
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         int hidden = c.Int("hidden_size");
         int patch = c.Int("patch_size");

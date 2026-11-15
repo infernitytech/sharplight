@@ -157,7 +157,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         PipelineLayout = CreatePipelineLayout();
         Pipelines = new PipelineBuilder(Api, PipelineLayout, Phys.SubgroupSize,
             Has(DeviceFeatures.SubgroupSizeControl) && Phys.MinSubgroupSize != Phys.MaxSubgroupSize, Has(DeviceFeatures.SubgroupSizeControl),
-            _pipelineStats ? VkPipelineCreateFlags.CaptureStatisticsKHR : 0);
+            _pipelineStats ? VkPipelineCreateFlags.CaptureStatisticsKHR : 0,
+            (Phys.PortabilitySubset && DiagnosticSwitches.PortabilityRewrite) || DiagnosticSwitches.PortabilityRewriteAll);
         ArtifactTargets = CreateArtifactTargets();
 
         Memory = new MemoryAllocator(this);
@@ -288,6 +289,13 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             {
                 exts.Add("VK_KHR_maintenance5");
             }
+        }
+
+        // A portability implementation (MoltenVK) requires its subset extension to be enabled. None of the subset's optional
+        // features are requested: the compute kernels use no events, image views, samplers or graphics state.
+        if (Phys.PortabilitySubset)
+        {
+            exts.Add("VK_KHR_portability_subset");
         }
 
         var extNames = exts.Select(e => (nint)Marshal.StringToHGlobalAnsi(e)).ToArray();

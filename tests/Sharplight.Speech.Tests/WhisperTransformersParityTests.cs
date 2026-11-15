@@ -134,7 +134,7 @@ public sealed class WhisperTransformersParityTests
             Assert.Skip($"{path}, jfk.wav or the {device} device is missing.");
         }
 
-        return TaskModel.Load(new TaskLoadOptions { ModelPath = path, Devices = [new DeviceSlot { Device = SpeechEnvironment.Device(device)! }] });
+        return TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [new DeviceSlot { Device = SpeechEnvironment.Device(device)! }] });
     }
 
     /// <summary>The generated tokens of a transformers result: after the prompt (start, language, task, no-timestamps), without the end token.</summary>

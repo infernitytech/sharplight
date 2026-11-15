@@ -40,13 +40,13 @@ public class ThroughputTests
         IDisposable owner;
         if (kind == "rerank")
         {
-            var r = Reranker.Load(path, new RerankerLoadOptions { Devices = [dev] });
+            var r = Reranker.Load(TestHost.Loader, path, new RerankerLoadOptions { Devices = [dev] });
             owner = r;
             run = () => r.Score("what is a fast local vector search model?", texts).TotalTokens;
         }
         else
         {
-            var m = EmbeddingModel.Load(path, new EmbeddingLoadOptions { Devices = [dev] });
+            var m = EmbeddingModel.Load(TestHost.Loader, path, new EmbeddingLoadOptions { Devices = [dev] });
             owner = m;
             run = () => m.Embed(texts).TotalTokens;
         }

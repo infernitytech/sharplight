@@ -11,7 +11,8 @@ so with a shared store a model pulled with one is available to the other. The re
 
 Neither references a format importer: `Sharplight.Hub` only looks at file names (to pick a GGUF quantization or the
 safetensors/ONNX files of a checkpoint) and hands the downloaded files to `ModelConverter`, which goes through the
-importers the host registered (`GgufImporter.Register()`, `HuggingFaceImporter.Register()`, `OnnxImporter.Register()`).
+formats and architectures registered with the host's container (`services.AddSharplight()`, or `services.AddGgufImporter()`,
+`.AddHuggingFaceImporter()`, `.AddOnnxImporter()` and `.AddBuiltinArchitectures()`); `ModelPuller` takes the `ModelConverter` service.
 
 The command-line side is shared too: `samples/Sharplight.Samples.Hub` holds the `pull`, `search`, `list`, `show`, `rm` and `store`
 commands, the `--models-dir` and pull options, the console progress display and `ModelResolver`, which turns a model

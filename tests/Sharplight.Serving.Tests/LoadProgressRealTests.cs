@@ -1,5 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
@@ -31,9 +30,8 @@ public class LoadProgressRealTests
 
     private static void LoadAndCheck(IComputeDevice device, bool expectUpload)
     {
-        GgufImporter.Register();
         var log = new ProgressLog();
-        using var model = LlmModel.Load(ModelPath, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, ModelPath, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }],
             ContextLength = 256,
@@ -85,11 +83,10 @@ public class LoadProgressRealTests
     public void CancelledLoadThrows()
     {
         Assert.SkipUnless(File.Exists(ModelPath), "model not found: " + ModelPath);
-        GgufImporter.Register();
         using var device = OpenCpu();
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        Assert.ThrowsAny<OperationCanceledException>(() => LlmModel.Load(ModelPath, new LlmLoadOptions
+        Assert.ThrowsAny<OperationCanceledException>(() => LlmModel.Load(TestHost.Loader, ModelPath, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }],
             CancellationToken = cts.Token,

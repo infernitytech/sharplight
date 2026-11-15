@@ -1,5 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -16,11 +15,6 @@ public class LogprobReferenceTests
 {
     private const double Tolerance = 0.25;
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    static LogprobReferenceTests()
-    {
-        GgufImporter.Register();
-    }
 
     /// <summary>A prompt and the reference log-probability of some next-token candidates.</summary>
     public sealed record Case(string Name, string Path, string Prompt, (int Id, double LogProb)[] Expected);
@@ -46,7 +40,7 @@ public class LogprobReferenceTests
         var devices = provider.GetDevices();
         var info = vulkan ? devices.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devices[0] : devices[0];
         var slot = new DeviceSlot { Device = provider.OpenDevice(info) };
-        using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [slot], ContextLength = 256, MaxBatchTokens = 64 });
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [slot], ContextLength = 256, MaxBatchTokens = 64 });
         using var session = model.CreateSession(WellKnown.DecodeGraph);
         var logits = session.Process(model.Tokenizer.Encode(c.Prompt, addSpecial: true, parseSpecial: false));
         double max = logits.Max();

@@ -20,7 +20,7 @@ internal sealed class Qwen2VlHfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } = ["qwen2_vl", "qwen2_vl_text", "qwen2_5_vl", "qwen2_5_vl_text"];
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HuggingFaceImportOptions options)
     {
         var md = new Dictionary<string, object>(_text.MapHyperParameters(config, options), StringComparer.Ordinal);
         if (config.RopeIntArray("mrope_section") is { } sections)
@@ -40,7 +40,7 @@ internal sealed class Qwen2VlHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         // model.language_model.X (transformers 5) → model.X; the older layout already has model.X. The tower is left out.
         var text = tensors

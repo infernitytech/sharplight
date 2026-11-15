@@ -19,7 +19,7 @@ internal sealed class PaddleOcrVlHfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } = ["paddleocr_vl", "paddleocr_vl_text"];
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HuggingFaceImportOptions options)
     {
         var md = new Dictionary<string, object>(_text.MapHyperParameters(config, options), StringComparer.Ordinal);
         if (config.RopeIntArray("mrope_section") is { } sections)
@@ -39,7 +39,7 @@ internal sealed class PaddleOcrVlHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         // Hub checkpoints have model.X / lm_head / visual.* / mlp_AR.*; transformers 5 saves model.language_model.X, model.visual.*, model.projector.*.
         var text = tensors

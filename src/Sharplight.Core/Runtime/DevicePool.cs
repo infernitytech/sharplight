@@ -32,25 +32,28 @@ public sealed class DevicePool : IDisposable
         }
     }
 
-    /// <summary>Convenience: the <paramref name="index"/>-th device of the first available provider named <paramref name="providerName"/>.</summary>
-    public IComputeDevice Open(string providerName, int index = 0, DeviceOptions? options = null)
+    /// <summary>The <paramref name="index"/>-th device of the first available provider named <paramref name="providerName"/>.</summary>
+    /// <param name="providers">The providers to choose from.</param>
+    /// <param name="providerName">The provider name, e.g. <c>vulkan</c>.</param>
+    /// <param name="index">The device index within the provider.</param>
+    /// <param name="options">Device options for the first open, or <see langword="null"/>.</param>
+    /// <exception cref="InvalidOperationException">No available provider has this name.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The provider has no device with this index.</exception>
+    public IComputeDevice Open(ExecutionProviderCatalog providers, string providerName, int index = 0, DeviceOptions? options = null)
     {
-        foreach (var (p, a) in ProviderRegistry.Discover())
+        ArgumentNullException.ThrowIfNull(providers);
+        if (!providers.TryFind(providerName, out var provider))
         {
-            if (!a.IsAvailable || p.Name != providerName)
-            {
-                continue;
-            }
-
-            var devs = p.GetDevices();
-            if (index < 0 || index >= devs.Count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index), $"Provider '{providerName}' has {devs.Count} device(s).");
-            }
-
-            return Open(p, devs[index], options);
+            throw new InvalidOperationException($"No available execution provider named '{providerName}'.");
         }
-        throw new InvalidOperationException($"No available execution provider named '{providerName}'.");
+
+        var devices = provider.GetDevices();
+        if (index < 0 || index >= devices.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), $"Provider '{providerName}' has {devices.Count} device(s).");
+        }
+
+        return Open(provider, devices[index], options);
     }
 
     /// <summary>Snapshot of the devices opened so far.</summary>

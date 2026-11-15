@@ -13,6 +13,7 @@
     <Using Include="Xunit" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
     <ProjectReference Include="../../src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />

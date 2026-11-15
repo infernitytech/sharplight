@@ -11,7 +11,7 @@ namespace Sharplight.Import.WhisperCpp;
 /// file; only names change. The stored mel filter bank becomes the <c>feature-extractor/mel-filters</c> attachment, and the vocabulary is
 /// rebuilt into a canonical byte-level BPE tokenizer with Whisper's special tokens and decoding keys (see <see cref="WhisperCppVocabulary"/>).
 /// </summary>
-/// <remarks>Register once with <see cref="Register"/> so that <see cref="ModelImporterRegistry"/> opens whisper.cpp files, or call <see cref="Open"/>.</remarks>
+/// <remarks>Register with <c>services.AddWhisperCppImporter()</c> so that the <see cref="ModelLoader"/> opens whisper.cpp files, or call <see cref="Open"/>.</remarks>
 public sealed partial class WhisperCppImporter : IModelImporter
 {
     private const string Architecture = "encoder_decoder";
@@ -21,9 +21,6 @@ public sealed partial class WhisperCppImporter : IModelImporter
 
     /// <inheritdoc/>
     public string Format => "whisper.cpp";
-
-    /// <summary>Registers the importer with <see cref="ModelImporterRegistry"/>.</summary>
-    public static void Register() => ModelImporterRegistry.Register(new WhisperCppImporter());
 
     /// <inheritdoc/>
     /// <remarks>True when <paramref name="path"/> is an existing file starting with the ggml magic of whisper.cpp model files.</remarks>

@@ -23,8 +23,6 @@ public sealed class DiffusersImporter : IModelImporter
     /// <inheritdoc/>
     public int Priority => 10;
 
-    /// <summary>Registers the importer with <see cref="ModelImporterRegistry"/>. Idempotent.</summary>
-    public static void Register() => ModelImporterRegistry.Register(new DiffusersImporter());
 
     /// <inheritdoc/>
     public bool CanOpen(string path) => DiffusersFolder.IsFolder(path) || SingleFileCheckpoint.IsCheckpoint(path);

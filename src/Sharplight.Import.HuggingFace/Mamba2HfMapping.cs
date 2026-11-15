@@ -13,7 +13,7 @@ internal sealed partial class Mamba2HfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } = ["mamba2"];
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string a = Architecture + ".";
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
@@ -35,7 +35,7 @@ internal sealed partial class Mamba2HfMapping : IHfArchitectureMapping
     private static partial Regex LayerName();
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var collector = new HfWeightCollector();
         foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))

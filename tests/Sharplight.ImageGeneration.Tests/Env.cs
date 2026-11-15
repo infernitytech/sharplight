@@ -110,7 +110,7 @@ internal static class Env
     public static DeviceSlot? Device(string name) => name == "cpu" ? Cpu() : Vulkan();
 
     /// <summary>Loads a model as a task model on one device.</summary>
-    public static TaskModel Load(string path, DeviceSlot slot) => TaskModel.Load(new TaskLoadOptions { ModelPath = path, Devices = [slot] });
+    public static TaskModel Load(string path, DeviceSlot slot) => TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [slot] });
 
     /// <summary>Reads a raw little-endian f32 file.</summary>
     public static float[] ReadFloats(string path)

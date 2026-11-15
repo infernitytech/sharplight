@@ -1,5 +1,3 @@
-using Sharplight.Import.Gguf;
-using Sharplight.Architectures;
 using Sharplight.Package;
 
 namespace Sharplight.Hub.Tests;
@@ -31,13 +29,11 @@ public sealed class RealHubTests
     public async Task PullsConvertsAndStoresSmallGguf()
     {
         Assert.SkipUnless(Enabled, $"set {EnableVariable}=1 to run network tests");
-        GgufImporter.Register();
-        BuiltinAdapters.RegisterAll();
         using var directory = new TempDirectory();
         using var http = HubClientOptions.CreateHttpClient();
         var options = HubClientOptions.FromEnvironment();
         var store = new ModelStore(directory.Path);
-        var puller = new ModelPuller(new HubClient(http, options), new FileDownloader(http, options), store);
+        var puller = new ModelPuller(new HubClient(http, options), new FileDownloader(http, options), store, TestHost.Converter);
 
         var result = await puller.PullAsync(ModelReference.Parse(SmallModel), cancellationToken: TestContext.Current.CancellationToken);
 

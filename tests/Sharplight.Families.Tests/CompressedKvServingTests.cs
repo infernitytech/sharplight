@@ -1,6 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
@@ -19,12 +17,6 @@ public class CompressedKvServingTests
 {
     private static readonly string Models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models");
 
-    static CompressedKvServingTests()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-    }
-
     [Theory]
     [InlineData("hf/tiny-random-deepseek-v4", false, false)]
     [InlineData("hf/tiny-random-deepseek-v4", true, false)]
@@ -35,7 +27,7 @@ public class CompressedKvServingTests
         string path = Path.Combine(Models, name);
         Assert.SkipUnless(Directory.Exists(path) || File.Exists(path), $"{path} not present");
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(path, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 256, MaxBatchTokens = 16, KvCacheType = f32Kv ? Sharplight.Tensors.DataType.F32 : null,
         });

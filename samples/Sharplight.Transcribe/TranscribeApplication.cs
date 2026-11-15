@@ -9,8 +9,9 @@ using Sharplight.Tasks;
 namespace Sharplight.Transcribe;
 
 /// <summary>
-/// Runs <c>sharplight-transcribe</c>: registers Sharplight and one <see cref="ISpeechRecognizer"/> for the model with the service container
-/// (the model loads on first use), reads the WAV file, transcribes it and writes the transcript.
+/// Runs <c>sharplight-transcribe</c>: loads the model through the <see cref="SampleRuntime"/> container, creates its
+/// <see cref="ISpeechRecognizer"/> with the container's <see cref="TaskClientProvider"/>, reads the WAV file, transcribes it and writes
+/// the transcript.
 /// </summary>
 public static class TranscribeApplication
 {
@@ -26,17 +27,16 @@ public static class TranscribeApplication
         }
 
         var audio = WavFile.Read(settings.AudioPath);
-        var services = new ServiceCollection().AddSharplight();
-        var provider = SampleRuntime.SelectProvider(settings.UseCpu);
+        using var runtime = new SampleRuntime();
+        var provider = runtime.SelectProvider(settings.UseCpu);
         using var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.DeviceIndex));
-        services.AddSpeechRecognizer(options =>
+        using var model = await TaskModel.LoadAsync(runtime.Loader, new TaskLoadOptions
         {
-            options.ModelPath = settings.ModelPath;
-            options.Devices = [new DeviceSlot { Device = device }];
-            options.Log = settings.Verbose ? message => Console.Error.WriteLine(message) : null;
-        });
-        await using var container = services.BuildServiceProvider();
-        var recognizer = container.GetRequiredService<ISpeechRecognizer>();
+            ModelPath = settings.ModelPath,
+            Devices = [new DeviceSlot { Device = device }],
+            Log = settings.Verbose ? message => Console.Error.WriteLine(message) : null,
+        }, cancellationToken);
+        using var recognizer = runtime.Services.GetRequiredService<TaskClientProvider>().Create<ISpeechRecognizer>(model);
 
         var stopwatch = Stopwatch.StartNew();
         var transcription = await recognizer.TranscribeAsync(audio, settings.Recognition, cancellationToken);

@@ -67,7 +67,7 @@ public class TinyDeepseekOcrImageTests
         int rows = r.GetProperty("rows").GetInt32();
         var expected = r.GetProperty("embeddings").EnumerateArray().Select(e => e.GetSingle()).ToArray();
 
-        using var model = LlmModel.Load(dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 2048, Auxiliary = gguf ? [(AuxiliaryRoles.Mmproj, mmproj)] : [] });
+        using var model = LlmModel.Load(TestHost.Loader, dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 2048, Auxiliary = gguf ? new Dictionary<string, string> { [AuxiliaryRoles.Mmproj] = mmproj } : new Dictionary<string, string>() });
         using var vision = model.CreateVisionEncoder();
         var tiles = new List<float[]>();
         if (columns * rows > 1)
@@ -98,7 +98,7 @@ public class TinyDeepseekOcrImageTests
         var promptIds = r.GetProperty("prompt_ids").EnumerateArray().Select(e => e.GetInt32()).ToArray();
         int imageId = promptIds[1];
         var collapsed = promptIds.Where((t, i) => t != imageId || promptIds[i - 1] != imageId).ToArray();
-        var mm = MultimodalRegistry.Find(model.Definition.Architecture)!.Assemble(new MultimodalContext(model.Definition, t => Single(model, t)), collapsed, [image], 0);
+        var mm = Multimodal(model).Assemble(new MultimodalContext(model.Definition, t => Single(model, t)), collapsed, [image], 0);
         Assert.Equal(promptIds.Length, mm.Length);
         using var session = model.CreateSession(WellKnown.DecodeMultimodalGraph);
         var logits = session.Process(mm, [embeddings]);
@@ -163,7 +163,7 @@ public class TinyDeepseekOcrImageTests
             }
         }
 
-        using var model = LlmModel.Load(dir, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64 });
+        using var model = LlmModel.Load(TestHost.Loader, dir, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64 });
         var p = VisionParameters.Of(model.Definition)!;
         var image = new VisionPreprocessor(p).Process(new ImageInput(width, height, rgb));
         bool tiled = columns * rows > 1;
@@ -220,7 +220,7 @@ public class TinyDeepseekOcrImageTests
             }
         }
 
-        using var model = LlmModel.Load(dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 2048 });
+        using var model = LlmModel.Load(TestHost.Loader, dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 2048 });
         using var vision = model.CreateVisionEncoder();
         using var session = model.CreateSession(WellKnown.DecodeMultimodalGraph);
         var ids = new Generator(session, model.Tokenizer, vision)
@@ -251,7 +251,7 @@ public class TinyDeepseekOcrImageTests
         Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny DeepSeek-OCR GGUF or mmproj not available");
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [slot!], ContextLength = 512, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)] });
+        using var model = LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions { Devices = [slot!], ContextLength = 512, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj } });
         using var vision = model.CreateVisionEncoder();
         const int size = 1024;
         var view = new float[3 * size * size];
@@ -336,4 +336,9 @@ public class TinyDeepseekOcrImageTests
         var ids = model.Tokenizer.Encode(text, addSpecial: false, parseSpecial: true);
         return ids.Length == 1 ? ids[0] : null;
     }
+
+    private static IMultimodalArchitecture Multimodal(LlmModel model)
+        => model.Architectures.TryFindMultimodal(model.Definition.Architecture, out var multimodal)
+            ? multimodal
+            : throw new InvalidOperationException($"No multimodal prompt assembly for {model.Definition.Architecture}.");
 }

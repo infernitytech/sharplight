@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using Sharplight.Llm.Embeddings;
+using Sharplight.Models;
 
 namespace Sharplight.Extensions.AI;
 
@@ -25,9 +26,13 @@ public sealed class SharplightEmbeddingGenerator : IEmbeddingGenerator<string, E
         _metadata = new EmbeddingGeneratorMetadata("sharplight", null, modelId ?? model.Name, model.Dimensions);
     }
 
-    /// <summary>Loads a model and returns a generator owning it (importers must be registered, e.g. <c>HuggingFaceImporter.Register()</c>).</summary>
-    public static SharplightEmbeddingGenerator Load(string path, EmbeddingLoadOptions load)
-        => new(EmbeddingModel.Load(path, load), ownsModel: true);
+    /// <summary>Loads a model and returns a generator owning it.</summary>
+    /// <param name="loader">The model loader (from the service container: <c>services.AddSharplight()</c>).</param>
+    /// <param name="path">Model file or directory.</param>
+    /// <param name="load">Devices and batch settings.</param>
+    /// <returns>The generator; disposing it disposes the model.</returns>
+    public static SharplightEmbeddingGenerator Load(ModelLoader loader, string path, EmbeddingLoadOptions load)
+        => new(EmbeddingModel.Load(loader, path, load), ownsModel: true);
 
     /// <summary>The wrapped embedder.</summary>
     public ITextEmbedder Model => _model;

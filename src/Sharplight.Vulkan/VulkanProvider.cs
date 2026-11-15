@@ -6,46 +6,49 @@ namespace Sharplight.Vulkan;
 /// Vulkan compute execution provider. Requires Vulkan 1.2+ with buffer device addresses,
 /// 8/16-bit storage and 64-bit integers (kernels address memory through raw pointers).
 /// </summary>
-public sealed unsafe class VulkanProvider : IExecutionProvider
+/// <remarks>
+/// The Vulkan instance (loader, layers, physical-device enumeration) is process-wide state: it is created on the first provider call
+/// and lives until the process exits, because devices opened by any provider instance (and the pipeline caches and memory allocators
+/// behind them) are shared across models and must outlive the provider objects, and because creating and destroying instances
+/// repeatedly is slow and leaks driver memory on several drivers. Provider objects themselves are cheap and stateless. The other
+/// process-wide piece is a safety net: devices still open at process exit are disposed on <see cref="AppDomain.ProcessExit"/> before
+/// the driver's own teardown (which can crash against live devices); disposing devices normally stays the owner's job.
+/// </remarks>
+/// <param name="options">Provider options, or <see langword="null"/> for the defaults.</param>
+public sealed unsafe class VulkanProvider(VulkanProviderOptions? options = null) : IExecutionProvider
 {
     private static readonly Lock s_lock = new();
     private static VulkanInstance? s_instance;
     private static string? s_initError;
+    private readonly bool _enableValidation = (options ?? new VulkanProviderOptions()).EnableValidation;
 
     /// <inheritdoc />
     public string Name => "vulkan";
 
-    /// <summary>
-    /// Enables the Khronos validation layer for the Vulkan instance, which is created on first use: set it before the
-    /// first provider call. Process-wide; defaults to on when <c>SHARPLIGHT_VK_VALIDATION=1</c>.
-    /// </summary>
-    public static bool EnableValidation { get; set; } = DiagnosticSwitches.Validation;
+    internal VulkanInstance Instance => GetOrCreateInstance(_enableValidation);
 
-    internal static VulkanInstance Instance
+    private static VulkanInstance GetOrCreateInstance(bool enableValidation)
     {
-        get
+        lock (s_lock)
         {
-            lock (s_lock)
+            if (s_instance is not null)
             {
-                if (s_instance is not null)
-                {
-                    return s_instance;
-                }
+                return s_instance;
+            }
 
-                if (s_initError is not null)
-                {
-                    throw new InvalidOperationException(s_initError);
-                }
+            if (s_initError is not null)
+            {
+                throw new InvalidOperationException(s_initError);
+            }
 
-                try
-                {
-                    return s_instance = new VulkanInstance(EnableValidation);
-                }
-                catch (Exception e)
-                {
-                    s_initError = e.Message;
-                    throw;
-                }
+            try
+            {
+                return s_instance = new VulkanInstance(enableValidation);
+            }
+            catch (Exception e)
+            {
+                s_initError = e.Message;
+                throw;
             }
         }
     }

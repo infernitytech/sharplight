@@ -1,7 +1,5 @@
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
@@ -16,12 +14,6 @@ namespace Sharplight.Families.Tests;
 public class DiffusionGenerationTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    static DiffusionGenerationTests()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-    }
 
     /// <summary>Model path under ~/models and the directory holding its reference.</summary>
     public static TheoryData<string, string, bool> Cases { get; } = new()
@@ -97,7 +89,7 @@ public class DiffusionGenerationTests
 
         try
         {
-            using var llm = LlmModel.Load(path, new LlmLoadOptions { Devices = [slot], ContextLength = 64, MaxBatchTokens = 64 });
+            using var llm = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [slot], ContextLength = 64, MaxBatchTokens = 64 });
             Assert.True(llm.IsDiffusion);
             using var generator = llm.CreateDiffusionGenerator();
             var ids = generator.Generate(prompt, options);

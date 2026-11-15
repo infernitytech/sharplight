@@ -5,9 +5,9 @@ namespace Sharplight.Cli;
 /// <summary>Prints every registered provider with its availability, devices, features and capabilities.</summary>
 internal static class DeviceLister
 {
-    public static void Print(TextWriter output)
+    public static void Print(ExecutionProviderCatalog providers, TextWriter output)
     {
-        foreach (var (provider, availability) in ProviderRegistry.Discover())
+        foreach (var (provider, availability) in providers.Discover())
         {
             var state = availability.IsAvailable ? "available" : "unavailable";
             output.WriteLine($"{provider.Name}: {state} — {availability.Reason}");

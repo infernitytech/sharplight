@@ -19,7 +19,7 @@ public sealed class ImporterTests
         var importer = new DiffusersImporter();
         Assert.True(importer.CanOpen(Env.TinyDiffusersOf(family)));
         Assert.True(importer.CanOpen(singleFile));
-        Assert.Same(importer.GetType(), ModelImporterRegistry.Find(singleFile)?.GetType());
+        Assert.Same(importer.GetType(), (TestHost.Loader.Importers.TryFind(singleFile, out var found) ? found.GetType() : null));
         var folder = importer.Open(Env.TinyDiffusersOf(family));
         var file = importer.Open(singleFile);
         try
@@ -142,7 +142,7 @@ public sealed class ImporterTests
     {
         Assert.SkipUnless(File.Exists(Env.Sd15Ckpt) && File.Exists(Env.Sd15SingleFile), "SD 1.5 .ckpt / .safetensors missing");
         var importer = new DiffusersImporter();
-        Assert.Same(importer.GetType(), ModelImporterRegistry.Find(Env.Sd15Ckpt)?.GetType());
+        Assert.Same(importer.GetType(), (TestHost.Loader.Importers.TryFind(Env.Sd15Ckpt, out var found) ? found.GetType() : null));
         var safetensors = importer.Open(Env.Sd15SingleFile);
         var ckpt = importer.Open(Env.Sd15Ckpt);
         try

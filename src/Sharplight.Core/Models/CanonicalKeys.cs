@@ -19,7 +19,7 @@ namespace Sharplight.Models;
 /// and weights <c>vision.*</c> (<c>vision.patch_embed.weight</c>, <c>vision.layers.{i}.attention.qkv.weight</c>,
 /// <c>vision.merger.*</c>, ...) — documented on <see cref="Vision.VisionParameters"/>. They may come in the primary
 /// source (Hugging Face checkpoints) or in an auxiliary source with role <see cref="Vision.AuxiliaryRoles.Mmproj"/>
-/// (<see cref="ModelImporterRegistry.OpenSet"/>); the architecture adapter treats both alike.</para>
+/// (<see cref="ModelImporterCatalog.OpenSet"/>); the architecture adapter treats both alike.</para>
 /// </remarks>
 public static class CanonicalKeys
 {

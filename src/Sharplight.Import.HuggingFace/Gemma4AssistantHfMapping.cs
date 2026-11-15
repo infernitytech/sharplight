@@ -26,7 +26,7 @@ internal sealed class Gemma4AssistantHfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } = ["gemma4_assistant", "gemma4_unified_assistant"];
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string decoderPrefix = s_layers.Architecture + ".";
         string a = Architecture + ".";
@@ -55,7 +55,7 @@ internal sealed class Gemma4AssistantHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var own = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         var layerTensors = new Dictionary<string, SafetensorsTensor>(StringComparer.Ordinal);

@@ -49,7 +49,7 @@ internal sealed class SpanScoringRunner : IDisposable
         var sw = Stopwatch.StartNew();
         var compiled = CompiledModel.Compile(def.Graph(WellKnown.ScoreSpansGraph), new PlacementOptions
         {
-            Devices = o.Devices,
+            Devices = [.. o.Devices],
             Fallback = o.Fallback,
             Compile = new CompileOptions
             {
@@ -59,7 +59,7 @@ internal sealed class SpanScoringRunner : IDisposable
                 {
                     [WellKnown.SequenceSymbol] = 1, [WellKnown.QuestionSymbol] = o.MaxQuestions, [WellKnown.OptionSymbol] = o.MaxOptions,
                 },
-                DisabledFeatures = o.DisabledFeatures,
+                DisabledFeatures = o.DisabledFeatures.ToHashSet(StringComparer.Ordinal),
                 CacheFor = cacheFor,
             },
         });

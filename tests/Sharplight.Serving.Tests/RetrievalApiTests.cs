@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -32,14 +33,14 @@ public sealed class RetrievalApiTests : IAsyncLifetime
         if (full)
         {
             _engine = new Sharplight.Llm.Serving.InferenceEngine(new FakeBatchDecoder(1), new FakeTokenizer());
-            b.Services.AddSharplight(new Sharplight.Llm.Serving.Chat.ModelService(_engine, ApiHost.Template, new() { ModelName = "fake-model" }));
+            b.Services.AddSharplightServer(new Sharplight.Llm.Serving.Chat.ModelService(_engine, ApiHost.Template, new() { ModelName = "fake-model" }));
         }
         b.Services.AddSharplightEmbeddings(_embedder).AddSharplightReranker(new FakeReranker());
         var app = b.Build();
         if (full)
         {
-            app.UseSharplight();
-            app.MapSharplight();
+            app.UseSharplightServer();
+            app.MapSharplightServer();
         }
         else
         {

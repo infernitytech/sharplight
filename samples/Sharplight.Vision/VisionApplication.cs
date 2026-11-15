@@ -7,8 +7,8 @@ using Sharplight.Tasks;
 namespace Sharplight.Vision.Sample;
 
 /// <summary>
-/// Runs <c>sharplight-vision</c>: registers Sharplight and one task client for the model with the service container (the model loads on first
-/// use), reads the PNG, runs the task and prints the result; detections are also drawn into the output image.
+/// Runs <c>sharplight-vision</c>: registers Sharplight and one task client for the model with the <see cref="SampleRuntime"/> container (the
+/// model loads on first use), reads the PNG, runs the task and prints the result; detections are also drawn into the output image.
 /// </summary>
 public static class VisionApplication
 {
@@ -19,19 +19,19 @@ public static class VisionApplication
     public static async Task<int> ClassifyAsync(VisionSettings settings, CancellationToken cancellationToken)
     {
         var image = ReadImage(settings);
-        var services = new ServiceCollection().AddSharplight();
-        using var device = OpenDevice(settings);
-        Action<TaskLoadOptions> configure = options => Configure(options, settings, device);
-        if (settings.Labels.Count > 0)
+        Action<TaskLoadOptions, IServiceProvider> configure = (options, services) => Configure(options, settings, services);
+        using var runtime = new SampleRuntime(services =>
         {
-            services.AddImageEmbedder(configure);
-        }
-        else
-        {
-            services.AddImageClassifier(configure);
-        }
-
-        await using var container = services.BuildServiceProvider();
+            if (settings.Labels.Count > 0)
+            {
+                services.AddImageEmbedder(configure);
+            }
+            else
+            {
+                services.AddImageClassifier(configure);
+            }
+        });
+        var container = runtime.Services;
         var result = settings.Labels.Count > 0
             ? await container.GetRequiredService<IImageEmbedder>().ClassifyZeroShotAsync(image, settings.Labels, new ImageClassificationOptions { TopK = settings.TopK }, cancellationToken)
             : await container.GetRequiredService<IImageClassifier>().ClassifyAsync(image, new ImageClassificationOptions { TopK = settings.TopK }, cancellationToken);
@@ -50,10 +50,8 @@ public static class VisionApplication
     public static async Task<int> DetectAsync(VisionSettings settings, CancellationToken cancellationToken)
     {
         var image = ReadImage(settings);
-        var services = new ServiceCollection().AddSharplight();
-        using var device = OpenDevice(settings);
-        services.AddObjectDetector(options => Configure(options, settings, device));
-        await using var container = services.BuildServiceProvider();
+        using var runtime = new SampleRuntime(services => services.AddObjectDetector((options, container) => Configure(options, settings, container)));
+        var container = runtime.Services;
         var detector = container.GetRequiredService<IObjectDetector>();
         var result = await detector.DetectAsync(image, new ObjectDetectionOptions { ScoreThreshold = settings.Threshold }, cancellationToken);
         foreach (var found in result.Objects)
@@ -82,10 +80,8 @@ public static class VisionApplication
     public static async Task<int> DepthAsync(VisionSettings settings, CancellationToken cancellationToken)
     {
         var image = ReadImage(settings);
-        var services = new ServiceCollection().AddSharplight();
-        using var device = OpenDevice(settings);
-        services.AddDepthEstimator(options => Configure(options, settings, device));
-        await using var container = services.BuildServiceProvider();
+        using var runtime = new SampleRuntime(services => services.AddDepthEstimator((options, container) => Configure(options, settings, container)));
+        var container = runtime.Services;
         var depth = await container.GetRequiredService<IDepthEstimator>().EstimateAsync(image, null, cancellationToken);
         Console.WriteLine($"depth map {depth.Width}x{depth.Height}, values {depth.Min:F3} .. {depth.Max:F3}");
         if (settings.OutputPath is not null)
@@ -106,14 +102,14 @@ public static class VisionApplication
     private static ImageInput ReadImage(VisionSettings settings)
         => File.Exists(settings.ImagePath) ? PngCodec.Read(settings.ImagePath) : throw new SampleException($"Image '{settings.ImagePath}' not found.", ExitCodes.InvalidInput);
 
-    private static IComputeDevice OpenDevice(VisionSettings settings)
+    /// <summary>
+    /// Points the task client at the model and opens its device from the container's providers when the client is first resolved; the
+    /// device lives until the process exits.
+    /// </summary>
+    private static void Configure(TaskLoadOptions options, VisionSettings settings, IServiceProvider services)
     {
-        var provider = SampleRuntime.SelectProvider(settings.UseCpu);
-        return provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.DeviceIndex));
-    }
-
-    private static void Configure(TaskLoadOptions options, VisionSettings settings, IComputeDevice device)
-    {
+        var provider = SampleRuntime.SelectProvider(services.GetRequiredService<ExecutionProviderCatalog>(), settings.UseCpu);
+        var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.DeviceIndex));
         options.ModelPath = settings.ModelPath;
         options.Devices = [new DeviceSlot { Device = device }];
         options.Log = settings.Verbose ? message => Console.Error.WriteLine(message) : null;
