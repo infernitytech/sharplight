@@ -27,6 +27,18 @@ public sealed class ModelDefinition
     /// <summary>Canonical source metadata (<see cref="CanonicalKeys"/>) for consumers such as tokenizers.</summary>
     public IReadOnlyDictionary<string, object> SourceMetadata { get; init; } = new Dictionary<string, object>();
 
+    /// <summary>
+    /// What the model is and which components it consists of, or <see langword="null"/> for models that do not describe themselves
+    /// (they resolve to a single-component text-generation model, see <see cref="ModelDescription.Resolve"/>).
+    /// </summary>
+    public ModelDescription? Description { get; init; }
+
+    /// <summary>
+    /// Named binary attachments the components refer to (<see cref="ModelComponent.Attachments"/>): tokenizer files, scheduler
+    /// configurations, filter banks, voice embeddings, ... Stored as aligned, memory-mapped sections in an <c>.slm</c> package.
+    /// </summary>
+    public IReadOnlyDictionary<string, IWeightSource> Attachments { get; init; } = new Dictionary<string, IWeightSource>();
+
     /// <summary>Resources that must be disposed with the definition (memory maps, file handles).</summary>
     public IReadOnlyList<IDisposable> OwnedResources { get; init; } = [];
 

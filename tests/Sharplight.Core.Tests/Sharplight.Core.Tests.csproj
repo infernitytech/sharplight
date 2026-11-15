@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Test data keeps its output layout (Goldens/, Templates/, Fixtures/ next to the test assembly). -->
+    <None Update="Templating/Goldens/*.json" Link="Goldens/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Templating/Templates/*.jinja" Link="Templates/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Tokenizers/Fixtures/*.json" Link="Fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

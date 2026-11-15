@@ -71,6 +71,30 @@
             </Border>
           </StackPanel>
         </Border>
+        <Border Classes="card" IsVisible="{Binding HasComponents}">
+          <StackPanel Spacing="10">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding Components.Count, StringFormat='{}{0} components'}" VerticalAlignment="Center" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Path Classes="icon accent" Data="{StaticResource IconMemory}" />
+                <TextBlock Classes="h3" Text="Components" />
+              </StackPanel>
+            </DockPanel>
+            <ItemsControl ItemsSource="{Binding Components}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="ivm:ComponentRow">
+                  <Grid ColumnDefinitions="140,*,120,*,*" Margin="0,3">
+                    <TextBlock Classes="cell mono" Text="{Binding Role}" />
+                    <TextBlock Grid.Column="1" Classes="cell mono" Text="{Binding Graphs}" TextWrapping="Wrap" />
+                    <TextBlock Grid.Column="2" Classes="cell caption" Text="{Binding Weights}" />
+                    <TextBlock Grid.Column="3" Classes="cell caption" Text="{Binding Config}" TextWrapping="Wrap" />
+                    <TextBlock Grid.Column="4" Classes="cell caption" Text="{Binding Attachments}" TextWrapping="Wrap" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
         <Border Classes="card" IsVisible="{Binding HasStates}">
           <StackPanel Spacing="10">
             <DockPanel>

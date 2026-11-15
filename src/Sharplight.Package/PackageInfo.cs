@@ -9,7 +9,7 @@ public sealed class PackageInfo
     private readonly Lazy<DefinitionInfo> _definition;
 
     internal PackageInfo(string path, long fileSize, int version, IReadOnlyList<PackageSectionInfo> sections, IReadOnlyList<PackageWeightInfo> weights,
-        IReadOnlyList<ArtifactSetInfo> artifactSets, long compactedSize, long sectionTableOffset, long sectionTableLength, Func<DefinitionInfo> definition)
+        IReadOnlyList<PackageAttachmentInfo> attachments, IReadOnlyList<ArtifactSetInfo> artifactSets, long compactedSize, long sectionTableOffset, long sectionTableLength, Func<DefinitionInfo> definition)
     {
         Path = path;
         FileSize = fileSize;
@@ -17,12 +17,16 @@ public sealed class PackageInfo
         Sections = sections;
         Weights = weights;
         WeightBytes = weights.Sum(w => w.ByteSize);
+        Attachments = attachments;
         ArtifactSets = artifactSets;
         ReclaimableBytes = Math.Max(0, fileSize - compactedSize);
         SectionTableOffset = sectionTableOffset;
         SectionTableLength = sectionTableLength;
         _definition = new(definition);
     }
+
+    /// <summary>The attachments (ATCH sections: tokenizer files, scheduler configurations, filter banks, ...), in file order.</summary>
+    public IReadOnlyList<PackageAttachmentInfo> Attachments { get; }
 
     /// <summary>The file that was read.</summary>
     public string Path { get; }
