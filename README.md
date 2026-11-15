@@ -23,9 +23,9 @@ Start with the [public API overview](docs/api-overview.md). Benchmarks against l
 | ONNX | ✓ | ✓ |
 | `.slm` package | ✓ | ✓ |
 
-Of the 172 architectures llama.cpp knows, 168 are supported end to end and
-4 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix; its section 10 is a sweep of 1138 released
-GGUF files and 72 Hugging Face checkpoints, 1051 and 43 of which import). Supported (llama.cpp architecture names):
+Of the 172 architectures llama.cpp knows, 168 are supported end to end, `dflash` partially and the three TTS decoders
+not yet ([docs/model-support.md](docs/model-support.md) has the full matrix; its section 10 is a sweep of 1138 released
+GGUF files and 72 Hugging Face checkpoints, 1080 and 49 of which import after bring-up round 11, section 11). Supported (llama.cpp architecture names):
 
 | Family | Architectures |
 |---|---|
@@ -52,11 +52,12 @@ GGUF files and 72 Hugging Face checkpoints, 1051 and 43 of which import). Suppor
 | Encoder-decoder | `t5` (plus the Hugging Face-only `bart`, `mbart`) |
 | Encoder | `t5encoder`, `bert`, `nomic-bert`, `nomic-bert-moe`, `modern-bert`, `neo-bert`, `jina-bert-v2`, `jina-bert-v3`, `eurobert` |
 | Multimodal | `clip`, `hunyuan_vl`, `cogvlm` |
-| Speculative drafters | `eagle3`, `gemma4-assistant` (loaded as the `draft` auxiliary source of their target; MTP / NextN heads of the target itself also draft) |
+| Speculative drafters | `eagle3`, `gemma4-assistant`, `dflash` (plain DFlash and DFlash2; loaded as the `draft` auxiliary source of their target; MTP / NextN heads of the target itself also draft) |
 | Decision models | `clef`, `vllm-decision2` (option scores of question spans through `SpanScorer`) |
+| Fork architectures | `inkling` (text decoder; unsloth's llama.cpp fork) |
 
 Weight types (CPU and Vulkan): F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K–Q6_K, IQ1_S/M, IQ2_XXS/XS/S, IQ3_XXS/S,
-IQ4_NL/XS, TQ1_0, TQ2_0, MXFP4, NVFP4. ONNX operator coverage is in [docs/onnx-support.md](docs/onnx-support.md).
+IQ4_NL/XS, TQ1_0, TQ2_0, MXFP4, NVFP4, and the fork-only ggml types 64–66 (read as IQ1_S) and 144–149 (trellis). ONNX operator coverage is in [docs/onnx-support.md](docs/onnx-support.md).
 
 ## Performance
 
