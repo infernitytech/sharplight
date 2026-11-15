@@ -21,8 +21,9 @@ public static class TaskServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the <see cref="TaskClientProvider"/> and the built-in factories: text generation (decoder LLMs and masked-diffusion LMs) and
-        /// speech recognition with prompted encoder-decoder models (Whisper family).
+        /// Adds the <see cref="TaskClientProvider"/> and the built-in factories: text generation (decoder LLMs and masked-diffusion LMs),
+        /// speech recognition with prompted encoder-decoder models (Whisper family), image classification / embedding with image
+        /// encoders and latent-diffusion image generation (models following <see cref="DiffusionGraphs"/>).
         /// Idempotent. <c>services.AddSharplight()</c> of the Sharplight.Defaults package calls it.
         /// </summary>
         public IServiceCollection AddSharplightTasks()
@@ -31,6 +32,7 @@ public static class TaskServiceCollectionExtensions
             services.AddOptions();
             services.TryAddSingleton<TaskClientProvider>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextGeneratorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, LatentDiffusionGeneratorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, EncoderDecoderSpeechRecognizerFactory>());
             if (!services.Any(d => d.ServiceType == typeof(ITaskClientFactory) && d.ImplementationInstance is ImageEncoderFactory))
             {

@@ -134,6 +134,56 @@ configured models like every other kind.
 The importers and architecture adapters for speech and image models come in their own workstreams; the task layer defines the
 interfaces, options, results, the description and the host-side plumbing they plug into.
 
+### Image generation
+
+`Sharplight.Import.Diffusers` reads Stable Diffusion 1.x / 2.x / XL checkpoints (diffusers folders, original single-file `.safetensors` or
+`.ckpt` (through the restricted unpickler of Sharplight.Import.PyTorch),
+stable-diffusion.cpp GGUF files) into the canonical `latent_diffusion` source; `LatentDiffusionAdapter` (Sharplight.Architectures)
+builds a text encoder, a UNet denoiser and the VAE decoder / encoder as graphs of generic Core ops and describes them as an
+`image-generation` model (components `text-encoder`, `tokenizer`, `denoiser`, `vae`, `scheduler`; SDXL's second text encoder is a
+second graph of the `text-encoder` component whose pooled embedding and the size conditions feed the UNet). Core's built-in latent-diffusion
+pipeline (`LatentDiffusionGeneratorFactory`, registered by `AddSharplightTasks()`) serves every model whose graphs follow
+`DiffusionGraphs`; a family with another pipeline registers its own factory.
+
+```csharp
+var services = new ServiceCollection()
+    .AddSharplight()
+    .AddImageGenerator(o => { o.ModelPath = "v1-5-pruned-emaonly-Q8_0.gguf"; o.Devices = [slot]; });
+await using var provider = services.BuildServiceProvider();
+var generator = provider.GetRequiredService<IImageGenerator>();
+
+var request = new ImageGenerationRequest { Prompt = "a lighthouse at dusk", NegativePrompt = "blurry" };
+var options = new ImageGenerationOptions { Steps = 20, GuidanceScale = 7.5f, Seed = 42, Scheduler = Samplers.DpmPlusPlus2MKarras, PreviewInterval = 5 };
+await foreach (var update in generator.GenerateStreamingAsync(request, options))
+{
+    Console.Write($"\r{update.Step}/{update.TotalSteps}");        // update.Preview: a latent-resolution preview every 5 steps
+    if (update.Result is { } result)
+    {
+        PngCodec.Write("lighthouse.png", result.Images[0]);
+    }
+}
+```
+
+- Samplers (`Samplers`): `euler`, `euler-karras`, `euler-ancestral`, `ddim`, `pndm`, `dpm++2m`, `dpm++2m-karras`; each follows the
+  diffusers scheduler step by step and is configured from the model's `scheduler` component (`NoiseSchedule`: betas, prediction type,
+  timestep spacing, offset; the original scheduler configuration is kept as the attachment `scheduler/source-config.json`). The
+  default is the sampler the model was published with.
+- Classifier-free guidance runs on the host: the negative prompt (or the empty prompt) and the prompt are one batched denoiser run
+  per step. Image i of a request uses `Seed + i`; the noise is a counter-based Gaussian stream, identical on every machine and
+  provider. `ImageGenerationOptions.InitialNoise` replaces it (reproducing another implementation's run).
+- Image-to-image: `ImageGenerationRequest.Image` with `Strength`; inpainting: plus `Mask` (white = regenerate; the input is
+  re-imposed outside the mask after every step).
+- Sizes: the graphs are built for the native size (512×512 for SD 1.x, 768×768 for SD 2.x 768-v, 1024×1024 for SDXL) and stored
+  that way in `.slm`; another `Width` / `Height` (multiples of 64) rebuilds the model once per size through
+  `TaskModel.DefinitionFor(dimensions)` (the adapter rebuilds from the canonical metadata and weights, so `.slm` packages work too).
+- Classifier-free guidance with SDXL: without a negative prompt the unconditional row is all zeros (the model's
+  `force_zeros_for_empty_prompt`); an explicit `NegativePrompt = ""` encodes the empty prompt.
+- `sharplight-generate-image` (samples/Sharplight.GenerateImage) is a command-line front end for all of this.
+- HTTP: `services.AddSharplightImageGenerator(name: "sd15")` serves the container's `IImageGenerator` on the OpenAI-compatible
+  `POST /v1/images/generations` (`prompt`, `n`, `size`, `response_format: "b64_json"` with PNG data, plus the extensions
+  `negative_prompt`, `steps`, `guidance_scale`, `seed` and `sampler`); `MapSharplight()` maps it when a generator is registered,
+  `MapSharplightImages()` maps it alone. Requests to one generator run one at a time.
+
 ## 1. Load a model (text generation)
 
 The rest of this page covers text generation in depth: `LlmModel` and the serving stack around it. `LlmModel.Load` reads the file and builds the compute graphs. Nothing is compiled or uploaded to a device until you create a

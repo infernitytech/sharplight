@@ -10,6 +10,7 @@
     <Project Path="src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <Project Path="src/Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
+    <Project Path="src/Sharplight.Import.Diffusers/Sharplight.Import.Diffusers.csproj" />
     <Project Path="src/Sharplight.Import.WhisperCpp/Sharplight.Import.WhisperCpp.csproj" />
     <Project Path="src/Sharplight.Package/Sharplight.Package.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
@@ -30,6 +31,7 @@
     <Project Path="samples/Sharplight.Server/Sharplight.Server.csproj" />
     <Project Path="samples/Sharplight.AgentHost/Sharplight.AgentHost.csproj" />
     <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
+    <Project Path="samples/Sharplight.GenerateImage/Sharplight.GenerateImage.csproj" />
     <Project Path="samples/Sharplight.Transcribe/Sharplight.Transcribe.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -51,5 +53,6 @@
     <Project Path="tests/Sharplight.TextToSpeech.Tests/Sharplight.TextToSpeech.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
     <Project Path="tests/Sharplight.Vision.Tests/Sharplight.Vision.Tests.csproj" />
+    <Project Path="tests/Sharplight.ImageGeneration.Tests/Sharplight.ImageGeneration.Tests.csproj" />
   </Folder>
 </Solution>

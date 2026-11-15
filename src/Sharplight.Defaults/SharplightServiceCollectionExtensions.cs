@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Architectures;
 using Sharplight.Cpu;
+using Sharplight.Import.Diffusers;
 using Sharplight.Import.Gguf;
 using Sharplight.Import.HuggingFace;
 using Sharplight.Import.Onnx;
@@ -50,6 +51,7 @@ public static class SharplightServiceCollectionExtensions
                 GgufImporter.Register();
                 HuggingFaceImporter.Register();
                 OnnxImporter.Register();
+                DiffusersImporter.Register();
                 WhisperCppImporter.Register();
                 ModelPackageImporter.Register();
             }
