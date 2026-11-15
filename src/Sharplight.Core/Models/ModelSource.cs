@@ -18,6 +18,12 @@ public sealed class ModelSource
     /// </summary>
     public required IReadOnlyDictionary<string, WeightInfo> Weights { get; init; }
     /// <summary>
+    /// Files the model needs besides weights and metadata (a mel filter bank, scheduler configuration, voice embeddings, ...), by canonical
+    /// attachment name (e.g. <c>feature-extractor/mel-filters</c>). Adapters place them into <see cref="ModelDefinition.Attachments"/> and
+    /// name them in the model's <see cref="ModelDescription"/>. Their bytes may be lazy like weights.
+    /// </summary>
+    public IReadOnlyDictionary<string, IWeightSource> Attachments { get; init; } = new Dictionary<string, IWeightSource>();
+    /// <summary>
     /// Resources (memory maps, file handles) that back <see cref="Weights"/>; the owner of the source disposes them once the model no longer needs the weights.
     /// </summary>
     public IReadOnlyList<IDisposable> OwnedResources { get; init; } = [];

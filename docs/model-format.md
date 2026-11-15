@@ -84,16 +84,23 @@ open strings, configuration is free JSON, and attachments are generic named byte
   "schemaVersion": 1,
   "kind": "speech-recognition",
   "components": [
-    { "role": "encoder", "graphs": ["encode"], "weightPrefixes": ["encoder."], "metadataPrefix": null,
-      "config": { "layers": 4 }, "attachments": {}, "symbolBounds": { "F": 3000 } },
-    { "role": "decoder", "graphs": ["decode"], "weightPrefixes": ["decoder."] },
-    { "role": "tokenizer", "metadataPrefix": "tokenizer.", "attachments": { "vocab": "tokenizer/vocab.json" } },
-    { "role": "feature-extractor", "config": { "melBins": 80, "hopLength": 160 },
-      "attachments": { "mel-filters": "feature-extractor/mel_filters.f32" } }
+    { "role": "encoder", "graphs": ["encode"], "weightPrefixes": ["encoder."] },
+    { "role": "decoder", "graphs": ["decode"], "weightPrefixes": ["decoder.", "token_embedding.", "output."],
+      "symbolBounds": { "T": 448, "ctx": 448, "E": 1500, "R": 1 } },
+    { "role": "tokenizer", "attachments": { "tokenizer": "tokenizer/tokenizer.json" } },
+    { "role": "feature-extractor",
+      "config": { "type": "log-mel", "sampleRate": 16000, "fftSize": 400, "hopLength": 160, "melBins": 80, "center": true,
+                  "padMode": "reflect", "trailingPadding": 480000, "dropLastFrame": true, "logBase": "10", "logFloor": 1e-10,
+                  "dynamicRange": 8, "logOffset": 4, "logScale": 0.25 },
+      "attachments": { "mel-filters": "feature-extractor/mel-filters" } }
   ],
   "config": { "sampleRate": 16000 }
 }
 ```
+
+(Whisper as `EncoderDecoderAdapter` describes it, docs/model-support.md section 13. The tokenizer is the canonical `TokenizerData` JSON
+attachment, which `TaskModel.CreateTokenizer(role)` prefers over metadata keys; a component's `T` and `ctx` bounds replace the load
+options' batch and context sizes in `TaskModel.CompileComponent` and in precompilation.)
 
 | field | meaning |
 |---|---|
@@ -105,7 +112,7 @@ open strings, configuration is free JSON, and attachments are generic named byte
 | `components[].metadataPrefix` | prefix of the component's canonical metadata (e.g. a second tokenizer), or null for the model's unprefixed metadata |
 | `components[].config` | component configuration as JSON values; the keys belong to the importer and the task implementation that use them |
 | `components[].attachments` | local name → ATCH section name |
-| `components[].symbolBounds` | default upper bounds of the component graphs' dynamic symbols (used by precompilation and `TaskModel.CompileComponent`) |
+| `components[].symbolBounds` | default upper bounds of the component graphs' dynamic symbols (used by precompilation and `TaskModel.CompileComponent`; `T` and `ctx` set the row and context bounds) |
 | `config` | model-level configuration |
 
 An image generator, for example, is `kind: image-generation` with `text-encoder` (graph and tokenizer metadata), `denoiser`
@@ -114,7 +121,9 @@ An image generator, for example, is `kind: image-generation` with `text-encoder`
 
 **Attachments** (ATCH sections, `ModelDefinition.Attachments`) carry the files a component needs besides graphs and weights: tokenizer
 files, scheduler configurations, mel filter banks, voice embeddings. Each is one section, named by its attachment name (e.g.
-`tokenizer/vocab.json`), 64 KiB aligned and read from the mapping without copying (`TaskModel.ReadAttachment`).
+`tokenizer/vocab.json`), 64 KiB aligned and read from the mapping without copying (`TaskModel.ReadAttachment`). Importers hand attachments to the adapter through
+`ModelSource.Attachments` (canonical names such as `feature-extractor/mel-filters`); the adapter places them in the definition and names
+them in the description.
 
 Backward compatibility: packages without a DESC section (every LLM package written before it existed, and packages written today for
 models whose adapter sets no description) load unchanged and resolve to a text-generation model with one `decoder` component that

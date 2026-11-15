@@ -7,6 +7,34 @@ public static class WellKnown
     public const string DecodeGraph = "decode";
     /// <summary>Name of the graph that turns preprocessed image patches into embeddings for the decoder.</summary>
     public const string VisionEncodeGraph = "vision_encode";
+    /// <summary>
+    /// Image-encoder graph of the vision task layer (ImageEncoderAdapter): input <c>patches</c> f32 [N, in_channels·patch²] (the normalized image cut
+    /// into patches in raster order, each flattened channel-major), outputs <see cref="PooledOutput"/> f32 [1, hidden] (pooled, normed
+    /// image embedding) and optionally <see cref="LogitsOutput"/> f32 [1, labels] (classifier head).
+    /// </summary>
+    public const string ImageEncodeGraph = "image_encode";
+    /// <summary>
+    /// The text tower of a dual-encoder (image + text) model: tokens i32 [L] (L fixed by the component, padded by the host) and <c>pool_index</c> i32 [1]
+    /// (the row to pool) in; <see cref="PooledOutput"/> f32 [1, dim] (the text embedding in the image embedding space) and optionally the zero-shot
+    /// <c>logit_scale</c> and <c>logit_bias</c> [1] out.
+    /// </summary>
+    public const string TextEncodeGraph = "text_encode";
+    /// <summary>
+    /// A set-prediction object detector: <c>pixels</c> f32 [1, 3, H, W] (the normalized image) in; <see cref="LogitsOutput"/> f32 [Q, C] (per query
+    /// class scores) and <see cref="BoxesOutput"/> f32 [Q, 4] (center x, center y, width, height as fractions of the model input) out.
+    /// </summary>
+    public const string DetectGraph = "detect";
+    /// <summary>Name of the box output of <see cref="DetectGraph"/>.</summary>
+    public const string BoxesOutput = "boxes";
+    /// <summary>
+    /// Dense depth estimation: <c>patches</c> f32 [N, 3 · patch²] (the host-patchified normalized image, as <see cref="ImageEncodeGraph"/>) in;
+    /// <see cref="DepthOutput"/> f32 [1, 1, H, W] (relative inverse depth at the model input resolution) out.
+    /// </summary>
+    public const string DepthGraph = "estimate_depth";
+    /// <summary>Name of the depth map output of <see cref="DepthGraph"/>.</summary>
+    public const string DepthOutput = "depth";
+    /// <summary>Name of the pooled embedding output of <see cref="ImageEncodeGraph"/>.</summary>
+    public const string PooledOutput = "pooled";
     /// <summary>Decoder taking token ids, an embeddings input and a per-row mask (<see cref="InputRole.EmbeddingMask"/>): text mixed with media embeddings.</summary>
     public const string DecodeMultimodalGraph = "decode_multimodal";
     /// <summary>Symbol of the token (row) count of a graph execution.</summary>
@@ -15,6 +43,11 @@ public static class WellKnown
     public const string ContextSymbol = "ctx";
     /// <summary>Runtime scalar: number of tokens already in the KV cache before this execution.</summary>
     public const string PastScalar = "n_past";
+    /// <summary>
+    /// Runtime scalar: the first row of the per-source states (cached cross-attention keys and values) that the current pass writes; 0
+    /// for models that write the whole source at once.
+    /// </summary>
+    public const string SourcePastScalar = "source_past";
     /// <summary>Symbol of the run count of a multi-sequence graph (rows of <see cref="InputRole.SequenceRuns"/>).</summary>
     public const string RunSymbol = "U";
 

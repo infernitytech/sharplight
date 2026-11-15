@@ -287,8 +287,10 @@ internal sealed class RestrictedUnpickler
 
                 case PickleOp.Build:
                     {
+                        // An inert placeholder discards any state (e.g. numpy dtypes build from a tuple); a dictionary only takes dictionaries.
                         object? state = Pop();
-                        if (PeekTop() is not (PickleDict or PickleInert) || (state is not (PickleDict or PickleInert or null)))
+                        object? target = PeekTop();
+                        if (target is not PickleInert && (target is not PickleDict || state is not (PickleDict or PickleInert or null)))
                         {
                             throw Refused("opcode BUILD on an object that is not a dictionary or an inert placeholder");
                         }

@@ -24,6 +24,20 @@ public sealed record ImageGenerationOptions
     /// <summary>Scheduler (sampler) name understood by the implementation, or <see langword="null"/> for the model's configured one.</summary>
     public string? Scheduler { get; init; }
 
+    /// <summary>
+    /// Explicit initial noise instead of the seeded noise: unit Gaussian values of all images, image after image, each in the model's
+    /// latent layout (for the latent-diffusion pipeline [channels, height / 8, width / 8]); used to reproduce another implementation's
+    /// run exactly. <see langword="null"/> draws the noise from <see cref="Seed"/>.
+    /// </summary>
+    public float[]? InitialNoise { get; init; }
+
+    /// <summary>
+    /// Every how many steps the streaming call attaches a low-resolution preview of the current estimate to its update
+    /// (<see cref="ImageGenerationUpdate.Preview"/>); 0 for none. Previews are cheap (no VAE decode) and need a model that
+    /// describes its latent colours.
+    /// </summary>
+    public int PreviewInterval { get; init; }
+
     /// <summary>The defaults.</summary>
     public static ImageGenerationOptions Default { get; } = new();
 }

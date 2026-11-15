@@ -117,10 +117,14 @@ void pad(uint3 dtid : SV_DispatchThreadID, uniform PadParams p)
 #ifdef KERNEL_RESIZE
 // ---------------------------------------------------------------------------------------------
 // Resize (nearest / bilinear) following ONNX Runtime semantics (float32 coordinate math).
-// x [N, C, H, W] strided, y dense [N, C, OH, OW]. Scales are out/in as float.
+// x [N, C, H, W] strided, y [N, C, OH, OW] dense per batch index, YS_N elements apart (default C·OH·OW: dense; larger when y
+// is a channel slice of a concatenation). Scales are out/in as float.
 // Macros: C H W OH OW XS_* LINEAR COORD NEAREST   (COORD: 0 half_pixel 1 align_corners 2 asymmetric 3 pytorch_half_pixel)
 //                                                 (NEAREST: 0 round_prefer_floor 1 round_prefer_ceil 2 floor 3 ceil)
 struct ResizeParams { float* x; float* y; uint total; };
+#ifndef YS_N
+#define YS_N (C * OH * OW)
+#endif
 
 float orig_coord(float xr, float scale, float lenR, float lenO)
 {
@@ -160,6 +164,7 @@ void resize(uint3 dtid : SV_DispatchThreadID, uniform ResizeParams p)
     uint nc = t / OH;
     uint c = nc % C, n = nc / C;
     float* xp = p.x + uint64_t(n) * XS_N + uint64_t(c) * XS_C;
+    uint64_t yi = uint64_t(n) * YS_N + (idx - n * (C * OH * OW));
     float sh = float(OH) / float(H), sw = float(OW) / float(W);
     float fy = orig_coord(float(oy), sh, float(OH), float(H));
     float fx = orig_coord(float(ox), sw, float(OW), float(W));
@@ -173,11 +178,11 @@ void resize(uint3 dtid : SV_DispatchThreadID, uniform ResizeParams p)
     float v10 = xp[y1 * XS_H + x0 * XS_W], v11 = xp[y1 * XS_H + x1 * XS_W];
     float top = v00 * (1.0 - dx) + v01 * dx;
     float bot = v10 * (1.0 - dx) + v11 * dx;
-    p.y[idx] = top * (1.0 - dy) + bot * dy;
+    p.y[yi] = top * (1.0 - dy) + bot * dy;
 #else
     int iy = clamp(nearest_pixel(fy), 0, H - 1);
     int ix = clamp(nearest_pixel(fx), 0, W - 1);
-    p.y[idx] = xp[iy * XS_H + ix * XS_W];
+    p.y[yi] = xp[iy * XS_H + ix * XS_W];
 #endif
 }
 #endif

@@ -38,7 +38,8 @@ internal sealed class VulkanProfileDevice : IComputeDevice
         };
         EnabledFeatures = DeviceFeatures.Effective(Info.Features, options.DisabledFeatures);
         _code = new SpirvCodeGenerator(profile.SubgroupSize, profile.MaxSharedMemory, EnabledFeatures,
-            SpirvCodeGenerator.EffectiveSubmissionBudget(profile.SubmissionBudgetMs, options), profile.ConcurrentWorkgroups);
+            SpirvCodeGenerator.EffectiveSubmissionBudget(profile.SubmissionBudgetMs, options), profile.ConcurrentWorkgroups,
+            SpirvCodeGenerator.ComputeUnitsOf(profile.Properties));
         ArtifactStore = ArtifactStore.For(options);
         ArtifactTargets = [_code.CreateCodeTarget(Info.Provider)];
     }

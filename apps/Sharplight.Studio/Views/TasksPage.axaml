@@ -9,7 +9,7 @@
       <StackPanel Spacing="4">
         <TextBlock Classes="h1" Text="Tasks" />
         <TextBlock Classes="muted" TextWrapping="Wrap"
-                   Text="Every kind of model lives in one library and loads the same way. Chat runs text generation; the other kinds get their page as the engine learns to run them." />
+                   Text="Every kind of model lives in one library and loads the same way. Chat, Transcribe and Speak run text generation, speech to text and text to speech; the other kinds get their page as the engine learns to run them." />
       </StackPanel>
       <ItemsControl x:Name="KindCards" ItemsSource="{Binding Kinds}">
         <ItemsControl.ItemsPanel>

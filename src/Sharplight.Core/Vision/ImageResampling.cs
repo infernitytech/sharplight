@@ -67,12 +67,13 @@ public static class ImageResampling
         return 0;
     }
 
-    /// <summary>Sparse antialiased bicubic taps: per output, the first source index, the tap count and the weights (Max per output).</summary>
-    internal static (int[] Start, int[] Count, float[] Weights, int Max) Coefficients(int inSize, int outSize)
+    /// <summary>Sparse antialiased bicubic (or bilinear) taps: per output, the first source index, the tap count and the weights (Max per output).</summary>
+    internal static (int[] Start, int[] Count, float[] Weights, int Max) Coefficients(int inSize, int outSize, ImageResampleFilter filter = ImageResampleFilter.Bicubic)
     {
         double scale = (double)inSize / outSize;
         double filterScale = Math.Max(scale, 1.0);
-        double support = 2.0 * filterScale;
+        bool bilinear = filter == ImageResampleFilter.Bilinear;
+        double support = (bilinear ? 1.0 : 2.0) * filterScale;
         int max = (int)Math.Ceiling(support) * 2 + 1;
         var start = new int[outSize];
         var count = new int[outSize];
@@ -86,7 +87,7 @@ public static class ImageResampling
             var tmp = new double[xmax - xmin];
             for (int i = 0; i < tmp.Length; i++)
             {
-                tmp[i] = Cubic((xmin + i - center + 0.5) / filterScale);
+                tmp[i] = bilinear ? Math.Max(0, 1 - Math.Abs((xmin + i - center + 0.5) / filterScale)) : Cubic((xmin + i - center + 0.5) / filterScale);
                 sum += tmp[i];
             }
             start[x] = xmin;

@@ -16,7 +16,7 @@ public sealed unsafe class TorchCheckpointFile : IDisposable
     private TorchCheckpointFile(string path, TorchCheckpointOptions options)
     {
         Path = path;
-        Length = new FileInfo(path).Length;
+        Length = FileLength(path);
         if (Length == 0)
         {
             throw new InvalidDataException($"{path}: the file is empty.");
@@ -78,5 +78,12 @@ public sealed unsafe class TorchCheckpointFile : IDisposable
         _view = null;
         _mmf?.Dispose();
         _mmf = null;
+    }
+
+    /// <summary>The size of the file <paramref name="path"/> names, following symbolic links (<see cref="FileInfo.Length"/> reports the link's own size).</summary>
+    private static long FileLength(string path)
+    {
+        using var handle = File.OpenHandle(path);
+        return RandomAccess.GetLength(handle);
     }
 }

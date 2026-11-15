@@ -31,6 +31,15 @@ namespace Sharplight.Architectures;
 /// optional <c>encoder.output_norm.weight</c>, <c>decoder.output_norm.weight</c> (final norms); optional per stack
 /// <c>{stack}.position_embedding.weight</c> [P, H] (learned absolute positions, row p is position p: importers remove offsets such as
 /// BART's 2) and <c>{stack}.embedding_norm.weight</c> (norm of the summed embeddings); optional <c>output.bias</c> [V].</para>
+/// <para>Speech encoders (<c>encoder.input</c> "audio", Whisper): the <see cref="WellKnown.EncodeGraph"/> takes one window of log-mel
+/// features [<c>audio.mel_bins</c>, <c>audio.chunk_samples</c> / <c>audio.hop_length</c>] (<see cref="InputRole.AudioFeatures"/>, computed
+/// on the host by the model's feature extractor) instead of tokens and runs the <see cref="AudioConvStem"/>. There is no embedding graph,
+/// and the definition describes a <see cref="ModelKinds.SpeechRecognition"/> model (<see cref="SpeechRecognitionDescription"/>: encoder,
+/// decoder, tokenizer and feature-extractor components, the filter bank and tokenizer as attachments).</para>
+/// <para>Cached cross-attention (<c>cross_attention.cached</c>, for sources of a fixed length <c>encoder.rows</c>): the decoder projects the
+/// cross-attention keys and values once per source into f32 states [rows, heads, head_dim] instead of on every step. The decode graph's
+/// <see cref="InputRole.EncoderOutput"/> input then carries the source on the first pass of a context (E = rows) and no rows afterwards
+/// (E = 0); the runtime scalar <see cref="WellKnown.SourcePastScalar"/> is 0.</para>
 /// </remarks>
 public sealed class EncoderDecoderAdapter : IModelAdapter
 {
@@ -58,6 +67,17 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         int ctx = src.Arch("context_length", 512);
         bool preNorm = src.Arch("pre_norm", true);
         float embeddingScale = src.Arch("embedding_scale", 1f);
+        bool audio = src.Arch("encoder.input", "tokens") switch
+        {
+            "tokens" => false,
+            "audio" => true,
+            var other => throw new NotSupportedException($"encoder_decoder: unknown encoder.input '{other}'."),
+        };
+        bool cachedCross = src.Arch("cross_attention.cached", false);
+        int sourceRows = cachedCross ? src.Arch<int>("encoder.rows") : 0;
+        var extraWeights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
+        var stem = audio ? new AudioConvStem(src, extraWeights) : null;
+        WeightInfo? Lookup(string name) => extraWeights.TryGetValue(name, out var w) ? w : src.Weight(name);
         var encoderBias = StackBias("encoder", encoderLayers, bidirectional: true);
         var decoderBias = StackBias("decoder", decoderLayers, bidirectional: false);
         string pooling = PackedSequences.NormalizePooling(options.EmbeddingPooling) ?? PackedSequences.NormalizePooling(src.Get<string?>(CanonicalKeys.EmbeddingPooling, null)) ?? "mean";
@@ -74,7 +94,23 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             states.Add(vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = options.KvCacheTypeFor(headDim), Shape = shape, Kind = StateKind.ValueCache, Group = g });
         }
 
-        var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.EmbedGraph] = BuildEmbed() };
+        // Cross-attention keys / values of the current source, projected once per source (f32: the bidirectional attention kernels read f32 rows).
+        var crossK = new StateDefinition[cachedCross ? decoderLayers : 0];
+        var crossV = new StateDefinition[crossK.Length];
+        for (int il = 0; il < crossK.Length; il++)
+        {
+            string g = $"decoder.layers.{il}";
+            var shape = new Shape(sourceRows, nHead, headDim);
+            states.Add(crossK[il] = new StateDefinition { Name = $"{g}.cross_k", Type = DataType.F32, Shape = shape, Kind = StateKind.Other, Group = g });
+            states.Add(crossV[il] = new StateDefinition { Name = $"{g}.cross_v", Type = DataType.F32, Shape = shape, Kind = StateKind.Other, Group = g });
+        }
+
+        var graphs = new Dictionary<string, ComputeGraph>();
+        if (!audio)
+        {
+            graphs[WellKnown.EmbedGraph] = BuildEmbed();
+        }
+
         if (decoderLayers > 0)
         {
             graphs[WellKnown.EncodeGraph] = BuildEncode();
@@ -93,25 +129,40 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             [WellKnown.DecoderStartToken] = src.Arch("decoder_start_token", 0),
             ["n_layer"] = encoderLayers + decoderLayers,
         };
+        var speech = audio && decoderLayers > 0 ? SpeechRecognitionDescription.Build(src, ctx, sourceRows) : default((ModelDescription Description, IReadOnlyDictionary<string, IWeightSource> Attachments, IReadOnlyDictionary<string, object> Metadata)?);
+        var weights = extraWeights.Count == 0 ? src.Weights : new Dictionary<string, WeightInfo>(src.Weights.Concat(extraWeights), StringComparer.Ordinal);
 
         return new ModelDefinition
         {
             Architecture = src.Architecture,
             Name = src.Get(CanonicalKeys.Name, src.Architecture),
-            Weights = src.Weights,
+            Weights = weights,
             Graphs = graphs,
             States = states,
-            SourceMetadata = src.Metadata,
+            SourceMetadata = speech?.Metadata ?? src.Metadata,
             OwnedResources = src.OwnedResources,
             Properties = props,
+            Description = speech?.Description,
+            Attachments = speech?.Attachments ?? src.Attachments,
         };
 
         ComputeGraph BuildEncode()
         {
-            var b = new GraphBuilder(WellKnown.EncodeGraph, src.Weight);
+            var b = new GraphBuilder(WellKnown.EncodeGraph, Lookup);
             Value x;
-            using (b.Group("input"))
+            if (stem is not null)
             {
+                Value features;
+                using (b.Group("input"))
+                {
+                    features = b.Input("features", InputRole.AudioFeatures, DataType.F32, new Shape(src.Arch<int>("audio.mel_bins"), src.Arch<int>("audio.chunk_samples") / src.Arch<int>("audio.hop_length")));
+                }
+
+                x = stem.Build(b, features, (t, activation) => Act(b, t, activation));
+            }
+            else
+            {
+                using var _ = b.Group("input");
                 var T = Dim.Sym(WellKnown.TokenSymbol);
                 var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
                 var positions = HasPositions("encoder") ? b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1)) : null;
@@ -155,7 +206,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                 x = SubLayer(b, x, p + "attention_norm", h =>
                 {
                     var attn = attention(Heads(b, Linear(b, h, p + "attention.q")), Heads(b, Linear(b, h, p + "attention.k")), Heads(b, Linear(b, h, p + "attention.v")), il, $"{p}attn");
-                    return Linear(b, b.Reshape(attn, 0, inner), p + "attention.o", $"{p}attn_out");
+                    return Linear(b, Merge(b, attn), p + "attention.o", $"{p}attn_out");
                 });
                 x = SubLayer(b, x, p + "mlp_norm", h => FeedForward(b, h, p));
             }
@@ -165,7 +216,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
 
         ComputeGraph BuildDecode()
         {
-            var b = new GraphBuilder(WellKnown.DecodeGraph, src.Weight);
+            var b = new GraphBuilder(WellKnown.DecodeGraph, Lookup);
             var T = Dim.Sym(WellKnown.TokenSymbol);
             Value x;
             Value encoded;
@@ -191,16 +242,28 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                     b.CacheWrite(vc, Heads(b, Linear(b, h, p + "attention.v")));
                     var attn = b.Emit1("CachedAttention", [Heads(b, Linear(b, h, p + "attention.q")), kc, vc],
                         Attributes.From([("scale", scale), ("offset", WellKnown.PastScalar), .. BiasAttributes(decoderBias[layer])]), $"{p}attn");
-                    return Linear(b, b.Reshape(attn, 0, inner), p + "attention.o", $"{p}attn_out");
+                    return Linear(b, Merge(b, attn), p + "attention.o", $"{p}attn_out");
                 });
 
-                // Cross-attention: keys and values projected from the encoder output (recomputed every step; the source is short).
+                // Cross-attention: keys and values projected from the encoder output, either on every step (short text sources) or once per
+                // source into the cross states (written while the pass carries the source rows, a no-op for passes with E = 0).
                 x = SubLayer(b, x, p + "cross_attention_norm", h =>
                 {
-                    var cross = b.Emit1("Attention",
-                        [Heads(b, Linear(b, h, p + "cross_attention.q")), Heads(b, Linear(b, encoded, p + "cross_attention.k")), Heads(b, Linear(b, encoded, p + "cross_attention.v"))],
+                    Value keys = Heads(b, Linear(b, encoded, p + "cross_attention.k"));
+                    Value values = Heads(b, Linear(b, encoded, p + "cross_attention.v"));
+                    if (cachedCross)
+                    {
+                        var kc = b.State(crossK[layer]);
+                        var vc = b.State(crossV[layer]);
+                        b.CacheWrite(kc, keys, WellKnown.SourcePastScalar);
+                        b.CacheWrite(vc, values, WellKnown.SourcePastScalar);
+                        keys = kc;
+                        values = vc;
+                    }
+
+                    var cross = b.Emit1("Attention", [Heads(b, Linear(b, h, p + "cross_attention.q")), keys, values],
                         Attributes.From(("scale", scale), ("causal", false)), $"{p}cross_attn");
-                    return Linear(b, b.Reshape(cross, 0, inner), p + "cross_attention.o", $"{p}cross_attn_out");
+                    return Linear(b, Merge(b, cross), p + "cross_attention.o", $"{p}cross_attn_out");
                 });
                 x = SubLayer(b, x, p + "mlp_norm", h => FeedForward(b, h, p));
             }
@@ -264,7 +327,12 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
 
         Value FinalNorm(GraphBuilder b, Value x, string normName, string name) => b.HasWeight(normName + ".weight") ? Norm(b, x, normName, name) : x;
 
-        Value Heads(GraphBuilder b, Value v) => b.Reshape(v, 0, nHead, headDim);
+        // Rows keep their (symbolic or, for fixed-size speech encoders, fixed) leading dimension.
+        Value Heads(GraphBuilder b, Value v) => b.Reshape(v, Rows(v), nHead, headDim);
+
+        Value Merge(GraphBuilder b, Value v) => b.Reshape(v, Rows(v), inner);
+
+        static long Rows(Value v) => v.Shape[0].IsSymbolic ? 0 : v.Shape[0].Fixed;
 
         Value Linear(GraphBuilder b, Value v, string module, string? name = null)
             => b.Linear(v, module + ".weight", b.HasWeight(module + ".bias") ? module + ".bias" : null, name);
@@ -283,13 +351,13 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             return Linear(b, y, p + "mlp.down", $"{p}ffn_out");
         }
 
-        Value Act(GraphBuilder b, Value t) => act switch
+        Value Act(GraphBuilder b, Value t, string? activation = null) => (activation ?? act) switch
         {
             "relu" => b.Unary("Relu", t),
             "gelu" => b.Unary("Gelu", t),
             "gelu_tanh" => b.Unary("GeluTanh", t),
             "silu" => b.Silu(t),
-            _ => throw new NotSupportedException($"encoder_decoder: unknown mlp.activation '{act}'."),
+            var other => throw new NotSupportedException($"encoder_decoder: unknown activation '{other}'."),
         };
     }
 }

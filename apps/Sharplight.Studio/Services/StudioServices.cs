@@ -1,7 +1,9 @@
+using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Documents;
 using Sharplight.Studio.Services.Hub;
 using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Monitoring;
+using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Platform;
 using Sharplight.Studio.Services.Precompile;
 using Sharplight.Studio.Services.Runtime;
@@ -27,4 +29,7 @@ internal sealed record StudioServices(
     IUiDispatcher Dispatcher,
     IThemeService Theme,
     IUpdateService Updates,
-    IPrecompileService Precompiler);
+    IPrecompileService Precompiler,
+    IPageStorage Pages,
+    IAudioPlayer Player,
+    IAudioRecorder Recorder);

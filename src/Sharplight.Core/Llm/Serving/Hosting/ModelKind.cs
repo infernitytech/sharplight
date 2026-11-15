@@ -11,4 +11,7 @@ public enum ModelKind
 
     /// <summary>A reranking (cross-encoder) model.</summary>
     Reranker,
+
+    /// <summary>A model of the task layer (speech recognition, speech synthesis, ...) whose client comes from the <c>TaskClientProvider</c>.</summary>
+    Task,
 }

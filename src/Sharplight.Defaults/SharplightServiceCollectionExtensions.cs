@@ -1,9 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Architectures;
 using Sharplight.Cpu;
+using Sharplight.Import.Diffusers;
 using Sharplight.Import.Gguf;
 using Sharplight.Import.HuggingFace;
 using Sharplight.Import.Onnx;
+using Sharplight.Import.WhisperCpp;
 using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Tasks;
@@ -37,7 +39,7 @@ public static class SharplightServiceCollectionExtensions
         }
 
         /// <summary>
-        /// Adds the built-in architecture adapters (<see cref="BuiltinAdapters.RegisterAll"/>) and the GGUF, Hugging Face, ONNX and
+        /// Adds the built-in architecture adapters (<see cref="BuiltinAdapters.RegisterAll"/>) and the GGUF, Hugging Face, ONNX, whisper.cpp and
         /// <c>.slm</c> package importers (the ONNX importer also brings its generic graph adapter).
         /// </summary>
         public IServiceCollection AddSharplightModelFormats()
@@ -49,6 +51,8 @@ public static class SharplightServiceCollectionExtensions
                 GgufImporter.Register();
                 HuggingFaceImporter.Register();
                 OnnxImporter.Register();
+                DiffusersImporter.Register();
+                WhisperCppImporter.Register();
                 ModelPackageImporter.Register();
             }
 

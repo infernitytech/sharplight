@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>sharplight-vision</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Description>Sample: image classification and object detection with the Sharplight task API, writing annotated PNGs.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
+  </ItemGroup>
+</Project>

@@ -54,7 +54,7 @@ internal static class NGramEmbedding
         long dense = DenseKernel(conv, dilation);
         weights[DenseConvName(p)] = WeightInfo.Derived(DenseConvName(p), DataType.F32, new Shape(channels, dense), () =>
         {
-            var src = ReadFloats(conv);
+            var src = WeightConversions.ReadFloats(conv);
             var dst = new float[channels * dense];
             for (long c = 0; c < channels; c++)
             {
@@ -66,25 +66,6 @@ internal static class NGramEmbedding
 
             return MemoryMarshal.AsBytes(dst.AsSpan()).ToArray();
         });
-    }
-
-    /// <summary>The values of an f32, f16 or bf16 weight as floats (quantized GGUFs keep this small table in 16 bits).</summary>
-    private static float[] ReadFloats(WeightInfo weight)
-    {
-        byte[] bytes = weight.ReadAll();
-        if (weight.Type == DataType.F32)
-        {
-            return MemoryMarshal.Cast<byte, float>(bytes).ToArray();
-        }
-
-        var halves = MemoryMarshal.Cast<byte, ushort>(bytes);
-        var values = new float[halves.Length];
-        for (int i = 0; i < halves.Length; i++)
-        {
-            values[i] = weight.Type == DataType.F16 ? (float)BitConverter.UInt16BitsToHalf(halves[i]) : BitConverter.Int32BitsToSingle(halves[i] << 16);
-        }
-
-        return values;
     }
 
     private static long DenseKernel(WeightInfo conv, int dilation) => (conv.Shape[1].Fixed - 1) * dilation + 1;

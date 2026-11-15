@@ -62,7 +62,7 @@ public sealed unsafe class GgufFile : IDisposable
     private GgufFile(string path)
     {
         Path = path;
-        FileLength = new FileInfo(path).Length;
+        FileLength = LengthOf(path);
         if (FileLength < HeaderBytes)
         {
             throw new InvalidDataException("File too small to be GGUF.");
@@ -282,5 +282,12 @@ public sealed unsafe class GgufFile : IDisposable
         _view = null;
         _mmf?.Dispose();
         _mmf = null;
+    }
+
+    /// <summary>The size of the file <paramref name="path"/> names, following symbolic links (<see cref="FileInfo.Length"/> reports the link's own size).</summary>
+    private static long LengthOf(string path)
+    {
+        using var handle = File.OpenHandle(path);
+        return RandomAccess.GetLength(handle);
     }
 }

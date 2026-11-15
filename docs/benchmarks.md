@@ -4441,3 +4441,324 @@ dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll f64/vit-base-patch
     per-device-type value.
 * **Section number**: the raw data is in `bench/results/s32/`. Rename the section and the folder if another section
   takes 32 first.
+
+## 34. New hardware baseline (RTX PRO 4500 Blackwell 32 GB, 2026-11-15)
+
+The work continues on a new machine. Every number before this section was measured on an RTX PRO 6000 Blackwell Max-Q
+(96 GB, 300 W, about 1.8 TB/s); none of them compares to the numbers here. This section re-measures the method of
+sections 1-3 on one GPU of the new machine. Base: `develop` at `282dd5b` (measurement only). Raw results:
+[`bench/results/s34/`](../bench/results/s34).
+
+### 34.1 Setup
+
+| | |
+|---|---|
+| GPU | one of three NVIDIA RTX PRO 4500 Blackwell (GB203, 82 SMs, 32 GB GDDR7, 256-bit at 14 Gbps = 896 GB/s, 200 W power limit, boost up to 3090 MHz), driver 595.91, CUDA 13.2. The benchmarks own GPU 1; the other two GPUs ran other agents' tests |
+| CPU | 48 threads, shared with other agents (host-side numbers are noisy) |
+| Sharplight | `develop` at `282dd5b`, Release, Vulkan provider, `SHARPLIGHT_VK_DEVICES=1` |
+| llama.cpp | b11177, builds `runtime.llama-b11177-cuda13` (`CUDA_VISIBLE_DEVICES=1`) and `-vulkan` (`GGML_VK_VISIBLE_DEVICES=1`, NV_coopmat2), `-ngl 99 -fa 1` |
+| vLLM | 0.33.0 (`CUDA_VISIBLE_DEVICES=1`, flash-attn backend, CUDA graphs, `VLLM_USE_FLASHINFER_SAMPLER=0`, prefix caching off) on bf16 HF checkpoints |
+
+Method as in sections 2 and 16: `bench/s34_single_all.sh` runs `bench/s16_single.sh` per engine and model
+(Sharplight `--bench N`, 3 process runs, best prefill of 4 and median decode step; llama-bench `-r 5`; vLLM
+`bench/vllm_single.py`, median of 5). Cells are median (min..max). Sharplight prefills in 512-token chunks like llama-bench
+(`-ub 512`); vLLM takes the whole prompt in one step. The model set adds Qwen3-8B Q4_K_M and gpt-oss-20b MXFP4 to the
+section 1 set. vLLM runs the bf16 checkpoints (2-3.5x the weight bytes of the GGUFs on OLMoE), so its decode cells are a
+reference for the batching engine, not for the kernels. Qwen3.8-27B Q8_0 (29 GB) fits for single-stream runs with a
+4352-token context (Sharplight and both llama.cpp builds); vLLM has no FP8 / bf16 checkpoint of it that fits 32 GB.
+
+### 34.2 Single stream
+
+Tokens/s, higher is better; `SL/best` = Sharplight against the fastest other engine.
+
+| model | metric | Sharplight | llama.cpp CUDA | llama.cpp Vulkan | vLLM (bf16) | SL/CUDA | SL/Vulkan | SL/vLLM | SL/best |
+|---|---|---|---|---|---|---:|---:|---:|---:|
+| gemma3-1b-q8 | pp512 | 33425 (33408..33819) | 37857 (23675..37969) | 33923 (33644..33956) | 34226 (30241..35133) | 0.88x | 0.99x | 0.98x | 0.88x |
+| gemma3-1b-q8 | pp2048 | 32164 (25518..32384) | 38958 (36390..39548) | 35449 (33980..35784) | 67142 (66261..67831) | 0.83x | 0.91x | 0.48x | 0.48x |
+| gemma3-1b-q8 | tg128 @d0 | 394 (386..400) | 406 (404..408) | 374 (373..375) | 308 (306..317) | 0.97x | 1.05x | 1.28x | 0.97x |
+| gemma3-1b-q8 | tg128 @d4096 | 380 (380..382) | 401 (398..402) | 363 (360..366) | 277 (259..280) | 0.95x | 1.05x | 1.37x | 0.95x |
+| gpt-oss-20b-mxfp4 | pp512 | 9618 (9472..9750) | 11223 (7406..11728) | 6545 (6373..6703) | - | 0.86x | 1.47x | - | 0.86x |
+| gpt-oss-20b-mxfp4 | pp2048 | 9204 (9197..9223) | 11422 (11139..11526) | 6538 (6508..6713) | - | 0.81x | 1.41x | - | 0.81x |
+| gpt-oss-20b-mxfp4 | tg128 @d0 | 222 (221..222) | 227 (227..228) | 220 (220..221) | - | 0.98x | 1.01x | - | 0.98x |
+| gpt-oss-20b-mxfp4 | tg128 @d4096 | 210 (210..211) | 217 (208..217) | 211 (211..212) | - | 0.97x | 0.99x | - | 0.97x |
+| llama3.2-1b-q8 | pp512 | 32722 (32684..32779) | 41426 (30632..42016) | 33853 (33599..34019) | 43650 (42464..44374) | 0.79x | 0.97x | 0.75x | 0.75x |
+| llama3.2-1b-q8 | pp2048 | 29508 (29491..29842) | 40894 (39391..42119) | 32790 (31923..33618) | 54582 (53952..55579) | 0.72x | 0.90x | 0.54x | 0.54x |
+| llama3.2-1b-q8 | tg128 @d0 | 460 (457..461) | 484 (483..486) | 460 (454..462) | 288 (287..290) | 0.95x | 1.00x | 1.60x | 0.95x |
+| llama3.2-1b-q8 | tg128 @d4096 | 398 (397..400) | 443 (441..445) | 416 (408..418) | 278 (275..285) | 0.90x | 0.96x | 1.43x | 0.90x |
+| mistral7b-q4km | pp512 | 6067 (6065..6069) | 7129 (6736..7355) | 6558 (6481..6944) | - | 0.85x | 0.93x | - | 0.85x |
+| mistral7b-q4km | pp2048 | 5441 (5438..5441) | 6959 (6850..6980) | 6342 (6321..6422) | - | 0.78x | 0.86x | - | 0.78x |
+| mistral7b-q4km | tg128 @d0 | 155 (154..155) | 158 (158..158) | 153 (152..154) | - | 0.98x | 1.01x | - | 0.98x |
+| mistral7b-q4km | tg128 @d4096 | 134 (133..134) | 141 (141..142) | 137 (136..138) | - | 0.94x | 0.97x | - | 0.94x |
+| nemotron30b-q4km | pp512 | 6146 (6145..6150) | 5490 (5073..5548) | 4589 (4571..4600) | - | 1.12x | 1.34x | - | 1.12x |
+| nemotron30b-q4km | pp2048 | 5859 (5853..5872) | 5462 (5361..5476) | 4571 (4568..4610) | - | 1.07x | 1.28x | - | 1.07x |
+| nemotron30b-q4km | tg128 @d0 | 219 (219..220) | 230 (224..231) | 201 (200..203) | - | 0.95x | 1.09x | - | 0.95x |
+| nemotron30b-q4km | tg128 @d4096 | 216 (214..216) | 225 (224..226) | 185 (171..191) | - | 0.96x | 1.17x | - | 0.96x |
+| olmoe-q4km | pp512 | 19531 (19515..19546) | 20236 (16961..20829) | 20577 (20158..20861) | 21046 (18995..21483) | 0.97x | 0.95x | 0.93x | 0.93x |
+| olmoe-q4km | pp2048 | 17990 (17882..18004) | 18958 (18537..19184) | 18917 (18783..19205) | 39287 (38400..40014) | 0.95x | 0.95x | 0.46x | 0.46x |
+| olmoe-q4km | tg128 @d0 | 620 (615..626) | 648 (648..649) | 573 (569..579) | 289 (288..290) | 0.96x | 1.08x | 2.14x | 0.96x |
+| olmoe-q4km | tg128 @d4096 | 441 (435..445) | 451 (448..452) | 420 (419..422) | 218 (216..219) | 0.98x | 1.05x | 2.02x | 0.98x |
+| qwen27b-q8 | pp512 | 1926 (1926..1933) | 1921 (1810..1926) | 1552 (1548..1558) | - | 1.00x | 1.24x | - | 1.00x |
+| qwen27b-q8 | pp2048 | 1822 (1821..1827) | 1904 (1895..1910) | 1537 (1535..1538) | - | 0.96x | 1.19x | - | 0.96x |
+| qwen27b-q8 | tg128 @d0 | 27.3 (27.2..27.4) | 27.6 (27.3..27.6) | 27.5 (27.5..27.6) | - | 0.99x | 0.99x | - | 0.99x |
+| qwen27b-q8 | tg128 @d4096 | 26.3 (26.3..26.4) | 27.3 (26.9..27.4) | 27.2 (27.2..27.2) | - | 0.96x | 0.97x | - | 0.96x |
+| qwen3-0.6b-q8 | pp512 | 46283 (46097..46376) | 49578 (28181..49695) | 40401 (39938..40470) | 32589 (32497..33309) | 0.93x | 1.15x | 1.42x | 0.93x |
+| qwen3-0.6b-q8 | pp2048 | 33190 (33166..33197) | 46612 (42769..47347) | 37555 (15386..38216) | 82685 (77660..84008) | 0.71x | 0.88x | 0.40x | 0.40x |
+| qwen3-0.6b-q8 | tg128 @d0 | 596 (435..597) | 678 (672..679) | 576 (570..579) | 461 (459..464) | 0.88x | 1.03x | 1.29x | 0.88x |
+| qwen3-0.6b-q8 | tg128 @d4096 | 452 (440..453) | 479 (476..480) | 438 (435..441) | 373 (365..374) | 0.94x | 1.03x | 1.21x | 0.94x |
+| qwen3-8b-q4km | pp512 | 5698 (5694..5698) | 7059 (6550..7258) | 6216 (5662..6484) | - | 0.81x | 0.92x | - | 0.81x |
+| qwen3-8b-q4km | pp2048 | 5020 (5019..5029) | 6895 (6788..6917) | 5862 (5241..6051) | - | 0.73x | 0.86x | - | 0.73x |
+| qwen3-8b-q4km | tg128 @d0 | 137 (137..138) | 144 (144..144) | 133 (99..137) | - | 0.95x | 1.03x | - | 0.95x |
+| qwen3-8b-q4km | tg128 @d4096 | 119 (118..119) | 128 (128..128) | 111 (106..122) | - | 0.92x | 1.07x | - | 0.92x |
+
+Notes:
+* Decode is within 0.88-0.99x of llama.cpp CUDA on every model and 0.96-1.17x of llama.cpp Vulkan. The card's 896 GB/s
+  bound decode: the 27B Q8_0 step reads 29 GB in 36.5 ms (0.80 TB/s, 27.3 tok/s against llama.cpp's 27.6).
+* Prefill on dense models is the gap: 0.71-0.85x of llama.cpp CUDA (0.72-0.79x on Llama-1B, Qwen3-8B and Qwen3-0.6B at 2048
+  tokens). The MoE and hybrid models are close or ahead: OLMoE 0.95-0.97x, the 27B 0.96-1.00x, Nemotron 1.07-1.12x.
+* Prefill falls more from 512 to 2048 tokens than on llama.cpp (Mistral -10 % against -2 %): causal attention over the
+  growing context costs more (34.4).
+* vLLM's 2048-token prefill on the small bf16 models (55-83 k tok/s) is one 2048-row step on cuBLAS; it is 1.7-2.5x
+  Sharplight's chunked prefill. At 512 tokens vLLM is at 0.70-1.4x of Sharplight.
+
+### 34.3 Serving
+
+`bench/s16_serve.sh` as in section 28.6 (~250-token random-word prompts, 128 output tokens, ignore_eos, temperature 0,
+one server per engine with 64 slots and 512-token contexts, 2 rounds per concurrency; Sharplight has no `ignore_eos`,
+but every stream ran to 128 tokens here). The small model is Llama-3.2-1B Q8_0; the largest models that fit all servers
+at 64 slots are OLMoE Q4_K_M and gpt-oss-20b MXFP4 (12 GB). The 27B Q8_0 (29 GB) leaves no room for 64 sequences.
+Aggregate output tok/s, median of the two rounds (min..max), and median TTFT / mean ITL in ms:
+
+| model | conc | Sharplight | llama.cpp CUDA | llama.cpp Vulkan | SL / CUDA | TTFT p50 SL / CUDA | ITL SL / CUDA |
+|---|---:|---:|---:|---:|---:|---|---|
+| llama3.2-1b | 1 | 445 (443..446) | 408 (398..417) | 384 (380..389) | 1.09x | 11 / 18 | 2.16 / 2.32 |
+| llama3.2-1b | 4 | 1539 (1520..1558) | 678 (665..690) | 579 (576..581) | 2.27x | 24 / 58 | 2.42 / 5.48 |
+| llama3.2-1b | 16 | 4069 (4002..4136) | 1034 (1030..1037) | 707 (675..738) | 3.94x | 54 / 230 | 3.45 / 13.79 |
+| llama3.2-1b | 64 | 6137 (6091..6183) | 1397 (1353..1442) | 1453 (1442..1463) | 4.39x | 139 / 317 | 8.57 / 38.19 |
+| olmoe | 1 | 554 (552..556) | 479 (477..480) | 422 (420..423) | 1.16x | 18 / 49 | 1.67 / 1.71 |
+| olmoe | 4 | 979 (979..980) | 614 (595..633) | 461 (439..484) | 1.59x | 34 / 164 | 3.84 / 5.27 |
+| olmoe | 16 | 1415 (1403..1427) | 782 (782..782) | 373 (314..431) | 1.81x | 57 / 646 | 10.73 / 15.64 |
+| olmoe | 64 | 3051 (3039..3064) | 1323 (1262..1384) | 1202 (1199..1205) | 2.31x | 99 / 824 | 18.50 / 41.79 |
+| gpt-oss-20b | 1 | 216 (215..217) | 196 (192..200) | 162 (151..174) | 1.10x | 34 / 52 | 4.39 / 4.72 |
+| gpt-oss-20b | 4 | 453 (437..468) | 282 (260..304) | 211 (203..219) | 1.61x | 72 / 136 | 8.38 / 13.23 |
+| gpt-oss-20b | 16 | 662 (662..663) | 411 (377..446) | 247 (242..251) | 1.61x | 110 / 501 | 23.10 / 35.52 |
+| gpt-oss-20b | 64 | 1850 (1848..1853) | 1032 (1001..1063) | 628 (625..630) | 1.79x | 190 / 941 | 29.76 / 53.86 |
+
+* Sharplight serves 1.1-4.4x llama-server's throughput, with lower TTFT and ITL at every concurrency.
+* The MoE models scale poorly from 4 to 16 streams: OLMoE 979 → 1415 tok/s (the 16-stream step at 45 rows takes 10.9 ms
+  against 3.9 ms at 10 rows), gpt-oss 453 → 662 (23.5 against 8.6 ms), while Llama-1B goes 1539 → 4069. The batched
+  expert matmuls at 16-64 rows are the next serving target.
+* vLLM 0.33.0 on the bf16 checkpoints (same loadgen, `--max-num-seqs 64 --max-model-len 512`, `--gpu-memory-utilization`
+  0.5 / 0.8; gpt-oss-20b has no local HF checkpoint). Its server start took 12-18 minutes here (the virtualenv sits on a
+  slow network filesystem); the measured rounds are unaffected:
+
+| model | conc | vLLM (bf16) | SL / vLLM | TTFT p50 SL / vLLM | ITL SL / vLLM |
+|---|---:|---:|---:|---|---|
+| llama3.2-1b | 1 | 271 (263..279) | 1.64x | 11 / 16 | 2.16 / 3.62 |
+| llama3.2-1b | 4 | 1042 (1040..1045) | 1.48x | 24 / 36 | 2.42 / 3.58 |
+| llama3.2-1b | 16 | 3634 (3556..3712) | 1.12x | 54 / 63 | 3.45 / 3.95 |
+| llama3.2-1b | 64 | 8192 (7684..8701) | 0.75x | 139 / 190 | 8.57 / 8.15 |
+| olmoe | 1 | 266 (265..266) | 2.09x | 18 / 33 | 1.67 / 3.53 |
+| olmoe | 4 | 504 (495..512) | 1.94x | 34 / 66 | 3.84 / 7.49 |
+| olmoe | 16 | 1116 (1106..1126) | 1.27x | 57 / 95 | 10.73 / 13.65 |
+| olmoe | 64 | 2856 (2837..2875) | 1.07x | 99 / 197 | 18.50 / 20.71 |
+
+* Sharplight is ahead of vLLM up to 16 streams and on OLMoE at 64; Llama-1B at 64 streams is the one serving cell
+  behind vLLM (0.75x: vLLM's TTFT is higher, but its ITL is 5 % lower and it completes more requests per second).
+
+### 34.4 Ranked gaps (Sharplight / best other engine)
+
+1. **Prefill against vLLM's single-step prefill** on the small bf16 models at 2048 tokens: Qwen3-0.6B 0.40x, OLMoE 0.46x,
+   Gemma-3-1B 0.48x, Llama-1B 0.54x (vLLM runs one 2048-row step; Sharplight and llama.cpp chunk at 512).
+2. **Dense-model prefill against llama.cpp CUDA**: Qwen3-8B 0.73x / 0.81x (pp2048 / pp512), Mistral-7B 0.78x / 0.85x,
+   Llama-1B 0.72x / 0.79x (0.75x of vLLM at 512), gpt-oss-20b 0.81x / 0.86x, Gemma 0.83x / 0.88x. Profile of Qwen3-8B
+   pp2048: the Q4_K / Q6_K GEMMs are 85 % of the GPU time at about 93 TFLOPS on the [4096→12288] tiles; causal attention
+   was 12 % with `fa`; split-K reductions 2-7 %.
+3. **Small-model decode**: Qwen3-0.6B tg@d0 0.88x, Llama-1B tg@d4096 0.90x, Qwen3-8B tg@d4096 0.92x of llama.cpp CUDA.
+   The 0.6B step is 1.5-1.6 ms of GPU time for 369 dispatches and 256 barriers: launch- and barrier-bound.
+4. **Batched steps at 64 streams**: Llama-1B serving at 0.75x of vLLM (34.3); the MoE models scale poorly from 4 to 16
+   streams (batched expert matmuls at 16-64 rows).
+5. Everything else is at 0.94x or better.
+
+
+### 34.5 First changes on the new card
+
+Interleaved `--bench` A/B runs on GPU 1 (`best` prefill of 4 per process, median of 2-3 processes; decode is the median
+GPU time per step). Greedy identity: 200-token outputs of a short and a ~600-token prompt plus an ~800-token prompt
+prefilled in 128-token chunks (`--batch 128`, so attention runs against a non-empty cache), compared byte for byte.
+
+| change | default | effect | greedy output |
+|---|---|---|---|
+| Two output rows per workgroup in the split-K matvec (`wip/vulkan-matvec-rows`, `SHARPLIGHT_MV_ROWS=1` restores one) | on | decode step Llama-1B Q8_0 2.10 → 2.04 ms (+4 % tok/s), gpt-oss-20b 4.37 → 4.16 ms (+5 %); bf16 (Llama-1B, Qwen3-0.6B/1.7B) and Q4_K (Qwen3-8B) unchanged | unchanged on 11 models (9 GGUF + 2 bf16) |
+| K splits of the tensor-core GEMMs sized by the device's SMs (82 here) instead of 192 tiles (`SHARPLIGHT_GEMM_WAVE=device`) | opt-in | pp2048 Gemma-3-1B +17 %, Llama-1B +9 %, Qwen3-0.6B +7 %, Mistral-7B +2.5 %, Qwen3-8B +2 % | changes Qwen3-8B and gpt-oss-20b (other split = other rounding of the partial sums) |
+| Causal single-sequence prefill attention on the `fe` flash kernel (64 queries per workgroup, fragments in registers, blocks read only the keys their last query sees; `SHARPLIGHT_ATTN_FE_CAUSAL=1`) | opt-in | pp2048 Qwen3-0.6B +38 %, Qwen3-8B +7.5 %, Llama-1B +7 %, Mistral-7B +6 %; Gemma (sliding window) keeps `fa` | changes OLMoE and Nemotron-3-Nano (other summation order); unchanged on the 7 others |
+
+With both opt-ins (pp2048): Qwen3-0.6B 50.7 k tok/s (1.09x of llama.cpp CUDA, was 0.71x), Gemma-3-1B 38.0 k (0.97x,
+was 0.83x), Llama-1B 35.2 k (0.86x, was 0.72x). With both on, the 27B's chunked-prefill output also changes (not
+bisected). Both stay opt-in because they change greedy output; making them the
+default is a deliberate output change to decide together with the other summation-order items of the roadmap.
+
+## 35. ONNX on RTX PRO 4500 vs onnxruntime: concatenations computed in place (2026-11-15)
+
+First ONNX pass on the new machine: an RTX PRO 4500 Blackwell (32 GB) used by this benchmark alone (`SHARPLIGHT_VK_DEVICES`
+/ `CUDA_VISIBLE_DEVICES` pin one of the three GPUs), onnxruntime-gpu 1.32 with the CUDA EP (TF32 on, the default, and
+off) and the TensorRT EP (f32 engines with TF32 tactics, engine build excluded). Same harness as sections 30-33:
+`bench/onnx/parity_bench.py`, every measurement its own process, engines of one model back to back, rounds interleaved.
+Raw data is in `bench/results/s35/`:
+
+* `baseline-gpu.jsonl`: a first pass at the start of the round, before the attention-pattern and read-back commits
+  below. Its Sharplight times are up to 2x the later ones on the encoders (bert b8 6.55 ms, whisper 3.87 ms) and are
+  superseded.
+* `gpu-before.jsonl`: one round of all engines including TensorRT, after the merge of develop and before the
+  concatenation change.
+* `gpu-after.jsonl`: two interleaved rounds of the Sharplight and CUDA EP engines with every change of this section.
+
+### 35.1 What changed
+
+* **Decomposed attention whose probabilities round-trip through Reshapes** (exports that can also return the attention
+  probabilities) is now fused into the encoder flash kernel; bert-base and whisper-tiny now run `attention fe`. Between
+  the baseline pass and `gpu-before.jsonl` (this commit, the read-back change and the develop merge), GPU time fell
+  for bert b8 from 5.69 to 2.05 ms and for the whisper-tiny encoder from 3.60 to 1.87 ms.
+* **Large outputs are downloaded on the transfer queue** and read back with several threads; OnnxBench reports the
+  read-back time. SegFormer b8 returns 78 MB of logits per run.
+* **Concatenation inputs are computed in their output slices** (`PlanConcatSlices`, Vulkan lowering): when every axis
+  before the concatenation axis has extent 1 (a dynamic batch compiled for batch 1 counts), each input is a dense,
+  contiguous slice of the output, so its producer writes there and the concatenation launches only for the inputs it
+  cannot alias (views, graph inputs, segment outputs, values used twice, slices that are not 256-byte aligned). For a
+  batch, channel concatenations take Resize outputs as batch-strided slices (the resize kernel got an output batch
+  stride, `YS_N`) when the resize output has no other consumer. The slice values share the concatenation output's
+  liveness root, and the activation copies of matmul inputs are not shared across such a root. Off with
+  `SHARPLIGHT_NO_CONCAT_IN_PLACE=1`.
+  * SegFormer-b0's decode head (four upsampled 256-channel maps, 1.36 ms of copy per run at b8) now has no
+    concatenation launch: GPU time b8 18.16 → 16.83 ms, b1 2.52 → 2.35 ms.
+  * yolov8n drops 1 of its 19 concatenation launches per run and raft 1 of 129: in their other concatenations some
+    input does not qualify (a view, a graph input, a slice that is not 256-byte aligned), so the launch stays, now
+    copying only those inputs.
+* **ssd-12-int8 reference**: see 35.4.
+
+### 35.2 Latency
+
+Wall min latency in ms (minimum over the rounds of each process's min-of-N), batch as given. Sharplight Vulkan and the
+CUDA EP columns come from `gpu-after.jsonl` (2 interleaved rounds); TensorRT from `gpu-before.jsonl` (1 round). The
+fair pairs are fast against TF32 and strict against strict; "strict / TF32" is the gap left at f32 accuracy.
+
+| model | batch | SL strict | SL fast | ORT TF32 | ORT strict | ORT TensorRT | fast / TF32 | strict / strict | strict / TF32 | fast / TRT |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| resnet50 | 1 | 0.80 | 0.60 | 1.21 | 2.52 | 1.52 | 0.49x | 0.32x | 0.67x | 0.39x |
+| resnet50 | 8 | 3.51 | 2.68 | 2.93 | 5.34 | 1.99 | 0.92x | 0.66x | 1.20x | 1.35x |
+| convnext-tiny | 1 | 1.41 | 1.01 | 1.46 | 1.64 | 1.02 | 0.69x | 0.86x | 0.97x | 0.99x |
+| convnext-tiny | 8 | 5.30 | 3.26 | 4.00 | 5.94 | 2.17 | 0.81x | 0.89x | 1.32x | 1.51x |
+| efficientnet-lite4 | 1 | 0.71 | 0.61 | 1.26 | 12.17 | 0.69 | 0.48x | 0.06x | 0.56x | 0.89x |
+| mobilenetv2 | 1 | 0.36 | 0.32 | 0.69 | 0.69 | 0.35 | 0.46x | 0.52x | 0.52x | 0.90x |
+| mobilenetv2 | 8 | 0.94 | 0.86 | 1.05 | 1.62 | 0.55 | 0.82x | 0.58x | 0.89x | 1.56x |
+| yolov8n | 1 | 1.26 | 1.09 | 1.73 | 3.58 | 0.92 | 0.63x | 0.35x | 0.73x | 1.19x |
+| yolov10n | 1 | 1.12 | 0.97 | 1.72 | 2.57 | 0.73 | 0.56x | 0.44x | 0.65x | 1.33x |
+| ssd-10 (NMS) | 1 | 19.46 | 13.90 | 15.30 | 31.58 | 7.65 | 0.91x | 0.62x | 1.27x | 1.82x |
+| bert-base (16 tok) | 1 | 1.32 | 0.96 | 1.86 | 1.91 | 1.20 | 0.52x | 0.69x | 0.71x | 0.80x |
+| bert-base (16 tok) | 8 | 3.06 | 2.05 | 3.24 | 3.99 | 2.65 | 0.63x | 0.77x | 0.94x | 0.77x |
+| vit-base | 1 | 2.78 | 1.41 | 1.60 | 3.12 | 2.26 | 0.88x | 0.89x | 1.73x | 0.62x |
+| vit-base | 8 | 11.41 | 5.39 | 5.97 | 12.04 | 5.07 | 0.90x | 0.95x | 1.91x | 1.06x |
+| whisper-tiny-encoder | 1 | 2.10 | 1.28 | 1.92 | 3.07 | 1.56 | 0.66x | 0.68x | 1.09x | 0.82x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 3.56 | 3.56 | 6.06 | 5.83 | - | 0.59x | 0.61x | 0.59x | - |
+| phi3.5-mini q4f16 (GQA) | 1 | 6.28 | 6.28 | 4.55 | 4.54 | - | 1.38x | 1.38x | 1.38x | - |
+| segformer-b0 | 1 | 3.01 | 2.79 | 3.24 | 4.19 | 2.57 | 0.86x | 0.72x | 0.93x | 1.09x |
+| segformer-b0 | 8 | 22.34 | 20.65 | 29.58 | 36.69 | 25.09 | 0.70x | 0.61x | 0.76x | 0.82x |
+| mobilesam-encoder | 1 | 7.71 | 6.18 | 9.62 | 12.29 | 4.56 | 0.64x | 0.63x | 0.80x | 1.35x |
+| raft-large | 1 | 55.13 | 44.74 | 60.05 | 103.17 | 44.47 | 0.75x | 0.53x | 0.92x | 1.01x |
+| fasterrcnn-12 (counts) | 1 | 11.30 | 9.43 | 10.56 | 17.40 | - | 0.89x | 0.65x | 1.07x | - |
+| maskrcnn-12 (counts) | 1 | 12.27 | 10.43 | 11.09 | 17.65 | - | 0.94x | 0.70x | 1.11x | - |
+
+### 35.3 Reading the table
+
+* **Fast against TF32**: Sharplight is faster than ORT's default on every model except the phi-3.5 decoder step
+  (1.38x, a q4f16 GroupQueryAttention decoder: the LLM kernels' workstream). Range 0.46-0.94x; closest are maskrcnn
+  0.94x, resnet50 b8 0.92x, ssd-10 0.91x and vit 0.88-0.90x.
+* **Strict against strict**: faster on every model except phi-3.5 (0.06-0.95x; efficientnet-lite4 0.06x, where ORT's
+  run with TF32 off is 10x its default). vit b8 is the closest at 0.95x.
+* **Strict against TF32**: faster on 14 of 23 rows. The rest: vit 1.73x / 1.91x, phi-3.5 1.38x, convnext b8 1.32x,
+  ssd-10 1.27x, resnet50 b8 1.20x, maskrcnn 1.11x, whisper 1.09x, fasterrcnn 1.07x. On ssd-10, two thirds of the GPU time are the
+  256-channel 3x3 convs over 150x150 maps (1.08 ms each, about 73 TFLOPS of f16 products: three per multiply-add), so
+  the gap is the strict split's cost, not a scheduling loss; fast precision is at 0.91x.
+* **TensorRT** stays ahead on the convnets and detectors at batch 8 or high resolution (fast / TRT up to 1.82x on
+  ssd-10, 1.51x convnext b8, 1.56x mobilenetv2 b8, 1.35x mobilesam). Sharplight fast beats it on resnet50 b1, bert, vit
+  b1, whisper and segformer b8, and ties on convnext b1 and raft. TensorRT could not build Faster / Mask R-CNN (its ONNX
+  parser needs `libnvinfer_vc_plugin`, not installed) and fails on the com.microsoft MatMulNBits / GroupQueryAttention
+  graphs.
+* **Parity**: every strict row passes against the ORT CPU reference except ssd-10 (worst relative RMS 2.1e-2 on the
+  NMS outputs, already in the first pass): near-tied boxes switch order after NMS. The fast rows marked as parity
+  failures in the raw data are within TF32's error class (section 33.3).
+* Changed rows between `gpu-before` (1 round) and `gpu-after` (2 rounds) other than SegFormer (yolov8n strict 1.65 →
+  1.26 ms, bert b1 1.78 → 1.32 ms) are run-to-run variation: yolov8n's profiled GPU time is 1.00 ms with and without
+  the concatenation change, and bert has no concatenation.
+
+**CPU (indicative)**: one round, min of 10 runs, 8 threads pinned to cores 0-7 of the AMD EPYC 7443P, which other
+workloads shared (`cpu.jsonl`; medians up to 1.5x the minima):
+
+| model | batch | SL CPU | ORT CPU | SL / ORT |
+|---|---:|---:|---:|---:|
+| resnet50 | 1 | 12.7 | 13.1 | 0.97x |
+| resnet50 | 8 | 92.7 | 77.1 | 1.20x |
+| convnext-tiny | 1 | 30.1 | 24.5 | 1.23x |
+| convnext-tiny | 8 | 177.1 | 137.2 | 1.29x |
+| mobilenetv2 | 1 | 2.3 | 1.9 | 1.17x |
+| mobilenetv2 | 8 | 13.1 | 10.8 | 1.22x |
+| yolov8n | 1 | 20.0 | 25.4 | 0.79x |
+| bert-base (16 tok) | 1 | 16.3 | 12.8 | 1.28x |
+| bert-base (16 tok) | 8 | 49.7 | 54.8 | 0.91x |
+| vit-base | 1 | 56.2 | 59.8 | 0.94x |
+| vit-base | 8 | 448.1 | 392.5 | 1.14x |
+| whisper-tiny-encoder | 1 | 84.5 | 70.6 | 1.20x |
+| segformer-b0 | 1 | 47.9 | 54.8 | 0.87x |
+| segformer-b0 | 8 | 378.4 | 549.9 | 0.69x |
+| fasterrcnn-12 (counts) | 1 | 548.2 | 306.4 | 1.79x |
+
+Sharplight's CPU backend is ahead or even on resnet50 b1, yolov8n, bert b8, vit b1 and segformer, and 1.1-1.3x behind on
+the other convnet and encoder rows; Faster R-CNN stays at 1.8x (section 33's CPU detection gap).
+
+### 35.4 ssd-12-int8: ORT's u8 x s8 kernels saturate, Sharplight follows the spec
+
+`SurveyModelTests.Survey("ssd-12-int8", cpu|vulkan)` failed against references generated with ORT 1.32 on this
+machine's AMD EPYC 7443P, while Sharplight's CPU and Vulkan backends agreed to 1e-7.
+
+* ORT 1.31.1 and 1.32 give identical outputs, with and without graph optimizations: the requantization did not change.
+* The ONNX spec's QLinearConv accumulates exactly in int32, applies the f32 multiplier and rounds half to even before
+  saturating. Sharplight computes exactly that on both backends.
+* On x86 CPUs without VNNI, ORT's u8 x s8 kernels sum adjacent products with int16 saturation (VPMADDUBSW). An emulation
+  of that saturation over channels-last K pairs reproduces ORT's output of the first QLinearConv (input zero point 114,
+  7x7x3 int8 weights) exactly; 0.5 % of its outputs (105,961 of 23 M) differ from the spec by up to 5 LSB, which changes
+  the selected boxes.
+* `bench/onnx/make_survey_refs.py` now builds this reference (`u8weights`) from a copy whose int8 QLinearConv weights
+  are stored as uint8 (w + 128, zero point + 128, the same values by the spec). ORT's u8 x u8 kernels widen to 16 bits
+  first and match the spec on any x86 CPU. Both backends pass against it (max abs 1.2e-7). Documented in
+  `docs/onnx-support.md`.
+
+### 35.5 Tests
+
+ONNX importer tests 181 (0 failed, 28 skipped), Vulkan 1445 (0 failed), CPU 1286 (0 failed), conformance 4197 with 49
+failures. The failures are the known unsupported or nondeterministic cases (Bernoulli, ImageDecoder, f64 BitCast,
+training Dropout, the two dynamic-int8 extra tests) on both providers, plus 3 Vulkan `test_unique_sorted_with_axis*`
+cases (output shape [3, 3] instead of [2, 3]) that fail identically with `SHARPLIGHT_NO_CONCAT_IN_PLACE=1`, so they
+predate this change (the Vulkan Unique kernels landed in develop).
+
+### 35.6 Open gaps
+
+* **Strict encoders against TF32**: vit 1.73x (b1) / 1.91x (b8), whisper 1.09x. The three products of the split cost
+  about 1.5x by construction; fast precision is at 0.66-0.90x of TF32. The activation split is still a pre-pass that
+  the producing LayerNorm / GELU could write.
+* **Strict convnets against TF32**: convnext b8 1.32x, resnet50 b8 1.20x, ssd-10 1.27x: the strict split's cost on large
+  3x3 / 1x1 convs (73 TFLOPS of f16 products on ssd-10's 256-channel convs).
+* **TensorRT**: 1.2-1.8x faster than Sharplight fast on convnets / detectors at batch 8 or high resolution.
+* **phi-3.5 q4f16 decoder step**: 1.38x of ORT CUDA (LLM kernels).
+* **Concatenations**: batch-strided slices are only taken from Resize; convs, GEMMs and elementwise producers would need
+  an output batch stride too. Concatenations whose inputs are views still copy them (raft keeps 117 launches per run).
+* **ssd-10 strict parity**: NMS order of near-tied boxes (relative RMS 2.1e-2).
+* **Conformance**: 3 Vulkan `test_unique_sorted_with_axis*` failures from develop (35.5).
+
+### 35.7 Reproduce
+
+```bash
+. bench/onnx/env.sh   # ORT_PYTHON with onnxruntime-gpu 1.32, CUDA and TensorRT libraries
+export SHARPLIGHT_ONNX_MODELS=~/models/onnx SHARPLIGHT_VK_DEVICES=2 CUDA_VISIBLE_DEVICES=2
+python3 bench/onnx/parity_bench.py run gpu.jsonl --rounds 2 --engines sl-vulkan,sl-vulkan-fast,ort-cuda,ort-cuda-strict,ort-trt
+BENCH_THREADS=8 python3 bench/onnx/parity_bench.py run cpu.jsonl --rounds 1 --runs 10 --engines sl-cpu,ort-cpu
+SHARPLIGHT_NO_CONCAT_IN_PLACE=1 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/segformer-b0.json vulkan --batch 8 --profile
+```

@@ -57,6 +57,7 @@ public sealed partial class GraphLowerer
         // Decode (one token): split-K matvec, one workgroup per output row, K spread over enough threads that
         // each walks only a few 8-weight groups (keeps many loads in flight per row).
         int skSg = N <= 2048 || K >= 12288 ? 8 : 4;
+        long skRows = SplitKMatvecRows(N, dual: m.TryGetValue("DUAL", out var dualMacro) && dualMacro == "1");
         if (InvariantRows > 0)
         {
             m = new Dictionary<string, string>(m) { ["MV_FMA_CHAIN"] = "1" };
@@ -67,9 +68,14 @@ public sealed partial class GraphLowerer
             var macros = new Dictionary<string, string>(m)
             {
                 ["MV_COLS"] = columns.ToString(CultureInfo.InvariantCulture), ["MV_SK_SG"] = skSg.ToString(CultureInfo.InvariantCulture),
+                ["MV_SK_ROWS"] = skRows.ToString(CultureInfo.InvariantCulture),
             };
+            if (skRows > 1)
+            {
+                macros["MV_FMA_CHAIN"] = "1";
+            }
             return K >= 1024
-                ? new KernelVariant(when, lib("matvec_sk", macros), b => new Grid((uint)N))
+                ? new KernelVariant(when, lib("matvec_sk", macros), b => new Grid(Grid.Div(N, skRows)))
                 : new KernelVariant(when, lib("matvec", macros), b => new Grid(Grid.Div(N, 4)));
         }
 
@@ -89,6 +95,22 @@ public sealed partial class GraphLowerer
             : new KernelVariant(b => rows(b) <= MatvecMaxRows, lib("matvec", m), b => new Grid(Grid.Div(N, 4))));
         return variants;
     }
+
+    /// <summary>
+    /// Output rows per workgroup of the single-row split-K matvec (<c>MV_SK_ROWS</c> in <c>matvec_sk</c>): 2 for single matrices
+    /// with at least 1024 rows, else 1. Two rows per workgroup read each f32 activation from cache once for both rows (in f32,
+    /// x is four times the bytes of FP8 weights) and keep two weight loads in flight per thread. Blackwell, FP8 at one row (µs):
+    /// [17408→5120] 67 → 59, [5120→17408] 67 → 57, [5120→12288] 47 → 41, [5120→6144] 24 → 22 (27B FP8 decode step 22.5-23.1
+    /// → 20.0-20.5 ms). The dual gate / up matvec (already two loads per thread) and narrow matrices (fewer workgroups:
+    /// [5120→48] 3.6 → 4.4) keep one row.
+    /// A row's products are added in the same order at either row count, but left to itself the driver contracts the plain sum
+    /// of an 8-weight group differently in the two-row kernel (last-bit differences in about 60 % of the outputs). The two-row
+    /// kernel therefore writes the sum as the explicit fma chain (<c>MV_FMA_CHAIN</c>), which is what the driver makes of the
+    /// one-row kernel's plain sum, so the outputs equal those of one row per workgroup (greedy output unchanged on
+    /// Llama-3.2-1B bf16 / Q8_0, Qwen3-0.6B bf16, Qwen3-8B Q4_K_M and gpt-oss-20b MXFP4; RTX PRO 4500 decode step: Llama-1B
+    /// Q8_0 2.10 → 2.04 ms, gpt-oss-20b 4.37 → 4.16 ms, bf16 and Q4_K unchanged). <c>SHARPLIGHT_MV_ROWS=n</c> forces n (1 restores one row per workgroup).
+    /// </summary>
+    private static long SplitKMatvecRows(long n, bool dual) => DiagnosticSwitches.SplitKMatvecRows ?? (dual || n < 1024 ? 1 : 2);
 
     /// <summary>
     /// Makes x readable by the weight kernels: rows of 16-byte aligned f32 with a stride divisible by four, copying to a
@@ -193,12 +215,18 @@ public sealed partial class GraphLowerer
             var y = Produce(add.Output);
             int format = WeightFormat(w.Type) ?? throw new NotSupportedException($"MatMul weight type {w.Type}");
             int skSg = N <= 2048 || K >= 12288 ? 8 : 4;
+            long skRows = SplitKMatvecRows(N, dual: false);
             var macros = Macros(("WFMT", format), ("K", K), ("N", N), ("X_STRIDE", xStride), ("Y_STRIDE", N), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"),
-                ("MV_COLS", 1), ("MV_SK_SG", skSg), ("BIAS", 1));
+                ("MV_COLS", 1), ("MV_SK_SG", skSg), ("MV_SK_ROWS", skRows), ("BIAS", 1));
+            if (skRows > 1)
+            {
+                macros["MV_FMA_CHAIN"] = "1";
+            }
+
             var tx = x;
             Func<Bindings, long> rows = b => Rows(b, tx) * rowsPerLead;
             Emit($"matmul {matmul.Output.Name} [{K}→{N}] {w.Type} +bias", [matmul, add],
-                [new KernelVariant(b => rows(b) == 1, Lib("matmul.slang", "matvec_sk", macros), _ => new Grid((uint)N))],
+                [new KernelVariant(b => rows(b) == 1, Lib("matmul.slang", "matvec_sk", macros), _ => new Grid(Grid.Div(N, skRows)))],
                 [Pointer(x), Pointer(w), Pointer(y), Pointer(bias), TokenArg(x, rowsPerLead)],
                 [x, w, bias], [y]);
             _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) != 1;
@@ -623,10 +651,10 @@ public sealed partial class GraphLowerer
         bool workgroupMatrix = coop && !splitHalf && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations && PreferWorkgroupMatrixGemm
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
         Func<long, int> splitRows = workgroupMatrix
-            ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK)
+            ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK, GemmWaveTiles)
             : coop
                 ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0), Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)),
-                    (!splitHalf || FastMatrixProducts) && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32)
+                    (!splitHalf || FastMatrixProducts) && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32, GemmWaveTiles)
                 : rows => ChooseSimtSplit(N, K, rows);
 
         return new MatMulPlan
@@ -891,10 +919,29 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// K split for the tensor-core GEMM tiles: aim for ~256 workgroups, keep at least 4 K blocks per split
-    /// and no empty splits.
+    /// Tensor-core GEMM tiles assumed to run at once (<paramref name="wave"/> of <see cref="ChooseSplit"/>):
+    /// <see cref="DefaultGemmWaveTiles"/>, or <c>SHARPLIGHT_GEMM_WAVE=n</c>. With <c>SHARPLIGHT_GEMM_WAVE=device</c>, one tile per
+    /// compute unit the device reports (<see cref="LoweringOptions.ComputeUnits"/>; a 128x128 tile takes most of a unit's shared
+    /// memory, so units ≈ concurrent tiles). That is opt-in because other K splits round the partial sums differently and change
+    /// greedy output (Qwen3-8B Q4_K_M, gpt-oss-20b). RTX PRO 4500 (82 SMs): Llama-3.2-1B Q8_0 pp2048 +9 %, Qwen3-8B Q4_K_M
+    /// +2.5 % (fewer split-K launches and reductions).
     /// </summary>
-    private static int ChooseSplit(long N, long K, long rows, long blockRows = Gemm2TileRows, long blockColumns = Gemm2TileColumns, long blockK = 32)
+    private long GemmWaveTiles => DiagnosticSwitches.GemmWaveTiles switch
+    {
+        null => DefaultGemmWaveTiles,
+        0 => _opt.ComputeUnits > 0 ? _opt.ComputeUnits : DefaultGemmWaveTiles,
+        long n => n,
+    };
+
+    /// <summary>Concurrent GEMM tiles of the default K splits (tuned on a 188-SM GPU).</summary>
+    private const long DefaultGemmWaveTiles = 192;
+
+    /// <summary>
+    /// K split for the tensor-core GEMM tiles: aim for about 4/3 waves of <paramref name="wave"/> concurrent tiles, keep at least
+    /// 4 K blocks per split and no empty splits.
+    /// </summary>
+    private static int ChooseSplit(long N, long K, long rows, long blockRows = Gemm2TileRows, long blockColumns = Gemm2TileColumns, long blockK = 32,
+        long wave = DefaultGemmWaveTiles)
     {
         if (rows <= MatvecMaxRows)
         {
@@ -903,16 +950,16 @@ public sealed partial class GraphLowerer
 
         long tiles = (N + blockColumns - 1) / blockColumns * ((rows + blockRows - 1) / blockRows);
         long steps = K / blockK;
-        if (tiles >= 192)
+        if (tiles >= wave)
         {
-            // Many tiles: split only when two K halves fill the last wave of ~192 concurrent tiles clearly better
-            // (e.g. 234 tiles: 61 % → 81 % of two / three waves).
-            static double Fill(long count) => (double)count / ((count + 191) / 192 * 192);
-            return steps >= 8 && tiles < 768 && Fill(2 * tiles) > Fill(tiles) + 0.15 ? 2 : 1;
+            // Many tiles: split only when two K halves fill the last wave clearly better (e.g. 234 tiles of a 192-tile wave:
+            // 61 % → 81 % of two / three waves).
+            double Fill(long count) => (double)count / ((count + wave - 1) / wave * wave);
+            return steps >= 8 && tiles < 4 * wave && Fill(2 * tiles) > Fill(tiles) + 0.15 ? 2 : 1;
         }
 
         int split = 1;
-        while (split < 32 && tiles * split < 256 && steps / (split * 2) >= 4)
+        while (split < 32 && tiles * split < wave * 4 / 3 && steps / (split * 2) >= 4)
         {
             split *= 2;
         }

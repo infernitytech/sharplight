@@ -115,10 +115,10 @@ public sealed partial class GraphLowerer
     /// K split of an 8-bit GEMM (int8 or fp8) staging <paramref name="blockK"/> values per step for <paramref name="rows"/>
     /// activation rows (grids too small to fill the GPU).
     /// </summary>
-    private static int QuantizedGemmSplit(long n, long k, long rows, int blockK)
+    private int QuantizedGemmSplit(long n, long k, long rows, int blockK)
     {
         int tileRows = MmqTileRowsFor(rows);
-        return ChooseSplit(n, k, rows, tileRows, MmqColumns(tileRows), blockK);
+        return ChooseSplit(n, k, rows, tileRows, MmqColumns(tileRows), blockK, GemmWaveTiles);
     }
 
     /// <summary>

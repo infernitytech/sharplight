@@ -86,6 +86,7 @@ internal static partial class HfTokenizerTranslator
         else
         {
             md[CanonicalKeys.TokenizerAddSpacePrefix] = AddsSpacePrefix(tok);
+            AddTextCanonicalization(md, tok, dir);
         }
 
         AddPairStyle(md, tok);
@@ -127,6 +128,50 @@ internal static partial class HfTokenizerTranslator
         if (stripAccents is { } strip)
         {
             md[CanonicalKeys.TokenizerStripAccents] = strip;
+        }
+    }
+
+    // SigLIP canonicalizes the text before SentencePiece: lower case and a Replace step that deletes punctuation.
+    private static void AddTextCanonicalization(IDictionary<string, object> md, JsonElement tok, string dir)
+    {
+        if (!tok.TryGetProperty("normalizer", out var normalizer) || normalizer.ValueKind != JsonValueKind.Object || normalizer.TypeName() != "Sequence"
+            || !normalizer.TryGetProperty("normalizers", out var steps))
+        {
+            return;
+        }
+
+        bool lowercase = false;
+        string removed = "";
+        foreach (var step in steps.EnumerateArray())
+        {
+            string type = step.TypeName();
+            if (type == "Lowercase")
+            {
+                lowercase = true;
+            }
+            else if (type == "Replace" && step.TryGetProperty("content", out var content) && content.GetString() == ""
+                && step.TryGetProperty("pattern", out var pattern) && pattern.TryGetProperty("Regex", out var regex))
+            {
+                var expression = new System.Text.RegularExpressions.Regex(regex.GetString()!);
+                removed += string.Concat(Enumerable.Range(0x21, 0x5E).Select(c => (char)c).Where(c => expression.IsMatch(c.ToString())));
+            }
+        }
+
+        if (lowercase)
+        {
+            md[CanonicalKeys.TokenizerLowercase] = true;
+        }
+
+        // transformers' SiglipTokenizer removes all of string.punctuation (tokenizer.json's regex leaves out / < >).
+        if (removed.Length > 0 && ReadTokenizerConfig(dir) is { ValueKind: JsonValueKind.Object } config
+            && config.TryGetProperty("tokenizer_class", out var tokenizerClass) && tokenizerClass.GetString() == "SiglipTokenizer")
+        {
+            removed = string.Concat(Enumerable.Range(0x21, 0x5E).Select(c => (char)c).Where(c => !char.IsLetterOrDigit(c)));
+        }
+
+        if (removed.Length > 0)
+        {
+            md[CanonicalKeys.TokenizerStripChars] = removed;
         }
     }
 

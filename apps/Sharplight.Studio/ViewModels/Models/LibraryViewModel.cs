@@ -14,7 +14,7 @@ namespace Sharplight.Studio.ViewModels.Models;
 /// <summary>The local library: loaded models, stored models and added files.</summary>
 internal sealed partial class LibraryViewModel : ObservableObject
 {
-    private static readonly FileFilter s_modelFiles = new("Models", ["*.slm", "*.gguf", "*.onnx"]);
+    private static readonly FileFilter s_modelFiles = new("Models", ["*.slm", "*.gguf", "*.onnx", "*.bin"]);
     private static readonly FileFilter s_packageFiles = new("Sharplight packages", ["*.slm"]);
 
     private readonly StudioServices _services;
@@ -379,7 +379,10 @@ internal sealed partial class LibraryViewModel : ObservableObject
     {
         LoadPanel = null;
         Status = $"Loaded {model.Id} on {model.Device.Name}.";
-        _navigator.OpenChat(model);
+        if (!_navigator.OpenKind(model.Kind, model))
+        {
+            _navigator.OpenChat(model);
+        }
     }
 
     private void MarkLoaded()

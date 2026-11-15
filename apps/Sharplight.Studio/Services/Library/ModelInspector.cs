@@ -52,15 +52,57 @@ internal static class ModelInspector
         }
     }
 
-    /// <summary>The kind a model file that is not a package probably has: GGUF files and checkpoint folders are language models.</summary>
+    /// <summary>
+    /// The kind a model file that is not a package probably has: whisper.cpp <c>.bin</c> files (by their magic number) and Whisper
+    /// checkpoint folders recognize speech, a GGUF named like OuteTTS speaks, other GGUF files and checkpoint folders are language models.
+    /// </summary>
     private static string InferKind(string path)
     {
         if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
         {
-            return ModelKinds.TextGeneration;
+            return System.IO.Path.GetFileName(path).Contains("outetts", StringComparison.OrdinalIgnoreCase) ? ModelKinds.SpeechSynthesis : ModelKinds.TextGeneration;
         }
 
-        return Directory.Exists(path) && File.Exists(System.IO.Path.Combine(path, "config.json")) ? ModelKinds.TextGeneration : ModelKindCatalog.Other;
+        if (path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) && HasGgmlMagic(path))
+        {
+            return ModelKinds.SpeechRecognition;
+        }
+
+        string config = System.IO.Path.Combine(path, "config.json");
+        if (Directory.Exists(path) && File.Exists(config))
+        {
+            return IsWhisperConfig(config) ? ModelKinds.SpeechRecognition : ModelKinds.TextGeneration;
+        }
+
+        return ModelKindCatalog.Other;
+    }
+
+    /// <summary>Whether the file starts with the ggml magic number of whisper.cpp model files.</summary>
+    private static bool HasGgmlMagic(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            Span<byte> magic = stackalloc byte[4];
+            return stream.Read(magic) == 4 && System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(magic) == 0x67676d6c;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsWhisperConfig(string config)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(config));
+            return document.RootElement.TryGetProperty("model_type", out var type) && type.GetString() == "whisper";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return false;
+        }
     }
 
     private static int? ToInt(object value)

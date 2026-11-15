@@ -25,6 +25,17 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     internal readonly MemoryAllocator Memory;
     /// <summary>Lowering and SPIR-V generation for this device's profile.</summary>
     internal readonly SpirvCodeGenerator Code;
+    /// <summary>
+    /// Queue family of the transfer-only queue that downloads large outputs (the copy engines), or -1 when the device has none or
+    /// <c>SHARPLIGHT_VK_TRANSFER_QUEUE=0</c>. On the NVIDIA driver measured, vkCmdCopyBuffer from device memory into host memory on
+    /// the compute queue moved about 4.3 GB/s, on the transfer queue about 26 GB/s (segformer-b0 at batch 8 returns 79 MB:
+    /// 18 ms against 3 ms).
+    /// </summary>
+    internal readonly int TransferFamily;
+    /// <summary>The transfer queue of <see cref="TransferFamily"/> (null handle when there is none).</summary>
+    internal readonly VkQueue TransferQueue;
+    /// <summary>The queue families buffers are shared by (compute and transfer), or empty when only the compute queue is used.</summary>
+    internal readonly uint[] SharingFamilies;
     private readonly ConcurrentDictionary<string, Lazy<VkPipeline>> _pipelines = new();
     private readonly Lock _pipelineCacheLock = new();
     /// <summary>Records compilations that come without a model-level cache (graphs built in code) into the artifact store.</summary>
@@ -60,6 +71,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     // external synchronization (_queueLock via Submit); command pools are externally synchronized too, so every segment
     // records into its own pool and the device-level pool is only used under _poolLock.
     private readonly Lock _queueLock = new();
+    private readonly Lock _transferLock = new();
     private readonly Lock _poolLock = new();
     private readonly bool _budgetExt;
     private readonly long _budget;
@@ -118,17 +130,26 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
         ArtifactStore = ArtifactStore.For(options);
         Code = new SpirvCodeGenerator((int)phys.SubgroupSize, phys.MaxSharedMemory, EnabledFeatures,
-            SpirvCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options), info.ConcurrentWorkgroups);
+            SpirvCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options), info.ConcurrentWorkgroups,
+            SpirvCodeGenerator.ComputeUnitsOf(info.Capabilities));
         _kernelBinaries = phys.PipelineBinaries && !phys.PrefersInternalPipelineCache
             && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
 
         QueueFamily = SelectComputeQueueFamily(inst.Api, phys);
+        TransferFamily = DiagnosticSwitches.TransferQueue ? SelectTransferQueueFamily(inst.Api, phys) : -1;
+        SharingFamilies = TransferFamily >= 0 ? [QueueFamily, (uint)TransferFamily] : [];
         var device = CreateLogicalDevice(inst.Api, out _budgetExt, out _pipelineStats);
         Handle = device;
         Api = new VkDeviceApi(inst.Api, device);
         VkQueue queue;
         Api.vkGetDeviceQueue(QueueFamily, 0, &queue);
         Queue = queue;
+        if (TransferFamily >= 0)
+        {
+            VkQueue transfer;
+            Api.vkGetDeviceQueue((uint)TransferFamily, 0, &transfer);
+            TransferQueue = transfer;
+        }
 
         CommandPool = CreateCommandPool();
 
@@ -221,7 +242,13 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         f2.features.shaderInt16 = true;
 
         float prio = 1f;
-        var qci = new VkDeviceQueueCreateInfo { queueFamilyIndex = QueueFamily, queueCount = 1, pQueuePriorities = &prio };
+        var queueInfos = stackalloc VkDeviceQueueCreateInfo[2];
+        queueInfos[0] = new VkDeviceQueueCreateInfo { queueFamilyIndex = QueueFamily, queueCount = 1, pQueuePriorities = &prio };
+        uint queueInfoCount = 1;
+        if (TransferFamily >= 0)
+        {
+            queueInfos[queueInfoCount++] = new VkDeviceQueueCreateInfo { queueFamilyIndex = (uint)TransferFamily, queueCount = 1, pQueuePriorities = &prio };
+        }
         var exts = new List<string>();
         memoryBudgetExt = Phys.MemoryBudgetExt && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.MemoryBudget) && !Options.DisabledFeatures.Contains(DeviceFeatures.MemoryBudget);
         if (memoryBudgetExt)
@@ -274,7 +301,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             {
                 var dci = new VkDeviceCreateInfo
                 {
-                    pNext = &f2, queueCreateInfoCount = 1, pQueueCreateInfos = &qci,
+                    pNext = &f2, queueCreateInfoCount = queueInfoCount, pQueueCreateInfos = queueInfos,
                     enabledExtensionCount = (uint)extNames.Length, ppEnabledExtensionNames = (byte**)en,
                 };
                 instanceApi.vkCreateDevice(Phys.Handle, &dci, null, &device).CheckResult();
@@ -289,6 +316,20 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         }
 
         return device;
+    }
+
+    /// <summary>A queue family with transfer but neither compute nor graphics (the copy engines), or -1.</summary>
+    private static int SelectTransferQueueFamily(VkInstanceApi api, PhysicalDeviceInfo phys)
+    {
+        uint count = 0;
+        api.vkGetPhysicalDeviceQueueFamilyProperties(phys.Handle, &count, null);
+        var families = new VkQueueFamilyProperties[count];
+        fixed (VkQueueFamilyProperties* p = families)
+        {
+            api.vkGetPhysicalDeviceQueueFamilyProperties(phys.Handle, &count, p);
+        }
+
+        return Array.FindIndex(families, q => (q.queueFlags & VkQueueFlags.Transfer) != 0 && (q.queueFlags & (VkQueueFlags.Compute | VkQueueFlags.Graphics)) == 0);
     }
 
     private static uint SelectComputeQueueFamily(VkInstanceApi api, PhysicalDeviceInfo phys)
@@ -856,6 +897,29 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             {
                 Api.vkQueueSubmit(Queue, 1, &si, fence).CheckResult();
             }
+        }
+    }
+
+    /// <summary>
+    /// Submits <paramref name="cbs"/> on the compute queue, signalling <paramref name="ready"/>, and then <paramref name="download"/>
+    /// on the transfer queue, waiting for <paramref name="ready"/> and signalling <paramref name="fence"/>.
+    /// </summary>
+    internal void SubmitWithDownload(ReadOnlySpan<VkCommandBuffer> cbs, VkSemaphore ready, VkCommandBuffer download, VkFence fence)
+    {
+        fixed (VkCommandBuffer* p = cbs)
+        {
+            var si = new VkSubmitInfo { commandBufferCount = (uint)cbs.Length, pCommandBuffers = p, signalSemaphoreCount = 1, pSignalSemaphores = &ready };
+            lock (_queueLock)
+            {
+                Api.vkQueueSubmit(Queue, 1, &si, VkFence.Null).CheckResult();
+            }
+        }
+
+        var stage = VkPipelineStageFlags.Transfer;
+        var ti = new VkSubmitInfo { commandBufferCount = 1, pCommandBuffers = &download, waitSemaphoreCount = 1, pWaitSemaphores = &ready, pWaitDstStageMask = &stage };
+        lock (_transferLock)
+        {
+            Api.vkQueueSubmit(TransferQueue, 1, &ti, fence).CheckResult();
         }
     }
 
