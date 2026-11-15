@@ -158,7 +158,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                     features = b.Input("features", InputRole.AudioFeatures, DataType.F32, new Shape(src.Arch<int>("audio.mel_bins"), src.Arch<int>("audio.chunk_samples") / src.Arch<int>("audio.hop_length")));
                 }
 
-                x = stem.Build(b, features, nEmbd, (t, activation) => Act(b, t, activation));
+                x = stem.Build(b, features, (t, activation) => Act(b, t, activation));
             }
             else
             {

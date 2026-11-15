@@ -12,8 +12,8 @@ namespace Sharplight.Architectures;
 /// <remarks>
 /// Hyper-parameters (<c>{arch}.</c>): <c>encoder.conv.strides</c> (one per convolution), optional <c>encoder.conv.activation</c> (default
 /// "gelu"). Weights: <c>encoder.conv.{i}.weight</c> [O, C, K] with optional <c>.bias</c> [O]; <c>encoder.position_embedding.weight</c>
-/// [rows, H]. The 1-D kernels run as [O, C, 1, K] kernels of the 2-D <c>Conv</c> op over features viewed as [1, C, 1, frames]; f16 and
-/// bf16 kernels are widened to f32 when loaded.
+/// [rows, H]. The convolutions are the generic time-major <c>Conv1d</c> op over the features transposed to [frames, C]; f16 and bf16 kernels
+/// are widened to f32 when loaded.
 /// </remarks>
 internal sealed class AudioConvStem
 {
@@ -22,7 +22,7 @@ internal sealed class AudioConvStem
 
     /// <summary>Reads the stem's hyper-parameters and adds its kernel views to <paramref name="weights"/>.</summary>
     /// <param name="src">The model source.</param>
-    /// <param name="weights">Receives the [O, C, 1, K] kernel views <c>encoder.conv.{i}.kernel</c>.</param>
+    /// <param name="weights">Receives the f32 [O, C, K] kernels <c>encoder.conv.{i}.kernel</c>.</param>
     public AudioConvStem(ModelSource src, IDictionary<string, WeightInfo> weights)
     {
         _strides = src.Arch<long[]>("encoder.conv.strides");
@@ -36,8 +36,7 @@ internal sealed class AudioConvStem
                 throw new NotSupportedException($"{src.Architecture}: '{p}weight' must be [out, in, kernel], got {w.Shape}.");
             }
 
-            var kernelShape = new Shape(w.Shape[0], w.Shape[1], 1, w.Shape[2]);
-            weights[p + "kernel"] = w.Type == DataType.F32 ? w.As(p + "kernel", kernelShape) : WeightConversions.ToF32(w, p + "kernel", kernelShape);
+            weights[p + "kernel"] = w.Type == DataType.F32 ? w.As(p + "kernel", w.Shape) : WeightConversions.ToF32(w, p + "kernel", w.Shape);
         }
     }
 
@@ -46,31 +45,28 @@ internal sealed class AudioConvStem
     /// </summary>
     /// <param name="b">The graph builder (the kernel views must be resolvable through it).</param>
     /// <param name="features">The audio features [channels, frames].</param>
-    /// <param name="hidden">The model width H.</param>
     /// <param name="activation">Emits the activation of the given name.</param>
-    public Value Build(GraphBuilder b, Value features, int hidden, Func<Value, string, Value> activation)
+    public Value Build(GraphBuilder b, Value features, Func<Value, string, Value> activation)
     {
         Value x;
         using (b.Group("encoder.conv"))
         {
-            x = b.Reshape(features, 1, features.Shape[0].Fixed, 1, features.Shape[1].Fixed);
+            x = b.Permute(features, 1, 0);
             for (int i = 0; i < _strides.Length; i++)
             {
                 string p = $"encoder.conv.{i}.";
                 var kernel = b.Weight(p + "kernel");
-                long pad = kernel.Shape[3].Fixed / 2;
+                long pad = kernel.Shape[2].Fixed / 2;
                 Value[] inputs = b.HasWeight(p + "bias") ? [x, kernel, b.Weight(p + "bias")] : [x, kernel];
-                x = b.Emit1("Conv", inputs, Attributes.From(("strides", new long[] { 1, _strides[i] }), ("pads", new long[] { 0, pad, 0, pad })), $"conv{i}");
+                var attributes = Attributes.From(("stride", _strides[i]), ("pad_left", pad), ("pad_right", pad));
+                x = b.Emit1("Conv1d", inputs, attributes, $"conv{i}");
                 x = activation(x, _activation);
             }
         }
 
         using (b.Group("input"))
         {
-            var position = b.Weight("encoder.position_embedding.weight");
-            long rows = position.Shape[0].Fixed;
-            var rowMajor = b.Permute(b.Reshape(x, hidden, rows), 1, 0);
-            return b.Add(rowMajor, position, "inp_embd");
+            return b.Add(x, b.Weight("encoder.position_embedding.weight"), "inp_embd");
         }
     }
 }
