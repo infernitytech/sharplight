@@ -28,7 +28,7 @@ for base in sorted(wanted):
     if only and base not in only:
         continue
     out = os.path.join(GG, base + "-f32.gguf")
-    if os.path.exists(out):
+    if os.path.exists(out) or os.path.exists(os.path.join(GG, base + ".gguf")):
         continue
     candidates = [base + "-f32", base, base.replace("-llamacpp", ""), base.replace("-hf", "")]
     source = next((os.path.join(HF, c) for c in candidates if os.path.exists(os.path.join(HF, c, "config.json"))), None)
