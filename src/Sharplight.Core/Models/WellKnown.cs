@@ -7,6 +7,14 @@ public static class WellKnown
     public const string DecodeGraph = "decode";
     /// <summary>Name of the graph that turns preprocessed image patches into embeddings for the decoder.</summary>
     public const string VisionEncodeGraph = "vision_encode";
+    /// <summary>
+    /// Image-encoder graph of the vision task layer (ImageEncoderAdapter): input <c>patches</c> f32 [N, in_channels·patch²] (the normalized image cut
+    /// into patches in raster order, each flattened channel-major), outputs <see cref="PooledOutput"/> f32 [1, hidden] (pooled, normed
+    /// image embedding) and optionally <see cref="LogitsOutput"/> f32 [1, labels] (classifier head).
+    /// </summary>
+    public const string ImageEncodeGraph = "image_encode";
+    /// <summary>Name of the pooled embedding output of <see cref="ImageEncodeGraph"/>.</summary>
+    public const string PooledOutput = "pooled";
     /// <summary>Decoder taking token ids, an embeddings input and a per-row mask (<see cref="InputRole.EmbeddingMask"/>): text mixed with media embeddings.</summary>
     public const string DecodeMultimodalGraph = "decode_multimodal";
     /// <summary>Symbol of the token (row) count of a graph execution.</summary>
