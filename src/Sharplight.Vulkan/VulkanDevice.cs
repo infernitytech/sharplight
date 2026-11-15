@@ -27,7 +27,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     internal readonly SpirvCodeGenerator Code;
     private readonly ConcurrentDictionary<string, Lazy<VkPipeline>> _pipelines = new();
     private readonly Lock _pipelineCacheLock = new();
-    private readonly string _kernelCacheDirectory;
+    /// <summary>The persistent compilation cache directory (also holds the driver pipeline cache file), or null when disabled.</summary>
+    private readonly string? _kernelCacheDirectory;
     private VkPipelineCache _pipelineCache;
     private int _pipelinesAtLastSave;
     /// <summary>Model-level cache key of the driver pipeline cache blob (device code without kernel binaries).</summary>
@@ -112,7 +113,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         Info = info;
         Options = options;
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
-        _kernelCacheDirectory = options.KernelCacheDirectory ?? SlangCompiler.DefaultCacheDirectory;
+        _kernelCacheDirectory = SlangCompiler.CacheDirectory(options);
         Code = new SpirvCodeGenerator((int)phys.SubgroupSize, phys.MaxSharedMemory, EnabledFeatures,
             SpirvCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options), info.ConcurrentWorkgroups, _kernelCacheDirectory);
         _kernelBinaries = phys.PipelineBinaries && !phys.PrefersInternalPipelineCache
@@ -494,9 +495,9 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
             // The driver refused the seed blob (seen on NVIDIA with very large blobs as VK_ERROR_UNKNOWN): start empty, and drop
             // a refused cache file so later processes do not retry it.
-            if (fromFile)
+            if (fromFile && PipelineCachePath is { } refused)
             {
-                TryDeleteFile(PipelineCachePath);
+                TryDeleteFile(refused);
             }
 
             if (!TryCreatePipelineCache(ReadOnlySpan<byte>.Empty, out pc))
@@ -641,8 +642,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     }
 
     /// <summary>The driver pipeline cache file of this device and driver in the kernel cache directory.</summary>
-    private string PipelineCachePath
-        => Path.Combine(_kernelCacheDirectory, $"pipelines-{Phys.VendorId:x}-{Phys.Uuid}-{Phys.DriverVersion:x}.bin");
+    private string? PipelineCachePath
+        => _kernelCacheDirectory is null ? null : Path.Combine(_kernelCacheDirectory, $"pipelines-{Phys.VendorId:x}-{Phys.Uuid}-{Phys.DriverVersion:x}.bin");
 
     /// <summary>
     /// Largest pipeline cache file that is loaded or written. The driver blob accumulates every pipeline ever created on the
@@ -652,10 +653,15 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
     private byte[]? TryReadPipelineCacheFile()
     {
+        if (PipelineCachePath is not { } path)
+        {
+            return null;
+        }
+
         try
         {
-            DeleteStaleTemporaryFiles();
-            var file = new FileInfo(PipelineCachePath);
+            DeleteStaleTemporaryFiles(path);
+            var file = new FileInfo(path);
             if (!file.Exists)
             {
                 return null;
@@ -667,7 +673,16 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
                 return null;
             }
 
-            return File.ReadAllBytes(file.FullName);
+            var data = File.ReadAllBytes(file.FullName);
+            if (!PipelineCacheHeader.Matches(data, Phys.VendorId, Phys.DeviceId, Phys.PipelineCacheUuid))
+            {
+                // Damaged, or written by another driver build: never handed to the driver.
+                Interlocked.Increment(ref RejectedDeviceCode);
+                TryDeleteFile(file.FullName);
+                return null;
+            }
+
+            return data;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -676,10 +691,10 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     }
 
     /// <summary>Removes temporary cache files left behind by processes that died while saving.</summary>
-    private void DeleteStaleTemporaryFiles()
+    private static void DeleteStaleTemporaryFiles(string path)
     {
-        var name = Path.GetFileName(PipelineCachePath);
-        foreach (var temporary in Directory.EnumerateFiles(_kernelCacheDirectory, name + ".*.tmp"))
+        var name = Path.GetFileName(path);
+        foreach (var temporary in Directory.EnumerateFiles(Path.GetDirectoryName(path)!, name + ".*.tmp"))
         {
             if (File.GetLastWriteTimeUtc(temporary) < DateTime.UtcNow - TimeSpan.FromHours(1))
             {
@@ -709,25 +724,25 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         lock (_pipelineCacheLock)
         {
             int created = Volatile.Read(ref PipelinesCreated);
-            if (_pipelineCache == VkPipelineCache.Null || created == _pipelinesAtLastSave)
+            if (_pipelineCache == VkPipelineCache.Null || created == _pipelinesAtLastSave || PipelineCachePath is not { } path)
             {
                 return;
             }
 
             _pipelinesAtLastSave = created;
-            var temporary = $"{PipelineCachePath}.{Environment.ProcessId}.tmp";
+            var temporary = $"{path}.{Environment.ProcessId}.tmp";
             try
             {
                 var data = GetPipelineCacheData(_pipelineCache);
                 if (data.Length > MaxPipelineCacheFileBytes)
                 {
                     // Too large to keep: reset, so the next process rebuilds the cache from the pipelines it uses.
-                    TryDeleteFile(PipelineCachePath);
+                    TryDeleteFile(path);
                     return;
                 }
 
                 File.WriteAllBytes(temporary, data);
-                File.Move(temporary, PipelineCachePath, overwrite: true);
+                File.Move(temporary, path, overwrite: true);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {

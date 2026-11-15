@@ -9,8 +9,9 @@ namespace Sharplight.Shaders;
 
 /// <summary>
 /// Thin, thread-safe wrapper over the Slang compiler that compiles kernels of the embedded kernel
-/// library (or generated source) for any backend target, with an on-disk cache keyed by the source
-/// text, macros and target. Shared by all providers (Vulkan, CUDA, Metal).
+/// library (or generated source) for any backend target. Kernels are looked up in the model-level cache (artifacts stored with the
+/// model) first, then in the persistent per-user compilation cache (<see cref="Runtime.FileCompilationCache"/>: validated, size capped,
+/// shared by processes), keyed by the source text, macros, compiler and target, and only then compiled. Shared by all providers.
 /// </summary>
 public sealed class SlangCompiler : IDisposable
 {
@@ -19,21 +20,22 @@ public sealed class SlangCompiler : IDisposable
     private static int s_diskHits;
 
     private readonly string _libraryDir;
-    private readonly string? _cacheDir;
+    /// <summary>One persistent cache per directory in the process, so its size accounting is shared by every compiler using it.</summary>
+    private static readonly ConcurrentDictionary<string, Runtime.FileCompilationCache> s_diskCaches = new(StringComparer.Ordinal);
+
+    private readonly Runtime.FileCompilationCache? _disk;
     private readonly ConcurrentDictionary<string, CompiledKernel> _memCache = new();
 
     /// <summary>Creates a compiler, extracting the embedded kernel library on first use.</summary>
-    /// <param name="cacheDirectory">Directory for compiled binaries, shared by processes (null disables the disk cache).</param>
+    /// <param name="cacheDirectory">Directory of the persistent compilation cache, shared by processes (null disables it).</param>
     public SlangCompiler(string? cacheDirectory = null)
     {
-        _cacheDir = cacheDirectory;
-        if (_cacheDir is not null)
-        {
-            Directory.CreateDirectory(_cacheDir);
-        }
-
+        _disk = cacheDirectory is null ? null : s_diskCaches.GetOrAdd(Path.GetFullPath(cacheDirectory), directory => new Runtime.FileCompilationCache(directory));
         _libraryDir = KernelLibrary.Extract();
     }
+
+    /// <summary>The persistent compilation cache, or <see langword="null"/> when disabled.</summary>
+    public Runtime.FileCompilationCache? DiskCache => _disk;
 
     /// <summary>Process-wide totals of the kernels this process compiled with Slang or read from the disk cache (diagnostics).</summary>
     public static CompileStatistics Statistics
@@ -55,9 +57,16 @@ public sealed class SlangCompiler : IDisposable
     /// <summary>The Slang profile code for <paramref name="target"/> is generated with (e.g. <c>spirv_1_6</c>).</summary>
     public static string TargetProfile(ShaderTarget target) => Profile(target);
 
-    /// <summary>The per-user kernel cache directory.</summary>
-    public static string DefaultCacheDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "sharplight", "kernels");
+    /// <summary>
+    /// The persistent compilation cache directory: the per-user <c>sharplight/kernels</c> directory, or what
+    /// <see cref="Runtime.FileCompilationCache.EnvironmentVariable"/> says (another directory, or <see langword="null"/> for <c>off</c>).
+    /// </summary>
+    public static string? DefaultCacheDirectory => Runtime.FileCompilationCache.ResolveDirectory(
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "sharplight", "kernels"));
+
+    /// <summary>The cache directory a device with <paramref name="options"/> uses, or <see langword="null"/> when it uses none.</summary>
+    public static string? CacheDirectory(Runtime.DeviceOptions options)
+        => !options.UseCompilationCache ? null : options.KernelCacheDirectory ?? DefaultCacheDirectory;
 
     /// <summary>Compiles an entry point of a library kernel file (e.g. "matmul.slang", "matvec").</summary>
     /// <param name="file">Kernel file name in the embedded library.</param>
@@ -126,13 +135,12 @@ public sealed class SlangCompiler : IDisposable
             return;
         }
 
-        string? cachePath = _cacheDir is null ? null : Path.Combine(_cacheDir, kernel.CacheKey + Extension(kernel.Target));
-        // The disk cache is shared by processes; an entry may disappear between check and read (pruned by another
-        // process), which is just a miss.
-        if (cachePath is not null && TryRead(cachePath) is { } cached)
+        // The disk cache is shared by processes and validates every entry; a damaged or evicted entry is a miss.
+        var diskKey = DiskKey(kernel);
+        if (_disk is not null && _disk.TryGet(diskKey, out var cached))
         {
             Interlocked.Increment(ref s_diskHits);
-            kernel.CompleteFromCache(cached);
+            kernel.CompleteFromCache(cached.ToArray());
             return;
         }
 
@@ -143,12 +151,7 @@ public sealed class SlangCompiler : IDisposable
                 var code = CompileUncached(session, kernel.Name, source, kernel.EntryPoint, kernel.Target, macros);
                 Interlocked.Add(ref s_compileTicks, Stopwatch.GetTimestamp() - start);
                 Interlocked.Increment(ref s_compiled);
-                if (cachePath is not null)
-                {
-                    var tmp = cachePath + "." + Environment.ProcessId + "." + Environment.CurrentManagedThreadId + ".tmp";
-                    File.WriteAllBytes(tmp, code);
-                    File.Move(tmp, cachePath, overwrite: true);
-                }
+                _disk?.Put(diskKey, code);
 
                 kernel.Complete(code);
             },
@@ -160,17 +163,8 @@ public sealed class SlangCompiler : IDisposable
             });
     }
 
-    private static byte[]? TryRead(string path)
-    {
-        try
-        {
-            return File.Exists(path) ? File.ReadAllBytes(path) : null;
-        }
-        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException or IOException)
-        {
-            return null;
-        }
-    }
+    /// <summary>Key of a kernel in the persistent cache (the cache key already covers source, macros, compiler and target).</summary>
+    private static string DiskKey(CompiledKernel kernel) => $"slang/{kernel.CacheKey}{Extension(kernel.Target)}";
 
     private byte[] CompileUncached(IGlobalSession gs, string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
     {
