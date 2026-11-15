@@ -84,11 +84,6 @@ public sealed partial class GraphLowerer
         ConvMatrixForm? form = _opt.Compile.AllowReducedPrecision
             ? f16 ? new ConvMatrixForm(1, reducedColumns) : bf16 ? new ConvMatrixForm(2, reducedColumns) : null
             : splitHalf ? new ConvMatrixForm(4, reducedColumns) : bf16 ? new ConvMatrixForm(3, 64) : null;
-        if (form is { Parts: 4 } f4 && FastMatrixProducts && Environment.GetEnvironmentVariable("XTK") is { } xtk)
-        {
-            form = f4 with { TileK = long.Parse(xtk) };
-        }
-
         return form is { } f && columns * Math.Max(1, batchBound) >= ConvMatrixMinColumns && ConvMatrixSharedBytes(1, f) <= _opt.MaxSharedMemory ? f : null;
     }
 

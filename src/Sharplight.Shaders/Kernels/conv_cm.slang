@@ -16,7 +16,8 @@
 //            accumulators (the tensor cores' truncating accumulation then only rounds step sums). Needs every block's
 //            pixels in one subgroup: TBN * KG / NT (B_ITEMS) of at least KG / 2.
 //            HI_ONLY = 1 (fast matrix precision): the same scaling with the hi parts only, one product per step (11
-//            significant bits per input, like TF32); the weights hold KTOT hi halves per output channel.
+//            significant bits per input, like TF32); the weights hold KTOT hi halves per output channel. A block keeps its
+//            scale across steps while the values fit it (split_b), so the products accumulate on the tensor cores like TF32's.
 // Same layout and macros as conv_gemm (conv.slang): x [N, C, H, W] strided (XS_*), w [O, CG, KH, KW] dense (WFMT
 // f32/f16/bf16), y dense [N, O, HO, WO]. SPLITK > 1 writes partials [SPLITK][N][O][HO*WO] for conv_splitk_reduce.
 // TAP_MAJOR = 1 (PARTS 4): the reduction runs tap-major, k = (kh * KW + kw) * CG + c (the host reorders the split weights); with
@@ -109,7 +110,10 @@ groupshared uint4 sAm[TBM * SAS / 8];
 groupshared uint4 sBm[TBN * SAS / 8];
 #endif
 #if PARTS == 4
-groupshared float sScB[TBN / 16];   // inverse scale of each 16-pixel block of the staged step
+groupshared float sScB[TBN / 16];   // inverse scale of each 16-pixel block of the staged step (HI_ONLY: accumulator factor)
+#if HI_ONLY
+groupshared float sInvB[TBN / 16];  // HI_ONLY: inverse of each block's final scale
+#endif
 #endif
 groupshared float sC[WARPS_M * WARPS_N * 256];
 
@@ -348,7 +352,11 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
 // Scales and splits the raw im2col values bv of a step (fetch only issues their loads, so that they stay in flight during the
 // previous step's products): the block's largest magnitude, from the thread's values and then the 16 * B_TPP lanes of its 16
 // pixels, sets the power-of-two scale. Returns the block's inverse scale.
-float split_b(float bv[B_ITEMS][8], uint tid, out uint4 bh[B_ITEMS], out uint4 bl[B_ITEMS])
+// HI_ONLY: the block keeps its scale (cur, 0 before the first nonzero step) while the step's largest magnitude scales into
+// [2^3, 2^15): no overflow, and values below 2^-18 of the largest still convert to normal halves, whose error is far below
+// the largest product's rounding. Otherwise the scale moves to the step's and the return value is the factor that converts the
+// block's accumulators (new scale / old, a power of two; 1 when unchanged).
+float split_b(float bv[B_ITEMS][8], uint tid, out uint4 bh[B_ITEMS], out uint4 bl[B_ITEMS], inout float cur)
 {
     float m = 0;
     [ForceUnroll]
@@ -366,13 +374,29 @@ float split_b(float bv[B_ITEMS][8], uint tid, out uint4 bh[B_ITEMS], out uint4 b
     {
         m = max(m, WaveReadLaneAt(m, lane ^ d));
     }
+#if HI_ONLY
+    float factor = 1.0;
+    float scaled = m * cur;
+    if (m > 0 && (cur == 0 || scaled >= 32768.0 || scaled < 8.0))
+    {
+        float s = split_scale(m);
+        factor = cur == 0 ? 1.0 : s / cur;
+        cur = s;
+    }
+    float s = cur == 0 ? 1.0 : cur;
+#else
     float s = split_scale(m);
+#endif
     [ForceUnroll]
     for (uint it = 0; it < B_ITEMS; it++)
     {
         bh[it] = split8_scaled(bv[it], s, bl[it]);
     }
+#if HI_ONLY
+    return factor;
+#else
     return 1.0 / s;
+#endif
 }
 #endif
 
@@ -446,11 +470,12 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     uint4 bm[B_ITEMS];
     uint4 bl[B_ITEMS];
     float bv[B_ITEMS][8];
+    float bcur = 0;   // HI_ONLY: the current scale of the thread's 16-pixel block (see split_b)
     fetch(p, g, mBase, kBeg, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl, bv);
     for (uint k0 = kBeg; k0 < kEnd; k0 += TBK)
     {
 #if PARTS == 4
-        float bsc = split_b(bv, tid, bh, bl);
+        float bsc = split_b(bv, tid, bh, bl, bcur);
 #endif
         [ForceUnroll]
         for (uint it = 0; it < A_ITEMS; it++)
@@ -489,7 +514,40 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
             fetch(p, g, mBase, k0 + TBK, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl, bv);
         }
 
-#if PARTS == 4
+#if PARTS == 4 && HI_ONLY
+        // One product per step, accumulated on the tensor cores across steps like TF32; a block whose scale moved converts its
+        // accumulators first (sScB holds the factors).
+        [ForceUnroll]
+        for (int j = 0; j < FRAG_N; j++)
+        {
+            float f = sScB[(wn + j * 16) / 16];
+            [ForceUnroll]
+            for (int i = 0; i < FRAG_M; i++)
+            {
+                acc[i][j] = acc[i][j] * f;
+            }
+        }
+        [ForceUnroll]
+        for (uint kk = 0; kk < TBK; kk += 16)
+        {
+            MatB b[FRAG_N];
+            [ForceUnroll]
+            for (int j = 0; j < FRAG_N; j++)
+            {
+                b[j] = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(sBh, ((wn + j * 16) * SAS + kk) / 8, SAS / 8);
+            }
+            [ForceUnroll]
+            for (int i = 0; i < FRAG_M; i++)
+            {
+                MatA a = MatA.Load<CoopMatMatrixLayout.RowMajor>(sAh, ((wm + i * 16) * SAS + kk) / 8, SAS / 8);
+                [ForceUnroll]
+                for (int j = 0; j < FRAG_N; j++)
+                {
+                    acc[i][j] = mma(a, b[j], acc[i][j]);
+                }
+            }
+        }
+#elif PARTS == 4
         Acc t[FRAG_M][FRAG_N];
         [ForceUnroll]
         for (uint kk = 0; kk < TBK; kk += 16)
@@ -588,6 +646,12 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     }
 
     // ---- epilogue: each subgroup stages one accumulator at a time in its shared slice; guarded store (+ bias) ----
+#if PARTS == 4 && HI_ONLY
+    if (bcol % 16 == 0 && bq0 == 0)
+    {
+        sInvB[bcol / 16] = bcur == 0 ? 1.0 : 1.0 / bcur;
+    }
+#endif
     uint64_t outBase = uint64_t(split) * uint64_t(p.N) * (O * HW);
     const uint lane = tid % 32;
     [ForceUnroll]
@@ -617,7 +681,9 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
                     uint pix = col - n * HW;
                     uint o = g * OG + m;
                     float v = sC[sg * 256 + w];
-#if PARTS == 4
+#if PARTS == 4 && HI_ONLY
+                    v = v * sInvB[(wn + j * 16) / 16] / p.ws[o];
+#elif PARTS == 4
                     v /= p.ws[o];
 #endif
                     uint64_t idx = outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix;
