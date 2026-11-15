@@ -17,7 +17,7 @@ public static class HfSupport
     /// </summary>
     private static readonly HashSet<string> s_unsupportedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
-        "aqlm", "hqq", "eetq", "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
+        "hqq", "eetq", "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
         "spqr", "auto-round", "autoround", "fp_quant",
     };
 
@@ -71,8 +71,8 @@ public static class HfSupport
     /// The checkpoint's quantization method and whether the importer reads it. Read: FP8 (<c>fp8</c> block scales, compressed-tensors
     /// with 8-bit float weights, ModelOpt <c>FP8</c>), NVFP4 (ModelOpt, compressed-tensors), MXFP4 (compressed-tensors; <c>mxfp4</c>
     /// for gpt-oss, AMD Quark), GPTQ (2, 3, 4 and 8 bits), AWQ (<c>gemm</c> / <c>gemv</c>), compressed-tensors integer weights,
-    /// bitsandbytes and MLX affine quantization. Not read: MLX's FP4 modes and the methods with codebook or framework-specific
-    /// layouts (AQLM, HQQ, EXL2, quanto, torchao, ...).
+    /// bitsandbytes, MLX affine quantization and AQLM (dequantized while read). Not read: MLX's FP4 modes and the methods with codebook or
+    /// framework-specific layouts (HQQ, EXL2, quanto, torchao, ...).
     /// </summary>
     /// <param name="configJson">The text of <c>config.json</c> (its <c>quantization_config</c>).</param>
     /// <param name="quantizationConfigJson">The text of <c>hf_quant_config.json</c> when the checkpoint has one (ModelOpt), else null.</param>
@@ -135,6 +135,9 @@ public static class HfSupport
             case "awq":
                 return Awq(method, settings);
             case "bitsandbytes":
+                return new HfQuantizationSupport(method, SupportLevel.Supported);
+            case "aqlm":
+                // Dequantized to the codebook dtype while the weights are read (HfAqlmWeights).
                 return new HfQuantizationSupport(method, SupportLevel.Supported);
             case "quark":
                 return Quark(settings);
