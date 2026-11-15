@@ -250,6 +250,23 @@ void scale_min_k4(uint8_t* q, uint j, out float sc, out float mn)
     }
 }
 
+// scale_min_k4 on the 12 scale bytes held in three words (byte n in bits 8 (n % 4) of word n / 4).
+// Byte selects instead of an indexed array, which would live in local memory.
+uint kq_byte(uint3 words, uint n)
+{
+    uint w = n < 4 ? words.x : n < 8 ? words.y : words.z;
+    return (w >> (8 * (n & 3))) & 0xFFu;
+}
+void scale_min_k4_words(uint3 words, uint j, out float sc, out float mn)
+{
+    if (j < 4) { sc = float(kq_byte(words, j) & 63); mn = float(kq_byte(words, j + 4) & 63); }
+    else
+    {
+        sc = float((kq_byte(words, j + 4) & 0xF) | ((kq_byte(words, j - 4) >> 6) << 4));
+        mn = float((kq_byte(words, j + 4) >> 4) | ((kq_byte(words, j) >> 6) << 4));
+    }
+}
+
 // Q4_K: 256 values = { f16 d; f16 dmin; u8 scales[12]; u8 qs[128]; } (144 bytes)
 void load8_q4_k(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
@@ -528,11 +545,19 @@ uint codes_h2(uint u, bool hi, half offset, half2 scale, half2 add)
     return bit_cast<uint>((bit_cast<half2>(v | 0x64006400u) - half2(offset, offset)) * scale + add);
 }
 
-// 16 bytes from a 2-byte aligned address.
+// 16 bytes from a 2-byte aligned address: four word loads when it is 4-byte aligned, else five word loads from the word
+// boundary below it (the 2 bytes before and after the range must be readable, e.g. inside the same block) joined by
+// shifts, instead of eight halfword loads. The address is computed on integers (pointer minus integer miscompiles).
 uint4 load16_u16(uint8_t* p)
 {
-    uint16_t* h = (uint16_t*)p;
-    return uint4(uint(h[0]) | (uint(h[1]) << 16), uint(h[2]) | (uint(h[3]) << 16), uint(h[4]) | (uint(h[5]) << 16), uint(h[6]) | (uint(h[7]) << 16));
+    uint64_t a = uint64_t(p);
+    uint* w = (uint*)(a & ~3ull);
+    if ((a & 2) == 0)
+    {
+        return uint4(w[0], w[1], w[2], w[3]);
+    }
+    uint w0 = w[0], w1 = w[1], w2 = w[2], w3 = w[3], w4 = w[4];
+    return uint4((w0 >> 16) | (w1 << 16), (w1 >> 16) | (w2 << 16), (w2 >> 16) | (w3 << 16), (w3 >> 16) | (w4 << 16));
 }
 #endif
 

@@ -770,14 +770,16 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
 #endif
     uint8_t* blk = rowStart(w, ROW_BYTES, row) + uint64_t(g16 >> 4) * KQ_BLOCK;
     uint idx = (g16 & 15) * 16, j = idx >> 6, upper = (idx >> 5) & 1, l0 = idx & 31;
+    // The block header (f16 d, f16 dmin, 12 scale bytes) as one aligned 16-byte load instead of a word and 2-3 byte loads.
+    uint4 head = *(uint4*)blk;
     uint4 q = (*(uint4*)(blk + (KQ_BLOCK - 128 + 32 * j + l0)) >> (4 * upper)) & 0x0F0F0F0Fu;
 #if WFMT == FMT_Q5_K
     q |= ((*(uint4*)(blk + 16 + l0) >> (2 * j + upper)) & 0x01010101u) << 4;
 #endif
 #undef KQ_BLOCK
     float sc, mn;
-    scale_min_k4(blk + 4, 2 * j + upper, sc, mn);
-    uint dm = *(uint*)blk;
+    scale_min_k4_words(uint3(head.y, head.z, head.w), 2 * j + upper, sc, mn);
+    uint dm = head.x;
     half2 a = half2(half(f16tof32(dm & 0xFFFF) * sc));
     half2 nb = half2(half(-f16tof32(dm >> 16) * mn));
     lo = uint4(codes_h2(q.x, false, 1024.0h, a, nb), codes_h2(q.x, true, 1024.0h, a, nb), codes_h2(q.y, false, 1024.0h, a, nb), codes_h2(q.y, true, 1024.0h, a, nb));
