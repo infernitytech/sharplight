@@ -4829,6 +4829,8 @@ Notes:
 200-token greedy outputs of four prompts (a short one, a ~600-token one, an ~800-token one prefilled in 128-token chunks
 and a ~3000-token one, whose decode runs split-K attention with several key ranges) on 8 models (Qwen3-0.6B, Llama-3.2-1B,
 Gemma-3-1B, Qwen3-1.7B bf16, Mistral-7B and Qwen3-8B Q4_K_M, OLMoE, gpt-oss-20b): all 32 byte-identical to `develop`.
+Suites (Release, niced, `SHARPLIGHT_VK_DEVICES=1`): Vulkan 1472 passed / 22 skipped, Cpu 1289 / 36 skipped, Families
+970 / 368 skipped (large models off), no failures.
 
 ### 36.4 Tried and dropped
 
