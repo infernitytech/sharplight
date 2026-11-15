@@ -263,6 +263,12 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool AttentionEncoderFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE");
 
+    /// <summary>
+    /// True (default): plain causal prefill attention of one sequence uses <c>fe</c> in its causal form;
+    /// <c>SHARPLIGHT_ATTN_FE_CAUSAL=0</c> uses the general flash kernel <c>fa</c>.
+    /// </summary>
+    public static bool AttentionCausalFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_CAUSAL");
+
     /// <summary>False keeps bidirectional attention on devices without the tensor-core flash kernels off the f32 encoder flash kernel (fes).</summary>
     public static bool AttentionSimtFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FES");
 
