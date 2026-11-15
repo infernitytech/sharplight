@@ -26,7 +26,8 @@ string? Opt(string n, string? d = null)
 
 using var services = SharplightDefaults.CreateServiceProvider();
 var loader = services.GetRequiredService<ModelLoader>();
-int ctx = int.Parse(Opt("--ctx", "4608")!), reps = int.Parse(Opt("--reps", "5")!);
+int ctx = int.Parse(Opt("--ctx", "4608")!);
+int reps = int.Parse(Opt("--reps", "5")!);
 var drafts = Opt("--drafts", "0,1,2,3")!.Split(',').Select(int.Parse).ToArray();
 var depths = Opt("--depths", "16,4096")!.Split(',').Select(int.Parse).ToArray();
 string method = Opt("--method", "mtp")!;
@@ -89,7 +90,8 @@ foreach (int k in drafts)
 
         var m1 = engine.GetMetrics();
         var tg = t1.Zip(t129, (a, b) => 128 / (b - a)).ToList();
-        long drafted = m1.DraftTokens - m0.DraftTokens, accepted = m1.AcceptedDraftTokens - m0.AcceptedDraftTokens;
+        long drafted = m1.DraftTokens - m0.DraftTokens;
+        long accepted = m1.AcceptedDraftTokens - m0.AcceptedDraftTokens;
         string acc = drafted > 0 ? $" acceptance {(double)accepted / drafted:F2} ({accepted}/{drafted})" : "";
         Console.WriteLine($"{method} k={k} depth={d}: tg median {Median(tg):F1} min {tg.Min():F1} max {tg.Max():F1} tok/s, prompt + 1 token {Median(t1) * 1000:F0} ms (min {t1.Min() * 1000:F0}){acc}");
     }

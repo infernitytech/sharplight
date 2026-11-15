@@ -30,7 +30,9 @@ string? Opt(string n, string? d = null)
 
 using var services = SharplightDefaults.CreateServiceProvider();
 var loader = services.GetRequiredService<ModelLoader>();
-int slots = int.Parse(Opt("--slots", "64")!), ctx = int.Parse(Opt("--ctx", "512")!), depth = int.Parse(Opt("--depth", "256")!);
+int slots = int.Parse(Opt("--slots", "64")!);
+int ctx = int.Parse(Opt("--ctx", "512")!);
+int depth = int.Parse(Opt("--depth", "256")!);
 int reps = int.Parse(Opt("--reps", "30")!);
 var sizes = Opt("--sizes", "1,2,4,8,16,32,64")!.Split(',').Select(int.Parse).Where(s => s <= slots).ToArray();
 var provider = services.GetRequiredService<ExecutionProviderCatalog>().Discover().First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu").Provider;
@@ -104,7 +106,8 @@ if (mixed is not null)
         var parts = spec.Split('+');
         int d = int.Parse(parts[0]);
         var pp = parts[1].Split('x');
-        int p = int.Parse(pp[0]), n = pp.Length > 1 ? int.Parse(pp[1]) : (p > 0 ? 1 : 0);
+        int p = int.Parse(pp[0]);
+        int n = pp.Length > 1 ? int.Parse(pp[1]) : (p > 0 ? 1 : 0);
         List<SequenceInput> Inputs()
         {
             var list = Enumerable.Range(0, d).Select(s => new SequenceInput(s, new[] { rng.Next(1000, 30000) }, true)).ToList();
