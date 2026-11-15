@@ -80,7 +80,7 @@ internal sealed class SurveyRun
     }
 
     /// <summary>Imports and compiles with a symbolic batch, falling back to a fixed batch if that fails.</summary>
-    private (ModelDefinition Definition, ComputeGraph Graph, CompiledModel Compiled) ImportAndCompile(IDevice device)
+    private (ModelDefinition Definition, ComputeGraph Graph, CompiledModel Compiled) ImportAndCompile(IComputeDevice device)
     {
         foreach (bool fixBatch in _manifest.FixedBatch ? new[] { true } : new[] { false, true })
         {
@@ -104,7 +104,7 @@ internal sealed class SurveyRun
         throw new InvalidOperationException("import failed");
     }
 
-    private (ModelDefinition Definition, ComputeGraph Graph, CompiledModel Compiled) ImportAndCompile(IDevice device, bool fixBatch)
+    private (ModelDefinition Definition, ComputeGraph Graph, CompiledModel Compiled) ImportAndCompile(IComputeDevice device, bool fixBatch)
     {
         var importOptions = new OnnxImportOptions();
         foreach (var (name, values) in _manifest.Constants)

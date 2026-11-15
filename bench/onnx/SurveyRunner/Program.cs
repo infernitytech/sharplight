@@ -4,8 +4,6 @@
 //                [--profile] [--reduced-precision] [--dump DIR]
 // Prints exactly one line starting with "RESULT " followed by a JSON object.
 using System.Text.Json;
-using Sharplight.Cpu;
-using Sharplight.Vulkan;
 
 var options = SurveyOptions.Parse(args);
 var result = new Dictionary<string, object?>

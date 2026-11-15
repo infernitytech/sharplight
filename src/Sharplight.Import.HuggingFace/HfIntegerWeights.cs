@@ -82,21 +82,10 @@ internal static class HfIntegerWeights
             return tensors;
         }
 
-        var result = new Dictionary<string, SafetensorsTensor>(StringComparer.Ordinal);
-        foreach (var (name, tensor) in tensors)
-        {
-            if (!consumed.Contains(name))
-            {
-                result[name] = tensor;
-            }
-        }
-
-        foreach (var layout in layouts)
-        {
-            result[layout.Name] = Encode(layout);
-        }
-
-        return result;
+        return HfTensorMerge.Replace(
+            tensors,
+            consumed,
+            layouts.Select(layout => KeyValuePair.Create(layout.Name, Encode(layout))));
     }
 
     /// <summary>The block type of a layout, or BF16 when its groups or scales fit none.</summary>
