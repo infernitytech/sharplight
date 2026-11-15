@@ -3,6 +3,8 @@
 //                     tiles, register micro-tiles, fp32 accumulate. Optional split-K (partials to a workspace).
 //  conv_splitk_reduce: sums split-K partials and adds bias.
 //  conv_dw          : depthwise / channel-multiplier convolution (groups == C, C/groups == 1).
+//  conv_narrow      : few output channels (O up to 8, one group): 32 output pixels per workgroup with the input channels
+//                     split over 8 subgroups, all O outputs per thread, partial sums reduced in shared memory.
 // x [N, C, H, W] with strides (XS_N, XS_C, XS_H, XS_W); w [O, CG, KH, KW] dense (format WFMT); y dense [N, O, HO, WO].
 // Common macros: C H W O HO WO CG OG G KH KW SH SW PH PW DH DW XS_* WFMT ROW_BYTES HAS_BIAS NOPAD
 #include "common.slang"
@@ -263,5 +265,93 @@ void conv_dw(uint3 dtid : SV_DispatchThreadID, uniform DwParams p)
 #endif
     CONV_EPI(acc, idx);
     p.y[idx] = acc;
+}
+#endif
+
+#ifdef KERNEL_CONV_NARROW
+#define CN_PIX 32
+#define CN_PARTS 8
+struct NarrowParams
+{
+    float* x;
+    uint8_t* w;
+    float* bias;
+    float* y;
+#if EPI_RES
+    float* res;
+#endif
+    uint total;   // N * HO * WO output pixels
+};
+
+groupshared float cnPart[CN_PARTS][O][CN_PIX];
+
+float cn_weight(uint8_t* base, uint idx)
+{
+#if WFMT == FMT_F32
+    return ((float*)base)[idx];
+#elif WFMT == FMT_F16
+    return h2f(((uint16_t*)base)[idx]);
+#else
+    return bf2f(((uint16_t*)base)[idx]);
+#endif
+}
+
+[shader("compute")]
+[numthreads(CN_PIX * CN_PARTS, 1, 1)]
+void conv_narrow(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform NarrowParams p)
+{
+    const uint HW = HO * WO;
+    uint lane = ltid.x % CN_PIX, part = ltid.x / CN_PIX;
+    uint pix = gid.x * CN_PIX + lane;
+    float acc[O];
+    [ForceUnroll] for (uint o = 0; o < O; o++) acc[o] = 0.0;
+    if (pix < p.total)
+    {
+        uint n = pix / HW, q = pix % HW;
+        uint oh = q / WO, ow = q % WO;
+        int ih0 = int(oh) * SH - PH;
+        int iw0 = int(ow) * SW - PW;
+        float* xn = p.x + uint64_t(n) * XS_N;
+        // The lanes of a subgroup share the channel, so the weight reads are uniform.
+        for (uint c = part; c < C; c += CN_PARTS)
+        {
+            float* xc = xn + uint64_t(c) * XS_C;
+            [ForceUnroll]
+            for (int kh = 0; kh < KH; kh++)
+            {
+                int ih = ih0 + kh * DH;
+#if !NOPAD
+                if (uint(ih) >= uint(H)) continue;
+#endif
+                [ForceUnroll]
+                for (int kw = 0; kw < KW; kw++)
+                {
+                    int iw = iw0 + kw * DW;
+#if !NOPAD
+                    if (uint(iw) >= uint(W)) continue;
+#endif
+                    float v = xc[ih * XS_H + iw * XS_W];
+                    uint wk = c * KHW + kh * KW + kw;
+                    [ForceUnroll] for (uint o = 0; o < O; o++) acc[o] = fma(v, cn_weight(p.w, o * KTOT + wk), acc[o]);
+                }
+            }
+        }
+    }
+    [ForceUnroll] for (uint o = 0; o < O; o++) cnPart[part][o][lane] = acc[o];
+    GroupMemoryBarrierWithGroupSync();
+    for (uint i = ltid.x; i < O * CN_PIX; i += CN_PIX * CN_PARTS)
+    {
+        uint o = i / CN_PIX, l = i % CN_PIX;
+        uint opix = gid.x * CN_PIX + l;
+        if (opix >= p.total) continue;
+        float s = 0.0;
+        [ForceUnroll] for (uint k = 0; k < CN_PARTS; k++) s += cnPart[k][o][l];
+#if HAS_BIAS
+        s += p.bias[o];
+#endif
+        uint idx = (opix / HW * O + o) * HW + opix % HW;
+        CONV_EPI(s, idx);
+        p.y[idx] = s;
+    }
 }
 #endif

@@ -190,15 +190,17 @@ public class GgufRoundTripTests : IDisposable
             }
 
             known++;
-            Assert.Equal(id, GgmlTypes.GetGgmlType(dt));
+            // The interleaved Q4_0 layouts (31-33) are read as Q4_0 and written back as Q4_0 (2).
+            Assert.Equal(id is >= 31 and <= 33 ? 2 : id, GgmlTypes.GetGgmlType(dt));
         }
-        Assert.Equal(44 - 8, known); // 4,5,31-33,36-38 removed
+        Assert.Equal(44 - 5, known); // 4, 5 and 36-38 removed
         Assert.Equal((256, 66), (DataType.IQ2_XXS.BlockSize, DataType.IQ2_XXS.BlockBytes));
         Assert.Equal((64, 36), (DataType.NVFP4.BlockSize, DataType.NVFP4.BlockBytes));
         Assert.Equal(DataType.Q6_K, GgmlTypes.GetDataType(14));
         Assert.Equal(DataType.BF16, GgmlTypes.GetDataType(30));
         Assert.Equal(DataType.MXFP4, GgmlTypes.GetDataType(39));
-        Assert.Equal("ggml type id 31", Assert.Throws<Sharplight.Models.UnsupportedWeightFormatException>(() => GgmlTypes.GetDataType(31)).WeightFormat);
+        Assert.Equal(DataType.Q4_0, GgmlTypes.GetDataType(31));
+        Assert.Equal("ggml type id 36", Assert.Throws<Sharplight.Models.UnsupportedWeightFormatException>(() => GgmlTypes.GetDataType(36)).WeightFormat);
     }
 
     [Fact]

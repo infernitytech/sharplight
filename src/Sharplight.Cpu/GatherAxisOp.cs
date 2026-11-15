@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -43,6 +44,7 @@ internal sealed unsafe class GatherAxisOp : CpuOp
         CpuParallel.For(ch, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int chunk)
     {
         int es = _x.ElemSize;

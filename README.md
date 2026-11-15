@@ -29,35 +29,37 @@ checkpoints, BF16/F16/F32, FP8 (block, channel and tensor scales), NVFP4 (ModelO
 bitsandbytes NF4 and MLX affine 4-bit, kept quantized on the device; bitsandbytes FP4 / LLM.int8 and other MLX bit widths
 are decoded to BF16 at load ([docs/model-support.md](docs/model-support.md) section 2.4).
 
-Of the 172 architectures llama.cpp knows, 149 are supported end to end, 3 partially and
-20 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
+Of the 172 architectures llama.cpp knows, 168 are supported end to end and
+4 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix; its section 10 is a sweep of 1138 released
+GGUF files and 72 Hugging Face checkpoints, 1051 and 43 of which import). Supported (llama.cpp architecture names):
 
 | Family | Architectures |
 |---|---|
 | Llama-like | `llama`, `llama4`, `mistral3`, `llama-embed`, `deci` |
-| Qwen | `qwen`, `qwen2`, `qwen2moe`, `qwen3`, `qwen3moe`, `qwen2vl`, `qwen3vl`, `qwen3vlmoe` |
-| Qwen hybrid | `qwen3next`, `qwen35`, `qwen35moe`, `clover_moe` |
+| Qwen | `qwen`, `qwen2`, `qwen2moe`, `qwen3`, `qwen3moe`, `qwen2vl`, `qwen3vl`, `qwen3vlmoe`, `sensenova_u1` |
+| Qwen hybrid | `qwen3next`, `qwen35`, `qwen35moe`, `qwen4exp`, `clover_moe` |
 | Gemma | `gemma`, `gemma2`, `gemma3`, `gemma3n`, `gemma4`, `gemma-embedding`, `gemma-embedding2` |
 | Phi | `phi2`, `phi3`, `phimoe` |
 | Meta | `muse-glimmer`, `muse-spark` |
 | NVIDIA | `nemotron`, `nemotron_h`, `nemotron_h_moe` |
 | Cohere | `command-r`, `cohere2` |
 | OLMo | `olmo`, `olmo2`, `olmoe` |
-| Granite | `granite`, `granitemoe`, `granite_swa` |
+| Granite | `granite`, `granitemoe`, `granite_swa`, `graniteswitch` |
 | GLM | `chatglm`, `glm4`, `glm4moe` |
-| MLA/DeepSeek-like | `mistral4`, `mistral-large4`, `minicpm3`, `deepseek`, `deepseek2`, `deepseek32`, `glm-dsa`, `glm5-next`, `dots3note`, `plm`, `hy_v4` |
-| MoE | `dbrx`, `exaone-moe`, `bailingmoe`, `bailingmoe2`, `dots1`, `afmoe`, `laguna`, `ernie4_5-moe`, `hunyuan-moe`, `hy_v3`, `gpt-oss`, `smallthinker`, `minimax-m2`, `minimax-m3`, `mimo2`, `mellum`, `flint`, `cohere2moe`, `arctic`, `grok`, `step35`, `kolibri1`, `maple`, `maion-coder`, `beam` |
-| Other dense | `plamo`, `plamo3`, `internlm2`, `minicpm`, `openelm`, `bitnet`, `exaone`, `exaone4`, `arcee`, `ernie4_5`, `paddleocr`, `hunyuan-dense`, `smollm3`, `seed_oss`, `apertus`, `pangu-embedded`, `spark2_5`, `maincoder`, `talkie`, `nanbeige`, `ricursive`, `chameleon` |
+| MLA/DeepSeek-like | `mistral4`, `mistral-large4`, `minicpm3`, `deepseek`, `deepseek2`, `deepseek32`, `glm-dsa`, `glm5-next`, `dots3note`, `plm`, `hy_v4`, `xing4_0`, `deepseek4`, `deepseek41`, `deepseek2-ocr` |
+| MoE | `dbrx`, `exaone-moe`, `bailingmoe`, `bailingmoe2`, `dots1`, `afmoe`, `laguna`, `ernie4_5-moe`, `hunyuan-moe`, `hy_v3`, `gpt-oss`, `smallthinker`, `minimax-m2`, `minimax-m3`, `mimo2`, `mellum`, `flint`, `cohere2moe`, `arctic`, `grok`, `step35`, `kolibri1`, `maple`, `maion-coder`, `beam`, `grovemoe`, `k2-horizon` |
+| Other dense | `plamo`, `plamo3`, `internlm2`, `minicpm`, `openelm`, `bitnet`, `exaone`, `exaone4`, `arcee`, `ernie4_5`, `paddleocr`, `hunyuan-dense`, `smollm3`, `seed_oss`, `apertus`, `pangu-embedded`, `spark2_5`, `maincoder`, `talkie`, `nanbeige`, `ricursive`, `chameleon`, `hrm_text`, `limite` |
 | GPT-style | `starcoder`, `starcoder2`, `gpt2`, `gptj`, `gptneox`, `falcon`, `mpt`, `bloom`, `refact`, `baichuan`, `stablelm`, `codeshell`, `orion`, `xverse`, `jais`, `jais2` |
-| SSM | `mamba`, `mamba2`, `jamba`, `falcon-h1`, `granitehybrid`, `plamo2` |
+| SSM | `mamba`, `mamba2`, `jamba`, `falcon-h1`, `granitehybrid`, `plamo2`, `metis16` |
 | RNN | `rwkv6`, `rwkv6qwen2`, `rwkv7`, `arwkv7` |
 | Hybrid conv | `lfm2`, `lfm2moe`, `lfm3` |
-| Linear-attention hybrid | `kimi-linear`, `bailingmoe3`, `minimax-01` |
+| Linear-attention hybrid | `kimi-linear`, `kimi-k3`, `kimi-k31`, `bailingmoe3`, `minimax-01` |
 | Masked diffusion | `dream`, `llada`, `llada-moe`, `rnd1` (`DiffusionGenerator`, and served by the continuous-batching engine) |
 | Encoder-decoder | `t5` (plus the Hugging Face-only `bart`, `mbart`) |
 | Encoder | `t5encoder`, `bert`, `nomic-bert`, `nomic-bert-moe`, `modern-bert`, `neo-bert`, `jina-bert-v2`, `jina-bert-v3`, `eurobert` |
-| Multimodal | `clip` |
-| Speculative drafters | `eagle3` (loaded as the `draft` auxiliary source of its target; MTP / NextN heads of the target itself also draft) |
+| Multimodal | `clip`, `hunyuan_vl`, `cogvlm` |
+| Speculative drafters | `eagle3`, `gemma4-assistant` (loaded as the `draft` auxiliary source of their target; MTP / NextN heads of the target itself also draft) |
+| Decision models | `clef`, `vllm-decision2` (option scores of question spans through `SpanScorer`) |
 
 Weight types (CPU and Vulkan): F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K–Q6_K, IQ1_S/M, IQ2_XXS/XS/S, IQ3_XXS/S,
 IQ4_NL/XS, TQ1_0, TQ2_0, MXFP4, NVFP4. ONNX operator coverage is in [docs/onnx-support.md](docs/onnx-support.md).
@@ -106,6 +108,8 @@ PRO 6000, CPU rows on the Ryzen 9 9950X with both engines pinned to its 16 physi
 | llama.cpp CPU | 2.89 ± 0.03 | 1.69 ± 0.00 |
 
 Deep-context decode, batched serving (with vLLM), load times and the open gaps are in [docs/benchmarks.md](docs/benchmarks.md).
+Section 29 re-measures serving against vLLM (0.69-0.89x at 1-64 streams on the 27B FP8) and finds the sustained steps
+limited by the GPU's power cap rather than by idle compute units.
 Section 28 makes MTP speculative decoding reproduce plain greedy output on long prompts (verification rows now use the
 single-row arithmetic), removes a barrier between the MoE expert-tile launches (gpt-oss-20b prefill +10 %), and re-runs
 serving against vLLM (0.69-0.82x at 1-64 streams on the 27B FP8).
@@ -116,24 +120,25 @@ Section 23 loads the operands of small-batch matmuls straight into the tensor-co
 of 16 sequences on the 27B takes 29.6 ms instead of 34.3 ms with FP8 weights, and 29.3 ms instead of 33.7 ms with Q8_0.
 MTP speculative decoding on the FP8 model is 8 % faster.
 
-ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21, 25, 26 and 27), min latency in ms at
-batch 1. Sharplight runs its f32-accurate default. ORT's CUDA EP is shown with its default TF32 and with TF32 off
-("strict"). The CPU columns use 16 threads on both engines, from section 27 (interleaved with ORT, load average 7-34).
-Section 26 fuses the attention of ONNX encoders on both providers and adds an opt-in split-f16 tensor-core GEMM
-(`CompileOptions.SplitHalfMatMul`, 2-7x the f32 error), which takes vit b8 from 9.85 to 7.15 ms.
-Section 27 reworks the CPU conv and parallel-loop scheduling and fuses the Q / K / V projections: on the CPU, resnet50
-b1 went from 1.35x to 0.95x of ORT and segformer b1 from 2.1x to 0.92x.
+ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21, 25-27, 30 and 31), min latency in ms
+at batch 1. Sharplight runs its f32-accurate default. ORT's CUDA EP is shown with its default TF32 and with TF32 off
+("strict"). The CPU columns use 16 threads on both engines, from section 31 (interleaved with ORT, load average 2-12).
+Section 30 makes the split-f16 tensor-core GEMM f32-accurate and the strict default for f32 matmuls and convs.
+Section 31 applies bias / GELU / residual groups in that GEMM's store and reworks the encoder attention kernel: vit b1
+went from 1.71x to 1.52x of TF32 ORT, whisper from 1.49x to 1.33x. On GPUs without matrix units, an f32 flash
+attention kernel and device-sized GEMM tiles make whisper-tiny 16x and vit-base 3.2x faster (integrated GPU).
 
 | Model | Sharplight Vulkan | ORT CUDA (TF32) | ORT CUDA strict | Sharplight CPU | ORT CPU |
 |---|---:|---:|---:|---:|---:|
-| resnet50 | 0.82 | 1.01 | 2.12 | 5.9 | 6.2 |
-| mobilenetv2 | 0.41 | 0.35 | 0.65 | 2.0 | 1.6 |
-| yolov10n | 1.26 | 1.18 | 2.30 | 12.1 | 15.8 |
-| bert-base (16 tokens) | 1.22 | 1.24 | 1.44 | 9.6 | 12.2 |
-| vit-base | 2.47 | 1.34 | 2.46 | 19.8 | 23.0 |
-| segformer-b0 | 2.88 | 2.37 | 3.43 | 38.7 | 42.1 |
-| whisper-tiny encoder | 1.84 | 1.16 | 2.08 | 22.0 | 43.4 |
-| mobilesam encoder | 5.89 | 6.08 | 7.98 | 143 | 219 |
+| resnet50 | 0.74 | 0.99 | 2.10 | 4.1 | 5.2 |
+| mobilenetv2 | 0.38 | 0.34 | 0.65 | 0.6 | 1.6 |
+| yolov10n | 1.19 | 1.18 | 2.30 | 7.6 | 14.9 |
+| bert-base (16 tokens) | 1.19 | 1.23 | 1.42 | 9.1 | 10.8 |
+| vit-base | 2.04 | 1.34 | 2.46 | 23.9 | 21.8 |
+| segformer-b0 | 2.86 | 2.29 | 3.30 | 21.6 | 40.0 |
+| whisper-tiny encoder | 1.53 | 1.15 | 2.03 | 19.8 | 37.5 |
+| mobilesam encoder | 4.99 | 6.00 | 7.80 | 113 | 199 |
+| faster r-cnn (fasterrcnn-12) | 8.7 | 7.6 | 13.1 | - | - |
 
 ## Building
 

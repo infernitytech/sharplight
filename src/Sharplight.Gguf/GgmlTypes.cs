@@ -12,6 +12,15 @@ internal static class GgmlTypes
     /// <summary>PrismML fork id (llama.cpp "prism" branch) of PTQ1_0, a group-128 dense ternary type.</summary>
     internal const int PrismPTQ1_0 = 143;
 
+    /// <summary>The interleaved Q4_0 types of older llama.cpp releases (Q4_0_4_4, Q4_0_4_8, Q4_0_8_8), read as Q4_0.</summary>
+    internal const int Q4_0_4_4 = 31;
+
+    /// <inheritdoc cref="Q4_0_4_4"/>
+    internal const int Q4_0_4_8 = 32;
+
+    /// <inheritdoc cref="Q4_0_4_4"/>
+    internal const int Q4_0_8_8 = 33;
+
     // Types without a static in DataType are registered here (lowercase ggml names).
     internal static readonly DataType Q8_1 = DataType.Register("q8_1", DataTypeKind.Quantized, 32, 36);
     internal static readonly DataType F8_E4M3 = DataType.Register("f8_e4m3", DataTypeKind.Float, 1, 1);
@@ -79,6 +88,11 @@ internal static class GgmlTypes
     /// <summary>Returns the data type for a ggml type id, or null if unknown/removed.</summary>
     public static DataType? TryGetDataType(int ggmlType)
     {
+        if (TryGetQ4_0Interleave(ggmlType, out _, out _))
+        {
+            return DataType.Q4_0;
+        }
+
         if ((uint)ggmlType < s_byId.Length)
         {
             return s_byId[ggmlType];
@@ -90,6 +104,22 @@ internal static class GgmlTypes
             PrismPTQ1_0 => DataType.Tern1_G128,
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// The layout of an interleaved Q4_0 type id: rows interleaved per group and the bytes of a block's nibble array kept together;
+    /// false for every other id.
+    /// </summary>
+    public static bool TryGetQ4_0Interleave(int ggmlType, out int rows, out int chunk)
+    {
+        (rows, chunk) = ggmlType switch
+        {
+            Q4_0_4_4 => (4, 4),
+            Q4_0_4_8 => (4, 8),
+            Q4_0_8_8 => (8, 8),
+            _ => (0, 0),
+        };
+        return rows != 0;
     }
 
     /// <summary>Returns the data type for a ggml type id.</summary>

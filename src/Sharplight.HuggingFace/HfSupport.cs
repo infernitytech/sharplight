@@ -27,6 +27,9 @@ public static class HfSupport
     /// <summary>The model type <c>mxfp4</c> checkpoints are read for (their expert blocks are mapped by that architecture).</summary>
     private const string Mxfp4ModelType = "gpt_oss";
 
+    /// <summary>The compressed-tensors format name of MXFP4 packs (globally or per config group).</summary>
+    private const string Mxfp4PackFormat = "mxfp4-pack-quantized";
+
     /// <summary>Every <c>model_type</c> the importer maps, in no particular order.</summary>
     public static IReadOnlyCollection<string> ModelTypes => [.. HfArchitectureMappings.All.SelectMany(mapping => mapping.ModelTypes)];
 
@@ -56,6 +59,13 @@ public static class HfSupport
     /// <summary>What restricts a partially supported model type, or null when it is fully supported or not supported at all.</summary>
     /// <param name="modelType">The <c>model_type</c>.</param>
     public static string? GetPartialSupportNote(string? modelType) => HfArchitectureMappings.Find(modelType)?.PartialSupport(modelType!);
+
+    /// <summary>
+    /// Checkpoints of this model type are speculative-decoding drafters (EAGLE-3, Gemma 4 assistants): they are loaded as the draft source of the
+    /// model they were trained for, not as models of their own.
+    /// </summary>
+    /// <param name="modelType">The <c>model_type</c> (see <see cref="GetModelType"/>).</param>
+    public static bool IsDraftModel(string? modelType) => HfArchitectureMappings.Find(modelType)?.IsDraftModel == true;
 
     /// <summary>
     /// The checkpoint's quantization method and whether the importer reads it. Read: FP8 (<c>fp8</c> block scales, compressed-tensors
@@ -158,6 +168,7 @@ public static class HfSupport
     /// </summary>
     private static HfQuantizationSupport CompressedTensors(JsonElement settings)
     {
+        bool mxfp4Pack = String(settings, "format") == Mxfp4PackFormat;
         if (!settings.TryGetProperty("config_groups", out var groups) || groups.ValueKind != JsonValueKind.Object)
         {
             return new HfQuantizationSupport("compressed-tensors", null);
@@ -176,7 +187,8 @@ public static class HfSupport
             int bits = weights.TryGetProperty("num_bits", out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
             bool isFloat = string.Equals(type, "float", StringComparison.OrdinalIgnoreCase);
             bool read = isFloat ? bits is 4 or 8 : bits is >= 1 and <= 8;
-            label = string.Create(CultureInfo.InvariantCulture, $"compressed-tensors ({type} {bits}-bit)");
+            bool mxfp4Packed = isFloat && bits == 4 && (mxfp4Pack || String(group.Value, "format") == Mxfp4PackFormat);
+            label = mxfp4Packed ? "compressed-tensors (mxfp4)" : string.Create(CultureInfo.InvariantCulture, $"compressed-tensors ({type} {bits}-bit)");
             if (!read)
             {
                 return new HfQuantizationSupport(label, SupportLevel.Unsupported);
@@ -278,4 +290,40 @@ public static class HfSupport
 
     private static string? String(JsonElement element, string name)
         => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    /// <summary>
+    /// The reasons importing a checkpoint fails, from its <c>config.json</c> alone (before the checkpoint is downloaded): no mapping for
+    /// its model type, the mapping's feature checks, and its hyper-parameter mapping. Tensors are not read. Empty when the configuration
+    /// maps; the quantization is assessed separately (<see cref="GetQuantizationSupport"/>).
+    /// </summary>
+    /// <param name="configJson">The text of <c>config.json</c>.</param>
+    public static IReadOnlyList<string> Validate(string configJson)
+    {
+        using var config = TryParse(configJson);
+        if (config is null)
+        {
+            return ["config.json is not a JSON object."];
+        }
+
+        if (HfArchitectureMappings.Find(config.ModelType) is not { } mapping)
+        {
+            return [$"Hugging Face model_type '{config.ModelType}' has no mapping."];
+        }
+
+        try
+        {
+            if (mapping.Validate(config).ToList() is { Count: > 0 } problems)
+            {
+                return problems;
+            }
+
+            mapping.MapHyperParameters(config, HfImportOptions.Default);
+            return [];
+        }
+        catch (Exception error) when (error is NotSupportedException or InvalidDataException or KeyNotFoundException or FormatException
+            or InvalidOperationException or InvalidCastException or JsonException)
+        {
+            return [error.Message];
+        }
+    }
 }

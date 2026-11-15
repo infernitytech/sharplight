@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 
 namespace Sharplight.Cpu;
@@ -46,6 +47,7 @@ internal static unsafe partial class IntDot
     /// Quantizes <paramref name="k"/> (a multiple of 32) values: per block of 32 the scale is max|x| / 127 and the values
     /// round half away from zero. The vector and scalar paths give identical results.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Quantize(float* x, long k, Q8Row dst)
     {
         for (long b = 0; b < k; b += BlockSize)
@@ -81,6 +83,7 @@ internal static unsafe partial class IntDot
 
     private static long Align(long bytes) => (bytes + 63) & ~63L;
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void QuantizeBlockScalar(float* x, sbyte* q, float* laneScales, float* groupSums)
     {
         float amax = 0f;

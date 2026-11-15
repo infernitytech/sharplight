@@ -15,7 +15,7 @@ namespace Sharplight.Vulkan;
 /// <item><c>SHARPLIGHT_VK_TRACE=1</c>: log every command buffer recording and submission to stderr.</item>
 /// <item><c>SHARPLIGHT_VK_NO_BARRIERS=1</c>: drop inter-dispatch barriers (wrong results) to measure their cost.</item>
 /// <item><c>SHARPLIGHT_VK_REORDER=0</c>: record launches in program order instead of filling each barrier batch with later
-/// independent launches (<see cref="HazardTracker.Order"/>).</item>
+/// independent launches (<see cref="HazardTracker.Order(System.Collections.Generic.IReadOnlyList{Shaders.Lowering.KernelLaunch}, Shaders.Lowering.Bindings, bool)"/>).</item>
 /// <item><c>SHARPLIGHT_VK_MAX_LAUNCHES=n</c>: record only the first <c>n</c> launches (bisecting a faulting kernel).</item>
 /// <item><c>SHARPLIGHT_VK_LIST_LAUNCHES=1</c>: print each recorded launch.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>: print load-phase timings (pipeline creation, upload) to stderr.</item>
@@ -51,6 +51,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>Prints each recorded launch.</summary>
     public static bool ListLaunches { get; } = IsSet("SHARPLIGHT_VK_LIST_LAUNCHES");
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_DEVICE_FORWARDING=0</c>) when segments on the same device pass boundary values through host memory
+    /// instead of copying them on the device (<see cref="Runtime.IDeviceForwardingSegment"/>).
+    /// </summary>
+    public static bool DeviceForwarding { get; } = Read("SHARPLIGHT_DEVICE_FORWARDING") is not ("0" or "false");
 
     /// <summary>Prints load-phase timings.</summary>
     public static bool LoadTiming { get; } = IsSet("SHARPLIGHT_LOAD_TIMING");

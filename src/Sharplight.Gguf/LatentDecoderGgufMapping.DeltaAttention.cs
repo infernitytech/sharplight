@@ -12,7 +12,7 @@ namespace Sharplight.Gguf;
 /// </summary>
 internal sealed partial class LatentDecoderGgufMapping
 {
-    private static bool IsKimiLinear(GgufMetadataView g) => g.GgufArchitecture == "kimi-linear";
+    private static bool IsKimiLinear(GgufMetadataView g) => g.GgufArchitecture == "kimi-linear" || IsKimiK3(g);
 
     private static bool IsBailing3(GgufMetadataView g) => g.GgufArchitecture == "bailingmoe3";
 
@@ -43,7 +43,10 @@ internal sealed partial class LatentDecoderGgufMapping
         else
         {
             md[a + "rope.style"] = "none";               // Kimi-Linear's latent attention has no rotary embedding
-            md[a + "moe.normalize_weights"] = true;      // llama.cpp renormalizes Kimi-Linear's routing weights unconditionally
+            if (!IsKimiK3(g))
+            {
+                md[a + "moe.normalize_weights"] = true;  // llama.cpp renormalizes Kimi-Linear's routing weights unconditionally
+            }
         }
     }
 
@@ -76,6 +79,7 @@ internal sealed partial class LatentDecoderGgufMapping
             "ssm_f_b.weight" => "linear_attention.decay_up.weight",
             "ssm_g_a.weight" => lowRank ? "linear_attention.gate_down.weight" : "linear_attention.gate.weight",
             "ssm_g_b.weight" => "linear_attention.gate_up.weight",
+            "ssm_g.weight" => "linear_attention.gate.weight",   // Kimi K3: full-rank gate
             _ => s_delta.GetValueOrDefault(suffix),
         };
     }

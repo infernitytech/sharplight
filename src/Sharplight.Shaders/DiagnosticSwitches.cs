@@ -14,6 +14,12 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_NO_BIAS_FOLD=1</c>: do not add matmul biases in the single-row matvec's store.</item>
 /// <item><c>SHARPLIGHT_NO_CONV_EPILOGUE=1</c>: run the elementwise group consuming a convolution (activation, residual add) as its
 /// own launch instead of in the convolution's store.</item>
+/// <item><c>SHARPLIGHT_NO_MATMUL_EPILOGUE=1</c>: run the elementwise group consuming a weight matmul (bias, activation, residual
+/// add) as its own launch instead of in the split-f16 GEMM's store.</item>
+/// <item><c>SHARPLIGHT_NO_NARROW_CONV=1</c>: run convolutions with up to 8 output channels through the implicit GEMMs instead of
+/// the per-pixel conv_narrow kernel.</item>
+/// <item><c>SHARPLIGHT_NO_STRIDED_LAYERNORM=1</c>: copy a channel-strided LayerNorm input (the channels-last view of an NCHW
+/// tensor) to a dense temporary instead of normalizing it in place.</item>
 /// <item><c>SHARPLIGHT_NO_GROUP_MERGE=1</c>: fuse only consecutive elementwise nodes (no merging of groups along data flow).</item>
 /// <item><c>SHARPLIGHT_NO_GATHER_FOLD=1</c>: materialize row gathers (GatherAxis on axis 0, e.g. the per-expert biases of the
 /// selected experts) with their own launch instead of reading the rows in place inside the fused elementwise group consuming them.</item>
@@ -112,6 +118,15 @@ internal static class DiagnosticSwitches
 
     /// <summary>Disables the convolution epilogue fusion (elementwise consumers of a conv computed in its store).</summary>
     public static bool NoConvEpilogue { get; } = IsSet("SHARPLIGHT_NO_CONV_EPILOGUE");
+
+    /// <summary>Runs convolutions with few output channels through the implicit GEMMs instead of conv_narrow.</summary>
+    public static bool NoNarrowConv { get; } = IsSet("SHARPLIGHT_NO_NARROW_CONV");
+
+    /// <summary>Densifies channel-strided LayerNorm inputs for the row kernel instead of reading them in place (layernorm_cs).</summary>
+    public static bool NoStridedLayerNorm { get; } = IsSet("SHARPLIGHT_NO_STRIDED_LAYERNORM");
+
+    /// <summary>Disables the matmul epilogue fusion (elementwise consumers of a weight matmul computed in the split-f16 GEMM's store).</summary>
+    public static bool NoMatMulEpilogue { get; } = IsSet("SHARPLIGHT_NO_MATMUL_EPILOGUE");
 
     /// <summary>False keeps the 32-value block formats off the integer-dot matvec.</summary>
     public static bool IntDotBlockFormats { get; } = IsNotZero("SHARPLIGHT_MMVQ_BLOCK");
@@ -248,11 +263,26 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool AttentionEncoderFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE");
 
+    /// <summary>False keeps bidirectional attention on devices without the tensor-core flash kernels off the f32 encoder flash kernel (fes).</summary>
+    public static bool AttentionSimtFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FES");
+
     /// <summary>
-    /// True (default) when f32 matmuls may run on the split-f16 tensor-core GEMM where a compilation asks for it
+    /// True (default) when f32 matmuls may run on the split-f16 tensor-core GEMM where a compilation allows it
     /// (<c>CompileOptions.SplitHalfMatMul</c>); <c>SHARPLIGHT_GEMM_SPLIT_F16=0</c> keeps them on the f32 SIMT GEMM.
     /// </summary>
     public static bool GemmSplitHalf { get; } = IsNotZero("SHARPLIGHT_GEMM_SPLIT_F16");
+
+    /// <summary>
+    /// True (default) when strict-precision convs with constant f32 weights may run in the split-f16 form of conv_cm
+    /// (<c>CompileOptions.SplitHalfMatMul</c>); <c>SHARPLIGHT_CONV_SPLIT_F16=0</c> keeps them on the three-part bf16 form.
+    /// </summary>
+    public static bool ConvSplitHalf { get; } = IsNotZero("SHARPLIGHT_CONV_SPLIT_F16");
+
+    /// <summary>
+    /// True (default) when bidirectional attention reads strided f32 K / V (slices of a fused projection) in place;
+    /// <c>SHARPLIGHT_ATTN_STRIDED_KV=0</c> copies them to dense rows first.
+    /// </summary>
+    public static bool AttentionStridedKv { get; } = IsNotZero("SHARPLIGHT_ATTN_STRIDED_KV");
 
     /// <summary>True when decode attention may split the keys over several workgroups.</summary>
     public static bool AttentionSplit { get; } = IsNotZero("SHARPLIGHT_ATTN_SPLIT");

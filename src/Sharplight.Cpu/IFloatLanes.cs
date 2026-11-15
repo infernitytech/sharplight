@@ -37,6 +37,9 @@ internal unsafe interface IFloatLanes<TSelf>
     /// <summary>Lane-wise maximum.</summary>
     public static abstract TSelf Max(TSelf a, TSelf b);
 
+    /// <summary>Lane-wise minimum.</summary>
+    public static abstract TSelf Min(TSelf a, TSelf b);
+
     /// <summary>Lane-wise e^x.</summary>
     public static abstract TSelf Exp(TSelf x);
 

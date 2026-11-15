@@ -23,8 +23,9 @@ internal static class OnnxExec
     /// <param name="inputs">One array per runtime input.</param>
     /// <param name="timedRuns">Runs to time after the first.</param>
     /// <param name="artifacts">Compilation artifacts to compile with and record into; null = those stored in a package (none for an ONNX file).</param>
+    /// <param name="fallback">Whether ops the device lacks may run on the CPU (false: compiling fails instead).</param>
     public static OnnxExecResult Run(string path, OnnxImportOptions? options, IComputeDevice device, int batch, IReadOnlyList<float[]> inputs, int timedRuns = 1,
-        CompilationArtifacts? artifacts = null)
+        CompilationArtifacts? artifacts = null, bool fallback = true)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         ComputeGraph graph;
@@ -47,7 +48,7 @@ internal static class OnnxExec
         using var compiled = CompiledModel.Compile(graph, new PlacementOptions
         {
             Devices = [new DeviceSlot { Device = device }],
-            Fallback = device.Info.Kind == DeviceKind.Cpu ? null : new DeviceSlot { Device = Providers.Cpu },   // data-dependent ops run on CPU
+            Fallback = device.Info.Kind == DeviceKind.Cpu || !fallback ? null : new DeviceSlot { Device = Providers.Cpu },   // data-dependent ops run on CPU
             Compile = new CompileOptions
             {
                 SymbolBounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = batch },

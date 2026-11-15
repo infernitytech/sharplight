@@ -15,7 +15,9 @@ namespace Sharplight.Architectures;
 /// <c>attention.head_count</c>, <c>attention.kv_head_count</c>, <c>attention.head_dim</c>,
 /// <c>ssm.conv_kernel</c>, <c>ssm.state_size</c> (N), <c>ssm.group_count</c> (G), <c>ssm.head_count</c> (H), <c>ssm.head_dim</c> (P; inner size = H·P),
 /// optional <c>ssm.time_step_min</c> (lower clamp of softplus(dt); default 0); for "moe" layers <c>moe.expert_count</c>, <c>moe.expert_used_count</c>,
-/// <c>moe.normalize_weights</c> (renormalize the selected scores; default true), <c>moe.weights_scale</c> (default 1).
+/// <c>moe.normalize_weights</c> (renormalize the selected scores; default true), <c>moe.weights_scale</c> (default 1), optional
+/// <c>moe.layer_expert_used_counts</c> (int[layer_count]: the experts selected per token in each layer, for heterogeneous "Puzzle" models; 0 or absent
+/// keeps <c>moe.expert_used_count</c>). A layer's expert count is the row count of its router, so layers may differ in it too.
 /// Weights: <c>token_embedding.weight</c> [V, H], <c>output_norm.weight</c>, <c>lm_head.weight</c> (optional, tied otherwise); per layer <c>layers.{i}.input_norm.weight</c> and
 /// <list type="bullet">
 /// <item><c>ssm</c>: <c>ssm.in.weight</c> [inner + conv_dim + H, hidden] (rows: gate z | conv input x,B,C | dt), <c>ssm.conv1d.weight</c> [conv_dim, K] f32, <c>ssm.conv1d.bias</c> [conv_dim] f32,
@@ -39,6 +41,11 @@ public sealed class NemotronHAdapter : IModelAdapter
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {
         var src = sources.Primary;
+        if (MtpDraftHead.IsSidecar(src))
+        {
+            throw MtpDraftHead.SidecarAsModelError(src);
+        }
+
         int nLayer = src.Arch<int>("layer_count");
         int nEmbd = src.Arch<int>("hidden_size");
         float eps = src.Arch("norm_eps", 1e-5f);
@@ -55,6 +62,7 @@ public sealed class NemotronHAdapter : IModelAdapter
         var mamba = new Mamba2Layer(src, eps);
         // Sigmoid-scored routing (with a selection-only bias), whatever moe.router_activation says.
         var moe = MoeOptions.Read(src, normalizeDefault: true) with { ScoreFunction = MoeScoreFunction.Sigmoid };
+        int[] layerExpertsUsed = src.Arch("moe.layer_expert_used_counts", Array.Empty<int>());
         int vocab = src.Weight("token_embedding.weight")!.Shape[0].IsSymbolic ? 0 : (int)src.Weight("token_embedding.weight")!.Shape[0].Fixed;
 
         var states = new List<StateDefinition>();
@@ -148,7 +156,7 @@ public sealed class NemotronHAdapter : IModelAdapter
                 {
                     "ssm" => mamba.Build(b, h, p, convState[il], ssmState[il]),
                     "attention" => Attention(b, h, p, il),
-                    "moe" => Moe(b, h, p),
+                    "moe" => Moe(b, h, p, il),
                     _ => Mlp(b, h, p),
                 };
                 x = b.Add(y, x, $"{p}l_out");
@@ -179,7 +187,15 @@ public sealed class NemotronHAdapter : IModelAdapter
         Value Mlp(GraphBuilder b, Value h, string p, string prefix = "mlp.")
             => b.Linear(act.Activate(b, b.Linear(h, p + prefix + "up.weight"), p), p + prefix + "down.weight", name: $"{p}ffn_out");
 
-        // k experts per token (non-gated MLPs) plus the shared MLP.
-        Value Moe(GraphBuilder b, Value h, string p) => MoeBlock.Build(b, h, p, "moe.", moe, nEmbd, act);
+        // k experts per token (non-gated MLPs) plus the shared MLP; the layer's own expert count (its router's rows) and selection count.
+        Value Moe(GraphBuilder b, Value h, string p, int il)
+        {
+            var options = moe with
+            {
+                Experts = (int)b.Weight(p + "moe.router.weight").Shape[0].Fixed,
+                ExpertsUsed = il < layerExpertsUsed.Length && layerExpertsUsed[il] > 0 ? layerExpertsUsed[il] : moe.ExpertsUsed,
+            };
+            return MoeBlock.Build(b, h, p, "moe.", options, nEmbd, act);
+        }
     }
 }

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 
 namespace Sharplight.Cpu;
@@ -42,6 +43,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     }
 
     /// <summary>Broadcast copy: a stride-0 view of the input copied into a dense output.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void LowerExpand(Node n)
     {
         var x = Ref(n.Inputs[0]);
@@ -64,6 +66,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     }
 
     /// <summary>Tile as a copy: each tiled axis becomes (repeat, size) with a stride-0 repeat axis in the input view.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void LowerTile(Node n)
     {
         var x = Ref(n.Inputs[0]);
@@ -102,6 +105,11 @@ internal sealed unsafe partial class CpuCompiledSegment
         if (axis < 0)
         {
             axis += n.Output.Rank;
+        }
+
+        if (TryLowerChannelsLastConcat(n, axis))
+        {
+            return;
         }
 
         var xs = n.Inputs.Select(Ref).ToArray();

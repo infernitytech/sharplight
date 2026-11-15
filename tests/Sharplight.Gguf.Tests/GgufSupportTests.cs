@@ -16,8 +16,9 @@ public class GgufSupportTests
     [InlineData("llama", SupportLevel.Supported)]
     [InlineData("qwen3", SupportLevel.Supported)]
     [InlineData("QWEN35", SupportLevel.Supported)]
-    [InlineData("qwen4exp", SupportLevel.Partial)]
-    [InlineData("hrm_text", SupportLevel.Unsupported)]
+    [InlineData("qwen4exp", SupportLevel.Supported)]
+    [InlineData("hrm_text", SupportLevel.Supported)]
+    [InlineData("qwen3tts", SupportLevel.Unsupported)]
     [InlineData("", SupportLevel.Unsupported)]
     [InlineData(null, SupportLevel.Unsupported)]
     public void ArchitectureSupport_FollowsTheMappings(string? architecture, SupportLevel expected)
@@ -33,7 +34,7 @@ public class GgufSupportTests
         Assert.Contains("clip", GgufSupport.Architectures);
         Assert.True(GgufSupport.IsProjector("clip"));
         Assert.False(GgufSupport.IsProjector("llama"));
-        Assert.False(GgufSupport.IsProjector("hrm_text"));
+        Assert.False(GgufSupport.IsProjector("qwen3tts"));
     }
 
     [Fact]
@@ -41,7 +42,8 @@ public class GgufSupportTests
     {
         Assert.Equal(DataType.Q4_K, GgufSupport.GetTensorType(12));
         Assert.Equal(DataType.Q8_K, GgufSupport.GetTensorType(15));
-        Assert.Null(GgufSupport.GetTensorType(31));
+        Assert.Equal(DataType.Q4_0, GgufSupport.GetTensorType(31));   // Q4_0_4_4, deinterleaved on read
+        Assert.Null(GgufSupport.GetTensorType(36));
         Assert.Null(GgufSupport.GetTensorType(99));
     }
 
@@ -106,10 +108,17 @@ public class GgufSupportTests
     [Fact]
     public void Import_UnknownArchitecture_NamesIt()
     {
-        string path = Path.Combine(s_models, "tiny-random-hrm-text-f32.gguf");
-        Assert.SkipUnless(File.Exists(path), "test GGUF not found");
-        var error = Assert.Throws<UnsupportedArchitectureException>(() => GgufImporter.Open(path));
-        Assert.Equal("hrm_text", error.Architecture);
+        string path = Path.Combine(Path.GetTempPath(), $"sl-unknown-arch-{Guid.NewGuid():N}.gguf");
+        new GgufWriter().AddMetadata("general.architecture", "qwen3tts").Write(path);
+        try
+        {
+            var error = Assert.Throws<UnsupportedArchitectureException>(() => GgufImporter.Open(path));
+            Assert.Equal("qwen3tts", error.Architecture);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private static byte[] Prefix(string path, int count)

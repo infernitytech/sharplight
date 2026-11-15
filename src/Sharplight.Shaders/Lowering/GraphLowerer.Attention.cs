@@ -93,8 +93,15 @@ public sealed partial class GraphLowerer
 
         var seq = n.Inputs.Length > 2 ? DenseInput(n.Inputs[2], "seq-rows") : null;
         var pages = PageTable(n, 3);
+        long compression = n.Attributes.Get("compression", 1L);
+        if (compression > 1 && quantized)
+        {
+            throw new NotSupportedException("A compressed cache must be f32 or f16.");
+        }
+
         var macros = Macros([("R1", r1), ("INNER", inner), ("S0", s0), ("S1", s1), ("DST_F16", f16), ("RT_N_PAST", seq is null ? Slot(n) : 0),
-            ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, state)), .. PageMacros(n, pages)]);
+            ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null || compression > 1 ? 0 : SlotContext(n, state)), .. PageMacros(n, pages),
+            ("KV_COMP", compression), ("COMP_SLOT_CTX", seq is null || compression == 1 ? 0 : SlotContext(n, state))]);
         macros["DST_FMT"] = KvFormat(state.Type).ToString(CultureInfo.InvariantCulture);
         var k = Lib("data.slang", quantized ? "cache_write_q" : "cache_write", macros);
         long perThread = quantized ? 32 : 1;   // the quantizing kernel writes one 32-value block per thread
@@ -108,7 +115,7 @@ public sealed partial class GraphLowerer
     private void LowerAttention(Node n)
     {
         var plan = PlanAttention(n);
-        if (plan.Selection is not null)
+        if (plan.Selection is not null || plan.Compressed is not null)
         {
             EmitSelectedAttention(plan);
             return;
@@ -124,8 +131,9 @@ public sealed partial class GraphLowerer
         var o = plan.Output;
 
         bool flash = CanUseFlashAttention(plan);
+        bool simtFlash = !flash && SimtEncoderFlash(plan);
         long maxRows = q.Symbol is null ? q.Shape[0] : Bound(Dim.Sym(q.Symbol));
-        long sliceRows = SliceRows(plan, flash, maxRows);
+        long sliceRows = SliceRows(plan, flash || simtFlash, maxRows);
         int slices = (int)((maxRows + sliceRows - 1) / sliceRows);
 
         // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
@@ -134,7 +142,7 @@ public sealed partial class GraphLowerer
         var decode = DecodeAttention(plan, flash, sliceRows);
         int splits = (int)Math.Clamp((256 + plan.HQ - 1) / plan.HQ, 1, 32);
         bool split = decode is null && !plan.Full && splits > 1 && DiagnosticSwitches.AttentionSplit;
-        int keySplits = flash && slices == 1 ? FlashKeySplits(plan, maxRows) : 1;
+        int keySplits = (flash || simtFlash) && slices == 1 ? FlashKeySplits(plan, maxRows) : 1;
         var part = decode is not null ? DecodeScratch(plan, decode, maxRows) : split ? SplitScratch(plan, splits)
             : keySplits > 1 ? AttentionScratch(keySplits * maxRows * plan.HQ * (plan.DV + 2) * 4) : o;
         var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
@@ -174,6 +182,11 @@ public sealed partial class GraphLowerer
                 variants.Add(FlashVariant(plan, keySplits));
             }
 
+            if (slice == 0 && simtFlash)
+            {
+                variants.Add(SimtFlashVariant(plan, keySplits));
+            }
+
             if (slices == 1)
             {
                 variants.Add(Always(scalarKernel, b => new Grid((uint)plan.HQ, (uint)Rows(b, q))));
@@ -201,7 +214,11 @@ public sealed partial class GraphLowerer
         }
     }
 
-    /// <summary>Resolves the operands of an Attention / CachedAttention node and builds the kernel macros.</summary>
+    /// <summary>
+    /// Resolves the operands of an Attention / CachedAttention node and builds the kernel macros. Bidirectional attention reads
+    /// f32 K / V with wider row strides (e.g. slices of a fused Q / K / V projection) in place when the kernels that serve it
+    /// (the encoder flash kernel) takes strided rows; otherwise they are copied to dense rows.
+    /// </summary>
     private AttentionPlan PlanAttention(Node n)
     {
         // "Attention": bidirectional self-attention over K/V given as plain tensors (vision encoders), every query sees all T keys.
@@ -214,7 +231,8 @@ public sealed partial class GraphLowerer
             q = DenseTemp(q, "attn-q");
         }
 
-        if (full)
+        bool stridedKv = full && DiagnosticSwitches.AttentionStridedKv && StridedKvReadable(k) && StridedKvReadable(v);
+        if (full && !stridedKv)
         {
             k = AsDenseF32(k, "attn-k");
             v = AsDenseF32(v, "attn-v");
@@ -223,8 +241,12 @@ public sealed partial class GraphLowerer
         var output = Produce(n.Output);
         bool hasSinks = !full && n.Attributes.Get("sinks", false);
         bool hasSelection = !full && n.Attributes.Get("selection", false);
-        int sinksInputs = (hasSinks ? 1 : 0) + (hasSelection ? 1 : 0);   // inputs: q, k, v, [sinks], [selection], [rows, runs]
+        long compression = full ? 1 : n.Attributes.Get("compression", 1L);
+        bool hasCompressed = !full && n.Attributes.Has("compression");
+        // inputs: q, k, v, [sinks], [compressed cache], [selection], [rows, runs, [block table]]
+        int sinksInputs = (hasSinks ? 1 : 0) + (hasCompressed ? 1 : 0) + (hasSelection ? 1 : 0);
         TensorRef? sinks = hasSinks ? Ref(n.Inputs[3]) : null;   // attention sinks [HQ] f32
+        TensorRef? compressed = hasCompressed ? Ref(n.Inputs[hasSinks ? 4 : 3]) : null;   // compressed cache [entries, HKV, VRS]
         TensorRef? selection = hasSelection ? DenseInput(n.Inputs[2 + sinksInputs], "attn-selection") : null;   // sparse attention: [T, K] or [T, Hs, K] key positions
         long HQ = q.Shape[1];
         long D = q.Shape[2];
@@ -280,8 +302,22 @@ public sealed partial class GraphLowerer
             ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
             ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), ("SELECTED", selection?.Shape[^1] ?? 0), ("SEL_HEADS", selection is { Shape.Length: 3 } ? selection.Shape[1] : 1),
             ("SEQ_ROWS", sequenceRows), ("SEQ_KEYS", sequenceKeys), ("HAS_MASK", mask is not null), ("MASK_PER_ROW", mask is not null && n.Inputs[3].Rank == 2),
-            .. AlibiMacros(n)]);
-        return new AttentionPlan
+            .. AlibiMacros(n),
+            ("COMP_ATTN", compressed is not null), ("KV_COMP", compression), ("COMP_SLOT_CTX", seq is null || compressed is null ? 0 : SlotContext(n, compressed))]);
+        if (compressed is not null && compressed.Type != k.Type)
+        {
+            throw new NotSupportedException("The compressed cache must have the key cache's type.");
+        }
+
+        if (stridedKv)
+        {
+            macros["KV_KS0"] = k.Strides[0].ToString(CultureInfo.InvariantCulture);
+            macros["KV_KS1"] = k.Strides[1].ToString(CultureInfo.InvariantCulture);
+            macros["KV_VS0"] = v.Strides[0].ToString(CultureInfo.InvariantCulture);
+            macros["KV_VS1"] = v.Strides[1].ToString(CultureInfo.InvariantCulture);
+        }
+
+        AttentionPlan Build() => new AttentionPlan
         {
             Node = n,
             Full = full,
@@ -297,6 +333,7 @@ public sealed partial class GraphLowerer
             Mask = mask,
             SequenceRows = sequenceRows,
             Selection = selection,
+            Compressed = compressed,
             Cross = cross,
             HQ = HQ,
             HKV = HKV,
@@ -304,7 +341,30 @@ public sealed partial class GraphLowerer
             DV = DV,
             Macros = macros,
         };
+        var plan = Build();
+        if (stridedKv && (!CanUseFlashAttention(plan) || !EncoderFlash(plan) || MqaAttention(plan) is not null))
+        {
+            // Another kernel serves this attention: dense K / V rows (the plan's other operands are unchanged).
+            k = AsDenseF32(k, "attn-k");
+            v = AsDenseF32(v, "attn-v");
+            foreach (var key in (string[])["KV_KS0", "KV_KS1", "KV_VS0", "KV_VS1"])
+            {
+                macros.Remove(key);
+            }
+
+            plan = Build();
+        }
+
+        return plan;
     }
+
+    /// <summary>
+    /// True when the strided-K/V kernels can read <paramref name="t"/> in place: f32 [T, H, D] with unit element stride, row
+    /// and head strides in 8-value groups and 16-byte alignment.
+    /// </summary>
+    private static bool StridedKvReadable(TensorRef t)
+        => t.Rank == 3 && t.Type == DataType.F32 && t.Strides[2] == 1 && t.Strides[1] % 8 == 0 && t.Strides[0] % 8 == 0 && t.ByteOffset % 16 == 0
+           && t.Shape[2] % 8 == 0;
 
     /// <summary>
     /// The HAS_ALIBI / ALIBI_SLOPES and HAS_POS_BIAS / POS_BIAS_RANGE / POS_BIAS_TABLE kernel macros of an attention node: its
@@ -423,9 +483,43 @@ public sealed partial class GraphLowerer
         long paddedDV = (plan.DV + 15) / 16 * 16;
         long kvHalves = 2 * 32 * (paddedD + 8) + 2 * 32 * (paddedDV + 8);
         long buffer = Math.Max(kvHalves, 2 * 64 * (paddedD + 8)) * 2;
-        long sharedBytes = buffer + 4 * 16 * 32 * 4 + 4 * 16 * 40 * 2 * (SplitFlash(plan) ? 2 : 1) + 4 * 256 * 4;
+        long sharedBytes = buffer + 4 * 16 * 36 * 4 + 4 * 16 * 40 * 2 * (SplitFlash(plan) ? 2 : 1) + 4 * 256 * 4;
         return DiagnosticSwitches.AttentionEncoderFlash && plain && kv && paddedD <= 128 && paddedDV <= 128
                && sharedBytes <= _opt.MaxSharedMemory;
+    }
+
+    /// <summary>
+    /// Whether bidirectional attention on a device without the tensor-core flash kernels runs the f32 encoder flash kernel
+    /// <c>fes</c> (64 queries per workgroup, one per thread, K/V tiles shared): the forms <c>fe</c> serves (see
+    /// <see cref="EncoderFlash"/>) with head sizes that are multiples of 8 up to 64, unless <c>SHARPLIGHT_ATTN_FES=0</c>.
+    /// The per-query kernel re-reads every key for each query (vit-base on an integrated GPU: 16.5 ms per layer).
+    /// </summary>
+    private bool SimtEncoderFlash(AttentionPlan plan)
+    {
+        var a = plan.Node.Attributes;
+        bool plain = plan.Full && plan.Spans is null && plan.Sinks is null && plan.Runs is null && plan.Selection is null
+                     && a.Get("window", 0) == 0 && !a.Get("causal", false) && a.Get("softcap", 0f) <= 0
+                     && a.Get<float[]?>("alibi_slopes", null) is null && a.Get<float[]?>("position_bias", null) is null;
+        bool kv = (plan.K.Type == DataType.F32 || plan.K.Type == DataType.F16) && plan.V.Type == plan.K.Type;
+        long sharedBytes = 32 * (plan.D + plan.DV) * 4;
+        return DiagnosticSwitches.AttentionSimtFlash && plain && kv && plan.HQ % plan.HKV == 0 && plan.D % 8 == 0 && plan.DV % 8 == 0
+               && plan.D <= 64 && plan.DV <= 64 && sharedBytes <= _opt.MaxSharedMemory;
+    }
+
+    /// <summary>The <c>fes</c> variant (see <see cref="SimtEncoderFlash"/>): grid (heads, 64-query blocks, sequences x key ranges).</summary>
+    private KernelVariant SimtFlashVariant(AttentionPlan plan, int keySplits)
+    {
+        var q = plan.Q;
+        var macros = new Dictionary<string, string>(plan.Macros) { ["FA_KSPLIT"] = keySplits.ToString(CultureInfo.InvariantCulture) };
+        var kernel = Lib("attention.slang", "fes", macros);
+        if (plan.SequenceRows > 0)
+        {
+            long sequenceRows = plan.SequenceRows;
+            return new KernelVariant(FlashWhen(plan), kernel,
+                b => new Grid((uint)plan.HQ, Grid.Div(sequenceRows, 64), (uint)(Rows(b, q) / sequenceRows * keySplits)));
+        }
+
+        return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 64), (uint)keySplits));
     }
 
     /// <summary>
@@ -453,7 +547,7 @@ public sealed partial class GraphLowerer
         long sequences = plan.SequenceRows > 0 ? Math.Max(1, maxRows / plan.SequenceRows) : 1;
         long rowsPerSequence = plan.SequenceRows > 0 ? plan.SequenceRows : maxRows;
         long keys = plan.SequenceRows > 0 ? BatchedAttention.SequenceKeys(plan.Node) : plan.K.Symbol is null ? plan.K.Shape[0] : Bound(Dim.Sym(plan.K.Symbol));
-        long blockRows = EncoderFlash(plan) ? 64 : 32;
+        long blockRows = EncoderFlash(plan) || !CanUseFlashAttention(plan) ? 64 : 32;
         long workgroups = plan.HQ * ((rowsPerSequence + blockRows - 1) / blockRows) * sequences;
         long wanted = (FlashTargetWorkgroups + workgroups - 1) / workgroups;
         return (int)Math.Clamp(Math.Min(wanted, (keys + 31) / 32 / 2), 1, 8);
@@ -584,14 +678,14 @@ public sealed partial class GraphLowerer
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Mask), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
-            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Mask)],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
+            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask)],
             split ? [o, part] : [o]);
     }
 
     /// <summary>
     /// Sparse attention (a selection input): the per-(head, query) kernel visits only the selected key positions, so its cost follows the selection
-    /// width instead of the context. Long batches are sliced like the scalar kernel's on devices with a submission budget.
+    /// width instead of the context. Compressed attention (a window of keys plus compressed entries) runs on the same kernel. Long batches are sliced like the scalar kernel's on devices with a submission budget.
     /// </summary>
     private void EmitSelectedAttention(AttentionPlan plan)
     {
@@ -600,7 +694,10 @@ public sealed partial class GraphLowerer
         long sliceRows = maxRows;
         if (_opt.SubmissionBudgetMs > 0)
         {
-            long workPerRow = Math.Max(1, plan.HQ * plan.Selection!.Shape[^1] * (plan.D + plan.DV));
+            long entries = plan.Selection?.Shape[^1] ?? 0;
+            long keys = plan.Compressed is null ? entries : entries + plan.Node.Attributes.Get("window", 0)
+                + (plan.Selection is null ? plan.Compressed.Shape[0] : 0);
+            long workPerRow = Math.Max(1, plan.HQ * Math.Max(1, keys) * (plan.D + plan.DV));
             sliceRows = Math.Clamp((long)(_opt.SubmissionBudgetMs * 3e6) / workPerRow, Math.Min(8, maxRows), maxRows);
         }
 

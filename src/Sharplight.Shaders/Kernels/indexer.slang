@@ -2,7 +2,9 @@
 // rows [row0, row0 + rows) of a launch:
 //   index_scores: the score of every candidate group g of GROUP positions the row sees, into scores[((t - row0) * SH + s) * NG + g]:
 //                 GROUP_POOLED: the score of the group's pooled key (per channel, softmax over the members of gate + position gate weights the
-//                 keys); otherwise the best score of its visible positions. Position score: sum_h w[t][h] * relu(q[t][h] . key), or with
+//                 keys); GROUP_MEAN: the score of the mean of the members' keys, RMS-normed (POOL_NORM, weight `gate`, epsilon POOL_EPS)
+//                 and its first POOL_ROPE channels rotated as neox pairs (base POOL_BASE) at the group's first position; otherwise the best
+//                 score of its visible positions. Position score: sum_h w[t][h] * relu(q[t][h] . key), or with
 //                 PER_HEAD q[t][s] . key for selection head s. The row's latest LOCAL groups score +inf.
 //                 Grid (ceil(NG / WG), rows); one thread per group (the row's queries and head weights are uniform loads).
 //   index_select: one workgroup per (row, selection head); the BUDGET / GROUP best groups (radix select, then an ordered collection: groups above
@@ -10,8 +12,12 @@
 //                 all of them), listed with their positions (-1 where the row cannot see), then with TAIL the visible positions of the row's
 //                 incomplete group, -1 padded to WIDTH entries.
 // q: [T, H, D] dense f32; keys: the cache [ctx, 1, D] (pooled: [ctx, 1, 2D], key | gate) in KEY_F16 ? f16 : f32; w: [T, H] dense f32 (not PER_HEAD);
-// gate: [GROUP, D] dense f32 (GROUP_POOLED); out: [T, SH, WIDTH] i32.
-// Macros: H, D (multiple of 8), BUDGET, GROUP, GROUP_POOLED, LOCAL, TAIL, PER_HEAD, WIDTH, CTX (positions per row: the per-sequence context),
+// gate: [GROUP, D] dense f32 (GROUP_POOLED) or the pool norm weight [D] (GROUP_MEAN with POOL_NORM); out: [T, SH, WIDTH] i32.
+// CAND_GROUP > 0 (plain selection): only the visible positions of the groups of CAND_GROUP positions that the candidates row cand[t] (CAND_M
+// entries, a group selection's output: every listed group starts with its first position, -1 elsewhere) lists are candidates; the others
+// score -inf and do not count as visible.
+// KV_COMP > 1: the keys are a compressed cache (see seq_row_c): a row at position p sees its entries [0, (p + 1) / KV_COMP), CTX counts entries.
+// Macros: H, D (multiple of 8), BUDGET, GROUP, GROUP_POOLED, GROUP_MEAN / POOL_NORM / POOL_EPS / POOL_ROPE (even) / POOL_BASE, LOCAL, TAIL, PER_HEAD, WIDTH, CTX (positions per row: the per-sequence context),
 // KEY_F16, WG, RT_N_PAST; MULTI_SEQ / SLOT_CTX and PAGED / PAGE_BS / PAGE_MB for the multi-sequence and paged forms (row t sees positions
 // [0, seq[t].position] of its slot).
 #include "common.slang"
@@ -24,6 +30,15 @@
 #endif
 #define NG ((CTX + GROUP - 1) / GROUP)
 #define KG (BUDGET / GROUP)
+#ifndef CAND_GROUP
+#define CAND_GROUP 0
+#define CAND_M 1
+#endif
+#if CAND_GROUP > 0
+#define CAND_GROUPS (CAND_M / CAND_GROUP)
+#else
+#define CAND_GROUPS 1
+#endif
 #if GROUP_POOLED
 #define ROW_VALUES (2 * D)
 #else
@@ -36,6 +51,7 @@ struct IndexerParams
     uint8_t* keys;
     float* w;
     float* gate;
+    int* cand;   // CAND_GROUP: [T, CAND_M] candidate positions
     float* scores;
     int* out;
     uint* rt;
@@ -49,22 +65,22 @@ struct IndexerParams
     uint row0;   // first query row of this launch
 };
 
-// Visible positions of query row t and its slot.
+// Visible positions (compressed cache: the entries of the complete windows) of query row t and its slot.
 uint visible_keys(IndexerParams p, uint t, out uint slot)
 {
 #if MULTI_SEQ
     slot = uint(p.seq[t * 4]);
-    return uint(p.seq[t * 4 + 1]) + 1;
+    return (uint(p.seq[t * 4 + 1]) + 1) / KV_COMP;
 #else
     slot = 0;
-    return p.rt[RT_N_PAST] + t + 1;
+    return (p.rt[RT_N_PAST] + t + 1) / KV_COMP;
 #endif
 }
 
-// Candidate groups of a row that sees L positions: complete groups when pooled, otherwise every group with a visible position.
+// Candidate groups of a row that sees L positions: complete groups when pooled or mean, otherwise every group with a visible position.
 uint candidate_groups(uint L)
 {
-#if GROUP_POOLED
+#if GROUP_POOLED || GROUP_MEAN
     return L / GROUP;
 #else
     return (L + GROUP - 1) / GROUP;
@@ -73,7 +89,9 @@ uint candidate_groups(uint L)
 
 uint64_t key_row(IndexerParams p, uint slot, uint j)
 {
-#if MULTI_SEQ
+#if MULTI_SEQ && KV_COMP > 1
+    return seq_row_c(SEQ_PAGES(p), slot, j);
+#elif MULTI_SEQ
 #if PAGED
     return seq_row(p.pages, slot, j);
 #else
@@ -93,6 +111,22 @@ void load_key8(IndexerParams p, uint64_t row, uint chunk, out float v[8])
 #endif
 }
 
+#if CAND_GROUP > 0
+// Whether the candidates row of t lists the group of position j.
+bool is_candidate(IndexerParams p, uint t, uint j)
+{
+    for (uint i = 0; i < CAND_GROUPS; i++)
+    {
+        int first = p.cand[uint64_t(t) * CAND_M + i * CAND_GROUP];
+        if (first >= 0 && uint(first) / CAND_GROUP == j / CAND_GROUP)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+#endif
+
 #ifdef KERNEL_INDEX_SCORES
 // Per-head dot products of the row's queries with the key of cache row `row`, added to acc.
 void dot_heads(IndexerParams p, float* qr, uint64_t row, inout float acc[H])
@@ -110,6 +144,31 @@ void dot_heads(IndexerParams p, float* qr, uint64_t row, inout float acc[H])
         }
     }
 }
+
+#if GROUP_MEAN
+// Channels [8c, 8c + 8) of group g's mean key; with `normed` (and POOL_NORM) scaled by the inverse RMS rinv and the norm weight.
+void mean_chunk(IndexerParams p, uint slot, uint g, uint c, bool normed, float rinv, out float v[8])
+{
+    [ForceUnroll] for (uint e = 0; e < 8; e++) v[e] = 0;
+    for (uint i = 0; i < GROUP; i++)
+    {
+        float k[8];
+        load_key8(p, key_row(p, slot, g * GROUP + i), c, k);
+        [ForceUnroll] for (uint e = 0; e < 8; e++) v[e] += k[e];
+    }
+    [ForceUnroll]
+    for (uint e = 0; e < 8; e++)
+    {
+        v[e] *= 1.0 / GROUP;
+#if POOL_NORM
+        if (normed)
+        {
+            v[e] *= rinv * p.gate[c * 8 + e];
+        }
+#endif
+    }
+}
+#endif
 
 // The scores of one key from its per-head dot products: per selection head, or the weighted sum of the positive ones.
 void head_scores(IndexerParams p, uint t, float acc[H], out float score[SH])
@@ -174,9 +233,70 @@ void index_scores(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
         }
     }
     head_scores(p, t, acc, best);
+#elif GROUP_MEAN
+    float acc[H];
+    [ForceUnroll] for (uint h = 0; h < H; h++) acc[h] = 0;
+    float rinv = 1.0;
+#if POOL_NORM
+    float squares = 0;
+    for (uint c = 0; c < D / 8; c++)
+    {
+        float m[8];
+        mean_chunk(p, slot, g, c, false, 1.0, m);
+        [ForceUnroll] for (uint e = 0; e < 8; e++) squares += m[e] * m[e];
+    }
+    rinv = rsqrt(squares / D + POOL_EPS);
+#endif
+    for (uint c = 0; c < D / 8; c++)
+    {
+        float m[8];
+        mean_chunk(p, slot, g, c, true, rinv, m);
+#if POOL_ROPE > 0
+        if (c * 8 < POOL_ROPE)
+        {
+            // Neox pairs (i, i + R/2): each rotated channel needs its partner, half a rotation away (possibly in another chunk).
+            float position = float(g * GROUP);
+            float rotated[8];
+            [ForceUnroll]
+            for (uint e = 0; e < 8; e++)
+            {
+                uint ch = c * 8 + e;
+                rotated[e] = m[e];
+                if (ch < POOL_ROPE)
+                {
+                    bool low = ch < POOL_ROPE / 2;
+                    uint partner = low ? ch + POOL_ROPE / 2 : ch - POOL_ROPE / 2;
+                    float o[8];
+                    mean_chunk(p, slot, g, partner / 8, true, rinv, o);
+                    float other = o[partner % 8];
+                    uint i = ch % (POOL_ROPE / 2);
+                    float theta = position * pow(float(POOL_BASE), -2.0 * float(i) / float(POOL_ROPE));
+                    float cs = cos(theta);
+                    float sn = sin(theta);
+                    rotated[e] = low ? m[e] * cs - other * sn : m[e] * cs + other * sn;
+                }
+            }
+            [ForceUnroll] for (uint e = 0; e < 8; e++) m[e] = rotated[e];
+        }
+#endif
+        [ForceUnroll]
+        for (uint h = 0; h < H; h++)
+        {
+            float s = 0;
+            [ForceUnroll] for (uint e = 0; e < 8; e++) s += qr[h * D + c * 8 + e] * m[e];
+            acc[h] += s;
+        }
+    }
+    head_scores(p, t, acc, best);
 #else
     [ForceUnroll] for (uint s = 0; s < SH; s++) best[s] = asfloat(0xFF800000u);
     uint end = min(L, (g + 1) * GROUP);
+#if CAND_GROUP > 0
+    if (!is_candidate(p, t, g))
+    {
+        end = 0;
+    }
+#endif
     for (uint j = g * GROUP; j < end; j++)
     {
         float acc[H];
@@ -201,6 +321,10 @@ void index_scores(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
 #ifdef KERNEL_INDEX_SELECT
 groupshared int sSel[KG];   // the picked groups, in output order
 groupshared uint sCount;
+#if CAND_GROUP > 0
+groupshared int sGroups[CAND_GROUPS];   // the listed candidate groups, ascending
+groupshared uint sVisible;              // the row's visible candidate positions
+#endif
 
 [shader("compute")]
 [numthreads(WG, 1, 1)]
@@ -212,7 +336,68 @@ void index_select(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
     uint slot;
     uint L = visible_keys(p, t, slot);
     uint candidates = candidate_groups(L);
-    if (candidates <= KG)
+#if CAND_GROUP > 0
+    if (tid == 0)
+    {
+        // The listed groups, sorted and deduplicated, and the number of visible positions in them.
+        uint n = 0;
+        for (uint i = 0; i < CAND_GROUPS; i++)
+        {
+            int first = p.cand[uint64_t(t) * CAND_M + i * CAND_GROUP];
+            if (first < 0)
+            {
+                continue;
+            }
+            int grp = first / CAND_GROUP;
+            uint at = n;
+            bool seen = false;
+            for (uint k = 0; k < n; k++)
+            {
+                seen = seen || sGroups[k] == grp;
+            }
+            if (seen)
+            {
+                continue;
+            }
+            while (at > 0 && sGroups[at - 1] > grp)
+            {
+                sGroups[at] = sGroups[at - 1];
+                at--;
+            }
+            sGroups[at] = grp;
+            n++;
+        }
+        uint visible = 0;
+        for (uint k = 0; k < n; k++)
+        {
+            uint first = uint(sGroups[k]) * CAND_GROUP;
+            visible += first < L ? min(L - first, uint(CAND_GROUP)) : 0;
+        }
+        sVisible = visible;
+        if (visible <= KG)
+        {
+            // All of them, ascending.
+            uint m = 0;
+            for (uint k = 0; k < n; k++)
+            {
+                for (uint j = uint(sGroups[k]) * CAND_GROUP; j < min(L, uint(sGroups[k] + 1) * CAND_GROUP); j++)
+                {
+                    sSel[m++] = int(j);
+                }
+            }
+            sCount = m;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    bool listed = sVisible <= KG;   // uniform: sSel / sCount hold every visible candidate
+#else
+    bool listed = false;
+#endif
+    if (listed)
+    {
+        // nothing to select
+    }
+    else if (candidates <= KG)
     {
         for (uint i = tid; i < candidates; i += WG)
         {

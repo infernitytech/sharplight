@@ -27,8 +27,11 @@ public static class BuiltinAdapters
         ModelAdapterRegistry.Register(new EncoderDecoderAdapter());
         ModelAdapterRegistry.Register(new NemotronHAdapter());
         ModelAdapterRegistry.Register(new HybridAdapter());
+        ModelAdapterRegistry.Register(new DepthMemoryAdapter());
         ModelAdapterRegistry.Register(new Rwkv7Adapter());
         ModelAdapterRegistry.Register(new Rwkv6Adapter());
         ModelAdapterRegistry.Register(new LatentDecoderAdapter());
+        ModelAdapterRegistry.RegisterAuxiliaryOnly(Eagle3DraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);
+        ModelAdapterRegistry.RegisterAuxiliaryOnly(SharedKvDraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);
     }
 }

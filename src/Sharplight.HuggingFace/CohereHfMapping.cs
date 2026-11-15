@@ -17,13 +17,17 @@ internal sealed class CohereHfMapping : HfDecoderFamilyMapping
     protected override string RopeStyle => "gptj";
 
     /// <inheritdoc/>
+    public override IEnumerable<string> Validate(HfConfig config)
+    {
+        if (config.GetBool("use_qk_norm") == true)
+        {
+            yield return $"{config.ModelType}: per-head q/k layer norms (use_qk_norm) are not supported.";
+        }
+    }
+
+    /// <inheritdoc/>
     protected override void AddHyperParameters(Dictionary<string, object> md, HfConfig c)
     {
-        if (c.GetBool("use_qk_norm") == true)
-        {
-            throw new NotSupportedException($"{c.ModelType}: per-head q/k layer norms (use_qk_norm) are not supported.");
-        }
-
         md["decoder.residual.parallel"] = true;
         md["decoder.logit_scale"] = (float)(c.GetDouble("logit_scale") ?? 1.0);
         if (c.ModelType == "cohere2" && AddSlidingLayers(md, c) is { } sliding)

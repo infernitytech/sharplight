@@ -76,7 +76,18 @@ public sealed class MainWindowTests
             Assert.Equal(3, viewModel.Models.Resident.Models.Count);
             Save(window, "resident");
 
+            // Before anything is searched, Discover shows highlighted models.
             viewModel.Models.SelectedTab = ModelsPageViewModel.DiscoverTab;
+            await viewModel.Models.Discover.LoadHighlightsAsync();
+            await HeadlessApp.RenderAsync(window);
+            Assert.True(viewModel.Models.Discover.IsShowingHighlights);
+            Assert.Equal(3, viewModel.Models.Discover.Highlights.Count);
+            viewModel.Models.Discover.SelectResultCommand.Execute(viewModel.Models.Discover.Highlights[0].Items[0]);
+            await HeadlessApp.WaitForAsync(window, () => viewModel.Models.Discover.Variants.Count == 3);
+            await viewModel.Models.Discover.FitEstimate;
+            await HeadlessApp.RenderAsync(window);
+            Save(window, "discover-highlights");
+
             viewModel.Models.Discover.Query = "qwen3 gguf";
             await viewModel.Models.Discover.SearchCommand.ExecuteAsync(null);
             await HeadlessApp.RenderAsync(window);
@@ -108,23 +119,34 @@ public sealed class MainWindowTests
             // download button (which stays enabled), and listed after the supported results.
             services.Hub.Results.Clear();
             services.Hub.Results.AddRange(DemoData.CompatibilityResults);
-            services.Hub.Compatibility = (repository, _) => repository.Contains("HRM", StringComparison.Ordinal)
-                ? new ModelCompatibility(CompatibilityState.UnsupportedArchitecture, "hrm_text",
-                    "No importer mapping exists for the GGUF architecture 'hrm_text', so importing it fails.")
+            services.Hub.Compatibility = (repository, _) => repository.Contains("Unmapped", StringComparison.Ordinal)
+                ? new ModelCompatibility(CompatibilityState.UnsupportedArchitecture, "toy_unmapped",
+                    "No importer mapping exists for the GGUF architecture 'toy_unmapped', so importing it fails.")
                 : new ModelCompatibility(CompatibilityState.Supported, "qwen3",
                     "The GGUF architecture 'qwen3' is supported. Tensor types: F32 (113), Q4_K (108), Q6_K (37), all with kernels.");
             discover.Query = "text gguf";
             await discover.SearchCommand.ExecuteAsync(null);
-            var unsupported = discover.Results.Single(result => result.Id.Contains("HRM", StringComparison.Ordinal));
+            var unsupported = discover.Results.Single(result => result.Id.Contains("Unmapped", StringComparison.Ordinal));
             Assert.Same(unsupported, discover.Results[^2]);
             discover.SelectedResult = unsupported;
             await HeadlessApp.WaitForAsync(window, () => discover.Variants.Count == 3);
             await discover.FitEstimate;
             await HeadlessApp.RenderAsync(window);
             Assert.True(discover.SelectedCompatibility!.IsBad);
-            Assert.Equal("Unsupported architecture hrm_text", discover.SelectedCompatibility.Title);
+            Assert.Equal("Unsupported architecture toy_unmapped", discover.SelectedCompatibility.Title);
             Assert.True(discover.DownloadCommand.CanExecute(null));
             Save(window, "discover-unsupported");
+
+            // Supported only: the unsupported repositories leave the list, and quantizations with an unsupported badge leave the details.
+            discover.ShowOnlySupported = true;
+            Assert.Same(discover.Results[0], discover.SelectedResult);
+            await HeadlessApp.WaitForAsync(window, () => discover.Variants.Count > 0 && !discover.IsLoadingDetails);
+            await discover.FitEstimate;
+            await HeadlessApp.RenderAsync(window);
+            Assert.All(discover.Results, result => Assert.True(result.Compatibility.IsGood));
+            Assert.NotEmpty(discover.HiddenResultsText);
+            Save(window, "discover-supported-only");
+            discover.ShowOnlySupported = false;
 
             viewModel.Models.Downloads.Enqueue(Sharplight.Hub.ModelReference.Parse("Qwen/Qwen3-8B-GGUF:Q4_K_M"), 5_030_000_000);
             await services.Hub.Started.Task;
@@ -151,6 +173,25 @@ public sealed class MainWindowTests
             await viewModel.NavigateAsync(viewModel.Chat);
             await HeadlessApp.RenderAsync(window);
             Save(window, "chat-light");
+
+            await viewModel.NavigateAsync(viewModel.Models);
+            viewModel.Models.SelectedTab = ModelsPageViewModel.DiscoverTab;
+            discover.Query = "";
+            discover.SelectResultCommand.Execute(discover.Highlights[0].Items[0]);
+            await HeadlessApp.WaitForAsync(window, () => discover.Variants.Count == 3);
+            await discover.FitEstimate;
+            await HeadlessApp.RenderAsync(window);
+            Assert.True(discover.IsShowingHighlights);
+            Save(window, "discover-highlights-light");
+
+            discover.ShowOnlySupported = true;
+            discover.Query = "text gguf";
+            await discover.SearchCommand.ExecuteAsync(null);
+            await HeadlessApp.WaitForAsync(window, () => discover.Variants.Count > 0 && !discover.IsLoadingDetails);
+            await discover.FitEstimate;
+            await HeadlessApp.RenderAsync(window);
+            Save(window, "discover-supported-only-light");
+            discover.ShowOnlySupported = false;
         }
         finally
         {

@@ -39,6 +39,15 @@ internal sealed partial class DecoderHfMapping
         ["laurel.linear_left.weight"] = "laurel.left.weight",
         ["laurel.linear_right.weight"] = "laurel.right.weight",
         ["laurel.post_laurel_norm.weight"] = "laurel.norm.weight",
+        // Gemma 4 MoE layers: routed experts next to the dense MLP, each branch with its own norms.
+        ["pre_feedforward_layernorm_2.weight"] = "mlp.routed_in_norm.weight",
+        ["post_feedforward_layernorm_1.weight"] = "mlp.dense_out_norm.weight",
+        ["post_feedforward_layernorm_2.weight"] = "mlp.routed_out_norm.weight",
+        ["router.proj.weight"] = "mlp.router.weight",
+        ["router.scale"] = "mlp.router.input_scale",
+        ["router.per_expert_scale"] = "mlp.experts.output_scale",
+        ["experts.gate_up_proj"] = "mlp.experts.gate_up.weight",
+        ["experts.down_proj"] = "mlp.experts.down.weight",
     };
 
     /// <summary>The <c>rope_parameters</c> object of one layer type (<c>full_attention</c> / <c>sliding_attention</c>), or null.</summary>
@@ -61,7 +70,7 @@ internal sealed partial class DecoderHfMapping
             return null;
         }
 
-        int dim = c.GetInt("global_head_dim") ?? c.Int("head_dim");
+        int dim = Gemma4GlobalHeadDim(c);
         int angles = (int)(HfMappingHelpers.NumberOr(full, "partial_rotary_factor", 1.0) * dim / 2);
         return RopeScaling.Proportional(dim, angles, (float)HfMappingHelpers.NumberOr(full, "factor", 1.0)).Factors;
     }
@@ -123,20 +132,20 @@ internal sealed partial class DecoderHfMapping
 
     private IReadOnlyDictionary<string, object> Gemma4Hyper(HfConfig c)
     {
-        if (c.GetBool("enable_moe_block") == true)
-        {
-            throw new NotSupportedException("Gemma 4 mixture-of-experts blocks are not supported yet.");
-        }
-
         string a = Architecture + ".";
         int layerCount = c.Int("num_hidden_layers");
         int headCount = c.Int("num_attention_heads");
         int hidden = c.Int("hidden_size");
         int headDim = c.Int("head_dim");
-        int globalDim = c.GetInt("global_head_dim") ?? headDim;
+        int globalDim = Gemma4GlobalHeadDim(c);
         int kvHeadCount = c.GetInt("num_key_value_heads") ?? headCount;
         int globalKvHeadCount = c.GetBool("attention_k_eq_v") == true ? c.GetInt("num_global_key_value_heads") ?? kvHeadCount : kvHeadCount;
         var types = LayerTypes(c, layerCount);
+        if (FirstLayerConfig(c, types, "full_attention") is { } fullLayer && fullLayer.TryGetProperty("num_key_value_heads", out var fullKvHeads))
+        {
+            globalKvHeadCount = fullKvHeads.GetInt32();
+        }
+
         var fullRope = LayerTypeRope(c, "full_attention");
         var slidingRope = LayerTypeRope(c, "sliding_attention");
         // Gemma 3n lists the MLP width per layer; hub configs carry rope_theta / rope_local_base_freq instead of per-type rope parameters.
@@ -171,6 +180,16 @@ internal sealed partial class DecoderHfMapping
             md[a + "final_logit_softcap"] = (float)softcap;
         }
 
+        // Gemma 4 MoE (26B-A4B): softmax routing, the selected weights renormalized (then scaled per expert).
+        if (c.GetBool("enable_moe_block") == true)
+        {
+            md[a + "moe.expert_count"] = c.Int("num_experts");
+            md[a + "moe.expert_used_count"] = c.Int("top_k_experts");
+            md[a + "moe.ffn_hidden_size"] = c.Int("moe_intermediate_size");
+            md[a + "moe.router_activation"] = "softmax";
+            md[a + "moe.normalize_weights"] = true;
+        }
+
         int sharedKvLayers = c.GetInt("num_kv_shared_layers") ?? 0;
         if (sharedKvLayers > 0)
         {
@@ -202,7 +221,8 @@ internal sealed partial class DecoderHfMapping
 
     /// <summary>
     /// For KV-sharing models the last <paramref name="sharedKvLayers"/> layers reuse the KV cache of the last earlier
-    /// layer of the same type; every other layer is its own source.
+    /// layer of the same type; every other layer is its own source. When no earlier layer has the type (every layer shares, as in a Gemma 4
+    /// assistant, whose keys and values come from its target), the first layer of the type is the source.
     /// </summary>
     private static int[] KvSourceLayers(int layerCount, int sharedKvLayers, string[] layerTypes)
     {
@@ -210,10 +230,35 @@ internal sealed partial class DecoderHfMapping
         var source = new int[layerCount];
         for (int il = 0; il < layerCount; il++)
         {
-            source[il] = il < firstSharedLayer ? il : Enumerable.Range(0, firstSharedLayer).Last(j => layerTypes[j] == layerTypes[il]);
+            source[il] = il < firstSharedLayer ? il
+                : Enumerable.Range(0, firstSharedLayer).LastOrDefault(j => layerTypes[j] == layerTypes[il], -1) is var earlier and >= 0 ? earlier
+                : Array.IndexOf(layerTypes, layerTypes[il]);
         }
 
         return source;
+    }
+
+    /// <summary>
+    /// The head size of Gemma 4's full-attention layers: <c>global_head_dim</c>, else the <c>head_dim</c> of the first full-attention layer's
+    /// <c>per_layer_config</c> entry (configs saved by newer transformers releases), else <c>head_dim</c>.
+    /// </summary>
+    private static int Gemma4GlobalHeadDim(HfConfig c)
+    {
+        if (c.GetInt("global_head_dim") is { } global)
+        {
+            return global;
+        }
+
+        var types = LayerTypes(c, c.Int("num_hidden_layers"));
+        return FirstLayerConfig(c, types, "full_attention") is { } layer && layer.TryGetProperty("head_dim", out var dim) ? dim.GetInt32() : c.Int("head_dim");
+    }
+
+    /// <summary>The <c>per_layer_config</c> entry (keyed by the layer index as a string) of the first layer of <paramref name="layerType"/>, or null.</summary>
+    private static JsonElement? FirstLayerConfig(HfConfig c, string[] types, string layerType)
+    {
+        int il = Array.IndexOf(types, layerType);
+        return il >= 0 && c.Get("per_layer_config") is { ValueKind: JsonValueKind.Object } perLayer
+            && perLayer.TryGetProperty(il.ToString(System.Globalization.CultureInfo.InvariantCulture), out var entry) ? entry : null;
     }
 
     private IReadOnlyDictionary<string, object> MuseHyper(HfConfig c)

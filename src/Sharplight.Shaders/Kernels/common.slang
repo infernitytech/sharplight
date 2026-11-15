@@ -50,6 +50,26 @@ uint64_t seq_row(int* pages, uint slot, uint pos)
 #endif
 }
 
+// Compressed caches (KV_COMP positions per row, see StateDefinition.Compression): row of entry `e` (positions [e * KV_COMP,
+// (e + 1) * KV_COMP)) of slot `slot`, with COMP_SLOT_CTX rows per slot, or through the block table with ceil(PAGE_BS / KV_COMP) rows per
+// block. Position `pos` closes the window of entry (pos + 1) / KV_COMP - 1 when (pos + 1) % KV_COMP == 0.
+#ifndef KV_COMP
+#define KV_COMP 1
+#endif
+#ifndef COMP_SLOT_CTX
+#define COMP_SLOT_CTX 0
+#endif
+uint64_t seq_row_c(int* pages, uint slot, uint e)
+{
+#if PAGED
+    uint first = e * KV_COMP;
+    int block = pages[slot * PAGE_MB + min(first / PAGE_BS, uint(PAGE_MB - 1))];
+    return uint64_t(uint(max(block, 0))) * ((PAGE_BS + KV_COMP - 1) / KV_COMP) + (first % PAGE_BS) / KV_COMP;
+#else
+    return uint64_t(slot) * COMP_SLOT_CTX + e;
+#endif
+}
+
 float gelu_tanh(float x) { return 0.5 * x * (1.0 + tanh(0.7978845608 * (x + 0.044715 * x * x * x))); }
 float erf_approx(float x)
 {
@@ -597,3 +617,34 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
 #endif
 }
 #endif
+
+// ---------------------------------------------------------------------------------------------
+// Split f16 form of f32 values (the split-f16 tensor-core GEMM): a value v becomes an f16 hi part (v rounded to 11
+// significant bits on the bits, which compilers cannot fold away) and an f16 lo part (the rest), so hi + lo keeps about
+// 22 bits when both are normal f16 numbers. split_scale gives the power of two that brings a row whose largest magnitude
+// is m into [2^14, 2^15) (both parts in f16 range for every value of the row); 1 / split_scale(m) undoes it exactly.
+float split_scale(float m)
+{
+    int e = int((asuint(m) >> 23) & 0xFFu);
+    return asfloat(uint(clamp(268 - e, 1, 253)) << 23);
+}
+
+// Two values as packed f16 hi parts (returned) and lo parts.
+uint split_h2(float a, float b, out uint lo)
+{
+    float ha = asfloat((asuint(a) + 0x1000u) & 0xFFFFE000u);
+    float hb = asfloat((asuint(b) + 0x1000u) & 0xFFFFE000u);
+    lo = f32tof16(a - ha) | (f32tof16(b - hb) << 16);
+    return f32tof16(ha) | (f32tof16(hb) << 16);
+}
+
+// 8 values times s as packed hi parts (returned) and lo parts.
+uint4 split8_scaled(float v[8], float s, out uint4 lo)
+{
+    uint4 hi;
+    hi.x = split_h2(v[0] * s, v[1] * s, lo.x);
+    hi.y = split_h2(v[2] * s, v[3] * s, lo.y);
+    hi.z = split_h2(v[4] * s, v[5] * s, lo.z);
+    hi.w = split_h2(v[6] * s, v[7] * s, lo.w);
+    return hi;
+}

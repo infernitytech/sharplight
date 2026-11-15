@@ -1,0 +1,12 @@
+r0 old fasterrcnn-12 wall min 9.6 med 10.519 gpu min 8.307 med 8.689 True; mean record ms (last 20 recordings) 0.5
+r0 new fasterrcnn-12 wall min 9.563 med 10.604 gpu min 8.274 med 8.636 True; mean record ms (last 20 recordings) 0.0
+r0 old maskrcnn-12 wall min 10.76 med 16.302 gpu min 9.057 med 9.284 True; mean record ms (last 20 recordings) 1.5
+r0 new maskrcnn-12 wall min 10.192 med 11.296 gpu min 9.067 med 9.431 True; mean record ms (last 20 recordings) 0.1
+r1 old fasterrcnn-12 wall min 9.524 med 11.513 gpu min 8.341 med 8.972 True; mean record ms (last 20 recordings) 1.1
+r1 new fasterrcnn-12 wall min 9.092 med 9.676 gpu min 8.271 med 8.303 True; mean record ms (last 20 recordings) 0.0
+r1 old maskrcnn-12 wall min 10.881 med 15.176 gpu min 9.076 med 9.123 True; mean record ms (last 20 recordings) 1.2
+r1 new maskrcnn-12 wall min 10.014 med 10.987 gpu min 9.045 med 9.132 True; mean record ms (last 20 recordings) 0.1
+r2 old fasterrcnn-12 wall min 9.553 med 10.236 gpu min 8.303 med 8.539 True; mean record ms (last 20 recordings) 0.1
+r2 new fasterrcnn-12 wall min 9.127 med 10.042 gpu min 8.292 med 8.616 True; mean record ms (last 20 recordings) 0.0
+r2 old maskrcnn-12 wall min 10.645 med 14.124 gpu min 9.032 med 9.459 True; mean record ms (last 20 recordings) 1.1
+r2 new maskrcnn-12 wall min 10.314 med 11.375 gpu min 9.084 med 9.38 True; mean record ms (last 20 recordings) 0.0

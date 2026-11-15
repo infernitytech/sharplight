@@ -29,18 +29,21 @@ internal static class PackedModelLoader
 
     private static ModelSource HalfMatrices(ModelSource s)
     {
-        if (s.Definition is not null || !s.Weights.Values.Any(w => w.Type == DataType.F32 && w.Shape.Rank >= 2))
+        if (s.Definition is not null || !s.Weights.Values.Any(IsHalved))
         {
             return s;
         }
 
-        var weights = s.Weights.ToDictionary(kv => kv.Key, kv => kv.Value.Type == DataType.F32 && kv.Value.Shape.Rank >= 2 ? ToHalf(kv.Value) : kv.Value);
+        var weights = s.Weights.ToDictionary(kv => kv.Key, kv => IsHalved(kv.Value) ? ToHalf(kv.Value) : kv.Value);
         return new ModelSource
         {
             Format = s.Format, Architecture = s.Architecture, Metadata = s.Metadata, Weights = weights, OwnedResources = s.OwnedResources,
             FormatData = s.FormatData, Path = s.Path, CompilationCaches = s.CompilationCaches,
         };
     }
+
+    // F32 matrices, except the short-conv kernels of recurrent layers (decision models on hybrid trunks), which backends take in f32.
+    private static bool IsHalved(WeightInfo w) => w.Type == DataType.F32 && w.Shape.Rank >= 2 && !w.Name.EndsWith(".conv1d.weight", StringComparison.Ordinal);
 
     /// <summary>Lazily converted copy (read when the weight is uploaded).</summary>
     private static WeightInfo ToHalf(WeightInfo w) => WeightInfo.Derived(w.Name, DataType.F16, w.Shape, () =>

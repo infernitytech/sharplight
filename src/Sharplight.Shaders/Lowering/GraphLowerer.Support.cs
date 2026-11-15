@@ -10,7 +10,7 @@ public sealed partial class GraphLowerer
 
     private static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "IndexerTopK", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "Sample", "NGramHash", .. SpatialOpNames, .. GeneralOpNames, .. DetectionOpNames];
+         "Rope", "CacheWrite", "CachedAttention", "IndexerTopK", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "Sample", "NGramHash", "WindowPool", .. SpatialOpNames, .. GeneralOpNames, .. DetectionOpNames, .. ExtendedOpNames];
 
     /// <summary>Kernel weight-format ids (the <c>WFMT</c> macro of the kernel library) per tensor type.</summary>
     private static readonly Dictionary<DataType, int> s_weightFormats = new()
@@ -87,6 +87,11 @@ public sealed partial class GraphLowerer
             return SupportsDetection(node);
         }
 
+        if (s_extendedOps.Contains(op))
+        {
+            return SupportsExtended(node);
+        }
+
         if (op is "Wkv7" or "Wkv6")
         {
             return SupportsWkv(node, op == "Wkv7" ? 7 : 6);
@@ -107,7 +112,10 @@ public sealed partial class GraphLowerer
             "CachedAttention" => SupportsCachedAttention(node),
             "IndexerTopK" => SupportsIndexerTopK(node),
             "GatedDeltaRule" => SupportsDeltaRule(node),
-            "CacheWrite" => SupportsKvRows(node.Inputs[0]),
+            "CacheWrite" => node.Attributes.Get("compression", 1L) > 1 && node.Inputs[0].Type != DataType.F32 && node.Inputs[0].Type != DataType.F16
+                ? OpSupport.No("CacheWrite: a compressed cache must be f32 or f16") : SupportsKvRows(node.Inputs[0]),
+            "WindowPool" => node.Inputs[4].Type == DataType.F32 && node.Inputs[0].Shape[1] is { IsSymbolic: false }
+                ? OpSupport.Yes : OpSupport.No("WindowPool: the ring state must be f32 and the channels fixed"),
             "Attention" => SupportsAttention(node),
             "SequencePool" => SupportsSequencePool(node),
             "Gather" => node.Inputs[0].Shape[-1] is { IsSymbolic: false } d && d.Fixed % 8 == 0 ? OpSupport.Yes : OpSupport.No("Gather: rows must be a multiple of 8 values"),
@@ -170,6 +178,16 @@ public sealed partial class GraphLowerer
 
     private static OpSupport SupportsCachedAttention(Node node)
     {
+        bool compressed = node.Attributes.Has("compression");
+        if (compressed)
+        {
+            var cache = node.Inputs[node.Attributes.Get("sinks", false) ? 4 : 3].Type;
+            if (cache != node.Inputs[1].Type || (cache != DataType.F32 && cache != DataType.F16))
+            {
+                return OpSupport.No("CachedAttention: the compressed cache must be f32 or f16 like the key cache");
+            }
+        }
+
         if (node.Attributes.Get<float[]?>("alibi_slopes", null) is { } slopes && slopes.Length != node.Inputs[0].Shape[1].Fixed)
         {
             return OpSupport.No("CachedAttention: ALiBi needs one slope per query head");
@@ -186,19 +204,14 @@ public sealed partial class GraphLowerer
             return OpSupport.No("attention sinks must be f32");
         }
 
-        int selectionInput = node.Attributes.Get("sinks", false) ? 4 : 3;
+        int selectionInput = (node.Attributes.Get("sinks", false) ? 4 : 3) + (compressed ? 1 : 0);
         if (node.Attributes.Get("selection", false)
-            && (node.Inputs[selectionInput].Type != DataType.I32 || node.Attributes.Get("window", 0) > 0 || node.Attributes.Get("chunk", 0) > 0))
+            && (node.Inputs[selectionInput].Type != DataType.I32 || (!compressed && (node.Attributes.Get("window", 0) > 0 || node.Attributes.Get("chunk", 0) > 0))))
         {
             return OpSupport.No("CachedAttention: the selection must be i32 and cannot be combined with window or chunk");
         }
 
-        // The key dot products read 8 (f16) / 4 (f32) elements per load.
-        if (node.Inputs[0].Shape[2] is { IsSymbolic: false } keyDims && keyDims.Fixed % 8 != 0)
-        {
-            return OpSupport.No($"CachedAttention: key head size {keyDims.Fixed} is not a multiple of 8");
-        }
-
+        // Head sizes that are not a multiple of 8 run on the per-head kernel, which then reads one key element per load.
         if (node.Inputs[1].Type != node.Inputs[2].Type)
         {
             return OpSupport.No($"CachedAttention: K and V caches of different types ({node.Inputs[1].Type}, {node.Inputs[2].Type})");
@@ -259,11 +272,9 @@ public sealed partial class GraphLowerer
             return OpSupport.No("Attention: an f32 mask cannot be combined with causal, window or position biases");
         }
 
-        bool headsMatch = inputs[1].Shape[1] == inputs[2].Shape[1];
-        bool headSizesAligned = inputs[0].Shape[2].Fixed % 8 == 0 && inputs[1].Shape[2].Fixed % 8 == 0 && inputs[2].Shape[2].Fixed % 8 == 0;
-        if (!headsMatch || !headSizesAligned)
+        if (inputs[1].Shape[1] != inputs[2].Shape[1])
         {
-            return OpSupport.No("Attention: k/v head counts must match and head sizes be multiples of 8");
+            return OpSupport.No("Attention: k/v head counts must match");
         }
 
         if (inputs[0].Shape[1].Fixed % inputs[1].Shape[1].Fixed != 0)

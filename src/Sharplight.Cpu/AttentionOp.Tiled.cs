@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 namespace Sharplight.Cpu;
 
 // Tiled ("flash") attention for the common case: one sequence (or the equal-length sequences of the batched form), f32/f16 K
@@ -35,7 +36,7 @@ internal sealed unsafe partial class AttentionOp
     private void InitTiled()
     {
         bool symmetricWindow = _window > 0 && _offsetScalar is null && !_causal;
-        bool plain = _selection is null && _rows is null && _spans is null && _pages is null && _alibiSlopes is null && _positionBias is null && _kQuant is null && !symmetricWindow
+        bool plain = _selection is null && _compressed is null && _rows is null && _spans is null && _pages is null && _alibiSlopes is null && _positionBias is null && _kQuant is null && !symmetricWindow
             && _vQuant is null && _chunk == 0 && _softcap == 0f && _dv % ValueColumns == 0
             && _k.Strides[2] == 1 && _v.Strides[2] == 1;
         _tiledLanes = !plain ? 0 : CpuIsa.Use512 ? FloatLanes512.Count : CpuIsa.Use256 ? FloatLanes256.Count : 0;
@@ -98,6 +99,7 @@ internal sealed unsafe partial class AttentionOp
     /// Decode-sized queries: the few query heads of one KV head and token against a range of keys, in dot-product form
     /// (each K/V row is converted once and used by every head of the group).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void RowTask(int task)
     {
         int split = task % _splits;
@@ -217,6 +219,7 @@ internal sealed unsafe partial class AttentionOp
         return buffer;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void TiledTask<TL>(int task) where TL : struct, IFloatLanes<TL>
     {
         int lanes = TL.Count;
@@ -363,6 +366,7 @@ internal sealed unsafe partial class AttentionOp
     }
 
     /// <summary>Adds the mask to the scores sc[j][lanes] of keys [jb, jb + nk); lane r holds token r / heads per task.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void AddMask(float* sc, int lanes, long t0, int tokens, long jb, int nk)
     {
         long ms1 = MaskColumnStride;
@@ -383,6 +387,7 @@ internal sealed unsafe partial class AttentionOp
     }
 
     /// <summary>Q rows transposed to [d][lanes] and pre-scaled; unused lanes are zero.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void LoadQueries(float* qt, int lanes, long t0, int tokens, int h0, int heads)
     {
         new Span<float>(qt, _d * lanes).Clear();
@@ -404,6 +409,7 @@ internal sealed unsafe partial class AttentionOp
     }
 
     /// <summary>Converts <paramref name="nk"/> K and V rows of KV head <paramref name="hk"/> to f32 and zero-fills the block.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void LoadKeyValueBlock(float* kb, float* vb, int hk, long jb, int nk)
     {
         long ks0 = _k.Strides[0];
@@ -444,6 +450,7 @@ internal sealed unsafe partial class AttentionOp
     /// sc[j][lanes] = sum_i qt[i][lanes] * kb[j][i] for the whole key block (key rows <paramref name="kStride"/> apart), eight
     /// keys at a time.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Scores<TL>(float* qt, float* kb, long kStride, float* sc, int d, int lanes) where TL : struct, IFloatLanes<TL>
     {
         for (int j = 0; j < KeyBlock; j += ScoreKeys)
@@ -494,6 +501,7 @@ internal sealed unsafe partial class AttentionOp
     /// ot[c][lanes] = alpha * ot[c][lanes] + sum_j p[j][lanes] * vb[j][c] (value rows <paramref name="vStride"/> apart), eight
     /// value columns at a time.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void AccumulateValues<TL>(float* p, float* vb, long vStride, float* ot, TL alpha, int dv, int lanes) where TL : struct, IFloatLanes<TL>
     {
         for (int c = 0; c < dv; c += ValueColumns)
@@ -534,6 +542,7 @@ internal sealed unsafe partial class AttentionOp
     }
 
     /// <summary>Normalizes the lanes' accumulators and writes them to their output rows.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void WriteRows(float* ot, float* state, int lanes, long t0, int tokens, int h0, int heads)
     {
         for (int r = 0; r < lanes; r++)
@@ -556,6 +565,7 @@ internal sealed unsafe partial class AttentionOp
     }
 
     /// <summary>Combines the key splits of every task: rescales each split's sum to the common maximum.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void MergeSplits(long baseTasks, int lanes)
     {
         int dv = _dv;

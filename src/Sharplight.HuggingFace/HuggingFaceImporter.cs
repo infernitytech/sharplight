@@ -66,21 +66,31 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
     /// A model source named after the directory. It owns the memory-mapped shards; dispose it to unmap them.
     /// </returns>
     /// <exception cref="FileNotFoundException"><paramref name="path"/> is neither a directory nor a <c>.safetensors</c> file, or the checkpoint has no shards.</exception>
-    /// <exception cref="NotSupportedException">Tensors have no canonical mapping.</exception>
+    /// <exception cref="NotSupportedException">
+    /// Tensors have no canonical mapping, or the mapping rejects the checkpoint's hyper-parameters or features (as
+    /// <see cref="HfSupport.Validate"/> reports them).
+    /// </exception>
     /// <exception cref="UnsupportedArchitectureException">The <c>model_type</c> has no mapping.</exception>
     /// <exception cref="UnsupportedWeightFormatException">The checkpoint is quantized with a method the importer does not read (see <see cref="HfSupport.GetQuantizationSupport"/>).</exception>
     public static ModelSource Open(string path, HfImportOptions? options = null)
     {
         options ??= HfImportOptions.Default;
         string dir = ResolveDirectory(path) ?? throw new FileNotFoundException($"'{path}' is neither a directory nor a .safetensors file.");
-        using var config = HfConfig.Load(dir);
+        // A Decision 2.0 package keeps the backbone checkpoint in a subdirectory and the span scoring head beside it.
+        var decision = HfDecisionPackage.Find(dir);
+        string weightsDir = decision?.BackboneDirectory ?? dir;
+        using var config = HfConfig.Load(weightsDir);
         var mapping = HfArchitectureMappings.Find(config.ModelType)
             ?? throw new UnsupportedArchitectureException(config.ModelType ?? string.Join(", ", config.Architectures),
                 $"Hugging Face model_type '{config.ModelType}' ({string.Join(", ", config.Architectures)}) is not supported. " +
                 $"Supported: {string.Join(", ", HfArchitectureMappings.All.SelectMany(m => m.ModelTypes))}.");
         RejectUnsupportedQuantization(config, dir);
+        if (mapping.Validate(config).ToList() is { Count: > 0 } problems)
+        {
+            throw new NotSupportedException($"{dir}: {string.Join(" ", problems)}");
+        }
 
-        var checkpoint = SafetensorsCheckpoint.Open(dir);
+        var checkpoint = SafetensorsCheckpoint.Open(weightsDir);
         List<IDisposable> owned = [checkpoint];
         try
         {
@@ -94,14 +104,36 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
                 md[k] = v;
             }
 
+            if (decision != null)
+            {
+                HfDecisionPackage.AddHyperParameters(md);
+            }
+
+            // Cloudflare Clef: a joint schema head beside the checkpoint.
+            bool jointHead = HfJointSchemaHead.IsPresent(dir);
+            if (jointHead)
+            {
+                HfJointSchemaHead.AddHyperParameters(md, dir);
+            }
+
             // EAGLE-3 drafters ship without a tokenizer: they use their target's.
             if (!Eagle3HfMapping.IsDrafter(config) || File.Exists(Path.Combine(dir, "tokenizer.json")))
             {
-                HfTokenizerTranslator.AddTo(md, dir, config);
+                HfTokenizerTranslator.AddTo(md, File.Exists(Path.Combine(dir, "tokenizer.json")) ? dir : weightsDir, config);
             }
             HfSentenceTransformers.AddTo(md, dir, config);
 
             var weights = mapping.MapWeights(config, HfQuantizedWeights.Resolve(config, checkpoint.Tensors), options);
+            if (decision != null)
+            {
+                weights = weights.Concat(decision.HeadWeights(owned)).ToDictionary(StringComparer.Ordinal);
+            }
+
+            if (jointHead)
+            {
+                weights = weights.Concat(HfJointSchemaHead.Weights(dir, owned)).ToDictionary(StringComparer.Ordinal);
+            }
+
             var dense = HfSentenceTransformers.DenseWeights(dir, owned);
             if (dense.Count > 0)
             {

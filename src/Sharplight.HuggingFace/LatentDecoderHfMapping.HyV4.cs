@@ -34,18 +34,22 @@ internal sealed partial class LatentDecoderHfMapping
         }
     }
 
-    /// <summary>Hunyuan v4 tensor names that differ from DeepSeek's, HF suffix to canonical suffix (null: not needed).</summary>
+    /// <summary>
+    /// Hunyuan v4 tensor names that differ from DeepSeek's, HF suffix to canonical suffix (null: not needed). Hyper-connection names
+    /// are looked up without their <c>hc_pre.</c> segment, which checkpoints place before (<c>hc_pre.hc_attn_layer.hc_fn</c>) or
+    /// inside (<c>hc_attn_layer.hc_pre.hc_fn</c>, the released Hy4-preview) the module name; transformers' conversion drops it.
+    /// </summary>
     private static readonly Dictionary<string, string?> s_hyV4Layer = new(StringComparer.Ordinal)
     {
         ["mlp.linear_gate.weight"] = "mlp.gate.weight",
         ["mlp.shared_experts.linear_gate.weight"] = "mlp.shared.gate.weight",
         ["self_attn.linear_gate.weight"] = "attention.gate.weight",
-        ["hc_pre.hc_attn_layer.hc_fn"] = "attention_hc.fn.weight",
-        ["hc_pre.hc_attn_layer.hc_base"] = "attention_hc.base",
-        ["hc_pre.hc_attn_layer.hc_scale"] = "attention_hc.scale",
-        ["hc_pre.hc_mlp_layer.hc_fn"] = "mlp_hc.fn.weight",
-        ["hc_pre.hc_mlp_layer.hc_base"] = "mlp_hc.base",
-        ["hc_pre.hc_mlp_layer.hc_scale"] = "mlp_hc.scale",
+        ["hc_attn_layer.hc_fn"] = "attention_hc.fn.weight",
+        ["hc_attn_layer.hc_base"] = "attention_hc.base",
+        ["hc_attn_layer.hc_scale"] = "attention_hc.scale",
+        ["hc_mlp_layer.hc_fn"] = "mlp_hc.fn.weight",
+        ["hc_mlp_layer.hc_base"] = "mlp_hc.base",
+        ["hc_mlp_layer.hc_scale"] = "mlp_hc.scale",
     };
 
     private static bool TryMapHyV4Layer(string prefix, string suffix, WeightInfo w, HfWeightCollector collector)
@@ -56,7 +60,7 @@ internal sealed partial class LatentDecoderHfMapping
             return true;
         }
 
-        if (!s_hyV4Layer.TryGetValue(suffix, out var renamed))
+        if (!s_hyV4Layer.TryGetValue(suffix.Replace("hc_pre.", "", StringComparison.Ordinal), out var renamed))
         {
             return false;
         }
@@ -67,11 +71,18 @@ internal sealed partial class LatentDecoderHfMapping
 
     private static bool TryMapHyV4Global(string name, WeightInfo w, HfWeightCollector collector)
     {
-        string? canonical = name switch
+        // The multi-token-prediction layer (model.mtp_layers.{j}) is not imported, as in transformers: the draft head does not run
+        // with hyper-connections (the hidden state is several residual streams).
+        if (name.StartsWith("model.mtp_layers.", StringComparison.Ordinal))
         {
-            "model.hc_pre.hc_head.hc_head_fn" => "output_hc.fn.weight",
-            "model.hc_pre.hc_head.hc_head_base" => "output_hc.base",
-            "model.hc_pre.hc_head.hc_head_scale" => "output_hc.scale",
+            return true;
+        }
+
+        string? canonical = name.Replace("hc_pre.", "", StringComparison.Ordinal) switch
+        {
+            "model.hc_head.hc_head_fn" => "output_hc.fn.weight",
+            "model.hc_head.hc_head_base" => "output_hc.base",
+            "model.hc_head.hc_head_scale" => "output_hc.scale",
             _ => null,
         };
         if (canonical is null)

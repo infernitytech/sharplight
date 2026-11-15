@@ -8,6 +8,12 @@ internal interface IHubService
     /// <summary>Searches model repositories, most downloaded first.</summary>
     public Task<IReadOnlyList<HubModelSummary>> SearchAsync(HubSearchQuery query, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The models Discover shows before anything is searched (trending, new, most downloaded), kept to supported architectures and
+    /// cached for a few hours (see <see cref="HighlightsCatalog"/>).
+    /// </summary>
+    public Task<IReadOnlyList<HighlightSection>> GetHighlightsAsync(CancellationToken cancellationToken);
+
     /// <summary>Files and variants of a repository.</summary>
     public Task<RepositoryDetails> GetDetailsAsync(string repository, CancellationToken cancellationToken);
 

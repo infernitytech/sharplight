@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
@@ -66,6 +67,7 @@ internal static partial class CpuOpSupport
             "SequencePool" => CheckSequencePool(node),
             "NGramHash" => node.Inputs[0].Type == DataType.F32 && node.Inputs[0].Rank == 2 ? OpSupport.Yes : OpSupport.No("NGramHash window must be f32 [T, N]"),
             "CausalConv1d" => CheckCausalConv1d(node),
+            "WindowPool" => CheckWindowPool(node),
             "SelectiveScan" => CheckSelectiveScan(node),
             "GatedDeltaRule" => CheckGatedDeltaRule(node),
             "Wkv7" => CheckWkv(node, 7),
@@ -104,6 +106,7 @@ internal static partial class CpuOpSupport
     private static bool IsQuantizedKvCache(Value cache) => (cache.Type == DataType.Q8_0 || cache.Type == DataType.Q4_0)
         && cache.Shape[-1] is { IsSymbolic: false } rowDims && rowDims.Fixed % 32 == 0;
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static OpSupport AllF32(Node node, string what = "inputs")
     {
         foreach (var v in node.Inputs)

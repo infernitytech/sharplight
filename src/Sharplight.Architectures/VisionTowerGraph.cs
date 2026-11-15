@@ -9,10 +9,13 @@ namespace Sharplight.Architectures;
 /// Emits the <see cref="WellKnown.VisionEncodeGraph"/> of a ViT-style vision tower described by the canonical
 /// <see cref="VisionParameters"/> and <c>vision.*</c> weights (documented on <see cref="VisionParameters"/>):
 /// patch embedding (a MatMul over the patchified input, optionally normed: GLM-4V) + learned position embedding (bilinear or bicubic taps) →
-/// pre-norm transformer blocks (LayerNorm or RMS norm, fused or separate QKV bidirectional multi-head attention with axial 2-D rotary
+/// optional class row (EVA2-CLIP: appended after the patches; attention without rotary embedding does not depend on row order, and the output
+/// layout leaves it out) → pre-norm or post-norm transformer blocks (LayerNorm or RMS norm, fused or separate QKV bidirectional multi-head attention with axial 2-D rotary
 /// embedding, over the whole image or within windows (Qwen2.5-VL), plain or gated MLP) → optional trunk post-norm (PaddleOCR-VL, GLM-4V) →
 /// patch merger (optional per-patch norm, m×m merge, optional linear downsample and linear/LayerNorm/GELU projection (GLM-4V), plain or
-/// gated 2-layer MLP) producing embeddings of the language model's hidden size. DeepStack towers
+/// gated 2-layer MLP) producing embeddings of the language model's hidden size, optionally followed by an output stage (HunyuanVL: a learned
+/// separator row after every row of merged tokens, a linear projection, learned begin / end rows and a final norm, composed through the
+/// output-layout input). DeepStack towers
 /// (Qwen3-VL) also merge the outputs of selected layers (m×m merge, LayerNorm, 2-layer MLP each) and append them to the embedding row.
 /// Shared by every architecture that uses such a tower; it does not know which file the weights came from.
 /// </summary>
@@ -31,6 +34,7 @@ internal static class VisionTowerGraph
         Value embIndex, embWeight;
         Value? windowSpans = null;
         Value? windowOrder = null;
+        Value? layout = null;
         using (b.Group("input"))
         {
             var patches = b.Input(VisionParameters.PatchesInput, InputRole.Media, DataType.F32, new Shape(N, p.PatchDim));
@@ -41,6 +45,11 @@ internal static class VisionTowerGraph
             {
                 windowSpans = b.Input(VisionParameters.WindowSpansInput, InputRole.RowSpans, DataType.I32, new Shape(N, 2));
                 windowOrder = b.Input(VisionParameters.WindowOrderInput, InputRole.Other, DataType.I32, new Shape(Dim.Sym(VisionParameters.MergedSymbol)));
+            }
+
+            if (p.HasLayout)
+            {
+                layout = b.Input(VisionParameters.LayoutInput, InputRole.Other, DataType.I32, new Shape(Dim.Sym(VisionParameters.OutputSymbol)));
             }
 
             x = b.Linear(patches, "vision.patch_embed.weight", "vision.patch_embed.bias", "patch_embed");
@@ -64,6 +73,12 @@ internal static class VisionTowerGraph
             x = b.Add(x, sum!, "inp_pos_embd");
         }
 
+        if (p.ClassToken)
+        {
+            var classRow = b.Add(Row(b, "vision.class_embedding"), Row(b, "vision.class_position_embedding"), "class_row");
+            x = b.Concat(0, x, classRow);
+        }
+
         Value? cos = null;
         Value? sinSigned = null;
         if (p.RopeBase > 0)
@@ -75,43 +90,8 @@ internal static class VisionTowerGraph
         for (int il = 0; il < p.LayerCount; il++)
         {
             using var _ = b.Group($"vision.layers.{il}");
-            string w = $"vision.layers.{il}.";
-            var h = Norm(b, p, x, w + "input_norm");
-            Value qk;
-            Value v;
-            if (b.HasWeight(w + "attention.qkv.weight"))
-            {
-                var qkv = b.Linear(h, w + "attention.qkv.weight", w + "attention.qkv.bias");          // [N, 3H]: q | k | v
-                qk = b.Reshape(b.Slice(qkv, 1, 0, 2L * H), 0, 2 * heads, D);                       // [N, 2·heads, D]
-                v = b.Reshape(b.Slice(qkv, 1, 2L * H, H), 0, heads, D);
-            }
-            else
-            {
-                var q0 = b.Reshape(b.Linear(h, w + "attention.q.weight", w + "attention.q.bias"), 0, heads, D);
-                var k0 = b.Reshape(b.Linear(h, w + "attention.k.weight", w + "attention.k.bias"), 0, heads, D);
-                qk = b.Concat(1, q0, k0);
-                v = b.Reshape(b.Linear(h, w + "attention.v.weight", w + "attention.v.bias"), 0, heads, D);
-            }
-
-            if (cos is not null)
-            {
-                qk = Rotate(b, qk, cos, sinSigned!, D);
-            }
-
-            var q = b.Slice(qk, 1, 0, heads);
-            var k = b.Slice(qk, 1, heads, heads);
             bool windowed = windowSpans is not null && Array.IndexOf(p.FullAttentionLayers, il) < 0;
-            var attn = b.Emit1("Attention", windowed ? [q, k, v, windowSpans!] : [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
-            var o = b.Linear(b.Reshape(attn, 0, H), w + "attention.o.weight", w + "attention.o.bias");
-            x = b.Add(x, o, $"{w}attn_residual");
-
-            h = Norm(b, p, x, w + "post_attention_norm");
-            var up = b.Linear(h, w + "mlp.up.weight", w + "mlp.up.bias");
-            var act = b.HasWeight(w + "mlp.gate.weight")
-                ? b.Mul(Activation(b, b.Linear(h, w + "mlp.gate.weight", w + "mlp.gate.bias"), p.Activation), up)
-                : Activation(b, up, p.Activation);
-            var down = b.Linear(act, w + "mlp.down.weight", w + "mlp.down.bias");
-            x = b.Add(x, down, $"{w}l_out");
+            x = EncoderLayer(b, p, x, il, cos, sinSigned, windowed ? windowSpans : null);
             if (Array.IndexOf(p.DeepstackLayers, il) >= 0)
             {
                 string d = $"vision.deepstack.{il}.";
@@ -128,7 +108,7 @@ internal static class VisionTowerGraph
 
         using (b.Group("merger"))
         {
-            var h = Merge(b, b.HasWeight("vision.merger.norm.weight") ? Norm(b, p, x, "vision.merger.norm", p.MergerNormEps) : x, p);
+            var h = Merge(b, b.HasWeight("vision.merger.norm.weight") ? MergerNorm(b, p, x, "vision.merger.norm") : x, p);
             if (b.HasWeight("vision.merger.downsample.weight"))
             {
                 // A stride-m convolution over each m×m window (GLM-4V), i.e. a linear map of the merged row.
@@ -148,23 +128,136 @@ internal static class VisionTowerGraph
             var act = b.HasWeight("vision.merger.gate.weight")
                 ? b.Mul(Activation(b, b.Linear(h, "vision.merger.gate.weight", "vision.merger.gate.bias"), p.MergerActivation), up)
                 : Activation(b, up, p.MergerActivation);
-            var down = b.Linear(act, "vision.merger.down.weight", "vision.merger.down.bias", VisionParameters.EmbeddingsOutput);
+            bool outputStage = layout is not null || b.HasWeight("vision.merger.out.weight");
+            var down = b.Linear(act, "vision.merger.down.weight", "vision.merger.down.bias", outputStage ? "merger_down" : VisionParameters.EmbeddingsOutput);
             var rows = deepstack.Count == 0 ? down : b.Concat(1, [down, .. deepstack]);
             // Windowed towers run window by window; the output goes back to merge-window raster order.
-            b.Output(VisionParameters.EmbeddingsOutput, windowOrder is null ? rows : b.Gather(rows, windowOrder));
+            rows = windowOrder is null ? rows : b.Gather(rows, windowOrder);
+            b.Output(VisionParameters.EmbeddingsOutput, outputStage ? OutputStage(b, p, rows, layout) : rows);
         }
         return b.Build();
+    }
+
+    /// <summary>
+    /// The output stage after the merger MLP: the table [merged rows | class row | separator] is projected (<c>vision.merger.out</c>), the begin / end rows are
+    /// appended, the layout picks the output rows from it and <c>vision.merger.out_norm</c> norms them. Every step is row-wise, so the rows are
+    /// composed last.
+    /// </summary>
+    private static Value OutputStage(GraphBuilder b, VisionParameters p, Value merged, Value? layout)
+    {
+        var table = merged;
+        if (p.RowSeparator)
+        {
+            table = b.Concat(0, table, Row(b, "vision.merger.row_separator"));
+        }
+
+        if (b.HasWeight("vision.merger.out.weight"))
+        {
+            table = b.Linear(table, "vision.merger.out.weight", "vision.merger.out.bias", "merger_out");
+        }
+
+        if (p.ImageBoundary)
+        {
+            table = b.Concat(0, table, Row(b, "vision.merger.begin"), Row(b, "vision.merger.end"));
+        }
+
+        var rows = layout is null ? table : b.Gather(table, layout);
+        return b.HasWeight("vision.merger.out_norm.weight") ? MergerNorm(b, p, rows, "vision.merger.out_norm") : rows;
+    }
+
+    // A learned vector [width] as one row [1, width].
+    private static Value Row(GraphBuilder b, string name)
+    {
+        var w = b.Weight(name);
+        return b.Reshape(w, 1, w.Shape[0].Fixed);
+    }
+
+    private static Value MergerNorm(GraphBuilder b, VisionParameters p, Value x, string name)
+        => Norm(b, p with { NormType = p.MergerNormType ?? p.NormType }, x, name, p.MergerNormEps);
+
+    /// <summary>
+    /// One transformer block of the tower (<c>vision.layers.{il}.*</c>), pre-norm or post-norm (<see cref="VisionParameters.NormPlacement"/>): bidirectional
+    /// multi-head attention (fused or separate QKV, optional rotary tables, optionally restricted by <paramref name="mask"/>: i32 window spans or an f32
+    /// additive mask, see the Attention op) and a plain or gated MLP. Post-norm blocks (EVA2-CLIP) norm the attention and MLP outputs before their
+    /// residuals: x + norm(attn(x)), x + norm(mlp(x)). With <paramref name="kvHeads"/> (separate projections, pre-norm only) keys and values have
+    /// fewer heads, each shared by a group of query heads.
+    /// </summary>
+    internal static Value EncoderLayer(GraphBuilder b, VisionParameters p, Value x, int il, Value? cos, Value? sinSigned, Value? mask, int kvHeads = 0)
+    {
+        int H = p.HiddenSize;
+        int heads = p.HeadCount;
+        int D = p.HeadDim;
+        Value? windowSpans = mask;
+        string w = $"vision.layers.{il}.";
+        // Row count: the symbolic patch count (kept by 0) or, in static graphs, the fixed one.
+        long n = x.Shape[0].IsSymbolic ? 0 : x.Shape[0].Fixed;
+        bool postNorm = p.NormPlacement == "post";
+        var h = postNorm ? x : Norm(b, p, x, w + "input_norm");
+        Value qk;
+        Value v;
+        if (kvHeads > 0 && kvHeads != heads)
+        {
+            var gq = b.Reshape(b.Linear(h, w + "attention.q.weight", w + "attention.q.bias"), n, heads, D);
+            var gk = b.Reshape(b.Linear(h, w + "attention.k.weight", w + "attention.k.bias"), n, kvHeads, D);
+            var gv = b.Reshape(b.Linear(h, w + "attention.v.weight", w + "attention.v.bias"), n, kvHeads, D);
+            if (cos is not null)
+            {
+                gq = Rotate(b, gq, cos, sinSigned!, D);
+                gk = Rotate(b, gk, cos, sinSigned!, D);
+            }
+
+            var ga = b.Emit1("Attention", mask is not null ? [gq, gk, gv, mask] : [gq, gk, gv], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
+            return Mlp(b, p, b.Add(x, b.Linear(b.Reshape(ga, n, H), w + "attention.o.weight", w + "attention.o.bias"), $"{w}attn_residual"), w);
+        }
+
+        if (b.HasWeight(w + "attention.qkv.weight"))
+        {
+            var qkv = b.Linear(h, w + "attention.qkv.weight", w + "attention.qkv.bias");          // [N, 3H]: q | k | v
+            qk = b.Reshape(b.Slice(qkv, 1, 0, 2L * H), n, 2 * heads, D);                       // [N, 2·heads, D]
+            v = b.Reshape(b.Slice(qkv, 1, 2L * H, H), n, heads, D);
+        }
+        else
+        {
+            var q0 = b.Reshape(b.Linear(h, w + "attention.q.weight", w + "attention.q.bias"), n, heads, D);
+            var k0 = b.Reshape(b.Linear(h, w + "attention.k.weight", w + "attention.k.bias"), n, heads, D);
+            qk = b.Concat(1, q0, k0);
+            v = b.Reshape(b.Linear(h, w + "attention.v.weight", w + "attention.v.bias"), n, heads, D);
+        }
+
+        if (cos is not null)
+        {
+            qk = Rotate(b, qk, cos, sinSigned!, D);
+        }
+
+        var q = b.Slice(qk, 1, 0, heads);
+        var k = b.Slice(qk, 1, heads, heads);
+        var attn = b.Emit1("Attention", windowSpans is not null ? [q, k, v, windowSpans] : [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
+        var o = b.Linear(b.Reshape(attn, n, H), w + "attention.o.weight", w + "attention.o.bias");
+        x = b.Add(x, postNorm ? Norm(b, p, o, w + "input_norm") : o, $"{w}attn_residual");
+        return Mlp(b, p, x, w);
+    }
+
+    private static Value Mlp(GraphBuilder b, VisionParameters p, Value x, string w)
+    {
+        bool postNorm = p.NormPlacement == "post";
+        var h = postNorm ? x : Norm(b, p, x, w + "post_attention_norm");
+        var up = b.Linear(h, w + "mlp.up.weight", w + "mlp.up.bias");
+        var act = b.HasWeight(w + "mlp.gate.weight")
+            ? b.Mul(Activation(b, b.Linear(h, w + "mlp.gate.weight", w + "mlp.gate.bias"), p.Activation), up)
+            : Activation(b, up, p.Activation);
+        var down = b.Linear(act, w + "mlp.down.weight", w + "mlp.down.bias");
+        return b.Add(x, postNorm ? Norm(b, p, down, w + "post_attention_norm") : down, $"{w}l_out");
     }
 
     // m×m neighbouring patches (consecutive in merge-window order) → one row of m²·hidden.
     private static Value Merge(GraphBuilder b, Value x, VisionParameters p) => p.MergeUnit == 1 ? x
         : b.Emit1("Reshape", [x], Attributes.From(("shape", new long[] { 0, (long)p.MergeUnit * p.HiddenSize }), ("outer_symbol", VisionParameters.MergedSymbol)));
 
-    private static Value Norm(GraphBuilder b, VisionParameters p, Value x, string name, float? eps = null) => p.NormType == "rms"
+    internal static Value Norm(GraphBuilder b, VisionParameters p, Value x, string name, float? eps = null) => p.NormType == "rms"
         ? b.RmsNorm(x, b.Weight(name + ".weight"), eps ?? p.NormEps)
         : b.Emit1("LayerNorm", [x, b.Weight(name + ".weight"), b.Weight(name + ".bias")], Attributes.From(("eps", eps ?? p.NormEps)));
 
-    private static Value Activation(GraphBuilder b, Value x, string kind) => kind switch
+    internal static Value Activation(GraphBuilder b, Value x, string kind) => kind switch
     {
         "gelu_tanh" => b.Unary("GeluTanh", x),
         "gelu" => b.Unary("Gelu", x),

@@ -30,6 +30,7 @@ public sealed class PackedSequenceTests
     [InlineData(true, 16, 8, 128, 128, new[] { 7, 40, 1, 33, 64, 19 })]
     [InlineData(false, 6, 2, 32, 32, new[] { 100, 3, 50 })]
     [InlineData(true, 8, 2, 64, 64, new[] { 29, 31, 2, 90 })]
+    [InlineData(true, 4, 2, 12, 12, new[] { 7, 40, 1, 33 })]   // head size not a multiple of 8
     public void AttentionWithinSpans(bool causal, int Hq, int Hkv, int D, int Dv, int[] lengths)
         => CheckSpans(causal, Hq, Hkv, D, Dv, lengths, window: 0, alibiSlopes: null);
 

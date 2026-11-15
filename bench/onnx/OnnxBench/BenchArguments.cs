@@ -6,7 +6,7 @@ namespace OnnxBench;
 internal sealed class BenchArguments
 {
     public const string Usage =
-        "usage: OnnxBench <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--batch B] [--device D] [--profile] [--reduced-precision] [--split-f16] [--no-fuse-projections]\n" +
+        "usage: OnnxBench <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--batch B] [--device D] [--profile] [--reduced-precision] [--no-split-f16] [--no-fuse-projections] [--vary-input]\n" +
         "  the \"model\" entry of the manifest resolves against $SHARPLIGHT_ONNX_MODELS.";
 
     public required string ManifestPath { get; init; }
@@ -21,11 +21,17 @@ internal sealed class BenchArguments
     /// <summary>Print the per-kernel GPU profile (Vulkan) after timing.</summary>
     public bool Profile { get; init; }
     public bool ReducedPrecision { get; init; }
-    /// <summary>f32 matmuls on the split-f16 tensor-core GEMM (CompileOptions.SplitHalfMatMul).</summary>
+    /// <summary>f32 matmuls may run on the split-f16 tensor-core GEMM (CompileOptions.SplitHalfMatMul, default; --no-split-f16 keeps the SIMT GEMM).</summary>
     public bool SplitHalf { get; init; }
 
     /// <summary>Keeps sibling projections separate (OnnxImportOptions.FuseProjections = false).</summary>
     public bool NoProjectionFusion { get; init; }
+
+    /// <summary>
+    /// Scales every f32 input by a new random factor per element before each timed run (outside the timing), so that data-dependent
+    /// counts change from run to run as with new images (parity is checked on the reference input first).
+    /// </summary>
+    public bool VaryInput { get; init; }
 
     public static BenchArguments? Parse(string[] args)
     {
@@ -51,8 +57,9 @@ internal sealed class BenchArguments
             Device = Value("--device") is { } device ? int.Parse(device, CultureInfo.InvariantCulture) : 0,
             Profile = options.Contains("--profile"),
             ReducedPrecision = options.Contains("--reduced-precision"),
-            SplitHalf = options.Contains("--split-f16"),
+            SplitHalf = !options.Contains("--no-split-f16"),
             NoProjectionFusion = options.Contains("--no-fuse-projections"),
+            VaryInput = options.Contains("--vary-input"),
         };
     }
 }

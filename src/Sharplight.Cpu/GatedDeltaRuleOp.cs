@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
@@ -88,6 +89,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
         _body = Body;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         _t = _q.Dim(0, p);
@@ -147,6 +149,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
 
     private float Beta(long t, int h) => _constantBeta ? ((float*)_beta.P)[h * _beta.Strides[0]] : ((float*)_beta.P)[t * _beta.Strides[0] + h * _beta.Strides[1]];
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int task)
     {
         int h = task / _jChunks;
@@ -240,6 +243,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     }
 
     /// <summary>Stores rows already rounded to the 16-bit state type (exact).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Narrow(float* src, ushort* dst, long n)
     {
         for (long i = 0; i < n; i++)
@@ -249,6 +253,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     }
 
     /// <summary>Rounds a row to the 16-bit state type's precision (round to nearest even), keeping it in f32.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Round(float* row)
     {
         for (long i = 0; i < _dk; i++)
@@ -258,6 +263,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     }
 
     /// <summary>exp of the log decay: the scalar factor, or (per-channel decay) 1 with the DK factors written to <paramref name="decays"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private float Decays(float* logDecay, float* decays)
     {
         if (!_channelDecay)
@@ -274,6 +280,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     }
 
     /// <summary>One token on state rows [j0, j1): decay, update with k and v (delta or additive rule), and with q the outputs o[j].</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Rows(float* S, float* k, float* q, float* v, float decay, float* decays, float beta, int j0, int j1, float* o)
     {
         for (int j = j0; j < j1; j++)
@@ -308,6 +315,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     }
 
     /// <summary>Writes this task's part of a record row: v[j0, j1) and, for the first task of the head, k, g and beta.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Record(float* rec, float* k, float* v, float* logDecay, float beta, bool head, int j0, int j1)
     {
         if (head)
@@ -324,6 +332,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     }
 
     /// <summary>row = row ⊙ d; returns dot(row, k).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float ScaleDot(float* row, float* d, float* k, long n)
     {
         long i = 0;
@@ -360,6 +369,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     }
 
     /// <summary>row = row*decay + k*delta (replayed rows, no output); the same vector widths as <see cref="DecayUpdateDot"/>, so bit-identical rows.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecayUpdate(float* row, float* k, float decay, float delta, long n)
     {
         long i = 0;
@@ -388,6 +398,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     }
 
     /// <summary>row = row*decay + k*delta; returns dot(row, q).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DecayUpdateDot(float* row, float* k, float* q, float decay, float delta, long n)
     {
         long i = 0;

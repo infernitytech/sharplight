@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 namespace Sharplight.Cpu;
 
 /// <summary>
@@ -30,6 +31,7 @@ internal static class CpuParallel
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void For(int n, Action<int> body)
     {
         if (n <= 0)

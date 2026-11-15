@@ -117,6 +117,9 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
     /// <summary>The regex that splits a layer tensor name into layer index (group 1) and suffix (group 2).</summary>
     protected virtual Regex LayerName => LlamaLayerName();
 
+    /// <summary>The canonical layer index and the tensor suffix of a <see cref="LayerName"/> match (default: groups 1 and 2 as they are).</summary>
+    protected virtual (string Layer, string Suffix) LayerTensorOf(HfConfig c, Match match) => (match.Groups[1].Value, match.Groups[2].Value);
+
     /// <summary>The canonical norm weight for a checkpoint norm tensor (default: unchanged; models with a <c>1 + w</c> convention fold it).</summary>
     protected virtual WeightInfo NormWeight(WeightInfo w, string name) => HfTransforms.Plain(w, name);
 
@@ -159,6 +162,9 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
         md["decoder.attention.sliding_layers"] = flags;
         return flags;
     }
+
+    /// <inheritdoc/>
+    public virtual IEnumerable<string> Validate(HfConfig config) => [];
 
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
@@ -230,7 +236,14 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
             var match = LayerName.Match(name);
             // A multi-token-prediction layer's tensor this family does not know is dropped (the head is then not built, or drafts
             // worse; verification keeps the output exact) instead of failing the import, which never needed those layers.
-            if (!match.Success || (!TryMapLayerTensor(c, match.Groups[1].Value, match.Groups[2].Value, w, collector) && !IsMtpLayer(c, match.Groups[1].Value)))
+            if (!match.Success)
+            {
+                collector.AddUnmapped(name);
+                continue;
+            }
+
+            var (layer, suffix) = LayerTensorOf(c, match);
+            if (!TryMapLayerTensor(c, layer, suffix, w, collector) && !IsMtpLayer(c, layer))
             {
                 collector.AddUnmapped(name);
             }

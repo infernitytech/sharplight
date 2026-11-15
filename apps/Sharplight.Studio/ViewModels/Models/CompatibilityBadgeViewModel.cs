@@ -27,6 +27,7 @@ internal sealed class CompatibilityBadgeViewModel
         CompatibilityState.Partial => "Partial",
         CompatibilityState.UnsupportedArchitecture => "Unsupported architecture",
         CompatibilityState.UnsupportedWeightFormat => $"Unsupported {Compatibility.Subject}",
+        CompatibilityState.UnsupportedVariant => "Unsupported variant",
         CompatibilityState.CheckedAtImport => "ONNX",
         _ => Compatibility.Text,
     };
@@ -35,7 +36,7 @@ internal sealed class CompatibilityBadgeViewModel
     public bool IsGood => Compatibility.State == CompatibilityState.Supported;
 
     /// <summary>Runs with a restriction, or is a projector rather than a model.</summary>
-    public bool IsWarning => Compatibility.State is CompatibilityState.Partial or CompatibilityState.Projector;
+    public bool IsWarning => Compatibility.State is CompatibilityState.Partial or CompatibilityState.Projector or CompatibilityState.DraftModel;
 
     /// <summary>Importing or loading is expected to fail.</summary>
     public bool IsBad => Compatibility.IsUnsupported;

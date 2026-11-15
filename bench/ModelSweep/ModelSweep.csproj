@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Real-checkpoint sweep (not part of Sharplight.slnx): reads the GGUF headers / Hugging Face configs and safetensors headers of Hub
+    repositories without downloading the weights, writes them into sparse files of the real size and runs the real import
+    (LlmModel.Load: importer mapping, adapter graph, tokenizer) plus the chat template on them. See docs/model-support.md section 10.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591;CA1031;CA1303;CA2007;CA1849;CA1305;CA1307;CA1310;CA1304;CA1311;CA1862;CA1866;CA1852;CA1812</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <WarningsAsErrors></WarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sharplight.Llm/Sharplight.Llm.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
+    <ProjectReference Include="../../src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Hub/Sharplight.Hub.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Templating/Sharplight.Templating.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="hf_tokenize.py" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

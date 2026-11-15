@@ -34,6 +34,15 @@ internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitM
     private static bool IsNomicMoe(GgufMetadataView g) => g.GgufArchitecture == "nomic-bert-moe";
 
     /// <inheritdoc/>
+    public IEnumerable<string> Validate(GgufMetadataView gguf)
+    {
+        if (gguf.Bool("attention.causal", false))
+        {
+            yield return $"GGUF {gguf.GgufArchitecture}: causal encoders are not supported.";
+        }
+    }
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         string a = Architecture + ".";
@@ -71,10 +80,6 @@ internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitM
 
         GgufMappingHelpers.AddContextLength(md, a, g);
 
-        if (g.Bool("attention.causal", false))
-        {
-            throw new NotSupportedException($"GGUF {g.GgufArchitecture}: causal encoders are not supported.");
-        }
         if (GgufMappingHelpers.Pooling(g) is { } pooling)
         {
             md[CanonicalKeys.EmbeddingPooling] = pooling;

@@ -49,6 +49,7 @@ internal static unsafe partial class Quant
         return (x & 0x80) != 0 ? -magnitude : magnitude;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] BuildE4m3()
     {
         var table = new float[256];
@@ -61,6 +62,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>E5M2 is the upper byte of an IEEE half.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] BuildE5m2()
     {
         var table = new float[256];
@@ -95,6 +97,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>Blocks of { f32 d; u8 q[block] }: value i = d * e4m3(q[i]).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void ScaledE4m3Blocks(byte* p, long count, int block, float* dst)
     {
         long blocks = count / block;
@@ -104,6 +107,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Lookup(float[] table, byte* codes, long count, float scale, float* dst)
     {
         fixed (float* values = table)

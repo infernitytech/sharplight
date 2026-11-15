@@ -9,7 +9,7 @@ namespace Sharplight.Gguf;
 /// </summary>
 internal sealed partial class DecoderGgufMapping
 {
-    private static bool IsExtended(string architecture) => architecture is "gemma4" or "gemma3n" or "muse-glimmer";
+    private static bool IsExtended(string architecture) => architecture is "gemma4" or "gemma3n" or "muse-glimmer" or "gemma-embedding2";
 
     /// <summary>Per-layer tensors of the extended architectures, GGUF suffix to canonical suffix.</summary>
     private static readonly Dictionary<string, string> s_extended = new(StringComparer.Ordinal)
@@ -19,6 +19,12 @@ internal sealed partial class DecoderGgufMapping
         ["post_norm.weight"] = "per_layer.norm.weight",
         ["layer_output_scale.weight"] = "output_scale",
         ["attn_gate.weight"] = "attention.gate.weight",
+        // Gemma 4 MoE layers: routed experts next to the dense MLP, each branch with its own norms; the router's input scale and the per-expert scale.
+        ["pre_ffw_norm_2.weight"] = "mlp.routed_in_norm.weight",
+        ["post_ffw_norm_1.weight"] = "mlp.dense_out_norm.weight",
+        ["post_ffw_norm_2.weight"] = "mlp.routed_out_norm.weight",
+        ["ffn_gate_inp.scale"] = "mlp.router.input_scale",
+        ["ffn_down_exps.scale"] = "mlp.experts.output_scale",
         // Gemma 3n: AltUp and LAuReL.
         ["altup_correct_scale.weight"] = "altup.correct_output_scale",
         ["altup_correct_coef.weight"] = "altup.correction_coefs.weight",
@@ -166,6 +172,26 @@ internal sealed partial class DecoderGgufMapping
         return md;
     }
 
+    /// <summary>
+    /// llama.cpp <c>gemma-embedding2</c> (EmbeddingGemma 2): the Gemma 4 layers (per-layer head sizes and key/value heads, unscaled attention, v norm,
+    /// per-layer embeddings from the projection of the token embeddings alone, layer scalars) with bidirectional attention, sliding layers within a
+    /// symmetric window of <c>attention.sliding_window</c> keys, the pooling of <c>pooling_type</c> and <c>output.weight</c> as the projection to
+    /// the embedding size.
+    /// </summary>
+    private IReadOnlyDictionary<string, object> EmbeddingGemma2Hyper(GgufMetadataView g)
+    {
+        var md = new Dictionary<string, object>(Gemma4Hyper(g), StringComparer.Ordinal);
+        string a = Architecture + ".";
+        md[a + "attention.causal"] = false;
+        md[a + "attention.sliding_window"] = GgufMappingHelpers.SymmetricWindow(g.Int("attention.sliding_window"));
+        if (GgufMappingHelpers.Pooling(g) is { } pooling and not "none")
+        {
+            md[CanonicalKeys.EmbeddingPooling] = pooling;
+        }
+
+        return md;
+    }
+
     private IReadOnlyDictionary<string, object> Gemma4Hyper(GgufMetadataView g)
     {
         string a = Architecture + ".";
@@ -216,6 +242,16 @@ internal sealed partial class DecoderGgufMapping
             md[a + "attention.kv_source_layers"] = KvSourceLayers(layerCount, sharedKvLayers, sliding);
         }
 
+        // Gemma 4 MoE (26B-A4B): softmax routing over expert_count experts, the selected weights renormalized (then scaled per expert).
+        if (g.Int("expert_count", 0) is var experts and > 0)
+        {
+            md[a + "moe.expert_count"] = experts;
+            md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
+            md[a + "moe.ffn_hidden_size"] = g.Int("expert_feed_forward_length");
+            md[a + "moe.router_activation"] = "softmax";
+            md[a + "moe.normalize_weights"] = true;
+        }
+
         if (g.Int("embedding_length_per_layer_input", 0) is var perLayerSize and > 0)
         {
             md[a + "per_layer.size"] = perLayerSize;
@@ -247,7 +283,8 @@ internal sealed partial class DecoderGgufMapping
 
     /// <summary>
     /// For KV-sharing models the last <paramref name="sharedKvLayers"/> layers reuse the KV cache of the last earlier
-    /// layer with the same attention kind (sliding or global); every other layer is its own source.
+    /// layer with the same attention kind (sliding or global); every other layer is its own source. When no earlier layer has the kind (every
+    /// layer shares, as in a Gemma 4 assistant, whose keys and values come from its target), the first layer of the kind is the source.
     /// </summary>
     private static int[] KvSourceLayers(int layerCount, int sharedKvLayers, int[] sliding)
     {
@@ -255,7 +292,9 @@ internal sealed partial class DecoderGgufMapping
         var source = new int[layerCount];
         for (int il = 0; il < layerCount; il++)
         {
-            source[il] = il < firstSharedLayer ? il : Enumerable.Range(0, firstSharedLayer).Last(j => sliding[j] == sliding[il]);
+            source[il] = il < firstSharedLayer ? il
+                : Enumerable.Range(0, firstSharedLayer).LastOrDefault(j => sliding[j] == sliding[il], -1) is var earlier and >= 0 ? earlier
+                : Array.IndexOf(sliding, sliding[il]);
         }
 
         return source;

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 
 namespace Sharplight.Cpu;
@@ -7,6 +8,7 @@ namespace Sharplight.Cpu;
 internal sealed unsafe partial class CpuCompiledSegment
 {
     /// <summary>Appends an executable step and extends the lifetime of every arena buffer it touches.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void AddStep(CpuOp op, params TRef[] touches)
     {
         int index = _steps.Count;
@@ -58,6 +60,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     /// Computes strides that reinterpret an (oldDims, oldStrides) view as newDims without copying (the NumPy
     /// attempt-nocopy-reshape algorithm). Returns false when the layout cannot be expressed as a view.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool TryReshapeStrides(long[] oldDims, long[] oldStrides, long[] newDims, out long[] newStrides)
     {
         newStrides = new long[newDims.Length];
@@ -176,6 +179,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     /// Strides of <paramref name="newDims"/> when its leading (symbolic) axis is the source's leading axis merged with the
     /// source axes 1..j (contiguous with each other) and its other axes reshape the remaining source axes.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool TryMergeLeading(TRef source, long[] newDims, out long[] newStrides)
     {
         newStrides = [];

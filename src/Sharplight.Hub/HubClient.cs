@@ -11,7 +11,7 @@ namespace Sharplight.Hub;
 /// </summary>
 public sealed partial class HubClient
 {
-    private static readonly string[] s_searchExpansions = ["downloads", "likes", "gated", "library_name", "pipeline_tag", "gguf", "safetensors", "siblings", "config"];
+    private static readonly string[] s_searchExpansions = ["downloads", "likes", "gated", "library_name", "pipeline_tag", "gguf", "safetensors", "siblings", "config", "createdAt"];
 
     private readonly HttpClient _http;
     private readonly HubClientOptions _options;
@@ -34,7 +34,12 @@ public sealed partial class HubClient
     /// <returns>Up to <see cref="HubSearchQuery.Limit"/> results.</returns>
     public async Task<IReadOnlyList<HubModelSummary>> SearchAsync(HubSearchQuery query, CancellationToken cancellationToken = default)
     {
-        var url = new StringBuilder($"api/models?search={Uri.EscapeDataString(query.Text)}&sort=downloads&direction=-1");
+        var url = new StringBuilder($"api/models?sort={SortKey(query.Sort)}&direction=-1");
+        if (query.Text.Length > 0)
+        {
+            url.Append(CultureInfo.InvariantCulture, $"&search={Uri.EscapeDataString(query.Text)}");
+        }
+
         url.Append(CultureInfo.InvariantCulture, $"&limit={Math.Max(1, query.Limit)}");
         if (query.Format is { } format)
         {
@@ -46,7 +51,8 @@ public sealed partial class HubClient
             url.Append(CultureInfo.InvariantCulture, $"&expand%5B%5D={expansion}");
         }
 
-        var json = await GetStringAsync(new Uri(_options.Endpoint, url.ToString()), $"Search '{query.Text}'", "", cancellationToken).ConfigureAwait(false);
+        string what = query.Text.Length > 0 ? $"Search '{query.Text}'" : "Model listing";
+        var json = await GetStringAsync(new Uri(_options.Endpoint, url.ToString()), what, "", cancellationToken).ConfigureAwait(false);
         return HubJson.ParseSearch(json);
     }
 
@@ -159,6 +165,14 @@ public sealed partial class HubClient
         var escaped = string.Join('/', path.Split('/').Select(Uri.EscapeDataString));
         return new Uri(_options.Endpoint, $"{repository.Id}/resolve/{repository.Commit}/{escaped}");
     }
+
+    private static string SortKey(HubSortOrder sort) => sort switch
+    {
+        HubSortOrder.Likes => "likes",
+        HubSortOrder.Trending => "trendingScore",
+        HubSortOrder.Newest => "createdAt",
+        _ => "downloads",
+    };
 
     private static string FormatFilter(ModelFormat format) => format switch
     {

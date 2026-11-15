@@ -4,7 +4,8 @@ namespace Sharplight.HuggingFace;
 
 /// <summary>
 /// All shards of a safetensors checkpoint. Shards are discovered via <c>model.safetensors.index.json</c>
-/// (<c>weight_map</c>) or, without an index, as all <c>*.safetensors</c> files in the directory.
+/// (<c>weight_map</c>) or, without an index, as all <c>*.safetensors</c> files in the directory except the heads that decision models keep
+/// beside the checkpoint (<c>joint_head.safetensors</c>, <c>decision_head.safetensors</c>).
 /// </summary>
 internal sealed class SafetensorsCheckpoint : IDisposable
 {
@@ -13,6 +14,9 @@ internal sealed class SafetensorsCheckpoint : IDisposable
 
     /// <summary>The tensors of all shards by name.</summary>
     public IReadOnlyDictionary<string, SafetensorsTensor> Tensors => _tensors;
+
+    // Heads stored beside a checkpoint and imported on their own (decision models), not shards of it.
+    private static readonly HashSet<string> s_sideFiles = new(StringComparer.Ordinal) { "joint_head.safetensors", "decision_head.safetensors" };
 
     private SafetensorsCheckpoint()
     {
@@ -55,7 +59,8 @@ internal sealed class SafetensorsCheckpoint : IDisposable
 
     private static IEnumerable<string> DiscoverShards(string dir)
     {
-        var all = Directory.EnumerateFiles(dir, "*.safetensors").OrderBy(p => p, StringComparer.Ordinal).ToList();
+        var all = Directory.EnumerateFiles(dir, "*.safetensors").Where(p => !s_sideFiles.Contains(Path.GetFileName(p)))
+            .OrderBy(p => p, StringComparer.Ordinal).ToList();
         string? index = Directory.EnumerateFiles(dir, "*.safetensors.index.json").OrderBy(p => p, StringComparer.Ordinal).FirstOrDefault();
         if (index == null)
         {

@@ -11,4 +11,8 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../Sharplight.Cpu.Tests/Fixtures/ggml_quant_ext.bin" Link="Fixtures/ggml_quant_ext.bin" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
 
@@ -88,6 +89,7 @@ internal sealed unsafe class PoolOp : CpuOp
         CpuParallel.For(chunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int chunk)
     {
         long s = chunk * _per;
@@ -153,6 +155,7 @@ internal sealed unsafe class PoolOp : CpuOp
     }
 
     /// <summary>Undilated max pooling of one block of output rows of one plane.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void RowBody(int task)
     {
         long plane = task / _rowBlocks;

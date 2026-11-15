@@ -15,6 +15,9 @@ internal sealed class Eagle3GgufMapping : IGgufArchitectureMapping
     public string Architecture => "eagle3";
 
     /// <inheritdoc/>
+    public bool IsDraftModel => true;
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         string a = Architecture + ".";

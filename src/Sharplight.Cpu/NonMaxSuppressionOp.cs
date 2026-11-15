@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -32,6 +33,7 @@ internal sealed unsafe class NonMaxSuppressionOp : CpuOp
 
     public override string Name => "NonMaxSuppression";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         bool single = _scores.Rank == 1;   // boxes [S, 4], scores [S]

@@ -1,4 +1,4 @@
-"""Image references for tiny Qwen-VL, PaddleOCR-VL and GLM-4.1V checkpoints from Hugging Face transformers (fp32).
+"""Image references for tiny Qwen-VL, PaddleOCR-VL, GLM-4.1V and HunyuanOCR checkpoints from Hugging Face transformers (fp32).
 
 Usage: python hf_image_reference.py <model_dir> [<width> <height>] [--new-tokens N]
 
@@ -27,6 +27,7 @@ model = getattr(transformers, config.architectures[0]).from_pretrained(model_dir
 tokenizer = AutoTokenizer.from_pretrained(model_dir)
 vc = config.vision_config
 paddle = config.model_type == "paddleocr_vl"   # SigLIP tower fed in raster order, projector merges; its own placeholder
+hunyuan = config.model_type == "hunyuan_vl"    # raster-order patches, perceiver with newline column and begin / end rows
 ps, m, tp = vc.patch_size, vc.spatial_merge_size, getattr(vc, "temporal_patch_size", 1)
 
 y, x = np.mgrid[0:height, 0:width].astype(np.float64)
@@ -38,11 +39,20 @@ pixel_values = torch.from_numpy(np.ascontiguousarray(patches).reshape(gh * gw, 3
 if paddle:
     raster = image.reshape(3, gh, ps, gw, ps).transpose(1, 3, 0, 2, 4)                                # [gh, gw, C, ps, ps]
     pixel_values = torch.from_numpy(np.ascontiguousarray(raster).reshape(gh * gw, 3, ps, ps))
+if hunyuan:
+    raster = image.reshape(3, gh, ps, gw, ps).transpose(1, 3, 0, 2, 4)                                # [gh, gw, C, ps, ps]
+    pixel_values = torch.from_numpy(np.ascontiguousarray(raster).reshape(gh * gw, 3 * ps * ps))
 grid = torch.tensor([[1, gh, gw]])
 tokens = gh * gw // (m * m)
+if hunyuan:
+    tokens = (gh // m) * (gw // m + 1) + 2
 
 with torch.no_grad():
-    if paddle:
+    if hunyuan:
+        embeddings = torch.cat(model.model.get_image_features(pixel_values, grid).pooler_output)
+        placeholder = "<｜hy_place▁holder▁no▁102｜>"
+        text = "<｜hy_begin▁of▁sentence｜><｜hy_place▁holder▁no▁100｜><｜hy_place▁holder▁no▁102｜><｜hy_place▁holder▁no▁101｜>Describe this image.<｜hy_User｜>"
+    elif paddle:
         embeddings = torch.cat(model.model.get_image_features(pixel_values, grid).pooler_output)
         placeholder = "<|IMAGE_PLACEHOLDER|>"
         text = "User: <|IMAGE_PLACEHOLDER|>Describe this image.\nAssistant: "
