@@ -12,6 +12,8 @@ internal sealed partial class OnnxTranslator
 
     private Dictionary<string, OnnxNode>? _producers;
 
+    private readonly Dictionary<(string Limit, Value Candidates, bool Ascending), Value> _runtimeCounts = [];
+
     /// <summary>
     /// A proven range <c>[Low, High]</c> of every element of the named tensor (the upper end may be a symbolic extent), or
     /// <see langword="null"/> when the analysis cannot bound it.
@@ -33,9 +35,7 @@ internal sealed partial class OnnxTranslator
             return (0, declared);
         }
 
-        _producers ??= _graph.Nodes.SelectMany(node => node.Outputs.Where(output => output != "").Select(output => (output, node)))
-            .GroupBy(pair => pair.output).ToDictionary(group => group.Key, group => group.First().node);
-        if (!_producers.TryGetValue(name, out var n))
+        if (!Producers().TryGetValue(name, out var n))
         {
             return null;
         }
@@ -206,13 +206,86 @@ internal sealed partial class OnnxTranslator
         }
 
         string name = Nm(n);
-        var limit = X(ins, 1);
-        var limitF32 = limit.Type == DataType.F32 ? limit : Emit("Cast", [limit], Attributes.From(("type", "f32")));
         var candidates = ConstValue(OnnxConst.FromFloats(OnnxType.Float, [count], sequence, name + ".sequence"), name + ".sequence");
-        var inRange = _b.Binary(step > 0 ? "Less" : "Greater", candidates, limitF32);
-        string symbol = NewDynamicSymbol("range", count);
-        var indices = Rs(Emit("NonZero", [inRange], Attributes.From(("count_symbol", symbol))), 0);
+        var indices = RuntimeCount(n.Inputs[1], X(ins, 1), candidates, step > 0, name);
         var values = Emit("GatherAxis", [candidates, indices], Attributes.From(("axis", 0L)), integer ? null : name);
         SetDyn(n, 0, integer ? Emit("Cast", [values], Attributes.From(("type", "i32")), name) : values);
+    }
+
+    /// <summary>
+    /// Indices <c>[count]</c> of the candidate values still short of a runtime limit (below it for an ascending sequence, above it for a
+    /// descending one); count is a dynamic symbol. Requests over the same limit tensor (through casts and reshapes) and the same candidates
+    /// share one symbol, so that tensors sized by the same runtime value broadcast against each other.
+    /// </summary>
+    private Value RuntimeCount(string limitName, Value limit, Value candidates, bool ascending, string name)
+    {
+        var key = (CanonicalSource(limitName), candidates, ascending);
+        if (_runtimeCounts.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var limitF32 = limit.Type == DataType.F32 ? limit : Emit("Cast", [limit], Attributes.From(("type", "f32")));
+        var inRange = _b.Binary(ascending ? "Less" : "Greater", candidates, limitF32);
+        string symbol = NewDynamicSymbol("range", candidates.Shape[0].Fixed);
+        return _runtimeCounts[key] = Rs(Emit("NonZero", [inRange], Attributes.From(("count_symbol", symbol)), name + ".indices"), 0);
+    }
+
+    /// <summary>The tensor a value is a cast or reshape of (for one-element values such as a runtime extent).</summary>
+    private string CanonicalSource(string name)
+    {
+        var producers = Producers();
+        for (int depth = 0; depth < MaxBoundDepth && producers.TryGetValue(name, out var n) && n.OpType is "Cast" or "Identity" or "Squeeze" or "Unsqueeze"; depth++)
+        {
+            name = n.Inputs[0];
+        }
+
+        return name;
+    }
+
+    private Dictionary<string, OnnxNode> Producers() =>
+        _producers ??= _graph.Nodes.SelectMany(node => node.Outputs.Where(output => output != "").Select(output => (output, node)))
+            .GroupBy(pair => pair.output).ToDictionary(group => group.Key, group => group.First().node);
+
+    /// <summary>
+    /// ConstantOfShape whose shape has one runtime element (e.g. the largest word count of a batch): that extent becomes a dynamic symbol
+    /// bounded by the element's proven value range, and the unit dims in front of it become leading units of the result.
+    /// </summary>
+    private void RuntimeConstantOfShape(OnnxNode n)
+    {
+        string shapeName = CanonicalSource(n.Inputs[0]);
+        List<string> pieces = Producers().TryGetValue(shapeName, out var concat) && concat.OpType == "Concat" ? [.. concat.Inputs] : [n.Inputs[0]];
+        var known = pieces.Select(p => _env.TryGetValue(p, out var t) ? t : null).ToList();
+        if (known.Any(t => t is null || (t.IsConst ? t.C!.Count != 1 || t.C.HasSymbols : t.V!.Shape.Elements() != 1)) || known.Count(t => !t!.IsConst) != 1)
+        {
+            throw new NotSupportedException("ConstantOfShape shape must be a compile-time constant (a runtime shape is supported only when exactly one extent is a runtime value)");
+        }
+
+        int axis = known.FindIndex(t => !t!.IsConst);
+        long[] dims = [.. known.Select(t => t!.IsConst ? t.C!.Ints()[0] : 0L)];
+        if (dims.Take(axis).Any(d => d != 1))
+        {
+            throw new NotSupportedException("ConstantOfShape shape must be a compile-time constant (a runtime extent is supported only behind unit dims)");
+        }
+
+        if (ValueBound(pieces[axis]) is not { High.IsSymbolic: false } bound || bound.High.Fixed <= 0)
+        {
+            throw new NotSupportedException("ConstantOfShape with a runtime extent without a provable upper bound (declare one for graph inputs with OnnxImportOptions.InputValueBounds)");
+        }
+
+        string name = Nm(n);
+        long count = bound.High.Fixed;
+        var positions = new double[count];
+        for (long i = 0; i < count; i++)
+        {
+            positions[i] = i;
+        }
+
+        var candidates = ConstValue(OnnxConst.FromFloats(OnnxType.Float, [count], positions, "positions." + count), "positions." + count);
+        var indices = RuntimeCount(pieces[axis], AsValue(known[axis]!), candidates, ascending: true, name);
+        var value = n.Tensor("value") is { } t ? OnnxConst.FromTensor(t) : OnnxConst.Scalar(0);
+        var type = value.IsFloat ? DataType.F32 : DataType.I32;
+        SetDyn(n, 0, FillOuter(SymbolicExpression.Parse(indices.Shape[0].Symbol!), dims[(axis + 1)..], type, value.Floats()[0], 0, name));
+        _env[n.Outputs[0]].LeadingUnits = axis;
     }
 }

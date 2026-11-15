@@ -5,6 +5,7 @@
              xmlns:models="using:Sharplight.Studio.ViewModels.Models"
              xmlns:server="using:Sharplight.Studio.ViewModels.Server"
              xmlns:stats="using:Sharplight.Studio.ViewModels.Stats"
+             xmlns:tasks="using:Sharplight.Studio.ViewModels.Tasks"
              xmlns:settings="using:Sharplight.Studio.ViewModels.Settings"
              x:Class="Sharplight.Studio.App"
              RequestedThemeVariant="Dark">
@@ -22,6 +23,9 @@
     </DataTemplate>
     <DataTemplate DataType="models:ModelsPageViewModel">
       <views:ModelsPage />
+    </DataTemplate>
+    <DataTemplate DataType="tasks:TasksPageViewModel">
+      <views:TasksPage />
     </DataTemplate>
     <DataTemplate DataType="server:ServerPageViewModel">
       <views:ServerPage />

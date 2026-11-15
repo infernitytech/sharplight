@@ -57,6 +57,15 @@ Model assets are not in git (~900 GB on the old machine). Layout expected by tes
 5. For now: feature work first; no benchmark rounds until the user asks again. Performance parity (vLLM, llama.cpp,
    onnxruntime) remains a goal for later.
 
+## 3a. State of `develop` (2026-11-15, new machine)
+
+`develop` = `main` + SHARPLIGHT_VK_DEVICES, release engineering (CI for develop/main/release/*, NuGet from release/*,
+Velopack Studio packages for 5 RIDs x stable/unstable, update UI; first unstable release live), the Studio test fixes and
+the Core restructure (Llm/Tokenizers/Templating in Core, DI task layer, `.slm` description + attachments,
+`services.AddSharplight()`). Suites on develop: everything green except 99 Families tests (regenerated tiny models whose
+weights differ from the old machine's; identical failures on main, being fixed by regenerating goldens from the
+reference implementations), 49 ONNX conformance (as on main) and 1 Hub test (tests run as root).
+
 ## 3. State of `main` (5f16fc09 + this folder)
 
 Merged on 2026-11-15: quantized HF checkpoints (NVFP4, MXFP4, GPTQ, AWQ, bitsandbytes NF4, MLX 4-bit, DeepSeek-V4
@@ -99,6 +108,13 @@ generation, speech recognition, speech synthesis, image generation; open for new
 registry (`XxxImporter.Register()`, provider registration) becomes `IServiceCollection` extensions plus options; task
 utilities shaped like Microsoft.Extensions.AI (IChatClient, ISpeechToTextClient, IImageGenerator, IEmbeddingGenerator);
 samples, Server, Studio and docs follow. Rules in docs/code-style.md.
+
+**Step 3 – Cleanup / dead-code removal / refactoring pass** (scheduled by the user 2026-11-15): after the public API
+pass and the two-stage precompilation refactor are merged, run parallel cleanup agents per project area (Sonnet,
+docs/cleanup-brief.md, non-overlapping project lists, behavior- and performance-preserving): dead code, duplication,
+single-line scopes, one type per file, extension blocks, visibility, XML docs, simplification of complex code, shared
+patterns across model kinds. Feature agents merge develop right after it lands. Repeat a smaller cleanup round after
+every wave (and whenever a merge round leaves warnings or style debt).
 
 **Wave 1** (in parallel after step 2; ONNX ops, weight formats and performance may start during step 2):
 - ONNX ops (`wip/onnx-ops`): GroupQueryAttention, RotaryEmbedding, (Skip)SimplifiedLayerNormalization, NonMaxSuppression,
@@ -151,6 +167,9 @@ history, outputs gallery, export) so every type looks and behaves the same; chat
   - Discover highlights per model type (Trending / New / Most downloaded per kind) with the Supported-only switch.
   - Multi-component repos (diffusers folders, encoder + decoder + vocoder sets, whisper.cpp files, ONNX) downloaded as
     one model, with per-kind compatibility badges and fit estimates; conversion to `.slm` for every kind.
+- S1b: precompilation for every execution provider and device available on the machine through an explicit two-stage
+  provider contract (portable code such as SPIR-V, then device-specific driver binaries; CPU: empty), written into the
+  `.slm` in place (crash-safe) while the model is not resident; inspector shows the stages per provider/device.
 - S2: a dedicated inference page per model type, added as each type lands on main: Transcribe (file/microphone, timestamps,
   subtitles export), Speak (voices, streaming playback, WAV export), Image (txt2img, img2img, inpaint, seeds, gallery),
   Vision (drop an image: labels, boxes, masks, depth, OCR overlays), Audio (music generation, separation, codec playground),

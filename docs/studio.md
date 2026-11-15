@@ -35,10 +35,82 @@ different models run at the same time. Images and documents can be attached by d
 - Images need a model with the **Vision** badge; the others refuse them with an explanation.
 - Documents (PDF, DOCX, HTML, text and code) are extracted to text and trimmed to the context window.
 
+**Tasks.** One card per model kind (text generation, speech to text, text to speech, image generation, video generation, image
+classification, object detection, segmentation, depth estimation, OCR, upscaling, audio, embeddings, time series, 3D, bio,
+robotics) with the number of library and resident models of that kind. The engine runs text generation (the chat page) and
+embeddings today; the other kinds say *Not yet supported* and their buttons still lead to the library filtered to that kind and to
+Discover filtered to that model type. The page is the placeholder for the per-kind inference pages: when the engine gains a kind,
+its card opens its own page, built from the shared pieces (the model picker, `ModelPickerViewModel`, which the chat page uses
+too; parameter panel, presets, run queue, history, outputs gallery and export follow with the first such page).
+
+![Tasks](images/studio/studio-tasks.png)
+
 **Models.**
 
 ![Discover](images/studio/studio-discover.png)
 
+- **Filters.** The filter bar above the results picks the model type, format, quantization, size, license, gating and sort order.
+  Every choice is saved in the settings (`Discover` in the settings file) and *Reset filters* clears them.
+  - *Model type* maps the Hub's pipeline tags and library names to the groups below. A group with several tags is searched once
+    per tag and the answers are merged, so a type is never half of its tags.
+  - *Format*: GGUF, safetensors, Diffusers, ONNX, whisper.cpp (`ggml-*.bin`) or `.slm` (the Hub's `gguf`, `safetensors`,
+    `diffusers`, `onnx`, `ggml` and `slm` tags).
+  - *Quantization* (`Q2` to `Q8`, `IQ`, `F16`, `BF16`, `FP8`, `MXFP4`, `NVFP4`) matches the start of a name segment of the
+    repository's quantization labels (`Q4` matches `Q4_K_M` and `q4f16`, not `IQ4_XS`) or a checkpoint's quantization method.
+  - *Size* (under 1B, 1B to 4B, 4B to 14B, 14B to 40B, over 40B parameters) and *Fits this machine* use the parameter count the
+    Hub reports. *Fits* compares the smallest likely download (about 0.55 bytes per parameter for GGUF and ONNX, 2 for a bf16
+    checkpoint, 1 for FP8) with the larger of all GPUs together and the system memory. It is approximate, and repositories
+    without a parameter count always pass.
+  - *License* (the Hub's license tag), *Gated and open / Hide gated / Only gated* and *Sort* (most downloaded, trending, most
+    liked, recently updated, newest).
+  - The Hub applies model type, format, license and sort; the others filter the results locally, so changing them does not ask the
+    Hub again and the page says how many models the filters hide. With no search text and a filter set, or another sort order chosen,
+    the Hub's listing in that order is shown.
+
+  | Model type | Hub pipeline tags | Library names |
+  |---|---|---|
+  | Text generation | `text-generation`, `text2text-generation`, `fill-mask`, `summarization`, `translation`, `conversational` | |
+  | Vision-language | `image-text-to-text`, `visual-question-answering`, `video-text-to-text`, `any-to-any` | |
+  | Speech to text | `automatic-speech-recognition` | `whisper.cpp`, `faster-whisper` |
+  | Text to speech | `text-to-speech`, `text-to-audio` | |
+  | Image generation | `text-to-image`, `image-to-image`, `unconditional-image-generation` | `diffusers` |
+  | Video generation | `text-to-video`, `image-to-video`, `video-to-video` | |
+  | Image classification | `image-classification`, `video-classification`, `zero-shot-image-classification` | |
+  | Object detection | `object-detection`, `zero-shot-object-detection` | |
+  | Segmentation | `image-segmentation`, `mask-generation`, `keypoint-detection` | |
+  | Depth estimation | `depth-estimation` | |
+  | OCR | `image-to-text`, `document-question-answering`, `visual-document-retrieval`; vision-language models named like OCR models | |
+  | Upscaling | `image-to-image` repositories named like upscalers (`upscale`, `esrgan`, `super-resolution`, `swinir`, `supir`) | |
+  | Audio | `audio-classification`, `audio-to-audio`, `voice-activity-detection`, `zero-shot-audio-classification` | |
+  | Embeddings and retrieval | `feature-extraction`, `sentence-similarity`, `text-ranking`, `image-feature-extraction` | `sentence-transformers` |
+  | Time series | `time-series-forecasting` | `timesfm`, `chronos` |
+  | 3D | `text-to-3d`, `image-to-3d` | |
+  | Bio | embedding repositories named like protein, molecule and genomics models | `biopython` |
+  | Robotics | `robotics` | `lerobot` |
+  | Other | every other tag (tabular, reinforcement learning, classic NLP) and repositories without a tag | |
+
+  The mapping is `ModelTasks` in `Sharplight.Hub`; the Studio side (`ModelKindCatalog`) maps a task to the kind of a model
+  description and says whether the engine runs it.
+
+  ![Discover filters, multi-component repository](images/studio/studio-discover-multi-component.png)
+
+- **Per-type highlights.** Choosing a model type shows that type's *Trending*, *New* and *Most downloaded* models (every format, one
+  listing per section, cached for six hours per type in `discover-highlights-<type>.json`). The default highlights (no type chosen)
+  stay the supported language models. A type's highlights include models Sharplight cannot run, marked *Not yet supported: &lt;kind&gt;*;
+  *Supported only* hides them and the page then says why it is empty.
+
+  ![Speech models](images/studio/studio-discover-task-highlights.png)
+
+- **Multi-component repositories** are one model. A Diffusers repository (`model_index.json` and one folder per component:
+  `unet`, `vae`, `text_encoder`, ...) shows its components with their weight sizes (the safetensors copy counted once, half-precision
+  duplicates left out), a whisper.cpp repository lists its `ggml-*.bin` files by size and quantization, `.slm` repositories their
+  packages. Their kinds are not supported by the engine yet, so the badge reads *Not yet supported: &lt;kind&gt;* with the kind named
+  and the details say why the download is not offered; nothing is hidden silently. Only the language-model estimates (fit) exist
+  today; other kinds show their total size.
+- **Gated repositories.** A gated result carries a *Gated* badge and its details say what to do: accept the terms on Hugging Face
+  and add an access token in the settings (or that the token is used). The token (the *Hugging Face token* setting, else
+  `HF_TOKEN`) is optional and is sent to huggingface.co only, never to the hosts a download is redirected to. Studio has no
+  operating-system keyring abstraction yet, so the setting is kept in the settings file as plain text; the settings page says so.
 - Before anything is searched, *Discover* shows highlighted models in three sections: *Trending*, *New* (created in the last few
   months) and *Most downloaded*. They come from the Hub's listings (trending, likes and downloads, GGUF and safetensors,
   text-generation and image-text-to-text) and keep only repositories whose badge is *Supported*. The answer is kept for six hours in
@@ -86,7 +158,14 @@ different models run at the same time. Images and documents can be attached by d
   - ONNX: the opset imports (domain and version) are read by skipping the graph by its length (`OnnxOpsetScanner`), usually in one
     or two range requests. Operators are checked when the model is imported.
 - *Library* lists the model store (resolved like the command-line tools: `--models-dir`, `SHARPLIGHT_MODELS`, the setting,
-  then the `data` folder next to the app) and any added `.gguf`, `.slm` or `.onnx` files. *Load* opens the load options:
+  then the `data` folder next to the app) and any added `.gguf`, `.slm` or `.onnx` files, for every kind of model in one list.
+  Every entry carries a kind badge (an icon and the kind's name). The kind is the one the `.slm` model description names (a package
+  without a description is a text-generation model; an embedding package is shown as *Embeddings*). Files that have no description
+  are guessed from the file type (GGUF files and checkpoint folders are language models) and the badge's tooltip says so; a download
+  that is not converted yet shows the kind inferred from the Hub's pipeline tag. The kind filter above the list (shown once the
+  library holds more than one kind) lists the kinds present with their counts. A kind the engine cannot run yet is badged *Not yet
+  supported* and its *Load* button is disabled. Loading, unloading and residency are the same mechanism for every kind. *Load* opens
+  the load options:
   - device;
   - context length;
   - parallel slots;
