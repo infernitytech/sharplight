@@ -21,7 +21,6 @@ void pool(uint3 dtid : SV_DispatchThreadID, uniform PoolParams p)
     uint nc = t / HO;
     uint c = nc % C, n = nc / C;
     float* xp = p.x + uint64_t(n) * XS_N + uint64_t(c) * XS_C;
-    uint64_t yi = uint64_t(n) * YS_N + (idx - n * (C * OH * OW));
     int hs = int(oh) * SH - PH;
     int ws = int(ow) * SW - PW;
 #if MODE == 0
