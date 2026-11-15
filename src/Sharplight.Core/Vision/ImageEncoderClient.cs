@@ -2,6 +2,7 @@ using Sharplight.Imaging;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tasks;
+using Sharplight.Tokenizers;
 
 namespace Sharplight.Vision;
 
@@ -30,6 +31,14 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
     private readonly int _patchSize;
     private readonly bool _sigmoid;
     private readonly bool _hasLogits;
+    private readonly CompiledModel? _textCompiled;
+    private readonly ITokenizer? _tokenizer;
+    private readonly Graph.Value? _textTokens;
+    private readonly Graph.Value? _poolIndex;
+    private readonly int _contextLength;
+    private readonly bool _poolEos;
+    private readonly int _padId;
+    private readonly int _textDimensions;
 
     public ImageEncoderClient(TaskModel model)
     {
@@ -45,6 +54,18 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
         _hasLogits = _compiled.Graph.Outputs.ContainsKey(WellKnown.LogitsOutput);
         Dimensions = LastDim(WellKnown.PooledOutput);
         Metadata = TaskClientMetadata.For(model.Definition);
+        if (model.Description.TryGetComponent(ModelComponentRoles.TextEncoder, out var text) && text.Graphs.Contains(WellKnown.TextEncodeGraph))
+        {
+            _tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
+            _textCompiled = model.CompileComponent(ModelComponentRoles.TextEncoder, WellKnown.TextEncodeGraph);
+            _textTokens = _textCompiled.Graph.Inputs.First(v => v.Input!.Name == "tokens");
+            _poolIndex = _textCompiled.Graph.Inputs.First(v => v.Input!.Name == "pool_index");
+            _contextLength = text.Config["contextLength"].GetInt32();
+            _poolEos = text.Config["pool"].GetString() == "eos";
+            _padId = text.Config.TryGetValue("padTokenId", out var pad) ? pad.GetInt32() : _tokenizer.PadId ?? 0;
+            var shape = _textCompiled.Graph.Outputs[WellKnown.PooledOutput].Shape;
+            _textDimensions = (int)shape[shape.Rank - 1].Fixed;
+        }
     }
 
     public TaskClientMetadata Metadata { get; }
@@ -53,7 +74,7 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
 
     public int Dimensions { get; }
 
-    public bool SupportsText => false;
+    public bool SupportsText => _textCompiled is not null;
 
     public object? GetService(Type serviceType, object? serviceKey = null)
         => serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model : null;
@@ -85,13 +106,108 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
     }
 
     public Task<float[]> EmbedTextAsync(string text, ImageEmbeddingOptions? options = null, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException($"{Metadata.ModelName} has no text tower.");
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        cancellationToken.ThrowIfCancellationRequested();
+        var embedding = RunText(text);
+        if (options?.Normalize ?? true)
+        {
+            Normalize(embedding);
+        }
+
+        return Task.FromResult(embedding);
+    }
 
     public Task<ImageClassification> ClassifyZeroShotAsync(ImageInput image, IReadOnlyList<string> candidates, ImageClassificationOptions? options = null,
         CancellationToken cancellationToken = default)
-        => throw new NotSupportedException($"{Metadata.ModelName} has no text tower.");
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(candidates);
+        cancellationToken.ThrowIfCancellationRequested();
+        RequireText();
+        var (pooled, _) = Run(image);
+        Normalize(pooled);
+        var logits = new float[candidates.Count];
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var text = RunText(candidates[i]);
+            Normalize(text);
+            double dot = 0;
+            for (int d = 0; d < text.Length; d++)
+            {
+                dot += (double)pooled[d] * text[d];
+            }
 
-    public void Dispose() => _compiled.Dispose();
+            var (scale, bias) = ZeroShotScale();
+            logits[i] = (float)(dot * scale + bias);
+        }
+
+        return Task.FromResult(Rank(logits, candidates, _sigmoid, options?.TopK ?? 5));
+    }
+
+    public void Dispose()
+    {
+        _textCompiled?.Dispose();
+        _compiled.Dispose();
+    }
+
+    private void RequireText()
+    {
+        if (_textCompiled is null)
+        {
+            throw new NotSupportedException($"{Metadata.ModelName} has no text tower.");
+        }
+    }
+
+    private (float Scale, float Bias) ZeroShotScale()
+    {
+        var graph = _textCompiled!.Graph;
+        var scale = new float[1] { 1f };
+        var bias = new float[1];
+        if (graph.Outputs.ContainsKey("logit_scale"))
+        {
+            _textCompiled.GetOutput<float>("logit_scale", scale);
+        }
+
+        if (graph.Outputs.ContainsKey("logit_bias"))
+        {
+            _textCompiled.GetOutput<float>("logit_bias", bias);
+        }
+
+        return (scale[0], bias[0]);
+    }
+
+    private float[] RunText(string text)
+    {
+        RequireText();
+        var ids = _tokenizer!.Encode(text);
+        int eos = _tokenizer.EosId ?? -1;
+        if (ids.Length > _contextLength)
+        {
+            ids = ids[.._contextLength];
+            if (eos >= 0 && _tokenizer.AddEos)
+            {
+                ids[^1] = eos;
+            }
+        }
+
+        var padded = new int[_contextLength];
+        Array.Fill(padded, _padId);
+        ids.CopyTo(padded, 0);
+        int pool = _contextLength - 1;
+        if (_poolEos)
+        {
+            pool = Array.IndexOf(ids, ids.Max());
+        }
+
+        _textCompiled!.SetInput<int>(_textTokens!, padded);
+        _textCompiled.SetInput<int>(_poolIndex!, [pool]);
+        _textCompiled.Run(new RunParameters());
+        var pooled = new float[_textDimensions];
+        _textCompiled.GetOutput<float>(WellKnown.PooledOutput, pooled);
+        return pooled;
+    }
 
     private int LastDim(string output)
     {

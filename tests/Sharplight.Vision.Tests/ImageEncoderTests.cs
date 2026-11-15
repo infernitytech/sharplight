@@ -85,6 +85,62 @@ public class ImageEncoderTests
         }
     }
 
+    [Theory]
+    [InlineData("clip-vit-base-patch32")]
+    [InlineData("siglip-base-patch16-224")]
+    public async Task DualEncoderMatchesTransformers(string name)
+    {
+        if (!Available(name) || !Reference(name).TryGetProperty("text_embeddings", out var textRef))
+        {
+            return;
+        }
+
+        var reference = Reference(name);
+        var imageExpected = Floats(reference.GetProperty("image_embedding"));
+        var texts = reference.GetProperty("texts").EnumerateArray().Select(t => t.GetString()!).ToArray();
+        var textExpected = textRef.EnumerateArray().Select(Floats).ToArray();
+        var logitsExpected = Floats(reference.GetProperty("logits_per_image"));
+        var image = PngCodec.Read(Path.Combine(Model(name), "sharplight-sample.png"));
+        foreach (var (backend, slot) in Backends())
+        {
+            using var model = Load(name, slot);
+            Assert.Equal("image-embedding", model.Description.Kind);
+            var ids = reference.GetProperty("token_ids").EnumerateArray().Select(r => r.EnumerateArray().Select(v => v.GetInt32()).ToArray()).ToArray();
+            var tokenizer = model.CreateTokenizer("tokenizer");
+            for (int i = 0; i < texts.Length; i++)
+            {
+                var actual = tokenizer.Encode(texts[i]);
+                Assert.Equal(ids[i].Take(actual.Length), actual);
+            }
+
+            using var embedder = new TaskClientProvider([.. Factories()]).Create<IImageEmbedder>(model);
+            Assert.True(embedder.SupportsText);
+            var embedding = await embedder.EmbedImageAsync(image, new ImageEmbeddingOptions { Normalize = false }, TestContext.Current.CancellationToken);
+            double imageRms = Env.Compare(embedding, imageExpected).Rms;
+            TestContext.Current.SendDiagnosticMessage($"{name} {backend}: image embedding rms {imageRms:e2}");
+            Assert.True(imageRms < 3e-3, $"{name} {backend}: image embedding rms {imageRms}");
+            for (int i = 0; i < texts.Length; i++)
+            {
+                var text = await embedder.EmbedTextAsync(texts[i], new ImageEmbeddingOptions { Normalize = false }, TestContext.Current.CancellationToken);
+                var (maxAbs, _, rms) = Env.Compare(text, textExpected[i]);
+                TestContext.Current.SendDiagnosticMessage($"{name} {backend}: text {i} rms {rms:e2}");
+                Assert.True(rms < 3e-3, $"{name} {backend}: text '{texts[i]}' relative rms {rms}, max abs {maxAbs}");
+            }
+
+            var zeroShot = await embedder.ClassifyZeroShotAsync(image, texts, new ImageClassificationOptions { TopK = 0 }, TestContext.Current.CancellationToken);
+            var logits = new float[texts.Length];
+            foreach (var p in zeroShot.Predictions)
+            {
+                logits[p.Index] = p.Logit;
+            }
+
+            var (zMax, _, zRms) = Env.Compare(logits, logitsExpected);
+            TestContext.Current.SendDiagnosticMessage($"{name} {backend}: zero-shot logits rms {zRms:e2}");
+            Assert.True(zRms < 5e-3, $"{name} {backend}: zero-shot logits rms {zRms}, max abs {zMax}");
+            Assert.Equal(Array.IndexOf(logitsExpected, logitsExpected.Max()), zeroShot.Top!.Index);
+        }
+    }
+
     // The factories registered by AddSharplightTasks that exist as instances (the image encoders').
     private static IEnumerable<ITaskClientFactory> Factories()
     {

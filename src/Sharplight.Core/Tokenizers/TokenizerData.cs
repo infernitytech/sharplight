@@ -38,6 +38,9 @@ public sealed record TokenizerData
     /// <summary>WordPiece: lowercase the text (default true).</summary>
     public bool? Lowercase { get; init; }
 
+    /// <summary>Unigram: characters removed from the text before tokenizing (SigLIP's canonicalization drops ASCII punctuation), or <see langword="null"/> for none.</summary>
+    public string? StripChars { get; init; }
+
     /// <summary>WordPiece: strip accents (default: same as <see cref="Lowercase"/>).</summary>
     public bool? StripAccents { get; init; }
 
@@ -133,6 +136,7 @@ public sealed record TokenizerData
             Scores = TokenizerMetadataReader.GetFloatArray(md, CanonicalKeys.TokenizerScores),
             AddSpacePrefix = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerAddSpacePrefix),
             Lowercase = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerLowercase),
+            StripChars = TokenizerMetadataReader.GetString(md, CanonicalKeys.TokenizerStripChars),
             StripAccents = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerStripAccents),
             BosId = TokenizerMetadataReader.GetInt(md, CanonicalKeys.TokenizerBosId),
             EosId = eos,

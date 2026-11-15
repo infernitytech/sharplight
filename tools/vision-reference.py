@@ -36,13 +36,17 @@ def main() -> None:
     with torch.no_grad():
         if config.model_type in ("clip", "siglip"):
             model = AutoModel.from_pretrained(args.model_dir).eval()
-            result["image_embedding"] = model.get_image_features(pixel_values=pixels)[0].tolist()
+            # Projected features computed from the towers (the return type of get_*_features differs between transformers versions).
+            project_image = model.visual_projection if config.model_type == "clip" else (lambda x: x)
+            project_text = model.text_projection if config.model_type == "clip" else (lambda x: x)
+            result["image_embedding"] = project_image(model.vision_model(pixel_values=pixels).pooler_output)[0].tolist()
             if args.text:
                 tokenizer = AutoTokenizer.from_pretrained(args.model_dir)
                 padding = "max_length" if config.model_type == "siglip" else True
                 tokens = tokenizer(args.text, padding=padding, max_length=64 if config.model_type == "siglip" else None, return_tensors="pt")
                 result["texts"] = args.text
-                result["text_embeddings"] = model.get_text_features(**tokens).tolist()
+                result["token_ids"] = tokens["input_ids"].tolist()
+                result["text_embeddings"] = project_text(model.text_model(**tokens).pooler_output).tolist()
                 outputs = model(pixel_values=pixels, **tokens)
                 result["logits_per_image"] = outputs.logits_per_image[0].tolist()
         elif getattr(config, "architectures", None) and "ForImageClassification" in config.architectures[0]:

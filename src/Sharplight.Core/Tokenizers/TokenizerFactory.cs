@@ -23,10 +23,11 @@ public static class TokenizerFactory
             "gpt2" => new ByteLevelBpeTokenizer(data),
             "spm" or "llama" => new SentencePieceTokenizer(data),
             "wordpiece" => new WordPieceTokenizer(data),
+            "clip" => new ClipBpeTokenizer(data),
             "unigram" => new UnigramTokenizer(data),
             "bpe" => new RankedBpeTokenizer(data),
             "rwkv" => new RwkvWorldTokenizer(data),
-            _ => throw new NotSupportedException($"Tokenizer model '{data.Model}' is not supported (supported: gpt2, spm, bpe, wordpiece, unigram, rwkv)."),
+            _ => throw new NotSupportedException($"Tokenizer model '{data.Model}' is not supported (supported: gpt2, clip, spm, bpe, wordpiece, unigram, rwkv)."),
         };
     }
 }

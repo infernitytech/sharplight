@@ -13,6 +13,12 @@ public static class WellKnown
     /// image embedding) and optionally <see cref="LogitsOutput"/> f32 [1, labels] (classifier head).
     /// </summary>
     public const string ImageEncodeGraph = "image_encode";
+    /// <summary>
+    /// The text tower of a dual-encoder (image + text) model: tokens i32 [L] (L fixed by the component, padded by the host) and <c>pool_index</c> i32 [1]
+    /// (the row to pool) in; <see cref="PooledOutput"/> f32 [1, dim] (the text embedding in the image embedding space) and optionally the zero-shot
+    /// <c>logit_scale</c> and <c>logit_bias</c> [1] out.
+    /// </summary>
+    public const string TextEncodeGraph = "text_encode";
     /// <summary>Name of the pooled embedding output of <see cref="ImageEncodeGraph"/>.</summary>
     public const string PooledOutput = "pooled";
     /// <summary>Decoder taking token ids, an embeddings input and a per-row mask (<see cref="InputRole.EmbeddingMask"/>): text mixed with media embeddings.</summary>
