@@ -50,7 +50,11 @@ public sealed class SkinnyGemmTests
         tg.B.Output("y", tg.B.Mul(tg.B.Silu(g), u));
         // silu(g) * u multiplies the errors of both products. Those are proportional to the weight rows' norms, not to the
         // outputs: NVFP4's random rows give products above 100, so its bound is wider (the generic f16 GEMM deviates alike).
-        double atol = fmt switch { "q8_0" => 6e-1, "nvfp4" => 3.0, _ => 1e-1 };
-        Diff.Check("Skinny.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: atol, rtol: 2e-2, what: $"T={t}");
+        // NVFP4 rows up to 8 run on the integer-dot matvec, where 8-bit activation rounding times those norms would exceed
+        // even that bound: they get activations that 8-bit block quantization represents exactly, and a tight bound.
+        bool exactActivations = fmt == "nvfp4" && t <= 8;
+        double atol = exactActivations ? 1e-1 : fmt switch { "q8_0" => 6e-1, "nvfp4" => 3.0, _ => 1e-1 };
+        var xs = exactActivations ? Rnd.ExactInt8((long)t * K, 3) : Rnd.F((long)t * K, 3);
+        Diff.Check("Skinny.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, xs)), atol: atol, rtol: 2e-2, what: $"T={t}");
     }
 }

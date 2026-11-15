@@ -3536,3 +3536,86 @@ OUT_DIR=bench/results/s28/serve PORT=18377 SLOTS=64 bench/s16_serve.sh vllm qwen
   summation order in the single matvecs and the K-quant GEMM, which changes greedy output (28.5).
 * **Norm-written f16 copies** cut launches and barriers but not Blackwell GPU time; their value on GPUs with costlier
   dispatch is unmeasured. Elementwise and matmul epilogues (attention gate, SwiGLU output) still feed separate conversions.
+
+## 29. Quantized Hugging Face checkpoints: NVFP4, MXFP4, GPTQ, AWQ, bitsandbytes, MLX (2026-11-14)
+
+Same machine as section 1. Single stream on Qwen3-8B: one real Hub checkpoint per format, plus Sharplight's own Q4_K_M GGUF
+as the baseline. The Sharplight CLI was run as `--bench N --ctx N+256 --batch 512` for N = 16 / 512 / 2048 / 4096. There were 3
+repetitions, with the models interleaved inside every repetition (A/B on a shared GPU). vLLM 0.33 used the offline API
+(`bench/vllm_single.py`, 5 repetitions, median), with flash-attn, CUDA graphs and a bf16 KV cache (f16/auto for the f16 AWQ
+checkpoint). Raw data and both scripts are in `bench/results/s29/`.
+
+Checkpoints:
+
+| Format | Checkpoint | vLLM kernel | Sharplight weight type | Weights on GPU |
+|---|---|---|---|---|
+| NVFP4 (ModelOpt) | nvidia/Qwen3-8B-NVFP4 | CUTLASS W4A4 (FP4 tensor cores, activations quantized to FP4) | `NVFP4_GS` (W4A16; int-dot matvec on q8_1 activations) | 6.83 GB |
+| AWQ GEMM, g128 | Qwen/Qwen3-8B-AWQ | Marlin | `Q4Z_G128` | 6.18 GB |
+| GPTQ 4-bit, g128 | JunHowie/Qwen3-8B-GPTQ-Int4 | Marlin | `Q4Z_G128` | 6.18 GB |
+| bitsandbytes NF4 (double quant) | unsloth/Qwen3-8B-bnb-4bit | not supported by vLLM 0.33 | `NF4_B64` | 6.40 GB |
+| GGUF Q4_K_M | Qwen3-8B-Q4_K_M.gguf | | `Q4_K` / `Q6_K` | 5.0 GB |
+
+All weights stay quantized on the GPU. The only formats dequantized at load are the ones without a fitting block type:
+bitsandbytes FP4, LLM.int8 and MLX at bit widths other than 4. These decode to BF16 at load and are not benchmarked here.
+
+### 29.1 Throughput (tok/s; Sharplight pp = best of 3 runs, tg = median of the per-run medians; vLLM = median of 5)
+
+| Checkpoint | Engine | pp512 | pp2048 | pp4096 | tg@16 | tg@4096 |
+|---|---|---|---|---|---|---|
+| NVFP4 | vLLM | 18119 | 36251 | 36436 | 113.4 | 93.9 |
+| NVFP4 | Sharplight | 9314 | 7422 | 6704 | **157.7** | **148.2** |
+| AWQ | vLLM | 11624 | 11903 | 11378 | 168.0 | 158.4 |
+| AWQ | Sharplight | 8949 | 8028 | 6576 | **195.9** | 156.6 |
+| GPTQ | vLLM | 10866 | 11465 | 11111 | 159.6 | 154.2 |
+| GPTQ | Sharplight | 8904 | 7774 | 6746 | **187.6** | **175.2** |
+| bnb NF4 | Sharplight | 7903 | 6755 | 6130 | 131.8 | 111.6 |
+| Q4_K_M (baseline) | Sharplight | 8208 | 7096 | 6240 | 225.4 | 168.6 |
+
+Decode now beats vLLM on all three formats vLLM runs, except AWQ at depth 4096, where the two are level. Prefill lags
+by 20-40 % against Marlin (GPTQ / AWQ) and by 2-5x against vLLM's W4A4 NVFP4 path. The Blackwell GPU's Vulkan driver
+exposes no FP4 (or FP8) cooperative-matrix types, so NVFP4 prefill dequantizes to f16 in the tensor-core GEMM, the same
+path as the integer formats. Matching CUTLASS W4A4 would need FP4 coopmat, or a W4A4 integer-MMA emulation; the latter
+would also change the numerics vLLM gets from activation quantization.
+
+### 29.2 Before / after the decode kernels of this round (best GPU ms per decode step at N = 16)
+
+"Before" is the same branch with the formats imported and decoded through the generic `load8` / `load16h` paths. "After"
+adds the 8-bit integer-dot matvec (`mmvq`) for the zero-point and NVFP4 types and moves the NF4 lookup into the grid
+buffer.
+
+| Checkpoint | before | after | tg@16 before → after (tok/s) |
+|---|---|---|---|
+| NVFP4 | 6.98 | 4.66 | 117.4 → 157.7 |
+| AWQ | 5.92 | 4.06 | 140.2 → 195.9 |
+| GPTQ | 5.66 | 4.19 | 139.1 → 187.6 |
+| bnb NF4 | 15.96 | 6.18 | 54.5 → 131.8 |
+| Q4_K_M (unchanged code) | 4.38 | 4.13 | 183.4 → 225.4 |
+
+The two runs were hours apart on the shared GPU. The unchanged Q4_K_M row shows the "after" run had a quieter GPU
+(about 6 % on GPU time, more on wall-clock tok/s), so the GPU-time columns are the fair comparison. In the bnb NF4
+row, the move from a local `static const` table (divergent indexing spilled to local memory) to the grid buffer also
+doubled prefill (4274 → 7903 tok/s at pp512).
+
+### 29.3 Exactness
+
+* **Dequantization**: the tiny checkpoints were made with the libraries themselves where they install (llmcompressor /
+  compressed-tensors, AutoAWQ, bitsandbytes, ModelOpt, MLX). GPTQ and Quark packing follow the gptqmodel / quark source.
+  These checkpoints, plus two real Qwen3-0.6B NVFP4 checkpoints, decode on the CPU and on Vulkan **bit-exact** against the
+  library's own dequantization, after rounding to the library's output dtype (`QuantizedImportTests`).
+* **Logits** against an f32 transformers forward over the library dequantization: within 1 % of the logit spread on the
+  CPU (f32 activations) and 4 % on Vulkan (q8_1 activations in the int-dot matvec, f16 tensor-core prefill), with the same
+  top-1 (`QuantizedCheckpointTests`).
+* **Greedy regression**: 200-token CLI outputs are identical to main for Qwen2.5-0.5B (HF, CPU and Vulkan; Q8_0),
+  Llama-3.2-1B Q4_K_M (CPU and Vulkan), Qwen3-8B Q4_K_M, gpt-oss-20b and the 27B FP8.
+
+### 29.4 Open gaps
+
+* NVFP4 prefill (no FP4 coopmat on Vulkan, see above). `NVFP4_GS` stores the per-tensor f32 global scale in every
+  64-value block (5.0 bits per weight against 4.5). Folding it into the UE4M3 block scales is only exact when it is a
+  power of two, and that does not hold in practice.
+* GPTQ / AWQ prefill: 6.6-8.9k tok/s against Marlin's 11-12k. The `Q4Z` decode in the f16 GEMM is the same cost as Q4_0
+  plus one subtract per half2. The gap is in the GEMM itself, shared with Q4_K_M (8.2k).
+* bitsandbytes FP4, LLM.int8 (outliers stay in the BF16 decode: the int8 weights times the row scale, matching
+  `int8_vectorwise_dequant`) and non-4-bit MLX are dequantized at load.
+* Not supported: HQQ, AQLM, EETQ, quanto, EXL2, torchao, VPTQ, HIGGS, SpQR, AutoRound-native, FP-Quant, Quark integer and
+  MXFP6, AWQ `gemv_fast`, Marlin-repacked checkpoints, and the MLX FP4 / MXFP4 modes.
