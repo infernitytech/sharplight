@@ -18,6 +18,7 @@ namespace Sharplight.Vulkan;
 /// independent launches (<see cref="HazardTracker.Order(System.Collections.Generic.IReadOnlyList{Shaders.Lowering.KernelLaunch}, Shaders.Lowering.Bindings, bool)"/>).</item>
 /// <item><c>SHARPLIGHT_VK_MAX_LAUNCHES=n</c>: record only the first <c>n</c> launches (bisecting a faulting kernel).</item>
 /// <item><c>SHARPLIGHT_VK_LIST_LAUNCHES=1</c>: print each recorded launch.</item>
+/// <item><c>SHARPLIGHT_VK_TRANSFER_QUEUE=0</c>: download large outputs on the compute queue instead of the transfer-only queue.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>: print load-phase timings (pipeline creation, upload) to stderr.</item>
 /// <item><c>SHARPLIGHT_SUBMISSION_BUDGET_MS=ms</c>: overrides the per-device submission budget (0 disables slicing); the
 /// <c>submission_budget_ms</c> device setting wins over it.</item>
@@ -50,6 +51,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Number of launches recorded per command buffer; <see cref="int.MaxValue"/> records all.</summary>
     public static int MaxLaunches { get; } = int.TryParse(Read("SHARPLIGHT_VK_MAX_LAUNCHES"), out int max) ? max : int.MaxValue;
+
+    /// <summary>False (<c>SHARPLIGHT_VK_TRANSFER_QUEUE=0</c>) when large outputs are downloaded on the compute queue.</summary>
+    public static bool TransferQueue { get; } = Read("SHARPLIGHT_VK_TRANSFER_QUEUE") != "0";
 
     /// <summary>Prints each recorded launch.</summary>
     public static bool ListLaunches { get; } = IsSet("SHARPLIGHT_VK_LIST_LAUNCHES");

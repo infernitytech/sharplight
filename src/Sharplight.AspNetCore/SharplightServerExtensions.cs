@@ -52,7 +52,8 @@ public static class SharplightServerExtensions
     {
         /// <summary>
         /// Maps everything the options enable: <c>/health</c>, <c>/metrics</c>, the admin endpoints, the OpenAI and the Anthropic
-        /// API, plus the retrieval endpoints of <see cref="RetrievalApi"/> when embedding / rerank models are registered.
+        /// API, plus the retrieval endpoints of <see cref="RetrievalApi"/> when embedding / rerank models are registered and the audio
+        /// endpoints of <see cref="AudioApi"/> when speech recognizers are registered.
         /// </summary>
         /// <exception cref="InvalidOperationException"><c>AddSharplightServer</c> was not called.</exception>
         public IEndpointRouteBuilder MapSharplightServer()
@@ -71,6 +72,7 @@ public static class SharplightServerExtensions
             }
 
             routes.MapSharplightRetrieval();
+            routes.MapSharplightAudio();
             return routes;
         }
 

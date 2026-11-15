@@ -3,6 +3,7 @@ using Sharplight.AspNetCore;
 using Sharplight.Llm.Embeddings;
 using Sharplight.Llm.Serving.Chat;
 using Sharplight.Llm.Serving.Hosting;
+using Sharplight.Speech;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -70,6 +71,52 @@ public static class SharplightServerServiceCollectionExtensions
             configure?.Invoke(models);
             return services;
         }
+
+        /// <summary>Serves <paramref name="recognizer"/> on the audio endpoints under <paramref name="name"/>.</summary>
+        /// <param name="recognizer">The recognizer; the caller keeps ownership.</param>
+        /// <param name="name">The model name clients pass.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddSharplightSpeechRecognizer(ISpeechRecognizer recognizer, string name)
+        {
+            ArgumentNullException.ThrowIfNull(recognizer);
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            var models = services.AudioModels();
+            models.Recognizers[name] = recognizer;
+            models.DefaultRecognizer ??= name;
+            return services;
+        }
+
+        /// <summary>
+        /// Serves the container's <see cref="ISpeechRecognizer"/> (registered e.g. with <c>services.AddSpeechRecognizer(...)</c>; keyed when
+        /// <paramref name="serviceKey"/> is given) on the audio endpoints under <paramref name="name"/>. The model loads on the first request.
+        /// </summary>
+        /// <param name="name">The model name clients pass.</param>
+        /// <param name="serviceKey">The recognizer's service key, or <see langword="null"/> for the unkeyed one.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddSharplightSpeechRecognizer(string name, object? serviceKey = null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            var models = services.AudioModels();
+            models.Lazy[name] = provider => serviceKey is null
+                ? provider.GetRequiredService<ISpeechRecognizer>()
+                : provider.GetRequiredKeyedService<ISpeechRecognizer>(serviceKey);
+            models.DefaultRecognizer ??= name;
+            return services;
+        }
+
+        private AudioModelRegistrations AudioModels()
+        {
+            if (services.FirstOrDefault(d => d.ServiceType == typeof(AudioModelRegistrations))?.ImplementationInstance is AudioModelRegistrations existing)
+            {
+                return existing;
+            }
+
+            var models = new AudioModelRegistrations();
+            services.AddSingleton(models);
+            services.AddSingleton(provider => models.Resolve(provider));
+            return models;
+        }
+    
 
         private RetrievalModels RetrievalModels()
         {

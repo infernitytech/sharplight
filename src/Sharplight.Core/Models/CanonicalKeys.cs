@@ -107,4 +107,9 @@ public static class CanonicalKeys
     public const string ClassifierActivation = "classifier.activation";
     /// <summary>Label names of a classifier head (string[]).</summary>
     public const string ClassifierLabels = "classifier.labels";
+    /// <summary>
+    /// The host-side image preprocessing of an image model as the JSON of an <see cref="Imaging.ImageProcessorConfig"/> (string); adapters store it
+    /// in the configuration of the model's feature-extractor component.
+    /// </summary>
+    public const string ImageProcessor = "image_processor.json";
 }

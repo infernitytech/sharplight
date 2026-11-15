@@ -6,6 +6,7 @@ using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Speech;
 using Sharplight.Tasks;
+using Sharplight.Vision;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -21,8 +22,9 @@ public static class TaskServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the <see cref="TaskClientProvider"/>, the <see cref="ModelLoader"/> and the built-in text-generation factory (decoder LLMs
-        /// and masked-diffusion LMs). Idempotent. <c>services.AddSharplight()</c> of the Sharplight.Defaults package calls it.
+        /// Adds the <see cref="TaskClientProvider"/>, the <see cref="ModelLoader"/> and the built-in factories: text generation (decoder LLMs
+        /// and masked-diffusion LMs), speech recognition with prompted encoder-decoder models (Whisper family), and image classification and
+        /// embedding with image encoders. Idempotent. <c>services.AddSharplight()</c> of the Sharplight.Defaults package calls it.
         /// </summary>
         public IServiceCollection AddSharplightTasks()
         {
@@ -31,6 +33,14 @@ public static class TaskServiceCollectionExtensions
             services.AddModelLoader();
             services.TryAddSingleton<TaskClientProvider>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextGeneratorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, EncoderDecoderSpeechRecognizerFactory>());
+            if (!services.Any(d => d.ServiceType == typeof(ITaskClientFactory) && d.ImplementationInstance is ImageEncoderFactory))
+            {
+                services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageClassification, typeof(IImageClassifier)));
+                services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageEmbedding, typeof(IImageEmbedder)));
+                services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageClassification, typeof(IImageEmbedder)));
+            }
+
             return services;
         }
 
@@ -164,6 +174,40 @@ public static class TaskServiceCollectionExtensions
         /// <returns>The service collection.</returns>
         public IServiceCollection AddSpeechSynthesizer(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
             => services.AddTaskClient<ISpeechSynthesizer>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IImageClassifier"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddImageClassifier(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IImageClassifier>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IImageClassifier"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddImageClassifier(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IImageClassifier>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IImageEmbedder"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddImageEmbedder(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IImageEmbedder>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IImageEmbedder"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddImageEmbedder(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IImageEmbedder>(configure, serviceKey);
 
         /// <summary>Adds an <see cref="IImageGenerator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
         /// <param name="configure">Configures the model path, devices and compile settings.</param>

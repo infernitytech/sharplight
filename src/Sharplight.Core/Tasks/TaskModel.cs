@@ -113,10 +113,21 @@ public sealed class TaskModel : IDisposable
     public IReadOnlyDictionary<string, object> Metadata(string? role = null)
         => role is null ? Definition.SourceMetadata : Description.Component(role).Metadata(Definition.SourceMetadata);
 
-    /// <summary>Builds the tokenizer stored in the canonical metadata of a component, or of the whole model when <paramref name="role"/> is null.</summary>
+    /// <summary>
+    /// Builds the tokenizer of a component: its <see cref="ModelComponentAttachments.Tokenizer"/> attachment when it has one, else the
+    /// tokenizer in the component's canonical metadata (or the whole model's when <paramref name="role"/> is null).
+    /// </summary>
     /// <param name="role">The component role, or <see langword="null"/>.</param>
-    /// <exception cref="NotSupportedException">The metadata describes no supported tokenizer.</exception>
-    public ITokenizer CreateTokenizer(string? role = null) => TokenizerFactory.Create(TokenizerData.FromMetadata(Metadata(role)));
+    /// <exception cref="NotSupportedException">The model describes no supported tokenizer.</exception>
+    public ITokenizer CreateTokenizer(string? role = null)
+    {
+        if (role is not null && Description.Component(role).Attachments.ContainsKey(ModelComponentAttachments.Tokenizer))
+        {
+            return TokenizerFactory.Create(TokenizerData.FromJson(ReadAttachment(role, ModelComponentAttachments.Tokenizer)));
+        }
+
+        return TokenizerFactory.Create(TokenizerData.FromMetadata(Metadata(role)));
+    }
 
     /// <summary>The bytes of an attachment of a component (<see cref="ModelComponent.Attachments"/>).</summary>
     /// <param name="role">The component role.</param>
@@ -150,7 +161,10 @@ public sealed class TaskModel : IDisposable
 
     /// <summary>
     /// Compiles a graph of a component onto the configured devices, with the component's default symbol bounds
-    /// (<see cref="ModelComponent.SymbolBounds"/>) under <paramref name="symbolBounds"/>; consults and records precompiled artifacts.
+    /// (<see cref="ModelComponent.SymbolBounds"/>) under <paramref name="symbolBounds"/>; consults and records precompiled artifacts. Bounds
+    /// of the row symbol (<see cref="WellKnown.TokenSymbol"/>) and the context symbol (<see cref="WellKnown.ContextSymbol"/>) replace
+    /// <see cref="TaskLoadOptions.MaxBatchTokens"/> and <see cref="TaskLoadOptions.ContextLength"/> (a speech decoder's fixed context, for
+    /// example), as in package precompilation.
     /// </summary>
     /// <param name="role">The component role.</param>
     /// <param name="graph">One of the component's graph names, or <see langword="null"/> for its first graph.</param>
@@ -164,7 +178,9 @@ public sealed class TaskModel : IDisposable
             bounds[symbol] = bound;
         }
 
-        return Compile(ComponentGraph(role, graph), bounds);
+        long? maxTokens = bounds.Remove(WellKnown.TokenSymbol, out long rows) ? rows : null;
+        long? contextLength = bounds.Remove(WellKnown.ContextSymbol, out long context) ? context : null;
+        return Compile(ComponentGraph(role, graph), bounds, maxTokens, contextLength);
     }
 
     /// <summary>

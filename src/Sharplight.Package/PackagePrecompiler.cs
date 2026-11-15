@@ -274,10 +274,15 @@ public static class PackagePrecompiler
             }
         }
 
+        // A component's own row and context bounds replace the batch and context options, as TaskModel.CompileComponent does at load.
+        long maxTokens = componentBounds.TryGetValue(WellKnown.TokenSymbol, out long rows) ? rows : options.BatchTokens;
+        long contextLength = componentBounds.TryGetValue(WellKnown.ContextSymbol, out long context) ? context : options.ContextLength;
+        bounds.Remove(WellKnown.TokenSymbol);
+        bounds.Remove(WellKnown.ContextSymbol);
         var compileOptions = new CompileOptions
         {
-            MaxTokens = options.BatchTokens,
-            ContextLength = options.ContextLength,
+            MaxTokens = maxTokens,
+            ContextLength = contextLength,
             SymbolBounds = bounds,
             CacheFor = artifacts.For,
             Progress = options.Progress,

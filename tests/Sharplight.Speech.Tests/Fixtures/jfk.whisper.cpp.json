@@ -1,0 +1,137 @@
+{
+ "ggml-base-q5_1": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 10640,
+    "text": " And so my fellow Americans ask not what your country can do for you, ask what you can do for your country."
+   }
+  ],
+  "text": "And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+ },
+ "ggml-base.en-q5_1": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 11000,
+    "text": " And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+   }
+  ],
+  "text": "And so my fellow Americans ask not what your country can do for you, ask what you can do for your country."
+ },
+ "ggml-base.en": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 11000,
+    "text": " And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+   }
+  ],
+  "text": "And so my fellow Americans ask not what your country can do for you, ask what you can do for your country."
+ },
+ "ggml-base": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 11000,
+    "text": " And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+   }
+  ],
+  "text": "And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+ },
+ "ggml-small-q5_1": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 11000,
+    "text": " And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+   }
+  ],
+  "text": "And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+ },
+ "ggml-small.en-q5_1": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 11000,
+    "text": " And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+   }
+  ],
+  "text": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+ },
+ "ggml-small.en": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 8000,
+    "text": " And so, my fellow Americans, ask not what your country can do for you."
+   },
+   {
+    "from": 8000,
+    "to": 11000,
+    "text": " Ask what you can do for your country."
+   }
+  ],
+  "text": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+ },
+ "ggml-small": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 11000,
+    "text": " And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+   }
+  ],
+  "text": "And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+ },
+ "ggml-tiny-q5_1": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 10600,
+    "text": " And so my fellow Americans ask not what your country can do for you, ask what you can do for your country."
+   }
+  ],
+  "text": "And so my fellow Americans ask not what your country can do for you, ask what you can do for your country."
+ },
+ "ggml-tiny.en-q5_1": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 7740,
+    "text": " And so my fellow Americans ask not what your country can do for you"
+   },
+   {
+    "from": 7740,
+    "to": 10580,
+    "text": " ask what you can do for your country."
+   }
+  ],
+  "text": "And so my fellow Americans ask not what your country can do for you ask what you can do for your country."
+ },
+ "ggml-tiny.en": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 8000,
+    "text": " And so my fellow Americans ask not what your country can do for you"
+   },
+   {
+    "from": 8000,
+    "to": 11000,
+    "text": " ask what you can do for your country."
+   }
+  ],
+  "text": "And so my fellow Americans ask not what your country can do for you, ask what you can do for your country."
+ },
+ "ggml-tiny": {
+  "segments": [
+   {
+    "from": 0,
+    "to": 10500,
+    "text": " And so my fellow Americans ask not what your country can do for you, ask what you can do for your country."
+   }
+  ],
+  "text": "And so my fellow Americans ask not what your country can do for you ask what you can do for your country."
+ }
+}
