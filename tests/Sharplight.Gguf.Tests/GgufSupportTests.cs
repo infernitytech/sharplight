@@ -42,7 +42,8 @@ public class GgufSupportTests
     {
         Assert.Equal(DataType.Q4_K, GgufSupport.GetTensorType(12));
         Assert.Equal(DataType.Q8_K, GgufSupport.GetTensorType(15));
-        Assert.Null(GgufSupport.GetTensorType(31));
+        Assert.Equal(DataType.Q4_0, GgufSupport.GetTensorType(31));   // Q4_0_4_4, deinterleaved on read
+        Assert.Null(GgufSupport.GetTensorType(36));
         Assert.Null(GgufSupport.GetTensorType(99));
     }
 

@@ -106,9 +106,10 @@ public sealed class GgufImporter : IModelImporter
     {
         var weights = MapWeights(path, tensors, mapping, view);
         if (GgufTensorNames.HoldsOnlyNextnBlocks(tensors.Select(t => t.Name), view)
-            && !weights.Keys.Any(k => k.StartsWith("mtp.layers.", StringComparison.Ordinal)))
+            && !weights.Keys.Any(k => k.StartsWith("mtp.layers.", StringComparison.Ordinal) || k.StartsWith("layers.", StringComparison.Ordinal)))
         {
-            // An MTP draft file of an architecture whose NextN head is not imported: neither a model nor a usable draft.
+            // An MTP draft file of an architecture whose NextN head is not imported (it maps to no layer at all): neither a model nor a
+            // usable draft. Drafter architectures of their own (gemma4-assistant) map their blocks to layers and are not affected.
             throw new NotSupportedException($"{path}: the file holds only multi-token-prediction layers (an MTP draft file), and the "
                 + $"multi-token-prediction head of '{view.GgufArchitecture}' is not imported, so it cannot be loaded as a draft either.");
         }
