@@ -15,6 +15,8 @@ for dirpath, _, files in os.walk(root):
         except (UnicodeDecodeError, OSError):
             continue
         t = s.replace(home, "~").replace(f"/{user}/", "/USER/")
+        # Paths of the build / work area (anything under /workspace or /home) become a placeholder.
+        t = re.sub(r"/(?:workspace|home)/[^\s'\",)\]]*", "<path>", t)
         if f.endswith(".gpu.txt"):
             out = []
             for line in t.splitlines():
