@@ -57,6 +57,15 @@ Model assets are not in git (~900 GB on the old machine). Layout expected by tes
 5. For now: feature work first; no benchmark rounds until the user asks again. Performance parity (vLLM, llama.cpp,
    onnxruntime) remains a goal for later.
 
+## 3a. State of `develop` (2026-11-15, new machine)
+
+`develop` = `main` + SHARPLIGHT_VK_DEVICES, release engineering (CI for develop/main/release/*, NuGet from release/*,
+Velopack Studio packages for 5 RIDs x stable/unstable, update UI; first unstable release live), the Studio test fixes and
+the Core restructure (Llm/Tokenizers/Templating in Core, DI task layer, `.slm` description + attachments,
+`services.AddSharplight()`). Suites on develop: everything green except 99 Families tests (regenerated tiny models whose
+weights differ from the old machine's; identical failures on main, being fixed by regenerating goldens from the
+reference implementations), 49 ONNX conformance (as on main) and 1 Hub test (tests run as root).
+
 ## 3. State of `main` (5f16fc09 + this folder)
 
 Merged on 2026-11-15: quantized HF checkpoints (NVFP4, MXFP4, GPTQ, AWQ, bitsandbytes NF4, MLX 4-bit, DeepSeek-V4
