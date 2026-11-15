@@ -72,6 +72,15 @@ public static class GgufSupport
             return new GgufImportCheck([$"GGUF architecture '{architecture}' has no canonical mapping."], IsComplete: true);
         }
 
+        // A split model declares the tensor count of all its shards: fewer entries mean a shard is missing (an incomplete upload).
+        if (metadata.GetValueOrDefault("split.tensors.count") is IConvertible declared && Convert.ToInt64(declared, System.Globalization.CultureInfo.InvariantCulture) is var total
+            && tensors.Count < total)
+        {
+            string shards = metadata.GetValueOrDefault("split.count") is IConvertible count ? $"{Convert.ToInt64(count, System.Globalization.CultureInfo.InvariantCulture)} files" : "several files";
+            return new GgufImportCheck([$"The model is split into {shards} holding {total} tensors, but the files present hold {tensors.Count}: a shard is missing."],
+                IsComplete: true);
+        }
+
         var infos = new List<GgufTensorInfo>(tensors.Count);
         var unknownTypes = new SortedSet<int>();
         foreach (var tensor in tensors)
@@ -98,6 +107,7 @@ public static class GgufSupport
         }
 
         var view = new GgufMetadataView(metadata, architecture, name => byName.GetValueOrDefault(name));
+        bool nextnOnly = GgufTensorNames.HoldsOnlyNextnBlocks(byName.Keys, view);   // an mtp-*.gguf draft file, whatever its mapping imports
         try
         {
             if (mapping.Validate(view).ToList() is { Count: > 0 } problems)
@@ -122,7 +132,7 @@ public static class GgufSupport
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             // Every other failure of these steps fails the import the same way.
-            return new GgufImportCheck([error.Message.TrimStart(':', ' ')], IsComplete: true);
+            return new GgufImportCheck([error.Message.TrimStart(':', ' ')], IsComplete: true, IsDraftModel: nextnOnly);
         }
     }
 

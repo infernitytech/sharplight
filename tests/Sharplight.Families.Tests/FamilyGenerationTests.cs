@@ -73,6 +73,9 @@ public class FamilyGenerationTests
             NemotronLatentIds, "", NeedsCpuFallback: true),
         // The same file with a multi-token-prediction block appended as llama.cpp's converter writes the Nemotron 3.5 MTP head
         // (nextn_predict_layers 1, tools/mk_tiny_nemotron_h_mtp.py): the trunk loads without it and decodes as before (llama.cpp 8ca5a80 too).
+        // The HF form (mtp.layers.0 fusion + attention, mtp.layers.1 experts + head norm; tools/mk_tiny_nemotron_h_mtp_hf.py), whose
+        // llama.cpp conversion has the block layout of the GGUF case below.
+        new("tiny-random-nemotron-h-mtp HF (trunk)", "hf/tiny-random-nemotron-h-mtp", P2, "ids", NemotronLatentIds, "", NeedsCpuFallback: true),
         new("tiny-random-nemotron-h-mtp f32 GGUF (trunk, llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-mtp-f32.gguf", P2, "ids",
             NemotronLatentIds, "", NeedsCpuFallback: true),
         // Heterogeneous ("Puzzle", Nemotron 3.5 Bolt): the second MoE layer has 6 of the 8 experts and selects 3, the first 2

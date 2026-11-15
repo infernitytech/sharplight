@@ -18,6 +18,7 @@ public class GgufSweepFixtureTests
     [InlineData("Llama-3.2-1B-Instruct-Q4_0_4_4")] // the interleaved Q4_0 type 31
     [InlineData("embeddinggemma-2-Q8_0")] // the gemma-embedding2 architecture, mapped since
     [InlineData("NVIDIA-Nemotron-3.5-Bolt-74B-A9B-UD-IQ1_M")] // the latent experts (ffn_latent_down / ffn_latent_up) of nemotron_h_moe
+    [InlineData("NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0")] // the NextN block appended after the trunk (blk.52.nextn.*)
     public void ReleasedHeader_IsAccepted(string name)
     {
         var header = File.ReadAllBytes(Fixture(name));
@@ -34,10 +35,18 @@ public class GgufSweepFixtureTests
     /// Unsloth's split MTP file of Qwen3.8-27B (<c>MTP/mtp-Qwen3.8-27B-Q4_0.gguf</c>, architecture qwen35) holds only the
     /// multi-token-prediction layers: the check reports a draft model, as the importer does, instead of accepting it.
     /// </summary>
-    [Fact]
-    public void MtpOnlyHeader_IsADraftModel()
+    /// <remarks>
+    /// Also ggml-org's Nemotron 3.5 Lightning MTP file (nemotron_h_moe, its NextN block below <c>mtp.layers.0.</c>) and agentionai's
+    /// Qwen3.8-Flash-Next MTP file (qwen4exp, whose NextN head is not imported, so the file maps to no layers at all: the check
+    /// recognizes it from the block indices, and the importer says so instead of failing on a missing trunk weight).
+    /// </remarks>
+    [Theory]
+    [InlineData("mtp-Qwen3.8-27B-Q4_0")]
+    [InlineData("mtp-NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0")]
+    [InlineData("mtp-Qwen3.8-Flash-Next-draft")]
+    public void MtpOnlyHeader_IsADraftModel(string name)
     {
-        var header = File.ReadAllBytes(Fixture("mtp-Qwen3.8-27B-Q4_0"));
+        var header = File.ReadAllBytes(Fixture(name));
 
         var check = GgufSupport.Validate(GgufHeaderProbe.ReadMetadata(header), GgufHeaderProbe.ReadTensorTable(header)!);
 
@@ -78,5 +87,24 @@ public class GgufSweepFixtureTests
         {
             File.Delete(path);
         }
+    }
+
+    /// <summary>
+    /// ISTA-DASLab's DeepSeek-V4.1-Flash GSQ-RCO uploads lack their last shard: a split model whose shards hold fewer tensors than
+    /// its <c>split.tensors.count</c> is reported as incomplete instead of accepted (the importer fails on the missing file).
+    /// </summary>
+    [Fact]
+    public void SplitHeaderWithoutAShard_IsRejected()
+    {
+        var header = File.ReadAllBytes(Fixture("DeepSeek-V4.1-Flash-1017-UD-Q2_K_XL"));
+        var metadata = GgufHeaderProbe.ReadMetadata(header);
+        var table = GgufHeaderProbe.ReadTensorTable(header)!;
+        Assert.True(Convert.ToInt32(metadata["split.count"]) > 1);
+
+        var check = GgufSupport.Validate(metadata, table.Take(table.Count - 10).ToList());
+
+        Assert.False(check.IsAccepted);
+        Assert.Contains("a shard is missing", Assert.Single(check.Problems), StringComparison.Ordinal);
+        Assert.True(GgufSupport.Validate(metadata, table).IsAccepted);
     }
 }

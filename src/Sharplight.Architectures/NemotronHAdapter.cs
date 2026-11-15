@@ -41,6 +41,11 @@ public sealed class NemotronHAdapter : IModelAdapter
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {
         var src = sources.Primary;
+        if (MtpDraftHead.IsSidecar(src))
+        {
+            throw MtpDraftHead.SidecarAsModelError(src);
+        }
+
         int nLayer = src.Arch<int>("layer_count");
         int nEmbd = src.Arch<int>("hidden_size");
         float eps = src.Arch("norm_eps", 1e-5f);

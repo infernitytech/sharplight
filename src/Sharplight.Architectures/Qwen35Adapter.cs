@@ -62,9 +62,7 @@ public sealed class Qwen35Adapter : IModelAdapter
     private static readonly IMlpActivation s_silu = MlpActivations.Create("silu");
 
     /// <summary>A source with MTP layers but no trunk layers: the NextN layers of a model stored on their own.</summary>
-    private static bool IsMtpSidecar(ModelSource source)
-        => source.Weights.Keys.Any(k => k.StartsWith(MtpPrefix + "layers.", StringComparison.Ordinal))
-           && !source.Weights.Keys.Any(k => k.StartsWith("layers.", StringComparison.Ordinal));
+    private static bool IsMtpSidecar(ModelSource source) => MtpDraftHead.IsSidecar(source);
 
     /// <summary>
     /// The MTP sidecar to take the draft layers from: the auxiliary draft source when the primary has no MTP layers of its own and the draft source
@@ -140,8 +138,7 @@ public sealed class Qwen35Adapter : IModelAdapter
         var src = sources.Primary;
         if (IsMtpSidecar(src))
         {
-            throw new NotSupportedException($"'{src.Path}' holds only multi-token-prediction layers (an MTP draft file), not a model of its own: load it as the "
-                + $"'{AuxiliaryRoles.Draft}' auxiliary source of the model it was made for.");
+            throw MtpDraftHead.SidecarAsModelError(src);
         }
 
         var sidecar = MtpSidecar(sources);
