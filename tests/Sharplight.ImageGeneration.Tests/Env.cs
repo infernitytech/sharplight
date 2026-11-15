@@ -21,6 +21,9 @@ internal static class Env
     /// <summary>Stable Diffusion 1.5 as a single-file checkpoint.</summary>
     public static readonly string Sd15SingleFile = Path.Combine(Home, "models/sd/v1-5-pruned-emaonly.safetensors");
 
+    /// <summary>The original SD 1.5 PyTorch checkpoint (optional).</summary>
+    public static readonly string Sd15Ckpt = Path.Combine(Home, "models/sd/v1-5-pruned-emaonly.ckpt");
+
     /// <summary>Stable Diffusion 1.5 as stable-diffusion.cpp GGUF files.</summary>
     public static string Sd15Gguf(string type) => Path.Combine(Home, $"models/sd/gguf/stable-diffusion-v1-5-pruned-emaonly-{type}.gguf");
 

@@ -6,7 +6,7 @@ namespace Sharplight.Import.Diffusers;
 
 /// <summary>
 /// Reads an original-layout (CompVis / Stability "LDM") Stable Diffusion checkpoint in one file: a single-file <c>.safetensors</c>
-/// checkpoint, or a GGUF file as written by stable-diffusion.cpp (the same tensor names, linear weights quantized). Such files
+/// checkpoint, a PyTorch <c>.ckpt</c> (read without executing its pickle), or a GGUF file as written by stable-diffusion.cpp (the same tensor names, linear weights quantized). Such files
 /// carry no configuration, so the hyper-parameters are inferred from the tensor shapes and the family defaults (SD 1.x).
 /// </summary>
 internal static class SingleFileCheckpoint
@@ -17,7 +17,7 @@ internal static class SingleFileCheckpoint
     private const string OpenClipPrefix = "cond_stage_model.model.";
     private const string SdxlPrefix = "conditioner.embedders.";
 
-    /// <summary>Whether <paramref name="path"/> is a safetensors or GGUF file holding a latent-diffusion UNet.</summary>
+    /// <summary>Whether <paramref name="path"/> is a safetensors, GGUF or PyTorch checkpoint holding a latent-diffusion UNet.</summary>
     /// <param name="path">A file.</param>
     public static bool IsCheckpoint(string path)
     {
@@ -35,6 +35,14 @@ internal static class SingleFileCheckpoint
             return false;
         }
         catch (InvalidDataException)
+        {
+            return false;
+        }
+        catch (Sharplight.Import.PyTorch.UnsafePickleException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
         {
             return false;
         }
@@ -68,7 +76,7 @@ internal static class SingleFileCheckpoint
             var vae = VaeConfig.FromWeights(weights.Weights, 0.18215f, LatentDiffusionSource.StableDiffusion1RgbFactors);
             var text = ClipTextConfig.FromWeights(weights.Weights, LatentDiffusionSource.TextEncoderPrefix, "quick_gelu");
             var scheduler = new SchedulerSettings();
-            string format = CheckpointTensors.IsGguf(path) ? "gguf" : "safetensors";
+            string format = CheckpointTensors.IsGguf(path) ? "gguf" : TorchCheckpoints.HasExtension(path) ? "pytorch" : "safetensors";
             return LatentDiffusionSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, unet, vae, text,
                 ClipVocabulary.OpenAi(), scheduler, tensors.Resources);
         }
@@ -98,13 +106,19 @@ internal static class SingleFileCheckpoint
         }
     }
 
-    /// <summary>The tensor names of a safetensors or GGUF file (header only).</summary>
+    /// <summary>The tensor names of a safetensors, GGUF or PyTorch checkpoint file (header / pickle only).</summary>
     private static IEnumerable<string> TensorNames(string path)
     {
         if (CheckpointTensors.IsGguf(path))
         {
             using var gguf = GgufFile.Open(path);
             return [.. gguf.Tensors.Select(t => t.Name)];
+        }
+
+        if (TorchCheckpoints.HasExtension(path))
+        {
+            using var checkpoint = TorchCheckpoints.Open(path);
+            return [.. checkpoint.Tensors.Keys];
         }
 
         if (!path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))

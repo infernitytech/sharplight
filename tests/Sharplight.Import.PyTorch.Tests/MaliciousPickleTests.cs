@@ -118,6 +118,20 @@ public sealed class MaliciousPickleTests
     }
 
     [Fact]
+    public void InertObjectsDiscardTupleState()
+    {
+        // numpy.dtype('f8') as pickled in Lightning checkpoints: BUILD with a tuple state on the reduced dtype.
+        var pickle = new PickleBuilder().Proto(2).Global("numpy", "dtype").Text("f8").Tuple(1).Reduce()
+            .Int(3).Text("<").Tuple(2).Raw((byte)'b').Stop().ToArray();
+        Refuse(pickle);
+        var options = new TorchCheckpointOptions { InertModulePrefixes = ["numpy"] };
+        Assert.NotNull(new RestrictedUnpickler(pickle, 0, options).Load());
+
+        // A dictionary still takes only dictionary state.
+        Refuse(new PickleBuilder().Proto(2).Raw((byte)'}').Int(3).Tuple(1).Raw((byte)'b').Stop().ToArray());
+    }
+
+    [Fact]
     public void MalformedStreamsAreRefusedNotCrashed()
     {
         Refuse([0x80, 2]);

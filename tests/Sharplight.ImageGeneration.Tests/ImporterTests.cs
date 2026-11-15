@@ -7,12 +7,15 @@ namespace Sharplight.ImageGeneration.Tests;
 /// <summary>The diffusers / single-file / GGUF importer: canonical names, configurations and the CLIP tokenizer.</summary>
 public sealed class ImporterTests
 {
-    [Fact]
-    public void SingleFileCheckpointEqualsDiffusersFolder()
+    [Theory]
+    [InlineData("tiny-sd.safetensors")]
+    [InlineData("tiny-sd.ckpt")]
+    public void SingleFileCheckpointEqualsDiffusersFolder(string fileName)
     {
         Assert.SkipUnless(Directory.Exists(Env.Tiny), "tiny-random-sd missing");
         var importer = new DiffusersImporter();
-        string singleFile = Path.Combine(Env.Tiny, "tiny-sd.safetensors");
+        string singleFile = Path.Combine(Env.Tiny, fileName);
+        Assert.SkipUnless(File.Exists(singleFile), $"{fileName} missing");
         Assert.True(importer.CanOpen(Env.TinyDiffusers));
         Assert.True(importer.CanOpen(singleFile));
         Assert.Same(importer.GetType(), ModelImporterRegistry.Find(singleFile)?.GetType());
@@ -66,13 +69,18 @@ public sealed class ImporterTests
         }
     }
 
-    public static TheoryData<string> Sd15Files => ["single", "f16", "Q8_0", "Q4_0"];
+    public static TheoryData<string> Sd15Files => ["single", "ckpt", "f16", "Q8_0", "Q4_0"];
 
     [Theory]
     [MemberData(nameof(Sd15Files))]
     public void Sd15CheckpointsMapToTheDiffusersNames(string variant)
     {
-        string path = variant == "single" ? Env.Sd15SingleFile : Env.Sd15Gguf(variant);
+        string path = variant switch
+        {
+            "single" => Env.Sd15SingleFile,
+            "ckpt" => Env.Sd15Ckpt,
+            _ => Env.Sd15Gguf(variant),
+        };
         Assert.SkipUnless(File.Exists(path) && Directory.Exists(Env.Sd15Diffusers), "SD 1.5 files missing");
         var importer = new DiffusersImporter();
         var folder = importer.Open(Env.Sd15Diffusers);
@@ -91,6 +99,31 @@ public sealed class ImporterTests
         finally
         {
             foreach (var resource in folder.OwnedResources.Concat(file.OwnedResources))
+            {
+                resource.Dispose();
+            }
+        }
+    }
+
+    [Fact]
+    public void Sd15CkptHoldsTheSafetensorsWeights()
+    {
+        Assert.SkipUnless(File.Exists(Env.Sd15Ckpt) && File.Exists(Env.Sd15SingleFile), "SD 1.5 .ckpt / .safetensors missing");
+        var importer = new DiffusersImporter();
+        Assert.Same(importer.GetType(), ModelImporterRegistry.Find(Env.Sd15Ckpt)?.GetType());
+        var safetensors = importer.Open(Env.Sd15SingleFile);
+        var ckpt = importer.Open(Env.Sd15Ckpt);
+        try
+        {
+            Assert.Equal("pytorch", ckpt.Format);
+            foreach (string name in safetensors.Weights.Keys.Where((_, i) => i % 37 == 0))
+            {
+                Assert.True(safetensors.Weights[name].ReadAll().AsSpan().SequenceEqual(ckpt.Weights[name].ReadAll()), $"{name} differs");
+            }
+        }
+        finally
+        {
+            foreach (var resource in safetensors.OwnedResources.Concat(ckpt.OwnedResources))
             {
                 resource.Dispose();
             }

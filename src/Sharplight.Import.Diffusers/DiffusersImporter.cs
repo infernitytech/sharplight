@@ -4,7 +4,7 @@ namespace Sharplight.Import.Diffusers;
 
 /// <summary>
 /// Importer for latent-diffusion image models (Stable Diffusion 1.x / 2.x): diffusers pipeline folders, original-layout single-file
-/// <c>.safetensors</c> checkpoints and stable-diffusion.cpp GGUF files, translated into the canonical <c>latent_diffusion</c> model
+/// <c>.safetensors</c> checkpoints, PyTorch <c>.ckpt</c> checkpoints (read with the restricted unpickler) and stable-diffusion.cpp GGUF files, translated into the canonical <c>latent_diffusion</c> model
 /// source (canonical UNet / VAE / text encoder weights, their configurations, the CLIP tokenizer and the noise schedule). The
 /// <c>LatentDiffusionAdapter</c> of Sharplight.Architectures builds the image-generation model from it.
 /// <para>
@@ -30,7 +30,7 @@ public sealed class DiffusersImporter : IModelImporter
     public bool CanOpen(string path) => DiffusersFolder.IsFolder(path) || SingleFileCheckpoint.IsCheckpoint(path);
 
     /// <summary>Opens a diffusers folder or a single-file checkpoint.</summary>
-    /// <param name="path">The pipeline folder, or a <c>.safetensors</c> / <c>.gguf</c> checkpoint.</param>
+    /// <param name="path">The pipeline folder, or a <c>.safetensors</c> / <c>.ckpt</c> / <c>.gguf</c> checkpoint.</param>
     /// <returns>The canonical source; it owns the memory-mapped files.</returns>
     /// <exception cref="NotSupportedException">The model is not a supported latent-diffusion model.</exception>
     public ModelSource Open(string path) => Directory.Exists(path) ? DiffusersFolder.Open(path) : SingleFileCheckpoint.Open(path);

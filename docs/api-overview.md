@@ -97,7 +97,8 @@ interfaces, options, results, the description and the host-side plumbing they pl
 
 ### Image generation
 
-`Sharplight.Import.Diffusers` reads Stable Diffusion 1.x checkpoints (diffusers folders, original single-file `.safetensors`,
+`Sharplight.Import.Diffusers` reads Stable Diffusion 1.x checkpoints (diffusers folders, original single-file `.safetensors` or
+`.ckpt` (through the restricted unpickler of Sharplight.Import.PyTorch),
 stable-diffusion.cpp GGUF files) into the canonical `latent_diffusion` source; `LatentDiffusionAdapter` (Sharplight.Architectures)
 builds a text encoder, a UNet denoiser and the VAE decoder / encoder as graphs of generic Core ops and describes them as an
 `image-generation` model (components `text-encoder`, `tokenizer`, `denoiser`, `vae`, `scheduler`). Core's built-in latent-diffusion

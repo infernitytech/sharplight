@@ -5,7 +5,7 @@ using Sharplight.Models;
 namespace Sharplight.Import.Diffusers;
 
 /// <summary>
-/// The tensors of one or more checkpoint files under their stored names (safetensors or GGUF), as lazy weight views over the
+/// The tensors of one or more checkpoint files under their stored names (safetensors, GGUF or PyTorch), as lazy weight views over the
 /// memory-mapped files. The files stay open until <see cref="Resources"/> are disposed (by the model source that takes them over).
 /// </summary>
 internal sealed class CheckpointTensors
@@ -29,7 +29,7 @@ internal sealed class CheckpointTensors
     }
 
     /// <summary>
-    /// Adds the tensors of a safetensors or GGUF file; names already present are replaced. Tensors whose stored type has no
+    /// Adds the tensors of a safetensors, GGUF or PyTorch checkpoint file; names already present are replaced. Tensors whose stored type has no
     /// Sharplight equivalent are left out (they are never weights of the supported networks, e.g. i64 position ids).
     /// </summary>
     /// <param name="path">The file.</param>
@@ -43,6 +43,21 @@ internal sealed class CheckpointTensors
             foreach (var tensor in gguf.Tensors)
             {
                 _tensors[prefix + tensor.Name] = Rename(tensor.ToWeightInfo(), prefix + tensor.Name);
+            }
+
+            return;
+        }
+
+        if (TorchCheckpoints.HasExtension(path))
+        {
+            var checkpoint = TorchCheckpoints.Open(path);
+            _resources.Add(checkpoint);
+            foreach (var (name, entry) in checkpoint.Tensors)
+            {
+                if (TorchCheckpoints.ToWeightInfo(checkpoint, entry, prefix + name) is { } weight)
+                {
+                    _tensors[prefix + name] = weight;
+                }
             }
 
             return;
