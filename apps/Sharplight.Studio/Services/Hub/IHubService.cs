@@ -9,10 +9,13 @@ internal interface IHubService
     public Task<IReadOnlyList<HubModelSummary>> SearchAsync(HubSearchQuery query, CancellationToken cancellationToken);
 
     /// <summary>
-    /// The models Discover shows before anything is searched (trending, new, most downloaded), kept to supported architectures and
-    /// cached for a few hours (see <see cref="HighlightsCatalog"/>).
+    /// The models Discover shows before anything is searched (trending, new, most downloaded), cached for a few hours (see
+    /// <see cref="HighlightsCatalog"/>): without a task the language models whose architecture Sharplight supports, with a task that
+    /// task's models.
     /// </summary>
-    public Task<IReadOnlyList<HighlightSection>> GetHighlightsAsync(CancellationToken cancellationToken);
+    /// <param name="task">The model type to highlight, or null for the default highlights.</param>
+    /// <param name="cancellationToken">Cancels the requests.</param>
+    public Task<IReadOnlyList<HighlightSection>> GetHighlightsAsync(ModelTask? task, CancellationToken cancellationToken);
 
     /// <summary>Files and variants of a repository.</summary>
     public Task<RepositoryDetails> GetDetailsAsync(string repository, CancellationToken cancellationToken);

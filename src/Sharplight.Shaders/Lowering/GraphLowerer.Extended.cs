@@ -11,7 +11,7 @@ namespace Sharplight.Shaders.Lowering;
 /// </summary>
 public sealed partial class GraphLowerer
 {
-    private static string[] ExtendedOpNames => ["LinearAttention", "DeformConv", "Unique", "TfIdf", "TreeEnsemble", "OneVsOne", "LabelEncode", "Dft"];
+    private static string[] ExtendedOpNames => ["LinearAttention", "DeformConv", "Unique", "TfIdf", "TreeEnsemble", "OneVsOne", "LabelEncode", "Dft", "Conv1d"];
     private static readonly HashSet<string> s_extendedOps = [.. ExtendedOpNames];
 
     /// <summary>Largest flattened Unique input on the device: the kernels compare every pair of elements.</summary>
@@ -60,6 +60,8 @@ public sealed partial class GraphLowerer
                 return IsFloatType(node.Inputs[0].Type) && node.Attributes.Get<long>("length") <= MaxDeviceDftLength && node.Inputs[0].Shape.Dims.Skip(1).All(d => !d.IsSymbolic)
                     ? OpSupport.Yes
                     : OpSupport.No($"Dft longer than {MaxDeviceDftLength} or with a symbolic inner axis");
+            case "Conv1d":
+                return node.Inputs.All(v => IsFloatType(v.Type)) && !node.Inputs[0].Shape[1].IsSymbolic ? OpSupport.Yes : OpSupport.No("Conv1d needs float inputs");
             case "TreeEnsemble":
             case "OneVsOne":
                 return IsFloatType(node.Inputs[0].Type) && !node.Inputs[0].Shape[1].IsSymbolic ? OpSupport.Yes : OpSupport.No($"{op} needs a float [N, F] input");
@@ -80,6 +82,7 @@ public sealed partial class GraphLowerer
             case "OneVsOne": LowerOneVsOne(n); return true;
             case "LabelEncode": LowerLabelEncode(n); return true;
             case "Dft": LowerDft(n); return true;
+            case "Conv1d": LowerConv1d(n); return true;
         }
 
         return false;

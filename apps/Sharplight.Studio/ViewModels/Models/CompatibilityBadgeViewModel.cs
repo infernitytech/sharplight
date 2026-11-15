@@ -28,6 +28,7 @@ internal sealed class CompatibilityBadgeViewModel
         CompatibilityState.UnsupportedArchitecture => "Unsupported architecture",
         CompatibilityState.UnsupportedWeightFormat => $"Unsupported {Compatibility.Subject}",
         CompatibilityState.UnsupportedVariant => "Unsupported variant",
+        CompatibilityState.UnsupportedKind => "Not yet supported",
         CompatibilityState.CheckedAtImport => "ONNX",
         _ => Compatibility.Text,
     };
@@ -64,7 +65,7 @@ internal sealed class CompatibilityBadgeViewModel
                 detail += " The weight formats are read when this quantization is selected.";
             }
 
-            return IsBad ? detail + " Downloading is still possible." : detail;
+            return IsBad && Compatibility.State != CompatibilityState.UnsupportedKind ? detail + " Downloading is still possible." : detail;
         }
     }
 

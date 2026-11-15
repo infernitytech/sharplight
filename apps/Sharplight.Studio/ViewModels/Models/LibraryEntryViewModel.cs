@@ -11,7 +11,25 @@ internal sealed partial class LibraryEntryViewModel : ObservableObject
     {
         Entry = entry;
         Badges = new CapabilityBadges(entry.Capabilities);
+        KindInfo = ModelKindCatalog.For(entry.Kind);
     }
+
+    /// <summary>How the model's kind is presented (name, icon, whether the engine runs it).</summary>
+    public ModelKindInfo KindInfo { get; }
+
+    /// <summary>The kind's name (<c>Text generation</c>).</summary>
+    public string KindTitle => KindInfo.Title;
+
+    /// <summary>The kind's icon resource key.</summary>
+    public string KindIcon => KindInfo.Icon;
+
+    /// <summary>Tooltip of the kind badge: whether it is a guess and whether the engine runs it.</summary>
+    public string KindToolTip => KindInfo.Runnable
+        ? KindInfo.Title + (Entry.KindInferred ? " (guessed from the file type)" : "")
+        : KindInfo.Title + ": Sharplight cannot run models of this kind yet" + (Entry.KindInferred ? " (guessed from the file type)" : "");
+
+    /// <summary>The engine can load and run this kind.</summary>
+    public bool IsRunnable => KindInfo.Runnable;
 
     /// <summary>The model.</summary>
     public LibraryEntry Entry { get; }

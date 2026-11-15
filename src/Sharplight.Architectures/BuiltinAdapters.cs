@@ -33,6 +33,8 @@ public static class BuiltinAdapters
         ModelAdapterRegistry.Register(new Rwkv6Adapter());
         ModelAdapterRegistry.Register(new LatentDecoderAdapter());
         ModelAdapterRegistry.Register(new LatentDiffusionAdapter());
+        ModelAdapterRegistry.RegisterComposite(new OuteTtsAdapter());
+        ModelAdapterRegistry.RegisterAuxiliaryOnly(WavTokenizerParameters.Architecture, Sharplight.Vision.AuxiliaryRoles.Vocoder);
         ModelAdapterRegistry.RegisterAuxiliaryOnly(Eagle3DraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);
         ModelAdapterRegistry.RegisterAuxiliaryOnly(SharedKvDraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);
         ModelAdapterRegistry.RegisterAuxiliaryOnly(DflashDraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);

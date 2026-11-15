@@ -112,7 +112,10 @@ public sealed class HfSupportTests : IDisposable
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "bitsandbytes", "load_in_4bit": true}}""", "bitsandbytes", SupportLevel.Supported)]
     [InlineData("""{"model_type": "qwen3_5", "quantization_config": {"group_size": 64, "bits": 8}}""", "mlx (8-bit)", SupportLevel.Supported)]
     [InlineData("""{"model_type": "qwen3", "quantization": {"group_size": 64, "bits": 4}}""", "mlx (4-bit)", SupportLevel.Supported)]
-    [InlineData("""{"model_type": "qwen3", "quantization": {"group_size": 32, "bits": 4, "mode": "mxfp4"}}""", "mlx (mxfp4)", SupportLevel.Unsupported)]
+    [InlineData("""{"model_type": "qwen3", "quantization": {"group_size": 32, "bits": 4, "mode": "mxfp4"}}""", "mlx (mxfp4)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "qwen3", "quantization": {"group_size": 32, "bits": 4, "mode": "mxfp6"}}""", "mlx (mxfp6)", SupportLevel.Unsupported)]
+    [InlineData("""{"model_type": "qwen3", "quantization_config": {"quant_method": "auto-round", "bits": 4, "packing_format": "auto_round:auto_gptq"}}""", "auto-round (gptq, 4-bit)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "qwen3", "quantization_config": {"quant_method": "auto-round", "bits": 4, "packing_format": "auto_round:exllamav2"}}""", "auto-round (auto_round:exllamav2, 4-bit)", SupportLevel.Unsupported)]
     [InlineData("""{"model_type": "gpt_oss", "quantization_config": {"quant_method": "mxfp4"}}""", "mxfp4", SupportLevel.Supported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "mxfp4"}}""", "mxfp4", SupportLevel.Unsupported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "compressed-tensors", "config_groups": {"g": {"weights": {"type": "float", "num_bits": 8}}}}}""", "compressed-tensors (float 8-bit)", SupportLevel.Supported)]
@@ -164,10 +167,10 @@ public sealed class HfSupportTests : IDisposable
     [Fact]
     public void Import_UnreadQuantization_FailsWithTheMethod()
     {
-        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "qwen2", "quantization_config": {"bits": 2, "quant_method": "aqlm"}}""");
+        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "qwen2", "quantization_config": {"bits": 2, "quant_method": "spqr"}}""");
         var error = Assert.Throws<UnsupportedWeightFormatException>(() => HuggingFaceImporter.Open(_dir));
-        Assert.Equal("aqlm", error.WeightFormat);
-        Assert.Contains("aqlm", error.Message, StringComparison.Ordinal);
+        Assert.Equal("spqr", error.WeightFormat);
+        Assert.Contains("spqr", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

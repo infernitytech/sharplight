@@ -3,6 +3,7 @@
     <Project Path="src/Sharplight.Core/Sharplight.Core.csproj" />
     <Project Path="src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
     <Project Path="src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
+    <Project Path="src/Sharplight.Import.PyTorch/Sharplight.Import.PyTorch.csproj" />
     <Project Path="src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
@@ -22,6 +23,7 @@
     <Project Path="samples/Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
     <Project Path="samples/Sharplight.Samples.Hub/Sharplight.Samples.Hub.csproj" />
     <Project Path="samples/Sharplight.Cli/Sharplight.Cli.csproj" />
+    <Project Path="samples/Sharplight.Speak/Sharplight.Speak.csproj" />
     <Project Path="samples/Sharplight.Inspect/Sharplight.Inspect.csproj" />
     <Project Path="samples/Sharplight.GgufDump/Sharplight.GgufDump.csproj" />
     <Project Path="samples/Sharplight.OnnxRun/Sharplight.OnnxRun.csproj" />
@@ -41,9 +43,11 @@
     <Project Path="tests/Sharplight.Hub.Tests/Sharplight.Hub.Tests.csproj" />
     <Project Path="tests/Sharplight.Import.Onnx.Tests/Sharplight.Import.Onnx.Tests.csproj" />
     <Project Path="tests/Sharplight.Import.Onnx.Conformance/Sharplight.Import.Onnx.Conformance.csproj" />
+    <Project Path="tests/Sharplight.Import.PyTorch.Tests/Sharplight.Import.PyTorch.Tests.csproj" />
     <Project Path="tests/Sharplight.Package.Tests/Sharplight.Package.Tests.csproj" />
     <Project Path="tests/Sharplight.Serving.Tests/Sharplight.Serving.Tests.csproj" />
     <Project Path="tests/Sharplight.Studio.Tests/Sharplight.Studio.Tests.csproj" />
+    <Project Path="tests/Sharplight.TextToSpeech.Tests/Sharplight.TextToSpeech.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
     <Project Path="tests/Sharplight.Vision.Tests/Sharplight.Vision.Tests.csproj" />
     <Project Path="tests/Sharplight.ImageGeneration.Tests/Sharplight.ImageGeneration.Tests.csproj" />
