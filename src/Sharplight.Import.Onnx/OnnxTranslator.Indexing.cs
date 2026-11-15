@@ -101,7 +101,21 @@ internal sealed partial class OnnxTranslator
     private void ScatterNd(OnnxNode n, TranslatedTensor?[] ins)
     {
         var attributes = Attributes.From(("reduction", n.Str("reduction", "none")));
-        SetDyn(n, 0, Emit("ScatterND", [X(ins, 0), Idx(ins[1]!), X(ins, 2)], attributes, Nm(n)));
+        var indices = Idx(ins[1]!);
+        int lead = ins[0]!.LeadingUnits;
+        if (lead > 0)
+        {
+            // The data's leading unit dims are not in the IR value: their (zero) coordinates are dropped from every index tuple.
+            long tuple = indices.Shape[-1].Fixed;
+            if (ins[1]!.LeadingUnits > 0 || ins[2]!.LeadingUnits > 0 || tuple <= lead)
+            {
+                throw new NotSupportedException("ScatterND into a tensor with leading unit dims needs index tuples that reach past them");
+            }
+
+            indices = _b.Slice(indices, -1, lead, tuple - lead);
+        }
+
+        SetDyn(n, 0, Emit("ScatterND", [X(ins, 0), indices, X(ins, 2)], attributes, Nm(n)));
     }
 
     private void OneHot(OnnxNode n, TranslatedTensor?[] ins)
