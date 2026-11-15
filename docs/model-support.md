@@ -1208,7 +1208,10 @@ Verification (tools/make-diffusion-references.py writes the diffusers references
   shapes. Against diffusers (fp32-upcast published files, same initial noise), on Vulkan: gpustack Q8_0 text encoders 1.3e-4 /
   6e-4, pooled 4e-4, UNet 2.4e-3 relative RMS, Euler 1024×1024 27.7 dB; kostakoff Q4_K (norm scales quantized too) bigG hidden
   states 20 % off, the image visually equivalent (17.3 dB); SDXL-Turbo Q8_0 against stabilityai/sdxl-turbo (512×512, 4 Euler steps
-  on trailing timesteps, no guidance; ~/models/sd/sdxl-turbo-reference) below. Three file quirks: sd.cpp renames the bigG projection
+  on trailing timesteps, no guidance; ~/models/sd/sdxl-turbo-reference): text encoders 3.5e-3 / 4e-2 (every tensor Q8_0, embeddings
+  and norms included), pooled 2.8e-2, UNet 1.0e-2 relative RMS, image 28.5 dB (stable-diffusion.cpp 5dcfa79 CUDA on the same file,
+  Euler, 4 steps, `--rng cpu`: 18.9 dB from diffusers; it uses the file's projection as stored, which for this file is OpenCLIP's
+  orientation, and its own sigma spacing). Three file quirks: sd.cpp renames the bigG projection
   without transposing it, so its orientation follows the source (diffusers-converted files such as gpustack's: transformers'
   layout; files converted from an original checkpoint such as OlegSkutte's: OpenCLIP's), told apart by the diffusers conversion's
   mark (gpustack's files keep the upsampler of an attention level at `output_blocks.N.1`, beside the attention block, which the

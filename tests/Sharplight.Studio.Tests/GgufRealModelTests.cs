@@ -64,14 +64,22 @@ public sealed class GgufRealModelTests
     }
 
     /// <summary>
-    /// SDXL-Turbo as the stable-diffusion.cpp GGUF Studio pulls as <c>sdxl-turbo:q8_0</c> (OlegSkutte/sdxl-turbo-GGUF): both text encoders
-    /// under sd.cpp's names, 512×512 and the distilled model's defaults (Euler ancestral, 4 steps, no guidance) without any parameter set.
+    /// stable-diffusion.cpp GGUF files: SDXL-Turbo as Studio pulls it as <c>sdxl-turbo:q8_0</c> (OlegSkutte/sdxl-turbo-GGUF: both text
+    /// encoders under sd.cpp's names, 512×512, the page switching to the distilled defaults of 4 steps without guidance), SD 1.5
+    /// (second-state, the usual 20 steps with guidance 7.5).
     /// </summary>
-    [Fact]
-    public async Task ImagePage_GeneratesWithTheSdxlTurboGguf_WithItsDistilledDefaults()
+    public static TheoryData<string, int, int> ImageFiles => new()
     {
-        string path = Path.Combine(s_home, "models/sd/gguf/sd_xl_turbo_1.0.q8_0.gguf");
-        Assert.SkipUnless(File.Exists(path), "sd_xl_turbo_1.0.q8_0.gguf not found");
+        { "sd/gguf/sd_xl_turbo_1.0.q8_0.gguf", 512, 4 },
+        { "sd/gguf/stable-diffusion-v1-5-pruned-emaonly-Q8_0.gguf", 512, 20 },
+    };
+
+    [Theory]
+    [MemberData(nameof(ImageFiles))]
+    public async Task ImagePage_GeneratesWithStableDiffusionCppGguf(string file, int size, int steps)
+    {
+        string path = Path.Combine(s_home, "models", file);
+        Assert.SkipUnless(File.Exists(path), $"{file} not found");
         using var fakes = new TestServices();
         using var runtime = new EngineModelRuntime(EngineServices.From(TestHost.Services), () => new ResidencySettings());
         Assert.SkipWhen(runtime.Devices.Count == 0 || !runtime.Devices[0].IsGpu, "no GPU");
@@ -80,14 +88,14 @@ public sealed class GgufRealModelTests
 
         var inspected = ModelInspector.Inspect(path);
         Assert.Equal(ModelKinds.ImageGeneration, inspected.Kind);
-        await runtime.LoadAsync(new ModelLoadRequest("sdxl-turbo", path, Settings(runtime), [], Kind: inspected.Kind), null, ct);
+        await runtime.LoadAsync(new ModelLoadRequest("sd", path, Settings(runtime), [], Kind: inspected.Kind), null, ct);
 
         var page = new ImagePageViewModel(services, new Fakes.FakeNavigator());
         await page.ActivateAsync();
-        Assert.Equal("sdxl-turbo", page.SelectedModel?.Id);
+        Assert.Equal("sd", page.SelectedModel?.Id);
         await page.ModelDefaults;
-        Assert.Equal(4, page.Panel.GetInt("steps"));
-        Assert.Equal(0, page.Panel.GetNumber("guidance"));
+        Assert.Equal(steps, page.Panel.GetInt("steps"));
+        Assert.Equal(steps == 4 ? 0 : 7.5, page.Panel.GetNumber("guidance"));
         page.Prompt = "a lighthouse on a cliff at sunset";
         page.Panel.Parameters.OfType<TextParameterViewModel>().Single(parameter => parameter.Key == "seed").Value = "7";
         page.RunCommand.Execute(null);
@@ -96,9 +104,9 @@ public sealed class GgufRealModelTests
 
         Assert.True(item.Status == RunStatus.Completed, item.Detail);
         var decoded = PngCodec.Decode(Assert.Single(page.Images).Png);
-        Assert.Equal((512, 512), (decoded.Width, decoded.Height));
+        Assert.Equal((size, size), (decoded.Width, decoded.Height));
         Assert.True(Contrast(decoded.Rgb) > 0.05, "the image is flat");
-        await runtime.UnloadAsync("sdxl-turbo");
+        await runtime.UnloadAsync("sd");
     }
 
     [Fact]
