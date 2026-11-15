@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:inf="using:Sharplight.Studio.ViewModels.Inference"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.Inference.OutputGalleryView"
+             x:DataType="inf:OutputGalleryViewModel">
+  <Panel>
+    <TextBlock Classes="muted" Text="No outputs yet." IsVisible="{Binding IsEmpty}" Margin="2,6" />
+    <ScrollViewer>
+      <ItemsControl ItemsSource="{Binding Items}" Margin="0,0,8,0">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="inf:OutputItemViewModel">
+            <Border Classes="inset" Margin="0,0,0,8" Padding="10,8">
+              <StackPanel Spacing="5">
+                <Border CornerRadius="6" ClipToBounds="True" IsVisible="{Binding HasThumbnail}" HorizontalAlignment="Left">
+                  <Image Source="{Binding Thumbnail, Converter={x:Static conv:BytesToBitmapConverter.Instance}, ConverterParameter=280}" MaxHeight="140" Stretch="Uniform" />
+                </Border>
+                <TextBlock Text="{Binding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                <TextBlock Classes="caption" TextTrimming="CharacterEllipsis">
+                  <Run Text="{Binding When}" /><Run Text=" · " /><Run Text="{Binding Model}" />
+                </TextBlock>
+                <TextBlock Classes="caption" Text="{Binding Preview}" TextWrapping="Wrap" MaxHeight="48" IsVisible="{Binding Preview, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <ItemsControl ItemsSource="{Binding Facts}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="x:String">
+                      <Border Classes="badge" Margin="0,0,5,4">
+                        <TextBlock Text="{Binding}" />
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <ItemsControl ItemsSource="{Binding Files}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="inf:OutputFileViewModel">
+                      <DockPanel Margin="0,1">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+                          <Button Classes="ghost small" Content="Open" Command="{Binding OpenCommand}" />
+                          <Button Classes="ghost small" Content="Export" Command="{Binding ExportCommand}" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                      </DockPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <WrapPanel>
+                  <Button Classes="small" Content="Reuse parameters" Command="{Binding ReuseCommand}" IsVisible="{Binding CanReuse}" ToolTip.Tip="Set the page's parameters and result to this run's" Margin="0,0,6,4" />
+                  <Button Classes="small" Content="Open folder" Command="{Binding OpenFolderCommand}" Margin="0,0,6,4" />
+                  <Button Classes="small danger" Content="{Binding ConfirmDelete, Converter={x:Static conv:ConfirmTextConverter.Instance}}" Command="{Binding DeleteCommand}" Margin="0,0,0,4" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+  </Panel>
+</UserControl>

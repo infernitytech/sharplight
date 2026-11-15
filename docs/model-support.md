@@ -2,7 +2,7 @@
 
 Status: survey written 2026-11-13 against llama.cpp `master` (src/llama-arch.cpp `LLM_ARCH_NAMES`, src/models/*.cpp graph builders, tools/mtmd/models) and the Sharplight tree as found in the working copy. Reference runtime for parity outputs: llama.cpp build b11177 (`llama-completion`).
 
-Contents: 1 summary, 2 what Sharplight supports today, 3 building blocks ranked by unlock value, 4 architecture matrix, 5 bring-up waves, 6 Qwen3.8-Next (qwen4exp) deep dive, 7 multimodal projectors, 8 test assets and llama.cpp reference outputs, 9 how the references were produced, 10 the real-checkpoint sweep (round 10), 11 bring-up round 11 (the sweep's open rows).
+Contents: 1 summary, 2 what Sharplight supports today, 3 building blocks ranked by unlock value, 4 architecture matrix, 5 bring-up waves, 6 Qwen3.8-Next (qwen4exp) deep dive, 7 multimodal projectors, 8 test assets and llama.cpp reference outputs, 9 how the references were produced, 10 the real-checkpoint sweep (round 10), 11 bring-up round 11 (the sweep's open rows), 12 text to speech, 13 speech to text.
 
 ## 1. Summary
 
@@ -53,22 +53,31 @@ Attention, CachedAttention, CacheWrite, Rope, RmsNorm, LayerNorm, GroupNorm, L2N
 
 ### 2.4 Weight formats with compute kernels
 
-CPU (Quant.cs and its partials Quant.KQuants/Iq/Fp4/Fp8/Ternary/Grouped.cs) and Vulkan (Sharplight.Shaders/Kernels/common.slang, quant_k.slang, quant_iq.slang, quant_fp8.slang, quant_group.slang; the lowering table is GraphLowerer.Support.cs): F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, IQ1_S, IQ1_M, IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS, IQ3_S, IQ4_NL, IQ4_XS, TQ1_0, TQ2_0, MXFP4, NVFP4; Bonsai Q1_0, Q2_0, Q2_0_G128, Tern1_G128; FP8 `f8e4m3`, `f8e5m2` (one byte per value) and the block-scaled `f8e4m3_b32` { f32 d; u8 q[32] } / `f8e4m3_b128` { f32 d; u8 q[128] } (value = d * e4m3(q), blocks along K); the group-scaled formats of quantized Hugging Face checkpoints (below): `nvfp4_gs` { f32 g; u8 d[4]; u8 qs[32] } (an NVFP4 block with its global scale), `q4z_g32` / `q4z_g128` { f16 d; f16 z; u8 qs[G/2] } and `q8z_g32` / `q8z_g128` { f16 d; f16 z; u8 q[G] } (value = (q - z) * d, 4-bit runs laid out like Q4_0), `nf4_b64` { f32 d; u8 qs[32] } (value = d * NF4[q]). The IQ lookup grids come from ggml-common.h via tools/gen-quant-grids.py (src/Sharplight.Cpu/Grids, Kernels/grid_*.slang). Q8_K fails at load.
+CPU (Quant.cs and its partials Quant.KQuants/Iq/Fp4/Fp8/Ternary/Grouped.cs) and Vulkan (Sharplight.Shaders/Kernels/common.slang, quant_k.slang, quant_iq.slang, quant_fp8.slang, quant_group.slang; the lowering table is GraphLowerer.Support.cs): F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, IQ1_S, IQ1_M, IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS, IQ3_S, IQ4_NL, IQ4_XS, TQ1_0, TQ2_0, MXFP4, NVFP4; Bonsai Q1_0, Q2_0, Q2_0_G128, Tern1_G128; FP8 `f8e4m3`, `f8e5m2` (one byte per value) and the block-scaled `f8e4m3_b32` { f32 d; u8 q[32] } / `f8e4m3_b128` { f32 d; u8 q[128] } (value = d * e4m3(q), blocks along K); the group-scaled formats of quantized Hugging Face checkpoints (below): `nvfp4_gs` { f32 g; u8 d[4]; u8 qs[32] } (an NVFP4 block with its global scale), `q4z_g32` / `q4z_g128` { f16 d; f16 z; u8 qs[G/2] } and `q8z_g32` / `q8z_g128` { f16 d; f16 z; u8 q[G] } (value = (q - z) * d, 4-bit runs laid out like Q4_0), `nf4_b64` { f32 d; u8 qs[32] } (value = d * NF4[q]), `fp4_b64` (the same layout with the bitsandbytes FP4 code book), `q8a_g32` { f32 d; i8 q[32] } (value = q * d / 127, the LLM.int8 row absmax form) and `q2s_g128` { f32 d; u8 qs[32] } (ternary codes, value = (code - 1) * d, the BitNet I2_S layout). The IQ lookup grids come from ggml-common.h via tools/gen-quant-grids.py (src/Sharplight.Cpu/Grids, Kernels/grid_*.slang). Q8_K fails at load.
 
-Quantized Hugging Face checkpoints (`HfQuantizedWeights` in Sharplight.Import.HuggingFace: `HfFp4Weights`, `HfIntegerWeights` with `HfGptqLayouts` / `HfAwqLayouts` / `HfCompressedIntLayouts`, `HfBitsAndBytesWeights`). As with FP8, each quantized weight is re-blocked row by row while it is read, before the architecture mapping; weights stay quantized (the BF16 fallbacks are listed). Every format is checked bit for bit against the library's own dequantization on the CPU and on Vulkan (tests/Sharplight.Import.HuggingFace.Tests/QuantizedImportTests.cs, checkpoints made by the libraries with tests/Sharplight.Families.Tests/tools/mk_tiny_quantized.py, references from hf_quant_reference.py) and end to end against transformers' logits (Families QuantizedCheckpointTests).
+Quantized Hugging Face checkpoints (`HfQuantizedWeights` in Sharplight.Import.HuggingFace: `HfFp4Weights`, `HfIntegerWeights` with `HfGptqLayouts` / `HfAwqLayouts` / `HfAwqGemvFastLayouts` / `HfMarlinLayouts` / `HfCompressedIntLayouts` / `HfQuarkLayouts` / `HfQuantoLayouts` / `HfTorchAoLayouts` / `HfHqqLayouts` / `HfEetqLayouts`, `HfQuarkFloatWeights`, `HfBitsAndBytesWeights`). As with FP8, each quantized weight is re-blocked row by row while it is read, before the architecture mapping; weights stay quantized (the BF16 fallbacks are listed). Every format is checked bit for bit against the library's own dequantization on the CPU and on Vulkan (tests/Sharplight.Import.HuggingFace.Tests/QuantizedImportTests.cs, checkpoints made by the libraries with tests/Sharplight.Families.Tests/tools/mk_tiny_quantized.py, references from hf_quant_reference.py) and end to end against transformers' logits (Families QuantizedCheckpointTests).
 - NVFP4: ModelOpt (`quant_algo NVFP4`; U8 `X.weight`, E4M3 `X.weight_scale` per 16 values, f32 `X.weight_scale_2`) and compressed-tensors `nvfp4-pack-quantized` (`X.weight_packed`, `X.weight_global_scale`, a divisor). A global scale that is a power of two folds exactly into the E4M3 block scales (`nvfp4`); otherwise `nvfp4_gs` keeps it per 64-value block (5.0 bits per weight instead of 4.5). GGUF NVFP4 tensors with an output multiplier `X.scale` (one per tensor or per expert, which llama.cpp multiplies into the matmul output: LFM3 NVFP4, the Nemotron-3.5 Super-VL NVFP4 and Bolt files) become `nvfp4_gs` the same way, at import in Sharplight.Import.Gguf (`GgufNvfp4Scales`); their `X.input_scale` is ignored, as in llama.cpp. ModelOpt's dequantization (fp4 * (e4m3 * scale_2) in f32) is matched bit for bit; compressed-tensors' division by the global scale is matched after its rounding to BF16. Activations are not quantized (W4A4 checkpoints run as W4A16). K % 64 != 0 decodes to BF16.
 - MXFP4: compressed-tensors `mxfp4-pack-quantized` (U8 E8M0 `X.weight_scale` per 32 values; also when the `quantization_config` sits in `text_config`, as in Kimi-K3 and K3.1-Pro), DeepSeek's own FP4 experts (DeepSeek-V4, `expert_dtype fp4`: I8 `X.weight` with an F8_E8M0 `X.scale` per 32 values, the FP8 weights next to them with an F8_E8M0 `X.scale` per 128 x 128 block) and AMD Quark (`quant_method quark`, weight spec `fp4` / group 32 / `e8m0`: U8 `X.weight` and `X.weight_scale`; Quark FP8 E4M3 weight specs take the FP8 path), dense or MoE, map to `mxfp4` exactly (OCP MX layout, first value in the low nibble; gpt-oss checkpoints as before). Quark's own library needs a JIT-built extension, so its case is checked against a transcription of its `Pack_fp4.unpack`, which agrees with compressed-tensors' MXFP4 dequantization on the same codes.
 - GPTQ (auto-gptq / gptqmodel, `quant_method gptq`): `qweight` I32 [K·b/32, N] as a little-endian bit stream along K (2, 3, 4 and 8 bits; 3-bit codes straddle words), `qzeros` packed along N, f16 `scales` [G, N], `g_idx`. `checkpoint_format gptq` (or absent) stores zero - 1, `gptq_v2` the zero itself. Group sizes 32, 64, 128 and -1 (per channel). Act-order (`desc_act`, a non-trivial `g_idx`): the input columns are sorted so that every group is contiguous, the permutation is kept as `WeightInfo.InputOrder`, and `GraphBuilder.MatMul` gathers the activations into that order (one gather per input and permutation, shared by the projections reading it). MoE experts with different permutations cannot be stacked and fail at load.
 - AWQ (AutoAWQ, `quant_method awq`): GEMM packing (`qweight` [K, N/8], interleaved nibble order 0 2 4 6 1 3 5 7) and GEMV packing (`qweight` [N, K/8], sequential; zero and scale widths padded to multiples of 8 groups), 4 bits, asymmetric.
 - compressed-tensors integer weights: `pack-quantized` (`weight_packed` I32 along K, codes biased by 2^(b-1), optional `weight_zero_point` packed along N, `weight_g_idx`) and `int-quantized` (I8 `weight`, per-channel or group `weight_scale`); W4A16, W4A16_ASYM, W8A16 and W8A8 (activations not quantized) schemes. Sparse (non-dense `sparsity_config`) checkpoints are rejected.
 - Integer targets: `q4z_*` for 2-4 bits, `q8z_*` for 5-8 bits; `*_g128` when the group size and K are multiples of 128, else `*_g32` (the scale repeated per 32-value block of a larger group). Exact because the scales are f16 (BF16 scales are checked to be representable in f16) and the zero points integers: (q - z) * d in f32 equals the libraries' f16 / BF16 results after their rounding. Group sizes that are not a multiple of 32, scales that do not fit f16 and act-order groups that do not sort into equal contiguous runs decode to BF16.
-- bitsandbytes (serialized `load_in_4bit` / `load_in_8bit` checkpoints): NF4 with or without double-quantized absmax (U8 codes with `nested_absmax` per 256 blocks, `nested_quant_map`, `nested_offset`) maps to `nf4_b64` with the f32 absmax, bit-exact with `dequantize_4bit` (the code book is read from a device constant buffer like the IQ grids). FP4 code books and LLM.int8 (I8 `weight` and `SCB`, value = q * SCB / 127) decode to BF16; LLM.int8's outlier threshold splits activations at inference time into an int8 and an f16 product, and since activations are not quantized here every column takes the precise path.
-- MLX affine quantization (mlx-lm checkpoints: `quantization {group_size, bits}` without a method, per-module overrides): U32 `X.weight` (each row's codes as a little-endian bit stream), `X.scales` / `X.biases` per group, value = scale * q + bias; embeddings included. 4-bit weights with groups of a multiple of 32 and f16-exact scales and biases become `q4_1` bit-exactly (checked against `mlx.core.dequantize` of the CPU build of MLX in f32, as MLX's quantized matmul accumulates; a BF16 `mx.dequantize` rounds scale * q and the bias add separately and is up to a few BF16 ulps off); 2, 3, 5, 6 and 8 bits decode to BF16. MLX's FP4 modes (`mode: mxfp4 / nvfp4`) are not read.
+- bitsandbytes (serialized `load_in_4bit` / `load_in_8bit` checkpoints): NF4 with or without double-quantized absmax (U8 codes with `nested_absmax` per 256 blocks, `nested_quant_map`, `nested_offset`) maps to `nf4_b64` with the f32 absmax, bit-exact with `dequantize_4bit` (the code book is read from a device constant buffer like the IQ grids). FP4 (`bnb_4bit_quant_type fp4`) maps to `fp4_b64` (same layout, FP4 code book from a device constant buffer), bit-exact with `dequantize_4bit`. LLM.int8 (I8 `weight` and `SCB`, value = q * SCB / 127) maps to `q8a_g32` (the row absmax `SCB` repeated per 32-value block), bit-exact with `int8_vectorwise_dequant`; its outlier threshold splits activations at inference time into an int8 and an f16 product, and since activations are not quantized here every column takes the precise path. References: bitsandbytes (CPU build; `hf_quant_reference.py`).
+- HQQ (`quant_method hqq`, hqq 0.2.8 `HQQLinear` state: `X.W_q`, `X.scale`, `X.zero`, `X.shape`, `X.nbits`, `X.group_size`, `X.axis`, `X.packing`; value = (code - zero) * scale with a float f16 zero point): 1 to 8 bits (`8bit_u8`, `4bit_u8`, `2bit_u8`, `1bit_u8`, `3bit_32` packings), kept quantized as `q4z_*` / `q8z_*` (the block type stores an f16 zero point, so non-integer zeros are exact; 1-4 bits `q4z_*`, 5-8 `q8z_*`). `axis 1` (groups along the row) stays quantized; `axis 0` assigns every column of a row its own group (the group of a value is its flat position modulo N K / group size), which no block type expresses, so it **decodes to BF16 at import**. Scales / zero points that are themselves quantized (`quant_scale` / `quant_zero`) are rejected. Checkpoints are written by hqq itself (transformers 5.23 cannot quantize with HQQ; `mk_tiny_quantized_formats.py`), bit-exact (f32 arithmetic on the stored scale and zero, hqq's `Quantizer.dequantize`; hqq's default f16 compute dtype rounds the same products to f16).
+- EETQ (`quant_method eetq`, int8 weight-only: I8 `X.weight` [K, N] preprocessed for the Ampere mixed-type GEMM, F16 `X.weight_scales` [N]): the layout reader (`HfEetqLayouts`) inverts EETQ's weight preprocessing (16-row tile permutation, transpose, 64-column tile interleave, +128 bias, byte swap), verified against EETQ's own C++ preprocessing (`tools/eetq_harness`, built with build.sh against an EETQ checkout, since the package's CUDA kernels do not run on Blackwell) and kept quantized as `q8z_*` with the zero point 128, bit-exact with the w8a16 GEMM's `half(q) * half(scale)`. K and N must be multiples of 64.
+- MLX quantization (mlx-lm checkpoints: `quantization {group_size, bits[, mode]}` without a method, per-module overrides): U32 `X.weight` (each row's codes as a little-endian bit stream), per-group `X.scales`. Affine mode (`X.biases`, value = scale * q + bias; embeddings included): 2, 3 and 4-bit weights with groups of a multiple of 32 and f16-exact scales and biases become `q4_1`, 5-bit `q5_1`, both bit-exactly (checked against `mlx.core.dequantize` of the CPU build of MLX, f32, as MLX's quantized matmul accumulates; a BF16 `mx.dequantize` rounds scale * q and the bias add separately and is up to a few BF16 ulps off); 6 and 8 bits (no block type with a per-block offset and 8-bit codes) decode to BF16. The FP modes read bit-exactly: `mxfp4` (E8M0 scale per 32) to `mxfp4`, `nvfp4` (E4M3 scale per 16, no second-level scale) to `nvfp4` (BF16 when K % 64 != 0), `mxfp8` to `f8e4m3_b32` with the power-of-two scale. Other modes are not read.
 - Kernels: the f32 matvecs decode through load8 (quant_group.slang); the f16 tensor-core GEMMs (gemm_cm2, the skinny GEMM) take packed-half decoders for `q4z_*` and NVFP4 / `nvfp4_gs` (load16h in matmul.slang; the others go through load8); the integer-dot matvec (`mmvq.slang`, device feature `int_dot`, 8-bit activations) serves `q4z_*`, `q8z_*`, `nvfp4` and `nvfp4_gs` for 1-8 rows (`SHARPLIGHT_MMVQ_BLOCK=0` returns them to the f32 matvec). The GPU has no FP4 cooperative-matrix type (`--devices` lists f16, bf16, fp8 and int8 matrices on Blackwell), so FP4 weights are decoded to f16 for the tensor cores: there is no counterpart to vLLM's CUTLASS W4A4 FP4 GEMM.
+- AutoRound (`quant_method auto-round`, `packing_format auto_round:auto_gptq` / `auto_round:auto_awq`; the `auto_gptq` / `auto_awq` exports declare plain GPTQ / AWQ): read through the GPTQ and AWQ GEMM layouts (2/3/4/8-bit GPTQ packing with zero points stored minus one, 4-bit AWQ), checked against AutoRound's own dequantizers (auto-round 0.16.1: `dequantize_gemm`, `qlinear_torch_zp`). ExLlamaV2 / Marlin packings and FP data types are not read.
 - PyTorch checkpoints: a directory without `*.safetensors` but with `pytorch_model.bin` or `pytorch_model-XXXXX-of-YYYYY.bin` shards (and `pytorch_model.bin.index.json`) imports like a safetensors checkpoint. The files are read by `Sharplight.Import.PyTorch`, a restricted unpickler: it implements only the opcodes of tensor state dictionaries and resolves only `torch._utils._rebuild_tensor_v2` / `_rebuild_tensor` / `_rebuild_parameter`, `collections.OrderedDict`, `torch.Size`, the `torch.*Storage` classes and `_codecs.encode` (latin1), all as code inside the reader; every other global (`os.system`, `eval`, `torch.load`, ...) and opcode (`INST`, `OBJ`, `NEWOBJ_EX`, ...) is refused with an `UnsafePickleException` and nothing is executed. Both the zip format (stored entries, zip64) and the legacy stream format (up to 2 GB) are read, the storages memory-mapped in place; tensors must be contiguous, dtypes f64/f32/f16/bf16/i64/i32/i16/i8/u8/bool.
 - AQLM (`quant_method aqlm`, additive codebook quantization; ISTA-DASLab / BlackSamorez checkpoints): **dequantized at import** to the codebook dtype (F16 or BF16), not kept codebook-quantized: the repository has no codebook-sum decode kernel yet, so a 2-bit checkpoint occupies the memory of a dense 16-bit model. `X.codes` [out groups, in groups, codebooks] (I8 / I16 / I32, masked to the codebook width), `X.codebooks` [codebooks, size, out group size, in group size] and `X.scales` [out groups, 1, 1, 1] become `X.weight` while the weight is read (rows decoded on demand, nothing cached). Bit-identical to aqlm 1.1.7 `_dequantize_weight` (CPU) for F16 codebooks with any number of codebooks, out group sizes above 1, code widths 6 to 16 and for single-codebook BF16; several BF16 codebooks may differ by one ulp on rounding ties (PyTorch's CPU `embedding_bag` rounds BF16 sums half away from zero, the importer to nearest even). Verified on BlackSamorez/TinyLlama-1.1B-Chat AQLM 2-bit 1x16 (greedy "The capital of France is Paris. The capital of Germany is Berlin...") and synthetic 1x8, 2x8, 4x6 (out group 2), 8x8 checkpoints (`tools/mk-tiny-aqlm.py`).
+- AWQ `gemv_fast` (AutoAWQ `WQLinear_GEMVFast`, 4 bits): `qweight` I16 [N/4, K] with four output rows interleaved per word and the columns of every 32 permuted for fast dequantization, F16 `scales` and `qzeros` (= -scale * zero), value = scale * code + qzeros: kept as `q4_1` (affine blocks, the f16 pair repeated per 32-value block), bit-exact with the one f16 fma of the kernel. No Python dequantizer exists (CUDA kernel only), so the reference inverts AutoAWQ 0.2.9's `pack_intweight` step by step (checked against the packer on random codes).
+- Marlin repacks (GPTQ `checkpoint_format marlin`, AutoAWQ `version marlin` and the original IST-DASLab `X.B` / `X.s` names; symmetric 4 and 8 bits, no act-order): `qweight` in 16 x 16 tiles shuffled by Marlin's tensor-core permutation, scales permuted per 64 (per 32 for one group per column); the importer undoes the repack and keeps `q4z_*` / `q8z_*` with the zero point 2^(bits-1), bit-exact with vLLM 0.33's Marlin GEMM applied to an identity matrix (CUDA; `hf_quant_reference_marlin.py`) for GPTQ-Marlin (`gptq_marlin_repack`) and AutoAWQ's Marlin export. Act-order Marlin checkpoints are rejected.
+- AMD Quark integer weights (`int4` / `uint4` / `int8` / `uint8`; per-tensor, per-channel and per-group scheme; pack methods `reorder` and `order`): per-group weights are stored transposed [K, N/8] (AWQ GEMM nibble order when `reorder`), scales [K/group, N], zero points packed like the weights. Signed codes are re-based (+8 / +128) into `q4z_*` / `q8z_*`. Quark writes f32 scales, which are rarely f16 values: those weights **decode to BF16 at import** (the block types hold f16 scales); scales that are f16 values (as in the tiny test checkpoints) stay quantized. Float zero points (`zero_point_type float32`) are rejected. Reference: `quark.torch.utils.pack` unpackers (amd-quark 0.13), (q - zero point) * scale in f32.
+- AMD Quark MXFP6 (`fp6_e3m2` / `fp6_e2m3` with an E8M0 `weight_scale` per 32, four 6-bit codes in three bytes) and the in-stream MX variant (`dtype mx`: every 32-value block is a signed exponent byte followed by its codes, MXFP4 or MXFP6): MXFP4 maps to `mxfp4` exactly; **MXFP6 has no block type of its own and is stored as `f8e4m3_b32`** (every FP6 value is an E4M3 value, so the values are exact, in 8 bits instead of 6). Reference: Quark's `Pack_fp6` / `Pack_mxfp6` unpackers.
+- optimum-quanto (`quant_method quanto`; `QuantizedModelForCausalLM` state dicts `X.weight._data`, `._scale`, `._shift`; optimum-quanto 0.2.7): `qint8` keeps its codes as `q8z_*` (zero point 128; f16 scales), `qint4` / `qint2` (codes packed along the first dimension of the grouped [R, group size] matrix, scale and a float shift per group) as `q4_1` (value = scale * code - shift, bias = -shift), `qfloat8` (E4M3 + scale) through the FP8 path (`f8e4m3_b128`). Packed weights lose their [N, K] shape in the state dict, so it is recovered from N * K and the config's `hidden_size` (output-side projections `o_proj`, `down_proj`, ... are [H, N K / H], the rest [N K / H, H]); a layer that fits neither is rejected. `qfloat8` with E5M2 data is rejected. Activation scales are dropped. Bit-exact against the library's `dequantize()` with scale and shift cast to f32 (quanto computes in the module dtype, f16, which rounds scale * code and the shift subtraction separately).
+- torchao (`quant_method torchao`, torchao 0.18 safetensors from transformers: `X._weight_qdata`, `_weight_scale`, `_weight_zero_point`): `Int8WeightOnlyConfig` / `Int8DynamicActivationInt8WeightConfig` (per row or per group) and `Float8WeightOnlyConfig` / `Float8DynamicActivationFloat8WeightConfig`. Int8 weights go through `q8z_*` when the scales are f16 values (those of BF16 models stored as f32 are: the tiny test checkpoints stay quantized) and **decode to BF16 at import** when not. Float8 weights take the FP8 path (`f8e4m3_b128`, exact). Not read: `Int4WeightOnlyConfig` and the intx / NF4 tensors (the test machine cannot build int4 checkpoints: torchao needs mslk), and the string `quant_type` names of old torchao releases (their layouts are `AffineQuantizedTensor` pickles). Reference: the tensors torchao holds, (qdata - zero point) * scale in f32.
 - FP-Quant (`quant_method fp_quant`, ISTA-DASLab MXFP4 / NVFP4 with a Hadamard rotation per group): **dequantized at import** to dense BF16 with the rotation folded into the weight (`HfFpQuantWeights`). `X.qweight` U8 (E2M1 pairs, low nibble first), `X.scales` (E8M0 per 32 for MXFP4, E4M3 per 16 for NVFP4) and `X.weight_global_scale` give `dq = e2m1 * scale / weight_global_scale` in the rotated domain; the library rotates activations by `forward_hadamard_matrix` H (`x_rot[g,j] = sum_i x[g,i] H[i,j]`), so `W[o,g,i] = sum_j H[i,j] dq[o,g,j]`. Activations are neither rotated nor FP4-quantized here (the library quantizes them too). The library only exposes quantization through QuTLASS kernels, so there is no library dequantization to compare with: the format (nibble order, scale and global-scale semantics, rotation direction) was fixed by reconstructing the original Qwen3-1.7B weights (relative error 11.7 % MXFP4, 9.5 % NVFP4 on layer 0 `down_proj`; the wrong nibble order gives 100 %), and the importer matches `tools/fpquant-reference-dense.py` (float32 spec implementation) to one BF16 ulp on layers 0 and 27 of both RTN checkpoints. Not kept FP4 because the per-group rotation needs an activation-side op that the canonical graph does not have.
-- Not supported: HQQ, EETQ, quanto, EXL2, torchao, VPTQ, HIGGS, SpQR and AutoRound checkpoints, Quark integer / MXFP6 weights (HfSupport reports them before download), AWQ `gemv_fast` and Marlin-repacked GPTQ / AWQ.
+- Not supported: EXL2, VPTQ, HIGGS, SpQR checkpoints, torchao int4 / intx, ExLlama-format AWQ and act-order Marlin (HfSupport reports them before download).
 
 FP8 Hugging Face checkpoints (the vLLM formats; `HfFp8Weights` in Sharplight.Import.HuggingFace): an `F8_E4M3` `X.weight` with a separate scale is converted while it is read (nothing cached) into a block-scaled type, before the architecture mapping runs, so fused-projection splits, V-head row reorders and expert stacking work on whole rows unchanged (transposes and column permutations that cut blocks decode to BF16 first).
 - DeepSeek-V3 / Qwen FP8 (`quantization_config.quant_method = "fp8"`, `weight_block_size [128, 128]`): BF16/F32 `X.weight_scale_inv` [ceil(N/128), ceil(K/128)], a multiplier despite its name.
@@ -153,7 +162,7 @@ Next in line: the Gemma 3n MobileNetV5 vision tower and audio encoder.
 | `LAUREL` | **Gemma 3n LAuReL**. low-rank learned residual. | 1 | 2 | S | **done** (sequential layer, `laurel.*` weights): gemma3n |
 | `XATTN` | **Cross-attention encoder-decoder (T5)**. encoder runs once, decoder cross-attends to cached encoder K/V; relative-position bias buckets; no RoPE. | 1 | 2 | L | **done**: `encoder_decoder` adapter (T5, BART, mBART), encoder pass in InferenceSession, Vulkan cross-attention kernels |
 | `ADAPTM2` | **Pure Mamba-2 model adapter**. mamba2-130m...: all layers SSM; a degenerate case of NemotronHAdapter once its mapping accepts `mamba2`. | 1 | 2 | S | adapter exists in effect; mapping + hparam names missing |
-| `TQ` | **Ternary TQ1_0/TQ2_0/I2_S formats**. BitNet b1.58 official GGUFs. | 1 | 2 | M | **done** for TQ2_0 (bitnet-b1.58-2B-4T runs on CPU and Vulkan); I2_S not yet |
+| `TQ` | **Ternary TQ1_0/TQ2_0/I2_S formats**. BitNet b1.58 official GGUFs. | 1 | 2 | M | **done** for TQ2_0 (bitnet-b1.58-2B-4T runs on CPU and Vulkan) and I2_S (`q2s_g128`, bit-exact with the reference decoder `tools/gguf_i2s_reference.py`) |
 | `SUBNORM` | **BitNet sub-layer norms**. extra RMS norms before attn-out and ffn-down projections. | 1 | 2 | S | **done** (`attention.sub_norm.weight`, `mlp.sub_norm.weight`) |
 | `LAYERVAR` | **Per-layer structural variation (skip attention / FFN, NAS)**. Deci / Nemotron-51B layers without attention or with linear replacement. | 1 | 1 | S | partly (per-layer arrays exist for heads/kv) |
 | `SPARSEMIXER` | **Phi-3.5-MoE sparsemixer routing**. 2-step masked top-2 with jitter thresholds. | 1 | 1 | S | missing |
@@ -472,7 +481,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `qwen3tts` | Qwen3-TTS | speech codec LM | **missing** | `TTS` | - | - |
 | `pockettts` | PocketTTS | TTS flow decoder | **missing** | `TTS` | - | - |
-| `wavtokenizer-dec` | WavTokenizer decoder | audio codec decoder | **missing** | `TTS` | - | - |
+| `wavtokenizer-dec` | WavTokenizer decoder | audio codec decoder | **supported** (as the `vocoder` of OuteTTS, see section 12) | `TTS` | `Sharplight.Import.Gguf` mapping, `WavTokenizerGraph` | `tests/Sharplight.TextToSpeech.Tests` |
 
 Notes on the matrix:
 
@@ -700,6 +709,35 @@ Tiny random checkpoints (weights random, structure real) are for graph/shape/map
 | Qwen3.8-Flash-Next | 23.1 MB | model_type `qwen4_exp`, config + tokenizer + safetensors index only (weights deliberately not downloaded: too large) |
 | Qwen3-Coder-Next | 18.3 MB | model_type `qwen3_next`, config + tokenizer + safetensors index only (weights deliberately not downloaded: too large) |
 | Qwen3.6-35B-A3B | 23.0 MB | model_type `qwen3_5_moe`, config + tokenizer + safetensors index only (weights deliberately not downloaded: too large) |
+
+### 8.3 Regenerating the test assets
+
+The tests skip a case whose model file is missing, so a fresh machine only needs the files below (no network access at test time). Use a
+Python venv (torch CPU, transformers 5.23, gguf, safetensors, sentencepiece, huggingface_hub, diffusers, onnx) and a llama.cpp checkout
+(`LLAMA_SRC`, a build of 8ca5a80 / b11177 for the llama.cpp references). `MODELS` is `~/models`.
+
+| Asset | How |
+|---|---|
+| `hf/tiny-random-*` that come from the Hub | `huggingface_hub.snapshot_download` of `hf-internal-testing/tiny-random-<Class>`, `tiny-random/<name>` (the local name is `tiny-random-<name>`), `optimum-internal-testing/` and `katuni4ka/`; `tiny-random-nemotron-h` is `optimum-intel-internal-testing/tiny-random-nemotron-h`. Repositories that ship only `pytorch_model.bin` get a safetensors file from `tools/model-assets/bin_to_safetensors.py` |
+| `hf/tiny-random-*` made here | `tests/Sharplight.Families.Tests/tools/mk_tiny_*.py` (the usage line of each script), seeds fixed; they print the transformers greedy ids that the case files hold. The tokenizer-only inputs are Hub files: `Qwen2.5-0.5B-Instruct`, `ERNIE-4.5-0.3B-PT`, `gemma-4-E2B-it`, `Qwen3.5-0.8B`, `Llama-3.2-1B-Instruct`, `DeepSeek-OCR`, `HunyuanOCR`, `google/paligemma-3b-pt-224` (gated: `HF_TOKEN`) |
+| remote-code generators (kimi_k3, k2_horizon, xing4_0, clef, vllm_decision2, cogvlm, `mk_tiny_remote_code.py` families) | run the model repository's own code: `tools/model-assets/stage_remote.py` downloads code and configs first, `tools/model-assets/run_remote_sandboxed.sh` then runs them in a venv of their own with an empty environment (no tokens) and offline flags |
+| `gguf/tiny-random-*-f32.gguf` of HF checkpoints | `tools/model-assets/convert_all.py` (llama.cpp's converter through `convert_tiny_gguf.py`; `TINY_PRE=falcon` for the Falcon file, `TINY_PRE=auto` for the real tokenizers of glm4v, hunyuan-vl and deepseek-ocr, `TINY_CONVERT_ARGS=--mtp` for the MTP draft file of nemotron-h, `--no-mtp` for its trunk) |
+| `gguf/tiny-random-*-f32.gguf` of llama.cpp-only families | `mk_tiny_gguf.py <falcon GGUF> <out dir>`; the Falcon GGUF supplies the tokenizer and **must carry the `falcon` pre-tokenizer** (otherwise every prompt tokenizes differently and the llama.cpp ids change) |
+| GGUF references | `tools/model-assets/llamacpp_ids.py <runtime dir> <gguf> <prompt> <n>` (llama-server, CPU, greedy, `return_tokens`) |
+| `sd/`, `whisper.cpp/`, `audio/jfk.wav` | `ggerganov/whisper.cpp` (`ggml-*.bin`), `stable-diffusion-v1-5/stable-diffusion-v1-5` (diffusers files, `v1-5-pruned-emaonly.safetensors`), `second-state/stable-diffusion-v1-5-GGUF`, whisper.cpp `samples/jfk.wav`; the tiny SD pipeline is `tools/make-tiny-diffusion-models.py` (wip/diffusers) |
+| `onnx/` | `bench/onnx/download_models.py`; the conformance data with `tools/gen-onnx-node-tests.py`, `gen-onnx-ml-tests.py`, `gen-onnx-contrib-tests.py` in a venv with onnx 1.23.2 and onnxruntime 1.31 |
+
+Not reproducible from public sources alone: the `-sparse` variants (their seeds, budgets and prompts are arguments of `mk_tiny_dsa_sparse.py`,
+`mk_tiny_group_sparse.py` and `mk_tiny_qwen4exp_sparse.py` that were not recorded).
+
+Converter notes. A GGUF made from a checkpoint with a real tokenizer (lfm3-hf, clef, vllm-decision2, glm4v, hunyuan-vl, deepseek-ocr) needs `TINY_PRE=auto`: with the default
+GPT-2 pre-tokenizer llama.cpp splits the prompt differently from transformers (clef: `\n\n` as two tokens) and every id differs; `convert_all.py` sets it per
+name. `convert_tiny_gguf.py` copies sub-directories (the `backbone/` of a Decision 2.0 package). The GGUF references of the minimax-m2 file come from
+llama.cpp b11177 (CPU) and those of the lfm3 files from 8ca5a80 (b11177 predates lfm3).
+
+Still missing (cannot be rebuilt from what is recorded): `kimi_k3` / `kimi-k31*` and the `-sparse` variants (seeds unknown), `gguf/tiny-random-clover-moe*.gguf`
+(the retargeting script `retarget_gguf.py` that the case comment names was never committed), and the cogvlm GGUF + mmproj (the stock converter cannot
+read the original cogvlm config).
 
 ## 9. Reproducing the references
 
@@ -997,3 +1035,160 @@ Model types still unsupported, with estimates (none is a mapping-only job):
 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16 | an nGPT (normalized) transformer with layer loops; no modeling code is published | not verifiable yet |
 | baidu/ERNIE-5.5-Flash-Base | no modeling code is published | not verifiable yet |
 | meituan-longcat/LongCat-2.5 | no modeling code is published | not verifiable yet |
+
+## 12. Text to speech (task kind `speech-synthesis`)
+
+Speech synthesizers are `.slm`-storable models of kind `speech-synthesis` run through `ISpeechSynthesizer` (docs/api-overview.md, Tasks). Acoustic models,
+codecs and vocoders are graphs of generic Core ops; the host runs only the token loop (the text-generation session and sampler) and the overlap-add.
+
+| Model | Status | Reference | Parity |
+|---|---|---|---|
+| OuteTTS 0.2 500M + WavTokenizer-Large-75 (GGUF pair) | supported, CPU and Vulkan | llama.cpp 8ca5a80 (`llama-completion`, libllama WavTokenizer graph + numpy iSTFT) | teacher-forced logits: no argmax disagreement beyond a 0.1 margin over 253 positions, worst logit delta 0.32 (CPU) / 0.52 (Vulkan) on logits up to 45 (Q8_0 activation rounding); decoder waveform relative RMS < 2e-3 on both |
+| qwen3tts, pockettts (llama.cpp archs), Kokoro, Orpheus + SNAC, CSM + Mimi, Dia | not started | - | - |
+
+OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
+`samples/Sharplight.Speak`). `OuteTtsAdapter` is a composite adapter (`ModelAdapterRegistry.RegisterComposite`): it builds the language model with the adapter of its
+architecture, adds the codec weights under `codec.` and the `codec_decode` graph, and describes the model: components `text-model`, `tokenizer`, `codec-decoder`
+(config: sample rate, FFT size, hop, vocabulary; symbol bound `T` = 4096 frames). Voices are `voices/<name>.json` attachments of the `text-model` component
+(OuteTTS speaker profiles: words with durations and codec tokens); none ship by default.
+
+New generic Core pieces: the `Conv1d` op (time-major `[T, C]`, symbolic `T`, stride / padding / dilation / groups; CPU and a generated Vulkan kernel), `Sharplight.Audio.Window`
+and `OverlapAdd` (host side of an inverse STFT; the inverse real DFT and window stay in the graph through the existing `Dft` op), the composite-adapter hook and
+`LlmModel.FromTaskModel` made public. Greedy codec chains cannot match llama.cpp token for token: runner-up logits of codec tokens are often within 1e-3 of the winner, so the
+check feeds llama.cpp's tokens to both implementations (`OuteTtsTests`). The streaming form decodes each spoken word separately (the decoder attends over all frames, so
+this differs slightly from the whole-utterance decode). OuteTTS 0.3 and a default speaker profile are not implemented; llama.cpp 8ca5a80 dropped its OuteTTS demo, so the
+reference is the pieces above rather than `llama-tts`.
+
+## 13. Speech to text (task kind `speech-recognition`)
+
+Speech-to-text models are the first non-LLM kind on the task layer (`ModelKinds.SpeechRecognition`, docs/api-overview.md "Tasks").
+They run through the same engine as everything else: the encoder and decoder are graphs of generic Core ops built by an architecture
+adapter, the model knowledge lives in the importers, and only the feature extraction and the decoding loop run on the host.
+
+| Family | Formats | Status | Verified against | Test assets |
+|---|---|---|---|---|
+| Whisper tiny, base, small (and `.en`); medium, large-v1/v2/v3 and turbo map the same way but are not verified yet | Hugging Face `whisper` checkpoints; whisper.cpp ggml `.bin` (f32, f16, q4_0/q4_1/q5_0/q5_1/q8_0, k-quants); `.slm` | **supported** (CPU and Vulkan) | transformers (log-mel, encoder output, token-exact greedy ids with and without timestamps, language detection) and whisper.cpp 5922450f CPU build (segments and texts) | hf/whisper-{tiny,tiny.en,base,small}, whisper.cpp/ggml-{tiny,tiny.en,base,base.en,small,small.en}[-q5_1].bin, audio/jfk.wav |
+| Distil-Whisper (distil-small.en, distil-large-v3.5) | Hugging Face (`whisper` model type; f16 `model.safetensors` beside an `fp32` variant) | **supported** (CPU and Vulkan; same graph, 2-layer decoders) | transformers (encoder output, token-exact greedy ids with and without timestamps, beam search) | hf/distil-small.en, hf/distil-large-v3.5 |
+| Moonshine, Parakeet (CTC / TDT), Canary, Voxtral | - | **missing** (next in the speech queue: raw-waveform conv front end, conformer encoder with CTC / transducer decoding loops, Voxtral's audio encoder in front of an LLM) | - | - |
+
+How it is built (2026-11-15):
+
+- **Model**: canonical architecture `encoder_decoder` with `encoder.input` "audio" (`EncoderDecoderAdapter`): the encode graph takes one
+  window of log-mel features [mel bins, 3000] (`InputRole.AudioFeatures`) and runs the `AudioConvStem` (two generic time-major
+  `Conv1d` ops, the op the text-to-speech codecs use, with GELU, then learned positions) and pre-norm LayerNorm layers; the decode graph has a KV cache for self-attention and caches the
+  cross-attention keys and values per window (`cross_attention.cached`: projected once on the window's first pass, E = 1500, later
+  passes carry no source rows). The adapter sets the model description (`SpeechRecognitionDescription`): components `encoder`,
+  `decoder` (row and context bound 448), `tokenizer` (the canonical `TokenizerData` JSON as the attachment `tokenizer/tokenizer.json`)
+  and `feature-extractor` (log-mel configuration, filter bank as the attachment `feature-extractor/mel-filters`).
+- **Importers**: `Sharplight.Import.HuggingFace` (`WhisperHfMapping`: filter bank computed as transformers' feature extractor does,
+  speech keys from `generation_config.json`) and the new `Sharplight.Import.WhisperCpp` (`WhisperCppImporter`: the legacy ggml
+  container, weights zero-copy from the memory map, the stored filter bank, and the vocabulary rebuilt into a byte-level BPE tokenizer
+  whose merges are recovered from the token ranks, plus Whisper's special tokens and non-speech suppression list; the rebuilt tokenizer
+  encodes exactly like the transformers tokenizer and yields the same suppress lists).
+- **Host**: `LogMelSpectrogram` (feature-extractor type `log-mel`, behind the internal `IAudioFeatureExtractor`; a graph-based
+  extractor on the generic STFT op that `wip/onnx-ops` adds can replace it) and `EncoderDecoderSpeechRecognizer`: language detection,
+  transcribe / translate, greedy, sampled or beam-search decoding with the timestamp rules (`SpeechRecognitionOptions.BeamSize`;
+  `SpeechBeamSearch` follows transformers' `num_beams` selection and length normalization, and evaluates the beams on the single KV
+  cache by rewinding it to each beam's shared prefix), no-speech detection, and long-form transcription that advances window by window
+  to the last complete timestamp segment (optionally conditioned on the previous text). Not yet: temperature fallback, word timestamps
+  (cross-attention alignment heads).
+- Hugging Face checkpoints that ship weight variants next to `model.safetensors` (`model.fp32.safetensors`, ...) load the default file
+  only, as transformers does.
+
+Parity on jfk.wav (11 s):
+
+| Check | Result |
+|---|---|
+| log-mel features vs transformers (`WhisperFeatureExtractor`) | max abs error 3.8e-6 (values up to 1.33) |
+| encoder output vs transformers, f32 checkpoints | max abs error 1.1e-5 to 1.4e-4 for values up to 10 to 28 (≤ 5e-6 relative), CPU and Vulkan |
+| greedy ids vs transformers `generate` (tiny, tiny.en, base, small; without and with timestamps) | identical, CPU and Vulkan |
+| greedy ids vs transformers, Distil-Whisper (distil-small.en, distil-large-v3.5) | identical, CPU and Vulkan; encoder within 2e-5 relative (distil-small.en's f16 weights on Vulkan: within 2e-3, f16 matrix products) |
+| 5-beam search vs transformers `generate(num_beams=5)` (tiny, tiny.en, base, small, distil-small.en; without and with timestamps) | identical ids (tiny, tiny.en and distil-small.en pick different sequences than greedy), CPU and Vulkan |
+| language detection (tiny, base) | `en`, then identical ids to transformers without a language |
+| whisper.cpp f16 files (6 models): segments with timestamps and `-nt` text | identical to whisper.cpp's CPU build, CPU and Vulkan |
+| whisper.cpp q5_1 files (6 models) | same words; 3 of 24 runs differ in one punctuation mark. ggml multiplies quantized weights with activations quantized to 8 bits, Sharplight with the dequantized weights; whisper.cpp's own CPU and CUDA builds disagree on the same commas (e.g. small.en-q5_1) |
+
+Tests: `tests/Sharplight.Speech.Tests` (`WhisperTransformersParityTests`, `WhisperCppParityTests`, `WhisperCppVocabularyTests`,
+`SpeechPackageTests`: conversion to `.slm`, loading through the DI task API with identical tokens, per-component precompilation;
+`FourierTransformTests`), fixtures from `tests/Sharplight.Speech.Tests/tools/make_whisper_fixtures.py`; the audio endpoints in
+`Sharplight.Serving.Tests` (`AudioApiTests`); the Studio inspector in `PackageInspectorTests.SpeechPackage_ShowsSpeechRecognitionComponents`.
+
+## 14. Vision models (task layer)
+
+Vision models run through the task layer (kinds `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`; see docs/api-overview.md "Tasks"). The host-side
+preprocessing is the neutral `ImageProcessorConfig` stored with the model. Reference outputs come from `tools/vision-reference.py`
+(transformers, CPU) on one sample image (`--size 640` for the fixed-canvas detectors); checkpoints live in `~/models/vision/<name>`.
+
+| Model | Importer | Kind | Status | Parity vs transformers (relative rms, CPU / Vulkan) |
+|---|---|---|---|---|
+| ViT (`google/vit-base-patch16-224`) | HF `vit` | image-classification | supported, same top-1 | 1.2e-3 / 1.2e-3 (logits) |
+| DINOv2 (`facebook/dinov2-small`, 518 px table resampled to the 224 px processor grid, LayerScale, registers) | HF `dinov2`, `dinov2_with_registers` | image-embedding | supported | 1.2e-3 / 1.2e-3 (CLS embedding) |
+| CLIP (`openai/clip-vit-base-patch32`: image tower with projection, causal text tower pooled at the end-of-text token, CLIP byte-level BPE tokenizer) | HF `clip` | image-embedding (+ text) | supported: `EmbedImageAsync`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | image 2.6e-3, text 1e-6, zero-shot logits 4.5e-4 (identical on both backends) |
+| SigLIP (`google/siglip-base-patch16-224`: attention-pooling head, bidirectional text tower padded to 64 tokens, unigram tokenizer with SigLIP's lower-casing and punctuation removal, sigmoid scoring) | HF `siglip` | image-embedding (+ text) | supported, same API | image 2.2e-3, text 1e-6, zero-shot logits 6.3e-4 |
+| DETR (`facebook/detr-resnet-50`: timm ResNet-50 with folded frozen batch norm, 6+6 layer transformer, 100 queries) | HF `detr` | object-detection | supported: same four detections, boxes within 2 px, scores within 0.02 | CPU = Vulkan (identical detections) |
+| RT-DETR (`PekingU/rtdetr_r18vd`: ResNet-D backbone, hybrid encoder with AIFI and CSP-RepVGG FPN/PAN, top-k query selection with anchors, multi-scale deformable attention through `GridSample`, box refinement) | HF `rt_detr` | object-detection | supported: same five detections | CPU = Vulkan |
+| Depth Anything V2 (`depth-anything/Depth-Anything-V2-Small-hf`: DINOv2 backbone with four tapped layers, DPT reassemble and feature-fusion neck, convolutional head; relative depth) | HF `depth_anything` | depth-estimation | supported: `IDepthEstimator.EstimateAsync` | depth map 1.5e-4 (CPU = Vulkan) |
+| SAM 2 (promptable segmentation), Mask2Former, DPT (other heads), YOLO, TrOCR, Florence-2, Real-ESRGAN, SwinIR | - | - | not started | - |
+
+The residual 1e-3 of the image towers is the resize (Pillow rounds to 8 bits per pass; the sample's pixel difference is not yet bit-exact), identical on both backends. Text towers match to float rounding.
+
+Depth Anything runs on a fixed 518 px square canvas like the detectors (the reference uses `--size 518`, `keep_aspect_ratio=False`); the map is resampled bilinearly to the input size.
+
+Detector limits: the graphs run on a fixed square canvas (640 px, `DetrHfMapping.InputSize`; RT-DETR's own processor size): every image is resized to it without keeping the aspect ratio, where the checkpoints' own processors
+resize DETR to 800/1333 px keeping the aspect ratio (a static graph cannot follow; the reference is generated with the same 640 px resize, `vision-reference.py --size 640`). Boxes are returned in pixels of the original image.
+DETR needs the timm backbone layout (`use_timm_backbone`, ResNet-18/34/50/101), RT-DETR the ResNet-D backbone with one AIFI level and box refinement; others are rejected by `Validate` with a reason.
+SigLIP's tokenizer removes all ASCII punctuation as transformers' `SiglipTokenizer` does (the fast tokenizer.json spares `/ < >`).
+
+## 15. Image generation (2026-11-15)
+
+Image generators are regular models of kind `image-generation` (see [api-overview.md](api-overview.md) "Image generation"): the
+importer `Sharplight.Import.Diffusers` translates checkpoints into the canonical `latent_diffusion` source, `LatentDiffusionAdapter`
+builds the CLIP text encoder, UNet and VAE as graphs of generic Core ops (Conv, GroupNorm, LayerNorm, Resize, batched Attention;
+no new ops were needed), and Core's latent-diffusion pipeline runs them with host-side samplers and classifier-free guidance.
+
+| family | formats | status | verified |
+|---|---|---|---|
+| Stable Diffusion 1.x (SD 1.5) | diffusers folder (with or without `model_index.json`), original single-file `.safetensors` or `.ckpt` (restricted unpickler, nothing executed), stable-diffusion.cpp GGUF (f16, Q8_0, Q4_0, any ggml type for linear weights) | **supported** (txt2img, negative prompts, img2img, mask-blend inpainting, any size that is a multiple of 64, `.slm` with per-component precompilation) | below |
+| Stable Diffusion 2.x (2.1 768-v, 2.1 base) | diffusers folder, original single-file `.safetensors` / `.ckpt` (OpenCLIP ViT-H tower; 768 files default to v-prediction at 768×768, files named like the 512 / base releases to epsilon at 512×512) | **supported** (as SD 1.x) | below |
+| SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, SD3, FLUX, Chroma, Qwen-Image, video (Wan, LTX) | - | missing | the graph contract (`DiffusionGraphs`), the description and the pipeline are kind-generic; SD3 / FLUX need a DiT and flow-matching samplers |
+| LoRA (kohya / diffusers), ControlNet, TAESD | - | missing | |
+
+Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
+
+- Tiny random SD 1.x pipeline (`~/models/sd/tiny-random-sd`, tools/make-tiny-diffusion-models.py): text encoder, UNet, VAE decode
+  and encode within 1e-4 relative RMS of transformers / diffusers on CPU and Vulkan; whole txt2img runs from the same initial
+  noise with Euler, Euler Karras, DDIM, PNDM, DPM++ 2M and DPM++ 2M Karras above 40 dB PSNR on both; the single-file checkpoint
+  is bit-identical to the diffusers folder after import; the CLIP tokenizer (rebuilt from the embedded OpenAI merges) gives
+  transformers' ids.
+- SD 1.5 (fp32 diffusers folder) on Vulkan, 512×512, 20 steps, guidance 7.5, same initial noise as diffusers (fp32, CUDA):
+  Euler 76.3 dB, Euler Karras 76.7 dB, DDIM 76.2 dB, PNDM 58.8 dB, DPM++ 2M 60.5 dB, DPM++ 2M Karras 73.8 dB PSNR; text encoder,
+  UNet and VAE decode within 2e-3 / 5e-3 / 5e-3 relative RMS. The single-file checkpoint, the original `.ckpt` and the three GGUF
+  files map to exactly the diffusers folder's canonical names and shapes; the `.ckpt` weights are byte-identical to the `.safetensors` ones.
+- stable-diffusion.cpp 5dcfa79 (CUDA and Vulkan builds), Euler, 20 steps, `--rng cpu` (torch CPU noise, the same as the
+  diffusers references): on the f16 GGUF Sharplight (Vulkan) is 48.7 dB from diffusers fp32 and 44.3 dB from sd.cpp CUDA (sd.cpp
+  CUDA 43.5 dB from diffusers, sd.cpp Vulkan 28 dB from both); on Q8_0 all implementations give visually the same image but drift
+  apart along the trajectory (Sharplight vs sd.cpp Vulkan 30.0 dB, vs CUDA 20.2 dB); the published Q4_0 file produces a degenerate
+  image in every implementation (Sharplight vs sd.cpp CUDA / Vulkan 37.8 / 41.0 dB).
+- Tiny random SD 2.x pipeline (`~/models/sd/tiny-random-sd2`, `make-tiny-diffusion-models.py --family sd2`: linear projections,
+  per-level head counts, upcast attention, GELU text encoder, v-prediction, DDIM): graphs within 1e-4 and txt2img above 40 dB for
+  all six samplers on CPU and Vulkan; its OpenCLIP single file (`.safetensors` and `.ckpt`, with an extra last block that the
+  importer drops) imports to exactly the folder's weights. Sharplight's `pndm` is diffusers' PLMS form (`skip_prk_steps`), also for
+  DDIM-configured models.
+- SD 2.1 768-v (sd2-community mirror) on Vulkan, 768×768, 20 steps, same initial noise as diffusers: fp32 folder Euler 70.2 dB,
+  DDIM 64.1 dB, DPM++ 2M Karras 51.8 dB, graphs within the SD 1.5 tolerances; with the fp16 files (computed in f16 on Vulkan) the
+  images are visually identical but 37.8 / 34.1 / 28.1 dB from diffusers' fp32-upcast run (UNet 2.2 % relative RMS on random
+  inputs). The 768-v single file maps to the diffusers folder's names, shapes and configuration.
+- Tiny random SDXL pipeline (`~/models/sd/tiny-random-sdxl`, tools/make-tiny-sdxl.py): both text encoders (penultimate layers),
+  the pooled projection, the UNet with added conditioning and the VAE within 1e-4, txt2img above 40 dB (Euler, DDIM, DPM++ 2M
+  Karras; without a negative prompt the zero unconditional row) on CPU and Vulkan. The SDXL base single file maps to the diffusers
+  folder's names, shapes and configuration. When a scheduler config omits `set_alpha_to_one`, DDIM / PNDM follow diffusers'
+  per-scheduler defaults.
+- SDXL base 1.0 on Vulkan (published fp16 files), 1024×1024, 20 steps, guidance 7.5, same initial noise as diffusers (fp16 files
+  upcast to fp32, CUDA): UNet 5.7e-5, VAE decode 1.5e-5, second text encoder 6e-4 relative RMS; Euler 42.4 dB, DPM++ 2M Karras
+  30.0 dB (visually identical; the multistep sampler drifts further). Unlike SD 2.1 (attention upcast in its config, 2.2 % UNet
+  error in f16), SDXL keeps its accuracy with f16 weights.
+- Indicative speed on the shared RTX PRO 4500 (GPU 0, other agents active, not a benchmark): Sharplight denoises at about 0.1 s per
+  step (CFG batch of 2, 512×512, f16 GGUF), sd.cpp sampled 20 steps in 17.1 s (Vulkan) and 22.8 s (CUDA) in the same session.
+  Without a precompiled `.slm` the first load spends 50–130 s compiling the UNet kernels (Slang, CPU-bound); `sharplight-convert
+  precompile` stores them in the package.

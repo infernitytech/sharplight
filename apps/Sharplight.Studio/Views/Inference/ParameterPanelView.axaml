@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:inf="using:Sharplight.Studio.ViewModels.Inference"
+             xmlns:par="using:Sharplight.Studio.ViewModels.Inference.Parameters"
+             xmlns:pages="using:Sharplight.Studio.Services.Pages"
+             xmlns:views="using:Sharplight.Studio.Views"
+             x:Class="Sharplight.Studio.Views.Inference.ParameterPanelView"
+             x:DataType="inf:ParameterPanelViewModel">
+  <DockPanel>
+    <!-- Presets -->
+    <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,10">
+      <TextBlock Classes="label" Text="Preset" />
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Classes="small" Content="Reset" Command="{Binding ResetToDefaultsCommand}" Margin="8,0,0,0" ToolTip.Tip="Set every parameter to its default" />
+        <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}" HorizontalAlignment="Stretch" PlaceholderText="Custom values">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="pages:ParameterPreset">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="{Binding Name}" />
+                <Border Classes="badge" IsVisible="{Binding BuiltIn}">
+                  <TextBlock Text="built in" />
+                </Border>
+              </StackPanel>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+      </DockPanel>
+    </StackPanel>
+    <!-- Save as preset -->
+    <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,10,0,0">
+      <TextBlock Classes="label" Text="Save these values as a preset" />
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Classes="small" Content="Delete" Command="{Binding DeletePresetCommand}" Margin="6,0,0,0" ToolTip.Tip="Delete the selected preset" />
+        <Button DockPanel.Dock="Right" Classes="small" Content="Save" Command="{Binding SavePresetCommand}" Margin="8,0,0,0" />
+        <TextBox Text="{Binding PresetName}" PlaceholderText="Preset name" />
+      </DockPanel>
+    </StackPanel>
+    <ScrollViewer>
+      <ItemsControl ItemsSource="{Binding Parameters}" Margin="0,0,8,0">
+        <ItemsControl.DataTemplates>
+          <DataTemplate DataType="par:ChoiceParameterViewModel">
+            <StackPanel Spacing="3" Margin="0,0,0,12" IsVisible="{Binding IsVisibleNow}" x:DataType="par:ChoiceParameterViewModel">
+              <TextBlock Classes="label" Text="{Binding Label}" />
+              <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Selected}" HorizontalAlignment="Stretch" />
+              <TextBlock Classes="caption" Text="{Binding Hint}" TextWrapping="Wrap" />
+            </StackPanel>
+          </DataTemplate>
+          <DataTemplate DataType="par:NumberParameterViewModel">
+            <StackPanel Spacing="1" Margin="0,0,0,12" IsVisible="{Binding IsVisibleNow}" x:DataType="par:NumberParameterViewModel">
+              <views:SliderRow Label="{Binding Label}" Value="{Binding Value, Mode=TwoWay}" Minimum="{Binding Minimum}" Maximum="{Binding Maximum}"
+                               SmallChange="{Binding Step}" Format="{Binding Format}" />
+              <TextBlock Classes="caption" Text="{Binding Hint}" TextWrapping="Wrap" />
+            </StackPanel>
+          </DataTemplate>
+          <DataTemplate DataType="par:BoolParameterViewModel">
+            <StackPanel Spacing="2" Margin="0,0,0,12" IsVisible="{Binding IsVisibleNow}" x:DataType="par:BoolParameterViewModel">
+              <ToggleSwitch Content="{Binding Label}" IsChecked="{Binding Value}" />
+              <TextBlock Classes="caption" Text="{Binding Hint}" TextWrapping="Wrap" />
+            </StackPanel>
+          </DataTemplate>
+          <DataTemplate DataType="par:TextParameterViewModel">
+            <StackPanel Spacing="3" Margin="0,0,0,12" IsVisible="{Binding IsVisibleNow}" x:DataType="par:TextParameterViewModel">
+              <TextBlock Classes="label" Text="{Binding Label}" />
+              <TextBox Text="{Binding Value}" PlaceholderText="{Binding Placeholder}" />
+              <TextBlock Classes="caption" Text="{Binding Hint}" TextWrapping="Wrap" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.DataTemplates>
+      </ItemsControl>
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

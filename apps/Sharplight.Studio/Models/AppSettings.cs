@@ -18,7 +18,11 @@ internal sealed record AppSettings
     /// <summary>The offer to move the models of a previous store (the per-user store) was answered; it is made once.</summary>
     public bool StoreMigrationAnswered { get; init; }
 
-    /// <summary>Hugging Face access token for gated and private repositories; null uses <c>HF_TOKEN</c>.</summary>
+    /// <summary>
+    /// Hugging Face access token for gated and private repositories; null uses <c>HF_TOKEN</c>. Studio has no secret-storage
+    /// abstraction (OS keyring) yet, so the token is kept in the settings file as plain text; it is sent only to huggingface.co
+    /// (<c>HubRequests.Get</c> attaches it to the Hub's own host alone, never to the CDN a download redirects to).
+    /// </summary>
     public string? HuggingFaceToken { get; init; }
 
     /// <summary>Colour theme.</summary>
@@ -51,8 +55,17 @@ internal sealed record AppSettings
     /// <summary>Discover lists only repositories and quantizations whose compatibility badge is <c>Supported</c>.</summary>
     public bool ShowOnlySupported { get; init; }
 
+    /// <summary>The filters and sort order of Discover.</summary>
+    public DiscoverFilterSettings Discover { get; init; } = new();
+
     /// <summary>Compile the GPU kernels into a package right after it was downloaded and converted.</summary>
     public bool PrecompileAfterDownload { get; init; } = true;
+
+    /// <summary>
+    /// Keep compiled kernels and driver pipeline caches in the per-user compilation cache, so models that are not precompiled load fast
+    /// from the second time on. Off: nothing is read from or written to the cache.
+    /// </summary>
+    public bool UseCompilationCache { get; init; } = true;
 
     /// <summary>Keep the downloaded source files next to the converted package.</summary>
     public bool KeepSourceFiles { get; init; }

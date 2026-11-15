@@ -60,14 +60,16 @@ public sealed class GgufTensorInfo
 
     /// <summary>
     /// A zero-copy source over the tensor bytes inside the file mapping (a source without data for a header-only tensor); for the
-    /// interleaved Q4_0 types a source that reads them as plain Q4_0 rows, for the narrow IQ1 types one that widens them to IQ1_S.
+    /// interleaved Q4_0 types a source that reads them as plain Q4_0 rows, for the narrow IQ1 types one that widens them to IQ1_S, for I2_S one that spreads the tensor's scale over the blocks.
     /// </summary>
     internal IWeightSource CreateSource() => _file is null ? new GgufHeaderOnlySource(Name, ByteSize)
         : GgmlTypes.TryGetQ4_0Interleave(GgmlType, out int rows, out int chunk)
             ? new GgufInterleavedQ4_0Source(_file, Offset, ByteSize, Ne[0] / DataType.BlockSize, rows, chunk)
             : GgmlNarrowIq1.Is(GgmlType)
                 ? new GgufNarrowIq1Source(_file, Offset, GgufFile.StoredByteSize(GgmlType, ByteSize), GgmlType)
-                : new GgufWeightSource(_file, Offset, ByteSize);
+                : GgmlType == GgmlTypes.I2S
+                    ? new GgufI2sSource(_file, Offset, ByteSize)
+                    : new GgufWeightSource(_file, Offset, ByteSize);
 
     /// <summary>A zero-copy weight (file name, file shape) over the tensor bytes.</summary>
     internal WeightInfo ToWeightInfo() => new() { Name = Name, Type = DataType, Shape = Shape, Source = CreateSource() };

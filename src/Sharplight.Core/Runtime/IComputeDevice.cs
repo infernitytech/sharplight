@@ -52,15 +52,16 @@ public interface IComputeDevice : IDisposable
     public IReadOnlyList<ArtifactTarget> ArtifactTargets => [];
 
     /// <summary>
-    /// Adds device-level compilation state (e.g. a driver pipeline cache covering every kernel compiled so far) to
-    /// <paramref name="cache"/> before it is saved.
+    /// The persistent artifact store this device's compilations consult after the model's own artifact sets and record into (see
+    /// <see cref="Runtime.ArtifactStore"/>; per user by default, <see cref="DeviceOptions.UseCompilationCache"/> turns it off), or
+    /// <see langword="null"/>.
     /// </summary>
-    public void ExportCompilationState(ICompilationCache cache) { }
+    public ArtifactStore? ArtifactStore => null;
 
     /// <summary>
-    /// What code generation on this opened device depends on (<see cref="DeviceProfile"/>), so code for it can be generated
-    /// elsewhere through an <see cref="IOfflineCompilationProvider"/>; <see langword="null"/> when the provider cannot compile
-    /// offline. Its features are <see cref="EnabledFeatures"/>.
+    /// What code generation on this opened device depends on (<see cref="DeviceProfile"/>), so its portable code can be generated
+    /// without it (<see cref="IExecutionProvider.CompilePortableAsync"/>), here or on another machine; <see langword="null"/> when the
+    /// provider has no portable stage. Its features are <see cref="EnabledFeatures"/>.
     /// </summary>
     public DeviceProfile? CreateProfile() => null;
 }

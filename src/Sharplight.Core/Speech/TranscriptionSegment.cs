@@ -18,6 +18,12 @@ public sealed record TranscriptionSegment
     /// <summary>Per-word timings when <see cref="TimestampGranularity.Word"/> was requested and supported; otherwise empty.</summary>
     public IReadOnlyList<WordTiming> Words { get; init; } = [];
 
+    /// <summary>
+    /// The decoded token ids of the segment as the model produced them (text tokens, and for models with timestamp tokens the segment's
+    /// opening and closing timestamps); empty when the model does not decode tokens.
+    /// </summary>
+    public IReadOnlyList<int> Tokens { get; init; } = [];
+
     /// <summary>Mean log probability of the segment's tokens, or <see langword="null"/> when not available.</summary>
     public double? AverageLogProbability { get; init; }
 

@@ -5,6 +5,7 @@ using Sharplight.ImageGeneration;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Speech;
+using Sharplight.Vision;
 
 namespace Sharplight.Tasks;
 
@@ -20,7 +21,9 @@ public static class TaskServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the <see cref="TaskClientProvider"/> and the built-in text-generation factory (decoder LLMs and masked-diffusion LMs).
+        /// Adds the <see cref="TaskClientProvider"/> and the built-in factories: text generation (decoder LLMs and masked-diffusion LMs),
+        /// speech recognition with prompted encoder-decoder models (Whisper family), image classification / embedding with image
+        /// encoders and latent-diffusion image generation (models following <see cref="DiffusionGraphs"/>).
         /// Idempotent. <c>services.AddSharplight()</c> of the Sharplight.Defaults package calls it.
         /// </summary>
         public IServiceCollection AddSharplightTasks()
@@ -29,6 +32,17 @@ public static class TaskServiceCollectionExtensions
             services.AddOptions();
             services.TryAddSingleton<TaskClientProvider>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextGeneratorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, LatentDiffusionGeneratorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, EncoderDecoderSpeechRecognizerFactory>());
+            if (!services.Any(d => d.ServiceType == typeof(ITaskClientFactory) && d.ImplementationInstance is ImageEncoderFactory))
+            {
+                services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageClassification, typeof(IImageClassifier)));
+                services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageEmbedding, typeof(IImageEmbedder)));
+                services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageClassification, typeof(IImageEmbedder)));
+                services.AddSingleton<ITaskClientFactory>(new ObjectDetectorFactory());
+                services.AddSingleton<ITaskClientFactory>(new DepthEstimatorFactory());
+            }
+
             return services;
         }
 
@@ -102,6 +116,30 @@ public static class TaskServiceCollectionExtensions
         /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
         public IServiceCollection AddSpeechSynthesizer(Action<TaskLoadOptions> configure, object? serviceKey = null)
             => services.AddTaskClient<ISpeechSynthesizer>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IImageClassifier"/> for one model (see <see cref="AddTaskClient{TClient}"/>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        public IServiceCollection AddImageClassifier(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IImageClassifier>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IImageEmbedder"/> for one model (see <see cref="AddTaskClient{TClient}"/>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        public IServiceCollection AddImageEmbedder(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IImageEmbedder>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IObjectDetector"/> for one model (see <see cref="AddTaskClient{TClient}"/>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        public IServiceCollection AddObjectDetector(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IObjectDetector>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IDepthEstimator"/> for one model (see <see cref="AddTaskClient{TClient}"/>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        public IServiceCollection AddDepthEstimator(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IDepthEstimator>(configure, serviceKey);
 
         /// <summary>Adds an <see cref="IImageGenerator"/> for one model (see <see cref="AddTaskClient{TClient}"/>).</summary>
         /// <param name="configure">Configures the model path, devices and compile settings.</param>

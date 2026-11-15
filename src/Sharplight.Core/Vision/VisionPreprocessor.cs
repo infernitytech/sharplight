@@ -340,10 +340,13 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
 
     // ---- antialiased bicubic resize (PIL / torch antialias=True semantics, Keys kernel a = -0.5; see ImageResampling) ----------
     /// <summary>Antialiased bicubic resize of interleaved 8-bit RGB (rounded and clamped to 8 bits like the reference).</summary>
-    internal static byte[] ResizeBicubic(byte[] src, int sw, int sh, int dw, int dh)
+    internal static byte[] ResizeBicubic(byte[] src, int sw, int sh, int dw, int dh) => Resize(src, sw, sh, dw, dh, ImageResampleFilter.Bicubic);
+
+    /// <summary>Antialiased resize of interleaved 8-bit RGB with PIL's bilinear or bicubic filter (rounded and clamped to 8 bits after each pass).</summary>
+    internal static byte[] Resize(byte[] src, int sw, int sh, int dw, int dh, ImageResampleFilter filter)
     {
-        var (hs, hc, hw, hm) = ImageResampling.Coefficients(sw, dw);
-        var (vs, vc, vw, vm) = ImageResampling.Coefficients(sh, dh);
+        var (hs, hc, hw, hm) = ImageResampling.Coefficients(sw, dw, filter);
+        var (vs, vc, vw, vm) = ImageResampling.Coefficients(sh, dh, filter);
         // Both passes round and clamp to 8 bits, as PIL (and torchvision's antialiased resize of uint8 images) does; the intermediate clamp
         // matters next to sharp edges, where the kernel overshoots.
         var tmp = new float[(long)sh * dw * 3];

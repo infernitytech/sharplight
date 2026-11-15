@@ -6,6 +6,9 @@ internal interface IModelLibrary
     /// <summary>Every model, store first.</summary>
     public Task<IReadOnlyList<LibraryEntry>> ListAsync(CancellationToken cancellationToken);
 
+    /// <summary>Reads <paramref name="entry"/> again from disk (size, precompiled sets), e.g. after it was precompiled.</summary>
+    public Task<LibraryEntry> ReloadAsync(LibraryEntry entry, CancellationToken cancellationToken);
+
     /// <summary>Deletes a stored model, or removes an added file from the list (the file itself is kept).</summary>
     public Task RemoveAsync(LibraryEntry entry);
 

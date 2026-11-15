@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Sharplight.Models;
 
 namespace Sharplight.Tokenizers;
@@ -36,6 +37,9 @@ public sealed record TokenizerData
 
     /// <summary>WordPiece: lowercase the text (default true).</summary>
     public bool? Lowercase { get; init; }
+
+    /// <summary>Unigram: characters removed from the text before tokenizing (SigLIP's canonicalization drops ASCII punctuation), or <see langword="null"/> for none.</summary>
+    public string? StripChars { get; init; }
 
     /// <summary>WordPiece: strip accents (default: same as <see cref="Lowercase"/>).</summary>
     public bool? StripAccents { get; init; }
@@ -76,6 +80,28 @@ public sealed record TokenizerData
     /// <summary>Canonical metadata key of <see cref="Merges"/>.</summary>
     public const string KeyMerges = CanonicalKeys.TokenizerMerges;
 
+    /// <summary>
+    /// The description as UTF-8 JSON (camelCase property names): the canonical stored form of a tokenizer that a model keeps as an
+    /// attachment (<see cref="ModelComponentAttachments.Tokenizer"/>) instead of metadata keys.
+    /// </summary>
+    public byte[] ToJson() => JsonSerializer.SerializeToUtf8Bytes(this, TokenizerDataJsonContext.Default.TokenizerData);
+
+    /// <summary>Reads a description written by <see cref="ToJson"/>.</summary>
+    /// <param name="json">UTF-8 JSON.</param>
+    /// <exception cref="InvalidDataException">The JSON is not a tokenizer description.</exception>
+    public static TokenizerData FromJson(ReadOnlySpan<byte> json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize(json, TokenizerDataJsonContext.Default.TokenizerData)
+                ?? throw new InvalidDataException("Invalid tokenizer description: null.");
+        }
+        catch (JsonException error)
+        {
+            throw new InvalidDataException($"Invalid tokenizer description: {error.Message}", error);
+        }
+    }
+
     /// <summary>Reads the canonical tokenizer keys (<see cref="CanonicalKeys"/>). Lenient about numeric widths and array element types.</summary>
     /// <param name="md">Canonical model metadata.</param>
     /// <returns>The tokenizer description; the model defaults to "gpt2" when the metadata names none.</returns>
@@ -110,6 +136,7 @@ public sealed record TokenizerData
             Scores = TokenizerMetadataReader.GetFloatArray(md, CanonicalKeys.TokenizerScores),
             AddSpacePrefix = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerAddSpacePrefix),
             Lowercase = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerLowercase),
+            StripChars = TokenizerMetadataReader.GetString(md, CanonicalKeys.TokenizerStripChars),
             StripAccents = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerStripAccents),
             BosId = TokenizerMetadataReader.GetInt(md, CanonicalKeys.TokenizerBosId),
             EosId = eos,

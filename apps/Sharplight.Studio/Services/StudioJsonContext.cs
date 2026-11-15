@@ -8,4 +8,9 @@ namespace Sharplight.Studio.Services;
 [JsonSerializable(typeof(AppSettings))]
 [JsonSerializable(typeof(Conversation))]
 [JsonSerializable(typeof(Hub.HighlightsCacheFile))]
+[JsonSerializable(typeof(Pages.ParameterPresetFile))]
+[JsonSerializable(typeof(Pages.RunHistoryFile))]
+[JsonSerializable(typeof(TranscriptFile))]
+[JsonSerializable(typeof(VisionResultFile))]
+[JsonSerializable(typeof(ImageParametersFile))]
 internal sealed partial class StudioJsonContext : JsonSerializerContext;

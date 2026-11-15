@@ -15,6 +15,15 @@ public sealed class HubSearchQuery
     /// <summary>Only repositories tagged with this format, or <see langword="null"/> for any.</summary>
     public ModelFormat? Format { get; init; }
 
+    /// <summary>
+    /// Only repositories of this task (<see cref="ModelTasks.PipelineTags"/>; a task with several tags is searched once per tag and the
+    /// answers are merged), or <see langword="null"/> for any.
+    /// </summary>
+    public ModelTask? Task { get; init; }
+
+    /// <summary>Only repositories under this license (the Hub's license id, e.g. <c>apache-2.0</c>), or <see langword="null"/> for any.</summary>
+    public string? License { get; init; }
+
     /// <summary>Maximum number of results.</summary>
     public int Limit { get; init; } = DefaultLimit;
 }

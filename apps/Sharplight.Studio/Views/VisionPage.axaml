@@ -1,0 +1,80 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vi="using:Sharplight.Studio.ViewModels.Vision"
+             xmlns:iv="using:Sharplight.Studio.Views.Inference"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.VisionPage"
+             x:DataType="vi:VisionPageViewModel">
+  <iv:InferenceFrame>
+    <iv:InferenceFrame.Workspace>
+      <Grid RowDefinitions="Auto,*" RowSpacing="14">
+        <!-- Input -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="h2" Text="Image" />
+            <iv:ImageInputView DataContext="{Binding Source}" />
+            <StackPanel Spacing="4" IsVisible="{Binding ShowCandidates}">
+              <TextBlock Classes="label" Text="Candidate labels (optional)" />
+              <TextBox Text="{Binding Candidates}" TextWrapping="Wrap" AcceptsReturn="True" MaxHeight="80" PlaceholderText="cat, dog, a bowl of soup  (models with a text tower score these; empty gives the image's vector)" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Classes="accent" Content="{Binding RunText}" Command="{Binding RunCommand}" />
+              <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsRunning}" />
+              <TextBlock Classes="caption" Text="{Binding RunHint}" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock Classes="caption" Text="{Binding ModeDescription}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <!-- Result -->
+        <Border Grid.Row="1" Classes="card">
+          <DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResult}">
+                <Button Classes="small" Content="Copy" Command="{Binding CopyCommand}" IsVisible="{Binding !ShowDepth}" />
+                <Button Classes="small" Content="Export PNG" Command="{Binding ExportImageCommand}" IsVisible="{Binding CanExportImage}" ToolTip.Tip="Export the annotated image or the depth map" />
+                <Button Classes="small" Content="Export JSON" Command="{Binding ExportJsonCommand}" />
+              </StackPanel>
+              <TextBlock Classes="h2" Text="Result" VerticalAlignment="Center" />
+            </DockPanel>
+            <TextBlock DockPanel.Dock="Bottom" Classes="caption" Text="{Binding ResultSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
+            <Panel>
+              <StackPanel IsVisible="{Binding !HasResult}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                <Path Classes="icon huge" Data="{StaticResource IconScan}" HorizontalAlignment="Center" />
+                <TextBlock Classes="muted" Text="What the model sees appears here." HorizontalAlignment="Center" />
+              </StackPanel>
+              <Grid ColumnDefinitions="*,16,*" IsVisible="{Binding HasResult}">
+                <Border CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center">
+                  <Image Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+                </Border>
+                <!-- Classes and objects -->
+                <DockPanel Grid.Column="2" IsVisible="{Binding ShowRows}">
+                  <TextBlock DockPanel.Dock="Bottom" Classes="caption" Text="{Binding RowsHint}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                  <ScrollViewer>
+                    <ItemsControl ItemsSource="{Binding Rows}" Margin="0,0,8,0">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vi:VisionRowViewModel">
+                          <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" Margin="0,0,0,8" ToolTip.Tip="{Binding Detail}">
+                            <Border Width="10" Height="10" CornerRadius="2" Margin="0,0,8,0" VerticalAlignment="Center" Background="{Binding Color}" IsVisible="{Binding HasColor}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Label}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding ScoreText}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                            <ProgressBar Grid.Row="1" Grid.ColumnSpan="3" Classes="thin" Minimum="0" Maximum="1" Value="{Binding Score}" Margin="0,3,0,0" />
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </DockPanel>
+                <!-- Depth map beside the image -->
+                <Border Grid.Column="2" CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding ShowDepth}">
+                  <Image Source="{Binding DepthPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+                </Border>
+                <!-- Embedding -->
+                <SelectableTextBlock Grid.Column="2" Text="{Binding EmbeddingText}" TextWrapping="Wrap" IsVisible="{Binding ShowEmbedding}" VerticalAlignment="Top" />
+              </Grid>
+            </Panel>
+          </DockPanel>
+        </Border>
+      </Grid>
+    </iv:InferenceFrame.Workspace>
+  </iv:InferenceFrame>
+</UserControl>

@@ -5,7 +5,11 @@
              xmlns:models="using:Sharplight.Studio.ViewModels.Models"
              xmlns:server="using:Sharplight.Studio.ViewModels.Server"
              xmlns:stats="using:Sharplight.Studio.ViewModels.Stats"
+             xmlns:tasks="using:Sharplight.Studio.ViewModels.Tasks"
              xmlns:settings="using:Sharplight.Studio.ViewModels.Settings"
+             xmlns:speech="using:Sharplight.Studio.ViewModels.Speech"
+             xmlns:image="using:Sharplight.Studio.ViewModels.Image"
+             xmlns:vision="using:Sharplight.Studio.ViewModels.Vision"
              x:Class="Sharplight.Studio.App"
              RequestedThemeVariant="Dark">
   <Application.Resources>
@@ -20,8 +24,23 @@
     <DataTemplate DataType="chat:ChatPageViewModel">
       <views:ChatPage />
     </DataTemplate>
+    <DataTemplate DataType="speech:TranscribePageViewModel">
+      <views:TranscribePage />
+    </DataTemplate>
+    <DataTemplate DataType="speech:SpeakPageViewModel">
+      <views:SpeakPage />
+    </DataTemplate>
+    <DataTemplate DataType="image:ImagePageViewModel">
+      <views:ImagePage />
+    </DataTemplate>
+    <DataTemplate DataType="vision:VisionPageViewModel">
+      <views:VisionPage />
+    </DataTemplate>
     <DataTemplate DataType="models:ModelsPageViewModel">
       <views:ModelsPage />
+    </DataTemplate>
+    <DataTemplate DataType="tasks:TasksPageViewModel">
+      <views:TasksPage />
     </DataTemplate>
     <DataTemplate DataType="server:ServerPageViewModel">
       <views:ServerPage />

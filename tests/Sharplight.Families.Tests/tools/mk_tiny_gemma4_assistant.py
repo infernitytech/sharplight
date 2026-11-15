@@ -26,6 +26,13 @@ import shutil
 import sys
 
 import torch
+
+# transformers >= 5.23 rejects a config whose layers all reuse another model's cache (the assistant's num_kv_shared_layers == num_hidden_layers);
+# that is exactly an assistant's layout, so the check is skipped for it.
+from transformers.models.gemma4 import configuration_gemma4 as _gemma4_configuration
+_kv_sharing_modes = _gemma4_configuration.Gemma4TextConfig.kv_sharing_modes.fget
+_gemma4_configuration.Gemma4TextConfig.kv_sharing_modes = property(
+    lambda self: ["reuse"] * self.num_hidden_layers if self.num_kv_shared_layers == self.num_hidden_layers else _kv_sharing_modes(self))
 from transformers import Gemma4AssistantConfig, Gemma4AssistantForCausalLM, Gemma4ForCausalLM, Gemma4TextConfig
 
 HOME = os.path.expanduser("~")

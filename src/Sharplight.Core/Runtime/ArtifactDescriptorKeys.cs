@@ -41,8 +41,23 @@ public static class ArtifactDescriptorKeys
     /// </summary>
     public const string CacheId = "cache";
 
+    /// <summary>Display name of the device a binary tier was built on (informational, never matched).</summary>
+    public const string DeviceName = "device_name";
+
     /// <summary>Driver version (hexadecimal) of a binary tier.</summary>
     public const string Driver = "driver";
+
+    /// <summary>
+    /// Version of the provider's kernel ABI (how kernels receive their arguments: pipeline layout, push constants, bindings). Device
+    /// code built for another ABI is never consulted.
+    /// </summary>
+    public const string KernelAbi = "abi";
+
+    /// <summary>
+    /// Driver compatibility key of individually stored kernel binaries (Vulkan: the global VK_KHR_pipeline_binary key): changes when
+    /// the driver can no longer import binaries it exported before.
+    /// </summary>
+    public const string BinaryKey = "binary_key";
 
     /// <summary>Kind of legacy (version 1) kernel sets, whose descriptor is synthesized when they are read.</summary>
     public const string LegacyKernelSetKind = "kernel-set";

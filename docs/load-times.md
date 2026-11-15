@@ -4,7 +4,7 @@ Wall-clock time of `sharplight <model> -p hi -n 1` (GGUF) and `sharplight-onnxru
 including process start, on an RTX PRO 6000 (Vulkan), 32 logical CPUs, a GPU shared with other applications (so single numbers
 carry +-20 % noise). Phase timings come from `SHARPLIGHT_LOAD_TIMING=1`.
 
-- **Cold**: kernel cache empty (a temporary `XDG_DATA_HOME`, so the user's `~/.local/share/sharplight/kernels` is untouched; the
+- **Cold**: kernel cache empty (a temporary `XDG_DATA_HOME`, so the user's kernel cache (since 2026-11-15 the artifact store `~/.local/share/sharplight/artifacts`) is untouched; the
   driver's own shader cache stays warm because the SPIR-V is byte-identical to earlier runs).
 - **Warm**: kernel cache populated; best of three runs.
 
@@ -61,6 +61,40 @@ per launch), kernel/pipeline wait about 3 ms, pipelines are created in parallel 
 SPIR-V is byte-identical: for Qwen3-0.6B, Gemma-3-1b and ConvNeXt-tiny every kernel dumped with `SHARPLIGHT_DUMP_KERNELS` was
 compiled before and after and the (source+macros) -> SPIR-V mapping compared; DenseNet-9 and U2-Net-P request exactly the
 same 221 / 127 kernel sources. Vulkan, Vision, Families, Package and Serving test suites pass.
+
+## Precompiled stages and the artifact store (2026-11-15)
+
+Qwen3-0.6B Q8_0 (`~/models/gguf/Qwen3-0.6B`), converted to `.slm` with `sharplight-convert convert`, then precompiled with
+`sharplight-convert precompile --device vulkan:0` (`--tier code`: 128 SPIR-V kernels, 3.9 MiB, 19.9 s; `--tier all`: plus 128
+kernel binaries (VK_KHR_pipeline_binary), 4.7 MiB, 1.6 s for the device stage). RTX PRO 4500 Blackwell (dedicated), `sharplight
+<model> -p hi -n 1` with `SHARPLIGHT_LOAD_TIMING=1`, `__GL_SHADER_DISK_CACHE=0` (no NVIDIA shader cache) and every process at
+`nice 15` on a machine other jobs kept busy (load average 10 to 13). That makes Slang and the driver slower than on an idle
+machine. Cold = an empty artifact store (`SHARPLIGHT_COMPILATION_CACHE=<new dir>`), warm = the same store after the cold run.
+Medians of 3 interleaved rounds. "Pipelines" is the summed creation time of the 101 decode pipelines, across threads.
+
+| Variant | Stored with the model | Store | Wall (s) | `Compiled 'decode'` (ms) | Slang compiles | Pipelines (ms summed) |
+|---|---|---|---:|---:|---:|---:|
+| GGUF | - | cold | 18.2 | 15900 | 101 | 18400 |
+| GGUF | - | warm | 3.0 | 1310 | 0 | 2650 |
+| `.slm` | nothing | cold | 16.6 | 14480 | 101 | 15370 |
+| `.slm` | nothing | warm | 3.1 | 1440 | 0 | 2740 |
+| `.slm` | portable code (SPIR-V) | cold | 3.2 | 1510 | 0 | 17310 |
+| `.slm` | portable code (SPIR-V) | warm | 2.1 | 600 | 0 | 2690 |
+| `.slm` | portable + device code (kernel binaries) | cold | 2.2 | 620 | 0 | 1970 |
+| `.slm` | portable + device code (kernel binaries) | warm | 2.1 | 560 | 0 | 1840 |
+
+- Device code makes a cold load as fast as a warm one: all 101 pipelines come from kernel binaries (`101 from kernel binaries, 0
+  stored device code rejected` in the load line), and the driver compiles nothing.
+- Portable code alone saves the Slang compilations, but the driver still compiles every pipeline from SPIR-V (17 s summed over
+  threads, 1.5 s on the critical path).
+- The store makes the second load of a model without precompiled code (GGUF, or `.slm` without artifacts) almost as fast as a
+  precompiled package. It holds the SPIR-V and the driver pipeline cache, which is not as fast as kernel binaries.
+- The Vulkan test suite (1451 tests, Release, `SHARPLIGHT_COMPILATION_CACHE` pointed at a new directory, same busy machine):
+  1640 s with an empty store and 1313 s with the store the first run filled (4 sets, 4871 entries, 289 MiB), with identical
+  results. Most of the suite is GPU work and reference computation, and kernels were already shared between the tests of one
+  process, so the store saves the roughly 330 s of kernel and pipeline compilation that is left.
+- Wall time includes process start, import, the 0.63 GB weight upload from a network volume and one token. The first cold run
+  of a file that is not in the page cache can be up to 3 s slower, which the medians smooth out.
 
 ## Why some conv models are slow cold (DenseNet-9, U2-Net-P, and per the ONNX survey PP-OCRv5, ResNet101-DUC, Zipformer)
 

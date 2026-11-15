@@ -15,8 +15,7 @@ internal sealed unsafe class MappedFile : IDisposable
     public MappedFile(string path)
     {
         Path = path;
-        var fi = new FileInfo(path);
-        Length = fi.Length;
+        Length = FileLength(path);
         if (Length == 0)
         {
             throw new InvalidDataException($"{path} is empty.");
@@ -47,5 +46,12 @@ internal sealed unsafe class MappedFile : IDisposable
         }
         _view.Dispose();
         _mmf.Dispose();
+    }
+
+    /// <summary>The size of the file <paramref name="path"/> names, following symbolic links (<see cref="FileInfo.Length"/> reports the link's own size).</summary>
+    private static long FileLength(string path)
+    {
+        using var handle = File.OpenHandle(path);
+        return RandomAccess.GetLength(handle);
     }
 }

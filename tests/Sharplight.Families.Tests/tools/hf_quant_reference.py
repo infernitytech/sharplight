@@ -119,9 +119,10 @@ def bitsandbytes(state):
         stem = key[:key.index(".quant_state.")][:-len(".weight")]
         parts = {k[len(stem) + len(".weight."):]: v for k, v in state.items() if k.startswith(stem + ".weight.")}
         used = {stem + ".weight"} | {stem + ".weight." + k for k in parts}
-        quant_state = F.QuantState.from_dict(dict(parts), device=torch.device("cuda"))
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   # the CPU build of bitsandbytes decodes the same codes
+        quant_state = F.QuantState.from_dict(dict(parts), device=device)
         quant_state.dtype = torch.float32
-        weight = F.dequantize_4bit(state[stem + ".weight"].cuda(), quant_state).cpu()
+        weight = F.dequantize_4bit(state[stem + ".weight"].to(device), quant_state).cpu()
         yield stem, weight, used
     for key in sorted(k for k in state if k.endswith(".SCB")):
         stem = key[:-len(".SCB")]

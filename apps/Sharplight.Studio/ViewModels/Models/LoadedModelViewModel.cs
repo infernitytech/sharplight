@@ -20,6 +20,20 @@ internal sealed partial class LoadedModelViewModel : ObservableObject
     /// <summary>Its id.</summary>
     public string Id => Model.Id;
 
+    /// <summary>The text of the button that opens the model's page: <c>Chat</c>, <c>Transcribe</c>, <c>Speak</c>, <c>Image</c>, <c>Vision</c>.</summary>
+    public string OpenText => Model.Kind switch
+    {
+        Sharplight.Models.ModelKinds.SpeechRecognition => "Transcribe",
+        Sharplight.Models.ModelKinds.SpeechSynthesis => "Speak",
+        Sharplight.Models.ModelKinds.ImageGeneration => "Image",
+        Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding or Sharplight.Models.ModelKinds.ObjectDetection
+            or Sharplight.Models.ModelKinds.DepthEstimation => "Vision",
+        _ => "Chat",
+    };
+
+    /// <summary>The icon resource key of the button that opens the model's page.</summary>
+    public string OpenIcon => ModelKindCatalog.For(Model.Kind).Icon;
+
     /// <summary>Device name.</summary>
     public string Device => Model.Device.Name;
 

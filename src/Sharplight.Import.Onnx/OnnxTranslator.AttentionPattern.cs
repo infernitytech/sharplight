@@ -18,11 +18,11 @@ internal sealed partial class OnnxTranslator
     private bool TryDecomposedAttention(OnnxNode n, TranslatedTensor probabilities, TranslatedTensor values)
     {
         if (!_opts.FuseAttention
-            || probabilities is not { LeadingUnits: 0, V: { Producer: { Op.Name: "Softmax" } softmax } }
+            || probabilities is not { LeadingUnits: 0, V: { } probabilityValue }
+            || ThroughRoundTripReshapes(probabilityValue) is not { Producer: { Op.Name: "Softmax" } softmax }
             || values is not { LeadingUnits: 0, V: { } v }
             || softmax.Attributes.Get("log", false)
-            || Producer(n.Inputs[0], "Softmax") is null
-            || SoleConsumer(n.Inputs[0], "MatMul") != n)
+            || SoftmaxThroughReshapes(n) is null)
         {
             return false;
         }
@@ -101,6 +101,52 @@ internal sealed partial class OnnxTranslator
 
         SetDyn(n, 0, rank == 4 ? y4 : ReshapeOuter(y4, y4.Shape[0] * y4.Shape[1], s, dv));
         return true;
+    }
+
+    /// <summary>
+    /// The Softmax node whose probabilities <paramref name="n"/> (the P·V MatMul) reads, directly or through Reshapes that each
+    /// have no other reader (exports that also return the attention probabilities reshape them to [B, H, S, T] and back to
+    /// [B·H, S, T]); null when there is none.
+    /// </summary>
+    private OnnxNode? SoftmaxThroughReshapes(OnnxNode n)
+    {
+        string name = n.Inputs[0];
+        var reader = n;
+        while (true)
+        {
+            if (SoleConsumer(name, reader.OpType) != reader)
+            {
+                return null;
+            }
+
+            if (Producer(name, "Softmax") is { } softmax)
+            {
+                return softmax;
+            }
+
+            if (Producer(name, "Reshape") is not { } reshape)
+            {
+                return null;
+            }
+
+            name = reshape.Inputs[0];
+            reader = reshape;
+        }
+    }
+
+    /// <summary>
+    /// The value that a chain of Reshapes ending in <paramref name="x"/> starts from when it has the same shape as
+    /// <paramref name="x"/> (the chain is a round trip), else <paramref name="x"/>.
+    /// </summary>
+    private static Value ThroughRoundTripReshapes(Value x)
+    {
+        var source = x;
+        while (source.Producer is { Op.Name: "Reshape" } reshape)
+        {
+            source = reshape.Inputs[0];
+        }
+
+        return source.Shape.Equals(x.Shape) ? source : x;
     }
 
     /// <summary>

@@ -70,7 +70,7 @@ public sealed class PackageInspectorTests
 
         var artifacts = package.Artifacts;
         Assert.Equal(2, artifacts.Sets.Count);
-        Assert.Equal(["binary", "code"], artifacts.Sets.Select(s => s.Tier));
+        Assert.Equal(["code", "binary"], artifacts.Sets.Select(s => s.Tier));
         var code = artifacts.Sets.Single(s => s.Tier == "code");
         Assert.Contains(code.Descriptor, d => d.Label == "Code target" && d.Value == "spirv_1_6");
         Assert.Contains("subgroup size 32", code.BuiltFor, StringComparison.Ordinal);
@@ -102,6 +102,31 @@ public sealed class PackageInspectorTests
         Assert.Same(code, artifacts.SelectedSet);
         inspector.ShowSection(sections.Rows.Single(r => r.Kind == "WIDX"));
         Assert.Equal((int)InspectorTab.Weights, inspector.SelectedTab);
+    }
+
+    [Fact]
+    public async Task SpeechPackage_ShowsSpeechRecognitionComponents()
+    {
+        string source = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "whisper.cpp", "ggml-tiny.en-q5_1.bin");
+        if (!File.Exists(source))
+        {
+            Assert.Skip($"{source} is missing.");
+        }
+
+        using var tmp = new TempDir();
+        var path = tmp.File("whisper.slm");
+        Import.WhisperCpp.WhisperCppImporter.Register();
+        ModelConverter.Convert(source, path);
+        var inspector = new PackageInspectorViewModel(path, null, () => { });
+        Assert.True(await inspector.LoadAsync(), inspector.Error);
+        var overview = inspector.Package!.Overview;
+        Assert.Contains(overview.Model, f => f.Label == "Kind" && f.Value == "speech-recognition");
+        Assert.Equal(["encoder", "decoder", "tokenizer", "feature-extractor"], overview.Components.Select(c => c.Role));
+        Assert.Equal("encode", overview.Components[0].Graphs);
+        Assert.Equal("decode", overview.Components[1].Graphs);
+        Assert.StartsWith("tokenizer (", overview.Components[2].Attachments, StringComparison.Ordinal);
+        Assert.StartsWith("mel-filters (", overview.Components[3].Attachments, StringComparison.Ordinal);
+        Assert.Equal(2, inspector.Package.Sections.Rows.Count(r => r.Kind == "ATCH"));
     }
 
     [Fact]

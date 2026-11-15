@@ -8,7 +8,12 @@ namespace Sharplight.Runtime;
 /// </summary>
 /// <param name="descriptor">Descriptor stored with the set (see <see cref="ArtifactDescriptorKeys"/>).</param>
 /// <param name="fallbacks">Caches consulted in order on a miss (for example stored sets of a loaded model), or <see langword="null"/>.</param>
-public sealed class CompilationCache(IReadOnlyDictionary<string, string> descriptor, IEnumerable<ICompilationCache>? fallbacks = null) : ICompilationCache
+/// <param name="shared">
+/// The persistent set of the same descriptor (<see cref="ArtifactStore"/>), consulted after <paramref name="fallbacks"/> and written
+/// through by <see cref="Put"/>, or <see langword="null"/>. Entries served from it count as new (they are not stored with the model yet).
+/// </param>
+public sealed class CompilationCache(IReadOnlyDictionary<string, string> descriptor, IEnumerable<ICompilationCache>? fallbacks = null,
+    ICompilationCache? shared = null) : ICompilationCache
 {
     private readonly ConcurrentDictionary<string, ReadOnlyMemory<byte>> _entries = new(StringComparer.Ordinal);
     private readonly ICompilationCache[] _fallbacks = fallbacks is null ? [] : [.. fallbacks];
@@ -48,6 +53,12 @@ public sealed class CompilationCache(IReadOnlyDictionary<string, string> descrip
             }
         }
 
+        if (shared is not null && shared.TryGet(key, out data))
+        {
+            _entries.TryAdd(key, data);
+            return true;
+        }
+
         return false;
     }
 
@@ -56,5 +67,6 @@ public sealed class CompilationCache(IReadOnlyDictionary<string, string> descrip
     {
         _entries[key] = data;
         _fromFallbacks.TryRemove(key, out _);
+        shared?.Put(key, data);
     }
 }

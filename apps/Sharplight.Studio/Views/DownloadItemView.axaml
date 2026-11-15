@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:conv="using:Sharplight.Studio.Converters"
              x:Class="Sharplight.Studio.Views.DownloadItemView"
              x:DataType="mvm:DownloadItemViewModel">
   <Border Classes="card" Padding="14,12">
@@ -22,6 +23,12 @@
           <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
             <Border Classes="badge accent">
               <TextBlock Text="{Binding PhaseText}" />
+            </Border>
+            <Border Classes="badge vision" IsVisible="{Binding HasKind}">
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <Path Classes="icon" Data="{Binding KindIcon, Converter={x:Static conv:IconConverter.Instance}}" Width="11" Height="11" />
+                <TextBlock Text="{Binding KindTitle}" />
+              </StackPanel>
             </Border>
             <TextBlock Classes="caption" Text="{Binding BytesText}" VerticalAlignment="Center" />
             <TextBlock Classes="caption" Text="{Binding SpeedText}" VerticalAlignment="Center" />

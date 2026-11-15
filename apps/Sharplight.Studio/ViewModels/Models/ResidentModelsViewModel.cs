@@ -96,8 +96,15 @@ internal sealed partial class ResidentModelsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Opens the page of the model's kind (the chat, transcribe or speak page) with the model chosen.</summary>
     [RelayCommand]
-    private void ChatWith(LoadedModelViewModel model) => _navigator.OpenChat(model.Model);
+    private void OpenPage(LoadedModelViewModel model)
+    {
+        if (!_navigator.OpenKind(model.Model.Kind, model.Model))
+        {
+            _navigator.OpenChat(model.Model);
+        }
+    }
 
     [RelayCommand]
     private void OpenLibrary() => _navigator.OpenLibrary();

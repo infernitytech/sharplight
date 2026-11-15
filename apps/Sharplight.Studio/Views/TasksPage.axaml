@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:tvm="using:Sharplight.Studio.ViewModels.Tasks"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.TasksPage"
+             x:DataType="tvm:TasksPageViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="28,22,28,24" Spacing="16">
+      <StackPanel Spacing="4">
+        <TextBlock Classes="h1" Text="Tasks" />
+        <TextBlock Classes="muted" TextWrapping="Wrap"
+                   Text="Every kind of model lives in one library and loads the same way. Chat, Transcribe, Speak, Image and Vision run text generation, speech to text, text to speech, image generation and the image models (classification, embedding, detection, depth); the other kinds get their page as the engine learns to run them." />
+      </StackPanel>
+      <ItemsControl x:Name="KindCards" ItemsSource="{Binding Kinds}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel Orientation="Horizontal" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="tvm:KindCardViewModel">
+            <Border Classes="card" Width="300" Margin="0,0,14,14" Padding="16,14">
+              <StackPanel Spacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                  <Border Width="36" Height="36" CornerRadius="10" Background="{DynamicResource AccentSoftBrush}">
+                    <Path Classes="icon accent" Data="{Binding Icon, Converter={x:Static conv:IconConverter.Instance}}" Width="17" Height="17" />
+                  </Border>
+                  <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14.5" />
+                    <TextBlock Classes="caption" Text="{Binding Summary}" TextWrapping="Wrap" />
+                  </StackPanel>
+                </StackPanel>
+                <Border Classes="badge warn" HorizontalAlignment="Left" IsVisible="{Binding IsPlanned}" ToolTip.Tip="The engine has no task client for this kind yet">
+                  <TextBlock Text="Not yet supported" />
+                </Border>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Classes="accent small" Command="{Binding OpenCommand}" Content="{Binding OpenText}" IsEnabled="{Binding IsRunnable}" />
+                  <Button Classes="small" Command="{Binding ShowLibraryCommand}" Content="Library" />
+                  <Button Classes="small" Command="{Binding BrowseCommand}" Content="Browse models" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -32,6 +32,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 - **Fewer glue launches per batched step**: row norms now write the f16 activation copy for 2-16-row steps (1334 → 1158
   dispatches, 917 → 789 barriers at 16 rows on the 27B FP8; Blackwell GPU time unchanged, §28.3). Left: the copies after
   elementwise and matmul epilogues (attention gate, SwiGLU output), fp8 quantization and split-K reductions.
+- **New card baseline** (§34, RTX PRO 4500 Blackwell 32 GB): decode 0.88-0.99x of llama.cpp CUDA, dense prefill
+  0.71-0.85x, MoE / hybrid prefill 0.95-1.12x, serving 1.1-4.4x llama-server and ahead of vLLM except Llama-1B at 64
+  streams (0.75x). Two prefill changes that alter greedy output are now the default (§34.5, decided 2026-11-15): K splits
+  from the SM count (pp2048 +2-17 %, `SHARPLIGHT_GEMM_WAVE=fixed` for the old splits) and the causal `fe` flash kernel
+  (pp2048 +6-38 %, `SHARPLIGHT_ATTN_FE_CAUSAL=0` for `fa`); together Qwen3-0.6B goes 0.71x → 1.09x of llama.cpp CUDA. Next, output-preserving:
+  the Q4_K / Q6_K GEMM main loop (85 % of Qwen3-8B pp2048 at ~93 TFLOPS), fewer launches / barriers for the small-model
+  decode step (Qwen3-0.6B: 369 dispatches, 256 barriers), batched expert matmuls at 16-64 rows.
 - **Single-stream gaps** (§28.5): 27B Q8_0 decode (0.90x of llama.cpp; single matvecs at 1.34-1.42 TB/s) and Mistral-7B
   Q4_K_M pp512 (0.91x). Both need a different summation order, i.e. a deliberate change of greedy output.
 - **Row-invariant MTP verification** (§28.1): verification rows now reproduce plain decoding bit for bit. Next: a
@@ -66,12 +73,18 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - opt-in fast matrix precision (TF32 class) for GEMMs, convs and attention: 0.60-1.00x of ORT's TF32 default on the
     encoders and convnets (raft 1.04x); ScatterND over a symbolic axis on Vulkan (qwen2.5 q4 in one segment); phi-3.5 parity against
     an f32-copy reference; conformance 1863 / 1884 node and 171 / 172 extra tests (§33).
+  - on the RTX PRO 4500 against onnxruntime 1.32 (§35): fast precision 0.46-0.94x of ORT's TF32 default on every
+    model but the phi-3.5 decoder step, strict 0.06-0.95x of ORT strict; decomposed attention that round-trips its
+    probabilities through Reshapes is fused; concatenation inputs are computed in their output slices (SegFormer b8
+    GPU time -7 %); the ssd-12-int8 reference follows the spec (ORT's u8 x s8 kernels saturate on AVX2 without VNNI).
 
   Open gaps:
-  - strict Vulkan encoders against ORT's TF32: vit 1.5-1.9x, whisper 1.3x, bert b8 1.25x (0.78-1.02x of ORT with TF32
-    off; fast precision closes the gap). The split GEMM's three products cost about 1.5x by construction; beyond that
-    its 128-token tiles run one workgroup per SM, and the activation split is a pre-pass that the producing LayerNorm /
-    GELU could write (needs a row max, about 3.5 % of vit b8);
+  - strict Vulkan against ORT's TF32 on the RTX PRO 4500 (§35): vit 1.7-1.9x, convnext b8 1.32x, ssd-10 1.27x,
+    resnet50 b8 1.20x, whisper 1.09x (fast precision closes all of them). The split GEMM's three products cost about
+    1.5x by construction; the activation split is a pre-pass that the producing LayerNorm / GELU could write (needs a
+    row max); TensorRT is 1.2-1.8x ahead of fast precision on convnets and detectors at batch 8 or high resolution;
+  - batch-strided concatenation slices only from Resize (convs / GEMMs / elementwise producers would need an output
+    batch stride);
   - convnext b8 1.5x strict (low-K GEMMs, split-K reductions); raft 1.25x strict / 1.04x fast (SIMT bmm for the
     correlation volume, about 290 small concats); Faster / Mask R-CNN on the CPU backend 2.1-2.3x of ORT CPU;
   - `fes` for head sizes above 64; a compute-unit query (VK_NV_shader_sm_builtins / VK_AMD_shader_core_properties)

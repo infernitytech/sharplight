@@ -18,6 +18,8 @@ namespace Sharplight.Hub;
 /// </param>
 /// <param name="HasProjectorOnly">The repository's GGUF files are all multimodal projectors (mmproj).</param>
 /// <param name="CreatedAt">When the repository was created, or <see langword="null"/> when the Hub did not say.</param>
+/// <param name="License">The license id from the repository's <c>license:</c> tag (e.g. <c>apache-2.0</c>), or <see langword="null"/>.</param>
+/// <param name="LastModified">When the repository was last updated, or <see langword="null"/> when the Hub did not say.</param>
 public sealed record HubModelSummary(
     string Id,
     long Downloads,
@@ -32,4 +34,10 @@ public sealed record HubModelSummary(
     string? ModelType = null,
     string? QuantizationMethod = null,
     bool HasProjectorOnly = false,
-    DateTimeOffset? CreatedAt = null);
+    DateTimeOffset? CreatedAt = null,
+    string? License = null,
+    DateTimeOffset? LastModified = null)
+{
+    /// <summary>What the model does, from the pipeline tag, the library and the repository name (<see cref="ModelTasks.From"/>).</summary>
+    public ModelTask Task => ModelTasks.From(Pipeline, Library, Id);
+}

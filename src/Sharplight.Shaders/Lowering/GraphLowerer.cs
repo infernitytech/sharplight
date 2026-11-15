@@ -75,6 +75,7 @@ public sealed partial class GraphLowerer
     private KernelProgram Run()
     {
         var units = Schedule(FormUnits());
+        PlanConcatSlices(units);
         ComputeLiveness(units);
         LowerUnits(units);
         CopyNonMaterializedOutputs();
@@ -381,7 +382,11 @@ public sealed partial class GraphLowerer
         }
 
         TensorRef r;
-        if (_segmentOutputs.Contains(v))
+        if (_concatSlices.TryGetValue(v, out var slice))
+        {
+            r = ConcatSlice(v, slice);
+        }
+        else if (_segmentOutputs.Contains(v))
         {
             var ob = NewBuffer(BufferKind.Output, "out:" + v.Name, 0);
             r = Dense(ob, v);

@@ -77,29 +77,42 @@ internal sealed class ModelLibrary : IModelLibrary
         return destination;
     }
 
+    /// <inheritdoc/>
+    public Task<LibraryEntry> ReloadAsync(LibraryEntry entry, CancellationToken cancellationToken)
+    {
+        return Task.Run(() => entry.Manifest is { } manifest ? FromManifest(manifest) : FromFile(entry.Path), cancellationToken);
+    }
+
+    /// <summary>
+    /// A stored model. Size and precompiled sets come from the package itself, not the manifest, so they stay right when the package is
+    /// precompiled again after the pull.
+    /// </summary>
     private static LibraryEntry FromManifest(ModelManifest manifest)
     {
-        var (capabilities, context, architecture) = ModelInspector.Inspect(manifest.PackagePath);
+        var inspected = ModelInspector.Inspect(manifest.PackagePath);
+        var file = new FileInfo(manifest.PackagePath);
         return new LibraryEntry
         {
             Id = manifest.ShortName,
             DisplayName = manifest.Name,
             Path = manifest.PackagePath,
-            Architecture = manifest.Architecture ?? architecture,
+            Architecture = manifest.Architecture ?? inspected.Architecture,
             Quantization = manifest.Tag.Length == 0 ? null : manifest.Tag,
             Format = manifest.Format.ToString(),
-            SizeBytes = manifest.PackageBytes,
-            Capabilities = capabilities,
-            TrainedContextLength = context,
+            SizeBytes = file.Exists ? file.Length : manifest.PackageBytes,
+            Capabilities = inspected.Capabilities,
+            TrainedContextLength = inspected.ContextLength,
+            Kind = inspected.Kind,
+            KindInferred = inspected.KindInferred,
             AddedAt = manifest.PulledAt,
-            Precompiled = manifest.Precompiled,
+            Precompiled = inspected.Precompiled,
             Manifest = manifest,
         };
     }
 
     private static LibraryEntry FromFile(string path)
     {
-        var (capabilities, context, architecture) = ModelInspector.Inspect(path);
+        var inspected = ModelInspector.Inspect(path);
         bool directory = Directory.Exists(path);
         long size = directory
             ? new DirectoryInfo(path).EnumerateFiles("*", SearchOption.AllDirectories).Sum(file => file.Length)
@@ -110,12 +123,15 @@ internal sealed class ModelLibrary : IModelLibrary
             Id = System.IO.Path.GetFileNameWithoutExtension(name).ToLowerInvariant(),
             DisplayName = name,
             Path = path,
-            Architecture = architecture,
+            Architecture = inspected.Architecture,
             Format = directory ? "Directory" : System.IO.Path.GetExtension(path).TrimStart('.').ToUpperInvariant(),
             SizeBytes = size,
-            Capabilities = capabilities,
-            TrainedContextLength = context,
+            Capabilities = inspected.Capabilities,
+            TrainedContextLength = inspected.ContextLength,
+            Kind = inspected.Kind,
+            KindInferred = inspected.KindInferred,
             AddedAt = directory ? null : File.GetLastWriteTimeUtc(path),
+            Precompiled = inspected.Precompiled,
         };
     }
 }

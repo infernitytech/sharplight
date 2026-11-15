@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:inf="using:Sharplight.Studio.ViewModels.Inference"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.Inference.ImageInputView"
+             x:DataType="inf:ImageInputViewModel">
+  <!-- The image input of the inference pages: a preview with name and size, or a hint to choose or drop a file. -->
+  <Border x:Name="DropArea" Classes="inset" DragDrop.AllowDrop="True" Padding="10">
+    <DockPanel>
+      <StackPanel DockPanel.Dock="Right" Spacing="6" Margin="12,0,0,0" VerticalAlignment="Center">
+        <Button Classes="small" Content="Choose file" Command="{Binding ChooseCommand}" />
+        <Button Classes="small" Content="Remove" Command="{Binding ClearCommand}" IsVisible="{Binding HasImage}" />
+      </StackPanel>
+      <Border DockPanel.Dock="Left" Width="88" Height="88" CornerRadius="6" ClipToBounds="True" Margin="0,0,12,0" IsVisible="{Binding HasImage}">
+        <Image Source="{Binding Preview, Converter={x:Static conv:BytesToBitmapConverter.Instance}, ConverterParameter=180}" Stretch="UniformToFill" />
+      </Border>
+      <StackPanel Spacing="2" VerticalAlignment="Center">
+        <TextBlock Text="{Binding Title}" FontWeight="Medium" />
+        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" IsVisible="{Binding HasImage}" ToolTip.Tip="{Binding Path}" />
+        <TextBlock Classes="caption" Text="{Binding Summary}" IsVisible="{Binding HasImage}" />
+        <TextBlock Classes="muted" Text="{Binding Hint}" TextWrapping="Wrap" IsVisible="{Binding !HasImage}" />
+      </StackPanel>
+    </DockPanel>
+  </Border>
+</UserControl>

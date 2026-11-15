@@ -2,7 +2,7 @@
   <PropertyGroup>
     <!-- AddSharplight and SharplightDefaults live in the root namespace, visible from every Sharplight.* namespace without a using. -->
     <RootNamespace>Sharplight</RootNamespace>
-    <Description>Sharplight with its defaults: references the core, the built-in architecture adapters, the GGUF, Hugging Face, ONNX and .slm importers and the CPU and Vulkan execution providers, and wires them up with services.AddSharplight() (the task layer included).</Description>
+    <Description>Sharplight with its defaults: references the core, the built-in architecture adapters, the GGUF, Hugging Face, ONNX, whisper.cpp, diffusers and .slm importers and the CPU and Vulkan execution providers, and wires them up with services.AddSharplight() (the task layer included).</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
@@ -13,6 +13,8 @@
     <ProjectReference Include="../Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
     <ProjectReference Include="../Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <ProjectReference Include="../Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
+    <ProjectReference Include="../Sharplight.Import.Diffusers/Sharplight.Import.Diffusers.csproj" />
+    <ProjectReference Include="../Sharplight.Import.WhisperCpp/Sharplight.Import.WhisperCpp.csproj" />
     <ProjectReference Include="../Sharplight.Package/Sharplight.Package.csproj" />
     <ProjectReference Include="../Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
