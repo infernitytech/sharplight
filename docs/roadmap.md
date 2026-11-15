@@ -42,7 +42,7 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 - **Chunked delta rule in rollback-form graphs**: with speculation on, prompt prefill uses the token-serial kernels and
   loses the 5–25 % prefill gain of §18. Replay the committed rows, then hand long runs to the chunked kernel.
 - **ONNX operator coverage**: control flow (Loop, If, Scan), sequences and the rest of the opset.
-- **ONNX latency parity with onnxruntime** (§21, §25-§27, §30). Done:
+- **ONNX latency parity with onnxruntime** (§21, §25-§27, §30, §31). Done:
   - conv / matmul epilogues on CPU and Vulkan, prepacked weights, decomposed LayerNorm / GELU and attention-scale
     translation, block-quantized MatMulNBits;
   - the 128x128 SIMT GEMM, bmm split-K, the CPU conv as one implicit GEMM (with a shifted stride-1 form);
@@ -58,17 +58,22 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - CPU channels-last (NHWC) convs, depthwise convs and pooling with layout propagation; Vulkan attention over strided
     K / V; data-dependent counts grouped by level with device-side forwarding (R-CNN wall 119 → 12 ms);
     LinearAttention / DeformConv / Unique / TfIdf / tree ensembles / SVM on Vulkan; AggressiveOptimization on the
-    CPU kernels for package consumers (§30).
+    CPU kernels for package consumers (§30);
+  - elementwise groups in the split-f16 GEMM's store, 64-token split tiles for few hundred rows, a reworked encoder
+    flash kernel, in-place LayerNorm over channel-strided views, conv_narrow for few output channels, sub-millisecond
+    re-recording for new detection counts; for devices without matrix units an f32 encoder flash kernel and tiles
+    sized by `DeviceInfo.ConcurrentWorkgroups` (integrated GPU: whisper-tiny 16x, vit-base 3.2x) (§31).
 
   Open gaps:
-  - Vulkan transformer encoders against ORT's TF32: vit 1.7-2.0x, whisper 1.5x, bert b8 1.3x. The split GEMM is bound
-    by staging its tiles: fuse the activation split into the producing LayerNorm / GELU, and speed up the tensor-core
-    main loop (one f16 product runs at about 100 TFLOPS);
-  - split f16 for bmm (raft's correlation, 1.15 ms SIMT) and the f32 SIMT GEMM for devices without f16 matrices;
-  - detection: new count values re-record the command buffers (1-6 ms per new image); read counts from device memory
-    with indirect dispatch;
+  - Vulkan transformer encoders against ORT's TF32: vit 1.5-1.9x, whisper 1.3x, bert b8 1.3x (at 0.75-1.0x of ORT
+    with TF32 off). The split GEMM's three products cost about 1.5x by construction; beyond that its 128-token tiles
+    run one workgroup per SM, and the activation split is a pre-pass that the producing LayerNorm / GELU could write;
+  - convnext b8 1.4x (low-K GEMMs, split-K reductions), raft 1.3x (split convs, SIMT bmm for the correlation volume,
+    small concats), Faster / Mask R-CNN 1.15-1.3x;
+  - ScatterND over a symbolic axis on Vulkan; `fes` for head sizes above 64; a compute-unit query instead of the
+    per-device-type `ConcurrentWorkgroups`;
   - CPU Winograd on the channels-last layout for 64 / 128-channel 3x3 convs; encoder GEMMs stream each layer's weights
-    from DRAM.
+    from DRAM (vit b1 1.1x, resnet50 b8 1.05x).
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
 
 ## Performance ideas
