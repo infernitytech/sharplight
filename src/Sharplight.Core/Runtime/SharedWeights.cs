@@ -14,7 +14,7 @@ namespace Sharplight.Runtime;
 /// Provider contract: when a compilation finds a non-null <see cref="CompileOptions.SharedWeights"/>, the provider takes each
 /// weight buffer through <see cref="Acquire{T}"/> (key from <see cref="WeightBufferKey.For"/> plus its device layout), fills
 /// it when the lease says <see cref="SharedWeightLease{T}.MustFill"/> and marks it <see cref="SharedWeightLease{T}.Filled"/>,
-/// waits (<see cref="SharedWeightLease{T}.WaitFilled"/>) for buffers another compilation fills, and disposes its leases instead
+/// waits (<see cref="SharedWeightLease{T}.WaitFilled()"/>) for buffers another compilation fills, and disposes its leases instead
 /// of freeing the buffers. Weights must be read-only on the device. A segment's <see cref="ICompiledSegment.DeviceMemoryBytes"/>
 /// counts the shared buffers it allocated, not the ones it found.
 /// </remarks>

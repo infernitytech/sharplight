@@ -31,8 +31,6 @@ internal sealed unsafe class MatMulOp : CpuOp
     public const long PrepackMaxBytes = 64L << 20;
 
     /// <summary><c>SHARPLIGHT_CPU_NO_PREPACK=1</c> packs the B panels of static f32 weights on every run instead of once.</summary>
-    private static readonly bool s_noPrepack = Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_NO_PREPACK") == "1";
-
     private const int KB = 1024;
     private const int GemmMinTilesPerBlock = 4;
     private const int IntDotMinRowsPerChunk = 16;
@@ -106,7 +104,7 @@ internal sealed unsafe class MatMulOp : CpuOp
         _prepackBody = PrepackPanel;
         _epilogue = epilogue;
         _epilogueBody = EpilogueBody;
-        _prepack = staticWeight && !s_noPrepack && fmt == WeightFormat.F32 && _n * _k * sizeof(float) <= PrepackMaxBytes;
+        _prepack = staticWeight && !DiagnosticSwitches.NoPrepack && fmt == WeightFormat.F32 && _n * _k * sizeof(float) <= PrepackMaxBytes;
     }
 
     public override void Dispose()
