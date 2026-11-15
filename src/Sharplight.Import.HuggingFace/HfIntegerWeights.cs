@@ -8,7 +8,7 @@ namespace Sharplight.Import.HuggingFace;
 
 /// <summary>
 /// Packed integer checkpoints, the "integer codes with a group scale and zero point" family: GPTQ (auto-gptq / gptqmodel,
-/// <see cref="HfGptqLayouts"/>), AWQ (<see cref="HfAwqLayouts"/>) and compressed-tensors integer weights (<c>pack-quantized</c>,
+/// <see cref="HfGptqLayouts"/>), AWQ (<see cref="HfAwqLayouts"/>) and HQQ (<see cref="HfHqqLayouts"/>), EETQ (<see cref="HfEetqLayouts"/>) and compressed-tensors integer weights (<c>pack-quantized</c>,
 /// <c>int-quantized</c>, <see cref="HfCompressedIntLayouts"/>). Each weight becomes one of the integer block types
 /// <see cref="DataType.Q4Z_G128"/> / <see cref="DataType.Q4Z_G32"/> (up to 4 bits) or <see cref="DataType.Q8Z_G128"/> /
 /// <see cref="DataType.Q8Z_G32"/> (5 to 8 bits), value = (code - zero) * scale with the checkpoint's f16 scale and zero point
@@ -49,6 +49,12 @@ internal static class HfIntegerWeights
                 break;
             case "awq":
                 layouts.AddRange(HfAwqLayouts.Find(settings, tensors, consumed));
+                break;
+            case "hqq":
+                layouts.AddRange(HfHqqLayouts.Find(tensors, consumed));
+                break;
+            case "eetq":
+                layouts.AddRange(HfEetqLayouts.Find(settings, tensors, consumed));
                 break;
             case "compressed-tensors":
                 layouts.AddRange(HfCompressedIntLayouts.Find(settings, tensors, consumed));

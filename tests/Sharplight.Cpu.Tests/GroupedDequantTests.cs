@@ -88,7 +88,7 @@ public unsafe class GroupedDequantTests
     }
 
     [Fact]
-    public void Fp4()
+    public void Fp4Lookup()
     {
         var rng = new Random(11);
         var bytes = new byte[4 * 36];

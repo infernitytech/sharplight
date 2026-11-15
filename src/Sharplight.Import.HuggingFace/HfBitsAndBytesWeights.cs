@@ -161,7 +161,11 @@ internal static unsafe class HfBitsAndBytesWeights
     ];
 
     /// <summary>The FP4 code book as bitsandbytes stores it (f32).</summary>
-    private static ReadOnlySpan<float> Fp4CodeBook => Sharplight.Tensors.Grids.Fp4CodeBook.Values;
+    private static ReadOnlySpan<float> Fp4CodeBook =>
+    [
+        0.0f, 0.0052083334885537624f, 0.6666666865348816f, 1.0f, 0.3333333432674408f, 0.5f, 0.1666666716337204f, 0.25f,
+        0.0f, -0.0052083334885537624f, -0.6666666865348816f, -1.0f, -0.3333333432674408f, -0.5f, -0.1666666716337204f, -0.25f,
+    ];
 
     private static SafetensorsTensor EightBit(SafetensorsTensor codes, SafetensorsTensor rowScales)
     {

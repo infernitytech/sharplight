@@ -72,12 +72,12 @@ internal static unsafe partial class Quant
         for (long b = 0; b < nb; b++, p += blockBytes, dst += group)
         {
             float d = H(p);
-            float offset = -H(p + 2) * d;
+            float z = H(p + 2);
             for (int run = 0; run < group / 32; run++)
             {
                 var q = Vector128.Load(p + 4 + 16 * run);
-                Simd.StoreU8x16(q & mask, d, offset, dst + 32 * run);
-                Simd.StoreU8x16(Vector128.ShiftRightLogical(q, 4), d, offset, dst + 32 * run + 16);
+                StoreU8x16Zeroed(q & mask, z, d, dst + 32 * run);
+                StoreU8x16Zeroed(Vector128.ShiftRightLogical(q, 4), z, d, dst + 32 * run + 16);
             }
         }
     }
@@ -89,10 +89,10 @@ internal static unsafe partial class Quant
         for (long b = 0; b < nb; b++, p += blockBytes, dst += group)
         {
             float d = H(p);
-            float offset = -H(p + 2) * d;
+            float z = H(p + 2);
             for (int j = 0; j < group; j += 16)
             {
-                Simd.StoreU8x16(Vector128.Load(p + 4 + j), d, offset, dst + j);
+                StoreU8x16Zeroed(Vector128.Load(p + 4 + j), z, d, dst + j);
             }
         }
     }

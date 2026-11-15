@@ -24,6 +24,13 @@ public sealed class QuantizedFormatsImportTests(ITestOutputHelper output)
         { "tiny/tiny-llama-autoround-gptq-4bit-asym-g32", "q4z_g32" },
         { "tiny/tiny-llama-autoround-gptq-2bit-g64", "q4z_g32" },
         { "tiny/tiny-llama-autoround-awq-4bit", "q4z_g128" },
+        { "tiny/tiny-llama-eetq-int8", "q8z_g128" },
+        { "tiny/tiny-llama-hqq-4bit-g64", "q4z_g32" },
+        { "tiny/tiny-llama-hqq-8bit-g128", "q8z_g128" },
+        { "tiny/tiny-llama-hqq-3bit-g64", "q4z_g32" },
+        { "tiny/tiny-llama-hqq-2bit-g32", "q4z_g32" },
+        { "tiny/tiny-llama-hqq-1bit-g64", "q4z_g32" },
+        { "tiny/tiny-llama-hqq-4bit-g64-axis0", "bf16" },
     };
 
     [Theory]

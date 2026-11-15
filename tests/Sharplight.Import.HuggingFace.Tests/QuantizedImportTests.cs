@@ -15,7 +15,7 @@ namespace Sharplight.Import.HuggingFace.Tests;
 /// each with the library's own dequantization of its weights (hf_quant_reference.py, <c>sharplight-reference/</c>): every converted
 /// weight is read back through a Gather graph on the CPU and on Vulkan, put back into the checkpoint's column order (act-order
 /// weights are stored sorted by group) and rounded to the dtype the library dequantizes to; it must equal the library's values bit
-/// for bit (for the formats documented to decode to BF16 at load, bitsandbytes FP4 and LLM.int8: the library's values rounded to
+/// for bit (for the formats documented to decode to BF16 at load, HQQ with axis 0: the library's values rounded to
 /// BF16), and it must have kept the expected quantized type. Skips when the
 /// checkpoints are absent.
 /// </summary>
@@ -37,8 +37,8 @@ public sealed class QuantizedImportTests(ITestOutputHelper output)
         { "tiny/tiny-llama-awq-gemv", "q4z_g128" },
         { "tiny/tiny-llama-bnb-nf4", "nf4_b64" },
         { "tiny/tiny-llama-bnb-nf4-double", "nf4_b64" },
-        { "tiny/tiny-llama-bnb-fp4", "bf16" },
-        { "tiny/tiny-llama-bnb-int8", "bf16" },
+        { "tiny/tiny-llama-bnb-fp4", "fp4_b64" },
+        { "tiny/tiny-llama-bnb-int8", "q8a_g32" },
         { "tiny/tiny-llama-gptq-4bit-g128-sym", "q4z_g128" },
         { "tiny/tiny-llama-gptq-4bit-g128-actorder", "q4z_g128" },
         { "tiny/tiny-llama-gptq-4bit-g32-v2", "q4z_g32" },
@@ -95,7 +95,7 @@ public sealed class QuantizedImportTests(ITestOutputHelper output)
                 long row = i / columns;
                 long column = weight.InputOrder is { } order ? row * columns + order[i % columns] : i;
                 float value = Round(actual[i], expected.DType);
-                // Formats decoded to BF16 at load (bitsandbytes FP4 and LLM.int8) are the library's values rounded to BF16.
+                // Formats decoded to BF16 at load (HQQ with axis 0) are the library's values rounded to BF16.
                 float want = weight.Type == DataType.BF16 ? Round(library[column], "BF16") : library[column];
                 if (BitConverter.SingleToInt32Bits(value) != BitConverter.SingleToInt32Bits(want) && !(value == 0 && want == 0))
                 {

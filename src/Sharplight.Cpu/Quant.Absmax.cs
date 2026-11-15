@@ -1,3 +1,4 @@
+using System.Runtime.Intrinsics;
 using Sharplight.Tensors.Grids;
 
 namespace Sharplight.Cpu;
@@ -7,6 +8,19 @@ internal static unsafe partial class Quant
 {
     /// <summary>The 4-bit float code book of <see cref="Sharplight.Tensors.DataType.FP4_B64"/>, in code order.</summary>
     internal static readonly float[] Fp4Values = Fp4CodeBook.Values.ToArray();
+
+    /// <summary>dst[0..16) = (u8[i] - zero) * scale, the subtraction before the product (not fused), as the integer block types define it.</summary>
+    private static void StoreU8x16Zeroed(Vector128<byte> v, float zero, float scale, float* dst)
+    {
+        var zv = Vector128.Create(zero);
+        var sv = Vector128.Create(scale);
+        var lo = Vector128.WidenLower(v);
+        var hi = Vector128.WidenUpper(v);
+        (((Vector128.ConvertToSingle(Vector128.WidenLower(lo)) - zv) * sv)).Store(dst);
+        (((Vector128.ConvertToSingle(Vector128.WidenUpper(lo)) - zv) * sv)).Store(dst + 4);
+        (((Vector128.ConvertToSingle(Vector128.WidenLower(hi)) - zv) * sv)).Store(dst + 8);
+        (((Vector128.ConvertToSingle(Vector128.WidenUpper(hi)) - zv) * sv)).Store(dst + 12);
+    }
 
     /// <summary>FP4_B64: 64 values = { f32 d; u8 qs[32] } laid out like NF4_B64; value = d * FP4[q].</summary>
     private static void FP4_B64(byte* p, long nb, float* dst) => LookupB64(p, nb, Fp4Values, dst);
