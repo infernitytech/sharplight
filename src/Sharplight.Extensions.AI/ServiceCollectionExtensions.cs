@@ -2,10 +2,11 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Llm;
 using Sharplight.Llm.Embeddings;
+using Sharplight.Speech;
 
 namespace Sharplight.Extensions.AI;
 
-/// <summary>Dependency-injection registration of Sharplight chat clients and embedding generators.</summary>
+/// <summary>Dependency-injection registration of the Microsoft.Extensions.AI adapters over Sharplight models and task clients.</summary>
 public static class SharplightServiceCollectionExtensions
 {
     extension(IServiceCollection services)
@@ -64,5 +65,42 @@ public static class SharplightServiceCollectionExtensions
         /// <summary>Registers a generator over an already loaded embedder (not disposed by the container).</summary>
         public EmbeddingGeneratorBuilder<string, Embedding<float>> AddSharplightEmbeddingGenerator(ITextEmbedder model)
             => services.AddEmbeddingGenerator(_ => new SharplightEmbeddingGenerator(model));
+
+        /// <summary>
+        /// Registers an <see cref="ISpeechToTextClient"/> over the container's <see cref="ISpeechRecognizer"/> (register one with
+        /// <c>services.AddSpeechRecognizer(...)</c>); with <paramref name="serviceKey"/>, both are keyed services of that key.
+        /// </summary>
+        /// <param name="serviceKey">The service key of the recognizer and the client, or <see langword="null"/>.</param>
+        public IServiceCollection AddSharplightSpeechToTextClient(object? serviceKey = null)
+            => services.AddAdapter<ISpeechToTextClient, ISpeechRecognizer>(serviceKey, recognizer => new SharplightSpeechToTextClient(recognizer));
+
+        /// <summary>
+        /// Registers an <see cref="ITextToSpeechClient"/> over the container's <see cref="ISpeechSynthesizer"/> (register one with
+        /// <c>services.AddSpeechSynthesizer(...)</c>); with <paramref name="serviceKey"/>, both are keyed services of that key.
+        /// </summary>
+        /// <param name="serviceKey">The service key of the synthesizer and the client, or <see langword="null"/>.</param>
+        public IServiceCollection AddSharplightTextToSpeechClient(object? serviceKey = null)
+            => services.AddAdapter<ITextToSpeechClient, ISpeechSynthesizer>(serviceKey, synthesizer => new SharplightTextToSpeechClient(synthesizer));
+
+        /// <summary>
+        /// Registers a Microsoft.Extensions.AI <see cref="IImageGenerator"/> over the container's Sharplight image generator (register one
+        /// with <c>services.AddImageGenerator(...)</c>); with <paramref name="serviceKey"/>, both are keyed services of that key.
+        /// </summary>
+        /// <param name="serviceKey">The service key of the Sharplight generator and the adapter, or <see langword="null"/>.</param>
+        public IServiceCollection AddSharplightImageGenerator(object? serviceKey = null)
+            => services.AddAdapter<IImageGenerator, ImageGeneration.IImageGenerator>(serviceKey, generator => new SharplightImageGenerator(generator));
+
+        private IServiceCollection AddAdapter<TAdapter, TClient>(object? serviceKey, Func<TClient, TAdapter> create)
+            where TAdapter : class
+            where TClient : class
+        {
+            ArgumentNullException.ThrowIfNull(services);
+            if (serviceKey is null)
+            {
+                return services.AddSingleton(provider => create(provider.GetRequiredService<TClient>()));
+            }
+
+            return services.AddKeyedSingleton(serviceKey, (provider, key) => create(provider.GetRequiredKeyedService<TClient>(key)));
+        }
     }
 }

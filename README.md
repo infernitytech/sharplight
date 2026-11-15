@@ -1,6 +1,7 @@
 # Sharplight
 
-An inference engine for large language models and ONNX models, written in C# for .NET 11, with a Vulkan GPU backend
+An inference engine for large language models, ONNX models and, increasingly, every other model kind (speech, image
+generation, vision, ...), written in C# for .NET 11, with a Vulkan GPU backend
 (Slang compute kernels, cooperative-matrix tensor cores where available) and a CPU backend.
 
 - **Models:** GGUF and Hugging Face checkpoints for the llama.cpp architecture families ([docs/model-support.md](docs/model-support.md)),
@@ -9,7 +10,14 @@ An inference engine for large language models and ONNX models, written in C# for
   paged KV cache with prefix sharing, quantized KV cache ([docs/kv-cache.md](docs/kv-cache.md)),
   `Microsoft.Extensions.AI` adapters ([docs/extensions-ai.md](docs/extensions-ai.md)).
 - **Model packages:** the `.slm` format stores optimized, device-independent graphs and weights, plus optional precompiled
-  artifacts per execution provider (SPIR-V, driver binaries) ([docs/model-format.md](docs/model-format.md)).
+  artifacts per execution provider (SPIR-V, driver binaries) ([docs/model-format.md](docs/model-format.md)). It holds every model
+  kind: a model description names the kind (text generation, speech recognition, speech synthesis, image generation, ...) and
+  its components (encoder, decoder, tokenizer, denoiser, VAE, scheduler, ...), each with its graphs, weights, configuration and
+  attachments.
+- **Task layer:** one client pattern for every model kind (`ITextGenerator`, `ISpeechRecognizer`, `ISpeechSynthesizer`,
+  `IImageGenerator`), registered with `services.AddSharplight()` and Microsoft.Extensions.DependencyInjection
+  ([docs/api-overview.md](docs/api-overview.md#tasks-one-model-concept-one-client-pattern)). Speech and image models are being
+  brought up on it.
 
 Start with the [public API overview](docs/api-overview.md). Benchmarks against llama.cpp and vLLM are in
 [docs/benchmarks.md](docs/benchmarks.md).
@@ -151,19 +159,21 @@ these models.
 dotnet build Sharplight.slnx -c Release
 ```
 
-Tests are Microsoft.Testing.Platform executables: run `dotnet tests/<Project>/bin/Release/net11.0/<Project>.dll`.
+Tests are xunit v3 / Microsoft.Testing.Platform executables: `dotnet run --project tests/<Project> -c Release --no-build`
+(`-- -class "*Name"` filters by class).
 
 ## Packages
 
-The libraries under `src/` ship as NuGet packages (prerelease): `Sharplight.Core`, `Sharplight.Llm`, `Sharplight.Cpu`,
-`Sharplight.Vulkan`, `Sharplight.Shaders`, `Sharplight.Architectures`, `Sharplight.Tokenizers`, `Sharplight.Templating`,
-`Sharplight.Package` (`.slm` packages, conversion and precompilation), `Sharplight.Hub`, `Sharplight.AspNetCore`,
-`Sharplight.Extensions.AI`, and one package per source format: `Sharplight.Import.Gguf`, `Sharplight.Import.HuggingFace`
-and `Sharplight.Import.Onnx`.
+The libraries under `src/` ship as NuGet packages (prerelease): `Sharplight.Core` (engine and task layer, including text
+generation, tokenizers and chat templates), `Sharplight.Architectures`, `Sharplight.Cpu`, `Sharplight.Vulkan`,
+`Sharplight.Shaders`, `Sharplight.Package` (`.slm` packages, conversion and precompilation), `Sharplight.Defaults`
+(`services.AddSharplight()`), `Sharplight.Hub`, `Sharplight.AspNetCore`, `Sharplight.Extensions.AI`, and one package per source
+format: `Sharplight.Import.Gguf`, `Sharplight.Import.HuggingFace` and `Sharplight.Import.Onnx`.
 
-The format importers were published as `Sharplight.Gguf`, `Sharplight.HuggingFace` and `Sharplight.Onnx` before, and the
-conversion API as `Sharplight.Package.Import`. Their namespaces moved with them (`Sharplight.Import.Gguf`, ...; the
-conversion types are in `Sharplight.Package` now); there are no forwarding packages.
+`Sharplight.Llm`, `Sharplight.Tokenizers` and `Sharplight.Templating` are no longer published: they are part of
+`Sharplight.Core` (same namespaces). The format importers were published as `Sharplight.Gguf`, `Sharplight.HuggingFace` and
+`Sharplight.Onnx` before, and the conversion API as `Sharplight.Package.Import`. Their namespaces moved with them
+(`Sharplight.Import.Gguf`, ...; the conversion types are in `Sharplight.Package` now); there are no forwarding packages.
 
 ## Samples
 
@@ -195,7 +205,7 @@ A desktop app (Avalonia) to search and download Hugging Face models and convert 
 resident models at once (Markdown, reasoning, image and document attachments) and serves them over the OpenAI and Anthropic
 APIs. It also records per-model speed and latency statistics. Models go to a `data` folder next to the app by default; the
 settings page switches to the per-user folder or a custom one. Its package inspector shows everything in a `.slm` file:
-metadata, tokenizer, the execution graphs (drawn, as IR and as a table), weights, precompiled artifacts and the raw section
+the model kind and components, metadata, tokenizer, the execution graphs (drawn, as IR and as a table), weights, precompiled artifacts and the raw section
 layout.
 
 On Linux, download the AppImage from the [releases](https://github.com/infernitytech/sharplight/releases), make it

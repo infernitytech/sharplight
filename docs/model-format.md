@@ -3,7 +3,8 @@
 Status: container v3 (v2 plus control-flow subgraphs and data-dependent symbols in the IR), artifact tiers, inspection API,
 device profiles, `sharplight-convert` (convert, info, profile, precompile --device/--profile, strip, compact), the graph
 optimization phase (run by `convert` unless `--no-optimize`) and the package inspector in Sharplight Studio are
-implemented; a separate `optimize` command is not yet (2026-11-13).
+implemented; a separate `optimize` command is not yet (2026-11-13). Since 2026-11-15 a package can describe any model kind
+(DESC: kind and components, ATCH: attachments), and precompilation covers every component graph.
 
 ## Goals
 
@@ -52,6 +53,8 @@ current version). Sections:
 | WIDX / WDAT | | weight index / weight bytes, 64 KiB aligned |
 | ARTS (5) | artifact-set id | one artifact set (new in v2) |
 | KSET (4) | v1 target | v1 kernel set; read as an artifact set of tier `mixed` |
+| DESC (6) | `model.json` | the model description (kind and components) as UTF-8 JSON; optional, see below |
+| ATCH (7) | attachment name | one attachment (tokenizer file, scheduler config, filter bank, voices, ...), 64 KiB aligned; optional |
 
 The DEFN section name selects its layout, so a file whose header `AddArtifacts` raised to version 3 keeps reading its older
 definition correctly:
@@ -65,6 +68,70 @@ definition correctly:
   graph record ends with its **dynamic symbols** (`i32 n`, then n × (name, bound expression text)), declared under their exact
   names on load because node attributes (`count_symbol`, `output_symbols`) refer to them. Packages can therefore store models
   with runtime `If`, `Loop` and `Scan` and with data-dependent ops (`NonZero`, `NonMaxSuppression`, `Unique`, ...).
+
+## Model description: kind and components (DESC, ATCH)
+
+Every model kind lives in the same container: one DEFN section with all graphs of all components, one weight index and one
+weight data section (every weight 64 KiB aligned and memory mapped in place, no per-load conversion), and optional artifact sets.
+What the model *is* and how its graphs and weights divide into parts is the **model description** (`Sharplight.Models.ModelDescription`),
+stored as JSON in a DESC section named `model.json`. Nothing in it is specific to a model kind: the kind and the component roles are
+open strings, configuration is free JSON, and attachments are generic named byte ranges. It is written by
+`System.Text.Json` with a source-generated context (camelCase names).
+
+```json
+{
+  "schemaVersion": 1,
+  "kind": "speech-recognition",
+  "components": [
+    { "role": "encoder", "graphs": ["encode"], "weightPrefixes": ["encoder."], "metadataPrefix": null,
+      "config": { "layers": 4 }, "attachments": {}, "symbolBounds": { "F": 3000 } },
+    { "role": "decoder", "graphs": ["decode"], "weightPrefixes": ["decoder."] },
+    { "role": "tokenizer", "metadataPrefix": "tokenizer.", "attachments": { "vocab": "tokenizer/vocab.json" } },
+    { "role": "feature-extractor", "config": { "melBins": 80, "hopLength": 160 },
+      "attachments": { "mel-filters": "feature-extractor/mel_filters.f32" } }
+  ],
+  "config": { "sampleRate": 16000 }
+}
+```
+
+| field | meaning |
+|---|---|
+| `schemaVersion` | layout version (1). Additions keep the version and readers ignore fields they do not know; a reader rejects a newer version |
+| `kind` | what the model does (`ModelKinds`: `text-generation`, `speech-recognition`, `speech-synthesis`, `image-generation`; open-ended, e.g. `depth-estimation`, `time-series`) |
+| `components[].role` | the part (`ModelComponentRoles`: `encoder`, `decoder`, `tokenizer`, `feature-extractor`, `text-encoder`, `denoiser`, `vae`, `scheduler`, `vocoder`; open-ended, numbered variants such as `text-encoder-2`) |
+| `components[].graphs` | names of the component's graphs in DEFN; empty for configuration-only components (tokenizer, scheduler) |
+| `components[].weightPrefixes` | name prefixes of the weights the component owns (accounting, placement, inspection) |
+| `components[].metadataPrefix` | prefix of the component's canonical metadata (e.g. a second tokenizer), or null for the model's unprefixed metadata |
+| `components[].config` | component configuration as JSON values; the keys belong to the importer and the task implementation that use them |
+| `components[].attachments` | local name → ATCH section name |
+| `components[].symbolBounds` | default upper bounds of the component graphs' dynamic symbols (used by precompilation and `TaskModel.CompileComponent`) |
+| `config` | model-level configuration |
+
+An image generator, for example, is `kind: image-generation` with `text-encoder` (graph and tokenizer metadata), `denoiser`
+(UNet/DiT graph), `vae` (`vae_decode`, `vae_encode` graphs) and a configuration-only `scheduler` component (`predictionType`,
+`betaSchedule`, ... in `config`, or its original `scheduler_config.json` as an attachment).
+
+**Attachments** (ATCH sections, `ModelDefinition.Attachments`) carry the files a component needs besides graphs and weights: tokenizer
+files, scheduler configurations, mel filter banks, voice embeddings. Each is one section, named by its attachment name (e.g.
+`tokenizer/vocab.json`), 64 KiB aligned and read from the mapping without copying (`TaskModel.ReadAttachment`).
+
+Backward compatibility: packages without a DESC section (every LLM package written before it existed, and packages written today for
+models whose adapter sets no description) load unchanged and resolve to a text-generation model with one `decoder` component that
+runs all graphs (`ModelDescription.Resolve`). The new sections do not change the container version: older readers skip section kinds
+they do not know. `ModelPackage.Save` validates the description against the definition (unique roles, every named graph and
+attachment exists); `Compact` keeps DESC and ATCH with the model part.
+
+**Precompilation per component.** For a described model, `PackagePrecompiler` (and `sharplight-convert precompile`) compiles the
+graphs of every component, each with the given bounds plus the component's `symbolBounds`, into the same artifact sets. Code-tier
+entries are content addressed (`kernel/<hash>`), so the kernels of all components coexist in one set per device profile and a load
+finds them whichever component asks; `TaskModel.Compile` / `CompileComponent` consult and record into the package's sets through the
+same `CompilationArtifacts` routing as `LlmModel`, and `TaskModel.ExportCompilation` returns what a load compiled.
+
+**Inspection.** `PackageInfo.Attachments` lists the attachments, `DefinitionInfo.Description` gives the (resolved) description and
+`DefinitionInfo.HasDescription` tells whether the package stores one. `sharplight-convert info` prints the kind and components; the
+Studio package inspector shows them on the overview tab and lists DESC and ATCH in the section view.
+
+## Artifact sets
 
 An **artifact set** is: descriptor (string → string, at least `provider`, `tier`, `kind`), then entries (key → bytes). ARTS
 layout: `i32 format (1)`, `i32 n` + n key/value strings (keys sorted), `i32 m` + m × (key, `i64` offset relative to the section,
@@ -88,7 +155,7 @@ a hit is always correct, a miss compiles); the binary tier matches on `vendor`, 
 consulted for every tier when their `target` equals the device's v1 `CompilationTarget`. Unknown providers, tiers and kinds are
 skipped. The CPU device declares no targets and gets no cache.
 
-Loading (`CompilationArtifacts`, used by `LlmModel`, `EmbeddingModel`, `Reranker`, and by ONNX hosts such as
+Loading (`CompilationArtifacts`, used by `LlmModel`, `EmbeddingModel`, `Reranker`, `TaskModel`, and by ONNX hosts such as
 `sharplight-onnxrun` that compile a package's graph with `CompileOptions.CacheFor = new CompilationArtifacts(source.CompilationCaches).For`;
 the load options' `Artifacts` lets several loads share one recording): per device one cache that routes each key to the tier claiming it (the Vulkan
 code tier claims `kernel/`, the binary tier is the catch-all for the driver pipeline cache), consults all matching stored sets of
@@ -160,7 +227,7 @@ kind, shown raw); `ArtifactEntryInfo.Offset` is an entry's absolute file offset;
     [--batch] [--slots] [--kv-tokens] [--bound SYMBOL=VALUE] [--use-kernel-cache]`: graphs are compiled the way their loaders
     compile them, into one shared recording: `LlmModel` (decode, decode_multimodal, vision_encode, and the serving batch decoder
     for `--slots` sequences, default 4 like `sharplight-server`; `--slots 1` skips it), `EmbeddingModel` (embed) and `Reranker`
-    (classify) with their default batch limits; other graphs (ONNX) as a `CompiledModel` with the CPU as fallback and the given
+    (classify) with their default batch limits; the graphs of every component of a described model with the component's bounds; other graphs (ONNX) as a `CompiledModel` with the CPU as fallback and the given
     bounds (the ONNX batch symbol defaults to 1). Not compiled: `decode_embeddings` (no loader compiles it; multimodal prompts use
     `decode_multimodal`) and the speculative-decoding variant of the batch decoder (its logits-row bound depends on the
     speculator). By default with a fresh temporary kernel cache; either way the stored pipeline cache holds only this model's

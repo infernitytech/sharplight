@@ -68,5 +68,8 @@ public static class ModelAdapterRegistry
         => s_auxiliaryOnly.TryGetValue(source.Architecture, out var role)
             ? new NotSupportedException($"'{source.Path}' is a {role} model (architecture '{source.Architecture}'), not a model of its own: load it as the "
                 + $"'{role}' auxiliary source of the model it was made for.")
-            : new NotSupportedException($"No adapter for architecture '{source.Architecture}'. Registered: {string.Join(", ", s_adapters.Keys)}");
+            : s_adapters.IsEmpty
+                ? new NotSupportedException($"No adapter for architecture '{source.Architecture}': no architecture adapters are registered. Register them at startup "
+                    + "with services.AddSharplight() (Sharplight.Defaults package) or BuiltinAdapters.RegisterAll() (Sharplight.Architectures).")
+                : new NotSupportedException($"No adapter for architecture '{source.Architecture}'. Registered: {string.Join(", ", s_adapters.Keys)}");
 }
