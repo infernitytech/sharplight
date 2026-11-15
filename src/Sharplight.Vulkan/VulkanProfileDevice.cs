@@ -6,9 +6,10 @@ using Sharplight.Shaders;
 namespace Sharplight.Vulkan;
 
 /// <summary>
-/// A compile-only Vulkan device for a <see cref="DeviceProfile"/> (see <see cref="IOfflineCompilationProvider.OpenProfile"/>):
-/// lowers segments and compiles their kernels to SPIR-V exactly like a <see cref="VulkanDevice"/> with that profile, without a
-/// Vulkan driver. Only the code tier is produced; the compiled segments cannot run.
+/// A compile-only Vulkan device for a <see cref="DeviceProfile"/>, the device of the portable stage
+/// (<see cref="VulkanProvider.CompilePortableAsync"/>): lowers segments and compiles their kernels to SPIR-V exactly like a
+/// <see cref="VulkanDevice"/> with that profile, without a Vulkan driver. Only the code tier is produced; the compiled segments
+/// cannot run. Memory figures come from <see cref="DeviceProfile.TotalMemory"/> (plenty when unknown) so placement works as usual.
 /// </summary>
 internal sealed class VulkanProfileDevice : IComputeDevice
 {
