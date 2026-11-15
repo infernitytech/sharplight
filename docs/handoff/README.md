@@ -86,8 +86,10 @@ quantized, GGUF I2_S, safe PyTorch pickle `.bin/.pt/.ckpt` loader); the earlier 
 
 Every model class of the long-term goal (section 2) is on this list; none is out of scope without asking the user.
 Each wave runs as parallel worktree agents (about 6-8 at a time, GPU-heavy agents pinned with `SHARPLIGHT_VK_DEVICES`).
-A model class is done when it imports, runs through a Core task utility, round-trips through `.slm`, matches its reference
-implementation, and has a Studio page.
+A model class is done when it imports, runs through a Core task utility, converts to `.slm` and loads from it on the
+fast path (page-aligned, mmap-able weights, per-component precompilation), shows correctly in the Studio `.slm`
+inspector, matches its reference implementation, and has a Studio page. The `.slm` description stays generic: open
+kind and component-role strings, per-component JSON config and attachments, nothing LLM-specific.
 
 **Step 1 – Core restructure** (`wip/core-restructure`, alone): Llm/Tokenizers/Templating in Core, task layer (text
 generation, speech recognition, speech synthesis, image generation; open for new kinds), audio/image I/O, versioned JSON
