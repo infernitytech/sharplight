@@ -106,8 +106,9 @@ public sealed partial class GraphLowerer
     /// A row's products are added in the same order at either row count, but left to itself the driver contracts the plain sum
     /// of an 8-weight group differently in the two-row kernel (last-bit differences in about 60 % of the outputs). The two-row
     /// kernel therefore writes the sum as the explicit fma chain (<c>MV_FMA_CHAIN</c>), which is what the driver makes of the
-    /// one-row kernel's plain sum (bit for bit, <c>SplitKMatvecRowsTests</c>), so the outputs equal those of one row per
-    /// workgroup. <c>SHARPLIGHT_MV_ROWS=n</c> forces n (1 restores one row per workgroup).
+    /// one-row kernel's plain sum, so the outputs equal those of one row per workgroup (greedy output unchanged on
+    /// Llama-3.2-1B bf16 / Q8_0, Qwen3-0.6B bf16, Qwen3-8B Q4_K_M and gpt-oss-20b MXFP4; RTX PRO 4500 decode step: Llama-1B
+    /// Q8_0 2.10 → 2.04 ms, gpt-oss-20b 4.37 → 4.16 ms, bf16 and Q4_K unchanged). <c>SHARPLIGHT_MV_ROWS=n</c> forces n (1 restores one row per workgroup).
     /// </summary>
     private static long SplitKMatvecRows(long n, bool dual) => DiagnosticSwitches.SplitKMatvecRows ?? (dual || n < 1024 ? 1 : 2);
 
