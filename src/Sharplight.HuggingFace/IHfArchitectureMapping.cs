@@ -31,4 +31,15 @@ internal interface IHfArchitectureMapping
     /// </summary>
     /// <param name="modelType">One of <see cref="ModelTypes"/>.</param>
     public string? PartialSupport(string modelType) => null;
+
+    /// <summary>
+    /// Adds canonical metadata that needs more than <c>config.json</c> (companion files of the checkpoint, the translated tokenizer in
+    /// <paramref name="metadata"/>). Called after the hyper-parameters and the tokenizer keys are in place. Default: nothing.
+    /// </summary>
+    /// <param name="metadata">The canonical metadata being built.</param>
+    /// <param name="config">The checkpoint's <c>config.json</c>.</param>
+    /// <param name="directory">The checkpoint directory.</param>
+    public void AddMetadata(IDictionary<string, object> metadata, HfConfig config, string directory)
+    {
+    }
 }

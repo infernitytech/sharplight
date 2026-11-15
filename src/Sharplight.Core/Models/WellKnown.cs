@@ -15,6 +15,11 @@ public static class WellKnown
     public const string ContextSymbol = "ctx";
     /// <summary>Runtime scalar: number of tokens already in the KV cache before this execution.</summary>
     public const string PastScalar = "n_past";
+    /// <summary>
+    /// Runtime scalar: the first row of the per-source states (cached cross-attention keys and values) that the current pass writes; 0
+    /// for models that write the whole source at once.
+    /// </summary>
+    public const string SourcePastScalar = "source_past";
     /// <summary>Symbol of the run count of a multi-sequence graph (rows of <see cref="InputRole.SequenceRuns"/>).</summary>
     public const string RunSymbol = "U";
 
@@ -98,6 +103,26 @@ public static class WellKnown
     public const string EncoderOutput = "encoder_output";
     /// <summary>Symbol of the source-sequence length (rows of the <see cref="InputRole.EncoderOutput"/> input).</summary>
     public const string EncoderSymbol = "E";
+    /// <summary>
+    /// Property of speech encoders (the <see cref="EncodeGraph"/> takes <see cref="InputRole.AudioSamples"/>): the sample rate of the audio
+    /// input in Hz (int).
+    /// </summary>
+    public const string AudioSampleRate = "audio_sample_rate";
+    /// <summary>
+    /// Property of speech encoders: the audio one encoder pass covers, in samples (int; Whisper: 30 s = 480000). The encoder input holds
+    /// this window plus <see cref="AudioContextSamples"/> samples of context before it and <see cref="AudioWindowSamples"/> − window −
+    /// context after it (zeros past the end of the audio).
+    /// </summary>
+    public const string AudioChunkSamples = "audio_chunk_samples";
+    /// <summary>Property of speech encoders: the length of the <see cref="InputRole.AudioSamples"/> input of one encoder pass (int).</summary>
+    public const string AudioWindowSamples = "audio_window_samples";
+    /// <summary>
+    /// Property of speech encoders: samples of the encoder input that precede the window (int; half the analysis frame of a centered
+    /// short-time Fourier transform). At the start of the audio callers reflect the signal into them, as a centered STFT pads.
+    /// </summary>
+    public const string AudioContextSamples = "audio_context_samples";
+    /// <summary>Property of speech encoders: the rows of <see cref="EncoderOutput"/> one pass produces (int; Whisper: 1500).</summary>
+    public const string EncoderRows = "encoder_rows";
     /// <summary>Property of encoder-decoder models: the token the decoder starts from (int; T5: the pad token).</summary>
     public const string DecoderStartToken = "decoder_start_token";
     /// <summary>

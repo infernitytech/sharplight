@@ -60,4 +60,9 @@ public enum InputRole
     /// <see cref="WellKnown.EncoderOutput"/> of the model's <see cref="WellKnown.EncodeGraph"/>) that the decoder's cross-attention reads.
     /// </summary>
     EncoderOutput,
+    /// <summary>
+    /// Mono audio samples [N] f32 in [-1, 1] at the model's sample rate (<see cref="WellKnown.AudioSampleRate"/>): the input of a speech
+    /// encoder's <see cref="WellKnown.EncodeGraph"/>, one fixed-length window per pass (see <see cref="WellKnown.AudioWindowSamples"/>).
+    /// </summary>
+    AudioSamples,
 }

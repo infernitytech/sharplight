@@ -100,6 +100,7 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
                 HfTokenizerTranslator.AddTo(md, dir, config);
             }
             HfSentenceTransformers.AddTo(md, dir, config);
+            mapping.AddMetadata(md, config, dir);
 
             var weights = mapping.MapWeights(config, HfFp8Weights.Resolve(config, checkpoint.Tensors), options);
             var dense = HfSentenceTransformers.DenseWeights(dir, owned);
