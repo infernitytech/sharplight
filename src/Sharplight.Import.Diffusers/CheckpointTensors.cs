@@ -1,5 +1,5 @@
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Models;
 
 namespace Sharplight.Import.Diffusers;
@@ -20,6 +20,7 @@ internal sealed class CheckpointTensors
     public IReadOnlyList<IDisposable> Resources => _resources;
 
     /// <summary>Whether the file is a GGUF file (by its magic bytes).</summary>
+    /// <param name="path">The file.</param>
     public static bool IsGguf(string path)
     {
         using var file = File.OpenRead(path);
@@ -29,7 +30,7 @@ internal sealed class CheckpointTensors
 
     /// <summary>
     /// Adds the tensors of a safetensors or GGUF file; names already present are replaced. Tensors whose stored type has no
-    /// Sharplight equivalent are left out (they are never weights of the supported networks).
+    /// Sharplight equivalent are left out (they are never weights of the supported networks, e.g. i64 position ids).
     /// </summary>
     /// <param name="path">The file.</param>
     /// <param name="prefix">Prepended to every stored name (e.g. "unet." for a diffusers component file).</param>
@@ -59,9 +60,6 @@ internal sealed class CheckpointTensors
             _tensors[prefix + name] = Rename(tensor.ToWeightInfo(), prefix + name);
         }
     }
-
-    /// <summary>The tensor of that stored name, or null.</summary>
-    public WeightInfo? Find(string name) => _tensors.GetValueOrDefault(name);
 
     /// <summary>Releases the files (after a failed import).</summary>
     public void DisposeAll()

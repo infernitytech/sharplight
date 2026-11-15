@@ -1,13 +1,15 @@
-using Sharplight.Gguf;
+using Sharplight.Import.Gguf;
 using Sharplight.Models;
 using Sharplight.Tensors;
 
 namespace Sharplight.Import.Diffusers;
 
 /// <summary>
-/// Collects the canonical weights of a latent-diffusion source and normalizes their storage: vectors (norm scales, biases) become
-/// f32 whatever they were stored as (stable-diffusion.cpp stores 768-wide LayerNorm scales as Q8_0, for instance), and 1×1
-/// convolution kernels that act as linear maps are viewed as matrices.
+/// Collects the canonical weights of a latent-diffusion source and normalizes their storage so the graphs see one layout whatever
+/// the checkpoint stored: vectors (norm scales, biases) and position tables become f32 (stable-diffusion.cpp stores 768-wide
+/// LayerNorm scales as Q4_0, fp16 checkpoints store biases as f16), convolution kernels are float (a block-quantized kernel is
+/// decoded to f32), and 1×1 convolution kernels that act as linear maps are viewed as matrices. Unchanged tensors stay zero-copy
+/// views of the memory-mapped files.
 /// </summary>
 internal sealed class CanonicalWeights
 {
@@ -16,19 +18,35 @@ internal sealed class CanonicalWeights
     /// <summary>The weights by canonical name.</summary>
     public IReadOnlyDictionary<string, WeightInfo> Weights => _weights;
 
-    /// <summary>Adds <paramref name="stored"/> under <paramref name="name"/>; vectors are converted to f32.</summary>
+    /// <summary>Adds <paramref name="stored"/> under <paramref name="name"/>: vectors become f32, quantized convolution kernels f32.</summary>
+    /// <param name="name">The canonical name.</param>
+    /// <param name="stored">The stored tensor.</param>
     public void Add(string name, WeightInfo stored)
     {
         if (stored.Shape.Rank == 1 && stored.Type != DataType.F32)
         {
-            _weights[name] = ToF32(name, stored);
+            _weights[name] = ToF32(name, stored, stored.Shape);
+            return;
+        }
+
+        if (stored.Shape.Rank == 4 && stored.Type.IsQuantized)
+        {
+            _weights[name] = ToF32(name, stored, stored.Shape);
             return;
         }
 
         _weights[name] = stored.As(name);
     }
 
+    /// <summary>Adds a table the graphs add to activations (e.g. a position embedding) as f32.</summary>
+    /// <param name="name">The canonical name.</param>
+    /// <param name="stored">The stored tensor.</param>
+    public void AddF32(string name, WeightInfo stored)
+        => _weights[name] = stored.Type == DataType.F32 ? stored.As(name) : ToF32(name, stored, stored.Shape);
+
     /// <summary>Adds a weight that is a linear map, viewing a [O, I, 1, 1] convolution kernel as [O, I].</summary>
+    /// <param name="name">The canonical name.</param>
+    /// <param name="stored">The stored tensor.</param>
     /// <exception cref="InvalidDataException">The kernel is larger than 1×1.</exception>
     public void AddLinear(string name, WeightInfo stored)
     {
@@ -43,26 +61,15 @@ internal sealed class CanonicalWeights
             throw new InvalidDataException($"{stored.Name}: expected a 1x1 convolution kernel, got {stored.Shape}.");
         }
 
-        _weights[name] = stored.As(name, new Shape(stored.Shape[0], stored.Shape[1]));
-    }
-
-    /// <summary>Adds the two halves of a stacked projection [2N, K] as separate [N, K] weights (zero-copy row slices).</summary>
-    public void AddHalves(string first, string second, WeightInfo stored)
-    {
-        long half = stored.Shape[0].Fixed / 2;
-        Add(first, stored.RowSlice(first, 0, half));
-        Add(second, stored.RowSlice(second, half, half));
+        var matrix = new Shape(stored.Shape[0], stored.Shape[1]);
+        _weights[name] = stored.As(name, matrix);
     }
 
     /// <summary>Whether a canonical weight of that name was added.</summary>
+    /// <param name="name">The canonical name.</param>
     public bool Contains(string name) => _weights.ContainsKey(name);
 
-    /// <summary>A canonical weight added before.</summary>
-    /// <exception cref="InvalidDataException">The checkpoint provided no such weight.</exception>
-    public WeightInfo Get(string name) => _weights.TryGetValue(name, out var weight)
-        ? weight : throw new InvalidDataException($"The checkpoint has no weight for '{name}'.");
-
-    private static WeightInfo ToF32(string name, WeightInfo stored) => WeightInfo.Derived(name, DataType.F32, stored.Shape, () =>
+    private static WeightInfo ToF32(string name, WeightInfo stored, Shape shape) => WeightInfo.Derived(name, DataType.F32, shape, () =>
     {
         var values = GgmlBlockDecoder.Decode(stored.Type, stored.ReadAll());
         var bytes = new byte[values.Length * sizeof(float)];

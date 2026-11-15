@@ -4,9 +4,9 @@ using Sharplight.Models;
 namespace Sharplight.Import.Diffusers;
 
 /// <summary>
-/// Maps diffusers UNet2DConditionModel and AutoencoderKL tensor names to the canonical latent-diffusion names (see the
-/// <c>LatentDiffusionAdapter</c> remarks in Sharplight.Architectures for the vocabulary) and adds them to a
-/// <see cref="CanonicalWeights"/> set.
+/// Maps diffusers <c>UNet2DConditionModel</c> and <c>AutoencoderKL</c> tensor names to the canonical latent-diffusion names (the
+/// vocabulary is documented on <c>LatentDiffusionAdapter</c> in Sharplight.Architectures) and adds them to a
+/// <see cref="CanonicalWeights"/> set. Original (LDM) checkpoints reach this class through <see cref="LdmNames"/>.
 /// </summary>
 internal static partial class DiffusersNames
 {
@@ -17,41 +17,47 @@ internal static partial class DiffusersNames
     /// <exception cref="InvalidDataException">The name is not part of a supported UNet.</exception>
     public static void AddUNet(string name, WeightInfo weight, CanonicalWeights weights)
     {
-        string s = name;
-        s = Replace(s, "time_embedding.linear_1.", "time_embedding.linear1.");
-        s = Replace(s, "time_embedding.linear_2.", "time_embedding.linear2.");
-        s = Replace(s, "add_embedding.linear_1.", "class_embedding.linear1.");
-        s = Replace(s, "add_embedding.linear_2.", "class_embedding.linear2.");
-        s = Replace(s, "conv_in.", "input_conv.");
-        s = Replace(s, "conv_norm_out.", "output_norm.");
-        s = Replace(s, "conv_out.", "output_conv.");
-        s = DownBlock().Replace(s, "down.$1.$2.$3.");
-        s = UpBlock().Replace(s, "up.$1.$2.$3.");
-        s = Sampler().Replace(s, "$1.$2.${3}sample.");
-        s = MidBlock().Replace(s, "mid.$1.$2.");
-        s = s.Replace("mid.attn.0.", "mid.attn.", StringComparison.Ordinal);
+        string s = Prefix(name, "time_embedding.linear_1.", "time_embedding.linear1.");
+        s = Prefix(s, "time_embedding.linear_2.", "time_embedding.linear2.");
+        s = Prefix(s, "add_embedding.linear_1.", "class_embedding.linear1.");
+        s = Prefix(s, "add_embedding.linear_2.", "class_embedding.linear2.");
+        s = Prefix(s, "conv_in.", "input_conv.");
+        s = Prefix(s, "conv_norm_out.", "output_norm.");
+        s = Prefix(s, "conv_out.", "output_conv.");
+        s = LevelPart().Replace(s, m => $"{m.Groups[1].Value}.{m.Groups[2].Value}.{(m.Groups[3].Value == "resnets" ? "res" : "attn")}.{m.Groups[4].Value}.");
+        s = Downsampler().Replace(s, "down.$1.downsample.");
+        s = Upsampler().Replace(s, "up.$1.upsample.");
+        s = MidPart().Replace(s, m => $"mid.{(m.Groups[1].Value == "resnets" ? "res" : "attn")}.{m.Groups[2].Value}.");
         s = ResnetParts(s);
-        if (s == name)
+        s = TransformerParts(s);
+        if (s == name || !IsUNetName(s))
         {
             throw new InvalidDataException($"Unexpected UNet tensor '{name}'.");
         }
 
-        AddTransformerOrPlain("unet." + s, weight, weights);
+        string canonical = "unet." + s;
+        if (ProjectionPart().IsMatch(canonical))
+        {
+            weights.AddLinear(canonical, weight);
+            return;
+        }
+
+        weights.Add(canonical, weight);
     }
 
     /// <summary>Adds one VAE tensor under its canonical <c>vae.*</c> name.</summary>
     /// <param name="name">Diffusers name (without a component prefix).</param>
     /// <param name="weight">The stored tensor.</param>
     /// <param name="weights">The canonical set.</param>
+    /// <exception cref="InvalidDataException">The name is not part of a supported VAE.</exception>
     public static void AddVae(string name, WeightInfo weight, CanonicalWeights weights)
     {
-        string s = name;
-        s = Replace(s, "coder.conv_in.", "coder.input_conv.");
-        s = Replace(s, "coder.conv_norm_out.", "coder.output_norm.");
-        s = Replace(s, "coder.conv_out.", "coder.output_conv.");
-        s = VaeBlock().Replace(s, "$1.$2.$3.$4.");
-        s = Sampler().Replace(s, "$1.$2.${3}sample.");
-        s = VaeMid().Replace(s, "$1.mid.$2.$3.");
+        string s = name.Replace("coder.conv_in.", "coder.input_conv.", StringComparison.Ordinal)
+            .Replace("coder.conv_norm_out.", "coder.output_norm.", StringComparison.Ordinal)
+            .Replace("coder.conv_out.", "coder.output_conv.", StringComparison.Ordinal);
+        s = VaeLevelPart().Replace(s, "$1.$2.$3.res.$4.");
+        s = VaeSampler().Replace(s, m => $"{m.Groups[1].Value}.{m.Groups[2].Value}.{m.Groups[3].Value}.{m.Groups[4].Value}sample.");
+        s = VaeMidPart().Replace(s, m => $"{m.Groups[1].Value}.mid.{(m.Groups[2].Value == "resnets" ? "res" : "attn")}.{m.Groups[3].Value}.");
         s = ResnetParts(s);
         var attention = VaeAttention().Match(s);
         if (attention.Success)
@@ -64,7 +70,7 @@ internal static partial class DiffusersNames
                 "to_v" or "value" => "v",
                 _ => "o",
             };
-            string canonical = $"vae.{attention.Groups[1].Value}.mid.attn.{part}.{attention.Groups[3].Value}";
+            string canonical = $"vae.{attention.Groups[1].Value}.{part}.{attention.Groups[3].Value}";
             if (part == "norm")
             {
                 weights.Add(canonical, weight);
@@ -77,90 +83,127 @@ internal static partial class DiffusersNames
             return;
         }
 
+        if (!IsVaeName(s))
+        {
+            throw new InvalidDataException($"Unexpected VAE tensor '{name}'.");
+        }
+
         weights.Add("vae." + s, weight);
     }
 
-    /// <summary>Spatial-transformer tensors get their own sub-names; everything else keeps the translated name.</summary>
-    private static void AddTransformerOrPlain(string canonical, WeightInfo weight, CanonicalWeights weights)
+    /// <summary>
+    /// Adds one tensor of a CLIP text encoder (Hugging Face <c>CLIPTextModel</c> names, with or without the <c>text_model.</c>
+    /// prefix) under its canonical <c>{prefix}*</c> name; returns false for tensors that are not weights (position ids).
+    /// </summary>
+    /// <param name="name">Hugging Face name (without a component prefix).</param>
+    /// <param name="weight">The stored tensor.</param>
+    /// <param name="prefix">Canonical prefix of the encoder (<c>text_encoder.</c>, <c>text_encoder_2.</c>).</param>
+    /// <param name="weights">The canonical set.</param>
+    /// <exception cref="InvalidDataException">The name is not part of a CLIP text encoder.</exception>
+    public static bool AddClipText(string name, WeightInfo weight, string prefix, CanonicalWeights weights)
     {
-        var block = TransformerBlock().Match(canonical);
-        if (block.Success)
+        string s = name.StartsWith("text_model.", StringComparison.Ordinal) ? name["text_model.".Length..] : name;
+        if (s.EndsWith("position_ids", StringComparison.Ordinal))
         {
-            string prefix = $"{block.Groups[1].Value}.blocks.{block.Groups[2].Value}.";
-            string rest = block.Groups[3].Value;
-            if (rest.StartsWith("ff.net.0.proj.", StringComparison.Ordinal))
-            {
-                string suffix = rest["ff.net.0.proj.".Length..];
-                weights.AddHalves($"{prefix}ff.up.{suffix}", $"{prefix}ff.gate.{suffix}", weight);
-                return;
-            }
-
-            rest = Replace(rest, "ff.net.2.", "ff.down.");
-            rest = AttentionPart().Replace(rest, m => $"{m.Groups[1].Value}.{AttentionProjection(m.Groups[2].Value)}.");
-            weights.Add(prefix + rest, weight);
-            return;
+            return false;
         }
 
-        if (TransformerProjection().IsMatch(canonical))
+        switch (s)
         {
-            weights.AddLinear(canonical, weight);
-            return;
+            case "embeddings.token_embedding.weight":
+                weights.Add(prefix + "token_embedding.weight", weight);
+                return true;
+            case "embeddings.position_embedding.weight":
+                weights.AddF32(prefix + "position_embedding.weight", weight);
+                return true;
+            case "final_layer_norm.weight" or "final_layer_norm.bias":
+                weights.Add(prefix + "final_norm." + s[(s.LastIndexOf('.') + 1)..], weight);
+                return true;
+            case "text_projection.weight":
+                weights.Add(prefix + "projection.weight", weight);
+                return true;
         }
 
-        weights.Add(canonical, weight);
+        var layer = ClipLayer().Match(s);
+        if (!layer.Success)
+        {
+            throw new InvalidDataException($"Unexpected CLIP text encoder tensor '{name}'.");
+        }
+
+        string part = layer.Groups[2].Value switch
+        {
+            "layer_norm1" => "norm1",
+            "layer_norm2" => "norm2",
+            "self_attn.q_proj" => "attn.q",
+            "self_attn.k_proj" => "attn.k",
+            "self_attn.v_proj" => "attn.v",
+            "self_attn.out_proj" => "attn.o",
+            "mlp.fc1" => "mlp.up",
+            _ => "mlp.down",
+        };
+        weights.Add($"{prefix}layers.{layer.Groups[1].Value}.{part}.{layer.Groups[3].Value}", weight);
+        return true;
     }
 
-    private static string AttentionProjection(string part) => part switch
+    private static string Prefix(string s, string from, string to)
+        => s.StartsWith(from, StringComparison.Ordinal) ? to + s[from.Length..] : s;
+
+    private static string ResnetParts(string s)
+        => s.Replace(".time_emb_proj.", ".time_proj.", StringComparison.Ordinal)
+            .Replace(".conv_shortcut.", ".shortcut.", StringComparison.Ordinal);
+
+    private static string TransformerParts(string s)
     {
-        "to_q" => "q",
-        "to_k" => "k",
-        "to_v" => "v",
-        _ => "o",
-    };
+        s = TransformerBlock().Replace(s, ".blocks.$1.");
+        return s.Replace(".attn1.", ".self.", StringComparison.Ordinal)
+            .Replace(".attn2.", ".cross.", StringComparison.Ordinal)
+            .Replace(".to_q.", ".q.", StringComparison.Ordinal)
+            .Replace(".to_k.", ".k.", StringComparison.Ordinal)
+            .Replace(".to_v.", ".v.", StringComparison.Ordinal)
+            .Replace(".to_out.0.", ".o.", StringComparison.Ordinal)
+            .Replace(".ff.net.0.proj.", ".ff.proj.", StringComparison.Ordinal)
+            .Replace(".ff.net.2.", ".ff.out.", StringComparison.Ordinal);
+    }
 
-    private static string ResnetParts(string s) => ResnetPart().Replace(s, m => m.Groups[1].Value switch
-    {
-        "time_emb_proj" => "time_projection",
-        "conv_shortcut" => "shortcut",
-        var other => other,
-    });
+    private static bool IsUNetName(string s) => s.StartsWith("time_embedding.", StringComparison.Ordinal)
+        || s.StartsWith("class_embedding.", StringComparison.Ordinal) || s.StartsWith("input_conv.", StringComparison.Ordinal)
+        || s.StartsWith("output_", StringComparison.Ordinal) || s.StartsWith("down.", StringComparison.Ordinal)
+        || s.StartsWith("up.", StringComparison.Ordinal) || s.StartsWith("mid.", StringComparison.Ordinal);
 
-    private static string Replace(string s, string from, string to)
-        => s.StartsWith(from, StringComparison.Ordinal) || s.Contains("." + from, StringComparison.Ordinal) ? s.Replace(from, to, StringComparison.Ordinal) : s;
+    private static bool IsVaeName(string s) => s.StartsWith("encoder.", StringComparison.Ordinal)
+        || s.StartsWith("decoder.", StringComparison.Ordinal) || s.StartsWith("quant_conv.", StringComparison.Ordinal)
+        || s.StartsWith("post_quant_conv.", StringComparison.Ordinal);
 
-    [GeneratedRegex(@"^down_blocks\.(\d+)\.(resnets|attentions)\.(\d+)\.")]
-    private static partial Regex DownBlock();
+    [GeneratedRegex(@"^(down|up)_blocks\.(\d+)\.(resnets|attentions)\.(\d+)\.")]
+    private static partial Regex LevelPart();
 
-    [GeneratedRegex(@"^up_blocks\.(\d+)\.(resnets|attentions)\.(\d+)\.")]
-    private static partial Regex UpBlock();
+    [GeneratedRegex(@"^down_blocks\.(\d+)\.downsamplers\.0\.conv\.")]
+    private static partial Regex Downsampler();
 
-    [GeneratedRegex(@"^((?:encoder\.|decoder\.)?)(?:down_blocks|up_blocks)\.(\d+)\.(down|up)samplers\.0\.conv\.")]
-    private static partial Regex SamplerPrefix();
-
-    [GeneratedRegex(@"(down|up)_blocks\.(\d+)\.(down|up)samplers\.0\.conv\.")]
-    private static partial Regex Sampler();
+    [GeneratedRegex(@"^up_blocks\.(\d+)\.upsamplers\.0\.conv\.")]
+    private static partial Regex Upsampler();
 
     [GeneratedRegex(@"^mid_block\.(resnets|attentions)\.(\d+)\.")]
-    private static partial Regex MidBlock();
+    private static partial Regex MidPart();
 
-    [GeneratedRegex(@"^(encoder|decoder)\.(down|up)_blocks\.(\d+)\.resnets\.(\d+)\.")]
-    private static partial Regex VaeBlock();
-
-    [GeneratedRegex(@"^(encoder|decoder)\.mid_block\.(resnets|attentions)\.(\d+)\.")]
-    private static partial Regex VaeMid();
-
-    [GeneratedRegex(@"^(encoder|decoder)\.mid\.attentions\.0\.(group_norm|to_q|to_k|to_v|to_out\.0|query|key|value|proj_attn)\.(weight|bias)$")]
-    private static partial Regex VaeAttention();
-
-    [GeneratedRegex(@"(?<=\.res\.\d+\.)(time_emb_proj|conv_shortcut)(?=\.)")]
-    private static partial Regex ResnetPart();
-
-    [GeneratedRegex(@"^(.*\.attn(?:\.\d+)?)\.transformer_blocks\.(\d+)\.(.*)$")]
+    [GeneratedRegex(@"\.transformer_blocks\.(\d+)\.")]
     private static partial Regex TransformerBlock();
 
-    [GeneratedRegex(@"\.attn(?:\.\d+)?\.proj_(in|out)\.weight$")]
-    private static partial Regex TransformerProjection();
+    [GeneratedRegex(@"\.attn\.\d+\.proj_(in|out)\.weight$")]
+    private static partial Regex ProjectionPart();
 
-    [GeneratedRegex(@"^(attn[12])\.(to_q|to_k|to_v|to_out\.0)\.")]
-    private static partial Regex AttentionPart();
+    [GeneratedRegex(@"^(encoder|decoder)\.(down|up)_blocks\.(\d+)\.resnets\.(\d+)\.")]
+    private static partial Regex VaeLevelPart();
+
+    [GeneratedRegex(@"^(encoder|decoder)\.(down|up)_blocks\.(\d+)\.(down|up)samplers\.0\.conv\.")]
+    private static partial Regex VaeSampler();
+
+    [GeneratedRegex(@"^(encoder|decoder)\.mid_block\.(resnets|attentions)\.(\d+)\.")]
+    private static partial Regex VaeMidPart();
+
+    [GeneratedRegex(@"^((?:encoder|decoder)\.mid\.attn\.0)\.(group_norm|to_q|to_k|to_v|to_out\.0|query|key|value|proj_attn)\.(weight|bias)$")]
+    private static partial Regex VaeAttention();
+
+    [GeneratedRegex(@"^encoder\.layers\.(\d+)\.(layer_norm1|layer_norm2|self_attn\.q_proj|self_attn\.k_proj|self_attn\.v_proj|self_attn\.out_proj|mlp\.fc1|mlp\.fc2)\.(weight|bias)$")]
+    private static partial Regex ClipLayer();
 }

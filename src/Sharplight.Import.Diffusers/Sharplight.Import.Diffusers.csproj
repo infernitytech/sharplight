@@ -4,8 +4,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
-    <ProjectReference Include="../Sharplight.Gguf/Sharplight.Gguf.csproj" />
-    <ProjectReference Include="../Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
+    <ProjectReference Include="../Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
+    <ProjectReference Include="../Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources/clip-merges.txt.gz" LogicalName="Sharplight.Import.Diffusers.clip-merges.txt.gz" />
