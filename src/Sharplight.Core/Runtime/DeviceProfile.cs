@@ -8,8 +8,8 @@ namespace Sharplight.Runtime;
 /// What code generation for a device depends on, captured so code can be produced for a device that is not present: the
 /// provider and its code target, subgroup size, shared memory, the features kernels may use and the submission budget, plus
 /// display information and the memory placement decisions are based on. Exported from an opened device
-/// (<see cref="IComputeDevice.CreateProfile"/>) and opened for offline compilation through an
-/// <see cref="IOfflineCompilationProvider"/>. Serialized as JSON (<see cref="ToJson"/>, <see cref="FromJson"/>).
+/// (<see cref="IComputeDevice.CreateProfile"/>) and the target of the portable precompilation stage
+/// (<see cref="IExecutionProvider.CompilePortableAsync"/>). Serialized as JSON (<see cref="ToJson"/>, <see cref="FromJson"/>).
 /// </summary>
 public sealed class DeviceProfile
 {

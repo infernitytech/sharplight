@@ -9,35 +9,27 @@ namespace Sharplight.Shaders;
 
 /// <summary>
 /// Thin, thread-safe wrapper over the Slang compiler that compiles kernels of the embedded kernel
-/// library (or generated source) for any backend target, with an on-disk cache keyed by the source
-/// text, macros and target. Shared by all providers (Vulkan, CUDA, Metal).
+/// library (or generated source) for any backend target. Kernels are looked up in the model-level cache first (keyed by the source
+/// text, macros, compiler and target: the package's artifact sets, then the per-user <see cref="Runtime.ArtifactStore"/>, see
+/// <see cref="Runtime.CompilationArtifacts"/>) and only then compiled. Shared by all providers.
 /// </summary>
 public sealed class SlangCompiler : IDisposable
 {
     private static long s_compileTicks;
     private static int s_compiled;
-    private static int s_diskHits;
 
     private readonly string _libraryDir;
-    private readonly string? _cacheDir;
     private readonly ConcurrentDictionary<string, CompiledKernel> _memCache = new();
 
     /// <summary>Creates a compiler, extracting the embedded kernel library on first use.</summary>
-    /// <param name="cacheDirectory">Directory for compiled binaries, shared by processes (null disables the disk cache).</param>
-    public SlangCompiler(string? cacheDirectory = null)
+    public SlangCompiler()
     {
-        _cacheDir = cacheDirectory;
-        if (_cacheDir is not null)
-        {
-            Directory.CreateDirectory(_cacheDir);
-        }
-
         _libraryDir = KernelLibrary.Extract();
     }
 
-    /// <summary>Process-wide totals of the kernels this process compiled with Slang or read from the disk cache (diagnostics).</summary>
+    /// <summary>Process-wide totals of the kernels this process compiled with Slang (diagnostics).</summary>
     public static CompileStatistics Statistics
-        => new(Volatile.Read(ref s_compiled), Volatile.Read(ref s_diskHits), TimeSpan.FromSeconds((double)Volatile.Read(ref s_compileTicks) / Stopwatch.Frequency));
+        => new(Volatile.Read(ref s_compiled), TimeSpan.FromSeconds((double)Volatile.Read(ref s_compileTicks) / Stopwatch.Frequency));
 
     /// <summary>Slang build tag, part of every cache key (the native library ships with the SlangShaderSharp package).</summary>
     private static string Version { get; } = typeof(Slang).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -54,10 +46,6 @@ public sealed class SlangCompiler : IDisposable
 
     /// <summary>The Slang profile code for <paramref name="target"/> is generated with (e.g. <c>spirv_1_6</c>).</summary>
     public static string TargetProfile(ShaderTarget target) => Profile(target);
-
-    /// <summary>The per-user kernel cache directory.</summary>
-    public static string DefaultCacheDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "sharplight", "kernels");
 
     /// <summary>Compiles an entry point of a library kernel file (e.g. "matmul.slang", "matvec").</summary>
     /// <param name="file">Kernel file name in the embedded library.</param>
@@ -117,22 +105,12 @@ public sealed class SlangCompiler : IDisposable
         return kernel;
     }
 
-    /// <summary>Fills a new kernel from the model cache or the disk cache, or queues its compilation.</summary>
+    /// <summary>Fills a new kernel from the model-level cache (artifact sets, then the artifact store), or queues its compilation.</summary>
     private void Resolve(CompiledKernel kernel, string source, string modelCacheKey, IReadOnlyDictionary<string, string> macros, Runtime.ICompilationCache? cache)
     {
         if (cache is not null && cache.TryGet(modelCacheKey, out var stored))
         {
             kernel.CompleteFromCache(stored.ToArray());
-            return;
-        }
-
-        string? cachePath = _cacheDir is null ? null : Path.Combine(_cacheDir, kernel.CacheKey + Extension(kernel.Target));
-        // The disk cache is shared by processes; an entry may disappear between check and read (pruned by another
-        // process), which is just a miss.
-        if (cachePath is not null && TryRead(cachePath) is { } cached)
-        {
-            Interlocked.Increment(ref s_diskHits);
-            kernel.CompleteFromCache(cached);
             return;
         }
 
@@ -143,13 +121,6 @@ public sealed class SlangCompiler : IDisposable
                 var code = CompileUncached(session, kernel.Name, source, kernel.EntryPoint, kernel.Target, macros);
                 Interlocked.Add(ref s_compileTicks, Stopwatch.GetTimestamp() - start);
                 Interlocked.Increment(ref s_compiled);
-                if (cachePath is not null)
-                {
-                    var tmp = cachePath + "." + Environment.ProcessId + "." + Environment.CurrentManagedThreadId + ".tmp";
-                    File.WriteAllBytes(tmp, code);
-                    File.Move(tmp, cachePath, overwrite: true);
-                }
-
                 kernel.Complete(code);
             },
             error =>
@@ -158,18 +129,6 @@ public sealed class SlangCompiler : IDisposable
                 _memCache.TryRemove(new KeyValuePair<string, CompiledKernel>(kernel.CacheKey, kernel));
                 kernel.Fail(error);
             });
-    }
-
-    private static byte[]? TryRead(string path)
-    {
-        try
-        {
-            return File.Exists(path) ? File.ReadAllBytes(path) : null;
-        }
-        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException or IOException)
-        {
-            return null;
-        }
     }
 
     private byte[] CompileUncached(IGlobalSession gs, string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
@@ -219,15 +178,6 @@ public sealed class SlangCompiler : IDisposable
         ShaderTarget.CudaSource or ShaderTarget.Ptx => "sm_8_0",
         ShaderTarget.Metal => "metal",
         _ => "",
-    };
-
-    private static string Extension(ShaderTarget t) => t switch
-    {
-        ShaderTarget.SpirV => ".spv",
-        ShaderTarget.CudaSource => ".cu",
-        ShaderTarget.Ptx => ".ptx",
-        ShaderTarget.Metal => ".metal",
-        _ => ".bin",
     };
 
     private static string CacheKey(string sourceDigest, string entry, ShaderTarget target, IReadOnlyDictionary<string, string> macros)

@@ -27,6 +27,8 @@ internal sealed partial class UnigramTokenizer : ITokenizer
     private readonly float _unkScore;
     private readonly bool _addSpacePrefix;
     private readonly int[] _eog;
+    private readonly bool _lowercase;
+    private readonly string? _stripChars;
 
     /// <inheritdoc/>
     public int VocabSize => _tokens.Length;
@@ -69,6 +71,8 @@ internal sealed partial class UnigramTokenizer : ITokenizer
         AddBos = data.AddBos ?? BosId is not null;
         AddEos = data.AddEos ?? EosId is not null;
         _addSpacePrefix = data.AddSpacePrefix ?? true;
+        _lowercase = data.Lowercase ?? false;
+        _stripChars = string.IsNullOrEmpty(data.StripChars) ? null : data.StripChars;
         _eog = EosId is int e ? [e] : [];
         _specials = new SpecialTokens(_tokens, i => _types[i]);
     }
@@ -144,7 +148,7 @@ internal sealed partial class UnigramTokenizer : ITokenizer
                 output.Add(id);
                 continue;
             }
-            string s = Normalize(frag);
+            string s = Normalize(Canonicalize(frag));
             if (s.Length == 0)
             {
                 continue;
@@ -176,6 +180,28 @@ internal sealed partial class UnigramTokenizer : ITokenizer
 
     [GeneratedRegex(" {2,}")]
     private static partial Regex MultiSpace();
+
+    // The text canonicalization of SigLIP: lower case, listed characters removed, whitespace collapsed and trimmed.
+    private string Canonicalize(string text)
+    {
+        if (!_lowercase && _stripChars is null)
+        {
+            return text;
+        }
+
+        if (_lowercase)
+        {
+            text = text.ToLowerInvariant();
+        }
+
+        if (_stripChars is not null)
+        {
+            text = string.Concat(text.Where(c => _stripChars.IndexOf(c, StringComparison.Ordinal) < 0));
+            text = MultiSpace().Replace(text, " ").Trim();
+        }
+
+        return text;
+    }
 
     private static string Normalize(string text)
     {

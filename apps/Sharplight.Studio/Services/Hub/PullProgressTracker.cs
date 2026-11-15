@@ -1,4 +1,5 @@
 using Sharplight.Hub;
+using Sharplight.Package;
 using Sharplight.Runtime;
 
 namespace Sharplight.Studio.Services.Hub;
@@ -52,6 +53,19 @@ internal sealed class PullProgressTracker : IProgress<DownloadProgress>
         _stageCompleted = value.Completed;
         _stageTotal = value.Total;
         _message = LoadProgressTrackerText(value);
+        Publish();
+    }
+
+    /// <summary>Stage of the precompile step for one provider and device.</summary>
+    public void Report(PrecompileProgress value)
+    {
+        if (value.Kernels is not null)
+        {
+            return;
+        }
+
+        _phase = PullPhase.Precompiling;
+        _message = value.Device.Length == 0 ? value.Message : $"{value.Provider} {value.Device}: {value.Message}";
         Publish();
     }
 

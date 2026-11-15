@@ -2,7 +2,7 @@
 
 Status: survey written 2026-11-13 against llama.cpp `master` (src/llama-arch.cpp `LLM_ARCH_NAMES`, src/models/*.cpp graph builders, tools/mtmd/models) and the Sharplight tree as found in the working copy. Reference runtime for parity outputs: llama.cpp build b11177 (`llama-completion`).
 
-Contents: 1 summary, 2 what Sharplight supports today, 3 building blocks ranked by unlock value, 4 architecture matrix, 5 bring-up waves, 6 Qwen3.8-Next (qwen4exp) deep dive, 7 multimodal projectors, 8 test assets and llama.cpp reference outputs, 9 how the references were produced, 10 the real-checkpoint sweep (round 10), 11 bring-up round 11 (the sweep's open rows).
+Contents: 1 summary, 2 what Sharplight supports today, 3 building blocks ranked by unlock value, 4 architecture matrix, 5 bring-up waves, 6 Qwen3.8-Next (qwen4exp) deep dive, 7 multimodal projectors, 8 test assets and llama.cpp reference outputs, 9 how the references were produced, 10 the real-checkpoint sweep (round 10), 11 bring-up round 11 (the sweep's open rows), 12 text to speech, 13 speech to text.
 
 ## 1. Summary
 
@@ -472,7 +472,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `qwen3tts` | Qwen3-TTS | speech codec LM | **missing** | `TTS` | - | - |
 | `pockettts` | PocketTTS | TTS flow decoder | **missing** | `TTS` | - | - |
-| `wavtokenizer-dec` | WavTokenizer decoder | audio codec decoder | **missing** | `TTS` | - | - |
+| `wavtokenizer-dec` | WavTokenizer decoder | audio codec decoder | **supported** (as the `vocoder` of OuteTTS, see section 12) | `TTS` | `Sharplight.Import.Gguf` mapping, `WavTokenizerGraph` | `tests/Sharplight.TextToSpeech.Tests` |
 
 Notes on the matrix:
 
@@ -700,6 +700,35 @@ Tiny random checkpoints (weights random, structure real) are for graph/shape/map
 | Qwen3.8-Flash-Next | 23.1 MB | model_type `qwen4_exp`, config + tokenizer + safetensors index only (weights deliberately not downloaded: too large) |
 | Qwen3-Coder-Next | 18.3 MB | model_type `qwen3_next`, config + tokenizer + safetensors index only (weights deliberately not downloaded: too large) |
 | Qwen3.6-35B-A3B | 23.0 MB | model_type `qwen3_5_moe`, config + tokenizer + safetensors index only (weights deliberately not downloaded: too large) |
+
+### 8.3 Regenerating the test assets
+
+The tests skip a case whose model file is missing, so a fresh machine only needs the files below (no network access at test time). Use a
+Python venv (torch CPU, transformers 5.23, gguf, safetensors, sentencepiece, huggingface_hub, diffusers, onnx) and a llama.cpp checkout
+(`LLAMA_SRC`, a build of 8ca5a80 / b11177 for the llama.cpp references). `MODELS` is `~/models`.
+
+| Asset | How |
+|---|---|
+| `hf/tiny-random-*` that come from the Hub | `huggingface_hub.snapshot_download` of `hf-internal-testing/tiny-random-<Class>`, `tiny-random/<name>` (the local name is `tiny-random-<name>`), `optimum-internal-testing/` and `katuni4ka/`; `tiny-random-nemotron-h` is `optimum-intel-internal-testing/tiny-random-nemotron-h`. Repositories that ship only `pytorch_model.bin` get a safetensors file from `tools/model-assets/bin_to_safetensors.py` |
+| `hf/tiny-random-*` made here | `tests/Sharplight.Families.Tests/tools/mk_tiny_*.py` (the usage line of each script), seeds fixed; they print the transformers greedy ids that the case files hold. The tokenizer-only inputs are Hub files: `Qwen2.5-0.5B-Instruct`, `ERNIE-4.5-0.3B-PT`, `gemma-4-E2B-it`, `Qwen3.5-0.8B`, `Llama-3.2-1B-Instruct`, `DeepSeek-OCR`, `HunyuanOCR`, `google/paligemma-3b-pt-224` (gated: `HF_TOKEN`) |
+| remote-code generators (kimi_k3, k2_horizon, xing4_0, clef, vllm_decision2, cogvlm, `mk_tiny_remote_code.py` families) | run the model repository's own code: `tools/model-assets/stage_remote.py` downloads code and configs first, `tools/model-assets/run_remote_sandboxed.sh` then runs them in a venv of their own with an empty environment (no tokens) and offline flags |
+| `gguf/tiny-random-*-f32.gguf` of HF checkpoints | `tools/model-assets/convert_all.py` (llama.cpp's converter through `convert_tiny_gguf.py`; `TINY_PRE=falcon` for the Falcon file, `TINY_PRE=auto` for the real tokenizers of glm4v, hunyuan-vl and deepseek-ocr, `TINY_CONVERT_ARGS=--mtp` for the MTP draft file of nemotron-h, `--no-mtp` for its trunk) |
+| `gguf/tiny-random-*-f32.gguf` of llama.cpp-only families | `mk_tiny_gguf.py <falcon GGUF> <out dir>`; the Falcon GGUF supplies the tokenizer and **must carry the `falcon` pre-tokenizer** (otherwise every prompt tokenizes differently and the llama.cpp ids change) |
+| GGUF references | `tools/model-assets/llamacpp_ids.py <runtime dir> <gguf> <prompt> <n>` (llama-server, CPU, greedy, `return_tokens`) |
+| `sd/`, `whisper.cpp/`, `audio/jfk.wav` | `ggerganov/whisper.cpp` (`ggml-*.bin`), `stable-diffusion-v1-5/stable-diffusion-v1-5` (diffusers files, `v1-5-pruned-emaonly.safetensors`), `second-state/stable-diffusion-v1-5-GGUF`, whisper.cpp `samples/jfk.wav`; the tiny SD pipeline is `tools/make-tiny-diffusion-models.py` (wip/diffusers) |
+| `onnx/` | `bench/onnx/download_models.py`; the conformance data with `tools/gen-onnx-node-tests.py`, `gen-onnx-ml-tests.py`, `gen-onnx-contrib-tests.py` in a venv with onnx 1.23.2 and onnxruntime 1.31 |
+
+Not reproducible from public sources alone: the `-sparse` variants (their seeds, budgets and prompts are arguments of `mk_tiny_dsa_sparse.py`,
+`mk_tiny_group_sparse.py` and `mk_tiny_qwen4exp_sparse.py` that were not recorded).
+
+Converter notes. A GGUF made from a checkpoint with a real tokenizer (lfm3-hf, clef, vllm-decision2, glm4v, hunyuan-vl, deepseek-ocr) needs `TINY_PRE=auto`: with the default
+GPT-2 pre-tokenizer llama.cpp splits the prompt differently from transformers (clef: `\n\n` as two tokens) and every id differs; `convert_all.py` sets it per
+name. `convert_tiny_gguf.py` copies sub-directories (the `backbone/` of a Decision 2.0 package). The GGUF references of the minimax-m2 file come from
+llama.cpp b11177 (CPU) and those of the lfm3 files from 8ca5a80 (b11177 predates lfm3).
+
+Still missing (cannot be rebuilt from what is recorded): `kimi_k3` / `kimi-k31*` and the `-sparse` variants (seeds unknown), `gguf/tiny-random-clover-moe*.gguf`
+(the retargeting script `retarget_gguf.py` that the case comment names was never committed), and the cogvlm GGUF + mmproj (the stock converter cannot
+read the original cogvlm config).
 
 ## 9. Reproducing the references
 
@@ -997,3 +1026,160 @@ Model types still unsupported, with estimates (none is a mapping-only job):
 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16 | an nGPT (normalized) transformer with layer loops; no modeling code is published | not verifiable yet |
 | baidu/ERNIE-5.5-Flash-Base | no modeling code is published | not verifiable yet |
 | meituan-longcat/LongCat-2.5 | no modeling code is published | not verifiable yet |
+
+## 12. Text to speech (task kind `speech-synthesis`)
+
+Speech synthesizers are `.slm`-storable models of kind `speech-synthesis` run through `ISpeechSynthesizer` (docs/api-overview.md, Tasks). Acoustic models,
+codecs and vocoders are graphs of generic Core ops; the host runs only the token loop (the text-generation session and sampler) and the overlap-add.
+
+| Model | Status | Reference | Parity |
+|---|---|---|---|
+| OuteTTS 0.2 500M + WavTokenizer-Large-75 (GGUF pair) | supported, CPU and Vulkan | llama.cpp 8ca5a80 (`llama-completion`, libllama WavTokenizer graph + numpy iSTFT) | teacher-forced logits: no argmax disagreement beyond a 0.1 margin over 253 positions, worst logit delta 0.32 (CPU) / 0.52 (Vulkan) on logits up to 45 (Q8_0 activation rounding); decoder waveform relative RMS < 2e-3 on both |
+| qwen3tts, pockettts (llama.cpp archs), Kokoro, Orpheus + SNAC, CSM + Mimi, Dia | not started | - | - |
+
+OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
+`samples/Sharplight.Speak`). `OuteTtsAdapter` is a composite adapter (`ModelAdapterRegistry.RegisterComposite`): it builds the language model with the adapter of its
+architecture, adds the codec weights under `codec.` and the `codec_decode` graph, and describes the model: components `text-model`, `tokenizer`, `codec-decoder`
+(config: sample rate, FFT size, hop, vocabulary; symbol bound `T` = 4096 frames). Voices are `voices/<name>.json` attachments of the `text-model` component
+(OuteTTS speaker profiles: words with durations and codec tokens); none ship by default.
+
+New generic Core pieces: the `Conv1d` op (time-major `[T, C]`, symbolic `T`, stride / padding / dilation / groups; CPU and a generated Vulkan kernel), `Sharplight.Audio.Window`
+and `OverlapAdd` (host side of an inverse STFT; the inverse real DFT and window stay in the graph through the existing `Dft` op), the composite-adapter hook and
+`LlmModel.FromTaskModel` made public. Greedy codec chains cannot match llama.cpp token for token: runner-up logits of codec tokens are often within 1e-3 of the winner, so the
+check feeds llama.cpp's tokens to both implementations (`OuteTtsTests`). The streaming form decodes each spoken word separately (the decoder attends over all frames, so
+this differs slightly from the whole-utterance decode). OuteTTS 0.3 and a default speaker profile are not implemented; llama.cpp 8ca5a80 dropped its OuteTTS demo, so the
+reference is the pieces above rather than `llama-tts`.
+
+## 13. Speech to text (task kind `speech-recognition`)
+
+Speech-to-text models are the first non-LLM kind on the task layer (`ModelKinds.SpeechRecognition`, docs/api-overview.md "Tasks").
+They run through the same engine as everything else: the encoder and decoder are graphs of generic Core ops built by an architecture
+adapter, the model knowledge lives in the importers, and only the feature extraction and the decoding loop run on the host.
+
+| Family | Formats | Status | Verified against | Test assets |
+|---|---|---|---|---|
+| Whisper tiny, base, small (and `.en`); medium, large-v1/v2/v3 and turbo map the same way but are not verified yet | Hugging Face `whisper` checkpoints; whisper.cpp ggml `.bin` (f32, f16, q4_0/q4_1/q5_0/q5_1/q8_0, k-quants); `.slm` | **supported** (CPU and Vulkan) | transformers (log-mel, encoder output, token-exact greedy ids with and without timestamps, language detection) and whisper.cpp 5922450f CPU build (segments and texts) | hf/whisper-{tiny,tiny.en,base,small}, whisper.cpp/ggml-{tiny,tiny.en,base,base.en,small,small.en}[-q5_1].bin, audio/jfk.wav |
+| Distil-Whisper (distil-small.en, distil-large-v3.5) | Hugging Face (`whisper` model type; f16 `model.safetensors` beside an `fp32` variant) | **supported** (CPU and Vulkan; same graph, 2-layer decoders) | transformers (encoder output, token-exact greedy ids with and without timestamps, beam search) | hf/distil-small.en, hf/distil-large-v3.5 |
+| Moonshine, Parakeet (CTC / TDT), Canary, Voxtral | - | **missing** (next in the speech queue: raw-waveform conv front end, conformer encoder with CTC / transducer decoding loops, Voxtral's audio encoder in front of an LLM) | - | - |
+
+How it is built (2026-11-15):
+
+- **Model**: canonical architecture `encoder_decoder` with `encoder.input` "audio" (`EncoderDecoderAdapter`): the encode graph takes one
+  window of log-mel features [mel bins, 3000] (`InputRole.AudioFeatures`) and runs the `AudioConvStem` (two generic time-major
+  `Conv1d` ops, the op the text-to-speech codecs use, with GELU, then learned positions) and pre-norm LayerNorm layers; the decode graph has a KV cache for self-attention and caches the
+  cross-attention keys and values per window (`cross_attention.cached`: projected once on the window's first pass, E = 1500, later
+  passes carry no source rows). The adapter sets the model description (`SpeechRecognitionDescription`): components `encoder`,
+  `decoder` (row and context bound 448), `tokenizer` (the canonical `TokenizerData` JSON as the attachment `tokenizer/tokenizer.json`)
+  and `feature-extractor` (log-mel configuration, filter bank as the attachment `feature-extractor/mel-filters`).
+- **Importers**: `Sharplight.Import.HuggingFace` (`WhisperHfMapping`: filter bank computed as transformers' feature extractor does,
+  speech keys from `generation_config.json`) and the new `Sharplight.Import.WhisperCpp` (`WhisperCppImporter`: the legacy ggml
+  container, weights zero-copy from the memory map, the stored filter bank, and the vocabulary rebuilt into a byte-level BPE tokenizer
+  whose merges are recovered from the token ranks, plus Whisper's special tokens and non-speech suppression list; the rebuilt tokenizer
+  encodes exactly like the transformers tokenizer and yields the same suppress lists).
+- **Host**: `LogMelSpectrogram` (feature-extractor type `log-mel`, behind the internal `IAudioFeatureExtractor`; a graph-based
+  extractor on the generic STFT op that `wip/onnx-ops` adds can replace it) and `EncoderDecoderSpeechRecognizer`: language detection,
+  transcribe / translate, greedy, sampled or beam-search decoding with the timestamp rules (`SpeechRecognitionOptions.BeamSize`;
+  `SpeechBeamSearch` follows transformers' `num_beams` selection and length normalization, and evaluates the beams on the single KV
+  cache by rewinding it to each beam's shared prefix), no-speech detection, and long-form transcription that advances window by window
+  to the last complete timestamp segment (optionally conditioned on the previous text). Not yet: temperature fallback, word timestamps
+  (cross-attention alignment heads).
+- Hugging Face checkpoints that ship weight variants next to `model.safetensors` (`model.fp32.safetensors`, ...) load the default file
+  only, as transformers does.
+
+Parity on jfk.wav (11 s):
+
+| Check | Result |
+|---|---|
+| log-mel features vs transformers (`WhisperFeatureExtractor`) | max abs error 3.8e-6 (values up to 1.33) |
+| encoder output vs transformers, f32 checkpoints | max abs error 1.1e-5 to 1.4e-4 for values up to 10 to 28 (≤ 5e-6 relative), CPU and Vulkan |
+| greedy ids vs transformers `generate` (tiny, tiny.en, base, small; without and with timestamps) | identical, CPU and Vulkan |
+| greedy ids vs transformers, Distil-Whisper (distil-small.en, distil-large-v3.5) | identical, CPU and Vulkan; encoder within 2e-5 relative (distil-small.en's f16 weights on Vulkan: within 2e-3, f16 matrix products) |
+| 5-beam search vs transformers `generate(num_beams=5)` (tiny, tiny.en, base, small, distil-small.en; without and with timestamps) | identical ids (tiny, tiny.en and distil-small.en pick different sequences than greedy), CPU and Vulkan |
+| language detection (tiny, base) | `en`, then identical ids to transformers without a language |
+| whisper.cpp f16 files (6 models): segments with timestamps and `-nt` text | identical to whisper.cpp's CPU build, CPU and Vulkan |
+| whisper.cpp q5_1 files (6 models) | same words; 3 of 24 runs differ in one punctuation mark. ggml multiplies quantized weights with activations quantized to 8 bits, Sharplight with the dequantized weights; whisper.cpp's own CPU and CUDA builds disagree on the same commas (e.g. small.en-q5_1) |
+
+Tests: `tests/Sharplight.Speech.Tests` (`WhisperTransformersParityTests`, `WhisperCppParityTests`, `WhisperCppVocabularyTests`,
+`SpeechPackageTests`: conversion to `.slm`, loading through the DI task API with identical tokens, per-component precompilation;
+`FourierTransformTests`), fixtures from `tests/Sharplight.Speech.Tests/tools/make_whisper_fixtures.py`; the audio endpoints in
+`Sharplight.Serving.Tests` (`AudioApiTests`); the Studio inspector in `PackageInspectorTests.SpeechPackage_ShowsSpeechRecognitionComponents`.
+
+## 14. Vision models (task layer)
+
+Vision models run through the task layer (kinds `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`; see docs/api-overview.md "Tasks"). The host-side
+preprocessing is the neutral `ImageProcessorConfig` stored with the model. Reference outputs come from `tools/vision-reference.py`
+(transformers, CPU) on one sample image (`--size 640` for the fixed-canvas detectors); checkpoints live in `~/models/vision/<name>`.
+
+| Model | Importer | Kind | Status | Parity vs transformers (relative rms, CPU / Vulkan) |
+|---|---|---|---|---|
+| ViT (`google/vit-base-patch16-224`) | HF `vit` | image-classification | supported, same top-1 | 1.2e-3 / 1.2e-3 (logits) |
+| DINOv2 (`facebook/dinov2-small`, 518 px table resampled to the 224 px processor grid, LayerScale, registers) | HF `dinov2`, `dinov2_with_registers` | image-embedding | supported | 1.2e-3 / 1.2e-3 (CLS embedding) |
+| CLIP (`openai/clip-vit-base-patch32`: image tower with projection, causal text tower pooled at the end-of-text token, CLIP byte-level BPE tokenizer) | HF `clip` | image-embedding (+ text) | supported: `EmbedImageAsync`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | image 2.6e-3, text 1e-6, zero-shot logits 4.5e-4 (identical on both backends) |
+| SigLIP (`google/siglip-base-patch16-224`: attention-pooling head, bidirectional text tower padded to 64 tokens, unigram tokenizer with SigLIP's lower-casing and punctuation removal, sigmoid scoring) | HF `siglip` | image-embedding (+ text) | supported, same API | image 2.2e-3, text 1e-6, zero-shot logits 6.3e-4 |
+| DETR (`facebook/detr-resnet-50`: timm ResNet-50 with folded frozen batch norm, 6+6 layer transformer, 100 queries) | HF `detr` | object-detection | supported: same four detections, boxes within 2 px, scores within 0.02 | CPU = Vulkan (identical detections) |
+| RT-DETR (`PekingU/rtdetr_r18vd`: ResNet-D backbone, hybrid encoder with AIFI and CSP-RepVGG FPN/PAN, top-k query selection with anchors, multi-scale deformable attention through `GridSample`, box refinement) | HF `rt_detr` | object-detection | supported: same five detections | CPU = Vulkan |
+| Depth Anything V2 (`depth-anything/Depth-Anything-V2-Small-hf`: DINOv2 backbone with four tapped layers, DPT reassemble and feature-fusion neck, convolutional head; relative depth) | HF `depth_anything` | depth-estimation | supported: `IDepthEstimator.EstimateAsync` | depth map 1.5e-4 (CPU = Vulkan) |
+| SAM 2 (promptable segmentation), Mask2Former, DPT (other heads), YOLO, TrOCR, Florence-2, Real-ESRGAN, SwinIR | - | - | not started | - |
+
+The residual 1e-3 of the image towers is the resize (Pillow rounds to 8 bits per pass; the sample's pixel difference is not yet bit-exact), identical on both backends. Text towers match to float rounding.
+
+Depth Anything runs on a fixed 518 px square canvas like the detectors (the reference uses `--size 518`, `keep_aspect_ratio=False`); the map is resampled bilinearly to the input size.
+
+Detector limits: the graphs run on a fixed square canvas (640 px, `DetrHfMapping.InputSize`; RT-DETR's own processor size): every image is resized to it without keeping the aspect ratio, where the checkpoints' own processors
+resize DETR to 800/1333 px keeping the aspect ratio (a static graph cannot follow; the reference is generated with the same 640 px resize, `vision-reference.py --size 640`). Boxes are returned in pixels of the original image.
+DETR needs the timm backbone layout (`use_timm_backbone`, ResNet-18/34/50/101), RT-DETR the ResNet-D backbone with one AIFI level and box refinement; others are rejected by `Validate` with a reason.
+SigLIP's tokenizer removes all ASCII punctuation as transformers' `SiglipTokenizer` does (the fast tokenizer.json spares `/ < >`).
+
+## 15. Image generation (2026-11-15)
+
+Image generators are regular models of kind `image-generation` (see [api-overview.md](api-overview.md) "Image generation"): the
+importer `Sharplight.Import.Diffusers` translates checkpoints into the canonical `latent_diffusion` source, `LatentDiffusionAdapter`
+builds the CLIP text encoder, UNet and VAE as graphs of generic Core ops (Conv, GroupNorm, LayerNorm, Resize, batched Attention;
+no new ops were needed), and Core's latent-diffusion pipeline runs them with host-side samplers and classifier-free guidance.
+
+| family | formats | status | verified |
+|---|---|---|---|
+| Stable Diffusion 1.x (SD 1.5) | diffusers folder (with or without `model_index.json`), original single-file `.safetensors` or `.ckpt` (restricted unpickler, nothing executed), stable-diffusion.cpp GGUF (f16, Q8_0, Q4_0, any ggml type for linear weights) | **supported** (txt2img, negative prompts, img2img, mask-blend inpainting, any size that is a multiple of 64, `.slm` with per-component precompilation) | below |
+| Stable Diffusion 2.x (2.1 768-v, 2.1 base) | diffusers folder, original single-file `.safetensors` / `.ckpt` (OpenCLIP ViT-H tower; 768 files default to v-prediction at 768×768, files named like the 512 / base releases to epsilon at 512×512) | **supported** (as SD 1.x) | below |
+| SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, SD3, FLUX, Chroma, Qwen-Image, video (Wan, LTX) | - | missing | the graph contract (`DiffusionGraphs`), the description and the pipeline are kind-generic; SD3 / FLUX need a DiT and flow-matching samplers |
+| LoRA (kohya / diffusers), ControlNet, TAESD | - | missing | |
+
+Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
+
+- Tiny random SD 1.x pipeline (`~/models/sd/tiny-random-sd`, tools/make-tiny-diffusion-models.py): text encoder, UNet, VAE decode
+  and encode within 1e-4 relative RMS of transformers / diffusers on CPU and Vulkan; whole txt2img runs from the same initial
+  noise with Euler, Euler Karras, DDIM, PNDM, DPM++ 2M and DPM++ 2M Karras above 40 dB PSNR on both; the single-file checkpoint
+  is bit-identical to the diffusers folder after import; the CLIP tokenizer (rebuilt from the embedded OpenAI merges) gives
+  transformers' ids.
+- SD 1.5 (fp32 diffusers folder) on Vulkan, 512×512, 20 steps, guidance 7.5, same initial noise as diffusers (fp32, CUDA):
+  Euler 76.3 dB, Euler Karras 76.7 dB, DDIM 76.2 dB, PNDM 58.8 dB, DPM++ 2M 60.5 dB, DPM++ 2M Karras 73.8 dB PSNR; text encoder,
+  UNet and VAE decode within 2e-3 / 5e-3 / 5e-3 relative RMS. The single-file checkpoint, the original `.ckpt` and the three GGUF
+  files map to exactly the diffusers folder's canonical names and shapes; the `.ckpt` weights are byte-identical to the `.safetensors` ones.
+- stable-diffusion.cpp 5dcfa79 (CUDA and Vulkan builds), Euler, 20 steps, `--rng cpu` (torch CPU noise, the same as the
+  diffusers references): on the f16 GGUF Sharplight (Vulkan) is 48.7 dB from diffusers fp32 and 44.3 dB from sd.cpp CUDA (sd.cpp
+  CUDA 43.5 dB from diffusers, sd.cpp Vulkan 28 dB from both); on Q8_0 all implementations give visually the same image but drift
+  apart along the trajectory (Sharplight vs sd.cpp Vulkan 30.0 dB, vs CUDA 20.2 dB); the published Q4_0 file produces a degenerate
+  image in every implementation (Sharplight vs sd.cpp CUDA / Vulkan 37.8 / 41.0 dB).
+- Tiny random SD 2.x pipeline (`~/models/sd/tiny-random-sd2`, `make-tiny-diffusion-models.py --family sd2`: linear projections,
+  per-level head counts, upcast attention, GELU text encoder, v-prediction, DDIM): graphs within 1e-4 and txt2img above 40 dB for
+  all six samplers on CPU and Vulkan; its OpenCLIP single file (`.safetensors` and `.ckpt`, with an extra last block that the
+  importer drops) imports to exactly the folder's weights. Sharplight's `pndm` is diffusers' PLMS form (`skip_prk_steps`), also for
+  DDIM-configured models.
+- SD 2.1 768-v (sd2-community mirror) on Vulkan, 768×768, 20 steps, same initial noise as diffusers: fp32 folder Euler 70.2 dB,
+  DDIM 64.1 dB, DPM++ 2M Karras 51.8 dB, graphs within the SD 1.5 tolerances; with the fp16 files (computed in f16 on Vulkan) the
+  images are visually identical but 37.8 / 34.1 / 28.1 dB from diffusers' fp32-upcast run (UNet 2.2 % relative RMS on random
+  inputs). The 768-v single file maps to the diffusers folder's names, shapes and configuration.
+- Tiny random SDXL pipeline (`~/models/sd/tiny-random-sdxl`, tools/make-tiny-sdxl.py): both text encoders (penultimate layers),
+  the pooled projection, the UNet with added conditioning and the VAE within 1e-4, txt2img above 40 dB (Euler, DDIM, DPM++ 2M
+  Karras; without a negative prompt the zero unconditional row) on CPU and Vulkan. The SDXL base single file maps to the diffusers
+  folder's names, shapes and configuration. When a scheduler config omits `set_alpha_to_one`, DDIM / PNDM follow diffusers'
+  per-scheduler defaults.
+- SDXL base 1.0 on Vulkan (published fp16 files), 1024×1024, 20 steps, guidance 7.5, same initial noise as diffusers (fp16 files
+  upcast to fp32, CUDA): UNet 5.7e-5, VAE decode 1.5e-5, second text encoder 6e-4 relative RMS; Euler 42.4 dB, DPM++ 2M Karras
+  30.0 dB (visually identical; the multistep sampler drifts further). Unlike SD 2.1 (attention upcast in its config, 2.2 % UNet
+  error in f16), SDXL keeps its accuracy with f16 weights.
+- Indicative speed on the shared RTX PRO 4500 (GPU 0, other agents active, not a benchmark): Sharplight denoises at about 0.1 s per
+  step (CFG batch of 2, 512×512, f16 GGUF), sd.cpp sampled 20 steps in 17.1 s (Vulkan) and 22.8 s (CUDA) in the same session.
+  Without a precompiled `.slm` the first load spends 50–130 s compiling the UNet kernels (Slang, CPU-bound); `sharplight-convert
+  precompile` stores them in the package.

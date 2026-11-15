@@ -82,4 +82,10 @@ public enum InputRole
     /// every row of a run sees the keys of the whole run.
     /// </summary>
     SequenceRunEndRows,
+    /// <summary>
+    /// Frame-level audio features [C, F] f32 (channels by frames, e.g. the log-mel spectrogram [mel bins, frames] of one window), computed on
+    /// the host by the model's feature extractor (the <see cref="ModelComponentRoles.FeatureExtractor"/> component): the input of a speech
+    /// encoder's <see cref="WellKnown.EncodeGraph"/>.
+    /// </summary>
+    AudioFeatures,
 }

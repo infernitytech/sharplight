@@ -5,8 +5,16 @@ public sealed class DeviceOptions
 {
     /// <summary>Max bytes of device memory the runtime may use (null = most of the free memory).</summary>
     public long? MemoryBudget { get; set; }
-    /// <summary>Directory for compiled kernel caches (null = default per-user cache dir).</summary>
+    /// <summary>
+    /// Directory of the persistent compilation cache (null = the per-user default, or what <c>SHARPLIGHT_COMPILATION_CACHE</c> says; see
+    /// <see cref="FileCompilationCache"/>).
+    /// </summary>
     public string? KernelCacheDirectory { get; set; }
+    /// <summary>
+    /// Use the persistent compilation cache (compiled kernels and driver pipeline caches kept across processes). Default true; hosts
+    /// switch it off to never read or write cache files.
+    /// </summary>
+    public bool UseCompilationCache { get; set; } = true;
     /// <summary>
     /// Features (see <see cref="DeviceFeatures"/>) the device must not use, even if detected. Disabled
     /// features are not enabled in the driver at all (e.g. no extension is requested).

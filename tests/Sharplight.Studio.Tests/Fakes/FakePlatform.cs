@@ -24,7 +24,10 @@ internal sealed class FakePlatform : IPlatformServices, IUiDispatcher, IThemeSer
 
     public Task<string?> PickFolderAsync(string title) => Task.FromResult(Folder);
 
-    public Task<string?> PickSaveFileAsync(string title, string suggestedName, FileFilter filter) => Task.FromResult<string?>(null);
+    /// <summary>What the save dialog returns (null = cancelled).</summary>
+    public string? SaveTo { get; set; }
+
+    public Task<string?> PickSaveFileAsync(string title, string suggestedName, FileFilter filter) => Task.FromResult(SaveTo);
 
     public Task CopyTextAsync(string text)
     {

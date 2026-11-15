@@ -109,42 +109,52 @@
             </ComboBox.ItemTemplate>
           </ComboBox>
         </StackPanel>
-        <StackPanel>
-          <TextBlock Classes="label" Text="Context length (tokens per sequence)" />
-          <NumericUpDown Value="{Binding ContextLength}" Minimum="256" Maximum="1048576" Increment="1024" FormatString="0" />
-          <TextBlock Classes="caption" Text="{Binding ContextHint}" Margin="0,3,0,0" />
-        </StackPanel>
-        <Grid ColumnDefinitions="*,10,*">
+        <StackPanel Spacing="12" IsVisible="{Binding IsLanguageModel}">
           <StackPanel>
-            <TextBlock Classes="label" Text="Parallel slots" />
-            <NumericUpDown Value="{Binding Slots}" Minimum="1" Maximum="64" Increment="1" FormatString="0" />
+            <TextBlock Classes="label" Text="Context length (tokens per sequence)" />
+            <NumericUpDown Value="{Binding ContextLength}" Minimum="256" Maximum="1048576" Increment="1024" FormatString="0" />
+            <TextBlock Classes="caption" Text="{Binding ContextHint}" Margin="0,3,0,0" />
           </StackPanel>
-          <StackPanel Grid.Column="2">
-            <TextBlock Classes="label" Text="Batch (prompt chunk)" />
-            <NumericUpDown Value="{Binding BatchTokens}" Minimum="16" Maximum="8192" Increment="128" FormatString="0" />
-          </StackPanel>
-        </Grid>
-        <StackPanel>
-          <TextBlock Classes="label" Text="KV cache" />
-          <ComboBox ItemsSource="{Binding KvCacheChoices}" SelectedItem="{Binding KvCache}" HorizontalAlignment="Stretch">
-            <ComboBox.ItemTemplate>
-              <DataTemplate x:DataType="mvm:KvCacheChoice">
-                <TextBlock Text="{Binding Name}" />
-              </DataTemplate>
-            </ComboBox.ItemTemplate>
-          </ComboBox>
-        </StackPanel>
-        <Grid ColumnDefinitions="*,10,*">
+          <Grid ColumnDefinitions="*,10,*">
+            <StackPanel>
+              <TextBlock Classes="label" Text="Parallel slots" />
+              <NumericUpDown Value="{Binding Slots}" Minimum="1" Maximum="64" Increment="1" FormatString="0" />
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+              <TextBlock Classes="label" Text="Batch (prompt chunk)" />
+              <NumericUpDown Value="{Binding BatchTokens}" Minimum="16" Maximum="8192" Increment="128" FormatString="0" />
+            </StackPanel>
+          </Grid>
           <StackPanel>
-            <TextBlock Classes="label" Text="Lookup draft tokens" />
-            <NumericUpDown Value="{Binding NgramDraftTokens}" Minimum="0" Maximum="16" Increment="1" FormatString="0" ToolTip.Tip="Drafts tokens by finding them in the conversation, faster for edits and quotes; 0 = off" />
+            <TextBlock Classes="label" Text="KV cache" />
+            <ComboBox ItemsSource="{Binding KvCacheChoices}" SelectedItem="{Binding KvCache}" HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="mvm:KvCacheChoice">
+                  <TextBlock Text="{Binding Name}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
           </StackPanel>
-          <StackPanel Grid.Column="2">
-            <TextBlock Classes="label" Text="Draft head tokens" />
-            <NumericUpDown Value="{Binding MtpDraftTokens}" Minimum="0" Maximum="8" Increment="1" FormatString="0" ToolTip.Tip="Drafts several tokens at once with the model's own prediction head (models that have one); 0 = off" />
-          </StackPanel>
-        </Grid>
-        <ToggleSwitch Content="Offload to the CPU when it does not fit" IsChecked="{Binding CpuOffload}" IsEnabled="{Binding CanOffload}" />
+          <Grid ColumnDefinitions="*,10,*">
+            <StackPanel>
+              <TextBlock Classes="label" Text="Lookup draft tokens" />
+              <NumericUpDown Value="{Binding NgramDraftTokens}" Minimum="0" Maximum="16" Increment="1" FormatString="0" ToolTip.Tip="Drafts tokens by finding them in the conversation, faster for edits and quotes; 0 = off" />
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+              <TextBlock Classes="label" Text="Draft head tokens" />
+              <NumericUpDown Value="{Binding MtpDraftTokens}" Minimum="0" Maximum="8" Increment="1" FormatString="0" ToolTip.Tip="Drafts several tokens at once with the model's own prediction head (models that have one); 0 = off" />
+            </StackPanel>
+          </Grid>
+          <ToggleSwitch Content="Offload to the CPU when it does not fit" IsChecked="{Binding CpuOffload}" IsEnabled="{Binding CanOffload}" />
+        </StackPanel>
+        <StackPanel Spacing="4" IsVisible="{Binding NeedsVocoder}">
+          <TextBlock Classes="label" Text="Vocoder (codec decoder file)" />
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Classes="small" Content="Browse" Command="{Binding BrowseVocoderCommand}" Margin="8,0,0,0" />
+            <TextBox Text="{Binding VocoderPath}" PlaceholderText="WavTokenizer .gguf" />
+          </DockPanel>
+          <TextBlock Classes="caption" TextWrapping="Wrap" Text="This speech model is a language model that writes audio codes; the vocoder turns them into sound. A .slm package made with the vocoder needs none." />
+        </StackPanel>
         <StackPanel Spacing="2">
           <ToggleSwitch Content="Reduced precision (opt-in)" IsChecked="{Binding AllowReducedPrecision}" />
           <TextBlock Classes="caption" TextWrapping="Wrap"

@@ -1,6 +1,7 @@
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Documents;
+using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Platform;
 using Sharplight.Studio.Services.Storage;
 using Sharplight.Studio.Tests.Fakes;
@@ -19,7 +20,7 @@ internal sealed class TestServices : IDisposable
         Conversations = new SqliteConversationStore(database);
         Stats = new SqliteStatsStore(database);
         Services = new StudioServices(Settings, Runtime, Hub, Library, Conversations, Stats, Server, new DocumentExtractor(), Platform,
-            Platform, dispatcher ?? Platform, Platform, Updates);
+            Platform, dispatcher ?? Platform, Platform, Updates, Precompiler, new FilePageStorage(_dir.File("pages")), Audio, Audio);
     }
 
     public FakeSettings Settings { get; }
@@ -35,6 +36,10 @@ internal sealed class TestServices : IDisposable
     public FakePlatform Platform { get; } = new();
 
     public FakeUpdates Updates { get; } = new();
+
+    public FakePrecompiler Precompiler { get; } = new();
+
+    public FakeAudio Audio { get; } = new();
 
     public SqliteConversationStore Conversations { get; }
 

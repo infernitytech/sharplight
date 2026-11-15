@@ -56,6 +56,14 @@ TOKENIZER_FILES = ["tokenizer.json", "tokenizer_config.json", "special_tokens_ma
 
 
 def fetch(repo, name, target):
+    stage = os.environ.get("TINY_SOURCE_DIR")   # offline: <stage>/<family>/<file> staged beforehand (tools/stage_remote.py)
+    if stage:
+        source = os.path.join(stage, os.environ["TINY_FAMILY"], name)
+        if not os.path.isfile(source):
+            return False
+        import shutil
+        shutil.copy(source, target)
+        return True
     url = f"https://huggingface.co/{repo}/resolve/main/{name}"
     token_file = os.path.expanduser("~/.cache/huggingface/token")
     headers = {"Authorization": "Bearer " + open(token_file).read().strip()} if os.path.exists(token_file) else {}
@@ -69,12 +77,17 @@ def fetch(repo, name, target):
 
 
 def code_files(repo):
+    stage = os.environ.get("TINY_SOURCE_DIR")
+    if stage:
+        folder = os.path.join(stage, os.environ["TINY_FAMILY"])
+        return [n for n in os.listdir(folder) if n.endswith(".py")]
     info = json.loads(urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}").read())
     return [s["rfilename"] for s in info["siblings"] if s["rfilename"].endswith(".py") and "/" not in s["rfilename"]]
 
 
 def main():
     family, out = sys.argv[1], sys.argv[2]
+    os.environ["TINY_FAMILY"] = family
     repo, overrides = FAMILIES[family]
     overrides = dict(overrides)
     weight_std = float(os.environ.get("TINY_WEIGHT_STD", overrides.pop("_weight_std", 0.15)))   # std of the non-norm, non-embedding weights

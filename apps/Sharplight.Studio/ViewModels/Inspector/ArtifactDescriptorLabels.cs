@@ -21,6 +21,9 @@ internal static class ArtifactDescriptorLabels
         ArtifactDescriptorKeys.Device => "Device id",
         ArtifactDescriptorKeys.CacheId => "Cache id",
         ArtifactDescriptorKeys.Driver => "Driver version",
+        ArtifactDescriptorKeys.DeviceName => "Device",
+        ArtifactDescriptorKeys.KernelAbi => "Kernel ABI",
+        ArtifactDescriptorKeys.BinaryKey => "Binary key",
         _ => key,
     };
 

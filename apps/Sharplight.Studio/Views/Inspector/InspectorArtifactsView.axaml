@@ -8,12 +8,26 @@
       <StackPanel Spacing="10" HorizontalAlignment="Center">
         <Path Classes="icon huge" Data="{StaticResource IconChip}" HorizontalAlignment="Center" />
         <TextBlock Classes="h2" Text="No precompiled artifacts" HorizontalAlignment="Center" />
-        <TextBlock Classes="muted" Text="Kernels are compiled when the model is loaded. Precompiling stores them in the package." HorizontalAlignment="Center" />
+        <TextBlock Classes="muted" Text="Kernels are compiled when the model is loaded. Precompile it from the library to store portable and device code in the package." HorizontalAlignment="Center" />
       </StackPanel>
     </Border>
 
     <Grid ColumnDefinitions="330,16,*" RowDefinitions="Auto,*" IsVisible="{Binding !IsEmpty}">
-      <TextBlock Grid.ColumnSpan="3" Classes="muted" Text="{Binding Summary}" Margin="0,0,0,10" TextWrapping="Wrap" />
+      <StackPanel Grid.ColumnSpan="3" Spacing="6" Margin="0,0,0,10">
+        <TextBlock Classes="muted" Text="{Binding Summary}" TextWrapping="Wrap" />
+        <ItemsControl ItemsSource="{Binding Stages}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="ivm:ArtifactStageRow">
+              <Grid ColumnDefinitions="90,120,*,240" Margin="0,1">
+                <TextBlock Classes="caption" Text="{Binding Provider}" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="1" Classes="caption" Text="{Binding Stage}" />
+                <TextBlock Grid.Column="2" Classes="caption" Text="{Binding Target}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Target}" Margin="0,0,10,0" />
+                <TextBlock Grid.Column="3" Classes="caption" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
       <ListBox Grid.Row="1" Classes="plain" ItemsSource="{Binding Sets}" SelectedItem="{Binding SelectedSet}">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="ivm:ArtifactSetViewModel">

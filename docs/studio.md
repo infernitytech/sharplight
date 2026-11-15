@@ -37,13 +37,12 @@ different models run at the same time. Images and documents can be attached by d
 
 **Tasks.** One card per model kind (text generation, speech to text, text to speech, image generation, video generation, image
 classification, object detection, segmentation, depth estimation, OCR, upscaling, audio, embeddings, time series, 3D, bio,
-robotics) with the number of library and resident models of that kind. The engine runs text generation (the chat page) and
-embeddings today; the other kinds say *Not yet supported* and their buttons still lead to the library filtered to that kind and to
-Discover filtered to that model type. The page is the placeholder for the per-kind inference pages: when the engine gains a kind,
-its card opens its own page, built from the shared pieces (the model picker, `ModelPickerViewModel`, which the chat page uses
-too; parameter panel, presets, run queue, history, outputs gallery and export follow with the first such page).
+robotics) with the number of library and resident models of that kind. The engine runs text generation (the chat page), speech to
+text (Transcribe), text to speech (Speak) and embeddings today. The cards of the first three open their page; the other kinds say
+*Not yet supported* and their buttons lead to the library filtered to that kind and to Discover filtered to that model type. When
+the engine gains a kind, its card opens a page of its own, built from the shared pieces described under *Inference pages* below.
 
-![Tasks](images/studio/studio-tasks.png)
+![Tasks](images/studio/studio-tasks-runnable.png)
 
 **Models.**
 
@@ -164,8 +163,16 @@ too; parameter panel, presets, run queue, history, outputs gallery and export fo
   are guessed from the file type (GGUF files and checkpoint folders are language models) and the badge's tooltip says so; a download
   that is not converted yet shows the kind inferred from the Hub's pipeline tag. The kind filter above the list (shown once the
   library holds more than one kind) lists the kinds present with their counts. A kind the engine cannot run yet is badged *Not yet
-  supported* and its *Load* button is disabled. Loading, unloading and residency are the same mechanism for every kind. *Load* opens
-  the load options:
+  supported* and its *Load* button is disabled. Loading, unloading and residency are the same mechanism for every kind.
+  *Precompile* (per `.slm` model, also in the context menu) compiles the model for every execution provider and device available
+  on this machine through the providers' two-stage contract (portable code such as SPIR-V, then the driver's device code; identical
+  GPUs on the same driver share one set; the CPU has nothing to precompile and says so) with the default load settings, and writes
+  the result into the package in place (crash-safe append; a failure or cancellation leaves the file unchanged). It is disabled,
+  with the reason in its tooltip, while the model is resident (the package is in use), and a model being precompiled cannot be
+  loaded meanwhile (also not on demand by API clients). The card shows progress per provider and device (kernel counts for the
+  portable stage) and then a summary with sizes, sharing and skipped providers; the entry's size and *Precompiled* badge, and an
+  open inspector of the package, are read again afterwards. *Load* opens the load options:
+
   - device;
   - context length;
   - parallel slots;
@@ -204,8 +211,9 @@ too; parameter panel, presets, run queue, history, outputs gallery and export fo
     (type, shape, producer or weight), its outputs and its consumers. The **IR** view is the `--dump-graph` text with search,
     go-to-producer and consumers. The **nodes** view is a filterable table (`op:` filters by op). All three share the selection.
   - *Weights*: name, type, shape, bits per element, size and offset, sortable and filterable, with totals per type.
-  - *Artifacts*: every precompiled set (code and binary tiers per provider) with the profile it was built for (code target,
-    features, limits, device and driver identity), its entries (key, content hash, size, offset) and where it sits in the file.
+  - *Artifacts*: the precompilation stages per provider (portable code per device profile, device code per device and driver),
+    and every precompiled set with what it was built for (code target, features, limits, device name and identity, driver, kernel
+    ABI), its entries (key, content hash, size, offset) and where it sits in the file.
   - *Metadata*: the definition's properties and metadata, filterable, with the full value of the selected entry.
   - *Sections*: the whole file in offset order (header, every section, the section table and unused gaps). Sections of a kind
     this version does not know are listed raw with their size and offset; the other sections still open.
@@ -251,7 +259,12 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
   store in use and why (for example "Default: application folder", or "Default: user folder, the application folder is not
   writable" for a read-only install), and *Open folder* opens it. `--models-dir` and `SHARPLIGHT_MODELS` take precedence.
 - Hugging Face token (falls back to `HF_TOKEN`).
-- Precompile after download, and whether to keep the source files.
+- Precompile after download (for every GPU and execution provider on this machine, as the library's *Precompile* does), and
+  whether to keep the source files.
+- Compilation cache: keep compiled kernels and the driver pipeline cache in the per-user artifact store, so models that are not
+  precompiled (GGUF, Hugging Face, ONNX) load fast from the second time on. It holds the same artifact sets as a precompiled `.slm`
+  and is consulted after the package's own sets. On by default; off reads and writes no store files. See
+  [model-format.md](model-format.md#the-per-user-artifact-store).
 - Load defaults.
 - Residency:
   - memory kept free per device;
@@ -266,6 +279,59 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
   differ slightly.
 
 ![Settings](images/studio/studio-settings.png)
+
+## Inference pages
+
+Every model kind gets a page built from the same blocks, so they look and behave alike: the **frame** (`InferenceFrame`) has the
+model picker on top, the page's own workspace in the middle, the run queue below it and a side panel with three tabs:
+*Parameters*, *History* and *Outputs*. A page is a view model derived from `InferencePageViewModel` (the chat is the one page that
+predates the frame and keeps its conversation list; it uses the same `ModelPickerViewModel` and residency). The blocks live in
+`ViewModels/Inference` and `Views/Inference`:
+
+| Block | What it does |
+|---|---|
+| Model picker (`ModelPickerViewModel`) | The resident models of the page's kind; follows loads and unloads and keeps the choice while the model stays resident. No model: a hint with *Library* and *Find a model*. |
+| Parameter panel (`ParameterPanelViewModel<TOptions>`) | One control per field of the task's options type (choice, slider, switch, text), `Options` maps the values to the type (for example `SpeechRecognitionOptions`), and a page can hide parameters the chosen model does not use. Presets: built-in ones ship with the page, *Save* stores the values under a name; presets and the values of the last run are JSON (`presets.json` in the page's directory) and come back when the page opens. |
+| Run queue (`RunQueueViewModel`) | Runs one after the other per model (a second run on the same model waits, runs on different models overlap), with progress, status and a cancel button for queued and running runs. Finished runs stay listed until cleared. |
+| History (`RunHistoryViewModel`) | Every completed or failed run of the page (up to 200), newest first, kept in `history.json`; *Show again* restores the result and the parameters, delete asks twice. Cancelled runs are not kept. |
+| Outputs gallery (`OutputGalleryViewModel`) | The completed runs with their files (`outputs/<run>/`), metadata chips (language, audio length, speed, voice), and *Open*, *Export* (a save dialog) and *Delete* for every item. |
+| Export (`Exporter`) | The save dialog and the write, shared by the page's own export buttons and the gallery. |
+
+Pages keep their data under the data directory of the app (`pages/<page>/`, see *Where things are kept*). Loading a speech model
+goes through the load panel of the library, like any other model: the runtime registers it on the same `ModelHost` as the chat
+models (kind `Task`), so it counts against the memory budget, is evicted and unloaded when idle like the others, reloads on demand
+and shows in the *Resident* list, whose button opens the page of the model's kind. A page asks the model for its task client
+(`ILoadedModel.AcquireClientAsync<TClient>`), which holds a lease while the run lasts.
+
+**Transcribe** (speech to text, `ISpeechRecognizer`). The input is a WAV file (choose, or drop it on the page) or a recording from
+the microphone. Other audio formats are refused with a note: the engine's audio I/O reads WAV only (convert with
+`ffmpeg -i in.mp3 out.wav`). The options are the language (or detection), transcribe or translate to English, timestamps (segments
+or none), beam size, conditioning on the previous text and an initial prompt; presets *Fast*, *Accurate* and *Long recording*. The
+segments appear with their times while the model decodes (the streaming call reports progress by the end of the last segment), and
+the transcript can be copied or exported as `.txt`, `.srt` or `.vtt`. Every run keeps `transcript.txt`, `.srt`, `.vtt` and
+`transcript.json` in its outputs. Whisper (Hugging Face, whisper.cpp `.bin`, `.slm`) and Distil-Whisper models work.
+
+![Transcribe](images/studio/studio-transcribe.png)
+
+**Speak** (text to speech, `ISpeechSynthesizer`). Type the text, optionally choose a voice (the choice appears when the model offers
+voices), the speed and the sampling (temperature, top-k, top-p, repetition penalty, seed; presets *Natural*, *Deterministic* and
+*Expressive*). The result plays in the app, can be saved as WAV or opened in the system's audio program, and is kept as
+`speech.wav`. *Play while generating* uses the streaming call and plays each segment as it arrives (the segments are decoded one by
+one, so the sound differs slightly from a whole-text pass). OuteTTS is a language model plus the WavTokenizer decoder: when you load
+an OuteTTS GGUF, the load panel asks for the vocoder file (a `.slm` package made with the vocoder needs none).
+
+![Speak](images/studio/studio-speak.png)
+
+The side panel's *History* and *Outputs* tabs:
+
+![Transcribe history](images/studio/studio-transcribe-history.png) ![Transcribe outputs](images/studio/studio-transcribe-outputs.png)
+
+**Microphone and playback.** Avalonia has no audio API, and Studio ships no native audio library. It uses the programs the system
+has: playback through `afplay` (macOS), PowerShell's `SoundPlayer` (Windows), or `pw-play`, `paplay`, `aplay` or `ffplay` (Linux);
+recording through `parecord`, `pw-record` or `arecord` (Linux) or `ffmpeg` (macOS; Windows with `SHARPLIGHT_STUDIO_MIC` naming the
+DirectShow device). Without such a program the page says what to install: recording is disabled (audio files still work) and the
+speech result is saved and opened with the system player instead of played in the app. Playback and recording were tested through
+fakes and not on an audio device (this machine has none).
 
 ## Installing and updating
 
@@ -311,6 +377,7 @@ own `releases.<channel>.json` feed.
 | Settings (`settings.json`), including the download queue | `sharplight/studio` under the roaming application data directory (`~/.config` on Linux) |
 | Conversations and statistics (`studio.db`), Discover's highlights (`discover-highlights.json`) | `sharplight/studio` under the local application data directory (`~/.local/share` on Linux) |
 | Models | The model store: `data` next to the app by default, else the folder chosen in the settings (see above); converted local models go to `converted/` in it by default |
+| Inference pages: parameter presets, run history and output files (`pages/<page>/`) | `sharplight/studio/pages` under the local application data directory |
 | Compiled kernels | `sharplight/kernels` under the local application data directory (`~/.local/share` on Linux), shared by every tool |
 
 When the model store in effect is empty while the user folder (the default of earlier versions) has models, Studio offers once to
@@ -331,6 +398,7 @@ keep using the user folder or to move or copy the models into the new store.
   - `IDocumentExtractor`
   - `ISystemMonitor`
   - `IPlatformServices`
+  - `IPageStorage` (per-page presets, history and output files), `IAudioPlayer` and `IAudioRecorder` (the system's audio programs)
   - `IUpdateService` (the Velopack wrapper, registered through `Microsoft.Extensions.DependencyInjection`)
 
   Tests run every view model against fakes of these services.
@@ -361,11 +429,15 @@ keep using the user folder or to move or copy the models into the new store.
   restart (against a fake update service), the feed URL precedence, and a headless render of the dialog;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
 - the server page;
+- the shared inference blocks (presets saved as JSON and restored, the run queue's one-run-per-model order and cancellation, history and
+  gallery persistence with open, export and delete) and the Transcribe and Speak pages over fake task clients (streamed segments, `.txt` /
+  `.srt` / `.vtt` export, cancel and failure, microphone, voices, streaming playback, no-player fallback);
 - a headless render of every page that fails on binding errors;
 - the package inspector: every tab of a small package, a view for every section kind the format defines, unknown sections
   listed raw, the linked graph, IR and node selection, the graph layout, and a 100,000-node graph that stays virtualized.
 
-`RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
+`SpeechRealModelTests` loads `ggml-tiny.en.bin` (transcribes `jfk.wav` on the Transcribe page) and OuteTTS with its WavTokenizer
+vocoder (speaks on the Speak page) through the real runtime, when the files are on disk. `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
 calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here. With
 `SHARPLIGHT_INSPECTOR_PACKAGES` (a list of `.slm` paths, separated like `PATH`), the inspector renders every tab of those
 packages in both themes.
@@ -383,6 +455,9 @@ packages in both themes.
   tensor data shows. Quantizations other than the recommended one share the architecture's verdict until they are selected and
   their tensor tables are read. A tensor table beyond 64 MiB from the start of a file is not read (the verdict is *Unknown*). ONNX
   operators are not checked before import.
+- **Audio formats and devices.** The Transcribe page reads WAV only (the engine has no other decoder yet), and microphone and playback
+  depend on programs of the system (see *Microphone and playback*). Speech runs are not counted in the statistics page, and the
+  embedded API server does not serve the speech models yet.
 - **Title bar.** Studio's own title bar is used on Linux only, where the window manager moves and resizes windows on request.
 - **GPU utilisation.** The "Engine busy" chart is the share of time the engines spend stepping, not GPU utilisation read from the
   driver.

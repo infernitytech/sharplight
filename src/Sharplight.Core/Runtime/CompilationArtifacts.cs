@@ -2,8 +2,10 @@ namespace Sharplight.Runtime;
 
 /// <summary>
 /// The precompiled artifacts of one model across devices: gives each device a cache (<see cref="For"/>, to use as
-/// <see cref="CompileOptions.CacheFor"/>) that is seeded from the matching stored sets and records everything compilation uses,
-/// split by tier, so the sets can be exported (<see cref="Export"/>) and stored with the model. Thread-safe.
+/// <see cref="CompileOptions.CacheFor"/>) that is seeded from the matching stored sets (device code of its device and driver,
+/// portable code of its profile) and records the portable code compilation uses, so it can be exported (<see cref="Export"/>,
+/// <see cref="PortableCodeFor"/>), compiled into device code (<see cref="CompileDeviceCodeAsync"/>) and stored with the model.
+/// Thread-safe.
 /// </summary>
 /// <param name="stored">Artifact sets stored with the model, or <see langword="null"/>.</param>
 public sealed class CompilationArtifacts(ICompilationCacheStore? stored = null)
@@ -57,24 +59,81 @@ public sealed class CompilationArtifacts(ICompilationCacheStore? stored = null)
     }
 
     /// <summary>
-    /// The non-empty artifact sets recorded so far, after adding device-level state (driver pipeline caches,
-    /// <see cref="IComputeDevice.ExportCompilationState"/>) of every device that compiled with them.
+    /// The non-empty artifact sets recorded so far: the portable code (<see cref="ArtifactTiers.Code"/>) every device generated or
+    /// read while compiling. Driver binaries are not recorded while compiling; produce them with <see cref="CompileDeviceCodeAsync"/>
+    /// (the device-specific stage of each device's provider).
     /// </summary>
     /// <param name="tiers">Only sets of these tiers (<see cref="ArtifactTiers"/>), or <see langword="null"/> for all.</param>
     public IReadOnlyList<CompilationCache> Export(IReadOnlySet<string>? tiers = null)
     {
         lock (_lock)
         {
-            foreach (var (device, cache) in _devices)
-            {
-                if (cache is not null)
-                {
-                    device.ExportCompilationState(cache);
-                }
-            }
-
             return [.. _order.Where(s => s.Entries.Count > 0 && (tiers is null || tiers.Contains(ArtifactDescriptor.Get(s.Descriptor, ArtifactDescriptorKeys.Tier))))];
         }
+    }
+
+    /// <summary>
+    /// The portable code <paramref name="device"/> compiled with so far (its <see cref="ArtifactTiers.Code"/> set, shared with every device
+    /// of the same profile); empty when the device produces no portable code or compiled nothing with these artifacts.
+    /// </summary>
+    /// <param name="device">A device that compiled with <see cref="For"/>.</param>
+    public PortableCodeSet PortableCodeFor(IComputeDevice device)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        lock (_lock)
+        {
+            var code = device.ArtifactTargets.FirstOrDefault(t => t.Tier == ArtifactTiers.Code);
+            if (!_devices.ContainsKey(device) || code is null || !_sets.TryGetValue(code.Id, out var set))
+            {
+                return PortableCodeSet.Empty(device.Info.Provider);
+            }
+
+            return PortableCodeSet.FromArtifactSet(set);
+        }
+    }
+
+    /// <summary>
+    /// Runs the device-specific stage (<see cref="IExecutionProvider.CompileDeviceSpecificAsync"/>) for every device that compiled with
+    /// these artifacts, on the portable code it used, through the provider among <paramref name="providers"/> it belongs to. Devices
+    /// that would produce the same set (identical GPUs on the same driver) are compiled once.
+    /// </summary>
+    /// <param name="providers">The providers of the devices; devices of other providers are skipped.</param>
+    /// <param name="cancellationToken">Cancels between kernels.</param>
+    /// <returns>The non-empty device code sets.</returns>
+    public async Task<IReadOnlyList<DeviceCodeSet>> CompileDeviceCodeAsync(IEnumerable<IExecutionProvider> providers, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(providers);
+        var byName = providers.GroupBy(p => p.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        IComputeDevice[] devices;
+        lock (_lock)
+        {
+            devices = [.. _devices.Where(d => d.Value is not null).Select(d => d.Key)];
+        }
+
+        var produced = new Dictionary<string, DeviceCodeSet>(StringComparer.Ordinal);
+        foreach (var device in devices)
+        {
+            var identity = DeviceCodeIdentity(device);
+            if (!byName.TryGetValue(device.Info.Provider, out var provider) || identity.Length == 0 || produced.ContainsKey(identity))
+            {
+                continue;
+            }
+
+            produced[identity] = await provider.CompileDeviceSpecificAsync(device, PortableCodeFor(device), cancellationToken).ConfigureAwait(false);
+        }
+
+        return [.. produced.Values.Where(s => !s.IsEmpty)];
+    }
+
+    /// <summary>
+    /// What decides whether two devices produce interchangeable device code: the ids of their <see cref="ArtifactTiers.Binary"/> targets
+    /// (device model, driver build, kernel ABI). Empty when the device produces no device code.
+    /// </summary>
+    /// <param name="device">An opened device.</param>
+    public static string DeviceCodeIdentity(IComputeDevice device)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        return string.Join("+", device.ArtifactTargets.Where(t => t.Tier == ArtifactTiers.Binary).Select(t => t.Id).Order(StringComparer.Ordinal));
     }
 
     /// <summary>
@@ -94,8 +153,12 @@ public sealed class CompilationArtifacts(ICompilationCacheStore? stored = null)
     {
         if (!_sets.TryGetValue(target.Id, out var set))
         {
+            // Lookup order: the model's own sets, then the device's artifact store, then compile (recorded into both). Only portable
+            // code goes through the store here: device code in the store (driver state such as a pipeline cache covering every model
+            // used on the device) is consulted by the device itself and never recorded into, or exported with, a model's sets.
             var fallbacks = stored is null ? [] : Matching(stored, device, target).Select(s => s.Entries);
-            set = new CompilationCache(target.Descriptor, fallbacks);
+            var shared = target.Tier == ArtifactTiers.Code ? device.ArtifactStore?.SetFor(target).Entries : null;
+            set = new CompilationCache(target.Descriptor, fallbacks, shared);
             _sets[target.Id] = set;
             _order.Add(set);
         }

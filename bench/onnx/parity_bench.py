@@ -6,7 +6,7 @@ usage:
 
 Engines: sl-cpu, ort-cpu, sl-vulkan, sl-vulkan-rp (AllowReducedPrecision), sl-vulkan-fast (MatrixPrecision.Fast: one f16 product of
 row-scaled inputs per multiply-add, TF32's accuracy class), sl-vulkan-simt (strict with SplitHalfMatMul off: f32
-SIMT GEMMs instead of the split-f16 tensor-core GEMM), ort-cuda (TF32 allowed, the EP default), ort-cuda-strict (use_tf32=0). Every measurement is its own process. The engines of one model run back to back and the
+SIMT GEMMs instead of the split-f16 tensor-core GEMM), ort-cuda (TF32 allowed, the EP default), ort-cuda-strict (use_tf32=0), ort-trt (TensorRT EP, f32 engines with TF32 tactics; needs the TensorRT libraries). Every measurement is its own process. The engines of one model run back to back and the
 rounds repeat the whole set, so A/B pairs are interleaved in time; the table reports the minimum over the rounds of each
 process's min-of-N and the median over the rounds of its median.
 
@@ -45,7 +45,7 @@ MODELS = {
     "fasterrcnn-12 (counts)": ("survey/fasterrcnn-12.json", [1]),
     "maskrcnn-12 (counts)": ("survey/maskrcnn-12.json", [1]),
 }
-ENGINES = ["sl-cpu", "ort-cpu", "sl-vulkan", "sl-vulkan-rp", "sl-vulkan-fast", "sl-vulkan-simt", "ort-cuda", "ort-cuda-strict"]
+ENGINES = ["sl-cpu", "ort-cpu", "sl-vulkan", "sl-vulkan-rp", "sl-vulkan-fast", "sl-vulkan-simt", "ort-cuda", "ort-cuda-strict", "ort-trt"]
 CPU_ENGINES = {"sl-cpu", "ort-cpu"}
 
 

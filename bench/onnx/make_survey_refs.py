@@ -4,6 +4,10 @@ usage: make_survey_refs.py [name ...]    (default: every model file under ~/mode
 Writes ~/models/onnx/ref/survey/<name>.json + <name>.b<B>.in<k>.bin / .out<k>.bin (float32; integer/bool tensors stored as float32 values).
 Shapes of dynamic inputs come from heuristics (batch = dim 0 -> -1; sequence 16 (4 with KV cache), past 8, images 224) plus OVERRIDES.
 Source: ONNX Runtime CPU (falls back to the CUDA EP when the CPU EP lacks a kernel, e.g. fp16 MatMulNBits; recorded in "refProvider").
+Models with u8weights=True take their reference from a copy whose int8 QLinearConv weights are stored as uint8 (w + 128, zero point
++ 128: the same values by the ONNX spec). On x86 CPUs without VNNI, onnxruntime's u8s8 kernels sum adjacent u8 x s8 products with
+int16 saturation (VPMADDUBSW): on ssd-12-int8 0.5 % of the first QLinearConv's outputs differ from the spec by up to 5 LSB, which
+changes the detections. The u8u8 kernels widen to 16 bits first and are exact; on VNNI hosts both forms give the spec result.
 Models with f32ref=True in OVERRIDES take their reference from an f32 copy of the fp16 graph (fp16 initializers, casts and
 value types widened; quantized weights unchanged), run on the CPU EP. onnxruntime's fp16 CPU kernels round every
 intermediate to fp16, so over a deep decoder their outputs drift from the f32 result by more than the tolerance (phi-3.5:
@@ -33,7 +37,7 @@ def smooth_image(rs, shape, lo=0.0, hi=1.0):
 # model name -> dict(file=<path relative to ROOT/name>, shapes={input: shape}, gen={input|'*': spec}, pin=[inputs], rms=, rtol=, sym={dim name: value})
 # spec: "img" "imgnorm" "img255" "imgpm1" ("randn", s) ("ints", lo, hi) ("const", v) ("vals", [..])
 OVERRIDES = {
-  "ssd-10": dict(gen={"*": "img255norm"}), "ssd-12-int8": dict(gen={"*": "img255norm"}),
+  "ssd-10": dict(gen={"*": "img255norm"}),
   "retinanet-9": dict(gen={"*": "imgnorm"}), "fasterrcnn-12": dict(gen={"*": "img255"}), "maskrcnn-12": dict(gen={"*": "img255"}),
   "mnist-1": dict(gen={"*": "img"}), "emotion-ferplus-8": dict(gen={"*": "img255"}), "super-resolution-10": dict(gen={"*": "img"}),
   "candy-9": dict(gen={"*": "img255"}), "tinyyolov2-8": dict(gen={"*": "img255"}),
@@ -50,6 +54,7 @@ OVERRIDES = {
   "dpt-hybrid-midas": dict(shapes={"pixel_values": [-1, 3, 384, 384]}),
   "grounding-dino-tiny": dict(sym={"L": 6}, gen={"input_ids": ("vals", [[101, 4937, 1012, 4937, 1012, 102]]), "pixel_values": "imgnorm"}),
   "phi35-mini-q4f16": dict(sym={"L": 1, "past": 8}, f32ref=True),
+  "ssd-12-int8": dict(gen={"*": "img255norm"}, u8weights=True),
   "zipformer-encoder": dict(sym={"N": 1}),
   "efficientnet-lite4-int8": dict(gen={"*": "img255norm"}, rms=0.25),
 }
@@ -163,6 +168,44 @@ def f32_reference(path, outs, feeds):
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+def u8_conv_weights(graph):
+    """Stores the constant int8 weights (and zero points) of QLinearConv nodes as uint8 with 128 added; returns the count rewritten."""
+    from onnx import numpy_helper
+    inits = {t.name: t for t in graph.initializer}
+    done, count = set(), 0
+    for n in graph.node:
+        if n.op_type != "QLinearConv" or n.input[3] not in inits:
+            continue
+        w = numpy_helper.to_array(inits[n.input[3]])
+        if w.dtype != np.int8:
+            continue
+        if n.input[3] not in done:
+            inits[n.input[3]].CopyFrom(numpy_helper.from_array((w.astype(np.int16) + 128).astype(np.uint8), n.input[3]))
+            done.add(n.input[3])
+        zp_name = n.input[5] if len(n.input) > 5 else ""
+        zp = numpy_helper.to_array(inits[zp_name]) if zp_name in inits else np.zeros((), np.int8)
+        new_zp = n.name + "_w_zp_u8"
+        graph.initializer.append(numpy_helper.from_array((zp.astype(np.int16) + 128).astype(np.uint8), new_zp))
+        while len(n.input) < 6:
+            n.input.append("")
+        n.input[5] = new_zp
+        count += 1
+    return count
+
+def u8_weight_session(path):
+    """An ORT CPU session over a copy of the model with u8_conv_weights applied (the copy is deleted after loading)."""
+    import tempfile, shutil
+    tmp = tempfile.mkdtemp(dir=os.path.dirname(path))
+    try:
+        m = onnx.load(path)
+        u8_conv_weights(m.graph)
+        copy = os.path.join(tmp, "model_u8w.onnx")
+        onnx.save(m, copy)
+        so = ort.SessionOptions(); so.log_severity_level = 3
+        return ort.InferenceSession(copy, so, providers=["CPUExecutionProvider"])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
 def open_session(path):
     last = None
     for prov in (["CPUExecutionProvider"], ["CUDAExecutionProvider", "CPUExecutionProvider"]):
@@ -199,7 +242,10 @@ def run(name, d, f):
         feeds[i.name] = a
         if i.name in pin: consts[i.name] = a
         a.astype(np.float32).tofile(f"{OUT}/{name}.b{b}.in{k}.bin")
-    if ov.get("f32ref"):
+    if ov.get("u8weights"):
+        res = u8_weight_session(path).run(outs, feeds)
+        refprov = "CPUExecutionProvider (QLinearConv weights as uint8)"
+    elif ov.get("f32ref"):
         res = f32_reference(path, outs, feeds)
         refprov = "CPUExecutionProvider (f32 copy of the fp16 graph)"
     else:

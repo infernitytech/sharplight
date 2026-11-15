@@ -46,10 +46,14 @@ public sealed class AttentionPatternTests
             .Node("Reshape", ["o1", "merged"], ["y"]);
     }
 
-    /// <summary>Rank-3 heads [B·H, S, D] (whisper exports): Q pre-scaled, Kᵀ by a [0, 2, 1] transpose of the merged keys.</summary>
-    private static TestModel Rank3()
+    /// <summary>
+    /// Rank-3 heads [B·H, S, D] (whisper exports): Q pre-scaled, Kᵀ by a [0, 2, 1] transpose of the merged keys. With
+    /// <paramref name="roundTrip"/> the probabilities go through Reshapes to [B, H, S, S] and back, as in exports that can also
+    /// return them.
+    /// </summary>
+    private static TestModel Rank3(bool roundTrip = false)
     {
-        return new TestModel().Opset(13).Input("x", 2L, S, W).Output("y", 2L, S, W)
+        var m = new TestModel().Opset(13).Input("x", 2L, S, W).Output("y", 2L, S, W)
             .InitF32("wq", [W, W], Rnd(W * W, 4)).InitF32("wk", [W, W], Rnd(W * W, 5)).InitF32("wv", [W, W], Rnd(W * W, 6))
             .InitI64("heads", [4], 2, S, H, D).InitI64("rows", [3], 2 * H, S, D).InitI64("merged", [3], 2, S, W).InitF32("c", [], [0.25f])
             .Node("MatMul", ["x", "wq"], ["q0"]).Node("Mul", ["q0", "c"], ["qs"]).Node("Reshape", ["qs", "heads"], ["q1"])
@@ -59,8 +63,14 @@ public sealed class AttentionPatternTests
             .Node("Transpose", ["k"], ["kt"], TestModel.AttrInts("perm", 0, 2, 1))
             .Node("MatMul", ["x", "wv"], ["v0"]).Node("Reshape", ["v0", "heads"], ["v1"])
             .Node("Transpose", ["v1"], ["v2"], TestModel.AttrInts("perm", 0, 2, 1, 3)).Node("Reshape", ["v2", "rows"], ["v"])
-            .Node("MatMul", ["q", "kt"], ["s0"]).Node("Softmax", ["s0"], ["p"], TestModel.Attr("axis", -1))
-            .Node("MatMul", ["p", "v"], ["o0"]).Node("Reshape", ["o0", "heads"], ["o1"])
+            .InitI64("probs4", [4], 2, H, S, S).InitI64("probs3", [3], 2 * H, S, S)
+            .Node("MatMul", ["q", "kt"], ["s0"]).Node("Softmax", ["s0"], [roundTrip ? "p0" : "p"], TestModel.Attr("axis", -1));
+        if (roundTrip)
+        {
+            m.Node("Reshape", ["p0", "probs4"], ["p4"]).Node("Reshape", ["p4", "probs3"], ["p"]);
+        }
+
+        return m.Node("MatMul", ["p", "v"], ["o0"]).Node("Reshape", ["o0", "heads"], ["o1"])
             .Node("Transpose", ["o1"], ["o2"], TestModel.AttrInts("perm", 0, 2, 1, 3)).Node("Reshape", ["o2", "merged"], ["y"]);
     }
 
@@ -75,10 +85,12 @@ public sealed class AttentionPatternTests
         Assert.DoesNotContain("BatchMatMul", ops);
     }
 
-    [Fact]
-    public void Rank3_IsFused()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Rank3_IsFused(bool roundTrip)
     {
-        var ops = Ops(Rank3().Build()).ToList();
+        var ops = Ops(Rank3(roundTrip).Build()).ToList();
         Assert.Contains("Attention", ops);
         Assert.DoesNotContain("Softmax", ops);
     }
@@ -105,14 +117,16 @@ public sealed class AttentionPatternTests
     [InlineData("cpu", 0)]
     [InlineData("cpu", 1)]
     [InlineData("cpu", 2)]
+    [InlineData("cpu", 3)]
     [InlineData("vulkan", 0)]
     [InlineData("vulkan", 1)]
     [InlineData("vulkan", 2)]
+    [InlineData("vulkan", 3)]
     public void FusedMatchesElementary(string provider, int form)
     {
         var device = Providers.Get(provider);
-        var model = form switch { 0 => Rank4(mask: false), 1 => Rank4(mask: true, fixedBatch: true), _ => Rank3() };
-        int batch = form == 2 ? 2 : 3;
+        var model = form switch { 0 => Rank4(mask: false), 1 => Rank4(mask: true, fixedBatch: true), 2 => Rank3(), _ => Rank3(roundTrip: true) };
+        int batch = form >= 2 ? 2 : 3;
         List<float[]> inputs = [Rnd(batch * S * W, 11)];
         if (form == 1)
         {

@@ -4,8 +4,8 @@ using Sharplight.Package;
 namespace Sharplight.Samples.Hub;
 
 /// <summary>
-/// The device a pulled package is precompiled for: the GPU the model will run on, with its context and batch size, and the
-/// serving batch decoder at the server's default slot count.
+/// What a pulled package is precompiled for: every device of the GPU provider (portable code, then device code; identical GPUs share
+/// it), with the context and batch size the model will run with, and the serving batch decoder at the server's default slot count.
 /// </summary>
 public static class PrecompileTargets
 {
@@ -13,7 +13,7 @@ public static class PrecompileTargets
     public const int ServeSlots = 4;
 
     /// <summary>The target, or null when nothing is precompiled (CPU runs, <c>--no-precompile</c>, no GPU).</summary>
-    public static PrecompileTarget? Create(bool enabled, bool cpu, int deviceIndex, int contextLength, int batchTokens,
+    public static PrecompileTarget? Create(bool enabled, bool cpu, int contextLength, int batchTokens,
         IReadOnlyList<string> disabledFeatures, Action<string> log)
     {
         if (!enabled || cpu)
@@ -24,7 +24,6 @@ public static class PrecompileTargets
         try
         {
             var provider = SampleRuntime.SelectProvider(cpu: false);
-            var device = SampleRuntime.GetDevice(provider, deviceIndex);
             var options = new PrecompileOptions
             {
                 ContextLength = contextLength,
@@ -35,7 +34,7 @@ public static class PrecompileTargets
                 UseUserKernelCache = true,
                 Log = log,
             };
-            return new PrecompileTarget(provider, device, options);
+            return new PrecompileTarget([provider], options);
         }
         catch (SampleException error)
         {

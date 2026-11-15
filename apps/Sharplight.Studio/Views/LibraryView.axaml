@@ -59,6 +59,8 @@
                       <MenuItem Header="Load…" Command="{Binding Library.LoadCommand}" CommandParameter="{Binding}" />
                       <MenuItem Header="Inspect package" IsEnabled="{Binding IsPackage}"
                                 Command="{Binding Library.InspectCommand}" CommandParameter="{Binding}" />
+                      <MenuItem Header="Precompile for this machine" IsEnabled="{Binding CanPrecompile}"
+                                Command="{Binding Library.PrecompileCommand}" CommandParameter="{Binding}" />
                       <MenuItem Header="Open containing folder" Command="{Binding Library.OpenEntryFolderCommand}" CommandParameter="{Binding}" />
                     </ContextMenu>
                   </Border.ContextMenu>
@@ -67,6 +69,14 @@
                       <Border Classes="badge tools" IsVisible="{Binding IsLoaded}">
                         <TextBlock Text="Resident" />
                       </Border>
+                      <Button Classes="small" IsVisible="{Binding IsPackage}" IsEnabled="{Binding CanPrecompile}"
+                              ToolTip.Tip="{Binding PrecompileHint}" ToolTip.ShowOnDisabled="True"
+                              Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).PrecompileCommand}" CommandParameter="{Binding}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Path Classes="icon" Data="{StaticResource IconChip}" Width="12" Height="12" />
+                          <TextBlock Text="Precompile" />
+                        </StackPanel>
+                      </Button>
                       <Button Classes="small" IsVisible="{Binding IsPackage}" ToolTip.Tip="Inspect the package: structure, graphs, weights and precompiled kernels"
                               Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).InspectCommand}" CommandParameter="{Binding}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
@@ -108,7 +118,7 @@
                           <TextBlock Text="Not yet supported" />
                         </Border>
                         <views:CapabilityBadgesView DataContext="{Binding Badges}" />
-                        <Border Classes="badge" IsVisible="{Binding IsPrecompiled}" ToolTip.Tip="GPU kernels are stored in the package: loads fast">
+                        <Border Classes="badge" IsVisible="{Binding IsPrecompiled}" ToolTip.Tip="{Binding PrecompiledTip}">
                           <TextBlock Text="Precompiled" />
                         </Border>
                         <Border Classes="badge" IsVisible="{Binding IsLocalFile}">
@@ -116,6 +126,30 @@
                         </Border>
                         <TextBlock Classes="caption" Text="{Binding Added}" VerticalAlignment="Center" Margin="4,0,0,0" />
                       </StackPanel>
+                      <Border IsVisible="{Binding HasPrecompileDetails}" Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"
+                              BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,6,0,0">
+                        <StackPanel Spacing="6">
+                          <DockPanel>
+                            <Button DockPanel.Dock="Right" Classes="small" Content="Cancel" IsVisible="{Binding IsPrecompiling}" Margin="8,0,0,0"
+                                    Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).CancelPrecompileCommand}" CommandParameter="{Binding}" />
+                            <TextBlock Classes="caption" Text="{Binding PrecompileStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                          </DockPanel>
+                          <ItemsControl ItemsSource="{Binding PrecompileRows}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="mvm:PrecompileRowViewModel">
+                                <Grid ColumnDefinitions="280,*" Margin="0,2">
+                                  <TextBlock Classes="caption" Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,10,0" />
+                                  <StackPanel Grid.Column="1" Spacing="3">
+                                    <TextBlock Classes="caption" Text="{Binding Status}" TextWrapping="Wrap" />
+                                    <ProgressBar Classes="thin" IsVisible="{Binding IsActive}" IsIndeterminate="{Binding IsIndeterminate}" Minimum="0" Maximum="1"
+                                                 Value="{Binding Progress}" />
+                                  </StackPanel>
+                                </Grid>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
+                      </Border>
                     </StackPanel>
                   </DockPanel>
                 </Border>
