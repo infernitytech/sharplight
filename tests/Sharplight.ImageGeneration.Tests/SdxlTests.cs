@@ -9,6 +9,7 @@ namespace Sharplight.ImageGeneration.Tests;
 /// (tools/make-diffusion-references.py, 1024×1024, 20 steps, fp32) in ~/models/sd/sdxl-reference. Skips when the model, the
 /// references or a GPU are missing.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class SdxlTests
 {
     private static readonly string Reference = Path.Combine(Path.GetDirectoryName(Env.SdxlDiffusers)!, "sdxl-reference");
