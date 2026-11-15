@@ -18,10 +18,15 @@ public sealed class SdxlGgufTests
 
     private static string ReferenceOf(string variant) => Path.Combine(Path.GetDirectoryName(Env.SdxlDiffusers)!, variant == "turbo" ? "sdxl-turbo-reference" : "sdxl-reference");
 
+    /// <summary>
+    /// Relative RMS of the graphs and the PSNR floor of the image. kostakoff's Q4_K file quantizes even the norm scales of the bigG
+    /// encoder (its hidden states are 20 % off, the image stays visually equivalent); the others keep within a few per mille to a few per cent.
+    /// </summary>
     private static (double Graph, double Psnr) Tolerances(string variant) => variant switch
     {
-        "Q4_K" => (0.15, 14),
-        _ => (0.05, 20),
+        "Q4_K" => (0.3, 15),
+        "turbo" => (0.06, 25),
+        _ => (0.01, 25),
     };
 
     private static float[] Tensor(string reference, string name) => Env.ReadFloats(Path.Combine(reference, name + ".f32"));

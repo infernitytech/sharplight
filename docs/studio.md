@@ -161,7 +161,9 @@ the engine gains a kind, its card opens a page of its own, built from the shared
   then the `data` folder next to the app) and any added `.gguf`, `.slm` or `.onnx` files, for every kind of model in one list.
   Every entry carries a kind badge (an icon and the kind's name). The kind is the one the `.slm` model description names (a package
   without a description is a text-generation model; an embedding package is shown as *Embeddings*). Files that have no description
-  are guessed from the file type (GGUF files and checkpoint folders are language models) and the badge's tooltip says so; a download
+  are guessed from the file (GGUF files and checkpoint folders are language models, except GGUF files of the `whisper` architecture
+  and whisper.cpp ggml files, whatever their extension, which recognize speech, and the image models listed under *Image*) and the
+  badge's tooltip says so; a download
   that is not converted yet shows the kind inferred from the Hub's pipeline tag. The kind filter above the list (shown once the
   library holds more than one kind) lists the kinds present with their counts. A kind the engine cannot run yet is badged *Not yet
   supported* and its *Load* button is disabled. Loading, unloading and residency are the same mechanism for every kind.
@@ -310,7 +312,10 @@ the microphone. Other audio formats are refused with a note: the engine's audio 
 or none), beam size, conditioning on the previous text and an initial prompt; presets *Fast*, *Accurate* and *Long recording*. The
 segments appear with their times while the model decodes (the streaming call reports progress by the end of the last segment), and
 the transcript can be copied or exported as `.txt`, `.srt` or `.vtt`. Every run keeps `transcript.txt`, `.srt`, `.vtt` and
-`transcript.json` in its outputs. Whisper (Hugging Face, whisper.cpp `.bin`, `.slm`) and Distil-Whisper models work.
+`transcript.json` in its outputs. Whisper (Hugging Face, whisper.cpp `.bin`, the transcribe.cpp `whisper-*.gguf` files of the
+handy-computer repositories, whisper.cpp files published as `.gguf`, `.slm`) and Distil-Whisper models work. Candle's whisper GGUF
+files (Hugging Face tensor names with the tokenizer in a separate file) are refused on load with a message that says to use the
+whisper.cpp or transcribe.cpp files of the same model.
 
 ![Transcribe](images/studio/studio-transcribe.png)
 
@@ -333,7 +338,13 @@ results are PNG files that carry the prompt and parameters as text chunks (`para
 `Prompt`, `Negative prompt`, `Seed`, `Steps`, `Guidance`, `Sampler`, `Size`, `Model`), kept in the outputs gallery with thumbnails
 next to `parameters.json`. *Save PNG*, *Use as input*, *Reuse seed* and *Reuse prompt* act on the shown image; the gallery's *Reuse
 parameters* (every page has it) sets the parameters, the prompt and the result of a past run, with the seed that run actually used.
-Stable Diffusion 1.x, 2.x and XL work (diffusers folders, single-file `.safetensors` / `.ckpt`, stable-diffusion.cpp GGUF).
+Stable Diffusion 1.x, 2.x and XL work (diffusers folders, single-file `.safetensors` / `.ckpt`, stable-diffusion.cpp GGUF, including
+the SDXL and SDXL-Turbo GGUF files of the Hub). When a distilled model is chosen (SDXL-Turbo, SDXL-Lightning: its default guidance
+is 1 or less), the page sets steps and guidance to the model's defaults (SDXL-Turbo: 4 steps without guidance) and says so; choosing
+a regular model afterwards restores 20 steps and guidance 7.5. FLUX, SD3 and the other diffusion transformers are listed as image
+models, and loading one says "Not supported yet: FLUX (diffusion transformer)". A file that holds only the UNet, or an SDXL UNet
+without its second text encoder, fails on load naming what is missing; a `.slm` converted from an SDXL GGUF by an earlier version
+(without the second encoder) fails on load asking to import the original file again.
 
 ![Image](images/studio/studio-image.png)
 
@@ -358,7 +369,8 @@ with a small built-in font (upper-case letters, digits and basic punctuation).
 ![Vision zero-shot](images/studio/studio-vision-zero-shot.png)
 
 The library recognizes the image models without a package: a diffusers folder (`model_index.json`), a single-file checkpoint (its
-safetensors header or GGUF tensor table names the UNet; a `.ckpt` only by its name), and Hugging Face vision checkpoints by the
+safetensors header or GGUF tensor table names the UNet, or a GGUF names a diffusion transformer such as FLUX; a `.ckpt` only by its
+name), and Hugging Face vision checkpoints by the
 architecture of their `config.json` (`...ForImageClassification`, `...ForObjectDetection`, `...ForDepthEstimation`, CLIP, SigLIP and
 DINOv2 as embedding models). These kinds load through the same load panel, simplified to the device (no context, batching or KV
 cache), and the *Tasks* cards and the library's *Load* open the right page.
@@ -480,7 +492,9 @@ keep using the user folder or to move or copy the models into the new store.
 - the package inspector: every tab of a small package, a view for every section kind the format defines, unknown sections
   listed raw, the linked graph, IR and node selection, the graph layout, and a 100,000-node graph that stays virtualized.
 
-`SpeechRealModelTests` loads `ggml-tiny.en.bin` (transcribes `jfk.wav` on the Transcribe page) and OuteTTS with its WavTokenizer
+`GgufRealModelTests` takes the GGUF and whisper.cpp files people download (transcribe.cpp whisper GGUF, a whisper.cpp file named
+`.gguf`, large-v3-turbo, the SDXL-Turbo GGUF) through library recognition, the runtime and the Transcribe / Image pages, and checks that
+FLUX GGUF files are listed as image models and named as not supported yet. `SpeechRealModelTests` loads `ggml-tiny.en.bin` (transcribes `jfk.wav` on the Transcribe page) and OuteTTS with its WavTokenizer
 vocoder (speaks on the Speak page) through the real runtime, when the files are on disk. `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
 calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here. With
 `SHARPLIGHT_INSPECTOR_PACKAGES` (a list of `.slm` paths, separated like `PATH`), the inspector renders every tab of those

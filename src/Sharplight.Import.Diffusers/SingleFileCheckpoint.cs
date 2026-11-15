@@ -92,9 +92,15 @@ internal static partial class SingleFileCheckpoint
 
             if (names.Any(n => n.StartsWith(SdCppXlOpenClipPrefix, StringComparison.Ordinal)))
             {
-                // stable-diffusion.cpp's SDXL layout: both encoders under transformers names, the bigG projection already transposed.
-                var second = ClipTensors(tensors, names, SdCppXlOpenClipPrefix)
-                    .Select(pair => pair.Name == SdCppTextProjection ? ("text_projection.weight", pair.Weight) : pair);
+                // stable-diffusion.cpp's SDXL layout: both encoders under transformers names. sd.cpp renames the bigG projection without
+                // transposing it, so its orientation is the source checkpoint's: transformers' (out × in) when the file was converted from a
+                // diffusers folder, OpenCLIP's transpose when converted from an original checkpoint (verified against the diffusers
+                // weights for gpustack's and OlegSkutte's files). The diffusers conversion leaves a mark: the upsampler of an up level with
+                // attention sits at index 1 beside the attention block (see LdmNames.UNet).
+                bool fromDiffusers = names.Any(n => n.StartsWith(UNetPrefix + "output_blocks.", StringComparison.Ordinal) && n.EndsWith(".1.conv.weight", StringComparison.Ordinal)
+                    && names.Contains(n[..^"conv.weight".Length] + "proj_in.weight"));
+                var second = ClipTensors(tensors, names, SdCppXlOpenClipPrefix).Select(pair => pair.Name != SdCppTextProjection ? pair
+                    : ("text_projection.weight", fromDiffusers ? pair.Weight : OpenClipNames.Transposed(pair.Weight, "text_projection.weight")));
                 return OpenXl(path, format, tensors, weights, ClipTensors(tensors, names, OpenAiClipPrefix), second);
             }
 

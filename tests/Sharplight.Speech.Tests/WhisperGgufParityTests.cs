@@ -58,7 +58,11 @@ public sealed class WhisperGgufParityTests
                 Assert.Equal(Normalize(value), Normalize(actual!));
             }
 
-            Assert.Equal(Bytes(fromGgml.Attachments["feature-extractor/mel-filters"]), Bytes(fromGguf.Attachments["feature-extractor/mel-filters"]));
+            // The same Slaney filter bank, computed by two converters: equal up to float rounding.
+            var expectedFilters = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(Bytes(fromGgml.Attachments["feature-extractor/mel-filters"])).ToArray();
+            var actualFilters = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(Bytes(fromGguf.Attachments["feature-extractor/mel-filters"])).ToArray();
+            Assert.Equal(expectedFilters.Length, actualFilters.Length);
+            Assert.All(expectedFilters.Zip(actualFilters), pair => Assert.True(MathF.Abs(pair.First - pair.Second) <= 1e-6f, $"{pair.First} vs {pair.Second}"));
         }
         finally
         {

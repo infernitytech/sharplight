@@ -105,7 +105,7 @@ internal static partial class OpenClipNames
     /// The transpose of a 2-D weight, produced on first read. Element-wise storage types keep their type; a block-quantized matrix
     /// (stable-diffusion.cpp stores the projection as Q4_K in some files) is decoded and transposed as f32, since its blocks run along the rows.
     /// </summary>
-    private static WeightInfo Transposed(WeightInfo weight, string name)
+    internal static WeightInfo Transposed(WeightInfo weight, string name)
     {
         long rows = weight.Shape[0].Fixed;
         long columns = weight.Shape[1].Fixed;
