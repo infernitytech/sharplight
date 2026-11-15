@@ -11,11 +11,16 @@ internal sealed class NemotronHGgufMapping : IGgufArchitectureMapping
     /// <inheritdoc/>
     public string Architecture => "nemotron_h";
 
-    /// <summary>A per-layer GGUF array (or a scalar repeated, default 0) as ints.</summary>
+    /// <summary>A per-layer GGUF array (or a scalar repeated, default 0) as ints, for the first <paramref name="layerCount"/> blocks
+    /// (the array also covers the multi-token-prediction blocks that follow the trunk).</summary>
     private static int[] PerLayer(GgufMetadataView g, string key, int layerCount)
-        => g.Raw(key) is Array values && values.Length == layerCount
+        => g.Raw(key) is Array values && values.Length >= layerCount
             ? Enumerable.Range(0, layerCount).Select(i => Convert.ToInt32(values.GetValue(i))).ToArray()
             : Enumerable.Repeat(g.Int(key, 0), layerCount).ToArray();
+
+    /// <summary>Decoder blocks without the multi-token-prediction (NextN) blocks the converter appends after them
+    /// (<c>nextn_predict_layers</c>, Nemotron 3.5); those are kept below <c>mtp.layers.{j}.</c>.</summary>
+    private static int TrunkLayers(GgufMetadataView g) => g.Int("block_count") - g.Int("nextn_predict_layers", 0);
 
     /// <inheritdoc/>
     public IEnumerable<string> Validate(GgufMetadataView gguf)
@@ -30,7 +35,7 @@ internal sealed class NemotronHGgufMapping : IGgufArchitectureMapping
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         string a = Architecture + ".";
-        int layerCount = g.Int("block_count");
+        int layerCount = TrunkLayers(g);
         var kvHeadCounts = PerLayer(g, "attention.head_count_kv", layerCount);
         var ffnLengths = PerLayer(g, "feed_forward_length", layerCount);
         bool moeArchitecture = g.GgufArchitecture == "nemotron_h_moe";   // there a layer with a feed-forward size is a mixture-of-experts layer
@@ -117,7 +122,25 @@ internal sealed class NemotronHGgufMapping : IGgufArchitectureMapping
         }
 
         var m = GgufTensorNames.Block().Match(name);
-        return m.Success && s_layer.TryGetValue(m.Groups[2].Value, out var c) ? $"layers.{m.Groups[1].Value}.{c}" : null;
+        if (!m.Success)
+        {
+            return null;
+        }
+
+        int layer = int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        string suffix = m.Groups[2].Value;
+        int trunk = TrunkLayers(g);
+        if (layer >= trunk)
+        {
+            // The NextN block: input fusion and head norm, an attention sub-layer with its post-attention norm and experts.
+            string mtpPrefix = $"mtp.layers.{layer - trunk}.";
+            return GgufDecoderFamilyMapping.NextnTensors.TryGetValue(suffix, out var nextn) ? mtpPrefix + nextn
+                : suffix == "post_attention_norm.weight" ? mtpPrefix + "post_attention_norm.weight"
+                : s_layer.TryGetValue(suffix, out var mtpName) ? mtpPrefix + mtpName
+                : null;
+        }
+
+        return s_layer.TryGetValue(suffix, out var c) ? $"layers.{layer}.{c}" : null;
     }
 
     /// <summary>A, D are stored [H, 1] and the gated norm [G, inner/G]; canonical weights are flat.</summary>

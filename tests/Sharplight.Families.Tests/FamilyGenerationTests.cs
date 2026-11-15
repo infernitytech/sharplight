@@ -71,6 +71,10 @@ public class FamilyGenerationTests
         new("tiny-random-nemotron-h-latent HF (transformers)", "hf/tiny-random-nemotron-h-latent", P2, "ids", NemotronLatentIds, "", NeedsCpuFallback: true),
         new("tiny-random-nemotron-h-latent f32 GGUF (transformers, llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-latent-f32.gguf", P2, "ids",
             NemotronLatentIds, "", NeedsCpuFallback: true),
+        // The same file with a multi-token-prediction block appended as llama.cpp's converter writes the Nemotron 3.5 MTP head
+        // (nextn_predict_layers 1, tools/mk_tiny_nemotron_h_mtp.py): the trunk loads without it and decodes as before (llama.cpp 8ca5a80 too).
+        new("tiny-random-nemotron-h-mtp f32 GGUF (trunk, llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-mtp-f32.gguf", P2, "ids",
+            NemotronLatentIds, "", NeedsCpuFallback: true),
         // Heterogeneous ("Puzzle", Nemotron 3.5 Bolt): the second MoE layer has 6 of the 8 experts and selects 3, the first 2
         // (expert_used_count per layer; tools/mk_tiny_nemotron_h_puzzle.py), vs llama.cpp 8ca5a80 (CPU and Vulkan agree).
         new("tiny-random-nemotron-h-puzzle f32 GGUF (llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-puzzle-f32.gguf", P2, "text", [],
