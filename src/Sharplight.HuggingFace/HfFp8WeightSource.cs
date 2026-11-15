@@ -22,12 +22,12 @@ internal sealed unsafe class HfFp8WeightSource : IWeightSource
     private readonly long _columns;
 
     /// <param name="codes">The E4M3 codes, row-major [batch..., N, K].</param>
-    /// <param name="scales">The scale tensor (any float type), read once on first use.</param>
+    /// <param name="scales">Reads the scale values in f32, called once on first use.</param>
     /// <param name="layout">How the scales cover the values.</param>
     /// <param name="target">The produced type: <see cref="DataType.F8E4M3_B128"/>, <see cref="DataType.F8E4M3_B32"/> or <see cref="DataType.BF16"/>.</param>
     /// <param name="rows">Rows N of each matrix.</param>
     /// <param name="columns">Columns K (must be a multiple of the target block size).</param>
-    public HfFp8WeightSource(IWeightSource codes, WeightInfo scales, HfFp8ScaleLayout layout, DataType target, long rows, long columns)
+    public HfFp8WeightSource(IWeightSource codes, Func<float[]> scales, HfFp8ScaleLayout layout, DataType target, long rows, long columns)
     {
         if (columns % target.BlockSize != 0)
         {
@@ -35,7 +35,7 @@ internal sealed unsafe class HfFp8WeightSource : IWeightSource
         }
 
         _codes = codes;
-        _scales = new(() => HfTransforms.DecodeF32(scales));
+        _scales = new(scales);
         _layout = layout;
         _target = target;
         _rows = rows;

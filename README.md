@@ -23,6 +23,12 @@ Start with the [public API overview](docs/api-overview.md). Benchmarks against l
 | ONNX | ✓ | ✓ |
 | `.slm` package | ✓ | ✓ |
 
+Weight formats: the GGUF quantizations (Q4_0 … Q8_0, K-quants, IQ formats, TQ, MXFP4, NVFP4) and, from Hugging Face
+checkpoints, BF16/F16/F32, FP8 (block, channel and tensor scales), NVFP4 (ModelOpt, compressed-tensors), MXFP4
+(compressed-tensors, Quark, gpt-oss, DeepSeek-V4 FP4 experts), GPTQ (2/3/4/8-bit, act-order), AWQ (GEMM/GEMV), compressed-tensors integer weights,
+bitsandbytes NF4 and MLX affine 4-bit, kept quantized on the device; bitsandbytes FP4 / LLM.int8 and other MLX bit widths
+are decoded to BF16 at load ([docs/model-support.md](docs/model-support.md) section 2.4).
+
 Of the 172 architectures llama.cpp knows, 168 are supported end to end, `dflash` partially and the three TTS decoders
 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix; its section 10 is a sweep of 1138 released
 GGUF files and 72 Hugging Face checkpoints, 1080 and 49 of which import after bring-up round 11, section 11). Supported (llama.cpp architecture names):

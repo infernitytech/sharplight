@@ -31,7 +31,7 @@ namespace Sharplight.Shaders;
 /// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
 /// <item><c>SHARPLIGHT_ROW_INVARIANT=n</c>: rows up to which a step computes every row like a single-row step, overriding
 /// <c>CompileOptions.RowInvariantRows</c> (speculative decoding sets it to the verification rows; 0 turns it off).</item>
-/// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4) on the f32
+/// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4, and Q4Z / Q8Z / NVFP4 / NVFP4_GS) on the f32
 /// matvecs instead of the integer-dot matvec.</item>
 /// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 8; 16 for
 /// Q8_0 on devices without the f16 tensor-core path).</item>

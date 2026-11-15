@@ -781,6 +781,42 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     half2 z = half2(0.0h, 0.0h);
     lo = uint4(codes_h2(q.x, false, offset, d, z), codes_h2(q.x, true, offset, d, z), codes_h2(q.y, false, offset, d, z), codes_h2(q.y, true, offset, d, z));
     hi = uint4(codes_h2(q.z, false, offset, d, z), codes_h2(q.z, true, offset, d, z), codes_h2(q.w, false, offset, d, z), codes_h2(q.w, true, offset, d, z));
+#elif WFMT == FMT_Q4Z_G32 || WFMT == FMT_Q4Z_G128
+    // { f16 d; f16 z; u8 qs[16 * runs] } (quant_group.slang), each 32-value run laid out like Q4_0. The zero point is an
+    // integer, so 1024 + z is exact in half and (1024 + q) - (1024 + z) = q - z is exact: one rounding, at * d.
+#if WFMT == FMT_Q4Z_G32
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 1) * 20;
+    uint4 q = (load16_any(at + 4) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+#else
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 3) * 68;
+    uint4 q = (load16_any(at + 4 + ((g16 >> 1) & 3) * 16) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+#endif
+    uint dz = *(uint*)at;
+    half2 d = bit_cast<half2>((dz & 0xFFFFu) * 0x10001u);
+    half offset = 1024.0h + bit_cast<half2>(dz).y;
+    half2 z = half2(0.0h, 0.0h);
+    lo = uint4(codes_h2(q.x, false, offset, d, z), codes_h2(q.x, true, offset, d, z), codes_h2(q.y, false, offset, d, z), codes_h2(q.y, true, offset, d, z));
+    hi = uint4(codes_h2(q.z, false, offset, d, z), codes_h2(q.z, true, offset, d, z), codes_h2(q.w, false, offset, d, z), codes_h2(q.w, true, offset, d, z));
+#elif WFMT == FMT_NVFP4 || WFMT == FMT_NVFP4_GS
+    // One 16-value sub-block: 8 code bytes (value i in the low nibble of byte i, i + 8 in the high one) and its UE4M3 scale,
+    // NVFP4_GS times the block's f32 global scale. Doubled E2M1 codes through half bits as MXFP4 below, the block scale
+    // split in two factors when it leaves half's range.
+#if WFMT == FMT_NVFP4
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 2) * 36;
+    float sc = ue4m3_half(uint(*(uint8_t*)(at + (g16 & 3)))) * 32768.0;
+    uint64_t codes = at + 4 + 8 * (g16 & 3);
+#else
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 2) * 40;
+    float sc = ue4m3_half(uint(*(uint8_t*)(at + 4 + (g16 & 3)))) * asfloat(*(uint*)at) * 32768.0;
+    uint64_t codes = at + 8 + 8 * (g16 & 3);
+#endif
+    uint c0 = *(uint*)codes;
+    uint c1 = *(uint*)(codes + 4);
+    uint4 q = uint4(c0 & 0x0F0F0F0Fu, c1 & 0x0F0F0F0Fu, (c0 >> 4) & 0x0F0F0F0Fu, (c1 >> 4) & 0x0F0F0F0Fu);
+    half2 s1 = half2(half(min(sc, 32768.0)));
+    half2 s2 = half2(half(max(sc / 32768.0, 1.0)));
+    lo = uint4(fp4_h2(q.x, false, s1, s2), fp4_h2(q.x, true, s1, s2), fp4_h2(q.y, false, s1, s2), fp4_h2(q.y, true, s1, s2));
+    hi = uint4(fp4_h2(q.z, false, s1, s2), fp4_h2(q.z, true, s1, s2), fp4_h2(q.w, false, s1, s2), fp4_h2(q.w, true, s1, s2));
 #elif WFMT == FMT_MXFP4R
     // As MXFP4 below, from the aligned split layout (common.slang): one aligned 16-byte load holds both nibble halves of the block.
     uint4 q = (*(uint4*)(mxfp4r_codes(w, ROW_BYTES, row) + uint64_t(g16 >> 1) * 16) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;

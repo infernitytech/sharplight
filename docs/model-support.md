@@ -53,7 +53,19 @@ Attention, CachedAttention, CacheWrite, Rope, RmsNorm, LayerNorm, GroupNorm, L2N
 
 ### 2.4 Weight formats with compute kernels
 
-CPU (Quant.cs and its partials Quant.KQuants/Iq/Fp4/Fp8/Ternary.cs) and Vulkan (Sharplight.Shaders/Kernels/common.slang, quant_k.slang, quant_iq.slang, quant_fp8.slang; the lowering table is GraphLowerer.Support.cs): F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, IQ1_S, IQ1_M, IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS, IQ3_S, IQ4_NL, IQ4_XS, TQ1_0, TQ2_0, MXFP4, NVFP4; Bonsai Q1_0, Q2_0, Q2_0_G128, Tern1_G128; FP8 `f8e4m3`, `f8e5m2` (one byte per value) and the block-scaled `f8e4m3_b32` { f32 d; u8 q[32] } / `f8e4m3_b128` { f32 d; u8 q[128] } (value = d * e4m3(q), blocks along K). The IQ lookup grids come from ggml-common.h via tools/gen-quant-grids.py (src/Sharplight.Cpu/Grids, Kernels/grid_*.slang). Q8_K fails at load.
+CPU (Quant.cs and its partials Quant.KQuants/Iq/Fp4/Fp8/Ternary/Grouped.cs) and Vulkan (Sharplight.Shaders/Kernels/common.slang, quant_k.slang, quant_iq.slang, quant_fp8.slang, quant_group.slang; the lowering table is GraphLowerer.Support.cs): F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, IQ1_S, IQ1_M, IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS, IQ3_S, IQ4_NL, IQ4_XS, TQ1_0, TQ2_0, MXFP4, NVFP4; Bonsai Q1_0, Q2_0, Q2_0_G128, Tern1_G128; FP8 `f8e4m3`, `f8e5m2` (one byte per value) and the block-scaled `f8e4m3_b32` { f32 d; u8 q[32] } / `f8e4m3_b128` { f32 d; u8 q[128] } (value = d * e4m3(q), blocks along K); the group-scaled formats of quantized Hugging Face checkpoints (below): `nvfp4_gs` { f32 g; u8 d[4]; u8 qs[32] } (an NVFP4 block with its global scale), `q4z_g32` / `q4z_g128` { f16 d; f16 z; u8 qs[G/2] } and `q8z_g32` / `q8z_g128` { f16 d; f16 z; u8 q[G] } (value = (q - z) * d, 4-bit runs laid out like Q4_0), `nf4_b64` { f32 d; u8 qs[32] } (value = d * NF4[q]). The IQ lookup grids come from ggml-common.h via tools/gen-quant-grids.py (src/Sharplight.Cpu/Grids, Kernels/grid_*.slang). Q8_K fails at load.
+
+Quantized Hugging Face checkpoints (`HfQuantizedWeights` in Sharplight.HuggingFace: `HfFp4Weights`, `HfIntegerWeights` with `HfGptqLayouts` / `HfAwqLayouts` / `HfCompressedIntLayouts`, `HfBitsAndBytesWeights`). As with FP8, each quantized weight is re-blocked row by row while it is read, before the architecture mapping; weights stay quantized (the BF16 fallbacks are listed). Every format is checked bit for bit against the library's own dequantization on the CPU and on Vulkan (tests/Sharplight.HuggingFace.Tests/QuantizedImportTests.cs, checkpoints made by the libraries with tests/Sharplight.Families.Tests/tools/mk_tiny_quantized.py, references from hf_quant_reference.py) and end to end against transformers' logits (Families QuantizedCheckpointTests).
+- NVFP4: ModelOpt (`quant_algo NVFP4`; U8 `X.weight`, E4M3 `X.weight_scale` per 16 values, f32 `X.weight_scale_2`) and compressed-tensors `nvfp4-pack-quantized` (`X.weight_packed`, `X.weight_global_scale`, a divisor). A global scale that is a power of two folds exactly into the E4M3 block scales (`nvfp4`); otherwise `nvfp4_gs` keeps it per 64-value block (5.0 bits per weight instead of 4.5). GGUF NVFP4 tensors with an output multiplier `X.scale` (one per tensor or per expert, which llama.cpp multiplies into the matmul output: LFM3 NVFP4, the Nemotron-3.5 Super-VL NVFP4 and Bolt files) become `nvfp4_gs` the same way, at import in Sharplight.Gguf (`GgufNvfp4Scales`); their `X.input_scale` is ignored, as in llama.cpp. ModelOpt's dequantization (fp4 * (e4m3 * scale_2) in f32) is matched bit for bit; compressed-tensors' division by the global scale is matched after its rounding to BF16. Activations are not quantized (W4A4 checkpoints run as W4A16). K % 64 != 0 decodes to BF16.
+- MXFP4: compressed-tensors `mxfp4-pack-quantized` (U8 E8M0 `X.weight_scale` per 32 values; also when the `quantization_config` sits in `text_config`, as in Kimi-K3 and K3.1-Pro), DeepSeek's own FP4 experts (DeepSeek-V4, `expert_dtype fp4`: I8 `X.weight` with an F8_E8M0 `X.scale` per 32 values, the FP8 weights next to them with an F8_E8M0 `X.scale` per 128 x 128 block) and AMD Quark (`quant_method quark`, weight spec `fp4` / group 32 / `e8m0`: U8 `X.weight` and `X.weight_scale`; Quark FP8 E4M3 weight specs take the FP8 path), dense or MoE, map to `mxfp4` exactly (OCP MX layout, first value in the low nibble; gpt-oss checkpoints as before). Quark's own library needs a JIT-built extension, so its case is checked against a transcription of its `Pack_fp4.unpack`, which agrees with compressed-tensors' MXFP4 dequantization on the same codes.
+- GPTQ (auto-gptq / gptqmodel, `quant_method gptq`): `qweight` I32 [K·b/32, N] as a little-endian bit stream along K (2, 3, 4 and 8 bits; 3-bit codes straddle words), `qzeros` packed along N, f16 `scales` [G, N], `g_idx`. `checkpoint_format gptq` (or absent) stores zero - 1, `gptq_v2` the zero itself. Group sizes 32, 64, 128 and -1 (per channel). Act-order (`desc_act`, a non-trivial `g_idx`): the input columns are sorted so that every group is contiguous, the permutation is kept as `WeightInfo.InputOrder`, and `GraphBuilder.MatMul` gathers the activations into that order (one gather per input and permutation, shared by the projections reading it). MoE experts with different permutations cannot be stacked and fail at load.
+- AWQ (AutoAWQ, `quant_method awq`): GEMM packing (`qweight` [K, N/8], interleaved nibble order 0 2 4 6 1 3 5 7) and GEMV packing (`qweight` [N, K/8], sequential; zero and scale widths padded to multiples of 8 groups), 4 bits, asymmetric.
+- compressed-tensors integer weights: `pack-quantized` (`weight_packed` I32 along K, codes biased by 2^(b-1), optional `weight_zero_point` packed along N, `weight_g_idx`) and `int-quantized` (I8 `weight`, per-channel or group `weight_scale`); W4A16, W4A16_ASYM, W8A16 and W8A8 (activations not quantized) schemes. Sparse (non-dense `sparsity_config`) checkpoints are rejected.
+- Integer targets: `q4z_*` for 2-4 bits, `q8z_*` for 5-8 bits; `*_g128` when the group size and K are multiples of 128, else `*_g32` (the scale repeated per 32-value block of a larger group). Exact because the scales are f16 (BF16 scales are checked to be representable in f16) and the zero points integers: (q - z) * d in f32 equals the libraries' f16 / BF16 results after their rounding. Group sizes that are not a multiple of 32, scales that do not fit f16 and act-order groups that do not sort into equal contiguous runs decode to BF16.
+- bitsandbytes (serialized `load_in_4bit` / `load_in_8bit` checkpoints): NF4 with or without double-quantized absmax (U8 codes with `nested_absmax` per 256 blocks, `nested_quant_map`, `nested_offset`) maps to `nf4_b64` with the f32 absmax, bit-exact with `dequantize_4bit` (the code book is read from a device constant buffer like the IQ grids). FP4 code books and LLM.int8 (I8 `weight` and `SCB`, value = q * SCB / 127) decode to BF16; LLM.int8's outlier threshold splits activations at inference time into an int8 and an f16 product, and since activations are not quantized here every column takes the precise path.
+- MLX affine quantization (mlx-lm checkpoints: `quantization {group_size, bits}` without a method, per-module overrides): U32 `X.weight` (each row's codes as a little-endian bit stream), `X.scales` / `X.biases` per group, value = scale * q + bias; embeddings included. 4-bit weights with groups of a multiple of 32 and f16-exact scales and biases become `q4_1` bit-exactly (checked against `mlx.core.dequantize` of the CPU build of MLX in f32, as MLX's quantized matmul accumulates; a BF16 `mx.dequantize` rounds scale * q and the bias add separately and is up to a few BF16 ulps off); 2, 3, 5, 6 and 8 bits decode to BF16. MLX's FP4 modes (`mode: mxfp4 / nvfp4`) are not read.
+- Kernels: the f32 matvecs decode through load8 (quant_group.slang); the f16 tensor-core GEMMs (gemm_cm2, the skinny GEMM) take packed-half decoders for `q4z_*` and NVFP4 / `nvfp4_gs` (load16h in matmul.slang; the others go through load8); the integer-dot matvec (`mmvq.slang`, device feature `int_dot`, 8-bit activations) serves `q4z_*`, `q8z_*`, `nvfp4` and `nvfp4_gs` for 1-8 rows (`SHARPLIGHT_MMVQ_BLOCK=0` returns them to the f32 matvec). The GPU has no FP4 cooperative-matrix type (`--devices` lists f16, bf16, fp8 and int8 matrices on Blackwell), so FP4 weights are decoded to f16 for the tensor cores: there is no counterpart to vLLM's CUTLASS W4A4 FP4 GEMM.
+- Not supported: HQQ, AQLM, EETQ, quanto, EXL2, torchao, VPTQ, HIGGS, SpQR, AutoRound and FP-Quant checkpoints, Quark integer / MXFP6 weights (HfSupport reports them before download), AWQ `gemv_fast` and Marlin-repacked GPTQ / AWQ.
 
 FP8 Hugging Face checkpoints (the vLLM formats; `HfFp8Weights` in Sharplight.HuggingFace): an `F8_E4M3` `X.weight` with a separate scale is converted while it is read (nothing cached) into a block-scaled type, before the architecture mapping runs, so fused-projection splits, V-head row reorders and expert stacking work on whole rows unchanged (transposes and column permutations that cut blocks decode to BF16 first).
 - DeepSeek-V3 / Qwen FP8 (`quantization_config.quant_method = "fp8"`, `weight_block_size [128, 128]`): BF16/F32 `X.weight_scale_inv` [ceil(N/128), ceil(K/128)], a multiplier despite its name.
@@ -708,14 +720,14 @@ Results (after the fixes below):
   - 32 have no `general.architecture`: imatrix files, patch files, and MiniMax-H3 pruned files that lack it.
   - 6 use an architecture that is not mapped: four `dflash` drafters, `inkling` and `inkling2`.
   - 9 use ggml type ids this version does not know: 64/65/66 in Kimi-K3 UD-TQ2_0 / UD-TQ1_0 / UD-Q1_0, and 144–148 in agentionai's Gyro TQ*_0.
-  - 3 carry NVFP4 per-tensor scales (see below).
+  - 3 carry NVFP4 per-tensor scales (see below; they import since the HF quantization round: LFM3 NVFP4, Super-VL NVFP4 and Bolt IQ2_XXS).
   - 3 are split uploads that lack a shard.
 - **Hugging Face: 72 checkpoints.**
   - 43 import.
   - 19 have a `model_type` that is not supported.
   - 5 are gated for the token used.
-  - 2 have an unsupported quantization (modelopt NVFP4, mxfp8).
-  - 3 still pass the check but fail the import, all on quantization formats (open items 6 and 7).
+  - 2 have an unsupported quantization (modelopt NVFP4, mxfp8). Gemma-4-26B-A4B-NVFP4 imports since the HF quantization round (ModelOpt NVFP4, experts stored one by one); MiniMax-M3.1-Flash's mxfp8 is still unread.
+  - 3 passed the check but failed the import, all on quantization formats (open items 6 and 7); Kimi-K3, K3.1-Pro and DeepSeek-V4-Flash import since the HF quantization round.
 
 The first pass, before this round's fixes, had 987 accepted GGUF files, 48 files rejected by the mapping and 9 files the check accepted but the import rejected.
 
@@ -745,7 +757,7 @@ gemma-4-26B-A4B UD-Q4_K_XL on the raw 6-token prompt is the extreme case. Vulkan
 
 Open, with estimates:
 
-1. **NVFP4 per-tensor scales in GGUF.** Three files: Super-VL NVFP4, LFM3 NVFP4, and Bolt IQ2_XXS (whose `ssm_in` / `ssm_out` are NVFP4).
+1. **NVFP4 per-tensor scales in GGUF** (done in the HF quantization round: the NVFP4 tensor and its multiplier become one `nvfp4_gs` weight, `GgufNvfp4Scales`, `Nvfp4ScaleTests`; LFM3-1.7B NVFP4 generates coherent text on CPU and Vulkan, logit correlation 0.98 with its Q8_0 file; llama.cpp 8ca5a80 was not at hand to compare with). Three files: Super-VL NVFP4, LFM3 NVFP4, and Bolt IQ2_XXS (whose `ssm_in` / `ssm_out` are NVFP4).
    - Each NVFP4 matrix has a `X.scale` multiplier, per tensor or per expert, that llama.cpp applies to the matmul output (`build_lora_mm(w, x, w_s)`). The `X.input_scale` tensors are ignored.
    - The fix is a canonical `*.weight_scale` companion that `GraphBuilder.Linear` and `MoeBlock`'s MatMulId paths multiply in. It cannot be folded into the E4M3 block scales without loss.
    - About 1 day with tiny NVFP4 fixtures. It is shared with the HF NVFP4 work of the quantization workstream.
@@ -761,11 +773,11 @@ Open, with estimates:
    - 144–149 (agentionai's TQ2_T, TQK6, TQK7, TQP5, TQP6, TQP7) are the trellis types `trellis_v{4,2}k{5..8}_g128`, decoded by the managed decoder, the CPU dequantization and the Vulkan `load8` paths, bit-exact against a transcription of the fork's reference decoder. Every Gyro trellis tensor is a Hadamard-rotated expert, so the files import through the rotation unfolding, which dequantizes those experts to F16 at load: correct, but over 200 GB for any of them. Running them in their own size needs the rotation applied to the activations instead (x·H before the expert matmuls, a fast Walsh–Hadamard op on CPU and Vulkan) and the trellis types kept as matmul weights: about 2–3 days. Nothing was run on a real file (30–58 GB).
    - Gyro's `-noPLE` files leave out the n-gram table, which the fork loads from a separate file (`--ple`); the check and the importer report them. Loading the table as an auxiliary source is about 0.5 day.
 5. **MiniMax-H3 pruned files** and the DeepSeek-V4.1 `Engram-IQ4_NL` file have no `general.architecture`. They are malformed at the source and are reported as such; nothing to do.
-6. **HF compressed-tensors quantization nested in `text_config`**, in Kimi-K3 and K3.1-Pro.
+6. **HF compressed-tensors quantization nested in `text_config`**, in Kimi-K3 and K3.1-Pro (done in the HF quantization round: `HfConfig.TryGetQuantization` looks there after the root, for the check and every weight converter; `NestedQuantizationConfigTests`).
    - Their `quantization_config` (MXFP4 pack) sits in `text_config`.
    - `HfSupport` and `HfMxfp4Weights` read only the root config's, so the check calls the checkpoint unquantized and the import does not convert `weight_packed`.
    - The fix is to look up `quantization_config` through the merged config; about 0.5 day. It belongs to the HF quantization workstream (MXFP4), so it is recorded only.
-7. **DeepSeek-V4-Flash native checkpoint (HF).**
+7. **DeepSeek-V4-Flash native checkpoint (HF)** (done in the HF quantization round: F8_E8M0 block scales for the FP8 weights, the I8-packed FP4 experts as `mxfp4`; `E8m0ScaleImportTests`, and `DeepSeekNativeQuantTests` runs the tiny DeepSeek-V4 quantized this way against its own dequantization on CPU and Vulkan; the 284B checkpoint itself was only header-imported).
    - FP8 attention weights plus FP4 experts with `F8_E8M0` scales: the check sees `quant_method fp8` and accepts the checkpoint, and the import stops at the E8M0 scale dtype.
    - The fix is an E8M0 scale reader and E2M1 experts as MXFP4; about 1 day. This is HF quantization workstream territory, so it is recorded only.
 
@@ -804,7 +816,7 @@ Per-repository table (check and import columns count files by outcome; greedy on
 | unsloth/Inkling-2-Small-GGUF | BF16, UD-IQ1_M, UD-IQ1_S, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, UD-Q3_K_XL, UD-Q4_K_XL, UD-Q8_K_XL | 9 arch unsupported (inkling2) | 9 arch unsupported |  |
 | unsloth/Mistral-Large-4-1T-A52B-GGUF | UD-IQ1_S | supported | ok |  |
 | unsloth/Muse-Spark-Open-816B-A42B-GGUF | UD-IQ1_S | supported | ok |  |
-| unsloth/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-GGUF | BF16, IQ2_XXS, UD-IQ1_M, UD-IQ1_S, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, ... (14 files) | 12 supported, 1 mapping, 1 draft | 12 ok, 1 unmapped tensors, 1 draft | dflash-NVFP4: draft model with a LiLiCorr head (not supported) |
+| unsloth/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-GGUF | BF16, IQ2_XXS, UD-IQ1_M, UD-IQ1_S, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, ... (14 files) | 13 supported, 1 draft | 13 ok, 1 draft | IQ2_XXS (NVFP4 `ssm_in` / `ssm_out` with scales) imports since the HF quantization round; dflash-NVFP4: draft model with a LiLiCorr head (not supported) |
 | unsloth/Llama-3.2-3B-Instruct-GGUF | BF16, F16, IQ4_NL, IQ4_XS, Q2_K, Q2_K_L, Q3_K_M, Q3_K_S, Q4_0, Q4_1, Q4_K_M, Q4_K_S, ... (27 files) | 27 supported | 27 ok |  |
 | unsloth/Ministral-3-3B-Reasoning-2512-GGUF | BF16, IQ4_NL, IQ4_XS, Q2_K, Q2_K_L, Q3_K_M, Q3_K_S, Q4_0, Q4_1, Q4_K_M, Q4_K_S, Q5_K_M, ... (26 files) | 26 supported | 26 ok | UD-IQ3_XXS: identical (Vulkan, CPU) |
 | unsloth/Qwen3-VL-4B-Instruct-GGUF | BF16, IQ4_NL, IQ4_XS, Q2_K, Q2_K_L, Q3_K_M, Q3_K_S, Q4_0, Q4_1, Q4_K_M, Q4_K_S, Q5_K_M, ... (26 files) | 26 supported | 26 ok | UD-IQ2_XXS: identical (Vulkan, CPU) |
@@ -845,9 +857,9 @@ Per-repository table (check and import columns count files by outcome; greedy on
 | ggml-org/Flint-GGUF | BF16, Q4_K_M, Q8_0 | 3 supported | 3 ok |  |
 | ggml-org/SmolLM3-3B-GGUF | Q4_K_M, Q8_0, f16 | 3 supported | 3 ok |  |
 | ggml-org/bge-m3-Q8_0-GGUF | (base) | supported | ok |  |
-| ggml-org/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-GGUF | BF16, NVFP4, Q4_0, Q8_0, lilicorr-NVFP4, mtp-BF16, mtp-Q4_0, mtp-Q8_0 | 3 supported, 4 draft, 1 mapping | 3 ok, 4 draft, 1 unmapped tensors | lilicorr-NVFP4: draft model with a LiLiCorr head (not supported) |
+| ggml-org/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-GGUF | BF16, NVFP4, Q4_0, Q8_0, lilicorr-NVFP4, mtp-BF16, mtp-Q4_0, mtp-Q8_0 | 4 supported, 4 draft | 4 ok, 4 draft | NVFP4 (per-tensor scales) imports since the HF quantization round; lilicorr-NVFP4: draft model with a LiLiCorr head (not supported) |
 | Qwen/Qwen3-VL-8B-Instruct-GGUF | F16, Q4_K_M, Q8_0 | 3 supported | 3 ok |  |
-| LiquidAI/LFM3-1.7B-GGUF | BF16, F16, NVFP4, Q4_K_M, Q5_K_M, Q6_K, Q8_0, QAD-Q4_0 | 7 supported, 1 mapping | 7 ok, 1 unmapped tensors | QAD-Q4_0: both differ late (precision) |
+| LiquidAI/LFM3-1.7B-GGUF | BF16, F16, NVFP4, Q4_K_M, Q5_K_M, Q6_K, Q8_0, QAD-Q4_0 | 8 supported | 8 ok | QAD-Q4_0: both differ late (precision); NVFP4 (per-tensor scales) imports since the HF quantization round |
 | ornith-ai/Ornith-1.5-9B-GGUF | BF16, Q4_K_M, Q5_K_M, Q6_K, Q8_0 | 5 supported | 5 ok |  |
 | ornith-ai/Ornith-1.5-35B-A3B-GGUF | BF16, Q4_K_M, Q5_K_M, Q6_K, Q8_0 | 5 supported | 5 ok |  |
 | ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF | IQ2_XS, IQ3_S, IQ3_XXS, Q2_0 | 4 supported | 4 ok |  |
@@ -883,9 +895,9 @@ Per-repository table (check and import columns count files by outcome; greedy on
 | google/gemma-4-26B-A4B-it | safetensors | supported | ok |  |
 | google/medgemma-1.5-4b-it | safetensors | - | gated |  |
 | google/paligemma-3b-pt-224 | safetensors | partial (round 11) | ok |  |
-| nvidia/Gemma-4-26B-A4B-NVFP4 | safetensors | quantization: modelopt NVFP4 | unsupported: UnsupportedWeightFormatException |  |
+| nvidia/Gemma-4-26B-A4B-NVFP4 | safetensors | supported (modelopt NVFP4) | ok | since the HF quantization round |
 | deepseek-ai/DeepSeek-V3.2 | safetensors | supported | ok |  |
-| deepseek-ai/DeepSeek-V4-Flash-0731 | safetensors | supported | unsupported: NotSupportedException |  |
+| deepseek-ai/DeepSeek-V4-Flash-0731 | safetensors | supported | ok | since the HF quantization round (E8M0 scales, FP4 experts) |
 | deepseek-ai/DeepSeek-V4.1-Flash | safetensors | model_type unsupported | model_type unsupported |  |
 | deepseek-ai/DeepSeek-R1 | safetensors | supported | ok |  |
 | zai-org/GLM-5.3-Flash | safetensors | supported | ok |  |
@@ -895,8 +907,8 @@ Per-repository table (check and import columns count files by outcome; greedy on
 | zai-org/GLM-5 | safetensors | supported | ok |  |
 | openai/gpt-oss-20b | safetensors | supported | ok |  |
 | openai/gpt-oss-120b | safetensors | supported | ok |  |
-| moonshotai/Kimi-K3 | safetensors | supported | unmapped tensors |  |
-| moonshotai/Kimi-K3.1-Pro | safetensors | supported | unmapped tensors |  |
+| moonshotai/Kimi-K3 | safetensors | supported (compressed-tensors mxfp4) | ok | since the HF quantization round (quantization config in `text_config`) |
+| moonshotai/Kimi-K3.1-Pro | safetensors | supported (compressed-tensors mxfp4) | ok | since the HF quantization round (quantization config in `text_config`) |
 | MiniMaxAI/MiniMax-M2.5 | safetensors | supported | ok |  |
 | MiniMaxAI/MiniMax-M3.1-Flash | safetensors | quantization: mxfp8 | unmapped tensors |  |
 | XiaomiMiMo/MiMo-V2.6-Pro-RL | safetensors | supported (fp8; round 11) | unsupported: FP8 scale layout of the fused `qkv_proj` (and MXFP4 experts) |  |

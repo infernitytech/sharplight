@@ -33,6 +33,39 @@ internal sealed class SafetensorsTensor
     /// </summary>
     public WeightInfo? Converted { get; init; }
 
+    /// <summary>Address of the stored bytes in the shard's memory map (valid while the checkpoint is open).</summary>
+    public unsafe byte* Pointer => File.BasePointer + File.DataOffset + Offset;
+
+    /// <summary>The value of a one-element float tensor (a per-tensor scale), any float dtype.</summary>
+    /// <exception cref="InvalidDataException">The tensor has more than one element.</exception>
+    public float Scalar()
+    {
+        var values = HfTransforms.DecodeF32(ToWeightInfo());
+        return values.Length == 1 ? values[0] : throw new InvalidDataException($"{Name}: expected one value, found {values.Length}.");
+    }
+
+    /// <summary>The safetensors dtype of OCP E8M0 scales (an exponent byte biased by 127, no sign or mantissa).</summary>
+    public const string E8m0DType = "F8_E8M0";
+
+    /// <summary>The values of a scale tensor in f32: any readable float dtype, or <see cref="E8m0DType"/> (2^(e - 127), 255 is NaN).</summary>
+    /// <exception cref="NotSupportedException">The dtype is neither.</exception>
+    public unsafe float[] DecodeScales()
+    {
+        if (DType != E8m0DType)
+        {
+            return HfTransforms.DecodeF32(ToWeightInfo());
+        }
+
+        var values = new float[ByteLength];
+        byte* codes = Pointer;
+        for (long i = 0; i < values.LongLength; i++)
+        {
+            values[i] = codes[i] == 0xFF ? float.NaN : MathF.ScaleB(1f, codes[i] - 127);
+        }
+
+        return values;
+    }
+
     /// <summary>A zero-copy weight view over the memory map.</summary>
     /// <exception cref="NotSupportedException">The dtype has no Sharplight equivalent.</exception>
     public WeightInfo ToWeightInfo()

@@ -306,7 +306,9 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     [GeneratedRegex(@"^model\.layers\.(\d+)\.(.+)$")]
     private static partial Regex LayerName();
 
-    [GeneratedRegex(@"^mlp\.experts\.(\d+)\.(gate|up|down)_proj\.weight$")]
+    // Per-expert projections under mlp. (Qwen-MoE style) or directly under the layer (Gemma 4 checkpoints that ModelOpt quantized
+    // expert by expert, where transformers itself keeps one fused experts.gate_up_proj / experts.down_proj per layer).
+    [GeneratedRegex(@"^(?:mlp\.)?experts\.(\d+)\.(gate|up|down)_proj\.weight$")]
     private static partial Regex ExpertName();
 
     /// <summary>Per-layer tensors that are only renamed, HF suffix to canonical suffix.</summary>
