@@ -57,14 +57,30 @@ Model assets are not in git (~900 GB on the old machine). Layout expected by tes
 5. For now: feature work first; no benchmark rounds until the user asks again. Performance parity (vLLM, llama.cpp,
    onnxruntime) remains a goal for later.
 
-## 3a. State of `develop` (2026-11-15, new machine)
+## 3a. State of `develop` (2026-11-15 evening, new machine)
 
-`develop` = `main` + SHARPLIGHT_VK_DEVICES, release engineering (CI for develop/main/release/*, NuGet from release/*,
-Velopack Studio packages for 5 RIDs x stable/unstable, update UI; first unstable release live), the Studio test fixes and
-the Core restructure (Llm/Tokenizers/Templating in Core, DI task layer, `.slm` description + attachments,
-`services.AddSharplight()`). Suites on develop: everything green except 99 Families tests (regenerated tiny models whose
-weights differ from the old machine's; identical failures on main, being fixed by regenerating goldens from the
-reference implementations), 49 ONNX conformance (as on main) and 1 Hub test (tests run as root).
+`develop` (pushed) = `main` + everything merged on the new machine: SHARPLIGHT_VK_DEVICES; release engineering (CI for
+develop/main/release/*, NuGet from release/*, Velopack Studio packages for 5 RIDs x stable/unstable, update UI; unstable
+releases live on download.sharplight.dev); Core restructure (Llm/Tokenizers/Templating in Core, DI task layer, `.slm`
+model description + attachments, `services.AddSharplight()`); safe PyTorch pickle loader; weight formats AQLM, MLX
+2/3/5-bit + mxfp4/nvfp4/mxfp8, AutoRound; ONNX ops round 8 and ONNX perf (benchmarks section 35); LLM perf (section 34;
+split-K matvec rows, SM-sized GEMM splits and the faster causal prefill attention kernel on by default); speech-to-text
+(Whisper HF + whisper.cpp, Distil-Whisper, beam search, /v1/audio/transcriptions); text-to-speech round 1 (OuteTTS +
+WavTokenizer); image generation (SD 1.5 / 2.x / SDXL; diffusers, single file, .ckpt, sd.cpp GGUF; /v1/images/generations);
+vision (ViT, DINOv2, CLIP/SigLIP zero-shot, DETR, RT-DETR, Depth Anything V2); two-stage precompilation in the provider
+contract + per-user artifact store + Studio precompile; Studio S0/S1 (kinds, Discover filters), S2 (shared inference page
+blocks, Transcribe and Speak pages); regenerated tiny test models and goldens (tools/model-assets).
+Suites on develop: all green except 49 ONNX conformance (known) and 1 Hub test (tests run as root).
+
+In flight (branches/worktrees): public API pass (static registries -> DI; final develop merge), macOS round 1 (CI green,
+final merge pending), weight formats A2 (bitsandbytes FP4/int8, I2_S, HQQ, EETQ) and A3 (Marlin, gemv_fast, quanto,
+torchao, Quark), weight formats B leftovers (FP-Quant unvalidated, EXL2/3, VPTQ, HIGGS, SpQR, AQLM kernel), Studio S2b
+(Image + Vision pages). Next: cleanup pass, speech round 2 (Moonshine, Parakeet, Canary, Voxtral), TTS round 2 (Kokoro,
+Orpheus+SNAC, CSM+Mimi, Dia, qwen3tts, pockettts), audio (codecs, MusicGen, Stable Audio, CLAP, VAD, Demucs), SAM 2,
+video generation, then the rest of waves 2-3.
+
+Machine notes: tests read ~/models through a local mirror (`/workspace/tools/scripts/sl-test`, `run-suites.sh`,
+`sync-local-models.sh`); keep builds niced (`nice -n 15 ionice -c3`, `-m:4`) and at most ~6 agents.
 
 ## 3. State of `main` (5f16fc09 + this folder)
 
