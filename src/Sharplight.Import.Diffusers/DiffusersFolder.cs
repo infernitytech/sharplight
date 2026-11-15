@@ -22,10 +22,12 @@ internal static class DiffusersFolder
     /// <exception cref="NotSupportedException">The pipeline is not a single-text-encoder UNet pipeline.</exception>
     public static ModelSource Open(string path)
     {
-        if (Directory.Exists(Path.Combine(path, "text_encoder_2")) || Directory.Exists(Path.Combine(path, "transformer")))
+        if (Directory.Exists(Path.Combine(path, "transformer")) || !Directory.Exists(Path.Combine(path, "text_encoder")))
         {
-            throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x pipelines (one CLIP text encoder and a UNet) are supported so far.");
+            throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x / XL pipelines (CLIP text encoders and a UNet) are supported so far.");
         }
+
+        bool xl = Directory.Exists(Path.Combine(path, "text_encoder_2"));
 
         var tensors = new CheckpointTensors();
         try
@@ -33,6 +35,11 @@ internal static class DiffusersFolder
             AddComponent(tensors, path, "unet");
             AddComponent(tensors, path, "vae");
             AddComponent(tensors, path, "text_encoder");
+            if (xl)
+            {
+                AddComponent(tensors, path, "text_encoder_2");
+            }
+
             var weights = new CanonicalWeights();
             foreach (var (name, weight) in tensors.Tensors)
             {
@@ -47,6 +54,9 @@ internal static class DiffusersFolder
                     case "vae":
                         DiffusersNames.AddVae(rest, weight, weights);
                         break;
+                    case "text_encoder_2":
+                        DiffusersNames.AddClipText(rest, weight, LatentDiffusionSource.SecondTextEncoderPrefix, weights);
+                        break;
                     default:
                         DiffusersNames.AddClipText(rest, weight, LatentDiffusionSource.TextEncoderPrefix, weights);
                         break;
@@ -56,11 +66,25 @@ internal static class DiffusersFolder
             var unet = UNetConfig.FromDiffusers(ReadJson(path, "unet", "config.json"));
             var vae = VaeConfig.FromDiffusers(ReadJson(path, "vae", "config.json"), LatentDiffusionSource.StableDiffusion1RgbFactors);
             var text = ClipTextConfig.FromTransformers(ReadJson(path, "text_encoder", "config.json"));
+            ClipTextConfig? secondText = null;
+            int secondPadId = -1;
+            if (xl)
+            {
+                // SDXL conditions on both encoders' penultimate layers, without the final norm.
+                text = text with { ClipSkip = 2, FinalNorm = false };
+                secondText = ClipTextConfig.FromTransformers(ReadJson(path, "text_encoder_2", "config.json")) with { ClipSkip = 2, FinalNorm = false };
+                string secondTokenizer = Path.Combine(path, "tokenizer_2");
+                secondPadId = (Directory.Exists(secondTokenizer) ? ClipVocabulary.FromFolder(secondTokenizer) : ClipVocabulary.OpenAi("!")).PadId;
+            }
+
+            bool zeroEmptyNegative = File.Exists(Path.Combine(path, "model_index.json"))
+                && ReadJson(path, "", "model_index.json").Bool("force_zeros_for_empty_prompt", false);
             var vocabulary = ClipVocabulary.FromFolder(Path.Combine(path, "tokenizer"));
             string schedulerPath = Path.Combine(path, "scheduler", "scheduler_config.json");
             var scheduler = File.Exists(schedulerPath) ? SchedulerSettings.FromDiffusers(File.ReadAllText(schedulerPath)) : new SchedulerSettings();
             string displayName = Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)));
-            return LatentDiffusionSource.Create("diffusers", displayName, path, weights, unet, vae, text, vocabulary, scheduler, tensors.Resources);
+            return LatentDiffusionSource.Create("diffusers", displayName, path, weights, unet, vae, text, vocabulary, scheduler, tensors.Resources,
+                secondText, secondPadId, zeroEmptyNegative);
         }
         catch
         {

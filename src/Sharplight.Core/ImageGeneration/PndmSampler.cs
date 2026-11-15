@@ -26,7 +26,7 @@ internal sealed class PndmSampler : DiffusionSampler
         _timesteps = steps == 1 ? ascending : [.. order.Reverse()];
         _timestepValues = [.. _timesteps.Select(t => (float)t)];
         _stride = schedule.TrainSteps / steps;
-        FinalAlpha = schedule.SetAlphaToOne ? 1f : AlphasCumulative[0];
+        FinalAlpha = (schedule.SetAlphaToOne ?? false) ? 1f : AlphasCumulative[0];
     }
 
     private float FinalAlpha { get; }

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Sharplight.Models;
+using Sharplight.Tensors;
 
 namespace Sharplight.Import.Diffusers;
 
@@ -17,9 +18,13 @@ internal static partial class OpenClipNames
     /// <param name="tensors">The checkpoint's tensors.</param>
     /// <param name="prefix">The tower's prefix (<c>cond_stage_model.model.</c>).</param>
     /// <param name="droppedLayers">Trailing residual blocks not used for the conditioning.</param>
+    /// <param name="projection">
+    /// Also yield the text projection as transformers' <c>text_projection.weight</c> (SDXL's pooled embedding; OpenCLIP stores the
+    /// transposed matrix).
+    /// </param>
     /// <exception cref="InvalidDataException">A tensor of the tower is not recognized.</exception>
     public static IEnumerable<(string Name, WeightInfo Weight)> ToTransformers(IReadOnlyDictionary<string, WeightInfo> tensors, string prefix,
-        int droppedLayers)
+        int droppedLayers, bool projection = false)
     {
         var names = tensors.Keys.Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).ToList();
         int layers = names.Select(n => ResBlock().Match(n[prefix.Length..])).Where(m => m.Success)
@@ -40,8 +45,14 @@ internal static partial class OpenClipNames
                 case "ln_final.weight" or "ln_final.bias":
                     yield return ("text_model.final_layer_norm." + s[(s.IndexOf('.') + 1)..], weight);
                     continue;
-                case "text_projection" or "logit_scale":
-                    // Contrastive head, not used for the conditioning.
+                case "text_projection":
+                    if (projection)
+                    {
+                        yield return ("text_projection.weight", Transposed(weight, "text_projection.weight"));
+                    }
+
+                    continue;
+                case "logit_scale":
                     continue;
             }
 
@@ -81,6 +92,33 @@ internal static partial class OpenClipNames
             };
             yield return (target + module + rest[dot..], weight);
         }
+    }
+
+    /// <summary>The transpose of a 2-D weight of an element-wise storage type, produced on first read.</summary>
+    private static WeightInfo Transposed(WeightInfo weight, string name)
+    {
+        long rows = weight.Shape[0].Fixed;
+        long columns = weight.Shape[1].Fixed;
+        if (weight.Type.IsQuantized)
+        {
+            throw new NotSupportedException($"'{weight.Name}': a block-quantized text projection cannot be transposed.");
+        }
+
+        int element = (int)weight.Type.ByteSize(1);
+        return WeightInfo.Derived(name, weight.Type, new Shape(columns, rows), () =>
+        {
+            var source = weight.ReadAll();
+            var result = new byte[source.Length];
+            for (long r = 0; r < rows; r++)
+            {
+                for (long c = 0; c < columns; c++)
+                {
+                    Buffer.BlockCopy(source, (int)((r * columns + c) * element), result, (int)((c * rows + r) * element), element);
+                }
+            }
+
+            return result;
+        });
     }
 
     [GeneratedRegex(@"^transformer\.resblocks\.(\d+)\.(.+)$")]

@@ -47,6 +47,12 @@ internal sealed record UNetHyperParameters
     /// <summary>Frequency shift of the timestep embedding.</summary>
     public required float FreqShift { get; init; }
 
+    /// <summary>Width of the added conditioning vector (SDXL: pooled text embedding + size embeddings), 0 for none.</summary>
+    public int ClassEmbeddingInput { get; init; }
+
+    /// <summary>Width of the sinusoidal embedding of each size condition (SDXL: 256), 0 for none.</summary>
+    public int AdditionTimeDim { get; init; }
+
     /// <summary>Reads the keys under <c>{prefix}unet.</c>.</summary>
     /// <param name="source">The canonical source.</param>
     /// <param name="prefix">Architecture prefix (<c>latent_diffusion.</c>).</param>
@@ -69,6 +75,8 @@ internal sealed record UNetHyperParameters
             NormEps = source.Get(p + "norm_eps", 1e-5f),
             FlipSinToCos = source.Get(p + "flip_sin_to_cos", true),
             FreqShift = source.Get(p + "freq_shift", 0f),
+            ClassEmbeddingInput = source.Get(p + "class_embedding_input", 0),
+            AdditionTimeDim = source.Get(p + "addition_time_dim", 0),
         };
     }
 }

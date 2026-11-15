@@ -89,6 +89,9 @@ internal sealed class ClipVocabulary
         return new ClipVocabulary([.. tokens], [.. merges], padToken);
     }
 
+    /// <summary>The id of <see cref="PadToken"/> (0 when the vocabulary lacks it).</summary>
+    public int PadId => Math.Max(0, Array.IndexOf(Tokens, PadToken));
+
     /// <summary>Writes the canonical tokenizer keys (under <paramref name="prefix"/>, empty for the model's main tokenizer).</summary>
     /// <param name="metadata">The canonical metadata.</param>
     /// <param name="prefix">Key prefix, e.g. <c>text-encoder-2.</c>, or empty.</param>

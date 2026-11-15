@@ -30,6 +30,9 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly int _defaultSteps;
     private readonly float _defaultGuidance;
     private readonly float[] _rgbFactors;
+    private readonly bool _secondEncoder;
+    private readonly int _secondPadId;
+    private readonly bool _zeroEmptyNegative;
     private readonly Dictionary<string, CompiledModel> _compiled = new(StringComparer.Ordinal);
     private bool _disposed;
 
@@ -41,7 +44,11 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var description = model.Description;
         _tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
         _schedule = NoiseSchedule.FromComponent(description.Component(ModelComponentRoles.Scheduler));
-        _contextLength = description.Component(ModelComponentRoles.TextEncoder).ConfigValue(DiffusionConfigKeys.ContextLength, 77);
+        var textEncoder = description.Component(ModelComponentRoles.TextEncoder);
+        _contextLength = textEncoder.ConfigValue(DiffusionConfigKeys.ContextLength, 77);
+        _secondEncoder = textEncoder.Graphs.Contains(DiffusionGraphs.TextEncode2);
+        _secondPadId = textEncoder.ConfigValue(DiffusionConfigKeys.SecondPadId, -1);
+        _zeroEmptyNegative = textEncoder.ConfigValue(DiffusionConfigKeys.ZeroEmptyNegative, false);
         var vae = description.Component(ModelComponentRoles.Vae);
         _latentChannels = vae.ConfigValue(DiffusionConfigKeys.LatentChannels, 4);
         _downscale = vae.ConfigValue(DiffusionConfigKeys.Downscale, 8);
@@ -207,8 +214,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         return run;
     }
 
-    /// <summary>The text conditioning [rows, L, D]: the negative prompt's row first when guided, then the prompt's.</summary>
-    private float[] EncodePrompts(ImageGenerationRequest request, bool guided)
+    /// <summary>The text conditioning: the negative prompt's row first when guided, then the prompt's.</summary>
+    private PromptConditioning EncodePrompts(ImageGenerationRequest request, bool guided)
     {
         var conditional = EncodePrompt(request.Prompt);
         if (!guided)
@@ -216,20 +223,60 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             return conditional;
         }
 
-        var unconditional = EncodePrompt(request.NegativePrompt ?? "");
-        return [.. unconditional, .. conditional];
+        var unconditional = request.NegativePrompt is null && _zeroEmptyNegative ? conditional.Zeros() : EncodePrompt(request.NegativePrompt ?? "");
+        return unconditional.Append(conditional);
     }
 
-    private float[] EncodePrompt(string prompt)
+    /// <summary>
+    /// One prompt's conditioning: the first encoder's hidden states, with a second encoder's appended per token and its pooled
+    /// embedding (SDXL).
+    /// </summary>
+    private PromptConditioning EncodePrompt(string prompt)
     {
-        var encoder = Compiled(ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, null);
         var tokens = PromptTokens(prompt);
+        var (hidden, pooled) = RunTextEncoder(DiffusionGraphs.TextEncode, tokens);
+        if (!_secondEncoder)
+        {
+            return new PromptConditioning(hidden, pooled);
+        }
+
+        var secondTokens = (int[])tokens.Clone();
+        int end = Array.IndexOf(secondTokens, _tokenizer.EosId ?? secondTokens[^1]);
+        if (_secondPadId >= 0 && end >= 0)
+        {
+            secondTokens.AsSpan(end + 1).Fill(_secondPadId);
+        }
+
+        var (secondHidden, secondPooled) = RunTextEncoder(DiffusionGraphs.TextEncode2, secondTokens);
+        int rows = tokens.Length;
+        int first = hidden.Length / rows;
+        int second = secondHidden.Length / rows;
+        var context = new float[rows * (first + second)];
+        for (int row = 0; row < rows; row++)
+        {
+            hidden.AsSpan(row * first, first).CopyTo(context.AsSpan(row * (first + second)));
+            secondHidden.AsSpan(row * second, second).CopyTo(context.AsSpan(row * (first + second) + first));
+        }
+
+        return new PromptConditioning(context, secondPooled ?? pooled);
+    }
+
+    private (float[] Hidden, float[]? Pooled) RunTextEncoder(string graph, int[] tokens)
+    {
+        var encoder = Compiled(ModelComponentRoles.TextEncoder, graph, null);
         encoder.SetInput<int>(encoder.Graph.Inputs.Single(i => i.Name == DiffusionGraphs.Tokens), tokens);
         var parameters = new RunParameters();
         encoder.Run(parameters);
         var hidden = new float[encoder.OutputShape(DiffusionGraphs.Hidden, parameters).Aggregate(1L, (a, b) => a * b)];
         encoder.GetOutput<float>(DiffusionGraphs.Hidden, hidden);
-        return hidden;
+        float[]? pooled = null;
+        if (encoder.Graph.Outputs.ContainsKey(DiffusionGraphs.Pooled))
+        {
+            pooled = new float[encoder.OutputShape(DiffusionGraphs.Pooled, parameters).Aggregate(1L, (a, b) => a * b)];
+            encoder.GetOutput<float>(DiffusionGraphs.Pooled, pooled);
+        }
+
+        return (hidden, pooled);
     }
 
     /// <summary>Tokenizes a prompt to exactly the context length: start token, at most L - 2 tokens, end token, padding.</summary>
@@ -251,7 +298,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         return [.. ids];
     }
 
-    private float[] Denoise(DiffusionRun run, float[] context, DiffusionSampler sampler, int index, float[] latents)
+    private float[] Denoise(DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index, float[] latents)
     {
         var denoiser = Compiled(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, run.Dimensions);
         int rows = run.Guided ? 2 : 1;
@@ -268,7 +315,21 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var timesteps = Enumerable.Repeat(sampler.Timesteps[index], rows).ToArray();
         denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.Latent), input);
         denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.Timestep), timesteps);
-        denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.Context), context);
+        denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.Context), conditioning.Context);
+        if (denoiser.Graph.Inputs.Any(i => i.Name == DiffusionGraphs.Pooled))
+        {
+            var pooled = conditioning.Pooled ?? throw new InvalidOperationException("The denoiser needs a pooled text embedding, which no text encoder produced.");
+            denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.Pooled), pooled);
+            // Original size = target size = the output size, no crop (diffusers' defaults).
+            float[] size = [run.Height, run.Width, 0f, 0f, run.Height, run.Width];
+            var sizes = new float[size.Length * rows];
+            for (int row = 0; row < rows; row++)
+            {
+                size.CopyTo(sizes, row * size.Length);
+            }
+
+            denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.SizeConditions), sizes);
+        }
         var parameters = new RunParameters();
         parameters.Symbols[DiffusionGraphs.BatchSymbol] = rows;
         denoiser.Run(parameters);

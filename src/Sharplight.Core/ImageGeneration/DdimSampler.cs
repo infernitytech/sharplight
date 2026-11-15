@@ -20,7 +20,7 @@ internal sealed class DdimSampler : DiffusionSampler
         _timesteps = IntegerTimesteps(steps, "leading");
         _timestepValues = [.. _timesteps.Select(t => (float)t)];
         _stride = schedule.TrainSteps / steps;
-        FinalAlpha = schedule.SetAlphaToOne ? 1f : AlphasCumulative[0];
+        FinalAlpha = (schedule.SetAlphaToOne ?? true) ? 1f : AlphasCumulative[0];
     }
 
     private float FinalAlpha { get; }

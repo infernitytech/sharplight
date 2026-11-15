@@ -37,7 +37,7 @@ public sealed class ImporterTests
                 Assert.Equal(folder.Metadata["latent_diffusion.unet." + key], file.Metadata["latent_diffusion.unet." + key]);
             }
 
-            foreach (string key in new[] { "text_encoder.activation", "text_encoder.layer_count", "scheduler.prediction_type" })
+            foreach (string key in new[] { "text_encoder.activation", "text_encoder.layer_count", "text_encoder.clip_skip", "text_encoder.final_norm", "scheduler.prediction_type" })
             {
                 Assert.Equal(folder.Metadata["latent_diffusion." + key], file.Metadata["latent_diffusion." + key]);
             }
@@ -77,7 +77,7 @@ public sealed class ImporterTests
         }
     }
 
-    public static TheoryData<string> Sd15Files => ["single", "ckpt", "f16", "Q8_0", "Q4_0", "sd21"];
+    public static TheoryData<string> Sd15Files => ["single", "ckpt", "f16", "Q8_0", "Q4_0", "sd21", "sdxl"];
 
     [Theory]
     [MemberData(nameof(Sd15Files))]
@@ -88,9 +88,15 @@ public sealed class ImporterTests
             "single" => Env.Sd15SingleFile,
             "ckpt" => Env.Sd15Ckpt,
             "sd21" => Env.Sd21SingleFile,
+            "sdxl" => Env.SdxlSingleFile,
             _ => Env.Sd15Gguf(variant),
         };
-        string diffusers = variant == "sd21" ? Env.Sd21Diffusers : Env.Sd15Diffusers;
+        string diffusers = variant switch
+        {
+            "sd21" => Env.Sd21Diffusers,
+            "sdxl" => Env.SdxlDiffusers,
+            _ => Env.Sd15Diffusers,
+        };
         Assert.SkipUnless(File.Exists(path) && Directory.Exists(diffusers), "SD files missing");
         var importer = new DiffusersImporter();
         var folder = importer.Open(diffusers);
@@ -104,9 +110,20 @@ public sealed class ImporterTests
             }
 
             Assert.Equal(folder.Metadata["latent_diffusion.unet.head_counts"], file.Metadata["latent_diffusion.unet.head_counts"]);
-            foreach (string key in new[] { "unet.sample_size", "text_encoder.head_count", "text_encoder.activation", "scheduler.prediction_type" })
+            foreach (string key in new[] { "unet.sample_size", "unet.head_counts", "text_encoder.head_count", "text_encoder.activation", "text_encoder.clip_skip",
+                         "scheduler.prediction_type", "vae.scaling_factor", "zero_empty_negative" })
             {
                 Assert.Equal(folder.Metadata["latent_diffusion." + key], file.Metadata["latent_diffusion." + key]);
+            }
+
+            if (variant == "sdxl")
+            {
+                foreach (string key in new[] { "text_encoder_2.layer_count", "text_encoder_2.head_count", "text_encoder_2.activation", "text_encoder_2.clip_skip",
+                             "text_encoder_2.final_norm", "text_encoder_2.pad_id", "unet.class_embedding_input", "unet.addition_time_dim",
+                             "unet.down_transformer_depths", "unet.up_transformer_depths", "unet.mid_transformer_depth" })
+                {
+                    Assert.Equal(folder.Metadata["latent_diffusion." + key], file.Metadata["latent_diffusion." + key]);
+                }
             }
 
             Assert.Equal(folder.Metadata[CanonicalKeys.TokenizerPadId], file.Metadata[CanonicalKeys.TokenizerPadId]);

@@ -19,9 +19,15 @@ internal static class ClipTextGraphBuilder
     /// <param name="weights">Canonical weight lookup.</param>
     /// <param name="hp">The encoder hyper-parameters.</param>
     /// <param name="prefix">Canonical weight prefix of the encoder (<c>text_encoder.</c>).</param>
-    public static ComputeGraph Build(Func<string, WeightInfo?> weights, ClipTextHyperParameters hp, string prefix)
+    /// <param name="name">Graph name (<see cref="DiffusionGraphs.TextEncode"/> or <see cref="DiffusionGraphs.TextEncode2"/>).</param>
+    /// <param name="pooled">
+    /// Also output <see cref="DiffusionGraphs.Pooled"/>: the last layer's final-normed state at the end token (the first occurrence
+    /// of the largest token id, as in transformers), times <c>{prefix}projection.weight</c>.
+    /// </param>
+    public static ComputeGraph Build(Func<string, WeightInfo?> weights, ClipTextHyperParameters hp, string prefix, string name = DiffusionGraphs.TextEncode,
+        bool pooled = false)
     {
-        var b = new GraphBuilder(DiffusionGraphs.TextEncode, weights);
+        var b = new GraphBuilder(name, weights);
         int rows = hp.ContextLength;
         int headDim = hp.HiddenSize / hp.HeadCount;
         var tokens = b.Input(DiffusionGraphs.Tokens, InputRole.TokenIds, DataType.I32, new Shape(rows));
@@ -33,7 +39,9 @@ internal static class ClipTextGraphBuilder
 
         var span = b.Constant("prompt_spans", DataType.I32, new Shape(rows, 2), MemoryMarshal.AsBytes(spans.AsSpan()).ToArray());
         var x = b.Add(b.Gather(b.Weight(prefix + "token_embedding.weight"), tokens), b.Weight(prefix + "position_embedding.weight"));
-        int lastLayer = hp.LayerCount - Math.Max(1, hp.ClipSkip);
+        int conditioningLayer = hp.LayerCount - Math.Max(1, hp.ClipSkip);
+        int lastLayer = pooled ? hp.LayerCount - 1 : conditioningLayer;
+        Value? conditioning = null;
         for (int layer = 0; layer <= lastLayer; layer++)
         {
             using var _ = b.Group($"layers.{layer}");
@@ -47,10 +55,22 @@ internal static class ClipTextGraphBuilder
             var up = b.Linear(DiffusionBlocks.LayerNorm(b, x, p + "norm2", hp.NormEps), p + "mlp.up.weight", p + "mlp.up.bias");
             var activated = hp.Activation == "quick_gelu" ? b.Mul(up, b.Sigmoid(b.Scale(up, QuickGeluScale))) : b.Unary("Gelu", up);
             x = b.Add(x, b.Linear(activated, p + "mlp.down.weight", p + "mlp.down.bias"));
+            if (layer == conditioningLayer)
+            {
+                conditioning = x;
+            }
         }
 
-        var hidden = hp.FinalNorm ? DiffusionBlocks.LayerNorm(b, x, prefix + "final_norm", hp.NormEps) : x;
+        var hidden = hp.FinalNorm ? DiffusionBlocks.LayerNorm(b, conditioning!, prefix + "final_norm", hp.NormEps) : conditioning!;
         b.Output(DiffusionGraphs.Hidden, hidden);
+        if (pooled)
+        {
+            var normed = DiffusionBlocks.LayerNorm(b, x, prefix + "final_norm", hp.NormEps);
+            var end = b.Reshape(b.Emit1("ArgMax", [b.Reshape(b.Emit1("Cast", [tokens], Attributes.From(("type", "f32"))), 1, rows)]), 1);
+            var state = b.Gather(normed, end);
+            b.Output(DiffusionGraphs.Pooled, b.Reshape(b.Linear(state, prefix + "projection.weight"), -1));
+        }
+
         return b.Build();
     }
 }

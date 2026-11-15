@@ -17,6 +17,9 @@ internal static class LatentDiffusionSource
     /// <summary>Canonical weight prefix of the (first) text encoder.</summary>
     public const string TextEncoderPrefix = "text_encoder.";
 
+    /// <summary>Canonical weight prefix of the second text encoder (SDXL).</summary>
+    public const string SecondTextEncoderPrefix = "text_encoder_2.";
+
     /// <summary>The SD 1.x / 2.x latent-to-RGB preview factors ([4, 3], row-major).</summary>
     public static readonly float[] StableDiffusion1RgbFactors =
     [
@@ -37,8 +40,12 @@ internal static class LatentDiffusionSource
     /// <param name="vocabulary">The text encoder's tokenizer.</param>
     /// <param name="scheduler">Scheduler settings.</param>
     /// <param name="resources">The open files backing the weights.</param>
+    /// <param name="secondText">The second text encoder (SDXL: OpenCLIP bigG with a projection, weights under <c>text_encoder_2.</c>), or null.</param>
+    /// <param name="secondPadId">The padding id of the second encoder's prompts.</param>
+    /// <param name="zeroEmptyNegative">Whether a missing negative prompt conditions with zeros (diffusers' <c>force_zeros_for_empty_prompt</c>).</param>
     public static ModelSource Create(string format, string name, string path, CanonicalWeights weights, UNetConfig unet, VaeConfig vae,
-        ClipTextConfig text, ClipVocabulary vocabulary, SchedulerSettings scheduler, IReadOnlyList<IDisposable> resources)
+        ClipTextConfig text, ClipVocabulary vocabulary, SchedulerSettings scheduler, IReadOnlyList<IDisposable> resources,
+        ClipTextConfig? secondText = null, int secondPadId = -1, bool zeroEmptyNegative = false)
     {
         var metadata = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -48,6 +55,13 @@ internal static class LatentDiffusionSource
         unet.WriteTo(metadata, Prefix);
         vae.WriteTo(metadata, Prefix);
         text.WriteTo(metadata, Prefix, "text_encoder");
+        if (secondText is not null)
+        {
+            secondText.WriteTo(metadata, Prefix, "text_encoder_2");
+            metadata[Prefix + "text_encoder_2.pad_id"] = secondPadId;
+        }
+
+        metadata[Prefix + "zero_empty_negative"] = zeroEmptyNegative;
         vocabulary.WriteTo(metadata, "", text.ContextLength);
         scheduler.WriteTo(metadata, Prefix);
         return new ModelSource

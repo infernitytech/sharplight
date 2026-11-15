@@ -33,8 +33,11 @@ public sealed record NoiseSchedule
     /// <summary>Offset added to <c>leading</c> timesteps.</summary>
     public int StepsOffset { get; init; }
 
-    /// <summary>Whether DDIM-type samplers end at alpha 1 instead of the first training alpha.</summary>
-    public bool SetAlphaToOne { get; init; }
+    /// <summary>
+    /// Whether DDIM-type samplers end at alpha 1 instead of the first training alpha, or <see langword="null"/> for the sampler's
+    /// default (as in diffusers: DDIM on, PNDM off).
+    /// </summary>
+    public bool? SetAlphaToOne { get; init; }
 
     /// <summary>Whether the betas are rescaled to zero terminal SNR.</summary>
     public bool ZeroTerminalSnr { get; init; }
@@ -60,7 +63,7 @@ public sealed record NoiseSchedule
             PredictionType = component.ConfigValue(DiffusionConfigKeys.PredictionType, defaults.PredictionType),
             TimestepSpacing = component.ConfigValue<string?>(DiffusionConfigKeys.TimestepSpacing, null),
             StepsOffset = component.ConfigValue(DiffusionConfigKeys.StepsOffset, defaults.StepsOffset),
-            SetAlphaToOne = component.ConfigValue(DiffusionConfigKeys.SetAlphaToOne, defaults.SetAlphaToOne),
+            SetAlphaToOne = component.Config.ContainsKey(DiffusionConfigKeys.SetAlphaToOne) ? component.ConfigValue(DiffusionConfigKeys.SetAlphaToOne, false) : null,
             ZeroTerminalSnr = component.ConfigValue(DiffusionConfigKeys.ZeroTerminalSnr, defaults.ZeroTerminalSnr),
             Sampler = component.ConfigValue(DiffusionConfigKeys.Sampler, defaults.Sampler),
             ClipSample = component.Config.ContainsKey(DiffusionConfigKeys.ClipSample) ? component.ConfigValue(DiffusionConfigKeys.ClipSample, true) : null,

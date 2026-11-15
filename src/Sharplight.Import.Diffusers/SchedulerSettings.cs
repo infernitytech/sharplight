@@ -33,8 +33,11 @@ internal sealed record SchedulerSettings
     /// <summary>Offset added to <c>leading</c> timesteps.</summary>
     public int StepsOffset { get; init; } = 1;
 
-    /// <summary>Whether DDIM's final step goes to alpha 1 (instead of the first training alpha).</summary>
-    public bool SetAlphaToOne { get; init; }
+    /// <summary>
+    /// Whether DDIM's final step goes to alpha 1 (instead of the first training alpha), or <see langword="null"/> for the sampler's
+    /// default (diffusers: DDIM on, PNDM off) when the configuration does not say.
+    /// </summary>
+    public bool? SetAlphaToOne { get; init; } = false;
 
     /// <summary>Whether the betas are rescaled to zero terminal SNR.</summary>
     public bool ZeroTerminalSnr { get; init; }
@@ -65,7 +68,11 @@ internal sealed record SchedulerSettings
         }
 
         metadata[p + "steps_offset"] = StepsOffset;
-        metadata[p + "set_alpha_to_one"] = SetAlphaToOne;
+        if (SetAlphaToOne is { } alphaToOne)
+        {
+            metadata[p + "set_alpha_to_one"] = alphaToOne;
+        }
+
         metadata[p + "zero_terminal_snr"] = ZeroTerminalSnr;
         if (ClipSample is { } clip)
         {
@@ -105,7 +112,9 @@ internal sealed record SchedulerSettings
             PredictionType = config.String("prediction_type", "epsilon"),
             TimestepSpacing = config.TryGetProperty("timestep_spacing", out var spacing) && spacing.ValueKind == JsonValueKind.String ? spacing.GetString() : null,
             StepsOffset = config.Int("steps_offset", 0),
-            SetAlphaToOne = config.Bool("set_alpha_to_one", false),
+            SetAlphaToOne = config.TryGetProperty("set_alpha_to_one", out var alphaToOne) && alphaToOne.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? alphaToOne.GetBoolean()
+                : null,
             ZeroTerminalSnr = config.Bool("rescale_betas_zero_snr", false),
             ClipSample = config.TryGetProperty("clip_sample", out var clip) && clip.ValueKind is JsonValueKind.True or JsonValueKind.False ? clip.GetBoolean() : null,
             Sampler = sampler,

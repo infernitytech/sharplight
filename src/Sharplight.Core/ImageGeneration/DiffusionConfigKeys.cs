@@ -31,6 +31,15 @@ public static class DiffusionConfigKeys
     /// <summary>Text encoder and tokenizer: tokens per prompt, including the start and end tokens (77 for CLIP).</summary>
     public const string ContextLength = "contextLength";
 
+    /// <summary>Text encoder: the padding token id of the second encoder's prompts (SDXL's OpenCLIP tokenizer pads with <c>!</c>).</summary>
+    public const string SecondPadId = "secondPadId";
+
+    /// <summary>
+    /// Text encoder: when no negative prompt is given, the unconditional conditioning is all zeros instead of the empty prompt's
+    /// encoding (diffusers' <c>force_zeros_for_empty_prompt</c>, SDXL).
+    /// </summary>
+    public const string ZeroEmptyNegative = "zeroEmptyNegative";
+
     /// <summary>Scheduler: number of training timesteps (default 1000).</summary>
     public const string TrainSteps = "trainSteps";
 

@@ -24,6 +24,15 @@ internal static class Env
     /// <summary>Stable Diffusion 2.1 (768-v) as a single-file checkpoint.</summary>
     public static readonly string Sd21SingleFile = Path.Combine(Home, "models/sd/v2-1_768-ema-pruned.safetensors");
 
+    /// <summary>SDXL base 1.0 as a diffusers folder (fp16 files).</summary>
+    public static readonly string SdxlDiffusers = Path.Combine(Home, "models/sd/sdxl-diffusers");
+
+    /// <summary>SDXL base 1.0 as a single-file checkpoint.</summary>
+    public static readonly string SdxlSingleFile = Path.Combine(Home, "models/sd/sd_xl_base_1.0.safetensors");
+
+    /// <summary>The tiny random SDXL pipeline (tools/make-tiny-sdxl.py).</summary>
+    public static readonly string TinyXl = Path.Combine(Home, "models/sd/tiny-random-sdxl");
+
     /// <summary>Stable Diffusion 1.5 as a diffusers folder.</summary>
     public static readonly string Sd15Diffusers = Path.Combine(Home, "models/sd/sd15-diffusers");
 
@@ -52,7 +61,12 @@ internal static class Env
     public static string TinyReference => Path.Combine(Tiny, "reference");
 
     /// <summary>The root folder of a tiny family ("sd1" or "sd2").</summary>
-    public static string TinyRoot(string family) => family == "sd2" ? Tiny2 : Tiny;
+    public static string TinyRoot(string family) => family switch
+    {
+        "sd2" => Tiny2,
+        "sdxl" => TinyXl,
+        _ => Tiny,
+    };
 
     /// <summary>The diffusers folder of a tiny family.</summary>
     public static string TinyDiffusersOf(string family) => Path.Combine(TinyRoot(family), "diffusers");

@@ -48,7 +48,13 @@ internal sealed class UNetGraphBuilder
         Value time;
         using (_b.Group("time_embedding"))
         {
-            time = _b.Silu(TimeEmbedding(timestep));
+            time = TimeEmbedding(timestep);
+            if (_hp.ClassEmbeddingInput > 0)
+            {
+                time = _b.Add(time, AddedConditioning(batch));
+            }
+
+            time = _b.Silu(time);
         }
 
         var h = DiffusionBlocks.Conv(_b, latent, "unet.input_conv");
@@ -120,7 +126,33 @@ internal sealed class UNetGraphBuilder
     /// <summary>Sinusoidal embedding of the timesteps [N] → [N, C0], then the two-layer MLP → [N, 4·C0].</summary>
     private Value TimeEmbedding(Value timestep)
     {
-        int width = _hp.BlockChannels[0];
+        var embedding = Sinusoids(_b.Reshape(timestep, 0, 1), _hp.BlockChannels[0], 1, "time_frequencies");
+        var hidden = _b.Silu(_b.Linear(embedding, "unet.time_embedding.linear1.weight", "unet.time_embedding.linear1.bias"));
+        return _b.Linear(hidden, "unet.time_embedding.linear2.weight", "unet.time_embedding.linear2.bias");
+    }
+
+    /// <summary>
+    /// SDXL's added conditioning: the pooled text embedding [N, P] and the sinusoidal embeddings of the six size conditions
+    /// [N, 6] (each <see cref="UNetHyperParameters.AdditionTimeDim"/> wide), concatenated and passed through the two-layer MLP
+    /// <c>unet.class_embedding.linear1|linear2</c> → [N, 4·C0].
+    /// </summary>
+    private Value AddedConditioning(Dim batch)
+    {
+        const int conditions = 6;
+        int pooledWidth = _hp.ClassEmbeddingInput - conditions * _hp.AdditionTimeDim;
+        var pooled = _b.Input(DiffusionGraphs.Pooled, InputRole.Other, DataType.F32, new Shape(batch, pooledWidth));
+        var sizes = _b.Input(DiffusionGraphs.SizeConditions, InputRole.Other, DataType.F32, new Shape(batch, conditions));
+        var embedded = _b.Reshape(Sinusoids(_b.Reshape(sizes, 0, conditions, 1), _hp.AdditionTimeDim, 2, "size_frequencies"), 0, conditions * _hp.AdditionTimeDim);
+        var hidden = _b.Silu(_b.Linear(_b.Concat(1, pooled, embedded), "unet.class_embedding.linear1.weight", "unet.class_embedding.linear1.bias"));
+        return _b.Linear(hidden, "unet.class_embedding.linear2.weight", "unet.class_embedding.linear2.bias");
+    }
+
+    /// <summary>
+    /// Sinusoidal embedding of <paramref name="values"/> (last axis of size 1) into <paramref name="width"/> channels along
+    /// <paramref name="axis"/>, the last one: cosines first when the model flips them, frequencies 10000^(-i / (half - shift)).
+    /// </summary>
+    private Value Sinusoids(Value values, int width, int axis, string name)
+    {
         int half = width / 2;
         var frequencies = new float[half];
         for (int i = 0; i < half; i++)
@@ -128,13 +160,12 @@ internal sealed class UNetGraphBuilder
             frequencies[i] = (float)Math.Exp(-Math.Log(10000) * i / (half - _hp.FreqShift));
         }
 
-        var table = _b.Constant("time_frequencies", DataType.F32, new Shape(1, half), MemoryMarshal.AsBytes(frequencies.AsSpan()).ToArray());
-        var arguments = _b.Mul(_b.Reshape(timestep, 0, 1), table);
+        var shape = axis == 1 ? new Shape(1, half) : new Shape(1, 1, half);
+        var table = _b.Constant(name, DataType.F32, shape, MemoryMarshal.AsBytes(frequencies.AsSpan()).ToArray());
+        var arguments = _b.Mul(values, table);
         var sin = _b.Unary("Sin", arguments);
         var cos = _b.Unary("Cos", arguments);
-        var embedding = _hp.FlipSinToCos ? _b.Concat(1, cos, sin) : _b.Concat(1, sin, cos);
-        var hidden = _b.Silu(_b.Linear(embedding, "unet.time_embedding.linear1.weight", "unet.time_embedding.linear1.bias"));
-        return _b.Linear(hidden, "unet.time_embedding.linear2.weight", "unet.time_embedding.linear2.bias");
+        return _hp.FlipSinToCos ? _b.Concat(axis, cos, sin) : _b.Concat(axis, sin, cos);
     }
 
     /// <summary>
