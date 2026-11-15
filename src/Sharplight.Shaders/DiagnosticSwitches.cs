@@ -64,6 +64,10 @@ namespace Sharplight.Shaders;
 /// 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its weight fragments per workgroup, subgroups per workgroup and K block.
 /// <c>SHARPLIGHT_SKINNY_X16=0</c>: convert f32 activation rows while staging instead of reading the shared f16 copy.
 /// <c>SHARPLIGHT_SKINNY_DIRECT=0</c>: always stage its operands in shared memory (no direct fragment loads).</item>
+/// <item><c>SHARPLIGHT_GEMM_WAVE=n</c>: tensor-core GEMM tiles assumed to run at once when choosing K splits (default: the
+/// device's compute units, 192 when unknown).</item>
+/// <item><c>SHARPLIGHT_MV_ROWS=n</c>: output rows per workgroup of the single-row split-K matvec (default 2 for single matrices
+/// with at least 1024 rows, else 1; 1 restores one row per workgroup).</item>
 /// <item><c>SHARPLIGHT_FP8_DUAL_TALL=0</c>: the dual fp8 gate / up GEMM keeps 64-row tiles above 64 rows.</item>
 /// <item><c>SHARPLIGHT_NORM_HALF_COPY=0</c>: row norms feeding matmuls do not also write the f16 activation copy the tensor-core
 /// GEMMs read; a separate conversion launch makes it.</item>
@@ -211,6 +215,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Tensor-core GEMM tiles assumed to run at once when choosing K splits (<c>SHARPLIGHT_GEMM_WAVE</c>), or null.</summary>
     public static long? GemmWaveTiles { get; } = Read("SHARPLIGHT_GEMM_WAVE") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>Forced output rows per workgroup of the single-row split-K matvec, or null for the default.</summary>
+    public static long? SplitKMatvecRows { get; } = Read("SHARPLIGHT_MV_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>False keeps small-batch matmuls off the skinny tensor-core GEMM.</summary>
     public static bool SkinnyGemm { get; } = IsNotZero("SHARPLIGHT_SKINNY_GEMM");
