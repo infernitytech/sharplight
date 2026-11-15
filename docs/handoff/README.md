@@ -82,17 +82,113 @@ Not started (planned): extra weight formats (Marlin GPTQ/AWQ, AWQ gemv_fast, Aut
 Quark int/MXFP6, EXL2/EXL3, AQLM, VPTQ, HIGGS, SpQR, FP-Quant, MLX FP4 + other bit widths, bitsandbytes FP4/int8 kept
 quantized, GGUF I2_S, safe PyTorch pickle `.bin/.pt/.ckpt` loader); the earlier agent produced nothing committable.
 
-## 5. Plan / queue
+## 5. Plan / queue (roadmap, 2026-11-15, new 3-GPU machine)
 
-1. Finish `wip/core-restructure` and merge (alone; it touches everything).
-2. In parallel after that (the new machine allows more agents; still use worktrees, see memory/git-worktrees-parallel.md):
-   ONNX ops (`wip/onnx-ops`), weight formats, Whisper STT, image generation (SD family), TTS (qwen3tts, pockettts,
-   wavtokenizer-dec / OuteTTS, Kokoro, Orpheus+SNAC, CSM+Mimi, Dia).
-3. Then: vision tasks, audio (codecs, MusicGen, Stable Audio, CLAP, VAD, Demucs), video generation, speech-to-speech
-   (Moshi, Omni talkers), time series, retrieval, 3D, bio, VLA.
-4. Studio overhaul once the task layer is on main.
-5. Per round: privacy scan of the diff (no personal email, no home paths), merge to main, build, suites, remove the
-   worktree. Push to GitHub only when the user says so.
+Every model class of the long-term goal (section 2) is on this list; none is out of scope without asking the user.
+Each wave runs as parallel worktree agents (about 6-8 at a time, GPU-heavy agents pinned with `SHARPLIGHT_VK_DEVICES`).
+A model class is done when it imports, runs through a Core task utility, converts to `.slm` and loads from it on the
+fast path (page-aligned, mmap-able weights, per-component precompilation), shows correctly in the Studio `.slm`
+inspector, matches its reference implementation, and has a Studio page. The `.slm` description stays generic: open
+kind and component-role strings, per-component JSON config and attachments, nothing LLM-specific.
+
+**Step 1 – Core restructure** (`wip/core-restructure`, alone): Llm/Tokenizers/Templating in Core, task layer (text
+generation, speech recognition, speech synthesis, image generation; open for new kinds), audio/image I/O, versioned JSON
+"model kind + components" description in `.slm`, DI registration (`services.AddSharplight()`), docs/packaging/CI.
+
+**Step 2 – Public API pass** (alone, right after step 1): Microsoft design guidelines across the public API; every static
+registry (`XxxImporter.Register()`, provider registration) becomes `IServiceCollection` extensions plus options; task
+utilities shaped like Microsoft.Extensions.AI (IChatClient, ISpeechToTextClient, IImageGenerator, IEmbeddingGenerator);
+samples, Server, Studio and docs follow. Rules in docs/code-style.md.
+
+**Wave 1** (in parallel after step 2; ONNX ops, weight formats and performance may start during step 2):
+- ONNX ops (`wip/onnx-ops`): GroupQueryAttention, RotaryEmbedding, (Skip)SimplifiedLayerNormalization, NonMaxSuppression,
+  RoiAlign, Loop, STFT (generic Core DSP op), runtime Range, bertsquad CPU i32 Scale; vs onnxruntime.
+- Weight formats and containers: Marlin GPTQ/AWQ, AWQ gemv_fast, AutoRound, HQQ, EETQ, quanto, torchao, Quark int/MXFP6,
+  EXL2/EXL3, AQLM, VPTQ, HIGGS, SpQR, FP-Quant, MLX FP4 + other bit widths, bitsandbytes FP4/int8 kept quantized, GGUF I2_S,
+  safe restricted PyTorch pickle loader (.bin/.pt/.ckpt); bit-exact vs the reference libraries.
+- Speech-to-text (`wip/whisper`): Whisper (HF + whisper.cpp ggml .bin) vs transformers and whisper.cpp on jfk.wav; then
+  Distil-Whisper, Moonshine, Parakeet (CTC/TDT), Canary, Voxtral; long-audio chunking with VAD.
+- Image generation (`wip/diffusers`): diffusers + single-file LDM importer, UNet/VAE/CLIP/T5 graphs, schedulers, CFG;
+  SD1.5 vs diffusers and stable-diffusion.cpp, then SD2.x, SDXL, SD3/3.5, FLUX.1, Chroma, Qwen-Image; img2img, inpainting,
+  LoRA, ControlNet, TAESD (the stable-diffusion.cpp feature set).
+- Text-to-speech: llama.cpp TTS archs (qwen3tts, pockettts, OuteTTS with wavtokenizer-dec), Kokoro, Orpheus + SNAC,
+  CSM + Mimi, Dia.
+- Performance (re-enabled 2026-11-15): new baseline on this hardware vs llama.cpp CUDA/Vulkan, vLLM and onnxruntime
+  (docs/benchmarks.md model set); resume `wip/vulkan-matvec-rows`, then the open gaps in docs/roadmap.md "In progress";
+  later the new model classes (Whisper, SD) vs whisper.cpp / stable-diffusion.cpp / diffusers.
+- Studio S0/S1 (see the Studio track below).
+
+**Wave 2:**
+- Vision: classification / image embeddings (ViT, DINOv2/v3, CLIP, SigLIP), detection (DETR, RT-DETR, YOLO), segmentation
+  (SAM 2, Mask2Former), depth (Depth Anything, DPT), OCR (TrOCR, PaddleOCR, Florence-2 / GOT-OCR), upscalers (Real-ESRGAN,
+  SwinIR).
+- Audio: codecs (EnCodec, DAC, SNAC, Mimi), MusicGen, Stable Audio Open, CLAP, VAD (Silero), source separation (Demucs).
+- Video generation: Wan 2.x, LTX-Video.
+- Speech-to-speech: Moshi, Omni models with talkers (Qwen-Omni).
+- LLM breadth: the remaining llama.cpp archs (168/172 + inkling) and new archs as llama.cpp adds them; mmproj follow-ups.
+
+**Wave 3:**
+- Time series: Chronos (incl. Bolt), TimesFM, Moirai.
+- Retrieval: ColBERT, ColPali, SPLADE (next to the existing embeddings / rerankers).
+- 3D: TripoSR, Hunyuan3D, VGGT.
+- Bio: ESM-2/ESM-3, Evo, DNA models (Nucleotide Transformer, DNABERT, Caduceus).
+- Robotics VLA: OpenVLA, pi0.
+
+**Unified (user, 2026-11-15: "Everything should be unified"):** one system for all model types, no per-type silos.
+Engine: one model concept (kind + components), one load path (`.slm`, importers convert into it), one task API pattern
+(DI-registered clients with options, async, MEAI-shaped), one registration (`services.AddSharplight()`), one serving
+surface. Studio: one library, one Discover/download flow with type filters, one convert / inspect / load / unload /
+residency model, and inference pages built from shared components (model picker, parameter panel, presets, run queue,
+history, outputs gallery, export) so every type looks and behaves the same; chat is one of these pages.
+
+**Studio track** (one agent continuously from wave 1 on; docs/studio.md):
+- S0: Studio on the DI API and the task layer; the library reads the `.slm` model kind and shows every model by type.
+- S1: Model download overhaul for all model types:
+  - Filters: model type / task (text generation, vision-language, speech-to-text, text-to-speech, image generation,
+    video generation, vision tasks, audio, embeddings / retrieval, time series, 3D, bio, VLA; mapped from Hub pipeline
+    tags and library names), format (GGUF, safetensors, diffusers, ONNX, whisper.cpp, `.slm`), quantization, size /
+    fits this machine, license, gated, plus sort by trending / downloads / likes / recent.
+  - Discover highlights per model type (Trending / New / Most downloaded per kind) with the Supported-only switch.
+  - Multi-component repos (diffusers folders, encoder + decoder + vocoder sets, whisper.cpp files, ONNX) downloaded as
+    one model, with per-kind compatibility badges and fit estimates; conversion to `.slm` for every kind.
+- S2: a dedicated inference page per model type, added as each type lands on main: Transcribe (file/microphone, timestamps,
+  subtitles export), Speak (voices, streaming playback, WAV export), Image (txt2img, img2img, inpaint, seeds, gallery),
+  Vision (drop an image: labels, boxes, masks, depth, OCR overlays), Audio (music generation, separation, codec playground),
+  Video (text-to-video and image-to-video: prompt, frames / fps / resolution, seed, scheduler, live frame preview,
+  playback, export to frames and MP4/WebM), Search (embeddings / retrieval over local documents), Time series
+  (CSV → forecast chart), 3D viewer.
+- S3: chat with voice in/out (STT + TTS) and image generation; the serving page and Sharplight.Server expose
+  OpenAI-compatible endpoints for the new types (/v1/audio/transcriptions, /v1/audio/speech, /v1/images/generations,
+  /v1/embeddings).
+- S4: screenshot tests per page, docs, then a Linux Studio release when the user says.
+
+**macOS track** (branch `macos/round-1`, docs/macos.md; user decisions 2026-11-15): no Mac locally, so testing runs on
+GitHub's macOS / Linux-arm64 runners. Pushing only `macos/round-1` is allowed for CI runs (privacy scan first).
+- M1: merge main into it (again after each big merge), keep macOS + Linux CI green, then merge it into main.
+- M2: native Metal execution provider (plan in docs/macos.md), behind the same provider abstraction and device features.
+- M3: NEON CPU kernel performance against llama.cpp on the Arm64 runners.
+- Studio `.app` stays an unsigned CI artifact until the user asks for signing.
+
+**Branches (user, 2026-11-15):** `main` is stable; `develop` is the unstable integration branch that every agent branch
+merges into; develop merges into main once everything is green; releases come from `release/vX.Y` branches
+(Nerdbank.GitVersioning).
+
+**Release track (Studio for Linux, Windows, macOS):**
+- R1: versioning and CI for the branch model: NBGV public releases from main and release/*, prerelease versions on
+  develop; CI builds and tests develop, main and release/*; NuGet packages publish from release branches.
+- R2: Studio app packages per OS: Linux (AppImage + tar.gz), Windows (Velopack Setup.exe, portable zip), macOS (.app in
+  a Velopack .pkg / zip; signing and notarization when the user provides certificates). Self-contained, trimmed where safe.
+- R3: Velopack install / update in Studio: startup hook; update checks; an update-available dialog with release notes,
+  download progress and restart-to-apply; a settings section (version, channel, auto-check, check now). 10 channels:
+  `<rid>-stable` (from release/*) and `<rid>-unstable` (from develop) for win-x64, win-arm64, linux-x64, linux-arm64,
+  osx-arm64. CI uploads releases and delta packages to the user's Cloudflare R2 bucket (S3 API; GitHub secrets
+  R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET); apps download from its public custom domain
+  (configurable, repository variable STUDIO_UPDATE_URL).
+
+**Per round:** privacy scan of the diff (no personal email, no home paths), merge to develop, build, all suites in parallel
+across the GPUs, remove the worktree, the machine cleanup (prune worktrees, old temp files), start the next item. Keep
+docs/model-support.md, docs/onnx-support.md and this file current. Push to GitHub only when the user says so; never push
+a `v*` tag; `macos/round-1` stays separate.
 
 Agent briefs: docs/bringup-brief.md (architecture rules; note it still says `master` — the branch is `main`, and the
 importer projects are now `Sharplight.Import.*`), docs/cleanup-brief.md, docs/code-style.md. Tests are xunit v3

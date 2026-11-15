@@ -209,7 +209,7 @@ internal static class CompatibilityChecker
         return level switch
         {
             SupportLevel.Unsupported => new ModelCompatibility(CompatibilityState.UnsupportedWeightFormat, method,
-                $"The weights are quantized with {method}, which the importer does not read, so importing fails. Unquantized, FP8 and gpt-oss MXFP4 checkpoints are read."),
+                $"The weights are quantized with {method}, which the importer does not read, so importing fails."),
             null => ModelCompatibility.Unknown($"{architecture.Reason} The weights are quantized with {method}, a method not known to this version; importing shows whether it is read."),
             _ => architecture with { Reason = architecture.Reason + (method is null ? " The weights are not quantized." : $" The weights are quantized with {method}, which is read.") },
         };
