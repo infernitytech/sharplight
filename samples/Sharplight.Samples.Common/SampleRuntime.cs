@@ -38,9 +38,17 @@ public sealed class SampleRuntime : IDisposable
     /// <param name="cpu">Select the CPU provider.</param>
     /// <returns>The provider; owned by the runtime.</returns>
     /// <exception cref="SampleException">No matching provider is available on this machine.</exception>
-    public IExecutionProvider SelectProvider(bool cpu)
+    public IExecutionProvider SelectProvider(bool cpu) => SelectProvider(Providers, cpu);
+
+    /// <summary>Returns the first available provider of <paramref name="providers"/>: the CPU provider when <paramref name="cpu"/> is set, otherwise a GPU provider.</summary>
+    /// <param name="providers">The providers of a container.</param>
+    /// <param name="cpu">Select the CPU provider.</param>
+    /// <returns>The provider; owned by the container.</returns>
+    /// <exception cref="SampleException">No matching provider is available on this machine.</exception>
+    public static IExecutionProvider SelectProvider(ExecutionProviderCatalog providers, bool cpu)
     {
-        foreach (var (provider, availability) in Providers.Discover())
+        ArgumentNullException.ThrowIfNull(providers);
+        foreach (var (provider, availability) in providers.Discover())
         {
             bool isCpu = provider.Name == CpuProviderName;
             if (availability.IsAvailable && isCpu == cpu)

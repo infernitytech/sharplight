@@ -12,6 +12,7 @@ namespace Sharplight.Models;
 public sealed class ArchitectureCatalog
 {
     private readonly IModelAdapter[] _adapters;
+    private readonly ICompositeModelAdapter[] _composites;
     private readonly Dictionary<string, IModelAdapter> _byArchitecture = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IMultimodalArchitecture> _multimodal = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _auxiliaryOnly = new(StringComparer.OrdinalIgnoreCase);
@@ -20,11 +21,13 @@ public sealed class ArchitectureCatalog
     /// <param name="adapters">The adapters in registration order; for an architecture claimed by several, the last one wins.</param>
     /// <param name="multimodal">Prompt assembly for image-capable architectures; for an architecture claimed by several, the last one wins.</param>
     /// <param name="auxiliaryOnly">Architectures that are only loaded as auxiliary sources.</param>
+    /// <param name="composites">Adapters that build one model from several sources, consulted in registration order.</param>
     public ArchitectureCatalog(IEnumerable<IModelAdapter> adapters, IEnumerable<IMultimodalArchitecture>? multimodal = null,
-        IEnumerable<AuxiliaryArchitecture>? auxiliaryOnly = null)
+        IEnumerable<AuxiliaryArchitecture>? auxiliaryOnly = null, IEnumerable<ICompositeModelAdapter>? composites = null)
     {
         ArgumentNullException.ThrowIfNull(adapters);
         _adapters = [.. adapters.Distinct()];
+        _composites = [.. (composites ?? []).Distinct()];
         foreach (var adapter in _adapters)
         {
             foreach (var architecture in adapter.Architectures)
@@ -49,6 +52,9 @@ public sealed class ArchitectureCatalog
 
     /// <summary>The registered adapters, each once, in registration order.</summary>
     public IReadOnlyList<IModelAdapter> Adapters => _adapters;
+
+    /// <summary>The registered composite adapters, each once, in registration order.</summary>
+    public IReadOnlyList<ICompositeModelAdapter> CompositeAdapters => _composites;
 
     /// <summary>
     /// Finds the adapter for a source: the one registered for its architecture, else the first adapter whose
@@ -78,7 +84,7 @@ public sealed class ArchitectureCatalog
 
     /// <summary>
     /// Builds the model definition for a set of sources: a prebuilt definition (saved package) is used as is, otherwise the matching adapter
-    /// builds it. Then the graph optimization phase runs unless the definition already carries the current pipeline id or
+    /// builds it (a composite adapter that accepts the whole set first, see <see cref="ICompositeModelAdapter"/>). Then the graph optimization phase runs unless the definition already carries the current pipeline id or
     /// <see cref="AdapterOptions.OptimizeGraphs"/> is false (see <see cref="GraphOptimizer.PrepareForLoad"/>).
     /// </summary>
     /// <param name="sources">The sources to build from.</param>
@@ -98,6 +104,11 @@ public sealed class ArchitectureCatalog
             }
 
             return GraphOptimizer.PrepareForLoad(prebuilt, options.OptimizeGraphs, log);
+        }
+
+        if (sources.Auxiliary.Count > 0 && _composites.FirstOrDefault(c => c.CanLoad(sources)) is { } composite)
+        {
+            return GraphOptimizer.PrepareForLoad(composite.Build(sources, options, this), options.OptimizeGraphs, log);
         }
 
         if (!TryFindAdapter(sources.Primary, out var adapter))

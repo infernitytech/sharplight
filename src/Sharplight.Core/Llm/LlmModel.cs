@@ -85,8 +85,8 @@ public sealed class LlmModel : IDisposable
     /// The text-generation view of a model loaded by the task layer: shares the task model's definition, weight buffers and artifact
     /// routing and does not own them (disposing it releases nothing; the <see cref="TaskModel"/> does).
     /// </summary>
-    /// <param name="model">A loaded text-generation model.</param>
-    internal static LlmModel FromTaskModel(TaskModel model)
+    /// <param name="model">A loaded model whose decoder graph is the text model (a text-generation model, or the language model of a speech synthesizer).</param>
+    public static LlmModel FromTaskModel(TaskModel model)
     {
         var load = model.Options;
         var options = load as LlmLoadOptions ?? new LlmLoadOptions

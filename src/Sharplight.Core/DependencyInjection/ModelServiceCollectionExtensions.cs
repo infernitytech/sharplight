@@ -6,7 +6,7 @@ using Sharplight.Vision;
 namespace Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
-/// Registers model formats and architectures: <see cref="IModelImporter"/>, <see cref="IModelAdapter"/>,
+/// Registers model formats and architectures: <see cref="IModelImporter"/>, <see cref="IModelAdapter"/>, <see cref="ICompositeModelAdapter"/>,
 /// <see cref="IMultimodalArchitecture"/> and <see cref="AuxiliaryArchitecture"/> services, collected by the
 /// <see cref="ModelImporterCatalog"/> and <see cref="ArchitectureCatalog"/> singletons that the <see cref="ModelLoader"/> uses.
 /// Importer and architecture packages build on these (<c>services.AddGgufImporter()</c>, <c>services.AddBuiltinArchitectures()</c>).
@@ -25,7 +25,7 @@ public static class ModelServiceCollectionExtensions
             ArgumentNullException.ThrowIfNull(services);
             services.TryAddSingleton(provider => new ModelImporterCatalog(provider.GetServices<IModelImporter>()));
             services.TryAddSingleton(provider => new ArchitectureCatalog(provider.GetServices<IModelAdapter>(),
-                provider.GetServices<IMultimodalArchitecture>(), provider.GetServices<AuxiliaryArchitecture>()));
+                provider.GetServices<IMultimodalArchitecture>(), provider.GetServices<AuxiliaryArchitecture>(), provider.GetServices<ICompositeModelAdapter>()));
             services.TryAddSingleton<ModelLoader>();
             return services;
         }
@@ -62,6 +62,20 @@ public static class ModelServiceCollectionExtensions
         {
             services.AddModelLoader();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IModelAdapter, TAdapter>());
+            return services;
+        }
+
+        /// <summary>
+        /// Adds an adapter that builds one model from several sources (<see cref="ICompositeModelAdapter"/>); a second registration of the
+        /// same implementation type is ignored.
+        /// </summary>
+        /// <typeparam name="TAdapter">The adapter type, created by the container.</typeparam>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddCompositeModelAdapter<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TAdapter>()
+            where TAdapter : class, ICompositeModelAdapter
+        {
+            services.AddModelLoader();
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ICompositeModelAdapter, TAdapter>());
             return services;
         }
 

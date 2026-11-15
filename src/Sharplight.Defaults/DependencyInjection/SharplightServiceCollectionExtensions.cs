@@ -32,7 +32,7 @@ public static class SharplightServiceCollectionExtensions
         }
 
         /// <summary>
-        /// Adds the GGUF, Hugging Face, ONNX and <c>.slm</c> package importers and the built-in architecture adapters, which the
+        /// Adds the GGUF, Hugging Face (safetensors and PyTorch shards), ONNX and <c>.slm</c> package importers and the built-in architecture adapters, which the
         /// <see cref="ModelLoader"/> and the <see cref="ModelConverter"/> use. Idempotent.
         /// </summary>
         /// <returns>The service collection.</returns>
@@ -41,6 +41,7 @@ public static class SharplightServiceCollectionExtensions
             ArgumentNullException.ThrowIfNull(services);
             return services.AddBuiltinArchitectures()
                 .AddGgufImporter()
+                .AddPyTorchImporter()
                 .AddHuggingFaceImporter()
                 .AddOnnxImporter()
                 .AddPackageImporter();

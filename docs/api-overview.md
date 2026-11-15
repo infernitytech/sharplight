@@ -30,11 +30,13 @@ they need no extra `using`):
 | package | registration | registers |
 |---|---|---|
 | `Sharplight.Core` | `AddSharplightTasks()` | `TaskClientProvider`, the built-in text-generation factory, the `ModelLoader` |
-| | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
+| | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddCompositeModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
+| | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
 | | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
 | | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageGenerator` | a task client for one configured model |
-| `Sharplight.Architectures` | `AddBuiltinArchitectures()` | the built-in adapters, Qwen-VL prompt assembly, the drafter architectures |
+| `Sharplight.Architectures` | `AddBuiltinArchitectures()` | the built-in adapters, Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
 | `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => ...)`, `AddOnnxImporter()` | the format (ONNX also its graph adapter) |
+| `Sharplight.Import.PyTorch` | `AddPyTorchImporter(o => ...)` | the restricted-unpickler settings (`TorchCheckpointOptions`) for pickle checkpoints (`pytorch_model*.bin` shards of the Hugging Face importer) |
 | `Sharplight.Package` | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order) |
 | `Sharplight.Defaults` | `AddSharplight()` | all of the above: `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()` |
@@ -42,7 +44,7 @@ they need no extra `using`):
 | `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
 
 All registrations are idempotent. Options are Microsoft.Extensions.Options with settable properties (`TaskLoadOptions`,
-`LlmLoadOptions`, `EmbeddingLoadOptions`, `VulkanProviderOptions`, `HuggingFaceImportOptions`, `SharplightServerOptions`, ...), so they
+`LlmLoadOptions`, `EmbeddingLoadOptions`, `VulkanProviderOptions`, `HuggingFaceImportOptions`, `TorchCheckpointOptions`, `SharplightServerOptions`, ...), so they
 also bind from configuration. What the container hands out:
 
 - `ModelLoader` opens and builds models: `Importers` (`ModelImporterCatalog`: `Open`, `OpenSet`, `TryFind`) and `Architectures`
@@ -83,6 +85,8 @@ leak when instances are created repeatedly), so only the options of the provider
 |---|---|
 | `GgufImporter.Register()`, `HuggingFaceImporter.Register()`, `OnnxImporter.Register()`, `ModelPackageImporter.Register()` | `services.AddGgufImporter()`, `.AddHuggingFaceImporter()`, `.AddOnnxImporter()`, `.AddPackageImporter()` (a new format: `services.AddModelImporter<MyImporter>()`) |
 | `BuiltinAdapters.RegisterAll()`, `ModelAdapterRegistry.Register(a)`, `ModelAdapterRegistry.RegisterAuxiliaryOnly(arch, role)`, `MultimodalRegistry.Register(m)` | `services.AddBuiltinArchitectures()`, `.AddModelAdapter<T>()`, `.AddAuxiliaryArchitecture(arch, role)`, `.AddMultimodalArchitecture<T>()` |
+| `ModelAdapterRegistry.RegisterComposite(a)` (an `IModelAdapter` with `CanLoad(ModelSourceSet)`) | `services.AddCompositeModelAdapter<T>()` with `T : ICompositeModelAdapter` (`CanLoad(sources)`, `Build(sources, options, architectures)`: component models are built with the catalog it gets) |
+| `services.AddSharplightSpeechSynthesis()` (Sharplight.Architectures) | part of `services.AddBuiltinArchitectures()` |
 | `CpuExecutionProvider.Register()`, `ProviderRegistry.Register(() => new VulkanProvider())`, `VulkanProvider.EnableValidation = true` | `services.AddCpuProvider()`, `.AddVulkanProvider(o => o.EnableValidation = true)` |
 | `ModelImporterRegistry.Open/OpenSet(path)`, `ModelAdapterRegistry.Build(sources)` | `loader.Importers.Open(path)`, `loader.Open(path, auxiliary)`, `loader.Build(sources)` (or `loader.Build(path)`) |
 | `ProviderRegistry.Discover()` (tuples), `ProviderRegistry.OpenProfile(p)`, `devicePool.Open("vulkan", 0)` | `providers.Discover()` (`DiscoveredProvider`), `providers.OpenProfile(p)`, `devicePool.Open(providers, "vulkan", 0)` |
@@ -114,7 +118,8 @@ and image abstractions are still experimental.
 
 Implementations are `ITaskClientFactory` services (kind, client type, `CanCreate(model)`, `Create(model)`), resolved by the
 `TaskClientProvider` from the model's kind; the last registration that accepts a model wins. Architecture packages register theirs
-next to their adapters (`services.AddTaskClientFactory<ISpeechRecognizer>(ModelKinds.SpeechRecognition, model => ...)`); a new kind
+next to their adapters (`services.AddTaskClientFactory<MyRecognizerFactory>()`, or from delegates
+`services.AddTaskClientFactory<ISpeechRecognizer>(ModelKinds.SpeechRecognition, model => ...)`); a new kind
 (depth estimation, audio codecs, time series, ...) is a new kind string, client interface and factory, without changes to Core types.
 Text generation is built in: `LlmModel` is the text-generation model and `LlmModel.CreateTextGenerator()` its client.
 

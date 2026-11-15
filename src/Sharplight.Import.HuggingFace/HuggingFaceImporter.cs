@@ -88,7 +88,7 @@ public sealed class HuggingFaceImporter(HuggingFaceImportOptions? options = null
             throw new NotSupportedException($"{dir}: {string.Join(" ", problems)}");
         }
 
-        var checkpoint = SafetensorsCheckpoint.Open(weightsDir);
+        var checkpoint = SafetensorsCheckpoint.Open(weightsDir, options.PyTorch);
         List<IDisposable> owned = [checkpoint];
         try
         {

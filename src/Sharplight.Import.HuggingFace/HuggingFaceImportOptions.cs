@@ -1,3 +1,5 @@
+using Sharplight.Import.PyTorch;
+
 namespace Sharplight.Import.HuggingFace;
 
 /// <summary>
@@ -12,6 +14,12 @@ public sealed class HuggingFaceImportOptions
     /// Default: true.
     /// </summary>
     public bool IncludeMtp { get; set; } = true;
+
+    /// <summary>
+    /// How <c>pytorch_model*.bin</c> shards are unpickled (allowed module prefixes, size limits). When the importer
+    /// comes from the container, this is the <see cref="TorchCheckpointOptions"/> configured with <c>services.AddPyTorchImporter(options => ...)</c>.
+    /// </summary>
+    public TorchCheckpointOptions PyTorch { get; set; } = new();
 
     /// <summary>The default options (shared; never modified).</summary>
     internal static HuggingFaceImportOptions Default { get; } = new();

@@ -1,3 +1,4 @@
+using Sharplight.Import.PyTorch;
 using System.Text.Json;
 
 namespace Sharplight.Import.HuggingFace;
@@ -25,14 +26,16 @@ internal sealed class SafetensorsCheckpoint : IDisposable
     /// <summary>Opens every shard of the checkpoint in <paramref name="directory"/>.</summary>
     /// <exception cref="FileNotFoundException">No shard exists, or the index lists a missing shard.</exception>
     /// <exception cref="InvalidDataException">A tensor name appears in more than one shard.</exception>
-    public static SafetensorsCheckpoint Open(string directory)
+    /// <param name="directory">The checkpoint directory.</param>
+    /// <param name="torch">Unpickler settings for <c>pytorch_model*.bin</c> shards, or <see langword="null"/> for the defaults.</param>
+    public static SafetensorsCheckpoint Open(string directory, TorchCheckpointOptions? torch = null)
     {
         var checkpoint = new SafetensorsCheckpoint();
         try
         {
             foreach (var shard in DiscoverShards(directory))
             {
-                var file = shard.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase) ? SafetensorsFile.Open(shard) : SafetensorsFile.OpenTorch(shard);
+                var file = shard.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase) ? SafetensorsFile.Open(shard) : SafetensorsFile.OpenTorch(shard, torch);
                 checkpoint._files.Add(file);
                 foreach (var (name, tensor) in file.Tensors)
                 {
