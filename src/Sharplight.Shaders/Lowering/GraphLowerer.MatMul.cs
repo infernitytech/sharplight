@@ -623,10 +623,10 @@ public sealed partial class GraphLowerer
         bool workgroupMatrix = coop && !splitHalf && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations && PreferWorkgroupMatrixGemm
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
         Func<long, int> splitRows = workgroupMatrix
-            ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK)
+            ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK, GemmWaveTiles)
             : coop
                 ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0), Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)),
-                    (!splitHalf || FastMatrixProducts) && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32)
+                    (!splitHalf || FastMatrixProducts) && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32, GemmWaveTiles)
                 : rows => ChooseSimtSplit(N, K, rows);
 
         return new MatMulPlan
@@ -891,10 +891,23 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// K split for the tensor-core GEMM tiles: aim for ~256 workgroups, keep at least 4 K blocks per split
-    /// and no empty splits.
+    /// Tensor-core GEMM tiles the device runs at once (<paramref name="wave"/> of <see cref="ChooseSplit"/>): one per compute
+    /// unit when the device reports them (<see cref="LoweringOptions.ComputeUnits"/>), else <see cref="DefaultGemmWaveTiles"/>;
+    /// <c>SHARPLIGHT_GEMM_WAVE=n</c> forces n. A 128x128 tile takes most of a unit's shared memory, so units ≈ concurrent tiles.
+    /// RTX PRO 4500 (82 SMs) against the default: Llama-3.2-1B Q8_0 pp2048 +9 %, Qwen3-8B Q4_K_M +2.5 % (fewer split-K launches
+    /// and reductions).
     /// </summary>
-    private static int ChooseSplit(long N, long K, long rows, long blockRows = Gemm2TileRows, long blockColumns = Gemm2TileColumns, long blockK = 32)
+    private long GemmWaveTiles => DiagnosticSwitches.GemmWaveTiles ?? (_opt.ComputeUnits > 0 ? _opt.ComputeUnits : DefaultGemmWaveTiles);
+
+    /// <summary>Concurrent GEMM tiles assumed when the device does not report its compute units (a large GPU, 188 SMs).</summary>
+    private const long DefaultGemmWaveTiles = 192;
+
+    /// <summary>
+    /// K split for the tensor-core GEMM tiles: aim for about 4/3 waves of <paramref name="wave"/> concurrent tiles, keep at least
+    /// 4 K blocks per split and no empty splits.
+    /// </summary>
+    private static int ChooseSplit(long N, long K, long rows, long blockRows = Gemm2TileRows, long blockColumns = Gemm2TileColumns, long blockK = 32,
+        long wave = DefaultGemmWaveTiles)
     {
         if (rows <= MatvecMaxRows)
         {
@@ -903,16 +916,16 @@ public sealed partial class GraphLowerer
 
         long tiles = (N + blockColumns - 1) / blockColumns * ((rows + blockRows - 1) / blockRows);
         long steps = K / blockK;
-        if (tiles >= 192)
+        if (tiles >= wave)
         {
-            // Many tiles: split only when two K halves fill the last wave of ~192 concurrent tiles clearly better
-            // (e.g. 234 tiles: 61 % → 81 % of two / three waves).
-            static double Fill(long count) => (double)count / ((count + 191) / 192 * 192);
-            return steps >= 8 && tiles < 768 && Fill(2 * tiles) > Fill(tiles) + 0.15 ? 2 : 1;
+            // Many tiles: split only when two K halves fill the last wave clearly better (e.g. 234 tiles of a 192-tile wave:
+            // 61 % → 81 % of two / three waves).
+            double Fill(long count) => (double)count / ((count + wave - 1) / wave * wave);
+            return steps >= 8 && tiles < 4 * wave && Fill(2 * tiles) > Fill(tiles) + 0.15 ? 2 : 1;
         }
 
         int split = 1;
-        while (split < 32 && tiles * split < 256 && steps / (split * 2) >= 4)
+        while (split < 32 && tiles * split < wave * 4 / 3 && steps / (split * 2) >= 4)
         {
             split *= 2;
         }

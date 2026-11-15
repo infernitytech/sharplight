@@ -101,7 +101,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
         _kernelCacheDirectory = options.KernelCacheDirectory ?? SlangCompiler.DefaultCacheDirectory;
         Code = new SpirvCodeGenerator((int)phys.SubgroupSize, phys.MaxSharedMemory, EnabledFeatures,
-            SpirvCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options), info.ConcurrentWorkgroups, _kernelCacheDirectory);
+            SpirvCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options), info.ConcurrentWorkgroups,
+            SpirvCodeGenerator.ComputeUnitsOf(info.Capabilities), _kernelCacheDirectory);
         ArtifactTargets = CreateArtifactTargets();
 
         QueueFamily = SelectComputeQueueFamily(inst.Api, phys);

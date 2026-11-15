@@ -209,6 +209,9 @@ internal static class DiagnosticSwitches
     /// <summary>Forced layout of the 64-token gemm_cm2 tile, or null.</summary>
     public static int[]? Gemm2Layout64 { get; } = Read("SHARPLIGHT_GEMM2_CFG64")?.Split(',').Select(int.Parse).ToArray();
 
+    /// <summary>Tensor-core GEMM tiles assumed to run at once when choosing K splits (<c>SHARPLIGHT_GEMM_WAVE</c>), or null.</summary>
+    public static long? GemmWaveTiles { get; } = Read("SHARPLIGHT_GEMM_WAVE") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>False keeps small-batch matmuls off the skinny tensor-core GEMM.</summary>
     public static bool SkinnyGemm { get; } = IsNotZero("SHARPLIGHT_SKINNY_GEMM");
 
