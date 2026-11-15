@@ -230,7 +230,7 @@ internal sealed partial class OnnxTranslator
 
                 if (!v.Shape.Dims.SequenceEqual(initial[k].Shape.Dims))
                 {
-                    throw new NotSupportedException($"loop-carried value '{states[k].Name}' changes its shape from {initial[k].Shape} to {v.Shape} between iterations");
+                    throw new NotSupportedException($"loop-carried value '{states[k].Name}' changes its shape from {initial[k].Shape} to {v.Shape} between iterations (a data-dependent extent: the inputs that determine it must be compile-time constants)");
                 }
 
                 _b.Output($"state{k}", OutputCopy(v, $"{prefix}state{k}"));
@@ -243,7 +243,7 @@ internal sealed partial class OnnxTranslator
                 var v = LoopValue(t, "a scan output");
                 if (v.Shape.Dims.Any(d => d.IsSymbolic))
                 {
-                    throw new NotSupportedException($"scan output '{scanOutputs[j]}' has a symbolic dimension {v.Shape}; it would not be the outermost after stacking");
+                    throw new NotSupportedException($"scan output '{scanOutputs[j]}' has a symbolic dimension {v.Shape}; it would not be the outermost after stacking (a data-dependent extent: the inputs that determine it must be compile-time constants)");
                 }
 
                 scalarScans[j] = IsScalar(t);
