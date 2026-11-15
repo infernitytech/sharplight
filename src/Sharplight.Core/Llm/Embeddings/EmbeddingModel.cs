@@ -12,8 +12,8 @@ namespace Sharplight.Llm.Embeddings;
 /// </summary>
 /// <example>
 /// <code>
-/// HuggingFaceImporter.Register();
-/// using var embedder = EmbeddingModel.Load("bge-small-en-v1.5", new EmbeddingLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
+/// var loader = services.GetRequiredService&lt;ModelLoader&gt;();   // services.AddSharplight()
+/// using var embedder = EmbeddingModel.Load(loader, "bge-small-en-v1.5", new EmbeddingLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
 ///
 /// // A batch: one vector per text, in input order, plus token counts.
 /// EmbeddingResult result = embedder.Embed(["first text", "second text"]);
@@ -81,8 +81,12 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
         return d;
     }
 
-    /// <summary>Loads a model (GGUF file, Hugging Face directory, ...) through the registered importers and compiles its embedding graph.</summary>
-    public static EmbeddingModel Load(string path, EmbeddingLoadOptions options)
+    /// <summary>Loads a model (GGUF file, Hugging Face directory, ...) through the loader's importers and architectures and compiles its embedding graph.</summary>
+    /// <param name="loader">The model loader (from the service container: <c>services.AddSharplight()</c>).</param>
+    /// <param name="path">Model file or directory, as understood by the registered importers.</param>
+    /// <param name="options">Devices and batch settings.</param>
+    /// <returns>The loaded model; the caller disposes it.</returns>
+    public static EmbeddingModel Load(ModelLoader loader, string path, EmbeddingLoadOptions options)
     {
         var adapter = new AdapterOptions
         {
@@ -92,7 +96,7 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
             EmbeddingPooling = options.Pooling ?? options.Adapter.EmbeddingPooling,
             EmbeddingNormalize = options.Normalize ?? options.Adapter.EmbeddingNormalize,
         };
-        var (def, source, tok) = PackedModelLoader.Open(path, options, adapter);
+        var (def, source, tok) = PackedModelLoader.Open(loader, path, options, adapter);
         try
         {
             if (!def.Graphs.ContainsKey(WellKnown.EmbedGraph))
@@ -101,8 +105,8 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
             }
 
             var artifacts = options.Artifacts ?? new CompilationArtifacts(source.CompilationCaches);
-            var runner = PackedBatchRunner.Compile(def, WellKnown.EmbedGraph, WellKnown.EmbeddingsOutput, options.Devices, options.Fallback,
-                options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures, artifacts.For, options.Log);
+            var runner = PackedBatchRunner.Compile(def, WellKnown.EmbedGraph, WellKnown.EmbeddingsOutput, [.. options.Devices], options.Fallback,
+                options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures.ToHashSet(StringComparer.Ordinal), artifacts.For, options.Log);
             return new EmbeddingModel(def, tok, runner, artifacts, options.ResolveMaxLength(def));
         }
         catch

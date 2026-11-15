@@ -13,7 +13,7 @@ public static class PrecompileTargets
     public const int ServeSlots = 4;
 
     /// <summary>The target, or null when nothing is precompiled (CPU runs, <c>--no-precompile</c>, no GPU).</summary>
-    public static PrecompileTarget? Create(bool enabled, bool cpu, int deviceIndex, int contextLength, int batchTokens,
+    public static PrecompileTarget? Create(SampleRuntime runtime, bool enabled, bool cpu, int deviceIndex, int contextLength, int batchTokens,
         IReadOnlyList<string> disabledFeatures, Action<string> log)
     {
         if (!enabled || cpu)
@@ -23,7 +23,7 @@ public static class PrecompileTargets
 
         try
         {
-            var provider = SampleRuntime.SelectProvider(cpu: false);
+            var provider = runtime.SelectProvider(cpu: false);
             var device = SampleRuntime.GetDevice(provider, deviceIndex);
             var options = new PrecompileOptions
             {

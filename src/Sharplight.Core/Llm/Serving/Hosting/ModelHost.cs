@@ -17,7 +17,7 @@ namespace Sharplight.Llm.Serving.Hosting;
 /// host.Register(new ModelRegistration
 /// {
 ///     Name = "qwen3-4b",
-///     Loader = new LlmChatModelLoader("qwen3-4b", "qwen3-4b-q4_k_m.gguf", loadOptions, new ChatModelOptions { Slots = 4 }),
+///     Loader = new LlmChatModelLoader(loader, "qwen3-4b", "qwen3-4b-q4_k_m.gguf", loadOptions, new ChatModelOptions { Slots = 4 }),
 /// });
 /// using var lease = await host.AcquireAsync("qwen3-4b");   // loads on first use
 /// var chat = lease.As&lt;ChatModelInstance&gt;().Service;
@@ -147,7 +147,7 @@ public sealed class ModelHost : IDisposable
         }
     }
 
-    private sealed class AdoptedLoader(ModelKind kind) : IModelLoader
+    private sealed class AdoptedLoader(ModelKind kind) : IHostedModelLoader
     {
         public ModelKind Kind => kind;
         public IPreparedModel Prepare(CancellationToken ct) => throw new InvalidOperationException("An adopted model cannot be reloaded after it was unloaded.");

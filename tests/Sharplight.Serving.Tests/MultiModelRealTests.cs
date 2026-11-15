@@ -1,11 +1,9 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
 using Sharplight.Llm.Serving.Hosting;
 using Sharplight.Runtime;
-using Sharplight.Vulkan;
 
 namespace Sharplight.Serving.Tests;
 
@@ -25,10 +23,7 @@ public class MultiModelRealTests
     {
         device = null!;
         Assert.SkipUnless(File.Exists(PathA) && File.Exists(PathB), "models not found");
-        ProviderRegistry.Register(() => new VulkanProvider());
-        CpuExecutionProvider.Register();
-        GgufImporter.Register();
-        var vk = ProviderRegistry.Discover().FirstOrDefault(x => x.Provider.Name == "vulkan" && x.Availability.IsAvailable).Provider;
+        var vk = TestHost.Providers.Discover().FirstOrDefault(x => x.Provider.Name == "vulkan" && x.Availability.IsAvailable).Provider;
         Assert.SkipUnless(vk is not null && vk.GetDevices().Count > 0, "no Vulkan device");
         var pool = new DevicePool();
         device = pool.Open(vk!, vk!.GetDevices()[0], options);
@@ -66,9 +61,9 @@ public class MultiModelRealTests
     public void DevicePool_OpensEachDeviceOnce()
     {
         using var pool = Setup(out var device)!;
-        var vk = ProviderRegistry.Discover().First(x => x.Provider.Name == "vulkan" && x.Availability.IsAvailable).Provider;
+        var vk = TestHost.Providers.Discover().First(x => x.Provider.Name == "vulkan" && x.Availability.IsAvailable).Provider;
         Assert.Same(device, pool.Open(vk, vk.GetDevices()[0]));
-        Assert.Same(device, pool.Open("vulkan", 0));
+        Assert.Same(device, pool.Open(TestHost.Providers, "vulkan", 0));
         var mi = device.GetMemoryInfo();
         Console.Error.WriteLine($"[device] {device.Info.Name}: {mi}");
         Assert.True(mi.Total > 0 && mi.Budget > 0 && mi.Budget <= mi.Total);
@@ -88,7 +83,7 @@ public class MultiModelRealTests
         var path = Path.Combine(Home, "models/gguf", rel);
         Assert.SkipUnless(File.Exists(path), "model not found");
         using var pool = Setup(out var device)!;
-        using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = batch });
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = batch });
         var fp = model.EstimateFootprint(slots, ctx);
         using var dec = model.CreateBatchDecoder(slots, ctx);
         var mi = device.GetMemoryInfo();
@@ -110,7 +105,7 @@ public class MultiModelRealTests
         // ---- each model alone ----
         int[] soloA, soloB;
         long estA, estB, actA, actB;
-        using (var ma = LlmModel.Load(PathA, Options(device)))
+        using (var ma = LlmModel.Load(TestHost.Loader, PathA, Options(device)))
         {
             estA = ma.EstimateFootprint(2, 1024).Total;
             using var da = ma.CreateBatchDecoder(2, 1024);
@@ -121,7 +116,7 @@ public class MultiModelRealTests
         }
         var afterA = device.GetMemoryInfo();
         Assert.Equal(0, afterA.UsedByUs);   // everything went back to the device
-        using (var mb = LlmModel.Load(PathB, Options(device)))
+        using (var mb = LlmModel.Load(TestHost.Loader, PathB, Options(device)))
         {
             estB = mb.EstimateFootprint(2, 1024).Total;
             using var db = mb.CreateBatchDecoder(2, 1024);
@@ -133,8 +128,8 @@ public class MultiModelRealTests
         Assert.NotEqual(soloA, soloB);
 
         // ---- both on the same device, generating at the same time ----
-        using var modelA = LlmModel.Load(PathA, Options(device));
-        using var modelB = LlmModel.Load(PathB, Options(device));
+        using var modelA = LlmModel.Load(TestHost.Loader, PathA, Options(device));
+        using var modelB = LlmModel.Load(TestHost.Loader, PathB, Options(device));
         using var decA = modelA.CreateBatchDecoder(2, 1024);
         using var decB = modelB.CreateBatchDecoder(2, 1024);
         var both = device.GetMemoryInfo();
@@ -177,8 +172,8 @@ public class MultiModelRealTests
         const int N = 64;
         const string PromptA = "The capital of France is";
         const string PromptB = "Once upon a time, in a small village";
-        using var ma = LlmModel.Load(PathA, Options(device));
-        using var mb = LlmModel.Load(PathB, Options(device));
+        using var ma = LlmModel.Load(TestHost.Loader, PathA, Options(device));
+        using var mb = LlmModel.Load(TestHost.Loader, PathB, Options(device));
         var decs = new List<(IBatchDecoder Dec, LlmModel Model, string Prompt)>();
         try
         {
@@ -226,8 +221,8 @@ public class MultiModelRealTests
         var baseline = device.GetMemoryInfo();
         var chat = new ChatModelOptions { Slots = 2, Service = new ModelServiceOptions { DefaultMaxTokens = 40 } };
         var host = new ModelHost(new ModelHostOptions { ReserveBytes = 1L << 30, Log = Console.Error.WriteLine });
-        host.Register(new ModelRegistration { Name = "qwen", Loader = new LlmChatModelLoader("qwen", PathA, Options(device), chat) });
-        host.Register(new ModelRegistration { Name = "smol", Loader = new LlmChatModelLoader("smol", PathB, Options(device), chat) });
+        host.Register(new ModelRegistration { Name = "qwen", Loader = new LlmChatModelLoader(TestHost.Loader, "qwen", PathA, Options(device), chat) });
+        host.Register(new ModelRegistration { Name = "smol", Loader = new LlmChatModelLoader(TestHost.Loader, "smol", PathB, Options(device), chat) });
         try
         {
             async Task<string> Ask(string model, string q)
@@ -278,8 +273,8 @@ public class MultiModelRealTests
             // LRU eviction with a model cap of one: asking for the other model replaces the first.
             host.Dispose();
             host = new ModelHost(new ModelHostOptions { ReserveBytes = 1L << 30, MaxLoadedModels = 1, Log = Console.Error.WriteLine });
-            host.Register(new ModelRegistration { Name = "qwen", Loader = new LlmChatModelLoader("qwen", PathA, Options(device), chat) });
-            host.Register(new ModelRegistration { Name = "smol", Loader = new LlmChatModelLoader("smol", PathB, Options(device), chat) });
+            host.Register(new ModelRegistration { Name = "qwen", Loader = new LlmChatModelLoader(TestHost.Loader, "qwen", PathA, Options(device), chat) });
+            host.Register(new ModelRegistration { Name = "smol", Loader = new LlmChatModelLoader(TestHost.Loader, "smol", PathB, Options(device), chat) });
             Assert.Equal(soloQ, await Ask("qwen", "Name a color."));
             Assert.Equal(soloS, await Ask("smol", "Name an animal."));
             Assert.Equal(ModelState.Unloaded, host.Get("qwen")!.State);
@@ -296,7 +291,7 @@ public class MultiModelRealTests
         // The device is opened with a 300 MiB budget (the same mechanism as --vram-budget): the ~1.1 GiB model cannot fit.
         using var pool = Setup(out var device, new DeviceOptions { MemoryBudget = 300 * MiB })!;
         using var host = new ModelHost(new ModelHostOptions { ReserveBytes = 0 });
-        host.Register(new ModelRegistration { Name = "qwen", Loader = new LlmChatModelLoader("qwen", PathA, Options(device), new ChatModelOptions { Slots = 2 }) });
+        host.Register(new ModelRegistration { Name = "qwen", Loader = new LlmChatModelLoader(TestHost.Loader, "qwen", PathA, Options(device), new ChatModelOptions { Slots = 2 }) });
         var ex = await Assert.ThrowsAsync<ModelDoesNotFitException>(() => host.AcquireAsync("qwen"));
         Console.Error.WriteLine("[refusal] " + ex.Message);
         Assert.Contains("300 MiB", ex.Message);
@@ -312,7 +307,7 @@ public class MultiModelRealTests
         using var cpu = cpuProv.OpenDevice(cpuProv.GetDevices()[0]);
         var opts = new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], Fallback = new DeviceSlot { Device = cpu }, ContextLength = 1024, MaxBatchTokens = 128, Log = Console.Error.WriteLine };
         using var host = new ModelHost(new ModelHostOptions { ReserveBytes = 0, Log = Console.Error.WriteLine });
-        host.Register(new ModelRegistration { Name = "qwen", Loader = new LlmChatModelLoader("qwen", PathA, opts, new ChatModelOptions { Slots = 2 }) });
+        host.Register(new ModelRegistration { Name = "qwen", Loader = new LlmChatModelLoader(TestHost.Loader, "qwen", PathA, opts, new ChatModelOptions { Slots = 2 }) });
         using var lease = await host.AcquireAsync("qwen");
         var svc = ((IChatModel)lease.Model).Service;
         var r = await svc.StartChat(new ChatRequest { Messages = [new ChatTurn("user", "Name a color.")], Sampling = SamplingParams.GreedyDefault, MaxTokens = 20, EnableThinking = false }).CompleteAsync();

@@ -6,6 +6,7 @@ using Sharplight.Llm.Serving.Speculative;
 using Sharplight.Runtime;
 using Sharplight.Studio.Models;
 using Sharplight.Tensors;
+using Sharplight.Vision;
 
 namespace Sharplight.Studio.Services.Runtime;
 
@@ -26,15 +27,18 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private readonly Func<ResidencySettings> _residency;
     private readonly Func<string, ModelLoadRequest?>? _resolve;
     private readonly IReadOnlyList<ComputeDeviceOption> _physical;
-    private readonly FootprintEstimator _estimator = new();
+    private readonly FootprintEstimator _estimator;
+    private readonly EngineServices _engine;
 
-    /// <summary>Registers the providers and importers, enumerates the devices and creates the host.</summary>
+    /// <summary>Enumerates the devices and creates the host.</summary>
+    /// <param name="engine">The engine services (loader, providers).</param>
     /// <param name="residency">The current residency settings (read when a model is added).</param>
     /// <param name="resolve">Turns a name requested by a chat or API client into a library model to load on demand, or null.</param>
-    public EngineModelRuntime(Func<ResidencySettings> residency, Func<string, ModelLoadRequest?>? resolve = null)
+    public EngineModelRuntime(EngineServices engine, Func<ResidencySettings> residency, Func<string, ModelLoadRequest?>? resolve = null)
     {
-        EngineBootstrap.Register();
-        var discovered = DeviceCatalog.Discover();
+        _engine = engine;
+        _estimator = new FootprintEstimator(engine.Loader);
+        var discovered = DeviceCatalog.Discover(engine.Providers);
         _physical = [.. discovered.Select(entry => entry.Option)];
         var gpus = _physical.Where(device => device.IsGpu).ToList();
         Devices = gpus.Count > 1 ? [.. gpus, ComputeDeviceOption.AllGpus(gpus), .. _physical.Where(device => !device.IsGpu)] : _physical;
@@ -275,14 +279,14 @@ internal sealed class EngineModelRuntime : IModelRuntime
         bool offload = settings.CpuOffload && device.IsGpu && cpu is not null;
         var load = new LlmLoadOptions
         {
-            Devices = slots,
+            Devices = [.. slots],
             Fallback = offload ? new DeviceSlot { Device = Open(cpu!, disabled) } : null,
             ContextLength = settings.ContextLength,
             MaxBatchTokens = settings.BatchTokens,
             KvCacheType = DataType.Get(settings.KvCacheType),
             DisabledFeatures = disabled,
             AllowReducedPrecision = settings.AllowReducedPrecision,
-            Auxiliary = request.Projector is { } projector ? [("mmproj", projector)] : [],
+            Auxiliary = request.Projector is { } projector ? new Dictionary<string, string> { [AuxiliaryRoles.Mmproj] = projector } : [],
             Log = model.OnLoadMessage,
             Progress = new SynchronousProgress<LoadProgress>(model.OnLoadProgress),
             CancellationToken = model.Abandon.Token,
@@ -297,7 +301,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
             MtpDraftTokens = settings.MtpDraftTokens,
             Service = new ModelServiceOptions { DefaultMaxTokens = 0 },
         };
-        return new LlmChatModelLoader(id, request.Path, load, chat);
+        return new LlmChatModelLoader(_engine.Loader, id, request.Path, load, chat);
     }
 
     /// <summary>

@@ -26,7 +26,7 @@ internal sealed class Eagle3HfMapping : IHfArchitectureMapping
             || (c.Has("draft_vocab_size") && c.GetInt("num_hidden_layers") == 1);
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string a = Architecture + ".";
         int hidden = c.GetInt("hidden_size") ?? throw new InvalidDataException("eagle3: hidden_size is missing.");
@@ -79,7 +79,7 @@ internal sealed class Eagle3HfMapping : IHfArchitectureMapping
     };
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var weights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         foreach (var (name, tensor) in tensors)

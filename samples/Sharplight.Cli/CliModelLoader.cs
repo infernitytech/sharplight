@@ -3,16 +3,17 @@ using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Samples;
+using Sharplight.Vision;
 
 namespace Sharplight.Cli;
 
 /// <summary>Opens the requested devices, loads the model onto them and creates the decode session.</summary>
-internal static class ModelLoader
+internal static class CliModelLoader
 {
-    public static LoadedModel Load(CliSettings settings, string modelPath, CancellationToken cancellationToken)
+    public static LoadedModel Load(SampleRuntime sampleRuntime, CliSettings settings, string modelPath, CancellationToken cancellationToken)
     {
         var runtime = settings.Runtime;
-        var provider = SampleRuntime.SelectProvider(runtime.UseCpu);
+        var provider = sampleRuntime.SelectProvider(runtime.UseCpu);
         var deviceInfo = SampleRuntime.GetDevice(provider, runtime.DeviceIndex);
 
         var deviceOptions = new DeviceOptions();
@@ -34,7 +35,7 @@ internal static class ModelLoader
 
         var loadOptions = new LlmLoadOptions
         {
-            Auxiliary = settings.MmprojPath is { } mmproj ? [("mmproj", mmproj)] : [],
+            Auxiliary = Auxiliary(settings.MmprojPath),
             ImageTokens = settings.ImageTokens,
             Devices = slots,
             Fallback = fallback,
@@ -47,9 +48,20 @@ internal static class ModelLoader
             CancellationToken = cancellationToken,
         };
 
-        var model = LlmModel.Load(modelPath, loadOptions);
+        var model = LlmModel.Load(sampleRuntime.Loader, modelPath, loadOptions);
         var graph = settings.ImagePaths.Count > 0 ? WellKnown.DecodeMultimodalGraph : WellKnown.DecodeGraph;
         return new LoadedModel(model, graph, slots, fallback);
+    }
+
+    private static Dictionary<string, string> Auxiliary(string? mmproj)
+    {
+        var auxiliary = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (mmproj is not null)
+        {
+            auxiliary[AuxiliaryRoles.Mmproj] = mmproj;
+        }
+
+        return auxiliary;
     }
 
     private static DeviceSlot OpenCpuFallback()

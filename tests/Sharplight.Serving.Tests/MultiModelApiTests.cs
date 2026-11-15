@@ -33,10 +33,10 @@ public sealed class MultiModelApiTests : IAsyncLifetime
         var b = WebApplication.CreateBuilder();
         b.WebHost.UseTestServer();
         b.Logging.ClearProviders();
-        b.Services.AddSharplight(_host, configure);
+        b.Services.AddSharplightServer(_host, configure);
         _app = b.Build();
-        _app.UseSharplight();
-        _app.MapSharplight();
+        _app.UseSharplightServer();
+        _app.MapSharplightServer();
         await _app.StartAsync();
         _client = _app.GetTestClient();
     }
@@ -201,10 +201,10 @@ public sealed class MultiModelApiTests : IAsyncLifetime
             var b = WebApplication.CreateBuilder();
             b.WebHost.UseTestServer();
             b.Logging.ClearProviders();
-            b.Services.AddSharplight(host, o => o.DrainModelsOnStop = false);
+            b.Services.AddSharplightServer(host, o => o.DrainModelsOnStop = false);
             await using var app = b.Build();
-            app.UseSharplight();
-            app.MapSharplight();
+            app.UseSharplightServer();
+            app.MapSharplightServer();
             await app.StartAsync(TestContext.Current.CancellationToken);
             using var client = app.GetTestClient();
             using var response = await client.PostAsync("/v1/chat/completions", new StringContent(Chat("m"), Encoding.UTF8, "application/json"),

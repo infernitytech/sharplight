@@ -1,6 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
@@ -20,12 +18,6 @@ public class RecurrentRollbackTests
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     private const int DraftTokens = 3;
     private const int Rounds = 12;
-
-    static RecurrentRollbackTests()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-    }
 
     /// <summary>Tiny models with recurrent layers: path below ~/models and the recurrent ops they use.</summary>
     public static TheoryData<string, string> Models => new()
@@ -68,7 +60,7 @@ public class RecurrentRollbackTests
         string path = Path.Combine(Home, "models", relativePath);
         Assert.SkipUnless(File.Exists(path) || Directory.Exists(path), $"{path} not present");
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(path, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 256, MaxBatchTokens = 64, DeviceSampling = false,
             DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot }, RecurrentStateType = recurrentStateType,

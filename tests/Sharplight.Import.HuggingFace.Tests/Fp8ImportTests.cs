@@ -240,6 +240,6 @@ public sealed class Fp8ImportTests : IDisposable
         var checkpoint = SafetensorsCheckpoint.Open(directory);
         _open.Add(checkpoint);
         var mapping = HfArchitectureMappings.Find(hfConfig.ModelType) ?? throw new InvalidOperationException(hfConfig.ModelType);
-        return mapping.MapWeights(hfConfig, HfFp8Weights.Resolve(hfConfig, checkpoint.Tensors), HfImportOptions.Default);
+        return mapping.MapWeights(hfConfig, HfFp8Weights.Resolve(hfConfig, checkpoint.Tensors), HuggingFaceImportOptions.Default);
     }
 }

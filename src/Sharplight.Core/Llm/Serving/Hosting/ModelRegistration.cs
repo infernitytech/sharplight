@@ -6,7 +6,7 @@ public sealed class ModelRegistration
     /// <summary>The name clients pass as <c>model</c> (unique per host).</summary>
     public required string Name { get; init; }
     /// <summary>How to load the model.</summary>
-    public required IModelLoader Loader { get; init; }
+    public required IHostedModelLoader Loader { get; init; }
     /// <summary>Load when the host starts (<see cref="ModelHost.LoadStartupModelsAsync"/>) instead of on the first request.</summary>
     public bool LoadAtStartup { get; init; }
     /// <summary>Never evicted for memory and never unloaded when idle.</summary>

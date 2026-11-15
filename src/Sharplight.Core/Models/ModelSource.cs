@@ -31,7 +31,7 @@ public sealed class ModelSource
     public string? Path { get; init; }
     /// <summary>
     /// An already built definition (Sharplight IR), for formats that store one (saved model packages). Adapters are
-    /// then not involved: <see cref="ModelAdapterRegistry.Build"/> returns it as is.
+    /// then not involved: <see cref="ArchitectureCatalog.Build"/> returns it as is.
     /// </summary>
     public ModelDefinition? Definition { get; init; }
     /// <summary>Precompiled artifact sets stored with the model (code and binaries for any providers), or <see langword="null"/>.</summary>
@@ -64,4 +64,13 @@ public sealed class ModelSource
 
     /// <summary>Looks up a weight by canonical name; <see langword="null"/> when the model has none.</summary>
     public WeightInfo? Weight(string name) => Weights.TryGetValue(name, out var w) ? w : null;
+
+    /// <summary>Releases <see cref="OwnedResources"/> (used when a load fails before a definition takes ownership).</summary>
+    internal void DisposeResources()
+    {
+        foreach (var resource in OwnedResources)
+        {
+            resource.Dispose();
+        }
+    }
 }

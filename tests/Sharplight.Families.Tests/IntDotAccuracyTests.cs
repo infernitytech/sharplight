@@ -1,4 +1,3 @@
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -36,11 +35,6 @@ public class IntDotAccuracyTests(ITestOutputHelper output)
         + "baskets of zucchini whether they asked for them or not.";
 
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    static IntDotAccuracyTests()
-    {
-        GgufImporter.Register();
-    }
 
     public static TheoryData<string, bool> Models() => new()
     {
@@ -141,7 +135,7 @@ public class IntDotAccuracyTests(ITestOutputHelper output)
         var slot = new DeviceSlot { Device = provider.OpenDevice(device) };
         try
         {
-            using var model = LlmModel.Load(path, new LlmLoadOptions
+            using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
             {
                 Devices = [slot], ContextLength = 512, MaxBatchTokens = 512,
                 DisabledFeatures = disableIntDot ? new HashSet<string> { DeviceFeatures.IntDot } : new HashSet<string>(),

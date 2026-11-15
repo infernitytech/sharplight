@@ -1,5 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
@@ -16,8 +15,6 @@ public class SparseAttentionServingTests
 {
     private static readonly string Models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "hf");
 
-    static SparseAttentionServingTests() => HuggingFaceImporter.Register();
-
     [Theory]
     [InlineData("tiny-random-deepseek-v32-sparse", false)]
     [InlineData("tiny-random-deepseek-v32-sparse", true)]
@@ -28,7 +25,7 @@ public class SparseAttentionServingTests
         string path = Path.Combine(Models, name);
         Assert.SkipUnless(Directory.Exists(path), $"{path} not present");
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 128, MaxBatchTokens = 16 });
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 128, MaxBatchTokens = 16 });
         var rng = new Random(3);
         int[][] prompts = [.. new[] { 5, 13, 22, 37 }.Select(n => Enumerable.Range(0, n).Select(_ => rng.Next(10, 1000)).ToArray())];
         var ct = TestContext.Current.CancellationToken;

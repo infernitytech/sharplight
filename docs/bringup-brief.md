@@ -31,6 +31,9 @@ docs/api-overview.md.
 - Non-LLM model kinds (speech, image generation, ...): the adapter sets a `ModelDescription` (kind and components) on the
   definition and the architecture package registers an `ITaskClientFactory` for the kind's client interface
   (docs/api-overview.md "Tasks", docs/model-format.md "Model description"); no model-specific code in Core.
+- Registration goes through DI only (docs/api-overview.md "Registration"): a new adapter joins `services.AddBuiltinArchitectures()`
+  (or its package's own `AddXxx()` extension), a new format ships `services.AddXxxImporter()`, a new task kind
+  `services.AddTaskClientFactory<TClient>(...)`. Loads take the container's `ModelLoader` (tests: the project's `TestHost.Loader`).
 - Test suites before finishing: Core, Cpu, Vulkan, Import.Gguf, Import.HuggingFace, Families, Vision (multi-sequence), Serving.
 - The GPU (96 GB) is shared with the user's apps and other agents: check `nvidia-smi` before loading big models, run
   big models one at a time, and use CPU offload or skip if VRAM is short. Retry timing-only test failures once.

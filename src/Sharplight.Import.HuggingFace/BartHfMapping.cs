@@ -21,7 +21,7 @@ internal sealed partial class BartHfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } = ["bart", "mbart"];
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string a = Architecture + ".";
         int hidden = c.Int("d_model");
@@ -79,7 +79,7 @@ internal sealed partial class BartHfMapping : IHfArchitectureMapping
     };
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var collector = new HfWeightCollector();
         foreach (var (rawName, tensor) in tensors)

@@ -1,5 +1,3 @@
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -34,12 +32,6 @@ public class RecurrentStateAccuracyTests(ITestOutputHelper output)
         + "agree on a common time, and the telegraph wires that ran beside the tracks carried the news faster than any train.";
 
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    static RecurrentStateAccuracyTests()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-    }
 
     public static TheoryData<string, string, double> Cases() => new()
     {
@@ -94,7 +86,7 @@ public class RecurrentStateAccuracyTests(ITestOutputHelper output)
         var slot = new DeviceSlot { Device = provider.OpenDevice(device) };
         try
         {
-            using var model = LlmModel.Load(path, new LlmLoadOptions
+            using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
             {
                 Devices = [slot], ContextLength = 512, MaxBatchTokens = 128, RecurrentStateType = stateType,
             });

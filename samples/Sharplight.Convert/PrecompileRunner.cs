@@ -9,14 +9,15 @@ namespace Sharplight.Convert;
 /// Runs <c>precompile</c>: compiles the package on a live device or for a device profile through <see cref="PackagePrecompiler"/>
 /// and appends the artifact sets.
 /// </summary>
-internal sealed class PrecompileRunner(TextWriter output)
+internal sealed class PrecompileRunner(SampleRuntime runtime, TextWriter output)
 {
     private const long DefaultOnnxBatch = 1;
 
     public void Run(PrecompileSettings settings)
     {
         // ONNX graphs run with the CPU as fallback for data-dependent ops, so they are compiled that way too.
-        using var cpu = settings.Profile is null && settings.Device is { Provider: not "cpu" } ? DeviceOpener.OpenCpu() : null;
+        var devices = new DeviceOpener(runtime.Providers);
+        using var cpu = settings.Profile is null && settings.Device is { Provider: not "cpu" } ? devices.OpenCpu() : null;
         var options = new PrecompileOptions
         {
             ContextLength = settings.ContextLength,
@@ -37,8 +38,8 @@ internal sealed class PrecompileRunner(TextWriter output)
         try
         {
             result = settings.Profile is { } profile
-                ? PackagePrecompiler.Precompile(settings.PackagePath, profile, options)
-                : PackagePrecompiler.Precompile(settings.PackagePath, deviceOptions => DeviceOpener.Open(settings.Device!.Value, deviceOptions), options);
+                ? PackagePrecompiler.Precompile(settings.PackagePath, runtime.Providers, profile, options)
+                : PackagePrecompiler.Precompile(settings.PackagePath, deviceOptions => devices.Open(settings.Device!.Value, deviceOptions), options);
         }
         catch (NotSupportedException error)
         {

@@ -1,21 +1,21 @@
 using Sharplight.Hub;
 using Sharplight.Package;
-using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Services.Settings;
+using Sharplight.Vision;
 
 namespace Sharplight.Studio.Services.Library;
 
 /// <summary><see cref="IModelLibrary"/> over the <see cref="ModelStore"/> and the list of added files in the settings.</summary>
 internal sealed class ModelLibrary : IModelLibrary
 {
-    /// <summary>Auxiliary source role of a vision projector.</summary>
-    private const string ProjectorRole = "mmproj";
 
+    private readonly ModelConverter _converter;
     private readonly ISettingsService _settings;
 
-    public ModelLibrary(ISettingsService settings)
+    public ModelLibrary(ISettingsService settings, ModelConverter converter)
     {
         _settings = settings;
+        _converter = converter;
     }
 
     /// <inheritdoc/>
@@ -66,12 +66,11 @@ internal sealed class ModelLibrary : IModelLibrary
     /// <inheritdoc/>
     public async Task<string> ConvertAsync(string source, string? projector, string destination, IProgress<string> log, CancellationToken cancellationToken)
     {
-        EngineBootstrap.Register();
         await Task.Run(() =>
         {
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(destination))!);
             var options = new ConversionOptions { Log = log.Report };
-            ModelConverter.Convert(source, destination, options, projector is null ? null : [(ProjectorRole, projector)]);
+            _converter.Convert(source, destination, options, projector is null ? null : [new(AuxiliaryRoles.Mmproj, projector)]);
         }, cancellationToken).ConfigureAwait(false);
         await AddLocalAsync(destination).ConfigureAwait(false);
         return destination;

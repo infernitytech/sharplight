@@ -19,6 +19,7 @@ internal sealed class ServeOptionSet
     private const string ApiBoth = "both";
 
     private readonly RuntimeOptionSet _runtime = new();
+    private readonly SampleRuntime _sampleRuntime;
 
     private readonly StoreOptionSet _store;
     private readonly PullOptionSet _pull = new(explicitPull: false);
@@ -128,9 +129,10 @@ internal sealed class ServeOptionSet
             + "combine with --idle-timeout and --max-loaded / --vram-reserve to unload idle and least recently used models.",
     };
 
-    public ServeOptionSet(StoreOptionSet store)
+    public ServeOptionSet(StoreOptionSet store, SampleRuntime sampleRuntime)
     {
         _store = store;
+        _sampleRuntime = sampleRuntime;
         _api.AcceptOnlyFromAmong(ApiOpenAi, ApiAnthropic, ApiBoth);
     }
 
@@ -189,7 +191,7 @@ internal sealed class ServeOptionSet
     private ServeSettings Read(ParseResult parseResult)
     {
         var runtime = _runtime.Read(parseResult);
-        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(true, runtime.UseCpu, runtime.DeviceIndex, runtime.ContextLength,
+        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(_sampleRuntime, true, runtime.UseCpu, runtime.DeviceIndex, runtime.ContextLength,
             runtime.BatchTokens, runtime.DisabledFeatures, log));
         return new ServeSettings(
             parseResult.GetValue(_positional) ?? [],

@@ -46,7 +46,7 @@ public class PackageTests
             ModelPackage.Save(pkgPath, def, []);
             Assert.True(ModelPackage.IsPackage(pkgPath));
             var src = new ModelPackageImporter().Open(pkgPath);
-            var def2 = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = src });
+            var def2 = TestHost.Loader.Build(new ModelSourceSet { Primary = src });
             try
             {
                 Assert.Equal(def.Architecture, def2.Architecture);

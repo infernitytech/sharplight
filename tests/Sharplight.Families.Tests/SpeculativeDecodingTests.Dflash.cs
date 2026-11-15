@@ -28,7 +28,7 @@ public partial class SpeculativeDecodingTests
         {
             Assert.Equal(DflashDraftHead.TapsOutput, m.Definition.Properties[WellKnown.DraftHiddenSource]);
             Assert.Equal(8, m.Definition.Property<int>(WellKnown.DraftBlockSize));
-        }, [(AuxiliaryRoles.Draft, drafter)]);
+        }, new Dictionary<string, string> { [AuxiliaryRoles.Draft] = drafter });
     }
 
     /// <summary>
@@ -48,10 +48,10 @@ public partial class SpeculativeDecodingTests
         Assert.SkipUnless(File.Exists(drafter) && File.Exists(referencePath), $"{drafter} or its reference not present");
         using var reference = JsonDocument.Parse(File.ReadAllText(referencePath));
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(target, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, target, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = vulkan,
-            Auxiliary = [(AuxiliaryRoles.Draft, drafter)],
+            Auxiliary = { [AuxiliaryRoles.Draft] = drafter },
         });
         var cases = reference.RootElement.EnumerateArray().Select(e =>
         {
@@ -108,10 +108,10 @@ public partial class SpeculativeDecodingTests
             "SHARPLIGHT_TEST_DFLASH_TARGET / SHARPLIGHT_TEST_DFLASH_DRAFTER not set");
         int drafts = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_DFLASH_DRAFTS"), out int d) ? d : 7;
         using var device = OpenDevice(vulkan: true);
-        using var model = LlmModel.Load(target, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, target, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 1024, MaxBatchTokens = 128, DeviceSampling = true,
-            Auxiliary = [(AuxiliaryRoles.Draft, drafter)],
+            Auxiliary = { [AuxiliaryRoles.Draft] = drafter },
         });
         const string Text = "Write a Python function that returns the n-th Fibonacci number iteratively, with a docstring and type hints.\n\n```python\n";
         int[] prompt = [.. model.Tokenizer.Encode(Text, addSpecial: true, parseSpecial: false)];

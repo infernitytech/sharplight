@@ -6,15 +6,15 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Llm.Serving;
-using Sharplight.Llm.Serving.Chat;
 using Sharplight.Llm.Serving.Hosting;
 
 namespace Sharplight.AspNetCore;
 
 /// <summary>
-/// ASP.NET Core integration: registers models with the service collection, adds the cross-cutting middleware and maps the
+/// ASP.NET Core integration: adds the cross-cutting middleware and maps the
 /// OpenAI-compatible (<c>/v1/chat/completions</c>, <c>/v1/completions</c>, <c>/v1/models</c>), Anthropic-compatible
-/// (<c>/v1/messages</c>), embedding / rerank (see <see cref="RetrievalApi"/>), admin, health and metrics endpoints.
+/// (<c>/v1/messages</c>), embedding / rerank (see <see cref="RetrievalApi"/>), admin, health and metrics endpoints. The models and
+/// options are registered with <c>services.AddSharplightServer(...)</c>.
 /// </summary>
 /// <example>
 /// A single-model chat server:
@@ -22,61 +22,25 @@ namespace Sharplight.AspNetCore;
 /// var builder = WebApplication.CreateBuilder(args);
 /// using var engine = new InferenceEngine(model.CreateBatchDecoder(slots: 4), model.Tokenizer);
 /// var service = new ModelService(engine, model.ChatTemplate, new ModelServiceOptions { ModelName = "qwen3" });
-/// builder.Services.AddSharplight(service, o => o.ApiKeys.Add("secret"));
+/// builder.Services.AddSharplightServer(service, o => o.ApiKeys.Add("secret"));
 ///
 /// var app = builder.Build();
-/// app.UseSharplight();   // CORS, API keys, error mapping
-/// app.MapSharplight();   // health, metrics, OpenAI and Anthropic APIs
+/// app.UseSharplightServer();   // CORS, API keys, error mapping
+/// app.MapSharplightServer();   // health, metrics, OpenAI and Anthropic APIs
 /// app.Run();
 /// </code>
 /// </example>
 public static class SharplightServerExtensions
 {
-    extension(IServiceCollection services)
-    {
-        /// <summary>
-        /// Registers a single chat model and the server options. The model becomes the pinned default model, and requests naming
-        /// an unknown model are answered by it (<see cref="SharplightServerOptions.UnknownModelFallsBackToDefault"/>).
-        /// The caller keeps ownership of the engine behind <paramref name="model"/> (dispose it after the host stops).
-        /// </summary>
-        /// <param name="model">The chat service to expose.</param>
-        /// <param name="configure">Adjusts the <see cref="SharplightServerOptions"/>.</param>
-        public IServiceCollection AddSharplight(ModelService model, Action<SharplightServerOptions>? configure = null)
-        {
-            var options = new SharplightServerOptions();
-            configure?.Invoke(options);
-            var ctx = new SharplightServerContext(model, options);
-            services.AddSingleton(ctx);
-            services.AddHostedService(_ => new EngineLifetime(ctx));
-            return services;
-        }
-
-        /// <summary>
-        /// Registers a model host (several models, loaded on demand within the device memory budget) and the server options.
-        /// The caller disposes the host after the server stops.
-        /// </summary>
-        /// <param name="host">The models to serve; clients select one with the <c>model</c> request field.</param>
-        /// <param name="configure">Adjusts the <see cref="SharplightServerOptions"/>.</param>
-        public IServiceCollection AddSharplight(ModelHost host, Action<SharplightServerOptions>? configure = null)
-        {
-            var options = new SharplightServerOptions();
-            configure?.Invoke(options);
-            var ctx = new SharplightServerContext(host, options);
-            services.AddSingleton(ctx);
-            services.AddHostedService(_ => new EngineLifetime(ctx));
-            return services;
-        }
-    }
-
     extension(IApplicationBuilder app)
     {
         /// <summary>
         /// Adds CORS handling, API-key authentication and the mapping of API errors (<see cref="ApiException"/>,
         /// <see cref="EngineException"/>) to JSON error bodies in front of the endpoints. Call it before
-        /// <see cref="MapSharplight"/>; <c>/health</c> and <c>/metrics</c> stay open when API keys are configured.
+        /// <see cref="MapSharplightServer"/>; <c>/health</c> and <c>/metrics</c> stay open when API keys are configured.
         /// </summary>
-        /// <exception cref="InvalidOperationException"><c>AddSharplight</c> was not called.</exception>
-        public IApplicationBuilder UseSharplight()
+        /// <exception cref="InvalidOperationException"><c>AddSharplightServer</c> was not called.</exception>
+        public IApplicationBuilder UseSharplightServer()
         {
             var ctx = app.ApplicationServices.GetRequiredService<SharplightServerContext>();
             app.Use((http, next) => HandleRequestAsync(ctx, http, next));
@@ -90,8 +54,8 @@ public static class SharplightServerExtensions
         /// Maps everything the options enable: <c>/health</c>, <c>/metrics</c>, the admin endpoints, the OpenAI and the Anthropic
         /// API, plus the retrieval endpoints of <see cref="RetrievalApi"/> when embedding / rerank models are registered.
         /// </summary>
-        /// <exception cref="InvalidOperationException"><c>AddSharplight</c> was not called.</exception>
-        public IEndpointRouteBuilder MapSharplight()
+        /// <exception cref="InvalidOperationException"><c>AddSharplightServer</c> was not called.</exception>
+        public IEndpointRouteBuilder MapSharplightServer()
         {
             var o = routes.ServiceProvider.GetRequiredService<SharplightServerContext>().Options;
             routes.MapOperations();
@@ -243,7 +207,7 @@ public static class SharplightServerExtensions
         return true;
     }
 
-    private static bool KeyIsValid(HttpContext http, List<string> keys)
+    private static bool KeyIsValid(HttpContext http, IList<string> keys)
     {
         string? presented = Tenants.PresentedKey(http);
 

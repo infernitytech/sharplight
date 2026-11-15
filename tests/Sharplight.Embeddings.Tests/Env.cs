@@ -1,8 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
 
@@ -18,8 +16,6 @@ internal static class Env
 
     static Env()
     {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
         AppDomain.CurrentDomain.ProcessExit += (_, _) => WriteSummary();
     }
 

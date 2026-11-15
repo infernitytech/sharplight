@@ -1,5 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Runtime;
 
@@ -13,8 +12,6 @@ public class MtpDraftFileTests
 {
     private static readonly string Models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models");
 
-    static MtpDraftFileTests() => GgufImporter.Register();
-
     [Theory]
     // tools/mk_tiny_nemotron_h_mtp_hf.py, converted with convert_hf_to_gguf.py --mtp (llama.cpp 8ca5a80).
     [InlineData("gguf/tiny-random-nemotron-h-latent/mtp-tiny-random-nemotron-h-mtp-f32.gguf")]
@@ -26,7 +23,7 @@ public class MtpDraftFileTests
         using var device = cpu.OpenDevice(cpu.GetDevices()[0]);
 
         var error = Assert.Throws<NotSupportedException>(() =>
-            LlmModel.Load(path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64, MaxBatchTokens = 8 }).Dispose());
+            LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64, MaxBatchTokens = 8 }).Dispose());
 
         Assert.Contains("MTP draft file", error.Message, StringComparison.Ordinal);
     }

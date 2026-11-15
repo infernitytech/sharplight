@@ -8,6 +8,8 @@ namespace Sharplight.Convert;
 /// <summary><c>convert &lt;src&gt; &lt;dst.slm&gt;</c>: builds a model from any supported source and writes it as a package.</summary>
 internal sealed class ConvertCommand
 {
+    private readonly SampleRuntime _runtime;
+
     private readonly Argument<string> _source = new("src")
     {
         Description = "Source model: a .gguf file, a Hugging Face checkpoint directory, an .onnx file or an .slm package.",
@@ -47,8 +49,9 @@ internal sealed class ConvertCommand
         Description = ".slm sources: do not copy the source's precompiled artifact sets (by default they are kept; code entries are content addressed and stay valid).",
     };
 
-    public ConvertCommand()
+    public ConvertCommand(SampleRuntime runtime)
     {
+        _runtime = runtime;
         _kvType.AcceptOnlyFromAmong("f16", "f32", "q8_0", "q4_0");
         _shapes.Validators.Add(ValidateShapes);
     }
@@ -66,7 +69,7 @@ internal sealed class ConvertCommand
         command.Options.Add(_dropArtifacts);
         command.SetAction(CommandRunner.Guard((parseResult, _) =>
         {
-            new ConvertRunner(Console.Out).Run(Read(parseResult));
+            new ConvertRunner(_runtime, Console.Out).Run(Read(parseResult));
             return Task.FromResult(ExitCodes.Success);
         }));
         return command;

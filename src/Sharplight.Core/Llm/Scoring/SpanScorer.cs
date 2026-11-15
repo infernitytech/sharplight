@@ -14,7 +14,7 @@ namespace Sharplight.Llm.Scoring;
 /// </summary>
 /// <example>
 /// <code>
-/// using var scorer = SpanScorer.Load("Decision-2.0-Kai-0.6B.gguf", new SpanScorerLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
+/// using var scorer = SpanScorer.Load(loader, "Decision-2.0-Kai-0.6B.gguf", new SpanScorerLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
 /// var result = scorer.Score([
 ///     new PromptSegment("Context:\nThe ticket says the app crashes on start.\n\nTask type: choice\nQuestion:\nWhich team?\nOptions:"),
 ///     new PromptSegment("\n<option>\n"), new PromptSegment("{\"description\":\"Mobile\",\"key\":\"mobile\"}\n</option>", PromptSegmentRole.Option),
@@ -51,11 +51,15 @@ public sealed class SpanScorer : IDisposable
         _artifacts = artifacts;
     }
 
-    /// <summary>Loads a decision model (GGUF file, Hugging Face directory, ...) through the registered importers and compiles its span scoring graph.</summary>
+    /// <summary>Loads a decision model (GGUF file, Hugging Face directory, ...) through the loader's importers and architectures and compiles its span scoring graph.</summary>
     /// <exception cref="NotSupportedException">The model has no span scoring head.</exception>
-    public static SpanScorer Load(string path, SpanScorerLoadOptions options)
+    /// <param name="loader">The model loader (from the service container: <c>services.AddSharplight()</c>).</param>
+    /// <param name="path">Model file or directory, as understood by the registered importers.</param>
+    /// <param name="options">Devices and batch settings.</param>
+    /// <returns>The loaded model; the caller disposes it.</returns>
+    public static SpanScorer Load(ModelLoader loader, string path, SpanScorerLoadOptions options)
     {
-        var (def, source, tok) = PackedModelLoader.Open(path, options, new AdapterOptions
+        var (def, source, tok) = PackedModelLoader.Open(loader, path, options, new AdapterOptions
         {
             KvCacheType = options.Adapter.KvCacheType, ContextLength = options.Adapter.ContextLength,
         });

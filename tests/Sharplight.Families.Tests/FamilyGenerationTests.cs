@@ -1,6 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -17,12 +15,6 @@ namespace Sharplight.Families.Tests;
 public class FamilyGenerationTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    static FamilyGenerationTests()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-    }
 
     /// <summary>
     /// One model to generate with. <c>Kind</c> "ids": <c>Ids</c> are the expected generated token ids (transformers); "text": <c>Text</c> is the
@@ -248,7 +240,7 @@ public class FamilyGenerationTests
         // Exact greedy strings have no tolerance: the integer-dot matvec (DeviceFeatures.IntDot, on by default for short batches)
         // quantizes activations to 8 bits per 32 values like llama.cpp's MMVQ and flips near-tied tokens of some quantized models.
         // It is off here so these cases check the model wiring; its precision is covered by the Vulkan kernel tests.
-        var model = LlmModel.Load(path, new LlmLoadOptions
+        var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
         {
             Devices = [slot], Fallback = vulkan && cpuFallback ? fallback : null, ContextLength = 256, MaxBatchTokens = 256,
             DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot }, KvCacheType = f32Kv ? Sharplight.Tensors.DataType.F32 : null,

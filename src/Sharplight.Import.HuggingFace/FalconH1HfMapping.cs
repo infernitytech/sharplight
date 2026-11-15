@@ -20,7 +20,7 @@ internal sealed partial class FalconH1HfMapping : IHfArchitectureMapping
     private static double Multiplier(HfConfig c, string key) => c.GetDouble(key) ?? 1.0;
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string a = Architecture + ".";
         int heads = c.Int("num_attention_heads");
@@ -53,7 +53,7 @@ internal sealed partial class FalconH1HfMapping : IHfArchitectureMapping
     private static partial Regex LayerName();
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var collector = new HfWeightCollector();
         foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))

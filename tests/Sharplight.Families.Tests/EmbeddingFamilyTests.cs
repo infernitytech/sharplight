@@ -1,7 +1,5 @@
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm.Embeddings;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
@@ -18,12 +16,6 @@ namespace Sharplight.Families.Tests;
 public class EmbeddingFamilyTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    static EmbeddingFamilyTests()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-    }
 
     /// <summary>Model path under ~/models and a description.</summary>
     public static TheoryData<string, string, bool> Cases()
@@ -94,7 +86,7 @@ public class EmbeddingFamilyTests
         var expected = root.GetProperty("embeddings").EnumerateArray().Select(a => a.EnumerateArray().Select(e => (float)e.GetDouble()).ToArray()).ToList();
         string pooling = root.GetProperty("pooling").GetString()!;
 
-        using var embedder = EmbeddingModel.Load(path, new EmbeddingLoadOptions
+        using var embedder = EmbeddingModel.Load(TestHost.Loader, path, new EmbeddingLoadOptions
         {
             Devices = [Device(vulkan)], Pooling = pooling, Normalize = false, MaxBatchTokens = 256, MaxBatchSequences = 8,
         });

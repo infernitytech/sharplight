@@ -1,7 +1,6 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm.Embeddings;
 using Sharplight.Runtime;
 
@@ -49,10 +48,13 @@ public class EmbeddingGeneratorTests
     {
         string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/gguf/all-MiniLM-L6-v2/all-MiniLM-L6-v2-ggml-model-f16.gguf");
         Assert.SkipUnless(File.Exists(path), $"Model not found: {path}");
-        GgufImporter.Register();
         var cpu = new CpuExecutionProvider();
-        var services = new ServiceCollection();
-        services.AddSharplightEmbeddingGenerator(path, new EmbeddingLoadOptions { Devices = [new DeviceSlot { Device = cpu.OpenDevice(cpu.GetDevices()[0]) }] });
+        var services = new ServiceCollection().AddSharplight();
+        services.AddSharplightEmbeddingGenerator(o =>
+        {
+            o.ModelPath = path;
+            o.Devices = [new DeviceSlot { Device = cpu.OpenDevice(cpu.GetDevices()[0]) }];
+        });
         await using var sp = services.BuildServiceProvider();
         var gen = sp.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>();
         var r = await gen.GenerateAsync(["The cat sits on the mat.", "A cat is sitting on a mat.", "Stock markets fell sharply today."]);

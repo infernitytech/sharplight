@@ -18,7 +18,7 @@ internal sealed class CogVlmHfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } = ["cogvlm"];
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HuggingFaceImportOptions options)
     {
         var md = new Dictionary<string, object>(_text.MapHyperParameters(config, options), StringComparer.Ordinal);
         CogVlmVisionHfMapping.AddVisionHyperParameters(config, md, Architecture, config.Int("hidden_size"));
@@ -26,7 +26,7 @@ internal sealed class CogVlmHfMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var text = tensors.Where(t => !CogVlmVisionHfMapping.IsVisionTensor(t.Key)).ToDictionary(t => t.Key, t => t.Value, StringComparer.Ordinal);
         var weights = new Dictionary<string, WeightInfo>(_text.MapWeights(config, text, options), StringComparer.Ordinal);

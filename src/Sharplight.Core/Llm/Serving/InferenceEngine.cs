@@ -32,7 +32,7 @@ namespace Sharplight.Llm.Serving;
 /// </summary>
 /// <example>
 /// <code>
-/// using var model = LlmModel.Load(path, loadOptions);
+/// using var model = LlmModel.Load(loader, path, loadOptions);
 /// using var engine = new InferenceEngine(model.CreateBatchDecoder(slots: 4), model.Tokenizer);
 /// var request = new GenerationRequest
 /// {

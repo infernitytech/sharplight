@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Diagnostics;
 using System.Globalization;
 using Microsoft.AspNetCore.Builder;
@@ -64,7 +65,7 @@ internal sealed class KestrelApiServer(ModelHost host) : IApiServer
         builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = null);
         builder.Logging.ClearProviders();
         SetServedModels(settings.ServedModels);
-        builder.Services.AddSharplight(host, options =>
+        builder.Services.AddSharplightServer(host, options =>
         {
             options.OpenAi = settings.OpenAi;
             options.Anthropic = settings.Anthropic;
@@ -73,7 +74,11 @@ internal sealed class KestrelApiServer(ModelHost host) : IApiServer
                 options.ApiKeys.Add(settings.ApiKey.Trim());
             }
 
-            options.CorsOrigins.AddRange(ParseOrigins(settings.CorsOrigins));
+            foreach (var origin in ParseOrigins(settings.CorsOrigins))
+            {
+                options.CorsOrigins.Add(origin);
+            }
+
             options.ModelFilter = IsServed;
             options.DrainModelsOnStop = false;
             options.Admin = false;
@@ -81,8 +86,8 @@ internal sealed class KestrelApiServer(ModelHost host) : IApiServer
 
         var app = builder.Build();
         app.Use(LogRequestAsync);
-        app.UseSharplight();
-        app.MapSharplight();
+        app.UseSharplightServer();
+        app.MapSharplightServer();
         try
         {
             await app.StartAsync(cancellationToken).ConfigureAwait(false);

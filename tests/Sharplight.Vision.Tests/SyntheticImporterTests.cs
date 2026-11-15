@@ -226,8 +226,8 @@ public class SyntheticImporterTests : IDisposable
         var cp = SafetensorsCheckpoint.Open(dir);
         _open.Add(cp);
         var mapping = new Qwen35HfMapping();
-        var md = new Dictionary<string, object>(mapping.MapHyperParameters(config, HfImportOptions.Default));
-        return new HfView(md, mapping.MapWeights(config, cp.Tensors, HfImportOptions.Default).ToDictionary(k => k.Key, k => k.Value));
+        var md = new Dictionary<string, object>(mapping.MapHyperParameters(config, HuggingFaceImportOptions.Default));
+        return new HfView(md, mapping.MapWeights(config, cp.Tensors, HuggingFaceImportOptions.Default).ToDictionary(k => k.Key, k => k.Value));
     }
 
     // Adapter so the test reads naturally: (metadata, weights) of the HF mapping.

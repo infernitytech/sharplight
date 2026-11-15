@@ -181,13 +181,12 @@ public class OnnxParserTests : IDisposable
     [Fact]
     public void Register_MakesImporterAndAdapterDiscoverable()
     {
-        OnnxImporter.Register();
         var path = Path.Combine(_dir, "r.onnx");
         File.WriteAllBytes(path, new TestModel().Input("x", "N", 4).Output("y", "N", 4).Node("Relu", ["x"], ["y"]).ToBytes());
-        var src = ModelImporterRegistry.Open(path);
+        var src = TestHost.Loader.Importers.Open(path);
         try
         {
-            var def = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = src });
+            var def = TestHost.Loader.Build(new ModelSourceSet { Primary = src });
             Assert.Equal("onnx", def.Architecture);
             Assert.Single(def.Graphs);
             Assert.Equal("main", def.Graphs.Keys.Single());

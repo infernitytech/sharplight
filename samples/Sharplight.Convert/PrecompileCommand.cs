@@ -12,6 +12,8 @@ namespace Sharplight.Convert;
 /// </summary>
 internal sealed class PrecompileCommand
 {
+    private readonly SampleRuntime _runtime;
+
     private const string AllTiers = "all";
     private const char BoundSeparator = '=';
     /// <summary>The <c>sharplight-server --slots</c> default, so a served model finds its batch decoder's kernels.</summary>
@@ -69,8 +71,9 @@ internal sealed class PrecompileCommand
         Description = "Compile with the per-user kernel and pipeline cache. Faster; the stored sets still hold only this model's kernels and pipelines.",
     };
 
-    public PrecompileCommand()
+    public PrecompileCommand(SampleRuntime runtime)
     {
+        _runtime = runtime;
         _tier.AcceptOnlyFromAmong(ArtifactTiers.Code, ArtifactTiers.Binary, AllTiers);
         _device.Validators.Add(result =>
         {
@@ -113,7 +116,7 @@ internal sealed class PrecompileCommand
         });
         command.SetAction(CommandRunner.Guard((parseResult, _) =>
         {
-            new PrecompileRunner(Console.Out).Run(Read(parseResult));
+            new PrecompileRunner(_runtime, Console.Out).Run(Read(parseResult));
             return Task.FromResult(ExitCodes.Success);
         }));
         return command;

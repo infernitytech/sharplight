@@ -7,14 +7,14 @@ namespace Sharplight.Server;
 /// <summary>Plans the served models, pulls the ones missing from the store, loads them and runs the HTTP server until cancelled.</summary>
 internal static class ServeApplication
 {
-    public static async Task<int> RunAsync(ServeSettings settings, CancellationToken cancellationToken)
+    public static async Task<int> RunAsync(SampleRuntime runtime, ServeSettings settings, CancellationToken cancellationToken)
     {
         var plan = ServerPlanBuilder.Build(settings);
-        await ResolveModelsAsync(plan, settings, cancellationToken);
+        await ResolveModelsAsync(runtime, plan, settings, cancellationToken);
 
         // The pool outlives the host: engines must stop before the devices they run on are disposed.
         using var devices = new DevicePool();
-        using var host = new ModelHostBuilder(settings, plan, devices).Build();
+        using var host = new ModelHostBuilder(runtime, settings, plan, devices).Build();
 
         try
         {
@@ -30,14 +30,14 @@ internal static class ServeApplication
     }
 
     /// <summary>Replaces stored and Hub model names by package paths, pulling models that are not stored yet.</summary>
-    private static async Task ResolveModelsAsync(ServerPlan plan, ServeSettings settings, CancellationToken cancellationToken)
+    private static async Task ResolveModelsAsync(SampleRuntime runtime, ServerPlan plan, ServeSettings settings, CancellationToken cancellationToken)
     {
         if (plan.Models.All(model => ModelResolver.IsLocalPath(model.Path)))
         {
             return;
         }
 
-        using var hub = new HubContext(settings.StoreRoot);
+        using var hub = new HubContext(runtime, settings.StoreRoot);
         var resolver = new ModelResolver(hub, settings.Pull);
         foreach (var model in plan.Models)
         {

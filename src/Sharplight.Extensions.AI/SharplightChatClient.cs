@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
 using Sharplight.Llm;
+using Sharplight.Models;
 using Sharplight.Templating;
 using ChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
@@ -18,8 +19,9 @@ namespace Sharplight.Extensions.AI;
 /// </summary>
 /// <example>
 /// <code>
-/// GgufImporter.Register();
-/// using var client = SharplightChatClient.Load("qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [device] });
+/// using var services = SharplightDefaults.CreateServiceProvider();
+/// using var client = SharplightChatClient.Load(services.GetRequiredService&lt;ModelLoader&gt;(), "qwen3-4b-q4_k_m.gguf",
+///     new LlmLoadOptions { Devices = [device] });
 /// var response = await client.GetResponseAsync("Why is the sky blue?");
 /// Console.WriteLine(response.Text);
 /// </code>
@@ -49,11 +51,18 @@ public sealed class SharplightChatClient : IChatClient
     /// for a masked-diffusion model. The model is not disposed with the client unless <paramref name="ownsModel"/>.
     /// </summary>
     public SharplightChatClient(LlmModel model, SharplightChatClientOptions? options = null, bool ownsModel = false)
-        : this(model.IsDiffusion ? new DiffusionGenerationBackend(model, ownsModel) : new SessionGenerationBackend(model, ownsModel), options, ownsBackend: true) { }
+        : this(model.IsDiffusion ? new DiffusionGenerationBackend(model, ownsModel) : new SessionGenerationBackend(model, ownsModel), options, ownsBackend: true)
+    {
+    }
 
-    /// <summary>Loads a model and returns a client owning it (importers must be registered, e.g. <c>GgufImporter.Register()</c>).</summary>
-    public static SharplightChatClient Load(string path, LlmLoadOptions load, SharplightChatClientOptions? options = null)
-        => new(LlmModel.Load(path, load), options, ownsModel: true);
+    /// <summary>Loads a model and returns a client owning it.</summary>
+    /// <param name="loader">The model loader (from the service container: <c>services.AddSharplight()</c>).</param>
+    /// <param name="path">Model file or directory.</param>
+    /// <param name="load">Devices and compile settings.</param>
+    /// <param name="options">Client configuration; defaults when null.</param>
+    /// <returns>The client; disposing it disposes the model.</returns>
+    public static SharplightChatClient Load(ModelLoader loader, string path, LlmLoadOptions load, SharplightChatClientOptions? options = null)
+        => new(LlmModel.Load(loader, path, load), options, ownsModel: true);
 
     /// <summary>The backend that runs the generations.</summary>
     public ITextGenerationBackend Backend => _backend;

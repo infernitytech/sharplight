@@ -19,12 +19,15 @@ internal sealed class HubService : IHubService, IDisposable
     private readonly ISettingsService _settings;
     private readonly HttpClient _http = HubClientOptions.CreateHttpClient();
     private readonly HighlightsCatalog _highlights;
+    private readonly EngineServices _engine;
 
     /// <param name="settings">The settings (token, model store).</param>
+    /// <param name="engine">The engine services (conversion, providers for precompilation).</param>
     /// <param name="highlightsFile">Where the highlighted models are cached, or null to keep them in memory only.</param>
-    public HubService(ISettingsService settings, string? highlightsFile = null)
+    public HubService(ISettingsService settings, EngineServices engine, string? highlightsFile = null)
     {
         _settings = settings;
+        _engine = engine;
         _highlights = new HighlightsCatalog(SearchAsync, highlightsFile);
     }
 
@@ -142,12 +145,11 @@ internal sealed class HubService : IHubService, IDisposable
     /// <inheritdoc/>
     public async Task<ModelManifest> PullAsync(ModelReference reference, IProgress<PullUpdate> progress, CancellationToken cancellationToken)
     {
-        EngineBootstrap.Register();
         var settings = _settings.Current;
         var clientOptions = ClientOptions();
         var client = new HubClient(_http, clientOptions);
         var store = new ModelStore(_settings.StoreRoot);
-        var puller = new ModelPuller(client, new FileDownloader(_http, clientOptions), store);
+        var puller = new ModelPuller(client, new FileDownloader(_http, clientOptions), store, _engine.Converter);
         var tracker = new PullProgressTracker(progress);
         var options = new PullOptions
         {
@@ -208,7 +210,7 @@ internal sealed class HubService : IHubService, IDisposable
     private PrecompileTarget? CreatePrecompileTarget(PullProgressTracker tracker, CancellationToken cancellationToken)
     {
         var settings = _settings.Current;
-        var gpus = DeviceCatalog.Discover().Where(entry => entry.Option.IsGpu).ToList();
+        var gpus = DeviceCatalog.Discover(_engine.Providers).Where(entry => entry.Option.IsGpu).ToList();
         var gpu = gpus.FirstOrDefault(entry => entry.Option.Id == settings.DefaultLoad.DeviceId);
         if (gpu.Provider is null && settings.DefaultLoad.DeviceId is null or ComputeDeviceOption.AllGpusId)
         {

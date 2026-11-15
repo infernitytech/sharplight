@@ -151,7 +151,7 @@ public class PreprocessorTests
         var p = Qwen with { MinPixels = 0, MaxPixels = 0 };
         var im = new VisionPreprocessor(p).Process(new ImageInput(96, 64, new byte[96 * 64 * 3]));   // 4 rows × 6 cols of patches → 2 × 3 tokens
         Assert.Equal((2, 3), (im.MergedHeight, im.MergedWidth));
-        var arch = MultimodalRegistry.Find("qwen3_5") ?? new Qwen35Multimodal();
+        IMultimodalArchitecture arch = new Qwen35Multimodal();
         var prompt = arch.Assemble(ctx, [1, 2, Start, Pad, End, 3], [im], startPosition: 5);
 
         Assert.Equal(3 + 6 + 2, prompt.Length);

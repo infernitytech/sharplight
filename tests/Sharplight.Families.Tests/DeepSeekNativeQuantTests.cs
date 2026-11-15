@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Sharplight.Cpu;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -31,11 +30,6 @@ public sealed partial class DeepSeekNativeQuantTests : IDisposable
     private static readonly float[] s_e4m3 = [.. Enumerable.Range(0, 0x7F).Select(code => E4m3((byte)code))];
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "sharplight-dsv4-native-" + Guid.NewGuid().ToString("N"));
-
-    static DeepSeekNativeQuantTests()
-    {
-        HuggingFaceImporter.Register();
-    }
 
     public void Dispose()
     {
@@ -85,7 +79,7 @@ public sealed partial class DeepSeekNativeQuantTests : IDisposable
         var slot = new DeviceSlot { Device = provider.OpenDevice(info) };
         try
         {
-            using var model = LlmModel.Load(directory, new LlmLoadOptions
+            using var model = LlmModel.Load(TestHost.Loader, directory, new LlmLoadOptions
             {
                 Devices = [slot], ContextLength = 256, MaxBatchTokens = 64, KvCacheType = Sharplight.Tensors.DataType.F32,
                 DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot },

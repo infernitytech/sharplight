@@ -22,6 +22,9 @@ namespace Sharplight.Package;
 /// </remarks>
 public static class PackagePrecompiler
 {
+    /// <summary>Opens packages only: their definitions are prebuilt, so no architecture is needed. Immutable.</summary>
+    private static readonly ModelLoader s_packageLoader = new(new ModelImporterCatalog([new ModelPackageImporter()]), new ArchitectureCatalog([]));
+
     private const string TemporaryCachePrefix = "sharplight-precompile-";
     private const string MissingBoundPrefix = "No bound";
 
@@ -41,18 +44,20 @@ public static class PackagePrecompiler
 
     /// <summary>
     /// Compiles the package for <paramref name="profile"/> without the device, through the registered provider that compiles for it
-    /// (<see cref="ProviderRegistry.OpenProfile"/>), and stores the artifacts (code tier only).
+    /// (<see cref="ExecutionProviderCatalog.OpenProfile"/>), and stores the artifacts (code tier only).
     /// </summary>
     /// <param name="packagePath">The package to compile and append to.</param>
+    /// <param name="providers">The execution providers to choose from.</param>
     /// <param name="profile">The device profile to compile for.</param>
     /// <param name="options">Compile options, or <see langword="null"/> for the defaults.</param>
     /// <returns>What was stored.</returns>
     /// <exception cref="NotSupportedException">No registered provider compiles for the profile, or it does not produce the requested tiers.</exception>
     /// <exception cref="MissingSymbolBoundException">A non-LLM graph has a symbolic dimension without a bound.</exception>
-    public static PrecompileResult Precompile(string packagePath, DeviceProfile profile, PrecompileOptions? options = null)
+    public static PrecompileResult Precompile(string packagePath, ExecutionProviderCatalog providers, DeviceProfile profile, PrecompileOptions? options = null)
     {
+        ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(profile);
-        return Precompile(packagePath, deviceOptions => ProviderRegistry.OpenProfile(profile, deviceOptions), options);
+        return Precompile(packagePath, deviceOptions => providers.OpenProfile(profile, deviceOptions), options);
     }
 
     /// <summary>Compiles the package on the device <paramref name="openDevice"/> opens and stores the artifacts.</summary>
@@ -146,10 +151,10 @@ public static class PackagePrecompiler
     private static void CompileLanguageModel(string packagePath, IComputeDevice device, CompilationArtifacts artifacts, ModelDefinition definition,
         PrecompileOptions options)
     {
-        IReadOnlyList<DeviceSlot> devices = [new DeviceSlot { Device = device }];
+        IList<DeviceSlot> devices = [new DeviceSlot { Device = device }];
         if (definition.Graphs.ContainsKey(WellKnown.DecodeGraph))
         {
-            using var model = LlmModel.Load(packagePath, new LlmLoadOptions
+            using var model = LlmModel.Load(s_packageLoader, packagePath, new LlmLoadOptions
             {
                 Devices = devices,
                 ContextLength = options.ContextLength,
@@ -181,13 +186,13 @@ public static class PackagePrecompiler
         if (definition.Graphs.ContainsKey(WellKnown.EmbedGraph))
         {
             Optional(WellKnown.EmbedGraph, options,
-                () => EmbeddingModel.Load(packagePath, new EmbeddingLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
+                () => EmbeddingModel.Load(s_packageLoader, packagePath, new EmbeddingLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
         }
 
         if (definition.Graphs.ContainsKey(WellKnown.ClassifyGraph))
         {
             Optional(WellKnown.ClassifyGraph, options,
-                () => Reranker.Load(packagePath, new RerankerLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
+                () => Reranker.Load(s_packageLoader, packagePath, new RerankerLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
         }
     }
 

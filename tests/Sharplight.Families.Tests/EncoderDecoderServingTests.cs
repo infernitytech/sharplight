@@ -1,5 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
@@ -17,8 +16,6 @@ public class EncoderDecoderServingTests
     // tiny-random-t5-v1_1's greedy continuation (transformers; see MappedFamilyCases).
     private static readonly int[] Expected = [8847, 26621, 8889, 8889, 31376, 731, 731, 28428, 28176, 8298, 27172, 9762, 7827, 7827, 7827, 29378, 28529];
 
-    static EncoderDecoderServingTests() => HuggingFaceImporter.Register();
-
     [Fact]
     public async Task Engine_encodes_chunked_prompts_and_never_reuses_a_context()
     {
@@ -26,7 +23,7 @@ public class EncoderDecoderServingTests
         Assert.SkipUnless(Directory.Exists(path), $"{path} not present");
         var cpu = new CpuExecutionProvider();
         using var device = cpu.OpenDevice(cpu.GetDevices()[0]);
-        using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64, MaxBatchTokens = 8 });
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64, MaxBatchTokens = 8 });
         Assert.True(model.IsEncoderDecoder);
         var decoder = model.CreateBatchDecoder(slots: 4);
         Assert.IsType<SessionBatchDecoder>(decoder);

@@ -8,7 +8,7 @@ using Sharplight.Vision;
 namespace Sharplight.Cli;
 
 /// <summary>Declares the command line of the <c>sharplight</c> tool and binds parsed values to <see cref="CliSettings"/>.</summary>
-internal sealed class CliOptionSet
+internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
 {
     private const int DefaultMaxNewTokens = 64;
     private const string DefaultPrompt = "The capital of France is";
@@ -112,7 +112,7 @@ internal sealed class CliOptionSet
         command.Options.Add(_devices);
         _runtime.AddTo(command);
         _pull.AddTo(command);
-        HubCommands.AddTo(command, _store);
+        HubCommands.AddTo(command, _store, sampleRuntime);
         command.Options.Add(_split);
         command.Options.Add(_gpuMemory);
         command.Options.Add(_mmproj);
@@ -172,7 +172,7 @@ internal sealed class CliOptionSet
             parseResult.GetValue(_speculateNgram));
 
         var runtime = _runtime.Read(parseResult);
-        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(true, runtime.UseCpu, runtime.DeviceIndex, runtime.ContextLength,
+        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(sampleRuntime, true, runtime.UseCpu, runtime.DeviceIndex, runtime.ContextLength,
             runtime.BatchTokens, runtime.DisabledFeatures, log));
         return new CliSettings(
             modelPath,

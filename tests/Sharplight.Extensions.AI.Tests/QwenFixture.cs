@@ -1,5 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
@@ -20,7 +19,6 @@ public sealed class QwenFixture : IDisposable
             return;
         }
 
-        GgufImporter.Register();
         var vk = new VulkanProvider();
         if (vk.CheckAvailability().IsAvailable && vk.GetDevices().Count > 0)
         {
@@ -33,7 +31,7 @@ public sealed class QwenFixture : IDisposable
             var cpu = new CpuExecutionProvider();
             _slot = new DeviceSlot { Device = cpu.OpenDevice(cpu.GetDevices()[0]) };
         }
-        Client = SharplightChatClient.Load(Path, new LlmLoadOptions { Devices = [_slot], ContextLength = 1024, MaxBatchTokens = 256 },
+        Client = SharplightChatClient.Load(TestHost.Loader, Path, new LlmLoadOptions { Devices = [_slot], ContextLength = 1024, MaxBatchTokens = 256 },
             new SharplightChatClientOptions { Sampling = SamplingOptionsGreedy });
     }
 

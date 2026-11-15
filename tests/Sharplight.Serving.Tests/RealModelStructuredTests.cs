@@ -1,13 +1,10 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
 using Sharplight.Llm.Structured;
 using Sharplight.Runtime;
-using Sharplight.Vulkan;
 
 namespace Sharplight.Serving.Tests;
 
@@ -29,13 +26,10 @@ public class RealModelStructuredTests
     public async Task Qwen3_JsonSchemaAndForcedToolCall()
     {
         Assert.SkipUnless(File.Exists(ModelPath), "model not found: " + ModelPath);
-        ProviderRegistry.Register(() => new VulkanProvider());
-        CpuExecutionProvider.Register();
-        GgufImporter.Register();
-        var avail = ProviderRegistry.Discover().Where(x => x.Availability.IsAvailable).ToList();
+        var avail = TestHost.Providers.Discover().Where(x => x.Availability.IsAvailable).ToList();
         var provider = avail.Where(x => x.Provider.Name != "cpu").Concat(avail).First().Provider;
         using var device = provider.OpenDevice(provider.GetDevices()[0], new DeviceOptions());
-        using var model = LlmModel.Load(ModelPath, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 2048, MaxBatchTokens = 256 });
+        using var model = LlmModel.Load(TestHost.Loader, ModelPath, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 2048, MaxBatchTokens = 256 });
         var log = TestContext.Current.TestOutputHelper!;
 
         // Mask cost on a 151k vocabulary: trie build once, then a walk per new grammar state (cached afterwards).

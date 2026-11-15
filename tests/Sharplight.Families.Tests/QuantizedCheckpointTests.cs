@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -25,11 +24,6 @@ public class QuantizedCheckpointTests(ITestOutputHelper output)
     private const double NearTie = 0.02;
 
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    static QuantizedCheckpointTests()
-    {
-        HuggingFaceImporter.Register();
-    }
 
     public static TheoryData<string> Checkpoints() =>
     [
@@ -69,7 +63,7 @@ public class QuantizedCheckpointTests(ITestOutputHelper output)
         {
             // The CPU run keeps f32 activations (no 8-bit integer-dot matvec), so it shows the weight decode alone.
             var disabled = vulkan ? new HashSet<string>() : new HashSet<string> { DeviceFeatures.IntDot };
-            using var model = LlmModel.Load(directory, new LlmLoadOptions
+            using var model = LlmModel.Load(TestHost.Loader, directory, new LlmLoadOptions
             {
                 Devices = [slot], ContextLength = 256, MaxBatchTokens = 64, DisabledFeatures = disabled,
             });

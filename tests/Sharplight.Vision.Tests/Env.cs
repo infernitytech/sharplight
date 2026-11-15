@@ -1,7 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
-using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
 
@@ -24,13 +21,6 @@ internal static class Env
     public static readonly string HfQwen25Vl3b = Path.Combine(Home, "models/hf/Qwen2.5-VL-3B-Instruct");
     public static readonly string GgufQwen25Vl3b = Path.Combine(Home, "models/gguf/Qwen2.5-VL-3B-Instruct/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf");
     public static readonly string MmprojQwen25Vl3b = Path.Combine(Home, "models/gguf/Qwen2.5-VL-3B-Instruct/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf");
-
-    static Env()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-        ModelPackageImporter.Register();
-    }
 
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 

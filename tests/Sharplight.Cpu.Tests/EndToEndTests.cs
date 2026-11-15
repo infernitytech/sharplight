@@ -319,8 +319,7 @@ public class EndToEndTests
         Assert.Contains("avx512", info.Capabilities.Keys);
         using var dev = prov.OpenDevice(info);
         Assert.True(dev.AvailableMemory > 0);
-        CpuExecutionProvider.Register();
-        Assert.Contains(Sharplight.Runtime.ProviderRegistry.Discover(), d => d.Provider.Name == "cpu" && d.Availability.IsAvailable);
+        Assert.Contains(new Sharplight.Runtime.ExecutionProviderCatalog([prov]).Discover(), d => d.Provider.Name == "cpu" && d.Availability.IsAvailable);
     }
 
     [Fact]

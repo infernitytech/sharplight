@@ -317,7 +317,7 @@ public static class HfSupport
                 return problems;
             }
 
-            mapping.MapHyperParameters(config, HfImportOptions.Default);
+            mapping.MapHyperParameters(config, HuggingFaceImportOptions.Default);
             return [];
         }
         catch (Exception error) when (error is NotSupportedException or InvalidDataException or KeyNotFoundException or FormatException

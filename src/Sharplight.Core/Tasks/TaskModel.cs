@@ -20,7 +20,8 @@ namespace Sharplight.Tasks;
 /// <example>
 /// <code>
 /// using var services = SharplightDefaults.CreateServiceProvider();   // Sharplight.Defaults
-/// using var model = TaskModel.Load(new TaskLoadOptions { ModelPath = "whisper-small.slm", Devices = [slot] });
+/// var loader = services.GetRequiredService&lt;ModelLoader&gt;();
+/// using var model = TaskModel.Load(loader, new TaskLoadOptions { ModelPath = "whisper-small.slm", Devices = [slot] });
 /// using var recognizer = services.GetRequiredService&lt;TaskClientProvider&gt;().Create&lt;ISpeechRecognizer&gt;(model);
 /// var transcription = await recognizer.TranscribeAsync(WavFile.Read("talk.wav"));
 /// </code>
@@ -30,8 +31,9 @@ public sealed class TaskModel : IDisposable
     private const long DefaultReserve = 1L << 30;
     private bool _disposed;
 
-    internal TaskModel(ModelDefinition definition, ModelSource source, TaskLoadOptions options)
+    internal TaskModel(ModelDefinition definition, ModelSource source, TaskLoadOptions options, ArchitectureCatalog architectures)
     {
+        Architectures = architectures;
         Definition = definition;
         Source = source;
         Options = options;
@@ -48,6 +50,9 @@ public sealed class TaskModel : IDisposable
     /// <summary>The model's kind and components (the resolved default for models that do not describe themselves).</summary>
     public ModelDescription Description { get; }
 
+    /// <summary>The architectures the model was built with (for task clients that need architecture services such as prompt assembly).</summary>
+    public ArchitectureCatalog Architectures { get; }
+
     /// <summary>The options the model was loaded with; also used for every compilation.</summary>
     public TaskLoadOptions Options { get; }
 
@@ -58,15 +63,18 @@ public sealed class TaskModel : IDisposable
     public SharedWeights SharedWeights { get; } = new();
 
     /// <summary>
-    /// Loads <see cref="TaskLoadOptions.ModelPath"/> through the registered importers and architecture adapters (the same load path as
+    /// Loads <see cref="TaskLoadOptions.ModelPath"/> through the loader's importers and architectures (the same load path as
     /// <c>LlmModel</c>). Nothing is compiled until a client or <see cref="Compile"/> asks for a graph.
     /// </summary>
+    /// <param name="loader">The model loader (from the service container: <c>services.AddSharplight()</c>).</param>
     /// <param name="options">Model path, devices and compile settings; kept for every later compilation.</param>
     /// <param name="cancellationToken">Cancels loading between stages.</param>
+    /// <returns>The loaded model; the caller disposes it after every client created from it.</returns>
     /// <exception cref="ArgumentException">No model path or no device is configured.</exception>
     /// <exception cref="NotSupportedException">No registered importer or architecture adapter handles the model.</exception>
-    public static TaskModel Load(TaskLoadOptions options, CancellationToken cancellationToken = default)
+    public static TaskModel Load(ModelLoader loader, TaskLoadOptions options, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(loader);
         ArgumentNullException.ThrowIfNull(options);
         if (string.IsNullOrEmpty(options.ModelPath))
         {
@@ -80,30 +88,21 @@ public sealed class TaskModel : IDisposable
 
         var stopwatch = Stopwatch.StartNew();
         var adapter = options.ContextLength > 0 && options.Adapter.ContextLength == 0 ? options.Adapter.WithContext(options.ContextLength) : options.Adapter;
-        var (definition, source) = ModelLoader.Load(options.ModelPath, options.Auxiliary, adapter, options.Progress, options.Log, cancellationToken);
-        var model = new TaskModel(definition, source, options);
+        var (definition, source) = loader.Load(options.ModelPath, options.Auxiliary, adapter, options.Progress, options.Log, cancellationToken);
+        var model = new TaskModel(definition, source, options, loader.Architectures);
         options.Log?.Invoke($"Loaded {definition.Name} ({definition.Architecture}, {model.Description.Kind}, components "
             + $"{string.Join(", ", model.Description.Components.Select(c => c.Role))}): {definition.Weights.Count} tensors, "
             + $"{definition.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB [{stopwatch.ElapsedMilliseconds} ms]");
         return model;
     }
 
-    /// <summary>Loads <paramref name="path"/> with <paramref name="options"/> (see <see cref="Load(TaskLoadOptions, CancellationToken)"/>).</summary>
-    /// <param name="path">Model file or directory; overrides <see cref="TaskLoadOptions.ModelPath"/>.</param>
-    /// <param name="options">Devices and compile settings.</param>
-    /// <param name="cancellationToken">Cancels loading between stages.</param>
-    public static TaskModel Load(string path, TaskLoadOptions options, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        options.ModelPath = path;
-        return Load(options, cancellationToken);
-    }
-
-    /// <summary>Loads the model on the thread pool (see <see cref="Load(TaskLoadOptions, CancellationToken)"/>).</summary>
+    /// <summary>Loads the model on the thread pool (see <see cref="Load(ModelLoader, TaskLoadOptions, CancellationToken)"/>).</summary>
+    /// <param name="loader">The model loader.</param>
     /// <param name="options">Model path, devices and compile settings.</param>
     /// <param name="cancellationToken">Cancels loading between stages.</param>
-    public static Task<TaskModel> LoadAsync(TaskLoadOptions options, CancellationToken cancellationToken = default)
-        => Task.Run(() => Load(options, cancellationToken), cancellationToken);
+    /// <returns>The loaded model.</returns>
+    public static Task<TaskModel> LoadAsync(ModelLoader loader, TaskLoadOptions options, CancellationToken cancellationToken = default)
+        => Task.Run(() => Load(loader, options, cancellationToken), cancellationToken);
 
     /// <summary>
     /// The canonical metadata of a component (<see cref="ModelComponent.Metadata"/>), or of the whole model when <paramref name="role"/>

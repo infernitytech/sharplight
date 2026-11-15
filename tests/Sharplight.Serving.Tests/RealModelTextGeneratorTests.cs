@@ -1,12 +1,8 @@
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
-using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
-using Sharplight.Tasks;
-using Sharplight.Vulkan;
 
 namespace Sharplight.Serving.Tests;
 
@@ -27,16 +23,13 @@ public class RealModelTextGeneratorTests
     {
         Assert.SkipUnless(File.Exists(ModelPath), "model not found: " + ModelPath);
         var cancellation = TestContext.Current.CancellationToken;
-        ProviderRegistry.Register(() => new VulkanProvider());
-        CpuExecutionProvider.Register();
-        GgufImporter.Register();
-        var available = ProviderRegistry.Discover().Where(x => x.Availability.IsAvailable).ToList();
+        var available = TestHost.Providers.Discover().Where(x => x.Availability.IsAvailable).ToList();
         var provider = available.Where(x => x.Provider.Name != "cpu").Concat(available).First().Provider;
         using var device = provider.OpenDevice(provider.GetDevices()[0], new DeviceOptions());
         var slot = new DeviceSlot { Device = device };
 
         string expected;
-        using (var model = LlmModel.Load(ModelPath, new LlmLoadOptions { Devices = [slot], ContextLength = 1024 }))
+        using (var model = LlmModel.Load(TestHost.Loader, ModelPath, new LlmLoadOptions { Devices = [slot], ContextLength = 1024 }))
         {
             Assert.Equal(ModelKinds.TextGeneration, model.Description.Kind);
             using (var session = model.CreateSession())

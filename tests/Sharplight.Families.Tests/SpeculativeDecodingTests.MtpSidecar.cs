@@ -28,16 +28,16 @@ public partial class SpeculativeDecodingTests
         try
         {
             Split(ModelPath, trunk, sidecar, name => !name.StartsWith("mtp.", StringComparison.Ordinal));
-            var error = Assert.Throws<NotSupportedException>(() => LlmModel.Load(sidecar, new LlmLoadOptions { Devices = [] }));
+            var error = Assert.Throws<NotSupportedException>(() => LlmModel.Load(TestHost.Loader, sidecar, new LlmLoadOptions { Devices = [] }));
             Assert.Contains($"'{AuxiliaryRoles.Draft}' auxiliary source", error.Message, StringComparison.Ordinal);
 
-            var whole = await DraftProposals(ModelPath, vulkan, []);
-            var split = await DraftProposals(trunk, vulkan, [(AuxiliaryRoles.Draft, sidecar)]);
+            var whole = await DraftProposals(ModelPath, vulkan, new Dictionary<string, string>());
+            var split = await DraftProposals(trunk, vulkan, new Dictionary<string, string> { [AuxiliaryRoles.Draft] = sidecar });
             Assert.NotEmpty(whole);
             Assert.Equal(whole, split);
 
             await Matches_NonSpeculativeDecoding(trunk, vulkan, "mtp", vulkan, SamplingParams.GreedyDefault,
-                m => Assert.Equal(1, m.Definition.Properties[WellKnown.DraftLayers]), [(AuxiliaryRoles.Draft, sidecar)]);
+                m => Assert.Equal(1, m.Definition.Properties[WellKnown.DraftLayers]), new Dictionary<string, string> { [AuxiliaryRoles.Draft] = sidecar });
         }
         finally
         {
@@ -48,12 +48,12 @@ public partial class SpeculativeDecodingTests
         }
     }
 
-    private static async Task<List<string>> DraftProposals(string modelPath, bool vulkan, IReadOnlyList<(string Role, string Path)> auxiliary)
+    private static async Task<List<string>> DraftProposals(string modelPath, bool vulkan, IReadOnlyDictionary<string, string> auxiliary)
     {
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(modelPath, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, modelPath, new LlmLoadOptions
         {
-            Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = false, Auxiliary = auxiliary,
+            Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = false, Auxiliary = new Dictionary<string, string>(auxiliary),
         });
         var decoder = model.CreateBatchDecoder(Slots, maxLogitsRows: Slots * (Drafts + 1), draftTokens: Drafts);
         var recorder = new RecordingSpeculator(model.CreateMtpSpeculator(Slots, Drafts));

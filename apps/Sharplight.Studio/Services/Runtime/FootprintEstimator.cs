@@ -1,4 +1,5 @@
 using Sharplight.Llm;
+using Sharplight.Models;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
@@ -10,7 +11,8 @@ namespace Sharplight.Studio.Services.Runtime;
 /// sizes a load (slots, context, MTP draft head and verification rows). Reading a model builds its graph without touching a device;
 /// the last few models read are kept so that changing the context or slots re-estimates at once.
 /// </summary>
-internal sealed class FootprintEstimator : IDisposable
+/// <param name="loader">Reads the models.</param>
+internal sealed class FootprintEstimator(ModelLoader loader) : IDisposable
 {
     private const int CachedModels = 2;
 
@@ -62,7 +64,7 @@ internal sealed class FootprintEstimator : IDisposable
             return hit.Model;
         }
 
-        var model = LlmModel.Load(request.Path, new LlmLoadOptions
+        var model = LlmModel.Load(loader, request.Path, new LlmLoadOptions
         {
             Devices = [],
             ContextLength = Math.Max(256, settings.ContextLength),
