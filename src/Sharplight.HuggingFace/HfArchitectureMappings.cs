@@ -20,6 +20,7 @@ internal static class HfArchitectureMappings
         Register(new NemotronHHfMapping());
         Register(new GraniteHybridHfMapping());
         Register(new FalconH1HfMapping());
+        Register(new InklingHfMapping());
         Register(new Mamba2HfMapping());
         Register(new Lfm2HfMapping());
         Register(new MiniMaxHfMapping());

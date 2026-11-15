@@ -207,8 +207,12 @@ public static partial class StandardOps
     /// prefix): a query at position p attends its visible rows of the K/V caches (with <c>window</c>, the last <c>window</c> positions) and,
     /// in the same softmax, the compressed entries [0, (p + 1) / r) (complete windows only). With <c>selection</c> the selection lists compressed
     /// entries instead of cache positions (the K/V caches are then attended densely).
+    /// Attribute <c>relative_bias</c> (int E &gt; 0): a query-conditioned relative position bias. The input after the selection (after V, the sinks,
+    /// the compressed cache and the selection when present) is f32 [T, Hq, E]; the score of query row t, head h and a key at distance
+    /// d = query position − key position gets <c>bias[t, h, d]</c> added after the scale (and soft cap) when 0 ≤ d &lt; E, nothing otherwise (Inkling).
+    /// Not combined with <c>compression</c>.
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
-    /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks and selection) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
+    /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks, selection and relative bias) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
     /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot.
     /// Paged form: attribute <c>block_size</c> = B and a last input, the block table [S, blocks per slot] i32
     /// (<see cref="Models.InputRole.KvBlockTable"/>); position p of slot s is cache row table[s, p / B] · B + p % B. A compressed cache with r

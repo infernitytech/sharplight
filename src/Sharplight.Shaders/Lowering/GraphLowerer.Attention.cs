@@ -115,8 +115,9 @@ public sealed partial class GraphLowerer
     private void LowerAttention(Node n)
     {
         var plan = PlanAttention(n);
-        if (plan.Selection is not null || plan.Compressed is not null)
+        if (plan.Selection is not null || plan.Compressed is not null || plan.RelativeBias is not null)
         {
+            // The relative bias is read by the per-(head, query) kernel only.
             EmitSelectedAttention(plan);
             return;
         }
@@ -243,11 +244,15 @@ public sealed partial class GraphLowerer
         bool hasSelection = !full && n.Attributes.Get("selection", false);
         long compression = full ? 1 : n.Attributes.Get("compression", 1L);
         bool hasCompressed = !full && n.Attributes.Has("compression");
-        // inputs: q, k, v, [sinks], [compressed cache], [selection], [rows, runs, [block table]]
+        // inputs: q, k, v, [sinks], [compressed cache], [selection], [relative bias], [rows, runs, [block table]]
         int sinksInputs = (hasSinks ? 1 : 0) + (hasCompressed ? 1 : 0) + (hasSelection ? 1 : 0);
         TensorRef? sinks = hasSinks ? Ref(n.Inputs[3]) : null;   // attention sinks [HQ] f32
         TensorRef? compressed = hasCompressed ? Ref(n.Inputs[hasSinks ? 4 : 3]) : null;   // compressed cache [entries, HKV, VRS]
         TensorRef? selection = hasSelection ? DenseInput(n.Inputs[2 + sinksInputs], "attn-selection") : null;   // sparse attention: [T, K] or [T, Hs, K] key positions
+        // inputs after the selection: [relative bias [T, HQ, E]], then the multi-sequence tables
+        int relativeExtent = full ? 0 : n.Attributes.Get("relative_bias", 0);
+        TensorRef? relativeBias = relativeExtent > 0 ? DenseInput(n.Inputs[3 + sinksInputs], "attn-relative-bias") : null;
+        sinksInputs += relativeBias is null ? 0 : 1;
         long HQ = q.Shape[1];
         long D = q.Shape[2];
         long HKV = k.Shape[1];
@@ -302,7 +307,7 @@ public sealed partial class GraphLowerer
             ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
             ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), ("SELECTED", selection?.Shape[^1] ?? 0), ("SEL_HEADS", selection is { Shape.Length: 3 } ? selection.Shape[1] : 1),
             ("SEQ_ROWS", sequenceRows), ("SEQ_KEYS", sequenceKeys), ("HAS_MASK", mask is not null), ("MASK_PER_ROW", mask is not null && n.Inputs[3].Rank == 2),
-            .. AlibiMacros(n),
+            .. AlibiMacros(n), ("REL_BIAS", relativeExtent),
             ("COMP_ATTN", compressed is not null), ("KV_COMP", compression), ("COMP_SLOT_CTX", seq is null || compressed is null ? 0 : SlotContext(n, compressed))]);
         if (compressed is not null && compressed.Type != k.Type)
         {
@@ -333,6 +338,7 @@ public sealed partial class GraphLowerer
             Mask = mask,
             SequenceRows = sequenceRows,
             Selection = selection,
+            RelativeBias = relativeBias,
             Compressed = compressed,
             Cross = cross,
             HQ = HQ,
@@ -678,8 +684,8 @@ public sealed partial class GraphLowerer
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
-            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask)],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
+            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias)],
             split ? [o, part] : [o]);
     }
 
@@ -694,7 +700,7 @@ public sealed partial class GraphLowerer
         long sliceRows = maxRows;
         if (_opt.SubmissionBudgetMs > 0)
         {
-            long entries = plan.Selection?.Shape[^1] ?? 0;
+            long entries = plan.Selection?.Shape[^1] ?? (plan.RelativeBias is null ? 0 : Math.Max(plan.Node.Attributes.Get("window", 0), plan.K.Shape[0]));
             long keys = plan.Compressed is null ? entries : entries + plan.Node.Attributes.Get("window", 0)
                 + (plan.Selection is null ? plan.Compressed.Shape[0] : 0);
             long workPerRow = Math.Max(1, plan.HQ * Math.Max(1, keys) * (plan.D + plan.DV));

@@ -11,6 +11,13 @@ internal static class RecurrentStates
         => Recurrent($"{group}.conv_state", group, new Shape(window, channels));
 
     /// <summary>
+    /// Causal-convolution window state <c>{group}.{name}</c> of shape [<paramref name="window"/>, <paramref name="channels"/>], for layers with
+    /// several convolutions.
+    /// </summary>
+    public static StateDefinition ConvWindow(string group, string name, int window, int channels)
+        => Recurrent($"{group}.{name}", group, new Shape(window, channels));
+
+    /// <summary>
     /// Selective-scan state <c>{group}.ssm_state</c> of shape [<paramref name="heads"/>, <paramref name="headDim"/>, <paramref name="stateSize"/>],
     /// of element type <paramref name="type"/> (default f32; 16-bit types only for ops that support them).
     /// </summary>

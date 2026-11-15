@@ -83,6 +83,11 @@
 #define COMP_ATTN 0
 #endif
 #define RAW_SELECTED (SELECTED && !COMP_ATTN)
+// REL_BIAS = E > 0 (`main` only): query-conditioned relative position bias. p.relb is [T, HQ, E]; the score of query row t, head h and the key
+// at distance d = query position - key position gets p.relb[t][h][d] added (after the soft cap) when 0 <= d < E.
+#ifndef REL_BIAS
+#define REL_BIAS 0
+#endif
 // SEL_HEADS (with SELECTED): selections per query row, [T, SEL_HEADS, SELECTED]; query head h reads the selection of h / (HQ / SEL_HEADS).
 #ifndef SEL_HEADS
 #define SEL_HEADS 1
@@ -561,6 +566,9 @@ struct Params
 #if HAS_MASK
     float* mask; // additive score mask (see HAS_MASK)
 #endif
+#if REL_BIAS
+    float* relb; // [T, HQ, REL_BIAS] query-conditioned relative position bias by query - key distance
+#endif
     uint T;
     uint row0;   // first query row of this launch (long prefills are sliced into several launches)
 #if CROSS_ATTN
@@ -744,6 +752,9 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #endif
 #if HAS_SCORE_BIAS
         if (valid) s += score_bias(h, j, qPos);
+#endif
+#if REL_BIAS
+        if (valid && j <= qPos && qPos - j < REL_BIAS) s += p.relb[(uint64_t(t) * HQ + h) * REL_BIAS + (qPos - j)];
 #endif
 #if HAS_MASK
         if (valid) s += maskRow[j];
