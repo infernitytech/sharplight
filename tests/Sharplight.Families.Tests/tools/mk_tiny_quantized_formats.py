@@ -122,8 +122,81 @@ def autoround_case(base, out, fmt, bits, group, sym):
         os.rmdir(os.path.join(out, inner[0]))
 
 
+def bnb_case(base, out, **settings):
+    """bitsandbytes through transformers (CPU build of bitsandbytes, or a CUDA device with SHARPLIGHT_BNB_DEVICE=cuda)."""
+    from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+    device = os.environ.get("SHARPLIGHT_BNB_DEVICE", "cpu")
+    model = AutoModelForCausalLM.from_pretrained(base, quantization_config=BitsAndBytesConfig(**settings), device_map=device,
+                                                 dtype=torch.bfloat16)
+    model.save_pretrained(out)
+    AutoTokenizer.from_pretrained(base).save_pretrained(out)
+
+
+def hqq_case(base, out, nbits, group, axis=1):
+    """HQQ (hqq 0.2.8, CPU): every linear is quantized by HQQLinear and stored as the layer's state_dict (X.W_q, X.scale, X.zero,
+    X.shape, X.nbits, X.group_size, X.axis, X.packing, ...), the keys transformers' HQQ integration saved in safetensors
+    (transformers 5 cannot quantize with HQQ yet, so the layers are built directly)."""
+    from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
+    state = load_file(os.path.join(base, "model.safetensors"))
+    result = {}
+    for name, tensor in state.items():
+        stem = name[:-len(".weight")] if name.endswith(".weight") else None
+        if stem is not None and any(stem.endswith(linear) for linear in LINEARS):
+            linear = torch.nn.Linear(tensor.shape[1], tensor.shape[0], bias=False)
+            linear.weight.data = tensor.to(torch.float16)
+            layer = HQQLinear(linear, BaseQuantizeConfig(nbits=nbits, group_size=group, axis=axis), compute_dtype=torch.float16, device="cpu")
+            for key, value in layer.state_dict().items():
+                result[stem + "." + key] = value.contiguous()
+        else:
+            result[name] = tensor.contiguous()
+    os.makedirs(out, exist_ok=True)
+    save_file(result, os.path.join(out, "model.safetensors"))
+    quant = {"quant_method": "hqq", "quant_config": {"weight_quant_params": {"nbits": nbits, "group_size": group, "axis": axis}, "skip_modules": ["lm_head"]}}
+    write_config(base, out, quantization_config=quant)
+
+
+def eetq_case(base, out):
+    """EETQ int8 weights written as transformers' EetqLinear stores them (X.weight I8 [K, N] preprocessed for the Ampere mixed GEMM,
+    X.weight_scales F16 [N]), quantized by EETQ's own C++ (tools/eetq_harness, built by build.sh; SHARPLIGHT_EETQ_LIB names the
+    library): the CUDA kernels of the eetq package refuse the Blackwell GPUs of this machine, the preprocessing is CPU code."""
+    import ctypes
+    lib = ctypes.CDLL(os.environ["SHARPLIGHT_EETQ_LIB"])
+    state = load_file(os.path.join(base, "model.safetensors"))
+    result, reference = {}, {}
+    for name, tensor in state.items():
+        stem = name[:-len(".weight")] if name.endswith(".weight") else None
+        if stem is not None and any(stem.endswith(linear) for linear in LINEARS) and all(d % 64 == 0 for d in tensor.shape):
+            w = tensor.to(torch.float16).t().contiguous()                      # [K, N]
+            k, n = w.shape
+            processed = torch.zeros(k, n, dtype=torch.int8)
+            unprocessed = torch.zeros(k, n, dtype=torch.int8)
+            scales = torch.zeros(n, dtype=torch.float16)
+            lib.eetq_quant_int8(ctypes.c_void_p(w.data_ptr()), k, n, ctypes.c_void_p(processed.data_ptr()),
+                                ctypes.c_void_p(unprocessed.data_ptr()), ctypes.c_void_p(scales.data_ptr()))
+            result[name] = processed
+            result[stem + ".weight_scales"] = scales
+            reference[stem] = (unprocessed.to(torch.float16) * scales[None, :]).t().contiguous()   # w8a16 GEMM: half(q) * half(scale)
+        else:
+            result[name] = tensor.contiguous()
+    os.makedirs(out, exist_ok=True)
+    save_file(result, os.path.join(out, "model.safetensors"))
+    torch.save(reference, os.path.join(out, "eetq-reference.pt"))
+    quant = {"quant_method": "eetq", "weights": "int8", "modules_to_not_convert": None}
+    write_config(base, out, quantization_config=quant)
+
+
 def extra_cases(base, out_dir):
     return [
+        ("eetq-int8", lambda out: eetq_case(base, out)),
+        ("hqq-4bit-g64", lambda out: hqq_case(base, out, 4, 64)),
+        ("hqq-8bit-g128", lambda out: hqq_case(base, out, 8, 128)),
+        ("hqq-3bit-g64", lambda out: hqq_case(base, out, 3, 64)),
+        ("hqq-2bit-g32", lambda out: hqq_case(base, out, 2, 32)),
+        ("hqq-1bit-g64", lambda out: hqq_case(base, out, 1, 64)),
+        ("hqq-4bit-g64-axis0", lambda out: hqq_case(base, out, 4, 64, 0)),
+        ("bnb-nf4", lambda out: bnb_case(base, out, load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16)),
+        ("bnb-fp4", lambda out: bnb_case(base, out, load_in_4bit=True, bnb_4bit_quant_type="fp4", bnb_4bit_compute_dtype=torch.bfloat16)),
+        ("bnb-int8", lambda out: bnb_case(base, out, load_in_8bit=True)),
         ("autoround-gptq-4bit-sym", lambda out: autoround_case(base, out, "auto_round:auto_gptq", 4, 128, True)),
         ("autoround-gptq-4bit-asym-g32", lambda out: autoround_case(base, out, "auto_round:auto_gptq", 4, 32, False)),
         ("autoround-gptq-2bit-g64", lambda out: autoround_case(base, out, "auto_round:auto_gptq", 2, 64, False)),

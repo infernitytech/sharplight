@@ -17,7 +17,7 @@ public static class HfSupport
     /// </summary>
     private static readonly HashSet<string> s_unsupportedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
-        "hqq", "eetq", "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
+        "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
         "spqr", "fp_quant",
     };
 
@@ -71,8 +71,8 @@ public static class HfSupport
     /// The checkpoint's quantization method and whether the importer reads it. Read: FP8 (<c>fp8</c> block scales, compressed-tensors
     /// with 8-bit float weights, ModelOpt <c>FP8</c>), NVFP4 (ModelOpt, compressed-tensors), MXFP4 (compressed-tensors; <c>mxfp4</c>
     /// for gpt-oss, AMD Quark), GPTQ (2, 3, 4 and 8 bits), AWQ (<c>gemm</c> / <c>gemv</c>), compressed-tensors integer weights,
-    /// bitsandbytes, MLX quantization (affine and the <c>mxfp4</c> / <c>nvfp4</c> / <c>mxfp8</c> modes), AutoRound (GPTQ / AWQ packings)
-    /// and AQLM (dequantized while read). Not read: the methods with codebook or framework-specific layouts (HQQ, EXL2, quanto, torchao, ...).
+    /// bitsandbytes (NF4, FP4, LLM.int8), HQQ, EETQ, MLX quantization (affine and the <c>mxfp4</c> / <c>nvfp4</c> / <c>mxfp8</c> modes), AutoRound (GPTQ / AWQ packings)
+    /// and AQLM (dequantized while read). Not read: the methods with codebook or framework-specific layouts (EXL2, quanto, torchao, ...).
     /// </summary>
     /// <param name="configJson">The text of <c>config.json</c> (its <c>quantization_config</c>).</param>
     /// <param name="quantizationConfigJson">The text of <c>hf_quant_config.json</c> when the checkpoint has one (ModelOpt), else null.</param>
@@ -138,6 +138,10 @@ public static class HfSupport
                 return Awq(method, settings);
             case "auto-round" or "autoround" or "intel/auto-round":
                 return AutoRound(settings);
+            case "hqq":
+                return Hqq(settings);
+            case "eetq":
+                return new HfQuantizationSupport(method, String(settings, "weights") is null or "int8" ? SupportLevel.Supported : SupportLevel.Unsupported);
             case "bitsandbytes":
                 return new HfQuantizationSupport(method, SupportLevel.Supported);
             case "aqlm":
@@ -148,6 +152,20 @@ public static class HfSupport
             default:
                 return new HfQuantizationSupport(method, s_unsupportedMethods.Contains(method) ? SupportLevel.Unsupported : null);
         }
+    }
+
+    /// <summary>HQQ: 1 to 8-bit codes (<see cref="HfHqqLayouts"/>), scales and zero points stored as plain floats.</summary>
+    private static HfQuantizationSupport Hqq(JsonElement settings)
+    {
+        int bits = 0;
+        if (settings.TryGetProperty("quant_config", out var quantConfig) && quantConfig.ValueKind == JsonValueKind.Object
+            && quantConfig.TryGetProperty("weight_quant_params", out var weight) && weight.ValueKind == JsonValueKind.Object)
+        {
+            bits = HfPackedBits.Int(weight, "nbits", 0);
+        }
+
+        string label = bits == 0 ? "hqq" : string.Create(CultureInfo.InvariantCulture, $"hqq ({bits}-bit)");
+        return new HfQuantizationSupport(label, bits is 0 or (>= 1 and <= 8) ? SupportLevel.Supported : SupportLevel.Unsupported);
     }
 
     /// <summary>GPTQ: 2, 3, 4 and 8-bit codes in the <c>gptq</c> / <c>gptq_v2</c> layouts (<see cref="HfGptqLayouts"/>).</summary>

@@ -88,6 +88,70 @@ public unsafe class GroupedDequantTests
     }
 
     [Fact]
+    public void Fp4Lookup()
+    {
+        var rng = new Random(11);
+        var bytes = new byte[4 * 36];
+        rng.NextBytes(bytes);
+        var expected = new float[4 * 64];
+        for (int b = 0; b < 4; b++)
+        {
+            var block = bytes.AsSpan(b * 36);
+            float d = (float)(rng.NextDouble() * 0.1);
+            BinaryPrimitives.WriteSingleLittleEndian(block, d);
+            for (int i = 0; i < 64; i++)
+            {
+                int j = i % 32;
+                int code = (block[4 + 16 * (i / 32) + (j & 15)] >> (j < 16 ? 0 : 4)) & 0xF;
+                expected[b * 64 + i] = Quant.Fp4Values[code] * d;
+            }
+        }
+
+        Assert.Equal(expected, Decode(DataType.FP4_B64, bytes));
+    }
+
+    [Fact]
+    public void Int8WithF32Absmax()
+    {
+        var rng = new Random(12);
+        var bytes = new byte[4 * 36];
+        rng.NextBytes(bytes);
+        var expected = new float[4 * 32];
+        for (int b = 0; b < 4; b++)
+        {
+            float d = (float)(rng.NextDouble() * 3);
+            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(b * 36), d);
+            for (int i = 0; i < 32; i++)
+            {
+                expected[b * 32 + i] = (sbyte)bytes[b * 36 + 4 + i] * d * 7.874015718698502e-3f;
+            }
+        }
+
+        Assert.Equal(expected, Decode(DataType.Q8A_G32, bytes));
+    }
+
+    [Fact]
+    public void TernaryWithF32Scale()
+    {
+        var rng = new Random(13);
+        var bytes = new byte[3 * 36];
+        rng.NextBytes(bytes);
+        var expected = new float[3 * 128];
+        for (int b = 0; b < 3; b++)
+        {
+            float d = (float)(rng.NextDouble() * 3);
+            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(b * 36), d);
+            for (int i = 0; i < 128; i++)
+            {
+                int code = (bytes[b * 36 + 4 + i % 32] >> (6 - 2 * (i / 32))) & 3;
+                expected[b * 128 + i] = (code - 1) * d;
+            }
+        }
+
+        Assert.Equal(expected, Decode(DataType.Q2S_G128, bytes));
+    }
+
+    [Fact]
     public void Nvfp4WithGlobalScale()
     {
         var rng = new Random(9);

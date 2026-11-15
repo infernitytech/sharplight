@@ -43,6 +43,21 @@ internal static unsafe partial class Quant
             return WeightFormat.NF4_B64;
         }
 
+        if (t == DataType.FP4_B64)
+        {
+            return WeightFormat.FP4_B64;
+        }
+
+        if (t == DataType.Q8A_G32)
+        {
+            return WeightFormat.Q8A_G32;
+        }
+
+        if (t == DataType.Q2S_G128)
+        {
+            return WeightFormat.Q2S_G128;
+        }
+
         return null;
     }
 
@@ -57,12 +72,12 @@ internal static unsafe partial class Quant
         for (long b = 0; b < nb; b++, p += blockBytes, dst += group)
         {
             float d = H(p);
-            float offset = -H(p + 2) * d;
+            float z = H(p + 2);
             for (int run = 0; run < group / 32; run++)
             {
                 var q = Vector128.Load(p + 4 + 16 * run);
-                Simd.StoreU8x16(q & mask, d, offset, dst + 32 * run);
-                Simd.StoreU8x16(Vector128.ShiftRightLogical(q, 4), d, offset, dst + 32 * run + 16);
+                StoreU8x16Zeroed(q & mask, z, d, dst + 32 * run);
+                StoreU8x16Zeroed(Vector128.ShiftRightLogical(q, 4), z, d, dst + 32 * run + 16);
             }
         }
     }
@@ -74,18 +89,21 @@ internal static unsafe partial class Quant
         for (long b = 0; b < nb; b++, p += blockBytes, dst += group)
         {
             float d = H(p);
-            float offset = -H(p + 2) * d;
+            float z = H(p + 2);
             for (int j = 0; j < group; j += 16)
             {
-                Simd.StoreU8x16(Vector128.Load(p + 4 + j), d, offset, dst + j);
+                StoreU8x16Zeroed(Vector128.Load(p + 4 + j), z, d, dst + j);
             }
         }
     }
 
     /// <summary>NF4_B64: 64 values = { f32 d; u8 qs[32] }, two 32-value runs laid out like Q4_0's codes; value = d * NF4[q].</summary>
-    private static void NF4_B64(byte* p, long nb, float* dst)
+    private static void NF4_B64(byte* p, long nb, float* dst) => LookupB64(p, nb, Nf4Values, dst);
+
+    /// <summary>The 64-value lookup blocks of <see cref="NF4_B64"/> and <see cref="FP4_B64"/> with the 16-entry <paramref name="codeBook"/>.</summary>
+    private static void LookupB64(byte* p, long nb, float[] codeBook, float* dst)
     {
-        fixed (float* table = Nf4Values)
+        fixed (float* table = codeBook)
         {
             for (long b = 0; b < nb; b++, p += 36, dst += 64)
             {

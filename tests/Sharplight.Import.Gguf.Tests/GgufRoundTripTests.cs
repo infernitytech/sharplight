@@ -190,17 +190,24 @@ public class GgufRoundTripTests : IDisposable
             }
 
             known++;
+            if (id == 36)
+            {
+                // I2_S (BitNet) is read as Q2S_G128 and has no writer.
+                Assert.Equal(DataType.Q2S_G128, dt);
+                continue;
+            }
+
             // The interleaved Q4_0 layouts (31-33) are read as Q4_0 and written back as Q4_0 (2).
             Assert.Equal(id is >= 31 and <= 33 ? 2 : id, GgmlTypes.GetGgmlType(dt));
         }
-        Assert.Equal(44 - 5, known); // 4, 5 and 36-38 removed
+        Assert.Equal(44 - 4, known); // 4, 5, 37 and 38 removed (36 is I2_S)
         Assert.Equal((256, 66), (DataType.IQ2_XXS.BlockSize, DataType.IQ2_XXS.BlockBytes));
         Assert.Equal((64, 36), (DataType.NVFP4.BlockSize, DataType.NVFP4.BlockBytes));
         Assert.Equal(DataType.Q6_K, GgmlTypes.GetDataType(14));
         Assert.Equal(DataType.BF16, GgmlTypes.GetDataType(30));
         Assert.Equal(DataType.MXFP4, GgmlTypes.GetDataType(39));
         Assert.Equal(DataType.Q4_0, GgmlTypes.GetDataType(31));
-        Assert.Equal("ggml type id 36", Assert.Throws<Sharplight.Models.UnsupportedWeightFormatException>(() => GgmlTypes.GetDataType(36)).WeightFormat);
+        Assert.Equal("ggml type id 37", Assert.Throws<Sharplight.Models.UnsupportedWeightFormatException>(() => GgmlTypes.GetDataType(37)).WeightFormat);
     }
 
     [Fact]

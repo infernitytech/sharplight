@@ -53,11 +53,50 @@ def autoround(directory, state, quant):
     return weights, {k: v for k, v in state.items() if k not in consumed}
 
 
+def hqq(state):
+    """hqq's own Quantizer.dequantize (hqq 0.2.8) with the scale and zero as stored (f16 / bf16 values) and the arithmetic in f32:
+    (unpacked code - zero) * scale. HQQ's default compute dtype (f16) rounds (code - zero) and the product to f16 as well; the f32
+    result is the exact value those roundings approximate."""
+    from hqq.core.quantize import Quantizer
+    text = lambda t: "".join(chr(int(c)) for c in t)
+    for key in sorted(k for k in state if k.endswith(".W_q")):
+        stem = key[:-len(".W_q")]
+        meta = {"nbits": int(state[stem + ".nbits"]), "group_size": int(state[stem + ".group_size"]),
+                "shape": torch.Size([int(d) for d in state[stem + ".shape"]]), "scale": state[stem + ".scale"].float(),
+                "zero": state[stem + ".zero"].float(), "axis": int(state[stem + ".axis"]), "packing": text(state[stem + ".packing"]),
+                "view_as_float": False, "compute_dtype": torch.float32}
+        if meta["packing"] == "":
+            meta["packing"] = None
+        weight = Quantizer.dequantize(state[key], meta)
+        used = {k for k in state if k.startswith(stem + ".") and k[len(stem) + 1:] != "bias"}
+        yield stem, weight, used
+
+
+def eetq(directory, state):
+    """The w8a16 GEMM's dequantization (half(q) * half(scale)) of the unprocessed int8 matrix EETQ's quantizer returned."""
+    reference = torch.load(os.path.join(directory, "eetq-reference.pt"))
+    weights, consumed = {}, set()
+    for stem, weight in reference.items():
+        weights[stem] = weight
+        consumed |= {stem + ".weight", stem + ".weight_scales"}
+    return weights, {k: v for k, v in state.items() if k not in consumed}
+
+
 original = base.dequantized
 
 
 def dequantized(directory, config):
     quant = config.get("quantization") or {}
+    method = config.get("quantization_config", {}).get("quant_method")
+    if method == "eetq":
+        return eetq(directory, base.tensors(directory))
+    if method == "hqq":
+        state = base.tensors(directory)
+        weights, consumed = {}, set()
+        for stem, weight, used in hqq(state):
+            weights[stem] = weight
+            consumed |= used
+        return weights, {k: v for k, v in state.items() if k not in consumed}
     if config.get("quantization_config", {}).get("quant_method") in ("auto-round", "autoround"):
         return autoround(directory, base.tensors(directory), config["quantization_config"])
     if config.get("quantization_config", {}).get("quant_method") is None and quant.get("mode", "affine") != "affine":

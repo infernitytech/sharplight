@@ -183,10 +183,10 @@ internal static unsafe partial class Quant
         WeightFormat.Q4_K or WeightFormat.Q5_K or WeightFormat.Q6_K or WeightFormat.IQ4_XS or WeightFormat.Q2_K or WeightFormat.Q3_K or
         WeightFormat.IQ2_XXS or WeightFormat.IQ2_XS or WeightFormat.IQ2_S or WeightFormat.IQ3_XXS or WeightFormat.IQ3_S or
         WeightFormat.IQ1_S or WeightFormat.IQ1_M or WeightFormat.TQ1_0 or WeightFormat.TQ2_0 => 256,
-        WeightFormat.NVFP4 or WeightFormat.NVFP4_GS or WeightFormat.NF4_B64 => 64,
-        WeightFormat.MXFP4 or WeightFormat.Q4Z_G32 or WeightFormat.Q8Z_G32 => 32,
+        WeightFormat.NVFP4 or WeightFormat.NVFP4_GS or WeightFormat.NF4_B64 or WeightFormat.FP4_B64 => 64,
+        WeightFormat.MXFP4 or WeightFormat.Q4Z_G32 or WeightFormat.Q8Z_G32 or WeightFormat.Q8A_G32 => 32,
         WeightFormat.Q4Z_G128 or WeightFormat.Q8Z_G128 => 128,
-        WeightFormat.Q1_0 or WeightFormat.Q2_0_G128 or WeightFormat.Tern1_G128 => 128,
+        WeightFormat.Q1_0 or WeightFormat.Q2_0_G128 or WeightFormat.Tern1_G128 or WeightFormat.Q2S_G128 => 128,
         >= WeightFormat.TrellisV4K8 and <= WeightFormat.TrellisV2K7 => TrellisBlocks.BlockSize,
         WeightFormat.Q2_0 => 64,
         WeightFormat.F8E4M3_B32 => 32,
@@ -227,7 +227,7 @@ internal static unsafe partial class Quant
         WeightFormat.NVFP4_GS => 40,
         WeightFormat.Q4Z_G32 => 20,
         WeightFormat.Q4Z_G128 => 68,
-        WeightFormat.Q8Z_G32 or WeightFormat.NF4_B64 => 36,
+        WeightFormat.Q8Z_G32 or WeightFormat.NF4_B64 or WeightFormat.FP4_B64 or WeightFormat.Q8A_G32 or WeightFormat.Q2S_G128 => 36,
         WeightFormat.Q8Z_G128 => 132,
         WeightFormat.F8E4M3 or WeightFormat.F8E5M2 => 1,
         WeightFormat.F8E4M3_B32 => 36,
@@ -343,6 +343,15 @@ internal static unsafe partial class Quant
                 break;
             case WeightFormat.NF4_B64:
                 NF4_B64(src, nb, dst);
+                break;
+            case WeightFormat.FP4_B64:
+                FP4_B64(src, nb, dst);
+                break;
+            case WeightFormat.Q8A_G32:
+                Q8A_G32(src, nb, dst);
+                break;
+            case WeightFormat.Q2S_G128:
+                Q2S_G128(src, nb, dst);
                 break;
             case WeightFormat.TQ1_0:
                 TQ1_0(src, nb, dst);

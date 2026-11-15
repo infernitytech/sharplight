@@ -1,7 +1,7 @@
 namespace Sharplight.Import.Gguf;
 
 /// <summary>
-/// llama.cpp <c>bitnet</c> (BitNet b1.58, e.g. bitnet-b1.58-2B-4T): the llama layer with ternary (TQ1_0/TQ2_0) projections, RMS
+/// llama.cpp <c>bitnet</c> (and <c>bitnet-b1.58</c> of Microsoft's BitNet fork; BitNet b1.58, e.g. bitnet-b1.58-2B-4T): the llama layer with ternary (TQ1_0/TQ2_0) projections, RMS
 /// sub-norms in front of the attention output and MLP down projections, and a squared-ReLU gated MLP; the output head is tied to the
 /// token embedding.
 /// </summary>
@@ -13,7 +13,7 @@ namespace Sharplight.Import.Gguf;
 internal sealed class BitnetGgufMapping : GgufDecoderFamilyMapping
 {
     /// <inheritdoc/>
-    public override IReadOnlyList<string> GgufArchitectures { get; } = ["bitnet"];
+    public override IReadOnlyList<string> GgufArchitectures { get; } = ["bitnet", "bitnet-b1.58"];
 
     /// <inheritdoc/>
     protected override string Activation => "relu2";
