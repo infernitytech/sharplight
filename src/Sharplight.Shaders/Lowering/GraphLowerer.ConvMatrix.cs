@@ -119,12 +119,13 @@ public sealed partial class GraphLowerer
         long K = w.Shape[1] * w.Shape[2] * w.Shape[3];
         int format = WeightFormat(w.Type) ?? -1;
         long bound = x.Symbol is null ? x.Shape[0] : Bound(Dim.Sym(x.Symbol));
-        // Strict precision with f16 matrices: constant f32 weights split on the host (null otherwise: the bf16 form). Channel
-        // groups of whole 8-value items reduce tap-major (k = tap * CG + channel, the weights of kernels with several taps
-        // reordered on the host), so each staged item of 8 k is one input pixel's 8 channels: one address and bounds check
-        // per item instead of a k / (KH * KW) decomposition and check per value.
+        // Strict precision with f16 matrices: constant f32 weights split on the host (null otherwise: the bf16 form). The split
+        // forms reduce tap-major (k = tap * CG + channel, the weights of kernels with several taps reordered on the host): with
+        // channel groups of whole 8-value items each staged item of 8 k is one input pixel's 8 channels, one address and bounds
+        // check per item instead of a k / (KH * KW) decomposition and check per value; other channel counts (stems) decompose
+        // once per item and step.
         long taps = w.Shape[2] * w.Shape[3];
-        bool tapMajor = w.Shape[1] % 8 == 0 && !DiagnosticSwitches.ConvNoTapMajor;
+        bool tapMajor = !DiagnosticSwitches.ConvNoTapMajor;
         var splitWeights = !_opt.Compile.AllowReducedPrecision && w.Type == DataType.F32 && _opt.Has(DeviceFeatures.MatrixF16)
             ? SplitWeights(n.Inputs[1], w, tapMajor ? taps : 1) : null;
         if (ChooseConvMatrixForm(K, OG, HW, format, bound, G, splitWeights is not null) is not { } form)

@@ -19,8 +19,8 @@
 //            significant bits per input, like TF32); the weights hold KTOT hi halves per output channel.
 // Same layout and macros as conv_gemm (conv.slang): x [N, C, H, W] strided (XS_*), w [O, CG, KH, KW] dense (WFMT
 // f32/f16/bf16), y dense [N, O, HO, WO]. SPLITK > 1 writes partials [SPLITK][N][O][HO*WO] for conv_splitk_reduce.
-// TAP_MAJOR = 1 (PARTS 4, CG % 8 == 0): the reduction runs tap-major, k = (kh * KW + kw) * CG + c (the host reorders the split
-// weights), so a staged item of 8 k is 8 channels of one input pixel.
+// TAP_MAJOR = 1 (PARTS 4): the reduction runs tap-major, k = (kh * KW + kw) * CG + c (the host reorders the split weights); with
+// CG % 8 == 0 a staged item of 8 k is 8 channels of one input pixel, otherwise its position is stepped per value.
 // Extra macros: PARTS (1-3) FRAG_N (1 or 2 pixel fragments per subgroup) WARPS_M (1 or 2) A_VEC (K % 8 == 0: weights loaded in groups of 8) SPLITK KPS (K per split,
 // multiple of 32).
 #include "common.slang"
@@ -236,7 +236,7 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
     {
         uint kq = k0 + (bq0 + it * B_STRIDE) * 8;
         float v[8];
-#if TAP_MAJOR
+#if TAP_MAJOR && CG % 8 == 0
         // k = tap * CG + c with CG % 8 == 0: the item's 8 k are channels c0..c0+7 of one input pixel.
         {
             uint tap = kq / CG;
@@ -261,6 +261,40 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
                 for (uint j = 0; j < 8; j++)
                 {
                     v[j] = src[uint64_t(j) * XS_C];
+                }
+            }
+        }
+#elif TAP_MAJOR
+        // k = tap * CG + c, few channels (stems): the item's position is decomposed once and then stepped channel by channel.
+        {
+            uint tap = kq / CG;
+            uint c = kq - tap * CG;
+            uint kh = tap / KW;
+            uint kw = tap - kh * KW;
+            [ForceUnroll]
+            for (uint j = 0; j < 8; j++)
+            {
+                v[j] = 0.0;
+                int ih = ih0 + int(kh) * DH;
+                int iw = iw0 + int(kw) * DW;
+#if NOPAD
+                if (bvalid && kq + j < kEnd)
+#else
+                if (bvalid && kq + j < kEnd && uint(ih) < uint(H) && uint(iw) < uint(W))
+#endif
+                {
+                    v[j] = xb[uint64_t(c) * XS_C + ih * XS_H + iw * XS_W];
+                }
+                c++;
+                if (c == CG)
+                {
+                    c = 0;
+                    kw++;
+                    if (kw == KW)
+                    {
+                        kw = 0;
+                        kh++;
+                    }
                 }
             }
         }
