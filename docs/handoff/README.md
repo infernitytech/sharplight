@@ -136,12 +136,20 @@ samples, Server, Studio and docs follow. Rules in docs/code-style.md.
 
 **Studio track** (one agent continuously from wave 1 on; docs/studio.md):
 - S0: Studio on the DI API and the task layer; the library reads the `.slm` model kind and shows every model by type.
-- S1: Discover and download for all model types: Hub pipeline-tag filters, multi-component repos (diffusers folders,
-  whisper.cpp files, ONNX), per-kind compatibility badges and fit estimates, conversion to `.slm` for every kind.
+- S1: Model download overhaul for all model types:
+  - Filters: model type / task (text generation, vision-language, speech-to-text, text-to-speech, image generation,
+    video generation, vision tasks, audio, embeddings / retrieval, time series, 3D, bio, VLA; mapped from Hub pipeline
+    tags and library names), format (GGUF, safetensors, diffusers, ONNX, whisper.cpp, `.slm`), quantization, size /
+    fits this machine, license, gated, plus sort by trending / downloads / likes / recent.
+  - Discover highlights per model type (Trending / New / Most downloaded per kind) with the Supported-only switch.
+  - Multi-component repos (diffusers folders, encoder + decoder + vocoder sets, whisper.cpp files, ONNX) downloaded as
+    one model, with per-kind compatibility badges and fit estimates; conversion to `.slm` for every kind.
 - S2: a dedicated inference page per model type, added as each type lands on main: Transcribe (file/microphone, timestamps,
   subtitles export), Speak (voices, streaming playback, WAV export), Image (txt2img, img2img, inpaint, seeds, gallery),
   Vision (drop an image: labels, boxes, masks, depth, OCR overlays), Audio (music generation, separation, codec playground),
-  Search (embeddings / retrieval over local documents), Time series (CSV → forecast chart), 3D viewer, Video.
+  Video (text-to-video and image-to-video: prompt, frames / fps / resolution, seed, scheduler, live frame preview,
+  playback, export to frames and MP4/WebM), Search (embeddings / retrieval over local documents), Time series
+  (CSV → forecast chart), 3D viewer.
 - S3: chat with voice in/out (STT + TTS) and image generation; the serving page and Sharplight.Server expose
   OpenAI-compatible endpoints for the new types (/v1/audio/transcriptions, /v1/audio/speech, /v1/images/generations,
   /v1/embeddings).
