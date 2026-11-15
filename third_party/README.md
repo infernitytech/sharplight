@@ -1,0 +1,22 @@
+# Third-party sources
+
+Vendored, unmodified upstream sources that Sharplight compiles into its own native audio library
+(`native/sharplight_audio`). Nothing in this directory is our code; it is only ever changed by `update.sh`, which re-fetches the
+pinned archive from `sources.json`, verifies its SHA-256 and replaces the folder. Build-system files, tests and documentation
+of the upstream projects are not vendored (see `prune` in `sources.json`); the source files themselves are untouched.
+Only permissive licenses are accepted (no GPL / LGPL).
+
+| Component | Upstream | Version | SHA-256 of the source archive | License | Folder |
+| --- | --- | --- | --- | --- | --- |
+| miniaudio (device I/O; WAV, FLAC, MP3 decoding; includes dr_wav, dr_flac, dr_mp3; `extras/decoders/libopus`; `extras/stb_vorbis.c` v1.22 for Ogg Vorbis) | https://github.com/mackron/miniaudio | 0.11.26 | `838ba55a21c9142adf7b76bdc4351e5cd8b7ae128f46b25ec25f94ae9969c600` | Public domain (Unlicense) or MIT-0; stb_vorbis public domain or MIT | `miniaudio/` |
+| libopus (Opus codec, float build, portable C) | https://github.com/xiph/opus | 1.6.1 (`v1.6.1`) | `bf0b97ec7a65890b8db90ef94c4d6c18de12584c3085031953a10986f5917745` | BSD-3-Clause | `opus/` |
+| libogg (Ogg container) | https://github.com/xiph/ogg | 1.3.6 (`v1.3.6`) | `95b643da661155d79db9de2fca55daed3a8d491039829def246aacb3d9201c81` | BSD-3-Clause | `ogg/` |
+| opusfile (Ogg Opus decoding; HTTP support disabled) | https://github.com/xiph/opusfile | 0.12 (`v0.12`) | `a20a1dff1cdf0719d1e995112915e9966debf1470ee26bb31b2f510ccf00ef40` | BSD-3-Clause | `opusfile/` |
+
+Vorbis decoding uses stb_vorbis (shipped inside the miniaudio archive); libvorbis is not used. FLAC is decode-only (dr_flac inside
+miniaudio), so libFLAC is not vendored. The Opus DNN features (DRED, deep PLC) are not built.
+
+## Build toolchain (not vendored)
+
+The library is cross-compiled with zig `cc` (pinned in `native/sharplight_audio/install-zig.sh`, SHA-256 verified); zig itself is a build
+tool and nothing of it ships in the packages.
