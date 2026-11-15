@@ -24,6 +24,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private readonly Lock _lock = new();
     private readonly Dictionary<string, (IExecutionProvider Provider, DeviceInfo Info)> _devices;
     private readonly Func<ResidencySettings> _residency;
+    private readonly Func<bool> _useCompilationCache;
     private readonly Func<string, ModelLoadRequest?>? _resolve;
     private readonly IReadOnlyList<ComputeDeviceOption> _physical;
     private readonly FootprintEstimator _estimator = new();
@@ -31,8 +32,9 @@ internal sealed class EngineModelRuntime : IModelRuntime
     /// <summary>Registers the providers and importers, enumerates the devices and creates the host.</summary>
     /// <param name="residency">The current residency settings (read when a model is added).</param>
     /// <param name="resolve">Turns a name requested by a chat or API client into a library model to load on demand, or null.</param>
-    public EngineModelRuntime(Func<ResidencySettings> residency, Func<string, ModelLoadRequest?>? resolve = null)
+    public EngineModelRuntime(Func<ResidencySettings> residency, Func<string, ModelLoadRequest?>? resolve = null, Func<bool>? useCompilationCache = null)
     {
+        _useCompilationCache = useCompilationCache ?? (() => true);
         EngineBootstrap.Register();
         var discovered = DeviceCatalog.Discover();
         _physical = [.. discovered.Select(entry => entry.Option)];
@@ -317,7 +319,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private IComputeDevice Open(ComputeDeviceOption option, IReadOnlySet<string> disabled)
     {
         var (provider, info) = _devices[option.Id];
-        var options = new DeviceOptions();
+        var options = new DeviceOptions { UseCompilationCache = _useCompilationCache() };
         foreach (var feature in disabled)
         {
             options.DisabledFeatures.Add(feature);

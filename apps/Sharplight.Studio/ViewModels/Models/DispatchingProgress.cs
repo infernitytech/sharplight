@@ -3,17 +3,18 @@ using Sharplight.Studio.Services.Platform;
 namespace Sharplight.Studio.ViewModels.Models;
 
 /// <summary>Reports progress on the UI thread.</summary>
-internal sealed class DispatchingProgress : IProgress<Services.Hub.PullUpdate>
+/// <typeparam name="T">The progress value.</typeparam>
+internal sealed class DispatchingProgress<T> : IProgress<T>
 {
     private readonly IUiDispatcher _dispatcher;
-    private readonly Action<Services.Hub.PullUpdate> _handler;
+    private readonly Action<T> _handler;
 
-    public DispatchingProgress(IUiDispatcher dispatcher, Action<Services.Hub.PullUpdate> handler)
+    public DispatchingProgress(IUiDispatcher dispatcher, Action<T> handler)
     {
         _dispatcher = dispatcher;
         _handler = handler;
     }
 
     /// <inheritdoc/>
-    public void Report(Services.Hub.PullUpdate value) => _dispatcher.Post(() => _handler(value));
+    public void Report(T value) => _dispatcher.Post(() => _handler(value));
 }

@@ -5,20 +5,21 @@ using Sharplight.Studio.Services.Runtime;
 
 namespace Sharplight.Studio.Services.Library;
 
-/// <summary>Reads a package's capabilities without loading it (graphs, chat template, trained context length).</summary>
+/// <summary>Reads a package's capabilities without loading it (graphs, chat template, trained context length, precompiled artifact sets).</summary>
 internal static class ModelInspector
 {
-    /// <summary>Capabilities and trained context of a <c>.slm</c> package; nothing for other files or unreadable packages.</summary>
-    public static (ModelCapabilities Capabilities, int? ContextLength, string? Architecture) Inspect(string path)
+    /// <summary>Capabilities, trained context and precompiled sets of a <c>.slm</c> package; nothing for other files or unreadable packages.</summary>
+    public static PackageFacts Inspect(string path)
     {
         if (!path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
         {
-            return (ModelCapabilities.None, null, null);
+            return PackageFacts.None;
         }
 
         try
         {
-            var definition = ModelPackageReader.Open(path).Definition;
+            var package = ModelPackageReader.Open(path);
+            var definition = package.Definition;
             var graphs = definition.Graphs.Select(graph => graph.Name).ToHashSet(StringComparer.Ordinal);
             var template = definition.Metadata.TryGetValue(CanonicalKeys.ChatTemplate, out var value) ? value as string : null;
             var capabilities = TemplateCapabilities.From(template);
@@ -33,11 +34,12 @@ internal static class ModelInspector
             }
 
             int? context = definition.Properties.TryGetValue(WellKnown.ContextLength, out var raw) ? ToInt(raw) : null;
-            return (capabilities, context, definition.Architecture);
+            var precompiled = package.ArtifactSets.Select(set => set.ToString()).ToList();
+            return new PackageFacts(capabilities, context, definition.Architecture, precompiled);
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException)
         {
-            return (ModelCapabilities.None, null, null);
+            return PackageFacts.None;
         }
     }
 

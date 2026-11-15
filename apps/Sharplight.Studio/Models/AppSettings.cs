@@ -54,6 +54,12 @@ internal sealed record AppSettings
     /// <summary>Compile the GPU kernels into a package right after it was downloaded and converted.</summary>
     public bool PrecompileAfterDownload { get; init; } = true;
 
+    /// <summary>
+    /// Keep compiled kernels and driver pipeline caches in the per-user compilation cache, so models that are not precompiled load fast
+    /// from the second time on. Off: nothing is read from or written to the cache.
+    /// </summary>
+    public bool UseCompilationCache { get; init; } = true;
+
     /// <summary>Keep the downloaded source files next to the converted package.</summary>
     public bool KeepSourceFiles { get; init; }
 

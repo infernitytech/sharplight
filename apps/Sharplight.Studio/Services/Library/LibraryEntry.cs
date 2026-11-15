@@ -36,7 +36,7 @@ internal sealed record LibraryEntry
     /// <summary>When it was pulled or added.</summary>
     public DateTimeOffset? AddedAt { get; init; }
 
-    /// <summary>Kernel sets compiled into the package.</summary>
+    /// <summary>Descriptors of the precompiled artifact sets stored in the package (portable code and device code per provider).</summary>
     public IReadOnlyList<string> Precompiled { get; init; } = [];
 
     /// <summary>The store record, or null for a file outside the store.</summary>

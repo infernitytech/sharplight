@@ -77,9 +77,20 @@ internal sealed class ModelLibrary : IModelLibrary
         return destination;
     }
 
+    /// <inheritdoc/>
+    public Task<LibraryEntry> ReloadAsync(LibraryEntry entry, CancellationToken cancellationToken)
+    {
+        return Task.Run(() => entry.Manifest is { } manifest ? FromManifest(manifest) : FromFile(entry.Path), cancellationToken);
+    }
+
+    /// <summary>
+    /// A stored model. Size and precompiled sets come from the package itself, not the manifest, so they stay right when the package is
+    /// precompiled again after the pull.
+    /// </summary>
     private static LibraryEntry FromManifest(ModelManifest manifest)
     {
-        var (capabilities, context, architecture) = ModelInspector.Inspect(manifest.PackagePath);
+        var (capabilities, context, architecture, precompiled) = ModelInspector.Inspect(manifest.PackagePath);
+        var file = new FileInfo(manifest.PackagePath);
         return new LibraryEntry
         {
             Id = manifest.ShortName,
@@ -88,18 +99,18 @@ internal sealed class ModelLibrary : IModelLibrary
             Architecture = manifest.Architecture ?? architecture,
             Quantization = manifest.Tag.Length == 0 ? null : manifest.Tag,
             Format = manifest.Format.ToString(),
-            SizeBytes = manifest.PackageBytes,
+            SizeBytes = file.Exists ? file.Length : manifest.PackageBytes,
             Capabilities = capabilities,
             TrainedContextLength = context,
             AddedAt = manifest.PulledAt,
-            Precompiled = manifest.Precompiled,
+            Precompiled = precompiled,
             Manifest = manifest,
         };
     }
 
     private static LibraryEntry FromFile(string path)
     {
-        var (capabilities, context, architecture) = ModelInspector.Inspect(path);
+        var (capabilities, context, architecture, precompiled) = ModelInspector.Inspect(path);
         bool directory = Directory.Exists(path);
         long size = directory
             ? new DirectoryInfo(path).EnumerateFiles("*", SearchOption.AllDirectories).Sum(file => file.Length)
@@ -116,6 +127,7 @@ internal sealed class ModelLibrary : IModelLibrary
             Capabilities = capabilities,
             TrainedContextLength = context,
             AddedAt = directory ? null : File.GetLastWriteTimeUtc(path),
+            Precompiled = precompiled,
         };
     }
 }

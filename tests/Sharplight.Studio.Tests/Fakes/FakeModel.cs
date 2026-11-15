@@ -10,7 +10,7 @@ internal sealed class FakeModel(string id, ModelCapabilities capabilities = Mode
 {
     public string Id { get; } = id;
 
-    public string Path => $"/models/{Id}.slm";
+    public string Path { get; init; } = $"/models/{id}.slm";
 
     public ComputeDeviceOption Device { get; init; } = FakeRuntime.Gpu;
 
