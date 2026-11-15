@@ -1,21 +1,20 @@
 # Handoff: moving the autonomous work to a new machine (2026-11-15)
 
-This branch (`handoff/new-machine`) is `main` as of 2026-11-15 plus this folder. Everything the next session needs to
+`main` (and the `handoff/new-machine` branch) as of 2026-11-15 include this folder. Everything the next session needs to
 continue without interruption is here or on the `wip/*` branches.
 
 ## 1. Restore on the new machine
 
 ```sh
-git clone https://github.com/infernitytech/sharplight.git && cd sharplight
-git fetch origin 'refs/heads/*:refs/remotes/origin/*'
-git checkout main && git merge --ff-only origin/handoff/new-machine   # main = handoff state
+git clone https://github.com/infernitytech/sharplight.git && cd sharplight   # main contains this handoff
 for b in core-restructure onnx-ops whisper diffusers vulkan-matvec-rows; do git branch wip/$b origin/wip/$b; done
 git config user.email "826745+BernhardGlueck@users.noreply.github.com"    # noreply only, see memory/public-repo-privacy.md
 ```
 
-Claude Code memory: copy `docs/handoff/memory/*.md` into the new machine's project memory directory
-(`~/.claude/projects/<path-of-the-clone-with-slashes-as-dashes>/memory/`). `MEMORY.md` is the index. Then tell Claude
-"continue the autonomous loop from docs/handoff/README.md".
+Claude Code memory: run `docs/handoff/restore.sh`, which copies `docs/handoff/memory/*.md` into the clone's project
+memory directory (`~/.claude/projects/<clone path, non-alphanumerics as dashes>/memory/`; `MEMORY.md` is the index).
+`CLAUDE.md` at the repo root tells a new session to do this itself. Then tell Claude "continue the autonomous loop from
+docs/handoff/README.md".
 
 Toolchain: .NET SDK 11.0.100 (installed with dotnetup), Vulkan driver + loader (`glslc` is used by some tools), Python 3
 with per-task venvs (transformers, torch CPU, onnxruntime, gguf, diffusers, mlx CPU... created on demand in a scratch

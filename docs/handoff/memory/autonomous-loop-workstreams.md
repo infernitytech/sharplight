@@ -18,3 +18,7 @@ rounds (benchmarks.md sections 16/19/20...), model bring-up (docs/model-support.
 onnxruntime. On each completion: privacy scan, merge to main, build, suites, remove worktree, start the next round.
 Push only when the user says so ([[public-repo-privacy]]). Studio build for the user lives in ~/Apps/SharplightStudio
 (dotnet publish self-contained linux-x64). Follow [[generic-optimizations-provider-apis]].
+
+**2026-11-15 handoff:** work moves to a new multi-GPU machine. State, plan and a copy of these memories are on GitHub
+branch `handoff/new-machine` (docs/handoff/README.md); unfinished work on `wip/core-restructure`, `wip/onnx-ops`,
+`wip/whisper`, `wip/diffusers`, `wip/vulkan-matvec-rows`. All agents were stopped.
