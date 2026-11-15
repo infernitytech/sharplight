@@ -20,6 +20,9 @@ internal sealed class Gemma4AssistantHfMapping : IHfArchitectureMapping
     public string Architecture => "shared_kv_draft";
 
     /// <inheritdoc/>
+    public bool IsDraftModel => true;
+
+    /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } = ["gemma4_assistant", "gemma4_unified_assistant"];
 
     /// <inheritdoc/>

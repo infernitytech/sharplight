@@ -55,6 +55,22 @@ public sealed class CompatibilityTests
         Assert.False(probe.Compatibility.IsUnsupported);
     }
 
+    [Theory]
+    [InlineData("tiny-random-gemma4-assistant-f32.gguf", "gemma4-assistant")]
+    [InlineData("tiny-random-eagle3-f32.gguf", "eagle3")]
+    public async Task Gguf_DraftModel_IsNotAModel(string file, string architecture)
+    {
+        // The MTP/ drafters of unsloth's Gemma 4 repositories were shown as supported models, and loading one on its own failed.
+        string path = Gguf(file);
+        Assert.SkipUnless(File.Exists(path), "test GGUF not found");
+        var (probe, _) = await ProbeGgufAsync(path);
+        Assert.Equal(CompatibilityState.DraftModel, probe.Compatibility.State);
+        Assert.Equal(architecture, probe.Compatibility.Subject);
+        Assert.Equal("Draft model", probe.Compatibility.Text);
+        Assert.Contains("not a model of its own", probe.Compatibility.Reason, StringComparison.Ordinal);
+        Assert.False(probe.Compatibility.IsUnsupported);
+    }
+
     [Fact]
     public async Task Gguf_QuantizedModel_ReadsTheTensorTableFromAPrefix()
     {

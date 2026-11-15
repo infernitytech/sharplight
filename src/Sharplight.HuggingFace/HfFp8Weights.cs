@@ -82,6 +82,20 @@ internal static class HfFp8Weights
             }
         }
 
+        // A weight stored in parts (X.shard_0.weight, X.shard_1.weight, ...; Qwen3.8-Flash-Next's n-gram table) with one scale X.weight_scale
+        // for all of them.
+        int shard = stem.LastIndexOf(".shard_", StringComparison.Ordinal);
+        if (shard > 0 && stem[(shard + ".shard_".Length)..].All(char.IsAsciiDigit))
+        {
+            foreach (var suffix in s_weightScaleSuffixes)
+            {
+                if (tensors.TryGetValue(stem[..shard] + suffix, out var shared) && shared.Shape.Aggregate(1L, (a, d) => a * d) == 1)
+                {
+                    return shared;
+                }
+            }
+        }
+
         return null;
     }
 

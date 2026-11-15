@@ -44,6 +44,11 @@ internal static class CompatibilityChecker
                 $"A multimodal projector (mmproj, GGUF architecture '{architecture}'), not a model: it is loaded together with the language model it belongs to.");
         }
 
+        if (GgufSupport.IsDraftModel(architecture))
+        {
+            return DraftModel(architecture, $"GGUF architecture '{architecture}'");
+        }
+
         var level = GgufSupport.GetArchitectureSupport(architecture);
         if (level == SupportLevel.Unsupported)
         {
@@ -62,6 +67,11 @@ internal static class CompatibilityChecker
         if (tensors is not null)
         {
             var check = GgufSupport.Validate(metadata, tensors);
+            if (check.IsDraftModel)
+            {
+                return DraftModel(architecture, $"multi-token-prediction layers of GGUF architecture '{architecture}'");
+            }
+
             if (check.Problems.Count > 0)
             {
                 return new ModelCompatibility(CompatibilityState.UnsupportedVariant, architecture,
@@ -102,6 +112,11 @@ internal static class CompatibilityChecker
         if (ArchitectureOnly(modelType) is { IsUnsupported: true } unsupported)
         {
             return unsupported;
+        }
+
+        if (HfSupport.IsDraftModel(modelType))
+        {
+            return DraftModel(modelType, $"model type '{modelType}'");
         }
 
         var quantization = HfSupport.GetQuantizationSupport(configJson, quantizationConfigJson);
@@ -169,6 +184,11 @@ internal static class CompatibilityChecker
             ? FromOnnx(null) with { WeightsChecked = false }
             : ModelCompatibility.Unknown("The repository has no GGUF, safetensors or ONNX model files.");
     }
+
+    /// <summary>The verdict for a speculative-decoding drafter: it runs, but only next to the model it was trained for.</summary>
+    private static ModelCompatibility DraftModel(string architecture, string what)
+        => new(CompatibilityState.DraftModel, architecture,
+            $"A speculative-decoding draft model ({what}), not a model of its own: it is loaded together with the model it drafts for.");
 
     /// <summary>The verdict for the architecture of a checkpoint's model type alone.</summary>
     private static ModelCompatibility ArchitectureOnly(string modelType)

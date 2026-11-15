@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Sharplight.Models;
 using Sharplight.Tensors;
@@ -95,11 +94,6 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
 
     private static void AddMixtureOfExperts(Dictionary<string, object> md, string a, HfConfig c)
     {
-        if (c.Get("moe_latent_size") is { ValueKind: not JsonValueKind.Null })
-        {
-            throw new NotSupportedException("nemotron_h: latent-space experts (moe_latent_size) are not supported yet.");
-        }
-
         int groupCount = c.GetInt("n_group") ?? 1;
         if (groupCount > 1 && (c.GetInt("topk_group") ?? 1) != groupCount)
         {
@@ -117,6 +111,18 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
 
     [GeneratedRegex(@"^backbone\.layers\.(\d+)\.(.+)$")]
     private static partial Regex LayerName();
+
+    [GeneratedRegex(@"^mtp\.layers\.(\d+)\.(.+)$")]
+    private static partial Regex MtpName();
+
+    /// <summary>NextN-only tensors of the multi-token-prediction head, HF suffix to canonical suffix (the GGUF mapping's names).</summary>
+    private static readonly Dictionary<string, string> s_mtp = new(StringComparer.Ordinal)
+    {
+        ["enorm.weight"] = "embedding_norm.weight",
+        ["hnorm.weight"] = "hidden_norm.weight",
+        ["eh_proj.weight"] = "fc.weight",
+        ["final_layernorm.weight"] = "output_norm.weight",
+    };
 
     [GeneratedRegex(@"^mixer\.experts\.(\d+)\.(up|down)_proj\.weight$")]
     private static partial Regex ExpertName();
@@ -136,6 +142,8 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
         ["mixer.gate.weight"] = "moe.router.weight",
         ["mixer.shared_experts.up_proj.weight"] = "moe.shared.up.weight",
         ["mixer.shared_experts.down_proj.weight"] = "moe.shared.down.weight",
+        ["mixer.fc1_latent_proj.weight"] = "moe.latent_down.weight",
+        ["mixer.fc2_latent_proj.weight"] = "moe.latent_up.weight",
     };
 
     /// <summary>Per-layer tensors converted to F32 (state-space parameters and the router bias), HF suffix to canonical suffix.</summary>
@@ -152,7 +160,7 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
     {
         var collector = new HfWeightCollector();
-        var experts = new SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>>();
+        var experts = new SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>>();
         foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             var w = tensor.ToWeightInfo();
@@ -162,20 +170,23 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
             }
 
             var m = LayerName().Match(name);
-            if (!m.Success || !TryMapLayerTensor(m.Groups[1].Value, m.Groups[2].Value, w, collector, experts))
+            bool mapped = m.Success
+                ? TryMapLayerTensor($"layers.{m.Groups[1].Value}.", m.Groups[2].Value, w, collector, experts)
+                : TryMapMtpTensor(name, w, collector, experts);
+            if (!mapped)
             {
                 collector.AddUnmapped(name);
             }
         }
 
-        foreach (var ((layer, kind), byIndex) in experts)
+        foreach (var ((prefix, kind), byIndex) in experts)
         {
             if (byIndex.Keys.Max() != byIndex.Count - 1)
             {
-                throw new InvalidDataException($"layer {layer}: expert indices of {kind} are not contiguous.");
+                throw new InvalidDataException($"{prefix}: expert indices of {kind} are not contiguous.");
             }
 
-            collector.Add(WeightInfo.Stack($"layers.{layer}.moe.experts.{kind}.weight", [.. byIndex.Values]));
+            collector.Add(WeightInfo.Stack($"{prefix}moe.experts.{kind}.weight", [.. byIndex.Values]));
         }
 
         collector.ThrowIfUnmapped("nemotron_h");
@@ -205,19 +216,53 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
         }
     }
 
-    /// <summary>One <c>backbone.layers.N.*</c> tensor; false when it has no canonical counterpart.</summary>
+    /// <summary>
+    /// One tensor of the multi-token-prediction head (<c>num_nextn_predict_layers</c> 1, as Nemotron 3 Ultra and 3.5 ship it):
+    /// <c>mtp.layers.0</c> is the NextN input fusion with an attention block, <c>mtp.layers.1</c> a mixture of experts (its norm the
+    /// post-attention norm) with the head norm. Both fold into the one canonical block below <c>mtp.layers.0.</c>, as llama.cpp's
+    /// converter folds them into one GGUF block; false when <paramref name="name"/> is no such tensor.
+    /// </summary>
+    private static bool TryMapMtpTensor(
+        string name,
+        WeightInfo w,
+        HfWeightCollector collector,
+        SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>> experts)
+    {
+        const string Prefix = "mtp.layers.0.";
+        var m = MtpName().Match(name);
+        if (!m.Success)
+        {
+            return false;
+        }
+
+        string suffix = m.Groups[2].Value;
+        if (s_mtp.TryGetValue(suffix, out var nextn))
+        {
+            collector.Add(HfTransforms.Plain(w, Prefix + nextn));
+            return true;
+        }
+
+        if (m.Groups[1].Value != "0" && suffix == "norm.weight")
+        {
+            collector.Add(HfTransforms.Plain(w, Prefix + "post_attention_norm.weight"));
+            return true;
+        }
+
+        return TryMapLayerTensor(Prefix, suffix, w, collector, experts);
+    }
+
+    /// <summary>One <c>backbone.layers.N.*</c> tensor, canonical names below <paramref name="prefix"/>; false when it has no canonical counterpart.</summary>
     private static bool TryMapLayerTensor(
-        string layer,
+        string prefix,
         string suffix,
         WeightInfo w,
         HfWeightCollector collector,
-        SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>> experts)
+        SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>> experts)
     {
-        string prefix = $"layers.{layer}.";
         if (ExpertName().Match(suffix) is { Success: true } expertMatch)
         {
             // Per-expert tensors are stacked into one weight per layer and kind once all are seen.
-            var key = (int.Parse(layer), expertMatch.Groups[2].Value);
+            var key = (prefix, expertMatch.Groups[2].Value);
             if (!experts.TryGetValue(key, out var byIndex))
             {
                 experts[key] = byIndex = [];

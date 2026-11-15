@@ -182,6 +182,8 @@ internal sealed class DeepSeek4GgufMapping : IGgufArchitectureMapping
         ["hc_ffn_scale.weight"] = "mlp_hc.scale",
         ["ffn_gate_inp.weight"] = "mlp.router.weight",
         ["exp_probs_b.bias"] = "mlp.router_bias",
+        // DeepSeek-V4.1: the selection bias llama.cpp uses instead for image embeddings (multimodal input); text decoding does not read it.
+        ["exp_probs_b_vl.bias"] = "mlp.router_bias_image",
         ["ffn_gate_tid2eid.weight"] = "mlp.router.token_experts",
         ["ffn_gate_exps.weight"] = "mlp.experts.gate.weight",
         ["ffn_up_exps.weight"] = "mlp.experts.up.weight",

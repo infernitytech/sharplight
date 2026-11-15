@@ -31,6 +31,8 @@ public class SpanScoringTests
             ("gguf/tiny-random-vllm-decision2-f32.gguf", "hf/tiny-random-vllm-decision2"),
             ("hf/tiny-random-vllm-decision2", "hf/tiny-random-vllm-decision2"),
             ("gguf/tiny-random-clef-f32.gguf", "hf/tiny-random-clef"),
+            // The same file with the one-output scorer stored as a vector [W], as the released Clef-Flash GGUFs store it (tools/mk_clef_vector_scorer.py).
+            ("gguf/tiny-random-clef-vector-scorer-f32.gguf", "hf/tiny-random-clef"),
             ("hf/tiny-random-clef", "hf/tiny-random-clef"),
         ];
         foreach (var (model, reference) in models)

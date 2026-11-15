@@ -4,11 +4,11 @@ using Sharplight.Tensors;
 namespace Sharplight.Gguf;
 
 /// <summary>
-/// Managed reference decoder of the common ggml storage formats (float types, the 32-element legacy blocks and the
-/// Q4_K / Q5_K / Q6_K super-blocks) to f32. Used at import time for the few tensors that need a layout change a byte-level
+/// Managed reference decoder of the ggml storage formats (float types, the 32-element legacy blocks, the k-quant super-blocks
+/// and, in <c>GgmlBlockDecoder.LowBit.cs</c>, the 2- and 3-bit k-quants, the lattice (IQ), ternary and 4-bit float formats) to f32. Used at import time for the few tensors that need a layout change a byte-level
 /// row reorder cannot express (e.g. transposing a quantized matrix); compute paths use the providers' own kernels.
 /// </summary>
-internal static class GgmlBlockDecoder
+internal static partial class GgmlBlockDecoder
 {
     /// <summary>Decodes a whole tensor of <paramref name="type"/> to f32.</summary>
     /// <param name="type">Storage type of <paramref name="data"/>.</param>
@@ -70,7 +70,7 @@ internal static class GgmlBlockDecoder
         {
             DecodeQ6K(block, y);
         }
-        else
+        else if (!DecodeLowBit(type, block, y))
         {
             throw new NotSupportedException($"No managed decoder for {type}.");
         }

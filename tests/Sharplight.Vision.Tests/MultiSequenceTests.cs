@@ -18,6 +18,7 @@ public class MultiSequenceTests
         { "gemma3-1b", "vulkan" }, { "gemma3-1b", "cpu" },
         { "mamba2-130m", "cpu" }, { "mamba2-130m", "vulkan" },
         { "nemotron-h-4b", "vulkan" },
+        { "nemotron-h-puzzle-tiny", "cpu" }, { "nemotron-h-puzzle-tiny", "vulkan" },
         { "granite-4.0-h-350m", "cpu" }, { "granite-4.0-h-350m", "vulkan" },
         { "lfm2.5-1.2b", "cpu" }, { "lfm2.5-1.2b", "vulkan" },
         { "mamba-130m", "cpu" }, { "mamba-130m", "vulkan" },
@@ -32,6 +33,8 @@ public class MultiSequenceTests
         "gemma3-1b" => Path.Combine(Home, "models/gguf/gemma-3-1b-it/gemma-3-1b-it-BF16.gguf"),
         "mamba2-130m" => Path.Combine(Home, "models/gguf/mamba2-130m-hf/mamba2-130m-hf-q8_0.gguf"),
         "nemotron-h-4b" => Path.Combine(Home, "models/gguf/NVIDIA-Nemotron-3-Nano-4B/NVIDIA-Nemotron-3-Nano-4B-Q8_0.gguf"),
+        // Latent experts and per-layer expert / selection counts (tools/mk_tiny_nemotron_h_puzzle.py).
+        "nemotron-h-puzzle-tiny" => Path.Combine(Home, "models/gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-puzzle-f32.gguf"),
         "granite-4.0-h-350m" => Path.Combine(Home, "models/gguf/granite-4.0-h-350m/granite-4.0-h-350m-Q4_K_M.gguf"),
         "lfm2.5-1.2b" => Path.Combine(Home, "models/gguf/LFM2.5-1.2B-Instruct/LFM2.5-1.2B-Instruct-Q4_K_M.gguf"),
         "mamba-130m" => Path.Combine(Home, "models/gguf/mamba-130m-hf/mamba-130m-hf.Q4_K_M.gguf"),
