@@ -13,7 +13,7 @@ only active on macOS or Arm64 hosts. The x64 kernels, their greedy outputs and t
 | --- | --- | --- |
 | Build (`osx-arm64` / `linux-arm64`) | ✓ | ✓ |
 | CPU provider, `Sharplight.Cpu.Tests` | ✓ | ✓ (also at the `neon` tier) |
-| Vulkan provider via MoltenVK, `Sharplight.Vulkan.Tests` | ✓ (all 1277 tests: 1247 pass, 30 skip: benchmarks, an opt-in large test, the matrix-unit kernels) | — (no GPU) |
+| Vulkan provider via MoltenVK, `Sharplight.Vulkan.Tests` | ✓ (all 1312 tests: 1285 pass, 27 skip: benchmarks, an opt-in large test, the workgroup-matrix GEMM) | — (no GPU) |
 | LLM smoke test, Qwen2.5-0.5B-Instruct Q4_K_M, CPU | ✓ | ✓ |
 | LLM smoke test, Vulkan via MoltenVK | ✓ (same text as the CPU) | — |
 | `Sharplight Studio.app` (unsigned, ad-hoc signed zip artifact) | ✓ | — |
@@ -76,7 +76,7 @@ On the CI runner (paravirtual GPU of an M1 VM; numbers are indicative only), Qwe
 `--bench 128` runs 544 tok/s prefill and 53.6 tok/s decode through MoltenVK (485 dispatches and 340 barriers per decode
 step), against 158 / 13.7 tok/s on the VM's 3 CPU cores. Creating the 104 pipelines of the decode graph takes about 50 s
 the first time (SPIR-V to MSL, then Metal compilation). That is also why CI runs the Vulkan suite in two time-boxed parts
-(core kernels about 17 min, the rest about 25 min).
+(core kernels about 19 min, the rest about 30 min).
 
 ### Device features MoltenVK exposes
 
