@@ -31,7 +31,11 @@ internal sealed partial class App : Application
             var viewModel = new MainWindowViewModel(_host.Services);
             window.DataContext = viewModel;
             desktop.MainWindow = window;
-            desktop.ShutdownRequested += (_, _) => _host.Dispose();
+            desktop.ShutdownRequested += (_, _) =>
+            {
+                viewModel.Updates.Dispose();
+                _host.Dispose();
+            };
             _ = viewModel.StartAsync();
         }
 

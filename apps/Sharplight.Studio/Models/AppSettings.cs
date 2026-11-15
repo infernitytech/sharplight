@@ -74,4 +74,16 @@ internal sealed record AppSettings
 
     /// <summary>Hide the welcome hints after the first model was downloaded.</summary>
     public bool OnboardingDone { get; init; }
+
+    /// <summary>Check for a new Studio version at startup and every few hours (installed builds only).</summary>
+    public bool AutoCheckForUpdates { get; init; } = true;
+
+    /// <summary>When the last update check finished (successfully or not); null when none ran.</summary>
+    public DateTimeOffset? LastUpdateCheck { get; init; }
+
+    /// <summary>
+    /// Update feed URL that replaces the one baked into the build; null keeps it. The <c>SHARPLIGHT_STUDIO_UPDATE_URL</c>
+    /// environment variable still takes precedence.
+    /// </summary>
+    public string? UpdateUrl { get; init; }
 }
