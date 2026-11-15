@@ -7,6 +7,7 @@
              xmlns:stats="using:Sharplight.Studio.ViewModels.Stats"
              xmlns:tasks="using:Sharplight.Studio.ViewModels.Tasks"
              xmlns:settings="using:Sharplight.Studio.ViewModels.Settings"
+             xmlns:speech="using:Sharplight.Studio.ViewModels.Speech"
              x:Class="Sharplight.Studio.App"
              RequestedThemeVariant="Dark">
   <Application.Resources>
@@ -20,6 +21,12 @@
   <Application.DataTemplates>
     <DataTemplate DataType="chat:ChatPageViewModel">
       <views:ChatPage />
+    </DataTemplate>
+    <DataTemplate DataType="speech:TranscribePageViewModel">
+      <views:TranscribePage />
+    </DataTemplate>
+    <DataTemplate DataType="speech:SpeakPageViewModel">
+      <views:SpeakPage />
     </DataTemplate>
     <DataTemplate DataType="models:ModelsPageViewModel">
       <views:ModelsPage />

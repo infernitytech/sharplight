@@ -1,0 +1,30 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:inf="using:Sharplight.Studio.ViewModels.Inference"
+             x:Class="Sharplight.Studio.Views.Inference.RunQueueView"
+             x:DataType="inf:RunQueueViewModel">
+  <Border Classes="card" Padding="14,10" IsVisible="{Binding HasItems}">
+    <StackPanel Spacing="8">
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Classes="ghost small" Content="Clear finished" Command="{Binding ClearFinishedCommand}" />
+        <TextBlock Classes="section" Text="RUNS" VerticalAlignment="Center" />
+      </DockPanel>
+      <ItemsControl ItemsSource="{Binding Items}" MaxHeight="150">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="inf:RunItemViewModel">
+            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" Margin="0,0,0,6">
+              <TextBlock Grid.Column="0" Text="{Binding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+              <Button Grid.Column="1" Grid.RowSpan="2" Classes="ghost icon" IsVisible="{Binding IsActive}" Command="{Binding CancelCommand}" ToolTip.Tip="Cancel" VerticalAlignment="Center">
+                <Path Classes="icon" Data="{StaticResource IconClose}" Width="12" Height="12" />
+              </Button>
+              <StackPanel Grid.Row="1" Grid.Column="0" Spacing="3">
+                <TextBlock Classes="caption" Text="{Binding StatusText}" TextTrimming="CharacterEllipsis" />
+                <ProgressBar Classes="thin" Minimum="0" Maximum="1" Value="{Binding Progress}" IsIndeterminate="{Binding IsIndeterminate}" IsVisible="{Binding IsRunning}" />
+              </StackPanel>
+            </Grid>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </Border>
+</UserControl>

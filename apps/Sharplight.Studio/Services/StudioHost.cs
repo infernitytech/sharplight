@@ -1,9 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Hub;
+using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Documents;
 using Sharplight.Studio.Services.Hub;
 using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Monitoring;
+using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Platform;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Services.Server;
@@ -46,7 +48,8 @@ internal sealed class StudioHost : IDisposable
         var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddStudioUpdates().BuildServiceProvider();
         var services = new StudioServices(settings, runtime, hub, new ModelLibrary(settings), new SqliteConversationStore(database), stats, server,
             new DocumentExtractor(), new SystemMonitor(runtime), platform, dispatcher, theme,
-            container.GetRequiredService<IUpdateService>());
+            container.GetRequiredService<IUpdateService>(), new FilePageStorage(Path.Combine(paths.DataDirectory, "pages")), new ProcessAudioPlayer(),
+            new ProcessAudioRecorder());
         return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), server);
     }
 

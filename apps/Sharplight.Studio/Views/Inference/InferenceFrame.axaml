@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:inf="using:Sharplight.Studio.ViewModels.Inference"
+             xmlns:iv="using:Sharplight.Studio.Views.Inference"
+             x:Class="Sharplight.Studio.Views.Inference.InferenceFrame"
+             x:DataType="inf:InferencePageViewModel">
+  <!-- The layout every inference page shares: model picker on top, the page's own workspace in the middle, the run queue below, and
+       the parameter panel, history and outputs gallery in the side panel. -->
+  <Grid ColumnDefinitions="*,Auto">
+    <DockPanel>
+      <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="20,10">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding KindNoun}" VerticalAlignment="Center" />
+          <iv:ModelPickerView DataContext="{Binding Picker}" />
+        </DockPanel>
+      </Border>
+      <Border DockPanel.Dock="Top" Classes="hint" Margin="20,14,20,0" IsVisible="{Binding !HasModels}">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+            <Button Classes="small" Content="Library" Command="{Binding OpenLibraryCommand}" />
+            <Button Classes="accent small" Content="Find a model" Command="{Binding OpenDiscoverCommand}" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <Path Classes="icon accent" Data="{StaticResource IconInfo}" />
+            <TextBlock Text="{Binding KindNoun, StringFormat='No {0} model is loaded. Load one from the library or download one from Hugging Face.'}" VerticalAlignment="Center" TextWrapping="Wrap" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+      <Border DockPanel.Dock="Top" Classes="warn" Margin="20,12,20,0" IsVisible="{Binding HasNotice}">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Path Classes="icon" Stroke="{DynamicResource WarningBrush}" Data="{StaticResource IconWarning}" />
+          <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+      <iv:RunQueueView DockPanel.Dock="Bottom" DataContext="{Binding Queue}" Margin="20,0,20,16" />
+      <ContentPresenter x:Name="WorkspacePresenter" Margin="20,16,20,16" />
+    </DockPanel>
+    <!-- Side panel -->
+    <Border Grid.Column="1" Classes="panel" BorderThickness="1,0,0,0" Width="340">
+      <TabControl Classes="pills" SelectedIndex="{Binding SideTab}" Margin="14,12,6,12">
+        <TabItem Header="Parameters">
+          <iv:ParameterPanelView DataContext="{Binding Parameters}" Margin="0,10,0,0" />
+        </TabItem>
+        <TabItem Header="History">
+          <iv:HistoryView DataContext="{Binding History}" Margin="0,10,0,0" />
+        </TabItem>
+        <TabItem Header="Outputs">
+          <iv:OutputGalleryView DataContext="{Binding Gallery}" Margin="0,10,0,0" />
+        </TabItem>
+      </TabControl>
+    </Border>
+  </Grid>
+</UserControl>

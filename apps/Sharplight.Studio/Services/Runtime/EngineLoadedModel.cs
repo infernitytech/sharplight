@@ -12,7 +12,7 @@ namespace Sharplight.Studio.Services.Runtime;
 /// single-sequence session with the model's vision encoder (<see cref="VisionChat"/>), because the batching engine has no image
 /// input yet.
 /// </summary>
-internal sealed class EngineLoadedModel : ILoadedModel, IDisposable
+internal sealed class EngineLoadedModel : IEngineModel
 {
     private const int CharactersPerToken = 4;
 
@@ -190,7 +190,7 @@ internal sealed class EngineLoadedModel : ILoadedModel, IDisposable
     }
 
     /// <summary>Frees the vision session when its instance is gone.</summary>
-    internal void OnHostChanged()
+    public void OnHostChanged()
     {
         if (State is ResidentState.Ready or ResidentState.Busy or ResidentState.Loading)
         {
