@@ -26,29 +26,7 @@ internal static class ImageTowerGraph
         int n = grid * grid;
         var b = new GraphBuilder(name, src.Weight);
         var patches = b.Input("patches", InputRole.Media, DataType.F32, new Shape(n, 3 * o.Patch * o.Patch));
-        bool classToken = b.HasWeight(p + "class_embedding");
-        Value x;
-        using (b.Group(p + "embedding"))
-        {
-            x = b.Linear(patches, p + "patch_embed.weight", p + "patch_embed.bias", "patch_embd");
-            if (classToken)
-            {
-                x = b.Concat(0, b.Reshape(b.Weight(p + "class_embedding"), 1, t.Hidden), x);
-            }
-
-            x = b.Add(x, b.Weight(p + "position_embedding.weight"), "inp_pos_embd");
-            if (o.Registers > 0)
-            {
-                x = b.Concat(0, b.Slice(x, 0, 0, 1), b.Weight(p + "register_embedding.weight"), b.Slice(x, 0, 1, n));
-            }
-
-            if (b.HasWeight(p + "embedding_norm.weight"))
-            {
-                x = TowerBlocks.LayerNorm(b, x, p + "embedding_norm", t.Eps);
-            }
-        }
-
-        int rows = (classToken ? 1 : 0) + o.Registers + n;
+        var x = Embed(b, patches, o, out int rows);
         x = TowerBlocks.Layers(b, x, t, rows, causal: false);
         using (b.Group(p + "output"))
         {
@@ -85,6 +63,45 @@ internal static class ImageTowerGraph
         }
 
         return b.Build();
+    }
+
+    /// <summary>
+    /// The embedding stage: patch projection, optional class token, position table, register tokens and optional pre-norm. Returns the rows
+    /// [rows, hidden] with the class token first, then the registers, then the patches in raster order.
+    /// </summary>
+    /// <param name="b">The graph builder.</param>
+    /// <param name="patches">The host-patchified image [patches, 3 · patch²].</param>
+    /// <param name="o">The tower hyper-parameters.</param>
+    /// <param name="rows">The number of rows.</param>
+    public static Value Embed(GraphBuilder b, Value patches, ImageTowerOptions o, out int rows)
+    {
+        var t = o.Tower;
+        string p = t.Prefix;
+        int n = (o.ImageSize / o.Patch) * (o.ImageSize / o.Patch);
+        bool classToken = b.HasWeight(p + "class_embedding");
+        Value x;
+        using (b.Group(p + "embedding"))
+        {
+            x = b.Linear(patches, p + "patch_embed.weight", p + "patch_embed.bias", "patch_embd");
+            if (classToken)
+            {
+                x = b.Concat(0, b.Reshape(b.Weight(p + "class_embedding"), 1, t.Hidden), x);
+            }
+
+            x = b.Add(x, b.Weight(p + "position_embedding.weight"), "inp_pos_embd");
+            if (o.Registers > 0)
+            {
+                x = b.Concat(0, b.Slice(x, 0, 0, 1), b.Weight(p + "register_embedding.weight"), b.Slice(x, 0, 1, n));
+            }
+
+            if (b.HasWeight(p + "embedding_norm.weight"))
+            {
+                x = TowerBlocks.LayerNorm(b, x, p + "embedding_norm", t.Eps);
+            }
+        }
+
+        rows = (classToken ? 1 : 0) + o.Registers + n;
+        return x;
     }
 
     // SigLIP's pooling head: one learned probe attends over all rows, then a residual MLP behind a LayerNorm.

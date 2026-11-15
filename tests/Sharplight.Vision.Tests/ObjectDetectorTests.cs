@@ -72,4 +72,39 @@ public class ObjectDetectorTests
 
         _ = expectedLogits;
     }
+
+    [Fact]
+    public async Task DepthEstimatorMatchesTransformers()
+    {
+        const string Name = "depth-anything-v2-small";
+        if (!Available(Name))
+        {
+            return;
+        }
+
+        var reference = JsonDocument.Parse(File.ReadAllText(Path.Combine(Model(Name), "sharplight-reference.json"))).RootElement;
+        var expected = reference.GetProperty("depth").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+        var expectedSample = reference.GetProperty("depth_resized_sample").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+        var image = PngCodec.Read(Path.Combine(Model(Name), "sharplight-sample.png"));
+        var backends = new List<(string, DeviceSlot)> { ("cpu", Env.Cpu()) };
+        if (Env.Vulkan() is { } vulkan)
+        {
+            backends.Add(("vulkan", vulkan));
+        }
+
+        foreach (var (backend, slot) in backends)
+        {
+            using var model = TaskModel.Load(new TaskLoadOptions { ModelPath = Model(Name), Devices = [slot] });
+            Assert.Equal("depth-estimation", model.Description.Kind);
+            using var estimator = new TaskClientProvider([.. Env.TaskFactories()]).Create<IDepthEstimator>(model);
+            var native = await estimator.EstimateAsync(image, new DepthEstimationOptions { ResizeToInput = false }, TestContext.Current.CancellationToken);
+            var (maxAbs, _, rms) = Env.Compare(native.Values, expected);
+            TestContext.Current.SendDiagnosticMessage($"{Name} {backend}: depth relative rms {rms:e2}, max abs {maxAbs:e2}");
+            Assert.True(rms < 5e-3, $"{backend}: depth relative rms {rms}, max abs {maxAbs}");
+            var resized = await estimator.EstimateAsync(image, null, TestContext.Current.CancellationToken);
+            Assert.Equal(image.Width, resized.Width);
+            var sample = Enumerable.Range(0, expectedSample.Length).Select(i => resized.Values[i * 997]).ToArray();
+            Assert.True(Env.Compare(sample, expectedSample).Rms < 5e-3, $"{backend}: resized depth");
+        }
+    }
 }

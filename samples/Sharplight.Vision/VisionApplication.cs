@@ -75,6 +75,34 @@ public static class VisionApplication
         return ExitCodes.Success;
     }
 
+    /// <summary>Estimates the depth map and writes it as a grayscale PNG (bright is near).</summary>
+    /// <param name="settings">The parsed command line.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The process exit code.</returns>
+    public static async Task<int> DepthAsync(VisionSettings settings, CancellationToken cancellationToken)
+    {
+        var image = ReadImage(settings);
+        var services = new ServiceCollection().AddSharplight();
+        using var device = OpenDevice(settings);
+        services.AddDepthEstimator(options => Configure(options, settings, device));
+        await using var container = services.BuildServiceProvider();
+        var depth = await container.GetRequiredService<IDepthEstimator>().EstimateAsync(image, null, cancellationToken);
+        Console.WriteLine($"depth map {depth.Width}x{depth.Height}, values {depth.Min:F3} .. {depth.Max:F3}");
+        if (settings.OutputPath is not null)
+        {
+            var gray = depth.ToGrayscale();
+            var rgb = new byte[gray.Length * 3];
+            for (int i = 0; i < gray.Length; i++)
+            {
+                rgb[3 * i] = rgb[3 * i + 1] = rgb[3 * i + 2] = gray[i];
+            }
+
+            PngCodec.Write(settings.OutputPath, new ImageInput(depth.Width, depth.Height, rgb));
+        }
+
+        return ExitCodes.Success;
+    }
+
     private static ImageInput ReadImage(VisionSettings settings)
         => File.Exists(settings.ImagePath) ? PngCodec.Read(settings.ImagePath) : throw new SampleException($"Image '{settings.ImagePath}' not found.", ExitCodes.InvalidInput);
 

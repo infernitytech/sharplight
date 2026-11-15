@@ -15,7 +15,7 @@ import os
 import numpy as np
 import torch
 from PIL import Image
-from transformers import AutoConfig, AutoImageProcessor, AutoModel, AutoModelForImageClassification, AutoModelForObjectDetection, AutoTokenizer
+from transformers import AutoModelForDepthEstimation, AutoConfig, AutoImageProcessor, AutoModel, AutoModelForImageClassification, AutoModelForObjectDetection, AutoTokenizer
 
 
 def main() -> None:
@@ -32,6 +32,8 @@ def main() -> None:
     config = AutoConfig.from_pretrained(args.model_dir)
     processor = AutoImageProcessor.from_pretrained(args.model_dir)
     extra = {"size": {"height": args.size, "width": args.size}} if args.size else {}
+    if args.size and config.model_type in ("depth_anything", "dpt"):
+        extra["keep_aspect_ratio"] = False
     pixels = processor(images=image, return_tensors="pt", **extra)["pixel_values"]
     result: dict = {"model_type": config.model_type, "pixel_sample": pixels.flatten()[:16].tolist()}
 
@@ -62,6 +64,13 @@ def main() -> None:
                 {"label": model.config.id2label[int(l)], "score": float(sc), "box": [float(v) for v in b]}
                 for sc, l, b in zip(found["scores"], found["labels"], found["boxes"])
             ]
+        elif getattr(config, "architectures", None) and "ForDepthEstimation" in config.architectures[0]:
+            model = AutoModelForDepthEstimation.from_pretrained(args.model_dir).eval()
+            depth = model(pixel_values=pixels).predicted_depth[0]
+            result["depth_shape"] = list(depth.shape)
+            result["depth"] = depth.flatten().tolist()
+            resized = torch.nn.functional.interpolate(depth[None, None], size=(image.height, image.width), mode="bilinear", align_corners=False)[0, 0]
+            result["depth_resized_sample"] = resized.flatten()[::997].tolist()
         elif getattr(config, "architectures", None) and "ForImageClassification" in config.architectures[0]:
             model = AutoModelForImageClassification.from_pretrained(args.model_dir).eval()
             outputs = model(pixel_values=pixels, output_hidden_states=True)

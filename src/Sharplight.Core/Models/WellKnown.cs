@@ -26,6 +26,13 @@ public static class WellKnown
     public const string DetectGraph = "detect";
     /// <summary>Name of the box output of <see cref="DetectGraph"/>.</summary>
     public const string BoxesOutput = "boxes";
+    /// <summary>
+    /// Dense depth estimation: <c>patches</c> f32 [N, 3 · patch²] (the host-patchified normalized image, as <see cref="ImageEncodeGraph"/>) in;
+    /// <see cref="DepthOutput"/> f32 [1, 1, H, W] (relative inverse depth at the model input resolution) out.
+    /// </summary>
+    public const string DepthGraph = "estimate_depth";
+    /// <summary>Name of the depth map output of <see cref="DepthGraph"/>.</summary>
+    public const string DepthOutput = "depth";
     /// <summary>Name of the pooled embedding output of <see cref="ImageEncodeGraph"/>.</summary>
     public const string PooledOutput = "pooled";
     /// <summary>Decoder taking token ids, an embeddings input and a per-row mask (<see cref="InputRole.EmbeddingMask"/>): text mixed with media embeddings.</summary>

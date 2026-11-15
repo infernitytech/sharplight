@@ -3,7 +3,7 @@ using Sharplight.Samples;
 
 namespace Sharplight.Vision.Sample;
 
-/// <summary>The command line of <c>sharplight-vision</c>: the sub-commands <c>classify</c> and <c>detect</c>.</summary>
+/// <summary>The command line of <c>sharplight-vision</c>: the sub-commands <c>classify</c>, <c>detect</c> and <c>depth</c>.</summary>
 public sealed class VisionOptionSet
 {
     /// <summary>The model argument.</summary>
@@ -36,11 +36,14 @@ public sealed class VisionOptionSet
     /// <summary>Builds the root command.</summary>
     /// <param name="classify">Runs <c>classify</c>.</param>
     /// <param name="detect">Runs <c>detect</c>.</param>
-    public RootCommand BuildCommand(Func<VisionSettings, CancellationToken, Task<int>> classify, Func<VisionSettings, CancellationToken, Task<int>> detect)
+    /// <param name="depth">Runs <c>depth</c>.</param>
+    public RootCommand BuildCommand(Func<VisionSettings, CancellationToken, Task<int>> classify, Func<VisionSettings, CancellationToken, Task<int>> detect,
+        Func<VisionSettings, CancellationToken, Task<int>> depth)
     {
         var root = new RootCommand("Image classification and object detection with Sharplight vision models.");
         root.Subcommands.Add(Create("classify", "Classifies an image (ViT, DINOv2 heads) or scores it against --label prompts (CLIP, SigLIP).", classify));
         root.Subcommands.Add(Create("detect", "Detects objects (DETR, RT-DETR) and draws the boxes into --output.", detect));
+        root.Subcommands.Add(Create("depth", "Estimates a depth map (Depth Anything) and writes it as a grayscale PNG to --output (near is bright).", depth));
         return root;
     }
 

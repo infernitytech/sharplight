@@ -42,7 +42,14 @@ internal static class TowerBlocks
     /// The layer stack over <paramref name="x"/> [rows, hidden]: <c>{Prefix}layers.{i}.</c> with <c>input_norm</c>, <c>attention.{q,k,v,o}</c>,
     /// optional <c>layer_scale_1/2</c>, <c>post_attention_norm</c> and <c>mlp.{up,down}</c>.
     /// </summary>
-    public static Value Layers(GraphBuilder b, Value x, TowerOptions t, int rows, bool causal)
+    /// <param name="b">The graph builder.</param>
+    /// <param name="x">The input rows [rows, hidden].</param>
+    /// <param name="t">The tower hyper-parameters.</param>
+    /// <param name="rows">The number of rows.</param>
+    /// <param name="causal">Whether attention is causal.</param>
+    /// <param name="taps">Receives the output of every layer listed in <paramref name="tapAfter"/> (1-based layer counts), in order; or <see langword="null"/>.</param>
+    /// <param name="tapAfter">The layer counts whose outputs are tapped (intermediate features for dense-prediction necks), or <see langword="null"/>.</param>
+    public static Value Layers(GraphBuilder b, Value x, TowerOptions t, int rows, bool causal, List<Value>? taps = null, IReadOnlyCollection<int>? tapAfter = null)
     {
         Value? mask = causal ? CausalMask(b, rows) : null;
         for (int il = 0; il < t.Layers; il++)
@@ -59,6 +66,10 @@ internal static class TowerBlocks
             h = LayerNorm(b, x, p + "post_attention_norm", t.Eps);
             var mlp = b.Linear(Activation(b, b.Linear(h, p + "mlp.up.weight", p + "mlp.up.bias"), t.Activation), p + "mlp.down.weight", p + "mlp.down.bias");
             x = b.Add(x, Scaled(b, mlp, p + "layer_scale_2.weight"), $"{p}l_out");
+            if (taps is not null && tapAfter is not null && tapAfter.Contains(il + 1))
+            {
+                taps.Add(x);
+            }
         }
 
         return x;
