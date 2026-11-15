@@ -505,8 +505,9 @@ public sealed partial class GraphLowerer
     /// queries per workgroup, query fragments and output accumulators in registers, K/V tiles fetched one tile ahead, blocks
     /// only read the keys their last query sees) instead of <c>fa</c> (32 queries, scores and outputs staged through shared
     /// memory, five workgroup barriers per key tile): plain causal attention over f32 or f16 K/V with padded head sizes up to
-    /// 128, unless <c>SHARPLIGHT_ATTN_FE_CAUSAL=0</c>. Windows, chunks, score biases, soft caps, sinks and the multi-sequence
-    /// form keep <c>fa</c>.
+    /// 128, opt-in with <c>SHARPLIGHT_ATTN_FE_CAUSAL=1</c> because its sums round differently and change greedy output (OLMoE,
+    /// Nemotron-3-Nano). RTX PRO 4500, pp2048 in 512-token chunks: Qwen3-0.6B Q8_0 +30-50 %, Llama-3.2-1B / Gemma-3-1B Q8_0
+    /// +5-10 %. Windows, chunks, score biases, soft caps, sinks and the multi-sequence form keep <c>fa</c>.
     /// </summary>
     private bool CausalFlash(AttentionPlan plan)
     {

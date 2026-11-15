@@ -919,15 +919,21 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// Tensor-core GEMM tiles the device runs at once (<paramref name="wave"/> of <see cref="ChooseSplit"/>): one per compute
-    /// unit when the device reports them (<see cref="LoweringOptions.ComputeUnits"/>), else <see cref="DefaultGemmWaveTiles"/>;
-    /// <c>SHARPLIGHT_GEMM_WAVE=n</c> forces n. A 128x128 tile takes most of a unit's shared memory, so units ≈ concurrent tiles.
-    /// RTX PRO 4500 (82 SMs) against the default: Llama-3.2-1B Q8_0 pp2048 +9 %, Qwen3-8B Q4_K_M +2.5 % (fewer split-K launches
-    /// and reductions).
+    /// Tensor-core GEMM tiles assumed to run at once (<paramref name="wave"/> of <see cref="ChooseSplit"/>):
+    /// <see cref="DefaultGemmWaveTiles"/>, or <c>SHARPLIGHT_GEMM_WAVE=n</c>. With <c>SHARPLIGHT_GEMM_WAVE=device</c>, one tile per
+    /// compute unit the device reports (<see cref="LoweringOptions.ComputeUnits"/>; a 128x128 tile takes most of a unit's shared
+    /// memory, so units ≈ concurrent tiles). That is opt-in because other K splits round the partial sums differently and change
+    /// greedy output (Qwen3-8B Q4_K_M, gpt-oss-20b). RTX PRO 4500 (82 SMs): Llama-3.2-1B Q8_0 pp2048 +9 %, Qwen3-8B Q4_K_M
+    /// +2.5 % (fewer split-K launches and reductions).
     /// </summary>
-    private long GemmWaveTiles => DiagnosticSwitches.GemmWaveTiles ?? (_opt.ComputeUnits > 0 ? _opt.ComputeUnits : DefaultGemmWaveTiles);
+    private long GemmWaveTiles => DiagnosticSwitches.GemmWaveTiles switch
+    {
+        null => DefaultGemmWaveTiles,
+        0 => _opt.ComputeUnits > 0 ? _opt.ComputeUnits : DefaultGemmWaveTiles,
+        long n => n,
+    };
 
-    /// <summary>Concurrent GEMM tiles assumed when the device does not report its compute units (a large GPU, 188 SMs).</summary>
+    /// <summary>Concurrent GEMM tiles of the default K splits (tuned on a 188-SM GPU).</summary>
     private const long DefaultGemmWaveTiles = 192;
 
     /// <summary>
