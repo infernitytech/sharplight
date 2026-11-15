@@ -36,9 +36,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   0.71-0.85x, MoE / hybrid prefill 0.95-1.12x, serving 1.1-4.4x llama-server and ahead of vLLM except Llama-1B at 64
   streams (0.75x). Two prefill changes that alter greedy output are now the default (§34.5, decided 2026-11-15): K splits
   from the SM count (pp2048 +2-17 %, `SHARPLIGHT_GEMM_WAVE=fixed` for the old splits) and the causal `fe` flash kernel
-  (pp2048 +6-38 %, `SHARPLIGHT_ATTN_FE_CAUSAL=0` for `fa`); together Qwen3-0.6B goes 0.71x → 1.09x of llama.cpp CUDA. Next, output-preserving:
-  the Q4_K / Q6_K GEMM main loop (85 % of Qwen3-8B pp2048 at ~93 TFLOPS), fewer launches / barriers for the small-model
-  decode step (Qwen3-0.6B: 369 dispatches, 256 barriers), batched expert matmuls at 16-64 rows.
+  (pp2048 +6-38 %, `SHARPLIGHT_ATTN_FE_CAUSAL=0` for `fa`); together Qwen3-0.6B goes 0.71x → 1.09x of llama.cpp CUDA.
+  Round 2 (§36, output unchanged): 4-warp GEMM tiles at every grid size and cheaper K-quant fetches (pp2048 Qwen3-8B
+  0.82x → 0.93x, Mistral-7B 0.88x → 0.98x of llama.cpp CUDA), split-K decode attention merged in the last workgroup (one
+  launch and barrier less per layer for narrow head groups). Next: a deeper GEMM fetch pipeline (the Q4_K GEMM is bound by
+  weight-load latency at two workgroups per SM), rope / q-k norm / cache writes inside decode attention (Qwen3-0.6B decode
+  0.80x; barriers are ~30 % of its step), batched expert matmuls at 16-64 rows.
 - **Single-stream gaps** (§28.5): 27B Q8_0 decode (0.90x of llama.cpp; single matvecs at 1.34-1.42 TB/s) and Mistral-7B
   Q4_K_M pp512 (0.91x). Both need a different summation order, i.e. a deliberate change of greedy output.
 - **Row-invariant MTP verification** (§28.1): verification rows now reproduce plain decoding bit for bit. Next: a

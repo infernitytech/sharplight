@@ -4768,6 +4768,97 @@ BENCH_THREADS=8 python3 bench/onnx/parity_bench.py run cpu.jsonl --rounds 1 --ru
 SHARPLIGHT_NO_CONCAT_IN_PLACE=1 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/segformer-b0.json vulkan --batch 8 --profile
 ```
 
+## 36. LLM round 2 on the RTX PRO 4500: 4-warp GEMM tiles, cheaper K-quant fetches, decode combine in the last workgroup (2026-11-15)
+
+Base: `develop` at `9a858ae8`; branch `perf/llm-r2`. Raw results: [`bench/results/s36/`](../bench/results/s36). Same machine, GPU and method as section 34 (`bench/s34_single_all.sh`
+with `REPS=2`, `SHARPLIGHT_VK_DEVICES=1`; best prefill of 4 per process, median decode step; "tg @d16" is the decode step
+after a 16-token prompt, section 34's "tg128 @d0"). Before and after were measured back to back; the llama.cpp CUDA column
+is section 34's. Every change keeps greedy output bit-identical (36.3).
+
+### 36.1 What changed
+
+| change | effect (RTX PRO 4500) |
+|---|---|
+| 128-token `gemm_cm2` tiles always use the 4-warp layout (4 subgroups of 64x64, 255 registers, 40 KB shared memory: two workgroups per SM). The 8-warp layout (64x32 subgroup tiles), which took grids of 384+ workgroups, stays for the split-f16 form only. Same tile, same K order, same K splits | Q4_K [4096→14336] at 512 rows 632 → 487 us, [4096→12288] 553 → 472 us; bf16 [2048→6144] at 2048 rows 575 → 429 us; Q8_0 [2048→8192] 678 → 572 us. The 4-warp tile was faster at every grid size measured (128-1536 workgroups) |
+| `gemm_cm2` on f16 activations: one base address for a thread's activation rows (constant offsets per item instead of eight 64-bit addresses) | [4096→12288] Q4_K 472 → 464 us |
+| K-quant weight fetch: the Q4_K / Q5_K block header (d, dmin, 12 scale bytes) as one aligned 16-byte load instead of a word and 2-3 byte loads; 2-byte aligned 16-byte loads (Q6_K codes) as four word loads, or five plus shifts at 2 mod 4, instead of eight halfword loads | Q6_K [12288→4096] at 512 rows 613 → 584 us |
+| Split-K decode attention merges its partials in the last workgroup of each row (`decode` with `DEC_FUSED_COMBINE`): each key range publishes its partials (device-scope release) and counts its arrival in a zeroed counter; the last one merges the row with `decode_combine`'s code and resets the counter. Smaller load rounds in the merge keep decode at 99 registers. Used where the last workgroup's share is narrow (query heads per workgroup x DV <= 256); `SHARPLIGHT_ATTN_DECODE_FUSED=0` restores the combine launch | one launch and one barrier less per layer: Qwen3-0.6B 369 → 341 dispatches and 256 → 228 barriers per decode step, 1.48 → 1.42 ms GPU at 16 tokens of context (645 → 662 tok/s), unchanged at 4096; OLMoE +2.7 % at 4096 |
+
+Qwen3-8B pp2048 profile (GPU time per 2048 tokens, serialized launches): 354.9 → 327.5 ms; the Q4_K / Q6_K GEMMs are now at
+104-111 TFLOPS on the [4096→12288] and [12288→4096] shapes (93 before).
+
+### 36.2 Single stream, before / after
+
+Tokens/s; `SL/CUDA` against llama.cpp CUDA (section 34).
+
+| model | metric | before | after | after / before | llama.cpp CUDA | SL/CUDA before | SL/CUDA after |
+|---|---|---:|---:|---:|---:|---:|---:|
+| qwen3-0.6b-q8 | pp512 | 60294 | 60643 | 1.006x | 49578 | 1.22x | 1.22x |
+| qwen3-0.6b-q8 | pp2048 | 53086 | 53208 | 1.002x | 46612 | 1.14x | 1.14x |
+| qwen3-0.6b-q8 | tg @d16 | 523 | 540 | 1.033x | 678 | 0.77x | 0.80x |
+| qwen3-0.6b-q8 | tg @d4096 | 464 | 460 | 0.991x | 479 | 0.97x | 0.96x |
+| llama3.2-1b-q8 | pp512 | 40237 | 41092 | 1.021x | 41426 | 0.97x | 0.99x |
+| llama3.2-1b-q8 | pp2048 | 37473 | 38221 | 1.020x | 40894 | 0.92x | 0.93x |
+| llama3.2-1b-q8 | tg @d16 | 475 | 478 | 1.007x | 484 | 0.98x | 0.99x |
+| llama3.2-1b-q8 | tg @d4096 | 421 | 415 | 0.987x | 443 | 0.95x | 0.94x |
+| gemma3-1b-q8 | pp512 | 42372 | 42946 | 1.014x | 37857 | 1.12x | 1.13x |
+| gemma3-1b-q8 | pp2048 | 39711 | 40266 | 1.014x | 38958 | 1.02x | 1.03x |
+| mistral7b-q4km | pp512 | 6592 | 7393 | **1.122x** | 7129 | 0.92x | **1.04x** |
+| mistral7b-q4km | pp2048 | 6140 | 6837 | **1.113x** | 6959 | 0.88x | **0.98x** |
+| qwen3-8b-q4km | pp512 | 6168 | 7023 | **1.139x** | 7059 | 0.87x | **0.99x** |
+| qwen3-8b-q4km | pp2048 | 5674 | 6385 | **1.125x** | 6895 | 0.82x | **0.93x** |
+| olmoe-q4km | pp512 | 20898 | 21422 | 1.025x | 20236 | 1.03x | 1.06x |
+| olmoe-q4km | pp2048 | 20558 | 21070 | 1.025x | 18958 | 1.08x | 1.11x |
+| olmoe-q4km | tg @d4096 | 441 | 453 | 1.027x | 451 | 0.98x | 1.00x |
+| gpt-oss-20b-mxfp4 | pp512 | 9908 | 9708 | 0.980x | 11223 | 0.88x | 0.86x |
+| gpt-oss-20b-mxfp4 | pp2048 | 9403 | 9449 | 1.005x | 11422 | 0.82x | 0.83x |
+
+Notes:
+* The "before" column is today's `develop`, which already includes section 34.5 (SM-sized K splits, the causal `fe` kernel):
+  its dense prefill is above section 34.2's table (Qwen3-8B pp2048 5674 against 5020 there).
+* Decode of the models whose decode attention keeps the combine launch (Gemma, Mistral, Qwen3-8B, gpt-oss: wider shares
+  than 256) runs the same kernels as before; their decode cells are not repeated. The run above was taken before the width
+  limit and measured the fused merge on them too: at 4096 tokens Gemma -6.4 %, gpt-oss -2.8 %, Qwen3-8B / Mistral -0.5 %,
+  which is why the limit exists.
+* Small-model decode cells are noisy on this shared machine (the 0.6B at 16 tokens: 523-640 tok/s across runs of the same
+  build); interleaved A/B pairs of the fused merge gave 1.48 → 1.42 ms GPU per step (Qwen3-0.6B, 16 tokens) in every pair.
+* gpt-oss prefill (MXFP4 expert GEMMs, `GW_RAW` path) is unchanged within noise.
+
+### 36.3 Greedy output
+
+200-token greedy outputs of four prompts (a short one, a ~600-token one, an ~800-token one prefilled in 128-token chunks
+and a ~3000-token one, whose decode runs split-K attention with several key ranges) on 8 models (Qwen3-0.6B, Llama-3.2-1B,
+Gemma-3-1B, Qwen3-1.7B bf16, Mistral-7B and Qwen3-8B Q4_K_M, OLMoE, gpt-oss-20b): all 32 byte-identical to `develop`.
+Suites (Release, niced, `SHARPLIGHT_VK_DEVICES=1`): Vulkan 1472 passed / 22 skipped, Cpu 1289 / 36 skipped, Families
+970 / 368 skipped (large models off), no failures.
+
+### 36.4 Tried and dropped
+
+Measured with `SHARPLIGHT_VK_PROFILE=1` on Qwen3-8B (512-row chunks) and end to end:
+
+* **Where the Q4_K GEMM loses time**: without global fetches the main loop runs [4096→12288] in 283 us (MMA, shared memory
+  and barriers: ~180 TFLOPS at this wave fill); with the activation fetch only 314 us; with the weight loads but no decode
+  math 426 us; everything 464 us. The weight loads (latency at two workgroups per SM) cost far more than the decode math.
+* **Raw Q4_K units decoded at staging** (two 16-byte loads in flight across the MMAs, as MXFP4R does): 496-516 us against
+  464 (more live registers at the 255-register cap; decoding between the barriers serializes it).
+* **256x64 tiles** (each weight decoded once per 256 rows): 498-508 us.
+* **K blocks of 32 with double buffering** on the 4-warp tile: 644 us.
+* **Dual gate/up `gemm_cm2`** with the SwiGLU product in the store (B fragments alternate gate / up, twice the column tiles):
+  bit-identical, but ±1-2 % end to end (Llama-1B +2 %, Qwen3-8B / Mistral -1.3 / -1.8 %): the separate gate and up GEMMs
+  already run concurrently and fill the same waves; the SwiGLU launch it removes is 2 % of the step.
+* **Merging two heads side by side** in the fused decode combine changed the rounding on some models (the driver contracts
+  the interleaved sums differently), so the merge runs one head at a time.
+
+### 36.5 Open gaps
+
+* Dense prefill against llama.cpp CUDA: Qwen3-8B 0.93x at 2048 tokens, Llama-1B 0.93x, Mistral 0.98x. The GEMM is
+  fetch-latency bound at two workgroups per SM within Vulkan's 48 KB of shared memory; the next step is a deeper fetch
+  pipeline (or int8 MMQ, which changes output and stays opt-in).
+* Small-model decode: Qwen3-0.6B at 16 tokens 0.80x of llama.cpp CUDA; barriers cost about 30 % of its step
+  (`SHARPLIGHT_VK_NO_BARRIERS=1`: 1.47 → 1.02 ms). Next: rope / q-k norm / cache writes inside the decode attention kernel
+  (one barrier and three launches per layer), the residual add and norm in the producing matvec.
+* gpt-oss prefill 0.83-0.86x (MXFP4 expert GEMMs), batched steps at 16-64 streams (not worked on in this round).
+
 ## 37. ONNX round 2 on the RTX PRO 4500: convs against TensorRT, phi-3.5 at ORT's level, Unique along an axis (2026-11-15)
 
 Same machine, harness and engines as section 35 (`bench/onnx/parity_bench.py`, one process per measurement, GPU 2

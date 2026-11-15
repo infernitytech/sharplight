@@ -17,8 +17,8 @@ public static class HfSupport
     /// </summary>
     private static readonly HashSet<string> s_unsupportedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
-        "exl2", "exllama", "vptq", "higgs",
-        "spqr", "fp_quant",
+        "exllama", "exl3",
+        "spqr",
     };
 
     /// <summary>ModelOpt algorithms whose weights are read (<see cref="HfFp8Weights"/>, <see cref="HfFp4Weights"/>).</summary>
@@ -147,6 +147,20 @@ public static class HfSupport
             case "torchao":
                 return TorchAo(settings);
             case "bitsandbytes":
+                return new HfQuantizationSupport(method, SupportLevel.Supported);
+            case "fp_quant":
+                // MXFP4 / NVFP4 with a Hadamard rotation, folded into dense BF16 weights (HfFpQuantWeights).
+                return new HfQuantizationSupport($"{method} ({String(settings, "forward_dtype") ?? "mxfp4"})",
+                    String(settings, "forward_dtype") is null or "mxfp4" or "nvfp4" ? SupportLevel.Supported : SupportLevel.Unsupported);
+            case "higgs":
+                // 4-bit two-dimensional grids in FLUTE's layout, rotated back into dense weights (HfHiggsWeights).
+                return new HfQuantizationSupport($"{method} ({HfPackedBits.Int(settings, "bits", 4)}-bit)",
+                    HfPackedBits.Int(settings, "bits", 4) == 4 && HfPackedBits.Int(settings, "p", 2) == 2 ? SupportLevel.Supported : SupportLevel.Unsupported);
+            case "exl2":
+                // ExLlamaV2 checkpoints rarely declare a method; their q_weight / q_groups tensors are decoded to F16 (HfExl2Weights).
+                return new HfQuantizationSupport(method, SupportLevel.Supported);
+            case "vptq":
+                // Codebook vectors (with residual, outlier, permutation and column normalization) decoded to dense weights (HfVptqWeights).
                 return new HfQuantizationSupport(method, SupportLevel.Supported);
             case "aqlm":
                 // Dequantized to the codebook dtype while the weights are read (HfAqlmWeights).

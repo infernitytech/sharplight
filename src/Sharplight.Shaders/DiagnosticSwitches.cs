@@ -84,6 +84,7 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_ATTN_DECODE=0</c>: disable split-K flash decoding (GQA-grouped decode attention with a run-time split
 /// count); decode then uses the per-head split kernel. <c>SHARPLIGHT_ATTN_DECODE_CFG=wg,keys,splits[,rows]</c>: workgroups the split
 /// count aims for, minimum keys per split, maximum splits (default 1024,128,64), and optionally key rows per lane group and batch.</item>
+/// <item><c>SHARPLIGHT_ATTN_DECODE_FUSED=0</c>: merge the partials of split-K decoding in a separate <c>decode_combine</c> launch instead of in the last workgroup of each row.</item>
 /// <item><c>SHARPLIGHT_ATTN_MQA=0</c>: disable the tensor-core attention for many query heads on one key row whose values are a
 /// row prefix (absorbed multi-head latent attention, <c>fa_mqa</c>); prefill and decode then use the generic kernels.</item>
 /// <item><c>SHARPLIGHT_DELTA_LPR</c>, <c>SHARPLIGHT_DELTA_DVB</c>, <c>SHARPLIGHT_SSM_LPR</c>: lanes per row and value-row
@@ -323,6 +324,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when decode attention may use the GQA-grouped split-K kernel.</summary>
     public static bool AttentionDecode { get; } = IsNotZero("SHARPLIGHT_ATTN_DECODE");
+
+    /// <summary>False merges the partials of split-K decoding in a separate combine launch instead of the last workgroup of each row (<c>SHARPLIGHT_ATTN_DECODE_FUSED=0</c>).</summary>
+    public static bool AttentionDecodeFusedCombine { get; } = IsNotZero("SHARPLIGHT_ATTN_DECODE_FUSED");
 
     /// <summary>Split-K decode tuning: target workgroups, minimum keys per split, maximum splits, [rows per lane group and batch].</summary>
     public static int[] AttentionDecodeConfig { get; } = (Read("SHARPLIGHT_ATTN_DECODE_CFG") ?? "1024,128,64").Split(',').Select(int.Parse).ToArray();
