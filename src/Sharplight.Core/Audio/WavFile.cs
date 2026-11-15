@@ -179,16 +179,23 @@ public static class WavFile
                     BinaryPrimitives.WriteInt16LittleEndian(data[(i * 2)..], (short)Math.Round(clipped * short.MaxValue));
                     break;
                 case WavSampleFormat.Pcm24:
-                    int value = (int)Math.Round(clipped * 8388607f);
-                    data[i * 3] = (byte)value;
-                    data[i * 3 + 1] = (byte)(value >> 8);
-                    data[i * 3 + 2] = (byte)(value >> 16);
+                    WritePcm24(data[(i * 3)..], (int)Math.Round(clipped * 8388607f));
+                    break;
+                case WavSampleFormat.Pcm32:
+                    BinaryPrimitives.WriteInt32LittleEndian(data[(i * 4)..], (int)Math.Round(clipped * (double)int.MaxValue));
                     break;
                 default:
                     BinaryPrimitives.WriteSingleLittleEndian(data[(i * 4)..], samples[i]);
                     break;
             }
         }
+    }
+
+    private static void WritePcm24(Span<byte> destination, int value)
+    {
+        destination[0] = (byte)value;
+        destination[1] = (byte)(value >> 8);
+        destination[2] = (byte)(value >> 16);
     }
 
     private static string ReadTag(BinaryReader reader)

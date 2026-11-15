@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- SharplightDefaults lives in the root namespace, visible from every Sharplight.* namespace without a using. -->
+    <!-- AddSharplight and SharplightDefaults live in the root namespace, visible from every Sharplight.* namespace without a using. -->
     <RootNamespace>Sharplight</RootNamespace>
-    <Description>Sharplight with its defaults: references the core, the built-in architecture adapters, the GGUF, Hugging Face, ONNX and .slm importers and the CPU and Vulkan execution providers, and wires them up with SharplightDefaults.Register().</Description>
+    <Description>Sharplight with its defaults: references the core, the built-in architecture adapters, the GGUF, Hugging Face, ONNX and .slm importers and the CPU and Vulkan execution providers, and wires them up with services.AddSharplight() (the task layer included).</Description>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
     <ProjectReference Include="../Sharplight.Architectures/Sharplight.Architectures.csproj" />

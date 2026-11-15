@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.CommandLine;
 using Sharplight.Models;
 using Sharplight.Samples;
@@ -39,7 +40,7 @@ internal sealed class InspectCommand
             throw new SampleException($"Model '{modelPath}' does not exist.");
         }
 
-        SharplightDefaults.RegisterModelFormats();
+        new ServiceCollection().AddSharplightModelFormats();
         var definition = BuildDefinition(modelPath);
         if (!definition.Graphs.ContainsKey(graphName))
         {

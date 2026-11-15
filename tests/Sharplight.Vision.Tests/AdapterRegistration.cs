@@ -5,7 +5,7 @@ namespace Sharplight.Vision.Tests;
 
 /// <summary>
 /// Registers the built-in architecture adapters when the test assembly loads: the core loaders only consult the registries, as
-/// hosts do through <c>SharplightDefaults.Register()</c>.
+/// hosts do through <c>services.AddSharplight()</c>.
 /// </summary>
 internal static class AdapterRegistration
 {

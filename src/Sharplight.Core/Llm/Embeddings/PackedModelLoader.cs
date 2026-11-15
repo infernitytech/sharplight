@@ -14,16 +14,12 @@ internal static class PackedModelLoader
     internal static (ModelDefinition Def, ModelSource Source, ITokenizer Tokenizer) Open(string path, PackedModelLoadOptions o, AdapterOptions adapter)
     {
         var sw = Stopwatch.StartNew();
-        var sources = ModelImporterRegistry.OpenSet(path);
-        if (o.HalfPrecisionMatrices ?? o.Devices.FirstOrDefault()?.Device.Info.Kind is not (null or DeviceKind.Cpu))
-        {
-            sources = new ModelSourceSet { Primary = HalfMatrices(sources.Primary), Auxiliary = sources.Auxiliary };
-        }
-
-        var def = ModelAdapterRegistry.Build(sources, adapter, o.Log);
+        bool halve = o.HalfPrecisionMatrices ?? o.Devices.FirstOrDefault()?.Device.Info.Kind is not (null or DeviceKind.Cpu);
+        var (def, source) = ModelLoader.Load(path, [], adapter, progress: null, o.Log, CancellationToken.None,
+            halve ? sources => new ModelSourceSet { Primary = HalfMatrices(sources.Primary), Auxiliary = sources.Auxiliary } : null);
         var tok = TokenizerFactory.Create(TokenizerData.FromMetadata(def.SourceMetadata));
         o.Log?.Invoke($"Loaded {def.Name} ({def.Architecture}): {def.Weights.Count} tensors, {def.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB, vocab {tok.VocabSize} [{sw.ElapsedMilliseconds} ms]");
-        return (def, sources.Primary, tok);
+        return (def, source, tok);
     }
 
     private static ModelSource HalfMatrices(ModelSource s)

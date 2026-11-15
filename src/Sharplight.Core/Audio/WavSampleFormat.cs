@@ -9,6 +9,9 @@ public enum WavSampleFormat
     /// <summary>24-bit signed integer PCM.</summary>
     Pcm24,
 
+    /// <summary>32-bit signed integer PCM.</summary>
+    Pcm32,
+
     /// <summary>32-bit IEEE float (lossless for <see cref="AudioBuffer"/> samples).</summary>
     Float32,
 }

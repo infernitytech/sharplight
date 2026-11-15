@@ -6,7 +6,7 @@ namespace Sharplight.Architectures;
 /// Registers the architecture adapters shipped with Sharplight (decoder, encoder, hybrid and multimodal families) with
 /// <see cref="ModelAdapterRegistry"/> and their multimodal handlers with <see cref="Sharplight.Vision.MultimodalRegistry"/>. The core
 /// loaders (<c>LlmModel</c>, <c>EmbeddingModel</c>, <c>TaskModel</c>) only consult the registries, so a host calls this once at
-/// startup, directly or through <c>SharplightDefaults.Register()</c> of the <c>Sharplight.Defaults</c> package (which also registers the
+/// startup, directly or through <c>services.AddSharplight()</c> of the <c>Sharplight.Defaults</c> package (which also registers the
 /// importers and execution providers).
 /// </summary>
 public static class BuiltinAdapters

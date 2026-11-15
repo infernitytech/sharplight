@@ -3,6 +3,7 @@ using Sharplight.Graph;
 using Sharplight.Llm.Embeddings;
 using Sharplight.Models;
 using Sharplight.Runtime;
+using Sharplight.Tasks;
 using Sharplight.Tensors;
 using Sharplight.Tokenizers;
 using Sharplight.Vision;
@@ -23,7 +24,7 @@ namespace Sharplight.Llm;
 /// </summary>
 /// <example>
 /// <code>
-/// SharplightDefaults.Register();   // from the Sharplight.Defaults package: importers, architecture adapters and providers
+/// new ServiceCollection().AddSharplight();   // Sharplight.Defaults: importers, architecture adapters, providers, task layer
 /// using var model = LlmModel.Load("qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
 /// using var session = model.CreateSession();
 /// var generator = new Generator(session, model.Tokenizer);
@@ -50,23 +51,66 @@ public sealed class LlmModel : IDisposable
     /// the decoder's embedding and LM head.
     /// </summary>
     public SharedWeights SharedWeights => _sharedWeights;
-    private readonly SharedWeights _sharedWeights = new();
+
+    /// <summary>
+    /// What the model is: its <see cref="ModelDefinition.Description"/>, or for models without one (every decoder LLM) the resolved
+    /// text-generation description with one <c>decoder</c> component.
+    /// </summary>
+    public ModelDescription Description => ModelDescription.Resolve(Definition);
+
+    private readonly SharedWeights _sharedWeights;
     private readonly LlmLoadOptions _options;
     private readonly CompilationArtifacts _artifacts;
+    private readonly bool _ownsDefinition;
 
-    private LlmModel(ModelDefinition def, ModelSource source, ITokenizer tok, LlmLoadOptions options)
+    private LlmModel(ModelDefinition def, ModelSource source, ITokenizer tok, LlmLoadOptions options, bool ownsDefinition, SharedWeights? sharedWeights)
     {
         Definition = def;
         Source = source;
         Tokenizer = tok;
         _options = options;
+        _ownsDefinition = ownsDefinition;
+        _sharedWeights = sharedWeights ?? new SharedWeights();
         _artifacts = options.Artifacts ?? new CompilationArtifacts(source.CompilationCaches);
         ChatTemplate = def.SourceMetadata.TryGetValue(CanonicalKeys.ChatTemplate, out var t) ? t as string : null;
     }
 
     /// <summary>
+    /// The text-generation view of a model loaded by the task layer: shares the task model's definition, weight buffers and artifact
+    /// routing and does not own them (disposing it releases nothing; the <see cref="TaskModel"/> does).
+    /// </summary>
+    /// <param name="model">A loaded text-generation model.</param>
+    internal static LlmModel FromTaskModel(TaskModel model)
+    {
+        var load = model.Options;
+        var options = new LlmLoadOptions
+        {
+            Devices = [.. load.Devices],
+            Fallback = load.Fallback,
+            ReservePerDevice = load.ReservePerDevice,
+            ContextLength = load.ContextLength > 0 ? load.ContextLength : Math.Min(8192, model.Definition.Property(WellKnown.ContextLength, 8192)),
+            MaxBatchTokens = load.MaxBatchTokens,
+            Adapter = load.Adapter,
+            DisabledFeatures = new HashSet<string>(load.DisabledFeatures, StringComparer.Ordinal),
+            AllowReducedPrecision = load.AllowReducedPrecision,
+            Log = load.Log,
+            Progress = load.Progress,
+            Artifacts = model.Artifacts,
+        };
+        var tokenizer = model.CreateTokenizer();
+        return new LlmModel(model.Definition, model.Source, tokenizer, options, ownsDefinition: false, model.SharedWeights);
+    }
+
+    /// <summary>
+    /// Creates the model's text-generation client (<see cref="ITextGenerator"/>): a session on <paramref name="graph"/> plus the
+    /// sampling loop, behind the task API shared by every model kind. The client owns its session, not the model.
+    /// </summary>
+    /// <param name="graph">The decoder graph (<see cref="WellKnown.DecodeGraph"/> by default).</param>
+    public ITextGenerator CreateTextGenerator(string graph = WellKnown.DecodeGraph) => new TextGenerator(this, graph, ownsModel: false);
+
+    /// <summary>
     /// Loads a model through <see cref="ModelImporterRegistry"/> and <see cref="ModelAdapterRegistry"/>; the host must have registered an
-    /// importer for the file's format and the architecture adapters (<c>SharplightDefaults.Register()</c> from the Sharplight.Defaults package
+    /// importer for the file's format and the architecture adapters (<c>services.AddSharplight()</c> from the Sharplight.Defaults package
     /// does both; or e.g. <c>GgufImporter.Register()</c> plus <c>BuiltinAdapters.RegisterAll()</c>).
     /// </summary>
     /// <param name="path">Model file (GGUF, ...) or directory (Hugging Face layout), as understood by the registered importers.</param>
@@ -77,14 +121,9 @@ public sealed class LlmModel : IDisposable
         var sw = Stopwatch.StartNew();
         var ct = options.CancellationToken;
         ct.ThrowIfCancellationRequested();
-        var reading = new LoadProgressCounter(options.Progress, LoadStage.Reading, 1, path);
-        var sources = ModelImporterRegistry.OpenSet(path, [.. options.Auxiliary]);
-        reading.Complete();
-        ct.ThrowIfCancellationRequested();
-        var building = new LoadProgressCounter(options.Progress, LoadStage.Building, 1);
         var adapter = options.Adapter.With(options.KvCacheType ?? options.Adapter.KvCacheType,
             options.Adapter.ContextLength > 0 ? options.Adapter.ContextLength : options.ContextLength, RecurrentStateType(options));
-        var def = ModelAdapterRegistry.Build(sources, adapter, options.Log);
+        var (def, source) = ModelLoader.Load(path, options.Auxiliary, adapter, options.Progress, options.Log, ct);
         var kvStates = def.States.Where(st => st.Kind is StateKind.KeyCache or StateKind.ValueCache).ToList();
         int kept = kvStates.Count(st => st.Type != adapter.KvCacheType);
         if (kept > 0 && adapter.KvCacheType.BlockSize > 1)
@@ -93,9 +132,8 @@ public sealed class LlmModel : IDisposable
         }
 
         var tok = TokenizerFactory.Create(TokenizerData.FromMetadata(def.SourceMetadata));
-        building.Complete();
         options.Log?.Invoke($"Loaded {def.Name} ({def.Architecture}): {def.Weights.Count} tensors, {def.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB, vocab {tok.VocabSize} [{sw.ElapsedMilliseconds} ms]");
-        return new LlmModel(def, sources.Primary, tok, options);
+        return new LlmModel(def, source, tok, options, ownsDefinition: true, sharedWeights: null);
     }
 
     /// <summary>The recurrent state type of <see cref="LlmLoadOptions.RecurrentStateType"/>, after the diagnostic override.</summary>
@@ -491,6 +529,11 @@ public sealed class LlmModel : IDisposable
     /// <summary>Releases the weight memory (mapped files, host buffers). Sessions and decoders created from the model must be disposed first.</summary>
     public void Dispose()
     {
+        if (!_ownsDefinition)
+        {
+            return;
+        }
+
         foreach (var r in Definition.OwnedResources)
         {
             r.Dispose();
