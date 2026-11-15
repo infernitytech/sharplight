@@ -41,7 +41,8 @@ internal sealed unsafe class SafetensorsFile : IDisposable
     private SafetensorsFile(string path)
     {
         Path = path;
-        long fileLength = new FileInfo(path).Length;
+        var fileInfo = new FileInfo(path);
+        long fileLength = (fileInfo.ResolveLinkTarget(returnFinalTarget: true) as FileInfo ?? fileInfo).Length; // a symbolic link reports its own size
         if (fileLength < HeaderLengthBytes)
         {
             throw new InvalidDataException($"{path}: too small to be a safetensors file.");

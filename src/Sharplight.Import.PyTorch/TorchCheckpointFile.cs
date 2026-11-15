@@ -16,7 +16,8 @@ public sealed unsafe class TorchCheckpointFile : IDisposable
     private TorchCheckpointFile(string path, TorchCheckpointOptions options)
     {
         Path = path;
-        Length = new FileInfo(path).Length;
+        var fileInfo = new FileInfo(path);
+        Length = (fileInfo.ResolveLinkTarget(returnFinalTarget: true) as FileInfo ?? fileInfo).Length; // a symbolic link reports its own size
         if (Length == 0)
         {
             throw new InvalidDataException($"{path}: the file is empty.");

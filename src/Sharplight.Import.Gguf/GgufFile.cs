@@ -62,7 +62,8 @@ public sealed unsafe class GgufFile : IDisposable
     private GgufFile(string path)
     {
         Path = path;
-        FileLength = new FileInfo(path).Length;
+        var fileInfo = new FileInfo(path);
+        FileLength = (fileInfo.ResolveLinkTarget(returnFinalTarget: true) as FileInfo ?? fileInfo).Length; // a symbolic link reports its own size
         if (FileLength < HeaderBytes)
         {
             throw new InvalidDataException("File too small to be GGUF.");

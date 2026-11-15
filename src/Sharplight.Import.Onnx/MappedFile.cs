@@ -16,7 +16,7 @@ internal sealed unsafe class MappedFile : IDisposable
     {
         Path = path;
         var fi = new FileInfo(path);
-        Length = fi.Length;
+        Length = (fi.ResolveLinkTarget(returnFinalTarget: true) as FileInfo ?? fi).Length; // a symbolic link reports its own size
         if (Length == 0)
         {
             throw new InvalidDataException($"{path} is empty.");
