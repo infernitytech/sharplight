@@ -25,7 +25,7 @@ Start with the [public API overview](docs/api-overview.md). Benchmarks against l
 
 Weight formats: the GGUF quantizations (Q4_0 … Q8_0, K-quants, IQ formats, TQ, MXFP4, NVFP4) and, from Hugging Face
 checkpoints, BF16/F16/F32, FP8 (block, channel and tensor scales), NVFP4 (ModelOpt, compressed-tensors), MXFP4
-(compressed-tensors, Quark, gpt-oss), GPTQ (2/3/4/8-bit, act-order), AWQ (GEMM/GEMV), compressed-tensors integer weights,
+(compressed-tensors, Quark, gpt-oss, DeepSeek-V4 FP4 experts), GPTQ (2/3/4/8-bit, act-order), AWQ (GEMM/GEMV), compressed-tensors integer weights,
 bitsandbytes NF4 and MLX affine 4-bit, kept quantized on the device; bitsandbytes FP4 / LLM.int8 and other MLX bit widths
 are decoded to BF16 at load ([docs/model-support.md](docs/model-support.md) section 2.4).
 
