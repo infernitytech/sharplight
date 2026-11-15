@@ -18,7 +18,7 @@ public static class HfSupport
     private static readonly HashSet<string> s_unsupportedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
         "hqq", "eetq", "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
-        "spqr", "auto-round", "autoround", "fp_quant",
+        "spqr", "auto-round", "autoround",
     };
 
     /// <summary>ModelOpt algorithms whose weights are read (<see cref="HfFp8Weights"/>, <see cref="HfFp4Weights"/>).</summary>
@@ -136,6 +136,10 @@ public static class HfSupport
                 return Awq(method, settings);
             case "bitsandbytes":
                 return new HfQuantizationSupport(method, SupportLevel.Supported);
+            case "fp_quant":
+                // MXFP4 / NVFP4 with a Hadamard rotation, folded into dense BF16 weights (HfFpQuantWeights).
+                return new HfQuantizationSupport($"{method} ({String(settings, "forward_dtype") ?? "mxfp4"})",
+                    String(settings, "forward_dtype") is null or "mxfp4" or "nvfp4" ? SupportLevel.Supported : SupportLevel.Unsupported);
             case "aqlm":
                 // Dequantized to the codebook dtype while the weights are read (HfAqlmWeights).
                 return new HfQuantizationSupport(method, SupportLevel.Supported);
