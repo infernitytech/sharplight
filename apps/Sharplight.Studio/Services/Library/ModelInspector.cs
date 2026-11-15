@@ -53,9 +53,10 @@ internal static class ModelInspector
     }
 
     /// <summary>
-    /// The kind a model file that is not a package probably has: whisper.cpp <c>.bin</c> files (by their magic number) and Whisper
-    /// checkpoint folders recognize speech, a GGUF named like OuteTTS speaks, Stable Diffusion checkpoints and the vision checkpoints
-    /// are recognized by <see cref="ImageModelProbe"/>, other GGUF files and checkpoint folders are language models.
+    /// The kind a model file that is not a package probably has: whisper.cpp model files (by their ggml magic number, whatever their
+    /// extension: some repositories ship them as <c>.gguf</c>), GGUF files of the <c>whisper</c> architecture and Whisper checkpoint
+    /// folders recognize speech, a GGUF named like OuteTTS speaks, Stable Diffusion checkpoints and the vision checkpoints are recognized
+    /// by <see cref="ImageModelProbe"/>, other GGUF files and checkpoint folders are language models.
     /// </summary>
     private static string InferKind(string path)
     {
@@ -64,14 +65,19 @@ internal static class ModelInspector
             return imageKind;
         }
 
-        if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
-        {
-            return System.IO.Path.GetFileName(path).Contains("outetts", StringComparison.OrdinalIgnoreCase) ? ModelKinds.SpeechSynthesis : ModelKinds.TextGeneration;
-        }
-
-        if (path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) && HasGgmlMagic(path))
+        if (File.Exists(path) && HasGgmlMagic(path))
         {
             return ModelKinds.SpeechRecognition;
+        }
+
+        if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+        {
+            if (GgufArchitecture(path) is "whisper")
+            {
+                return ModelKinds.SpeechRecognition;
+            }
+
+            return System.IO.Path.GetFileName(path).Contains("outetts", StringComparison.OrdinalIgnoreCase) ? ModelKinds.SpeechSynthesis : ModelKinds.TextGeneration;
         }
 
         string config = System.IO.Path.Combine(path, "config.json");
@@ -81,6 +87,20 @@ internal static class ModelInspector
         }
 
         return ModelKindCatalog.Other;
+    }
+
+    /// <summary>The <c>general.architecture</c> of a GGUF file, or null when it has none or cannot be read.</summary>
+    private static string? GgufArchitecture(string path)
+    {
+        try
+        {
+            using var file = Sharplight.Import.Gguf.GgufFile.Open(path);
+            return file.Architecture;
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Whether the file starts with the ggml magic number of whisper.cpp model files.</summary>
