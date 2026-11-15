@@ -22,7 +22,7 @@ public sealed partial class GraphLowerer
     /// Operand parts (1: f16, 2: bf16 hi + lo, 3: bf16 hi + mid + lo, 4: split f16 hi + lo with scales) and pixel columns of
     /// the tile.
     /// </summary>
-    private readonly record struct ConvMatrixForm(int Parts, long TileColumns)
+    private readonly record struct ConvMatrixForm(int Parts, long TileColumns, long TileK = ConvMatrixTileK)
     {
         /// <summary>Shared operand tiles per operand (the split f16 form stages two).</summary>
         public int Tiles => Parts == 4 ? 2 : Parts;
@@ -50,7 +50,7 @@ public sealed partial class GraphLowerer
     /// 4 * <paramref name="warpsM"/> subgroups.
     /// </summary>
     private static long ConvMatrixSharedBytes(int warpsM, ConvMatrixForm form)
-        => form.Tiles * (warpsM * ConvMatrixWarpRows + form.TileColumns) * (ConvMatrixTileK + 8) * 2 + warpsM * 4 * 256 * 4
+        => form.Tiles * (warpsM * ConvMatrixWarpRows + form.TileColumns) * (form.TileK + 8) * 2 + warpsM * 4 * 256 * 4
            + (form.Parts == 4 ? form.TileColumns / 16 * 4 : 0);
 
     /// <summary>
@@ -84,11 +84,16 @@ public sealed partial class GraphLowerer
         ConvMatrixForm? form = _opt.Compile.AllowReducedPrecision
             ? f16 ? new ConvMatrixForm(1, reducedColumns) : bf16 ? new ConvMatrixForm(2, reducedColumns) : null
             : splitHalf ? new ConvMatrixForm(4, reducedColumns) : bf16 ? new ConvMatrixForm(3, 64) : null;
+        if (form is { Parts: 4 } f4 && FastMatrixProducts && Environment.GetEnvironmentVariable("XTK") is { } xtk)
+        {
+            form = f4 with { TileK = long.Parse(xtk) };
+        }
+
         return form is { } f && columns * Math.Max(1, batchBound) >= ConvMatrixMinColumns && ConvMatrixSharedBytes(1, f) <= _opt.MaxSharedMemory ? f : null;
     }
 
     /// <summary>K split for conv_cm: aims for <see cref="ConvTargetWorkgroups"/>, at least 4 K steps per split.</summary>
-    private static (int Split, long Kps) ChooseConvMatrixSplit(long N, long OG, long G, long HW, long K, long tileRows, long tileColumns)
+    private static (int Split, long Kps) ChooseConvMatrixSplit(long N, long OG, long G, long HW, long K, long tileRows, long tileColumns, long tileK)
     {
         long tiles = (N * HW + tileColumns - 1) / tileColumns * ((OG + tileRows - 1) / tileRows) * G;
         if (tiles == 0)
@@ -97,14 +102,14 @@ public sealed partial class GraphLowerer
             return (1, K);
         }
 
-        long kTiles = (K + ConvMatrixTileK - 1) / ConvMatrixTileK;
+        long kTiles = (K + tileK - 1) / tileK;
         long split = Math.Min(Math.Min((ConvTargetWorkgroups + tiles - 1) / tiles, kTiles / 4), 16);
         if (split < 2)
         {
             return (1, K);
         }
 
-        long kps = (kTiles + split - 1) / split * ConvMatrixTileK;
+        long kps = (kTiles + split - 1) / split * tileK;
         return ((int)((K + kps - 1) / kps), kps);
     }
 
@@ -139,7 +144,7 @@ public sealed partial class GraphLowerer
 
         int warpsM = ConvMatrixWarpsM(OG, form);
         long tileRows = warpsM * ConvMatrixWarpRows;
-        Func<long, (int Split, long Kps)> choose = batch => ChooseConvMatrixSplit(batch, OG, G, HW, K, tileRows, form.TileColumns);
+        Func<long, (int Split, long Kps)> choose = batch => ChooseConvMatrixSplit(batch, OG, G, HW, K, tileRows, form.TileColumns, form.TileK);
         long workspace = 0;
         for (long v = x.Symbol is null ? bound : 1; v <= bound; v++)
         {
@@ -160,6 +165,7 @@ public sealed partial class GraphLowerer
         bool hiOnly = form.Parts == 4 && FastMatrixProducts;
         macros.Add(("HI_ONLY", hiOnly));
         macros.Add(("FRAG_N", form.FragN));
+        macros.Add(("TBK", form.TileK));
         macros.Add(("WARPS_M", warpsM));
         macros.Add(("A_VEC", K % 8 == 0));
         macros.Add(("TAP_MAJOR", form.Parts == 4 && tapMajor));

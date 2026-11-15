@@ -14,7 +14,7 @@
 //            that puts the block's largest magnitude in [2^14, 2^15), so neither part leaves f16's normal range. A step's
 //            products sum from zero on the tensor cores and are added, times the block's inverse scale, to f32
 //            accumulators (the tensor cores' truncating accumulation then only rounds step sums). Needs every block's
-//            pixels in one subgroup: TBN * 4 / NT (B_ITEMS) of 2 or 4.
+//            pixels in one subgroup: TBN * KG / NT (B_ITEMS) of at least KG / 2.
 //            HI_ONLY = 1 (fast matrix precision): the same scaling with the hi parts only, one product per step (11
 //            significant bits per input, like TF32); the weights hold KTOT hi halves per output channel.
 // Same layout and macros as conv_gemm (conv.slang): x [N, C, H, W] strided (XS_*), w [O, CG, KH, KW] dense (WFMT
@@ -52,16 +52,20 @@ using namespace linalg;
 #define NT (WARPS_M * WARPS_N * 32)
 #define TBM (WARPS_M * FRAG_M * 16)
 #define TBN (WARPS_N * FRAG_N * 16)
+#ifndef TBK
 #define TBK 32
+#endif
+// 8-value k groups per K step.
+#define KG (TBK / 8)
 // Row stride of the shared tiles in halves: 32 k plus 8 halves of padding.
 #define SAS (TBK + 8)
 // Groups of 8 consecutive k per thread and step: A rows x 4 groups, B pixels x 4 groups.
-#define A_ITEMS (TBM * 4 / NT)
-#define B_ITEMS (TBN * 4 / NT)
+#define A_ITEMS (TBM * KG / NT)
+#define B_ITEMS (TBN * KG / NT)
 #if PARTS == 4
 // The B_TPP threads of a pixel are adjacent lanes (pixel tid / B_TPP, k groups tid % B_TPP + it * B_TPP), so a block of 16
 // pixels is 16 * B_TPP lanes of one subgroup.
-#define B_TPP (4 / B_ITEMS)
+#define B_TPP (KG / B_ITEMS)
 #define B_STRIDE B_TPP
 #else
 #define B_STRIDE (NT / TBN)
@@ -169,18 +173,17 @@ void pack8(float v[8], out uint4 hi, out uint4 mid, out uint4 lo)
 }
 
 // Global loads of the K step at k0 into packed registers; zero outside the tensors and at or past kEnd.
-// A item it: row idx / 4, k group idx % 4 (idx = tid + it * NT). B item it: the thread's pixel, k group bq0 + it * B_STRIDE.
+// A item it: row idx / KG, k group idx % KG (idx = tid + it * NT). B item it: the thread's pixel, k group bq0 + it * B_STRIDE.
 void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint bq0, bool bvalid, int ih0, int iw0,
     float* xb, out uint4 ah[A_ITEMS], out uint4 am[A_ITEMS], out uint4 al[A_ITEMS], out uint4 bh[B_ITEMS], out uint4 bm[B_ITEMS],
-    out uint4 bl[B_ITEMS], out float bscale)
+    out uint4 bl[B_ITEMS], inout float bv[B_ITEMS][8])
 {
-    bscale = 1.0;
     [ForceUnroll]
     for (uint it = 0; it < A_ITEMS; it++)
     {
         uint idx = tid + it * NT;
-        uint r = idx / 4;
-        uint kk = k0 + (idx % 4) * 8;
+        uint r = idx / KG;
+        uint kk = k0 + (idx % KG) * 8;
 #if PARTS == 4
         // Split weights: row o holds KTOT hi halves, then KTOT lo halves.
         ah[it] = 0;
@@ -228,9 +231,6 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
         }
         pack8(v, ah[it], am[it], al[it]);
     }
-#if PARTS == 4
-    float bv[B_ITEMS][8];
-#endif
     [ForceUnroll]
     for (uint it = 0; it < B_ITEMS; it++)
     {
@@ -330,27 +330,51 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
         }
 #endif
 #if PARTS == 4
-        [ForceUnroll] for (uint j = 0; j < 8; j++) { bv[it][j] = v[j]; }
+        [ForceUnroll]
+        for (uint j = 0; j < 8; j++)
+        {
+            bv[it][j] = v[j];
+        }
+        bh[it] = 0;
+        bm[it] = 0;
+        bl[it] = 0;
 #else
         pack8(v, bh[it], bm[it], bl[it]);
 #endif
     }
+}
+
 #if PARTS == 4
-    // The block's largest magnitude: the thread's values, then the 16 * B_TPP lanes of its 16 pixels.
+// Scales and splits the raw im2col values bv of a step (fetch only issues their loads, so that they stay in flight during the
+// previous step's products): the block's largest magnitude, from the thread's values and then the 16 * B_TPP lanes of its 16
+// pixels, sets the power-of-two scale. Returns the block's inverse scale.
+float split_b(float bv[B_ITEMS][8], uint tid, out uint4 bh[B_ITEMS], out uint4 bl[B_ITEMS])
+{
     float m = 0;
-    [ForceUnroll] for (uint it = 0; it < B_ITEMS; it++) [ForceUnroll] for (uint j = 0; j < 8; j++) { m = max(m, abs(bv[it][j])); }
-    uint lane = tid % 32;
-    [ForceUnroll] for (uint d = 1; d < 16 * B_TPP; d *= 2) { m = max(m, WaveReadLaneAt(m, lane ^ d)); }
-    float s = split_scale(m);
-    bscale = 1.0 / s;
     [ForceUnroll]
     for (uint it = 0; it < B_ITEMS; it++)
     {
-        bm[it] = 0;
+        [ForceUnroll]
+        for (uint j = 0; j < 8; j++)
+        {
+            m = max(m, abs(bv[it][j]));
+        }
+    }
+    uint lane = tid % 32;
+    [ForceUnroll]
+    for (uint d = 1; d < 16 * B_TPP; d *= 2)
+    {
+        m = max(m, WaveReadLaneAt(m, lane ^ d));
+    }
+    float s = split_scale(m);
+    [ForceUnroll]
+    for (uint it = 0; it < B_ITEMS; it++)
+    {
         bh[it] = split8_scaled(bv[it], s, bl[it]);
     }
-#endif
+    return 1.0 / s;
 }
+#endif
 
 Acc mma(MatA a, MatB b, Acc c) { return coopMatMulAdd<float, false>(a, b, c); }
 
@@ -421,15 +445,18 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     uint4 bh[B_ITEMS];
     uint4 bm[B_ITEMS];
     uint4 bl[B_ITEMS];
-    float bsc;
-    fetch(p, g, mBase, kBeg, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl, bsc);
+    float bv[B_ITEMS][8];
+    fetch(p, g, mBase, kBeg, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl, bv);
     for (uint k0 = kBeg; k0 < kEnd; k0 += TBK)
     {
+#if PARTS == 4
+        float bsc = split_b(bv, tid, bh, bl);
+#endif
         [ForceUnroll]
         for (uint it = 0; it < A_ITEMS; it++)
         {
             uint idx = tid + it * NT;
-            uint o = (idx / 4) * (SAS / 8) + idx % 4;
+            uint o = (idx / KG) * (SAS / 8) + idx % KG;
             sAh[o] = ah[it];
 #if HAS_LO
             sAl[o] = al[it];
@@ -459,7 +486,7 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         GroupMemoryBarrierWithGroupSync();
         if (k0 + TBK < kEnd)
         {
-            fetch(p, g, mBase, k0 + TBK, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl, bsc);
+            fetch(p, g, mBase, k0 + TBK, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl, bv);
         }
 
 #if PARTS == 4
