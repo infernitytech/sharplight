@@ -10,6 +10,8 @@ internal sealed class FakeModel(string id, ModelCapabilities capabilities = Mode
 {
     public string Id { get; } = id;
 
+    public string Kind { get; init; } = Sharplight.Models.ModelKinds.TextGeneration;
+
     public string Path => $"/models/{Id}.slm";
 
     public ComputeDeviceOption Device { get; init; } = FakeRuntime.Gpu;

@@ -82,7 +82,7 @@ first on the new machine.
 |---|---|---|---|
 | `wip/core-restructure` | Llm + Tokenizers + Templating folded into Core, BuiltinAdapters moved to Architectures, `Sharplight.Defaults` one-call registration (commit e3c86c19); task-layer skeleton started (`src/Sharplight.Core/{Tasks,Speech,Audio,Imaging}`, last commit WIP) | restructure commit done; skeleton unfinished, unverified | finish the skeleton per section 2 (open task abstraction, .slm model kind + components description, docs/api-overview.md + docs/model-format.md), build, run all suites, merge. **Do this first**: the speech/image/Studio work builds on it |
 | `wip/onnx-ops` | ONNX missing ops round: Slice with runtime starts/ends, MatMul with leading unit dims, LFM2 imports (37ff6e99) + uncommitted translator work (WIP commit) | partial | continue the list: com.microsoft GroupQueryAttention / RotaryEmbedding / SimplifiedLayerNormalization (+Skip), NonMaxSuppression, RoiAlign, Loop, STFT (generic Core DSP op, reused by speech), runtime Range, bertsquad CPU i32 Scale; docs/onnx-support.md |
-| `wip/whisper` | Speech-to-text on the task layer: Whisper from HF checkpoints and whisper.cpp `.bin` (new `Sharplight.Import.WhisperCpp`), Core `ISpeechRecognizer` implementation (host log-mel, decoding loop, long-form), `.slm` description, `sharplight-transcribe`, `/v1/audio/transcriptions` | Whisper tiny/base/small (+ .en, q5_1) and Distil-Whisper verified vs transformers (token-exact) and whisper.cpp, CPU and Vulkan (docs/model-support.md section 12) | merge to develop; then Moonshine, Parakeet (CTC/TDT), Canary, Voxtral; beam search, temperature fallback, word timestamps; switch the feature extractor to the generic STFT op once `wip/onnx-ops` lands it |
+| `wip/whisper` | Speech-to-text on the task layer: Whisper from HF checkpoints and whisper.cpp `.bin` (new `Sharplight.Import.WhisperCpp`), Core `ISpeechRecognizer` implementation (host log-mel, decoding loop, long-form), `.slm` description, `sharplight-transcribe`, `/v1/audio/transcriptions` | Whisper tiny/base/small (+ .en, q5_1) and Distil-Whisper verified vs transformers (token-exact) and whisper.cpp, CPU and Vulkan (docs/model-support.md section 13) | merge to develop; then Moonshine, Parakeet (CTC/TDT), Canary, Voxtral; beam search, temperature fallback, word timestamps; switch the feature extractor to the generic STFT op once `wip/onnx-ops` lands it |
 | `wip/diffusers` | `Sharplight.Import.Diffusers` (diffusers + LDM single-file names, UNet/VAE/CLIP configs), CLIP tokenizer (WIP) | early, unverified | rebase onto the restructure; graph generation for UNet/VAE/CLIP in Architectures; image-generation task utility (schedulers, CFG); SD1.5 vs diffusers/stable-diffusion.cpp; then SDXL, SD3, FLUX, Chroma, Qwen-Image, Wan |
 | `wip/vulkan-matvec-rows` | perf: two output rows per workgroup in split-K matvec (FP8/bf16) | perf experiment | parked until performance work resumes |
 | `macos/round-1` (already on GitHub) | macOS / MoltenVK / NEON / Studio .app | separate until the user decides | — |
@@ -108,6 +108,13 @@ generation, speech recognition, speech synthesis, image generation; open for new
 registry (`XxxImporter.Register()`, provider registration) becomes `IServiceCollection` extensions plus options; task
 utilities shaped like Microsoft.Extensions.AI (IChatClient, ISpeechToTextClient, IImageGenerator, IEmbeddingGenerator);
 samples, Server, Studio and docs follow. Rules in docs/code-style.md.
+
+**Step 3 – Cleanup / dead-code removal / refactoring pass** (scheduled by the user 2026-11-15): after the public API
+pass and the two-stage precompilation refactor are merged, run parallel cleanup agents per project area (Sonnet,
+docs/cleanup-brief.md, non-overlapping project lists, behavior- and performance-preserving): dead code, duplication,
+single-line scopes, one type per file, extension blocks, visibility, XML docs, simplification of complex code, shared
+patterns across model kinds. Feature agents merge develop right after it lands. Repeat a smaller cleanup round after
+every wave (and whenever a merge round leaves warnings or style debt).
 
 **Wave 1** (in parallel after step 2; ONNX ops, weight formats and performance may start during step 2):
 - ONNX ops (`wip/onnx-ops`): GroupQueryAttention, RotaryEmbedding, (Skip)SimplifiedLayerNormalization, NonMaxSuppression,
@@ -160,6 +167,9 @@ history, outputs gallery, export) so every type looks and behaves the same; chat
   - Discover highlights per model type (Trending / New / Most downloaded per kind) with the Supported-only switch.
   - Multi-component repos (diffusers folders, encoder + decoder + vocoder sets, whisper.cpp files, ONNX) downloaded as
     one model, with per-kind compatibility badges and fit estimates; conversion to `.slm` for every kind.
+- S1b: precompilation for every execution provider and device available on the machine through an explicit two-stage
+  provider contract (portable code such as SPIR-V, then device-specific driver binaries; CPU: empty), written into the
+  `.slm` in place (crash-safe) while the model is not resident; inspector shows the stages per provider/device.
 - S2: a dedicated inference page per model type, added as each type lands on main: Transcribe (file/microphone, timestamps,
   subtitles export), Speak (voices, streaming playback, WAV export), Image (txt2img, img2img, inpaint, seeds, gallery),
   Vision (drop an image: labels, boxes, masks, depth, OCR overlays), Audio (music generation, separation, codec playground),

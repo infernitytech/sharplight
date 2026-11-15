@@ -97,7 +97,7 @@ open strings, configuration is free JSON, and attachments are generic named byte
 }
 ```
 
-(Whisper as `EncoderDecoderAdapter` describes it, docs/model-support.md section 12. The tokenizer is the canonical `TokenizerData` JSON
+(Whisper as `EncoderDecoderAdapter` describes it, docs/model-support.md section 13. The tokenizer is the canonical `TokenizerData` JSON
 attachment, which `TaskModel.CreateTokenizer(role)` prefers over metadata keys; a component's `T` and `ctx` bounds replace the load
 options' batch and context sizes in `TaskModel.CompileComponent` and in precompilation.)
 

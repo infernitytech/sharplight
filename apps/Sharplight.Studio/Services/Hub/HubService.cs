@@ -19,17 +19,42 @@ internal sealed class HubService : IHubService, IDisposable
     private readonly ISettingsService _settings;
     private readonly HttpClient _http = HubClientOptions.CreateHttpClient();
     private readonly HighlightsCatalog _highlights;
+    private readonly Dictionary<ModelTask, HighlightsCatalog> _taskHighlights = [];
+    private readonly string? _highlightsFile;
 
     /// <param name="settings">The settings (token, model store).</param>
     /// <param name="highlightsFile">Where the highlighted models are cached, or null to keep them in memory only.</param>
     public HubService(ISettingsService settings, string? highlightsFile = null)
     {
         _settings = settings;
+        _highlightsFile = highlightsFile;
         _highlights = new HighlightsCatalog(SearchAsync, highlightsFile);
     }
 
     /// <inheritdoc/>
-    public Task<IReadOnlyList<HighlightSection>> GetHighlightsAsync(CancellationToken cancellationToken) => _highlights.GetAsync(cancellationToken);
+    public Task<IReadOnlyList<HighlightSection>> GetHighlightsAsync(ModelTask? task, CancellationToken cancellationToken)
+    {
+        if (task is not { } value)
+        {
+            return _highlights.GetAsync(cancellationToken);
+        }
+
+        HighlightsCatalog catalog;
+        lock (_taskHighlights)
+        {
+            if (!_taskHighlights.TryGetValue(value, out var existing))
+            {
+                string? file = _highlightsFile is null ? null
+                    : Path.Combine(Path.GetDirectoryName(_highlightsFile) ?? "", $"{Path.GetFileNameWithoutExtension(_highlightsFile)}-{value.ToString().ToLowerInvariant()}.json");
+                existing = new HighlightsCatalog(SearchAsync, file, task: value);
+                _taskHighlights[value] = existing;
+            }
+
+            catalog = existing;
+        }
+
+        return catalog.GetAsync(cancellationToken);
+    }
 
     /// <inheritdoc/>
     public Task<IReadOnlyList<HubModelSummary>> SearchAsync(HubSearchQuery query, CancellationToken cancellationToken)
@@ -46,6 +71,23 @@ internal sealed class HubService : IHubService, IDisposable
         var format = ModelFileSelector.DetectFormat(paths);
         if (format is null)
         {
+            // A multi-component repository is one model: its parts are listed, but it cannot be pulled yet.
+            if (paths.Contains(RepoLayouts.DiffusersIndex))
+            {
+                return new RepositoryDetails(repo, null, [], ModelFormat.Diffusers, RepoLayouts.DiffusersComponents(repo.Files));
+            }
+
+            if (RepoLayouts.WhisperModels(repo.Files) is { Count: > 0 } whisper)
+            {
+                return new RepositoryDetails(repo, null, [], ModelFormat.WhisperCpp, whisper);
+            }
+
+            if (paths.Any(path => path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase)))
+            {
+                return new RepositoryDetails(repo, null, [], ModelFormat.Slm,
+                    [.. repo.Files.Where(file => file.Path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase)).Select(file => new HubComponent(file.Path, file.Size, 1))]);
+            }
+
             return new RepositoryDetails(repo, null, []);
         }
 

@@ -23,14 +23,14 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
     public static void Register() => ModelImporterRegistry.Register(new HuggingFaceImporter());
 
     /// <inheritdoc/>
-    /// <remarks>True for a directory (or a <c>.safetensors</c> file inside one) that holds <c>config.json</c> and at least one <c>*.safetensors</c> file.</remarks>
+    /// <remarks>True for a directory (or a <c>.safetensors</c> file inside one) that holds <c>config.json</c> and at least one <c>*.safetensors</c> file or PyTorch <c>pytorch_model*.bin</c> shard (read through the restricted unpickler).</remarks>
     public bool CanOpen(string path)
     {
         try
         {
             string? dir = ResolveDirectory(path);
             return dir != null && File.Exists(Path.Combine(dir, "config.json"))
-                   && Directory.EnumerateFiles(dir, "*.safetensors").Any();
+                   && SafetensorsCheckpoint.HasWeights(dir);
         }
         catch (IOException)
         {
@@ -51,7 +51,8 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
             return Path.GetFullPath(path);
         }
 
-        if (File.Exists(path) && path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
+        if (File.Exists(path) && (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase)
+                                || Path.GetFileName(path).StartsWith("pytorch_model", StringComparison.OrdinalIgnoreCase) && path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)))
         {
             return Path.GetDirectoryName(Path.GetFullPath(path));
         }

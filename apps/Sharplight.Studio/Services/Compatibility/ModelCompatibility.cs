@@ -2,7 +2,7 @@ namespace Sharplight.Studio.Services.Compatibility;
 
 /// <summary>The likely compatibility of a model, with the reason in a sentence.</summary>
 /// <param name="State">The verdict.</param>
-/// <param name="Subject">The architecture or weight format the verdict names (e.g. <c>hrm_text</c>, <c>Q8_K</c>), or null.</param>
+/// <param name="Subject">The architecture, weight format or model kind (<c>Image generation</c>) the verdict names (e.g. <c>hrm_text</c>, <c>Q8_K</c>), or null.</param>
 /// <param name="Reason">Why, in one or two sentences.</param>
 /// <param name="WeightsChecked">
 /// The weight formats were read too (a GGUF tensor table, a checkpoint's quantization settings); false when only the architecture is
@@ -18,6 +18,7 @@ internal sealed record ModelCompatibility(CompatibilityState State, string? Subj
         CompatibilityState.UnsupportedArchitecture => $"Unsupported architecture {Subject}",
         CompatibilityState.UnsupportedWeightFormat => $"Unsupported weight format {Subject}",
         CompatibilityState.UnsupportedVariant => $"Unsupported variant of {Subject}",
+        CompatibilityState.UnsupportedKind => $"Not yet supported: {Subject}",
         CompatibilityState.Projector => "Projector",
         CompatibilityState.DraftModel => "Draft model",
         CompatibilityState.CheckedAtImport => "Checked at import",
@@ -26,7 +27,7 @@ internal sealed record ModelCompatibility(CompatibilityState State, string? Subj
 
     /// <summary>Importing or loading is expected to fail.</summary>
     public bool IsUnsupported => State is CompatibilityState.UnsupportedArchitecture or CompatibilityState.UnsupportedWeightFormat
-        or CompatibilityState.UnsupportedVariant;
+        or CompatibilityState.UnsupportedVariant or CompatibilityState.UnsupportedKind;
 
     /// <summary>A verdict that the metadata could not be read.</summary>
     /// <param name="reason">Why.</param>

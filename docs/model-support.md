@@ -2,7 +2,7 @@
 
 Status: survey written 2026-11-13 against llama.cpp `master` (src/llama-arch.cpp `LLM_ARCH_NAMES`, src/models/*.cpp graph builders, tools/mtmd/models) and the Sharplight tree as found in the working copy. Reference runtime for parity outputs: llama.cpp build b11177 (`llama-completion`).
 
-Contents: 1 summary, 2 what Sharplight supports today, 3 building blocks ranked by unlock value, 4 architecture matrix, 5 bring-up waves, 6 Qwen3.8-Next (qwen4exp) deep dive, 7 multimodal projectors, 8 test assets and llama.cpp reference outputs, 9 how the references were produced, 10 the real-checkpoint sweep (round 10), 11 bring-up round 11 (the sweep's open rows), 12 speech to text.
+Contents: 1 summary, 2 what Sharplight supports today, 3 building blocks ranked by unlock value, 4 architecture matrix, 5 bring-up waves, 6 Qwen3.8-Next (qwen4exp) deep dive, 7 multimodal projectors, 8 test assets and llama.cpp reference outputs, 9 how the references were produced, 10 the real-checkpoint sweep (round 10), 11 bring-up round 11 (the sweep's open rows), 12 text to speech, 13 speech to text.
 
 ## 1. Summary
 
@@ -63,9 +63,12 @@ Quantized Hugging Face checkpoints (`HfQuantizedWeights` in Sharplight.Import.Hu
 - compressed-tensors integer weights: `pack-quantized` (`weight_packed` I32 along K, codes biased by 2^(b-1), optional `weight_zero_point` packed along N, `weight_g_idx`) and `int-quantized` (I8 `weight`, per-channel or group `weight_scale`); W4A16, W4A16_ASYM, W8A16 and W8A8 (activations not quantized) schemes. Sparse (non-dense `sparsity_config`) checkpoints are rejected.
 - Integer targets: `q4z_*` for 2-4 bits, `q8z_*` for 5-8 bits; `*_g128` when the group size and K are multiples of 128, else `*_g32` (the scale repeated per 32-value block of a larger group). Exact because the scales are f16 (BF16 scales are checked to be representable in f16) and the zero points integers: (q - z) * d in f32 equals the libraries' f16 / BF16 results after their rounding. Group sizes that are not a multiple of 32, scales that do not fit f16 and act-order groups that do not sort into equal contiguous runs decode to BF16.
 - bitsandbytes (serialized `load_in_4bit` / `load_in_8bit` checkpoints): NF4 with or without double-quantized absmax (U8 codes with `nested_absmax` per 256 blocks, `nested_quant_map`, `nested_offset`) maps to `nf4_b64` with the f32 absmax, bit-exact with `dequantize_4bit` (the code book is read from a device constant buffer like the IQ grids). FP4 code books and LLM.int8 (I8 `weight` and `SCB`, value = q * SCB / 127) decode to BF16; LLM.int8's outlier threshold splits activations at inference time into an int8 and an f16 product, and since activations are not quantized here every column takes the precise path.
-- MLX affine quantization (mlx-lm checkpoints: `quantization {group_size, bits}` without a method, per-module overrides): U32 `X.weight` (each row's codes as a little-endian bit stream), `X.scales` / `X.biases` per group, value = scale * q + bias; embeddings included. 4-bit weights with groups of a multiple of 32 and f16-exact scales and biases become `q4_1` bit-exactly (checked against `mlx.core.dequantize` of the CPU build of MLX in f32, as MLX's quantized matmul accumulates; a BF16 `mx.dequantize` rounds scale * q and the bias add separately and is up to a few BF16 ulps off); 2, 3, 5, 6 and 8 bits decode to BF16. MLX's FP4 modes (`mode: mxfp4 / nvfp4`) are not read.
+- MLX quantization (mlx-lm checkpoints: `quantization {group_size, bits[, mode]}` without a method, per-module overrides): U32 `X.weight` (each row's codes as a little-endian bit stream), per-group `X.scales`. Affine mode (`X.biases`, value = scale * q + bias; embeddings included): 2, 3 and 4-bit weights with groups of a multiple of 32 and f16-exact scales and biases become `q4_1`, 5-bit `q5_1`, both bit-exactly (checked against `mlx.core.dequantize` of the CPU build of MLX, f32, as MLX's quantized matmul accumulates; a BF16 `mx.dequantize` rounds scale * q and the bias add separately and is up to a few BF16 ulps off); 6 and 8 bits (no block type with a per-block offset and 8-bit codes) decode to BF16. The FP modes read bit-exactly: `mxfp4` (E8M0 scale per 32) to `mxfp4`, `nvfp4` (E4M3 scale per 16, no second-level scale) to `nvfp4` (BF16 when K % 64 != 0), `mxfp8` to `f8e4m3_b32` with the power-of-two scale. Other modes are not read.
 - Kernels: the f32 matvecs decode through load8 (quant_group.slang); the f16 tensor-core GEMMs (gemm_cm2, the skinny GEMM) take packed-half decoders for `q4z_*` and NVFP4 / `nvfp4_gs` (load16h in matmul.slang; the others go through load8); the integer-dot matvec (`mmvq.slang`, device feature `int_dot`, 8-bit activations) serves `q4z_*`, `q8z_*`, `nvfp4` and `nvfp4_gs` for 1-8 rows (`SHARPLIGHT_MMVQ_BLOCK=0` returns them to the f32 matvec). The GPU has no FP4 cooperative-matrix type (`--devices` lists f16, bf16, fp8 and int8 matrices on Blackwell), so FP4 weights are decoded to f16 for the tensor cores: there is no counterpart to vLLM's CUTLASS W4A4 FP4 GEMM.
-- Not supported: HQQ, AQLM, EETQ, quanto, EXL2, torchao, VPTQ, HIGGS, SpQR, AutoRound and FP-Quant checkpoints, Quark integer / MXFP6 weights (HfSupport reports them before download), AWQ `gemv_fast` and Marlin-repacked GPTQ / AWQ.
+- AutoRound (`quant_method auto-round`, `packing_format auto_round:auto_gptq` / `auto_round:auto_awq`; the `auto_gptq` / `auto_awq` exports declare plain GPTQ / AWQ): read through the GPTQ and AWQ GEMM layouts (2/3/4/8-bit GPTQ packing with zero points stored minus one, 4-bit AWQ), checked against AutoRound's own dequantizers (auto-round 0.16.1: `dequantize_gemm`, `qlinear_torch_zp`). ExLlamaV2 / Marlin packings and FP data types are not read.
+- PyTorch checkpoints: a directory without `*.safetensors` but with `pytorch_model.bin` or `pytorch_model-XXXXX-of-YYYYY.bin` shards (and `pytorch_model.bin.index.json`) imports like a safetensors checkpoint. The files are read by `Sharplight.Import.PyTorch`, a restricted unpickler: it implements only the opcodes of tensor state dictionaries and resolves only `torch._utils._rebuild_tensor_v2` / `_rebuild_tensor` / `_rebuild_parameter`, `collections.OrderedDict`, `torch.Size`, the `torch.*Storage` classes and `_codecs.encode` (latin1), all as code inside the reader; every other global (`os.system`, `eval`, `torch.load`, ...) and opcode (`INST`, `OBJ`, `NEWOBJ_EX`, ...) is refused with an `UnsafePickleException` and nothing is executed. Both the zip format (stored entries, zip64) and the legacy stream format (up to 2 GB) are read, the storages memory-mapped in place; tensors must be contiguous, dtypes f64/f32/f16/bf16/i64/i32/i16/i8/u8/bool.
+- AQLM (`quant_method aqlm`, additive codebook quantization; ISTA-DASLab / BlackSamorez checkpoints): **dequantized at import** to the codebook dtype (F16 or BF16), not kept codebook-quantized: the repository has no codebook-sum decode kernel yet, so a 2-bit checkpoint occupies the memory of a dense 16-bit model. `X.codes` [out groups, in groups, codebooks] (I8 / I16 / I32, masked to the codebook width), `X.codebooks` [codebooks, size, out group size, in group size] and `X.scales` [out groups, 1, 1, 1] become `X.weight` while the weight is read (rows decoded on demand, nothing cached). Bit-identical to aqlm 1.1.7 `_dequantize_weight` (CPU) for F16 codebooks with any number of codebooks, out group sizes above 1, code widths 6 to 16 and for single-codebook BF16; several BF16 codebooks may differ by one ulp on rounding ties (PyTorch's CPU `embedding_bag` rounds BF16 sums half away from zero, the importer to nearest even). Verified on BlackSamorez/TinyLlama-1.1B-Chat AQLM 2-bit 1x16 (greedy "The capital of France is Paris. The capital of Germany is Berlin...") and synthetic 1x8, 2x8, 4x6 (out group 2), 8x8 checkpoints (`tools/mk-tiny-aqlm.py`).
+- Not supported: HQQ, EETQ, quanto, EXL2, torchao, VPTQ, HIGGS, SpQR and FP-Quant checkpoints, Quark integer / MXFP6 weights (HfSupport reports them before download), AWQ `gemv_fast` and Marlin-repacked GPTQ / AWQ.
 
 FP8 Hugging Face checkpoints (the vLLM formats; `HfFp8Weights` in Sharplight.Import.HuggingFace): an `F8_E4M3` `X.weight` with a separate scale is converted while it is read (nothing cached) into a block-scaled type, before the architecture mapping runs, so fused-projection splits, V-head row reorders and expert stacking work on whole rows unchanged (transposes and column permutations that cut blocks decode to BF16 first).
 - DeepSeek-V3 / Qwen FP8 (`quantization_config.quant_method = "fp8"`, `weight_block_size [128, 128]`): BF16/F32 `X.weight_scale_inv` [ceil(N/128), ceil(K/128)], a multiplier despite its name.
@@ -469,7 +472,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `qwen3tts` | Qwen3-TTS | speech codec LM | **missing** | `TTS` | - | - |
 | `pockettts` | PocketTTS | TTS flow decoder | **missing** | `TTS` | - | - |
-| `wavtokenizer-dec` | WavTokenizer decoder | audio codec decoder | **missing** | `TTS` | - | - |
+| `wavtokenizer-dec` | WavTokenizer decoder | audio codec decoder | **supported** (as the `vocoder` of OuteTTS, see section 12) | `TTS` | `Sharplight.Import.Gguf` mapping, `WavTokenizerGraph` | `tests/Sharplight.TextToSpeech.Tests` |
 
 Notes on the matrix:
 
@@ -995,7 +998,30 @@ Model types still unsupported, with estimates (none is a mapping-only job):
 | baidu/ERNIE-5.5-Flash-Base | no modeling code is published | not verifiable yet |
 | meituan-longcat/LongCat-2.5 | no modeling code is published | not verifiable yet |
 
-## 12. Speech to text
+## 12. Text to speech (task kind `speech-synthesis`)
+
+Speech synthesizers are `.slm`-storable models of kind `speech-synthesis` run through `ISpeechSynthesizer` (docs/api-overview.md, Tasks). Acoustic models,
+codecs and vocoders are graphs of generic Core ops; the host runs only the token loop (the text-generation session and sampler) and the overlap-add.
+
+| Model | Status | Reference | Parity |
+|---|---|---|---|
+| OuteTTS 0.2 500M + WavTokenizer-Large-75 (GGUF pair) | supported, CPU and Vulkan | llama.cpp 8ca5a80 (`llama-completion`, libllama WavTokenizer graph + numpy iSTFT) | teacher-forced logits: no argmax disagreement beyond a 0.1 margin over 253 positions, worst logit delta 0.32 (CPU) / 0.52 (Vulkan) on logits up to 45 (Q8_0 activation rounding); decoder waveform relative RMS < 2e-3 on both |
+| qwen3tts, pockettts (llama.cpp archs), Kokoro, Orpheus + SNAC, CSM + Mimi, Dia | not started | - | - |
+
+OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
+`samples/Sharplight.Speak`). `OuteTtsAdapter` is a composite adapter (`ModelAdapterRegistry.RegisterComposite`): it builds the language model with the adapter of its
+architecture, adds the codec weights under `codec.` and the `codec_decode` graph, and describes the model: components `text-model`, `tokenizer`, `codec-decoder`
+(config: sample rate, FFT size, hop, vocabulary; symbol bound `T` = 4096 frames). Voices are `voices/<name>.json` attachments of the `text-model` component
+(OuteTTS speaker profiles: words with durations and codec tokens); none ship by default.
+
+New generic Core pieces: the `Conv1d` op (time-major `[T, C]`, symbolic `T`, stride / padding / dilation / groups; CPU and a generated Vulkan kernel), `Sharplight.Audio.Window`
+and `OverlapAdd` (host side of an inverse STFT; the inverse real DFT and window stay in the graph through the existing `Dft` op), the composite-adapter hook and
+`LlmModel.FromTaskModel` made public. Greedy codec chains cannot match llama.cpp token for token: runner-up logits of codec tokens are often within 1e-3 of the winner, so the
+check feeds llama.cpp's tokens to both implementations (`OuteTtsTests`). The streaming form decodes each spoken word separately (the decoder attends over all frames, so
+this differs slightly from the whole-utterance decode). OuteTTS 0.3 and a default speaker profile are not implemented; llama.cpp 8ca5a80 dropped its OuteTTS demo, so the
+reference is the pieces above rather than `llama-tts`.
+
+## 13. Speech to text (task kind `speech-recognition`)
 
 Speech-to-text models are the first non-LLM kind on the task layer (`ModelKinds.SpeechRecognition`, docs/api-overview.md "Tasks").
 They run through the same engine as everything else: the encoder and decoder are graphs of generic Core ops built by an architecture

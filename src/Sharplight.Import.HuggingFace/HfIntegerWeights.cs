@@ -36,6 +36,12 @@ internal static class HfIntegerWeights
         var consumed = new HashSet<string>(StringComparer.Ordinal);
         var layouts = new List<HfIntegerLayout>();
         string? method = settings.ValueKind == JsonValueKind.Object && settings.TryGetProperty("quant_method", out var m) ? m.GetString() : null;
+        if (HfAutoRound.IsAutoRound(method))
+        {
+            method = HfAutoRound.Layout(settings) ?? throw new NotSupportedException(
+                $"AutoRound packing '{HfPackedBits.String(settings, "packing_format")}' is not supported (auto_round:auto_gptq, auto_round:auto_awq).");
+        }
+
         switch (method?.ToLowerInvariant())
         {
             case "gptq":
