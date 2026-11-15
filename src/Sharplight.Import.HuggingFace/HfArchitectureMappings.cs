@@ -33,6 +33,7 @@ internal static class HfArchitectureMappings
         Register(new LlavaOneVision2HfMapping());
         Register(new DecoderHfMapping());
         Register(new EncoderHfMapping());
+        Register(new VitHfMapping());
         Register(new T5HfMapping());
         Register(new BartHfMapping());
         foreach (var family in DecoderFamilies())
