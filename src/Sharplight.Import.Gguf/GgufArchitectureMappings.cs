@@ -21,6 +21,7 @@ internal static class GgufArchitectureMappings
         Register(new LatentDecoderGgufMapping());
         Register(new DeepSeek4GgufMapping());
         Register(new Eagle3GgufMapping());
+        Register(new WavTokenizerGgufMapping());
         Register(new DflashGgufMapping());
         Register(new Gemma4AssistantGgufMapping());
         Register(new ClipGgufMapping());

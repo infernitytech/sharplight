@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:inf="using:Sharplight.Studio.ViewModels.Inference"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.Inference.HistoryView"
+             x:DataType="inf:RunHistoryViewModel">
+  <DockPanel>
+    <Button DockPanel.Dock="Bottom" Classes="small" Content="Clear history" Command="{Binding ClearCommand}" HorizontalAlignment="Left" Margin="0,8,0,0" IsVisible="{Binding !IsEmpty}"
+            ToolTip.Tip="Removes every run and its output files" />
+    <Panel>
+      <TextBlock Classes="muted" Text="No runs yet." IsVisible="{Binding IsEmpty}" Margin="2,6" />
+      <ScrollViewer>
+        <ItemsControl ItemsSource="{Binding Items}" Margin="0,0,8,0">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="inf:HistoryItemViewModel">
+              <Border Classes="inset" Margin="0,0,0,8" Padding="10,8">
+                <StackPanel Spacing="4">
+                  <DockPanel>
+                    <Border DockPanel.Dock="Right" Classes="badge" Classes.ok="{Binding CanRestore}" Classes.bad="{Binding IsFailed}">
+                      <TextBlock Text="{Binding OutcomeText}" />
+                    </Border>
+                    <TextBlock Text="{Binding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+                  </DockPanel>
+                  <TextBlock Classes="caption" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="caption" Text="{Binding Summary}" TextWrapping="Wrap" MaxHeight="48" IsVisible="{Binding Summary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Button Classes="small" Content="Show again" IsEnabled="{Binding CanRestore}"
+                            Command="{Binding $parent[ItemsControl].((inf:RunHistoryViewModel)DataContext).RestoreCommand}" CommandParameter="{Binding}" />
+                    <Button Classes="small danger" Content="{Binding ConfirmDelete, Converter={x:Static conv:ConfirmTextConverter.Instance}}"
+                            Command="{Binding $parent[ItemsControl].((inf:RunHistoryViewModel)DataContext).DeleteCommand}" CommandParameter="{Binding}" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Panel>
+  </DockPanel>
+</UserControl>

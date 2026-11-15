@@ -25,6 +25,11 @@ public static class BuiltinAdapters
         Sharplight.Vision.MultimodalRegistry.Register(new Qwen35Multimodal());
         ModelAdapterRegistry.Register(new DecoderAdapter());
         ModelAdapterRegistry.Register(new EncoderAdapter());
+        ModelAdapterRegistry.Register(new ImageEncoderAdapter());
+        ModelAdapterRegistry.Register(new ImageTextAdapter());
+        ModelAdapterRegistry.Register(new DetrAdapter());
+        ModelAdapterRegistry.Register(new RtDetrAdapter());
+        ModelAdapterRegistry.Register(new DepthEstimationAdapter());
         ModelAdapterRegistry.Register(new EncoderDecoderAdapter());
         ModelAdapterRegistry.Register(new NemotronHAdapter());
         ModelAdapterRegistry.Register(new HybridAdapter());
@@ -32,6 +37,9 @@ public static class BuiltinAdapters
         ModelAdapterRegistry.Register(new Rwkv7Adapter());
         ModelAdapterRegistry.Register(new Rwkv6Adapter());
         ModelAdapterRegistry.Register(new LatentDecoderAdapter());
+        ModelAdapterRegistry.Register(new LatentDiffusionAdapter());
+        ModelAdapterRegistry.RegisterComposite(new OuteTtsAdapter());
+        ModelAdapterRegistry.RegisterAuxiliaryOnly(WavTokenizerParameters.Architecture, Sharplight.Vision.AuxiliaryRoles.Vocoder);
         ModelAdapterRegistry.RegisterAuxiliaryOnly(Eagle3DraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);
         ModelAdapterRegistry.RegisterAuxiliaryOnly(SharedKvDraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);
         ModelAdapterRegistry.RegisterAuxiliaryOnly(DflashDraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);

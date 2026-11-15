@@ -16,4 +16,11 @@ public sealed record ImageGenerationRequest
 
     /// <summary>For image-to-image: how much of <see cref="Image"/> is replaced, in [0, 1] (1 = ignore the input entirely).</summary>
     public float Strength { get; init; } = 0.75f;
+
+    /// <summary>
+    /// For inpainting: which parts of <see cref="Image"/> to regenerate (bright pixels; the mask is resized to the output and
+    /// thresholded at half intensity per latent pixel), or <see langword="null"/> to regenerate the whole image. Requires
+    /// <see cref="Image"/>.
+    /// </summary>
+    public ImageInput? Mask { get; init; }
 }

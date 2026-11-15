@@ -35,10 +35,81 @@ different models run at the same time. Images and documents can be attached by d
 - Images need a model with the **Vision** badge; the others refuse them with an explanation.
 - Documents (PDF, DOCX, HTML, text and code) are extracted to text and trimmed to the context window.
 
+**Tasks.** One card per model kind (text generation, speech to text, text to speech, image generation, video generation, image
+classification, object detection, segmentation, depth estimation, OCR, upscaling, audio, embeddings, time series, 3D, bio,
+robotics) with the number of library and resident models of that kind. The engine runs text generation (the chat page), speech to
+text (Transcribe), text to speech (Speak) and embeddings today. The cards of the first three open their page; the other kinds say
+*Not yet supported* and their buttons lead to the library filtered to that kind and to Discover filtered to that model type. When
+the engine gains a kind, its card opens a page of its own, built from the shared pieces described under *Inference pages* below.
+
+![Tasks](images/studio/studio-tasks-runnable.png)
+
 **Models.**
 
 ![Discover](images/studio/studio-discover.png)
 
+- **Filters.** The filter bar above the results picks the model type, format, quantization, size, license, gating and sort order.
+  Every choice is saved in the settings (`Discover` in the settings file) and *Reset filters* clears them.
+  - *Model type* maps the Hub's pipeline tags and library names to the groups below. A group with several tags is searched once
+    per tag and the answers are merged, so a type is never half of its tags.
+  - *Format*: GGUF, safetensors, Diffusers, ONNX, whisper.cpp (`ggml-*.bin`) or `.slm` (the Hub's `gguf`, `safetensors`,
+    `diffusers`, `onnx`, `ggml` and `slm` tags).
+  - *Quantization* (`Q2` to `Q8`, `IQ`, `F16`, `BF16`, `FP8`, `MXFP4`, `NVFP4`) matches the start of a name segment of the
+    repository's quantization labels (`Q4` matches `Q4_K_M` and `q4f16`, not `IQ4_XS`) or a checkpoint's quantization method.
+  - *Size* (under 1B, 1B to 4B, 4B to 14B, 14B to 40B, over 40B parameters) and *Fits this machine* use the parameter count the
+    Hub reports. *Fits* compares the smallest likely download (about 0.55 bytes per parameter for GGUF and ONNX, 2 for a bf16
+    checkpoint, 1 for FP8) with the larger of all GPUs together and the system memory. It is approximate, and repositories
+    without a parameter count always pass.
+  - *License* (the Hub's license tag), *Gated and open / Hide gated / Only gated* and *Sort* (most downloaded, trending, most
+    liked, recently updated, newest).
+  - The Hub applies model type, format, license and sort; the others filter the results locally, so changing them does not ask the
+    Hub again and the page says how many models the filters hide. With no search text and a filter set, or another sort order chosen,
+    the Hub's listing in that order is shown.
+
+  | Model type | Hub pipeline tags | Library names |
+  |---|---|---|
+  | Text generation | `text-generation`, `text2text-generation`, `fill-mask`, `summarization`, `translation`, `conversational` | |
+  | Vision-language | `image-text-to-text`, `visual-question-answering`, `video-text-to-text`, `any-to-any` | |
+  | Speech to text | `automatic-speech-recognition` | `whisper.cpp`, `faster-whisper` |
+  | Text to speech | `text-to-speech`, `text-to-audio` | |
+  | Image generation | `text-to-image`, `image-to-image`, `unconditional-image-generation` | `diffusers` |
+  | Video generation | `text-to-video`, `image-to-video`, `video-to-video` | |
+  | Image classification | `image-classification`, `video-classification`, `zero-shot-image-classification` | |
+  | Object detection | `object-detection`, `zero-shot-object-detection` | |
+  | Segmentation | `image-segmentation`, `mask-generation`, `keypoint-detection` | |
+  | Depth estimation | `depth-estimation` | |
+  | OCR | `image-to-text`, `document-question-answering`, `visual-document-retrieval`; vision-language models named like OCR models | |
+  | Upscaling | `image-to-image` repositories named like upscalers (`upscale`, `esrgan`, `super-resolution`, `swinir`, `supir`) | |
+  | Audio | `audio-classification`, `audio-to-audio`, `voice-activity-detection`, `zero-shot-audio-classification` | |
+  | Embeddings and retrieval | `feature-extraction`, `sentence-similarity`, `text-ranking`, `image-feature-extraction` | `sentence-transformers` |
+  | Time series | `time-series-forecasting` | `timesfm`, `chronos` |
+  | 3D | `text-to-3d`, `image-to-3d` | |
+  | Bio | embedding repositories named like protein, molecule and genomics models | `biopython` |
+  | Robotics | `robotics` | `lerobot` |
+  | Other | every other tag (tabular, reinforcement learning, classic NLP) and repositories without a tag | |
+
+  The mapping is `ModelTasks` in `Sharplight.Hub`; the Studio side (`ModelKindCatalog`) maps a task to the kind of a model
+  description and says whether the engine runs it.
+
+  ![Discover filters, multi-component repository](images/studio/studio-discover-multi-component.png)
+
+- **Per-type highlights.** Choosing a model type shows that type's *Trending*, *New* and *Most downloaded* models (every format, one
+  listing per section, cached for six hours per type in `discover-highlights-<type>.json`). The default highlights (no type chosen)
+  stay the supported language models. A type's highlights include models Sharplight cannot run, marked *Not yet supported: &lt;kind&gt;*;
+  *Supported only* hides them and the page then says why it is empty.
+
+  ![Speech models](images/studio/studio-discover-task-highlights.png)
+
+- **Multi-component repositories** are one model. A Diffusers repository (`model_index.json` and one folder per component:
+  `unet`, `vae`, `text_encoder`, ...) shows its components with their weight sizes (the safetensors copy counted once, half-precision
+  duplicates left out), a whisper.cpp repository lists its `ggml-*.bin` files by size and quantization, `.slm` repositories their
+  packages. Their kinds are not supported by the engine yet, so the badge reads *Not yet supported: &lt;kind&gt;* with the kind named
+  and the details say why the download is not offered; nothing is hidden silently. Only the language-model estimates (fit) exist
+  today; other kinds show their total size.
+- **Gated repositories.** A gated result carries a *Gated* badge and its details say what to do: accept the terms on Hugging Face
+  and add an access token in the settings (or that the token is used). The token (the *Hugging Face token* setting, else
+  `HF_TOKEN`) is optional and is sent to huggingface.co only, never to the hosts a download is redirected to. Studio has no
+  operating-system keyring abstraction yet, so the setting is kept in the settings file as plain text; the settings page says so.
 - Before anything is searched, *Discover* shows highlighted models in three sections: *Trending*, *New* (created in the last few
   months) and *Most downloaded*. They come from the Hub's listings (trending, likes and downloads, GGUF and safetensors,
   text-generation and image-text-to-text) and keep only repositories whose badge is *Supported*. The answer is kept for six hours in
@@ -86,7 +157,14 @@ different models run at the same time. Images and documents can be attached by d
   - ONNX: the opset imports (domain and version) are read by skipping the graph by its length (`OnnxOpsetScanner`), usually in one
     or two range requests. Operators are checked when the model is imported.
 - *Library* lists the model store (resolved like the command-line tools: `--models-dir`, `SHARPLIGHT_MODELS`, the setting,
-  then the `data` folder next to the app) and any added `.gguf`, `.slm` or `.onnx` files. *Load* opens the load options:
+  then the `data` folder next to the app) and any added `.gguf`, `.slm` or `.onnx` files, for every kind of model in one list.
+  Every entry carries a kind badge (an icon and the kind's name). The kind is the one the `.slm` model description names (a package
+  without a description is a text-generation model; an embedding package is shown as *Embeddings*). Files that have no description
+  are guessed from the file type (GGUF files and checkpoint folders are language models) and the badge's tooltip says so; a download
+  that is not converted yet shows the kind inferred from the Hub's pipeline tag. The kind filter above the list (shown once the
+  library holds more than one kind) lists the kinds present with their counts. A kind the engine cannot run yet is badged *Not yet
+  supported* and its *Load* button is disabled. Loading, unloading and residency are the same mechanism for every kind. *Load* opens
+  the load options:
   - device;
   - context length;
   - parallel slots;
@@ -188,6 +266,59 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 
 ![Settings](images/studio/studio-settings.png)
 
+## Inference pages
+
+Every model kind gets a page built from the same blocks, so they look and behave alike: the **frame** (`InferenceFrame`) has the
+model picker on top, the page's own workspace in the middle, the run queue below it and a side panel with three tabs:
+*Parameters*, *History* and *Outputs*. A page is a view model derived from `InferencePageViewModel` (the chat is the one page that
+predates the frame and keeps its conversation list; it uses the same `ModelPickerViewModel` and residency). The blocks live in
+`ViewModels/Inference` and `Views/Inference`:
+
+| Block | What it does |
+|---|---|
+| Model picker (`ModelPickerViewModel`) | The resident models of the page's kind; follows loads and unloads and keeps the choice while the model stays resident. No model: a hint with *Library* and *Find a model*. |
+| Parameter panel (`ParameterPanelViewModel<TOptions>`) | One control per field of the task's options type (choice, slider, switch, text), `Options` maps the values to the type (for example `SpeechRecognitionOptions`), and a page can hide parameters the chosen model does not use. Presets: built-in ones ship with the page, *Save* stores the values under a name; presets and the values of the last run are JSON (`presets.json` in the page's directory) and come back when the page opens. |
+| Run queue (`RunQueueViewModel`) | Runs one after the other per model (a second run on the same model waits, runs on different models overlap), with progress, status and a cancel button for queued and running runs. Finished runs stay listed until cleared. |
+| History (`RunHistoryViewModel`) | Every completed or failed run of the page (up to 200), newest first, kept in `history.json`; *Show again* restores the result and the parameters, delete asks twice. Cancelled runs are not kept. |
+| Outputs gallery (`OutputGalleryViewModel`) | The completed runs with their files (`outputs/<run>/`), metadata chips (language, audio length, speed, voice), and *Open*, *Export* (a save dialog) and *Delete* for every item. |
+| Export (`Exporter`) | The save dialog and the write, shared by the page's own export buttons and the gallery. |
+
+Pages keep their data under the data directory of the app (`pages/<page>/`, see *Where things are kept*). Loading a speech model
+goes through the load panel of the library, like any other model: the runtime registers it on the same `ModelHost` as the chat
+models (kind `Task`), so it counts against the memory budget, is evicted and unloaded when idle like the others, reloads on demand
+and shows in the *Resident* list, whose button opens the page of the model's kind. A page asks the model for its task client
+(`ILoadedModel.AcquireClientAsync<TClient>`), which holds a lease while the run lasts.
+
+**Transcribe** (speech to text, `ISpeechRecognizer`). The input is a WAV file (choose, or drop it on the page) or a recording from
+the microphone. Other audio formats are refused with a note: the engine's audio I/O reads WAV only (convert with
+`ffmpeg -i in.mp3 out.wav`). The options are the language (or detection), transcribe or translate to English, timestamps (segments
+or none), beam size, conditioning on the previous text and an initial prompt; presets *Fast*, *Accurate* and *Long recording*. The
+segments appear with their times while the model decodes (the streaming call reports progress by the end of the last segment), and
+the transcript can be copied or exported as `.txt`, `.srt` or `.vtt`. Every run keeps `transcript.txt`, `.srt`, `.vtt` and
+`transcript.json` in its outputs. Whisper (Hugging Face, whisper.cpp `.bin`, `.slm`) and Distil-Whisper models work.
+
+![Transcribe](images/studio/studio-transcribe.png)
+
+**Speak** (text to speech, `ISpeechSynthesizer`). Type the text, optionally choose a voice (the choice appears when the model offers
+voices), the speed and the sampling (temperature, top-k, top-p, repetition penalty, seed; presets *Natural*, *Deterministic* and
+*Expressive*). The result plays in the app, can be saved as WAV or opened in the system's audio program, and is kept as
+`speech.wav`. *Play while generating* uses the streaming call and plays each segment as it arrives (the segments are decoded one by
+one, so the sound differs slightly from a whole-text pass). OuteTTS is a language model plus the WavTokenizer decoder: when you load
+an OuteTTS GGUF, the load panel asks for the vocoder file (a `.slm` package made with the vocoder needs none).
+
+![Speak](images/studio/studio-speak.png)
+
+The side panel's *History* and *Outputs* tabs:
+
+![Transcribe history](images/studio/studio-transcribe-history.png) ![Transcribe outputs](images/studio/studio-transcribe-outputs.png)
+
+**Microphone and playback.** Avalonia has no audio API, and Studio ships no native audio library. It uses the programs the system
+has: playback through `afplay` (macOS), PowerShell's `SoundPlayer` (Windows), or `pw-play`, `paplay`, `aplay` or `ffplay` (Linux);
+recording through `parecord`, `pw-record` or `arecord` (Linux) or `ffmpeg` (macOS; Windows with `SHARPLIGHT_STUDIO_MIC` naming the
+DirectShow device). Without such a program the page says what to install: recording is disabled (audio files still work) and the
+speech result is saved and opened with the system player instead of played in the app. Playback and recording were tested through
+fakes and not on an audio device (this machine has none).
+
 ## Installing and updating
 
 Studio is published for Windows x64 and ARM64, Linux x64 and ARM64, and macOS ARM64 (Apple Silicon), self-contained (no .NET
@@ -232,6 +363,7 @@ own `releases.<channel>.json` feed.
 | Settings (`settings.json`), including the download queue | `sharplight/studio` under the roaming application data directory (`~/.config` on Linux) |
 | Conversations and statistics (`studio.db`), Discover's highlights (`discover-highlights.json`) | `sharplight/studio` under the local application data directory (`~/.local/share` on Linux) |
 | Models | The model store: `data` next to the app by default, else the folder chosen in the settings (see above); converted local models go to `converted/` in it by default |
+| Inference pages: parameter presets, run history and output files (`pages/<page>/`) | `sharplight/studio/pages` under the local application data directory |
 | Compiled kernels | `sharplight/kernels` under the local application data directory (`~/.local/share` on Linux), shared by every tool |
 
 When the model store in effect is empty while the user folder (the default of earlier versions) has models, Studio offers once to
@@ -252,6 +384,7 @@ keep using the user folder or to move or copy the models into the new store.
   - `IDocumentExtractor`
   - `ISystemMonitor`
   - `IPlatformServices`
+  - `IPageStorage` (per-page presets, history and output files), `IAudioPlayer` and `IAudioRecorder` (the system's audio programs)
   - `IUpdateService` (the Velopack wrapper, registered through `Microsoft.Extensions.DependencyInjection`)
 
   Tests run every view model against fakes of these services.
@@ -282,11 +415,15 @@ keep using the user folder or to move or copy the models into the new store.
   restart (against a fake update service), the feed URL precedence, and a headless render of the dialog;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
 - the server page;
+- the shared inference blocks (presets saved as JSON and restored, the run queue's one-run-per-model order and cancellation, history and
+  gallery persistence with open, export and delete) and the Transcribe and Speak pages over fake task clients (streamed segments, `.txt` /
+  `.srt` / `.vtt` export, cancel and failure, microphone, voices, streaming playback, no-player fallback);
 - a headless render of every page that fails on binding errors;
 - the package inspector: every tab of a small package, a view for every section kind the format defines, unknown sections
   listed raw, the linked graph, IR and node selection, the graph layout, and a 100,000-node graph that stays virtualized.
 
-`RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
+`SpeechRealModelTests` loads `ggml-tiny.en.bin` (transcribes `jfk.wav` on the Transcribe page) and OuteTTS with its WavTokenizer
+vocoder (speaks on the Speak page) through the real runtime, when the files are on disk. `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
 calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here. With
 `SHARPLIGHT_INSPECTOR_PACKAGES` (a list of `.slm` paths, separated like `PATH`), the inspector renders every tab of those
 packages in both themes.
@@ -304,6 +441,9 @@ packages in both themes.
   tensor data shows. Quantizations other than the recommended one share the architecture's verdict until they are selected and
   their tensor tables are read. A tensor table beyond 64 MiB from the start of a file is not read (the verdict is *Unknown*). ONNX
   operators are not checked before import.
+- **Audio formats and devices.** The Transcribe page reads WAV only (the engine has no other decoder yet), and microphone and playback
+  depend on programs of the system (see *Microphone and playback*). Speech runs are not counted in the statistics page, and the
+  embedded API server does not serve the speech models yet.
 - **Title bar.** Studio's own title bar is used on Linux only, where the window manager moves and resizes windows on request.
 - **GPU utilisation.** The "Engine busy" chart is the share of time the engines spend stepping, not GPU utilisation read from the
   driver.

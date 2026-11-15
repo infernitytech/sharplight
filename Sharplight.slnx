@@ -3,12 +3,15 @@
     <Project Path="src/Sharplight.Core/Sharplight.Core.csproj" />
     <Project Path="src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
     <Project Path="src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
+    <Project Path="src/Sharplight.Import.PyTorch/Sharplight.Import.PyTorch.csproj" />
     <Project Path="src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <Project Path="src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <Project Path="src/Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
+    <Project Path="src/Sharplight.Import.Diffusers/Sharplight.Import.Diffusers.csproj" />
+    <Project Path="src/Sharplight.Import.WhisperCpp/Sharplight.Import.WhisperCpp.csproj" />
     <Project Path="src/Sharplight.Package/Sharplight.Package.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
     <Project Path="src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
@@ -21,15 +24,20 @@
     <Project Path="samples/Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
     <Project Path="samples/Sharplight.Samples.Hub/Sharplight.Samples.Hub.csproj" />
     <Project Path="samples/Sharplight.Cli/Sharplight.Cli.csproj" />
+    <Project Path="samples/Sharplight.Speak/Sharplight.Speak.csproj" />
     <Project Path="samples/Sharplight.Inspect/Sharplight.Inspect.csproj" />
     <Project Path="samples/Sharplight.GgufDump/Sharplight.GgufDump.csproj" />
     <Project Path="samples/Sharplight.OnnxRun/Sharplight.OnnxRun.csproj" />
     <Project Path="samples/Sharplight.Server/Sharplight.Server.csproj" />
     <Project Path="samples/Sharplight.AgentHost/Sharplight.AgentHost.csproj" />
     <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
+    <Project Path="samples/Sharplight.GenerateImage/Sharplight.GenerateImage.csproj" />
+    <Project Path="samples/Sharplight.Transcribe/Sharplight.Transcribe.csproj" />
+    <Project Path="samples/Sharplight.Vision/Sharplight.Vision.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sharplight.Core.Tests/Sharplight.Core.Tests.csproj" />
+    <Project Path="tests/Sharplight.Speech.Tests/Sharplight.Speech.Tests.csproj" />
     <Project Path="tests/Sharplight.Cpu.Tests/Sharplight.Cpu.Tests.csproj" />
     <Project Path="tests/Sharplight.Embeddings.Tests/Sharplight.Embeddings.Tests.csproj" />
     <Project Path="tests/Sharplight.Families.Tests/Sharplight.Families.Tests.csproj" />
@@ -39,10 +47,13 @@
     <Project Path="tests/Sharplight.Hub.Tests/Sharplight.Hub.Tests.csproj" />
     <Project Path="tests/Sharplight.Import.Onnx.Tests/Sharplight.Import.Onnx.Tests.csproj" />
     <Project Path="tests/Sharplight.Import.Onnx.Conformance/Sharplight.Import.Onnx.Conformance.csproj" />
+    <Project Path="tests/Sharplight.Import.PyTorch.Tests/Sharplight.Import.PyTorch.Tests.csproj" />
     <Project Path="tests/Sharplight.Package.Tests/Sharplight.Package.Tests.csproj" />
     <Project Path="tests/Sharplight.Serving.Tests/Sharplight.Serving.Tests.csproj" />
     <Project Path="tests/Sharplight.Studio.Tests/Sharplight.Studio.Tests.csproj" />
+    <Project Path="tests/Sharplight.TextToSpeech.Tests/Sharplight.TextToSpeech.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
     <Project Path="tests/Sharplight.Vision.Tests/Sharplight.Vision.Tests.csproj" />
+    <Project Path="tests/Sharplight.ImageGeneration.Tests/Sharplight.ImageGeneration.Tests.csproj" />
   </Folder>
 </Solution>

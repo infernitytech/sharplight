@@ -1,6 +1,6 @@
 // Throwaway survey harness: imports an ONNX model described by a reference manifest (same format as the ZooTests fixtures),
 // runs it on cpu|vulkan, compares with the onnxruntime reference outputs and times it.
-//   SurveyRunner <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--device D] [--batch B] [--profile] [--reduced-precision]
+//   SurveyRunner <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--device D] [--batch B] [--profile] [--reduced-precision] [--dump DIR]
 // Prints exactly one line starting with "RESULT " followed by a JSON object.
 using System.Diagnostics;
 using System.Text.Json;
@@ -57,6 +57,8 @@ try
         {
             var o = new OnnxImportOptions();
             foreach (var (k, v) in consts) o.ConstantInputs[k] = v;
+            // --bound name=value: OnnxImportOptions.InputValueBounds (runtime values that size a data-dependent extent)
+            for (int q = 0; q + 1 < argv.Count; q++) if (argv[q] == "--bound") { var kv = argv[q + 1].Split('='); o.InputValueBounds[kv[0]] = long.Parse(kv[1]); }
             foreach (var i in inputs) o.InputShapes[i.Name] = fix ? i.Shape.Select(d => d < 0 ? batch : d).ToArray() : i.Shape;
             res["stage"] = "import"; sw.Restart();
             var src = OnnxImporter.Open(modelPath, o);
@@ -98,6 +100,12 @@ try
     compiled!.Run(run);
     var outs = new List<(string Name, float[] Data)>();
     foreach (var (oname, ov) in graph.Outputs) outs.Add((oname, ReadOut(compiled, oname, ov, run)));
+    if (Opt("--dump") is { } dumpDir)
+    {
+        // every graph output as raw f32 (<dir>/<k>.bin, k = graph output index) for offline comparison
+        Directory.CreateDirectory(dumpDir);
+        for (int k = 0; k < outs.Count; k++) { var b = new byte[outs[k].Data.Length * 4]; Buffer.BlockCopy(outs[k].Data, 0, b, 0, b.Length); File.WriteAllBytes(Path.Combine(dumpDir, $"{k}.bin"), b); }
+    }
     // compare
     var cmps = new List<object>(); bool allOk = true; double worstRms = 0;
     for (int k = 0; k < outNames.Length; k++)

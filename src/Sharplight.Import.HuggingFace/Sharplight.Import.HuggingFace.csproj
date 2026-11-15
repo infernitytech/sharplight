@@ -4,9 +4,11 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../Sharplight.Import.PyTorch/Sharplight.Import.PyTorch.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Import.HuggingFace.Tests" />
     <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Import.Diffusers" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Importer for latent-diffusion image models (Stable Diffusion 1.x / 2.x / SDXL): diffusers folders, single-file safetensors / PyTorch checkpoints and stable-diffusion.cpp GGUF files, translated into the canonical model source.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
+    <ProjectReference Include="../Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
+    <ProjectReference Include="../Sharplight.Import.PyTorch/Sharplight.Import.PyTorch.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources/clip-merges.txt.gz" LogicalName="Sharplight.Import.Diffusers.clip-merges.txt.gz" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.ImageGeneration.Tests" />
+  </ItemGroup>
+</Project>

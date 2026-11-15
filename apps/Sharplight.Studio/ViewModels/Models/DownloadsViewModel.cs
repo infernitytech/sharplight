@@ -36,6 +36,7 @@ internal sealed partial class DownloadsViewModel : ObservableObject
             }
 
             var item = Create(reference, pending.ExpectedBytes);
+            item.Kind = pending.Kind;
             Items.Add(item);
             if (pending.Paused)
             {
@@ -68,7 +69,10 @@ internal sealed partial class DownloadsViewModel : ObservableObject
     public bool IsEmpty => Items.Count == 0;
 
     /// <summary>Adds and starts a download (an existing entry for the same model is resumed instead).</summary>
-    public DownloadItemViewModel Enqueue(ModelReference reference, long expectedBytes)
+    /// <param name="reference">What to pull.</param>
+    /// <param name="expectedBytes">The download size, for the progress bar before the pull reports.</param>
+    /// <param name="kind">The model kind inferred from the Hub's pipeline tag, shown until the converted package's description names it.</param>
+    public DownloadItemViewModel Enqueue(ModelReference reference, long expectedBytes, string? kind = null)
     {
         var existing = Items.FirstOrDefault(item => item.Reference == reference && !item.IsFinished);
         if (existing is not null)
@@ -82,6 +86,7 @@ internal sealed partial class DownloadsViewModel : ObservableObject
         }
 
         var download = Create(reference, expectedBytes);
+        download.Kind = kind;
         Items.Insert(0, download);
         OnPropertyChanged(nameof(IsEmpty));
         Enqueued?.Invoke(this, EventArgs.Empty);
@@ -151,7 +156,7 @@ internal sealed partial class DownloadsViewModel : ObservableObject
     private void Persist()
     {
         var pending = Items.Where(item => !item.IsFinished)
-            .Select(item => new PendingDownload(item.Reference.ToString(), item.TotalBytes, item.IsPaused))
+            .Select(item => new PendingDownload(item.Reference.ToString(), item.TotalBytes, item.IsPaused, item.Kind))
             .ToList();
         if (pending.SequenceEqual(_services.Settings.Current.Downloads))
         {

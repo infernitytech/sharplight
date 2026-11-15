@@ -1219,7 +1219,12 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 // in two f16 parts (three products each, near-f32 accuracy); otherwise single f16 products. SCALE multiplies the f32 scores; P
 // is scaled by 2^12 before its f16 conversion. Head sizes are zero-padded to 16 (D % 8 == DV % 8 == 0, padded sizes <= 128);
 // 32-wide subgroups.
+// FE_CAUSAL (not FULL_ATTN; single-sequence prefill against a contiguous KV cache): query t sees keys [0, n_past + t];
+// a block reads only the keys its last query sees and the blocks run longest first.
 using namespace linalg;
+#ifndef FE_CAUSAL
+#define FE_CAUSAL 0
+#endif
 #define FE_BR 64
 #define FE_BC 32
 #define FE_T 128
@@ -1233,8 +1238,14 @@ using namespace linalg;
 #define FE_KT (FE_BC * FE_KS)                      // halves of one K part
 #define FE_VT (FE_BC * FE_VS)                      // halves of one V part
 #define FE_QT (FE_BR * FE_QS)                      // halves of one staged Q part
-#define FE_KVH (2 * FE_KT + 2 * FE_VT)
-#define FE_BUF (FE_KVH > 2 * FE_QT ? FE_KVH : 2 * FE_QT)
+#if FA_SPLIT
+#define FE_PARTS 2                                 // f16 parts per value (hi, lo)
+#else
+#define FE_PARTS 1
+#endif
+#define FE_VO (FE_PARTS * FE_KT)                   // first half of the V tile (after the K parts)
+#define FE_KVH (FE_PARTS * (FE_KT + FE_VT))
+#define FE_BUF (FE_KVH > FE_PARTS * FE_QT ? FE_KVH : FE_PARTS * FE_QT)
 #define FE_KC (FE_DP / 8)                           // 8-value chunks per K row
 #define FE_VC (FE_DVP / 8)
 #define FE_KPT ((FE_BC * FE_KC + FE_T - 1) / FE_T)  // K chunks per thread and tile
@@ -1292,7 +1303,7 @@ void fe_fetch(out Kv8 kb[FE_KPT], out Kv8 vb[FE_VPT], uint8_t* kc, uint8_t* vc, 
     }
 }
 
-// Fetched rows into feBuf as f16 parts: K hi at 0, K lo at FE_KT, V hi at 2·FE_KT, V lo at 2·FE_KT + FE_VT.
+// Fetched rows into feBuf as f16 parts: K hi at 0, K lo at FE_KT, V hi at FE_VO, V lo at FE_VO + FE_VT.
 void fe_store(Kv8 kb[FE_KPT], Kv8 vb[FE_VPT], uint tid)
 {
     [ForceUnroll]
@@ -1315,7 +1326,7 @@ void fe_store(Kv8 kb[FE_KPT], Kv8 vb[FE_VPT], uint tid)
         {
             float v[8];
             unpack_kv8(vb[k], v);
-            uint o = 2 * FE_KT + i / FE_VC * FE_VS + (i % FE_VC) * 8;
+            uint o = FE_VO + i / FE_VC * FE_VS + (i % FE_VC) * 8;
             fe_put8(v, o, FE_VT + o);
         }
     }
@@ -1328,7 +1339,11 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint h = gid.x, t0 = gid.y * FE_BR;
     uint tid = ltid.x, sg = tid / 32, lane = tid % 32;
     uint hk = h / (HQ / HKV);
-#if SEQ_ROWS
+#if FE_CAUSAL
+    uint nPast = p.rt[RT_N_PAST];
+    t0 = ((p.T + FE_BR - 1) / FE_BR - 1 - gid.y) * FE_BR;   // the longest blocks first
+    uint qT = p.T, qRow0 = 0, keyBase = 0, L = nPast + min(qT, t0 + FE_BR);
+#elif SEQ_ROWS
     uint seq = gid.z / FA_KSPLIT;
     uint qT = SEQ_ROWS, qRow0 = seq * SEQ_ROWS, keyBase = seq * SEQ_KEYS, L = SEQ_KEYS;
 #elif CROSS_ATTN
@@ -1422,7 +1437,11 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         {
             uint c = col0 + ((e + row) & 15), j = j0 + c;
             float sc = feS[sBase + row * FE_SS + c] * SCALE;
+#if FE_CAUSAL
+            bool visible = rowValid && j <= nPast + tq;
+#else
             bool visible = rowValid && j < jStop;
+#endif
 #if HAS_MASK
             if (visible) sc += maskRow[j];
 #endif
@@ -1476,9 +1495,9 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
             [ForceUnroll]
             for (uint kh = 0; kh < FE_BC / 16; kh++)
             {
-                FeB v = FeB.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (2 * FE_KT + kh * 16 * FE_VS + i * 16) / 8, FE_VS / 8);
+                FeB v = FeB.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (FE_VO + kh * 16 * FE_VS + i * 16) / 8, FE_VS / 8);
 #if FA_SPLIT
-                FeB vl = FeB.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (2 * FE_KT + FE_VT + kh * 16 * FE_VS + i * 16) / 8, FE_VS / 8);
+                FeB vl = FeB.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (FE_VO + FE_VT + kh * 16 * FE_VS + i * 16) / 8, FE_VS / 8);
                 t = coopMatMulAdd<float, false>(pal[kh], v, t);
                 t = coopMatMulAdd<float, false>(pa[kh], vl, t);
 #endif

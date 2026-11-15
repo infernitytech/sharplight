@@ -29,7 +29,7 @@ public sealed class HighlightsTests
             Gguf("a/Fresh-GGUF", 8, ageDays: 3),
             Gguf("a/Embedding-GGUF", 7, pipeline: "feature-extraction"),
         ];
-        IReadOnlyList<HubModelSummary> trendingCheckpoints = [Checkpoint("b/Trend", 10), Checkpoint("b/Aqlm", 9, quantization: "aqlm")];
+        IReadOnlyList<HubModelSummary> trendingCheckpoints = [Checkpoint("b/Trend", 10), Checkpoint("b/Spqr", 9, quantization: "spqr")];
         IReadOnlyList<HubModelSummary> downloaded = [Checkpoint("b/Popular", 5000), Gguf("a/Trend-GGUF", 10), Gguf("a/Older-New-GGUF", 4000, ageDays: 60)];
 
         var sections = HighlightsCatalog.Build([trendingGguf, trendingCheckpoints], [downloaded], s_now);

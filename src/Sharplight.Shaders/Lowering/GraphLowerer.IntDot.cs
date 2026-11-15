@@ -125,8 +125,10 @@ public sealed partial class GraphLowerer
         long maxRows, ActivationCode code = ActivationCode.Q8_1)
     {
         var root = RootOf(source);
-        // Shared only while x is the root's own arena memory: copies made for this matmul are temporaries.
-        bool shareable = x.Buffer == _arena && ReferenceEquals(x, Ref(source)) && _refs.TryGetValue(root, out var rootRef) && rootRef.Buffer == _arena;
+        // Shared only while x is the root's own arena memory (not a concatenation computed in slices: its slices and views
+        // share one root): copies made for this matmul are temporaries.
+        bool shareable = x.Buffer == _arena && ReferenceEquals(x, Ref(source)) && !_concatSliceRoots.Contains(root)
+                         && _refs.TryGetValue(root, out var rootRef) && rootRef.Buffer == _arena;
         var cacheKey = (root, x.ByteOffset, xStride, k, minRows, maxRows, code, (object?)_launchCondition);
         if (shareable && _quantizedActivations.TryGetValue(cacheKey, out var cached))
         {

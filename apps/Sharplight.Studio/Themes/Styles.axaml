@@ -131,6 +131,17 @@
     <Setter Property="FontWeight" Value="Medium" />
     <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
   </Style>
+  <Style Selector="Border.badge > StackPanel > TextBlock">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+  </Style>
+  <Style Selector="Border.badge.accent > StackPanel > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+  </Style>
+  <Style Selector="Border.badge.accent > StackPanel > Path">
+    <Setter Property="Stroke" Value="{DynamicResource AccentBrush}" />
+  </Style>
   <Style Selector="Border.badge.accent">
     <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
   </Style>

@@ -1,10 +1,12 @@
 """onnxruntime latency of one reference manifest on one execution provider; prints one "RESULT {json}" line.
 
-usage: ort_latency.py <manifest.json> <cpu|cuda|cuda-strict> [--batch B] [--runs N] [--budget-s S] [--threads T]
+usage: ort_latency.py <manifest.json> <cpu|cuda|cuda-strict|trt> [--batch B] [--runs N] [--budget-s S] [--threads T]
 
   cpu          CPUExecutionProvider, graph optimizations ORT_ENABLE_ALL, intra-op threads = --threads (default 16)
   cuda         CUDAExecutionProvider with its defaults (TF32 tensor-core math allowed for f32 MatMul/Conv)
   cuda-strict  CUDAExecutionProvider with use_tf32=0 (full f32 math, the accuracy class of Sharplight's default)
+  trt          TensorrtExecutionProvider (f32 engines, TensorRT's default TF32 tactics allowed; CUDA EP for the rest),
+               engines cached in $ORT_TRT_CACHE (default ~/.cache/ort-trt); needs the TensorRT libraries on LD_LIBRARY_PATH
 
 CUDA timing binds the inputs on the GPU once and copies every output to the host per run (the same work the Sharplight
 harness times: Run + read back every output). Model paths in the manifest resolve against $SHARPLIGHT_ONNX_MODELS.
@@ -68,6 +70,13 @@ def session(model, provider, threads):
     if provider == "cpu":
         so.intra_op_num_threads = threads
         return ort.InferenceSession(model, so, providers=["CPUExecutionProvider"])
+    if provider == "trt":
+        cache = os.environ.get("ORT_TRT_CACHE", os.path.expanduser("~/.cache/ort-trt"))
+        trt = {"device_id": 0, "trt_engine_cache_enable": True, "trt_engine_cache_path": cache, "trt_timing_cache_enable": True, "trt_timing_cache_path": cache}
+        sess = ort.InferenceSession(model, so, providers=[("TensorrtExecutionProvider", trt), ("CUDAExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"])
+        if sess.get_providers()[0] != "TensorrtExecutionProvider":
+            raise RuntimeError("TensorRT EP not active")
+        return sess
     options = {"device_id": 0}
     if provider == "cuda-strict":
         options["use_tf32"] = 0
@@ -102,7 +111,7 @@ def bench(manifest_path, provider, batch, runs, budget_s, threads):
 
 
 def main(argv):
-    if len(argv) < 2 or argv[1] not in ("cpu", "cuda", "cuda-strict"):
+    if len(argv) < 2 or argv[1] not in ("cpu", "cuda", "cuda-strict", "trt"):
         print(__doc__, file=sys.stderr)
         return 2
     manifest_path, provider = argv[0], argv[1]

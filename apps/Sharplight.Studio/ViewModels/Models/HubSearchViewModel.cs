@@ -3,6 +3,7 @@ using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Hub;
+using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Fit;
@@ -13,7 +14,7 @@ namespace Sharplight.Studio.ViewModels.Models;
 /// <summary>Searching the Hugging Face Hub and choosing a variant to download.</summary>
 internal sealed partial class HubSearchViewModel : ObservableObject
 {
-    private const int ResultLimit = 40;
+    private const int ResultLimit = 60;
 
     private readonly StudioServices _services;
     private readonly DownloadsViewModel _downloads;
@@ -25,6 +26,10 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     private RepositoryDetails? _openDetails;
     private Task? _highlightsLoad;
     private bool _highlightsFailed;
+    private ModelTask? _highlightsTask;
+    private IReadOnlyList<HighlightSection> _rawHighlights = [];
+    private DiscoverFilterSettings _searched;
+    private long? _capacity;
 
     public HubSearchViewModel(StudioServices services, DownloadsViewModel downloads, Func<IReadOnlySet<string>> storedNames)
     {
@@ -32,24 +37,18 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         _downloads = downloads;
         _storedNames = storedNames;
         _advisor = new FitAdvisor(services.Runtime, services.Settings);
-        SelectedFormat = FormatFilter.All[1];
+        Filters = new DiscoverFiltersViewModel(services.Settings);
+        _searched = Filters.Current;
         ShowOnlySupported = services.Settings.Current.ShowOnlySupported;
+        Filters.FiltersChanged += (_, _) => _ = OnFiltersChangedAsync();
     }
+
+    /// <summary>The filters and sort order (model type, format, quantization, size, license, gated).</summary>
+    public DiscoverFiltersViewModel Filters { get; }
 
     /// <summary>Search text.</summary>
     [ObservableProperty]
     public partial string Query { get; set; } = "";
-
-    /// <summary>Format filter choices.</summary>
-    public IReadOnlyList<FormatFilter> Formats => FormatFilter.All;
-
-    /// <summary>Chosen format filter.</summary>
-    [ObservableProperty]
-    public partial FormatFilter SelectedFormat { get; set; }
-
-    /// <summary>Hide repositories that need accepting a license and a token.</summary>
-    [ObservableProperty]
-    public partial bool HideGated { get; set; }
 
     /// <summary>
     /// List only repositories and quantizations whose badge is <c>Supported</c> (saved in the settings). Quantizations whose metadata is
@@ -61,7 +60,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     /// <summary>The search results shown (all of them, or the supported ones with <see cref="ShowOnlySupported"/>).</summary>
     public ObservableCollection<HubResultViewModel> Results { get; } = [];
 
-    /// <summary>How many search results <see cref="ShowOnlySupported"/> hides, as a sentence; empty when none.</summary>
+    /// <summary>How many search results <see cref="ShowOnlySupported"/> and the client-side filters hide, as a sentence; empty when none.</summary>
     [ObservableProperty]
     public partial string HiddenResultsText { get; set; } = "";
 
@@ -75,6 +74,10 @@ internal sealed partial class HubSearchViewModel : ObservableObject
 
     /// <summary>Search results are shown.</summary>
     public bool IsShowingResults => !IsShowingHighlights;
+
+    /// <summary>The model type the highlights are of (everything the engine runs, when no type is chosen), as a heading.</summary>
+    [ObservableProperty]
+    public partial string HighlightsHeading { get; set; } = "Language models Sharplight supports";
 
     /// <summary>The highlights are being fetched.</summary>
     [ObservableProperty]
@@ -139,11 +142,26 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     [ObservableProperty]
     public partial string Status { get; set; } = DefaultStatus;
 
-    private const string DefaultStatus = "Search Hugging Face for GGUF, safetensors or ONNX models.";
+    private const string DefaultStatus = "Search Hugging Face, or pick a model type and filters to browse.";
 
     /// <summary>Format the selected repository is pulled as.</summary>
     [ObservableProperty]
     public partial string? DetailFormat { get; set; }
+
+    /// <summary>The parts of the selected multi-component repository (a Diffusers pipeline, whisper.cpp files), shown as one model.</summary>
+    public ObservableCollection<ComponentViewModel> Components { get; } = [];
+
+    /// <summary>The selected repository is made of several components.</summary>
+    [ObservableProperty]
+    public partial bool IsMultiComponent { get; set; }
+
+    /// <summary>Why the selected repository cannot be downloaded (its kind or layout is not supported yet), or empty.</summary>
+    [ObservableProperty]
+    public partial string NoDownloadReason { get; set; } = "";
+
+    /// <summary>What to do about a gated repository (accept its terms, set a token), or empty for an open one.</summary>
+    [ObservableProperty]
+    public partial string GatedNotice { get; set; } = "";
 
     /// <summary>A result is selected.</summary>
     public bool HasSelection => SelectedResult is not null;
@@ -174,11 +192,15 @@ internal sealed partial class HubSearchViewModel : ObservableObject
 
         ApplyResultFilter();
         ApplyVariantFilter();
+        if (Filters.Current.Task is not null)
+        {
+            RenderHighlights();
+        }
     }
 
     partial void OnQueryChanged(string value)
     {
-        if (value.Trim().Length == 0 && !IsShowingHighlights)
+        if (value.Trim().Length == 0 && !IsShowingHighlights && IsHighlightMode)
         {
             IsShowingHighlights = true;
             SelectedResult = null;
@@ -187,11 +209,65 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     }
 
     /// <summary>
+    /// With no search text, the highlights of the chosen model type are shown (the default ones without a type), as long as no other
+    /// filter is set and the sort order is the default; otherwise the Hub's listing in the chosen order is shown instead.
+    /// </summary>
+    private bool IsHighlightMode => Query.Trim().Length == 0 && Filters.Current with { Task = null } == new DiscoverFilterSettings();
+
+    /// <summary>Reacts to a filter change: asks the Hub again when the query changed, otherwise only filters the results shown.</summary>
+    private async Task OnFiltersChangedAsync()
+    {
+        var current = Filters.Current;
+        bool hubChanged = current.Task != _searched.Task || current.Format != _searched.Format || current.License != _searched.License || current.Sort != _searched.Sort;
+        _searched = current;
+        if (IsHighlightMode)
+        {
+            IsShowingHighlights = true;
+            SelectedResult = null;
+            Status = DefaultStatus;
+            if (hubChanged)
+            {
+                _highlightsLoad = null;
+                await LoadHighlightsAsync();
+            }
+
+            return;
+        }
+
+        if (!hubChanged && !IsShowingHighlights)
+        {
+            if (current.FitsThisMachine)
+            {
+                await UpdateCapacityAsync();
+            }
+
+            ApplyResultFilter();
+            return;
+        }
+
+        await SearchAsync();
+    }
+
+    private async Task UpdateCapacityAsync()
+    {
+        try
+        {
+            var memory = await _advisor.GetMemoryAsync(CancellationToken.None);
+            _capacity = DiscoverFilter.Capacity(memory.Where(entry => entry.IsGpu).Sum(entry => entry.TotalBytes),
+                memory.Where(entry => !entry.IsGpu).Select(entry => entry.TotalBytes).DefaultIfEmpty(0).Max());
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            _capacity = null;
+        }
+    }
+
+    /// <summary>
     /// Fetches the highlighted models once (the catalog caches them for a few hours, so opening Discover again does not ask the Hub).
     /// </summary>
     public Task LoadHighlightsAsync()
     {
-        if (_highlightsLoad is null || _highlightsFailed)
+        if (_highlightsLoad is null || _highlightsFailed || _highlightsTask != Filters.Current.Task)
         {
             _highlightsFailed = false;
             _highlightsLoad = FetchHighlightsAsync();
@@ -212,21 +288,21 @@ internal sealed partial class HubSearchViewModel : ObservableObject
 
     private async Task FetchHighlightsAsync()
     {
+        var task = Filters.Current.Task;
+        _highlightsTask = task;
         IsLoadingHighlights = true;
         HighlightsStatus = "";
+        HighlightsHeading = task is { } chosen ? $"{ModelTaskTitles.Title(chosen)} models" : "Language models Sharplight supports";
         try
         {
-            var sections = await _services.Hub.GetHighlightsAsync(CancellationToken.None);
-            Highlights.Clear();
-            foreach (var section in sections.Where(section => section.Models.Count > 0))
+            var sections = await _services.Hub.GetHighlightsAsync(task, CancellationToken.None);
+            if (task != Filters.Current.Task)
             {
-                Highlights.Add(new HighlightSectionViewModel(section.Kind, [.. section.Models.Select(model => new HubResultViewModel(model))]));
+                return;
             }
 
-            if (Highlights.Count == 0)
-            {
-                HighlightsStatus = "No highlighted models right now. Search to find models.";
-            }
+            _rawHighlights = sections;
+            RenderHighlights();
         }
         catch (Exception error) when (error is HubException or HttpRequestException or TaskCanceledException)
         {
@@ -239,9 +315,44 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         }
     }
 
-    /// <summary>Shows the results that pass <see cref="ShowOnlySupported"/>, in their order; a hidden selection moves to the first shown.</summary>
+    /// <summary>
+    /// Shows the highlight sections. A model type's highlights carry every model of the type, so <see cref="ShowOnlySupported"/>
+    /// drops those Sharplight cannot run (all of them, for a type the engine has no client for).
+    /// </summary>
+    private void RenderHighlights()
+    {
+        var task = Filters.Current.Task;
+        Highlights.Clear();
+        int total = 0;
+        foreach (var section in _rawHighlights)
+        {
+            var items = section.Models.Select(model => new HubResultViewModel(model)).Where(item => task is null || !ShowOnlySupported || item.Compatibility.IsGood).ToList();
+            total += section.Models.Count;
+            if (items.Count > 0)
+            {
+                Highlights.Add(new HighlightSectionViewModel(section.Kind, items));
+            }
+        }
+
+        if (Highlights.Count == 0)
+        {
+            HighlightsStatus = total > 0 && task is { } hidden
+                ? $"Sharplight cannot run {ModelTaskTitles.Title(hidden).ToLowerInvariant()} models yet. Turn off Supported only to see what is on Hugging Face."
+                : "No highlighted models right now. Search to find models.";
+        }
+        else
+        {
+            HighlightsStatus = "";
+        }
+    }
+
+    /// <summary>
+    /// Shows the results that pass <see cref="ShowOnlySupported"/> and the filters the Hub cannot apply (<see cref="DiscoverFilter"/>),
+    /// in their order; a hidden selection moves to the first shown.
+    /// </summary>
     private void ApplyResultFilter()
     {
+        var filters = Filters.Current;
         var shown = _allResults.Where(IsShown).ToList();
         var selected = SelectedResult;
         if (!shown.SequenceEqual(Results))
@@ -259,15 +370,28 @@ internal sealed partial class HubSearchViewModel : ObservableObject
             SelectedResult = shown.Contains(selected) ? selected : shown.FirstOrDefault();
         }
 
-        int hidden = _allResults.Count - shown.Count;
+        int hiddenByFilters = _allResults.Count(result => !DiscoverFilter.Matches(result.Summary, filters, _capacity));
+        int hidden = _allResults.Count - shown.Count - hiddenByFilters;
         if (_allResults.Count > 0)
         {
             Status = shown.Count == 1 ? "1 model" : $"{shown.Count} models";
         }
 
-        HiddenResultsText = hidden == 0 ? "" : hidden == 1 ? "1 model is hidden because it is not supported." : $"{hidden} models are hidden because they are not supported.";
+        var notes = new List<string>();
+        if (hidden > 0)
+        {
+            notes.Add(hidden == 1 ? "1 model is hidden because it is not supported." : $"{hidden} models are hidden because they are not supported.");
+        }
 
-        bool IsShown(HubResultViewModel result) => !ShowOnlySupported || result.Compatibility.IsGood;
+        if (hiddenByFilters > 0)
+        {
+            notes.Add(hiddenByFilters == 1 ? "1 model does not match the filters." : $"{hiddenByFilters} models do not match the filters.");
+        }
+
+        HiddenResultsText = string.Join(" ", notes);
+
+        bool IsShown(HubResultViewModel result)
+            => DiscoverFilter.Matches(result.Summary, filters, _capacity) && (!ShowOnlySupported || result.Compatibility.IsGood);
     }
 
     /// <summary>
@@ -305,8 +429,6 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         }
     }
 
-    partial void OnHideGatedChanged(bool value) => _ = SearchAsync();
-
     partial void OnSelectedVariantChanged(VariantViewModel? value)
     {
         if (value?.Compatibility?.Compatibility is { WeightsChecked: false } verdict && !verdict.IsUnsupported
@@ -316,12 +438,10 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         }
     }
 
-    partial void OnSelectedFormatChanged(FormatFilter value) => _ = SearchAsync();
-
     [RelayCommand]
     private async Task SearchAsync()
     {
-        if (Query.Trim().Length == 0)
+        if (IsHighlightMode)
         {
             return;
         }
@@ -331,12 +451,18 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         Status = "Searching…";
         try
         {
-            var results = await _services.Hub.SearchAsync(new HubSearchQuery { Text = Query.Trim(), Format = SelectedFormat.Format, Limit = ResultLimit }, CancellationToken.None);
+            var filters = Filters.Current;
+            _searched = filters;
+            if (filters.FitsThisMachine)
+            {
+                await UpdateCapacityAsync();
+            }
+
+            var results = await _services.Hub.SearchAsync(DiscoverFilter.ToQuery(filters, Query.Trim(), ResultLimit), CancellationToken.None);
             SelectedResult = null;
             _allResults.Clear();
-            // Results that are likely not to import go last; the Hub's order (downloads) is kept otherwise.
-            _allResults.AddRange(results.Where(result => !HideGated || !result.Gated).Select(result => new HubResultViewModel(result))
-                .OrderBy(result => result.Compatibility.IsBad));
+            // Results that are likely not to import go last; the Hub's order (the chosen sort) is kept otherwise.
+            _allResults.AddRange(results.Select(result => new HubResultViewModel(result)).OrderBy(result => result.Compatibility.IsBad));
             ApplyResultFilter();
 
             Status = Results.Count == 0 ? "No models found." : Results.Count == 1 ? "1 model" : $"{Results.Count} models";
@@ -359,7 +485,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     {
         var tag = SelectedVariant!.Info.Tag;
         var reference = new ModelReference(SelectedResult!.Id, tag.Length == 0 ? null : tag);
-        _downloads.Enqueue(reference, SelectedVariant.Info.Bytes);
+        _downloads.Enqueue(reference, SelectedVariant.Info.Bytes, SelectedResult.HasKind ? SelectedResult.Kind.Id : null);
     }
 
     [RelayCommand]
@@ -386,6 +512,10 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         Variants.Clear();
         HiddenVariantsText = "";
         Files.Clear();
+        Components.Clear();
+        IsMultiComponent = false;
+        NoDownloadReason = "";
+        GatedNotice = result.Gated ? GatedText() : "";
         DetailFormat = null;
         _openDetails = null;
         try
@@ -411,7 +541,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
                 Files.Add($"{file.Path}  ({Studio.Models.ByteFormat.Format(file.Size)})");
             }
 
-            DetailFormat = details.Format?.ToString() ?? "No supported model files";
+            DescribeLayout(result, details);
             SelectedVariant = Variants.FirstOrDefault(variant => variant.Recommended) ?? Variants.FirstOrDefault();
             FitEstimate = EstimateFitAsync(result, details, [.. _allVariants], cancellation.Token);
         }
@@ -432,6 +562,48 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Fills the details of a repository that cannot be pulled: its components shown as one model (a Diffusers pipeline's folders,
+    /// whisper.cpp's model files) and why it cannot be downloaded (its kind or layout is not supported yet).
+    /// </summary>
+    private void DescribeLayout(HubResultViewModel result, RepositoryDetails details)
+    {
+        if (details.Format is not null)
+        {
+            DetailFormat = details.Format.ToString();
+            return;
+        }
+
+        var kind = ModelKindCatalog.For(result.Summary.Task);
+        if (details.Layout is { } layout)
+        {
+            foreach (var part in details.Parts)
+            {
+                Components.Add(new ComponentViewModel(part));
+            }
+
+            IsMultiComponent = true;
+            long total = details.Parts.Sum(part => part.Bytes);
+            DetailFormat = $"{ModelFormatTitles.Title(layout)} · {(Components.Count == 1 ? "1 part" : $"{Components.Count} parts")} · {Studio.Models.ByteFormat.Format(total)}";
+            NoDownloadReason = kind.Runnable
+                ? $"Sharplight cannot download {ModelFormatTitles.Title(layout)} repositories yet."
+                : $"Not yet supported: {kind.Title.ToLowerInvariant()}. Sharplight cannot download or run these models yet; the parts are listed as the one model they form.";
+            return;
+        }
+
+        DetailFormat = "No supported model files";
+        NoDownloadReason = kind.Runnable ? "" : $"Not yet supported: {kind.Title.ToLowerInvariant()}.";
+    }
+
+    /// <summary>What to do about a gated repository, depending on whether a token is set.</summary>
+    private string GatedText()
+    {
+        bool hasToken = !string.IsNullOrWhiteSpace(_services.Settings.Current.HuggingFaceToken) || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(HubClientOptions.TokenVariable));
+        return hasToken
+            ? "Gated: accept the terms on Hugging Face once; your access token is used for the download."
+            : "Gated: accept the terms on Hugging Face and add your access token in Settings before downloading.";
+    }
+
+    /// <summary>
     /// Reads the recommended variant's metadata (a GGUF header and tensor table, the checkpoint's configuration, an ONNX model's opsets)
     /// and badges every variant with its likely compatibility and its approximate fit for the default load settings: the download size
     /// as weights and the KV cache from the dimensions read, when they can be read. The other variants share the architecture's
@@ -442,7 +614,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         if (variants.Count == 0)
         {
             IsEstimatingFit = false;
-            if (details.Format is null)
+            if (details.Format is null && result.Compatibility.Compatibility.State != CompatibilityState.UnsupportedKind)
             {
                 result.Compatibility = new CompatibilityBadgeViewModel(ModelCompatibility.Unknown("The repository has no GGUF, safetensors or ONNX model files."));
             }

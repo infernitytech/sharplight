@@ -1,6 +1,7 @@
 # Cleanup brief (shared by all cleanup agents)
 
-Read docs/code-style.md first; it is the rule set. Mechanical rules (braces, explicit accessibility modifiers,
+Read docs/code-style.md first; it is the rule set (including the newer rules: no single-line scopes, C# unions may
+share a file with their cases, Microsoft API conventions, DI instead of static registries, JSON-only file formats). Mechanical rules (braces, explicit accessibility modifiers,
 file-scoped namespaces, unused usings) were already applied by `dotnet format` in commit 9f361d2. Keep them intact in
 every line you touch, and use braces on every if/else/for/foreach/while/do/using/lock body.
 
@@ -21,7 +22,11 @@ every line you touch, and use braces on every if/else/for/foreach/while/do/using
    code and stale experiment switches. Keep diagnostic environment switches that are still useful, and list each
    project's switches in one place (a static class `DiagnosticSwitches` or a doc comment block).
 6. Remove duplication: factor repeated logic into one helper within your projects.
-7. Readability: split dense lines (multiple statements per line, comma-chained assignments like `int a = 1, b = 2;`
+7. No single-line scopes: a braced block never sits on one line (`if (x) { return; }`); braces on their own lines.
+8. Refactoring: simplify over-complex code (deep nesting, long parameter lists, flag arguments, god classes) into small,
+   well-named types and methods; replace hand-rolled wiring or static state with the DI services the project already
+   uses; align similar code across model kinds (the task clients, importers, adapters) on one shared pattern.
+9. Readability: split dense lines (multiple statements per line, comma-chained assignments like `int a = 1, b = 2;`
    with complex initializers, `x = ...; y = ...;` on one line). Use descriptive names instead of cryptic local names
    where it helps; established math/domain short names (T, D, HQ, KV, i/j loops) are fine. Long methods should be
    broken into well-named private methods. Comments explain why.
@@ -29,8 +34,9 @@ every line you touch, and use braces on every if/else/for/foreach/while/do/using
 ## Hard constraints
 - Only edit files inside your assigned projects (listed in your task). Other agents clean up the rest in parallel, and
   overlapping edits will cause merge conflicts.
-- Do NOT rename or change the signature of anything public or anything used by another assembly. Do NOT change
-  namespaces. Splitting files and narrowing visibility per rule 3 are fine.
+- Do NOT rename or change the signature of anything public or anything used by another assembly unless your task says
+  this round may change public API; list such suggestions instead. Do NOT change namespaces. Splitting files and
+  narrowing visibility per rule 3 are fine.
 - No behavior changes and no performance changes. Hot loops (CPU kernels, lowering) must not get slower: no LINQ or
   allocations in hot paths, and keep `[MethodImpl]` attributes, `unsafe` and spans as they are.
 - .slang kernel files: leave them alone.
@@ -38,9 +44,9 @@ every line you touch, and use braces on every if/else/for/foreach/while/do/using
   IDE0005/IDE0011/IDE0040/IDE0051/IDE0052/IDE0060/IDE0161/CS0169/CS9113/CS1573 must be 0. Check with
   `dotnet build src/X -c Release 2>&1 | grep -E "warning (IDE|CS)"`.
 - Run the test suites named in your task (`dotnet run --project tests/Sharplight.X.Tests -c Release`); all must pass as
-  before. The GPU is shared with other agents and apps, so retry a timing-only failure once before investigating.
+  before. GPU suites run with the GPU index given in your task (`SHARPLIGHT_VK_DEVICES`); the GPU is shared with other agents, so retry a timing-only failure once before investigating.
 - Work in your worktree. Commit in small logical commits (e.g. "Cpu: one type per file", "Cpu: extension blocks",
-  "Cpu: XML docs") ending with the line `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Do not push and do not
-  touch master.
+  "Cpu: XML docs") ending with a blank line and the trailer lines given in your task (`Co-Authored-By: ...`). Start with
+  `git merge develop` and merge it again before finishing; do not push and do not touch `develop` or `main`.
 - Final report: what was split/removed/narrowed, any public API you thought should change but didn't (list it as a
   suggestion), test totals, and remaining warnings.

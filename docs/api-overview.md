@@ -13,18 +13,18 @@ graph generation for model architectures (adapters) are separate assemblies, so 
 |---|---|---|
 | `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
 | `Sharplight.Architectures` | Execution-graph generation: architecture adapters that turn canonical model sources into Sharplight graphs | `BuiltinAdapters` |
-| `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter` |
+| `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.WhisperCpp` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter`, `WhisperCppImporter` |
 | `Sharplight.Package` | Read and write `.slm` packages (every model kind: description, components, attachments), convert models to them and precompile kernels into them | `ModelPackage`, `ModelPackageReader`, `ModelConverter`, `PackagePrecompiler` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` (+ `Sharplight.Shaders`) | Execution providers | `CpuExecutionProvider`, `VulkanProvider` |
 | `Sharplight.Defaults` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
-| `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplight`, `UseSharplight`, `MapSharplight`, `AddSharplightEmbeddings`, `AddSharplightReranker` |
+| `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplight`, `UseSharplight`, `MapSharplight`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
 | `Sharplight.Hub` | Search and pull Hugging Face models into a local store ([model-hub.md](model-hub.md)) | `HubClient`, `ModelPuller`, `ModelStore` |
 | `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `SharplightSpeechToTextClient`, `SharplightTextToSpeechClient`, `SharplightImageGenerator` |
 
 ## Registration
 
 Composition goes through Microsoft.Extensions.DependencyInjection. `services.AddSharplight()` (Sharplight.Defaults) registers the
-model formats (GGUF, Hugging Face, ONNX, `.slm`), the built-in architecture adapters, the execution providers (Vulkan, CPU) and the
+model formats (GGUF, Hugging Face, ONNX, whisper.cpp, `.slm`), the built-in architecture adapters, the execution providers (Vulkan, CPU) and the
 task layer; hosts without a container use `SharplightDefaults.CreateServiceProvider()`. Narrower setups call
 `services.AddSharplightModelFormats()`, `.AddSharplightProviders()` and `.AddSharplightTasks()` (Core) individually.
 
@@ -51,6 +51,10 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `speech-recognition` | `ISpeechRecognizer` | `TranscribeAsync(AudioBuffer)` | `TranscribeStreamingAsync` → `TranscriptionSegment` | `SpeechRecognitionOptions` | `Transcription` |
 | `speech-synthesis` | `ISpeechSynthesizer` | `SynthesizeAsync(text)` | `SynthesizeStreamingAsync` → `AudioBuffer` | `SpeechSynthesisOptions` | `SpeechSynthesisResult` |
 | `image-generation` | `IImageGenerator` | `GenerateAsync(ImageGenerationRequest)` | `GenerateStreamingAsync` → `ImageGenerationUpdate` | `ImageGenerationOptions` | `ImageGenerationResult` |
+| `image-classification` | `IImageClassifier` | `ClassifyAsync(ImageInput)` | - (one image, one result) | `ImageClassificationOptions` | `ImageClassification` |
+| `image-embedding` | `IImageEmbedder` | `EmbedImageAsync(ImageInput)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `ImageEmbeddingOptions` | `float[]`, `ImageClassification` |
+| `depth-estimation` | `IDepthEstimator` | `EstimateAsync(ImageInput)` | - | `DepthEstimationOptions` | `DepthMap` (per-pixel values, `ToGrayscale()`) |
+| `object-detection` | `IObjectDetector` | `DetectAsync(ImageInput)` | - | `ObjectDetectionOptions` (score threshold, max detections, optional NMS) | `ObjectDetection` (`DetectedObject`: class, label, score, `BoundingBox` in pixels) |
 
 Every client is an `ITaskClient`: `Metadata` (kind, model name, architecture), `GetService(Type)` for the objects behind it,
 `IDisposable` (it owns its compiled graphs, not the model), async calls with a `CancellationToken`. The shape mirrors
@@ -92,8 +96,99 @@ Audio and image I/O for the task layer: `AudioBuffer` (interleaved float samples
 `WAVE_FORMAT_EXTENSIBLE`; write: PCM16, PCM24, PCM32, float32), `PngCodec` (encode RGB; decode 8-bit gray, gray+alpha, RGB, RGBA and
 palette PNGs) and `PlanarImage` (8-bit interleaved RGB to and from `[3, height, width]` float planes in any value range).
 
+### Speech recognition
+
+The built-in `ISpeechRecognizer` serves encoder-decoder models with a prompted decoder (Whisper and its derivatives, from Hugging Face
+checkpoints, whisper.cpp `.bin` files or `.slm` packages); `AddSharplightTasks()` registers its factory. Its model description has an
+`encoder` and a `decoder` component (graphs), a `tokenizer` component (the tokenizer as a JSON attachment) and a `feature-extractor`
+component (log-mel configuration and the mel filter bank as an attachment); the decoder's canonical metadata carries the control
+tokens (`SpeechKeys`). A request computes the log-mel features of the whole recording on the host, then per 30 s window runs the
+encoder, detects the language when `SpeechRecognitionOptions.Language` is null, and decodes greedily (or with `Sampling`, or with a
+beam search of `BeamSize` beams scored like transformers' `num_beams`) with Whisper's timestamp rules. Long recordings advance to the last complete timestamp segment of each window; `ConditionOnPreviousText`
+prompts each window with the text so far, `Prompt` conditions the first. `Timestamps = TimestampGranularity.None` decodes without
+timestamp tokens (one segment per window, as transformers does by default). Each `TranscriptionSegment` carries its token ids, mean log
+probability and no-speech probability. Not yet: temperature fallback, word timestamps.
+
+```csharp
+var services = new ServiceCollection().AddSharplight()
+    .AddSpeechRecognizer(o => { o.ModelPath = "ggml-small.bin"; o.Devices = [slot]; });   // or a HF directory / .slm
+await using var provider = services.BuildServiceProvider();
+var recognizer = provider.GetRequiredService<ISpeechRecognizer>();
+var result = await recognizer.TranscribeAsync(WavFile.Read("talk.wav"), new SpeechRecognitionOptions { Language = "en" });
+foreach (var segment in result.Segments)
+{
+    Console.WriteLine($"[{segment.Start:mm\\:ss\\.ff} - {segment.End:mm\\:ss\\.ff}] {segment.Text}");
+}
+```
+
+The sample `samples/Sharplight.Transcribe` (`sharplight-transcribe model audio.wav [--language en] [--translate] [--beam-size 5] [--format srt]`) is this
+in a command-line tool. Models of other speech families (CTC, transducers, audio LLMs) plug in as their own `ITaskClientFactory` for the
+same kind; the feature extraction sits behind a small internal interface so a graph-based front end can replace the host one.
+
+Vision models share host-side preprocessing in Core: `ImageProcessorConfig` (resize mode and filter, center crop, rescale, mean and std;
+the neutral form of a model's processor configuration, stored in the `feature-extractor` component's configuration under
+`imageProcessor`) and `ImageProcessor` (Pillow-exact antialiased resize, crop, normalize to planar floats, `Patchify`). Importers translate
+the model's own processor file into the config; the image clients never see a format name. Models with a `vision-encoder` component
+(graph `image_encode`: patches in, pooled embedding and optionally logits out) run through the built-in classifier / embedder
+implementation (`ImageEncoderAdapter`: ViT, DINOv2, ...); `services.AddImageClassifier(...)` and `services.AddImageEmbedder(...)` register
+configured models like every other kind. CLIP and SigLIP (adapter `ImageTextAdapter`, `vision-encoder` + `text-encoder` + `tokenizer` components, graphs `image_encode` and `text_encode`) add the text tower
+to the same embedder: `EmbedTextAsync` embeds a prompt into the image space and `ClassifyZeroShotAsync` scores an image against candidate prompts (softmax for CLIP, sigmoid for SigLIP, with the model's learned scale and bias).
+Object detectors (DETR: `DetrAdapter`; RT-DETR: `RtDetrAdapter`; graph `detect`: normalized `pixels` in, per-query `logits` and `boxes` out) run through `services.AddObjectDetector(...)`; the box decoding, thresholding and
+non-maximum suppression are generic host-side utilities in Core (`BoundingBox`, `BoxUtilities.NonMaxSuppression`, `ObjectDetectionOptions`). `samples/Sharplight.Vision` (`sharplight-vision classify|detect|depth model image.png [--label prompt]... [-o out.png]`)
+is this in a command-line tool (`depth` writes a grayscale PNG, `detect` draws the boxes). Depth Anything (`DepthEstimationAdapter`, graph `estimate_depth`) runs through `services.AddDepthEstimator(...)`.
+
 The importers and architecture adapters for speech and image models come in their own workstreams; the task layer defines the
 interfaces, options, results, the description and the host-side plumbing they plug into.
+
+### Image generation
+
+`Sharplight.Import.Diffusers` reads Stable Diffusion 1.x / 2.x / XL checkpoints (diffusers folders, original single-file `.safetensors` or
+`.ckpt` (through the restricted unpickler of Sharplight.Import.PyTorch),
+stable-diffusion.cpp GGUF files) into the canonical `latent_diffusion` source; `LatentDiffusionAdapter` (Sharplight.Architectures)
+builds a text encoder, a UNet denoiser and the VAE decoder / encoder as graphs of generic Core ops and describes them as an
+`image-generation` model (components `text-encoder`, `tokenizer`, `denoiser`, `vae`, `scheduler`; SDXL's second text encoder is a
+second graph of the `text-encoder` component whose pooled embedding and the size conditions feed the UNet). Core's built-in latent-diffusion
+pipeline (`LatentDiffusionGeneratorFactory`, registered by `AddSharplightTasks()`) serves every model whose graphs follow
+`DiffusionGraphs`; a family with another pipeline registers its own factory.
+
+```csharp
+var services = new ServiceCollection()
+    .AddSharplight()
+    .AddImageGenerator(o => { o.ModelPath = "v1-5-pruned-emaonly-Q8_0.gguf"; o.Devices = [slot]; });
+await using var provider = services.BuildServiceProvider();
+var generator = provider.GetRequiredService<IImageGenerator>();
+
+var request = new ImageGenerationRequest { Prompt = "a lighthouse at dusk", NegativePrompt = "blurry" };
+var options = new ImageGenerationOptions { Steps = 20, GuidanceScale = 7.5f, Seed = 42, Scheduler = Samplers.DpmPlusPlus2MKarras, PreviewInterval = 5 };
+await foreach (var update in generator.GenerateStreamingAsync(request, options))
+{
+    Console.Write($"\r{update.Step}/{update.TotalSteps}");        // update.Preview: a latent-resolution preview every 5 steps
+    if (update.Result is { } result)
+    {
+        PngCodec.Write("lighthouse.png", result.Images[0]);
+    }
+}
+```
+
+- Samplers (`Samplers`): `euler`, `euler-karras`, `euler-ancestral`, `ddim`, `pndm`, `dpm++2m`, `dpm++2m-karras`; each follows the
+  diffusers scheduler step by step and is configured from the model's `scheduler` component (`NoiseSchedule`: betas, prediction type,
+  timestep spacing, offset; the original scheduler configuration is kept as the attachment `scheduler/source-config.json`). The
+  default is the sampler the model was published with.
+- Classifier-free guidance runs on the host: the negative prompt (or the empty prompt) and the prompt are one batched denoiser run
+  per step. Image i of a request uses `Seed + i`; the noise is a counter-based Gaussian stream, identical on every machine and
+  provider. `ImageGenerationOptions.InitialNoise` replaces it (reproducing another implementation's run).
+- Image-to-image: `ImageGenerationRequest.Image` with `Strength`; inpainting: plus `Mask` (white = regenerate; the input is
+  re-imposed outside the mask after every step).
+- Sizes: the graphs are built for the native size (512×512 for SD 1.x, 768×768 for SD 2.x 768-v, 1024×1024 for SDXL) and stored
+  that way in `.slm`; another `Width` / `Height` (multiples of 64) rebuilds the model once per size through
+  `TaskModel.DefinitionFor(dimensions)` (the adapter rebuilds from the canonical metadata and weights, so `.slm` packages work too).
+- Classifier-free guidance with SDXL: without a negative prompt the unconditional row is all zeros (the model's
+  `force_zeros_for_empty_prompt`); an explicit `NegativePrompt = ""` encodes the empty prompt.
+- `sharplight-generate-image` (samples/Sharplight.GenerateImage) is a command-line front end for all of this.
+- HTTP: `services.AddSharplightImageGenerator(name: "sd15")` serves the container's `IImageGenerator` on the OpenAI-compatible
+  `POST /v1/images/generations` (`prompt`, `n`, `size`, `response_format: "b64_json"` with PNG data, plus the extensions
+  `negative_prompt`, `steps`, `guidance_scale`, `seed` and `sampler`); `MapSharplight()` maps it when a generator is registered,
+  `MapSharplightImages()` maps it alone. Requests to one generator run one at a time.
 
 ## 1. Load a model (text generation)
 
@@ -279,7 +374,9 @@ var chat = lease.As<ChatModelInstance>().Service;
 ## 4. Serve over HTTP
 
 `Sharplight.AspNetCore` maps OpenAI-compatible (`/v1/chat/completions`, `/v1/completions`, `/v1/models`) and Anthropic-compatible
-(`/v1/messages`, `/v1/messages/count_tokens`) endpoints, `/v1/embeddings` and `/v1/rerank` for registered retrieval models,
+(`/v1/messages`, `/v1/messages/count_tokens`) endpoints, `/v1/embeddings` and `/v1/rerank` for registered retrieval models, `/v1/audio/transcriptions` and `/v1/audio/translations` for
+registered speech recognizers (`services.AddSharplightSpeechRecognizer("whisper-1")` serves the container's `ISpeechRecognizer`; multipart
+WAV upload, `json`, `text`, `srt`, `vtt` and `verbose_json` responses),
 `/health` (summary), `/health/live` and `/health/ready` (probes; ready answers 503 while draining or loading), `/metrics`
 (Prometheus: queue depth, batch size, step time, TTFT / inter-token histograms, KV-cache use, speculation acceptance) and
 `/admin/models`. Beyond the standard fields the APIs accept `ignore_eos`, `min_tokens`, `priority`, `user` (the fair-share
