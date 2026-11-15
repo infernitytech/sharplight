@@ -14,4 +14,7 @@ public enum HubSortOrder
 
     /// <summary>Most recently created.</summary>
     Newest,
+
+    /// <summary>Most recently updated.</summary>
+    Modified,
 }
