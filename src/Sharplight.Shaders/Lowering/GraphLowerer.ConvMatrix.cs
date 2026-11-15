@@ -31,9 +31,13 @@ public sealed partial class GraphLowerer
         public int FragN => (int)(TileColumns / 64);
     }
 
-    /// <summary>Smallest reduction length / output channels per group worth a tensor-core tile.</summary>
-    private const long ConvMatrixMinK = 64;
-    private const long ConvMatrixMinChannels = 32;
+    /// <summary>
+    /// Smallest reduction length / output channels per group worth a tensor-core tile. Narrow convs (expansions from 16-24
+    /// channels over large maps, 16-channel detector stems) are memory bound: the padded tile still beats the SIMT conv_gemm
+    /// (mobilenetv2 b8 fast 0.87 -> 0.58 ms, strict 0.93 -> 0.71 ms; yolov10n 0.88 -> 0.81 ms).
+    /// </summary>
+    private const long ConvMatrixMinK = 16;
+    private const long ConvMatrixMinChannels = 16;
 
     /// <summary>
     /// Smallest output pixel count (all images) worth a tensor-core tile: below one 64-pixel tile the padding is cheaper than
