@@ -1031,7 +1031,9 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | family | formats | status | verified |
 |---|---|---|---|
 | Stable Diffusion 1.x (SD 1.5) | diffusers folder (with or without `model_index.json`), original single-file `.safetensors` or `.ckpt` (restricted unpickler, nothing executed), stable-diffusion.cpp GGUF (f16, Q8_0, Q4_0, any ggml type for linear weights) | **supported** (txt2img, negative prompts, img2img, mask-blend inpainting, any size that is a multiple of 64, `.slm` with per-component precompilation) | below |
-| SD 1.5 inpainting UNet (9 input channels), SD 2.x, SDXL, SD3, FLUX, Chroma, Qwen-Image, video (Wan, LTX) | - | missing | the graph contract (`DiffusionGraphs`), the description and the pipeline are kind-generic; SDXL needs a second text encoder, pooled / size conditioning and the 2-D transformer depth list, SD3 / FLUX a DiT and flow-matching samplers |
+| Stable Diffusion 2.x (2.1 768-v, 2.1 base) | diffusers folder, original single-file `.safetensors` / `.ckpt` (OpenCLIP ViT-H tower; 768 files default to v-prediction at 768×768, files named like the 512 / base releases to epsilon at 512×512) | **supported** (as SD 1.x) | below |
+| SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, SD3, FLUX, Chroma, Qwen-Image, video (Wan, LTX) | - | missing | the graph contract (`DiffusionGraphs`), the description and the pipeline are kind-generic; SD3 / FLUX need a DiT and flow-matching samplers |
 | LoRA (kohya / diffusers), ControlNet, TAESD | - | missing | |
 
 Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
@@ -1050,6 +1052,24 @@ Verification (tools/make-diffusion-references.py writes the diffusers references
   CUDA 43.5 dB from diffusers, sd.cpp Vulkan 28 dB from both); on Q8_0 all implementations give visually the same image but drift
   apart along the trajectory (Sharplight vs sd.cpp Vulkan 30.0 dB, vs CUDA 20.2 dB); the published Q4_0 file produces a degenerate
   image in every implementation (Sharplight vs sd.cpp CUDA / Vulkan 37.8 / 41.0 dB).
+- Tiny random SD 2.x pipeline (`~/models/sd/tiny-random-sd2`, `make-tiny-diffusion-models.py --family sd2`: linear projections,
+  per-level head counts, upcast attention, GELU text encoder, v-prediction, DDIM): graphs within 1e-4 and txt2img above 40 dB for
+  all six samplers on CPU and Vulkan; its OpenCLIP single file (`.safetensors` and `.ckpt`, with an extra last block that the
+  importer drops) imports to exactly the folder's weights. Sharplight's `pndm` is diffusers' PLMS form (`skip_prk_steps`), also for
+  DDIM-configured models.
+- SD 2.1 768-v (sd2-community mirror) on Vulkan, 768×768, 20 steps, same initial noise as diffusers: fp32 folder Euler 70.2 dB,
+  DDIM 64.1 dB, DPM++ 2M Karras 51.8 dB, graphs within the SD 1.5 tolerances; with the fp16 files (computed in f16 on Vulkan) the
+  images are visually identical but 37.8 / 34.1 / 28.1 dB from diffusers' fp32-upcast run (UNet 2.2 % relative RMS on random
+  inputs). The 768-v single file maps to the diffusers folder's names, shapes and configuration.
+- Tiny random SDXL pipeline (`~/models/sd/tiny-random-sdxl`, tools/make-tiny-sdxl.py): both text encoders (penultimate layers),
+  the pooled projection, the UNet with added conditioning and the VAE within 1e-4, txt2img above 40 dB (Euler, DDIM, DPM++ 2M
+  Karras; without a negative prompt the zero unconditional row) on CPU and Vulkan. The SDXL base single file maps to the diffusers
+  folder's names, shapes and configuration. When a scheduler config omits `set_alpha_to_one`, DDIM / PNDM follow diffusers'
+  per-scheduler defaults.
+- SDXL base 1.0 on Vulkan (published fp16 files), 1024×1024, 20 steps, guidance 7.5, same initial noise as diffusers (fp16 files
+  upcast to fp32, CUDA): UNet 5.7e-5, VAE decode 1.5e-5, second text encoder 6e-4 relative RMS; Euler 42.4 dB, DPM++ 2M Karras
+  30.0 dB (visually identical; the multistep sampler drifts further). Unlike SD 2.1 (attention upcast in its config, 2.2 % UNet
+  error in f16), SDXL keeps its accuracy with f16 weights.
 - Indicative speed on the shared RTX PRO 4500 (GPU 0, other agents active, not a benchmark): Sharplight denoises at about 0.1 s per
   step (CFG batch of 2, 512×512, f16 GGUF), sd.cpp sampled 20 steps in 17.1 s (Vulkan) and 22.8 s (CUDA) in the same session.
   Without a precompiled `.slm` the first load spends 50–130 s compiling the UNet kernels (Slang, CPU-bound); `sharplight-convert

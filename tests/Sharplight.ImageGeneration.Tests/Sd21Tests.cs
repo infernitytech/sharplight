@@ -6,8 +6,8 @@ namespace Sharplight.ImageGeneration.Tests;
 
 /// <summary>
 /// Stable Diffusion 2.1 (768-v: v-prediction, OpenCLIP ViT-H text encoder) on Vulkan against diffusers references
-/// (tools/make-diffusion-references.py, 768×768, 20 steps) in ~/models/sd/sd21-reference. Skips when the model, the references
-/// or a GPU are missing.
+/// (tools/make-diffusion-references.py, 768×768, 20 steps; fp32 files, which the importer prefers over the .fp16 ones) in
+/// ~/models/sd/sd21-reference. Skips when the model, the references or a GPU are missing.
 /// </summary>
 public sealed class Sd21Tests
 {
@@ -50,6 +50,7 @@ public sealed class Sd21Tests
         var unet = GraphRunner.Run(model, ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, DiffusionGraphs.Prediction, 2,
             (DiffusionGraphs.Latent, Tensor("unet_latent")), (DiffusionGraphs.Timestep, Tensor("unet_timesteps")), (DiffusionGraphs.Context, Tensor("unet_context")));
         var (unetMax, unetRms) = Env.Compare(unet, Tensor("unet_out"));
+        TestContext.Current.SendDiagnosticMessage($"unet: relative RMS {unetRms:E2}");
         Assert.True(unetRms < 5e-3, $"unet: max {unetMax}, relative RMS {unetRms}");
 
         const float scaling = 0.18215f;
@@ -57,6 +58,7 @@ public sealed class Sd21Tests
             (DiffusionGraphs.Latent, Tensor("vae_latent").Select(v => v * scaling).ToArray()));
         var expected = Tensor("vae_decoded").Select(v => Math.Clamp(v / 2 + 0.5f, 0f, 1f)).ToArray();
         var (vaeMax, vaeRms) = Env.Compare(decoded, expected);
+        TestContext.Current.SendDiagnosticMessage($"vae: relative RMS {vaeRms:E2}");
         Assert.True(vaeRms < 5e-3, $"vae: max {vaeMax}, relative RMS {vaeRms}");
     }
 

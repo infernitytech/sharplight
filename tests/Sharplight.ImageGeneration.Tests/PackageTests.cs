@@ -14,15 +14,18 @@ public sealed class PackageTests
         return Path.Combine(folder, $"{name}-{Guid.NewGuid():N}.slm");
     }
 
-    [Fact]
-    public async Task ConvertedPackageGeneratesTheSameImages()
+    [Theory]
+    [InlineData("sd1")]
+    [InlineData("sdxl")]
+    public async Task ConvertedPackageGeneratesTheSameImages(string family)
     {
-        Assert.SkipUnless(Directory.Exists(Env.Tiny), "tiny-random-sd missing");
+        string diffusers = Env.TinyDiffusersOf(family);
+        Assert.SkipUnless(Directory.Exists(diffusers), $"tiny {family} pipeline missing");
         _ = Env.Services;
-        string path = TempPackage("tiny-sd");
+        string path = TempPackage("tiny-" + family);
         try
         {
-            ModelConverter.Convert(Env.TinyDiffusers, path);
+            ModelConverter.Convert(diffusers, path);
             var info = ModelPackageReader.Open(path);
             Assert.True(info.Definition.HasDescription);
             Assert.Equal(ModelKinds.ImageGeneration, info.Definition.Description.Kind);
@@ -33,7 +36,7 @@ public sealed class PackageTests
             var options = new ImageGenerationOptions { Steps = 3, Seed = 5, Scheduler = Samplers.DpmPlusPlus2MKarras };
             var ct = TestContext.Current.CancellationToken;
             byte[] expected;
-            using (var folder = Env.Load(Env.TinyDiffusers, Env.Cpu()))
+            using (var folder = Env.Load(diffusers, Env.Cpu()))
             using (var generator = Env.Clients.Create<IImageGenerator>(folder))
             {
                 expected = (await generator.GenerateAsync(request, options, ct)).Images[0].Rgb;

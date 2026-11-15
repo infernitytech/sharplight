@@ -7,7 +7,7 @@ namespace Sharplight.GenerateImage;
 /// <summary>The <c>sharplight-generate-image</c> command line.</summary>
 internal sealed class GenerateImageCommand
 {
-    private readonly Option<string> _model = new("--model", "-m") { Description = "Model: a diffusers folder, a single-file .safetensors / .gguf checkpoint or an .slm package.", Required = true };
+    private readonly Option<string> _model = new("--model", "-m") { Description = "Model: a diffusers folder (SD 1.x / 2.x / XL), a single-file .safetensors / .ckpt / .gguf checkpoint or an .slm package.", Required = true };
     private readonly Option<string> _prompt = new("--prompt", "-p") { Description = "What to generate.", Required = true };
     private readonly Option<string?> _negative = new("--negative-prompt", "-n") { Description = "What the image should not show." };
     private readonly Option<string> _output = new("--output", "-o") { Description = "Output PNG; with --count > 1, '-<index>' is inserted before the extension.", DefaultValueFactory = _ => "output.png" };

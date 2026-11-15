@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Writes diffusers reference outputs of a Stable Diffusion 1.x / 2.x pipeline for the Sharplight image-generation tests.
+"""Writes diffusers reference outputs of a Stable Diffusion 1.x / 2.x / XL pipeline for the Sharplight image-generation tests.
 
 For a diffusers pipeline folder (MODEL) this writes raw little-endian f32 tensors plus OUT/index.json:
 
   tokens / text_hidden_{i}      CLIP token ids and text-encoder outputs of a few prompts
-  unet_latent/context/timesteps/out    one UNet evaluation on seeded random inputs (batch 2)
+  text2_hidden_{i} / text2_pooled_{i}  SDXL: the second encoder's outputs (both encoders' hidden states are the penultimate layer's)
+  unet_latent/context/timesteps/out    one UNet evaluation on seeded random inputs (batch 2; SDXL also unet_pooled / unet_time_ids)
   vae_latent / vae_decoded       a VAE decode of seeded random latents (raw decoder output, [-1, 1])
   vae_image / vae_encoded_mean   a VAE encode of a seeded random image in [-1, 1] (raw latent mean)
   noise                          unit Gaussian initial noise [1, 4, H/8, W/8] shared by the pipeline runs
@@ -63,6 +64,9 @@ def load_pipeline(folder):
     # Downloads that hold only the .fp16 files load as the fp16 variant, upcast to float32.
     unet_files = os.listdir(os.path.join(folder, "unet"))
     variant = "fp16" if not any(f.endswith(".safetensors") and ".fp16." not in f for f in unet_files) else None
+    if os.path.exists(os.path.join(folder, "text_encoder_2")):
+        from diffusers import StableDiffusionXLPipeline
+        return StableDiffusionXLPipeline.from_pretrained(folder, torch_dtype=torch.float32, variant=variant)
     if os.path.exists(os.path.join(folder, "model_index.json")):
         return StableDiffusionPipeline.from_pretrained(folder, torch_dtype=torch.float32, safety_checker=None,
                                                        requires_safety_checker=False, variant=variant)
@@ -95,22 +99,40 @@ def main():
     ref = Reference(args.out)
     tokens = {}
     latent_size = args.size // 8
+    xl = getattr(pipe, "text_encoder_2", None) is not None
+    tokens_2 = {}
     with torch.no_grad():
         for i, prompt in enumerate(PROMPTS):
             ids = pipe.tokenizer(prompt, padding="max_length", max_length=77, truncation=True, return_tensors="pt").input_ids
             tokens[prompt] = ids[0].tolist()
-            ref.add(f"text_hidden_{i}", pipe.text_encoder(ids.to(device)).last_hidden_state[0])
+            if not xl:
+                ref.add(f"text_hidden_{i}", pipe.text_encoder(ids.to(device)).last_hidden_state[0])
+                continue
+            ref.add(f"text_hidden_{i}", pipe.text_encoder(ids.to(device), output_hidden_states=True).hidden_states[-2][0])
+            ids_2 = pipe.tokenizer_2(prompt, padding="max_length", max_length=77, truncation=True, return_tensors="pt").input_ids
+            tokens_2[prompt] = ids_2[0].tolist()
+            out_2 = pipe.text_encoder_2(ids_2.to(device), output_hidden_states=True)
+            ref.add(f"text2_hidden_{i}", out_2.hidden_states[-2][0])
+            ref.add(f"text2_pooled_{i}", out_2.text_embeds[0])
 
         g = torch.Generator().manual_seed(1)
         channels = pipe.unet.config.in_channels
-        width = pipe.text_encoder.config.hidden_size
+        width = pipe.unet.config.cross_attention_dim
         latent = torch.randn(2, channels, latent_size, latent_size, generator=g)
         context = torch.randn(2, 77, width, generator=g)
         timesteps = torch.tensor([999.0, 321.5])
         ref.add("unet_latent", latent)
         ref.add("unet_context", context)
         ref.add("unet_timesteps", timesteps)
-        ref.add("unet_out", pipe.unet(latent.to(device), timesteps.to(device), encoder_hidden_states=context.to(device)).sample)
+        added = None
+        if xl:
+            pooled = torch.randn(2, pipe.text_encoder_2.config.projection_dim, generator=g)
+            time_ids = torch.tensor([[args.size, args.size, 0.0, 0.0, args.size, args.size]] * 2)
+            ref.add("unet_pooled", pooled)
+            ref.add("unet_time_ids", time_ids)
+            added = {"text_embeds": pooled.to(device), "time_ids": time_ids.to(device)}
+        ref.add("unet_out", pipe.unet(latent.to(device), timesteps.to(device), encoder_hidden_states=context.to(device),
+                                      added_cond_kwargs=added).sample)
 
         vae_latent = torch.randn(1, 4, latent_size, latent_size, generator=g)
         ref.add("vae_latent", vae_latent)
@@ -146,7 +168,7 @@ def main():
             runs[name]["sigmas"] = [float(s) for s in sampler.sigmas]
         print(name, "done", flush=True)
 
-    ref.save({"tokens": tokens, "prompt": PROMPT, "negative_prompt": NEGATIVE, "steps": args.steps, "guidance_scale": args.guidance,
+    ref.save({"tokens": tokens, "tokens_2": tokens_2, "prompt": PROMPT, "negative_prompt": NEGATIVE, "steps": args.steps, "guidance_scale": args.guidance,
               "height": args.size, "width": args.size, "samplers": runs})
     print("written to", args.out)
 

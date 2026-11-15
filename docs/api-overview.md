@@ -97,11 +97,12 @@ interfaces, options, results, the description and the host-side plumbing they pl
 
 ### Image generation
 
-`Sharplight.Import.Diffusers` reads Stable Diffusion 1.x checkpoints (diffusers folders, original single-file `.safetensors` or
+`Sharplight.Import.Diffusers` reads Stable Diffusion 1.x / 2.x / XL checkpoints (diffusers folders, original single-file `.safetensors` or
 `.ckpt` (through the restricted unpickler of Sharplight.Import.PyTorch),
 stable-diffusion.cpp GGUF files) into the canonical `latent_diffusion` source; `LatentDiffusionAdapter` (Sharplight.Architectures)
 builds a text encoder, a UNet denoiser and the VAE decoder / encoder as graphs of generic Core ops and describes them as an
-`image-generation` model (components `text-encoder`, `tokenizer`, `denoiser`, `vae`, `scheduler`). Core's built-in latent-diffusion
+`image-generation` model (components `text-encoder`, `tokenizer`, `denoiser`, `vae`, `scheduler`; SDXL's second text encoder is a
+second graph of the `text-encoder` component whose pooled embedding and the size conditions feed the UNet). Core's built-in latent-diffusion
 pipeline (`LatentDiffusionGeneratorFactory`, registered by `AddSharplightTasks()`) serves every model whose graphs follow
 `DiffusionGraphs`; a family with another pipeline registers its own factory.
 
@@ -133,9 +134,11 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
   provider. `ImageGenerationOptions.InitialNoise` replaces it (reproducing another implementation's run).
 - Image-to-image: `ImageGenerationRequest.Image` with `Strength`; inpainting: plus `Mask` (white = regenerate; the input is
   re-imposed outside the mask after every step).
-- Sizes: the graphs are built for the native size (512×512 for SD 1.x) and stored that way in `.slm`; another `Width` / `Height`
-  (multiples of 64) rebuilds the model once per size through `TaskModel.DefinitionFor(dimensions)` (the adapter rebuilds from the
-  canonical metadata and weights, so `.slm` packages work too).
+- Sizes: the graphs are built for the native size (512×512 for SD 1.x, 768×768 for SD 2.x 768-v, 1024×1024 for SDXL) and stored
+  that way in `.slm`; another `Width` / `Height` (multiples of 64) rebuilds the model once per size through
+  `TaskModel.DefinitionFor(dimensions)` (the adapter rebuilds from the canonical metadata and weights, so `.slm` packages work too).
+- Classifier-free guidance with SDXL: without a negative prompt the unconditional row is all zeros (the model's
+  `force_zeros_for_empty_prompt`); an explicit `NegativePrompt = ""` encodes the empty prompt.
 - `sharplight-generate-image` (samples/Sharplight.GenerateImage) is a command-line front end for all of this.
 - HTTP: `services.AddSharplightImageGenerator(name: "sd15")` serves the container's `IImageGenerator` on the OpenAI-compatible
   `POST /v1/images/generations` (`prompt`, `n`, `size`, `response_format: "b64_json"` with PNG data, plus the extensions
