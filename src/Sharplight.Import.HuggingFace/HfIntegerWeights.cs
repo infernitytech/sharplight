@@ -63,6 +63,9 @@ internal static class HfIntegerWeights
             case "quanto" or "optimum-quanto":
                 layouts.AddRange(HfQuantoLayouts.Find(config, tensors, consumed));
                 break;
+            case "torchao":
+                layouts.AddRange(HfTorchAoLayouts.Find(tensors, consumed));
+                break;
             case "compressed-tensors":
                 layouts.AddRange(HfCompressedIntLayouts.Find(settings, tensors, consumed));
                 break;

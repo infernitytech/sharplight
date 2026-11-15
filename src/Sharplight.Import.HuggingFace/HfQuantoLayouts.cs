@@ -59,7 +59,7 @@ internal static unsafe class HfQuantoLayouts
         return result;
     }
 
-    private static SafetensorsTensor Renamed(SafetensorsTensor tensor, string name) => new()
+    internal static SafetensorsTensor Renamed(SafetensorsTensor tensor, string name) => new()
     {
         Name = name,
         DType = tensor.DType,

@@ -17,7 +17,7 @@ public static class HfSupport
     /// </summary>
     private static readonly HashSet<string> s_unsupportedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
-        "hqq", "eetq", "exl2", "exllama", "torchao", "vptq", "higgs",
+        "hqq", "eetq", "exl2", "exllama", "vptq", "higgs",
         "spqr", "fp_quant",
     };
 
@@ -72,7 +72,7 @@ public static class HfSupport
     /// with 8-bit float weights, ModelOpt <c>FP8</c>), NVFP4 (ModelOpt, compressed-tensors), MXFP4 (compressed-tensors; <c>mxfp4</c>
     /// for gpt-oss, AMD Quark), GPTQ (2, 3, 4 and 8 bits), AWQ (<c>gemm</c> / <c>gemv</c> / <c>gemv_fast</c> / <c>marlin</c>), GPTQ Marlin, compressed-tensors integer weights,
     /// bitsandbytes, MLX quantization (affine and the <c>mxfp4</c> / <c>nvfp4</c> / <c>mxfp8</c> modes), AutoRound (GPTQ / AWQ packings)
-    /// and AQLM (dequantized while read). Not read: the methods with codebook or framework-specific layouts (HQQ, EXL2, torchao, ...).
+    /// and AQLM (dequantized while read). Not read: the methods with codebook or framework-specific layouts (HQQ, EXL2, torchao int4, ...).
     /// </summary>
     /// <param name="configJson">The text of <c>config.json</c> (its <c>quantization_config</c>).</param>
     /// <param name="quantizationConfigJson">The text of <c>hf_quant_config.json</c> when the checkpoint has one (ModelOpt), else null.</param>
@@ -140,6 +140,8 @@ public static class HfSupport
                 return AutoRound(settings);
             case "quanto" or "optimum-quanto":
                 return Quanto(method, settings);
+            case "torchao":
+                return TorchAo(settings);
             case "bitsandbytes":
                 return new HfQuantizationSupport(method, SupportLevel.Supported);
             case "aqlm":
@@ -158,6 +160,33 @@ public static class HfSupport
         string weights = String(settings, "weights") ?? "int8";
         bool read = weights is "int8" or "int4" or "int2" or "float8" or "qint8" or "qint4" or "qint2" or "qfloat8";
         return new HfQuantizationSupport($"{method} ({weights})", read ? SupportLevel.Supported : SupportLevel.Unsupported);
+    }
+
+    /// <summary>
+    /// torchao: the <c>Int8WeightOnlyConfig</c> / <c>Int8DynamicActivationInt8WeightConfig</c> and <c>Float8WeightOnlyConfig</c> /
+    /// <c>Float8DynamicActivationFloat8WeightConfig</c> tensors (<see cref="HfTorchAoLayouts"/>); int4 / intx / NF4 and the string quant types of
+    /// older torchao releases are not read.
+    /// </summary>
+    private static HfQuantizationSupport TorchAo(JsonElement settings)
+    {
+        var types = new SortedSet<string>(StringComparer.Ordinal);
+        bool read = settings.TryGetProperty("quant_type", out var quantType) && quantType.ValueKind == JsonValueKind.Object;
+        if (read)
+        {
+            foreach (var entry in quantType.EnumerateObject())
+            {
+                string? type = entry.Value.ValueKind == JsonValueKind.Object ? String(entry.Value, "_type") : null;
+                types.Add(type ?? entry.Value.ToString());
+                read &= type is "Int8WeightOnlyConfig" or "Int8DynamicActivationInt8WeightConfig" or "Float8WeightOnlyConfig"
+                    or "Float8DynamicActivationFloat8WeightConfig";
+            }
+        }
+        else
+        {
+            types.Add(settings.TryGetProperty("quant_type", out var legacy) ? legacy.ToString() : "unknown");
+        }
+
+        return new HfQuantizationSupport($"torchao ({string.Join(", ", types)})", read ? SupportLevel.Supported : SupportLevel.Unsupported);
     }
 
     /// <summary>

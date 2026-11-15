@@ -9,6 +9,7 @@ which this script extends with the formats of the third quantization round):
                        (the kernel is one half-precision fma, so one rounding)
   Quark int4 / int8 / MXFP6  quark.torch.utils.pack unpackers (amd-quark 0.13), (q - zero point) * scale / element * 2^e in f32
   optimum-quanto       the library's dequantize() of each frozen weight with scale / shift as f32 (optimum-quanto 0.2.7)
+  torchao              the tensors torchao held (qdata, scale, zero point) dequantized in f32 (torchao 0.18)
   Marlin (GPTQ / AWQ)  hf_quant_reference_marlin.py (vLLM Marlin GEMM on an identity matrix); run it first
 """
 import os
@@ -72,7 +73,7 @@ def quark(state, quant):
     spec = quant["global_quant_config"]["weight"]
     dtype = spec["dtype"]
     reorder = quant.get("export", {}).get("pack_method", "reorder") != "order"
-    for key in sorted(k for k in state if k.endswith(".weight") and (k[:-len(".weight")] + ".weight_scale" in state or dtype == "mx")):
+    for key in sorted(k for k in state if k.endswith(".weight") and (k[:-len(".weight")] + ".weight_scale" in state or (dtype == "mx" and state[k].dtype == torch.uint8))):
         stem = key[:-len(".weight")]
         used = {key, stem + ".weight_scale", stem + ".weight_zero_point"}
         if dtype in ("int4", "int8"):
@@ -105,7 +106,14 @@ def quanto(directory, state):
     """optimum-quanto's own dequantization (scale / shift as f32), saved by mk_tiny_quantized_formats3.py next to the checkpoint."""
     reference = torch.load(os.path.join(directory, "quanto-reference.pt"))
     for stem, weight in reference.items():
-        yield stem, weight, {k for k in state if k.startswith(stem + ".weight.")}
+        yield stem, weight, {k for k in state if k.startswith(stem + ".weight.")} | {stem + ".input_scale", stem + ".output_scale"}
+
+
+def torchao(directory, state):
+    """torchao's dequantization (f32, from the tensors the library held when it saved the checkpoint)."""
+    reference = torch.load(os.path.join(directory, "torchao-reference.pt"))
+    for stem, weight in reference.items():
+        yield stem, weight, {stem + suffix for suffix in ("._weight_qdata", "._weight_scale", "._weight_zero_point")}
 
 
 previous = base.dequantized
@@ -119,6 +127,8 @@ def dequantized(directory, config):
         modules = awq_gemv_fast(state, quant)
     elif (quant.get("quant_method") == "awq" and quant.get("version") == "marlin") or quant.get("checkpoint_format") == "marlin":
         modules = marlin(directory, state)
+    elif quant.get("quant_method") == "torchao":
+        modules = torchao(directory, state)
     elif quant.get("quant_method") == "quanto":
         modules = quanto(directory, state)
     elif quant.get("quant_method") == "quark" and quant["global_quant_config"]["weight"]["dtype"] in ("int4", "int8", "fp6_e3m2", "fp6_e2m3", "mx"):

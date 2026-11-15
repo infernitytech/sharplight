@@ -12,7 +12,7 @@ Cases (library; the Python environment each needs is noted):
                                      marlin_permute_scales (CUDA op; vllm venv with CUDA_VISIBLE_DEVICES set)
   quanto-int8, quanto-int4, quanto-float8
                                      optimum-quanto 0.2.7 quantize + freeze, state dict saved like QuantizedModelForCausalLM  (formats-a3 venv)
-  torchao-int8wo, torchao-int4wo-plain, torchao-float8wo   see torchao_case                            (formats-a3 venv)
+  torchao-int8wo, torchao-int8wo-g128, torchao-float8wo   see torchao_case                     (formats-a3 venv, CPU; int4 needs mslk, absent)
   quark-int4-g128, quark-int4-g64-sym, quark-int4-g128-f32scale, quark-int8-channel, quark-mxfp6-e3m2, quark-mxfp6-e2m3,
                                      quark-mx-fp6-e3m2 (in-stream)
                                      weights packed by quark.torch.utils.pack (Pack_4_bits / Pack_8_bits / Pack_mxfp6)  (formats-a3 venv)
@@ -274,6 +274,32 @@ def dequantize_f32(weight):
     return clone.dequantize().float()
 
 
+def torchao_case(base, out, kind, group_size=None):
+    """torchao 0.18 through transformers (TorchAoConfig, CPU; safetensors with the tensor subclass parts as X._weight_qdata /
+    X._weight_scale / X._weight_zero_point). The reference (torchao-reference.pt) is the library's dequantization of every weight in f32:
+    (qdata - zero point) * scale for Int8Tensor, qdata * scale for Float8Tensor, from the tensors the library holds."""
+    from torchao.quantization import Float8WeightOnlyConfig, Int8WeightOnlyConfig
+    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+    from torchao.quantization import PerGroup
+    config = (Int8WeightOnlyConfig(granularity=PerGroup(group_size)) if group_size else Int8WeightOnlyConfig()) if kind == "int8" else Float8WeightOnlyConfig()
+    model = AutoModelForCausalLM.from_pretrained(base, quantization_config=TorchAoConfig(quant_type=config), device_map="cpu", dtype=torch.bfloat16)
+    reference = {}
+    for name, module in model.named_modules():
+        weight = getattr(module, "weight", None)
+        if hasattr(weight, "qdata"):
+            q = weight.qdata.float()
+            zero = getattr(weight, "zero_point", None)
+            scale = weight.scale.float()
+            n, k = q.shape
+            groups = scale.numel() // n
+            q = q.reshape(n, groups, k // groups)
+            q = q if zero is None else q - zero.float().reshape(n, groups, 1)
+            reference[name] = (q * scale.reshape(n, groups, 1)).reshape(n, k)
+    model.save_pretrained(out, safe_serialization=True)
+    torch.save(reference, os.path.join(out, "torchao-reference.pt"))
+    AutoTokenizer.from_pretrained(base).save_pretrained(out)
+
+
 def main():
     root = os.path.expanduser(sys.argv[1])
     tokenizer_dir, out_dir = os.path.join(root, "tiny-random-GPTNeoXForCausalLM"), os.path.join(root, "quant", "tiny")
@@ -305,6 +331,9 @@ def main():
 
 def extra_cases(base):
     return [
+        ("torchao-int8wo", lambda out: torchao_case(base, out, "int8")),
+        ("torchao-int8wo-g128", lambda out: torchao_case(base, out, "int8", 128)),
+        ("torchao-float8wo", lambda out: torchao_case(base, out, "float8")),
         ("quanto-int8", lambda out: quanto_case(base, out, "qint8")),
         ("quanto-int4", lambda out: quanto_case(base, out, "qint4")),
         ("quanto-int2", lambda out: quanto_case(base, out, "qint2")),
