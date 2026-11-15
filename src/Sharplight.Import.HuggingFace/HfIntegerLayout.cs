@@ -42,6 +42,13 @@ internal sealed class HfIntegerLayout
     /// </summary>
     public required bool ScalesFitHalf { get; init; }
 
+    /// <summary>
+    /// Whether the third value <see cref="DecodeRow"/> produces per group is an additive bias instead of a zero point, value =
+    /// scale * code + bias (AWQ <c>gemv_fast</c>, which stores -scale * zero in f16). Such weights keep their codes as
+    /// <see cref="Sharplight.Models.DataType.Q4_1"/> / <see cref="Sharplight.Models.DataType.Q5_1"/> blocks (<see cref="HfAffineWeights"/>).
+    /// </summary>
+    public bool Affine { get; init; }
+
     /// <summary>Groups per row.</summary>
     public long Groups => (Columns + GroupSize - 1) / GroupSize;
 }
