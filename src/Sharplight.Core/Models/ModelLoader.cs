@@ -51,7 +51,7 @@ public sealed class ModelLoader
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions? options = null, Action<string>? log = null)
         => Architectures.Build(sources, options, log);
 
-    /// <summary>Opens and builds a model in one step (see <see cref="Open"/> and <see cref="Build"/>).</summary>
+    /// <summary>Opens and builds a model in one step (see <see cref="Open"/> and <see cref="Build(ModelSourceSet, AdapterOptions?, Action{string}?)"/>).</summary>
     /// <param name="path">The primary model file or directory.</param>
     /// <param name="auxiliary">Auxiliary files by role, or <see langword="null"/> for none.</param>
     /// <param name="options">Adapter options, or <see langword="null"/> for the defaults.</param>

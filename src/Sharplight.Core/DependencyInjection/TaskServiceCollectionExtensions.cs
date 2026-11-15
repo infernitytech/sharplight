@@ -70,7 +70,7 @@ public static class TaskServiceCollectionExtensions
         }
 
         /// <summary>
-        /// Adds a <typeparamref name="TClient"/> singleton for one model (see <see cref="AddTaskClient{TClient}(Action{TaskLoadOptions}, object?)"/>),
+        /// Adds a <typeparamref name="TClient"/> singleton for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>),
         /// configured with access to the container, e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
         /// </summary>
         /// <typeparam name="TClient">The client interface (<see cref="ITextGenerator"/>, <see cref="ISpeechRecognizer"/>, ...).</typeparam>
@@ -102,28 +102,28 @@ public static class TaskServiceCollectionExtensions
             return services;
         }
 
-        /// <summary>Adds an <see cref="ITextGenerator"/> for one model (see <see cref="AddTaskClient{TClient}(Action{TaskLoadOptions}, object?)"/>).</summary>
+        /// <summary>Adds an <see cref="ITextGenerator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
         /// <param name="configure">Configures the model path, devices and compile settings.</param>
         /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
         /// <returns>The service collection.</returns>
         public IServiceCollection AddTextGenerator(Action<TaskLoadOptions> configure, object? serviceKey = null)
             => services.AddTaskClient<ITextGenerator>(configure, serviceKey);
 
-        /// <summary>Adds an <see cref="ISpeechRecognizer"/> for one model (see <see cref="AddTaskClient{TClient}(Action{TaskLoadOptions}, object?)"/>).</summary>
+        /// <summary>Adds an <see cref="ISpeechRecognizer"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
         /// <param name="configure">Configures the model path, devices and compile settings.</param>
         /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
         /// <returns>The service collection.</returns>
         public IServiceCollection AddSpeechRecognizer(Action<TaskLoadOptions> configure, object? serviceKey = null)
             => services.AddTaskClient<ISpeechRecognizer>(configure, serviceKey);
 
-        /// <summary>Adds an <see cref="ISpeechSynthesizer"/> for one model (see <see cref="AddTaskClient{TClient}(Action{TaskLoadOptions}, object?)"/>).</summary>
+        /// <summary>Adds an <see cref="ISpeechSynthesizer"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
         /// <param name="configure">Configures the model path, devices and compile settings.</param>
         /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
         /// <returns>The service collection.</returns>
         public IServiceCollection AddSpeechSynthesizer(Action<TaskLoadOptions> configure, object? serviceKey = null)
             => services.AddTaskClient<ISpeechSynthesizer>(configure, serviceKey);
 
-        /// <summary>Adds an <see cref="IImageGenerator"/> for one model (see <see cref="AddTaskClient{TClient}(Action{TaskLoadOptions}, object?)"/>).</summary>
+        /// <summary>Adds an <see cref="IImageGenerator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
         /// <param name="configure">Configures the model path, devices and compile settings.</param>
         /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
         /// <returns>The service collection.</returns>

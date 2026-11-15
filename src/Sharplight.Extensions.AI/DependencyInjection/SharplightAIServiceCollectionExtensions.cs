@@ -40,7 +40,7 @@ public static class SharplightAIServiceCollectionExtensions
 
         /// <summary>
         /// Registers a singleton <see cref="IChatClient"/> over one model (see
-        /// <see cref="AddSharplightChatClient(Action{LlmLoadOptions}, Action{SharplightChatClientOptions}?, object?)"/>), configured with
+        /// <c>AddSharplightChatClient(configure, client, serviceKey)</c>), configured with
         /// access to the container, e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
         /// </summary>
         /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
@@ -89,7 +89,7 @@ public static class SharplightAIServiceCollectionExtensions
         /// <summary>
         /// Registers a singleton <see cref="IEmbeddingGenerator{TInput, TEmbedding}"/> over one embedding model, loaded on first use with
         /// the <see cref="EmbeddingLoadOptions"/> named after <paramref name="serviceKey"/> (see
-        /// <see cref="AddSharplightChatClient(Action{LlmLoadOptions}, Action{SharplightChatClientOptions}?, object?)"/>). Returns the
+        /// <c>AddSharplightChatClient(configure, client, serviceKey)</c>). Returns the
         /// builder for middleware (e.g. <c>.UseDistributedCache()</c>).
         /// </summary>
         /// <param name="configure">Configures the model path, devices and batch settings.</param>
@@ -103,7 +103,7 @@ public static class SharplightAIServiceCollectionExtensions
 
         /// <summary>
         /// Registers a singleton embedding generator over one model (see
-        /// <see cref="AddSharplightEmbeddingGenerator(Action{EmbeddingLoadOptions}, object?)"/>), configured with access to the container.
+        /// <c>AddSharplightEmbeddingGenerator(configure, serviceKey)</c>), configured with access to the container.
         /// </summary>
         /// <param name="configure">Configures the model path, devices and batch settings from the container's services.</param>
         /// <param name="serviceKey">The service key of the generator, or <see langword="null"/> for an unkeyed generator.</param>

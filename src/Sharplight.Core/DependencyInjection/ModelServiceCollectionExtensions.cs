@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Sharplight.Models;
 using Sharplight.Vision;
@@ -32,7 +33,7 @@ public static class ModelServiceCollectionExtensions
         /// <summary>Adds a model importer (a file format); a second registration of the same implementation type is ignored.</summary>
         /// <typeparam name="TImporter">The importer type, created by the container.</typeparam>
         /// <returns>The service collection.</returns>
-        public IServiceCollection AddModelImporter<TImporter>()
+        public IServiceCollection AddModelImporter<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TImporter>()
             where TImporter : class, IModelImporter
         {
             services.AddModelLoader();
@@ -56,7 +57,7 @@ public static class ModelServiceCollectionExtensions
         /// <summary>Adds an architecture adapter; a second registration of the same implementation type is ignored.</summary>
         /// <typeparam name="TAdapter">The adapter type, created by the container.</typeparam>
         /// <returns>The service collection.</returns>
-        public IServiceCollection AddModelAdapter<TAdapter>()
+        public IServiceCollection AddModelAdapter<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TAdapter>()
             where TAdapter : class, IModelAdapter
         {
             services.AddModelLoader();
@@ -67,7 +68,7 @@ public static class ModelServiceCollectionExtensions
         /// <summary>Adds the prompt assembly of image-capable architectures; a second registration of the same type is ignored.</summary>
         /// <typeparam name="TMultimodal">The handler type, created by the container.</typeparam>
         /// <returns>The service collection.</returns>
-        public IServiceCollection AddMultimodalArchitecture<TMultimodal>()
+        public IServiceCollection AddMultimodalArchitecture<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TMultimodal>()
             where TMultimodal : class, IMultimodalArchitecture
         {
             services.AddModelLoader();

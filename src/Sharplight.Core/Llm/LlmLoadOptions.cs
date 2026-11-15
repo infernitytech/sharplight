@@ -19,7 +19,7 @@ public sealed class LlmLoadOptions : TaskLoadOptions
     }
 
     /// <summary>
-    /// Element type of the attention KV caches, overriding <see cref="AdapterOptions.KvCacheType"/> of <see cref="Adapter"/>: f16,
+    /// Element type of the attention KV caches, overriding <see cref="AdapterOptions.KvCacheType"/> of <see cref="TaskLoadOptions.Adapter"/>: f16,
     /// f32, or the block-quantized q8_0 (about half the memory of f16) / q4_0 (about a quarter). Caches whose rows per head are not
     /// whole 32-value blocks stay f16. Null keeps the adapter setting (default f16).
     /// </summary>
@@ -27,8 +27,8 @@ public sealed class LlmLoadOptions : TaskLoadOptions
 
     /// <summary>
     /// Element type of 16-bit-capable recurrent states (the gated delta rule's state matrices), overriding
-    /// <see cref="AdapterOptions.RecurrentStateType"/> of <see cref="Adapter"/>: f32, bf16 or f16. Null: bf16 when
-    /// <see cref="AllowReducedPrecision"/> is set, otherwise the adapter setting (default f32). The environment variable
+    /// <see cref="AdapterOptions.RecurrentStateType"/> of <see cref="TaskLoadOptions.Adapter"/>: f32, bf16 or f16. Null: bf16 when
+    /// <see cref="TaskLoadOptions.AllowReducedPrecision"/> is set, otherwise the adapter setting (default f32). The environment variable
     /// <c>SHARPLIGHT_RECURRENT_STATE</c> (f32, bf16, f16) overrides both. Has no effect on prebuilt packages.
     /// </summary>
     public DataType? RecurrentStateType { get; set; }

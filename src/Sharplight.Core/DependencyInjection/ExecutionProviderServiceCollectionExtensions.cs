@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Sharplight.Runtime;
 
@@ -15,7 +16,7 @@ public static class ExecutionProviderServiceCollectionExtensions
         /// <summary>Adds an execution provider; a second registration of the same implementation type is ignored.</summary>
         /// <typeparam name="TProvider">The provider type, created by the container and disposed with it.</typeparam>
         /// <returns>The service collection.</returns>
-        public IServiceCollection AddExecutionProvider<TProvider>()
+        public IServiceCollection AddExecutionProvider<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProvider>()
             where TProvider : class, IExecutionProvider
         {
             ArgumentNullException.ThrowIfNull(services);
