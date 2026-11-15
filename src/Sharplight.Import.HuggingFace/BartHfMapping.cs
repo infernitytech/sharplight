@@ -61,7 +61,7 @@ internal sealed partial class BartHfMapping : IHfArchitectureMapping
     private static partial Regex LayerName();
 
     /// <summary>Per-layer modules, HF name to canonical name.</summary>
-    private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
+    internal static readonly Dictionary<string, string> LayerModules = new(StringComparer.Ordinal)
     {
         ["self_attn.q_proj"] = "attention.q",
         ["self_attn.k_proj"] = "attention.k",
@@ -112,7 +112,7 @@ internal sealed partial class BartHfMapping : IHfArchitectureMapping
             }
 
             var m = LayerName().Match(name);
-            if (!m.Success || !s_layer.TryGetValue(m.Groups[3].Value, out var module))
+            if (!m.Success || !LayerModules.TryGetValue(m.Groups[3].Value, out var module))
             {
                 throw new NotSupportedException($"{c.ModelType}: tensor '{rawName}' has no canonical mapping.");
             }

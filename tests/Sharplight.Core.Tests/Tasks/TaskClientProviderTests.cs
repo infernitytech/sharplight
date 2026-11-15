@@ -63,9 +63,13 @@ public class TaskClientProviderTests
         using var services = new ServiceCollection().AddSharplightTasks().AddSharplightTasks().BuildServiceProvider();
         using var once = new ServiceCollection().AddSharplightTasks().BuildServiceProvider();
         var provider = services.GetRequiredService<TaskClientProvider>();
-        // Registering twice adds nothing; one built-in factory per kind.
-        Assert.Equal(once.GetServices<ITaskClientFactory>().Count(), services.GetServices<ITaskClientFactory>().Count());
-        Assert.Single(services.GetServices<ITaskClientFactory>(), f => f.Kind == ModelKinds.TextGeneration);
+        // Registering twice adds nothing: one built-in factory per (kind, client type).
+        var factories = services.GetServices<ITaskClientFactory>().ToList();
+        Assert.Equal(once.GetServices<ITaskClientFactory>().Count(), factories.Count);
+        Assert.Equal(factories.Count, factories.Select(f => (f.Kind, f.ClientType)).Distinct().Count());
+        Assert.Single(factories, f => f.Kind == ModelKinds.TextGeneration);
+        Assert.Single(factories, f => f.Kind == ModelKinds.SpeechRecognition);
+        Assert.Single(factories, f => f.Kind == ModelKinds.ImageGeneration);
         using var decoder = Model(null, "llama", WellKnown.DecodeGraph);
         using var graphOnly = Model(null, "onnx", "main");
         Assert.True(provider.CanCreate<ITextGenerator>(decoder));
