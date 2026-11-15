@@ -187,6 +187,10 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     [ObservableProperty]
     public partial bool PrecompileAfterDownload { get; set; }
 
+    /// <summary>Keep compiled kernels in the per-user compilation cache.</summary>
+    [ObservableProperty]
+    public partial bool UseCompilationCache { get; set; }
+
     /// <summary>Keep the source files after converting.</summary>
     [ObservableProperty]
     public partial bool KeepSourceFiles { get; set; }
@@ -288,6 +292,8 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
 
     partial void OnPrecompileAfterDownloadChanged(bool value) => Save();
 
+    partial void OnUseCompilationCacheChanged(bool value) => Save();
+
     partial void OnKeepSourceFilesChanged(bool value) => Save();
 
     partial void OnUseSystemTitleBarChanged(bool value) => Save();
@@ -379,6 +385,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         PinManualLoads = residency.PinManualLoads;
         LoadOnDemand = residency.LoadOnDemand;
         PrecompileAfterDownload = settings.PrecompileAfterDownload;
+        UseCompilationCache = settings.UseCompilationCache;
         KeepSourceFiles = settings.KeepSourceFiles;
         UseSystemTitleBar = settings.UseSystemTitleBar;
         Features.Clear();
@@ -448,6 +455,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
             },
             DisabledFeatures = [.. Features.Where(feature => !feature.IsEnabled).Select(feature => feature.Name)],
             PrecompileAfterDownload = PrecompileAfterDownload,
+            UseCompilationCache = UseCompilationCache,
             KeepSourceFiles = KeepSourceFiles,
             UseSystemTitleBar = UseSystemTitleBar,
         });

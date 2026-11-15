@@ -182,7 +182,7 @@ internal sealed partial class DownloadItemViewModel : ObservableObject
         _lastBytes = ReceivedBytes;
         try
         {
-            var manifest = await Task.Run(() => _hub.PullAsync(Reference, new DispatchingProgress(_dispatcher, OnProgress), cancellation.Token), CancellationToken.None);
+            var manifest = await Task.Run(() => _hub.PullAsync(Reference, new DispatchingProgress<Services.Hub.PullUpdate>(_dispatcher, OnProgress), cancellation.Token), CancellationToken.None);
             Phase = PullPhase.Completed;
             Message = $"Stored as {manifest.ShortName}";
             ReceivedBytes = Math.Max(ReceivedBytes, TotalBytes);

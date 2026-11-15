@@ -54,14 +54,15 @@ public static class ProviderRegistry
     }
 
     /// <summary>
-    /// Opens a compile-only device for <paramref name="profile"/> (see <see cref="IOfflineCompilationProvider.OpenProfile"/>) through
-    /// the first registered provider that compiles for it. Providers are instantiated without probing their drivers.
+    /// The first registered provider whose portable stage generates code for <paramref name="profile"/>
+    /// (<see cref="IExecutionProvider.CanCompileFor"/>), for offline precompilation (<see cref="IExecutionProvider.CompilePortableAsync"/>).
+    /// Providers are instantiated without probing their drivers. The caller disposes the provider.
     /// </summary>
     /// <param name="profile">The device profile.</param>
-    /// <param name="options">Device options, or <see langword="null"/> for the defaults.</param>
     /// <exception cref="NotSupportedException">No registered provider compiles for the profile.</exception>
-    public static IComputeDevice OpenProfile(DeviceProfile profile, DeviceOptions? options = null)
+    public static IExecutionProvider ForProfile(DeviceProfile profile)
     {
+        ArgumentNullException.ThrowIfNull(profile);
         List<Func<IExecutionProvider>> f;
         lock (s_lock)
         {
@@ -81,23 +82,14 @@ public static class ProviderRegistry
                 continue;
             }
 
-            if (provider is IOfflineCompilationProvider offline && offline.CanCompileFor(profile))
+            if (provider.CanCompileFor(profile))
             {
-                return offline.OpenProfile(profile, options);
+                return provider;
             }
 
             provider.Dispose();
         }
 
         throw new NotSupportedException($"No registered provider compiles for {profile}.");
-    }
-
-    private sealed class UnavailableProvider(string name, string reason) : IExecutionProvider
-    {
-        public string Name => name;
-        public ProviderAvailability CheckAvailability() => ProviderAvailability.Unavailable(reason);
-        public IReadOnlyList<DeviceInfo> GetDevices() => [];
-        public IComputeDevice OpenDevice(DeviceInfo device, DeviceOptions? options = null) => throw new NotSupportedException(reason);
-        public void Dispose() { }
     }
 }

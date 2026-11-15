@@ -55,13 +55,22 @@ public static class DeviceFeatures
     public const string MemoryBudget = "memory_budget";
 
     /// <summary>
+    /// The driver exports and imports the compiled form of individual kernels as validated, content-keyed binaries (Vulkan:
+    /// VK_KHR_pipeline_binary; Metal: binary archives), used for the device code of precompiled models
+    /// (<see cref="IExecutionProvider.CompileDeviceSpecificAsync"/>). Without it a provider falls back to a whole-device cache blob
+    /// (Vulkan: the pipeline cache). Like <see cref="MemoryBudget"/> it does not change generated code, so it is not part of
+    /// <see cref="DeviceInfo.Features"/> or device profiles.
+    /// </summary>
+    public const string KernelBinaries = "kernel_binaries";
+
+    /// <summary>
     /// Convolutional networks keep their activations channels-last (NHWC) from one convolution, pooling or elementwise op to
     /// the next, with layout conversions only where other ops read them (CPU: hosts with 256-bit or wider SIMD).
     /// </summary>
     public const string ChannelsLast = "channels_last";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, ChannelsLast, MatrixF16, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, MatrixF16, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

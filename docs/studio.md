@@ -163,8 +163,16 @@ the engine gains a kind, its card opens a page of its own, built from the shared
   are guessed from the file type (GGUF files and checkpoint folders are language models) and the badge's tooltip says so; a download
   that is not converted yet shows the kind inferred from the Hub's pipeline tag. The kind filter above the list (shown once the
   library holds more than one kind) lists the kinds present with their counts. A kind the engine cannot run yet is badged *Not yet
-  supported* and its *Load* button is disabled. Loading, unloading and residency are the same mechanism for every kind. *Load* opens
-  the load options:
+  supported* and its *Load* button is disabled. Loading, unloading and residency are the same mechanism for every kind.
+  *Precompile* (per `.slm` model, also in the context menu) compiles the model for every execution provider and device available
+  on this machine through the providers' two-stage contract (portable code such as SPIR-V, then the driver's device code; identical
+  GPUs on the same driver share one set; the CPU has nothing to precompile and says so) with the default load settings, and writes
+  the result into the package in place (crash-safe append; a failure or cancellation leaves the file unchanged). It is disabled,
+  with the reason in its tooltip, while the model is resident (the package is in use), and a model being precompiled cannot be
+  loaded meanwhile (also not on demand by API clients). The card shows progress per provider and device (kernel counts for the
+  portable stage) and then a summary with sizes, sharing and skipped providers; the entry's size and *Precompiled* badge, and an
+  open inspector of the package, are read again afterwards. *Load* opens the load options:
+
   - device;
   - context length;
   - parallel slots;
@@ -203,8 +211,9 @@ the engine gains a kind, its card opens a page of its own, built from the shared
     (type, shape, producer or weight), its outputs and its consumers. The **IR** view is the `--dump-graph` text with search,
     go-to-producer and consumers. The **nodes** view is a filterable table (`op:` filters by op). All three share the selection.
   - *Weights*: name, type, shape, bits per element, size and offset, sortable and filterable, with totals per type.
-  - *Artifacts*: every precompiled set (code and binary tiers per provider) with the profile it was built for (code target,
-    features, limits, device and driver identity), its entries (key, content hash, size, offset) and where it sits in the file.
+  - *Artifacts*: the precompilation stages per provider (portable code per device profile, device code per device and driver),
+    and every precompiled set with what it was built for (code target, features, limits, device name and identity, driver, kernel
+    ABI), its entries (key, content hash, size, offset) and where it sits in the file.
   - *Metadata*: the definition's properties and metadata, filterable, with the full value of the selected entry.
   - *Sections*: the whole file in offset order (header, every section, the section table and unused gaps). Sections of a kind
     this version does not know are listed raw with their size and offset; the other sections still open.
@@ -250,7 +259,12 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
   store in use and why (for example "Default: application folder", or "Default: user folder, the application folder is not
   writable" for a read-only install), and *Open folder* opens it. `--models-dir` and `SHARPLIGHT_MODELS` take precedence.
 - Hugging Face token (falls back to `HF_TOKEN`).
-- Precompile after download, and whether to keep the source files.
+- Precompile after download (for every GPU and execution provider on this machine, as the library's *Precompile* does), and
+  whether to keep the source files.
+- Compilation cache: keep compiled kernels and the driver pipeline cache in the per-user artifact store, so models that are not
+  precompiled (GGUF, Hugging Face, ONNX) load fast from the second time on. It holds the same artifact sets as a precompiled `.slm`
+  and is consulted after the package's own sets. On by default; off reads and writes no store files. See
+  [model-format.md](model-format.md#the-per-user-artifact-store).
 - Load defaults.
 - Residency:
   - memory kept free per device;

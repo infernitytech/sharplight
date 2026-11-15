@@ -20,7 +20,7 @@ internal sealed class TestServices : IDisposable
         Conversations = new SqliteConversationStore(database);
         Stats = new SqliteStatsStore(database);
         Services = new StudioServices(Settings, Runtime, Hub, Library, Conversations, Stats, Server, new DocumentExtractor(), Platform,
-            Platform, dispatcher ?? Platform, Platform, Updates, new FilePageStorage(_dir.File("pages")), Audio, Audio);
+            Platform, dispatcher ?? Platform, Platform, Updates, Precompiler, new FilePageStorage(_dir.File("pages")), Audio, Audio);
     }
 
     public FakeSettings Settings { get; }
@@ -36,6 +36,8 @@ internal sealed class TestServices : IDisposable
     public FakePlatform Platform { get; } = new();
 
     public FakeUpdates Updates { get; } = new();
+
+    public FakePrecompiler Precompiler { get; } = new();
 
     public FakeAudio Audio { get; } = new();
 

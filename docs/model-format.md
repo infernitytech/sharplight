@@ -1,7 +1,7 @@
 # Model format v2: portable graphs with tiered, optional precompiled artifacts
 
 Status: container v3 (v2 plus control-flow subgraphs and data-dependent symbols in the IR), artifact tiers, inspection API,
-device profiles, `sharplight-convert` (convert, info, profile, precompile --device/--profile, strip, compact), the graph
+device profiles, the two-stage provider precompilation contract, `sharplight-convert` (convert, info, profile, precompile --all-devices/--device/--profile, strip, compact), the graph
 optimization phase (run by `convert` unless `--no-optimize`) and the package inspector in Sharplight Studio are
 implemented; a separate `optimize` command is not yet (2026-11-13). Since 2026-11-15 a package can describe any model kind
 (DESC: kind and components, ATCH: attachments), and precompilation covers every component graph.
@@ -14,8 +14,9 @@ implemented; a separate `optimize` command is not yet (2026-11-13). Since 2026-1
 - **Optional** precompiled artifacts, in any number and for any execution provider, in tiers of decreasing portability:
   - **Code** – intermediate device code that is independent of the driver: SPIR-V for Vulkan (later PTX for a CUDA provider,
     DXIL, Metal IR, ...). Keyed by a *device profile* (provider, code target, feature set, limits), not by a physical device.
-  - **Binary** – driver-specific binaries: the Vulkan driver pipeline cache (later CUBIN/SASS, ...). Keyed by provider, device
-    identity and driver version.
+  - **Binary** – driver-specific binaries: Vulkan pipeline binaries (VK_KHR_pipeline_binary) or the driver pipeline cache (later
+    CUBIN/SASS, Metal binary archives, ...). Keyed by provider, device identity, driver version and kernel ABI.
+  The tiers are the two stages of the providers' precompilation contract (see "Two-stage precompilation" below).
   A model can ship with no artifacts, with code for some profiles, and/or with binaries for some well-known device/driver pairs.
 - Extensible: providers, tiers and artifact kinds are named by strings and described by key/value descriptors; a reader skips
   what it does not understand. Adding a provider needs no format change.
@@ -149,7 +150,9 @@ pairs>`, so storing a set with an identical descriptor replaces the old one. Des
 
 ```
 provider=vulkan tier=code   kind=spirv          target=spirv_1_6 subgroup=32 shared=49152 features=bf16,fp16,... compiler=slang-2026.22.0+<build>
-provider=vulkan tier=binary kind=pipeline-cache vendor=10de device=<pci device id> cache=<pipelineCacheUUID> driver=988e4100
+provider=vulkan tier=binary kind=pipeline-binary vendor=10de device=<pci device id> device_name=<name> cache=<pipelineCacheUUID> driver=<hex>
+                abi=1.256 binary_key=<global VK_KHR_pipeline_binary key>
+provider=vulkan tier=binary kind=pipeline-cache  vendor=10de device=<pci device id> device_name=<name> cache=<pipelineCacheUUID> driver=<hex> abi=1.256
 ```
 
 (A future CUDA provider would write e.g. `provider=cuda tier=code kind=ptx sm=90`.) Well-known keys are in
@@ -160,15 +163,23 @@ Matching: a device publishes its targets per tier (`IComputeDevice.ArtifactTarge
 significant `MatchKeys`, and `KeyPrefixes` that route cache keys to the tier). A stored set matches when provider, tier, kind and
 every match key are equal. Vulkan: the code tier matches on `target` only (entries are content-addressed `kernel/<hash>` of
 compiler version, source, entry point, target and macros, so a set for a broader or narrower profile is still safe to consult:
-a hit is always correct, a miss compiles); the binary tier matches on `vendor`, `device` (model) and `cache` (the driver's pipelineCacheUUID), so one set serves every card of that model on that driver build. Legacy `mixed` sets are
+a hit is always correct, a miss compiles); the `pipeline-binary` set matches on `vendor`, `device` (model), `binary_key` (the
+driver's global pipeline binary key) and `abi`, the `pipeline-cache` set on `vendor`, `device` and `cache` (pipelineCacheUUID), so
+one set serves every card of that model on that driver build. Matching is not trust: each kernel binary entry carries SHA-256
+checksums and the pipeline key it was captured under, which the device compares with the key of its own create info before the
+driver sees the bytes; a pipeline cache blob's header must name the device and driver build. Anything that does not fit is ignored
+(`VulkanDevice.RejectedDeviceCode`) and the kernel is compiled from the portable code. Legacy `mixed` sets are
 consulted for every tier when their `target` equals the device's v1 `CompilationTarget`. Unknown providers, tiers and kinds are
 skipped. The CPU device declares no targets and gets no cache.
 
 Loading (`CompilationArtifacts`, used by `LlmModel`, `EmbeddingModel`, `Reranker`, `TaskModel`, and by ONNX hosts such as
 `sharplight-onnxrun` that compile a package's graph with `CompileOptions.CacheFor = new CompilationArtifacts(source.CompilationCaches).For`;
 the load options' `Artifacts` lets several loads share one recording): per device one cache that routes each key to the tier claiming it (the Vulkan
-code tier claims `kernel/`, the binary tier is the catch-all for the driver pipeline cache), consults all matching stored sets of
-that tier newest first, and records everything compilation used, per tier, for `ExportCompilation(tiers)`.
+code tier claims `kernel/`, the binary tiers `vulkan/pipeline_binary/` and `vulkan/pipeline_cache`), consults all matching stored
+sets of that tier newest first, and records the portable code compilation used for `ExportCompilation`. Each kernel uses the best
+stage stored for the device automatically: its binary when one matches (no driver compilation), else its portable code (no Slang
+compilation; the driver compiles), else it is compiled from source. Device code is not recorded while loading; produce it with
+`CompilationArtifacts.CompileDeviceCodeAsync(providers)` (the device stage of each device's provider, as `sharplight --save` does).
 
 Appending artifact sets (`ModelPackage.AddArtifacts`) never rewrites weights; superseded sets become dead space, and
 `ModelPackage.Compact` / `sharplight-convert compact` rewrites the file without it (the model part is copied byte for byte so
@@ -187,13 +198,12 @@ coopmat shapes, ...; never used for compilation).
 
 - Export: `IComputeDevice.CreateProfile()` (null for providers that cannot compile offline); `sharplight-convert profile --device
   vulkan:0 [-o file] [--disable-features ...]`.
-- Offline device: providers implementing `IOfflineCompilationProvider` (`CanCompileFor`, `OpenProfile(profile, options)`;
-  `ProviderRegistry.OpenProfile` picks one without probing drivers). Vulkan's `VulkanProfileDevice` shares `SpirvCodeGenerator`
-  with the live `VulkanDevice` (the one place that turns subgroup size, shared memory, enabled features and budget into
-  `LoweringOptions`, lowers, and builds the code-tier `ArtifactTarget`), so the descriptor and every `kernel/<hash>` key are
-  identical to a live device of that profile. `Compile` lowers, waits for Slang and returns a segment that cannot run; no
-  VkInstance, VkDevice, memory or pipelines. `ArtifactTargets` is only the code tier. `DeviceOptions.DisabledFeatures` and the
-  `submission_budget_ms` setting apply as on a live device.
+- Portable stage without the device: `IExecutionProvider.CompilePortableAsync` with the profile (see below; `ProviderRegistry.ForProfile`
+  finds the provider without probing drivers). Vulkan runs the workload on its internal `VulkanProfileDevice`, which shares
+  `SpirvCodeGenerator` with the live `VulkanDevice` (the one place that turns subgroup size, shared memory, enabled features and budget
+  into `LoweringOptions`, lowers, and builds the code-tier `ArtifactTarget`), so the descriptor and every `kernel/<hash>` key are
+  identical to a live device of that profile. It lowers, waits for Slang and returns segments that cannot run; no VkInstance,
+  VkDevice, memory or pipelines. `DeviceOptions.DisabledFeatures` and the `submission_budget_ms` setting apply as on a live device.
 - `sharplight-convert precompile <slm> --profile <file|name>` stores the code tier for the profile (`--tier binary` is rejected:
   binaries need the driver, `precompile --device`).
 - Well-known profiles ship embedded in `sharplight-convert` (`profile --list`, `profile --show <name>`), each exported with
@@ -206,6 +216,59 @@ coopmat shapes, ...; never used for compilation).
 Because the code tier matches on `target` only and entries are content addressed, a package may carry code for several profiles;
 a device uses whichever entries its own lowering asks for (e.g. `nvidia-no-matrix` code serves the RTX PRO 6000 when it runs with
 `--disable-features matrix_f16,matrix_bf16,matrix_int8,matrix_workgroup,bf16`).
+
+## Two-stage precompilation
+
+Every execution provider implements the same contract on `IExecutionProvider` (Sharplight.Core, no provider names):
+
+| Member | Vulkan | CPU | Metal (planned) |
+|---|---|---|---|
+| `PortableCodeFormat` | `spirv_1_6` | null | AIR / metallib |
+| `CompilePortableAsync(PortableCompilationRequest)` → `PortableCodeSet` (code tier) | SPIR-V for the request's `DeviceProfile`, by running its `CompilationWorkload` on a compile-only device; no driver | empty | AIR from Slang's Metal output, compiled with the Metal toolchain for a profile |
+| `CompileDeviceSpecificAsync(device, portable)` → `DeviceCodeSet` (binary tier) | pipeline binaries per kernel (VK_KHR_pipeline_binary) when `kernel_binaries` is enabled, else one dedicated pipeline cache | empty | an `MTLBinaryArchive` with a pipeline per kernel, keyed by GPU family and OS build |
+
+The code sets are opaque keyed entries plus a descriptor (`CodeSet.ToArtifactSet()` stores them as ARTS sections), so the package
+format does not change for a new provider; it only declares its `ArtifactTargets` (a code target matched on its portable format
+and a binary target matched on device identity, driver and ABI) and maps entries to keys. `kernel_binaries` is a provider-neutral,
+disableable `DeviceFeatures` name (detected per device, `DeviceOptions.DisabledFeatures` / `SHARPLIGHT_DISABLE_FEATURES`); without
+it, or when the driver cannot capture binaries, the Vulkan device stage falls back to the pipeline cache blob. Neither changes the
+generated code, so it is not part of profiles or code descriptors.
+
+`PackagePrecompiler.PrecompileAsync(path, providers | provider+device | provider+profile, options, progress, ct)` drives the
+stages for a package: per device it opens the device, takes its profile (`IComputeDevice.CreateProfile`), runs the portable stage
+(once per distinct profile: identical GPUs share it) and the device stage (once per device identity and driver), and finally
+appends every new set in one crash-safe write (`ModelPackage.AddArtifacts`: sections and table are flushed before the header
+switches to the new table; an exception truncates the file back to its original length). It returns a `PackagePrecompileReport`
+(per device: portable and device code summaries with sizes and sharing; skipped providers and devices with the reason; stored and
+unchanged sets). The compilation workload (`ModelCompilation`) compiles the graphs the way the loaders do (see `precompile` below).
+
+## The per-user artifact store
+
+The artifact sets of a package also have a second location: the per-user `ArtifactStore` (Sharplight.Core). It sits in
+`sharplight/artifacts` in the local application data folder, which is `~/.local/share/sharplight/artifacts` on Linux. A set there
+is the same set a package holds: the same descriptor, id (`ArtifactDescriptor.Id`), keys, tier and matching. Each set gets its own
+directory named by its id, with the descriptor in `descriptor.json` and one file per entry. An entry file holds the key, the data
+and a SHA-256 of the data. Entry files are not ARTS sections, because each one has to be replaced atomically on its own.
+Precedence when a device compiles a kernel:
+
+1. matching sets stored with the model (the package's `code` and `binary` tiers),
+2. the store: the code-tier set of the device's exact descriptor; device code (`pipeline-binary` and `pipeline-cache` sets of the
+   device model and driver) is read by the device itself,
+3. compilation; the new portable code is recorded for the model (`ExportCompilation`) and written to the store, and the driver
+   pipeline cache is saved to the store's `pipeline-cache` set after each compile.
+
+The package stays the primary location. It is only written when a host precompiles, converts or saves on purpose, and device code
+from the store is never exported into a package. The store helps everything a package cannot: GGUF, Hugging Face and ONNX models
+loaded from their own files, graphs built in code (tests), and kernel development, where content-addressed keys mean only changed
+kernels compile again. A descriptor that does not hash to its directory name, or does not parse, makes its set invisible. An
+entry that fails its checksum or names another key is a miss and is deleted. Device code must still pass the same per-entry
+validation as device code from a package. A driver update gives new descriptors, so stale device code is never consulted and is
+eventually evicted. All writes go to a temporary file that atomically replaces the target, so several processes can share the
+store. It is size capped at 2 GiB over all sets: past the cap the least recently used entries are deleted, and descriptors are
+kept. `SHARPLIGHT_COMPILATION_CACHE=<dir>` moves the store and `=off` turns it off. `DeviceOptions.KernelCacheDirectory` picks the
+directory per device, and `DeviceOptions.UseCompilationCache = false` turns the store off for a device (`sharplight-convert precompile` and
+`PackagePrecompiler` compile into a fresh temporary store unless `--use-kernel-cache` / `PrecompileOptions.UseUserKernelCache`
+says otherwise; either way the stored sets hold exactly the model's kernels).
 
 ## Public inspection API (Sharplight.Package)
 
@@ -232,21 +295,20 @@ kind, shown raw); `ArtifactEntryInfo.Offset` is an entry's absolute file offset;
     Hugging Face directory, ONNX or `.slm` source. Graphs are optimized by `GraphOptimizer` while building (see above). Artifact sets of an `.slm` source are copied (`ModelPackage.ReadArtifactSets`) unless `--drop-artifacts`.
   - `info <slm> [--weights] [--entries] [--nodes <graph>]`.
   - `profile --device <provider:index> [-o file] [--disable-features]`, `profile --list`, `profile --show <name>`.
-  - `precompile <slm> (--device <provider:index> | --profile <file|name>) [--tier code|binary|all] [--disable-features] [--ctx]
+  - `precompile <slm> (--all-devices | --device <provider:index> | --profile <file|name>) [--tier code|binary|all] [--disable-features] [--ctx]
     [--batch] [--slots] [--kv-tokens] [--bound SYMBOL=VALUE] [--use-kernel-cache]`: graphs are compiled the way their loaders
     compile them, into one shared recording: `LlmModel` (decode, decode_multimodal, vision_encode, and the serving batch decoder
     for `--slots` sequences, default 4 like `sharplight-server`; `--slots 1` skips it), `EmbeddingModel` (embed) and `Reranker`
     (classify) with their default batch limits; the graphs of every component of a described model with the component's bounds; other graphs (ONNX) as a `CompiledModel` with the CPU as fallback and the given
     bounds (the ONNX batch symbol defaults to 1). Not compiled: `decode_embeddings` (no loader compiles it; multimodal prompts use
     `decode_multimodal`) and the speculative-decoding variant of the batch decoder (its logits-row bound depends on the
-    speculator). By default with a fresh temporary kernel cache; either way the stored pipeline cache holds only this model's
-    pipelines (see below). Sets that were served entirely from the package are not stored again.
+    speculator). By default into a fresh temporary artifact store instead of the per-user one. `--all-devices` precompiles for every device of every available
+    provider (as Sharplight Studio does). Sets the package already holds completely are not stored again.
   - `strip <slm> [--provider] [--tier] [--compact]`, `compact <slm>`.
   - Planned: `optimize <slm>`.
-- The driver pipeline cache stored by `precompile --device` and by `sharplight --save` holds only the model's pipelines: the Vulkan
-  device remembers which kernels were compiled with each model-level cache; when its own driver cache also holds other
-  pipelines (seeded from the per-user cache file, or other models compiled on the device), the export recreates the model's
-  pipelines into a fresh driver cache (Qwen3-0.6B: 4.9 MiB instead of the 140+ MiB per-user cache).
+- Device code stored by `precompile` and by `sharplight --save` holds only the model's pipelines: the device stage creates the
+  pipelines of exactly the portable set's kernels, as kernel binaries or into a fresh driver cache, independent of the per-user
+  artifact store.
 - The package inspector in Sharplight Studio (*Library* › *Inspect*, or *Open .slm file…*; see [studio.md](studio.md)):
   overview (model, file, source, tokenizer, chat template, states), graphs (a pan/zoom dataflow drawing, the IR view in the
   `--dump-graph` format and a node table, all linked; node attributes, inputs with producers, consumers), weights

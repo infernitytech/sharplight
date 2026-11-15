@@ -14,7 +14,7 @@ graph generation for model architectures (adapters) are separate assemblies, so 
 | `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
 | `Sharplight.Architectures` | Execution-graph generation: architecture adapters that turn canonical model sources into Sharplight graphs | `BuiltinAdapters` |
 | `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.WhisperCpp` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter`, `WhisperCppImporter` |
-| `Sharplight.Package` | Read and write `.slm` packages (every model kind: description, components, attachments), convert models to them and precompile kernels into them | `ModelPackage`, `ModelPackageReader`, `ModelConverter`, `PackagePrecompiler` |
+| `Sharplight.Package` | Read and write `.slm` packages (every model kind: description, components, attachments), convert models to them and precompile them for every provider and device (portable code, then device code) | `ModelPackage`, `ModelPackageReader`, `ModelConverter`, `PackagePrecompiler` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` (+ `Sharplight.Shaders`) | Execution providers | `CpuExecutionProvider`, `VulkanProvider` |
 | `Sharplight.Defaults` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplight`, `UseSharplight`, `MapSharplight`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
@@ -451,6 +451,57 @@ The other task kinds map the same way: `SharplightSpeechToTextClient` (`ISpeechT
 `SharplightTextToSpeechClient` (`ITextToSpeechClient` over an `ISpeechSynthesizer`, WAVE output) and `SharplightImageGenerator`
 (`IImageGenerator` over a Sharplight image generator, PNG output). `services.AddSharplightSpeechToTextClient(key)`,
 `.AddSharplightTextToSpeechClient(key)` and `.AddSharplightImageGenerator(key)` wrap the container's task clients.
+
+## 7. Precompilation: portable code and device code for every provider
+
+Every execution provider implements a two-stage code generation contract on `IExecutionProvider`; the CPU returns empty sets, so
+hosts treat all providers alike (details and the Metal mapping: [model-format.md](model-format.md#two-stage-precompilation)).
+
+```csharp
+using var services = SharplightDefaults.CreateServiceProvider();
+foreach (var (provider, availability) in ProviderRegistry.Discover().Where(p => p.Availability.IsAvailable))
+{
+    foreach (var info in provider.GetDevices())
+    {
+        using var device = provider.OpenDevice(info);
+        // Stage 1: portable code (SPIR-V for Vulkan) for the device's profile; needs no driver, works for absent devices too.
+        PortableCodeSet portable = await provider.CompilePortableAsync(new PortableCompilationRequest(device.CreateProfile(), workload), ct);
+        // Stage 2: the driver's compiled form for exactly this device and driver (Vulkan: pipeline binaries or a pipeline cache).
+        DeviceCodeSet binaries = await provider.CompileDeviceSpecificAsync(device, portable, ct);
+        ModelPackage.AddArtifacts(path, [portable.ToArtifactSet(), binaries.ToArtifactSet()]);
+    }
+}
+```
+
+`workload` (a `CompilationWorkload`) compiles the model's graphs on the device it is given, recording into the
+`CompilationArtifacts` it is given. For packages, `PackagePrecompiler.PrecompileAsync(path, providers, options, progress, ct)` does
+all of this: the loaders' graphs as the workload, identical devices sharing their sets, a `PackagePrecompileReport`, and one
+crash-safe in-place write. Loads pick the best stored stage per kernel on their own (device binary, else portable code, else
+compile), and validate device code before the driver sees it. After a load, `CompilationArtifacts.CompileDeviceCodeAsync(providers)`
+turns what it compiled into device code (`LlmModel.Artifacts`, `TaskModel.Artifacts`).
+
+The same artifact sets also live in a second place: the per-user `ArtifactStore` (`sharplight/artifacts` in the local application
+data folder). It uses the descriptors, set ids, keys, tiers and matching of the sets in a package, one subdirectory per set with
+its descriptor in `descriptor.json`. Loads look in the package's sets first, then in the store, and only then compile. New SPIR-V
+is written to the store, and so is the driver's pipeline cache, in the pipeline-cache set of the device and driver. Packages change
+only when a host precompiles or converts on purpose. The store helps whenever a package cannot: GGUF, Hugging Face and ONNX models
+loaded straight from their files, graphs built in code (tests), and kernel development (entries are content addressed, so only
+changed kernels compile again). Device code a host made for such a model can be kept there with `ArtifactStore.Add(deviceCodeSet)`.
+Every entry file holds its key and a SHA-256, and every descriptor must hash to its directory name, so damaged, foreign or stale
+entries are ignored rather than trusted. Writes are atomic, several processes can share the store, and it is size capped
+(least recently used entries are evicted past 2 GiB). `SHARPLIGHT_COMPILATION_CACHE=<dir>` moves the store, `=off` turns it off,
+and per device `DeviceOptions.KernelCacheDirectory` picks the directory and `DeviceOptions.UseCompilationCache = false` turns it
+off.
+
+```csharp
+var options = new DeviceOptions { KernelCacheDirectory = "/data/sharplight-artifacts" };  // or leave it null: the per-user store
+using var device = provider.OpenDevice(info, options);
+ArtifactStore? store = device.ArtifactStore;                // the store this device reads and records into
+foreach (var set in store?.ArtifactSets ?? [])
+{
+    Console.WriteLine(ArtifactDescriptor.Format(set.Descriptor));
+}
+```
 
 ## Conventions
 

@@ -47,14 +47,6 @@ internal static class SpeechEnvironment
     /// <param name="name">The device name.</param>
     public static IComputeDevice? Device(string name) => name == "cpu" ? s_cpu.Value : s_vulkan.Value;
 
-    /// <summary>Opens a new device on the Vulkan provider (for callers that dispose it, such as the precompiler).</summary>
-    /// <param name="options">The device options.</param>
-    public static IComputeDevice OpenVulkan(DeviceOptions options)
-    {
-        var provider = new VulkanProvider();
-        return provider.OpenDevice(provider.GetDevices()[0], options);
-    }
-
     /// <summary>Reads a fixture file of the test assembly.</summary>
     /// <param name="name">The file name under Fixtures.</param>
     public static JsonDocument Fixture(string name) => JsonDocument.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name)));

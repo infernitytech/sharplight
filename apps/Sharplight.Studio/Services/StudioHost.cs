@@ -7,6 +7,7 @@ using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Monitoring;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Platform;
+using Sharplight.Studio.Services.Precompile;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Services.Server;
 using Sharplight.Studio.Services.Settings;
@@ -40,7 +41,9 @@ internal sealed class StudioHost : IDisposable
     {
         var paths = StudioPaths.Default();
         var settings = new JsonSettingsService(paths.SettingsFile, modelsDirectory);
-        var runtime = new EngineModelRuntime(() => settings.Current.Residency, name => ResolveOnDemand(settings, name));
+        var precompiler = new PrecompileService(settings);
+        var runtime = new EngineModelRuntime(() => settings.Current.Residency, name => ResolveOnDemand(settings, name, precompiler.IsBusy),
+            () => settings.Current.UseCompilationCache);
         var hub = new HubService(settings, paths.HighlightsFile);
         var database = new StudioDatabase(paths.DatabaseFile);
         var stats = new SqliteStatsStore(database);
@@ -48,8 +51,8 @@ internal sealed class StudioHost : IDisposable
         var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddStudioUpdates().BuildServiceProvider();
         var services = new StudioServices(settings, runtime, hub, new ModelLibrary(settings), new SqliteConversationStore(database), stats, server,
             new DocumentExtractor(), new SystemMonitor(runtime), platform, dispatcher, theme,
-            container.GetRequiredService<IUpdateService>(), new FilePageStorage(Path.Combine(paths.DataDirectory, "pages")), new ProcessAudioPlayer(),
-            new ProcessAudioRecorder());
+            container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(Path.Combine(paths.DataDirectory, "pages")),
+            new ProcessAudioPlayer(), new ProcessAudioRecorder());
         return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), server);
     }
 
@@ -57,7 +60,7 @@ internal sealed class StudioHost : IDisposable
     /// A library model a chat or API client asked for by name while it is not resident: stored models by <c>owner/name[:tag]</c> or
     /// alias, added files by file name. Null when on-demand loading is off or nothing matches.
     /// </summary>
-    internal static ModelLoadRequest? ResolveOnDemand(ISettingsService settings, string name)
+    internal static ModelLoadRequest? ResolveOnDemand(ISettingsService settings, string name, Func<string, bool>? isPrecompiling = null)
     {
         var current = settings.Current;
         if (!current.Residency.LoadOnDemand)
@@ -77,7 +80,13 @@ internal sealed class StudioHost : IDisposable
 
         path ??= current.LocalModels.FirstOrDefault(local => File.Exists(local)
             && string.Equals(System.IO.Path.GetFileNameWithoutExtension(local), name, StringComparison.OrdinalIgnoreCase));
-        return path is null ? null : new ModelLoadRequest(name, path, current.DefaultLoad, current.DisabledFeatures);
+        // A package being precompiled is rewritten in place: it is not loaded until that finished.
+        if (path is null || isPrecompiling?.Invoke(path) == true)
+        {
+            return null;
+        }
+
+        return new ModelLoadRequest(name, path, current.DefaultLoad, current.DisabledFeatures);
     }
 
     /// <summary>Stops the server, unloads the models and releases the devices.</summary>
