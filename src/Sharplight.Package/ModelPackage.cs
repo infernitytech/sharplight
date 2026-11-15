@@ -156,6 +156,12 @@ public static class ModelPackage
     /// another process: existing bytes are never modified except the header's table pointer, which is switched last. The package
     /// is written as <see cref="Version"/> afterwards.
     /// </summary>
+    /// <remarks>
+    /// Crash-safe: the new sets and section table are appended and flushed to disk before the 64-byte header (within the first disk
+    /// sector, written in one call) switches to the new table, so an interruption at any point leaves a package that opens with its old
+    /// or its new content, never a mix. Bytes appended before an interruption are dead space; when the write fails with an exception the
+    /// file is truncated back to its original length, so it is byte for byte what it was.
+    /// </remarks>
     /// <param name="path">The existing package.</param>
     /// <param name="artifacts">Sets to store; sets without entries are skipped.</param>
     /// <returns>The ids (section names) of the stored sets.</returns>
@@ -164,13 +170,24 @@ public static class ModelPackage
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
         var (_, sections) = ReadHeader(fs);
-        var list = sections.ToList();
-        fs.Seek(0, SeekOrigin.End);
-        var added = WriteArtifactSets(fs, artifacts);
-        list.RemoveAll(s => s.Kind == PackageSectionKind.ArtifactSet && added.Any(a => a.Name == s.Name));
-        list.AddRange(added);
-        PackageWriter.WriteTable(fs, list);
-        return [.. added.Select(a => a.Name)];
+        long originalLength = fs.Length;
+        bool switched = false;
+        try
+        {
+            var list = sections.ToList();
+            fs.Seek(0, SeekOrigin.End);
+            var added = WriteArtifactSets(fs, artifacts);
+            list.RemoveAll(s => s.Kind == PackageSectionKind.ArtifactSet && added.Any(a => a.Name == s.Name));
+            list.AddRange(added);
+            PackageWriter.WriteTable(fs, list, () => switched = true);
+            return [.. added.Select(a => a.Name)];
+        }
+        catch when (!switched)
+        {
+            // The header still points at the old table: drop everything appended, so the file is exactly what it was.
+            fs.SetLength(originalLength);
+            throw;
+        }
     }
 
     /// <summary>

@@ -73,6 +73,21 @@ public sealed class PrecompileOptions
     /// </summary>
     public IProgress<LoadProgress>? Progress { get; init; }
 
-    /// <summary>Cancels the precompilation between kernels.</summary>
-    public CancellationToken CancellationToken { get; init; }
+    /// <summary>A copy with <see cref="Progress"/> replaced.</summary>
+    internal PrecompileOptions WithProgress(IProgress<LoadProgress>? progress) => new()
+    {
+        ContextLength = ContextLength,
+        BatchTokens = BatchTokens,
+        Slots = Slots,
+        KvCacheTokens = KvCacheTokens,
+        DraftTokens = DraftTokens,
+        SymbolBounds = SymbolBounds,
+        DefaultSymbolBounds = DefaultSymbolBounds,
+        FallbackDevice = FallbackDevice,
+        Tiers = Tiers,
+        UseUserKernelCache = UseUserKernelCache,
+        DisabledFeatures = DisabledFeatures,
+        Log = Log,
+        Progress = progress,
+    };
 }

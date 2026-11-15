@@ -3,7 +3,7 @@ using Sharplight.Samples;
 
 namespace Sharplight.Convert;
 
-/// <summary>Opens the devices the subcommands compile on: a live device (<see cref="DeviceSpec"/>) or a device profile.</summary>
+/// <summary>Finds the providers and devices the subcommands compile for: a live device (<see cref="DeviceSpec"/>), every device, or a device profile.</summary>
 internal static class DeviceOpener
 {
     private const string CpuProviderName = "cpu";
@@ -16,13 +16,24 @@ internal static class DeviceOpener
         return provider.OpenDevice(SampleRuntime.GetDevice(provider, spec.Index), options);
     }
 
-    /// <summary>Opens a compile-only device for <paramref name="profile"/> through its provider; needs no driver.</summary>
+    /// <summary>The provider and device a <see cref="DeviceSpec"/> names.</summary>
+    /// <exception cref="SampleException">The provider is unknown or unavailable, or the index is out of range.</exception>
+    public static (IExecutionProvider Provider, DeviceInfo Device) Find(DeviceSpec spec)
+    {
+        var provider = Provider(spec.Provider);
+        return (provider, SampleRuntime.GetDevice(provider, spec.Index));
+    }
+
+    /// <summary>Every registered provider (available or not: the precompiler reports why it skips one).</summary>
+    public static IReadOnlyList<IExecutionProvider> All() => [.. ProviderRegistry.Discover().Select(p => p.Provider)];
+
+    /// <summary>The registered provider whose portable stage generates code for <paramref name="profile"/>; needs no driver.</summary>
     /// <exception cref="SampleException">No registered provider compiles for the profile.</exception>
-    public static IComputeDevice OpenProfile(DeviceProfile profile, DeviceOptions options)
+    public static IExecutionProvider ForProfile(DeviceProfile profile)
     {
         try
         {
-            return ProviderRegistry.OpenProfile(profile, options);
+            return ProviderRegistry.ForProfile(profile);
         }
         catch (NotSupportedException error)
         {

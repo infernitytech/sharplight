@@ -108,11 +108,11 @@ public class ArtifactSetTests
         cache.Put("other/x", new byte[] { 2 }); // unclaimed: goes to the catch-all (binary) tier
 
         var all = artifacts.Export();
-        Assert.Equal(1, device.ExportCalls);
         var codeSet = all.Single(s => s.Descriptor[ArtifactDescriptorKeys.Tier] == ArtifactTiers.Code);
         var binarySet = all.Single(s => s.Descriptor[ArtifactDescriptorKeys.Tier] == ArtifactTiers.Binary);
         Assert.Equal(["kernel/a"], codeSet.Entries.Keys);
-        Assert.Equal([FakeArtifactDevice.BinaryKey, "other/x"], binarySet.Entries.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(["other/x"], binarySet.Entries.Keys);
+        Assert.Equal(["kernel/a"], artifacts.PortableCodeFor(device).Entries.Keys);
 
         var codeOnly = artifacts.Export(new HashSet<string> { ArtifactTiers.Code });
         Assert.Same(codeSet, Assert.Single(codeOnly));
