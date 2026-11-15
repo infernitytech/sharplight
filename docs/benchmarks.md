@@ -4866,7 +4866,7 @@ ORT columns from this round; TensorRT from `trt.jsonl` where measured (convnets,
 
 ### 37.4 Tests
 
-After the develop merge: ONNX importer tests ONNX_T, conformance CONF_T, Vulkan VK_T, CPU CPU_T. The conformance failures
+After the develop merge: ONNX importer tests 181 (0 failed, 28 skipped), conformance 4197 with 46 failures, Vulkan 1472 (0 failed), CPU 1289 (0 failed). The conformance failures
 are the known unsupported or nondeterministic cases (Bernoulli, ImageDecoder, f64 BitCast, training Dropout, the two
 dynamic-int8 extra tests) on both providers; the three Vulkan `test_unique_sorted_with_axis*` failures of section 35 are
 fixed.
