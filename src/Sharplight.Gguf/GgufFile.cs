@@ -190,9 +190,10 @@ public sealed unsafe class GgufFile : IDisposable
             }
 
             long absoluteOffset = DataOffset + offset;
-            if (absoluteOffset < 0 || absoluteOffset + size > FileLength)
+            long storedSize = StoredByteSize(type, size);
+            if (absoluteOffset < 0 || absoluteOffset + storedSize > FileLength)
             {
-                throw new InvalidDataException($"Tensor '{name}' extends beyond the end of the file (offset {absoluteOffset}, size {size}, file {FileLength}).");
+                throw new InvalidDataException($"Tensor '{name}' extends beyond the end of the file (offset {absoluteOffset}, size {storedSize}, file {FileLength}).");
             }
 
             var info = new GgufTensorInfo(this, name, type, dataType, ne, offset, absoluteOffset, size);
@@ -200,6 +201,13 @@ public sealed unsafe class GgufFile : IDisposable
             _byName[name] = info;
         }
     }
+
+    /// <summary>
+    /// The bytes a tensor takes in the file, given its size as <see cref="GgmlTypes.TryGetDataType"/>'s type: smaller than that for the
+    /// narrow IQ1 types, which widen when read.
+    /// </summary>
+    internal static long StoredByteSize(int ggmlType, long size) => GgmlNarrowIq1.Is(ggmlType)
+        ? size / GgmlNarrowIq1.WideBlockBytes * GgmlNarrowIq1.StoredBlockBytes(ggmlType) : size;
 
     internal static long ComputeByteSize(DataType dt, long[] ne, string name)
     {

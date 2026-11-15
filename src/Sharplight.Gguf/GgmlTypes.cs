@@ -93,6 +93,11 @@ internal static class GgmlTypes
             return DataType.Q4_0;
         }
 
+        if (GgmlNarrowIq1.Is(ggmlType))
+        {
+            return DataType.IQ1_S;
+        }
+
         if ((uint)ggmlType < s_byId.Length)
         {
             return s_byId[ggmlType];
