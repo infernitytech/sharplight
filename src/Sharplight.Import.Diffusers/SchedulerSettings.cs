@@ -39,6 +39,9 @@ internal sealed record SchedulerSettings
     /// <summary>Whether the betas are rescaled to zero terminal SNR.</summary>
     public bool ZeroTerminalSnr { get; init; }
 
+    /// <summary>Whether DDIM clips its clean-sample estimate, or <see langword="null"/> for the sampler's default (clipping on).</summary>
+    public bool? ClipSample { get; init; }
+
     /// <summary>The sampler the model was published with (Sharplight sampler name, e.g. <c>pndm</c>, <c>euler</c>, <c>dpm++2m-karras</c>).</summary>
     public string Sampler { get; init; } = "pndm";
 
@@ -64,6 +67,11 @@ internal sealed record SchedulerSettings
         metadata[p + "steps_offset"] = StepsOffset;
         metadata[p + "set_alpha_to_one"] = SetAlphaToOne;
         metadata[p + "zero_terminal_snr"] = ZeroTerminalSnr;
+        if (ClipSample is { } clip)
+        {
+            metadata[p + "clip_sample"] = clip;
+        }
+
         metadata[p + "sampler"] = Sampler;
         if (SourceJson is not null)
         {
@@ -99,6 +107,7 @@ internal sealed record SchedulerSettings
             StepsOffset = config.Int("steps_offset", 0),
             SetAlphaToOne = config.Bool("set_alpha_to_one", false),
             ZeroTerminalSnr = config.Bool("rescale_betas_zero_snr", false),
+            ClipSample = config.TryGetProperty("clip_sample", out var clip) && clip.ValueKind is JsonValueKind.True or JsonValueKind.False ? clip.GetBoolean() : null,
             Sampler = sampler,
             SourceJson = json,
         };

@@ -118,6 +118,11 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
             scheduler.Add(DiffusionConfigKeys.TimestepSpacing, spacing);
         }
 
+        if (src.Has(s + "clip_sample"))
+        {
+            scheduler.Add(DiffusionConfigKeys.ClipSample, src.Get<bool>(s + "clip_sample"));
+        }
+
         var vaeConfig = new ComponentConfigBuilder()
             .Add(DiffusionConfigKeys.LatentChannels, vae.LatentChannels)
             .Add(DiffusionConfigKeys.Downscale, vae.Downscale);

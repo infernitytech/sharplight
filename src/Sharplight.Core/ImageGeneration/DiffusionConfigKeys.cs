@@ -58,6 +58,9 @@ public static class DiffusionConfigKeys
     /// <summary>Scheduler: whether the betas are rescaled to zero terminal SNR.</summary>
     public const string ZeroTerminalSnr = "zeroTerminalSnr";
 
+    /// <summary>Scheduler: whether DDIM clips its clean-sample estimate to [-1, 1] (absent: the sampler's default, on).</summary>
+    public const string ClipSample = "clipSample";
+
     /// <summary>Scheduler: the default sampler (<see cref="Samplers"/> names).</summary>
     public const string Sampler = "sampler";
 }

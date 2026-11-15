@@ -108,6 +108,10 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
                     latents[i] = noise[i] * sampler.InitialNoiseScale;
                 }
             }
+            else if (start >= evaluations)
+            {
+                reference.CopyTo(latents, 0);
+            }
             else
             {
                 sampler.AddNoise(reference, noise, start, latents);

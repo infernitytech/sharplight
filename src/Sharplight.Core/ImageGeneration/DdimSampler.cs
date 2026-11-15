@@ -48,9 +48,16 @@ internal sealed class DdimSampler : DiffusionSampler
         float noiseLevel = MathF.Sqrt(1 - alpha);
         float signalPrevious = MathF.Sqrt(alphaPrevious);
         float direction = MathF.Sqrt(1 - alphaPrevious);
+        bool clip = Schedule.ClipSample ?? true;
         for (int i = 0; i < sample.Length; i++)
         {
             original[i] = (sample[i] - noiseLevel * epsilon[i]) / signal;
+            if (clip)
+            {
+                // Only the clean estimate is clipped; the step keeps the model's noise prediction (as the reference pipelines do).
+                original[i] = Math.Clamp(original[i], -1f, 1f);
+            }
+
             sample[i] = signalPrevious * original[i] + direction * epsilon[i];
         }
 

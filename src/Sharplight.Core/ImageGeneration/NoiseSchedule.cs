@@ -39,6 +39,9 @@ public sealed record NoiseSchedule
     /// <summary>Whether the betas are rescaled to zero terminal SNR.</summary>
     public bool ZeroTerminalSnr { get; init; }
 
+    /// <summary>Whether DDIM clips its clean-sample estimate to [-1, 1], or <see langword="null"/> for the sampler's default (on).</summary>
+    public bool? ClipSample { get; init; }
+
     /// <summary>The sampler the model was published with (<see cref="Samplers"/>).</summary>
     public string Sampler { get; init; } = Samplers.Euler;
 
@@ -60,6 +63,7 @@ public sealed record NoiseSchedule
             SetAlphaToOne = component.ConfigValue(DiffusionConfigKeys.SetAlphaToOne, defaults.SetAlphaToOne),
             ZeroTerminalSnr = component.ConfigValue(DiffusionConfigKeys.ZeroTerminalSnr, defaults.ZeroTerminalSnr),
             Sampler = component.ConfigValue(DiffusionConfigKeys.Sampler, defaults.Sampler),
+            ClipSample = component.Config.ContainsKey(DiffusionConfigKeys.ClipSample) ? component.ConfigValue(DiffusionConfigKeys.ClipSample, true) : null,
         };
     }
 
