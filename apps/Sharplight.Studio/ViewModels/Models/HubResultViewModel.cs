@@ -46,7 +46,22 @@ internal sealed partial class HubResultViewModel : ObservableObject
     public bool Gated => Summary.Gated;
 
     /// <summary>Formats as text.</summary>
-    public string Formats => string.Join(" · ", Summary.Formats.Select(format => format.ToString().ToUpperInvariant()));
+    public string Formats => Summary.Formats.Count == 0 ? "No model files" : string.Join(" · ", Summary.Formats.Select(format => ModelFormatTitles.Title(format).ToUpperInvariant()));
+
+    /// <summary>How the model's kind is presented (from its Hub task).</summary>
+    public ModelKindInfo Kind => ModelKindCatalog.For(Summary.Task);
+
+    /// <summary>The kind's name (<c>Image generation</c>), or the task for models whose kind is not known (no pipeline tag).</summary>
+    public string KindTitle => Summary.Task == Sharplight.Hub.ModelTask.Other ? "" : Kind.Title;
+
+    /// <summary>The card shows a kind badge (the repository names a task).</summary>
+    public bool HasKind => Summary.Task != Sharplight.Hub.ModelTask.Other;
+
+    /// <summary>The kind's icon resource key.</summary>
+    public string KindIcon => Kind.Icon;
+
+    /// <summary>The license id, or null.</summary>
+    public string? License => Summary.License;
 
     /// <summary>Parameter count, e.g. <c>4.0B params</c>.</summary>
     public string? Parameters => Summary.Parameters is { } count ? ByteFormat.Count(count) + " params" : null;

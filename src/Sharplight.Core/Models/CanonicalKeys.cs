@@ -75,6 +75,9 @@ public static class CanonicalKeys
     public const string TokenizerLowercase = "tokenizer.lowercase";
     /// <summary>WordPiece / text normalization: strip accents (bool; defaults to the lowercase setting like BERT).</summary>
     public const string TokenizerStripAccents = "tokenizer.strip_accents";
+
+    /// <summary>Characters (string) a unigram tokenizer removes before tokenizing, with the text lower-cased by <see cref="TokenizerLowercase"/>.</summary>
+    public const string TokenizerStripChars = "tokenizer.strip_chars";
     /// <summary>Longest input in tokens the model was trained for (int; embedding / reranking models).</summary>
     public const string TokenizerMaxLength = "tokenizer.max_length";
 
@@ -107,4 +110,9 @@ public static class CanonicalKeys
     public const string ClassifierActivation = "classifier.activation";
     /// <summary>Label names of a classifier head (string[]).</summary>
     public const string ClassifierLabels = "classifier.labels";
+    /// <summary>
+    /// The host-side image preprocessing of an image model as the JSON of an <see cref="Imaging.ImageProcessorConfig"/> (string); adapters store it
+    /// in the configuration of the model's feature-extractor component.
+    /// </summary>
+    public const string ImageProcessor = "image_processor.json";
 }

@@ -28,12 +28,12 @@ case $ENG in
       --no-enable-prefix-caching "${EXTRA[@]}" > "$LOG" 2>&1 & ;;
   *) echo "unknown engine $ENG"; exit 1 ;;
 esac
-SP=$!; T0=$(date +%s.%N); OK=0
+SP=$!; T0=$SECONDS; OK=0
 while kill -0 $SP 2>/dev/null; do
   curl -sf "localhost:$PORT/health" >/dev/null 2>&1 && { OK=1; break; }
-  [ "$(echo "$(date +%s.%N)-$T0>1500" | bc)" = 1 ] && break; sleep 1
+  [ $((SECONDS - T0)) -gt 1500 ] && break; sleep 1
 done
-echo "ready=$OK after $(echo "$(date +%s.%N)-$T0" | bc) s" | tee "$LOG.ready"
+echo "ready=$OK after $((SECONDS - T0)) s" | tee "$LOG.ready"
 NAT=""; [ "${NATURAL:-0}" = 1 ] && NAT="--natural"
 if [ $OK = 1 ]; then
   for N in $CONCS; do

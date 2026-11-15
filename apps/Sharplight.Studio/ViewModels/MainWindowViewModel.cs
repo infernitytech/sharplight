@@ -4,10 +4,13 @@ using CommunityToolkit.Mvvm.Input;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.ViewModels.Chat;
+using Sharplight.Studio.ViewModels.Inference;
 using Sharplight.Studio.ViewModels.Models;
 using Sharplight.Studio.ViewModels.Server;
 using Sharplight.Studio.ViewModels.Settings;
+using Sharplight.Studio.ViewModels.Speech;
 using Sharplight.Studio.ViewModels.Stats;
+using Sharplight.Studio.ViewModels.Tasks;
 using Sharplight.Studio.ViewModels.Updates;
 
 namespace Sharplight.Studio.ViewModels;
@@ -21,12 +24,15 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     {
         _services = services;
         Chat = new ChatPageViewModel(services, this);
+        Transcribe = new TranscribePageViewModel(services, this);
+        Speak = new SpeakPageViewModel(services, this);
+        Tasks = new TasksPageViewModel(services, this);
         Models = new ModelsPageViewModel(services, this);
         Server = new ServerPageViewModel(services);
         Stats = new StatsPageViewModel(services);
         Settings = new SettingsPageViewModel(services);
         StoreMigration = new StoreMigrationViewModel(services, () => _ = Models.Library.RefreshAsync());
-        Pages = [Chat, Models, Server, Stats];
+        Pages = [Chat, Transcribe, Speak, Tasks, Models, Server, Stats];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         services.Server.StateChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         UpdateStatus();
@@ -34,6 +40,15 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     /// <summary>Chat page.</summary>
     public ChatPageViewModel Chat { get; }
+
+    /// <summary>Transcribe page: speech to text.</summary>
+    public TranscribePageViewModel Transcribe { get; }
+
+    /// <summary>Speak page: text to speech.</summary>
+    public SpeakPageViewModel Speak { get; }
+
+    /// <summary>Tasks page: the model kinds and where each stands.</summary>
+    public TasksPageViewModel Tasks { get; }
 
     /// <summary>Models page.</summary>
     public ModelsPageViewModel Models { get; }
@@ -94,10 +109,49 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     }
 
     /// <inheritdoc/>
+    public bool OpenKind(string kind, ILoadedModel? model)
+    {
+        InferencePageViewModel? page = kind switch
+        {
+            Sharplight.Models.ModelKinds.SpeechRecognition => Transcribe,
+            Sharplight.Models.ModelKinds.SpeechSynthesis => Speak,
+            _ => null,
+        };
+        if (page is null)
+        {
+            if (kind == Sharplight.Models.ModelKinds.TextGeneration)
+            {
+                OpenChat(model);
+                return true;
+            }
+
+            return false;
+        }
+
+        page.SelectModel(model);
+        _ = NavigateAsync(page);
+        return true;
+    }
+
+    /// <inheritdoc/>
     public void OpenLibrary()
     {
         Models.SelectedTab = ModelsPageViewModel.LibraryTab;
         _ = NavigateAsync(Models);
+    }
+
+    /// <inheritdoc/>
+    public void OpenLibrary(string kind)
+    {
+        Models.Library.SelectKind(kind);
+        OpenLibrary();
+    }
+
+    /// <inheritdoc/>
+    public void OpenDiscover(Sharplight.Hub.ModelTask task)
+    {
+        Models.Discover.Filters.Apply(Models.Discover.Filters.Current with { Task = task });
+        OpenDiscover();
     }
 
     /// <summary>Shows the resident models.</summary>

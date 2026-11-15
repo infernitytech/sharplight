@@ -6,6 +6,7 @@ using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Fit;
 using Sharplight.Studio.Services.Library;
+using Sharplight.Studio.Services.Platform;
 using Sharplight.Studio.Services.Runtime;
 
 namespace Sharplight.Studio.ViewModels.Models;
@@ -80,6 +81,17 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
 
     /// <summary>The model to load.</summary>
     public LibraryEntryViewModel Entry { get; }
+
+    /// <summary>The model generates text, so context, batching, KV cache and speculation apply (the other kinds load with defaults).</summary>
+    public bool IsLanguageModel => !TaskKindClients.Handles(Entry.Entry.Kind);
+
+    /// <summary>A speech synthesis model given as a language-model file needs the codec decoder file next to it.</summary>
+    public bool NeedsVocoder => Entry.Entry.Kind == Sharplight.Models.ModelKinds.SpeechSynthesis
+        && !Entry.Entry.Path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The codec decoder file of a speech synthesis model (<see cref="NeedsVocoder"/>).</summary>
+    [ObservableProperty]
+    public partial string VocoderPath { get; set; } = "";
 
     /// <summary>Devices.</summary>
     public IReadOnlyList<ComputeDeviceOption> Devices { get; }
@@ -181,8 +193,9 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             AllowReducedPrecision = AllowReducedPrecision,
             MtpDraftTokens = Math.Max(0, (int)MtpDraftTokens),
         };
+        var auxiliary = NeedsVocoder && VocoderPath.Trim().Length > 0 ? new[] { ("vocoder", VocoderPath.Trim()) } : null;
         return new ModelLoadRequest(ModelId.Trim(), Entry.Entry.Path, settings, _services.Settings.Current.DisabledFeatures,
-            Capabilities: Entry.Entry.Capabilities);
+            Capabilities: Entry.Entry.Capabilities, Kind: Entry.Entry.Kind, Auxiliary: auxiliary);
     }
 
     private bool CanLoad() => !IsLoading;
@@ -193,6 +206,12 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         if (ModelId.Trim().Length == 0)
         {
             Status = "Give the model a name.";
+            return;
+        }
+
+        if (NeedsVocoder && !File.Exists(VocoderPath.Trim()))
+        {
+            Status = "Choose the vocoder file (the WavTokenizer .gguf that goes with this model).";
             return;
         }
 
@@ -224,6 +243,16 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         {
             _loading = null;
             IsLoading = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task BrowseVocoderAsync()
+    {
+        var files = await _services.Platform.PickFilesAsync("Choose the vocoder", [new FileFilter("GGUF files", ["*.gguf"])], allowMultiple: false);
+        if (files.Count > 0)
+        {
+            VocoderPath = files[0];
         }
     }
 
@@ -264,6 +293,12 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     private async Task EstimateAsync(CancellationTokenSource cancellation)
     {
         var token = cancellation.Token;
+        if (!IsLanguageModel)
+        {
+            // The engine's footprint estimate covers language models; the load checks the memory itself.
+            return;
+        }
+
         try
         {
             await Task.Delay(EstimateDelay, token);

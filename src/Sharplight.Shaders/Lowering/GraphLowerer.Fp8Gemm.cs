@@ -41,7 +41,7 @@ public sealed partial class GraphLowerer
     /// prefill stays bit-identical to the separate launches. Where they split K, their partial sums round differently.
     /// <c>SHARPLIGHT_FP8_DUAL_MAX_ROWS=64</c> keeps larger batches on the separate launches.
     /// </summary>
-    private static bool DualFp8Serves(long rows, long n, long k)
+    private bool DualFp8Serves(long rows, long n, long k)
         => rows >= Fp8GemmMinRows && (rows <= DualFp8AlwaysMaxRows
                                       || (rows <= (DiagnosticSwitches.Fp8DualGemmMaxRows ?? long.MaxValue) && QuantizedGemmSplit(n, k, rows, 128) == 1));
 

@@ -53,8 +53,15 @@ internal static partial class HfTokenizerTranslator
 
         var (tokens, types) = BuildBpeTokens(vocab, addedById, vocabSize, spaceBpe);
 
-        md[CanonicalKeys.TokenizerModel] = spaceBpe ? "bpe" : "gpt2";
-        md[CanonicalKeys.TokenizerPre] = spaceBpe ? "default" : DetectPreTokenizer(tok);
+        // CLIP: byte-level BPE with an end-of-word marker on the last character of every piece.
+        bool clip = model.TryGetProperty("end_of_word_suffix", out var suffix) && suffix.GetString() == "</w>";
+        md[CanonicalKeys.TokenizerModel] = clip ? "clip" : spaceBpe ? "bpe" : "gpt2";
+        md[CanonicalKeys.TokenizerPre] = spaceBpe || clip ? "default" : DetectPreTokenizer(tok);
+        if (clip)
+        {
+            md[CanonicalKeys.TokenizerLowercase] = true;
+        }
+
         md[CanonicalKeys.TokenizerTokens] = tokens;
         md[CanonicalKeys.TokenizerTokenTypes] = types;
         if (ReadMerges(model) is { Length: > 0 } merges)

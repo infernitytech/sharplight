@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 using Sharplight.Llm.Serving;
+using Sharplight.Speech;
+using Sharplight.Tasks;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services.Runtime;
 
@@ -9,6 +11,8 @@ namespace Sharplight.Studio.Tests.Fakes;
 internal sealed class FakeModel(string id, ModelCapabilities capabilities = ModelCapabilities.Chat) : ILoadedModel
 {
     public string Id { get; } = id;
+
+    public string Kind { get; init; } = Sharplight.Models.ModelKinds.TextGeneration;
 
     public string Path => $"/models/{Id}.slm";
 
@@ -67,6 +71,25 @@ internal sealed class FakeModel(string id, ModelCapabilities capabilities = Mode
             cancellationToken.ThrowIfCancellationRequested();
             yield return Script[i];
         }
+    }
+
+    /// <summary>The task clients of the model, by interface type (<see cref="ISpeechRecognizer"/>, <see cref="ISpeechSynthesizer"/>).</summary>
+    public Dictionary<Type, ITaskClient> Clients { get; } = [];
+
+    /// <summary>Leases taken so far.</summary>
+    public int Leases { get; private set; }
+
+    public Task<TaskClientLease<TClient>> AcquireClientAsync<TClient>(CancellationToken cancellationToken)
+        where TClient : class, ITaskClient
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!Clients.TryGetValue(typeof(TClient), out var client))
+        {
+            throw new NotSupportedException($"{Id} has no {typeof(TClient).Name}.");
+        }
+
+        Leases++;
+        return Task.FromResult(new TaskClientLease<TClient>((TClient)client));
     }
 
     public int CountTokens(string text) => (text.Length + 3) / 4;

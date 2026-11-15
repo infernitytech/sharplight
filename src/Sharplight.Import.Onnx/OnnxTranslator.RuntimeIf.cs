@@ -12,8 +12,16 @@ internal sealed partial class OnnxTranslator
     private string _symbolPrefix = "";
     private int _ifCount;
 
+    /// <summary>Upper bounds of the data-dependent symbols created by this translator.</summary>
+    private readonly Dictionary<string, Dim> _dynamicBounds = new(StringComparer.Ordinal);
+
     /// <summary>A dynamic symbol of the graph being built, unique across nested branch graphs.</summary>
-    private string NewDynamicSymbol(string hint, Dim bound) => _b.DynamicSymbol(_symbolPrefix + hint, bound);
+    private string NewDynamicSymbol(string hint, Dim bound)
+    {
+        string name = _b.DynamicSymbol(_symbolPrefix + hint, bound);
+        _dynamicBounds[name] = bound;
+        return name;
+    }
 
     private void RuntimeIf(OnnxNode n, TranslatedTensor?[] ins)
     {

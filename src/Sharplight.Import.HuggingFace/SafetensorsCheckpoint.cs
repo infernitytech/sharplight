@@ -5,7 +5,8 @@ namespace Sharplight.Import.HuggingFace;
 /// <summary>
 /// All shards of a safetensors checkpoint. Shards are discovered via <c>model.safetensors.index.json</c>
 /// (<c>weight_map</c>) or, without an index, as all <c>*.safetensors</c> files in the directory except the heads that decision models keep
-/// beside the checkpoint (<c>joint_head.safetensors</c>, <c>decision_head.safetensors</c>).
+/// beside the checkpoint (<c>joint_head.safetensors</c>, <c>decision_head.safetensors</c>) and weight variants beside <c>model.safetensors</c>
+/// (<c>model.fp32.safetensors</c>, ...).
 /// </summary>
 internal sealed class SafetensorsCheckpoint : IDisposable
 {
@@ -32,7 +33,7 @@ internal sealed class SafetensorsCheckpoint : IDisposable
         {
             foreach (var shard in DiscoverShards(directory))
             {
-                var file = SafetensorsFile.Open(shard);
+                var file = shard.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase) ? SafetensorsFile.Open(shard) : SafetensorsFile.OpenTorch(shard);
                 checkpoint._files.Add(file);
                 foreach (var (name, tensor) in file.Tensors)
                 {
@@ -45,7 +46,7 @@ internal sealed class SafetensorsCheckpoint : IDisposable
 
             if (checkpoint._files.Count == 0)
             {
-                throw new FileNotFoundException($"No *.safetensors files in '{directory}'.");
+                throw new FileNotFoundException($"No *.safetensors or pytorch_model*.bin files in '{directory}'.");
             }
 
             return checkpoint;
@@ -57,14 +58,54 @@ internal sealed class SafetensorsCheckpoint : IDisposable
         }
     }
 
+    /// <summary>True when <paramref name="dir"/> holds weights: safetensors shards or, failing those, PyTorch <c>pytorch_model*.bin</c> shards.</summary>
+    public static bool HasWeights(string dir) => HasSafetensors(dir) || TorchShards(dir).Any();
+
+    private static bool HasSafetensors(string dir) =>
+        Directory.EnumerateFiles(dir, "*.safetensors").Any(p => !s_sideFiles.Contains(Path.GetFileName(p)));
+
+    // PyTorch checkpoints are read only when the directory has no safetensors, as transformers prefers safetensors.
+    private static IEnumerable<string> TorchShards(string dir)
+    {
+        string? index = Directory.EnumerateFiles(dir, "pytorch_model*.bin.index.json").OrderBy(p => p, StringComparer.Ordinal).FirstOrDefault();
+        if (index != null)
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(index));
+            var names = new SortedSet<string>(StringComparer.Ordinal);
+            if (doc.RootElement.TryGetProperty("weight_map", out var weightMap))
+            {
+                foreach (var entry in weightMap.EnumerateObject())
+                {
+                    if (entry.Value.GetString() is { } shardName && Path.GetFileName(shardName) == shardName)
+                    {
+                        names.Add(shardName);
+                    }
+                }
+            }
+
+            return names.Select(shardName =>
+            {
+                var full = Path.Combine(dir, shardName);
+                return File.Exists(full) ? full : throw new FileNotFoundException($"Shard '{shardName}' listed in {Path.GetFileName(index)} is missing.", full);
+            }).ToList();
+        }
+
+        return Directory.EnumerateFiles(dir, "pytorch_model*.bin").OrderBy(p => p, StringComparer.Ordinal).ToList();
+    }
+
     private static IEnumerable<string> DiscoverShards(string dir)
     {
+        if (!HasSafetensors(dir))
+        {
+            return TorchShards(dir);
+        }
+
         var all = Directory.EnumerateFiles(dir, "*.safetensors").Where(p => !s_sideFiles.Contains(Path.GetFileName(p)))
             .OrderBy(p => p, StringComparer.Ordinal).ToList();
         string? index = Directory.EnumerateFiles(dir, "*.safetensors.index.json").OrderBy(p => p, StringComparer.Ordinal).FirstOrDefault();
         if (index == null)
         {
-            return all;
+            return WithoutVariants(all);
         }
 
         using var doc = JsonDocument.Parse(File.ReadAllBytes(index));
@@ -90,6 +131,25 @@ internal sealed class SafetensorsCheckpoint : IDisposable
             var full = Path.Combine(dir, shardName);
             return File.Exists(full) ? full : throw new FileNotFoundException($"Shard '{shardName}' listed in {Path.GetFileName(index)} is missing.", full);
         });
+    }
+
+    /// <summary>
+    /// Drops weight variants (<c>model.fp32.safetensors</c>, <c>model.fp16.safetensors</c>, ...) when the default <c>model.safetensors</c> is
+    /// present: transformers loads a variant only when asked for it, and a variant repeats every tensor of the default file.
+    /// </summary>
+    /// <param name="shards">The safetensors files of the directory.</param>
+    private static List<string> WithoutVariants(List<string> shards)
+    {
+        if (!shards.Any(p => Path.GetFileName(p) == "model.safetensors"))
+        {
+            return shards;
+        }
+
+        return shards.Where(p =>
+        {
+            string name = Path.GetFileName(p);
+            return name == "model.safetensors" || !name.StartsWith("model.", StringComparison.Ordinal);
+        }).ToList();
     }
 
     /// <summary>Unmaps every shard.</summary>

@@ -20,6 +20,13 @@ public interface IModelImporter
     /// <summary>Cheap check (extension, magic bytes, directory layout) whether this importer handles <paramref name="path"/>.</summary>
     public bool CanOpen(string path);
 
+    /// <summary>
+    /// Rank among importers that accept the same path (<see cref="ModelImporterRegistry.Find"/> asks the highest first). Generic
+    /// container importers keep the default 0; an importer for one kind of content inside a shared container (e.g. diffusion
+    /// checkpoints stored as GGUF or safetensors) returns a higher value and checks the content in <see cref="CanOpen"/>.
+    /// </summary>
+    public int Priority => 0;
+
     /// <summary>Opens <paramref name="path"/> (a file or a directory) as a canonical model source.</summary>
     public ModelSource Open(string path);
 }

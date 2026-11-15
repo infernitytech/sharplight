@@ -1,5 +1,6 @@
 using System.IO.MemoryMappedFiles;
 using System.Text.Json;
+using Sharplight.Import.PyTorch;
 
 namespace Sharplight.Import.HuggingFace;
 
@@ -15,6 +16,7 @@ internal sealed unsafe class SafetensorsFile : IDisposable
     private MemoryMappedFile? _mmf;
     private MemoryMappedViewAccessor? _view;
     private byte* _base;
+    private TorchCheckpointFile? _torch;
     private readonly Dictionary<string, SafetensorsTensor> _tensors = new(StringComparer.Ordinal);
 
     /// <summary>The path the file was opened from.</summary>
@@ -39,7 +41,7 @@ internal sealed unsafe class SafetensorsFile : IDisposable
     private SafetensorsFile(string path)
     {
         Path = path;
-        long fileLength = new FileInfo(path).Length;
+        long fileLength = FileLength(path);
         if (fileLength < HeaderLengthBytes)
         {
             throw new InvalidDataException($"{path}: too small to be a safetensors file.");
@@ -78,6 +80,49 @@ internal sealed unsafe class SafetensorsFile : IDisposable
             throw;
         }
     }
+
+    private SafetensorsFile(TorchCheckpointFile torch)
+    {
+        _torch = torch;
+        Path = torch.Path;
+        DataOffset = 0;
+        _base = torch.BasePointer;
+        foreach (var (name, entry) in torch.Tensors)
+        {
+            string dtype = TorchDTypeName(entry.DType);
+            _tensors[name] = new SafetensorsTensor
+            {
+                Name = name,
+                DType = dtype,
+                Type = SafetensorsTensor.MapDType(dtype),
+                Shape = entry.Shape,
+                Offset = entry.FileOffset,
+                ByteLength = entry.ByteLength,
+                File = this,
+            };
+        }
+    }
+
+    /// <summary>
+    /// Opens a PyTorch checkpoint (<c>.bin</c> / <c>.pt</c> / <c>.pth</c> / <c>.ckpt</c>) through the restricted unpickler of
+    /// <c>Sharplight.Import.PyTorch</c> and presents its tensors like safetensors entries (offsets are absolute file offsets).
+    /// </summary>
+    /// <exception cref="UnsafePickleException">The pickle uses an opcode or global outside the tensor state-dict subset.</exception>
+    public static SafetensorsFile OpenTorch(string path) => new(TorchCheckpointFile.Open(path));
+
+    private static string TorchDTypeName(TorchDType dtype) => dtype switch
+    {
+        TorchDType.Float64 => "F64",
+        TorchDType.Float32 => "F32",
+        TorchDType.Float16 => "F16",
+        TorchDType.BFloat16 => "BF16",
+        TorchDType.Int64 => "I64",
+        TorchDType.Int32 => "I32",
+        TorchDType.Int16 => "I16",
+        TorchDType.Int8 => "I8",
+        TorchDType.UInt8 => "U8",
+        _ => "BOOL",
+    };
 
     /// <summary>Opens and memory-maps <paramref name="path"/> and parses its header.</summary>
     /// <exception cref="InvalidDataException">The header is malformed or a tensor lies outside the data section.</exception>
@@ -124,6 +169,14 @@ internal sealed unsafe class SafetensorsFile : IDisposable
     /// <summary>Unmaps the file. Safe to call more than once.</summary>
     public void Dispose()
     {
+        if (_torch != null)
+        {
+            _torch.Dispose();
+            _torch = null;
+            _base = null;
+            return;
+        }
+
         if (_base != null)
         {
             _view?.SafeMemoryMappedViewHandle.ReleasePointer();
@@ -134,5 +187,12 @@ internal sealed unsafe class SafetensorsFile : IDisposable
         _view = null;
         _mmf?.Dispose();
         _mmf = null;
+    }
+
+    /// <summary>The size of the file <paramref name="path"/> names, following symbolic links (<see cref="FileInfo.Length"/> reports the link's own size).</summary>
+    private static long FileLength(string path)
+    {
+        using var handle = File.OpenHandle(path);
+        return RandomAccess.GetLength(handle);
     }
 }

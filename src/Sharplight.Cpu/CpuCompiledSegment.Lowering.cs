@@ -216,6 +216,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Dft":
                 LowerDft(n);
                 return;
+            case "Conv1d":
+                LowerConv1d(n);
+                return;
             case "Random":
                 LowerRandom(n);
                 return;

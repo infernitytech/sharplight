@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -28,6 +30,7 @@ namespace Sharplight.Tasks;
 public sealed class TaskModel : IDisposable
 {
     private const long DefaultReserve = 1L << 30;
+    private readonly ConcurrentDictionary<string, Lazy<ModelDefinition>> _variants = new(StringComparer.Ordinal);
     private bool _disposed;
 
     internal TaskModel(ModelDefinition definition, ModelSource source, TaskLoadOptions options)
@@ -114,10 +117,21 @@ public sealed class TaskModel : IDisposable
     public IReadOnlyDictionary<string, object> Metadata(string? role = null)
         => role is null ? Definition.SourceMetadata : Description.Component(role).Metadata(Definition.SourceMetadata);
 
-    /// <summary>Builds the tokenizer stored in the canonical metadata of a component, or of the whole model when <paramref name="role"/> is null.</summary>
+    /// <summary>
+    /// Builds the tokenizer of a component: its <see cref="ModelComponentAttachments.Tokenizer"/> attachment when it has one, else the
+    /// tokenizer in the component's canonical metadata (or the whole model's when <paramref name="role"/> is null).
+    /// </summary>
     /// <param name="role">The component role, or <see langword="null"/>.</param>
-    /// <exception cref="NotSupportedException">The metadata describes no supported tokenizer.</exception>
-    public ITokenizer CreateTokenizer(string? role = null) => TokenizerFactory.Create(TokenizerData.FromMetadata(Metadata(role)));
+    /// <exception cref="NotSupportedException">The model describes no supported tokenizer.</exception>
+    public ITokenizer CreateTokenizer(string? role = null)
+    {
+        if (role is not null && Description.Component(role).Attachments.ContainsKey(ModelComponentAttachments.Tokenizer))
+        {
+            return TokenizerFactory.Create(TokenizerData.FromJson(ReadAttachment(role, ModelComponentAttachments.Tokenizer)));
+        }
+
+        return TokenizerFactory.Create(TokenizerData.FromMetadata(Metadata(role)));
+    }
 
     /// <summary>The bytes of an attachment of a component (<see cref="ModelComponent.Attachments"/>).</summary>
     /// <param name="role">The component role.</param>
@@ -151,13 +165,29 @@ public sealed class TaskModel : IDisposable
 
     /// <summary>
     /// Compiles a graph of a component onto the configured devices, with the component's default symbol bounds
-    /// (<see cref="ModelComponent.SymbolBounds"/>) under <paramref name="symbolBounds"/>; consults and records precompiled artifacts.
+    /// (<see cref="ModelComponent.SymbolBounds"/>) under <paramref name="symbolBounds"/>; consults and records precompiled artifacts. Bounds
+    /// of the row symbol (<see cref="WellKnown.TokenSymbol"/>) and the context symbol (<see cref="WellKnown.ContextSymbol"/>) replace
+    /// <see cref="TaskLoadOptions.MaxBatchTokens"/> and <see cref="TaskLoadOptions.ContextLength"/> (a speech decoder's fixed context, for
+    /// example), as in package precompilation.
     /// </summary>
     /// <param name="role">The component role.</param>
     /// <param name="graph">One of the component's graph names, or <see langword="null"/> for its first graph.</param>
     /// <param name="symbolBounds">Bounds that override the component's defaults, or <see langword="null"/>.</param>
     /// <exception cref="KeyNotFoundException">The component does not exist or has no such graph.</exception>
     public CompiledModel CompileComponent(string role, string? graph = null, IReadOnlyDictionary<string, long>? symbolBounds = null)
+        => CompileComponent(role, graph, symbolBounds, dimensions: null);
+
+    /// <summary>
+    /// Compiles a graph of a component like <see cref="CompileComponent(string, string?, IReadOnlyDictionary{string, long}?)"/>, taken
+    /// from the model rebuilt with other fixed sizes (<see cref="DefinitionFor"/>) when <paramref name="dimensions"/> is not empty.
+    /// </summary>
+    /// <param name="role">The component role.</param>
+    /// <param name="graph">One of the component's graph names, or <see langword="null"/> for its first graph.</param>
+    /// <param name="symbolBounds">Bounds that override the component's defaults, or <see langword="null"/>.</param>
+    /// <param name="dimensions">Fixed sizes by name (<see cref="AdapterOptions.Dimensions"/>), or <see langword="null"/> for the built ones.</param>
+    /// <exception cref="KeyNotFoundException">The component does not exist or has no such graph.</exception>
+    public CompiledModel CompileComponent(string role, string? graph, IReadOnlyDictionary<string, long>? symbolBounds,
+        IReadOnlyDictionary<string, long>? dimensions)
     {
         var bounds = new Dictionary<string, long>(Description.Component(role).SymbolBounds, StringComparer.Ordinal);
         foreach (var (symbol, bound) in symbolBounds ?? new Dictionary<string, long>())
@@ -165,7 +195,57 @@ public sealed class TaskModel : IDisposable
             bounds[symbol] = bound;
         }
 
-        return Compile(ComponentGraph(role, graph), bounds);
+        long? maxTokens = bounds.Remove(WellKnown.TokenSymbol, out long rows) ? rows : null;
+        long? contextLength = bounds.Remove(WellKnown.ContextSymbol, out long context) ? context : null;
+        if (dimensions is null || dimensions.Count == 0)
+        {
+            return Compile(ComponentGraph(role, graph), bounds, maxTokens, contextLength);
+        }
+
+        var component = Description.Component(role);
+        string name = (graph is null ? component.Graphs.FirstOrDefault() : component.Graphs.FirstOrDefault(g => g == graph))
+            ?? throw new KeyNotFoundException($"Component '{role}' of {Definition.Name} has no graph{(graph is null ? "" : $" '{graph}'")}.");
+        return Compile(DefinitionFor(dimensions).Graph(name), bounds, maxTokens, contextLength);
+    }
+
+    /// <summary>
+    /// The model rebuilt by its architecture adapter with other fixed sizes (<see cref="AdapterOptions.Dimensions"/>, e.g. the
+    /// <c>height</c> and <c>width</c> of an image generator's graphs), sharing this model's weights; built once per set of sizes and
+    /// kept while the model lives. Works for models loaded from any format, <c>.slm</c> packages included, because the adapter rebuilds
+    /// the graphs from the canonical metadata and weights the definition keeps.
+    /// </summary>
+    /// <param name="dimensions">The sizes by name; empty for <see cref="Definition"/> itself.</param>
+    /// <exception cref="NotSupportedException">No registered adapter builds the model's architecture.</exception>
+    public ModelDefinition DefinitionFor(IReadOnlyDictionary<string, long> dimensions)
+    {
+        ArgumentNullException.ThrowIfNull(dimensions);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (dimensions.Count == 0)
+        {
+            return Definition;
+        }
+
+        string key = string.Join(",", dimensions.OrderBy(d => d.Key, StringComparer.Ordinal)
+            .Select(d => string.Create(CultureInfo.InvariantCulture, $"{d.Key}={d.Value}")));
+        return _variants.GetOrAdd(key, _ => new Lazy<ModelDefinition>(() => Rebuild(dimensions))).Value;
+    }
+
+    private ModelDefinition Rebuild(IReadOnlyDictionary<string, long> dimensions)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var source = new ModelSource
+        {
+            Format = Source.Format,
+            Architecture = Definition.Architecture,
+            Metadata = Definition.SourceMetadata,
+            Weights = Definition.Weights,
+            FormatData = Source.FormatData,
+            Path = Source.Path,
+            CompilationCaches = Source.CompilationCaches,
+        };
+        var definition = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = source }, Options.Adapter.WithDimensions(dimensions), Options.Log);
+        Options.Log?.Invoke($"Rebuilt {Definition.Name} for {string.Join(", ", dimensions.Select(d => $"{d.Key}={d.Value}"))} [{stopwatch.ElapsedMilliseconds} ms]");
+        return definition;
     }
 
     /// <summary>

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Safe reader for PyTorch checkpoints (.bin, .pt, .pth, .ckpt): a restricted unpickler that never executes code, with zero-copy tensor offsets into the file.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.Import.PyTorch.Tests" />
+  </ItemGroup>
+</Project>

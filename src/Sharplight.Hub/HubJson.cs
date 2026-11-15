@@ -80,7 +80,9 @@ internal static class HubJson
                 config.ValueKind == JsonValueKind.Object ? String(config, "model_type") : null,
                 config.ValueKind == JsonValueKind.Object ? QuantizationMethod(config) : null,
                 files.Any(GgufFileName.IsGguf) && files.Where(GgufFileName.IsGguf).All(GgufFileName.IsProjector),
-                Date(model, "createdAt")));
+                Date(model, "createdAt"),
+                License(model),
+                Date(model, "lastModified")));
         }
 
         return results;
@@ -109,6 +111,25 @@ internal static class HubJson
         }
     }
 
+    /// <summary>The id of the first <c>license:</c> tag, or null.</summary>
+    private static string? License(JsonElement model)
+    {
+        if (!model.TryGetProperty("tags", out var tags) || tags.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var tag in tags.EnumerateArray())
+        {
+            if (tag.ValueKind == JsonValueKind.String && tag.GetString() is { } text && text.StartsWith("license:", StringComparison.Ordinal))
+            {
+                return text["license:".Length..];
+            }
+        }
+
+        return null;
+    }
+
     private static IReadOnlyList<ModelFormat> Formats(IReadOnlyList<string> files)
     {
         var formats = new List<ModelFormat>();
@@ -125,6 +146,21 @@ internal static class HubJson
         if (files.Any(file => file.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)))
         {
             formats.Add(ModelFormat.Onnx);
+        }
+
+        if (files.Contains(RepoLayouts.DiffusersIndex))
+        {
+            formats.Add(ModelFormat.Diffusers);
+        }
+
+        if (files.Any(RepoLayouts.IsWhisperCpp))
+        {
+            formats.Add(ModelFormat.WhisperCpp);
+        }
+
+        if (files.Any(file => file.EndsWith(".slm", StringComparison.OrdinalIgnoreCase)))
+        {
+            formats.Add(ModelFormat.Slm);
         }
 
         return formats;
