@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>sharplight-transcribe</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Description>Sample: speech to text with the Sharplight task API (any registered speech-recognition model: Whisper .slm, Hugging Face or whisper.cpp files).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
+  </ItemGroup>
+</Project>

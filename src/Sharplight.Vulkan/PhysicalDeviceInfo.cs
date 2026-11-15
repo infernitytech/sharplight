@@ -29,11 +29,6 @@ internal sealed unsafe class PhysicalDeviceInfo
     /// <summary>Nanoseconds per timestamp tick.</summary>
     public float TimestampPeriod { get; }
     public uint MaxSharedMemory { get; }
-    /// <summary>
-    /// Compute units (NVIDIA SMs from VK_NV_shader_sm_builtins, AMD compute units from VK_AMD_shader_core_properties), 0 when the
-    /// driver does not report them.
-    /// </summary>
-    public uint ComputeUnits { get; }
     public uint[] MaxWorkgroupCount { get; }
     public bool CooperativeMatrix { get; }
     public bool CooperativeMatrix2 { get; }
@@ -63,6 +58,13 @@ internal sealed unsafe class PhysicalDeviceInfo
     /// card of the same model on the same driver build, unlike <see cref="Uuid"/>, which identifies one physical card.
     /// </summary>
     public string PipelineCacheUuid { get; }
+    /// <summary>
+    /// Streaming multiprocessors / compute units (VK_NV_shader_sm_builtins, VK_AMD_shader_core_properties); 0 when the driver
+    /// reports neither.
+    /// </summary>
+    public uint ComputeUnits { get; }
+    /// <summary>Threads one compute unit keeps resident at most (warps per SM x 32, or wavefront slots x wave size); 0 when unknown.</summary>
+    public uint ThreadsPerComputeUnit { get; }
 
     public PhysicalDeviceInfo(VulkanInstance inst, VkPhysicalDevice pd)
     {
@@ -85,23 +87,32 @@ internal sealed unsafe class PhysicalDeviceInfo
         var sub = new VkPhysicalDeviceSubgroupProperties();
         var ssc = new VkPhysicalDeviceSubgroupSizeControlProperties { pNext = &sub };
         var idp = new VkPhysicalDeviceIDProperties { pNext = &ssc };
-        var sm = new VkPhysicalDeviceShaderSMBuiltinsPropertiesNV { pNext = &idp };
-        var core = new VkPhysicalDeviceShaderCorePropertiesAMD { pNext = &idp };
-        void* head = &idp;
+        var props2 = new VkPhysicalDeviceProperties2 { pNext = &idp };
+        var smBuiltins = new VkPhysicalDeviceShaderSMBuiltinsPropertiesNV();
+        var amdCores = new VkPhysicalDeviceShaderCorePropertiesAMD();
         if (Extensions.Contains("VK_NV_shader_sm_builtins"))
         {
-            head = &sm;
-        }
-        else if (Extensions.Contains("VK_AMD_shader_core_properties"))
-        {
-            head = &core;
+            smBuiltins.pNext = props2.pNext;
+            props2.pNext = &smBuiltins;
         }
 
-        var props2 = new VkPhysicalDeviceProperties2 { pNext = head };
+        if (Extensions.Contains("VK_AMD_shader_core_properties"))
+        {
+            amdCores.pNext = props2.pNext;
+            props2.pNext = &amdCores;
+        }
+
         api.vkGetPhysicalDeviceProperties2(pd, &props2);
-        ComputeUnits = head == &sm ? sm.shaderSMCount
-            : head == &core ? core.shaderEngineCount * core.shaderArraysPerEngineCount * core.computeUnitsPerShaderArray
-            : 0;
+        if (smBuiltins.shaderSMCount > 0)
+        {
+            ComputeUnits = smBuiltins.shaderSMCount;
+            ThreadsPerComputeUnit = smBuiltins.shaderWarpsPerSM * 32;
+        }
+        else if (amdCores.shaderEngineCount > 0)
+        {
+            ComputeUnits = amdCores.shaderEngineCount * amdCores.shaderArraysPerEngineCount * amdCores.computeUnitsPerShaderArray;
+            ThreadsPerComputeUnit = amdCores.simdPerComputeUnit * amdCores.wavefrontsPerSimd * amdCores.wavefrontSize;
+        }
         var p = props2.properties;
         Name = Encoding.UTF8.GetString(MemoryMarshal.CreateReadOnlySpanFromNullTerminated(p.deviceName));
         Type = p.deviceType;
@@ -338,6 +349,7 @@ internal sealed unsafe class PhysicalDeviceInfo
             ["integer_dot_product"] = IntegerDotProduct.ToString(),
             ["max_shared_memory"] = MaxSharedMemory.ToString(),
             ["compute_units"] = ComputeUnits.ToString(),
+            ["threads_per_compute_unit"] = ThreadsPerComputeUnit.ToString(),
             ["max_push_constants"] = MaxPushConstants.ToString(),
             ["memory_budget"] = MemoryBudgetExt.ToString(),
         },

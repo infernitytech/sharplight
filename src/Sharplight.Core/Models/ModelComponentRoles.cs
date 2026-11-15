@@ -33,4 +33,13 @@ public static class ModelComponentRoles
 
     /// <summary>Turns acoustic features or codec tokens into a waveform.</summary>
     public const string Vocoder = "vocoder";
+
+    /// <summary>Image encoder (ViT trunk, CLIP / SigLIP vision tower, SAM image encoder); the text tower of a dual-tower model is the <see cref="TextEncoder"/>.</summary>
+    public const string VisionEncoder = "vision-encoder";
+
+    /// <summary>Encodes prompts (points, boxes, masks) of a promptable segmenter.</summary>
+    public const string PromptEncoder = "prompt-encoder";
+
+    /// <summary>Turns encoder features (and prompt embeddings) into masks, boxes or per-pixel maps.</summary>
+    public const string MaskDecoder = "mask-decoder";
 }

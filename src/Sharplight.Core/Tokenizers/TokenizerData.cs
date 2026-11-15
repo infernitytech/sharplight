@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Sharplight.Models;
 
 namespace Sharplight.Tokenizers;
@@ -75,6 +76,28 @@ public sealed record TokenizerData
 
     /// <summary>Canonical metadata key of <see cref="Merges"/>.</summary>
     public const string KeyMerges = CanonicalKeys.TokenizerMerges;
+
+    /// <summary>
+    /// The description as UTF-8 JSON (camelCase property names): the canonical stored form of a tokenizer that a model keeps as an
+    /// attachment (<see cref="ModelComponentAttachments.Tokenizer"/>) instead of metadata keys.
+    /// </summary>
+    public byte[] ToJson() => JsonSerializer.SerializeToUtf8Bytes(this, TokenizerDataJsonContext.Default.TokenizerData);
+
+    /// <summary>Reads a description written by <see cref="ToJson"/>.</summary>
+    /// <param name="json">UTF-8 JSON.</param>
+    /// <exception cref="InvalidDataException">The JSON is not a tokenizer description.</exception>
+    public static TokenizerData FromJson(ReadOnlySpan<byte> json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize(json, TokenizerDataJsonContext.Default.TokenizerData)
+                ?? throw new InvalidDataException("Invalid tokenizer description: null.");
+        }
+        catch (JsonException error)
+        {
+            throw new InvalidDataException($"Invalid tokenizer description: {error.Message}", error);
+        }
+    }
 
     /// <summary>Reads the canonical tokenizer keys (<see cref="CanonicalKeys"/>). Lenient about numeric widths and array element types.</summary>
     /// <param name="md">Canonical model metadata.</param>

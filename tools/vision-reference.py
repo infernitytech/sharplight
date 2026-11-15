@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Reference outputs of vision models for the Sharplight vision tests.
+
+Runs a Hugging Face image model (transformers) on an image and writes `sharplight-reference.json` into the model directory: the
+pooled image embedding, the class logits (classifiers) and, for dual-tower models, text embeddings and zero-shot logits. The image is
+also stored as `sharplight-sample.png` there, so that Sharplight and the reference see the same pixels.
+
+Usage: vision-reference.py MODEL_DIR IMAGE [--text "a cat" --text "a dog" ...]
+Python environment: torch (CPU), transformers, pillow, numpy (a venv, never the system Python).
+"""
+import argparse
+import json
+import os
+
+import numpy as np
+import torch
+from PIL import Image
+from transformers import AutoConfig, AutoImageProcessor, AutoModel, AutoModelForImageClassification, AutoTokenizer
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("model_dir")
+    parser.add_argument("image")
+    parser.add_argument("--text", action="append", default=[])
+    args = parser.parse_args()
+
+    image = Image.open(args.image).convert("RGB")
+    image.save(os.path.join(args.model_dir, "sharplight-sample.png"))
+    image = Image.open(os.path.join(args.model_dir, "sharplight-sample.png")).convert("RGB")
+    config = AutoConfig.from_pretrained(args.model_dir)
+    processor = AutoImageProcessor.from_pretrained(args.model_dir)
+    pixels = processor(images=image, return_tensors="pt")["pixel_values"]
+    result: dict = {"model_type": config.model_type, "pixel_sample": pixels.flatten()[:16].tolist()}
+
+    with torch.no_grad():
+        if config.model_type in ("clip", "siglip"):
+            model = AutoModel.from_pretrained(args.model_dir).eval()
+            result["image_embedding"] = model.get_image_features(pixel_values=pixels)[0].tolist()
+            if args.text:
+                tokenizer = AutoTokenizer.from_pretrained(args.model_dir)
+                padding = "max_length" if config.model_type == "siglip" else True
+                tokens = tokenizer(args.text, padding=padding, max_length=64 if config.model_type == "siglip" else None, return_tensors="pt")
+                result["texts"] = args.text
+                result["text_embeddings"] = model.get_text_features(**tokens).tolist()
+                outputs = model(pixel_values=pixels, **tokens)
+                result["logits_per_image"] = outputs.logits_per_image[0].tolist()
+        elif getattr(config, "architectures", None) and "ForImageClassification" in config.architectures[0]:
+            model = AutoModelForImageClassification.from_pretrained(args.model_dir).eval()
+            outputs = model(pixel_values=pixels, output_hidden_states=True)
+            result["logits"] = outputs.logits[0].tolist()
+            result["labels"] = [model.config.id2label[i] for i in range(len(model.config.id2label))]
+            result["pooled"] = model.base_model(pixel_values=pixels).last_hidden_state[0, 0].tolist()
+        else:
+            model = AutoModel.from_pretrained(args.model_dir).eval()
+            out = model(pixel_values=pixels)
+            result["pooled"] = out.last_hidden_state[0, 0].tolist()
+            result["patch_mean"] = out.last_hidden_state[0, 1 + getattr(config, "num_register_tokens", 0):].mean(0).tolist()
+
+    with open(os.path.join(args.model_dir, "sharplight-reference.json"), "w") as f:
+        json.dump(result, f)
+    print({k: (len(v) if isinstance(v, list) else v) for k, v in result.items()})
+
+
+if __name__ == "__main__":
+    main()

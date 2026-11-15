@@ -20,6 +20,8 @@ namespace Sharplight.Shaders;
 /// the per-pixel conv_narrow kernel.</item>
 /// <item><c>SHARPLIGHT_NO_STRIDED_LAYERNORM=1</c>: copy a channel-strided LayerNorm input (the channels-last view of an NCHW
 /// tensor) to a dense temporary instead of normalizing it in place.</item>
+/// <item><c>SHARPLIGHT_NO_FUSED_CONCAT=1</c>: copy each input of a concatenation with its own launch instead of one launch over
+/// the output.</item>
 /// <item><c>SHARPLIGHT_NO_GROUP_MERGE=1</c>: fuse only consecutive elementwise nodes (no merging of groups along data flow).</item>
 /// <item><c>SHARPLIGHT_NO_GATHER_FOLD=1</c>: materialize row gathers (GatherAxis on axis 0, e.g. the per-expert biases of the
 /// selected experts) with their own launch instead of reading the rows in place inside the fused elementwise group consuming them.</item>
@@ -127,6 +129,15 @@ internal static class DiagnosticSwitches
 
     /// <summary>Runs convolutions with few output channels through the implicit GEMMs instead of conv_narrow.</summary>
     public static bool NoNarrowConv { get; } = IsSet("SHARPLIGHT_NO_NARROW_CONV");
+
+    /// <summary>Concatenations run as one launch over the output (off with <c>SHARPLIGHT_NO_FUSED_CONCAT=1</c>: one copy per input).</summary>
+    public static bool FusedConcat { get; } = !IsSet("SHARPLIGHT_NO_FUSED_CONCAT");
+
+    /// <summary>
+    /// Inputs of a concatenation whose leading axes have extent 1 are computed in their slices of the output, without a copy
+    /// (off with <c>SHARPLIGHT_NO_CONCAT_IN_PLACE=1</c>).
+    /// </summary>
+    public static bool ConcatInPlace { get; } = !IsSet("SHARPLIGHT_NO_CONCAT_IN_PLACE");
 
     /// <summary>Densifies channel-strided LayerNorm inputs for the row kernel instead of reading them in place (layernorm_cs).</summary>
     public static bool NoStridedLayerNorm { get; } = IsSet("SHARPLIGHT_NO_STRIDED_LAYERNORM");
