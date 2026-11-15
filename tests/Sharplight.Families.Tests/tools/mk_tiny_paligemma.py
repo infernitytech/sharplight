@@ -26,7 +26,8 @@ TEXT = {
 
 def fetch(name, target):
     token_file = os.path.expanduser("~/.cache/huggingface/token")
-    headers = {"Authorization": "Bearer " + open(token_file).read().strip()} if os.path.exists(token_file) else {}
+    token = os.environ.get("HF_TOKEN") or (open(token_file).read().strip() if os.path.exists(token_file) else "")
+    headers = {"Authorization": "Bearer " + token} if token else {}
     url = f"https://huggingface.co/{TOKENIZER_REPO}/resolve/main/{name}"
     with open(target, "wb") as f:
         f.write(urllib.request.urlopen(urllib.request.Request(url, headers=headers)).read())

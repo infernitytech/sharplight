@@ -9,6 +9,7 @@ namespace Sharplight.ImageGeneration.Tests;
 /// (tools/make-diffusion-references.py, 768×768, 20 steps; fp32 files, which the importer prefers over the .fp16 ones) in
 /// ~/models/sd/sd21-reference. Skips when the model, the references or a GPU are missing.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class Sd21Tests
 {
     private static readonly string Reference = Path.Combine(Path.GetDirectoryName(Env.Sd21Diffusers)!, "sd21-reference");

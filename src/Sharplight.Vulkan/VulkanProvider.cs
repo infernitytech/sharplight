@@ -105,7 +105,9 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
             throw new ArgumentException($"Device belongs to provider '{device.Provider}'.");
         }
 
-        return new VulkanDevice(Instance, Instance.PhysicalDevices[device.Index], device, options ?? new DeviceOptions());
+        var opened = new VulkanDevice(Instance, Instance.PhysicalDevices[device.Index], device, options ?? new DeviceOptions());
+        VulkanShutdown.Track(opened);
+        return opened;
     }
 
     /// <inheritdoc />
