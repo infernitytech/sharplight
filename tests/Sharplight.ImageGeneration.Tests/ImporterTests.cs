@@ -8,18 +8,19 @@ namespace Sharplight.ImageGeneration.Tests;
 public sealed class ImporterTests
 {
     [Theory]
-    [InlineData("tiny-sd.safetensors")]
-    [InlineData("tiny-sd.ckpt")]
-    public void SingleFileCheckpointEqualsDiffusersFolder(string fileName)
+    [InlineData("sd1", "tiny-sd.safetensors")]
+    [InlineData("sd1", "tiny-sd.ckpt")]
+    [InlineData("sd2", "tiny-sd2.safetensors")]
+    [InlineData("sd2", "tiny-sd2.ckpt")]
+    public void SingleFileCheckpointEqualsDiffusersFolder(string family, string fileName)
     {
-        Assert.SkipUnless(Directory.Exists(Env.Tiny), "tiny-random-sd missing");
-        var importer = new DiffusersImporter();
-        string singleFile = Path.Combine(Env.Tiny, fileName);
+        string singleFile = Path.Combine(Env.TinyRoot(family), fileName);
         Assert.SkipUnless(File.Exists(singleFile), $"{fileName} missing");
-        Assert.True(importer.CanOpen(Env.TinyDiffusers));
+        var importer = new DiffusersImporter();
+        Assert.True(importer.CanOpen(Env.TinyDiffusersOf(family)));
         Assert.True(importer.CanOpen(singleFile));
         Assert.Same(importer.GetType(), ModelImporterRegistry.Find(singleFile)?.GetType());
-        var folder = importer.Open(Env.TinyDiffusers);
+        var folder = importer.Open(Env.TinyDiffusersOf(family));
         var file = importer.Open(singleFile);
         try
         {
@@ -35,6 +36,13 @@ public sealed class ImporterTests
             {
                 Assert.Equal(folder.Metadata["latent_diffusion.unet." + key], file.Metadata["latent_diffusion.unet." + key]);
             }
+
+            foreach (string key in new[] { "text_encoder.activation", "text_encoder.layer_count", "scheduler.prediction_type" })
+            {
+                Assert.Equal(folder.Metadata["latent_diffusion." + key], file.Metadata["latent_diffusion." + key]);
+            }
+
+            Assert.Equal(folder.Metadata[CanonicalKeys.TokenizerPadId], file.Metadata[CanonicalKeys.TokenizerPadId]);
         }
         finally
         {
@@ -69,7 +77,7 @@ public sealed class ImporterTests
         }
     }
 
-    public static TheoryData<string> Sd15Files => ["single", "ckpt", "f16", "Q8_0", "Q4_0"];
+    public static TheoryData<string> Sd15Files => ["single", "ckpt", "f16", "Q8_0", "Q4_0", "sd21"];
 
     [Theory]
     [MemberData(nameof(Sd15Files))]
@@ -79,11 +87,13 @@ public sealed class ImporterTests
         {
             "single" => Env.Sd15SingleFile,
             "ckpt" => Env.Sd15Ckpt,
+            "sd21" => Env.Sd21SingleFile,
             _ => Env.Sd15Gguf(variant),
         };
-        Assert.SkipUnless(File.Exists(path) && Directory.Exists(Env.Sd15Diffusers), "SD 1.5 files missing");
+        string diffusers = variant == "sd21" ? Env.Sd21Diffusers : Env.Sd15Diffusers;
+        Assert.SkipUnless(File.Exists(path) && Directory.Exists(diffusers), "SD files missing");
         var importer = new DiffusersImporter();
-        var folder = importer.Open(Env.Sd15Diffusers);
+        var folder = importer.Open(diffusers);
         var file = importer.Open(path);
         try
         {
@@ -94,7 +104,12 @@ public sealed class ImporterTests
             }
 
             Assert.Equal(folder.Metadata["latent_diffusion.unet.head_counts"], file.Metadata["latent_diffusion.unet.head_counts"]);
-            Assert.Equal(folder.Metadata["latent_diffusion.text_encoder.head_count"], file.Metadata["latent_diffusion.text_encoder.head_count"]);
+            foreach (string key in new[] { "unet.sample_size", "text_encoder.head_count", "text_encoder.activation", "scheduler.prediction_type" })
+            {
+                Assert.Equal(folder.Metadata["latent_diffusion." + key], file.Metadata["latent_diffusion." + key]);
+            }
+
+            Assert.Equal(folder.Metadata[CanonicalKeys.TokenizerPadId], file.Metadata[CanonicalKeys.TokenizerPadId]);
         }
         finally
         {

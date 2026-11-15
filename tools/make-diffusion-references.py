@@ -48,7 +48,8 @@ def samplers(config):
         "euler": EulerDiscreteScheduler.from_config(config),
         "euler-karras": EulerDiscreteScheduler.from_config(config, use_karras_sigmas=True),
         "ddim": DDIMScheduler.from_config(config),
-        "pndm": PNDMScheduler.from_config(config),
+        # Sharplight's "pndm" is the PLMS form every SD pipeline config selects (skip_prk_steps), also for DDIM-configured models.
+        "pndm": PNDMScheduler.from_config(config, skip_prk_steps=True),
         "dpm++2m": DPMSolverMultistepScheduler.from_config(config, algorithm_type="dpmsolver++", solver_order=2),
         "dpm++2m-karras": DPMSolverMultistepScheduler.from_config(config, algorithm_type="dpmsolver++", solver_order=2,
                                                                   use_karras_sigmas=True),
@@ -59,9 +60,12 @@ def load_pipeline(folder):
     """Loads the pipeline; folders without model_index.json are assembled from their component folders."""
     from diffusers import AutoencoderKL, PNDMScheduler, StableDiffusionPipeline, UNet2DConditionModel
     from transformers import CLIPTextModel, CLIPTokenizer
+    # Downloads that hold only the .fp16 files load as the fp16 variant, upcast to float32.
+    unet_files = os.listdir(os.path.join(folder, "unet"))
+    variant = "fp16" if not any(f.endswith(".safetensors") and ".fp16." not in f for f in unet_files) else None
     if os.path.exists(os.path.join(folder, "model_index.json")):
         return StableDiffusionPipeline.from_pretrained(folder, torch_dtype=torch.float32, safety_checker=None,
-                                                       requires_safety_checker=False)
+                                                       requires_safety_checker=False, variant=variant)
     return StableDiffusionPipeline(
         vae=AutoencoderKL.from_pretrained(folder, subfolder="vae"),
         text_encoder=CLIPTextModel.from_pretrained(folder, subfolder="text_encoder"),

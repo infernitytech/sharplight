@@ -12,8 +12,10 @@ namespace Sharplight.Import.Diffusers;
 /// </summary>
 internal sealed class ClipVocabulary
 {
+    /// <summary>CLIP's end-of-text token (also the padding token of OpenAI CLIP).</summary>
+    public const string EndToken = "<|endoftext|>";
+
     private const string StartToken = "<|startoftext|>";
-    private const string EndToken = "<|endoftext|>";
     private const string MergesResource = "Sharplight.Import.Diffusers.clip-merges.txt.gz";
 
     private ClipVocabulary(string[] tokens, string[] merges, string padToken)

@@ -15,6 +15,15 @@ internal static class Env
     /// <summary>The tiny random SD 1.x pipeline (tools/make-tiny-diffusion-models.py).</summary>
     public static readonly string Tiny = Path.Combine(Home, "models/sd/tiny-random-sd");
 
+    /// <summary>The tiny random SD 2.x pipeline (v-prediction, linear projections, GELU text encoder; tools/make-tiny-diffusion-models.py --family sd2).</summary>
+    public static readonly string Tiny2 = Path.Combine(Home, "models/sd/tiny-random-sd2");
+
+    /// <summary>Stable Diffusion 2.1 (768-v) as a diffusers folder (fp16 files).</summary>
+    public static readonly string Sd21Diffusers = Path.Combine(Home, "models/sd/sd21-diffusers");
+
+    /// <summary>Stable Diffusion 2.1 (768-v) as a single-file checkpoint.</summary>
+    public static readonly string Sd21SingleFile = Path.Combine(Home, "models/sd/v2-1_768-ema-pruned.safetensors");
+
     /// <summary>Stable Diffusion 1.5 as a diffusers folder.</summary>
     public static readonly string Sd15Diffusers = Path.Combine(Home, "models/sd/sd15-diffusers");
 
@@ -33,11 +42,30 @@ internal static class Env
     /// <summary>The task client provider.</summary>
     public static TaskClientProvider Clients => Services.GetRequiredService<TaskClientProvider>();
 
+    /// <summary>The tiny families the parity tests run.</summary>
+    public static TheoryData<string> TinyFamilies => ["sd1", "sd2"];
+
     /// <summary>The tiny pipeline folder.</summary>
     public static string TinyDiffusers => Path.Combine(Tiny, "diffusers");
 
     /// <summary>The tiny pipeline's reference folder.</summary>
     public static string TinyReference => Path.Combine(Tiny, "reference");
+
+    /// <summary>The root folder of a tiny family ("sd1" or "sd2").</summary>
+    public static string TinyRoot(string family) => family == "sd2" ? Tiny2 : Tiny;
+
+    /// <summary>The diffusers folder of a tiny family.</summary>
+    public static string TinyDiffusersOf(string family) => Path.Combine(TinyRoot(family), "diffusers");
+
+    /// <summary>A reference tensor of a tiny family.</summary>
+    public static float[] TinyTensorOf(string family, string name) => ReadFloats(Path.Combine(TinyRoot(family), "reference", name + ".f32"));
+
+    /// <summary>The reference index of a tiny family.</summary>
+    public static JsonElement TinyIndexOf(string family)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(TinyRoot(family), "reference", "index.json")));
+        return document.RootElement.Clone();
+    }
 
     /// <summary>CPU device slot.</summary>
     public static DeviceSlot Cpu()

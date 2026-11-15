@@ -8,14 +8,17 @@ namespace Sharplight.ImageGeneration.Tests;
 /// </summary>
 public sealed class TinyPipelineTests
 {
-    public static TheoryData<string, string> Runs()
+    public static TheoryData<string, string, string> Runs()
     {
-        var data = new TheoryData<string, string>();
-        foreach (string device in new[] { "cpu", "vulkan" })
+        var data = new TheoryData<string, string, string>();
+        foreach (string family in new[] { "sd1", "sd2" })
         {
-            foreach (string sampler in new[] { Samplers.Euler, Samplers.EulerKarras, Samplers.Ddim, Samplers.Pndm, Samplers.DpmPlusPlus2M, Samplers.DpmPlusPlus2MKarras })
+            foreach (string device in new[] { "cpu", "vulkan" })
             {
-                data.Add(device, sampler);
+                foreach (string sampler in new[] { Samplers.Euler, Samplers.EulerKarras, Samplers.Ddim, Samplers.Pndm, Samplers.DpmPlusPlus2M, Samplers.DpmPlusPlus2MKarras })
+                {
+                    data.Add(family, device, sampler);
+                }
             }
         }
 
@@ -24,14 +27,14 @@ public sealed class TinyPipelineTests
 
     [Theory]
     [MemberData(nameof(Runs))]
-    public async Task TextToImageMatchesDiffusers(string device, string sampler)
+    public async Task TextToImageMatchesDiffusers(string family, string device, string sampler)
     {
-        Assert.SkipUnless(File.Exists(Path.Combine(Env.TinyReference, "noise.f32")), "tiny references missing");
+        Assert.SkipUnless(File.Exists(Path.Combine(Env.TinyRoot(family), "reference", "noise.f32")), $"tiny {family} references missing");
         var slot = Env.Device(device);
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        using var model = Env.Load(Env.TinyDiffusers, slot!);
+        using var model = Env.Load(Env.TinyDiffusersOf(family), slot!);
         using var generator = Env.Clients.Create<IImageGenerator>(model);
-        var index = Env.TinyIndex();
+        var index = Env.TinyIndexOf(family);
         var request = new ImageGenerationRequest
         {
             Prompt = index.GetProperty("prompt").GetString()!,
@@ -44,12 +47,13 @@ public sealed class TinyPipelineTests
             Steps = index.GetProperty("steps").GetInt32(),
             GuidanceScale = index.GetProperty("guidance_scale").GetSingle(),
             Scheduler = sampler,
-            InitialNoise = Env.TinyTensor("noise"),
+            InitialNoise = Env.TinyTensorOf(family, "noise"),
         };
         var result = await generator.GenerateAsync(request, options, TestContext.Current.CancellationToken);
-        var expected = PlanarImage.FromPlanar(Env.TinyTensor(sampler + "_image"), options.Width!.Value, options.Height!.Value, 0f, 1f);
+        var expected = PlanarImage.FromPlanar(Env.TinyTensorOf(family, sampler + "_image"), options.Width!.Value, options.Height!.Value, 0f, 1f);
         double psnr = Env.Psnr(result.Images[0].Rgb, expected.Rgb);
-        Assert.True(psnr > 40, $"{sampler} on {device}: PSNR {psnr:F1} dB");
+        TestContext.Current.SendDiagnosticMessage($"{family} {sampler} on {device}: PSNR {psnr:F1} dB");
+        Assert.True(psnr > 40, $"{family} {sampler} on {device}: PSNR {psnr:F1} dB");
     }
 
     [Fact]

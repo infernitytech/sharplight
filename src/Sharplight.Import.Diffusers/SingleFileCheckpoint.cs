@@ -7,7 +7,8 @@ namespace Sharplight.Import.Diffusers;
 /// <summary>
 /// Reads an original-layout (CompVis / Stability "LDM") Stable Diffusion checkpoint in one file: a single-file <c>.safetensors</c>
 /// checkpoint, a PyTorch <c>.ckpt</c> (read without executing its pickle), or a GGUF file as written by stable-diffusion.cpp (the same tensor names, linear weights quantized). Such files
-/// carry no configuration, so the hyper-parameters are inferred from the tensor shapes and the family defaults (SD 1.x).
+/// carry no configuration, so the hyper-parameters are inferred from the tensor shapes and the family defaults (SD 1.x: OpenAI
+/// CLIP text encoder; SD 2.x: OpenCLIP ViT-H).
 /// </summary>
 internal static class SingleFileCheckpoint
 {
@@ -50,7 +51,7 @@ internal static class SingleFileCheckpoint
 
     /// <summary>Opens the checkpoint as a canonical source.</summary>
     /// <param name="path">The file.</param>
-    /// <exception cref="NotSupportedException">The checkpoint is not an SD 1.x checkpoint.</exception>
+    /// <exception cref="NotSupportedException">The checkpoint is not an SD 1.x / 2.x checkpoint.</exception>
     public static ModelSource Open(string path)
     {
         var tensors = new CheckpointTensors();
@@ -58,33 +59,61 @@ internal static class SingleFileCheckpoint
         {
             tensors.Add(path);
             var names = tensors.Tensors.Keys.ToList();
-            if (names.Any(n => n.StartsWith(OpenClipPrefix, StringComparison.Ordinal) || n.StartsWith(SdxlPrefix, StringComparison.Ordinal)))
+            if (names.Any(n => n.StartsWith(SdxlPrefix, StringComparison.Ordinal)))
             {
-                throw new NotSupportedException($"'{path}': only SD 1.x single-file checkpoints (OpenAI CLIP text encoder) are supported so far.");
+                throw new NotSupportedException($"'{path}': SDXL single-file checkpoints (two text encoders) are not supported yet.");
             }
 
             var weights = new CanonicalWeights();
             AddUNet(tensors, names, weights);
             AddVae(tensors, names, weights);
-            foreach (string name in names.Where(n => n.StartsWith(OpenAiClipPrefix, StringComparison.Ordinal)))
+            bool openClip = names.Any(n => n.StartsWith(OpenClipPrefix, StringComparison.Ordinal));
+            if (openClip)
             {
-                DiffusersNames.AddClipText(name[OpenAiClipPrefix.Length..], tensors.Tensors[name], LatentDiffusionSource.TextEncoderPrefix, weights);
+                // SD 2.x: OpenCLIP ViT-H, conditioned on the penultimate layer.
+                foreach (var (name, weight) in OpenClipNames.ToTransformers(tensors.Tensors, OpenClipPrefix, droppedLayers: 1))
+                {
+                    DiffusersNames.AddClipText(name, weight, LatentDiffusionSource.TextEncoderPrefix, weights);
+                }
+            }
+            else
+            {
+                foreach (string name in names.Where(n => n.StartsWith(OpenAiClipPrefix, StringComparison.Ordinal)))
+                {
+                    DiffusersNames.AddClipText(name[OpenAiClipPrefix.Length..], tensors.Tensors[name], LatentDiffusionSource.TextEncoderPrefix, weights);
+                }
             }
 
-            const int sampleSize = 64;
+            var (sampleSize, scheduler) = openClip ? Sd2Defaults(path) : (64, new SchedulerSettings());
             var unet = UNetConfig.FromWeights(weights.Weights, sampleSize);
             var vae = VaeConfig.FromWeights(weights.Weights, 0.18215f, LatentDiffusionSource.StableDiffusion1RgbFactors);
-            var text = ClipTextConfig.FromWeights(weights.Weights, LatentDiffusionSource.TextEncoderPrefix, "quick_gelu");
-            var scheduler = new SchedulerSettings();
+            var text = ClipTextConfig.FromWeights(weights.Weights, LatentDiffusionSource.TextEncoderPrefix, openClip ? "gelu" : "quick_gelu");
             string format = CheckpointTensors.IsGguf(path) ? "gguf" : TorchCheckpoints.HasExtension(path) ? "pytorch" : "safetensors";
             return LatentDiffusionSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, unet, vae, text,
-                ClipVocabulary.OpenAi(), scheduler, tensors.Resources);
+                ClipVocabulary.OpenAi(openClip ? "!" : ClipVocabulary.EndToken), scheduler, tensors.Resources);
         }
         catch
         {
             tensors.DisposeAll();
             throw;
         }
+    }
+
+    /// <summary>
+    /// The native latent size and noise schedule of an SD 2.x checkpoint, which its tensors do not reveal: the 768×768 models
+    /// predict v, the 512×512 "base" models noise. Files named like the official 512 / base releases get the latter.
+    /// </summary>
+    private static (int SampleSize, SchedulerSettings Scheduler) Sd2Defaults(string path)
+    {
+        string name = Path.GetFileName(path);
+        bool epsilon = name.Contains("512", StringComparison.Ordinal) || name.Contains("base", StringComparison.OrdinalIgnoreCase);
+        var scheduler = new SchedulerSettings
+        {
+            PredictionType = epsilon ? "epsilon" : "v_prediction",
+            ClipSample = false,
+            Sampler = "ddim",
+        };
+        return (epsilon ? 64 : 96, scheduler);
     }
 
     private static void AddUNet(CheckpointTensors tensors, List<string> names, CanonicalWeights weights)
