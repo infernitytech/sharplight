@@ -20,7 +20,8 @@ public static class TaskServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the <see cref="TaskClientProvider"/> and the built-in text-generation factory (decoder LLMs and masked-diffusion LMs).
+        /// Adds the <see cref="TaskClientProvider"/> and the built-in factories: text generation (decoder LLMs and masked-diffusion LMs) and
+        /// speech recognition with prompted encoder-decoder models (Whisper family).
         /// Idempotent. <c>services.AddSharplight()</c> of the Sharplight.Defaults package calls it.
         /// </summary>
         public IServiceCollection AddSharplightTasks()
@@ -29,6 +30,7 @@ public static class TaskServiceCollectionExtensions
             services.AddOptions();
             services.TryAddSingleton<TaskClientProvider>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextGeneratorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, EncoderDecoderSpeechRecognizerFactory>());
             return services;
         }
 

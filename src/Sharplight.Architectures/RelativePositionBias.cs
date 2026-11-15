@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Sharplight.Models;
 using Sharplight.Tensors;
 
@@ -35,7 +34,7 @@ internal sealed record RelativePositionBias(float[] Table, int Range)
 
         int buckets = (int)weight.Shape[0].Fixed;
         int heads = (int)weight.Shape[1].Fixed;
-        var values = Values(weight);
+        var values = WeightConversions.ReadFloats(weight);
         int width = 2 * maxDistance + 1;
         var table = new float[heads * width];
         for (int d = -maxDistance; d <= maxDistance; d++)
@@ -48,24 +47,6 @@ internal sealed record RelativePositionBias(float[] Table, int Range)
         }
 
         return new RelativePositionBias(table, maxDistance);
-    }
-
-    private static float[] Values(WeightInfo weight)
-    {
-        var bytes = weight.ReadAll();
-        if (weight.Type == DataType.F32)
-        {
-            return MemoryMarshal.Cast<byte, float>(bytes).ToArray();
-        }
-
-        var halves = MemoryMarshal.Cast<byte, ushort>(bytes);
-        var values = new float[halves.Length];
-        for (int i = 0; i < values.Length; i++)
-        {
-            values[i] = weight.Type == DataType.F16 ? (float)BitConverter.UInt16BitsToHalf(halves[i]) : BitConverter.Int32BitsToSingle(halves[i] << 16);
-        }
-
-        return values;
     }
 
     /// <summary>T5's bucket of the distance <paramref name="relative"/> (key position − query position).</summary>

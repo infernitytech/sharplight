@@ -15,6 +15,11 @@ public static class WellKnown
     public const string ContextSymbol = "ctx";
     /// <summary>Runtime scalar: number of tokens already in the KV cache before this execution.</summary>
     public const string PastScalar = "n_past";
+    /// <summary>
+    /// Runtime scalar: the first row of the per-source states (cached cross-attention keys and values) that the current pass writes; 0
+    /// for models that write the whole source at once.
+    /// </summary>
+    public const string SourcePastScalar = "source_past";
     /// <summary>Symbol of the run count of a multi-sequence graph (rows of <see cref="InputRole.SequenceRuns"/>).</summary>
     public const string RunSymbol = "U";
 
