@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Sharplight.Import.Gguf;
 using Sharplight.Models;
 using Sharplight.Tensors;
 
@@ -74,6 +75,12 @@ internal static partial class OpenClipNames
             {
                 string suffix = rest.EndsWith("weight", StringComparison.Ordinal) ? "weight" : "bias";
                 long width = weight.Shape[0].Fixed / 3;
+                if (weight.Shape.Rank == 1 && weight.Type.IsQuantized)
+                {
+                    // A block-quantized bias (stable-diffusion.cpp's Q4_K files) cannot be cut at the q/k/v boundaries block-wise.
+                    weight = Decoded(weight);
+                }
+
                 yield return (target + "self_attn.q_proj." + suffix, weight.RowSlice(target + "self_attn.q_proj." + suffix, 0, width));
                 yield return (target + "self_attn.k_proj." + suffix, weight.RowSlice(target + "self_attn.k_proj." + suffix, width, width));
                 yield return (target + "self_attn.v_proj." + suffix, weight.RowSlice(target + "self_attn.v_proj." + suffix, 2 * width, width));
@@ -94,20 +101,19 @@ internal static partial class OpenClipNames
         }
     }
 
-    /// <summary>The transpose of a 2-D weight of an element-wise storage type, produced on first read.</summary>
+    /// <summary>
+    /// The transpose of a 2-D weight, produced on first read. Element-wise storage types keep their type; a block-quantized matrix
+    /// (stable-diffusion.cpp stores the projection as Q4_K in some files) is decoded and transposed as f32, since its blocks run along the rows.
+    /// </summary>
     private static WeightInfo Transposed(WeightInfo weight, string name)
     {
         long rows = weight.Shape[0].Fixed;
         long columns = weight.Shape[1].Fixed;
-        if (weight.Type.IsQuantized)
+        var type = weight.Type.IsQuantized ? DataType.F32 : weight.Type;
+        int element = (int)type.ByteSize(1);
+        return WeightInfo.Derived(name, type, new Shape(columns, rows), () =>
         {
-            throw new NotSupportedException($"'{weight.Name}': a block-quantized text projection cannot be transposed.");
-        }
-
-        int element = (int)weight.Type.ByteSize(1);
-        return WeightInfo.Derived(name, weight.Type, new Shape(columns, rows), () =>
-        {
-            var source = weight.ReadAll();
+            var source = weight.Type.IsQuantized ? ToBytes(GgmlBlockDecoder.Decode(weight.Type, weight.ReadAll())) : weight.ReadAll();
             var result = new byte[source.Length];
             for (long r = 0; r < rows; r++)
             {
@@ -119,6 +125,17 @@ internal static partial class OpenClipNames
 
             return result;
         });
+    }
+
+    /// <summary>A block-quantized weight decoded to f32 on first read.</summary>
+    private static WeightInfo Decoded(WeightInfo weight)
+        => WeightInfo.Derived(weight.Name, DataType.F32, weight.Shape, () => ToBytes(GgmlBlockDecoder.Decode(weight.Type, weight.ReadAll())));
+
+    private static byte[] ToBytes(float[] values)
+    {
+        var bytes = new byte[values.Length * sizeof(float)];
+        Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
+        return bytes;
     }
 
     [GeneratedRegex(@"^transformer\.resblocks\.(\d+)\.(.+)$")]
