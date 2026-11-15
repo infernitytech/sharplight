@@ -89,4 +89,13 @@ internal static class Env
         }
         return (maxAbs, maxRel, Math.Sqrt(sq / Math.Max(refSq, 1e-30)));
     }
+
+    /// <summary>The task client factories registered by <c>AddSharplightTasks</c> that exist as instances (the vision clients').</summary>
+    public static IEnumerable<Sharplight.Tasks.ITaskClientFactory> TaskFactories()
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Sharplight.Tasks.TaskServiceCollectionExtensions.AddSharplightTasks(services);
+        return services.Where(d => d.ServiceType == typeof(Sharplight.Tasks.ITaskClientFactory) && d.ImplementationInstance is not null)
+            .Select(d => (Sharplight.Tasks.ITaskClientFactory)d.ImplementationInstance!);
+    }
 }

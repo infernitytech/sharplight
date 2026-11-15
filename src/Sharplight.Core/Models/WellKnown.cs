@@ -19,6 +19,13 @@ public static class WellKnown
     /// <c>logit_scale</c> and <c>logit_bias</c> [1] out.
     /// </summary>
     public const string TextEncodeGraph = "text_encode";
+    /// <summary>
+    /// A set-prediction object detector: <c>pixels</c> f32 [1, 3, H, W] (the normalized image) in; <see cref="LogitsOutput"/> f32 [Q, C] (per query
+    /// class scores) and <see cref="BoxesOutput"/> f32 [Q, 4] (center x, center y, width, height as fractions of the model input) out.
+    /// </summary>
+    public const string DetectGraph = "detect";
+    /// <summary>Name of the box output of <see cref="DetectGraph"/>.</summary>
+    public const string BoxesOutput = "boxes";
     /// <summary>Name of the pooled embedding output of <see cref="ImageEncodeGraph"/>.</summary>
     public const string PooledOutput = "pooled";
     /// <summary>Decoder taking token ids, an embeddings input and a per-row mask (<see cref="InputRole.EmbeddingMask"/>): text mixed with media embeddings.</summary>

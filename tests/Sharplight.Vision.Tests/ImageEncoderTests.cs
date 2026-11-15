@@ -48,7 +48,7 @@ public class ImageEncoderTests
         {
             using var model = Load("vit-base-patch16-224", slot);
             Assert.Equal("image-classification", model.Description.Kind);
-            using var classifier = new TaskClientProvider([.. Factories()]).Create<IImageClassifier>(model);
+            using var classifier = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageClassifier>(model);
             var result = await classifier.ClassifyAsync(image, new ImageClassificationOptions { TopK = 0 });
             var logits = new float[expected.Length];
             foreach (var p in result.Predictions)
@@ -77,7 +77,7 @@ public class ImageEncoderTests
         {
             using var model = Load("dinov2-small", slot);
             Assert.Equal("image-embedding", model.Description.Kind);
-            using var embedder = new TaskClientProvider([.. Factories()]).Create<IImageEmbedder>(model);
+            using var embedder = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageEmbedder>(model);
             var embedding = await embedder.EmbedImageAsync(image, new ImageEmbeddingOptions { Normalize = false });
             Assert.Equal(expected.Length, embedder.Dimensions);
             var (maxAbs, _, rms) = Env.Compare(embedding, expected);
@@ -113,7 +113,7 @@ public class ImageEncoderTests
                 Assert.Equal(ids[i].Take(actual.Length), actual);
             }
 
-            using var embedder = new TaskClientProvider([.. Factories()]).Create<IImageEmbedder>(model);
+            using var embedder = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageEmbedder>(model);
             Assert.True(embedder.SupportsText);
             var embedding = await embedder.EmbedImageAsync(image, new ImageEmbeddingOptions { Normalize = false }, TestContext.Current.CancellationToken);
             double imageRms = Env.Compare(embedding, imageExpected).Rms;
@@ -139,13 +139,5 @@ public class ImageEncoderTests
             Assert.True(zRms < 5e-3, $"{name} {backend}: zero-shot logits rms {zRms}, max abs {zMax}");
             Assert.Equal(Array.IndexOf(logitsExpected, logitsExpected.Max()), zeroShot.Top!.Index);
         }
-    }
-
-    // The factories registered by AddSharplightTasks that exist as instances (the image encoders').
-    private static IEnumerable<ITaskClientFactory> Factories()
-    {
-        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
-        services.AddSharplightTasks();
-        return services.Where(d => d.ServiceType == typeof(ITaskClientFactory) && d.ImplementationInstance is not null).Select(d => (ITaskClientFactory)d.ImplementationInstance!);
     }
 }
