@@ -15,7 +15,7 @@ internal sealed partial class OnnxTranslator
         var input = ins[0]!;
         if (!input.IsTensor || input.LeadingUnits > 0 || input.TransposedNonZero)
         {
-            throw new NotSupportedException("Slice with runtime starts or ends of a tensor with a data-dependent layout");
+            throw new NotSupportedException("Slice with runtime starts or ends of a tensor with a data-dependent layout (otherwise starts, ends, axes and steps must be compile-time constants)");
         }
 
         var x = X(ins, 0);
@@ -24,18 +24,18 @@ internal sealed partial class OnnxTranslator
         long[]? steps = OptConst(ins, 4, "Slice steps")?.Ints();
         if (axes.Length != 1 || steps is not (null or [1]))
         {
-            throw new NotSupportedException("Slice with runtime starts or ends is supported on one axis with step 1");
+            throw new NotSupportedException("Slice with runtime starts or ends is supported on one axis with step 1 (otherwise starts, ends, axes and steps must be compile-time constants)");
         }
 
         int ax = NormalizeAxis(axes[0], x.Rank);
         if (x.Shape.Dims.Any(d => d.IsSymbolic))
         {
-            throw new NotSupportedException("Slice with runtime starts or ends of a tensor with a symbolic dim");
+            throw new NotSupportedException("Slice with runtime starts or ends of a tensor with a symbolic dim (otherwise starts, ends, axes and steps must be compile-time constants)");
         }
 
         if (Enumerable.Range(0, ax).Any(d => x.Shape[d].Fixed != 1))
         {
-            throw new NotSupportedException("Slice with runtime starts or ends is supported only along the outermost axis that is not a unit dim");
+            throw new NotSupportedException("Slice with runtime starts or ends is supported only along the outermost axis that is not a unit dim (otherwise starts, ends, axes and steps must be compile-time constants)");
         }
 
         string name = Nm(n);

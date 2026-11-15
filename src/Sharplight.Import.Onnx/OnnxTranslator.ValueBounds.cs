@@ -258,14 +258,14 @@ internal sealed partial class OnnxTranslator
         var known = pieces.Select(p => _env.TryGetValue(p, out var t) ? t : null).ToList();
         if (known.Any(t => t is null || (t.IsConst ? t.C!.Count != 1 || t.C.HasSymbols : t.V!.Shape.Elements() != 1)) || known.Count(t => !t!.IsConst) != 1)
         {
-            throw new NotSupportedException("ConstantOfShape with a runtime shape is supported when exactly one extent is a runtime value");
+            throw new NotSupportedException("ConstantOfShape shape must be a compile-time constant (a runtime shape is supported only when exactly one extent is a runtime value)");
         }
 
         int axis = known.FindIndex(t => !t!.IsConst);
         long[] dims = [.. known.Select(t => t!.IsConst ? t.C!.Ints()[0] : 0L)];
         if (dims.Take(axis).Any(d => d != 1))
         {
-            throw new NotSupportedException("ConstantOfShape with a runtime extent behind a dim that is not 1");
+            throw new NotSupportedException("ConstantOfShape shape must be a compile-time constant (a runtime extent is supported only behind unit dims)");
         }
 
         if (ValueBound(pieces[axis]) is not { High.IsSymbolic: false } bound || bound.High.Fixed <= 0)

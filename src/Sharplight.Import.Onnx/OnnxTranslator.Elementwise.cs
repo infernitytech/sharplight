@@ -177,6 +177,11 @@ internal sealed partial class OnnxTranslator
     private Value[] UnifyDynamicExtents(Value[] operands)
     {
         int rank = operands.Max(v => v.Rank);
+        if (rank == 0)
+        {
+            return operands;
+        }
+
         var outer = operands.Where(v => v.Rank == rank && v.Shape[0].IsSymbolic && _dynamicBounds.ContainsKey(v.Shape[0].Symbol ?? "")).ToList();
         var symbols = outer.Select(v => v.Shape[0].Symbol!).Distinct().ToList();
         if (symbols.Count < 2 || symbols.Any(s => DynamicUpperBound(s) is null) || operands.Any(v => v.Rank == rank && !outer.Contains(v) && v.Shape[0] is { IsSymbolic: true }))
