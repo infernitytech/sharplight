@@ -205,6 +205,8 @@ public class FamilyGenerationTests
         .. DeepseekOcrFamilyCases.All,
         // Bring-up round 9: MoE variants (GroveMoE adjugate experts, ...).
         .. MoeVariantFamilyCases.All,
+        // Bring-up round 11: Hugging Face model types the round-10 Hub sweep found unsupported (LFM3, ...).
+        .. HubSweepFamilyCases.All,
         // Bring-up round 9: per-token switched adapters (Granite Switch).
         .. AdapterFamilyCases.All,
         // Bring-up round 9: QSA block selection (Qwen3.8-Flash-Next) in its sparse regime.

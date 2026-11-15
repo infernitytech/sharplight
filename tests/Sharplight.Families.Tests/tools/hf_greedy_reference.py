@@ -16,14 +16,18 @@ import torch
 import transformers
 from transformers import AutoConfig, AutoTokenizer
 
+import remote_code_compat  # noqa: F401  (transformers 4.x remote code on transformers 5)
+
 args = [a for a in sys.argv[1:] if a != "--logits"]
 write_logits = "--logits" in sys.argv[1:]
 model_dir, new_tokens, prompt = args[0], int(args[1]), args[2]
-config = AutoConfig.from_pretrained(model_dir)
-model_class = getattr(transformers, config.architectures[0])
+# Checkpoints of remote-code families (an auto_map in config.json, class unknown to transformers) run the modeling code shipped with them.
+remote = not hasattr(transformers, json.load(open(os.path.join(model_dir, "config.json")))["architectures"][0])
+config = AutoConfig.from_pretrained(model_dir, trust_remote_code=remote)
+model_class = transformers.AutoModelForCausalLM if remote else getattr(transformers, config.architectures[0])
 if getattr(config, "is_encoder_decoder", False):
     model_class = transformers.AutoModelForSeq2SeqLM   # base checkpoints (BartModel, T5Model) with their LM head
-model, info = model_class.from_pretrained(model_dir, dtype=torch.float32, output_loading_info=True)
+model, info = model_class.from_pretrained(model_dir, dtype=torch.float32, output_loading_info=True, **({"trust_remote_code": True} if remote else {}))
 if info["missing_keys"]:
     # Some tiny checkpoints nest the text model several times (model.language_model.language_model.language_model.*), which
     # transformers does not resolve: load the state dict again with the repeated prefix collapsed.
