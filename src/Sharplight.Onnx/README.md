@@ -57,7 +57,8 @@ Status: **yes** = runtime op mapped to IR; **fold** = only when all inputs are c
 | DepthToSpace SpaceToDepth | yes | Reshape + Permute |
 | Cast CastLike | yes | to float: identity; to int: i32; to bool: `!= 0` mask |
 | Shape Size Range ConstantOfShape Constant EyeLike | fold | symbolic shape values are expressions (docs/dynamic-shapes.md); Range/ConstantOfShape over a symbolic size become `Fill`; Range up to a runtime *value* no |
-| NonZero Compress Unique NonMaxSuppression | yes | data-dependent counts (dynamic symbols, CPU kernels); Unique without `axis`, Compress on axis 0 or flattened |
+| NonZero Compress Unique NonMaxSuppression | yes | data-dependent counts (dynamic symbols); Compress on axis 0 or flattened; Unique flattened or along an axis (CPU kernel for the axis form) |
+| StringSplit, com.microsoft MurmurHash3 / WordConvEmbedding | yes | CPU kernels (WordConvEmbedding from existing IR ops); StringSplit's part count is bounded by `maxsplit + 1` or `OnnxImportOptions.StringSplitBound` (default 256) |
 | QuantizeLinear DequantizeLinear | yes | fold on constants; runtime = Div/Round/Add/Clip (values carried as f32) |
 | DynamicQuantizeLinear | yes | whole-tensor min/max (also over a symbolic batch); scale / zero point are runtime values |
 | MatMulInteger ConvInteger QLinearMatMul QLinearConv | yes | weights dequantized at import (per-tensor / per-column / per-channel zero points); activations carried as f32 ints; activation zero point may be a runtime value; MatMulInteger B may be a runtime value |
@@ -76,13 +77,18 @@ BiasAdd, MatMulNBits (4/8-bit; kept as Q4_0 / Q4_1 / Q8_0 blocks when the block 
 
 ## Import options worth knowing
 
-* `InputShapes[name]` fixes dynamic dims; giving the concrete batch (instead of `-1`) makes the batch static, which lifts the
+* `InputShapes[name]` fixes dynamic dims: a negative value keeps the batch symbolic and 0 is an empty axis. A zero-size input
+  becomes an empty constant that folds through its consumers; reductions over an empty set fold to their identity. Giving the
+  concrete batch (instead of `-1`) makes the batch static, which lifts the
   remaining restrictions around the symbolic batch (transposes that move it inward, reshapes that put it on an inner axis). Shape
   arithmetic on the batch, reshapes that merge it (`12*N`), global reductions and `Expand`/`Tile`/`Range` by it work symbolically.
 * `MaxUnrolledLoop` / `MaxLoopIterations` bound how far `Loop`/`Scan` are unrolled or evaluated at import.
 * `ConstantInputs[name] = values` pins a graph input (e.g. `sr`, `use_cache_branch`, an `orig_im_size` that fixes output shapes) to a
   compile-time constant so `If` branches and shape computations fold. Without it, an `If` on such an input is a runtime `If`.
 * Scalar (rank-0) graph inputs are carried as one-element vectors; `Unsqueeze`/`Squeeze` honour the logical rank.
+* Only the outermost IR dim may be symbolic, so some outputs are stored in another layout: NonZero as `[count, rank]`,
+  Unique along an inner axis and StringSplit with their data-dependent axis outermost, and outputs with leading unit dims.
+  The model property `OnnxGraphAdapter.OutputLayoutsProperty` lists an `OnnxOutputLayout` per such output to map it back.
 
 ## Source layout
 

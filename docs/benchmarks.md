@@ -4145,3 +4145,216 @@ SHARPLIGHT_LOAD_TIMING=1 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBen
 * **Devices without matrix units**:
   * `fes` serves head sizes up to 64 only.
   * `ConcurrentWorkgroups` is a per-device-type heuristic, not a query of the compute units.
+
+## 32. ONNX parity round 7: opt-in fast matrix precision (TF32 class), ScatterND over symbolic axes on Vulkan, phi-3.5 reference, 36 conformance fixes (2026-11-15)
+
+Same machine and harness as sections 30 and 31: `bench/onnx/parity_bench.py`, interleaved rounds, and ORT 1.31 (CPU EP, CUDA EP with
+TF32 and with TF32 off) re-run in the same session. Raw data is in `bench/results/s32/`. The GPU and CPU were shared with
+other workloads throughout. During the first GPU pass, the GPU was at 38-96 % utilization before Sharplight's runs, and
+medians were often twice the minima (`gpu-load-*.txt`, `gpu.jsonl`). The six target models and Faster R-CNN therefore ran
+again in a second pass of 4 interleaved rounds (`gpu-rerun.jsonl`). The tables below take those rows from the rerun.
+
+### 32.1 What changed
+
+* **Fast matrix precision (opt-in)**: `CompileOptions.MatrixPrecision = MatrixPrecision.Fast` (or
+  `SHARPLIGHT_MATRIX_PRECISION=fast`) trades f32 accuracy for speed, in the accuracy class of ORT's default TF32.
+  Strict stays the default. The setting applies to f32 GEMMs, convs and attention.
+  * **GEMM and conv**: the split-f16 tensor-core paths keep their row and block scales but drop the lo parts. Each value
+    becomes one f16 with 11 significant bits, which is TF32's precision. Each multiply-add is one tensor-core product
+    with f32 accumulation, instead of the three products of the strict split (hi·hi + hi·lo + lo·hi). The scales keep
+    values far outside f16's range finite and accurate.
+  * Weights are split once on the host (`SplitScaleTable`, hi parts only). Activations go through the same `split_rows`
+    pre-pass, which writes half the bytes. The GEMM uses 64-value K blocks and the 8-warp layout. It also uses the
+    tensor-core path on grids too small for the strict split.
+  * **Attention**: f32 encoder attention runs the single-product f16 flash kernel (`fe`) instead of its split-f16 form.
+  * Devices without f16 matrix units keep the strict kernels. The older `AllowReducedPrecision` mode (plain f16 without
+    scales) takes precedence when both are set.
+  * Benchmarks: OnnxBench `--fast-precision`, and the parity-bench engine `sl-vulkan-fast`.
+* **ScatterND over a symbolic axis on Vulkan**: the parallel ScatterND kernel takes the runtime extent of a symbolic
+  leading axis as a push constant. Only a ScatterND with a reduction over such an axis still falls back to the CPU.
+  qwen2.5-0.5b q4 (`model_q4`, KV-cache updates) now runs as one Vulkan segment, worst relative RMS 1.1e-5.
+* **phi-3.5-mini q4f16 parity**: it failed on every engine, ORT CUDA included, because the survey reference was ORT
+  CPU's fp16 run. That run is 4.8e-2 relative RMS from an f32 copy of the same graph, and ORT CUDA's fp16 run is 5.5e-2
+  from the copy. Sharplight computes these graphs in f32 and lands at 1.2e-4 from the copy (Vulkan and CPU).
+  `bench/onnx/make_survey_refs.py` now builds this model's reference from the f32 copy (`f32ref`), and parity passes.
+  qwen2.5-0.5b fp16 has the same cause and stays documented: against the f32 copy, ORT fp16 is 7.3e-2 off, Sharplight
+  CPU 2.3e-4 and Vulkan 1.5e-3 (see `docs/onnx-support.md`).
+* **Conformance**: 36 of the 57 remaining failures fixed (classified in `docs/onnx-support.md`):
+  * zero-size inputs become empty constants, and reductions over an empty set fold to their identity;
+  * `OnnxOutputLayout` maps NonZero, Unique-along-axis, StringSplit and unit-dim outputs back to the ONNX layout;
+  * new ops: Unique along an axis, StringSplit, com.microsoft MurmurHash3 and WordConvEmbedding.
+
+### 32.2 Fast precision against ORT's TF32, strict against ORT strict
+
+Wall min latency in ms, Vulkan against the CUDA EP on the same GPU (rows from `gpu-rerun.jsonl`, 4 interleaved rounds):
+
+| model | batch | SL fast | ORT TF32 | fast / TF32 | SL strict | ORT strict | strict / strict | SL strict / ORT TF32 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| vit-base | 1 | 1.23 | 1.36 | 0.90x | 2.04 | 2.48 | 0.82x | 1.50x |
+| vit-base | 8 | 3.65 | 4.22 | 0.86x | 7.99 | 10.22 | 0.78x | 1.89x |
+| whisper-tiny encoder | 1 | 1.04 | 1.22 | 0.85x | 1.61 | 2.10 | 0.77x | 1.32x |
+| bert-base (16 tokens) | 1 | 1.05 | 1.24 | 0.85x | 1.19 | 1.46 | 0.82x | 0.96x |
+| bert-base (16 tokens) | 8 | 2.79 | 2.79 | 1.00x | 3.48 | 3.42 | 1.02x | 1.25x |
+| convnext-tiny | 1 | 1.00 | 1.00 | 1.00x | 1.18 | 1.40 | 0.84x | 1.18x |
+| convnext-tiny | 8 | 2.25 | 2.57 | 0.88x | 3.92 | 4.50 | 0.87x | 1.52x |
+| resnet50 | 1 | 0.61 | 1.02 | 0.60x | 0.74 | 2.18 | 0.34x | 0.72x |
+| resnet50 | 8 | 1.73 | 1.99 | 0.87x | 2.35 | 3.94 | 0.60x | 1.18x |
+| raft-large | 1 | 33.66 | 32.35 | 1.04x | 40.41 | 82.95 | 0.49x | 1.25x |
+| fasterrcnn-12 | 1 | 8.24 | 8.69 | 0.95x | 9.95 | 15.29 | 0.65x | 1.14x |
+
+* In fast precision, Sharplight matches or beats ORT's TF32 default on every target model except raft (1.04x). Strict
+  precision beats ORT with TF32 off on all of them except bert b8 (1.02x).
+* Fast is 1.1-2.2x faster than strict on the encoders (vit b8 7.99 → 3.65 ms) and 1.2-1.7x on the convnets.
+* The strict cells did not change from round 6. An interleaved A/B against a build of the round-6 commit
+  (`strict-ab-round6.log`, GPU min over 4-6 rounds) gives:
+  * convnext b8: 3.49 against 3.47 ms;
+  * bert b8: 2.83 against 2.83 ms;
+  * vit b8: 7.55 against 7.77 ms, but the rounds overlap (7.55-8.13 against 7.77-8.11).
+
+  The strict kernels compile from the same code. The higher ratios to ORT than in §31 come from the shared GPU: in this
+  session medians were often twice the minima.
+
+### 32.3 Accuracy against an f64 reference
+
+`bench/onnx/f64_reference.py` builds an f64 copy of each graph and runs it on onnx's ReferenceEvaluator. onnxruntime has
+no f64 Conv or Erf, and the evaluator's opset-12 BatchNormalization is wrong, so it is rewritten as f64 Mul / Add.
+`bench/onnx/f64_error_ort.py` scores ORT's engines against it, and OnnxBench's worst relative RMS scores Sharplight's.
+The cells are the worst relative RMS over the outputs at batch 1 (`error-f64.jsonl`):
+
+| model | ORT CPU | ORT CUDA strict | ORT CUDA TF32 | SL CPU | SL Vulkan SIMT f32 | SL Vulkan strict | SL Vulkan fast | SL Vulkan reduced |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| vit-base | 4.9e-7 | 3.0e-7 | 5.5e-4 | 1.3e-5 | 1.3e-6 | 1.3e-6 | 6.5e-4 | 4.4e-4 |
+| whisper-tiny encoder | 9.3e-7 | 1.9e-6 | 6.7e-4 | 5.7e-6 | 1.7e-6 | 1.8e-6 | 6.5e-4 | 5.8e-4 |
+| bert-base | 7.3e-7 | 9.2e-7 | 7.5e-4 | 1.8e-6 | 1.7e-6 | 1.7e-6 | 6.5e-4 | 2.7e-4 |
+| convnext-tiny | 5.4e-7 | 3.2e-7 | 6.0e-4 | 4.0e-6 | 2.9e-6 | 3.2e-6 | 5.6e-4 | 1.6e-4 |
+| resnet50 | 4.0e-7 | 2.0e-4 | 7.9e-4 | 1.1e-6 | 8.3e-7 | 9.3e-7 | 6.8e-4 | 8.9e-4 |
+
+* **Fast vs TF32**: fast precision lands at 5.6-6.8e-4, ORT's TF32 default at 5.5-7.9e-4. That is the same class;
+  fast is slightly more accurate on 4 of the 5 models.
+* **Strict**: Sharplight Vulkan strict stays at 0.9-3.2e-6, the same as its f32 SIMT GEMMs. ORT strict is at 0.3-1.9e-6,
+  except resnet50 at 2.0e-4: with TF32 off, cuDNN still picks a reduced-precision conv algorithm there.
+* **Reduced precision**: `AllowReducedPrecision` (unscaled f16) is more accurate than fast on bert and convnext and less on
+  resnet50 (8.9e-4). It also has no range protection for values beyond f16, and is slower on the encoders (vit b8 5.04
+  against 3.65 ms).
+* **Sharplight CPU** is 1.1e-6 to 1.3e-5, up to 25x ORT CPU (vit). The approximate exp / erf of the CPU kernels is the
+  likely cause; not investigated this round.
+* **raft-large** has no f64 row: the reference evaluator did not finish within 50 minutes.
+
+### 32.4 All models
+
+GPU (`table-gpu-combined.md`: the first pass, with the rows above from the rerun). Cells are min / median of the rounds in ms;
+`(!)` marks a parity miss against the f32 reference (expected for fast and reduced precision; ssd-10 reorders tied
+detections, as in §30-§31):
+
+| model | batch | sl-vulkan | sl-vulkan-rp | sl-vulkan-fast | sl-vulkan-simt | ort-cuda | ort-cuda-strict | SL/ORT CUDA |
+|---|---|---|---|---|---|---|---|---|
+| resnet50 | 1 | 0.74 / 1.99 | 0.69 / 2.00 (!) | 0.61 / 1.01 (!) | 0.81 / 2.08 | 1.02 / 2.57 | 2.18 / 5.07 | 0.72x |
+| resnet50 | 8 | 2.35 / 5.25 | 1.94 / 4.43 (!) | 1.73 / 4.01 (!) | 3.17 / 7.14 | 1.99 / 3.45 | 3.94 / 6.64 | 1.18x |
+| convnext-tiny | 1 | 1.18 / 2.52 | 1.21 / 2.63 | 1.00 / 1.68 (!) | 1.22 / 2.61 | 1.00 / 2.38 | 1.40 / 2.81 | 1.18x |
+| convnext-tiny | 8 | 3.92 / 7.38 | 2.67 / 5.79 (!) | 2.25 / 5.07 (!) | 4.29 / 8.95 | 2.57 / 5.39 | 4.50 / 7.03 | 1.52x |
+| efficientnet-lite4 | 1 | 0.76 / 1.94 | 0.76 / 2.20 | 0.65 / 1.91 | 0.85 / 2.19 | 0.70 / 1.65 | 10.26 / 14.51 | 1.08x |
+| mobilenetv2 | 1 | 0.38 / 0.56 | 0.38 / 0.43 (!) | 0.33 / 0.38 (!) | 0.42 / 0.59 | 0.38 / 0.56 | 0.66 / 1.07 | 1.02x |
+| mobilenetv2 | 8 | 0.70 / 1.17 | 0.68 / 1.04 (!) | 0.64 / 0.94 (!) | 0.74 / 1.25 | 0.76 / 1.23 | 1.42 / 2.96 | 0.92x |
+| yolov8n | 1 | 1.29 / 2.57 | 1.39 / 2.69 (!) | 1.16 / 1.77 (!) | 1.41 / 2.91 | 1.41 / 2.52 | 3.53 / 5.55 | 0.92x |
+| yolov10n | 1 | 1.20 / 2.51 | 1.26 / 2.77 (!) | 1.06 / 1.60 (!) | 1.28 / 2.75 | 1.24 / 3.05 | 2.70 / 4.78 | 0.97x |
+| ssd-10 (NMS) | 1 | 19.67 / 27.62 (!) | 10.00 / 16.62 (!) | 15.74 / 19.07 (!) | 32.09 / 37.64 (!) | 18.72 / 24.52 | 42.55 / 47.79 | 1.05x |
+| bert-base (16 tok) | 1 | 1.19 / 2.57 | 1.15 / 2.38 (!) | 1.05 / 2.56 (!) | 1.19 / 2.43 | 1.24 / 2.31 | 1.46 / 2.73 | 0.96x |
+| bert-base (16 tok) | 8 | 3.48 / 6.30 | 3.44 / 6.86 (!) | 2.79 / 6.09 (!) | 3.95 / 7.00 | 2.79 / 3.92 | 3.42 / 4.59 | 1.25x |
+| vit-base | 1 | 2.04 / 4.72 | 1.88 / 4.39 | 1.23 / 2.65 (!) | 2.54 / 5.32 | 1.36 / 2.66 | 2.48 / 5.24 | 1.50x |
+| vit-base | 8 | 7.99 / 17.31 | 5.04 / 9.57 (!) | 3.65 / 8.10 (!) | 10.57 / 22.94 | 4.22 / 7.02 | 10.22 / 17.64 | 1.89x |
+| whisper-tiny-encoder | 1 | 1.61 / 3.45 | 1.20 / 2.58 (!) | 1.04 / 2.30 (!) | 1.73 / 4.15 | 1.22 / 1.95 | 2.10 / 3.29 | 1.32x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 3.27 / 6.35 | 2.52 / 5.24 (!) | 3.10 / 6.40 | 3.30 / 5.91 | 4.96 / 6.60 | 5.30 / 7.43 | 0.66x |
+| phi3.5-mini q4f16 (GQA) | 1 | 5.19 / 10.44 | 3.92 / 7.37 (!) | 5.90 / 10.23 | 5.37 / 9.82 | 3.95 / 6.42 | 4.11 / 6.39 | 1.31x |
+| segformer-b0 | 1 | 3.09 / 6.21 | 2.82 / 5.32 | 2.82 / 5.50 (!) | 3.03 / 6.17 | 2.46 / 3.76 | 3.65 / 5.80 | 1.25x |
+| segformer-b0 | 8 | 23.51 / 36.22 | 19.86 / 31.98 | 21.89 / 33.19 (!) | 22.46 / 36.71 | 23.55 / 65.86 | 30.41 / 37.69 | 1.00x |
+| mobilesam-encoder | 1 | 5.50 / 11.24 | 4.64 / 9.60 (!) | 4.41 / 8.89 (!) | 6.38 / 12.79 | 6.57 / 10.88 | 10.49 / 14.49 | 0.84x |
+| raft-large | 1 | 40.41 / 79.24 | 37.72 / 60.99 (!) | 33.66 / 63.03 (!) | 53.14 / 103.76 | 32.35 / 47.36 | 82.95 / 120.59 | 1.25x |
+| fasterrcnn-12 (counts) | 1 | 9.95 / 17.49 | 8.28 / 15.73 | 8.24 / 12.23 | 11.42 / 22.38 | 8.69 / 21.92 | 15.29 / 26.54 | 1.14x |
+| maskrcnn-12 (counts) | 1 | 15.28 / 20.51 | 12.36 / 17.30 | 9.70 / 16.51 | 14.00 / 23.51 | 16.46 / 22.23 | 22.88 / 34.24 | 0.93x |
+
+Notes on the GPU table:
+* qwen2.5 q4 now runs entirely on Vulkan (ScatterND); it is at 0.66x of ORT CUDA.
+* phi-3.5 q4f16 passes parity against its new f32-copy reference.
+* The q4 decoders do not gain from fast precision: their GEMMs are block-quantized and keep their own kernels.
+
+CPU, 16 threads on both engines, 3 interleaved rounds (`cpu.jsonl`). The load average was 14-26 during the session: other
+workloads, including other test suites, ran at the same time. Cells are min / median in ms:
+
+| model | batch | sl-cpu | ort-cpu | SL/ORT CPU |
+|---|---|---|---|---|
+| resnet50 | 1 | 5.28 / 8.31 | 6.38 / 8.90 | 0.83x |
+| resnet50 | 8 | 26.89 / 36.45 | 25.91 / 34.96 | 1.04x |
+| convnext-tiny | 1 | 12.89 / 17.10 | 15.92 / 23.16 | 0.81x |
+| convnext-tiny | 8 | 80.15 / 115.99 | 101.75 / 147.04 | 0.79x |
+| efficientnet-lite4 | 1 | 3.62 / 6.41 | 5.53 / 11.72 | 0.65x |
+| mobilenetv2 | 1 | 1.12 / 2.05 | 1.77 / 4.61 | 0.63x |
+| mobilenetv2 | 8 | 9.53 / 14.33 | 7.98 / 11.45 | 1.19x |
+| yolov8n | 1 | 8.34 / 11.44 | 15.49 / 20.44 | 0.54x |
+| yolov10n | 1 | 10.32 / 22.67 | 16.52 / 21.14 | 0.63x |
+| ssd-10 (NMS) | 1 | 162.97 / 189.53 (!) | 240.99 / 332.83 | 0.68x |
+| bert-base (16 tok) | 1 | 10.48 / 13.86 | 14.30 / 24.42 | 0.73x |
+| bert-base (16 tok) | 8 | 25.70 / 34.25 | 31.70 / 42.59 | 0.81x |
+| vit-base | 1 | 24.90 / 64.11 | 27.50 / 35.69 | 0.91x |
+| vit-base | 8 | 156.17 / 195.30 | 164.70 / 222.69 | 0.95x |
+| whisper-tiny-encoder | 1 | 27.89 / 51.39 | 49.93 / 93.68 | 0.56x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 20.14 / 26.14 | 24.33 / 38.23 | 0.83x |
+| phi3.5-mini q4f16 (GQA) | 1 | 51.29 / 81.18 | 61.60 / 96.68 | 0.83x |
+| segformer-b0 | 1 | 27.70 / 37.62 | 52.92 / 65.04 | 0.52x |
+| segformer-b0 | 8 | 258.26 / 289.88 | 576.64 / 771.84 | 0.45x |
+| mobilesam-encoder | 1 | 150.47 / 184.51 | 239.30 / 324.29 | 0.63x |
+| raft-large | 1 | 840.88 / 1066.00 | 1967.81 / 2320.38 | 0.43x |
+| fasterrcnn-12 (counts) | 1 | 277.81 / 299.95 | 131.98 / 160.99 | 2.10x |
+| maskrcnn-12 (counts) | 1 | 297.75 / 330.87 | 128.18 / 150.13 | 2.32x |
+
+There are no CPU changes in this round. §31 did not measure ssd-10, the R-CNNs or raft on the CPU. The R-CNNs run at 2.1-2.3x
+of ORT CPU, a new open gap.
+
+### 32.5 Conformance
+
+| | before | after |
+|---|---|---|
+| node tests, cpu | 1829 / 1884 | 1863 / 1884 |
+| node tests, vulkan | 1829 (1778 without CPU fallback) | 1863 (1802 without CPU fallback) |
+| extra tests, cpu and vulkan | 170 / 172 | 171 / 172 |
+
+The 21 remaining node failures:
+* 9 ImageDecoder tests (an unsupported op);
+* 6 Bernoulli and 4 training-mode Dropout tests (random outputs);
+* 2 64-bit BitCast tests (64-bit values travel as 32-bit).
+
+The remaining extra failure is WordConvEmbedding, whose stored reference is uninitialized memory. Classification and
+fixes are in `docs/onnx-support.md`.
+
+### 32.6 Reproducing
+
+```sh
+export SHARPLIGHT_ONNX_MODELS=~/models/onnx ORT_PYTHON=~/venvs/ort/bin/python3   # plus the CUDA libs of bench/onnx/env.sh
+python3 bench/onnx/parity_bench.py run gpu.jsonl --rounds 3 --engines sl-vulkan,sl-vulkan-fast,sl-vulkan-simt,sl-vulkan-rp,ort-cuda,ort-cuda-strict
+python3 bench/onnx/parity_bench.py run cpu.jsonl --rounds 3 --engines sl-cpu,ort-cpu --runs 20
+SHARPLIGHT_MATRIX_PRECISION=fast dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/vit-base-patch16-224.json vulkan --batch 8
+~/venvs/ort/bin/python -I bench/onnx/f64_reference.py $SHARPLIGHT_ONNX_MODELS/ref/vit-base-patch16-224.json f64 1
+~/venvs/ort/bin/python -I bench/onnx/f64_error_ort.py f64/vit-base-patch16-224.json 1
+dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll f64/vit-base-patch16-224.json vulkan --fast-precision   # worstRms
+```
+
+### 32.7 Open gaps
+
+* **Strict encoders against TF32 ORT**: vit b8 1.89x, vit b1 1.50x, whisper 1.32x, bert b8 1.25x; convnext b8 1.52x.
+  Fast precision closes these gaps (0.86-1.00x). Strict stays at about 1.5x TF32's cost by construction (three
+  products).
+  * The activation split is still a pre-pass; fusing it into the producing LayerNorm / GELU needs a row-max pass, about
+    3.5 % of vit b8.
+  * The large-tile occupancy of the split GEMM was not reworked.
+* **raft (1.04x fast, 1.25x strict)**:
+  * the correlation volume runs on the SIMT bmm (2.2 ms per launch, 3 launches); no tensor-core bmm;
+  * about 290 small concats per inference (882 launches, 4.6 ms of GPU time in a fast-precision profile).
+* **convnext b8**: the low-K GEMMs and split-K reductions (§31) are unchanged.
+* **CPU detection**: Faster / Mask R-CNN at 2.1-2.3x of ORT CPU.
+* **qwen2.5 fp16**: Vulkan's error against the f32 copy is 1.5e-3, 6x the CPU backend's in the deep layers.
+* **Not done this round**:
+  * CPU Winograd on the channels-last layout;
+  * the CPU backend's 6-25x larger error than ORT CPU on whisper / vit;
+  * a `ConcurrentWorkgroups` query (VK_NV_shader_sm_builtins / VK_AMD_shader_core_properties) instead of the
+    per-device-type value.
+* **Section number**: the raw data is in `bench/results/s32/`. Rename the section and the folder if another section
+  takes 32 first.

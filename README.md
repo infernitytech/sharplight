@@ -114,25 +114,29 @@ Section 23 loads the operands of small-batch matmuls straight into the tensor-co
 of 16 sequences on the 27B takes 29.6 ms instead of 34.3 ms with FP8 weights, and 29.3 ms instead of 33.7 ms with Q8_0.
 MTP speculative decoding on the FP8 model is 8 % faster.
 
-ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21, 25-27, 30 and 31), min latency in ms
-at batch 1. Sharplight runs its f32-accurate default. ORT's CUDA EP is shown with its default TF32 and with TF32 off
-("strict"). The CPU columns use 16 threads on both engines, from section 31 (interleaved with ORT, load average 2-12).
-Section 30 makes the split-f16 tensor-core GEMM f32-accurate and the strict default for f32 matmuls and convs.
-Section 31 applies bias / GELU / residual groups in that GEMM's store and reworks the encoder attention kernel: vit b1
-went from 1.71x to 1.52x of TF32 ORT, whisper from 1.49x to 1.33x. On GPUs without matrix units, an f32 flash
-attention kernel and device-sized GEMM tiles make whisper-tiny 16x and vit-base 3.2x faster (integrated GPU).
+ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21, 25-27 and 30-32), min latency in ms
+at batch 1. "Sharplight Vulkan" is its f32-accurate default (strict). "fast" is the opt-in TF32-class mode
+(`CompileOptions.MatrixPrecision = MatrixPrecision.Fast` or `SHARPLIGHT_MATRIX_PRECISION=fast`), with errors against an f64
+reference of 5.6-6.8e-4, against ORT TF32's 5.5-7.9e-4. ORT's CUDA EP is shown with its default TF32 and with TF32 off
+("strict"). GPU columns are from section 32. The CPU columns use 16 threads on both engines and are from section 31,
+which ran interleaved with ORT at load average 2-12; section 32 changed nothing on the CPU.
+Section 30 made the split-f16 tensor-core GEMM f32-accurate and the strict default. Section 31 moved bias / GELU / residual
+into that GEMM's store and reworked encoder attention.
+Section 32 adds the fast mode: one tensor-core product of row-scaled 11-bit inputs per multiply-add. With it, vit-base
+runs at 0.90x of ORT TF32 (b8 0.86x), whisper at 0.85x and bert at 0.85x. In strict mode, Sharplight beats ORT strict on
+these models.
 
-| Model | Sharplight Vulkan | ORT CUDA (TF32) | ORT CUDA strict | Sharplight CPU | ORT CPU |
-|---|---:|---:|---:|---:|---:|
-| resnet50 | 0.74 | 0.99 | 2.10 | 4.1 | 5.2 |
-| mobilenetv2 | 0.38 | 0.34 | 0.65 | 0.6 | 1.6 |
-| yolov10n | 1.19 | 1.18 | 2.30 | 7.6 | 14.9 |
-| bert-base (16 tokens) | 1.19 | 1.23 | 1.42 | 9.1 | 10.8 |
-| vit-base | 2.04 | 1.34 | 2.46 | 23.9 | 21.8 |
-| segformer-b0 | 2.86 | 2.29 | 3.30 | 21.6 | 40.0 |
-| whisper-tiny encoder | 1.53 | 1.15 | 2.03 | 19.8 | 37.5 |
-| mobilesam encoder | 4.99 | 6.00 | 7.80 | 113 | 199 |
-| faster r-cnn (fasterrcnn-12) | 8.7 | 7.6 | 13.1 | - | - |
+| Model | Sharplight Vulkan | Sharplight Vulkan fast | ORT CUDA (TF32) | ORT CUDA strict | Sharplight CPU | ORT CPU |
+|---|---:|---:|---:|---:|---:|---:|
+| resnet50 | 0.74 | 0.61 | 1.02 | 2.18 | 4.1 | 5.2 |
+| mobilenetv2 | 0.38 | 0.33 | 0.38 | 0.66 | 0.6 | 1.6 |
+| yolov10n | 1.20 | 1.06 | 1.24 | 2.70 | 7.6 | 14.9 |
+| bert-base (16 tokens) | 1.19 | 1.05 | 1.24 | 1.46 | 9.1 | 10.8 |
+| vit-base | 2.04 | 1.23 | 1.36 | 2.48 | 23.9 | 21.8 |
+| segformer-b0 | 3.09 | 2.82 | 2.46 | 3.65 | 21.6 | 40.0 |
+| whisper-tiny encoder | 1.61 | 1.04 | 1.22 | 2.10 | 19.8 | 37.5 |
+| mobilesam encoder | 5.50 | 4.41 | 6.57 | 10.49 | 113 | 199 |
+| faster r-cnn (fasterrcnn-12) | 9.95 | 8.24 | 8.69 | 15.29 | - | - |
 
 ## Building
 

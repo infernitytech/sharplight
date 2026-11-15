@@ -42,7 +42,7 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 - **Chunked delta rule in rollback-form graphs**: with speculation on, prompt prefill uses the token-serial kernels and
   loses the 5–25 % prefill gain of §18. Replay the committed rows, then hand long runs to the chunked kernel.
 - **ONNX operator coverage**: control flow (Loop, If, Scan), sequences and the rest of the opset.
-- **ONNX latency parity with onnxruntime** (§21, §25-§27, §30, §31). Done:
+- **ONNX latency parity with onnxruntime** (§21, §25-§27, §30-§32). Done:
   - conv / matmul epilogues on CPU and Vulkan, prepacked weights, decomposed LayerNorm / GELU and attention-scale
     translation, block-quantized MatMulNBits;
   - the 128x128 SIMT GEMM, bmm split-K, the CPU conv as one implicit GEMM (with a shifted stride-1 form);
@@ -62,16 +62,20 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - elementwise groups in the split-f16 GEMM's store, 64-token split tiles for few hundred rows, a reworked encoder
     flash kernel, in-place LayerNorm over channel-strided views, conv_narrow for few output channels, sub-millisecond
     re-recording for new detection counts; for devices without matrix units an f32 encoder flash kernel and tiles
-    sized by `DeviceInfo.ConcurrentWorkgroups` (integrated GPU: whisper-tiny 16x, vit-base 3.2x) (§31).
+    sized by `DeviceInfo.ConcurrentWorkgroups` (integrated GPU: whisper-tiny 16x, vit-base 3.2x) (§31);
+  - opt-in fast matrix precision (TF32 class) for GEMMs, convs and attention: 0.60-1.00x of ORT's TF32 default on the
+    encoders and convnets (raft 1.04x); ScatterND over a symbolic axis on Vulkan (qwen2.5 q4 in one segment); phi-3.5 parity against
+    an f32-copy reference; conformance 1863 / 1884 node and 171 / 172 extra tests (§32).
 
   Open gaps:
-  - Vulkan transformer encoders against ORT's TF32: vit 1.5-1.9x, whisper 1.3x, bert b8 1.3x (at 0.75-1.0x of ORT
-    with TF32 off). The split GEMM's three products cost about 1.5x by construction; beyond that its 128-token tiles
-    run one workgroup per SM, and the activation split is a pre-pass that the producing LayerNorm / GELU could write;
-  - convnext b8 1.4x (low-K GEMMs, split-K reductions), raft 1.3x (split convs, SIMT bmm for the correlation volume,
-    small concats), Faster / Mask R-CNN 1.15-1.3x;
-  - ScatterND over a symbolic axis on Vulkan; `fes` for head sizes above 64; a compute-unit query instead of the
-    per-device-type `ConcurrentWorkgroups`;
+  - strict Vulkan encoders against ORT's TF32: vit 1.5-1.9x, whisper 1.3x, bert b8 1.25x (0.78-1.02x of ORT with TF32
+    off; fast precision closes the gap). The split GEMM's three products cost about 1.5x by construction; beyond that
+    its 128-token tiles run one workgroup per SM, and the activation split is a pre-pass that the producing LayerNorm /
+    GELU could write (needs a row max, about 3.5 % of vit b8);
+  - convnext b8 1.5x strict (low-K GEMMs, split-K reductions); raft 1.25x strict / 1.04x fast (SIMT bmm for the
+    correlation volume, about 290 small concats); Faster / Mask R-CNN on the CPU backend 2.1-2.3x of ORT CPU;
+  - `fes` for head sizes above 64; a compute-unit query (VK_NV_shader_sm_builtins / VK_AMD_shader_core_properties)
+    instead of the per-device-type `ConcurrentWorkgroups`; qwen2.5 fp16 on Vulkan 6x the CPU backend's error;
   - CPU Winograd on the channels-last layout for 64 / 128-channel 3x3 convs; encoder GEMMs stream each layer's weights
     from DRAM (vit b1 1.1x, resnet50 b8 1.05x).
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
@@ -119,6 +123,13 @@ verification still matches plain decoding), the chunked prefill once per run. On
 kernel (226 → 108 us per layer at 64 decode rows) and cuts the step GPU time by about 3 % at 16 rows and 9 % at 64. f16 is
 more accurate but its integer round-to-nearest-even conversion eats most of the gain (−1.4 % at 64 rows). Open: rounding the
 chunked form per chunk instead of per run, and 16-bit states for the other recurrences (`SelectiveScan`, `Wkv6/7`).
+
+`CompileOptions.MatrixPrecision = MatrixPrecision.Fast` (`SHARPLIGHT_MATRIX_PRECISION=fast`, OnnxBench `--fast-precision`)
+is the opt-in TF32-class mode for f32 GEMMs, convs and encoder attention on Vulkan (§32). It uses one tensor-core product
+of row-scaled 11-bit inputs per multiply-add instead of the strict three-product split. Its error against an f64
+reference is 5.6-6.8e-4 (ORT TF32: 5.5-7.9e-4). It is 1.1-2.2x faster than strict on encoders, and matches or beats ORT's
+TF32 default on vit, whisper, bert, convnext and resnet50. `AllowReducedPrecision` takes precedence when both are set.
+Devices without f16 matrix units keep strict. Open: the q4 decoders and the SIMT bmm (raft) do not use it yet.
 
 ## Multi-node inference
 
