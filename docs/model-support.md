@@ -996,3 +996,18 @@ Model types still unsupported, with estimates (none is a mapping-only job):
 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16 | an nGPT (normalized) transformer with layer loops; no modeling code is published | not verifiable yet |
 | baidu/ERNIE-5.5-Flash-Base | no modeling code is published | not verifiable yet |
 | meituan-longcat/LongCat-2.5 | no modeling code is published | not verifiable yet |
+
+## 12. Vision models (task layer)
+
+Vision models run through the task layer (kinds `image-classification`, `image-embedding`; see docs/api-overview.md "Tasks"). The host-side
+preprocessing is the neutral `ImageProcessorConfig` stored with the model. Reference outputs come from `tools/vision-reference.py`
+(transformers, CPU) on one sample image; checkpoints live in `~/models/vision/<name>`.
+
+| Model | Importer | Kind | Status | Parity vs transformers (relative rms, CPU / Vulkan) |
+|---|---|---|---|---|
+| ViT (`google/vit-base-patch16-224`) | HF `vit` | image-classification | supported, same top-1 | 1.2e-3 / 1.2e-3 (logits) |
+| DINOv2 (`facebook/dinov2-small`, 518 px table resampled to the 224 px processor grid, LayerScale, registers) | HF `dinov2`, `dinov2_with_registers` | image-embedding | supported | 1.2e-3 / 1.2e-3 (CLS embedding) |
+| CLIP, SigLIP (image + text towers, zero-shot) | - | image-embedding | not yet (`IImageEmbedder` already has the text API) | - |
+| DETR, RT-DETR, YOLO, SAM 2, Mask2Former, Depth Anything, DPT, TrOCR, Florence-2, Real-ESRGAN, SwinIR | - | - | not started | - |
+
+The residual 1e-3 is the resize (Pillow rounds to 8 bits per pass; the sample's pixel difference is not yet bit-exact), identical on both backends.
