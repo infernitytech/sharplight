@@ -62,7 +62,14 @@ case "$rid" in
         tar -C "$publish" -czf "$out/sharplight-studio-$version-$rid.tar.gz" .
         ;;
     osx-*)
-        # .app bundle in a Velopack .pkg installer plus a zip.
+        # .app bundle in a Velopack .pkg installer plus a zip. The Vulkan provider runs through MoltenVK: a publish on macOS
+        # puts libMoltenVK.dylib (Sharplight.Vulkan.MoltenVK, docs/macos.md) next to the executable, where the provider finds it.
+        if [ ! -f "$publish/libMoltenVK.dylib" ]; then
+            echo "libMoltenVK.dylib is missing from the publish output (publish on macOS, or pass -p:SharplightBundleMoltenVK=true)" >&2
+            exit 1
+        fi
+        cp "$repo/src/Sharplight.Vulkan.MoltenVK/THIRD-PARTY-NOTICES.md" "$publish/THIRD-PARTY-NOTICES-MoltenVK.md"
+        cp "$repo"/src/Sharplight.Vulkan.MoltenVK/obj/moltenvk/*/LICENSE-MoltenVK.txt "$publish/LICENSE-MoltenVK.txt"
         iconset="$work/sharplight-studio.iconset"
         mkdir -p "$iconset"
         for size in 16 32 128 256; do
