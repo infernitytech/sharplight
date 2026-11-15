@@ -62,14 +62,16 @@ public sealed unsafe class GgufFile : IDisposable
     private GgufFile(string path)
     {
         Path = path;
-        var fileInfo = new FileInfo(path);
-        FileLength = (fileInfo.ResolveLinkTarget(returnFinalTarget: true) as FileInfo ?? fileInfo).Length; // a symbolic link reports its own size
+        // The stream's length is the target's when the path is a symbolic link (FileInfo reports the link's own size).
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        FileLength = stream.Length;
         if (FileLength < HeaderBytes)
         {
+            stream.Dispose();
             throw new InvalidDataException("File too small to be GGUF.");
         }
 
-        _mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
+        _mmf = MemoryMappedFile.CreateFromFile(stream, null, 0, MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
         try
         {
             _view = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
