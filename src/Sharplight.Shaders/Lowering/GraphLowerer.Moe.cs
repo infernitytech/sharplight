@@ -358,10 +358,10 @@ public sealed partial class GraphLowerer
             bool split = DiagnosticSwitches.MoeSplitTiles;
             _writeGroup = split ? new object() : null;
             Dictionary<string, string> Rows(int t, string limit, int rows)
-                => new(Gemm2Macros(groupedMacros, t, large: false)) { [limit] = rows.ToString(CultureInfo.InvariantCulture) };
+                => new(Gemm2Macros(groupedMacros, t)) { [limit] = rows.ToString(CultureInfo.InvariantCulture) };
             Emit(label + " gemm-cm2", [n],
                 [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
-                    Lib("matmul.slang", "gemm_cm2", split && t > 32 ? Rows(t, "MOE_MIN_ROWS", t / 2 + 1) : Gemm2Macros(groupedMacros, t, large: false)),
+                    Lib("matmul.slang", "gemm_cm2", split && t > 32 ? Rows(t, "MOE_MIN_ROWS", t / 2 + 1) : Gemm2Macros(groupedMacros, t)),
                     b => new Grid(Grid.Div(N, Gemm2Columns(t)), tiles(b))))],
                 gargs, [gemmX, w, scratch], [y]);
             if (split)
