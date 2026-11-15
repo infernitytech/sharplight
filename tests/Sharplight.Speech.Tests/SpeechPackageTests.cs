@@ -65,9 +65,8 @@ public sealed class SpeechPackageTests : IDisposable
 
         string package = Path.Combine(_directory, "tiny.en.slm");
         ModelConverter.Convert(source, package);
-        var device = SpeechEnvironment.Device("vulkan")!;
         var logs = new List<string>();
-        PackagePrecompiler.Precompile(package, _ => device, new PrecompileOptions { Log = logs.Add });
+        PackagePrecompiler.Precompile(package, SpeechEnvironment.OpenVulkan, new PrecompileOptions { Log = logs.Add });
         Assert.Contains(logs, l => l.Contains("Component 'encoder'", StringComparison.Ordinal));
         Assert.Contains(logs, l => l.Contains("Component 'decoder'", StringComparison.Ordinal));
         Assert.NotEmpty(ModelPackageReader.Open(package).ArtifactSets);
