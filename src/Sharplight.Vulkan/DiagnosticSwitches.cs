@@ -27,6 +27,8 @@ namespace Sharplight.Vulkan;
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>: print load-phase timings (pipeline creation, upload) to stderr.</item>
 /// <item><c>SHARPLIGHT_SUBMISSION_BUDGET_MS=ms</c>: overrides the per-device submission budget (0 disables slicing); the
 /// <c>submission_budget_ms</c> device setting wins over it.</item>
+/// <item><c>SHARPLIGHT_CONCURRENT_WORKGROUPS=n</c>: overrides the per-device workgroup sizing hint
+/// (<see cref="Runtime.DeviceInfo.ConcurrentWorkgroups"/>; 0 sizes for a large GPU); the <c>concurrent_workgroups</c> device setting wins over it.</item>
 /// <item><c>SHARPLIGHT_VK_DEVICES=i[,j...]</c>: list only the Vulkan devices with these enumeration indices (pins a process
 /// to some GPUs of a multi-GPU machine).</item>
 /// </list>
@@ -89,6 +91,16 @@ internal static class DiagnosticSwitches
     {
         string? text = deviceSetting ?? Read("SHARPLIGHT_SUBMISSION_BUDGET_MS");
         return text is not null && double.TryParse(text, CultureInfo.InvariantCulture, out double ms) ? ms : null;
+    }
+
+    /// <summary>
+    /// The concurrent-workgroup hint from the device setting or the environment, or null when unset or malformed. Read on every call
+    /// because it is applied per opened device.
+    /// </summary>
+    public static int? ConcurrentWorkgroups(string? deviceSetting)
+    {
+        string? text = deviceSetting ?? Read("SHARPLIGHT_CONCURRENT_WORKGROUPS");
+        return text is not null && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int workgroups) ? workgroups : null;
     }
 
     /// <summary>The Vulkan enumeration indices listed by <c>SHARPLIGHT_VK_DEVICES</c>, or null to list every device.</summary>

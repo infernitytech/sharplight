@@ -28,6 +28,7 @@ internal static class DeviceLister
         var capabilities = string.Join(", ", device.Capabilities.Select(pair => $"{pair.Key}={pair.Value}"));
         output.WriteLine($"  [{device.Index}] {device}");
         output.WriteLine($"      features: {string.Join(" ", device.Features.Order())}");
+        output.WriteLine($"      concurrent_workgroups={device.ConcurrentWorkgroups}, submission_budget_ms={device.SubmissionBudgetMs}");
         output.WriteLine($"      {capabilities}");
     }
 }
