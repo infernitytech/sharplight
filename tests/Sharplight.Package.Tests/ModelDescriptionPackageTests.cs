@@ -137,6 +137,7 @@ public class ModelDescriptionPackageTests
         EncoderOnlyRecognizer? created = null;
         var services = new ServiceCollection()
             .AddSharplightTasks()
+            .AddPackageImporter()
             .AddTaskClientFactory<ISpeechRecognizer>(ModelKinds.SpeechRecognition, model => created = new EncoderOnlyRecognizer(model))
             .AddSpeechRecognizer(options =>
             {

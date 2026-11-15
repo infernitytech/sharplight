@@ -51,7 +51,7 @@ public class RealModelTextGeneratorTests
             Assert.Same(model, generator.GetService(typeof(LlmModel)));
         }
 
-        var services = new ServiceCollection().AddTextGenerator(o =>
+        var services = new ServiceCollection().AddSharplight().AddTextGenerator(o =>
         {
             o.ModelPath = ModelPath;
             o.Devices = [slot];
