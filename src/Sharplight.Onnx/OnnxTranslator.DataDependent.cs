@@ -102,18 +102,36 @@ internal sealed partial class OnnxTranslator
         _env[n.Outputs[0]] = Synthetic("Gather", [x, TranslatedTensor.Dyn(indices)], IntAttribute("axis", axis));
     }
 
-    /// <summary>Unique over the flattened input (outputs: values, first indices, inverse indices, counts).</summary>
+    /// <summary>
+    /// Unique over the flattened input, or over the slices along an axis (outputs: values, first indices, inverse indices, counts). Along an
+    /// inner axis the slices are moved to the outer IR axis; the ONNX values tensor is then their transpose (only a graph output accepts it).
+    /// </summary>
     private void Unique(OnnxNode n, TranslatedTensor?[] ins)
     {
-        if (n.Has("axis"))
+        var x = ins[0]!.V ?? AsValue(ins[0]!);
+        bool sorted = n.Int("sorted", 1) != 0;
+        if (!n.Has("axis") || x.Rank <= 1)
         {
-            throw new NotSupportedException("Unique along an axis");
+            var bound = Sym(x) ? x.Shape[0] * x.Shape.InnerElements : (Dim)Math.Max(1, x.Shape.Elements());
+            EmitUnique(n, x, NewDynamicSymbol("unique", bound), sorted, slices: false);
+            return;
         }
 
-        var x = ins[0]!.V ?? AsValue(ins[0]!);
-        var bound = Sym(x) ? x.Shape[0] * x.Shape.InnerElements : (Dim)Math.Max(1, x.Shape.Elements());
-        string count = NewDynamicSymbol("unique", bound);
-        var outputs = _b.Emit("Unique", [x], Attributes.From(("count_symbol", count), ("sorted", n.Int("sorted", 1) != 0)), Nm(n));
+        int axis = NormalizeAxis(n.Int("axis", 0), x.Rank);
+        int[] toFront = [axis, .. Enumerable.Range(0, x.Rank).Where(d => d != axis)];
+        var slices = Permute(x, toFront);
+        var sliceBound = slices.Shape[0].IsSymbolic ? slices.Shape[0] : (Dim)Math.Max(1, slices.Shape[0].Fixed);
+        EmitUnique(n, slices, NewDynamicSymbol("unique", sliceBound), sorted, slices: true);
+        if (axis != 0 && n.Outputs[0] != "")
+        {
+            // ONNX axis d is IR axis 0 for the unique axis, d + 1 in front of it and d behind it.
+            _env[n.Outputs[0]].OnnxPermutation = [.. Enumerable.Range(0, x.Rank).Select(d => d == axis ? 0 : d < axis ? d + 1 : d)];
+        }
+    }
+
+    private void EmitUnique(OnnxNode n, Value x, string count, bool sorted, bool slices)
+    {
+        var outputs = _b.Emit("Unique", [x], Attributes.From(("count_symbol", count), ("sorted", sorted), ("slices", slices)), Nm(n));
         for (int i = 0; i < n.Outputs.Count && i < outputs.Count; i++)
         {
             if (n.Outputs[i] != "")

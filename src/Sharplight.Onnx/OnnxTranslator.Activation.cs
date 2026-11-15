@@ -64,12 +64,19 @@ internal sealed partial class OnnxTranslator
         SetDyn(n, 0, y);
         if (n.Outputs.Count > 1 && n.Outputs[1] != "")
         {
-            if (k == 1)
+            if (k > 1)
             {
-                throw new NotSupportedException("CausalConvWithState with kernel size 1 has an empty present_state");
+                SetDyn(n, 1, _b.Slice(padded, 2, length, k - 1));
             }
-
-            SetDyn(n, 1, _b.Slice(padded, 2, length, k - 1));
+            else if (Sym(x))
+            {
+                throw new NotSupportedException("CausalConvWithState with kernel size 1 and a symbolic batch has an empty present_state");
+            }
+            else
+            {
+                // Kernel size 1 keeps no state: present_state is [B, C, 0], which carries no data.
+                _env[n.Outputs[1]] = TranslatedTensor.Const(EmptyConst(OnnxType.Float, [x.Shape[0].Fixed, channels, 0], n.Outputs[1]));
+            }
         }
     }
 

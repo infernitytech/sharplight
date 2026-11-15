@@ -19,6 +19,13 @@ public sealed class OnnxGraphAdapter : IModelAdapter
     public const string BatchSymbolProperty = "onnx.batch_symbol";
 
     /// <summary>
+    /// Model definition property listing the graph outputs whose IR tensor is laid out differently from the ONNX tensor: an
+    /// <c>IReadOnlyDictionary&lt;string, OnnxOutputLayout&gt;</c> by output name (absent when there are none). Apply
+    /// <see cref="OnnxOutputLayout.OnnxShape"/> and <see cref="OnnxOutputLayout.ToOnnx{T}"/> to such an output to get the ONNX tensor.
+    /// </summary>
+    public const string OutputLayoutsProperty = "onnx.output_layouts";
+
+    /// <summary>
     /// The name of the graph input or output that carries element <paramref name="index"/> of an ONNX sequence value: a sequence graph
     /// input becomes one input per element (its length is given by <see cref="OnnxImportOptions.SequenceInputLengths"/>, the element
     /// shapes by <see cref="OnnxImportOptions.InputShapes"/> under these names), and a sequence graph output whose length is known at
@@ -60,7 +67,9 @@ public sealed class OnnxGraphAdapter : IModelAdapter
             Name = model.Graph.Name,
             Weights = translator.Weights,
             Graphs = new Dictionary<string, Graph.ComputeGraph> { [MainGraph] = graph },
-            Properties = new Dictionary<string, object> { [BatchSymbolProperty] = BatchSymbol },
+            Properties = translator.OutputLayouts.Count == 0
+                ? new Dictionary<string, object> { [BatchSymbolProperty] = BatchSymbol }
+                : new Dictionary<string, object> { [BatchSymbolProperty] = BatchSymbol, [OutputLayoutsProperty] = translator.OutputLayouts },
             SourceMetadata = source.Metadata,
             OwnedResources = source.OwnedResources,
         };
