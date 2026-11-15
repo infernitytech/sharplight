@@ -92,7 +92,7 @@ Shading Language with SPIRV-Cross). Sharplight ships it in a separate NuGet pack
   device reports Vulkan 1.3, since a 1.2 device (an older MoltenVK) could not enable them.
 
 On the CI runner (paravirtual GPU of an M1 VM; numbers are indicative only), Qwen2.5-0.5B-Instruct Q4_K_M with
-`--bench 128` runs 544 tok/s prefill and 53.6 tok/s decode through MoltenVK (485 dispatches and 340 barriers per decode
+`--bench 128` runs 610 tok/s prefill and 57 tok/s decode through MoltenVK (round 2; round 1: 544 / 53.6) (485 dispatches and 340 barriers per decode
 step), against 158 / 13.7 tok/s on the VM's 3 CPU cores. After the merge of `develop` the prefill fell to about 100 tok/s;
 round 2 found and fixed the cause ([below](#moltenvk-prefill-regression-round-2)). Creating the 104 pipelines of the decode graph takes about 50 s
 the first time (SPIR-V to MSL, then Metal compilation). That is also why CI runs the Vulkan suite in four time-boxed parts (see
@@ -129,7 +129,20 @@ matmuls take the 64 x 64 `gemm` tile, which keeps the small-device K splits. `SH
 choice for comparison. `ConcurrentWorkgroups` itself stays 64 for the Apple GPU: with the 64 x 64 tile the small-device K
 splits are faster than the large-GPU ones (629 against 552 tok/s).
 
-RESULTS_PLACEHOLDER
+**Result** (run 43763669799, `macos-bench` job; prefill best of the runs, tok/s):
+
+| MoltenVK, CI Apple GPU | `--bench 128` | `--bench 512` |
+| --- | --- | --- |
+| round 2 defaults (64 x 64 `gemm`, small-device K splits) | **610.5** (decode 57.1) | **554.7** |
+| `SHARPLIGHT_GEMM_WIDE=force` (the selection of `develop`) | 101.0 | 101.1 |
+| `SHARPLIGHT_CONCURRENT_WORKGROUPS=0` | 560.7 | 533.0 |
+| `SHARPLIGHT_CONCURRENT_WORKGROUPS=0 SHARPLIGHT_GEMM_WIDE=force` (`gemm_wide` from 512 rows, as large GPUs) | 557.1 | 101.2 |
+
+Prefill is back above round 1's 544-557 tok/s, and `gemm_wide` is about 5.5x slower than the 64 x 64 tile on this GPU at 512
+rows too, so it is off for every row count there, not only for the small-device threshold. The other perf defaults of
+`develop` stay on: switching them off gives 612.7 (`SHARPLIGHT_ATTN_FE_CAUSAL=0`), 618.3 (`SHARPLIGHT_GEMM_WAVE=fixed`),
+627.3 (`SHARPLIGHT_MV_ROWS=1`) and 630.5 (`SHARPLIGHT_DISABLE_FEATURES=kernel_binaries`), all within the runner's
+noise. Decode is unchanged (about 52-58 tok/s best).
 
 **Diagnostics added.** `SHARPLIGHT_CONCURRENT_WORKGROUPS=n` (or the device setting `concurrent_workgroups`) overrides the
 sizing hint per device, like `SHARPLIGHT_SUBMISSION_BUDGET_MS`; `sharplight --devices` prints `concurrent_workgroups` and
