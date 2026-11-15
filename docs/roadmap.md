@@ -32,6 +32,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 - **Fewer glue launches per batched step**: row norms now write the f16 activation copy for 2-16-row steps (1334 → 1158
   dispatches, 917 → 789 barriers at 16 rows on the 27B FP8; Blackwell GPU time unchanged, §28.3). Left: the copies after
   elementwise and matmul epilogues (attention gate, SwiGLU output), fp8 quantization and split-K reductions.
+- **New card baseline** (§34, RTX PRO 4500 Blackwell 32 GB): decode 0.88-0.99x of llama.cpp CUDA, dense prefill
+  0.71-0.85x, MoE / hybrid prefill 0.95-1.12x, serving 1.1-4.4x llama-server and ahead of vLLM except Llama-1B at 64
+  streams (0.75x). Two prefill wins wait for a decision because they change greedy output (§34.5):
+  `SHARPLIGHT_GEMM_WAVE=device` (K splits from the SM count, pp2048 +2-17 %) and `SHARPLIGHT_ATTN_FE_CAUSAL=1` (causal
+  `fe` flash kernel, pp2048 +6-38 %); together Qwen3-0.6B goes 0.71x → 1.09x of llama.cpp CUDA. Next, output-preserving:
+  the Q4_K / Q6_K GEMM main loop (85 % of Qwen3-8B pp2048 at ~93 TFLOPS), fewer launches / barriers for the small-model
+  decode step (Qwen3-0.6B: 369 dispatches, 256 barriers), batched expert matmuls at 16-64 rows.
 - **Single-stream gaps** (§28.5): 27B Q8_0 decode (0.90x of llama.cpp; single matvecs at 1.34-1.42 TB/s) and Mistral-7B
   Q4_K_M pp512 (0.91x). Both need a different summation order, i.e. a deliberate change of greedy output.
 - **Row-invariant MTP verification** (§28.1): verification rows now reproduce plain decoding bit for bit. Next: a

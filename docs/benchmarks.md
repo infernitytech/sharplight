@@ -4579,3 +4579,20 @@ Aggregate output tok/s, median of the two rounds (min..max), and median TTFT / m
    streams (batched expert matmuls at 16-64 rows).
 5. Everything else is at 0.94x or better.
 
+
+### 34.5 First changes on the new card
+
+Interleaved `--bench` A/B runs on GPU 1 (`best` prefill of 4 per process, median of 2-3 processes; decode is the median
+GPU time per step). Greedy identity: 200-token outputs of a short and a ~600-token prompt plus an ~800-token prompt
+prefilled in 128-token chunks (`--batch 128`, so attention runs against a non-empty cache), compared byte for byte.
+
+| change | default | effect | greedy output |
+|---|---|---|---|
+| Two output rows per workgroup in the split-K matvec (`wip/vulkan-matvec-rows`, `SHARPLIGHT_MV_ROWS=1` restores one) | on | decode step Llama-1B Q8_0 2.10 → 2.04 ms (+4 % tok/s), gpt-oss-20b 4.37 → 4.16 ms (+5 %); bf16 (Llama-1B, Qwen3-0.6B/1.7B) and Q4_K (Qwen3-8B) unchanged | unchanged on 11 models (9 GGUF + 2 bf16) |
+| K splits of the tensor-core GEMMs sized by the device's SMs (82 here) instead of 192 tiles (`SHARPLIGHT_GEMM_WAVE=device`) | opt-in | pp2048 Gemma-3-1B +17 %, Llama-1B +9 %, Qwen3-0.6B +7 %, Mistral-7B +2.5 %, Qwen3-8B +2 % | changes Qwen3-8B and gpt-oss-20b (other split = other rounding of the partial sums) |
+| Causal single-sequence prefill attention on the `fe` flash kernel (64 queries per workgroup, fragments in registers, blocks read only the keys their last query sees; `SHARPLIGHT_ATTN_FE_CAUSAL=1`) | opt-in | pp2048 Qwen3-0.6B +38 %, Qwen3-8B +7.5 %, Llama-1B +7 %, Mistral-7B +6 %; Gemma (sliding window) keeps `fa` | changes OLMoE and Nemotron-3-Nano (other summation order); unchanged on the 7 others |
+
+With both opt-ins (pp2048): Qwen3-0.6B 50.7 k tok/s (1.09x of llama.cpp CUDA, was 0.71x), Gemma-3-1B 38.0 k (0.97x,
+was 0.83x), Llama-1B 35.2 k (0.86x, was 0.72x). With both on, the 27B's chunked-prefill output also changes (not
+bisected). Both stay opt-in because they change greedy output; making them the
+default is a deliberate output change to decide together with the other summation-order items of the roadmap.
