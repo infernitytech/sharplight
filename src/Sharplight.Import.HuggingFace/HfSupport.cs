@@ -17,7 +17,7 @@ public static class HfSupport
     /// </summary>
     private static readonly HashSet<string> s_unsupportedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
-        "hqq", "eetq", "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
+        "hqq", "eetq", "exl2", "exllama", "torchao", "vptq", "higgs",
         "spqr", "fp_quant",
     };
 
@@ -72,7 +72,7 @@ public static class HfSupport
     /// with 8-bit float weights, ModelOpt <c>FP8</c>), NVFP4 (ModelOpt, compressed-tensors), MXFP4 (compressed-tensors; <c>mxfp4</c>
     /// for gpt-oss, AMD Quark), GPTQ (2, 3, 4 and 8 bits), AWQ (<c>gemm</c> / <c>gemv</c> / <c>gemv_fast</c> / <c>marlin</c>), GPTQ Marlin, compressed-tensors integer weights,
     /// bitsandbytes, MLX quantization (affine and the <c>mxfp4</c> / <c>nvfp4</c> / <c>mxfp8</c> modes), AutoRound (GPTQ / AWQ packings)
-    /// and AQLM (dequantized while read). Not read: the methods with codebook or framework-specific layouts (HQQ, EXL2, quanto, torchao, ...).
+    /// and AQLM (dequantized while read). Not read: the methods with codebook or framework-specific layouts (HQQ, EXL2, torchao, ...).
     /// </summary>
     /// <param name="configJson">The text of <c>config.json</c> (its <c>quantization_config</c>).</param>
     /// <param name="quantizationConfigJson">The text of <c>hf_quant_config.json</c> when the checkpoint has one (ModelOpt), else null.</param>
@@ -138,6 +138,8 @@ public static class HfSupport
                 return Awq(method, settings);
             case "auto-round" or "autoround" or "intel/auto-round":
                 return AutoRound(settings);
+            case "quanto" or "optimum-quanto":
+                return Quanto(method, settings);
             case "bitsandbytes":
                 return new HfQuantizationSupport(method, SupportLevel.Supported);
             case "aqlm":
@@ -148,6 +150,14 @@ public static class HfSupport
             default:
                 return new HfQuantizationSupport(method, s_unsupportedMethods.Contains(method) ? SupportLevel.Unsupported : null);
         }
+    }
+
+    /// <summary>optimum-quanto: <c>qint8</c>, <c>qint4</c>, <c>qint2</c> and <c>qfloat8</c> weights (<see cref="HfQuantoLayouts"/>); activations are not quantized.</summary>
+    private static HfQuantizationSupport Quanto(string method, JsonElement settings)
+    {
+        string weights = String(settings, "weights") ?? "int8";
+        bool read = weights is "int8" or "int4" or "int2" or "float8" or "qint8" or "qint4" or "qint2" or "qfloat8";
+        return new HfQuantizationSupport($"{method} ({weights})", read ? SupportLevel.Supported : SupportLevel.Unsupported);
     }
 
     /// <summary>

@@ -24,6 +24,23 @@ public sealed class QuantizedFormatsImportTests(ITestOutputHelper output)
         { "tiny/tiny-llama-autoround-gptq-4bit-asym-g32", "q4z_g32" },
         { "tiny/tiny-llama-autoround-gptq-2bit-g64", "q4z_g32" },
         { "tiny/tiny-llama-autoround-awq-4bit", "q4z_g128" },
+        { "tiny/tiny-llama-awq-gemv-fast", "q4_1" },
+        { "tiny/tiny-llama-awq-gemv-fast-g64", "q4_1" },
+        { "tiny/tiny-llama-awq-marlin", "q4z_g128" },
+        { "tiny/tiny-llama-gptq-marlin-4bit-g128", "q4z_g128" },
+        { "tiny/tiny-llama-gptq-marlin-4bit-g64", "q4z_g32" },
+        { "tiny/tiny-llama-gptq-marlin-8bit-channel", "q8z_g128" },
+        { "tiny/tiny-llama-quark-int4-g128", "q4z_g128" },
+        { "tiny/tiny-llama-quark-int4-g64-sym", "q4z_g32" },
+        { "tiny/tiny-llama-quark-int4-g128-f32scale", "bf16" },
+        { "tiny/tiny-llama-quark-int8-channel", "q8z_g128" },
+        { "tiny/tiny-llama-quark-mxfp6-e3m2", "f8e4m3_b32" },
+        { "tiny/tiny-llama-quark-mxfp6-e2m3", "f8e4m3_b32" },
+        { "tiny/tiny-llama-quark-mx-fp6-e3m2", "f8e4m3_b32" },
+        { "tiny/tiny-llama-quanto-int8", "q8z_g128" },
+        { "tiny/tiny-llama-quanto-int4", "q4_1" },
+        { "tiny/tiny-llama-quanto-int2", "q4_1" },
+        { "tiny/tiny-llama-quanto-float8", "f8e4m3_b128" },
     };
 
     [Theory]

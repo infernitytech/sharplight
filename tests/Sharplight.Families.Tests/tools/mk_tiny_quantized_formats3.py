@@ -13,7 +13,8 @@ Cases (library; the Python environment each needs is noted):
   quanto-int8, quanto-int4, quanto-float8
                                      optimum-quanto 0.2.7 quantize + freeze, state dict saved like QuantizedModelForCausalLM  (formats-a3 venv)
   torchao-int8wo, torchao-int4wo-plain, torchao-float8wo   see torchao_case                            (formats-a3 venv)
-  quark-int4-g128, quark-int8-channel, quark-mxfp6-e3m2, quark-mxfp6-e2m3
+  quark-int4-g128, quark-int4-g64-sym, quark-int4-g128-f32scale, quark-int8-channel, quark-mxfp6-e3m2, quark-mxfp6-e2m3,
+                                     quark-mx-fp6-e3m2 (in-stream)
                                      weights packed by quark.torch.utils.pack (Pack_4_bits / Pack_8_bits / Pack_mxfp6)  (formats-a3 venv)
 """
 import json
@@ -58,7 +59,8 @@ def awq_scales_zeros(w, group, w_bit=4):
 
 
 def awq_gemv_fast_case(base, out, group):
-    from awq.modules.linear.gemv_fast import WQLinear_GEMVFast
+    from awq_standalone import load
+    WQLinear_GEMVFast = load("gemv_fast").WQLinear_GEMVFast
     state = load_file(os.path.join(base, "model.safetensors"))
     result = {}
     for name, tensor in state.items():
@@ -76,7 +78,8 @@ def awq_gemv_fast_case(base, out, group):
 
 
 def awq_marlin_case(base, out, group):
-    from awq.modules.linear.marlin import WQLinear_Marlin
+    from awq_standalone import load
+    WQLinear_Marlin = load("marlin").WQLinear_Marlin
     state = load_file(os.path.join(base, "model.safetensors"))
     result = {}
     for name, tensor in state.items():
@@ -120,6 +123,157 @@ def gptq_marlin_case(base, out, bits, group):
     shutil.rmtree(source, ignore_errors=True)
 
 
+def quark_config(weight, pack_method="reorder"):
+    return {"quant_method": "quark", "export": {"pack_method": pack_method, "kv_cache_group": []},
+            "global_quant_config": {"weight": weight, "input_tensors": None, "output_tensors": None, "bias": None, "target_device": None},
+            "layer_quant_config": {}, "layer_type_quant_config": {}, "exclude": ["lm_head"], "algo_config": None, "softmax_quant_spec": None}
+
+
+def quark_int_case(base, out, bits, scheme, group, symmetric, f16_scales):
+    """Integer weights packed by quark.torch.utils.pack (Pack_4_bits / Pack_8_bits, as the exporter calls them) from RTN codes.
+    int4 / int8 are signed, the zero point of an asymmetric weight a signed integer. f16_scales: the scales are rounded to f16 values
+    (stored as f32, as Quark stores them), else the natural f32 scales (which no f16-scaled block type holds)."""
+    from quark.torch.utils.pack import Pack_4_bits, Pack_8_bits
+    state = load_file(os.path.join(base, "model.safetensors"))
+    lo_q, hi_q = -(1 << (bits - 1)), (1 << (bits - 1)) - 1
+    dtype = f"int{bits}"
+    result = {}
+    for name, tensor in state.items():
+        if not is_linear(name):
+            result[name] = tensor
+            continue
+        stem = name[:-len(".weight")]
+        w = tensor.float()                                                      # [N, K]
+        n, k = w.shape
+        g = k if scheme == "per_channel" else group
+        grouped = w.reshape(n, k // g, g)
+        lo, hi = grouped.amin(dim=2).clamp(max=0), grouped.amax(dim=2).clamp(min=0)
+        if symmetric:
+            scale = (torch.maximum(lo.abs(), hi) / hi_q).clamp(min=1e-6)
+            zero = torch.zeros_like(scale, dtype=torch.int32)
+        else:
+            scale = ((hi - lo) / (hi_q - lo_q)).clamp(min=1e-6)
+            zero = (lo_q - torch.round(lo / scale)).to(torch.int32)
+        if f16_scales:
+            scale = scale.half().float()
+        codes = torch.clamp(torch.round(grouped / scale[:, :, None]) + zero[:, :, None], lo_q, hi_q).to(torch.int32).reshape(n, k)
+        pack = (Pack_4_bits if bits == 4 else Pack_8_bits)(scheme, dtype)
+        result[stem + ".weight"] = pack.pack(codes, True)
+        if scheme == "per_group":
+            result[stem + ".weight_scale"] = scale.t().contiguous()           # [K / group, N]
+            if not symmetric:
+                result[stem + ".weight_zero_point"] = pack.pack(zero, True)
+        else:
+            result[stem + ".weight_scale"] = scale[:, 0].contiguous()         # [N]
+            if not symmetric:
+                result[stem + ".weight_zero_point"] = pack.pack(zero[:, 0].contiguous(), True)
+    spec = {"dtype": dtype, "is_dynamic": False, "qscheme": scheme, "ch_axis": 0 if scheme == "per_channel" else 1, "group_size": group if scheme == "per_group" else None,
+            "symmetric": symmetric, "round_method": "half_even", "scale_type": "float", "scale_format": None, "zero_point_type": "int32",
+            "observer_cls": "PerGroupMinMaxObserver" if scheme == "per_group" else "PerChannelMinMaxObserver"}
+    write(base, out, result, quark_config(spec))
+
+
+FP6_FORMATS = {"fp6_e3m2": (3, 2), "fp6_e2m3": (2, 3)}
+
+
+def fp6_values(e_bits, m_bits):
+    """The 64 FP6 codes' values as quark.torch.utils.pack.Pack_fp6.unpack computes them."""
+    ebias = (1 << (e_bits - 1)) - 1
+    mbias = 23 - m_bits
+    codes = torch.arange(64, dtype=torch.int32)
+    bits = ((codes & 0x1F) << mbias) | ((codes & 0x20) << 26)
+    return bits.view(torch.float32) * (2.0 ** (127 - ebias))
+
+
+def fp6_quantize(values, e_bits, m_bits):
+    """Nearest FP6 code of each value (ties to the lower code index): codes [..] int32."""
+    table = fp6_values(e_bits, m_bits)
+    return (values[..., None] - table).abs().argmin(dim=-1).to(torch.int32), table
+
+
+def quark_mxfp6_case(base, out, element, embedded):
+    """OCP MXFP6 weights packed by Quark's own packers: Pack_fp6 (stand-alone dtype, U8 weight + E8M0 weight_scale) or Pack_mxfp6
+    (dtype mx: the scale is the first byte of every 25-byte block of the weight)."""
+    from quark.torch.utils.pack import Pack_fp6, Pack_mxfp6
+    e_bits, m_bits = FP6_FORMATS[element]
+    emax = int(torch.log2(fp6_values(e_bits, m_bits).abs().max()).floor())
+    state = load_file(os.path.join(base, "model.safetensors"))
+    result = {}
+    for name, tensor in state.items():
+        if not is_linear(name):
+            result[name] = tensor
+            continue
+        stem = name[:-len(".weight")]
+        w = tensor.float()
+        n, k = w.shape
+        blocks = w.reshape(n, k // 32, 32)
+        exponent = torch.floor(torch.log2(blocks.abs().amax(dim=2).clamp(min=1e-30))) - emax          # power-of-two scale per block
+        scaled = blocks / (2.0 ** exponent)[:, :, None]
+        codes, table = fp6_quantize(scaled, e_bits, m_bits)
+        quantized = table[codes.long()]                                                            # [N, K/32, 32] element values
+        if embedded:
+            stream = torch.cat([(2.0 ** exponent)[:, :, None], quantized], dim=2).reshape(n, k // 32 * 33)
+            packed = Pack_mxfp6(None, "mx", e_bits, m_bits).pack(stream, True)
+            check = Pack_mxfp6(None, "mx", e_bits, m_bits).unpack(packed, True)
+            assert torch.equal(check, stream), "Pack_mxfp6 does not round-trip"
+            result[stem + ".weight"] = packed.contiguous()
+        else:
+            packed = Pack_fp6(None, element, e_bits, m_bits).pack(quantized.reshape(n, k), True)
+            assert torch.equal(Pack_fp6(None, element, e_bits, m_bits).unpack(packed, True), quantized.reshape(n, k))
+            result[stem + ".weight"] = packed.contiguous()
+            result[stem + ".weight_scale"] = (exponent + 127).to(torch.uint8)
+    if embedded:
+        spec = {"dtype": "mx", "mx_element_dtype": element, "group_size": 32, "qscheme": "per_group", "ch_axis": -1, "is_dynamic": False,
+                "symmetric": True, "scale_format": "e8m0"}
+    else:
+        spec = {"dtype": element, "group_size": 32, "qscheme": "per_group", "ch_axis": -1, "is_dynamic": False, "symmetric": True,
+                "scale_format": "e8m0", "scale_type": "float"}
+    write(base, out, result, quark_config(spec))
+
+
+def quanto_case(base, out, weights, group_size=None):
+    """optimum-quanto 0.2.7: every linear quantized (quantize + freeze) and its state dict saved like QuantizedModelForCausalLM
+    (X.weight._data[._data], ._scale, ._shift, input_scale / output_scale). The reference (quanto-reference.pt) is the library's own
+    dequantization with scale and shift cast to f32 (quanto computes in the module's dtype, f16 here, rounding every step)."""
+    from optimum.quanto import freeze, qfloat8, qint2, qint4, qint8, quantize
+    qtype = {"qint8": qint8, "qint4": qint4, "qint2": qint2, "qfloat8": qfloat8}[weights]
+    state = load_file(os.path.join(base, "model.safetensors"))
+    result, reference = {}, {}
+    for name, tensor in state.items():
+        if not is_linear(name):
+            result[name] = tensor
+            continue
+        stem = name[:-len(".weight")]
+        module = torch.nn.Sequential(torch.nn.Linear(tensor.shape[1], tensor.shape[0], bias=False))
+        module[0].weight.data = tensor.to(torch.float16)
+        quantize(module, weights=qtype)
+        freeze(module)
+        for key, value in module.state_dict().items():
+            result[stem + key[len("0"):]] = value.contiguous()
+        packed = module[0].weight
+        reference[stem] = dequantize_f32(packed)
+    os.makedirs(out, exist_ok=True)
+    save_file({k: v.contiguous() for k, v in result.items()}, os.path.join(out, "model.safetensors"), metadata={"format": "pt"})
+    torch.save(reference, os.path.join(out, "quanto-reference.pt"))
+    with open(os.path.join(base, "config.json")) as f:
+        config = json.load(f)
+    config["quantization_config"] = {"quant_method": "quanto", "weights": weights, "activations": None, "modules_to_not_convert": ["lm_head"]}
+    with open(os.path.join(out, "config.json"), "w") as f:
+        json.dump(config, f, indent=2)
+    from transformers import AutoTokenizer
+    AutoTokenizer.from_pretrained(base).save_pretrained(out)
+
+
+def dequantize_f32(weight):
+    """The quanto dequantization of a frozen weight with its scale (and shift) as f32."""
+    import copy
+    clone = copy.copy(weight)
+    clone._scale = weight._scale.float()
+    if hasattr(weight, "_shift"):
+        clone._shift = weight._shift.float()
+    return clone.dequantize().float()
+
+
 def main():
     root = os.path.expanduser(sys.argv[1])
     tokenizer_dir, out_dir = os.path.join(root, "tiny-random-GPTNeoXForCausalLM"), os.path.join(root, "quant", "tiny")
@@ -150,7 +304,19 @@ def main():
 
 
 def extra_cases(base):
-    return []
+    return [
+        ("quanto-int8", lambda out: quanto_case(base, out, "qint8")),
+        ("quanto-int4", lambda out: quanto_case(base, out, "qint4")),
+        ("quanto-int2", lambda out: quanto_case(base, out, "qint2")),
+        ("quanto-float8", lambda out: quanto_case(base, out, "qfloat8")),
+        ("quark-int4-g128", lambda out: quark_int_case(base, out, 4, "per_group", 128, False, True)),
+        ("quark-int4-g64-sym", lambda out: quark_int_case(base, out, 4, "per_group", 64, True, True)),
+        ("quark-int4-g128-f32scale", lambda out: quark_int_case(base, out, 4, "per_group", 128, False, False)),
+        ("quark-int8-channel", lambda out: quark_int_case(base, out, 8, "per_channel", None, True, True)),
+        ("quark-mxfp6-e3m2", lambda out: quark_mxfp6_case(base, out, "fp6_e3m2", False)),
+        ("quark-mxfp6-e2m3", lambda out: quark_mxfp6_case(base, out, "fp6_e2m3", False)),
+        ("quark-mx-fp6-e3m2", lambda out: quark_mxfp6_case(base, out, "fp6_e3m2", True)),
+    ]
 
 
 if __name__ == "__main__":

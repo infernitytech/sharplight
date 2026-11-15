@@ -60,6 +60,9 @@ internal static class HfIntegerWeights
             case "quark":
                 layouts.AddRange(HfQuarkLayouts.Find(settings, tensors, consumed));
                 break;
+            case "quanto" or "optimum-quanto":
+                layouts.AddRange(HfQuantoLayouts.Find(config, tensors, consumed));
+                break;
             case "compressed-tensors":
                 layouts.AddRange(HfCompressedIntLayouts.Find(settings, tensors, consumed));
                 break;
