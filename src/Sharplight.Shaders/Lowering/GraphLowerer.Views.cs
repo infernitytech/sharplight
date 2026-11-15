@@ -263,29 +263,46 @@ public sealed partial class GraphLowerer
         }
 
         var sources = n.Inputs.Select(Ref).ToList();
+        bool fusable = DiagnosticSwitches.FusedConcat && sources.Count <= FusedConcatMaxInputs
+                       && sources.All(s => s.Type == y.Type && s.Rank == y.Rank && s.Shape[axis] > 0);
         if (n.Inputs.Any(i => _concatSlices.TryGetValue(i, out var slice) && slice.Concat == n.Output))
         {
             // Some inputs were computed in their slices (PlanConcatSlices): copy only the others.
+            var computed = new bool[sources.Count];
             long offset = 0;
-            foreach (var src in sources)
+            for (int i = 0; i < sources.Count; i++)
+            {
+                computed[i] = IsConcatSlice(sources[i], y, offset * y.Strides[axis] * y.Type.ElementSize);
+                offset += sources[i].Shape[axis];
+            }
+
+            int remaining = computed.Count(c => !c);
+            if (remaining > 1 && fusable)
+            {
+                LowerConcatFused(n, y, axis, sources, computed);
+                return;
+            }
+
+            offset = 0;
+            for (int i = 0; i < sources.Count; i++)
             {
                 var shape = (long[])y.Shape.Clone();
-                shape[axis] = src.Shape[axis];
-                long byteOffset = offset * y.Strides[axis] * y.Type.ElementSize;
-                if (!IsConcatSlice(src, y, byteOffset))
+                shape[axis] = sources[i].Shape[axis];
+                if (!computed[i])
                 {
-                    EmitCopy(src, y with { ByteOffset = y.ByteOffset + byteOffset, Shape = shape }, $"concat {n.Output.Name}", [n]);
+                    var dst = y with { ByteOffset = y.ByteOffset + offset * y.Strides[axis] * y.Type.ElementSize, Shape = shape };
+                    EmitCopy(sources[i], dst, $"concat {n.Output.Name}", [n]);
                 }
 
-                offset += src.Shape[axis];
+                offset += sources[i].Shape[axis];
             }
 
             return;
         }
 
-        if (DiagnosticSwitches.FusedConcat && sources.Count <= FusedConcatMaxInputs && sources.All(s => s.Type == y.Type && s.Rank == y.Rank && s.Shape[axis] > 0))
+        if (fusable)
         {
-            LowerConcatFused(n, y, axis, sources);
+            LowerConcatFused(n, y, axis, sources, null);
             return;
         }
 
@@ -308,13 +325,15 @@ public sealed partial class GraphLowerer
     /// A concatenation of inputs of the output's element type as one launch over the output: each thread picks its input by the
     /// coordinate along <paramref name="axis"/> and copies the element bit for bit. One copy launch per input made a
     /// concatenation of small maps (recurrent refinement steps, feature pyramids) cost a launch and a barrier slot per input;
-    /// <c>SHARPLIGHT_NO_FUSED_CONCAT=1</c> restores those launches.
+    /// <c>SHARPLIGHT_NO_FUSED_CONCAT=1</c> restores those launches. Inputs flagged in <paramref name="computed"/> were written
+    /// into their slices by their producers (<see cref="PlanConcatSlices"/>) and are skipped.
     /// </summary>
-    private void LowerConcatFused(Node n, TensorRef y, int axis, List<TensorRef> sources)
+    private void LowerConcatFused(Node n, TensorRef y, int axis, List<TensorRef> sources, bool[]? computed)
     {
         string type = RawType(y.Type);
         var coords = Enumerable.Range(0, y.Rank).Select(Dn).ToArray();
         var body = new StringBuilder();
+        var reads = new List<TensorRef>();
         long start = 0;
         for (int i = 0; i < sources.Count; i++)
         {
@@ -323,11 +342,21 @@ public sealed partial class GraphLowerer
             var local = coords.Select((c, k) => k == axis && start > 0 ? $"{c} - {start}u" : c).ToArray();
             string condition = i == sources.Count - 1 ? "" : $"if ({coords[axis]} < {end}u) ";
             string keyword = i == 0 ? "  " : "  else ";
-            body.AppendLine($"{keyword}{condition}{{ p.out0[{Lin(y, coords)}] = p.in{i}[{Lin(src, local)}]; }}");
+            if (computed?[i] == true)
+            {
+                // Already written in place by its producer.
+                body.AppendLine($"{keyword}{condition}{{ }}");
+            }
+            else
+            {
+                body.AppendLine($"{keyword}{condition}{{ p.out0[{Lin(y, coords)}] = p.in{reads.Count}[{Lin(src, local)}]; }}");
+                reads.Add(src);
+            }
+
             start = end;
         }
 
-        EmitGen($"concat {n.Output.Name}", [n], y.Shape, y.Symbol, sources, [y], body.ToString(),
-            [.. sources.Select(_ => type)], [type]);
+        EmitGen($"concat {n.Output.Name}", [n], y.Shape, y.Symbol, reads, [y], body.ToString(),
+            [.. reads.Select(_ => type)], [type]);
     }
 }
