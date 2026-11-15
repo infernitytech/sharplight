@@ -1,0 +1,14 @@
+---
+name: device-features-fallbacks
+description: "Optional GPU features must be detected, disableable per device/compile via provider-neutral names, and always have fallbacks"
+metadata:
+  node_type: memory
+  type: feedback
+  modified: 2026-11-12T21:07:47.534Z
+---
+
+Device extensions/features (tensor cores, fp16, int8 dot, subgroup control, ...) must be detected per device and only used when detected AND enabled; hosts can disable them when opening a device or compiling a model. Names must be provider-neutral (Core `DeviceFeatures`: matrix_f16, matrix_bf16, matrix_int8, fp16, bf16, int_dot, subgroup_ops, subgroup_size_control), not Vulkan-specific. Every feature-specific kernel needs a portable fallback.
+
+**Why:** User (2026-11-12): "We need to run on other gpus as well so if the features are not there or not enabled, the extensions must not be used and we need fallbacks", "use common flag names not vulkan specific names".
+
+**How to apply:** Gate new fast paths on `LoweringOptions.Has(DeviceFeatures.X)` (effective = detected − DeviceOptions.DisabledFeatures − CompileOptions.DisabledFeatures − SHARPLIGHT_DISABLE_FEATURES env); don't enable driver extensions for disabled features. Test portability on the local AMD iGPU (vulkan:1, subgroup 64, no coopmat) and llvmpipe (vulkan:2, subgroup 8). Related: [[format-agnostic-core]].
