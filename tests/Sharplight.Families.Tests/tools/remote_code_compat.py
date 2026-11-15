@@ -38,3 +38,11 @@ def _accept_4x_keywords(builder):
 for _name in ("create_causal_mask", "create_sliding_window_causal_mask", "create_chunked_causal_mask"):
     if hasattr(masking, _name):
         setattr(masking, _name, _accept_4x_keywords(getattr(masking, _name)))
+
+
+# Remote code written for earlier transformers 5.x imports OutputRecorder / check_model_inputs from transformers.utils.generic (5.23 moved
+# OutputRecorder to transformers.utils.output_capturing).
+import transformers.utils.generic as _generic
+from transformers.utils import output_capturing as _capturing
+if not hasattr(_generic, "OutputRecorder"):
+    _generic.OutputRecorder = _capturing.OutputRecorder

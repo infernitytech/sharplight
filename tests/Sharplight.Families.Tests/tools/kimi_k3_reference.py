@@ -12,6 +12,8 @@ positions (all of them while a row sees at most index_topk). As in llama.cpp, ev
 """
 import importlib.util, math, sys, types
 import torch
+
+import remote_code_compat  # noqa: F401  (transformers 4.x / early 5.x remote code on transformers 5.23)
 import torch.nn.functional as F
 from torch import nn
 
