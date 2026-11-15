@@ -1,0 +1,150 @@
+W1115 06:46:05.174000 184451 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1115 06:46:05.179000 184451 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1115 06:46:05.188000 184451 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+(MainProcess pid=184451) INFO 11-15 06:49:33 [startup.py:96] non-default args: {'max_model_len': 4000, 'enable_prefix_caching': False, 'gpu_memory_utilization': 0.7, 'max_num_seqs': 16, 'disable_log_stats': True, 'model': '~/models/hf/OLMoE-1B-7B-0924-Instruct'}
+(MainProcess pid=184451) WARNING 11-15 06:49:33 [interface.py:1469] Unknown vLLM environment variable detected: VLLM_VENV
+(MainProcess pid=184451) INFO 11-15 07:03:26 [model.py:744] Resolved architecture: OlmoeForCausalLM
+(MainProcess pid=184451) INFO 11-15 07:03:26 [model.py:2170] Using max model len 4000
+(MainProcess pid=184451) INFO 11-15 07:03:26 [scheduler.py:310] Chunked prefill is enabled with max_num_batched_tokens=8192.
+(MainProcess pid=184451) INFO 11-15 07:03:26 [kernel.py:480] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['triton', 'native'])
+(EngineCore pid=222803) INFO 11-15 07:03:30 [core.py:139] Initializing a V1 LLM engine (v0.33.0) with config: model='~/models/hf/OLMoE-1B-7B-0924-Instruct', speculative_config=None, tokenizer='~/models/hf/OLMoE-1B-7B-0924-Instruct', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=4000, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=None, quantization_config=None, enforce_eager=False, aux_output_config=AuxOutputConfig(enable_return_routed_experts=False, max_bytes=None), kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, per_request_spec_decode_metrics='none', kv_cache_metrics=False, kv_cache_metrics_sample=0.01, custom_histogram_buckets=None, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False, jit_monitor_mode='warn', jit_monitor_verbose=False), seed=0, served_model_name=~/models/hf/OLMoE-1B-7B-0924-Instruct, enable_prefix_caching=False, enable_chunked_prefill=True, pooler_config=None, compilation_config={'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'ir_enable_torch_wrap': True, 'splitting_ops': ['vllm::unified_attention_with_output', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::qwen4_exp_ple_short_conv', 'vllm::qwen4_exp_qsa_with_output', 'vllm::qwen4_exp_qsa_prepare_with_output', 'vllm::linear_attention', 'vllm::qwen_gdn_attention_core', 'vllm::qwen_gdn_attention_core_fused_norm_packed', 'vllm::gdn_attention_core_xpu', 'vllm::olmo_hybrid_gdn_full_forward', 'vllm::sparse_attn_indexer', 'vllm::rocm_aiter_sparse_attn_indexer', 'vllm::deepseek_v4_attention', 'vllm::hpc_rope_norm_forward', 'vllm::unified_kv_cache_update', 'vllm::unified_mla_kv_cache_update'], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': [], 'compile_ranges_endpoints': [8192], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'fuse_allreduce_rms': False, 'enable_qk_norm_rope_fusion': False, 'fuse_rope_kvcache_cat_mla': False, 'fuse_act_padding': False, 'fuse_qk_norm_rope_kvcache': False}, 'max_cudagraph_capture_size': 32, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['triton', 'native']), enable_flashinfer_autotune=True, enable_rocm_segmented_attn_autotune=False, enable_cutedsl_warmup=True, enable_jit_warmup=True, monokernel=False, moe_backend='auto', sparse_indexer_topk_backend='auto', linear_backend='auto', linear_backend_per_quant=None)
+(EngineCore pid=222803) INFO 11-15 07:04:00 [parallel_state.py:1929] world_size=1 rank=0 local_rank=0 distributed_init_method=file://<path> backend=nccl
+(EngineCore pid=222803) INFO 11-15 07:04:03 [parallel_state.py:2385] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, ETP rank 0, EP rank 0, EPLB rank N/A
+(EngineCore pid=222803) INFO 11-15 07:04:03 [gpu_worker.py:513] Using V2 Model Runner
+(EngineCore pid=222803) WARNING 11-15 07:04:03 [flashinfer.py:143] FlashInfer's precompiled kernels are missing or do not match flashinfer-python 0.7.2.post1 (flashinfer-cubin not installed, flashinfer-jit-cache not installed). FlashInfer then downloads and compiles kernels at startup, which can take several minutes, or fails to import mismatched ones. Run `vllm download-kernels` in this Python environment to install them.
+(EngineCore pid=222803) INFO 11-15 07:04:04 [model_runner.py:399] Loading model from scratch...
+(EngineCore pid=222803) INFO 11-15 07:04:33 [cuda.py:508] Using FLASH_ATTN attention backend out of potential backends: ['FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION'].
+(EngineCore pid=222803) INFO 11-15 07:04:33 [flash_attn.py:1122] Using FlashAttention version 2
+(EngineCore pid=222803) INFO 11-15 07:04:34 [unquantized.py:365] Using FlashInfer CUTLASS Unquantized MoE backend out of potential backends: ['FlashInfer TRTLLM', 'FlashInfer CUTLASS', 'TRITON', 'BATCHED_TRITON'].
+(EngineCore pid=222803) INFO 11-15 07:04:41 [base_loader.py:82] Initializing model took 36.823479 seconds
+(EngineCore pid=222803) INFO 11-15 07:04:41 [weight_utils.py:1144] Filesystem type for checkpoints: FUSE. Checkpoint size: 12.89 GiB. Available RAM: 117.09 GiB.
+(EngineCore pid=222803) INFO 11-15 07:04:41 [weight_utils.py:1167] Auto-prefetch is disabled because the filesystem (FUSE) is not a recognized network FS (NFS/Lustre). If you want to force prefetching, start vLLM with --safetensors-load-strategy=prefetch.
+
+Loading safetensors checkpoint shards:   0% Completed | 0/3 [00:00<?, ?it/s]
+
+Loading safetensors checkpoint shards:  33% Completed | 1/3 [00:24<00:48, 24.17s/it]
+
+Loading safetensors checkpoint shards:  67% Completed | 2/3 [00:51<00:26, 26.24s/it]
+
+Loading safetensors checkpoint shards: 100% Completed | 3/3 [01:07<00:00, 21.40s/it]
+
+Loading safetensors checkpoint shards: 100% Completed | 3/3 [01:07<00:00, 22.50s/it]
+
+(EngineCore pid=222803) INFO 11-15 07:05:49 [default_loader.py:506] Loading weights took 67.68 seconds
+(EngineCore pid=222803) INFO 11-15 07:05:49 [unquantized.py:529] Using MoEPrepareAndFinalizeNoDPEPModular
+(EngineCore pid=222803) INFO 11-15 07:05:49 [unquantized.py:530] Using FlashInferExperts MoE backend
+(EngineCore pid=222803) INFO 11-15 07:05:51 [model_runner.py:428] Model loading took 12.89 GiB memory and 106.469099 seconds
+(EngineCore pid=222803) INFO 11-15 07:05:53 [topk_topp_sampler.py:121] FlashInfer top-p/top-k sampling disabled via VLLM_USE_FLASHINFER_SAMPLER=0.
+(EngineCore pid=222803) INFO 11-15 07:05:53 [torch_utils.py:281] Reducing Torch threads from 24 to 1 for serving. Set OMP_NUM_THREADS in the external environment to override.
+(EngineCore pid=222803) INFO 11-15 07:05:53 [utils.py:381] Using LBNHC KV cache layout.
+(EngineCore pid=222803) INFO 11-15 07:07:18 [monitor.py:40] [backbone] Starting torch.compile
+(EngineCore pid=222803) INFO 11-15 07:07:37 [backends.py:1125] [backbone] Using cache directory: ~/.cache/vllm/torch_compile_cache/b249ed21d5/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore pid=222803) INFO 11-15 07:07:37 [backends.py:1187] [backbone] Dynamo bytecode transform time: 18.93 s
+(EngineCore pid=222803) INFO 11-15 07:07:54 [backends.py:417] [backbone] Compiling a graph for compile range (1, 8192) takes 17.45 s
+(EngineCore pid=222803) INFO 11-15 07:08:06 [backends.py:948] collected artifacts: 17 entries, 3 artifacts, 4728299 bytes total
+(EngineCore pid=222803) INFO 11-15 07:08:06 [decorators.py:752] [backbone] saved AOT compiled function to ~/.cache/vllm/torch_compile_cache/torch_aot_compile/01c63795399ea2d1d4c6c25dcb7eeb15aba8e2fd12a3ddf6558004d803f1bede/rank_0_0/model
+(EngineCore pid=222803) INFO 11-15 07:08:06 [monitor.py:62] [backbone] torch.compile took 48.52 s in total
+2026-11-15 07:08:09,784 - INFO - core.py:594 - flashinfer.jit: Building JIT module fused_moe_120; this can take several minutes on first use.
+(EngineCore pid=222803) INFO 11-15 07:30:09 [monitor.py:91] [backbone] Initial profiling/warmup run took 1322.79 s
+
+Capturing CUDA graphs (PIECEWISE):   0%|          | 0/7 [00:00<?, ?it/s]
+Capturing CUDA graphs (PIECEWISE):  14%|█▍        | 1/7 [00:00<00:01,  3.20it/s]
+Capturing CUDA graphs (PIECEWISE):  43%|████▎     | 3/7 [00:00<00:00,  6.11it/s]
+Capturing CUDA graphs (PIECEWISE):  71%|███████▏  | 5/7 [00:00<00:00,  9.49it/s]
+Capturing CUDA graphs (PIECEWISE): 100%|██████████| 7/7 [00:01<00:00,  6.12it/s]
+Capturing CUDA graphs (PIECEWISE): 100%|██████████| 7/7 [00:01<00:00,  6.23it/s]
+
+Capturing CUDA graphs (FULL):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (FULL): 100%|██████████| 2/2 [00:00<00:00, 31.17it/s]
+(EngineCore pid=222803) INFO 11-15 07:30:31 [model_runner.py:1163] Graph capturing finished in 2 secs, took 0.07 GiB
+(EngineCore pid=222803) INFO 11-15 07:30:32 [gpu_worker.py:772] Available KV cache memory: 8.22 GiB
+(EngineCore pid=222803) INFO 11-15 07:30:32 [gpu_worker.py:787] CUDA graph memory profiling is enabled (default since v0.21.0). The current --gpu-memory-utilization=0.7000 is equivalent to --gpu-memory-utilization=0.6977 without CUDA graph memory profiling. To maintain the same effective KV cache size as before, increase --gpu-memory-utilization to 0.7023. To disable, set VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0.
+(EngineCore pid=222803) INFO 11-15 07:30:32 [kv_cache_utils.py:1147] GPU KV cache size: 67,312 tokens, Maximum concurrency for 4,000 tokens per request: 16.83x
+(EngineCore pid=222803) INFO 11-15 07:30:33 [kernel_warmup.py:179] JIT kernel warmup starting.
+(EngineCore pid=222803) INFO 11-15 07:30:33 [kernel_warmup.py:192] JIT kernel warmup finished in 0.00s.
+(EngineCore pid=222803) INFO 11-15 07:30:34 [kernel_warmup.py:100] Warming up ll_bf16 router GEMM kernels for shapes: ((2048, 64),).
+(EngineCore pid=222803) INFO 11-15 07:30:50 [kernel_warmup.py:485] Using FlashInfer managed autotune cache (root=flashinfer default). Pass --disable-flashinfer-autotune to skip autotuning.
+2026-11-15 07:30:50,619 - INFO - autotuner.py:1048 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+2026-11-15 07:30:57,395 - INFO - autotune_cache.py:495 - flashinfer.jit: [Autotuner]: Managed autotune cache attached for this process: ManagedAutotuneCache(env_dir='~/.cache/flashinfer/autotune/v2/9487dda881f0494d', hits=0, misses=0)
+(EngineCore pid=222803) INFO 11-15 07:30:57 [kernel_warmup.py:371] Running FlashInfer autotune with 8192 tokens and token buckets (1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 768, 1024, 1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096, 8192).
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:   0%|          | 0/21 [00:00<?, ?profile/s]2026-11-15 07:30:58,000 - INFO - core.py:594 - flashinfer.jit: Building JIT module trtllm_utils; this can take several minutes on first use.
+2026-11-15 07:31:43,110 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:   5%|▍         | 1/21 [00:45<15:11, 45.59s/profile]2026-11-15 07:31:43,193 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+2026-11-15 07:31:43,269 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  14%|█▍        | 3/21 [00:45<03:33, 11.88s/profile]2026-11-15 07:31:43,362 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+2026-11-15 07:31:43,465 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  24%|██▍       | 5/21 [00:45<01:33,  5.82s/profile]2026-11-15 07:31:43,580 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+2026-11-15 07:31:43,693 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  33%|███▎      | 7/21 [00:46<00:47,  3.40s/profile]2026-11-15 07:31:43,822 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+2026-11-15 07:31:43,935 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  43%|████▎     | 9/21 [00:46<00:25,  2.17s/profile]2026-11-15 07:31:44,057 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  48%|████▊     | 10/21 [00:46<00:19,  1.73s/profile]2026-11-15 07:31:44,178 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  52%|█████▏    | 11/21 [00:46<00:13,  1.36s/profile]2026-11-15 07:31:44,311 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  57%|█████▋    | 12/21 [00:46<00:09,  1.05s/profile]2026-11-15 07:31:44,460 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  62%|██████▏   | 13/21 [00:46<00:06,  1.23profile/s]2026-11-15 07:31:44,620 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  67%|██████▋   | 14/21 [00:47<00:04,  1.57profile/s]2026-11-15 07:31:44,794 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  71%|███████▏  | 15/21 [00:47<00:03,  1.97profile/s]2026-11-15 07:31:44,983 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  76%|███████▌  | 16/21 [00:47<00:02,  2.41profile/s]2026-11-15 07:31:45,203 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  81%|████████  | 17/21 [00:47<00:01,  2.75profile/s]2026-11-15 07:31:45,468 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  86%|████████▌ | 18/21 [00:47<00:00,  3.03profile/s]2026-11-15 07:31:45,747 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  90%|█████████ | 19/21 [00:48<00:00,  3.18profile/s]2026-11-15 07:31:46,058 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1:  95%|█████████▌| 20/21 [00:48<00:00,  3.19profile/s]2026-11-15 07:31:46,623 - INFO - autotuner.py:2536 - flashinfer.jit: [Autotuner]: Skipped 2 unsupported tactic(s) for trtllm::fused_moe::gemm1 (enable debug logs to see details)
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1: 100%|██████████| 21/21 [00:49<00:00,  2.57profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm1: 100%|██████████| 21/21 [00:49<00:00,  2.34s/profile]
+
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:   0%|          | 0/21 [00:00<?, ?profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  10%|▉         | 2/21 [00:00<00:01, 18.18profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  19%|█▉        | 4/21 [00:00<00:01, 15.48profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  29%|██▊       | 6/21 [00:00<00:01, 13.38profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  38%|███▊      | 8/21 [00:00<00:01, 12.41profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  48%|████▊     | 10/21 [00:00<00:00, 11.75profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  57%|█████▋    | 12/21 [00:00<00:00, 11.09profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  67%|██████▋   | 14/21 [00:01<00:00, 10.12profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  76%|███████▌  | 16/21 [00:01<00:00,  9.05profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  81%|████████  | 17/21 [00:01<00:00,  8.33profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  86%|████████▌ | 18/21 [00:01<00:00,  7.52profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  90%|█████████ | 19/21 [00:02<00:00,  6.71profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2:  95%|█████████▌| 20/21 [00:02<00:00,  5.94profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2: 100%|██████████| 21/21 [00:02<00:00,  4.35profile/s]
+[AutoTuner]: Tuning trtllm::fused_moe::gemm2: 100%|██████████| 21/21 [00:02<00:00,  7.85profile/s]
+2026-11-15 07:31:49,420 - INFO - autotuner.py:1071 - flashinfer.jit: [Autotuner]: Autotuning process ends
+
+Capturing CUDA graphs (PIECEWISE):   0%|          | 0/7 [00:00<?, ?it/s]
+Capturing CUDA graphs (PIECEWISE):  43%|████▎     | 3/7 [00:00<00:00, 27.67it/s]
+Capturing CUDA graphs (PIECEWISE):  86%|████████▌ | 6/7 [00:00<00:00, 26.92it/s]
+Capturing CUDA graphs (PIECEWISE): 100%|██████████| 7/7 [00:00<00:00, 27.11it/s]
+
+Capturing CUDA graphs (FULL):   0%|          | 0/5 [00:00<?, ?it/s]
+Capturing CUDA graphs (FULL):  80%|████████  | 4/5 [00:00<00:00, 37.94it/s]
+Capturing CUDA graphs (FULL): 100%|██████████| 5/5 [00:00<00:00, 36.63it/s]
+(EngineCore pid=222803) INFO 11-15 07:31:57 [model_runner.py:1163] Graph capturing finished in 1 secs, took 0.06 GiB
+(EngineCore pid=222803) INFO 11-15 07:31:57 [gpu_worker.py:1003] CUDA graph pool memory: 0.06 GiB (actual), 0.07 GiB (estimated), difference: 0.01 GiB (19.4%).
+(EngineCore pid=222803) INFO 11-15 07:31:57 [gpu_worker.py:1066] Free memory on device (31.01/31.37 GiB) on startup. Desired GPU memory utilization is (0.7, 21.96 GiB). Actual usage is 13.01 GiB for consumed memory (weights + non-torch), 0.73 GiB for peak activation, and 0.06 GiB for CUDAGraph memory. Replace gpu_memory_utilization config with `--kv-cache-memory=8600747008` (8.01 GiB) to fit into requested memory, or `--kv-cache-memory=18315869184` (17.06 GiB) to fully utilize gpu memory. Current kv cache memory in use is 8.22 GiB.
+(EngineCore pid=222803) INFO 11-15 07:32:27 [jit_monitor.py:84] Kernel JIT monitor activated; monitored JIT compilations during inference will use mode=warn.
+(EngineCore pid=222803) INFO 11-15 07:32:28 [core.py:405] init engine (profile, create kv cache, warmup model) took 1594.68 s (compilation: 48.52 s)
+(EngineCore pid=222803) INFO 11-15 07:32:28 [kernel.py:480] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['triton', 'native'])
+(MainProcess pid=184451) INFO 11-15 07:32:28 [hf.py:736] Detected the chat template content format to be 'string'. You can set `--chat-template-content-format` to override this.
+RESULT {"name": "olmoe-bf16", "load_s": 2577.2663452625275, "spec": null, "results": {"pp512": {"tok_s_median": 21046.170584979063, "tok_s_min": 18995.486089236085, "tok_s_max": 21482.989106530076}, "pp2048": {"tok_s_median": 39286.873352000985, "tok_s_min": 38400.14558638694, "tok_s_max": 40013.693045933425}, "pp3800": {"tok_s_median": 41853.85714464822, "tok_s_min": 41139.26895171633, "tok_s_max": 42948.4077903242}, "tg128@d16": {"tok_s_median": 288.99486783239814, "tok_s_min": 288.0270031059901, "tok_s_max": 289.88441337738044, "depth": 16}, "tg128@d3800": {"tok_s_median": 218.12069201132024, "tok_s_min": 215.9216913679569, "tok_s_max": 219.39260150962343, "depth": 3800}}}
+(MainProcess pid=184451) INFO 11-15 07:32:37 [utils.py:628] [shutdown] Process manager: send sigterm to process EngineCore
+(EngineCore pid=222803) INFO 11-15 07:32:37 [core.py:1525] [shutdown] EngineCore: trigger received signal=SIGTERM
+(EngineCore pid=222803) INFO 11-15 07:32:37 [core.py:1712] [shutdown] EngineCore: start mode=abort timeout=0s
+(EngineCore pid=222803) INFO 11-15 07:32:37 [core.py:1743] [shutdown] EngineCore: request processing complete; starting resource teardown
+(EngineCore pid=222803) INFO 11-15 07:32:37 [core.py:1573] [shutdown] EngineCore: exiting busy loop
