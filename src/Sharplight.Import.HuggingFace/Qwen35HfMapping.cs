@@ -24,7 +24,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
     // ---- hyper-parameters ---------------------------------------------------------------------
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         int layerCount = c.Int("num_hidden_layers", "n_layers", "n_layer", "num_layers");
         int mtpLayerCount = IncludesMtp(c, options) ? c.GetInt("mtp_num_hidden_layers") ?? 0 : 0;
@@ -170,7 +170,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
     };
 
     /// <inheritdoc/>
-    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         bool tied = c.GetBool("tie_word_embeddings") ?? false;
         var shape = new LinearAttentionShape(
@@ -221,7 +221,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
 
     private static TensorOutcome MapTensor(
         HfConfig c,
-        HfImportOptions options,
+        HuggingFaceImportOptions options,
         string rawName,
         SafetensorsTensor tensor,
         LayerTargets targets,
@@ -293,7 +293,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
     }
 
     /// <summary>Whether the MTP draft layers are imported (not yet for qwen4_exp, whose MTP head has its own stream mixer).</summary>
-    private static bool IncludesMtp(HfConfig c, HfImportOptions options) => options.IncludeMtp && !IsQwen4Exp(c);
+    private static bool IncludesMtp(HfConfig c, HuggingFaceImportOptions options) => options.IncludeMtp && !IsQwen4Exp(c);
 
     private static TensorOutcome Add(HfWeightCollector collector, WeightInfo? weight)
     {

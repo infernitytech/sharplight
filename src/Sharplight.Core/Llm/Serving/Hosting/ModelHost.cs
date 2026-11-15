@@ -17,7 +17,7 @@ namespace Sharplight.Llm.Serving.Hosting;
 /// host.Register(new ModelRegistration
 /// {
 ///     Name = "qwen3-4b",
-///     Loader = new LlmChatModelLoader("qwen3-4b", "qwen3-4b-q4_k_m.gguf", loadOptions, new ChatModelOptions { Slots = 4 }),
+///     Loader = new LlmChatModelLoader(loader, "qwen3-4b", "qwen3-4b-q4_k_m.gguf", loadOptions, new ChatModelOptions { Slots = 4 }),
 /// });
 /// using var lease = await host.AcquireAsync("qwen3-4b");   // loads on first use
 /// var chat = lease.As&lt;ChatModelInstance&gt;().Service;
@@ -147,7 +147,7 @@ public sealed class ModelHost : IDisposable
         }
     }
 
-    private sealed class AdoptedLoader(ModelKind kind) : IModelLoader
+    private sealed class AdoptedLoader(ModelKind kind) : IHostedModelLoader
     {
         public ModelKind Kind => kind;
         public IPreparedModel Prepare(CancellationToken ct) => throw new InvalidOperationException("An adopted model cannot be reloaded after it was unloaded.");
@@ -294,8 +294,13 @@ public sealed class ModelHost : IDisposable
     /// Unloads a model like <see cref="UnloadAsync"/> (pinned ones too) and removes its registration, so the name is unknown again
     /// (or resolved anew through <see cref="ModelHostOptions.Resolve"/>). Returns false when it was not registered.
     /// </summary>
+    /// <param name="name">The registered name.</param>
+    /// <param name="drainTimeout">How long running requests may take, or <see langword="null"/> for <see cref="ModelHostOptions.UnloadDrainTimeout"/>.</param>
+    /// <param name="force">Cut running requests off after the timeout instead of throwing.</param>
+    /// <param name="cancellationToken">Stops waiting for a load in progress or for running requests; the model stays loaded.</param>
+    /// <returns>False when the name was not registered.</returns>
     /// <exception cref="ModelBusyException">Requests did not finish in time and <paramref name="force"/> is false.</exception>
-    public async Task<bool> UnregisterAsync(string name, TimeSpan? drainTimeout = null, bool force = false)
+    public async Task<bool> UnregisterAsync(string name, TimeSpan? drainTimeout = null, bool force = false, CancellationToken cancellationToken = default)
     {
         Entry? e;
         lock (_gate)
@@ -306,7 +311,7 @@ public sealed class ModelHost : IDisposable
             }
         }
 
-        await UnloadAsync(name, drainTimeout, force || e.Reg.Pinned).ConfigureAwait(false);
+        await UnloadAsync(name, drainTimeout, force || e.Reg.Pinned, cancellationToken).ConfigureAwait(false);
         lock (_gate)
         {
             if (_entries.TryGetValue(name, out var current) && current == e && e.State is ModelState.Unloaded or ModelState.Failed)
@@ -542,7 +547,14 @@ public sealed class ModelHost : IDisposable
     /// default <see cref="ModelHostOptions.UnloadDrainTimeout"/>); if they do not finish, <paramref name="force"/> cuts them off,
     /// otherwise <see cref="ModelBusyException"/> is thrown and the model stays loaded. Returns false when it was not loaded.
     /// </summary>
-    public async Task<bool> UnloadAsync(string name, TimeSpan? drainTimeout = null, bool force = false)
+    /// <param name="name">The registered name.</param>
+    /// <param name="drainTimeout">How long running requests may take, or <see langword="null"/> for <see cref="ModelHostOptions.UnloadDrainTimeout"/>.</param>
+    /// <param name="force">Cut running requests off after the timeout instead of throwing.</param>
+    /// <param name="cancellationToken">Stops waiting for a load in progress or for running requests; the model stays loaded.</param>
+    /// <returns>False when the model was not loaded.</returns>
+    /// <exception cref="ModelNotFoundException">No model has this name.</exception>
+    /// <exception cref="ModelBusyException">Requests did not finish in time and <paramref name="force"/> is false.</exception>
+    public async Task<bool> UnloadAsync(string name, TimeSpan? drainTimeout = null, bool force = false, CancellationToken cancellationToken = default)
     {
         Entry e;
         lock (_gate)
@@ -563,9 +575,9 @@ public sealed class ModelHost : IDisposable
         {
             try
             {
-                await loading.ConfigureAwait(false);
+                await loading.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
-            catch
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
                 // A failed load is reported to its own caller; the unload proceeds regardless.
             }
@@ -602,7 +614,9 @@ public sealed class ModelHost : IDisposable
                     wait = e.Changed.Task;
                 }
                 var left = deadline - _opt.Time.GetUtcNow();
-                if (left <= TimeSpan.Zero || await Task.WhenAny(wait, Task.Delay(left)).ConfigureAwait(false) != wait)
+                bool timedOut = left <= TimeSpan.Zero || await Task.WhenAny(wait, Task.Delay(left, cancellationToken)).ConfigureAwait(false) != wait;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (timedOut)
                 {
                     lock (_gate)
                     {
@@ -696,7 +710,10 @@ public sealed class ModelHost : IDisposable
     }
 
     /// <summary>Drains every loaded model (waiting up to <paramref name="timeout"/> for running requests), so a host can stop gracefully.</summary>
-    public async Task DrainAsync(TimeSpan timeout)
+    /// <param name="timeout">How long to wait for running requests.</param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>A task that completes when every model drained.</returns>
+    public async Task DrainAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         List<LoadedModel> all;
         lock (_gate)
@@ -704,7 +721,7 @@ public sealed class ModelHost : IDisposable
             all = [.. _entries.Values.Where(x => x.Instance is not null).Select(x => x.Instance!)];
         }
 
-        await Task.WhenAll(all.Select(m => m.DrainAsync(timeout))).ConfigureAwait(false);
+        await Task.WhenAll(all.Select(m => m.DrainAsync(timeout, cancellationToken))).ConfigureAwait(false);
     }
 
     /// <summary>Unloads every loaded model (cancelling running requests) and stops the idle timer.</summary>

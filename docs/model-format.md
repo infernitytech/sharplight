@@ -39,7 +39,7 @@ Implemented in `Sharplight.Graph.Optimization` (pipeline id `sharplight-ir/1`): 
 `ViewChainSimplification`, `ConstantFolding` (bit-exact with the CPU backend, results up to 256 KiB), `CommonSubexpressionElimination`
 and `DeadNodeElimination`, also inside `If` branches. Values that are graph outputs, nodes that read or write state, own
 data-dependent symbols or run subgraphs are never removed or merged; graph inputs are kept as they are.
-`ModelAdapterRegistry.Build` and `OnnxGraphAdapter.Build` call `GraphOptimizer.PrepareForLoad`; `AdapterOptions.OptimizeGraphs = false`
+`ArchitectureCatalog.Build` (and so `ModelLoader.Build`) and `OnnxGraphAdapter.Build` call `GraphOptimizer.PrepareForLoad`; `AdapterOptions.OptimizeGraphs = false`
 or `SHARPLIGHT_NO_GRAPH_OPT=1` skips the phase. A converter calls `GraphOptimizer.Default.Optimize(definition)` and gets per-pass
 node counts (`ModelOptimizationResult.Statistics`).
 
@@ -198,7 +198,7 @@ coopmat shapes, ...; never used for compilation).
 
 - Export: `IComputeDevice.CreateProfile()` (null for providers that cannot compile offline); `sharplight-convert profile --device
   vulkan:0 [-o file] [--disable-features ...]`.
-- Portable stage without the device: `IExecutionProvider.CompilePortableAsync` with the profile (see below; `ProviderRegistry.ForProfile`
+- Portable stage without the device: `IExecutionProvider.CompilePortableAsync` with the profile (see below; `ExecutionProviderCatalog.TryFindForProfile`
   finds the provider without probing drivers). Vulkan runs the workload on its internal `VulkanProfileDevice`, which shares
   `SpirvCodeGenerator` with the live `VulkanDevice` (the one place that turns subgroup size, shared memory, enabled features and budget
   into `LoweringOptions`, lowers, and builds the code-tier `ArtifactTarget`), so the descriptor and every `kernel/<hash>` key are

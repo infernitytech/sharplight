@@ -114,7 +114,11 @@ internal sealed class Lexer
                 bool blank = true;
                 for (int i = l; i < text.Length; i++)
                 {
-                    if (text[i] != ' ' && text[i] != '\t') { blank = false; break; }
+                    if (text[i] != ' ' && text[i] != '\t')
+                    {
+                        blank = false;
+                        break;
+                    }
                 }
 
                 if (blank)
@@ -402,7 +406,11 @@ internal sealed class Lexer
                         case '"': sb.Append('"'); break;
                         case '\n': break;
                         case 'x':
-                            if (p + 2 <= _s.Length && int.TryParse(_s.AsSpan(p, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var xv)) { sb.Append((char)xv); p += 2; }
+                            if (p + 2 <= _s.Length && int.TryParse(_s.AsSpan(p, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var xv))
+                            {
+                                sb.Append((char)xv);
+                                p += 2;
+                            }
                             else
                             {
                                 sb.Append("\\x");
@@ -410,7 +418,11 @@ internal sealed class Lexer
 
                             break;
                         case 'u':
-                            if (p + 4 <= _s.Length && int.TryParse(_s.AsSpan(p, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var uv)) { sb.Append((char)uv); p += 4; }
+                            if (p + 4 <= _s.Length && int.TryParse(_s.AsSpan(p, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var uv))
+                            {
+                                sb.Append((char)uv);
+                                p += 4;
+                            }
                             else
                             {
                                 sb.Append("\\u");
@@ -418,7 +430,11 @@ internal sealed class Lexer
 
                             break;
                         case 'U':
-                            if (p + 8 <= _s.Length && int.TryParse(_s.AsSpan(p, 8), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var Uv) && Uv <= 0x10FFFF) { sb.Append(char.ConvertFromUtf32(Uv)); p += 8; }
+                            if (p + 8 <= _s.Length && int.TryParse(_s.AsSpan(p, 8), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var Uv) && Uv <= 0x10FFFF)
+                            {
+                                sb.Append(char.ConvertFromUtf32(Uv));
+                                p += 8;
+                            }
                             else
                             {
                                 sb.Append("\\U");

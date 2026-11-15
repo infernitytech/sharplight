@@ -5,7 +5,7 @@ using Sharplight.Llm;
 using Sharplight.Runtime;
 using Sharplight.Samples;
 using Sharplight.Speech;
-using Sharplight.Tasks;
+using Sharplight.Vision;
 
 namespace Sharplight.Speak;
 
@@ -14,19 +14,22 @@ internal static class SpeakApplication
 {
     public static async Task<int> RunAsync(SpeakSettings settings, CancellationToken cancellationToken)
     {
-        var services = new ServiceCollection().AddSharplight();
-        var provider = SampleRuntime.SelectProvider(settings.UseCpu);
-        var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.DeviceIndex));
         var progress = new ConsoleLoadProgress();
-        services.AddSpeechSynthesizer(options =>
+        using var runtime = new SampleRuntime(services => services.AddSpeechSynthesizer((options, container) =>
         {
+            var provider = SampleRuntime.SelectProvider(container.GetRequiredService<ExecutionProviderCatalog>(), settings.UseCpu);
+            var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.DeviceIndex));
             options.ModelPath = settings.ModelPath;
             options.Devices = [new DeviceSlot { Device = device }];
-            options.Auxiliary = settings.VocoderPath is { } vocoder ? [("vocoder", vocoder)] : [];
+            if (settings.VocoderPath is { } vocoder)
+            {
+                options.Auxiliary[AuxiliaryRoles.Vocoder] = vocoder;
+            }
+
             options.Log = progress.Log;
             options.Progress = progress;
-        });
-        await using var container = services.BuildServiceProvider();
+        }));
+        var container = runtime.Services;
 
         var stopwatch = Stopwatch.StartNew();
         var synthesizer = container.GetRequiredService<ISpeechSynthesizer>();

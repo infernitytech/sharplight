@@ -115,8 +115,7 @@ public sealed class PackageInspectorTests
 
         using var tmp = new TempDir();
         var path = tmp.File("whisper.slm");
-        Import.WhisperCpp.WhisperCppImporter.Register();
-        ModelConverter.Convert(source, path);
+        TestHost.Converter.Convert(source, path);
         var inspector = new PackageInspectorViewModel(path, null, () => { });
         Assert.True(await inspector.LoadAsync(), inspector.Error);
         var overview = inspector.Package!.Overview;

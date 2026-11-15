@@ -4,7 +4,8 @@ namespace Sharplight.Llm.Embeddings;
 public sealed class EmbeddingLoadOptions : PackedModelLoadOptions
 {
     /// <summary>Pooling override ("mean", "cls", "last", "none"); null = what the model declares.</summary>
-    public string? Pooling { get; init; }
+    public string? Pooling { get; set; }
+
     /// <summary>L2 normalization override; null = what the model declares.</summary>
-    public bool? Normalize { get; init; }
+    public bool? Normalize { get; set; }
 }

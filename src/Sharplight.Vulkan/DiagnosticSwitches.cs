@@ -33,7 +33,7 @@ namespace Sharplight.Vulkan;
 /// </summary>
 internal static class DiagnosticSwitches
 {
-    /// <summary>Enables the validation layer for instances created afterwards (default of <see cref="VulkanProvider.EnableValidation"/>).</summary>
+    /// <summary>Enables the validation layer for instances created afterwards (default of <see cref="VulkanProviderOptions.EnableValidation"/>).</summary>
     public static bool Validation { get; } = IsSet("SHARPLIGHT_VK_VALIDATION");
 
     /// <summary>True when per-dispatch profiling is on by default (<c>SHARPLIGHT_VK_PROFILE</c> is 1 or 2).</summary>

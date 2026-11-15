@@ -5,24 +5,23 @@ using Sharplight.Runtime;
 namespace Sharplight.Package;
 
 /// <summary>
-/// Builds a model from its source through the registered importers (<see cref="ModelImporterRegistry"/>) and architecture
-/// adapters (<see cref="ModelAdapterRegistry"/>) and writes it as a package; the precompiled artifact sets of a package source
-/// are kept unless <see cref="ConversionOptions.KeepArtifacts"/> is off. The host registers the formats it supports before
-/// converting, and the architecture adapters (<c>services.AddSharplight()</c> of the Sharplight.Defaults package registers both, or
-/// <c>BuiltinAdapters.RegisterAll()</c> of Sharplight.Architectures registers the built-in adapters).
+/// Builds a model from its source through a <see cref="ModelLoader"/> (the formats and architectures the host registered) and writes
+/// it as a package; the precompiled artifact sets of a package source are kept unless <see cref="ConversionOptions.KeepArtifacts"/> is
+/// off. Registered as a singleton by <c>services.AddPackageImporter()</c> and <c>services.AddSharplight()</c>; thread-safe.
 /// </summary>
-public static class ModelConverter
+/// <param name="loader">Opens and builds the sources.</param>
+public sealed class ModelConverter(ModelLoader loader)
 {
     /// <summary>Opens <paramref name="sourcePath"/> (plus auxiliary sources such as a vision projector) and converts it.</summary>
     /// <param name="sourcePath">A model file or directory any registered importer can open.</param>
     /// <param name="destinationPath">The package to write; replaced atomically.</param>
     /// <param name="options">Build options, or <see langword="null"/> for the defaults.</param>
-    /// <param name="auxiliary">Auxiliary sources by role (e.g. <c>("mmproj", path)</c>), or <see langword="null"/>.</param>
+    /// <param name="auxiliary">Auxiliary files by role (e.g. <see cref="Vision.AuxiliaryRoles.Mmproj"/>), or <see langword="null"/>.</param>
     /// <returns>A summary of the written package.</returns>
     /// <exception cref="FileNotFoundException">The source does not exist.</exception>
     /// <exception cref="NotSupportedException">No registered importer or adapter handles the source.</exception>
-    public static ConversionResult Convert(string sourcePath, string destinationPath, ConversionOptions? options = null,
-        IReadOnlyList<(string Role, string Path)>? auxiliary = null)
+    public ConversionResult Convert(string sourcePath, string destinationPath, ConversionOptions? options = null,
+        IEnumerable<KeyValuePair<string, string>>? auxiliary = null)
     {
         if (!File.Exists(sourcePath) && !Directory.Exists(sourcePath))
         {
@@ -30,7 +29,7 @@ public static class ModelConverter
         }
 
         var stopwatch = Stopwatch.StartNew();
-        var sources = ModelImporterRegistry.OpenSet(sourcePath, [.. auxiliary ?? []]);
+        var sources = loader.Open(sourcePath, auxiliary);
         return Convert(sources, destinationPath, options ?? new ConversionOptions(), stopwatch);
     }
 
@@ -40,12 +39,12 @@ public static class ModelConverter
     /// <param name="options">Build options, or <see langword="null"/> for the defaults.</param>
     /// <returns>A summary of the written package.</returns>
     /// <exception cref="NotSupportedException">No registered adapter builds the source.</exception>
-    public static ConversionResult Convert(ModelSourceSet sources, string destinationPath, ConversionOptions? options = null)
+    public ConversionResult Convert(ModelSourceSet sources, string destinationPath, ConversionOptions? options = null)
     {
         return Convert(sources, destinationPath, options ?? new ConversionOptions(), Stopwatch.StartNew());
     }
 
-    private static ConversionResult Convert(ModelSourceSet sources, string destinationPath, ConversionOptions options, Stopwatch stopwatch)
+    private ConversionResult Convert(ModelSourceSet sources, string destinationPath, ConversionOptions options, Stopwatch stopwatch)
     {
         var definition = Build(sources, options);
         try
@@ -99,7 +98,7 @@ public static class ModelConverter
     }
 
     /// <summary>Builds the definition; the graph optimization phase runs inside the build unless disabled.</summary>
-    private static ModelDefinition Build(ModelSourceSet sources, ConversionOptions options)
+    private ModelDefinition Build(ModelSourceSet sources, ConversionOptions options)
     {
         try
         {
@@ -109,7 +108,7 @@ public static class ModelConverter
                 ContextLength = options.ContextLength,
                 OptimizeGraphs = options.OptimizeGraphs,
             };
-            return ModelAdapterRegistry.Build(sources, adapterOptions, options.Log);
+            return loader.Build(sources, adapterOptions, options.Log);
         }
         catch
         {

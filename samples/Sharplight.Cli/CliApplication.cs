@@ -6,11 +6,11 @@ namespace Sharplight.Cli;
 /// <summary>Runs the steps a <see cref="CliSettings"/> asks for: list devices, load, save, then benchmark, dump logits or generate.</summary>
 internal static class CliApplication
 {
-    public static async Task<int> RunAsync(CliSettings settings, CancellationToken cancellationToken)
+    public static async Task<int> RunAsync(SampleRuntime runtime, CliSettings settings, CancellationToken cancellationToken)
     {
         if (settings.ListDevices)
         {
-            DeviceLister.Print(Console.Out);
+            DeviceLister.Print(runtime.Providers, Console.Out);
         }
 
         if (settings.ModelPath is not { } model)
@@ -19,18 +19,18 @@ internal static class CliApplication
         }
 
         string modelPath;
-        using (var hub = new HubContext(settings.StoreRoot))
+        using (var hub = new HubContext(runtime, settings.StoreRoot))
         {
             modelPath = await new ModelResolver(hub, settings.Pull).ResolveAsync(model, cancellationToken);
         }
 
         // Image decoding happens before the (slow) model load so a bad path fails fast.
         var images = ImageLoader.Load(settings.ImagePaths);
-        using var loaded = ModelLoader.Load(settings, modelPath, cancellationToken);
+        using var loaded = CliModelLoader.Load(runtime, settings, modelPath, cancellationToken);
 
         if (settings.SavePath is { } savePath)
         {
-            await PackageSaver.SaveAsync(loaded.Model, savePath, Console.Error, cancellationToken);
+            await PackageSaver.SaveAsync(runtime.Providers, loaded.Model, savePath, Console.Error, cancellationToken);
         }
 
         if (settings.BenchmarkTokens is { } benchmarkTokens)

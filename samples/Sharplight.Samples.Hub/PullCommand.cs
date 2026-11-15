@@ -4,7 +4,7 @@ using Sharplight.Hub;
 namespace Sharplight.Samples.Hub;
 
 /// <summary><c>pull &lt;owner/name[:tag]&gt;</c>: downloads a model, converts it to a package and stores it.</summary>
-public sealed class PullCommand(StoreOptionSet store)
+public sealed class PullCommand(StoreOptionSet store, SampleRuntime runtime)
 {
     private readonly Argument<string[]> _models = new("model")
     {
@@ -34,9 +34,9 @@ public sealed class PullCommand(StoreOptionSet store)
         bool cpu = parseResult.GetValue(_runtime.Cpu);
         int context = parseResult.GetValue(_runtime.Context);
         int batch = parseResult.GetValue(_runtime.Batch);
-        var settings = _pull.Read(parseResult, log => PrecompileTargets.Create(true, cpu, context, batch, [], log));
+        var settings = _pull.Read(parseResult, log => PrecompileTargets.Create(runtime, true, cpu, context, batch, [], log));
 
-        using var hub = new HubContext(store.ReadRoot(parseResult));
+        using var hub = new HubContext(runtime, store.ReadRoot(parseResult));
         foreach (var reference in references)
         {
             var printer = new PullProgressPrinter();

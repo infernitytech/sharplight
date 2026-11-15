@@ -10,7 +10,7 @@ namespace Sharplight.Import.Gguf;
 /// the canonical one (fused or permuted projections) weights are derived lazily on first read.
 /// </summary>
 /// <remarks>
-/// Register the importer once with <see cref="Register"/> to let <see cref="ModelImporterRegistry"/> open <c>.gguf</c>
+/// Register the importer with <c>services.AddGgufImporter()</c> to let the <see cref="ModelLoader"/> open <c>.gguf</c>
 /// paths, or call <see cref="Open"/> directly. Split models are opened through their first shard.
 /// </remarks>
 public sealed class GgufImporter : IModelImporter
@@ -20,9 +20,6 @@ public sealed class GgufImporter : IModelImporter
 
     /// <inheritdoc/>
     public string Format => "gguf";
-
-    /// <summary>Registers the GGUF importer with <see cref="ModelImporterRegistry"/>.</summary>
-    public static void Register() => ModelImporterRegistry.Register(new GgufImporter());
 
     /// <inheritdoc/>
     /// <remarks>True when <paramref name="path"/> is an existing file starting with the GGUF magic bytes.</remarks>

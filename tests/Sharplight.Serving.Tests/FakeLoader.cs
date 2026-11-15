@@ -2,7 +2,7 @@ using Sharplight.Llm.Serving.Hosting;
 
 namespace Sharplight.Serving.Tests;
 
-public sealed class FakeLoader : IModelLoader
+public sealed class FakeLoader : IHostedModelLoader
 {
     private readonly FakePool _pool;
     private readonly long _bytes;
@@ -51,6 +51,9 @@ public sealed class FakeLoader : IModelLoader
 
             return inst;
         }
-        public void Dispose() { }
+
+        public void Dispose()
+        {
+        }
     }
 }

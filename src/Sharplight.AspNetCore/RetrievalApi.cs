@@ -11,55 +11,21 @@ namespace Sharplight.AspNetCore;
 
 /// <summary>
 /// Retrieval endpoints: OpenAI-compatible <c>POST /v1/embeddings</c> and Cohere / Jina-compatible <c>POST /v1/rerank</c> (also
-/// <c>/v2/rerank</c>, <c>/rerank</c>). Models are registered with <see cref="AddSharplightEmbeddings"/> /
-/// <see cref="AddSharplightReranker"/>; <c>MapSharplight</c> maps these endpoints when any is registered, or call
+/// <c>/v2/rerank</c>, <c>/rerank</c>). Models are registered with <c>services.AddSharplightEmbeddings(...)</c> /
+/// <c>services.AddSharplightReranker(...)</c>; <c>MapSharplightServer</c> maps these endpoints when any is registered, or call
 /// <see cref="MapSharplightRetrieval"/> directly (e.g. for a host that serves only embeddings).
 /// </summary>
 /// <example>
 /// <code>
-/// using var embedder = EmbeddingModel.Load("bge-small-en-v1.5", new EmbeddingLoadOptions { Devices = [slot] });
+/// using var embedder = EmbeddingModel.Load(loader, "bge-small-en-v1.5", new EmbeddingLoadOptions { Devices = [slot] });
 /// builder.Services.AddSharplightEmbeddings(embedder, name: "bge-small");
 /// var app = builder.Build();
-/// app.UseSharplight();
+/// app.UseSharplightServer();
 /// app.MapSharplightRetrieval();   // POST /v1/embeddings with {"model": "bge-small", "input": ["text"]}
 /// </code>
 /// </example>
 public static class RetrievalApi
 {
-    extension(IServiceCollection services)
-    {
-        /// <summary>Serves <paramref name="embedder"/> on <c>/v1/embeddings</c> under <paramref name="name"/> (default: its own name).</summary>
-        public IServiceCollection AddSharplightEmbeddings(ITextEmbedder embedder, string? name = null, Action<RetrievalModels>? configure = null)
-        {
-            var m = services.RetrievalModels();
-            m.Embedders[name ?? embedder.Name] = embedder;
-            m.DefaultEmbedder ??= name ?? embedder.Name;
-            configure?.Invoke(m);
-            return services;
-        }
-
-        /// <summary>Serves <paramref name="reranker"/> on <c>/v1/rerank</c> under <paramref name="name"/> (default: its own name).</summary>
-        public IServiceCollection AddSharplightReranker(ITextReranker reranker, string? name = null, Action<RetrievalModels>? configure = null)
-        {
-            var m = services.RetrievalModels();
-            m.Rerankers[name ?? reranker.Name] = reranker;
-            m.DefaultReranker ??= name ?? reranker.Name;
-            configure?.Invoke(m);
-            return services;
-        }
-
-        private RetrievalModels RetrievalModels()
-        {
-            if (services.FirstOrDefault(d => d.ServiceType == typeof(RetrievalModels))?.ImplementationInstance is RetrievalModels existing)
-            {
-                return existing;
-            }
-            var m = new RetrievalModels();
-            services.AddSingleton(m);
-            return m;
-        }
-    }
-
     extension(IEndpointRouteBuilder routes)
     {
         /// <summary>Maps <c>/v1/embeddings</c> and the rerank routes for the registered models (nothing when none are registered).</summary>

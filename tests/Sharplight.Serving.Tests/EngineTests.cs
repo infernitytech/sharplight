@@ -193,8 +193,8 @@ public class EngineTests
         var order = new List<string>();
         var low = e.Submit(Req("low", priority: 0));
         var high = e.Submit(Req("high", priority: 5));
-        var tl = low.CompleteAsync().ContinueWith(_ => { lock (order) { order.Add("low"); } });
-        var th = high.CompleteAsync().ContinueWith(_ => { lock (order) { order.Add("high"); } });
+        var tl = low.CompleteAsync().ContinueWith(_ => Record(order, "low"));
+        var th = high.CompleteAsync().ContinueWith(_ => Record(order, "high"));
         await Task.WhenAll(tl, th);
         Assert.Equal(["high", "low"], order);
     }
@@ -208,7 +208,7 @@ public class EngineTests
         var blocker = e.Submit(Req("blocker", max: 3));
         await T.WaitUntil(() => e.GetMetrics().ActiveSequences == 1);
         var order = new List<int>();
-        var tasks = Enumerable.Range(0, 4).Select(i => e.Submit(Req("r" + i)).CompleteAsync().ContinueWith(_ => { lock (order) { order.Add(i); } })).ToArray();
+        var tasks = Enumerable.Range(0, 4).Select(i => e.Submit(Req("r" + i)).CompleteAsync().ContinueWith(_ => Record(order, i))).ToArray();
         await Task.WhenAll(tasks);
         Assert.Equal([0, 1, 2, 3], order);
     }
@@ -499,5 +499,13 @@ public class EngineTests
         }
         Assert.True(await T.WaitUntil(() => e.GetMetrics().ActiveSequences == 0));
         Assert.Equal(1, e.GetMetrics().RequestsFinished[FinishReason.Cancelled]);
+    }
+
+    private static void Record<T>(List<T> order, T item)
+    {
+        lock (order)
+        {
+            order.Add(item);
+        }
     }
 }

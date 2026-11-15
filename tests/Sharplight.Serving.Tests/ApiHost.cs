@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -39,10 +40,10 @@ public sealed class ApiHost : IAsyncDisposable
         var b = WebApplication.CreateBuilder();
         b.WebHost.UseTestServer();
         b.Logging.ClearProviders();
-        b.Services.AddSharplight(h.Model, configure);
+        b.Services.AddSharplightServer(h.Model, configure);
         h.App = b.Build();
-        h.App.UseSharplight();
-        h.App.MapSharplight();
+        h.App.UseSharplightServer();
+        h.App.MapSharplightServer();
         await h.App.StartAsync();
         h.Client = h.App.GetTestClient();
         return h;

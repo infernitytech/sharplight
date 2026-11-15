@@ -2,8 +2,6 @@ using System.Text.Json;
 using Sharplight.Architectures;
 using Sharplight.Cpu;
 using Sharplight.Graph;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Speculative;
@@ -24,12 +22,6 @@ public partial class SpeculativeDecodingTests
     private static readonly string ModelPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "hf", "tiny-random-qwen3.5-mtp");
     private const int Slots = 3;
     private const int Drafts = 3;
-
-    static SpeculativeDecodingTests()
-    {
-        HuggingFaceImporter.Register();
-        GgufImporter.Register();
-    }
 
     [Theory]
     [InlineData(false, "mtp", false)]
@@ -79,7 +71,7 @@ public partial class SpeculativeDecodingTests
         var (target, drafter) = Eagle3Paths(gguf);
         Assert.SkipUnless(Path.Exists(drafter), $"{drafter} not present");
         await Matches_NonSpeculativeDecoding(target, vulkan, "mtp", vulkan, SamplingParams.GreedyDefault,
-            m => Assert.Equal(Eagle3DraftHead.TapsOutput, m.Definition.Properties[WellKnown.DraftHiddenSource]), [(AuxiliaryRoles.Draft, drafter)]);
+            m => Assert.Equal(Eagle3DraftHead.TapsOutput, m.Definition.Properties[WellKnown.DraftHiddenSource]), new Dictionary<string, string> { [AuxiliaryRoles.Draft] = drafter });
     }
 
     /// <summary>
@@ -103,10 +95,10 @@ public partial class SpeculativeDecodingTests
             Pending: e.GetProperty("pending").GetInt32(),
             Drafts: e.GetProperty("drafts").EnumerateArray().Select(t => t.GetInt32()).ToArray())).ToList();
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(target, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, target, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = vulkan,
-            Auxiliary = [(AuxiliaryRoles.Draft, drafter)],
+            Auxiliary = { [AuxiliaryRoles.Draft] = drafter },
         });
         var decoder = model.CreateBatchDecoder(Slots, maxLogitsRows: Slots * (Drafts + 1), draftTokens: Drafts);
         var recorder = new RecordingSpeculator(model.CreateMtpSpeculator(Slots, Drafts));
@@ -130,14 +122,14 @@ public partial class SpeculativeDecodingTests
     }
 
     private static async Task Matches_NonSpeculativeDecoding(string modelPath, bool vulkan, string speculator, bool deviceSampling, SamplingParams sampling,
-        Action<LlmModel>? check = null, IReadOnlyList<(string Role, string Path)>? auxiliary = null)
+        Action<LlmModel>? check = null, IReadOnlyDictionary<string, string>? auxiliary = null)
     {
         Assert.SkipUnless(Path.Exists(modelPath), $"{modelPath} not present");
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(modelPath, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, modelPath, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = deviceSampling,
-            Auxiliary = auxiliary ?? [],
+            Auxiliary = new Dictionary<string, string>(auxiliary ?? new Dictionary<string, string>()),
         });
         Assert.True(model.HasDraftHead);
         check?.Invoke(model);
@@ -175,7 +167,7 @@ public partial class SpeculativeDecodingTests
         Assert.SkipUnless(Directory.Exists(ModelPath), $"{ModelPath} not present");
         using var device = OpenDevice(vulkan: true);
         Assert.True(device.SharesWeights);
-        using var model = LlmModel.Load(ModelPath, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, ModelPath, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = false,
         });
@@ -207,7 +199,7 @@ public partial class SpeculativeDecodingTests
     {
         Assert.SkipUnless(Directory.Exists(ModelPath), $"{ModelPath} not present");
         using var device = OpenDevice(vulkan: false);
-        using var model = LlmModel.Load(ModelPath, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64 });
+        using var model = LlmModel.Load(TestHost.Loader, ModelPath, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64 });
         var plain = model.EstimateFootprint(Slots, 512, maxLogitsRows: Slots * (Drafts + 1));
         var spec = model.EstimateFootprint(Slots, 512, draftTokens: Drafts);
         var withHead = model.EstimateFootprint(Slots, 512, draftTokens: Drafts, draftHead: true);

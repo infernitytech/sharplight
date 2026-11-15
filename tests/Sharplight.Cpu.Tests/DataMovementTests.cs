@@ -478,7 +478,11 @@ public class DataMovementTests
                 ix[d] = d == ax ? 0 : r2[q++];
             }
 
-            var order = Enumerable.Range(0, (int)dims[ax]).Select(a => { ix[ax] = a; return (a, v: x[ix.Zip(ds, (u, w) => u * w).Sum()]); })
+            var order = Enumerable.Range(0, (int)dims[ax]).Select(a =>
+                {
+                    ix[ax] = a;
+                    return (a, v: x[ix.Zip(ds, (u, w) => u * w).Sum()]);
+                })
                 .OrderBy(t => largest ? -t.v : t.v).ThenBy(t => t.a).Take(k).ToArray();
             for (int j = 0; j < k; j++)
             {
@@ -503,7 +507,12 @@ public class DataMovementTests
         Kit.Set(m, xin, x);
         var p = Kit.P(2);
         m.Run(p);
-        var exp = x.Select((v, l) => { int i = l / 6 % 5, j = l % 6; return (upper ? j - i >= k : j - i <= k) ? v : 0f; }).ToArray();
+        var exp = x.Select((v, l) =>
+        {
+            int i = l / 6 % 5;
+            int j = l % 6;
+            return (upper ? j - i >= k : j - i <= k) ? v : 0f;
+        }).ToArray();
         Kit.AssertClose(exp, Kit.Out(m, "y", p), 0, 0);
     }
 

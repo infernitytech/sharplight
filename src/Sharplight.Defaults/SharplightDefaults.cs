@@ -4,7 +4,8 @@ namespace Sharplight;
 
 /// <summary>
 /// Convenience for hosts without a service container of their own: builds a <see cref="ServiceProvider"/> with
-/// <c>services.AddSharplight()</c> (<see cref="SharplightServiceCollectionExtensions"/>) plus whatever <c>configure</c> adds.
+/// <c>services.AddSharplight()</c> (<see cref="Microsoft.Extensions.DependencyInjection.SharplightServiceCollectionExtensions"/>) plus whatever
+/// <c>configure</c> adds.
 /// </summary>
 /// <example>
 /// <code>

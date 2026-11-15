@@ -2,7 +2,7 @@ namespace Sharplight.Vision;
 
 /// <summary>
 /// Architecture-specific prompt assembly for models with media input. Located by canonical architecture id through
-/// <see cref="MultimodalRegistry"/>, so it works for models loaded from saved packages (where no adapter runs).
+/// the <see cref="Models.ArchitectureCatalog"/> (registered with <c>services.AddMultimodalArchitecture&lt;T&gt;()</c>), so it works for models loaded from saved packages (where no adapter runs).
 /// </summary>
 public interface IMultimodalArchitecture
 {

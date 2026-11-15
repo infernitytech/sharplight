@@ -306,7 +306,14 @@ internal sealed unsafe class PhysicalDeviceInfo
 
         Features = feats;
 
-        void Need(bool ok, string what) { if (!ok) { MissingFeatures.Add(what); } }
+        void Need(bool ok, string what)
+        {
+            if (!ok)
+            {
+                MissingFeatures.Add(what);
+            }
+        }
+
         Need(ApiVersion >= VkVersion.Version_1_2, "Vulkan 1.2");
         Need(f12.bufferDeviceAddress, "bufferDeviceAddress");
         Need(f12.storageBuffer8BitAccess, "storageBuffer8BitAccess");

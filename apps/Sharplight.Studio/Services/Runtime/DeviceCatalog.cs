@@ -7,10 +7,11 @@ namespace Sharplight.Studio.Services.Runtime;
 internal static class DeviceCatalog
 {
     /// <summary>Every device of every available provider; providers that fail to enumerate are skipped.</summary>
-    public static IReadOnlyList<(ComputeDeviceOption Option, IExecutionProvider Provider, DeviceInfo Info)> Discover()
+    /// <param name="providers">The execution providers.</param>
+    public static IReadOnlyList<(ComputeDeviceOption Option, IExecutionProvider Provider, DeviceInfo Info)> Discover(ExecutionProviderCatalog providers)
     {
         var found = new List<(ComputeDeviceOption, IExecutionProvider, DeviceInfo)>();
-        foreach (var (provider, availability) in ProviderRegistry.Discover())
+        foreach (var (provider, availability) in providers.Discover())
         {
             if (!availability.IsAvailable)
             {

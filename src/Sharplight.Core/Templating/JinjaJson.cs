@@ -227,8 +227,18 @@ public static class JinjaJson
                         i++;
                     d[k] = ParseValue(s, ref i);
                     SkipWs(s, ref i);
-                    if (i < s.Length && s[i] == ',') { i++; continue; }
-                    if (i < s.Length && s[i] == '}') { i++; return d; }
+                    if (i < s.Length && s[i] == ',')
+                    {
+                        i++;
+                        continue;
+                    }
+
+                    if (i < s.Length && s[i] == '}')
+                    {
+                        i++;
+                        return d;
+                    }
+
                     throw new TemplateRuntimeException($"Expecting ',' delimiter at position {i}");
                 }
             }
@@ -246,8 +256,18 @@ public static class JinjaJson
                 {
                     l.Add(ParseValue(s, ref i));
                     SkipWs(s, ref i);
-                    if (i < s.Length && s[i] == ',') { i++; continue; }
-                    if (i < s.Length && s[i] == ']') { i++; return l; }
+                    if (i < s.Length && s[i] == ',')
+                    {
+                        i++;
+                        continue;
+                    }
+
+                    if (i < s.Length && s[i] == ']')
+                    {
+                        i++;
+                        return l;
+                    }
+
                     throw new TemplateRuntimeException($"Expecting ',' delimiter at position {i}");
                 }
             }
@@ -265,7 +285,11 @@ public static class JinjaJson
                         i++;
                     }
 
-                    if (string.CompareOrdinal(s, i, "Infinity", 0, 8) == 0) { i += 8; return double.NegativeInfinity; }
+                    if (string.CompareOrdinal(s, i, "Infinity", 0, 8) == 0)
+                    {
+                        i += 8;
+                        return double.NegativeInfinity;
+                    }
                 bool isFloat = false;
                 while (i < s.Length)
                 {

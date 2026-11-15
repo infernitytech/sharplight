@@ -29,7 +29,7 @@ public partial class SpeculativeDecodingTests
         {
             Assert.Equal(SharedKvDraftHead.FeaturesOutput, m.Definition.Properties[WellKnown.DraftHiddenSource]);
             Assert.Equal(true, m.Definition.Properties[WellKnown.DraftAnchored]);
-        }, [(AuxiliaryRoles.Draft, assistant)]);
+        }, new Dictionary<string, string> { [AuxiliaryRoles.Draft] = assistant });
     }
 
     /// <summary>
@@ -54,10 +54,10 @@ public partial class SpeculativeDecodingTests
             Pending: e.GetProperty("pending").GetInt32(),
             Drafts: e.GetProperty(gguf ? "drafts_full_head" : "drafts").EnumerateArray().Select(t => t.GetInt32()).ToArray())).ToList();
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(target, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, target, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = vulkan,
-            Auxiliary = [(AuxiliaryRoles.Draft, assistant)],
+            Auxiliary = { [AuxiliaryRoles.Draft] = assistant },
         });
         var decoder = model.CreateBatchDecoder(Slots, maxLogitsRows: Slots * (Drafts + 1), draftTokens: Drafts);
         var recorder = new RecordingSpeculator(model.CreateMtpSpeculator(Slots, Drafts));

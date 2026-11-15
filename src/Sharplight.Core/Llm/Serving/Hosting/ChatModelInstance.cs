@@ -40,7 +40,7 @@ public sealed class ChatModelInstance : LoadedModel, IChatModel
     }
 
     /// <inheritdoc/>
-    public override Task<bool> DrainAsync(TimeSpan timeout) => Engine.DrainAsync(timeout);
+    public override Task<bool> DrainAsync(TimeSpan timeout, CancellationToken cancellationToken = default) => Engine.DrainAsync(timeout, cancellationToken);
     /// <summary>The loaded model, or null for an instance created with <see cref="Wrap"/>.</summary>
     public LlmModel? Model => _model;
 

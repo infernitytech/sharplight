@@ -91,6 +91,6 @@ public sealed class WhisperCppParityTests
             Assert.Skip($"{path}, jfk.wav or the {device} device is missing.");
         }
 
-        return TaskModel.Load(new TaskLoadOptions { ModelPath = path, Devices = [new DeviceSlot { Device = SpeechEnvironment.Device(device)! }] });
+        return TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [new DeviceSlot { Device = SpeechEnvironment.Device(device)! }] });
     }
 }

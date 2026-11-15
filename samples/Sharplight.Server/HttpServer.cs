@@ -23,12 +23,20 @@ internal static class HttpServer
         // Prompts can be large; the models' own context limits bound the request size.
         builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = null);
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
-        builder.Services.AddSharplight(host, options =>
+        builder.Services.AddSharplightServer(host, options =>
         {
             options.OpenAi = settings.Api is ApiSurface.OpenAi or ApiSurface.Both;
             options.Anthropic = settings.Api is ApiSurface.Anthropic or ApiSurface.Both;
-            options.ApiKeys.AddRange(settings.ApiKeys);
-            options.CorsOrigins.AddRange(settings.CorsOrigins);
+            foreach (var key in settings.ApiKeys)
+            {
+                options.ApiKeys.Add(key);
+            }
+
+            foreach (var origin in settings.CorsOrigins)
+            {
+                options.CorsOrigins.Add(origin);
+            }
+
             options.DefaultSampling = new SamplingParams { Temperature = settings.DefaultTemperature };
 
             // A single model answers to any name (clients often send arbitrary ones); with several, an unknown name is a 404.
@@ -36,8 +44,8 @@ internal static class HttpServer
         });
 
         var app = builder.Build();
-        app.UseSharplight();
-        app.MapSharplight();
+        app.UseSharplightServer();
+        app.MapSharplightServer();
         PrintBanner(host, settings, plan, builder.WebHost.GetSetting("urls"));
         await app.RunAsync(cancellationToken);
     }

@@ -1,7 +1,5 @@
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
@@ -20,12 +18,6 @@ public class DiffusionServingTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    static DiffusionServingTests()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-    }
-
     /// <summary>Batched engine output equals the single-sequence generator, and the reference prompt gives the reference ids.</summary>
     [Theory]
     [InlineData("hf/tiny-random-dream", false)]
@@ -38,7 +30,7 @@ public class DiffusionServingTests
         var (path, reference) = Locate(model);
         var (prompt, expected, options) = Reference(reference);
         using var device = OpenDevice(vulkan);
-        using var llm = LlmModel.Load(path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64, MaxBatchTokens = 64 });
+        using var llm = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64, MaxBatchTokens = 64 });
         var rng = new Random(5);
         // 36 + 28 rows share the first pass, the third sequence gets its own.
         int[][] prompts = [prompt, .. new[] { 4, 6 }.Select(n => Enumerable.Range(0, n).Select(_ => rng.Next(10, 900)).ToArray())];
@@ -75,7 +67,7 @@ public class DiffusionServingTests
         var (path, reference) = Locate("hf/tiny-random-llada");
         var (prompt, expected, options) = Reference(reference);
         using var device = OpenDevice(false);
-        var loader = new LlmChatModelLoader("llada", path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64, MaxBatchTokens = 64 },
+        var loader = new LlmChatModelLoader(TestHost.Loader, "llada", path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64, MaxBatchTokens = 64 },
             new ChatModelOptions { Slots = 2 });
         var ct = TestContext.Current.CancellationToken;
         using var prepared = loader.Prepare(ct);

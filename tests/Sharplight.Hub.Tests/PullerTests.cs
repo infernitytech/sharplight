@@ -135,7 +135,7 @@ public sealed class PullerTests : IDisposable
     private ModelPuller CreatePuller(Func<string, string?, string, Action<string>?, ConversionResult>? convert = null, long freeSpace = PlentyOfSpace)
     {
         var options = _hub.Options();
-        return new ModelPuller(new HubClient(_http, options), new FileDownloader(_http, options), _store)
+        return new ModelPuller(new HubClient(_http, options), new FileDownloader(_http, options), _store, TestHost.Converter)
         {
             FreeSpace = _ => freeSpace,
             Converter = convert ?? FakeConvert,

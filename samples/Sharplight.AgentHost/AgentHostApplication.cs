@@ -1,6 +1,5 @@
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Extensions.AI;
-using Sharplight.Extensions.AI;
 using Sharplight.Llm;
 using Sharplight.Runtime;
 using Sharplight.Samples;
@@ -12,6 +11,7 @@ internal static class AgentHostApplication
 {
     private const string AgentName = "assistant";
     private const string AgentInstructions = "You are a helpful assistant.";
+    private const string CpuProviderName = "cpu";
 
     public static async Task<int> RunAsync(AgentHostSettings settings, CancellationToken cancellationToken)
     {
@@ -26,7 +26,8 @@ internal static class AgentHostApplication
             builder.WebHost.UseUrls(urls);
         }
 
-        builder.Services.AddSharplightChatClient(settings.ModelPath, _ => CreateLoadOptions(settings)).UseFunctionInvocation();
+        builder.Services.AddSharplight();
+        builder.Services.AddSharplightChatClient((options, services) => ConfigureModel(options, services, settings)).UseFunctionInvocation();
         builder.AddOpenAIChatCompletions();
         builder.AddOpenAIResponses();
         builder.AddOpenAIConversations();
@@ -40,17 +41,22 @@ internal static class AgentHostApplication
         return ExitCodes.Success;
     }
 
-    private static LlmLoadOptions CreateLoadOptions(AgentHostSettings settings)
+    private static void ConfigureModel(LlmLoadOptions options, IServiceProvider services, AgentHostSettings settings)
     {
-        var provider = SampleRuntime.SelectProvider(settings.UseCpu);
+        var provider = SelectProvider(services.GetRequiredService<ExecutionProviderCatalog>(), settings.UseCpu);
         var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.DeviceIndex));
         var progress = new ConsoleLoadProgress();
-        return new LlmLoadOptions
-        {
-            Devices = [new DeviceSlot { Device = device }],
-            ContextLength = settings.ContextLength,
-            Log = progress.Log,
-            Progress = progress,
-        };
+        options.ModelPath = settings.ModelPath;
+        options.Devices = [new DeviceSlot { Device = device }];
+        options.ContextLength = settings.ContextLength;
+        options.Log = progress.Log;
+        options.Progress = progress;
+    }
+
+    private static IExecutionProvider SelectProvider(ExecutionProviderCatalog providers, bool cpu)
+    {
+        var match = providers.Discover().FirstOrDefault(d => d.Availability.IsAvailable && (d.Provider.Name == CpuProviderName) == cpu);
+        return match?.Provider
+            ?? throw new SampleException(cpu ? "The CPU provider is not available." : "No GPU provider is available; use --cpu to run on the CPU.");
     }
 }

@@ -11,6 +11,8 @@ namespace Sharplight.Convert;
 /// </summary>
 internal sealed class ProfileCommand
 {
+    private readonly SampleRuntime _runtime;
+
     private readonly Option<string?> _device = new("--device")
     {
         Description = "Device to export, as provider:index (e.g. vulkan:0).",
@@ -35,8 +37,9 @@ internal sealed class ProfileCommand
         HelpName = "name",
     };
 
-    public ProfileCommand()
+    public ProfileCommand(SampleRuntime runtime)
     {
+        _runtime = runtime;
         _device.Validators.Add(result =>
         {
             if (!DeviceSpec.TryParse(result.GetValueOrDefault<string>() ?? "", out _))
@@ -103,7 +106,7 @@ internal sealed class ProfileCommand
             options.DisabledFeatures.Add(feature);
         }
 
-        using var device = DeviceOpener.Open(spec, options);
+        using var device = new DeviceOpener(_runtime.Providers).Open(spec, options);
         return device.CreateProfile()
             ?? throw new SampleException($"Provider '{spec.Provider}' cannot compile offline, so its devices have no profile.", ExitCodes.InvalidInput);
     }

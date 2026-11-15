@@ -13,14 +13,23 @@ using Sharplight.Tensors;
 using Sharplight.Vulkan;
 
 var argv = args.ToList();
-string? Opt(string n, string? d = null) { int i = argv.IndexOf(n); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d; }
+string? Opt(string n, string? d = null)
+{
+    int i = argv.IndexOf(n);
+    return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d;
+}
+
 string manifestPath = argv[0], providerName = argv[1];
 int maxRuns = int.Parse(Opt("--runs", "30")!);
 double budgetS = double.Parse(Opt("--budget-s", "4")!, System.Globalization.CultureInfo.InvariantCulture);
 int devIdx = int.Parse(Opt("--device", "0")!);
 
 var res = new Dictionary<string, object?> { ["manifest"] = manifestPath, ["provider"] = providerName, ["stage"] = "start" };
-void Emit() { Console.Out.Flush(); Console.WriteLine("RESULT " + JsonSerializer.Serialize(res)); }
+void Emit()
+{
+    Console.Out.Flush();
+    Console.WriteLine("RESULT " + JsonSerializer.Serialize(res));
+}
 
 try
 {
@@ -45,7 +54,14 @@ try
 
     IExecutionProvider provider = providerName == "cpu" ? new CpuExecutionProvider() : new VulkanProvider();
     var av = provider.CheckAvailability();
-    if (!av.IsAvailable) { res["stage"] = "provider"; res["error"] = av.Reason; Emit(); return 2; }
+    if (!av.IsAvailable)
+    {
+        res["stage"] = "provider";
+        res["error"] = av.Reason;
+        Emit();
+        return 2;
+    }
+
     using var device = provider.OpenDevice(provider.GetDevices()[devIdx]);
     res["device"] = provider.GetDevices()[devIdx].ToString();
 
@@ -58,7 +74,12 @@ try
             var o = new OnnxImportOptions();
             foreach (var (k, v) in consts) o.ConstantInputs[k] = v;
             // --bound name=value: OnnxImportOptions.InputValueBounds (runtime values that size a data-dependent extent)
-            for (int q = 0; q + 1 < argv.Count; q++) if (argv[q] == "--bound") { var kv = argv[q + 1].Split('='); o.InputValueBounds[kv[0]] = long.Parse(kv[1]); }
+            for (int q = 0; q + 1 < argv.Count; q++) if (argv[q] == "--bound")
+            {
+                var kv = argv[q + 1].Split('=');
+                o.InputValueBounds[kv[0]] = long.Parse(kv[1]);
+            }
+
             foreach (var i in inputs) o.InputShapes[i.Name] = fix ? i.Shape.Select(d => d < 0 ? batch : d).ToArray() : i.Shape;
             res["stage"] = "import"; sw.Restart();
             var src = OnnxImporter.Open(modelPath, o);
@@ -90,7 +111,12 @@ try
     {
         var gv = graph.Inputs[gi];
         int k = Array.FindIndex(inputs, x => x.Name == gv.Name);
-        if (k < 0) { var rtIdx = Enumerable.Range(0, inputs.Length).Where(q => !consts.ContainsKey(inputs[q].Name)).ToArray(); k = rtIdx[gi]; }
+        if (k < 0)
+        {
+            var rtIdx = Enumerable.Range(0, inputs.Length).Where(q => !consts.ContainsKey(inputs[q].Name)).ToArray();
+            k = rtIdx[gi];
+        }
+
         var f = ReadF32($"{prefix}.b{batch}.in{k}.bin");
         var bytes = FromF32(f, gv.Type);
         long want = gv.Type.ByteSize(gv.Shape.Elements(run.Symbols));
@@ -104,7 +130,12 @@ try
     {
         // every graph output as raw f32 (<dir>/<k>.bin, k = graph output index) for offline comparison
         Directory.CreateDirectory(dumpDir);
-        for (int k = 0; k < outs.Count; k++) { var b = new byte[outs[k].Data.Length * 4]; Buffer.BlockCopy(outs[k].Data, 0, b, 0, b.Length); File.WriteAllBytes(Path.Combine(dumpDir, $"{k}.bin"), b); }
+        for (int k = 0; k < outs.Count; k++)
+        {
+            var b = new byte[outs[k].Data.Length * 4];
+            Buffer.BlockCopy(outs[k].Data, 0, b, 0, b.Length);
+            File.WriteAllBytes(Path.Combine(dumpDir, $"{k}.bin"), b);
+        }
     }
     // compare
     var cmps = new List<object>(); bool allOk = true; double worstRms = 0;
@@ -138,7 +169,12 @@ try
     res["minMs"] = Math.Round(times.Min(), 3); res["medMs"] = Math.Round(times.OrderBy(x => x).ElementAt(times.Count / 2), 3); res["runs"] = times.Count;
     if (argv.Contains("--profile") && providerName == "vulkan")
     {
-        foreach (var seg in compiled.Segments.OfType<VulkanSegment>()) { seg.Profile = true; seg.ResetProfile(); }
+        foreach (var seg in compiled.Segments.OfType<VulkanSegment>())
+        {
+            seg.Profile = true;
+            seg.ResetProfile();
+        }
+
         for (int q = 0; q < 3; q++) compiled.Run(run);
         res["profile"] = string.Join("\n", compiled.Segments.OfType<VulkanSegment>().Select(sg => sg.ProfileReport(12)));
     }
@@ -153,17 +189,57 @@ catch (Exception e)
 }
 
 static string Trunc(string? s, int n = 600) => s is null ? "" : (s.Length > n ? s[..n] + "..." : s);
-static float[] ReadF32(string p) { var b = File.ReadAllBytes(p); var f = new float[b.Length / 4]; Buffer.BlockCopy(b, 0, f, 0, b.Length); return f; }
+static float[] ReadF32(string p)
+{
+    var b = File.ReadAllBytes(p);
+    var f = new float[b.Length / 4];
+    Buffer.BlockCopy(b, 0, f, 0, b.Length);
+    return f;
+}
 
 static byte[] FromF32(float[] f, DataType t)
 {
-    if (t == DataType.F32) { var b = new byte[f.Length * 4]; Buffer.BlockCopy(f, 0, b, 0, b.Length); return b; }
-    if (t == DataType.I32) { var a = f.Select(x => (int)x).ToArray(); var b = new byte[a.Length * 4]; Buffer.BlockCopy(a, 0, b, 0, b.Length); return b; }
-    if (t == DataType.I64) { var a = f.Select(x => (long)x).ToArray(); var b = new byte[a.Length * 8]; Buffer.BlockCopy(a, 0, b, 0, b.Length); return b; }
-    if (t == DataType.F16) { var a = f.Select(x => (Half)x).ToArray(); var b = new byte[a.Length * 2]; Buffer.BlockCopy(a, 0, b, 0, b.Length); return b; }
+    if (t == DataType.F32)
+    {
+        var b = new byte[f.Length * 4];
+        Buffer.BlockCopy(f, 0, b, 0, b.Length);
+        return b;
+    }
+
+    if (t == DataType.I32)
+    {
+        var a = f.Select(x => (int)x).ToArray();
+        var b = new byte[a.Length * 4];
+        Buffer.BlockCopy(a, 0, b, 0, b.Length);
+        return b;
+    }
+
+    if (t == DataType.I64)
+    {
+        var a = f.Select(x => (long)x).ToArray();
+        var b = new byte[a.Length * 8];
+        Buffer.BlockCopy(a, 0, b, 0, b.Length);
+        return b;
+    }
+
+    if (t == DataType.F16)
+    {
+        var a = f.Select(x => (Half)x).ToArray();
+        var b = new byte[a.Length * 2];
+        Buffer.BlockCopy(a, 0, b, 0, b.Length);
+        return b;
+    }
+
     if (t == DataType.U8 || t == DataType.Bool) return f.Select(x => (byte)x).ToArray();
     if (t == DataType.I8) return f.Select(x => (byte)(sbyte)x).ToArray();
-    if (t == DataType.F64) { var a = f.Select(x => (double)x).ToArray(); var b = new byte[a.Length * 8]; Buffer.BlockCopy(a, 0, b, 0, b.Length); return b; }
+    if (t == DataType.F64)
+    {
+        var a = f.Select(x => (double)x).ToArray();
+        var b = new byte[a.Length * 8];
+        Buffer.BlockCopy(a, 0, b, 0, b.Length);
+        return b;
+    }
+
     throw new NotSupportedException($"harness cannot feed input type {t}");
 }
 
@@ -189,7 +265,12 @@ static (double MaxAbs, double MaxRel, double Scale, double Rms, bool Ok) Check(f
     double atol = atolScale * scale, maxAbs = 0, maxRel = 0, se = 0, sd = 0; bool ok = true;
     for (int i = 0; i < e.Length; i++)
     {
-        if (float.IsNaN(a[i]) || float.IsInfinity(a[i])) { if (float.IsNaN(e[i]) || float.IsInfinity(e[i]) && a[i] == e[i]) continue; return (double.NaN, double.NaN, scale, double.NaN, false); }
+        if (float.IsNaN(a[i]) || float.IsInfinity(a[i]))
+        {
+            if (float.IsNaN(e[i]) || float.IsInfinity(e[i]) && a[i] == e[i]) continue;
+            return (double.NaN, double.NaN, scale, double.NaN, false);
+        }
+
         if (float.IsNaN(e[i]) || float.IsInfinity(e[i])) continue;
         double d = Math.Abs((double)a[i] - e[i]); se += (double)e[i] * e[i]; sd += d * d;
         maxAbs = Math.Max(maxAbs, d); maxRel = Math.Max(maxRel, d / Math.Max(Math.Abs(e[i]), 1e-2 * scale));

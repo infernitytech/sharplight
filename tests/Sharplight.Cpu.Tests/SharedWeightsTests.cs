@@ -19,9 +19,15 @@ public class SharedWeightsTests
         var key = WeightBufferKey.For(tg.Weights["w"]);
         var device = new object();
         int allocations = 0;
-        var first = shared.Acquire(device, key, 16, () => { allocations++; return new Handle(); }, h => h.Freed = true);
-        var second = shared.Acquire(device, key, 16, () => { allocations++; return new Handle(); }, h => h.Freed = true);
-        var otherLayout = shared.Acquire(device, key with { Layout = "x" }, 16, () => { allocations++; return new Handle(); }, h => h.Freed = true);
+        Handle Allocate()
+        {
+            allocations++;
+            return new Handle();
+        }
+
+        var first = shared.Acquire(device, key, 16, Allocate, h => h.Freed = true);
+        var second = shared.Acquire(device, key, 16, Allocate, h => h.Freed = true);
+        var otherLayout = shared.Acquire(device, key with { Layout = "x" }, 16, Allocate, h => h.Freed = true);
         Assert.Same(first.Buffer, second.Buffer);
         Assert.True(first.MustFill);
         Assert.False(second.MustFill);

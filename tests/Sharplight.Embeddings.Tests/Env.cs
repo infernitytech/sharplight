@@ -1,8 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
 
@@ -18,8 +16,6 @@ internal static class Env
 
     static Env()
     {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
         AppDomain.CurrentDomain.ProcessExit += (_, _) => WriteSummary();
     }
 
@@ -35,7 +31,9 @@ internal static class Env
         }
     }
 
-    public static void Init() { }
+    public static void Init()
+    {
+    }
 
     public static JsonElement Reference(string name)
         => JsonDocument.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name + ".json"))).RootElement;
@@ -78,7 +76,13 @@ internal static class Env
         double ab = 0;
         double aa = 0;
         double bb = 0;
-        for (int i = 0; i < a.Length; i++) { ab += (double)a[i] * b[i]; aa += (double)a[i] * a[i]; bb += (double)b[i] * b[i]; }
+        for (int i = 0; i < a.Length; i++)
+        {
+            ab += (double)a[i] * b[i];
+            aa += (double)a[i] * a[i];
+            bb += (double)b[i] * b[i];
+        }
+
         return ab / Math.Sqrt(aa * bb);
     }
 

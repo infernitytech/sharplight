@@ -37,7 +37,10 @@ public class ModelHostTests
         }
 
         Assert.Equal(0, host.Get("a")!.ActiveLeases);
-        using (await host.AcquireAsync("a")) { }
+        using (await host.AcquireAsync("a"))
+        {
+        }
+
         Assert.Equal(1, l.Loads);
     }
 
@@ -232,7 +235,9 @@ public class ModelHostTests
         var ex = await Assert.ThrowsAsync<ModelBusyException>(() => host.UnloadAsync("a", TimeSpan.FromMilliseconds(50)));
         Assert.Contains("1 request", ex.Message);
         Assert.Equal(ModelState.Loaded, host.Get("a")!.State);   // stays loaded and usable
-        using (await host.AcquireAsync("a")) { }
+        using (await host.AcquireAsync("a"))
+        {
+        }
 
         var unload = host.UnloadAsync("a", TimeSpan.FromSeconds(5));
         await Task.Delay(30);

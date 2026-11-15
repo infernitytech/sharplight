@@ -11,11 +11,18 @@ namespace Sharplight.Llm.Embeddings;
 internal static class PackedModelLoader
 {
     /// <summary>Opens the model files at <paramref name="path"/>, builds its definition and creates its tokenizer.</summary>
-    internal static (ModelDefinition Def, ModelSource Source, ITokenizer Tokenizer) Open(string path, PackedModelLoadOptions o, AdapterOptions adapter)
+    internal static (ModelDefinition Def, ModelSource Source, ITokenizer Tokenizer) Open(ModelLoader loader, string path, PackedModelLoadOptions o, AdapterOptions adapter)
     {
+        ArgumentNullException.ThrowIfNull(loader);
+        ArgumentNullException.ThrowIfNull(o);
+        if (o.Devices.Count == 0)
+        {
+            throw new ArgumentException("Devices is empty: give at least one device.", nameof(o));
+        }
+
         var sw = Stopwatch.StartNew();
         bool halve = o.HalfPrecisionMatrices ?? o.Devices.FirstOrDefault()?.Device.Info.Kind is not (null or DeviceKind.Cpu);
-        var (def, source) = ModelLoader.Load(path, [], adapter, progress: null, o.Log, CancellationToken.None,
+        var (def, source) = loader.Load(path, [], adapter, progress: null, o.Log, CancellationToken.None,
             halve ? sources => new ModelSourceSet { Primary = HalfMatrices(sources.Primary), Auxiliary = sources.Auxiliary } : null);
         var tok = TokenizerFactory.Create(TokenizerData.FromMetadata(def.SourceMetadata));
         o.Log?.Invoke($"Loaded {def.Name} ({def.Architecture}): {def.Weights.Count} tensors, {def.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB, vocab {tok.VocabSize} [{sw.ElapsedMilliseconds} ms]");

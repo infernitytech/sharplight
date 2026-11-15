@@ -1,7 +1,5 @@
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm.Scoring;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
@@ -15,12 +13,6 @@ namespace Sharplight.Families.Tests;
 public class SpanScoringTests
 {
     private static readonly string Models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models");
-
-    static SpanScoringTests()
-    {
-        HuggingFaceImporter.Register();
-        GgufImporter.Register();
-    }
 
     /// <summary>(model path under ~/models, reference directory under ~/models, Vulkan, tolerance).</summary>
     public static TheoryData<string, string, bool, float> Cases()
@@ -52,7 +44,7 @@ public class SpanScoringTests
         string refPath = Path.Combine(Models, reference, "reference_scores.json");
         Assert.SkipUnless((Directory.Exists(path) || File.Exists(path)) && File.Exists(refPath), $"{path} or {refPath} not present");
         using var device = OpenDevice(vulkan);
-        using var scorer = SpanScorer.Load(path, new SpanScorerLoadOptions { Devices = [new DeviceSlot { Device = device }], MaxBatchTokens = 512 });
+        using var scorer = SpanScorer.Load(TestHost.Loader, path, new SpanScorerLoadOptions { Devices = [new DeviceSlot { Device = device }], MaxBatchTokens = 512 });
         using var json = JsonDocument.Parse(File.ReadAllText(refPath));
         foreach (var p in json.RootElement.GetProperty("prompts").EnumerateArray())
         {

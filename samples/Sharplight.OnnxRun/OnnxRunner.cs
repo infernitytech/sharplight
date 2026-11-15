@@ -57,14 +57,14 @@ internal sealed class OnnxRunner
             options.InputShapes[name] = shape;
         }
 
-        OnnxImporter.Register();
         if (!File.Exists(_settings.ModelPath))
         {
             throw new SampleException($"Model '{_settings.ModelPath}' does not exist.");
         }
 
         var source = Open(options);
-        var definition = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = source });
+        // No container needed for one format: an architecture catalog with the ONNX graph adapter builds the graph (a package's prebuilt one is used as is).
+        var definition = new ArchitectureCatalog([new OnnxGraphAdapter()]).Build(new ModelSourceSet { Primary = source });
         var graph = definition.Graph(OnnxGraphAdapter.MainGraph);
         _output.WriteLine(
             $"imported {Path.GetFileName(_settings.ModelPath)} in {stopwatch.ElapsedMilliseconds} ms: {graph.Nodes.Count} nodes, {definition.Weights.Count} weights, "

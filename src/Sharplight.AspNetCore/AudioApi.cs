@@ -14,8 +14,8 @@ namespace Sharplight.AspNetCore;
 /// <summary>
 /// OpenAI-compatible audio endpoints: <c>POST /v1/audio/transcriptions</c> and <c>POST /v1/audio/translations</c> (multipart form with
 /// <c>file</c> (WAV), <c>model</c>, <c>language</c>, <c>prompt</c>, <c>response_format</c> = <c>json</c> (default), <c>text</c>, <c>srt</c>,
-/// <c>vtt</c> or <c>verbose_json</c>, and <c>temperature</c>). Recognizers are registered with <see cref="AddSharplightSpeechRecognizer"/>;
-/// <c>MapSharplight</c> maps the endpoints when any is registered, or call <see cref="MapSharplightAudio"/>. Requests to one recognizer run
+/// <c>vtt</c> or <c>verbose_json</c>, and <c>temperature</c>). Recognizers are registered with <c>services.AddSharplightSpeechRecognizer(...)</c>;
+/// <c>MapSharplightServer</c> maps the endpoints when any is registered, or call <see cref="MapSharplightAudio"/>. Requests to one recognizer run
 /// one at a time (recognizers are not thread-safe; the recognizer queues them).
 /// </summary>
 /// <example>
@@ -28,58 +28,12 @@ namespace Sharplight.AspNetCore;
 /// </example>
 public static class AudioApi
 {
-    extension(IServiceCollection services)
-    {
-        /// <summary>Serves <paramref name="recognizer"/> on the audio endpoints under <paramref name="name"/>.</summary>
-        /// <param name="recognizer">The recognizer; the caller keeps ownership.</param>
-        /// <param name="name">The model name clients pass.</param>
-        public IServiceCollection AddSharplightSpeechRecognizer(ISpeechRecognizer recognizer, string name)
-        {
-            ArgumentNullException.ThrowIfNull(recognizer);
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            var models = services.AudioModels();
-            models.Recognizers[name] = recognizer;
-            models.DefaultRecognizer ??= name;
-            return services;
-        }
-
-        /// <summary>
-        /// Serves the container's <see cref="ISpeechRecognizer"/> (registered e.g. with <c>services.AddSpeechRecognizer(...)</c>; keyed when
-        /// <paramref name="serviceKey"/> is given) on the audio endpoints under <paramref name="name"/>. The model loads on the first request.
-        /// </summary>
-        /// <param name="name">The model name clients pass.</param>
-        /// <param name="serviceKey">The recognizer's service key, or <see langword="null"/> for the unkeyed one.</param>
-        public IServiceCollection AddSharplightSpeechRecognizer(string name, object? serviceKey = null)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            var models = services.AudioModels();
-            models.Lazy[name] = provider => serviceKey is null
-                ? provider.GetRequiredService<ISpeechRecognizer>()
-                : provider.GetRequiredKeyedService<ISpeechRecognizer>(serviceKey);
-            models.DefaultRecognizer ??= name;
-            return services;
-        }
-
-        private AudioModelRegistry AudioModels()
-        {
-            if (services.FirstOrDefault(d => d.ServiceType == typeof(AudioModelRegistry))?.ImplementationInstance is AudioModelRegistry existing)
-            {
-                return existing;
-            }
-
-            var models = new AudioModelRegistry();
-            services.AddSingleton(models);
-            services.AddSingleton(provider => models.Resolve(provider));
-            return models;
-        }
-    }
-
     extension(IEndpointRouteBuilder routes)
     {
         /// <summary>Maps <c>/v1/audio/transcriptions</c> and <c>/v1/audio/translations</c> (nothing when no recognizer is registered).</summary>
         public IEndpointRouteBuilder MapSharplightAudio()
         {
-            if (routes.ServiceProvider.GetService<AudioModelRegistry>() is null)
+            if (routes.ServiceProvider.GetService<AudioModelRegistrations>() is null)
             {
                 return routes;
             }

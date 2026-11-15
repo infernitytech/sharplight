@@ -25,7 +25,7 @@ public sealed class PackageTests
         string path = TempPackage("tiny-" + family);
         try
         {
-            ModelConverter.Convert(diffusers, path);
+            TestHost.Converter.Convert(diffusers, path);
             var info = ModelPackageReader.Open(path);
             Assert.True(info.Definition.HasDescription);
             Assert.Equal(ModelKinds.ImageGeneration, info.Definition.Description.Kind);
@@ -68,7 +68,7 @@ public sealed class PackageTests
         string path = TempPackage("tiny-sd-precompiled");
         try
         {
-            ModelConverter.Convert(Env.TinyDiffusers, path);
+            TestHost.Converter.Convert(Env.TinyDiffusers, path);
             var result = await PackagePrecompiler.PrecompileAsync(path, vulkan, device!, cancellationToken: TestContext.Current.CancellationToken);
             Assert.NotEmpty(result.StoredSets);
             var info = ModelPackageReader.Open(path);

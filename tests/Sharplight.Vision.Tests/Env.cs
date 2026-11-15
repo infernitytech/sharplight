@@ -1,7 +1,4 @@
 using Sharplight.Cpu;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
-using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
 
@@ -24,13 +21,6 @@ internal static class Env
     public static readonly string HfQwen25Vl3b = Path.Combine(Home, "models/hf/Qwen2.5-VL-3B-Instruct");
     public static readonly string GgufQwen25Vl3b = Path.Combine(Home, "models/gguf/Qwen2.5-VL-3B-Instruct/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf");
     public static readonly string MmprojQwen25Vl3b = Path.Combine(Home, "models/gguf/Qwen2.5-VL-3B-Instruct/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf");
-
-    static Env()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-        ModelPackageImporter.Register();
-    }
 
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
@@ -90,12 +80,7 @@ internal static class Env
         return (maxAbs, maxRel, Math.Sqrt(sq / Math.Max(refSq, 1e-30)));
     }
 
-    /// <summary>The task client factories registered by <c>AddSharplightTasks</c> that exist as instances (the vision clients').</summary>
+    /// <summary>The task client factories of the test container (<c>services.AddSharplight()</c>).</summary>
     public static IEnumerable<Sharplight.Tasks.ITaskClientFactory> TaskFactories()
-    {
-        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
-        Sharplight.Tasks.TaskServiceCollectionExtensions.AddSharplightTasks(services);
-        return services.Where(d => d.ServiceType == typeof(Sharplight.Tasks.ITaskClientFactory) && d.ImplementationInstance is not null)
-            .Select(d => (Sharplight.Tasks.ITaskClientFactory)d.ImplementationInstance!);
-    }
+        => Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetServices<Sharplight.Tasks.ITaskClientFactory>(TestHost.Services);
 }

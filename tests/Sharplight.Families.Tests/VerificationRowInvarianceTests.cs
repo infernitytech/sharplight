@@ -1,5 +1,3 @@
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Models;
@@ -21,12 +19,6 @@ public class VerificationRowInvarianceTests(ITestOutputHelper output)
     private const int Drafts = 3;
 
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    static VerificationRowInvarianceTests()
-    {
-        GgufImporter.Register();
-        HuggingFaceImporter.Register();
-    }
 
     /// <summary>
     /// Model, whether it is large, and the prompt length: Q8_0 runs few-row batches on the integer-dot matvec, FP8 on the skinny
@@ -61,7 +53,7 @@ public class VerificationRowInvarianceTests(ITestOutputHelper output)
         var devices = provider.GetDevices();
         var info = devices.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devices[0];
         using var device = provider.OpenDevice(info);
-        using var model = LlmModel.Load(path, new LlmLoadOptions
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = promptLength + 64, MaxBatchTokens = 512, DeviceSampling = false,
         });

@@ -6,9 +6,10 @@ protobuf reader (`ProtoReader.cs`, `OnnxParser.cs`) and exposes initializers as 
 `ComputeGraph` named `main`.
 
 ```csharp
-OnnxImporter.Register();                                   // importer + adapter
+services.AddOnnxImporter();                                // importer + adapter, for the container's ModelLoader
+// or without a container:
 var src = OnnxImporter.Open("model.onnx", new OnnxImportOptions { InputShapes = { ["pixel_values"] = [-1, 3, 224, 224] } });
-var def = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = src });
+var def = new ArchitectureCatalog([new OnnxGraphAdapter()]).Build(new ModelSourceSet { Primary = src });
 // compile with CompileOptions.SymbolBounds["N"] = max batch
 ```
 

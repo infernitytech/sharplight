@@ -126,6 +126,8 @@ public class ChatClientPipelineTests
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
         public object? GetService(Type serviceType, object? serviceKey = null) => null;
-        public void Dispose() { }
+        public void Dispose()
+        {
+        }
     }
 }

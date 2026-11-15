@@ -8,23 +8,22 @@ using Sharplight.Tasks;
 
 namespace Sharplight.GenerateImage;
 
-/// <summary>Resolves an <see cref="IImageGenerator"/> from the service container and runs one request, writing PNGs.</summary>
+/// <summary>Loads the model through the <see cref="SampleRuntime"/> container, creates its <see cref="IImageGenerator"/> and runs one request, writing PNGs.</summary>
 internal sealed class ImageGenerationRunner(GenerateImageSettings settings)
 {
     public async Task<int> RunAsync(CancellationToken cancellationToken)
     {
-        var services = new ServiceCollection().AddSharplight();
-        var provider = SampleRuntime.SelectProvider(settings.Cpu);
-        var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.Device));
-        services.AddImageGenerator(o =>
-        {
-            o.ModelPath = settings.Model;
-            o.Devices = [new DeviceSlot { Device = device }];
-            o.Log = message => Console.Error.WriteLine(message.Split('\n')[0]);
-        });
-        await using var container = services.BuildServiceProvider();
+        using var runtime = new SampleRuntime();
+        var provider = runtime.SelectProvider(settings.Cpu);
+        using var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.Device));
         var stopwatch = Stopwatch.StartNew();
-        var generator = container.GetRequiredService<IImageGenerator>();
+        using var model = await TaskModel.LoadAsync(runtime.Loader, new TaskLoadOptions
+        {
+            ModelPath = settings.Model,
+            Devices = [new DeviceSlot { Device = device }],
+            Log = message => Console.Error.WriteLine(message.Split('\n')[0]),
+        }, cancellationToken);
+        using var generator = runtime.Services.GetRequiredService<TaskClientProvider>().Create<IImageGenerator>(model);
         Console.WriteLine($"Loaded {generator.Metadata.ModelName} ({generator.Metadata.Architecture}) on {device.Info.Name} in {stopwatch.Elapsed.TotalSeconds:F1} s");
         stopwatch.Restart();
         ImageGenerationResult? result = null;

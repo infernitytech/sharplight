@@ -12,20 +12,17 @@
 // "check" is the header-only verdict as the compatibility check computes it (architecture mapped, every tensor type known and with
 // kernels); "import" is what the real import does.
 using System.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
-using Sharplight.Architectures;
 using Sharplight.Cpu;
 using Sharplight.Hub;
-using Sharplight.Import.Gguf;
-using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Templating;
 using ModelSweep;
 
-BuiltinAdapters.RegisterAll();
-GgufImporter.Register();
-HuggingFaceImporter.Register();
+using var services = SharplightDefaults.CreateServiceProvider();
+var loader = services.GetRequiredService<ModelLoader>();
 
 if (args.Length < 2)
 {
@@ -378,7 +375,7 @@ namespace ModelSweep
             var sw = Stopwatch.StartNew();
             try
             {
-                using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [], ContextLength = 4096 });
+                using var model = LlmModel.Load(loader, path, new LlmLoadOptions { Devices = [], ContextLength = 4096 });
                 var kernels = model.Definition.Weights.Values.Select(w => w.Type).Distinct().Where(type => !CpuExecutionProvider.SupportsWeightType(type)).ToList();
                 import = kernels.Count == 0 ? $"ok {model.Definition.Architecture}" : $"NO KERNEL {string.Join(",", kernels.Select(k => k.Name))}";
                 try

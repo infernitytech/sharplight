@@ -8,7 +8,12 @@ public class SamplingTests
     {
         var s = new RequestSampler(p, prompt ?? []);
         var res = new int[n];
-        for (int i = 0; i < n; i++) { res[i] = s.Sample(logits); s.Accept(res[i]); }
+        for (int i = 0; i < n; i++)
+        {
+            res[i] = s.Sample(logits);
+            s.Accept(res[i]);
+        }
+
         return res;
     }
 

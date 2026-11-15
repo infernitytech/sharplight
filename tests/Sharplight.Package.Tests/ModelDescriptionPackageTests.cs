@@ -75,7 +75,7 @@ public class ModelDescriptionPackageTests
         var source = new ModelPackageImporter().Open(path);
         try
         {
-            var definition = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = source });
+            var definition = TestHost.Loader.Build(new ModelSourceSet { Primary = source });
             Assert.Null(definition.Description);
             Assert.Empty(definition.Attachments);
             var resolved = ModelDescription.Resolve(definition);
@@ -133,11 +133,11 @@ public class ModelDescriptionPackageTests
         using var tmp = new TempDir();
         var path = tmp.File("speech.slm");
         ModelPackage.Save(path, SpeechDefinition(), []);
-        ModelPackageImporter.Register();
 
         EncoderOnlyRecognizer? created = null;
         var services = new ServiceCollection()
             .AddSharplightTasks()
+            .AddPackageImporter()
             .AddTaskClientFactory<ISpeechRecognizer>(ModelKinds.SpeechRecognition, model => created = new EncoderOnlyRecognizer(model))
             .AddSpeechRecognizer(options =>
             {

@@ -32,7 +32,7 @@ namespace Sharplight.Llm.Serving;
 /// </summary>
 /// <example>
 /// <code>
-/// using var model = LlmModel.Load(path, loadOptions);
+/// using var model = LlmModel.Load(loader, path, loadOptions);
 /// using var engine = new InferenceEngine(model.CreateBatchDecoder(slots: 4), model.Tokenizer);
 /// var request = new GenerationRequest
 /// {
@@ -319,7 +319,10 @@ public sealed class InferenceEngine : IDisposable
     /// Stops admitting requests and waits until queued and running ones finished. Returns false when <paramref name="timeout"/>
     /// elapsed first (the remaining requests are then cancelled). Call <see cref="Dispose"/> afterwards.
     /// </summary>
-    public async Task<bool> DrainAsync(TimeSpan timeout)
+    /// <param name="timeout">How long to wait for running requests.</param>
+    /// <param name="cancellationToken">Stops waiting; admission stays closed.</param>
+    /// <returns>True when every request finished in time.</returns>
+    public async Task<bool> DrainAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
@@ -331,7 +334,8 @@ public sealed class InferenceEngine : IDisposable
 
             Monitor.PulseAll(_gate);
         }
-        var done = await Task.WhenAny(_idle.Task, Task.Delay(timeout)).ConfigureAwait(false) == _idle.Task;
+        var done = await Task.WhenAny(_idle.Task, Task.Delay(timeout, cancellationToken)).ConfigureAwait(false) == _idle.Task;
+        cancellationToken.ThrowIfCancellationRequested();
         if (!done)
         {
             CancelAll();
