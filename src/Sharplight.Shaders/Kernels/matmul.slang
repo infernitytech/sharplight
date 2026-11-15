@@ -14,6 +14,13 @@
 #ifndef MOE
 #define MOE 0
 #endif
+// MM_EPI (gemm_cm2 with GEMM_SPLIT and SPLITK 1, splitk_reduce): the including generated source defines
+// `float mm_epi(float m0, float a0, float a1, float a2)`, an elementwise group applied to each result m0 in the store, which
+// reads up to three extra tensors (Params e0 .. e2, access kinds MM_EPI_K0 .. MM_EPI_K2, see mm_epi_arg); y is the group's
+// output, dense with Y_STRIDE = N.
+#ifndef MM_EPI
+#define MM_EPI 0
+#endif
 // X_SORTED (with MOE and X_F16): x holds the routed rows in expert-sorted order (moe_gather_x16 in moe.slang, X_STRIDE = K), so
 // the rows of a tile are the dense rows rowOffset .. rowOffset + rows - 1.
 #ifndef X_SORTED
@@ -40,8 +47,45 @@ struct Params
 #if BIAS
     float* bias;
 #endif
+#if MM_EPI && MM_EPI_ARGS > 0
+    float* e0;   // the epilogue's tensors (MM_EPI_ARGS of them)
+#endif
+#if MM_EPI && MM_EPI_ARGS > 1
+    float* e1;
+#endif
+#if MM_EPI && MM_EPI_ARGS > 2
+    float* e2;
+#endif
     uint T;
 };
+
+#if MM_EPI
+// Element of epilogue tensor e for output (t, n): kind 0 one scalar, 1 a row vector over the output columns, 2 a dense
+// tensor of the output's shape.
+float mm_epi_arg(float* e, uint kind, uint64_t t, uint n)
+{
+    return kind == 0 ? e[0] : kind == 1 ? e[n] : e[t * N + n];
+}
+
+// The product v of output (t, n) through the generated epilogue mm_epi (the fused elementwise group).
+float mm_store_value(float v, Params p, uint64_t t, uint n)
+{
+    float a0 = 0, a1 = 0, a2 = 0;
+#if MM_EPI_ARGS > 0
+    a0 = mm_epi_arg(p.e0, MM_EPI_K0, t, n);
+#endif
+#if MM_EPI_ARGS > 1
+    a1 = mm_epi_arg(p.e1, MM_EPI_K1, t, n);
+#endif
+#if MM_EPI_ARGS > 2
+    a2 = mm_epi_arg(p.e2, MM_EPI_K2, t, n);
+#endif
+    return mm_epi(v, a0, a1, a2);
+}
+#define MM_STORE(v, t, n) mm_store_value(v, p, t, n)
+#else
+#define MM_STORE(v, t, n) (v)
+#endif
 
 // MV_FMA_CHAIN (row-invariant compiles): the products of one 8-weight group in a fixed order of fused multiply-adds, so
 // that every compiled variant (any MV_COLS) rounds a row's sum the same way. Otherwise the plain sum, which the driver
@@ -1143,7 +1187,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             {
                 uint w = lane + e * 32;
                 uint t = t0 + wm + i * 16 + w / 16;
-                if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = gC[sg * 256 + w] * xr[e] * wr;
+                if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = MM_STORE(gC[sg * 256 + w] * xr[e] * wr, t, n);
             }
             GroupMemoryBarrierWithWaveSync();
         }
@@ -1196,7 +1240,7 @@ void splitk_reduce(uint3 dtid : SV_DispatchThreadID, uniform Params p)
     if (i >= total) return;
     float s = 0;
     [ForceUnroll] for (uint z = 0; z < SPLITK; z++) s += p.x[z * total + i];
-    p.y[(i / N) * Y_STRIDE + i % N] = s;
+    p.y[(i / N) * Y_STRIDE + i % N] = MM_STORE(s, i / N, uint(i % N));
 }
 #endif
 

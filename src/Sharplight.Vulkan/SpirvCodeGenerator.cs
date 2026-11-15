@@ -17,8 +17,10 @@ internal sealed class SpirvCodeGenerator
     /// <summary>Artifact kind of the code tier.</summary>
     public const string CodeKind = "spirv";
 
-    public SpirvCodeGenerator(int subgroupSize, long maxSharedMemory, IReadOnlySet<string> enabledFeatures, double submissionBudgetMs, string kernelCacheDirectory)
+    public SpirvCodeGenerator(int subgroupSize, long maxSharedMemory, IReadOnlySet<string> enabledFeatures, double submissionBudgetMs, int concurrentWorkgroups,
+        string kernelCacheDirectory)
     {
+        ConcurrentWorkgroups = concurrentWorkgroups;
         SubgroupSize = subgroupSize;
         MaxSharedMemory = maxSharedMemory;
         EnabledFeatures = enabledFeatures;
@@ -38,6 +40,9 @@ internal sealed class SpirvCodeGenerator
 
     /// <summary>Effective submission budget in ms (0 = unlimited).</summary>
     public double SubmissionBudgetMs { get; }
+
+    /// <summary>See <see cref="DeviceInfo.ConcurrentWorkgroups"/>.</summary>
+    public int ConcurrentWorkgroups { get; }
 
     public SlangCompiler Compiler { get; }
 
@@ -80,6 +85,7 @@ internal sealed class SpirvCodeGenerator
             Features = options.FeaturesFor(device),
             Compile = options,
             SubmissionBudgetMs = SubmissionBudgetMs,
+            ConcurrentWorkgroups = ConcurrentWorkgroups,
             Cache = cache,
         });
         // Variants of different launches often share one kernel.
@@ -105,6 +111,7 @@ internal sealed class SpirvCodeGenerator
         MaxSharedMemory = MaxSharedMemory,
         Features = [.. EnabledFeatures.Order(StringComparer.Ordinal)],
         SubmissionBudgetMs = SubmissionBudgetMs,
+        ConcurrentWorkgroups = ConcurrentWorkgroups,
         Properties = properties,
     };
 

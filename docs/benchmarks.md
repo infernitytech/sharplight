@@ -3917,3 +3917,231 @@ DOTNET_TC_QuickJitForLoops=1 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/Onn
   * Winograd F(4x4, 3x3) on the channels-last layout for 64 / 128-channel 3x3 convs;
   * mobilenetv2 b8 and efficientnet-lite4 at 1.04-1.06x;
   * encoder GEMMs stream each layer's weights from DRAM.
+
+## 31. ONNX parity round 6: matmul store epilogues, f32 encoder attention and device-sized tiles for GPUs without matrix units, faster detection re-recording (2026-11-15)
+
+Same machine and harness as section 30 (`bench/onnx/parity_bench.py`, interleaved rounds, ORT 1.31 in the same
+session). Raw data is in `bench/results/s31/`. The GPU and CPU were shared with other workloads throughout.
+
+When the first GPU pass started, another workload held the GPU at 100 % (`gpu-load-start.txt`). The encoder and conv
+models therefore ran again in a second pass of 3 interleaved rounds (`gpu-rerun.jsonl`), and their table cells come
+from that rerun. The rerun minima match the first pass within 0.05 ms, except convnext b1 (1.29 → 1.18).
+
+### 31.1 What changed
+
+* **Matmul store epilogues**: an elementwise group that consumes a weight matmul (bias, GELU, layer scale, residual
+  add) runs in the split-f16 GEMM's store and in its split-K reduction, instead of as a separate launch.
+  * The group is generated like the conv epilogue: `mm_epi(m0, a0, a1, a2)` reads up to three extra tensors (scalar,
+    per-column vector or full output).
+  * Matvec row counts (up to 8) keep the separate launch.
+  * `SHARPLIGHT_NO_MATMUL_EPILOGUE=1` restores the separate launch.
+* **Vulkan encoder flash attention (`fe`)**:
+  * packed f16 tile staging and coalesced output stores;
+  * a score layout without bank conflicts;
+  * P·V sums per key tile, added to the rescaled f32 output. This also fixes the precision of a single key range.
+  * whisper-tiny's attention went from 1.62 to 1.45 ms of GPU time per inference.
+* **64-token split-f16 GEMM tiles up to 256 rows**:
+  * The 128-token tiles hold two accumulator sets in about 220 registers, so one workgroup fits per SM. A few hundred
+    rows left those grids to deep K splits.
+  * vit-base b1 went from 2.18 to 2.00 ms of GPU time.
+  * bert-base's 128-row matmuls move from the SIMT GEMM to the tensor cores.
+  * Wide outputs (vocabulary heads) keep 128-token tiles.
+* **LayerNorm over channel-strided views in place** (`layernorm_cs`):
+  * The channels-last Transpose that feeds ConvNeXt's LayerNorm used to be copied to a dense tensor first.
+  * It is now read in place: 32 rows per workgroup, through shared-memory transposes, coalesced on both sides.
+  * convnext-tiny GPU time: b1 1.27 → 1.18 ms, b8 3.48 → 3.45 ms.
+  * `SHARPLIGHT_NO_STRIDED_LAYERNORM=1` restores the copy.
+* **`conv_narrow` for convs with up to 8 output channels** (flow, depth and mask heads):
+  * The implicit GEMMs' smallest tiles cover 32 output channels, so these convs mostly computed padding.
+  * conv_narrow puts 32 pixels in a workgroup and splits the input channels over its subgroups, with uniform weight
+    reads.
+  * raft-large's [256 → 2 3x3] flow head went from 129 to 22 µs. It runs 12 times per inference.
+  * `SHARPLIGHT_NO_NARROW_CONV=1` disables it.
+* **Re-recording for a new data-dependent count**: 2-3 ms → 0-1 ms for the 230 launches of the R-CNN box heads.
+  * Every symbol lookup re-parsed its count expression (5-10 µs per launch). `Bindings` now memoize the evaluated
+    expressions.
+  * The barrier placement is cached by the set of launches that run, which a new count rarely changes.
+* **Devices without matrix units** (integrated GPUs, llvmpipe, the `sl-vulkan-simt` engine):
+  * **`fes` attention.** Bidirectional attention ran the per-query kernel, which re-reads every key for each query:
+    16.5 ms per vit-base layer on the integrated GPU.
+    * `fes` is an f32 flash kernel. Each workgroup handles 64 queries, one per thread, with the K / V tiles in shared
+      memory.
+    * It serves the same forms as `fe` (masks, batched, cross, key ranges) for head sizes up to 64.
+    * `SHARPLIGHT_ATTN_FES=0` disables it.
+  * **`DeviceInfo.ConcurrentWorkgroups`** (also in `DeviceProfile`) is a sizing hint.
+    * It is 64 for integrated GPUs and CPU implementations, and 0 for discrete GPUs (unknown, sized as before).
+    * The SIMT GEMM's split-K target and the conv and bmm tilings use it.
+    * Small devices take the 128 x 128 `gemm_wide` tile from 128 rows. On a device that runs a few dozen
+      workgroups at once, K splits only added partial-sum traffic.
+
+### 31.2 GPU: Sharplight Vulkan vs onnxruntime CUDA EP
+
+* Cells are min / median ms over the rounds.
+* §30 is section 30's `sl-vulkan` min.
+* (!) marks a parity failure against the stored reference. The reduced-precision engine (`sl-vulkan-rp`) fails parity
+  by design on several models. phi3.5 fails on every engine, as in section 30.
+
+| model | batch | §30 | sl-vulkan | sl-vulkan-simt | sl-vulkan-rp | ort-cuda | ort-cuda-strict | SL / ORT (§30) | SL / ORT |
+|---|---|---|---|---|---|---|---|---|---|
+| resnet50 | 1 | 0.77 | 0.74 / 0.75 | 0.81 | 0.71 (!) | 0.99 | 2.10 | 0.75x | **0.75x** |
+| resnet50 | 8 | 2.28 | 2.27 / 2.31 | 3.09 | 1.93 (!) | 1.97 | 3.67 | 1.13x | 1.15x |
+| convnext-tiny | 1 | - | 1.18 / 1.20 | 1.22 | 1.21 | 1.01 | 1.41 | - | 1.17x |
+| convnext-tiny | 8 | 3.65 | 3.50 / 3.62 | 3.96 | 2.65 (!) | 2.54 | 3.97 | 1.42x | 1.38x |
+| efficientnet-lite4 | 1 | 0.75 | 0.75 / 0.82 | 0.83 | 0.75 | 0.67 | 7.72 | 1.09x | 1.12x |
+| mobilenetv2 | 8 | 0.69 | 0.69 / 0.71 | 0.72 | 0.67 (!) | 0.75 | 1.34 | 0.92x | **0.92x** |
+| yolov8n | 1 | - | 1.27 / 1.40 | 1.35 | 1.31 (!) | 1.31 | 2.76 | - | **0.97x** |
+| yolov10n | 1 | 1.19 | 1.19 / 1.24 | 1.26 | 1.24 (!) | 1.18 | 2.30 | 0.98x | 1.01x |
+| ssd-10 (NMS) | 1 | 12.38 | 12.01 / 12.59 (!) | 16.51 (!) | 8.02 (!) | 10.94 | 22.38 | 1.11x | 1.10x |
+| bert-base (16 tok) | 1 | 1.27 | 1.19 / 1.21 | 1.17 | 1.15 (!) | 1.23 | 1.42 | 0.91x | **0.97x** |
+| bert-base (16 tok) | 8 | 3.46 | 3.26 / 3.41 | 3.46 | 3.29 (!) | 2.58 | 3.20 | 1.27x | 1.26x |
+| vit-base | 1 | 2.36 | 2.04 / 2.06 | 2.37 | 1.89 | 1.34 | 2.46 | 1.71x | 1.52x |
+| vit-base | 8 | 8.06 | 7.24 / 7.59 | 9.31 | 4.55 (!) | 3.88 | 8.98 | 2.03x | 1.87x |
+| whisper-tiny-encoder | 1 | 1.78 | 1.53 / 1.56 | 1.66 | 1.15 (!) | 1.15 | 2.03 | 1.49x | 1.33x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | - | 3.11 / 3.29 | 3.12 | 2.45 (!) | 3.84 | 3.81 | - | **0.81x** |
+| phi3.5-mini q4f16 (GQA) | 1 | - | 4.61 / 5.16 (!) | 4.56 (!) | 3.52 (!) | 3.38 | 3.36 | - | 1.36x |
+| segformer-b0 | 1 | - | 2.86 / 2.91 | 2.85 | 2.77 | 2.29 | 3.30 | - | 1.25x |
+| segformer-b0 | 8 | 20.98 | 20.68 / 21.07 | 21.24 | 18.84 | 19.18 | 22.32 | 1.07x | 1.08x |
+| mobilesam-encoder | 1 | 5.26 | 4.99 / 5.94 | 5.67 | 4.29 (!) | 6.00 | 7.80 | 0.86x | **0.83x** |
+| raft-large | 1 | 37.82 | 36.14 / 36.58 | 46.92 | 33.70 (!) | 28.52 | 70.01 | 1.29x | 1.27x |
+| fasterrcnn-12 (counts) | 1 | 9.68 | 8.68 / 10.21 | 10.19 | 7.56 | 7.55 | 13.07 | 1.22x | 1.15x |
+| maskrcnn-12 (counts) | 1 | 9.48 | 9.57 / 10.41 | 11.03 | 8.32 | 7.43 | 13.19 | 1.25x | 1.29x |
+
+* **The encoders gained 6-14 %:**
+  * vit b1 2.36 → 2.04 ms and vit b8 8.06 → 7.24 ms;
+  * whisper 1.78 → 1.53 ms;
+  * bert b8 3.46 → 3.26 ms.
+* **Against ORT with TF32 off**, the same models run at 0.81-0.83x (vit b8, b1), 0.75x (whisper) and 1.02x (bert b8).
+* **Most of the remaining gap to TF32 ORT is structural.**
+  * The strict split GEMM forms three f16 products per multiply-add (hi·hi + hi·lo + lo·hi). TF32 forms one product
+    with 10 mantissa bits.
+  * At equal efficiency that costs about 1.5x the time.
+  * vit b8's [768 → 3072] GEMM runs at about 146 f16-equivalent TFLOPS.
+* **With reduced precision** (opt-in), vit b8 takes 4.55 ms and whisper 1.15 ms: 1.17x and 1.0x of TF32 ORT.
+
+Detection with a new image every run (`detection-ab.log`):
+
+* `--vary-input`, 30 runs, 3 interleaved rounds;
+* "old" is `main` before this round;
+* times in ms.
+
+| model | wall min, old → new | wall median, old → new | GPU min | mean re-recording, old → new |
+|---|---|---|---|---|
+| fasterrcnn-12 | 9.52 → 9.09 | 10.24-11.51 → 9.68-10.60 | 8.27-8.34 | 0.1-1.1 → 0.0 |
+| maskrcnn-12 | 10.65 → 10.01 | 14.12-16.30 → 10.99-11.38 | 9.03-9.08 | 1.1-1.5 → 0.0-0.1 |
+
+### 31.3 Integrated GPU (no matrix units)
+
+Setup (`igpu-ab.log`):
+
+* AMD Radeon integrated graphics (RDNA2, 2 CUs, RADV);
+* batch 1, strict precision;
+* min wall ms of 5 runs, over 2 rounds interleaved with `main`.
+
+All runs pass parity.
+
+| model | main | this round | speedup |
+|---|---|---|---|
+| whisper-tiny-encoder | 2424 | 152 | 16x |
+| vit-base | 404 | 126 | 3.2x |
+| resnet50 | 72.8 | 53.6 | 1.36x |
+| convnext-tiny | 67.3 | 53.8 | 1.25x |
+| mobilenetv2 | 8.62 | 7.44 | 1.16x |
+| bert-base (16 tok) | 36.7 | 35.2 | 1.04x |
+
+* **whisper and vit gain from `fes`.** The per-query kernel took 16.5 ms per vit layer; `fes` takes 1.3 ms.
+* **The GEMMs and convs gain from sizing by `ConcurrentWorkgroups`.**
+  * vit's [768 → 3072] at 197 rows went from 4.5 to 2.8 ms (`gemm_wide`, no split).
+  * resnet50's 3x3 convs dropped by 20-30 %.
+
+### 31.4 CPU: Sharplight vs onnxruntime CPU EP (16 threads)
+
+No CPU kernel changed in this round. Setup:
+
+* one session, 2 interleaved rounds;
+* the 1-minute load average was 2-12 (`cpu-load.log`);
+* cells are min / median ms; §30 is section 30's `sl-cpu` min.
+
+| model | batch | §30 | sl-cpu | ort-cpu | SL / ORT |
+|---|---|---|---|---|---|
+| resnet50 | 1 | 4.61 | 4.09 / 9.01 | 5.24 | **0.78x** |
+| resnet50 | 8 | 23.13 | 21.29 / 39.27 | 20.34 | 1.05x |
+| convnext-tiny | 1 | 13.23 | 12.72 / 18.78 | 12.14 | 1.05x |
+| convnext-tiny | 8 | 76.23 | 60.17 / 95.62 | 74.96 | **0.80x** |
+| efficientnet-lite4 | 1 | 4.19 | 3.17 / 4.36 | 3.71 | **0.86x** |
+| mobilenetv2 | 1 | 0.98 | 0.60 / 0.76 | 1.55 | **0.38x** |
+| mobilenetv2 | 8 | 6.96 | 5.55 / 8.56 | 5.77 | **0.96x** |
+| yolov8n | 1 | 7.79 | 7.88 / 15.47 | 12.27 | **0.64x** |
+| yolov10n | 1 | 9.32 | 7.56 / 10.87 | 14.87 | **0.51x** |
+| bert-base (16 tok) | 1 | 9.82 | 9.07 / 13.29 | 10.78 | **0.84x** |
+| bert-base (16 tok) | 8 | 20.41 | 17.81 / 25.09 | 24.75 | **0.72x** |
+| vit-base | 1 | 21.31 | 23.91 / 36.09 | 21.75 | 1.10x |
+| vit-base | 8 | 140.08 | 120.25 / 171.04 | 124.83 | **0.96x** |
+| whisper-tiny-encoder | 1 | 21.49 | 19.80 / 35.74 | 37.47 | **0.53x** |
+| segformer-b0 | 1 | 23.27 | 21.56 / 29.40 | 39.96 | **0.54x** |
+| segformer-b0 | 8 | 236.00 | 209.85 / 245.21 | 453.68 | **0.46x** |
+| mobilesam-encoder | 1 | 130.88 | 112.76 / 161.14 | 198.77 | **0.57x** |
+
+* The Sharplight medians run 1.4-2x their minima, against 1.05-1.1x for ORT. At this load only the minima are
+  comparable.
+* Three CPU rows are above ORT: resnet50 b8 (1.05x), convnext b1 (1.05x) and vit b1 (1.10x).
+
+### 31.5 Correctness and tests
+
+New tests:
+
+* `MatMulEpilogueTests`: bias + GELU and bias · γ + residual, at the matvec, split-K and plain GEMM row counts.
+* `RowOpTests.LayerNormChannelsLastView`.
+* `ConvTests.NarrowOutputs` and `NarrowOutputsSlicedDilated`: f32, f16 and bf16 weights, strides, dilation and a
+  sliced input.
+* `FullAttentionTests.WithoutMatrixUnits`: `fes` with the matrix features disabled, covering masks, the batched and
+  cross forms, and key ranges.
+
+The attention, conv, SIMT GEMM, row-op and matmul classes (253 tests) also pass on the integrated GPU
+(`SHARPLIGHT_TEST_DEVICE=1`).
+
+Suites on the branch merged with `main`, one at a time:
+
+| suite | result |
+|---|---|
+| Cpu | 1265 tests, 0 failed, 36 skipped |
+| Vulkan | 1333 tests, 0 failed, 22 skipped |
+| Onnx (`-parallelMode none`) | 442 passed |
+| Package | 32 passed |
+| Families | 833 tests, 0 failed, 36 skipped |
+
+Conformance report (cpu and vulkan): 1829 of 1884 node tests and 170 of 172 extra tests pass on both providers, as in
+section 30.
+
+### 31.6 Commands
+
+```bash
+export SHARPLIGHT_ONNX_MODELS=~/models/onnx ORT_PYTHON=~/venvs/ort/bin/python3   # plus the CUDA libs of bench/onnx/env.sh
+python3 bench/onnx/parity_bench.py run gpu.jsonl --rounds 2 --engines sl-vulkan,sl-vulkan-simt,sl-vulkan-rp,ort-cuda,ort-cuda-strict
+python3 bench/onnx/parity_bench.py run cpu.jsonl --rounds 2 --engines sl-cpu,ort-cpu
+dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/vit-base-patch16-224.json vulkan --device 1 --runs 5
+SHARPLIGHT_LOAD_TIMING=1 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/survey/maskrcnn-12.json vulkan --vary-input
+```
+
+### 31.7 Open gaps
+
+* **Vulkan encoders against TF32 ORT**: vit b8 1.87x, vit b1 1.52x, whisper 1.33x, bert b8 1.26x.
+  * The split GEMM's three products cost about 1.5x of TF32 by construction.
+  * Its 128-token tiles run one workgroup per SM (about 220 registers).
+  * The activation split is a pre-pass (`split_rows`, 0.2-0.5 ms per vit b8 inference). Fusing it into the
+    producing LayerNorm / GELU would remove it.
+* **convnext b8 (1.38x)**:
+  * its 25088-row [96 ↔ 384] GEMMs have only 3-12 K steps and run at 27-40 f16-equivalent TFLOPS;
+  * the split-K reductions add 0.3 ms.
+* **raft (1.27x)**:
+  * the split convs (1.5x structural);
+  * the correlation volume on the SIMT bmm (1.1 ms);
+  * about 290 small concats per inference.
+* **Detection**: Faster / Mask R-CNN run at 1.15-1.29x of ORT on GPU time.
+* **CPU fallback**: ScatterND over a symbolic axis (qwen2.5 MatMulNBits) is the last one in the benchmark set.
+* **CPU**:
+  * Winograd F(4x4, 3x3) on the channels-last layout;
+  * vit b1 (1.10x) and resnet50 b8 (1.05x);
+  * encoder GEMMs stream each layer's weights from DRAM.
+* **Devices without matrix units**:
+  * `fes` serves head sizes up to 64 only.
+  * `ConcurrentWorkgroups` is a per-device-type heuristic, not a query of the compute units.
