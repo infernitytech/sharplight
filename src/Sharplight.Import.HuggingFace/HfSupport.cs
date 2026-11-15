@@ -18,7 +18,7 @@ public static class HfSupport
     private static readonly HashSet<string> s_unsupportedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
         "aqlm", "hqq", "eetq", "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
-        "spqr", "auto-round", "autoround", "fp_quant",
+        "spqr", "fp_quant",
     };
 
     /// <summary>ModelOpt algorithms whose weights are read (<see cref="HfFp8Weights"/>, <see cref="HfFp4Weights"/>).</summary>
@@ -136,6 +136,8 @@ public static class HfSupport
                 return Gptq(method, settings);
             case "awq":
                 return Awq(method, settings);
+            case "auto-round" or "autoround" or "intel/auto-round":
+                return AutoRound(settings);
             case "bitsandbytes":
                 return new HfQuantizationSupport(method, SupportLevel.Supported);
             case "quark":
@@ -152,6 +154,21 @@ public static class HfSupport
         string format = String(settings, "checkpoint_format") ?? "gptq";
         bool read = bits is 2 or 3 or 4 or 8 && format is "gptq" or "gptq_v2";
         return new HfQuantizationSupport(string.Create(CultureInfo.InvariantCulture, $"{method} ({bits}-bit)"), read ? SupportLevel.Supported : SupportLevel.Unsupported);
+    }
+
+    /// <summary>AutoRound: integer weights packed like GPTQ or AWQ GEMM (<see cref="HfAutoRound"/>).</summary>
+    private static HfQuantizationSupport AutoRound(JsonElement settings)
+    {
+        string? layout = HfAutoRound.Layout(settings);
+        int bits = HfPackedBits.Int(settings, "bits", 4);
+        bool read = layout switch
+        {
+            "gptq" => bits is 2 or 3 or 4 or 8,
+            "awq" => bits == 4,
+            _ => false,
+        };
+        return new HfQuantizationSupport(string.Create(CultureInfo.InvariantCulture, $"auto-round ({layout ?? String(settings, "packing_format") ?? "unknown"}, {bits}-bit)"),
+            read ? SupportLevel.Supported : SupportLevel.Unsupported);
     }
 
     /// <summary>AWQ: 4-bit codes in the <c>gemm</c> and <c>gemv</c> layouts (<see cref="HfAwqLayouts"/>).</summary>

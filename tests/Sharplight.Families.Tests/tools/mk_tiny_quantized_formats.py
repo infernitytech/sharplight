@@ -105,8 +105,30 @@ def main():
             shutil.rmtree(out, ignore_errors=True)
 
 
+def autoround_case(base, out, fmt, bits, group, sym):
+    """AutoRound (CPU, two tuning iterations: the packing is what the importer reads, not the rounding quality)."""
+    from auto_round import AutoRound
+    from transformers import AutoModelForCausalLM
+    model = AutoModelForCausalLM.from_pretrained(base, dtype=torch.float16)
+    tokenizer = AutoTokenizer.from_pretrained(base)
+    data = [" ".join(str(i) for i in range(j, j + 80)) for j in range(16)]
+    tuner = AutoRound(model, tokenizer, bits=bits, group_size=group, sym=sym, iters=2, nsamples=8, seqlen=64, batch_size=4, device="cpu",
+                      dataset=data, low_gpu_mem_usage=False)
+    tuner.quantize_and_save(out, format=fmt)
+    inner = [d for d in os.listdir(out) if os.path.isdir(os.path.join(out, d))]
+    if inner:   # AutoRound saves into <out>/<model>-w<bits>g<group>/
+        for name in os.listdir(os.path.join(out, inner[0])):
+            shutil.move(os.path.join(out, inner[0], name), os.path.join(out, name))
+        os.rmdir(os.path.join(out, inner[0]))
+
+
 def extra_cases(base, out_dir):
-    return []
+    return [
+        ("autoround-gptq-4bit-sym", lambda out: autoround_case(base, out, "auto_round:auto_gptq", 4, 128, True)),
+        ("autoround-gptq-4bit-asym-g32", lambda out: autoround_case(base, out, "auto_round:auto_gptq", 4, 32, False)),
+        ("autoround-gptq-2bit-g64", lambda out: autoround_case(base, out, "auto_round:auto_gptq", 2, 64, False)),
+        ("autoround-awq-4bit", lambda out: autoround_case(base, out, "auto_round:auto_awq", 4, 128, False)),
+    ]
 
 
 if __name__ == "__main__":
