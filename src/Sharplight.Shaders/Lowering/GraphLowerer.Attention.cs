@@ -26,6 +26,15 @@ public sealed partial class GraphLowerer
 
     private BufferDecl? _attnScratch;
 
+    /// <summary>
+    /// Largest merged width (query heads per decode workgroup times DV) for which split-K decoding merges its partials in the last
+    /// workgroup of each row. That workgroup merges its heads one after another, which at long contexts costs more than the
+    /// combine launch it saves when the share is wide (RTX PRO 4500, decode at 4096 tokens: Gemma-3-1B, 4 x 256, -6 %; Qwen3-8B
+    /// and Mistral-7B, 4 x 128, -1 %), while narrow ones gain (Qwen3-0.6B, 2 x 128: 1.48 -> 1.42 ms GPU per step at 16 tokens,
+    /// unchanged at 4096; OLMoE, 1 x 128, +2.7 % at 4096).
+    /// </summary>
+    private const long FusedDecodeCombineMaxWidth = 256;
+
     /// <summary>Split arrival counters of the decode kernel's fused combine (see <see cref="DecodeArrivals"/>).</summary>
     private BufferDecl? _decodeArrivals;
 
@@ -149,8 +158,10 @@ public sealed partial class GraphLowerer
         int keySplits = (flash || simtFlash) && slices == 1 ? FlashKeySplits(plan, maxRows) : 1;
         var part = decode is not null ? DecodeScratch(plan, decode, maxRows) : split ? SplitScratch(plan, splits)
             : keySplits > 1 ? AttentionScratch(keySplits * maxRows * plan.HQ * (plan.DV + 2) * 4) : o;
-        // Split-K decoding merges the partials in the last workgroup of each row instead of a combine launch.
+        // Split-K decoding merges the partials in the last workgroup of each row instead of a combine launch, where that
+        // workgroup's share (its heads one after another) stays small; see FusedDecodeCombineMaxWidth.
         var arrivals = decode is not null && keySplits == 1 && !plan.Cross && DiagnosticSwitches.AttentionDecodeFusedCombine
+                       && long.Parse(decode.Macros["HPW"], CultureInfo.InvariantCulture) * plan.DV <= FusedDecodeCombineMaxWidth
             ? DecodeArrivals(Math.Min(maxRows, decode.MaxRows) * decode.Groups) : null;
         var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
 

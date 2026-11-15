@@ -1,0 +1,16 @@
+[N=16 run=1] gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 12.02 W, 180 MHz, 405 MHz, 34, P8
+[N=16 run=1] prefill 16 tok: best 3 ms = 5518.4 tok/s | decode: best 438.37, median 418.38, mean 417.09 tok/s | GPU ms/step: best 2.20, median 2.28, wall best 2.28
+[N=16 run=2] gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 12.15 W, 180 MHz, 405 MHz, 34, P8
+[N=16 run=2] prefill 16 tok: best 2 ms = 7687.9 tok/s | decode: best 677.32, median 626.84, mean 631.75 tok/s | GPU ms/step: best 1.38, median 1.48, wall best 1.48
+[N=512 run=1] gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 13.90 W, 180 MHz, 405 MHz, 34, P8
+[N=512 run=1] prefill 512 tok: best 8 ms = 60294.2 tok/s | decode: best 580.38, median 559.66, mean 559.62 tok/s | GPU ms/step: best 1.62, median 1.63, wall best 1.72
+[N=512 run=2] gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 12.25 W, 180 MHz, 405 MHz, 34, P8
+[N=512 run=2] prefill 512 tok: best 9 ms = 60055.1 tok/s | decode: best 583.53, median 569.48, mean 569.93 tok/s | GPU ms/step: best 1.62, median 1.63, wall best 1.71
+[N=2048 run=1] gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 12.99 W, 180 MHz, 405 MHz, 34, P8
+[N=2048 run=1] prefill 2048 tok: best 39 ms = 53054.7 tok/s | decode: best 539.32, median 536.34, mean 535.66 tok/s | GPU ms/step: best 1.77, median 1.78, wall best 1.85
+[N=2048 run=2] gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 12.29 W, 180 MHz, 405 MHz, 34, P8
+[N=2048 run=2] prefill 2048 tok: best 39 ms = 53086.4 tok/s | decode: best 530.79, median 521.13, mean 519.36 tok/s | GPU ms/step: best 1.74, median 1.75, wall best 1.88
+[N=4096 run=1] gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 12.75 W, 180 MHz, 405 MHz, 33, P8
+[N=4096 run=1] prefill 4096 tok: best 90 ms = 45729.5 tok/s | decode: best 476.01, median 468.67, mean 465.40 tok/s | GPU ms/step: best 1.99, median 2.01, wall best 2.10
+[N=4096 run=2] gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 12.40 W, 180 MHz, 405 MHz, 33, P8
+[N=4096 run=2] prefill 4096 tok: best 89 ms = 45771.4 tok/s | decode: best 481.19, median 459.22, mean 460.29 tok/s | GPU ms/step: best 2.00, median 2.03, wall best 2.08
