@@ -120,10 +120,10 @@ internal sealed class EngineTaskModel : IEngineModel
         _changed();
     }
 
-    /// <summary>A load log line: shown until structured progress arrives.</summary>
+    /// <summary>A load log line: shown until structured progress arrives (ignored once the model is loaded).</summary>
     internal void OnLoadMessage(string message)
     {
-        if (!_hasProgress)
+        if (State == ResidentState.Loading && !_hasProgress)
         {
             Publish(Runtime.LoadStatus.Message(message));
         }
@@ -132,6 +132,12 @@ internal sealed class EngineTaskModel : IEngineModel
     /// <summary>A structured progress report of the engine.</summary>
     internal void OnLoadProgress(Sharplight.Runtime.LoadProgress progress)
     {
+        if (State != ResidentState.Loading)
+        {
+            // A speech client compiles more kernels on its first request; that is not a model load.
+            return;
+        }
+
         _hasProgress = true;
         Publish(_tracker.Report(progress));
     }
