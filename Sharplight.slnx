@@ -28,6 +28,7 @@
     <Project Path="samples/Sharplight.Server/Sharplight.Server.csproj" />
     <Project Path="samples/Sharplight.AgentHost/Sharplight.AgentHost.csproj" />
     <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
+    <Project Path="samples/Sharplight.GenerateImage/Sharplight.GenerateImage.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sharplight.Core.Tests/Sharplight.Core.Tests.csproj" />

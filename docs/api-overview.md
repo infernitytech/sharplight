@@ -92,8 +92,50 @@ Audio and image I/O for the task layer: `AudioBuffer` (interleaved float samples
 `WAVE_FORMAT_EXTENSIBLE`; write: PCM16, PCM24, PCM32, float32), `PngCodec` (encode RGB; decode 8-bit gray, gray+alpha, RGB, RGBA and
 palette PNGs) and `PlanarImage` (8-bit interleaved RGB to and from `[3, height, width]` float planes in any value range).
 
-The importers and architecture adapters for speech and image models come in their own workstreams; the task layer defines the
+The importers and architecture adapters for speech models come in their own workstreams; the task layer defines the
 interfaces, options, results, the description and the host-side plumbing they plug into.
+
+### Image generation
+
+`Sharplight.Import.Diffusers` reads Stable Diffusion 1.x checkpoints (diffusers folders, original single-file `.safetensors`,
+stable-diffusion.cpp GGUF files) into the canonical `latent_diffusion` source; `LatentDiffusionAdapter` (Sharplight.Architectures)
+builds a text encoder, a UNet denoiser and the VAE decoder / encoder as graphs of generic Core ops and describes them as an
+`image-generation` model (components `text-encoder`, `tokenizer`, `denoiser`, `vae`, `scheduler`). Core's built-in latent-diffusion
+pipeline (`LatentDiffusionGeneratorFactory`, registered by `AddSharplightTasks()`) serves every model whose graphs follow
+`DiffusionGraphs`; a family with another pipeline registers its own factory.
+
+```csharp
+var services = new ServiceCollection()
+    .AddSharplight()
+    .AddImageGenerator(o => { o.ModelPath = "v1-5-pruned-emaonly-Q8_0.gguf"; o.Devices = [slot]; });
+await using var provider = services.BuildServiceProvider();
+var generator = provider.GetRequiredService<IImageGenerator>();
+
+var request = new ImageGenerationRequest { Prompt = "a lighthouse at dusk", NegativePrompt = "blurry" };
+var options = new ImageGenerationOptions { Steps = 20, GuidanceScale = 7.5f, Seed = 42, Scheduler = Samplers.DpmPlusPlus2MKarras, PreviewInterval = 5 };
+await foreach (var update in generator.GenerateStreamingAsync(request, options))
+{
+    Console.Write($"\r{update.Step}/{update.TotalSteps}");        // update.Preview: a latent-resolution preview every 5 steps
+    if (update.Result is { } result)
+    {
+        PngCodec.Write("lighthouse.png", result.Images[0]);
+    }
+}
+```
+
+- Samplers (`Samplers`): `euler`, `euler-karras`, `euler-ancestral`, `ddim`, `pndm`, `dpm++2m`, `dpm++2m-karras`; each follows the
+  diffusers scheduler step by step and is configured from the model's `scheduler` component (`NoiseSchedule`: betas, prediction type,
+  timestep spacing, offset; the original scheduler configuration is kept as the attachment `scheduler/source-config.json`). The
+  default is the sampler the model was published with.
+- Classifier-free guidance runs on the host: the negative prompt (or the empty prompt) and the prompt are one batched denoiser run
+  per step. Image i of a request uses `Seed + i`; the noise is a counter-based Gaussian stream, identical on every machine and
+  provider. `ImageGenerationOptions.InitialNoise` replaces it (reproducing another implementation's run).
+- Image-to-image: `ImageGenerationRequest.Image` with `Strength`; inpainting: plus `Mask` (white = regenerate; the input is
+  re-imposed outside the mask after every step).
+- Sizes: the graphs are built for the native size (512×512 for SD 1.x) and stored that way in `.slm`; another `Width` / `Height`
+  (multiples of 64) rebuilds the model once per size through `TaskModel.DefinitionFor(dimensions)` (the adapter rebuilds from the
+  canonical metadata and weights, so `.slm` packages work too).
+- `sharplight-generate-image` (samples/Sharplight.GenerateImage) is a command-line front end for all of this.
 
 ## 1. Load a model (text generation)
 
