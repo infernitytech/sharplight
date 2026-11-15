@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using Sharplight.Graph;
 using Sharplight.Models;
@@ -36,7 +37,7 @@ public sealed partial class GraphLowerer
     private int _splitScratchNext;
 
     /// <summary>Split-f16 parts and row scales per constant weight (see <see cref="SplitWeights"/>).</summary>
-    private readonly Dictionary<Value, (TensorRef Parts, TensorRef Scales)> _splitWeights = [];
+    private readonly Dictionary<(Value Weight, long Taps), (TensorRef Parts, TensorRef Scales)> _splitWeights = [];
 
     /// <summary>
     /// Use the workgroup-scope matrix GEMM (<see cref="DeviceFeatures.MatrixWorkgroup"/>) for prefill matmuls when the
@@ -561,16 +562,17 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// The split f16 form of the constant f32 weights <paramref name="weight"/> ([N, K] or a conv's [O, CG, KH, KW], read as
     /// <paramref name="w"/>) for the split-f16 GEMM and conv (<see cref="SplitScaleTable"/>): the hi / lo parts and the per-row scales, both computed on the host when
-    /// the weights are uploaded. Null when the weights are not a constant of the graph.
+    /// the weights are uploaded. Null when the weights are not a constant of the graph. With <paramref name="taps"/> above 1 (a conv's
+    /// KH * KW), each row's values are reordered from [channel][tap] to [tap][channel] first (conv_cm's TAP_MAJOR reduction order).
     /// </summary>
-    private (TensorRef Parts, TensorRef Scales)? SplitWeights(Value weight, TensorRef w)
+    private (TensorRef Parts, TensorRef Scales)? SplitWeights(Value weight, TensorRef w, long taps = 1)
     {
         if (w.Type != DataType.F32 || w.ByteOffset != 0 || w.Shape.Length < 2 || weight.Kind is not (ValueKind.Weight or ValueKind.Constant))
         {
             return null;
         }
 
-        if (_splitWeights.TryGetValue(weight, out var cached))
+        if (_splitWeights.TryGetValue((weight, taps), out var cached))
         {
             return cached;
         }
@@ -578,7 +580,7 @@ public sealed partial class GraphLowerer
         // Rows are the leading dimension (matmul [N, K], conv [O, CG, KH, KW]); the rest is one reduction row.
         long rows = w.Shape[0];
         long k = w.Shape.Skip(1).Aggregate(1L, (a, b) => a * b);
-        byte[] Source()
+        byte[] Original()
         {
             if (weight.Kind == ValueKind.Constant)
             {
@@ -590,21 +592,44 @@ public sealed partial class GraphLowerer
             return bytes;
         }
 
+        byte[] Source() => taps > 1 ? TapMajor(Original(), rows, k / taps, taps) : Original();
+
         // Fast matrix precision: the hi parts only (one product per multiply-add).
         bool hiOnly = FastMatrixProducts;
         long halves = hiOnly ? 1 : 2;
         (WeightInfo Parts, WeightInfo Scales) Create()
-            => (Transient(weight.Name + (hiOnly ? ":scaled-f16" : ":split-f16"), DataType.F16, new Shape(rows, halves * k), () => SplitScaleTable.Split(Source(), rows, k, hiOnly)),
+            => (Transient(weight.Name + (hiOnly ? ":scaled-f16" : ":split-f16") + (taps > 1 ? ":tap-major" : ""), DataType.F16, new Shape(rows, halves * k), () => SplitScaleTable.Split(Source(), rows, k, hiOnly)),
                 Transient(weight.Name + ":split-scale", DataType.F32, new Shape(rows), () => SplitScaleTable.Scales(Source(), rows, k)));
         static WeightInfo Transient(string name, DataType type, Shape shape, Func<byte[]> produce)
             => new() { Name = name, Type = type, Shape = shape, Source = new TransientWeightSource(type.ByteSize(shape.Elements()), produce) };
 
         // Model weights: one derived pair per source tensor, so shared-weight registries upload it once for every compilation.
-        var (partsInfo, scalesInfo) = weight.Kind == ValueKind.Weight ? SplitWeightCache.Get(weight.Weight!, rows, k, hiOnly, Create) : Create();
+        var (partsInfo, scalesInfo) = weight.Kind == ValueKind.Weight ? SplitWeightCache.Get(weight.Weight!, rows, k, hiOnly, taps, Create) : Create();
         var parts = new TensorRef(NewBuffer(BufferKind.Weight, partsInfo.Name, partsInfo.ByteSize, w: partsInfo), 0, DataType.F16, [rows, halves * k], [halves * k, 1], null);
         var scales = new TensorRef(NewBuffer(BufferKind.Weight, scalesInfo.Name, scalesInfo.ByteSize, w: scalesInfo), 0, DataType.F32, [rows], [1], null);
-        _splitWeights[weight] = (parts, scales);
+        _splitWeights[(weight, taps)] = (parts, scales);
         return (parts, scales);
+    }
+
+    /// <summary>f32 rows of [<paramref name="channels"/>][<paramref name="taps"/>] values reordered to [taps][channels].</summary>
+    private static byte[] TapMajor(byte[] source, long rows, long channels, long taps)
+    {
+        var src = MemoryMarshal.Cast<byte, float>(source.AsSpan(0, checked((int)(rows * channels * taps * 4))));
+        var bytes = new byte[src.Length * 4];
+        var dst = MemoryMarshal.Cast<byte, float>(bytes.AsSpan());
+        long k = channels * taps;
+        for (long r = 0; r < rows; r++)
+        {
+            for (long c = 0; c < channels; c++)
+            {
+                for (long t = 0; t < taps; t++)
+                {
+                    dst[(int)(r * k + t * channels + c)] = src[(int)(r * k + c * taps + t)];
+                }
+            }
+        }
+
+        return bytes;
     }
 
     /// <summary>Resolves operands, kernel format macros and which GEMM family applies to a MatMul node.</summary>

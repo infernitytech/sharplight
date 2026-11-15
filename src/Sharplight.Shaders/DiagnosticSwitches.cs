@@ -411,6 +411,9 @@ internal static class DiagnosticSwitches
     /// <summary>Disables the cooperative-matrix convolution (conv_cm).</summary>
     public static bool ConvNoMatrix { get; } = IsSet("SHARPLIGHT_CONV_NO_MATRIX");
 
+    /// <summary>Keeps conv_cm's channel-major reduction order for the split-f16 forms (no tap-major weights).</summary>
+    public static bool ConvNoTapMajor { get; } = IsSet("SHARPLIGHT_CONV_NO_TAP_MAJOR");
+
     private static string? Read(string name) => Environment.GetEnvironmentVariable(name);
 
     private static bool IsSet(string name) => Read(name) == "1";

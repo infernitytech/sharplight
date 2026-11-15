@@ -115,9 +115,14 @@ public sealed partial class GraphLowerer
         long K = w.Shape[1] * w.Shape[2] * w.Shape[3];
         int format = WeightFormat(w.Type) ?? -1;
         long bound = x.Symbol is null ? x.Shape[0] : Bound(Dim.Sym(x.Symbol));
-        // Strict precision with f16 matrices: constant f32 weights split on the host (null otherwise: the bf16 form).
+        // Strict precision with f16 matrices: constant f32 weights split on the host (null otherwise: the bf16 form). Channel
+        // groups of whole 8-value items reduce tap-major (k = tap * CG + channel, the weights of kernels with several taps
+        // reordered on the host), so each staged item of 8 k is one input pixel's 8 channels: one address and bounds check
+        // per item instead of a k / (KH * KW) decomposition and check per value.
+        long taps = w.Shape[2] * w.Shape[3];
+        bool tapMajor = w.Shape[1] % 8 == 0 && !DiagnosticSwitches.ConvNoTapMajor;
         var splitWeights = !_opt.Compile.AllowReducedPrecision && w.Type == DataType.F32 && _opt.Has(DeviceFeatures.MatrixF16)
-            ? SplitWeights(n.Inputs[1], w) : null;
+            ? SplitWeights(n.Inputs[1], w, tapMajor ? taps : 1) : null;
         if (ChooseConvMatrixForm(K, OG, HW, format, bound, G, splitWeights is not null) is not { } form)
         {
             return false;
@@ -152,6 +157,7 @@ public sealed partial class GraphLowerer
         macros.Add(("FRAG_N", form.FragN));
         macros.Add(("WARPS_M", warpsM));
         macros.Add(("A_VEC", K % 8 == 0));
+        macros.Add(("TAP_MAJOR", form.Parts == 4 && tapMajor));
         var variants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
             var kernel = ConvKernel("conv_cm.slang", "conv_cm", Macros([.. macros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]), useWorkspace ? null : epilogue);
