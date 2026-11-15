@@ -127,6 +127,12 @@ internal static class DiagnosticSwitches
     /// <summary>Concatenations run as one launch over the output (off with <c>SHARPLIGHT_NO_FUSED_CONCAT=1</c>: one copy per input).</summary>
     public static bool FusedConcat { get; } = !IsSet("SHARPLIGHT_NO_FUSED_CONCAT");
 
+    /// <summary>
+    /// Inputs of a concatenation whose leading axes have extent 1 are computed in their slices of the output, without a copy
+    /// (off with <c>SHARPLIGHT_NO_CONCAT_IN_PLACE=1</c>).
+    /// </summary>
+    public static bool ConcatInPlace { get; } = !IsSet("SHARPLIGHT_NO_CONCAT_IN_PLACE");
+
     /// <summary>Densifies channel-strided LayerNorm inputs for the row kernel instead of reading them in place (layernorm_cs).</summary>
     public static bool NoStridedLayerNorm { get; } = IsSet("SHARPLIGHT_NO_STRIDED_LAYERNORM");
 

@@ -263,6 +263,26 @@ public sealed partial class GraphLowerer
         }
 
         var sources = n.Inputs.Select(Ref).ToList();
+        if (n.Inputs.Any(i => _concatSlices.TryGetValue(i, out var slice) && slice.Concat == n.Output))
+        {
+            // Some inputs were computed in their slices (PlanConcatSlices): copy only the others.
+            long offset = 0;
+            foreach (var src in sources)
+            {
+                var shape = (long[])y.Shape.Clone();
+                shape[axis] = src.Shape[axis];
+                long byteOffset = offset * y.Strides[axis] * y.Type.ElementSize;
+                if (!IsConcatSlice(src, y, byteOffset))
+                {
+                    EmitCopy(src, y with { ByteOffset = y.ByteOffset + byteOffset, Shape = shape }, $"concat {n.Output.Name}", [n]);
+                }
+
+                offset += src.Shape[axis];
+            }
+
+            return;
+        }
+
         if (DiagnosticSwitches.FusedConcat && sources.Count <= FusedConcatMaxInputs && sources.All(s => s.Type == y.Type && s.Rank == y.Rank && s.Shape[axis] > 0))
         {
             LowerConcatFused(n, y, axis, sources);

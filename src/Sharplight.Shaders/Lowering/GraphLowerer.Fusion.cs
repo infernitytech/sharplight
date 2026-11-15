@@ -848,7 +848,8 @@ public sealed partial class GraphLowerer
             {
                 foreach (var o in n.Outputs)
                 {
-                    _root[o] = n.Op.Category == OpCategory.View ? RootOf(n.Inputs[0]) : o;
+                    _root[o] = _concatSlices.TryGetValue(o, out var slice) ? slice.Concat
+                        : n.Op.Category == OpCategory.View ? RootOf(n.Inputs[0]) : o;
                 }
             }
         }

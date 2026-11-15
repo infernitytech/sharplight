@@ -38,6 +38,33 @@ public sealed class ViewTests
         Diff.Check("Views.concat-many", tg.B.Build(), step, atol: 0, rtol: 0);
     }
 
+    /// <summary>
+    /// Static concatenations whose leading axes have extent 1 compute their inputs in the output's slices: inputs that are
+    /// read again after the concatenation (by elementwise ops and a matmul over a view), a view input and a slice that is
+    /// not 256-byte aligned (both copied), an f32 matmul over the concatenation, and the same inputs in the other order.
+    /// </summary>
+    [Fact]
+    public void ConcatInputsComputedInPlace()
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", 1, 64, 32);
+        var y = tg.InF("y", 1, 32, 32);
+        var a = tg.InF("a", 3, 16);
+        var w = tg.RandW("w", DataType.F32, 0.1f, 24, 32);
+        var s = tg.B.Scale(x, 2f, 0.5f);
+        var t = tg.B.Add(y, y);
+        var cat = tg.B.Concat(1, s, t, tg.B.Slice(x, 1, 8, 16));
+        tg.B.Output("mm", tg.B.MatMul(cat, w));
+        tg.B.Output("sq", tg.B.Mul(s, s));
+        tg.B.Output("smm", tg.B.MatMul(tg.B.Reshape(s, 64, 32), w));
+        tg.B.Output("tcat", tg.B.Scale(tg.B.Concat(1, t, tg.B.Silu(tg.B.Slice(x, 1, 0, 8))), 3f));
+        var ra = tg.B.Scale(a, -1f);
+        tg.B.Output("rows", tg.B.Add(tg.B.Concat(0, ra, tg.B.Scale(a, 4f), ra), tg.B.Concat(0, a, a, a)));
+        var step = new Step(1, 0, (x, Rnd.F(64 * 32, 1)), (y, Rnd.F(32 * 32, 2)), (a, Rnd.F(3 * 16, 3)));
+        Diff.Check("Views.concat-in-place", tg.B.Build(), step, atol: 1e-4, rtol: 1e-4);
+    }
+
     [Fact]
     public void ReshapeOfNonContiguousViewFallsBackToCopy()
     {
