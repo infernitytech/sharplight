@@ -1,6 +1,6 @@
 using System.Text;
-using Sharplight.Gguf;
 using Sharplight.Hub;
+using Sharplight.Import.Gguf;
 using Sharplight.Models;
 using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Hub;
@@ -52,6 +52,22 @@ public sealed class CompatibilityTests
         var (probe, _) = await ProbeGgufAsync(path);
         Assert.Equal(CompatibilityState.Projector, probe.Compatibility.State);
         Assert.Contains("not a model", probe.Compatibility.Reason, StringComparison.Ordinal);
+        Assert.False(probe.Compatibility.IsUnsupported);
+    }
+
+    [Theory]
+    [InlineData("tiny-random-gemma4-assistant-f32.gguf", "gemma4-assistant")]
+    [InlineData("tiny-random-eagle3-f32.gguf", "eagle3")]
+    public async Task Gguf_DraftModel_IsNotAModel(string file, string architecture)
+    {
+        // The MTP/ drafters of unsloth's Gemma 4 repositories were shown as supported models, and loading one on its own failed.
+        string path = Gguf(file);
+        Assert.SkipUnless(File.Exists(path), "test GGUF not found");
+        var (probe, _) = await ProbeGgufAsync(path);
+        Assert.Equal(CompatibilityState.DraftModel, probe.Compatibility.State);
+        Assert.Equal(architecture, probe.Compatibility.Subject);
+        Assert.Equal("Draft model", probe.Compatibility.Text);
+        Assert.Contains("not a model of its own", probe.Compatibility.Reason, StringComparison.Ordinal);
         Assert.False(probe.Compatibility.IsUnsupported);
     }
 
@@ -117,12 +133,12 @@ public sealed class CompatibilityTests
     [Fact]
     public void Config_Quantization()
     {
-        var gptq = CompatibilityChecker.FromConfig("""{"model_type": "qwen2", "quantization_config": {"bits": 4, "quant_method": "gptq"}}""");
-        Assert.Equal("Unsupported weight format gptq", gptq.Text);
-        var mlx = CompatibilityChecker.FromConfig("""{"model_type": "qwen3", "quantization_config": {"group_size": 64, "bits": 4}}""");
-        Assert.Equal("Unsupported weight format mlx (4-bit)", mlx.Text);
-        var modelOpt = CompatibilityChecker.FromConfig("""{"model_type": "nemotron_h"}""", """{"quantization": {"quant_algo": "NVFP4"}}""");
-        Assert.Equal("Unsupported weight format modelopt NVFP4", modelOpt.Text);
+        var aqlm = CompatibilityChecker.FromConfig("""{"model_type": "qwen2", "quantization_config": {"bits": 4, "quant_method": "aqlm"}}""");
+        Assert.Equal("Unsupported weight format aqlm", aqlm.Text);
+        var mlx = CompatibilityChecker.FromConfig("""{"model_type": "qwen3", "quantization_config": {"group_size": 32, "bits": 4, "mode": "mxfp4"}}""");
+        Assert.Equal("Unsupported weight format mlx (mxfp4)", mlx.Text);
+        var modelOpt = CompatibilityChecker.FromConfig("""{"model_type": "nemotron_h"}""", """{"quantization": {"quant_algo": "INT4_AWQ"}}""");
+        Assert.Equal("Unsupported weight format modelopt INT4_AWQ", modelOpt.Text);
         Assert.Equal(CompatibilityState.Unknown, CompatibilityChecker.FromConfig("""{"model_type": "qwen3", "quantization_config": {"quant_method": "new-thing"}}""").State);
         Assert.Equal(CompatibilityState.Unknown, CompatibilityChecker.FromConfig("""{"hidden_size": 8}""").State);
         // An unsupported architecture is named first, whatever the weights.
@@ -163,8 +179,8 @@ public sealed class CompatibilityTests
         Assert.Equal(CompatibilityState.Supported, qwen.State);
         Assert.False(qwen.WeightsChecked);
         Assert.Equal(CompatibilityState.Unknown, CompatibilityChecker.FromSummary(Summary([ModelFormat.Gguf])).State);
-        Assert.Equal("Unsupported weight format gptq", CompatibilityChecker.FromSummary(Summary([ModelFormat.Safetensors], type: "qwen2", method: "gptq")).Text);
-        Assert.Equal(CompatibilityState.UnsupportedWeightFormat, CompatibilityChecker.FromSummary(Summary([ModelFormat.Safetensors], type: "qwen3_5", method: "mlx")).State);
+        Assert.Equal("Unsupported weight format aqlm", CompatibilityChecker.FromSummary(Summary([ModelFormat.Safetensors], type: "qwen2", method: "aqlm")).Text);
+        Assert.Equal(CompatibilityState.Supported, CompatibilityChecker.FromSummary(Summary([ModelFormat.Safetensors], type: "qwen3_5", method: "mlx")).State);
         Assert.Equal(CompatibilityState.Supported, CompatibilityChecker.FromSummary(Summary([ModelFormat.Safetensors], type: "qwen3", method: "fp8")).State);
         Assert.Equal(CompatibilityState.Projector, CompatibilityChecker.FromSummary(Summary([], arch: "clip", projectors: true)).State);
         Assert.Equal(CompatibilityState.CheckedAtImport, CompatibilityChecker.FromSummary(Summary([ModelFormat.Onnx])).State);
@@ -178,8 +194,8 @@ public sealed class CompatibilityTests
         Assert.StartsWith("Unsupported architecture toy_unmapped. ", text, StringComparison.Ordinal);
         Assert.DoesNotContain("xxxx", text, StringComparison.Ordinal);
 
-        var format = new UnsupportedWeightFormatException("gptq", "m: weights quantized with gptq are not supported.");
-        Assert.StartsWith("Unsupported weight format gptq. ", ImportFailure.Describe(format, format.Message), StringComparison.Ordinal);
+        var format = new UnsupportedWeightFormatException("aqlm", "m: weights quantized with aqlm are not supported.");
+        Assert.StartsWith("Unsupported weight format aqlm. ", ImportFailure.Describe(format, format.Message), StringComparison.Ordinal);
         Assert.Equal("Disk full", ImportFailure.Describe(new IOException("Disk full"), "Disk full"));
     }
 
@@ -209,7 +225,7 @@ public sealed class CompatibilityTests
         [
             new HubModelSummary("someone/Toy-Unmapped-GGUF", 900, 1, false, "gguf", "text-generation", null, [ModelFormat.Gguf], ["Q4_K_M"], GgufArchitecture: UnmappedArchitecture),
             new HubModelSummary("Qwen/Qwen3-8B-GGUF", 500, 1, false, "gguf", "text-generation", null, [ModelFormat.Gguf], ["Q4_K_M", "Q5_K_M", "Q8_0"], GgufArchitecture: "qwen3"),
-            new HubModelSummary("Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4", 400, 1, false, "transformers", "text-generation", null, [ModelFormat.Safetensors], [], ModelType: "qwen2", QuantizationMethod: "gptq"),
+            new HubModelSummary("someone/Toy-Model-Aqlm", 400, 1, false, "transformers", "text-generation", null, [ModelFormat.Safetensors], [], ModelType: "qwen2", QuantizationMethod: "aqlm"),
             new HubModelSummary("Qwen/Qwen3-8B", 300, 1, false, "transformers", "text-generation", null, [ModelFormat.Safetensors], [], ModelType: "qwen3"),
         ]);
         services.Hub.Compatibility = (repository, tag) => tag == "Q8_0"
@@ -220,11 +236,11 @@ public sealed class CompatibilityTests
         await search.SearchCommand.ExecuteAsync(null);
 
         // Unsupported results go last; the Hub's order stays otherwise.
-        Assert.Equal(["Qwen/Qwen3-8B-GGUF", "Qwen/Qwen3-8B", "someone/Toy-Unmapped-GGUF", "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"], search.Results.Select(result => result.Id));
+        Assert.Equal(["Qwen/Qwen3-8B-GGUF", "Qwen/Qwen3-8B", "someone/Toy-Unmapped-GGUF", "someone/Toy-Model-Aqlm"], search.Results.Select(result => result.Id));
         Assert.Equal("Supported", search.Results[0].Compatibility.Text);
         Assert.True(search.Results[2].Compatibility.IsBad);
         Assert.Equal("Unsupported architecture toy_unmapped", search.Results[2].Compatibility.Text);
-        Assert.Equal("Unsupported weight format gptq", search.Results[3].Compatibility.Text);
+        Assert.Equal("Unsupported weight format aqlm", search.Results[3].Compatibility.Text);
 
         await search.FitEstimate;
         var badges = search.Variants.ToDictionary(variant => variant.Tag, variant => variant.Compatibility!);

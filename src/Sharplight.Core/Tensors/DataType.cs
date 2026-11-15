@@ -146,6 +146,35 @@ public sealed class DataType : IEquatable<DataType>
     public static readonly DataType TQ2_0 = Register("tq2_0", DataTypeKind.Quantized, 256, 66);
     /// <summary>NVIDIA FP4 blocks of 64: four UE4M3 sub-block scales and 4-bit E2M1 values (36 bytes).</summary>
     public static readonly DataType NVFP4 = Register("nvfp4", DataTypeKind.Quantized, 64, 36);
+    /// <summary>
+    /// NVFP4 with its second-level (per-tensor, "global") scale carried in every block: { f32 g; u8 d[4]; u8 qs[32] } (40 bytes,
+    /// 4-byte aligned), the <see cref="NVFP4"/> block after an f32. Value = g * the NVFP4 value: E2M1 code times its 16-value
+    /// sub-block's E4M3 scale times g. The layout of checkpoints whose global scale cannot be folded into the E4M3 scales exactly.
+    /// </summary>
+    public static readonly DataType NVFP4_GS = Register("nvfp4_gs", DataTypeKind.Quantized, 64, 40);
+
+    // Integer codes with a group scale and zero point (GPTQ / AWQ / compressed-tensors / HQQ style): value = (q - z) * d, the
+    // codes unsigned. Groups wider than a block repeat their scale and zero point in each block they cover.
+    /// <summary>
+    /// 4-bit unsigned codes, group 32: { f16 d; f16 z; u8 qs[16] } (20 bytes); value j&lt;16 is the low nibble of qs[j], j&gt;=16
+    /// the high nibble of qs[j-16] (the <see cref="Q4_0"/> layout); value = (q - z) * d.
+    /// </summary>
+    public static readonly DataType Q4Z_G32 = Register("q4z_g32", DataTypeKind.Quantized, 32, 20);
+    /// <summary>
+    /// 4-bit unsigned codes, group 128: { f16 d; f16 z; u8 qs[64] } (68 bytes): four 32-value runs of 16 bytes, each laid out like
+    /// <see cref="Q4Z_G32"/>'s codes; value = (q - z) * d.
+    /// </summary>
+    public static readonly DataType Q4Z_G128 = Register("q4z_g128", DataTypeKind.Quantized, 128, 68);
+    /// <summary>8-bit unsigned codes, group 32: { f16 d; f16 z; u8 q[32] } (36 bytes); value = (q - z) * d.</summary>
+    public static readonly DataType Q8Z_G32 = Register("q8z_g32", DataTypeKind.Quantized, 32, 36);
+    /// <summary>8-bit unsigned codes, group 128: { f16 d; f16 z; u8 q[128] } (132 bytes); value = (q - z) * d.</summary>
+    public static readonly DataType Q8Z_G128 = Register("q8z_g128", DataTypeKind.Quantized, 128, 132);
+
+    /// <summary>
+    /// 4-bit NormalFloat (QLoRA / bitsandbytes NF4) blocks of 64 with an f32 absmax: { f32 d; u8 qs[32] } (36 bytes), the codes in
+    /// two 32-value runs laid out like <see cref="Q4_0"/>'s; value = d * NF4[q], NF4 the 16-entry table of normal quantiles.
+    /// </summary>
+    public static readonly DataType NF4_B64 = Register("nf4_b64", DataTypeKind.Quantized, 64, 36);
 
     // Group-wise 1-bit / ternary formats (Bonsai): one f16 scale per group, w = scale * code.
     /// <summary>1 bit per weight, group 128: { f16 d; u8 bits[16] }, bit j (LSB first) set = +d, clear = -d (18 bytes).</summary>
@@ -160,6 +189,22 @@ public sealed class DataType : IEquatable<DataType>
     /// each, values 120+n*2+h. w = (trit-1)*d.
     /// </summary>
     public static readonly DataType Tern1_G128 = Register("tern1_g128", DataTypeKind.Quantized, 128, 28);
+
+    // Trellis-coded formats, group 128: { f16 d; u8 qs[...] }. The qs bytes are a tail-biting path of 16-bit states; a state selects
+    // points of a 2048-point two-dimensional codebook (Grids.TrellisCodebook) through a multiplicative hash, w = d * codebook value.
+    // See TrellisBlocks for the exact decoding.
+    /// <summary>Trellis, 4 values and 8 new bits per step: step t's state is <c>qs[t - 1 mod 32] &lt;&lt; 8 | qs[t]</c> (34 bytes, 2.125 bpw).</summary>
+    public static readonly DataType TrellisV4K8_G128 = Register("trellis_v4k8_g128", DataTypeKind.Quantized, 128, 34);
+    /// <summary>Trellis, 4 values and 6 new bits per step, states read from a circular bit stream (26 bytes, 1.625 bpw).</summary>
+    public static readonly DataType TrellisV4K6_G128 = Register("trellis_v4k6_g128", DataTypeKind.Quantized, 128, 26);
+    /// <summary>Trellis, 4 values and 7 new bits per step, states read from a circular bit stream (30 bytes, 1.875 bpw).</summary>
+    public static readonly DataType TrellisV4K7_G128 = Register("trellis_v4k7_g128", DataTypeKind.Quantized, 128, 30);
+    /// <summary>Trellis, 2 values and 5 new bits per step, states read from a circular bit stream (42 bytes, 2.625 bpw).</summary>
+    public static readonly DataType TrellisV2K5_G128 = Register("trellis_v2k5_g128", DataTypeKind.Quantized, 128, 42);
+    /// <summary>Trellis, 2 values and 6 new bits per step, states read from a circular bit stream (50 bytes, 3.125 bpw).</summary>
+    public static readonly DataType TrellisV2K6_G128 = Register("trellis_v2k6_g128", DataTypeKind.Quantized, 128, 50);
+    /// <summary>Trellis, 2 values and 7 new bits per step, states read from a circular bit stream (58 bytes, 3.625 bpw).</summary>
+    public static readonly DataType TrellisV2K7_G128 = Register("trellis_v2k7_g128", DataTypeKind.Quantized, 128, 58);
 
     // 8-bit floating point (OCP FP8). The scalar types are storage formats read like weights (decoded on load), so they are
     // registered as Quantized with a block size of 1: only the ops that decode weight formats accept them.

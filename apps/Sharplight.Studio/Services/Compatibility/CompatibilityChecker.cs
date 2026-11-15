@@ -1,11 +1,11 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using Sharplight.Cpu;
-using Sharplight.Gguf;
 using Sharplight.Hub;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
+using Sharplight.Import.Onnx;
 using Sharplight.Models;
-using Sharplight.Onnx;
 using Sharplight.Tensors;
 
 namespace Sharplight.Studio.Services.Compatibility;
@@ -44,6 +44,11 @@ internal static class CompatibilityChecker
                 $"A multimodal projector (mmproj, GGUF architecture '{architecture}'), not a model: it is loaded together with the language model it belongs to.");
         }
 
+        if (GgufSupport.IsDraftModel(architecture))
+        {
+            return DraftModel(architecture, $"GGUF architecture '{architecture}'");
+        }
+
         var level = GgufSupport.GetArchitectureSupport(architecture);
         if (level == SupportLevel.Unsupported)
         {
@@ -62,6 +67,11 @@ internal static class CompatibilityChecker
         if (tensors is not null)
         {
             var check = GgufSupport.Validate(metadata, tensors);
+            if (check.IsDraftModel)
+            {
+                return DraftModel(architecture, $"multi-token-prediction layers of GGUF architecture '{architecture}'");
+            }
+
             if (check.Problems.Count > 0)
             {
                 return new ModelCompatibility(CompatibilityState.UnsupportedVariant, architecture,
@@ -102,6 +112,11 @@ internal static class CompatibilityChecker
         if (ArchitectureOnly(modelType) is { IsUnsupported: true } unsupported)
         {
             return unsupported;
+        }
+
+        if (HfSupport.IsDraftModel(modelType))
+        {
+            return DraftModel(modelType, $"model type '{modelType}'");
         }
 
         var quantization = HfSupport.GetQuantizationSupport(configJson, quantizationConfigJson);
@@ -170,6 +185,11 @@ internal static class CompatibilityChecker
             : ModelCompatibility.Unknown("The repository has no GGUF, safetensors or ONNX model files.");
     }
 
+    /// <summary>The verdict for a speculative-decoding drafter: it runs, but only next to the model it was trained for.</summary>
+    private static ModelCompatibility DraftModel(string architecture, string what)
+        => new(CompatibilityState.DraftModel, architecture,
+            $"A speculative-decoding draft model ({what}), not a model of its own: it is loaded together with the model it drafts for.");
+
     /// <summary>The verdict for the architecture of a checkpoint's model type alone.</summary>
     private static ModelCompatibility ArchitectureOnly(string modelType)
     {
@@ -189,7 +209,7 @@ internal static class CompatibilityChecker
         return level switch
         {
             SupportLevel.Unsupported => new ModelCompatibility(CompatibilityState.UnsupportedWeightFormat, method,
-                $"The weights are quantized with {method}, which the importer does not read, so importing fails. Unquantized, FP8 and gpt-oss MXFP4 checkpoints are read."),
+                $"The weights are quantized with {method}, which the importer does not read, so importing fails."),
             null => ModelCompatibility.Unknown($"{architecture.Reason} The weights are quantized with {method}, a method not known to this version; importing shows whether it is read."),
             _ => architecture with { Reason = architecture.Reason + (method is null ? " The weights are not quantized." : $" The weights are quantized with {method}, which is read.") },
         };

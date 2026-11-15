@@ -101,6 +101,26 @@ public sealed class SelectorTests
     }
 
     [Fact]
+    public void DraftersAreNotVariants()
+    {
+        // unsloth's Gemma 4 layout: the MTP drafters share quantization labels with the model, which made "Q8_0" ambiguous.
+        var repository = Repository("gemma-4-12b-it-Q4_K_M.gguf", "gemma-4-12b-it-Q8_0.gguf", "gemma-4-12b-it-BF16.gguf", "MTP/mtp-gemma-4-12b-it-Q8_0.gguf",
+            "MTP/mtp-gemma-4-12b-it-BF16.gguf", "mtp-gemma-4-12b-it.gguf", "lilicorr-M-NVFP4.gguf", "LiLiCorr/lilicorr-M-NVFP4.gguf", "B-9B-DFlash2-Q8_0.gguf",
+            "mmproj-F16.gguf", "imatrix_unsloth.gguf", "gemma-4-12b-it.imatrix.gguf");
+
+        Assert.Equal(["Q4_K_M", "Q8_0", "BF16"], ModelFileSelector.ListVariants(repository.Files.Select(file => file.Path)));
+        Assert.Equal("gemma-4-12b-it-Q8_0.gguf", ModelFileSelector.Select(repository, "Q8_0").PrimaryPath);
+    }
+
+    [Fact]
+    public void ModelsWithOwnPredictionLayersStayVariants()
+    {
+        var repository = Repository("Qwen3.6-35B-A3B-MTP-Q8_0.gguf", "Bonsai-2-9B-PQ2_0-MTP-Q8_0.gguf", "BF16/Qwen3.6-35B-A3B-BF16-00001-of-00001.gguf");
+
+        Assert.Equal(3, ModelFileSelector.ListVariants(repository.Files.Select(file => file.Path)).Count);
+    }
+
+    [Fact]
     public void CheckpointTakesMetadataAndIndexedShards()
     {
         var repository = Repository(

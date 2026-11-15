@@ -10,7 +10,9 @@ namespace Sharplight.Graph;
 /// <item>Adds inputs <see cref="InputRole.SequenceRows"/> [T, 4] and <see cref="InputRole.SequenceRuns"/> [U, 4] (see their docs).
 /// Rows of one slot form a run of consecutive rows in context order; positions inputs (rope) carry each row's own position.</item>
 /// <item>KV caches keep their [Ctx, ...] shape: compile with context length S · per-slot context; slot s owns rows
-/// [s · Ctx/S, (s + 1) · Ctx/S). CacheWrite gets the rows table, CachedAttention and IndexerTopK rows and runs tables; all attribute <c>slots</c>.</item>
+/// [s · Ctx/S, (s + 1) · Ctx/S). CacheWrite gets the rows table, CachedAttention and IndexerTopK rows and runs tables; all attribute <c>slots</c>.
+/// A bidirectional CachedAttention (<c>causal</c> false) gets the <see cref="InputRole.SequenceRunEndRows"/> table in place of the rows table, so
+/// each row sees its slot's keys up to the last row of its run.</item>
 /// <item>Paged (<see cref="Transform(ComputeGraph, int, int, int)"/> with a block size): the KV caches are pools of blocks of
 /// <c>block size</c> rows shared by all slots (compile with context length = pool rows), and the <see cref="InputRole.KvBlockTable"/>
 /// input [S, blocks per slot] maps each slot's positions to blocks; CacheWrite and CachedAttention get it as their last input
@@ -31,6 +33,8 @@ public static class MultiSequence
     /// <summary>Name of the <see cref="InputRole.SequenceRows"/> input added by <see cref="Transform(ComputeGraph, int, int, int)"/>.</summary>
     public const string RowsInput = "sequence_rows";
     private const string RunsInput = "sequence_runs";
+    /// <summary>Name of the <see cref="InputRole.SequenceRunEndRows"/> input of a graph with bidirectional cached attention.</summary>
+    public const string RunEndRowsInput = "sequence_run_end_rows";
     /// <summary>Name of the <see cref="InputRole.KvBlockTable"/> input of a paged graph.</summary>
     public const string BlockTableInput = "kv_block_table";
 
@@ -140,6 +144,9 @@ public static class MultiSequence
         var rows = b.Input(RowsInput, InputRole.SequenceRows, DataType.I32, new Shape(T, Dim.Of(4)));
         var runs = b.Input(RunsInput, InputRole.SequenceRuns, DataType.I32, new Shape(Dim.Sym(WellKnown.RunSymbol), Dim.Of(4)));
         var pages = blockSize > 0 ? b.Input(BlockTableInput, InputRole.KvBlockTable, DataType.I32, new Shape(Dim.Of(slots), Dim.Of(blocksPerSlot))) : null;
+        var runEndRows = g.Nodes.Any(n => n.Op.Name == "CachedAttention" && !n.Attributes.Get("causal", true))
+            ? b.Input(RunEndRowsInput, InputRole.SequenceRunEndRows, DataType.I32, new Shape(T, Dim.Of(4)))
+            : null;
         bool rollback = rollbackRows > 0 && g.Nodes.Any(n => RecurrentRollback.Ops.Contains(n.Op.Name));
         var commits = rollback
             ? b.Input(RecurrentRollback.CommitsInput, InputRole.SequenceCommits, DataType.I32, new Shape(Dim.Sym(WellKnown.RunSymbol), Dim.Of(RecurrentRollback.CommitColumns)))
@@ -196,7 +203,7 @@ public static class MultiSequence
                     attrs = attrs.With("slots", (long)slots);
                     break;
                 case "CachedAttention" or "IndexerTopK":
-                    ins.Add(rows);
+                    ins.Add(n.Op.Name == "CachedAttention" && !attrs.Get("causal", true) ? runEndRows! : rows);
                     ins.Add(runs);
                     attrs = attrs.With("slots", (long)slots);
                     break;

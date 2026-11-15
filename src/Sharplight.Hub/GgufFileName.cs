@@ -17,6 +17,32 @@ internal static partial class GgufFileName
     /// <summary>A vision projector (llama.cpp's <c>mmproj</c>) rather than a language model.</summary>
     public static bool IsProjector(string path) => path.Contains(ProjectorMarker, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// An importance matrix (llama.cpp's <c>imatrix</c> calibration data, <c>imatrix_unsloth.gguf</c>, <c>model.imatrix.gguf</c>) rather than a model.
+    /// </summary>
+    public static bool IsImportanceMatrix(string path)
+    {
+        string name = RepoPath.Name(path);
+        return name.StartsWith("imatrix", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".imatrix.gguf", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A speculative-decoding drafter published next to the model it drafts for (<c>MTP/mtp-gemma-4-12b-it-Q8_0.gguf</c>,
+    /// <c>lilicorr-*.gguf</c>, <c>*-DFlash2-Q8_0.gguf</c>) rather than a model of its own: a <c>mtp-</c> / <c>lilicorr-</c> / <c>dflash-</c> /
+    /// <c>eagle3-</c> file name prefix, a <c>-DFlash</c> name part or a directory of that name. Models that carry their own multi-token prediction
+    /// layers (<c>Qwen3.6-35B-A3B-MTP-Q8_0.gguf</c>) are not drafters.
+    /// </summary>
+    public static bool IsDraft(string path)
+    {
+        string name = RepoPath.Name(path);
+        if (DraftPrefix().IsMatch(name) || name.Contains("-dflash", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return RepoPath.Directory(path).Split('/').Any(segment => DraftDirectory().IsMatch(segment));
+    }
+
     /// <summary>The path without <c>.gguf</c> and without the split suffix: the same for every shard of one model.</summary>
     public static string ModelKey(string path)
     {
@@ -46,6 +72,12 @@ internal static partial class GgufFileName
         var match = Quantization().Match(RepoPath.Name(key));
         return match.Success ? match.Groups["label"].Value.ToUpperInvariant() : null;
     }
+
+    [GeneratedRegex(@"^(?:mtp|lilicorr|dflash\d*|eagle3?)[-_]", RegexOptions.IgnoreCase)]
+    private static partial Regex DraftPrefix();
+
+    [GeneratedRegex(@"^(?:mtp|lilicorr|dflash\d*|eagle3?)$", RegexOptions.IgnoreCase)]
+    private static partial Regex DraftDirectory();
 
     [GeneratedRegex(@"-(?<index>\d{5})-of-(?<count>\d{5})$")]
     private static partial Regex SplitSuffix();

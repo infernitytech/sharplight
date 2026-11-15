@@ -78,4 +78,31 @@ internal static unsafe partial class Quant
             }
         }
     }
+
+    /// <summary>
+    /// NVFP4_GS: 64 values = { f32 g; u8 d[4]; u8 qs[32] } (40 bytes), the NVFP4 block after its global scale g. Each sub-block's
+    /// multiplier is formed first (UE4M3 scale times g, one rounding), then times the E2M1 code: the order of ModelOpt's dequantization.
+    /// </summary>
+    private static void NVFP4_GS(byte* p, long nb, float* dst)
+    {
+        fixed (float* scaleTable = s_ue4m3)
+        fixed (sbyte* fp4 = s_fp4Values)
+        {
+            for (long b = 0; b < nb; b++, p += 40, dst += 64)
+            {
+                float g = Unsafe.ReadUnaligned<float>(p);
+                for (int s = 0; s < 4; s++)
+                {
+                    float d = scaleTable[p[4 + s]] * g;
+                    byte* q = p + 8 + 8 * s;
+                    float* y = dst + 16 * s;
+                    for (int j = 0; j < 8; j++)
+                    {
+                        y[j] = fp4[q[j] & 0xF] * d;
+                        y[j + 8] = fp4[q[j] >> 4] * d;
+                    }
+                }
+            }
+        }
+    }
 }

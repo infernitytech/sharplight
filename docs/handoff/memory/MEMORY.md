@@ -1,0 +1,13 @@
+- [Format-agnostic core](format-agnostic-core.md) — GGUF etc. only in own importer assemblies referencing Core; canonical ModelSource
+- [Device features & fallbacks](device-features-fallbacks.md) — detect, neutral names, disable per device/compile, always fallback; test on iGPU/llvmpipe
+- [Benchmarking on shared GPU](benchmarking-shared-gpu.md) — GPU shared with user's apps; use GPU timestamps/min times/barrier counts
+- [Git worktrees for parallel work](git-worktrees-parallel.md) — repo on main (public); agents work in worktrees/branches, merged back to main
+- [Vulkan device-lost debugging](vulkan-device-lost-debugging.md) — GPU-AV env, launch bisect env vars, Xid in journal
+- [Code style rules](code-style-rules.md) — one type per file, always braces, extension blocks, documented public API, clean samples
+- [Project goals: parity](project-goals-parity.md) — support all llama.cpp archs, compete with llama.cpp/vLLM, llama.cpp binaries path
+- [Public repo privacy](public-repo-privacy.md) — public on GitHub; noreply email only, scan diffs before push
+- [Generic optimizations, provider APIs](generic-optimizations-provider-apis.md) — optimize at op level for all models; consumer APIs via provider abstraction
+- [Autonomous loop workstreams](autonomous-loop-workstreams.md) — bring-up, LLM perf vs vLLM/llama.cpp, ONNX coverage+perf vs onnxruntime; merge cycle
+- [Releases and macOS](releases-and-macos.md) — v* tag publishes NuGet + AppImage; macOS on separate branch macos/round-1 until user decides
+- [Audio + image generation in scope](scope-audio-image-generation.md) — whisper.cpp STT/TTS and stable-diffusion.cpp models since 2026-11-15; never silently scope out model classes
+- [LONG-TERM GOAL: all model types](core-task-utilities.md) — every model class on one core, task utils in Core, importers/graph gen separate, all in .slm, Studio UIs per type

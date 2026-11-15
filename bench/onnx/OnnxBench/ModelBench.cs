@@ -2,8 +2,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Sharplight.Cpu;
 using Sharplight.Graph;
+using Sharplight.Import.Onnx;
 using Sharplight.Models;
-using Sharplight.Onnx;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 using Sharplight.Vulkan;
@@ -36,6 +36,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
         result["batch"] = batch;
         result["reducedPrecision"] = arguments.ReducedPrecision;
         result["splitHalf"] = arguments.SplitHalf;
+        result["fastPrecision"] = arguments.FastPrecision;
 
         IExecutionProvider provider = arguments.Provider == "cpu" ? new CpuExecutionProvider() : new VulkanProvider();
         var availability = provider.CheckAvailability();
@@ -119,6 +120,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
                         SymbolBounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = batch },
                         AllowReducedPrecision = arguments.ReducedPrecision,
                         SplitHalfMatMul = arguments.SplitHalf,
+                        MatrixPrecision = arguments.FastPrecision ? MatrixPrecision.Fast : CompileOptions.MatrixPrecisionFromEnvironment(),
                     },
                     ReservePerDevice = 256L << 20,
                 });

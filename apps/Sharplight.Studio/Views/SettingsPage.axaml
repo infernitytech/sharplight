@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:setvm="using:Sharplight.Studio.ViewModels.Settings"
              xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:upvm="using:Sharplight.Studio.ViewModels.Updates"
              xmlns:models="using:Sharplight.Studio.Models"
              x:Class="Sharplight.Studio.Views.SettingsPage"
              x:DataType="setvm:SettingsPageViewModel">
@@ -235,6 +236,32 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
           <TextBlock Classes="caption" Text="{Binding EnvironmentDisabled}" IsVisible="{Binding EnvironmentDisabled, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Updates -->
+      <Border Classes="card">
+        <StackPanel Spacing="10" x:DataType="upvm:UpdatesViewModel" DataContext="{Binding Updates}">
+          <TextBlock Classes="h3" Text="Updates" />
+          <Grid ColumnDefinitions="200,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+            <TextBlock Classes="label" Text="Version" />
+            <TextBlock Grid.Column="1" Text="{Binding CurrentVersion}" />
+            <TextBlock Grid.Row="1" Classes="label" Text="Channel" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ChannelText}" />
+            <TextBlock Grid.Row="2" Classes="label" Text="Last checked" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding LastCheckedText}" />
+          </Grid>
+          <Border Classes="hint" IsVisible="{Binding !IsSupported}">
+            <TextBlock Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
+          </Border>
+          <ToggleSwitch Content="Check for updates automatically" IsChecked="{Binding AutoCheck}" IsEnabled="{Binding IsSupported}" />
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsSupported}">
+            <Button Classes="small" Content="Check for updates now" Command="{Binding CheckNowCommand}" />
+            <Button Classes="small" Content="Download update" Command="{Binding DownloadCommand}" IsVisible="{Binding CanDownload}" />
+            <Button Classes="small" Content="Restart to update" Command="{Binding RestartCommand}" IsVisible="{Binding IsReady}" />
+          </StackPanel>
+          <TextBlock Classes="caption" Text="{Binding StatusText}" TextWrapping="Wrap"
+                     IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
       </Border>
 

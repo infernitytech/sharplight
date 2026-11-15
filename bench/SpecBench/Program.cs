@@ -6,8 +6,8 @@
 // draft acceptance (accepted / verified drafts) and the mean accepted length per verification step (1 + accepted / steps).
 // Draft count 0 is the plain decoder (no speculator). "prompt + 1 token" is t(1 new token): prefill of the depth plus one step.
 using System.Diagnostics;
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Speculative;

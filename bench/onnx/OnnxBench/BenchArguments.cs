@@ -6,7 +6,7 @@ namespace OnnxBench;
 internal sealed class BenchArguments
 {
     public const string Usage =
-        "usage: OnnxBench <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--batch B] [--device D] [--profile] [--reduced-precision] [--no-split-f16] [--no-fuse-projections] [--vary-input]\n" +
+        "usage: OnnxBench <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--batch B] [--device D] [--profile] [--reduced-precision] [--fast-precision] [--no-split-f16] [--no-fuse-projections] [--vary-input]\n" +
         "  the \"model\" entry of the manifest resolves against $SHARPLIGHT_ONNX_MODELS.";
 
     public required string ManifestPath { get; init; }
@@ -21,6 +21,8 @@ internal sealed class BenchArguments
     /// <summary>Print the per-kernel GPU profile (Vulkan) after timing.</summary>
     public bool Profile { get; init; }
     public bool ReducedPrecision { get; init; }
+    /// <summary>One f16 product of row-scaled inputs per multiply-add in f32 matmuls, convs and attention (CompileOptions.MatrixPrecision = Fast, TF32's accuracy class).</summary>
+    public bool FastPrecision { get; init; }
     /// <summary>f32 matmuls may run on the split-f16 tensor-core GEMM (CompileOptions.SplitHalfMatMul, default; --no-split-f16 keeps the SIMT GEMM).</summary>
     public bool SplitHalf { get; init; }
 
@@ -57,6 +59,7 @@ internal sealed class BenchArguments
             Device = Value("--device") is { } device ? int.Parse(device, CultureInfo.InvariantCulture) : 0,
             Profile = options.Contains("--profile"),
             ReducedPrecision = options.Contains("--reduced-precision"),
+            FastPrecision = options.Contains("--fast-precision"),
             SplitHalf = !options.Contains("--no-split-f16"),
             NoProjectionFusion = options.Contains("--no-fuse-projections"),
             VaryInput = options.Contains("--vary-input"),

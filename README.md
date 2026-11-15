@@ -23,8 +23,15 @@ Start with the [public API overview](docs/api-overview.md). Benchmarks against l
 | ONNX | ✓ | ✓ |
 | `.slm` package | ✓ | ✓ |
 
-Of the 172 architectures llama.cpp knows, 168 are supported end to end and
-4 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
+Weight formats: the GGUF quantizations (Q4_0 … Q8_0, K-quants, IQ formats, TQ, MXFP4, NVFP4) and, from Hugging Face
+checkpoints, BF16/F16/F32, FP8 (block, channel and tensor scales), NVFP4 (ModelOpt, compressed-tensors), MXFP4
+(compressed-tensors, Quark, gpt-oss, DeepSeek-V4 FP4 experts), GPTQ (2/3/4/8-bit, act-order), AWQ (GEMM/GEMV), compressed-tensors integer weights,
+bitsandbytes NF4 and MLX affine 4-bit, kept quantized on the device; bitsandbytes FP4 / LLM.int8 and other MLX bit widths
+are decoded to BF16 at load ([docs/model-support.md](docs/model-support.md) section 2.4).
+
+Of the 172 architectures llama.cpp knows, 168 are supported end to end, `dflash` partially and the three TTS decoders
+not yet ([docs/model-support.md](docs/model-support.md) has the full matrix; its section 10 is a sweep of 1138 released
+GGUF files and 72 Hugging Face checkpoints, 1080 and 49 of which import after bring-up round 11, section 11). Supported (llama.cpp architecture names):
 
 | Family | Architectures |
 |---|---|
@@ -51,11 +58,12 @@ Of the 172 architectures llama.cpp knows, 168 are supported end to end and
 | Encoder-decoder | `t5` (plus the Hugging Face-only `bart`, `mbart`) |
 | Encoder | `t5encoder`, `bert`, `nomic-bert`, `nomic-bert-moe`, `modern-bert`, `neo-bert`, `jina-bert-v2`, `jina-bert-v3`, `eurobert` |
 | Multimodal | `clip`, `hunyuan_vl`, `cogvlm` |
-| Speculative drafters | `eagle3`, `gemma4-assistant` (loaded as the `draft` auxiliary source of their target; MTP / NextN heads of the target itself also draft) |
+| Speculative drafters | `eagle3`, `gemma4-assistant`, `dflash` (plain DFlash and DFlash2; loaded as the `draft` auxiliary source of their target; MTP / NextN heads of the target itself also draft) |
 | Decision models | `clef`, `vllm-decision2` (option scores of question spans through `SpanScorer`) |
+| Fork architectures | `inkling` (text decoder; unsloth's llama.cpp fork) |
 
 Weight types (CPU and Vulkan): F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K–Q6_K, IQ1_S/M, IQ2_XXS/XS/S, IQ3_XXS/S,
-IQ4_NL/XS, TQ1_0, TQ2_0, MXFP4, NVFP4. ONNX operator coverage is in [docs/onnx-support.md](docs/onnx-support.md).
+IQ4_NL/XS, TQ1_0, TQ2_0, MXFP4, NVFP4, and the fork-only ggml types 64–66 (read as IQ1_S) and 144–149 (trellis). ONNX operator coverage is in [docs/onnx-support.md](docs/onnx-support.md).
 
 ## Performance
 
@@ -113,27 +121,29 @@ Section 23 loads the operands of small-batch matmuls straight into the tensor-co
 of 16 sequences on the 27B takes 29.6 ms instead of 34.3 ms with FP8 weights, and 29.3 ms instead of 33.7 ms with Q8_0.
 MTP speculative decoding on the FP8 model is 8 % faster.
 
-ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21, 25-27 and 30), min latency in ms at
-batch 1. Sharplight runs its f32-accurate default. ORT's CUDA EP is shown with its default TF32 and with TF32 off
-("strict"). The CPU columns use 16 threads on both engines, from section 30 (interleaved with ORT, load average
-8-28).
-Section 30 makes the split-f16 tensor-core GEMM f32-accurate (row-scaled parts, promoted tensor-core sums) and the
-strict default for f32 matmuls and convs: resnet50 b8 went from 1.55x to 1.13x of TF32 ORT on the GPU, raft from 1.9x
-to 1.3x. Channels-last convs on the CPU take mobilenetv2 b1 from 1.23x to 0.58x of ORT and resnet50 b8 from 1.54x to
-0.89x. Faster / Mask R-CNN no longer round-trip every data-dependent count through the host (wall 119 / 137 ms → 12 /
-14 ms).
+ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21, 25-27 and 30-32), min latency in ms
+at batch 1. "Sharplight Vulkan" is its f32-accurate default (strict). "fast" is the opt-in TF32-class mode
+(`CompileOptions.MatrixPrecision = MatrixPrecision.Fast` or `SHARPLIGHT_MATRIX_PRECISION=fast`), with errors against an f64
+reference of 5.6-6.8e-4, against ORT TF32's 5.5-7.9e-4. ORT's CUDA EP is shown with its default TF32 and with TF32 off
+("strict"). GPU columns are from section 33. The CPU columns use 16 threads on both engines and are from section 31,
+which ran interleaved with ORT at load average 2-12; section 33 changed nothing on the CPU.
+Section 30 made the split-f16 tensor-core GEMM f32-accurate and the strict default. Section 31 moved bias / GELU / residual
+into that GEMM's store and reworked encoder attention.
+Section 32 adds the fast mode: one tensor-core product of row-scaled 11-bit inputs per multiply-add. With it, vit-base
+runs at 0.90x of ORT TF32 (b8 0.86x), whisper at 0.85x and bert at 0.85x. In strict mode, Sharplight beats ORT strict on
+these models.
 
-| Model | Sharplight Vulkan | ORT CUDA (TF32) | ORT CUDA strict | Sharplight CPU | ORT CPU |
-|---|---:|---:|---:|---:|---:|
-| resnet50 | 0.77 | 1.02 | 2.12 | 4.6 | 6.3 |
-| mobilenetv2 | 0.38 | 0.37 | 0.65 | 1.0 | 1.7 |
-| yolov10n | 1.19 | 1.21 | 2.42 | 9.3 | 16.9 |
-| bert-base (16 tokens) | 1.27 | 1.40 | 1.50 | 9.8 | 12.5 |
-| vit-base | 2.36 | 1.38 | 2.60 | 21.3 | 24.1 |
-| segformer-b0 | 2.91 | 2.32 | 3.41 | 23.3 | 45.4 |
-| whisper-tiny encoder | 1.78 | 1.19 | 2.07 | 21.5 | 43.0 |
-| mobilesam encoder | 5.26 | 6.14 | 8.16 | 131 | 222 |
-| faster r-cnn (fasterrcnn-12) | 9.7 | 7.9 | 13.2 | - | - |
+| Model | Sharplight Vulkan | Sharplight Vulkan fast | ORT CUDA (TF32) | ORT CUDA strict | Sharplight CPU | ORT CPU |
+|---|---:|---:|---:|---:|---:|---:|
+| resnet50 | 0.74 | 0.61 | 1.02 | 2.18 | 4.1 | 5.2 |
+| mobilenetv2 | 0.38 | 0.33 | 0.38 | 0.66 | 0.6 | 1.6 |
+| yolov10n | 1.20 | 1.06 | 1.24 | 2.70 | 7.6 | 14.9 |
+| bert-base (16 tokens) | 1.19 | 1.05 | 1.24 | 1.46 | 9.1 | 10.8 |
+| vit-base | 2.04 | 1.23 | 1.36 | 2.48 | 23.9 | 21.8 |
+| segformer-b0 | 3.09 | 2.82 | 2.46 | 3.65 | 21.6 | 40.0 |
+| whisper-tiny encoder | 1.61 | 1.04 | 1.22 | 2.10 | 19.8 | 37.5 |
+| mobilesam encoder | 5.50 | 4.41 | 6.57 | 10.49 | 113 | 199 |
+| faster r-cnn (fasterrcnn-12) | 9.95 | 8.24 | 8.69 | 15.29 | - | - |
 
 ## Building
 
@@ -142,6 +152,18 @@ dotnet build Sharplight.slnx -c Release
 ```
 
 Tests are Microsoft.Testing.Platform executables: run `dotnet tests/<Project>/bin/Release/net11.0/<Project>.dll`.
+
+## Packages
+
+The libraries under `src/` ship as NuGet packages (prerelease): `Sharplight.Core`, `Sharplight.Llm`, `Sharplight.Cpu`,
+`Sharplight.Vulkan`, `Sharplight.Shaders`, `Sharplight.Architectures`, `Sharplight.Tokenizers`, `Sharplight.Templating`,
+`Sharplight.Package` (`.slm` packages, conversion and precompilation), `Sharplight.Hub`, `Sharplight.AspNetCore`,
+`Sharplight.Extensions.AI`, and one package per source format: `Sharplight.Import.Gguf`, `Sharplight.Import.HuggingFace`
+and `Sharplight.Import.Onnx`.
+
+The format importers were published as `Sharplight.Gguf`, `Sharplight.HuggingFace` and `Sharplight.Onnx` before, and the
+conversion API as `Sharplight.Package.Import`. Their namespaces moved with them (`Sharplight.Import.Gguf`, ...; the
+conversion types are in `Sharplight.Package` now); there are no forwarding packages.
 
 ## Samples
 

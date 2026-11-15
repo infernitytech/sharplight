@@ -49,6 +49,9 @@ public sealed class DeviceProfile
     /// <summary>See <see cref="DeviceInfo.SubmissionBudgetMs"/>; 0 = no limit.</summary>
     public double SubmissionBudgetMs { get; init; }
 
+    /// <summary>See <see cref="DeviceInfo.ConcurrentWorkgroups"/>; 0 = unknown.</summary>
+    public int ConcurrentWorkgroups { get; init; }
+
     /// <summary>Provider-specific informational details (vendor and device ids, API version, limits); not used for compilation.</summary>
     public IReadOnlyDictionary<string, string> Properties { get; init; } = new Dictionary<string, string>();
 
@@ -71,6 +74,7 @@ public sealed class DeviceProfile
             MaxSharedMemory = MaxSharedMemory,
             Features = [.. Features.Where(f => !removed.Contains(f))],
             SubmissionBudgetMs = SubmissionBudgetMs,
+            ConcurrentWorkgroups = ConcurrentWorkgroups,
             Properties = Properties,
         };
     }

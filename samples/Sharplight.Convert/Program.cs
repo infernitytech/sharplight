@@ -1,6 +1,6 @@
 using Sharplight.Convert;
+using Sharplight.Import.Onnx;
 using Sharplight.Llm;
-using Sharplight.Onnx;
 using Sharplight.Samples;
 
 SampleRuntime.RegisterProvidersAndImporters();

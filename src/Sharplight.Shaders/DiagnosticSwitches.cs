@@ -14,6 +14,12 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_NO_BIAS_FOLD=1</c>: do not add matmul biases in the single-row matvec's store.</item>
 /// <item><c>SHARPLIGHT_NO_CONV_EPILOGUE=1</c>: run the elementwise group consuming a convolution (activation, residual add) as its
 /// own launch instead of in the convolution's store.</item>
+/// <item><c>SHARPLIGHT_NO_MATMUL_EPILOGUE=1</c>: run the elementwise group consuming a weight matmul (bias, activation, residual
+/// add) as its own launch instead of in the split-f16 GEMM's store.</item>
+/// <item><c>SHARPLIGHT_NO_NARROW_CONV=1</c>: run convolutions with up to 8 output channels through the implicit GEMMs instead of
+/// the per-pixel conv_narrow kernel.</item>
+/// <item><c>SHARPLIGHT_NO_STRIDED_LAYERNORM=1</c>: copy a channel-strided LayerNorm input (the channels-last view of an NCHW
+/// tensor) to a dense temporary instead of normalizing it in place.</item>
 /// <item><c>SHARPLIGHT_NO_GROUP_MERGE=1</c>: fuse only consecutive elementwise nodes (no merging of groups along data flow).</item>
 /// <item><c>SHARPLIGHT_NO_GATHER_FOLD=1</c>: materialize row gathers (GatherAxis on axis 0, e.g. the per-expert biases of the
 /// selected experts) with their own launch instead of reading the rows in place inside the fused elementwise group consuming them.</item>
@@ -25,7 +31,7 @@ namespace Sharplight.Shaders;
 /// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
 /// <item><c>SHARPLIGHT_ROW_INVARIANT=n</c>: rows up to which a step computes every row like a single-row step, overriding
 /// <c>CompileOptions.RowInvariantRows</c> (speculative decoding sets it to the verification rows; 0 turns it off).</item>
-/// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4) on the f32
+/// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4, and Q4Z / Q8Z / NVFP4 / NVFP4_GS) on the f32
 /// matvecs instead of the integer-dot matvec.</item>
 /// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 8; 16 for
 /// Q8_0 on devices without the f16 tensor-core path).</item>
@@ -114,6 +120,15 @@ internal static class DiagnosticSwitches
 
     /// <summary>Disables the convolution epilogue fusion (elementwise consumers of a conv computed in its store).</summary>
     public static bool NoConvEpilogue { get; } = IsSet("SHARPLIGHT_NO_CONV_EPILOGUE");
+
+    /// <summary>Runs convolutions with few output channels through the implicit GEMMs instead of conv_narrow.</summary>
+    public static bool NoNarrowConv { get; } = IsSet("SHARPLIGHT_NO_NARROW_CONV");
+
+    /// <summary>Densifies channel-strided LayerNorm inputs for the row kernel instead of reading them in place (layernorm_cs).</summary>
+    public static bool NoStridedLayerNorm { get; } = IsSet("SHARPLIGHT_NO_STRIDED_LAYERNORM");
+
+    /// <summary>Disables the matmul epilogue fusion (elementwise consumers of a weight matmul computed in the split-f16 GEMM's store).</summary>
+    public static bool NoMatMulEpilogue { get; } = IsSet("SHARPLIGHT_NO_MATMUL_EPILOGUE");
 
     /// <summary>False keeps the 32-value block formats off the integer-dot matvec.</summary>
     public static bool IntDotBlockFormats { get; } = IsNotZero("SHARPLIGHT_MMVQ_BLOCK");
@@ -252,6 +267,9 @@ internal static class DiagnosticSwitches
     /// sinks) may use the encoder flash kernel <c>fe</c>; <c>SHARPLIGHT_ATTN_FE=0</c> uses the general flash kernel.
     /// </summary>
     public static bool AttentionEncoderFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE");
+
+    /// <summary>False keeps bidirectional attention on devices without the tensor-core flash kernels off the f32 encoder flash kernel (fes).</summary>
+    public static bool AttentionSimtFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FES");
 
     /// <summary>
     /// True (default) when f32 matmuls may run on the split-f16 tensor-core GEMM where a compilation allows it

@@ -1,4 +1,4 @@
-using Sharplight.Gguf;
+using Sharplight.Import.Gguf;
 
 namespace Sharplight.GgufDump;
 

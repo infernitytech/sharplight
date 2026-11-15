@@ -61,8 +61,15 @@ public sealed partial class GraphLowerer
     private bool QuantizedActivationsAllowed(Node n)
         => _opt.Compile.AllowReducedPrecision || !n.Attributes.Get(StandardOps.F32ActivationsAttribute, false);
 
-    /// <summary>32-value block formats of the integer-dot matvec (one block per chunk).</summary>
-    private static readonly HashSet<DataType> s_intDotBlockFormats = [DataType.Q8_0, DataType.Q4_0, DataType.Q5_0, DataType.IQ4_NL, DataType.MXFP4, ShaderTypes.MXFP4R];
+    /// <summary>
+    /// Block formats of the integer-dot matvec read 32 values per chunk: the 32-value GGUF blocks, and the group-scaled formats of
+    /// quantized Hugging Face checkpoints (integer codes with a zero point, NVFP4 with and without a global scale).
+    /// </summary>
+    private static readonly HashSet<DataType> s_intDotBlockFormats =
+    [
+        DataType.Q8_0, DataType.Q4_0, DataType.Q5_0, DataType.IQ4_NL, DataType.MXFP4, ShaderTypes.MXFP4R,
+        DataType.Q4Z_G32, DataType.Q4Z_G128, DataType.Q8Z_G32, DataType.Q8Z_G128, DataType.NVFP4, DataType.NVFP4_GS,
+    ];
 
     /// <summary>Rows (inclusive) from which the int-dot path serves a matmul; single rows may stay on the f32 matvec.</summary>
     private static long IntDotMinRows(DataType type) => (type == ShaderTypes.Q8_0R || type == DataType.Q8_0) && !DiagnosticSwitches.IntDotDecodeQ8 ? 2 : 1;
@@ -143,7 +150,7 @@ public sealed partial class GraphLowerer
         }
 
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.F16 => 2 * k, ActivationCode.SplitF16 => 4 * k + 16, _ => k + k / 4 }];
+        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.F16 => 2 * k, ActivationCode.SplitF16 => 4 * k + 16, ActivationCode.ScaledF16 => 2 * k + 16, _ => k + k / 4 }];
         TensorRef quantized;
         if (shareable)
         {
@@ -177,13 +184,14 @@ public sealed partial class GraphLowerer
             ActivationCode.Fp8 => Lib("gemm_fp8.slang", "quantize_fp8", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_FP8", 1))),
             ActivationCode.F16 => Lib("data.slang", "to_f16", Macros(("K", k), ("X_STRIDE", xStride))),
             ActivationCode.SplitF16 => Lib("data.slang", "split_rows", Macros(("K", k), ("X_STRIDE", xStride))),
+            ActivationCode.ScaledF16 => Lib("data.slang", "split_rows", Macros(("K", k), ("X_STRIDE", xStride), ("SPLIT_PARTS", 1))),
             _ => Lib("mmvq.slang", "quantize_q8_1", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_Q8_1", 1))),
         };
         long valuesPerThread = code == ActivationCode.F16 ? 8 : 4;
-        Func<Bindings, Grid> grid = code == ActivationCode.SplitF16
+        Func<Bindings, Grid> grid = code is ActivationCode.SplitF16 or ActivationCode.ScaledF16
             ? b => new Grid((uint)rows(b))
             : b => new Grid(Grid.Div(rows(b) * (k / valuesPerThread), 256));
-        string what = code switch { ActivationCode.Fp8 => "fp8", ActivationCode.F16 => "f16", ActivationCode.SplitF16 => "split f16", _ => "q8" };
+        string what = code switch { ActivationCode.Fp8 => "fp8", ActivationCode.F16 => "f16", ActivationCode.SplitF16 => "split f16", ActivationCode.ScaledF16 => "scaled f16", _ => "q8" };
         Emit($"{label} x→{what}", nodes,
             [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows, kernel, grid)],
             [Pointer(x), Pointer(quantized), TokenArg(x, rowsPerLead)],

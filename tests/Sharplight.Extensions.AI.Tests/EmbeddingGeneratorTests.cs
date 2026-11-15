@@ -1,7 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Cpu;
-using Sharplight.Gguf;
+using Sharplight.Import.Gguf;
 using Sharplight.Llm.Embeddings;
 using Sharplight.Runtime;
 

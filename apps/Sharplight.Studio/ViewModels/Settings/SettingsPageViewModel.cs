@@ -7,6 +7,7 @@ using Sharplight.Runtime;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.ViewModels.Models;
+using Sharplight.Studio.ViewModels.Updates;
 
 namespace Sharplight.Studio.ViewModels.Settings;
 
@@ -35,8 +36,12 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     public SettingsPageViewModel(StudioServices services)
     {
         _services = services;
+        Updates = new UpdatesViewModel(services);
         Load();
     }
+
+    /// <summary>Update checks: version, channel, automatic check and the pending update (shared with the update dialog).</summary>
+    public UpdatesViewModel Updates { get; }
 
     /// <inheritdoc/>
     public override string Title => "Settings";

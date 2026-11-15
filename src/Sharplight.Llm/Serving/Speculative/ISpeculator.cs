@@ -6,8 +6,9 @@ namespace Sharplight.Llm.Serving.Speculative;
 /// logits row per position, keeps the longest prefix of drafts that the target's own sampling reproduces, and rolls the target
 /// context back over the rest. Output is therefore distributed exactly as without speculation.
 /// <para>
-/// Implementations: <see cref="NgramSpeculator"/> (prompt lookup, no extra model) and <see cref="MtpSpeculator"/> (the target
-/// model's own multi-token-prediction head, fed the target's hidden states through <see cref="Observe"/>). A small draft model of
+/// Implementations: <see cref="NgramSpeculator"/> (prompt lookup, no extra model), <see cref="MtpSpeculator"/> (the target
+/// model's own multi-token-prediction head, fed the target's hidden states through <see cref="Observe"/>) and <see cref="BlockDraftSpeculator"/>
+/// (a block drafter that proposes every draft of a step in one pass). A small draft model of
 /// the same family fits the same contract.
 /// </para>
 /// <para>
@@ -47,4 +48,7 @@ public interface ISpeculator : IDisposable
     public void Observe(int slot, int position, ReadOnlySpan<int> successors, ReadOnlySpan<float> hidden)
     {
     }
+
+    /// <summary>Device memory the speculator holds (a draft model's own weights, KV cache and buffers); 0 for speculators without one.</summary>
+    public long DeviceMemoryBytes => 0;
 }

@@ -7,7 +7,7 @@ model tests, so this script serializes the node test cases of the installed onnx
 Usage (in a venv with onnx and numpy, never the system Python):
     python -I tools/gen-onnx-node-tests.py [-o ~/models/onnx/backend-node-<onnx version>]
 
-tests/Sharplight.Onnx.Conformance reads the directory from SHARPLIGHT_ONNX_NODE_TESTS, else the newest
+tests/Sharplight.Import.Onnx.Conformance reads the directory from SHARPLIGHT_ONNX_NODE_TESTS, else the newest
 ~/models/onnx/backend-node-* directory.
 """
 

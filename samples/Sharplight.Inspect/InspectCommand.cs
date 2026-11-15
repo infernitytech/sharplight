@@ -1,5 +1,5 @@
 using System.CommandLine;
-using Sharplight.Gguf;
+using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Samples;

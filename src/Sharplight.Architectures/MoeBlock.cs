@@ -33,6 +33,10 @@ namespace Sharplight.Architectures;
 /// <item>Optional shared expert: <c>shared.{gate,up,down}.weight</c> (a gated MLP; without <c>shared.gate</c> an ungated
 /// act(up) MLP), optionally scaled per token by
 /// sigmoid(h · <c>shared.input_gate.weight</c>) with the gate weight [1, H], and by <c>moe.shared_scale</c>.</item>
+/// <item>Optional shared experts scored by the router (<see cref="MoeOptions.SharedSinks"/> = S, Inkling): a bank
+/// <c>shared_sinks.{gate,up,down}.weight</c> [S, I, H] / [S, H, I] that every token passes through, expert s weighted by its router
+/// weight (the router's last S rows, normalized together with the selected experts). The bank runs as expert-indexed products with the
+/// constant ids 0 … S − 1, so its weights keep any storage format.</item>
 /// </list>
 /// </remarks>
 internal static class MoeBlock
@@ -62,7 +66,18 @@ internal static class MoeBlock
     {
         string prefix = layerPrefix + block;
         int k = options.ExpertsUsed;
-        var (weights, ids) = route ?? MoeRouter.Route(b, routerInput ?? h, prefix, options, tokens);
+        Value? sinkWeights = null;
+        Value weights;
+        Value ids;
+        if (options.SharedSinks > 0 && route is null)
+        {
+            (weights, ids, sinkWeights) = MoeRouter.RouteWithSinks(b, routerInput ?? h, prefix, options);
+        }
+        else
+        {
+            (weights, ids) = route ?? MoeRouter.Route(b, routerInput ?? h, prefix, options, tokens);
+        }
+
         var slotWeights = b.Reshape(weights, 0, k, 1);                                                                           // [T, k, 1]
         var latentDown = b.TryWeight(prefix + "latent_down.weight");
         int width = latentDown is null ? hidden : (int)latentDown.Shape[0].Fixed;
@@ -95,6 +110,11 @@ internal static class MoeBlock
             }
 
             routed = b.Linear(routed, prefix + "latent_up.weight", name: $"{prefix}latent_out");                                   // [T, H]
+        }
+
+        if (sinkWeights is not null)
+        {
+            routed = b.Add(routed, SharedSinks(b, h, prefix, ids, sinkWeights, options.SharedSinks, Gated), $"{prefix}moe_with_sinks");
         }
 
         if (!b.HasWeight(prefix + "shared.up.weight"))
@@ -130,6 +150,27 @@ internal static class MoeBlock
         var groupIds = b.Binary("Div", ids, groupSize, $"{prefix}adjugate_ids");                                                   // i32 [T, k]
         var output = ExpertBank(b, h, prefix, "adjugate_experts", groupIds, activation);
         return options.AdjugateScale == 1f ? output : b.Scale(output, options.AdjugateScale);
+    }
+
+    /// <summary>
+    /// The router-weighted shared experts of the bank <c>shared_sinks.*</c> [S, ...] (see <see cref="MoeOptions.SharedSinks"/>): every row runs all
+    /// S of them, through MatMulId with the constant ids 0 … S − 1, and their outputs are summed with the weights <paramref name="sinkWeights"/> [T, S].
+    /// </summary>
+    private static Value SharedSinks(GraphBuilder b, Value h, string prefix, Value ids, Value sinkWeights, int count, Func<Value?, Value, Value> activation)
+    {
+        var iotaBytes = new byte[count * 4];
+        for (int i = 0; i < count; i++)
+        {
+            BitConverter.TryWriteBytes(iotaBytes.AsSpan(i * 4, 4), (float)i);
+        }
+
+        // [T, 1] zeros (from the routed ids, so the row count follows the batch) plus the iota [S]: the ids [T, S].
+        var zeros = b.Scale(b.Emit1("Cast", [b.Slice(ids, 1, 0, 1)], Attributes.From(("type", "f32"))), 0f);
+        var iota = b.Constant($"{prefix}sink_iota", DataType.F32, new Shape(count), iotaBytes);
+        var sinkIds = b.Emit1("Cast", [b.Add(zeros, iota)], Attributes.From(("type", "i32")), $"{prefix}sink_ids");
+        var down = ExpertBank(b, h, prefix, "shared_sinks", sinkIds, activation);                                                  // [T, S, H]
+        var weighted = b.Mul(down, b.Reshape(sinkWeights, 0, count, 1));
+        return b.Reshape(b.Emit1("ReduceSum", [b.Permute(weighted, 0, 2, 1)]), 0, (int)h.Shape[1].Fixed);
     }
 
     // One bank of expert MLPs (weights below {prefix}{bankName}.) applied to the selected slots: gated (separate or fused gate/up) or

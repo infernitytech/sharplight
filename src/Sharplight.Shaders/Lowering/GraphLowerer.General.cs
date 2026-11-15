@@ -70,9 +70,10 @@ public sealed partial class GraphLowerer
                     return OpSupport.No($"{op} reduction on {node.Inputs[0].Type}");
                 }
 
-                if (op == "ScatterND" && node.Inputs[1].Shape.Symbol is not null && a.Get("batch_dims", 0L) == 0)
+                // The parallel kernel (no reduction) iterates over a symbolic index axis; the sequential one (reductions) cannot.
+                if (op == "ScatterND" && node.Inputs[1].Shape.Symbol is not null && a.Get("batch_dims", 0L) == 0 && a.Get("reduction", "none") != "none")
                 {
-                    return OpSupport.No($"{op} over a symbolic axis");
+                    return OpSupport.No($"{op} with a reduction over a symbolic axis");
                 }
 
                 break;

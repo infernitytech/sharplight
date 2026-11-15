@@ -49,12 +49,13 @@ public sealed class CpuExecutionProvider : IExecutionProvider
     /// <summary>
     /// The CPU provider has kernels for weights of this element type (float, the supported ggml block quantizations, FP8). Every graph op that
     /// a GPU provider lacks falls back to the CPU, so a weight type without CPU kernels cannot be loaded at all (e.g. <c>q8_k</c>, which
-    /// ggml uses for activations only).
+    /// ggml uses for activations only). Integer weights are index tables (e.g. DeepSeek-V4's hash routing table), read by gather and compare
+    /// ops, which every integer type has.
     /// </summary>
     /// <param name="type">The stored element type of a weight.</param>
     public static bool SupportsWeightType(DataType type)
     {
         ArgumentNullException.ThrowIfNull(type);
-        return Quant.FormatOf(type) is not null;
+        return Quant.FormatOf(type) is not null || type.Kind is DataTypeKind.Int or DataTypeKind.Bool;
     }
 }

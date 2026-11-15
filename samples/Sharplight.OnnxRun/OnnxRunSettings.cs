@@ -6,7 +6,7 @@ namespace Sharplight.OnnxRun;
 /// <param name="DeviceIndex">Device index within the provider.</param>
 /// <param name="BatchSize">Value of the symbolic batch dimension.</param>
 /// <param name="TimedRuns">Number of timed runs after one warm-up run.</param>
-/// <param name="InputShapes">Full-shape overrides per graph input; a non-positive entry marks the batch axis.</param>
+/// <param name="InputShapes">Full-shape overrides per graph input; a negative entry marks the batch axis, 0 an empty axis.</param>
 /// <param name="InputFile">Raw float32 file for the first input; other inputs get random data.</param>
 /// <param name="OutputFile">Where to store the first output as raw float32, or null.</param>
 /// <param name="DumpGraph">Print the imported graph.</param>
