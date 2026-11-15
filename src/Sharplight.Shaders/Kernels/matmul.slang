@@ -1050,6 +1050,12 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
         { dst = 0; if ((t) < ROWS_LIVE) dst = *(uint4*)(xrb[it] + uint64_t(k) * 2); }
 #endif
+#elif X_F16 && !MOE && GTHREADS % GQ == 0
+    // Dense rows: item it of a thread reads row t0 + tid / GQ + it * (GTHREADS / GQ), so one base address and constant
+    // offsets serve every item (rows past the tile are not loaded, so their addresses need no clamp).
+    uint64_t xrb0 = uint64_t(p.x) + (uint64_t(t0 + tid / GQ) * X_STRIDE + (tid % GQ) * 8) * 2;
+    #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
+        { dst = 0; if ((t) < ROWS_LIVE) dst = *(uint4*)(xrb0 + (uint64_t(it) * (GTHREADS / GQ) * X_STRIDE + (k)) * 2); }
 #elif X_F16
     // Per-item row addresses are loop invariant (the row is clamped; rows past the tile load zeros).
     uint64_t xrb[GA_PER_T];
