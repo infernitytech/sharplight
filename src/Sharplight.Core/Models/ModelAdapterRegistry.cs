@@ -8,6 +8,7 @@ public static class ModelAdapterRegistry
 {
     private static readonly ConcurrentDictionary<string, IModelAdapter> s_adapters = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, string> s_auxiliaryOnly = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentQueue<IModelAdapter> s_composites = new();
 
     /// <summary>
     /// Registers an adapter for each of its architectures; a later registration for the same architecture replaces the earlier one.
@@ -27,6 +28,14 @@ public static class ModelAdapterRegistry
     /// <param name="architecture">The canonical architecture id.</param>
     /// <param name="role">The auxiliary role its models are loaded in (e.g. <c>draft</c>).</param>
     public static void RegisterAuxiliaryOnly(string architecture, string role) => s_auxiliaryOnly[architecture] = role;
+
+    /// <summary>
+    /// Registers an adapter that builds a model out of several sources (e.g. a language model plus the codec decoder of a speech synthesizer)
+    /// and decides on the whole <see cref="ModelSourceSet"/>. Composite adapters are consulted before the adapters registered per
+    /// architecture, and only for source sets with auxiliary sources.
+    /// </summary>
+    /// <param name="adapter">The adapter; its <see cref="IModelAdapter.CanLoad(ModelSourceSet)"/> selects the source sets it handles.</param>
+    public static void RegisterComposite(IModelAdapter adapter) => s_composites.Enqueue(adapter);
 
     /// <summary>
     /// Finds the adapter for a source: the one registered for its architecture, else any adapter whose <see cref="IModelAdapter.CanLoad"/> accepts it.
@@ -60,7 +69,7 @@ public static class ModelAdapterRegistry
 
             return GraphOptimizer.PrepareForLoad(prebuilt, options.OptimizeGraphs, log);
         }
-        var adapter = Find(sources.Primary) ?? throw NoAdapter(sources.Primary);
+        var adapter = (sources.Auxiliary.Count > 0 ? s_composites.FirstOrDefault(c => c.CanLoad(sources)) : null) ?? Find(sources.Primary) ?? throw NoAdapter(sources.Primary);
         return GraphOptimizer.PrepareForLoad(adapter.Build(sources, options), options.OptimizeGraphs, log);
     }
 

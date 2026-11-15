@@ -12,6 +12,12 @@ internal interface ILoadedModel
     /// <summary>The id it is known by (in the chat and to API clients).</summary>
     public string Id { get; }
 
+    /// <summary>
+    /// What the model does (<see cref="Sharplight.Models.ModelKinds"/>): the kind of its model description. Every model the runtime
+    /// hosts today generates text; runtime models of other kinds override it, and the model pickers follow it.
+    /// </summary>
+    public string Kind => Sharplight.Models.ModelKinds.TextGeneration;
+
     /// <summary>The file it is loaded from.</summary>
     public string Path { get; }
 

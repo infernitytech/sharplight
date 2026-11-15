@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sharplight.Models;
 using Sharplight.Studio.Models;
+using Sharplight.Studio.ViewModels.Inference;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Runtime;
 
@@ -22,9 +24,24 @@ internal sealed partial class ChatPageViewModel : PageViewModel
     {
         _services = services;
         _navigator = navigator;
-        services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(RefreshModels);
-        RefreshModels();
+        Picker = new ModelPickerViewModel(services, ModelKinds.TextGeneration);
+        Picker.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ModelPickerViewModel.SelectedModel))
+            {
+                OnPropertyChanged(nameof(SelectedModel));
+                OnPropertyChanged(nameof(SelectedBadges));
+                OnSelectedModelChanged(Picker.SelectedModel);
+            }
+            else if (args.PropertyName == nameof(ModelPickerViewModel.HasModels))
+            {
+                OnPropertyChanged(nameof(HasModels));
+            }
+        };
     }
+
+    /// <summary>The model picker, the same component every inference page uses (resident text-generation models).</summary>
+    public ModelPickerViewModel Picker { get; }
 
     /// <inheritdoc/>
     public override string Title => "Chat";
@@ -36,7 +53,7 @@ internal sealed partial class ChatPageViewModel : PageViewModel
     public ObservableCollection<ConversationItemViewModel> Conversations { get; } = [];
 
     /// <summary>Loaded models.</summary>
-    public ObservableCollection<ModelOptionViewModel> Models { get; } = [];
+    public ObservableCollection<ModelOptionViewModel> Models => Picker.Models;
 
     /// <summary>Filter text of the conversation list.</summary>
     [ObservableProperty]
@@ -51,16 +68,18 @@ internal sealed partial class ChatPageViewModel : PageViewModel
     public partial ConversationViewModel? Current { get; set; }
 
     /// <summary>The model answers come from.</summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(SelectedBadges))]
-    public partial ModelOptionViewModel? SelectedModel { get; set; }
+    public ModelOptionViewModel? SelectedModel
+    {
+        get => Picker.SelectedModel;
+        set => Picker.SelectedModel = value;
+    }
 
     /// <summary>The settings panel is open.</summary>
     [ObservableProperty]
     public partial bool IsSettingsOpen { get; set; } = true;
 
     /// <summary>At least one model is loaded.</summary>
-    public bool HasModels => Models.Count > 0;
+    public bool HasModels => Picker.HasModels;
 
     /// <summary>Badges of the selected model.</summary>
     public CapabilityBadges? SelectedBadges => SelectedModel?.Badges;
@@ -89,14 +108,7 @@ internal sealed partial class ChatPageViewModel : PageViewModel
     }
 
     /// <summary>Selects <paramref name="model"/> (or keeps the selection).</summary>
-    public void SelectModel(ILoadedModel? model)
-    {
-        RefreshModels();
-        if (model is not null && Models.FirstOrDefault(option => option.Id == model.Id) is { } option)
-        {
-            SelectedModel = option;
-        }
-    }
+    public void SelectModel(ILoadedModel? model) => Picker.Select(model);
 
     partial void OnFilterTextChanged(string value) => ApplyFilter();
 
@@ -108,7 +120,7 @@ internal sealed partial class ChatPageViewModel : PageViewModel
         }
     }
 
-    partial void OnSelectedModelChanged(ModelOptionViewModel? value)
+    private void OnSelectedModelChanged(ModelOptionViewModel? value)
     {
         if (Current is null)
         {
@@ -299,19 +311,5 @@ internal sealed partial class ChatPageViewModel : PageViewModel
         {
             SelectedConversation = selected;
         }
-    }
-
-    private void RefreshModels()
-    {
-        var loaded = _services.Runtime.LoadedModels;
-        var selectedId = SelectedModel?.Id;
-        Models.Clear();
-        foreach (var model in loaded)
-        {
-            Models.Add(new ModelOptionViewModel(model));
-        }
-
-        SelectedModel = Models.FirstOrDefault(option => option.Id == selectedId) ?? Models.FirstOrDefault();
-        OnPropertyChanged(nameof(HasModels));
     }
 }

@@ -97,7 +97,8 @@ public static class ModelFileSelector
         {
             ModelFormat.Gguf => SelectGguf(repository, tag),
             ModelFormat.Safetensors => SelectCheckpoint(repository, tag, indexJson),
-            _ => SelectOnnx(repository, tag),
+            ModelFormat.Onnx => SelectOnnx(repository, tag),
+            _ => throw new HubException($"{repository.Id}: {format} repositories cannot be pulled yet."),
         };
     }
 
