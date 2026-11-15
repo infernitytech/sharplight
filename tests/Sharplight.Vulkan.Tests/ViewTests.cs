@@ -18,6 +18,26 @@ public sealed class ViewTests
         Diff.Check("Views.concat", tg.B.Build(), new Step(5, 0, (x, Rnd.F(5 * 40, 1))), atol: 0, rtol: 0);
     }
 
+    /// <summary>
+    /// Concatenations of several inputs run as one launch: strided, permuted and dense inputs of different extents along an
+    /// inner and the outer axis, f32 and integer elements.
+    /// </summary>
+    [Fact]
+    public void ConcatManyInputsInOneLaunch()
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, 4, 10);
+        var y = tg.InF("y", TG.T, 3, 4);
+        var i = tg.In("i", DataType.I32, TG.T, 5);
+        var permuted = tg.B.Permute(tg.B.Slice(x, 2, 0, 3), 0, 2, 1);
+        tg.B.Output("cat", tg.B.Concat(1, tg.B.Slice(x, 2, 6, 4), y, permuted, tg.B.Slice(x, 2, 1, 4), tg.B.Scale(y, 2f)));
+        tg.B.Output("icat", tg.B.Concat(1, i, tg.B.Slice(i, 1, 1, 2), i));
+        tg.B.Output("outer", tg.B.Concat(0, y, tg.B.Scale(y, -1f), y));
+        var step = new Step(5, 0, (x, Rnd.F(5 * 40, 1)), (y, Rnd.F(5 * 12, 2)), (i, Rnd.I(5 * 5, 3, 1000)));
+        Diff.Check("Views.concat-many", tg.B.Build(), step, atol: 0, rtol: 0);
+    }
+
     [Fact]
     public void ReshapeOfNonContiguousViewFallsBackToCopy()
     {
