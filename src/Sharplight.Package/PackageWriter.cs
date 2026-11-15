@@ -26,7 +26,10 @@ internal static class PackageWriter
     /// Appends the section table at the end of <paramref name="fs"/>, makes it durable, then switches the header to it (written with
     /// <see cref="ModelPackage.Version"/>). Readers of the old table are unaffected: nothing they read is modified.
     /// </summary>
-    public static void WriteTable(FileStream fs, IReadOnlyList<PackageSection> sections)
+    /// <param name="fs">The package, open for writing.</param>
+    /// <param name="sections">The complete new section table.</param>
+    /// <param name="switching">Called after the table is durable, right before the header is switched to it, or <see langword="null"/>.</param>
+    public static void WriteTable(FileStream fs, IReadOnlyList<PackageSection> sections, Action? switching = null)
     {
         long table = Align(fs.Seek(0, SeekOrigin.End), SectionAlignment);
         Pad(fs, table);
@@ -43,6 +46,7 @@ internal static class PackageWriter
             }
         }
         fs.Flush(flushToDisk: true);
+        switching?.Invoke();
         // Switch the header to the new table only after the table is durable.
         Span<byte> h = stackalloc byte[ModelPackage.HeaderSize];
         ModelPackage.Magic.CopyTo(h);

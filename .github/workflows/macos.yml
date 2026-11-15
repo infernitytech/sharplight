@@ -19,6 +19,8 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   SMOKE_MODEL_URL: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
   SMOKE_PROMPT: The capital of France is
+  # Compiled kernels (per-user artifact store, FileCompilationCache) in a fixed place the kernel cache steps save and restore.
+  SHARPLIGHT_COMPILATION_CACHE: ${{ github.workspace }}/.kernel-cache
   VULKAN_QUANT: -class Sharplight.Vulkan.Tests.QuantFormatTests -class Sharplight.Vulkan.Tests.BonsaiQuantTests -class Sharplight.Vulkan.Tests.Iq4QuantTests -class Sharplight.Vulkan.Tests.Fp8GemmTests -class Sharplight.Vulkan.Tests.MoeTests -class Sharplight.Vulkan.Tests.TopKTests -class Sharplight.Vulkan.Tests.PadTests -class Sharplight.Vulkan.Tests.ResizeTests
   VULKAN_MMQ: -class Sharplight.Vulkan.Tests.MmqTests
   VULKAN_CORE: -class Sharplight.Vulkan.Tests.ElementwiseTests -class Sharplight.Vulkan.Tests.NormTests -class Sharplight.Vulkan.Tests.RopeTests -class Sharplight.Vulkan.Tests.RowOpTests -class Sharplight.Vulkan.Tests.ReduceTests -class Sharplight.Vulkan.Tests.GatherTests -class Sharplight.Vulkan.Tests.ViewTests -class Sharplight.Vulkan.Tests.DataOpTests -class Sharplight.Vulkan.Tests.CastAndIntegerTests -class Sharplight.Vulkan.Tests.MatMulTests -class Sharplight.Vulkan.Tests.FusionTests -class Sharplight.Vulkan.Tests.SimtGemmTests -class Sharplight.Vulkan.Tests.SkinnyGemmTests -class Sharplight.Vulkan.Tests.SplitHalfGemmTests -class Sharplight.Vulkan.Tests.RowInvarianceTests -class Sharplight.Vulkan.Tests.StatefulTests
@@ -74,14 +76,12 @@ jobs:
           grep -A40 'VkPhysicalDevicePortabilitySubsetFeaturesKHR' "$RUNNER_TEMP/vulkaninfo.txt" | head -20 || true
           grep -iE 'shaderIntegerDotProduct|cooperativeMatrix|shaderFloat16|bufferDeviceAddress|subgroupSize|vulkanMemoryModel|shaderInt64' "$RUNNER_TEMP/vulkaninfo.txt" | sort -u || true
 
-      # Compiled kernels (Slang SPIR-V, keyed by content hash) and MoltenVK's pipeline cache: Slang compilation on the 3-core
+      # Compiled kernels (Slang SPIR-V, keyed by content hash) and the device pipeline caches: Slang compilation on the 3-core
       # runner is a large part of the Vulkan suite's time. Stale entries are harmless (they never hit).
       - name: Restore the kernel cache
         uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/Library/Application Support/sharplight/kernels
-            ~/.local/share/sharplight/kernels
+          path: ${{ github.workspace }}/.kernel-cache
           key: macos-kernels-${{ hashFiles('src/Sharplight.Shaders/Kernels/**', 'Directory.Packages.props') }}
           restore-keys: macos-kernels-
 
@@ -152,9 +152,7 @@ jobs:
         if: success() || failure()
         uses: actions/cache/save@v4
         with:
-          path: |
-            ~/Library/Application Support/sharplight/kernels
-            ~/.local/share/sharplight/kernels
+          path: ${{ github.workspace }}/.kernel-cache
           key: macos-kernels-${{ hashFiles('src/Sharplight.Shaders/Kernels/**', 'Directory.Packages.props') }}-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v4

@@ -3,8 +3,11 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Hub;
 
-/// <summary>The device a pulled package is precompiled for, and how.</summary>
-/// <param name="Provider">The device's execution provider.</param>
-/// <param name="Device">The device.</param>
+/// <summary>
+/// What a pulled package is precompiled for, and how: every device of the given execution providers, through their two-stage
+/// precompilation contract (see <see cref="PackagePrecompiler"/>).
+/// </summary>
+/// <param name="Providers">The execution providers; unavailable ones and providers without precompilable code are skipped.</param>
 /// <param name="Options">Context length, batch size and tiers; use the values the model will run with.</param>
-public sealed record PrecompileTarget(IExecutionProvider Provider, DeviceInfo Device, PrecompileOptions Options);
+/// <param name="Progress">Receives the stage of each provider and device, or <see langword="null"/>.</param>
+public sealed record PrecompileTarget(IReadOnlyList<IExecutionProvider> Providers, PrecompileOptions Options, IProgress<PrecompileProgress>? Progress = null);

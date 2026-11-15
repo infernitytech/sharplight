@@ -57,7 +57,7 @@ public sealed class PackageTests
     }
 
     [Fact]
-    public void PrecompiledPackageLoadsWithoutCompiling()
+    public async Task PrecompiledPackageLoadsWithoutCompiling()
     {
         Assert.SkipUnless(Directory.Exists(Env.Tiny), "tiny-random-sd missing");
         var vulkan = new VulkanProvider();
@@ -69,7 +69,7 @@ public sealed class PackageTests
         try
         {
             ModelConverter.Convert(Env.TinyDiffusers, path);
-            var result = PackagePrecompiler.Precompile(path, vulkan, device!);
+            var result = await PackagePrecompiler.PrecompileAsync(path, vulkan, device!, cancellationToken: TestContext.Current.CancellationToken);
             Assert.NotEmpty(result.StoredSets);
             var info = ModelPackageReader.Open(path);
             Assert.NotEmpty(info.ArtifactSets);

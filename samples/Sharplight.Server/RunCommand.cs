@@ -54,7 +54,7 @@ internal sealed class RunCommand(StoreOptionSet store)
     private RunSettings Read(ParseResult parseResult)
     {
         var runtime = _runtime.Read(parseResult);
-        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(true, runtime.UseCpu, runtime.DeviceIndex, runtime.ContextLength,
+        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(true, runtime.UseCpu, runtime.ContextLength,
             runtime.BatchTokens, runtime.DisabledFeatures, log));
         return new RunSettings(
             parseResult.GetValue(_model)!,

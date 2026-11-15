@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sharplight.Package;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Library;
@@ -165,6 +166,12 @@ internal sealed partial class LibraryViewModel : ObservableObject
     [RelayCommand]
     private void Load(LibraryEntryViewModel entry)
     {
+        if (entry.IsPrecompiling)
+        {
+            Status = $"{entry.Id} is being precompiled; load it when that finished.";
+            return;
+        }
+
         if (!entry.IsRunnable)
         {
             Status = $"{entry.Name} is a {entry.KindTitle.ToLowerInvariant()} model: Sharplight cannot run models of this kind yet.";
@@ -235,9 +242,9 @@ internal sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        if (entry.IsLoaded)
+        if (entry.IsLoaded || entry.IsPrecompiling)
         {
-            Status = $"Unload {entry.Id} before deleting it.";
+            Status = entry.IsLoaded ? $"Unload {entry.Id} before deleting it." : $"{entry.Id} is being precompiled; cancel that first.";
             entry.ConfirmDelete = false;
             return;
         }
@@ -255,6 +262,85 @@ internal sealed partial class LibraryViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(IsEmpty));
+    }
+
+    /// <summary>
+    /// Precompiles a library package for every execution provider and device on this machine and writes the code into the package in
+    /// place. Refused while the model is resident (the runtime maps the file); the entry and an open inspector of it are read again
+    /// afterwards.
+    /// </summary>
+    [RelayCommand]
+    public async Task PrecompileAsync(LibraryEntryViewModel entry)
+    {
+        var path = entry.Entry.Path;
+        if (!entry.IsPackage)
+        {
+            Status = entry.PrecompileHint;
+            return;
+        }
+
+        if (entry.IsLoaded || _services.Runtime.LoadedModels.Any(model => model.Path == path))
+        {
+            entry.IsLoaded = true;
+            Status = $"Unload {entry.Id} before precompiling it: the package is rewritten in place.";
+            return;
+        }
+
+        if (entry.IsPrecompiling || _services.Precompiler.IsBusy(path))
+        {
+            return;
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        entry.PrecompileCancellation = cancellation;
+        entry.BeginPrecompile();
+        Status = $"Precompiling {entry.Name}…";
+        try
+        {
+            var progress = new DispatchingProgress<PrecompileProgress>(_services.Dispatcher, entry.OnPrecompileProgress);
+            var report = await _services.Precompiler.PrecompileAsync(path, progress, cancellation.Token);
+            entry.CompletePrecompile(report);
+            Status = $"{entry.Name}: {entry.PrecompileStatus}";
+            await ReloadAsync(entry);
+        }
+        catch (OperationCanceledException)
+        {
+            entry.PrecompileStatus = "Cancelled; the package was not changed.";
+            Status = $"Precompiling {entry.Name} was cancelled.";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException
+            or NotSupportedException or MissingSymbolBoundException)
+        {
+            entry.PrecompileStatus = $"Failed: {error.Message} The package was not changed.";
+            Status = $"Precompiling {entry.Name} failed.";
+        }
+        finally
+        {
+            entry.PrecompileCancellation = null;
+            entry.IsPrecompiling = false;
+        }
+    }
+
+    /// <summary>Cancels a running precompile; nothing is written then.</summary>
+    [RelayCommand]
+    private static void CancelPrecompile(LibraryEntryViewModel entry) => entry.PrecompileCancellation?.Cancel();
+
+    /// <summary>Reads the entry again (size, precompiled sets) and refreshes an open inspector of the same package.</summary>
+    private async Task ReloadAsync(LibraryEntryViewModel entry)
+    {
+        try
+        {
+            entry.Entry = await _services.Library.ReloadAsync(entry.Entry, CancellationToken.None);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Status = error.Message;
+        }
+
+        if (Inspector is { } inspector && inspector.Path == entry.Entry.Path)
+        {
+            await inspector.LoadAsync();
+        }
     }
 
     [RelayCommand]

@@ -70,7 +70,7 @@ public sealed class PackageInspectorTests
 
         var artifacts = package.Artifacts;
         Assert.Equal(2, artifacts.Sets.Count);
-        Assert.Equal(["binary", "code"], artifacts.Sets.Select(s => s.Tier));
+        Assert.Equal(["code", "binary"], artifacts.Sets.Select(s => s.Tier));
         var code = artifacts.Sets.Single(s => s.Tier == "code");
         Assert.Contains(code.Descriptor, d => d.Label == "Code target" && d.Value == "spirv_1_6");
         Assert.Contains("subgroup size 32", code.BuiltFor, StringComparison.Ordinal);

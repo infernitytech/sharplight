@@ -9,6 +9,11 @@ internal sealed class FakeLibrary : IModelLibrary
 
     public Task<IReadOnlyList<LibraryEntry>> ListAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<LibraryEntry>>([.. Entries]);
 
+    /// <summary>Entry returned by <see cref="ReloadAsync"/>, or null to return the entry unchanged.</summary>
+    public Func<LibraryEntry, LibraryEntry>? Reload { get; set; }
+
+    public Task<LibraryEntry> ReloadAsync(LibraryEntry entry, CancellationToken cancellationToken) => Task.FromResult(Reload?.Invoke(entry) ?? entry);
+
     public Task RemoveAsync(LibraryEntry entry)
     {
         Entries.Remove(entry);

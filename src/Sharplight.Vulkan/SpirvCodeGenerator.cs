@@ -18,7 +18,7 @@ internal sealed class SpirvCodeGenerator
     public const string CodeKind = "spirv";
 
     public SpirvCodeGenerator(int subgroupSize, long maxSharedMemory, IReadOnlySet<string> enabledFeatures, double submissionBudgetMs, int concurrentWorkgroups,
-        int computeUnits, string kernelCacheDirectory)
+        int computeUnits)
     {
         ConcurrentWorkgroups = concurrentWorkgroups;
         ComputeUnits = computeUnits;
@@ -26,7 +26,7 @@ internal sealed class SpirvCodeGenerator
         MaxSharedMemory = maxSharedMemory;
         EnabledFeatures = enabledFeatures;
         SubmissionBudgetMs = submissionBudgetMs;
-        Compiler = new SlangCompiler(kernelCacheDirectory);
+        Compiler = new SlangCompiler();
     }
 
     /// <summary>The Slang profile of every kernel (<c>spirv_1_6</c>).</summary>

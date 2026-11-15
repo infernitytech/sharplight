@@ -35,8 +35,7 @@ public sealed class DeviceProfileTests
     public void ProfileDeviceCannotRunAndProducesOnlyTheCodeTier()
     {
         Gpu.Require();
-        var provider = new VulkanProvider();
-        using var offline = provider.OpenProfile(Gpu.Vulkan!.CreateProfile()!);
+        using var offline = new VulkanProfileDevice(Gpu.Vulkan!.CreateProfile()!, new DeviceOptions());
         Assert.Equal([ArtifactTiers.Code], offline.ArtifactTargets.Select(t => t.Tier));
         using var compiled = Compile(BuildGraph(), offline, new CompilationArtifacts());
         Assert.Throws<NotSupportedException>(() => compiled.Run(Parameters()));
@@ -56,7 +55,7 @@ public sealed class DeviceProfileTests
         using var live = provider.OpenDevice(info, options);
         // The reduced profile comes from the full one, as a shipped "no matrix units" profile would.
         var profile = DeviceProfile.FromJson(Gpu.Vulkan!.CreateProfile()!.WithoutFeatures(disabled).ToJson());
-        using var offline = provider.OpenProfile(profile);
+        using var offline = new VulkanProfileDevice(profile, new DeviceOptions());
 
         var graph = BuildGraph();
         var liveArtifacts = new CompilationArtifacts();
