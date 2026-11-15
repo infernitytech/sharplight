@@ -167,10 +167,10 @@ public sealed class HfSupportTests : IDisposable
     [Fact]
     public void Import_UnreadQuantization_FailsWithTheMethod()
     {
-        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "qwen2", "quantization_config": {"bits": 2, "quant_method": "aqlm"}}""");
+        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "qwen2", "quantization_config": {"bits": 2, "quant_method": "spqr"}}""");
         var error = Assert.Throws<UnsupportedWeightFormatException>(() => HuggingFaceImporter.Open(_dir));
-        Assert.Equal("aqlm", error.WeightFormat);
-        Assert.Contains("aqlm", error.Message, StringComparison.Ordinal);
+        Assert.Equal("spqr", error.WeightFormat);
+        Assert.Contains("spqr", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

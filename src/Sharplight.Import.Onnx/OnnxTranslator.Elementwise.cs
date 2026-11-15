@@ -146,7 +146,7 @@ internal sealed partial class OnnxTranslator
         int lead = ins.Max(t => t?.LeadingUnits ?? 0);
         if (lead == 0)
         {
-            return operands;
+            return UnifyDynamicExtents(operands);
         }
 
         int irRank = ins.Where(t => t is { LeadingUnits: > 0 }).Max(t => t!.V!.Rank);
@@ -165,7 +165,60 @@ internal sealed partial class OnnxTranslator
             }
         }
 
+        return UnifyDynamicExtents(operands);
+    }
+
+    /// <summary>
+    /// Operands whose outer extents are two different data-dependent counts (e.g. the results of two NonZero ops that the model
+    /// knows select the same number of elements): the operand with the larger bound is viewed with the other count, so the IR broadcast
+    /// accepts them. Like onnxruntime, the model is trusted to combine only tensors whose counts agree at run time; the view never
+    /// reads past the larger buffer.
+    /// </summary>
+    private Value[] UnifyDynamicExtents(Value[] operands)
+    {
+        int rank = operands.Max(v => v.Rank);
+        if (rank == 0)
+        {
+            return operands;
+        }
+
+        var outer = operands.Where(v => v.Rank == rank && v.Shape[0].IsSymbolic && _dynamicBounds.ContainsKey(v.Shape[0].Symbol ?? "")).ToList();
+        var symbols = outer.Select(v => v.Shape[0].Symbol!).Distinct().ToList();
+        if (symbols.Count < 2 || symbols.Any(s => DynamicUpperBound(s) is null) || operands.Any(v => v.Rank == rank && !outer.Contains(v) && v.Shape[0] is { IsSymbolic: true }))
+        {
+            return operands;
+        }
+
+        string target = symbols.MinBy(s => DynamicUpperBound(s)!.Value)!;
+        for (int i = 0; i < operands.Length; i++)
+        {
+            var v = operands[i];
+            if (outer.Contains(v) && v.Shape[0].Symbol != target)
+            {
+                long[] dims = [0, .. v.Shape.Dims.Skip(1).Select(d => d.Fixed)];
+                operands[i] = Emit("Reshape", [v], Attributes.From(("shape", dims), ("outer_symbol", target)));
+            }
+        }
+
         return operands;
+    }
+
+    /// <summary>The fixed upper bound of a data-dependent symbol (bounds over other such symbols resolved), or null if it has none.</summary>
+    private long? DynamicUpperBound(string symbol)
+    {
+        if (!_dynamicBounds.TryGetValue(symbol, out var bound))
+        {
+            return null;
+        }
+
+        if (!bound.IsSymbolic)
+        {
+            return bound.Fixed;
+        }
+
+        var expression = bound.Expression;
+        var atoms = expression.Atoms().ToDictionary(a => a, DynamicUpperBound);
+        return atoms.Values.Any(b => b is null) ? null : expression.UpperBound(a => atoms[a]!.Value);
     }
 
     private void Mod(OnnxNode n, TranslatedTensor?[] ins)
