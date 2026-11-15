@@ -209,7 +209,7 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
             using var stored = new MemoryStream();
             WavFile.Write(stored, audio);
             files = new Dictionary<string, byte[]> { [AudioName] = stored.ToArray() };
-            metadata["audio"] = ByteFormat.Duration(audio.Duration);
+            metadata["audio"] = AudioFormat.Length(audio.Duration);
             metadata["rate"] = $"{audio.SampleRate / 1000.0:0.#} kHz";
             metadata["speed"] = $"{seconds / Math.Max(0.001, audio.Duration.TotalSeconds):0.00}x real-time factor";
             if (!string.IsNullOrEmpty(options.Voice))

@@ -137,7 +137,7 @@ internal sealed partial class TranscribePageViewModel : InferencePageViewModel
             var audio = await Task.Run(() => WavFile.Read(path));
             _audio = audio;
             AudioPath = path;
-            AudioSummary = $"{ByteFormat.Duration(audio.Duration)} · {audio.SampleRate / 1000.0:0.#} kHz · {(audio.Channels == 1 ? "mono" : audio.Channels + " channels")}";
+            AudioSummary = $"{AudioFormat.Length(audio.Duration)} · {audio.SampleRate / 1000.0:0.#} kHz · {(audio.Channels == 1 ? "mono" : audio.Channels + " channels")}";
             OnInputChanged();
             return true;
         }
@@ -275,7 +275,7 @@ internal sealed partial class TranscribePageViewModel : InferencePageViewModel
                 segments.Add(record);
                 language ??= segment.Language;
                 Services.Dispatcher.Post(() => Segments.Add(new TranscriptSegmentViewModel(record)));
-                context.Report(Math.Min(1, record.End / total), $"{TranscriptFile.Clock(record.End, '.')[3..8]} of {ByteFormat.Duration(audio.Duration)}");
+                context.Report(Math.Min(1, record.End / total), $"{TranscriptFile.Clock(record.End, '.')[3..8]} of {AudioFormat.Length(audio.Duration)}");
             }
         }
         catch (OperationCanceledException)
@@ -293,7 +293,7 @@ internal sealed partial class TranscribePageViewModel : InferencePageViewModel
         file.Text = file.ToText();
         var metadata = new Dictionary<string, string>
         {
-            ["audio"] = ByteFormat.Duration(audio.Duration),
+            ["audio"] = AudioFormat.Length(audio.Duration),
             ["time"] = $"{seconds:0.0} s",
             ["speed"] = $"{audio.Duration.TotalSeconds / Math.Max(0.001, seconds):0.#}x real time",
         };
