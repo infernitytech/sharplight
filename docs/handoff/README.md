@@ -178,9 +178,12 @@ merges into; develop merges into main once everything is green; releases come fr
   develop; CI builds and tests develop, main and release/*; NuGet packages publish from release branches.
 - R2: Studio app packages per OS: Linux (AppImage + tar.gz), Windows (Velopack Setup.exe, portable zip), macOS (.app in
   a Velopack .pkg / zip; signing and notarization when the user provides certificates). Self-contained, trimmed where safe.
-- R3: Velopack install / update in Studio (startup hook, update check and apply in the settings, release notes),
-  channels per OS and stability (stable from release branches, preview from develop), releases and delta packages
-  uploaded to the user's Cloudflare R2 bucket (S3 API) from CI; credentials only in GitHub secrets.
+- R3: Velopack install / update in Studio: startup hook; update checks; an update-available dialog with release notes,
+  download progress and restart-to-apply; a settings section (version, channel, auto-check, check now). 10 channels:
+  `<rid>-stable` (from release/*) and `<rid>-unstable` (from develop) for win-x64, win-arm64, linux-x64, linux-arm64,
+  osx-arm64. CI uploads releases and delta packages to the user's Cloudflare R2 bucket (S3 API; GitHub secrets
+  R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET); apps download from its public custom domain
+  (configurable, repository variable STUDIO_UPDATE_URL).
 
 **Per round:** privacy scan of the diff (no personal email, no home paths), merge to develop, build, all suites in parallel
 across the GPUs, remove the worktree, the machine cleanup (prune worktrees, old temp files), start the next item. Keep
