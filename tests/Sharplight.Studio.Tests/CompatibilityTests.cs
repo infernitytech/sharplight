@@ -1,6 +1,6 @@
 using System.Text;
-using Sharplight.Gguf;
 using Sharplight.Hub;
+using Sharplight.Import.Gguf;
 using Sharplight.Models;
 using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Hub;

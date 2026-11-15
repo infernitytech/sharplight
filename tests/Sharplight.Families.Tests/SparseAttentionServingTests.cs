@@ -1,5 +1,5 @@
 using Sharplight.Cpu;
-using Sharplight.HuggingFace;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;

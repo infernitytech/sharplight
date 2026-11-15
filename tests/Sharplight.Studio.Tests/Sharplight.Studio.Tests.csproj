@@ -15,6 +15,6 @@
   </ItemGroup>
   <ItemGroup>
     <!-- Header-only GGUF fixtures (metadata and tensor table, no data), shared with the importer tests. -->
-    <Content Include="../Sharplight.Gguf.Tests/Fixtures/*.gguf" Link="Fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../Sharplight.Import.Gguf.Tests/Fixtures/*.gguf" Link="Fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates tests/Sharplight.Gguf.Tests/Fixtures/ggml_narrow_iq1.bin from a build of unsloth's llama.cpp fork (libggml-base.so).
+"""Generates tests/Sharplight.Import.Gguf.Tests/Fixtures/ggml_narrow_iq1.bin from a build of unsloth's llama.cpp fork (libggml-base.so).
 
 The fork adds the narrow IQ1 types IQ1_XS (64), IQ1_XXS (65) and IQ1_XXXS (66). Every type gets two records: blocks produced by
 the fork's quantizer from gaussian data (with an importance matrix), and blocks of random bytes. Each record carries the float

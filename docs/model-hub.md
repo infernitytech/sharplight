@@ -6,7 +6,7 @@ so with a shared store a model pulled with one is available to the other. The re
 
 | Assembly | Role | Main entry points |
 |---|---|---|
-| `Sharplight.Package.Import` | Convert a source model (any registered importer) to a `.slm` package and precompile kernels into it, on a device or for a device profile; shared by `sharplight-convert`, `sharplight-server` and `sharplight` | `ModelConverter`, `ConversionOptions`, `PackagePrecompiler`, `PrecompileOptions` |
+| `Sharplight.Package` | Convert a source model (any registered importer) to a `.slm` package and precompile kernels into it, on a device or for a device profile; shared by `sharplight-convert`, `sharplight-server` and `sharplight` | `ModelConverter`, `ConversionOptions`, `PackagePrecompiler`, `PrecompileOptions` |
 | `Sharplight.Hub` | Hugging Face client, resumable verified downloads, file selection, local model store, pull pipeline | `HubClient`, `FileDownloader`, `ModelFileSelector`, `ModelStore`, `ModelPuller`, `ModelReference` |
 
 Neither references a format importer: `Sharplight.Hub` only looks at file names (to pick a GGUF quantization or the

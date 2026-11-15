@@ -5,8 +5,8 @@ docs/model-support.md (matrix, building blocks, waves, llama.cpp reference outpu
 docs/api-overview.md.
 
 ## Architecture rules
-- Format-agnostic core: GGUF names live only in src/Sharplight.Gguf, Hugging Face names only in
-  src/Sharplight.HuggingFace. Both map onto Sharplight's own neutral canonical names (ModelSource); adapters in
+- Format-agnostic core: GGUF names live only in src/Sharplight.Import.Gguf, Hugging Face names only in
+  src/Sharplight.Import.HuggingFace. Both map onto Sharplight's own neutral canonical names (ModelSource); adapters in
   src/Sharplight.Architectures only see neutral names and neutral hyper-parameter keys. Do not adopt llama.cpp names.
 - Modular: a new architecture family gets its own adapter (or builder) files. Shared building blocks (MoE sub-graph,
   norms, activations, attention variants) live in their own well-named helper types that several adapters call. Do

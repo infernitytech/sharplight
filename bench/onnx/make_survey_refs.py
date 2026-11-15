@@ -1,4 +1,4 @@
-"""onnxruntime reference data for the survey models, in the same format as ZooTests fixtures (tests/Sharplight.Onnx.Tests/scripts/make_zoo_refs.py).
+"""onnxruntime reference data for the survey models, in the same format as ZooTests fixtures (tests/Sharplight.Import.Onnx.Tests/scripts/make_zoo_refs.py).
 
 usage: make_survey_refs.py [name ...]    (default: every model file under ~/models/onnx/<dir>/ listed by discover())
 Writes ~/models/onnx/ref/survey/<name>.json + <name>.b<B>.in<k>.bin / .out<k>.bin (float32; integer/bool tensors stored as float32 values).
@@ -11,7 +11,7 @@ import onnx, onnxruntime as ort
 
 ROOT = os.path.expanduser("~/models/onnx")
 OUT = os.path.join(ROOT, "ref", "survey")
-sys.path.insert(0, os.path.expanduser("~/Documents/work/sharplight/tests/Sharplight.Onnx.Tests/scripts"))
+sys.path.insert(0, os.path.expanduser("~/Documents/work/sharplight/tests/Sharplight.Import.Onnx.Tests/scripts"))
 
 def smooth_image(rs, shape, lo=0.0, hi=1.0):
     n, c, h, w = shape

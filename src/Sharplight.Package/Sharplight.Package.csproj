@@ -4,6 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../Sharplight.Llm/Sharplight.Llm.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Package.Tests" />

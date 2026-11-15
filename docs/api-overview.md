@@ -7,12 +7,12 @@ This is a short tour of the types an application uses. Every public type and mem
 |---|---|---|
 | `Sharplight.Llm` | Load models, generate, batch, host several models, embed and rerank | `LlmModel`, `InferenceSession`, `Generator`, `InferenceEngine`, `ModelService`, `ModelHost`, `EmbeddingModel`, `Reranker`, `VisionEncoder` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplight`, `UseSharplight`, `MapSharplight`, `AddSharplightEmbeddings`, `AddSharplightReranker` |
-| `Sharplight.Package.Import` | Convert models to `.slm` packages and precompile kernels into them | `ModelConverter`, `PackagePrecompiler` |
+| `Sharplight.Package` | Convert models to `.slm` packages and precompile kernels into them | `ModelConverter`, `PackagePrecompiler` |
 | `Sharplight.Hub` | Search and pull Hugging Face models into a local store ([model-hub.md](model-hub.md)) | `HubClient`, `ModelPuller`, `ModelStore` |
 | `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `AddSharplightChatClient`, `AddSharplightEmbeddingGenerator` |
 
 Format support is not part of these assemblies. The host registers the importers it wants once at startup
-(`GgufImporter.Register()` from `Sharplight.Gguf`, `HuggingFaceImporter.Register()` from `Sharplight.HuggingFace`, ...), and
+(`GgufImporter.Register()` from `Sharplight.Import.Gguf`, `HuggingFaceImporter.Register()` from `Sharplight.Import.HuggingFace`, ...), and
 opens the compute devices (`Sharplight.Cpu`, `Sharplight.Vulkan`) that it hands to the load options as `DeviceSlot`s.
 
 ```csharp

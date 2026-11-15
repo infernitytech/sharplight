@@ -1841,7 +1841,7 @@ OUT_DIR=bench/results/s20 PORT=18190 SLOTS=64 bench/s16_serve.sh vllm qwen27b-fp
 
 ## 21. ONNX models against onnxruntime: CPU and GPU (2026-11-14)
 
-The goal is to run 15 representative ONNX models, all imported through `Sharplight.Onnx`, as fast as onnxruntime on the
+The goal is to run 15 representative ONNX models, all imported through `Sharplight.Import.Onnx`, as fast as onnxruntime on the
 same machine. Sharplight's CPU provider is compared with ORT's CPU EP, and the Vulkan provider with ORT's CUDA EP on the
 same GPU. The optimizations work at graph, op and kernel level. None of them is specific to a model.
 

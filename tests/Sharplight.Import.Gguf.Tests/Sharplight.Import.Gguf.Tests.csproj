@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../Sharplight.Cpu.Tests/Fixtures/ggml_quant_ext.bin" Link="Fixtures/ggml_quant_ext.bin" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../Sharplight.Cpu.Tests/Fixtures/trellis_ref.bin" Link="Fixtures/trellis_ref.bin" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,11 +1,11 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using Sharplight.Cpu;
-using Sharplight.Gguf;
 using Sharplight.Hub;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
+using Sharplight.Import.Onnx;
 using Sharplight.Models;
-using Sharplight.Onnx;
 using Sharplight.Tensors;
 
 namespace Sharplight.Studio.Services.Compatibility;

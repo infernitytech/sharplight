@@ -23,7 +23,7 @@ namespace Sharplight.Llm;
 /// </summary>
 /// <example>
 /// <code>
-/// GgufImporter.Register();   // from Sharplight.Gguf; the host registers the formats it supports
+/// GgufImporter.Register();   // from Sharplight.Import.Gguf; the host registers the formats it supports
 /// using var model = LlmModel.Load("qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
 /// using var session = model.CreateSession();
 /// var generator = new Generator(session, model.Tokenizer);
@@ -68,7 +68,7 @@ public sealed class LlmModel : IDisposable
 
     /// <summary>
     /// Loads a model through <see cref="ModelImporterRegistry"/>; the host must have registered an
-    /// importer for the file's format (e.g. <c>GgufImporter.Register()</c> from Sharplight.Gguf).
+    /// importer for the file's format (e.g. <c>GgufImporter.Register()</c> from Sharplight.Import.Gguf).
     /// </summary>
     /// <param name="path">Model file (GGUF, ...) or directory (Hugging Face layout), as understood by the registered importers.</param>
     /// <param name="options">Devices and compile settings; also kept for later session / decoder creation.</param>
