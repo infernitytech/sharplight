@@ -3,7 +3,7 @@ namespace Sharplight.Studio.Services.Audio;
 /// <summary>Records the microphone to a WAV file.</summary>
 internal interface IAudioRecorder
 {
-    /// <summary>Whether a microphone can be recorded on this machine (a recorder program was found).</summary>
+    /// <summary>Whether a microphone can be recorded on this machine (an audio input device was found).</summary>
     public bool IsAvailable { get; }
 
     /// <summary>Why <see cref="IsAvailable"/> is false, or what records the sound.</summary>

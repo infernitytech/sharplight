@@ -1,3 +1,4 @@
+using Sharplight.Audio;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Documents;
@@ -13,14 +14,14 @@ internal sealed class TestServices : IDisposable
 {
     private readonly TempDir _dir = new();
 
-    public TestServices(AppSettings? settings = null, IUiDispatcher? dispatcher = null)
+    public TestServices(AppSettings? settings = null, IUiDispatcher? dispatcher = null, IAudioDecoder? decoder = null)
     {
         Settings = new FakeSettings(settings, _dir.File("models"));
         var database = new StudioDatabase(_dir.File("studio.db"));
         Conversations = new SqliteConversationStore(database);
         Stats = new SqliteStatsStore(database);
         Services = new StudioServices(Settings, Runtime, Hub, Library, Conversations, Stats, Server, new DocumentExtractor(), Platform,
-            Platform, dispatcher ?? Platform, Platform, Updates, Precompiler, new FilePageStorage(_dir.File("pages")), Audio, Audio);
+            Platform, dispatcher ?? Platform, Platform, Updates, Precompiler, new FilePageStorage(_dir.File("pages")), Audio, Audio, decoder ?? new WavAudioDecoder(), AudioDevices);
     }
 
     public FakeSettings Settings { get; }
@@ -40,6 +41,8 @@ internal sealed class TestServices : IDisposable
     public FakePrecompiler Precompiler { get; } = new();
 
     public FakeAudio Audio { get; } = new();
+
+    public FakeAudioDevices AudioDevices { get; } = new();
 
     public SqliteConversationStore Conversations { get; }
 
