@@ -33,7 +33,7 @@ public static class SharplightServiceCollectionExtensions
         public IServiceCollection AddSharplight()
         {
             ArgumentNullException.ThrowIfNull(services);
-            return services.AddSharplightModelFormats().AddSharplightProviders().AddSharplightTasks();
+            return services.AddSharplightModelFormats().AddSharplightProviders().AddSharplightTasks().AddSharplightSpeechSynthesis();
         }
 
         /// <summary>

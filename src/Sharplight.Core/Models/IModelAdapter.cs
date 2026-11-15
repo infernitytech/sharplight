@@ -15,6 +15,12 @@ public interface IModelAdapter
     /// </summary>
     public bool CanLoad(ModelSource source) => Architectures.Contains(source.Architecture, StringComparer.OrdinalIgnoreCase);
     /// <summary>
+    /// Whether this adapter can build a model from the source set (the primary source and its auxiliary sources); by default whether it can load the
+    /// primary source. Composite adapters (<see cref="ModelAdapterRegistry.RegisterComposite"/>) decide on the auxiliary sources.
+    /// </summary>
+    /// <param name="sources">The primary source and any auxiliary sources.</param>
+    public bool CanLoad(ModelSourceSet sources) => CanLoad(sources.Primary);
+    /// <summary>
     /// Builds the model: weights (possibly re-labelled or derived views of the source weights), states and compute graphs.
     /// </summary>
     /// <param name="sources">The primary source and any auxiliary sources.</param>
