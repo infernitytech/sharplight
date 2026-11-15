@@ -26,6 +26,18 @@ public sealed partial class GraphLowerer
 
     private BufferDecl? _attnScratch;
 
+    /// <summary>
+    /// Largest merged width (query heads per decode workgroup times DV) for which split-K decoding merges its partials in the last
+    /// workgroup of each row. That workgroup merges its heads one after another, which at long contexts costs more than the
+    /// combine launch it saves when the share is wide (RTX PRO 4500, decode at 4096 tokens: Gemma-3-1B, 4 x 256, -6 %; Qwen3-8B
+    /// and Mistral-7B, 4 x 128, -1 %), while narrow ones gain (Qwen3-0.6B, 2 x 128: 1.48 -> 1.42 ms GPU per step at 16 tokens,
+    /// unchanged at 4096; OLMoE, 1 x 128, +2.7 % at 4096).
+    /// </summary>
+    private const long FusedDecodeCombineMaxWidth = 256;
+
+    /// <summary>Split arrival counters of the decode kernel's fused combine (see <see cref="DecodeArrivals"/>).</summary>
+    private BufferDecl? _decodeArrivals;
+
     /// <summary>Index of the runtime scalar holding the cache position of a stateful node.</summary>
     private int Slot(Node n) => _scalarSlots[n.Attributes.Get("offset", WellKnown.PastScalar)];
 
@@ -146,6 +158,11 @@ public sealed partial class GraphLowerer
         int keySplits = (flash || simtFlash) && slices == 1 ? FlashKeySplits(plan, maxRows) : 1;
         var part = decode is not null ? DecodeScratch(plan, decode, maxRows) : split ? SplitScratch(plan, splits)
             : keySplits > 1 ? AttentionScratch(keySplits * maxRows * plan.HQ * (plan.DV + 2) * 4) : o;
+        // Split-K decoding merges the partials in the last workgroup of each row instead of a combine launch, where that
+        // workgroup's share (its heads one after another) stays small; see FusedDecodeCombineMaxWidth.
+        var arrivals = decode is not null && keySplits == 1 && !plan.Cross && DiagnosticSwitches.AttentionDecodeFusedCombine
+                       && long.Parse(decode.Macros["HPW"], CultureInfo.InvariantCulture) * plan.DV <= FusedDecodeCombineMaxWidth
+            ? DecodeArrivals(Math.Min(maxRows, decode.MaxRows) * decode.Groups) : null;
         var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
 
         // Steps of many sequences beyond the decode kernel's rows that are not long runs only (decode rows next to prompt
@@ -168,7 +185,8 @@ public sealed partial class GraphLowerer
 
             if (slice == 0 && decode is not null)
             {
-                variants.Add(new KernelVariant(decode.When, Lib("attention.slang", "decode", decode.Macros),
+                var decodeMacros = arrivals is null ? decode.Macros : new Dictionary<string, string>(decode.Macros) { ["DEC_FUSED_COMBINE"] = "1" };
+                variants.Add(new KernelVariant(decode.When, Lib("attention.slang", "decode", decodeMacros),
                     b => new Grid((uint)decode.Groups, (uint)Rows(b, q), (uint)decode.MaxSplits(Rows(b, q)))));
             }
 
@@ -198,14 +216,14 @@ public sealed partial class GraphLowerer
                     b => new Grid((uint)plan.HQ, (uint)Math.Min(sliceRows, Rows(b, q) - firstRow))));
             }
 
-            EmitAttentionLaunch(plan, variants, part, firstRow, split || decode is not null || keySplits > 1);
+            EmitAttentionLaunch(plan, variants, part, firstRow, split || decode is not null || keySplits > 1, slice == 0 ? arrivals : null);
         }
 
         if (keySplits > 1)
         {
             EmitFlashCombine(plan, part, keySplits);
         }
-        else if (decode is not null)
+        else if (decode is not null && arrivals is null)
         {
             EmitDecodeCombine(plan, part, decode);
         }
@@ -715,18 +733,41 @@ public sealed partial class GraphLowerer
         return AttentionScratch(bytes);
     }
 
-    private void EmitAttentionLaunch(AttentionPlan plan, List<KernelVariant> variants, TensorRef part, long firstRow, bool split)
+    /// <summary>
+    /// Emits one attention launch. <paramref name="arrivals"/> (the split counters of the decode kernel's fused combine, see
+    /// <see cref="DecodeArrivals"/>) is the last pointer of every attention kernel's parameters; launches without it pass the
+    /// output, which those kernels never read through it.
+    /// </summary>
+    private void EmitAttentionLaunch(AttentionPlan plan, List<KernelVariant> variants, TensorRef part, long firstRow, bool split, TensorRef? arrivals = null)
     {
         var o = plan.Output;
         var sinks = plan.Sinks;
         var seq = plan.Seq;
         var spans = plan.Spans;
+        TensorRef[] outputs = split ? [o, part] : [o];
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : [],
+             Pointer(arrivals ?? o)],
             [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias)],
-            split ? [o, part] : [o]);
+            arrivals is null ? outputs : [.. outputs, arrivals]);
+    }
+
+    /// <summary>
+    /// Arrival counters ([rows, workgroups per row and key range] u32) of split-K decoding with the fused combine: zero when
+    /// created, and every launch leaves them zero (the last workgroup of a row resets its counter). One buffer serves every
+    /// attention node of the program, which run one after another.
+    /// </summary>
+    private TensorRef DecodeArrivals(long counters)
+    {
+        long bytes = Math.Max(16, counters * 4);
+        if (_decodeArrivals is null || _decodeArrivals.Bytes < bytes)
+        {
+            _decodeArrivals = NewBuffer(BufferKind.Weight, "const:decode-arrivals", bytes, init: new byte[bytes]);
+        }
+
+        return new TensorRef(_decodeArrivals, 0, DataType.U32, [bytes / 4], [1], null);
     }
 
     /// <summary>

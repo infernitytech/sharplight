@@ -12,13 +12,10 @@ public sealed partial class GraphLowerer
     /// <summary>Largest row count served by the matrix-vector kernels.</summary>
     private const long MatvecMaxRows = 8;
 
-    // Tensor-core GEMM (gemm_cm2) tile for prefill: both large warp layouts produce 128x128 tiles. Small batches use
+    // Tensor-core GEMM (gemm_cm2) tile for prefill: both 128-token warp layouts produce 128x128 tiles. Small batches use
     // 32- or 64-token tiles (see Gemm2TileRowsFor) so the MMA work stays proportional to the rows.
     private const int Gemm2TileRows = 128;
     private const int Gemm2TileColumns = 128;
-
-    /// <summary>Grid size (workgroups) from which the 8-warp gemm_cm2 layout beats the 4-warp one.</summary>
-    private const long LargeGridWorkgroups = 384;
 
     /// <summary>
     /// gemm_cm2 grids (workgroups, K splits included) below this run f32-weight matmuls on the SIMT GEMM instead, even under
@@ -290,24 +287,30 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// gemm_cm2 layout (warps M, warps N, fragments M, fragments N) of a tile with <paramref name="tileRows"/> tokens and
     /// a K block of 64 (<paramref name="wideK"/>) or 32. Every thread stages at least one 8-value activation group per K
-    /// block, so the 32-token tile with a 32-value K block has only 4 warps.
+    /// block, so the 32-token tile with a 32-value K block has only 4 warps. 128-token tiles use 4 warps of 64x64
+    /// (<paramref name="splitHalf"/> false) or 8 warps of 64x32 (the split-f16 form, see <see cref="Gemm2Macros"/>).
     /// </summary>
-    private static int[] Gemm2Layout(int tileRows, bool large, bool wideK = true) => tileRows switch
+    /// <remarks>
+    /// The 4-warp 128x128 tile runs two workgroups per SM (255 registers, 40 KB of shared memory each). On the RTX PRO 4500 it
+    /// beat the 8-warp layout, which used to take grids of 384+ workgroups, at every grid size measured (128-1536 tiles; Q4_K,
+    /// Q6_K, Q8_0 and bf16 weights): [4096 → 14336] Q4_K at 512 rows 632 → 487 us, bf16 [2048 → 6144] at 2048 rows 575 → 429 us.
+    /// </remarks>
+    private static int[] Gemm2Layout(int tileRows, bool splitHalf, bool wideK = true) => tileRows switch
     {
         32 => DiagnosticSwitches.Gemm2Layout32 ?? (wideK ? [2, 4, 1, 2] : [1, 4, 2, 2]),
         64 => DiagnosticSwitches.Gemm2Layout64 ?? [2, 4, 2, 2],
-        _ => DiagnosticSwitches.Gemm2Layout ?? (large ? [2, 4, 4, 2] : [2, 2, 4, 4]),
+        _ => DiagnosticSwitches.Gemm2Layout ?? (splitHalf ? [2, 4, 4, 2] : [2, 2, 4, 4]),
     };
 
     /// <summary>Weight rows (output columns) of the gemm_cm2 tile with <paramref name="tileRows"/> tokens.</summary>
     private static int Gemm2Columns(int tileRows)
     {
-        var layout = Gemm2Layout(tileRows, large: false);
+        var layout = Gemm2Layout(tileRows, splitHalf: false);
         return layout[1] * layout[3] * 16;
     }
 
-    /// <summary>Macros of gemm_cm2 for a tile of <paramref name="tileRows"/> tokens; 128-token tiles use the 4-warp (<paramref name="large"/> false) or 8-warp layout.</summary>
-    private static Dictionary<string, string> Gemm2Macros(Dictionary<string, string> m, int tileRows, bool large)
+    /// <summary>Macros of gemm_cm2 for a tile of <paramref name="tileRows"/> tokens (layouts: <see cref="Gemm2Layout"/>).</summary>
+    private static Dictionary<string, string> Gemm2Macros(Dictionary<string, string> m, int tileRows)
     {
         bool split = m.TryGetValue("GEMM_SPLIT", out var splitMacro) && splitMacro == "1";
         // The single-product form (SPLIT_PARTS 1, fast matrix precision) stages 64-value K blocks like the f16 GEMM (vit-base b1
@@ -317,7 +320,7 @@ public sealed partial class GraphLowerer
         // The split form keeps two accumulator sets live (the step's products, then the f32 sums): the 8-warp layout's
         // 64x32 subgroup tiles leave registers for them, the 4-warp layout's 64x64 tiles spill (vit [768 → 3072]: 151 against 196 us).
         // The single-product form is also faster on the 8-warp layout (whisper-tiny 1.00 -> 0.93 ms).
-        int[] layout = Gemm2Layout(tileRows, large || split, wideK);
+        int[] layout = Gemm2Layout(tileRows, split, wideK);
         int threads = layout[0] * layout[1] * 32;
         int columns = layout[1] * layout[3] * 16;
         int blockK = wideK ? 64 : 32;
@@ -339,25 +342,21 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// The gemm_cm2 variants (no split-K) for activations with macros <paramref name="m"/>, each also gated by
-    /// <paramref name="when"/>: the 8-warp 128-token layout for large grids, the skinny tiles, then the 4-warp layout.
+    /// <paramref name="when"/>: the skinny tiles, then the 128-token tile.
     /// </summary>
     private List<KernelVariant> Gemm2Variants(MatMulPlan p, Dictionary<string, string> m, Func<Bindings, bool> when,
         Func<Dictionary<string, string>, CompiledKernel>? compile = null)
     {
         compile ??= macros => Lib("matmul.slang", "gemm_cm2", macros);
-        List<KernelVariant> variants =
-        [
-            new KernelVariant(b => when(b) && p.Split(b) == 1 && LargeGemm2Grid(p, b),
-                compile(Gemm2Macros(m, Gemm2TileRows, large: true)), b => Gemm2Grid(p, b)),
-        ];
+        List<KernelVariant> variants = [];
         foreach (int tileRows in new[] { 32, 64 })
         {
             variants.Add(new KernelVariant(b => when(b) && p.Split(b) == 1 && Gemm2TileRowsFor(p.RowCount(b), SplitHalfColumns(p)) == tileRows,
-                compile(Gemm2Macros(m, tileRows, large: false)), b => Gemm2Grid(p, b)));
+                compile(Gemm2Macros(m, tileRows)), b => Gemm2Grid(p, b)));
         }
 
         variants.Add(new KernelVariant(b => when(b) && p.Split(b) == 1,
-            compile(Gemm2Macros(m, Gemm2TileRows, large: false)), b => Gemm2Grid(p, b)));
+            compile(Gemm2Macros(m, Gemm2TileRows)), b => Gemm2Grid(p, b)));
         return variants;
     }
 
@@ -726,9 +725,6 @@ public sealed partial class GraphLowerer
         return new(Grid.Div(p.N, Gemm2Columns(tileRows)), Grid.Div(p.RowCount(b), tileRows), splits);
     }
 
-    private static bool LargeGemm2Grid(MatMulPlan p, Bindings b)
-        => Gemm2TileRowsFor(p.RowCount(b), SplitHalfColumns(p)) == Gemm2TileRows
-           && Grid.Div(p.N, Gemm2TileColumns) * Grid.Div(p.RowCount(b), Gemm2TileRows) >= LargeGridWorkgroups;
 
     /// <summary>One launch with matvec variants and GEMM variants that read f32 activations.</summary>
     private void EmitDirectMatMul(MatMulPlan p)
@@ -866,7 +862,7 @@ public sealed partial class GraphLowerer
                 Lib("matmul.slang", "gemm_nv2", splitMacros(ts.Split)),
                 b => new Grid(Grid.Div(N, NvTileColumns), Grid.Div(p.RowCount(b), NvTileTokens), (uint)ts.Split))
             : new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == ts.Split && Gemm2TileRowsFor(p.RowCount(b), SplitHalfColumns(p)) == ts.TileRows,
-                Lib("matmul.slang", "gemm_cm2", new Dictionary<string, string>(Gemm2Macros(p.Macros, ts.TileRows, large: false))
+                Lib("matmul.slang", "gemm_cm2", new Dictionary<string, string>(Gemm2Macros(p.Macros, ts.TileRows))
                 {
                     ["SPLITK"] = ts.Split.ToString(CultureInfo.InvariantCulture),
                 }),
