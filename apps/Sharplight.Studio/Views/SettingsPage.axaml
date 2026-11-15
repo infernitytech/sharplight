@@ -88,6 +88,8 @@
           <StackPanel>
             <TextBlock Classes="label" Text="Hugging Face token (for gated models and higher rate limits)" />
             <TextBox Text="{Binding HuggingFaceToken}" PasswordChar="•" PlaceholderText="hf_… (falls back to HF_TOKEN)" />
+            <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="Optional, for gated repositories (accept their terms on huggingface.co first). It is sent only to huggingface.co, never to other hosts. Studio does not use the operating system's keyring yet, so the token is kept in the settings file as plain text." />
           </StackPanel>
           <ToggleSwitch Content="Precompile after downloading for every GPU and execution provider on this machine (faster first load)" IsChecked="{Binding PrecompileAfterDownload}" />
           <ToggleSwitch Content="Keep the downloaded source files after converting" IsChecked="{Binding KeepSourceFiles}" />

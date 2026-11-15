@@ -30,6 +30,15 @@ internal sealed record LibraryEntry
     /// <summary>What it can do (from the package's graphs and chat template).</summary>
     public ModelCapabilities Capabilities { get; init; }
 
+    /// <summary>
+    /// What the model does (<see cref="Sharplight.Models.ModelKinds"/>, open-ended): the kind of the package's model description, or
+    /// inferred from the file type (<see cref="KindInferred"/>).
+    /// </summary>
+    public string Kind { get; init; } = Sharplight.Models.ModelKinds.TextGeneration;
+
+    /// <summary><see cref="Kind"/> is a guess from the file type, because the model has no description to read.</summary>
+    public bool KindInferred { get; init; }
+
     /// <summary>Context length the model was trained for, when known.</summary>
     public int? TrainedContextLength { get; init; }
 

@@ -60,6 +60,12 @@ internal sealed partial class OnnxTranslator
     /// <summary>ONNX ConstantOfShape whose shape has a symbolic outermost extent.</summary>
     private void ConstantOfShape(OnnxNode n, TranslatedTensor?[] ins)
     {
+        if (ins[0] is { IsConst: false })
+        {
+            RuntimeConstantOfShape(n);
+            return;
+        }
+
         var dims = ConstIn(ins, 0, "ConstantOfShape shape", symbolic: true).Ints();
         if (dims.Length == 0 || dims.Skip(1).Any(SymbolicInts.IsSymbolic))
         {

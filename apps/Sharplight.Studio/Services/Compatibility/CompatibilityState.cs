@@ -30,6 +30,9 @@ internal enum CompatibilityState
     /// <summary>A speculative-decoding drafter (EAGLE-3, a Gemma 4 assistant): loaded with the model it drafts for, not a model of its own.</summary>
     DraftModel,
 
+    /// <summary>The model is of a kind (image generation, speech, detection, ...) that the engine cannot run yet.</summary>
+    UnsupportedKind,
+
     /// <summary>An ONNX model: its operators are checked when it is imported.</summary>
     CheckedAtImport,
 }

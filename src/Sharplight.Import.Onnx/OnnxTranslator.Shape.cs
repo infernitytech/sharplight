@@ -225,6 +225,12 @@ internal sealed partial class OnnxTranslator
 
     private void Slice(OnnxNode n, TranslatedTensor?[] ins)
     {
+        if (!n.Has("starts") && ins.Length > 2 && (ins[1] is { IsConst: false } || ins[2] is { IsConst: false }))
+        {
+            RuntimeSlice(n, ins);
+            return;
+        }
+
         var x = X(ins, 0);
         long[] starts;
         long[] ends;

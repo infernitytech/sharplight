@@ -13,4 +13,8 @@ internal sealed class FakeNavigator : INavigator
     public void OpenLibrary() => Visited.Add("library");
 
     public void OpenDiscover() => Visited.Add("discover");
+
+    public void OpenDiscover(Sharplight.Hub.ModelTask task) => Visited.Add($"discover:{task}");
+
+    public void OpenLibrary(string kind) => Visited.Add($"library:{kind}");
 }

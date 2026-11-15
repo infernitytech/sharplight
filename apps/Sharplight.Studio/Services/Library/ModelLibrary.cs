@@ -89,28 +89,30 @@ internal sealed class ModelLibrary : IModelLibrary
     /// </summary>
     private static LibraryEntry FromManifest(ModelManifest manifest)
     {
-        var (capabilities, context, architecture, precompiled) = ModelInspector.Inspect(manifest.PackagePath);
+        var inspected = ModelInspector.Inspect(manifest.PackagePath);
         var file = new FileInfo(manifest.PackagePath);
         return new LibraryEntry
         {
             Id = manifest.ShortName,
             DisplayName = manifest.Name,
             Path = manifest.PackagePath,
-            Architecture = manifest.Architecture ?? architecture,
+            Architecture = manifest.Architecture ?? inspected.Architecture,
             Quantization = manifest.Tag.Length == 0 ? null : manifest.Tag,
             Format = manifest.Format.ToString(),
             SizeBytes = file.Exists ? file.Length : manifest.PackageBytes,
-            Capabilities = capabilities,
-            TrainedContextLength = context,
+            Capabilities = inspected.Capabilities,
+            TrainedContextLength = inspected.ContextLength,
+            Kind = inspected.Kind,
+            KindInferred = inspected.KindInferred,
             AddedAt = manifest.PulledAt,
-            Precompiled = precompiled,
+            Precompiled = inspected.Precompiled,
             Manifest = manifest,
         };
     }
 
     private static LibraryEntry FromFile(string path)
     {
-        var (capabilities, context, architecture, precompiled) = ModelInspector.Inspect(path);
+        var inspected = ModelInspector.Inspect(path);
         bool directory = Directory.Exists(path);
         long size = directory
             ? new DirectoryInfo(path).EnumerateFiles("*", SearchOption.AllDirectories).Sum(file => file.Length)
@@ -121,13 +123,15 @@ internal sealed class ModelLibrary : IModelLibrary
             Id = System.IO.Path.GetFileNameWithoutExtension(name).ToLowerInvariant(),
             DisplayName = name,
             Path = path,
-            Architecture = architecture,
+            Architecture = inspected.Architecture,
             Format = directory ? "Directory" : System.IO.Path.GetExtension(path).TrimStart('.').ToUpperInvariant(),
             SizeBytes = size,
-            Capabilities = capabilities,
-            TrainedContextLength = context,
+            Capabilities = inspected.Capabilities,
+            TrainedContextLength = inspected.ContextLength,
+            Kind = inspected.Kind,
+            KindInferred = inspected.KindInferred,
             AddedAt = directory ? null : File.GetLastWriteTimeUtc(path),
-            Precompiled = precompiled,
+            Precompiled = inspected.Precompiled,
         };
     }
 }

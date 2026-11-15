@@ -37,6 +37,18 @@ internal sealed partial class DownloadItemViewModel : ObservableObject
     /// <summary><c>owner/name:tag</c>.</summary>
     public string Name => Reference.ToString();
 
+    /// <summary>The model kind, inferred from the Hub's pipeline tag (the model is not converted yet); null when not known.</summary>
+    public string? Kind { get; set; }
+
+    /// <summary>The kind's name, or empty.</summary>
+    public string KindTitle => Kind is null ? "" : ModelKindCatalog.For(Kind).Title;
+
+    /// <summary>The kind's icon resource key.</summary>
+    public string KindIcon => ModelKindCatalog.For(Kind).Icon;
+
+    /// <summary>The download's kind is known.</summary>
+    public bool HasKind => Kind is not null;
+
     /// <summary>Current step.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PhaseText), nameof(IsActive), nameof(CanPause), nameof(CanResume), nameof(IsIndeterminate), nameof(IsFinished),

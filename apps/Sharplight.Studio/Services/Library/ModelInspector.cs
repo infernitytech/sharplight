@@ -8,12 +8,16 @@ namespace Sharplight.Studio.Services.Library;
 /// <summary>Reads a package's capabilities without loading it (graphs, chat template, trained context length, precompiled artifact sets).</summary>
 internal static class ModelInspector
 {
-    /// <summary>Capabilities, trained context and precompiled sets of a <c>.slm</c> package; nothing for other files or unreadable packages.</summary>
-    public static PackageFacts Inspect(string path)
+    /// <summary>
+    /// Capabilities, trained context, kind and precompiled artifact sets of a <c>.slm</c> package (the kind its model description names, for packages without
+    /// one the resolved default); for other files and unreadable packages no capabilities and the kind their file type suggests
+    /// (<see cref="InspectedModel.KindInferred"/>).
+    /// </summary>
+    public static InspectedModel Inspect(string path)
     {
         if (!path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
         {
-            return PackageFacts.None;
+            return new InspectedModel(ModelCapabilities.None, null, null, InferKind(path), KindInferred: true, Precompiled: []);
         }
 
         try
@@ -28,19 +32,35 @@ internal static class ModelInspector
                 capabilities |= ModelCapabilities.Vision;
             }
 
+            string kind = definition.Description.Kind;
             if (graphs.Contains(WellKnown.EmbedGraph) && !graphs.Contains(WellKnown.DecodeGraph))
             {
                 capabilities = (capabilities & ~ModelCapabilities.Chat) | ModelCapabilities.Embedding;
+                if (kind == ModelKinds.TextGeneration)
+                {
+                    kind = ModelKindCatalog.Embeddings;
+                }
             }
 
             int? context = definition.Properties.TryGetValue(WellKnown.ContextLength, out var raw) ? ToInt(raw) : null;
             var precompiled = package.ArtifactSets.Select(set => set.ToString()).ToList();
-            return new PackageFacts(capabilities, context, definition.Architecture, precompiled);
+            return new InspectedModel(capabilities, context, definition.Architecture, kind, KindInferred: false, precompiled);
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException)
         {
-            return PackageFacts.None;
+            return new InspectedModel(ModelCapabilities.None, null, null, ModelKinds.TextGeneration, KindInferred: true, Precompiled: []);
         }
+    }
+
+    /// <summary>The kind a model file that is not a package probably has: GGUF files and checkpoint folders are language models.</summary>
+    private static string InferKind(string path)
+    {
+        if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+        {
+            return ModelKinds.TextGeneration;
+        }
+
+        return Directory.Exists(path) && File.Exists(System.IO.Path.Combine(path, "config.json")) ? ModelKinds.TextGeneration : ModelKindCatalog.Other;
     }
 
     private static int? ToInt(object value)
