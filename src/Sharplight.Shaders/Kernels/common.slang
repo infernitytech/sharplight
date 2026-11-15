@@ -234,9 +234,16 @@ void load8_q4_0(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[
     uint sub = g & 3;               // which 8-group inside the 32 block
     uint off = (sub & 1) * 8;       // qs byte offset
     uint shift = (sub >> 1) * 4;    // lo or hi nibble
+    // The 8 code bytes as four 16-bit loads (2-byte aligned in the 18-byte blocks) instead of eight byte loads.
+    uint16_t* q = (uint16_t*)(blk + 2 + off);
+    uint w0 = uint(q[0]) | (uint(q[1]) << 16);
+    uint w1 = uint(q[2]) | (uint(q[3]) << 16);
     [ForceUnroll]
-    for (int i = 0; i < 8; i++)
-        v[i] = d * (float((uint(blk[2 + off + i]) >> shift) & 0xF) - 8.0);
+    for (int i = 0; i < 4; i++)
+    {
+        v[i] = d * (float((w0 >> (8 * i + shift)) & 0xF) - 8.0);
+        v[4 + i] = d * (float((w1 >> (8 * i + shift)) & 0xF) - 8.0);
+    }
 }
 
 // K-quant 6-bit scale/min unpacking (ggml get_scale_min_k4).

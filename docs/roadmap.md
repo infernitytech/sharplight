@@ -80,12 +80,22 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
     model but the phi-3.5 decoder step, strict 0.06-0.95x of ORT strict; decomposed attention that round-trips its
     probabilities through Reshapes is fused; concatenation inputs are computed in their output slices (SegFormer b8
     GPU time -7 %); the ssd-12-int8 reference follows the spec (ORT's u8 x s8 kernels saturate on AVX2 without VNNI).
+  - convs against TensorRT (§37): tap-major implicit-GEMM reduction (one address per 8-channel item), im2col scaling after
+    the previous step's products, fast-precision block scales kept across K steps (products accumulate on the tensor
+    cores), narrow convs (K, channels from 16) on the tensor cores, 4 outputs per thread in wide depthwise convs; Q4_0
+    group decode with 16-bit loads (phi-3.5 q4f16 decode step at ORT CUDA's level); Vulkan Unique along an axis (the
+    three remaining Vulkan conformance failures); ssd-10's strict parity gap verified as tie order (all 200 detections
+    match, two near-tied boxes swap).
 
   Open gaps:
-  - strict Vulkan against ORT's TF32 on the RTX PRO 4500 (§35): vit 1.7-1.9x, convnext b8 1.32x, ssd-10 1.27x,
-    resnet50 b8 1.20x, whisper 1.09x (fast precision closes all of them). The split GEMM's three products cost about
-    1.5x by construction; the activation split is a pre-pass that the producing LayerNorm / GELU could write (needs a
-    row max); TensorRT is 1.2-1.8x ahead of fast precision on convnets and detectors at batch 8 or high resolution;
+  - strict Vulkan against ORT's TF32 on the RTX PRO 4500 (§37): vit 1.7-1.8x, convnext b8 1.19x, whisper 1.03x,
+    resnet50 b8 1.04x (fast precision closes all of them). The split GEMM's three products cost about 1.5x by
+    construction; the activation split is a pre-pass that the producing LayerNorm / GELU could write (needs a row max);
+  - TensorRT against fast precision (§37): convnext 1.38x (LayerNorm, the split pre-pass, a residual add through a
+    transpose), mobilesam 1.31x, ssd-10 1.20x, yolov10n 1.13x, mobilenetv2 b8 1.09x. The fast 3x3 conv reaches 45-55
+    TFLOPS against the GEMM's 96: next are a double-buffered conv pipeline and NHWC activations;
+  - phi-3.5 q4f16 decode at 1.04x of ORT CUDA: the f32-activation Q4_0 matvec reads about 520 GB/s; f16
+    MultiHeadAttention does not take the fused attention (f32 only), rotary runs as four elementwise launches;
   - batch-strided concatenation slices only from Resize (convs / GEMMs / elementwise producers would need an output
     batch stride);
   - convnext b8 1.5x strict (low-K GEMMs, split-K reductions); raft 1.25x strict / 1.04x fast (SIMT bmm for the
