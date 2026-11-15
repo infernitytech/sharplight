@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Native audio for Sharplight: device playback and capture, decoding of WAV / FLAC / MP3 / Ogg Vorbis / Ogg Opus and encoding to
+    WAV and Ogg Opus, through Sharplight's own C library (native/sharplight_audio: miniaudio, libopus, libogg, opusfile, libvorbis from
+    third_party/). The binaries are not committed: CI cross-compiles them with zig (native/sharplight_audio/build.sh) into
+    native/sharplight_audio/out/<rid>/, and this project packs them as runtimes/<rid>/native/ and copies the one for the build
+    machine next to the application (a publish with a runtime identifier carries only that platform's binary).
+    SharplightAudioNativeDirectory overrides the directory.
+  -->
+  <PropertyGroup>
+    <Description>Native audio for Sharplight: playback and capture devices, FLAC / MP3 / Ogg Vorbis / Ogg Opus decoding and Ogg Opus encoding on win-x64, win-arm64, linux-x64, linux-arm64 and osx-arm64.</Description>
+    <PackageTags>$(PackageTags);audio;opus;flac;mp3;vorbis;miniaudio</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <SharplightAudioNativeDirectory Condition="'$(SharplightAudioNativeDirectory)' == ''">$(MSBuildThisFileDirectory)../../native/sharplight_audio/out/</SharplightAudioNativeDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <InternalsVisibleTo Include="Sharplight.Audio.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(SharplightAudioNativeDirectory)linux-x64/libsharplight_audio.so" Condition="Exists('$(SharplightAudioNativeDirectory)linux-x64/libsharplight_audio.so') And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'linux-x64')"
+          Link="runtimes/linux-x64/native/libsharplight_audio.so" Pack="true" PackagePath="runtimes/linux-x64/native/" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(SharplightAudioNativeDirectory)linux-arm64/libsharplight_audio.so" Condition="Exists('$(SharplightAudioNativeDirectory)linux-arm64/libsharplight_audio.so') And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'linux-arm64')"
+          Link="runtimes/linux-arm64/native/libsharplight_audio.so" Pack="true" PackagePath="runtimes/linux-arm64/native/" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(SharplightAudioNativeDirectory)win-x64/sharplight_audio.dll" Condition="Exists('$(SharplightAudioNativeDirectory)win-x64/sharplight_audio.dll') And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'win-x64')"
+          Link="runtimes/win-x64/native/sharplight_audio.dll" Pack="true" PackagePath="runtimes/win-x64/native/" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(SharplightAudioNativeDirectory)win-arm64/sharplight_audio.dll" Condition="Exists('$(SharplightAudioNativeDirectory)win-arm64/sharplight_audio.dll') And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'win-arm64')"
+          Link="runtimes/win-arm64/native/sharplight_audio.dll" Pack="true" PackagePath="runtimes/win-arm64/native/" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(SharplightAudioNativeDirectory)osx-arm64/libsharplight_audio.dylib" Condition="Exists('$(SharplightAudioNativeDirectory)osx-arm64/libsharplight_audio.dylib') And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'osx-arm64')"
+          Link="runtimes/osx-arm64/native/libsharplight_audio.dylib" Pack="true" PackagePath="runtimes/osx-arm64/native/" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>
