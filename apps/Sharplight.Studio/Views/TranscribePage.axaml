@@ -26,7 +26,7 @@
                 </Button>
               </StackPanel>
               <StackPanel Spacing="2" VerticalAlignment="Center">
-                <TextBlock Text="{Binding AudioPath}" TextTrimming="CharacterEllipsis" FontWeight="Medium" IsVisible="{Binding HasAudio}" />
+                <TextBlock Text="{Binding AudioName}" TextTrimming="CharacterEllipsis" FontWeight="Medium" IsVisible="{Binding HasAudio}" ToolTip.Tip="{Binding AudioPath}" />
                 <TextBlock Classes="caption" Text="{Binding AudioSummary}" IsVisible="{Binding HasAudio}" />
                 <TextBlock Classes="muted" Text="Drop a WAV file here, choose one, or record from the microphone." IsVisible="{Binding !HasAudio}" TextWrapping="Wrap" />
               </StackPanel>
@@ -66,7 +66,7 @@
                 <ItemsControl ItemsSource="{Binding Segments}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="sp:TranscriptSegmentViewModel">
-                      <Grid ColumnDefinitions="128,*" Margin="0,0,0,6">
+                      <Grid ColumnDefinitions="156,*" Margin="0,0,0,6">
                         <TextBlock Classes="caption mono" Text="{Binding Time}" VerticalAlignment="Top" Margin="0,3,0,0" />
                         <SelectableTextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" />
                       </Grid>

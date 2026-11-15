@@ -63,7 +63,11 @@ internal sealed partial class TranscribePageViewModel : InferencePageViewModel
 
     /// <summary>The audio file shown as the input (a recording, or the file the user chose).</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AudioName))]
     public partial string AudioPath { get; set; } = "";
+
+    /// <summary>The name of the input file.</summary>
+    public string AudioName => Path.GetFileName(AudioPath);
 
     /// <summary>Length, rate and channels of the input, or why it cannot be read.</summary>
     [ObservableProperty]

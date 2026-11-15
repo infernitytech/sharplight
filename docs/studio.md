@@ -42,7 +42,7 @@ text (Transcribe), text to speech (Speak) and embeddings today. The cards of the
 *Not yet supported* and their buttons lead to the library filtered to that kind and to Discover filtered to that model type. When
 the engine gains a kind, its card opens a page of its own, built from the shared pieces described under *Inference pages* below.
 
-![Tasks](images/studio/studio-tasks.png)
+![Tasks](images/studio/studio-tasks-runnable.png)
 
 **Models.**
 
