@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Microsoft.Extensions.AI adapters (IChatClient) over Sharplight.Llm.</Description>
+    <Description>Microsoft.Extensions.AI adapters over the Sharplight task clients: IChatClient and IEmbeddingGenerator over the text models, ISpeechToTextClient, ITextToSpeechClient and IImageGenerator over the speech recognizers, synthesizers and image generators.</Description>
+    <!-- The speech and image abstractions of Microsoft.Extensions.AI are marked experimental (MEAI001). -->
+    <NoWarn>$(NoWarn);MEAI001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Extensions.AI.Tests" />
