@@ -1,0 +1,5 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 3972 MiB, 17.48 W, 330 MHz, 405 MHz, 34, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 77 %, 2430 MiB, 169.46 W, 2722 MHz, 14001 MHz, 61, P0
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 4.48 W, 180 MHz, 405 MHz, 31, P8
+353046, <path>
+353500, <path>, 2391 MiB
