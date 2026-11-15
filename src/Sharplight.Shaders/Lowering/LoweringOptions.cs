@@ -22,6 +22,11 @@ public sealed class LoweringOptions
     public double SubmissionBudgetMs { get; init; }
     /// <summary>See <see cref="DeviceInfo.ConcurrentWorkgroups"/>: workgroups the device runs at once, 0 = unknown (a large GPU).</summary>
     public int ConcurrentWorkgroups { get; init; }
+    /// <summary>
+    /// Compute units of the device (NVIDIA SMs, AMD CUs), 0 = unknown. Sizes the K splits of the tensor-core GEMMs: a device with
+    /// fewer units fills its waves with fewer tiles, and a split it does not need only adds partial sums and a reduction.
+    /// </summary>
+    public int ComputeUnits { get; init; }
     /// <summary>Model-level compile options (symbol bounds, context length, precision policy).</summary>
     public required CompileOptions Compile { get; init; }
     /// <summary>Model-level compilation cache for this device (see <see cref="CompileOptions.CacheFor"/>).</summary>

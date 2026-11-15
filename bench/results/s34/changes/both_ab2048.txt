@@ -1,0 +1,7 @@
+r1 A Qwen3-0.6B-Q8_0.gguf prefill 2048 tok: best 61 ms = 33605.8 tok/s | decode: best 510.46, median 503.07, mean 500.75 tok/s | GPU ms/step: best 1.82, median 1.83, wall best 1.96
+r1 B Qwen3-0.6B-Q8_0.gguf prefill 2048 tok: best 40 ms = 50696.2 tok/s | decode: best 507.10, median 501.05, mean 498.93 tok/s | GPU ms/step: best 1.82, median 1.83, wall best 1.97
+r1 A Llama-3.2-1B-Instruct-Q8_0.gguf prefill 2048 tok: best 69 ms = 29751.9 tok/s | decode: best 440.39, median 435.14, mean 431.58 tok/s | GPU ms/step: best 2.15, median 2.17, wall best 2.27
+r1 B Llama-3.2-1B-Instruct-Q8_0.gguf prefill 2048 tok: best 58 ms = 35178.2 tok/s | decode: best 443.46, median 436.62, mean 435.09 tok/s | GPU ms/step: best 2.15, median 2.16, wall best 2.25
+r1 A gemma-3-1b-it-Q8_0.gguf prefill 2048 tok: best 63 ms = 32379.6 tok/s | decode: best 397.57, median 391.56, mean 389.07 tok/s | GPU ms/step: best 2.36, median 2.37, wall best 2.52
+r1 B gemma-3-1b-it-Q8_0.gguf prefill 2048 tok: best 54 ms = 37998.1 tok/s | decode: best 397.16, median 389.65, mean 388.77 tok/s | GPU ms/step: best 2.36, median 2.37, wall best 2.52
+r1 A Mistral-7B-Instruct-v0.3-Q4_K_M.gguf prefill 2048 tok: best 372 ms = 5511.1 tok/s | decode: best 146.90, median 145.98, mean 145.74 tok/s | GPU ms/step: best 6.72, median 6.73, wall best 6.81
