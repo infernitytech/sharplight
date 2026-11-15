@@ -11,54 +11,54 @@ public sealed class OnnxImportOptions
     /// Use a negative value for the (symbolic) batch axis. Needed when the model has dynamic spatial dimensions. A 0 is a zero extent: the
     /// input is then an empty tensor known at import time (an empty KV cache, an empty set), which is not a graph input of the result.
     /// </summary>
-    public Dictionary<string, long[]> InputShapes { get; init; } = new(StringComparer.Ordinal);
+    public Dictionary<string, long[]> InputShapes { get; set; } = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Graph inputs pinned to compile-time constants (flat values, shape from <see cref="InputShapes"/> or the declared dims), e.g.
     /// <c>["sr"] = [16000]</c> or an <c>orig_im_size</c> that determines output shapes. They are not runtime inputs of the compiled graph.
     /// </summary>
-    public Dictionary<string, double[]> ConstantInputs { get; init; } = new(StringComparer.Ordinal);
+    public Dictionary<string, double[]> ConstantInputs { get; set; } = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Number of elements of sequence-typed graph inputs. Every element becomes a graph input of its own named
     /// <see cref="OnnxGraphAdapter.SequenceElementName"/>, whose shape <see cref="InputShapes"/> gives under that name (and which
     /// <see cref="ConstantInputs"/> can pin).
     /// </summary>
-    public Dictionary<string, int> SequenceInputLengths { get; init; } = new(StringComparer.Ordinal);
+    public Dictionary<string, int> SequenceInputLengths { get; set; } = new(StringComparer.Ordinal);
 
     /// <summary>Optional-typed graph inputs that are empty; every other optional input holds a value (a tensor or a sequence).</summary>
-    public HashSet<string> AbsentInputs { get; init; } = new(StringComparer.Ordinal);
+    public HashSet<string> AbsentInputs { get; set; } = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Declared upper bounds of the values of integer graph inputs (all values in <c>[0, bound]</c>), e.g. <c>["text_lengths"] = 512</c>.
     /// They let a <c>Range</c> whose limit is computed from such an input get a bounded dynamic length; a value outside the
     /// declared range at run time yields a truncated result.
     /// </summary>
-    public Dictionary<string, long> InputValueBounds { get; init; } = new(StringComparer.Ordinal);
+    public Dictionary<string, long> InputValueBounds { get; set; } = new(StringComparer.Ordinal);
 
     /// <summary>Makes the outermost dimension of every input symbolic ("N") even if it is fixed in the file.</summary>
-    public bool ForceSymbolicBatch { get; init; }
+    public bool ForceSymbolicBatch { get; set; }
 
     /// <summary>
     /// Largest trip count of a <c>Loop</c> or <c>Scan</c> whose body depends on runtime tensors that is unrolled into the graph
     /// (bodies that only compute constants are evaluated at import time regardless, up to <see cref="MaxLoopIterations"/>).
     /// </summary>
-    public int MaxUnrolledLoop { get; init; } = 64;
+    public int MaxUnrolledLoop { get; set; } = 64;
 
     /// <summary>Upper limit on the iterations of a <c>Loop</c> evaluated or unrolled at import time.</summary>
-    public int MaxLoopIterations { get; init; } = 100_000;
+    public int MaxLoopIterations { get; set; } = 100_000;
 
     /// <summary>
     /// Upper bound on the iterations of a runtime <c>Loop</c> whose iteration count is not known at import time (a runtime trip count or
     /// condition) and that has scan outputs: their buffers are sized for it, and a run that needs more iterations fails.
     /// </summary>
-    public int RuntimeLoopScanBound { get; init; } = 4096;
+    public int RuntimeLoopScanBound { get; set; } = 4096;
 
     /// <summary>
     /// Upper bound on the substrings of one string produced by a <c>StringSplit</c> without <c>maxsplit</c>: its output is sized for it,
     /// and a run that needs more fails.
     /// </summary>
-    public int StringSplitBound { get; init; } = 256;
+    public int StringSplitBound { get; set; } = 256;
 
     /// <summary>
     /// Lets block-quantized weights (<c>MatMulNBits</c>) whose f32 block scales are not exactly representable in f16 be stored
@@ -66,22 +66,22 @@ public sealed class OnnxImportOptions
     /// relative RMS on BERT outputs). Off by default: such weights are then dequantized to f32 (exact, 7x the memory traffic).
     /// Weights with f16 scales are always kept in block form, since that is exact.
     /// </summary>
-    public bool AllowHalfBlockScales { get; init; }
+    public bool AllowHalfBlockScales { get; set; }
 
     /// <summary>
     /// Translates attention written out as <c>MatMul → [scale] → [mask Add] → Softmax → MatMul</c> as one fused Attention op,
     /// which providers run as flash attention (default true). The result matches the decomposed form within f32 rounding
     /// (the softmax is evaluated online); false keeps the elementary ops.
     /// </summary>
-    public bool FuseAttention { get; init; } = true;
+    public bool FuseAttention { get; set; } = true;
 
     /// <summary>
     /// Translates several MatMuls of one activation by constant weights of the same input size (an encoder's Q, K and V
     /// projections, with their bias Adds) as one MatMul over the concatenated weights followed by slices (default true). The
     /// result is the same as the separate products; false keeps them separate.
     /// </summary>
-    public bool FuseProjections { get; init; } = true;
+    public bool FuseProjections { get; set; } = true;
 
     /// <summary>Placement group size: number of compute-heavy ops (Conv/MatMul/Gemm/BatchMatMul) per group; values below 1 act as 1.</summary>
-    public int GroupSize { get; init; } = 8;
+    public int GroupSize { get; set; } = 8;
 }

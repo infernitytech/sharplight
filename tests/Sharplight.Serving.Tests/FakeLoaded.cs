@@ -24,8 +24,16 @@ public sealed class FakeLoaded : LoadedModel, IChatModel
     }
     public override ModelKind Kind { get; }
     public override long ResidentBytes => _bytes;
-    public override bool IsIdle { get { var m = Engine.GetMetrics(); return m.ActiveSequences == 0 && m.QueueDepth == 0; } }
-    public override Task<bool> DrainAsync(TimeSpan timeout) => Engine.DrainAsync(timeout);
+    public override bool IsIdle
+    {
+        get
+        {
+            var m = Engine.GetMetrics();
+            return m.ActiveSequences == 0 && m.QueueDepth == 0;
+        }
+    }
+
+    public override Task<bool> DrainAsync(TimeSpan timeout, CancellationToken cancellationToken = default) => Engine.DrainAsync(timeout, cancellationToken);
     public override void Dispose()
     {
         if (Disposed)

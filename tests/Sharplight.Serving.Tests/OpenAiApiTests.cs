@@ -65,7 +65,11 @@ public class OpenAiApiTests
         Assert.All(ev, e => Assert.Null(e.Event));
         Assert.Equal("[DONE]", ev[^1].Data);
         var chunks = ev[..^1].Select(e => JsonDocument.Parse(e.Data).RootElement).ToList();
-        Assert.All(chunks, c => { Assert.Equal("chat.completion.chunk", c.GetProperty("object").GetString()); Assert.StartsWith("chatcmpl-", c.GetProperty("id").GetString()); });
+        Assert.All(chunks, c =>
+        {
+            Assert.Equal("chat.completion.chunk", c.GetProperty("object").GetString());
+            Assert.StartsWith("chatcmpl-", c.GetProperty("id").GetString());
+        });
         Assert.Single(chunks.Select(c => c.GetProperty("id").GetString()).Distinct());
         Assert.Equal("assistant", chunks[0].GetProperty("choices")[0].GetProperty("delta").GetProperty("role").GetString());
         var text = string.Concat(chunks.Where(c => c.GetProperty("choices").GetArrayLength() > 0)

@@ -4,20 +4,20 @@ namespace Sharplight.Hub;
 public sealed class PullOptions
 {
     /// <summary>The revision to pull (branch, tag or commit); it is resolved to a commit and every file is pinned to it.</summary>
-    public string Revision { get; init; } = "main";
+    public string Revision { get; set; } = "main";
 
     /// <summary>Keep the downloaded source files in <c>source/</c> next to the package instead of deleting them.</summary>
-    public bool KeepSource { get; init; }
+    public bool KeepSource { get; set; }
 
     /// <summary>Convert again even when the stored model is already at the resolved commit.</summary>
-    public bool Force { get; init; }
+    public bool Force { get; set; }
 
     /// <summary>The device to precompile the package for, or <see langword="null"/> to compile at the first load instead.</summary>
-    public PrecompileTarget? Precompile { get; init; }
+    public PrecompileTarget? Precompile { get; set; }
 
     /// <summary>Receives stage messages (resolving, downloading, converting, precompiling), or <see langword="null"/>.</summary>
-    public Action<string>? Log { get; init; }
+    public Action<string>? Log { get; set; }
 
     /// <summary>Receives download progress over all files of the pull, or <see langword="null"/>.</summary>
-    public IProgress<DownloadProgress>? Progress { get; init; }
+    public IProgress<DownloadProgress>? Progress { get; set; }
 }

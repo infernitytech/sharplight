@@ -62,7 +62,11 @@ public class EmbeddingGeneratorTests
         float Dot(int a, int b)
         {
             float s = 0;
-            for (int i = 0; i < 384; i++) { s += r[a].Vector.Span[i] * r[b].Vector.Span[i]; }
+            for (int i = 0; i < 384; i++)
+            {
+                s += r[a].Vector.Span[i] * r[b].Vector.Span[i];
+            }
+
             return s;
         }
         Assert.Equal(1f, Dot(0, 0), 3);

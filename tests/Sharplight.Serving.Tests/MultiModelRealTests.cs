@@ -23,7 +23,7 @@ public class MultiModelRealTests
     {
         device = null!;
         Assert.SkipUnless(File.Exists(PathA) && File.Exists(PathB), "models not found");
-        var vk = TestHost.Providers.Discover().FirstOrDefault(x => x.Provider.Name == "vulkan" && x.Availability.IsAvailable).Provider;
+        var vk = TestHost.Providers.Discover().FirstOrDefault(x => x.Provider.Name == "vulkan" && x.Availability.IsAvailable)?.Provider;
         Assert.SkipUnless(vk is not null && vk.GetDevices().Count > 0, "no Vulkan device");
         var pool = new DevicePool();
         device = pool.Open(vk!, vk!.GetDevices()[0], options);
@@ -147,8 +147,30 @@ public class MultiModelRealTests
             Exception? ea = null;
             Exception? eb = null;
             using var go = new Barrier(2);
-            var ta = new Thread(() => { try { go.SignalAndWait(); a = Greedy(decA, modelA, PromptA, N); } catch (Exception e) { ea = e; } });
-            var tb = new Thread(() => { try { go.SignalAndWait(); b = Greedy(decB, modelB, PromptB, N); } catch (Exception e) { eb = e; } });
+            var ta = new Thread(() =>
+            {
+                try
+                {
+                    go.SignalAndWait();
+                    a = Greedy(decA, modelA, PromptA, N);
+                }
+                catch (Exception e)
+                {
+                    ea = e;
+                }
+            });
+            var tb = new Thread(() =>
+            {
+                try
+                {
+                    go.SignalAndWait();
+                    b = Greedy(decB, modelB, PromptB, N);
+                }
+                catch (Exception e)
+                {
+                    eb = e;
+                }
+            });
             ta.Start();
             tb.Start();
             ta.Join();
@@ -192,7 +214,15 @@ public class MultiModelRealTests
                 using var go = new Barrier(decs.Count);
                 var threads = decs.Select((d, i) => new Thread(() =>
                 {
-                    try { go.SignalAndWait(); res[i] = Greedy(d.Dec, d.Model, d.Prompt, N); } catch (Exception e) { errs[i] = e; }
+                    try
+                    {
+                        go.SignalAndWait();
+                        res[i] = Greedy(d.Dec, d.Model, d.Prompt, N);
+                    }
+                    catch (Exception e)
+                    {
+                        errs[i] = e;
+                    }
                 })).ToList();
                 threads.ForEach(t => t.Start());
                 threads.ForEach(t => t.Join());
@@ -280,7 +310,11 @@ public class MultiModelRealTests
             Assert.Equal(ModelState.Unloaded, host.Get("qwen")!.State);
             Assert.Equal(ModelState.Loaded, host.Get("smol")!.State);
         }
-        finally { host.Dispose(); }
+        finally
+        {
+            host.Dispose();
+        }
+
         Assert.Equal(0, device.GetMemoryInfo().UsedByUs);
         Console.Error.WriteLine($"[host] after dispose: {device.GetMemoryInfo()} (baseline {baseline})");
     }

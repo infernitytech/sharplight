@@ -2,7 +2,7 @@ using Sharplight.Llm.Embeddings;
 
 namespace Sharplight.Llm.Scoring;
 
-/// <summary>Options for <see cref="SpanScorer.Load"/>; <see cref="PackedModelLoadOptions.MaxBatchTokens"/> bounds the prompt length.</summary>
+/// <summary>Options for <see cref="SpanScorer.Load"/>; <see cref="Tasks.TaskLoadOptions.MaxBatchTokens"/> bounds the prompt length.</summary>
 public sealed class SpanScorerLoadOptions : PackedModelLoadOptions
 {
     /// <summary>Most questions per prompt.</summary>

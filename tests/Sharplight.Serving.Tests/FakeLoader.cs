@@ -51,6 +51,9 @@ public sealed class FakeLoader : IHostedModelLoader
 
             return inst;
         }
-        public void Dispose() { }
+
+        public void Dispose()
+        {
+        }
     }
 }
