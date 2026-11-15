@@ -4441,3 +4441,169 @@ dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll f64/vit-base-patch
     per-device-type value.
 * **Section number**: the raw data is in `bench/results/s32/`. Rename the section and the folder if another section
   takes 32 first.
+
+## 35. ONNX on RTX PRO 4500 vs onnxruntime: concatenations computed in place (2026-11-15)
+
+First ONNX pass on the new machine: an RTX PRO 4500 Blackwell (32 GB) used by this benchmark alone (`SHARPLIGHT_VK_DEVICES`
+/ `CUDA_VISIBLE_DEVICES` pin one of the three GPUs), onnxruntime-gpu 1.32 with the CUDA EP (TF32 on, the default, and
+off) and the TensorRT EP (f32 engines with TF32 tactics, engine build excluded). Same harness as sections 30-33:
+`bench/onnx/parity_bench.py`, every measurement its own process, engines of one model back to back, rounds interleaved.
+Raw data is in `bench/results/s35/`:
+
+* `baseline-gpu.jsonl`: a first pass at the start of the round, before the attention-pattern and read-back commits
+  below. Its Sharplight times are up to 2x the later ones on the encoders (bert b8 6.55 ms, whisper 3.87 ms) and are
+  superseded.
+* `gpu-before.jsonl`: one round of all engines including TensorRT, after the merge of develop and before the
+  concatenation change.
+* `gpu-after.jsonl`: two interleaved rounds of the Sharplight and CUDA EP engines with every change of this section.
+
+### 35.1 What changed
+
+* **Decomposed attention whose probabilities round-trip through Reshapes** (exports that can also return the attention
+  probabilities) is now fused into the encoder flash kernel; bert-base and whisper-tiny now run `attention fe`. Between
+  the baseline pass and `gpu-before.jsonl` (this commit, the read-back change and the develop merge), GPU time fell
+  for bert b8 from 5.69 to 2.05 ms and for the whisper-tiny encoder from 3.60 to 1.87 ms.
+* **Large outputs are downloaded on the transfer queue** and read back with several threads; OnnxBench reports the
+  read-back time. SegFormer b8 returns 78 MB of logits per run.
+* **Concatenation inputs are computed in their output slices** (`PlanConcatSlices`, Vulkan lowering): when every axis
+  before the concatenation axis has extent 1 (a dynamic batch compiled for batch 1 counts), each input is a dense,
+  contiguous slice of the output, so its producer writes there and the concatenation launches only for the inputs it
+  cannot alias (views, graph inputs, segment outputs, values used twice, slices that are not 256-byte aligned). For a
+  batch, channel concatenations take Resize outputs as batch-strided slices (the resize kernel got an output batch
+  stride, `YS_N`) when the resize output has no other consumer. The slice values share the concatenation output's
+  liveness root, and the activation copies of matmul inputs are not shared across such a root. Off with
+  `SHARPLIGHT_NO_CONCAT_IN_PLACE=1`.
+  * SegFormer-b0's decode head (four upsampled 256-channel maps, 1.36 ms of copy per run at b8) now has no
+    concatenation launch: GPU time b8 18.16 → 16.83 ms, b1 2.52 → 2.35 ms.
+  * yolov8n drops 1 of its 19 concatenation launches per run and raft 1 of 129: in their other concatenations some
+    input does not qualify (a view, a graph input, a slice that is not 256-byte aligned), so the launch stays, now
+    copying only those inputs.
+* **ssd-12-int8 reference**: see 35.4.
+
+### 35.2 Latency
+
+Wall min latency in ms (minimum over the rounds of each process's min-of-N), batch as given. Sharplight Vulkan and the
+CUDA EP columns come from `gpu-after.jsonl` (2 interleaved rounds); TensorRT from `gpu-before.jsonl` (1 round). The
+fair pairs are fast against TF32 and strict against strict; "strict / TF32" is the gap left at f32 accuracy.
+
+| model | batch | SL strict | SL fast | ORT TF32 | ORT strict | ORT TensorRT | fast / TF32 | strict / strict | strict / TF32 | fast / TRT |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| resnet50 | 1 | 0.80 | 0.60 | 1.21 | 2.52 | 1.52 | 0.49x | 0.32x | 0.67x | 0.39x |
+| resnet50 | 8 | 3.51 | 2.68 | 2.93 | 5.34 | 1.99 | 0.92x | 0.66x | 1.20x | 1.35x |
+| convnext-tiny | 1 | 1.41 | 1.01 | 1.46 | 1.64 | 1.02 | 0.69x | 0.86x | 0.97x | 0.99x |
+| convnext-tiny | 8 | 5.30 | 3.26 | 4.00 | 5.94 | 2.17 | 0.81x | 0.89x | 1.32x | 1.51x |
+| efficientnet-lite4 | 1 | 0.71 | 0.61 | 1.26 | 12.17 | 0.69 | 0.48x | 0.06x | 0.56x | 0.89x |
+| mobilenetv2 | 1 | 0.36 | 0.32 | 0.69 | 0.69 | 0.35 | 0.46x | 0.52x | 0.52x | 0.90x |
+| mobilenetv2 | 8 | 0.94 | 0.86 | 1.05 | 1.62 | 0.55 | 0.82x | 0.58x | 0.89x | 1.56x |
+| yolov8n | 1 | 1.26 | 1.09 | 1.73 | 3.58 | 0.92 | 0.63x | 0.35x | 0.73x | 1.19x |
+| yolov10n | 1 | 1.12 | 0.97 | 1.72 | 2.57 | 0.73 | 0.56x | 0.44x | 0.65x | 1.33x |
+| ssd-10 (NMS) | 1 | 19.46 | 13.90 | 15.30 | 31.58 | 7.65 | 0.91x | 0.62x | 1.27x | 1.82x |
+| bert-base (16 tok) | 1 | 1.32 | 0.96 | 1.86 | 1.91 | 1.20 | 0.52x | 0.69x | 0.71x | 0.80x |
+| bert-base (16 tok) | 8 | 3.06 | 2.05 | 3.24 | 3.99 | 2.65 | 0.63x | 0.77x | 0.94x | 0.77x |
+| vit-base | 1 | 2.78 | 1.41 | 1.60 | 3.12 | 2.26 | 0.88x | 0.89x | 1.73x | 0.62x |
+| vit-base | 8 | 11.41 | 5.39 | 5.97 | 12.04 | 5.07 | 0.90x | 0.95x | 1.91x | 1.06x |
+| whisper-tiny-encoder | 1 | 2.10 | 1.28 | 1.92 | 3.07 | 1.56 | 0.66x | 0.68x | 1.09x | 0.82x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 3.56 | 3.56 | 6.06 | 5.83 | - | 0.59x | 0.61x | 0.59x | - |
+| phi3.5-mini q4f16 (GQA) | 1 | 6.28 | 6.28 | 4.55 | 4.54 | - | 1.38x | 1.38x | 1.38x | - |
+| segformer-b0 | 1 | 3.01 | 2.79 | 3.24 | 4.19 | 2.57 | 0.86x | 0.72x | 0.93x | 1.09x |
+| segformer-b0 | 8 | 22.34 | 20.65 | 29.58 | 36.69 | 25.09 | 0.70x | 0.61x | 0.76x | 0.82x |
+| mobilesam-encoder | 1 | 7.71 | 6.18 | 9.62 | 12.29 | 4.56 | 0.64x | 0.63x | 0.80x | 1.35x |
+| raft-large | 1 | 55.13 | 44.74 | 60.05 | 103.17 | 44.47 | 0.75x | 0.53x | 0.92x | 1.01x |
+| fasterrcnn-12 (counts) | 1 | 11.30 | 9.43 | 10.56 | 17.40 | - | 0.89x | 0.65x | 1.07x | - |
+| maskrcnn-12 (counts) | 1 | 12.27 | 10.43 | 11.09 | 17.65 | - | 0.94x | 0.70x | 1.11x | - |
+
+### 35.3 Reading the table
+
+* **Fast against TF32**: Sharplight is faster than ORT's default on every model except the phi-3.5 decoder step
+  (1.38x, a q4f16 GroupQueryAttention decoder: the LLM kernels' workstream). Range 0.46-0.94x; closest are maskrcnn
+  0.94x, resnet50 b8 0.92x, ssd-10 0.91x and vit 0.88-0.90x.
+* **Strict against strict**: faster on every model except phi-3.5 (0.06-0.95x; efficientnet-lite4 0.06x, where ORT's
+  run with TF32 off is 10x its default). vit b8 is the closest at 0.95x.
+* **Strict against TF32**: faster on 14 of 23 rows. The rest: vit 1.73x / 1.91x, phi-3.5 1.38x, convnext b8 1.32x,
+  ssd-10 1.27x, resnet50 b8 1.20x, maskrcnn 1.11x, whisper 1.09x, fasterrcnn 1.07x. On ssd-10, two thirds of the GPU time are the
+  256-channel 3x3 convs over 150x150 maps (1.08 ms each, about 73 TFLOPS of f16 products: three per multiply-add), so
+  the gap is the strict split's cost, not a scheduling loss; fast precision is at 0.91x.
+* **TensorRT** stays ahead on the convnets and detectors at batch 8 or high resolution (fast / TRT up to 1.82x on
+  ssd-10, 1.51x convnext b8, 1.56x mobilenetv2 b8, 1.35x mobilesam). Sharplight fast beats it on resnet50 b1, bert, vit
+  b1, whisper and segformer b8, and ties on convnext b1 and raft. TensorRT could not build Faster / Mask R-CNN (its ONNX
+  parser needs `libnvinfer_vc_plugin`, not installed) and fails on the com.microsoft MatMulNBits / GroupQueryAttention
+  graphs.
+* **Parity**: every strict row passes against the ORT CPU reference except ssd-10 (worst relative RMS 2.1e-2 on the
+  NMS outputs, already in the first pass): near-tied boxes switch order after NMS. The fast rows marked as parity
+  failures in the raw data are within TF32's error class (section 33.3).
+* Changed rows between `gpu-before` (1 round) and `gpu-after` (2 rounds) other than SegFormer (yolov8n strict 1.65 →
+  1.26 ms, bert b1 1.78 → 1.32 ms) are run-to-run variation: yolov8n's profiled GPU time is 1.00 ms with and without
+  the concatenation change, and bert has no concatenation.
+
+**CPU (indicative)**: one round, min of 10 runs, 8 threads pinned to cores 0-7 of the AMD EPYC 7443P, which other
+workloads shared (`cpu.jsonl`; medians up to 1.5x the minima):
+
+| model | batch | SL CPU | ORT CPU | SL / ORT |
+|---|---:|---:|---:|---:|
+| resnet50 | 1 | 12.7 | 13.1 | 0.97x |
+| resnet50 | 8 | 92.7 | 77.1 | 1.20x |
+| convnext-tiny | 1 | 30.1 | 24.5 | 1.23x |
+| convnext-tiny | 8 | 177.1 | 137.2 | 1.29x |
+| mobilenetv2 | 1 | 2.3 | 1.9 | 1.17x |
+| mobilenetv2 | 8 | 13.1 | 10.8 | 1.22x |
+| yolov8n | 1 | 20.0 | 25.4 | 0.79x |
+| bert-base (16 tok) | 1 | 16.3 | 12.8 | 1.28x |
+| bert-base (16 tok) | 8 | 49.7 | 54.8 | 0.91x |
+| vit-base | 1 | 56.2 | 59.8 | 0.94x |
+| vit-base | 8 | 448.1 | 392.5 | 1.14x |
+| whisper-tiny-encoder | 1 | 84.5 | 70.6 | 1.20x |
+| segformer-b0 | 1 | 47.9 | 54.8 | 0.87x |
+| segformer-b0 | 8 | 378.4 | 549.9 | 0.69x |
+| fasterrcnn-12 (counts) | 1 | 548.2 | 306.4 | 1.79x |
+
+Sharplight's CPU backend is ahead or even on resnet50 b1, yolov8n, bert b8, vit b1 and segformer, and 1.1-1.3x behind on
+the other convnet and encoder rows; Faster R-CNN stays at 1.8x (section 33's CPU detection gap).
+
+### 35.4 ssd-12-int8: ORT's u8 x s8 kernels saturate, Sharplight follows the spec
+
+`SurveyModelTests.Survey("ssd-12-int8", cpu|vulkan)` failed against references generated with ORT 1.32 on this
+machine's AMD EPYC 7443P, while Sharplight's CPU and Vulkan backends agreed to 1e-7.
+
+* ORT 1.31.1 and 1.32 give identical outputs, with and without graph optimizations: the requantization did not change.
+* The ONNX spec's QLinearConv accumulates exactly in int32, applies the f32 multiplier and rounds half to even before
+  saturating. Sharplight computes exactly that on both backends.
+* On x86 CPUs without VNNI, ORT's u8 x s8 kernels sum adjacent products with int16 saturation (VPMADDUBSW). An emulation
+  of that saturation over channels-last K pairs reproduces ORT's output of the first QLinearConv (input zero point 114,
+  7x7x3 int8 weights) exactly; 0.5 % of its outputs (105,961 of 23 M) differ from the spec by up to 5 LSB, which changes
+  the selected boxes.
+* `bench/onnx/make_survey_refs.py` now builds this reference (`u8weights`) from a copy whose int8 QLinearConv weights
+  are stored as uint8 (w + 128, zero point + 128, the same values by the spec). ORT's u8 x u8 kernels widen to 16 bits
+  first and match the spec on any x86 CPU. Both backends pass against it (max abs 1.2e-7). Documented in
+  `docs/onnx-support.md`.
+
+### 35.5 Tests
+
+ONNX importer tests 181 (0 failed, 28 skipped), Vulkan 1445 (0 failed), CPU 1286 (0 failed), conformance 4197 with 49
+failures. The failures are the known unsupported or nondeterministic cases (Bernoulli, ImageDecoder, f64 BitCast,
+training Dropout, the two dynamic-int8 extra tests) on both providers, plus 3 Vulkan `test_unique_sorted_with_axis*`
+cases (output shape [3, 3] instead of [2, 3]) that fail identically with `SHARPLIGHT_NO_CONCAT_IN_PLACE=1`, so they
+predate this change (the Vulkan Unique kernels landed in develop).
+
+### 35.6 Open gaps
+
+* **Strict encoders against TF32**: vit 1.73x (b1) / 1.91x (b8), whisper 1.09x. The three products of the split cost
+  about 1.5x by construction; fast precision is at 0.66-0.90x of TF32. The activation split is still a pre-pass that
+  the producing LayerNorm / GELU could write.
+* **Strict convnets against TF32**: convnext b8 1.32x, resnet50 b8 1.20x, ssd-10 1.27x: the strict split's cost on large
+  3x3 / 1x1 convs (73 TFLOPS of f16 products on ssd-10's 256-channel convs).
+* **TensorRT**: 1.2-1.8x faster than Sharplight fast on convnets / detectors at batch 8 or high resolution.
+* **phi-3.5 q4f16 decoder step**: 1.38x of ORT CUDA (LLM kernels).
+* **Concatenations**: batch-strided slices are only taken from Resize; convs, GEMMs and elementwise producers would need
+  an output batch stride too. Concatenations whose inputs are views still copy them (raft keeps 117 launches per run).
+* **ssd-10 strict parity**: NMS order of near-tied boxes (relative RMS 2.1e-2).
+* **Conformance**: 3 Vulkan `test_unique_sorted_with_axis*` failures from develop (35.5).
+
+### 35.7 Reproduce
+
+```bash
+. bench/onnx/env.sh   # ORT_PYTHON with onnxruntime-gpu 1.32, CUDA and TensorRT libraries
+export SHARPLIGHT_ONNX_MODELS=~/models/onnx SHARPLIGHT_VK_DEVICES=2 CUDA_VISIBLE_DEVICES=2
+python3 bench/onnx/parity_bench.py run gpu.jsonl --rounds 2 --engines sl-vulkan,sl-vulkan-fast,ort-cuda,ort-cuda-strict,ort-trt
+BENCH_THREADS=8 python3 bench/onnx/parity_bench.py run cpu.jsonl --rounds 1 --runs 10 --engines sl-cpu,ort-cpu
+SHARPLIGHT_NO_CONCAT_IN_PLACE=1 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/segformer-b0.json vulkan --batch 8 --profile
+```
