@@ -18,6 +18,11 @@ namespace Sharplight.Vulkan;
 /// independent launches (<see cref="HazardTracker.Order(System.Collections.Generic.IReadOnlyList{Shaders.Lowering.KernelLaunch}, Shaders.Lowering.Bindings, bool)"/>).</item>
 /// <item><c>SHARPLIGHT_VK_MAX_LAUNCHES=n</c>: record only the first <c>n</c> launches (bisecting a faulting kernel).</item>
 /// <item><c>SHARPLIGHT_VK_LIST_LAUNCHES=1</c>: print each recorded launch.</item>
+/// <item><c>SHARPLIGHT_VK_SPIRV_PORTABILITY=0</c>: on portability-subset devices (MoltenVK), create pipelines from the
+/// kernels as compiled instead of applying <see cref="SpirvPortability.Rewrite"/>; <c>=all</c> applies the rewrite on
+/// every device (to check the rewritten kernels on a native driver).</item>
+/// <item><c>SHARPLIGHT_VK_PORTABILITY_FAST_MATH=1</c>: on macOS, keep MoltenVK's default Metal fast math instead of turning it off
+/// at instance creation.</item>
 /// <item><c>SHARPLIGHT_VK_TRANSFER_QUEUE=0</c>: download large outputs on the compute queue instead of the transfer-only queue.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>: print load-phase timings (pipeline creation, upload) to stderr.</item>
 /// <item><c>SHARPLIGHT_SUBMISSION_BUDGET_MS=ms</c>: overrides the per-device submission budget (0 disables slicing); the
@@ -63,6 +68,15 @@ internal static class DiagnosticSwitches
     /// instead of copying them on the device (<see cref="Runtime.IDeviceForwardingSegment"/>).
     /// </summary>
     public static bool DeviceForwarding { get; } = Read("SHARPLIGHT_DEVICE_FORWARDING") is not ("0" or "false");
+
+    /// <summary>True when kernels for portability-subset devices get <see cref="SpirvPortability.Rewrite"/> (the default).</summary>
+    public static bool PortabilityRewrite { get; } = Read("SHARPLIGHT_VK_SPIRV_PORTABILITY") != "0";
+
+    /// <summary>True when MoltenVK's fast math is turned off on macOS (the default; <c>SHARPLIGHT_VK_PORTABILITY_FAST_MATH=1</c> keeps it).</summary>
+    public static bool PortabilityStrictMath { get; } = Read("SHARPLIGHT_VK_PORTABILITY_FAST_MATH") != "1";
+
+    /// <summary>True when <see cref="SpirvPortability.Rewrite"/> applies on every device (<c>SHARPLIGHT_VK_SPIRV_PORTABILITY=all</c>).</summary>
+    public static bool PortabilityRewriteAll { get; } = Read("SHARPLIGHT_VK_SPIRV_PORTABILITY") == "all";
 
     /// <summary>Prints load-phase timings.</summary>
     public static bool LoadTiming { get; } = IsSet("SHARPLIGHT_LOAD_TIMING");

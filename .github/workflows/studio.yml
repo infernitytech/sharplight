@@ -70,9 +70,8 @@ jobs:
         shell: bash
         run: dotnet tool install --global vpk --version "$VPK_VERSION"
 
-      # TODO(macos): the Vulkan provider needs the MoltenVK package (Sharplight.Vulkan.MoltenVK) that lives on the unmerged branch
-      # macos/round-1 (see docs/macos.md there). Until it is merged the macOS app runs on the CPU provider only; nothing to change
-      # here once the Studio project references the package, the publish picks the dylib up.
+      # macOS: the publish on the macos-15 runner brings the bundled MoltenVK along (Sharplight.Vulkan.MoltenVK, docs/macos.md),
+      # so the app runs the Vulkan provider; pack-studio.sh fails if libMoltenVK.dylib is missing.
 
       - name: Release notes
         shell: bash

@@ -7,6 +7,7 @@
     <Project Path="src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <Project Path="src/Sharplight.Vulkan.MoltenVK/Sharplight.Vulkan.MoltenVK.csproj" />
     <Project Path="src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <Project Path="src/Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
