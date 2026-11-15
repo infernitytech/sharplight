@@ -7,14 +7,17 @@ namespace Sharplight.GenerateImage;
 /// <summary>The <c>sharplight-generate-image</c> command line.</summary>
 internal sealed class GenerateImageCommand
 {
-    private readonly Option<string> _model = new("--model", "-m") { Description = "Model: a diffusers folder (SD 1.x / 2.x / XL), a single-file .safetensors / .ckpt / .gguf checkpoint or an .slm package.", Required = true };
+    private readonly Option<string> _model = new("--model", "-m") { Description = "Model: a diffusers folder (SD 1.x / 2.x / XL, FLUX.1), a single-file .safetensors / .ckpt / .gguf checkpoint (FLUX: transformer-only files take their companions from the options below or from files next to them) or an .slm package.", Required = true };
+    private readonly Option<string?> _textEncoder = new("--text-encoder") { Description = "Companion of a transformer-only checkpoint: the CLIP-L text encoder (clip_l.safetensors)." };
+    private readonly Option<string?> _textEncoder2 = new("--text-encoder-2") { Description = "Companion of a transformer-only checkpoint: the T5-XXL encoder (.gguf or .safetensors)." };
+    private readonly Option<string?> _vae = new("--vae") { Description = "Companion of a transformer-only checkpoint: the VAE (ae.safetensors)." };
     private readonly Option<string> _prompt = new("--prompt", "-p") { Description = "What to generate.", Required = true };
     private readonly Option<string?> _negative = new("--negative-prompt", "-n") { Description = "What the image should not show." };
     private readonly Option<string> _output = new("--output", "-o") { Description = "Output PNG; with --count > 1, '-<index>' is inserted before the extension.", DefaultValueFactory = _ => "output.png" };
     private readonly Option<int?> _width = new("--width", "-W") { Description = "Width in pixels (default: the model's native size)." };
     private readonly Option<int?> _height = new("--height", "-H") { Description = "Height in pixels (default: the model's native size)." };
     private readonly Option<int?> _steps = new("--steps") { Description = "Denoising steps (default: the model's)." };
-    private readonly Option<float?> _guidance = new("--guidance", "--cfg-scale") { Description = "Classifier-free guidance scale (default: the model's)." };
+    private readonly Option<float?> _guidance = new("--guidance", "--cfg-scale") { Description = "Guidance scale: classifier-free guidance, or the embedded guidance of guidance-distilled models such as FLUX.1-dev (default: the model's)." };
     private readonly Option<long?> _seed = new("--seed", "-s") { Description = "Seed; image i uses seed + i (default: random)." };
     private readonly Option<int> _count = new("--count") { Description = "Number of images.", DefaultValueFactory = _ => 1 };
     private readonly Option<string?> _sampler = new("--sampler") { Description = $"Sampler: {string.Join(", ", Samplers.All)} (default: the model's)." };
@@ -28,8 +31,8 @@ internal sealed class GenerateImageCommand
 
     public Command Build()
     {
-        var command = new RootCommand("Generates images with a Sharplight image-generation model (Stable Diffusion 1.x / 2.x) through the DI task API.");
-        foreach (var option in new Option[] { _model, _prompt, _negative, _output, _width, _height, _steps, _guidance, _seed, _count, _sampler, _initImage, _mask, _strength, _noise, _preview, _cpu, _device })
+        var command = new RootCommand("Generates images with a Sharplight image-generation model (Stable Diffusion 1.x / 2.x / XL, FLUX.1) through the DI task API.");
+        foreach (var option in new Option[] { _model, _textEncoder, _textEncoder2, _vae, _prompt, _negative, _output, _width, _height, _steps, _guidance, _seed, _count, _sampler, _initImage, _mask, _strength, _noise, _preview, _cpu, _device })
         {
             command.Options.Add(option);
         }
@@ -41,6 +44,9 @@ internal sealed class GenerateImageCommand
     private GenerateImageSettings Settings(ParseResult result) => new()
     {
         Model = result.GetValue(_model)!,
+        TextEncoder = result.GetValue(_textEncoder),
+        SecondTextEncoder = result.GetValue(_textEncoder2),
+        Vae = result.GetValue(_vae),
         Prompt = result.GetValue(_prompt)!,
         NegativePrompt = result.GetValue(_negative),
         Output = result.GetValue(_output)!,

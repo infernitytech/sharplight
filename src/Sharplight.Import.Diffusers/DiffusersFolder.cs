@@ -5,7 +5,7 @@ namespace Sharplight.Import.Diffusers;
 
 /// <summary>
 /// Reads a diffusers pipeline folder (<c>model_index.json</c> with <c>unet/</c>, <c>vae/</c>, <c>text_encoder/</c>, <c>tokenizer/</c> and
-/// <c>scheduler/</c>) of a Stable Diffusion 1.x / 2.x pipeline.
+/// <c>scheduler/</c>) of a Stable Diffusion 1.x / 2.x / XL pipeline; FLUX folders (<c>transformer/</c>) go to <see cref="FluxFolder"/>.
 /// </summary>
 internal static class DiffusersFolder
 {
@@ -15,16 +15,22 @@ internal static class DiffusersFolder
     /// </summary>
     /// <param name="path">A directory.</param>
     public static bool IsFolder(string path)
-        => Directory.Exists(path) && File.Exists(Path.Combine(path, "unet", "config.json")) && File.Exists(Path.Combine(path, "vae", "config.json"));
+        => Directory.Exists(path) && File.Exists(Path.Combine(path, "vae", "config.json"))
+           && (File.Exists(Path.Combine(path, "unet", "config.json")) || FluxFolder.IsFolder(path));
 
     /// <summary>Opens the folder as a canonical source.</summary>
     /// <param name="path">The pipeline folder.</param>
     /// <exception cref="NotSupportedException">The pipeline is not a single-text-encoder UNet pipeline.</exception>
     public static ModelSource Open(string path)
     {
+        if (FluxFolder.IsFolder(path))
+        {
+            return FluxFolder.Open(path);
+        }
+
         if (Directory.Exists(Path.Combine(path, "transformer")) || !Directory.Exists(Path.Combine(path, "text_encoder")))
         {
-            throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x / XL pipelines (CLIP text encoders and a UNet) are supported so far.");
+            throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x / XL and FLUX.1 pipelines are supported so far.");
         }
 
         bool xl = Directory.Exists(Path.Combine(path, "text_encoder_2"));
@@ -94,7 +100,7 @@ internal static class DiffusersFolder
     }
 
     /// <summary>Adds the safetensors files of one component folder, preferring full-precision files over <c>.fp16</c> variants.</summary>
-    private static void AddComponent(CheckpointTensors tensors, string root, string component)
+    public static void AddComponent(CheckpointTensors tensors, string root, string component)
     {
         string folder = Path.Combine(root, component);
         var files = Directory.GetFiles(folder, "*.safetensors").Order(StringComparer.Ordinal).ToList();

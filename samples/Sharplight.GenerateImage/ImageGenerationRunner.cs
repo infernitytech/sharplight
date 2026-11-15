@@ -5,12 +5,28 @@ using Sharplight.Imaging;
 using Sharplight.Runtime;
 using Sharplight.Samples;
 using Sharplight.Tasks;
+using Sharplight.Vision;
 
 namespace Sharplight.GenerateImage;
 
 /// <summary>Loads the model through the <see cref="SampleRuntime"/> container, creates its <see cref="IImageGenerator"/> and runs one request, writing PNGs.</summary>
 internal sealed class ImageGenerationRunner(GenerateImageSettings settings)
 {
+    /// <summary>The companion files given on the command line, by auxiliary role (the rest are looked for next to the model).</summary>
+    private Dictionary<string, string> Companions()
+    {
+        var companions = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (role, path) in new[] { (AuxiliaryRoles.TextEncoder, settings.TextEncoder), (AuxiliaryRoles.SecondTextEncoder, settings.SecondTextEncoder), (AuxiliaryRoles.Vae, settings.Vae) })
+        {
+            if (path is not null)
+            {
+                companions[role] = path;
+            }
+        }
+
+        return companions;
+    }
+
     public async Task<int> RunAsync(CancellationToken cancellationToken)
     {
         using var runtime = new SampleRuntime();
@@ -20,6 +36,7 @@ internal sealed class ImageGenerationRunner(GenerateImageSettings settings)
         using var model = await TaskModel.LoadAsync(runtime.Loader, new TaskLoadOptions
         {
             ModelPath = settings.Model,
+            Auxiliary = Companions(),
             Devices = [new DeviceSlot { Device = device }],
             Log = message => Console.Error.WriteLine(message.Split('\n')[0]),
         }, cancellationToken);

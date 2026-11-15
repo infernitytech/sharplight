@@ -7,13 +7,15 @@ namespace Sharplight.Studio.Services.Library;
 
 /// <summary>
 /// Recognizes the image models of the library from their content (or, where a file cannot be read cheaply, their name): Stable
-/// Diffusion pipelines (a diffusers folder, a single-file checkpoint, a stable-diffusion.cpp GGUF) and the Hugging Face vision
+/// Diffusion and FLUX pipelines (a diffusers folder, a single-file checkpoint, a stable-diffusion.cpp / city96 GGUF; FLUX transformer-only
+/// files need companion files, <see cref="NeedsCompanions"/>) and the Hugging Face vision
 /// checkpoints (image classification, image embedding, object detection, depth estimation) by the architecture of their
 /// <c>config.json</c>. Anything else gives null.
 /// </summary>
 internal static class ImageModelProbe
 {
     private const string UNetPrefix = "model.diffusion_model.";
+    private const string FluxTransformerTensor = "double_blocks.0.img_attn.qkv.weight";
     private const long MaxSafetensorsHeader = 256L << 20;
 
     private static readonly string[] s_checkpointNameHints = ["stable-diffusion", "stable_diffusion", "sd-", "sd_", "sd1", "sd2", "sdxl", "v1-5", "v2-1", "dreamshaper", "diffusion"];
@@ -29,12 +31,12 @@ internal static class ImageModelProbe
 
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
-            return SafetensorsHasUNet(path) ? ModelKinds.ImageGeneration : null;
+            return SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor) ? ModelKinds.ImageGeneration : null;
         }
 
         if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
         {
-            return GgufHasUNet(path) ? ModelKinds.ImageGeneration : null;
+            return GgufHasDiffusionModel(path) ? ModelKinds.ImageGeneration : null;
         }
 
         // A pickled checkpoint cannot be read without the engine's restricted unpickler, so the name decides.
@@ -47,11 +49,41 @@ internal static class ImageModelProbe
         return null;
     }
 
+    /// <summary>
+    /// Whether an image model file holds only a FLUX transformer (original tensor names, as city96 / stable-diffusion.cpp GGUF files
+    /// and the official single files are distributed), so its text encoders and VAE come as companion files.
+    /// </summary>
+    /// <param name="path">A model file.</param>
+    public static bool NeedsCompanions(string path)
+    {
+        if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
+        {
+            return SafetensorsHeaderContains(path, FluxTransformerTensor) && !SafetensorsHeaderContains(path, "text_encoders.");
+        }
+
+        if (!path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var file = GgufFile.Open(path);
+            return file.Tensors.Any(tensor => tensor.Name.EndsWith(FluxTransformerTensor, StringComparison.Ordinal));
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private static bool IsDiffusersFolder(string path)
-        => File.Exists(Path.Combine(path, "model_index.json")) || (File.Exists(Path.Combine(path, "unet", "config.json")) && File.Exists(Path.Combine(path, "vae", "config.json")));
+        => File.Exists(Path.Combine(path, "model_index.json"))
+           || ((File.Exists(Path.Combine(path, "unet", "config.json")) || File.Exists(Path.Combine(path, "transformer", "config.json")))
+               && File.Exists(Path.Combine(path, "vae", "config.json")));
 
     /// <summary>The header of a safetensors file is JSON naming every tensor, so the check reads the header only.</summary>
-    private static bool SafetensorsHasUNet(string path)
+    private static bool SafetensorsHeaderContains(string path, string text)
     {
         try
         {
@@ -70,7 +102,7 @@ internal static class ImageModelProbe
 
             var header = new byte[size];
             stream.ReadExactly(header);
-            return header.AsSpan().IndexOf(Encoding.ASCII.GetBytes(UNetPrefix)) >= 0;
+            return header.AsSpan().IndexOf(Encoding.ASCII.GetBytes(text)) >= 0;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
@@ -78,12 +110,12 @@ internal static class ImageModelProbe
         }
     }
 
-    private static bool GgufHasUNet(string path)
+    private static bool GgufHasDiffusionModel(string path)
     {
         try
         {
             using var file = GgufFile.Open(path);
-            return file.Tensors.Any(tensor => tensor.Name.StartsWith(UNetPrefix, StringComparison.Ordinal));
+            return file.Tensors.Any(tensor => tensor.Name.StartsWith(UNetPrefix, StringComparison.Ordinal) || tensor.Name.EndsWith(FluxTransformerTensor, StringComparison.Ordinal));
         }
         catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
         {

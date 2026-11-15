@@ -22,32 +22,50 @@ internal static class SingleFileCheckpoint
 
     /// <summary>Whether <paramref name="path"/> is a safetensors, GGUF or PyTorch checkpoint holding a latent-diffusion UNet.</summary>
     /// <param name="path">A file.</param>
-    public static bool IsCheckpoint(string path)
+    public static bool IsCheckpoint(string path) => Kind(path) == LatentDiffusionSource.Architecture;
+
+    /// <summary>
+    /// What a checkpoint file holds: <c>latent_diffusion</c> (a Stable Diffusion UNet checkpoint), <c>flux</c> (an original-layout FLUX
+    /// transformer), a stand-alone component (<see cref="ComponentCheckpoint.Classify"/>), or null (not a diffusion file, or unreadable).
+    /// </summary>
+    /// <param name="path">A file.</param>
+    public static string? Kind(string path)
     {
         if (!File.Exists(path))
         {
-            return false;
+            return null;
         }
 
         try
         {
-            return TensorNames(path).Any(n => n.StartsWith(UNetPrefix, StringComparison.Ordinal));
+            var names = TensorNames(path);
+            if (FluxCheckpoint.TransformerPrefix(names) is not null)
+            {
+                return FluxConfig.Architecture;
+            }
+
+            if (names.Any(n => n.StartsWith(UNetPrefix, StringComparison.Ordinal)))
+            {
+                return LatentDiffusionSource.Architecture;
+            }
+
+            return path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase) ? ComponentCheckpoint.Classify(names) : null;
         }
         catch (IOException)
         {
-            return false;
+            return null;
         }
         catch (InvalidDataException)
         {
-            return false;
+            return null;
         }
         catch (Sharplight.Import.PyTorch.UnsafePickleException)
         {
-            return false;
+            return null;
         }
         catch (NotSupportedException)
         {
-            return false;
+            return null;
         }
     }
 
@@ -168,7 +186,7 @@ internal static class SingleFileCheckpoint
     }
 
     /// <summary>The tensor names of a safetensors, GGUF or PyTorch checkpoint file (header / pickle only).</summary>
-    private static IEnumerable<string> TensorNames(string path)
+    private static IReadOnlyCollection<string> TensorNames(string path)
     {
         if (CheckpointTensors.IsGguf(path))
         {

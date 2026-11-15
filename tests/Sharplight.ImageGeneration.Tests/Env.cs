@@ -33,6 +33,18 @@ internal static class Env
     /// <summary>The tiny random SDXL pipeline (tools/make-tiny-sdxl.py).</summary>
     public static readonly string TinyXl = Path.Combine(Home, "models/sd/tiny-random-sdxl");
 
+    /// <summary>The FLUX model folder (diffusers folders, GGUF files with companions, references).</summary>
+    public static readonly string FluxRoot = Path.Combine(Home, "models/flux");
+
+    /// <summary>FLUX.1-schnell as a diffusers folder (bf16 files).</summary>
+    public static readonly string FluxSchnellDiffusers = Path.Combine(FluxRoot, "FLUX.1-schnell");
+
+    /// <summary>FLUX.1-schnell as city96's transformer-only Q8_0 GGUF, with the T5 GGUF, clip_l.safetensors and ae.safetensors beside it.</summary>
+    public static readonly string FluxSchnellGguf = Path.Combine(FluxRoot, "gguf", "flux1-schnell-Q8_0.gguf");
+
+    /// <summary>The tiny random FLUX pipelines (tools/make-tiny-flux.py), one folder per variant ("dev", "schnell").</summary>
+    public static readonly string TinyFlux = Path.Combine(Home, "models/flux/tiny-random-flux");
+
     /// <summary>Stable Diffusion 1.5 as a diffusers folder.</summary>
     public static readonly string Sd15Diffusers = Path.Combine(Home, "models/sd/sd15-diffusers");
 
@@ -111,6 +123,10 @@ internal static class Env
 
     /// <summary>Loads a model as a task model on one device.</summary>
     public static TaskModel Load(string path, DeviceSlot slot) => TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [slot] });
+
+    /// <summary>Loads a model with auxiliary files by role (companions of a transformer-only checkpoint).</summary>
+    public static TaskModel Load(string path, DeviceSlot slot, IReadOnlyDictionary<string, string> auxiliary)
+        => TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [slot], Auxiliary = new Dictionary<string, string>(auxiliary) });
 
     /// <summary>Reads a raw little-endian f32 file.</summary>
     public static float[] ReadFloats(string path)
