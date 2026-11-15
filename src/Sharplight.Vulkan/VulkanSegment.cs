@@ -43,6 +43,12 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     private readonly VkFence _fence;
     /// <summary>This segment's own command pool (pools are externally synchronized; segments of different models run on different threads).</summary>
     private readonly VkCommandPool _pool;
+    /// <summary>Command pool on the device's transfer queue family (null handle without one), for the download command buffers.</summary>
+    private readonly VkCommandPool _transferPool;
+    /// <summary>Signalled by the compute submission, waited for by the download on the transfer queue.</summary>
+    private readonly VkSemaphore _computeDone;
+    /// <summary>Download command buffers on the transfer queue per recording key, for recordings that download on it (see <see cref="UsesTransferQueue"/>).</summary>
+    private readonly Dictionary<string, VkCommandBuffer> _downloads = [];
     private readonly VkQueryPool _stepPool;
     private bool _disposed;
 
@@ -86,6 +92,18 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         Segment = segment;
 
         _pool = dev.CreateCommandPool();
+        if (dev.TransferFamily >= 0)
+        {
+            var tpci = new VkCommandPoolCreateInfo { queueFamilyIndex = (uint)dev.TransferFamily, flags = VkCommandPoolCreateFlags.ResetCommandBuffer };
+            VkCommandPool transferPool;
+            dev.Api.vkCreateCommandPool(&tpci, null, &transferPool).CheckResult();
+            _transferPool = transferPool;
+            var sci = new VkSemaphoreCreateInfo();
+            VkSemaphore semaphore;
+            dev.Api.vkCreateSemaphore(&sci, null, &semaphore).CheckResult();
+            _computeDone = semaphore;
+        }
+
         var fci = new VkFenceCreateInfo();
         VkFence f;
         dev.Api.vkCreateFence(&fci, null, &f).CheckResult();
@@ -160,6 +178,24 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     }
 
     private void FreeCb(VkCommandBuffer cb) => _dev.Api.vkFreeCommandBuffers(_pool, 1, &cb);
+
+    /// <summary>Frees the transfer-queue download of recording <paramref name="key"/>, if it has one.</summary>
+    private void FreeDownload(string key)
+    {
+        if (_downloads.Remove(key, out var cb))
+        {
+            _dev.Api.vkFreeCommandBuffers(_transferPool, 1, &cb);
+        }
+    }
+
+    /// <summary>Frees every transfer-queue download.</summary>
+    private void FreeDownloads()
+    {
+        foreach (var key in _downloads.Keys.ToList())
+        {
+            FreeDownload(key);
+        }
+    }
 
     private void FreeCbs(VkCommandBuffer[] cbs)
     {
@@ -269,6 +305,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
 
         _recorded.Clear();
         _recordOrder.Clear();
+        FreeDownloads();
         return true;
     }
 
@@ -280,7 +317,42 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     {
         var r = _program.OutputRefs[value];
         var a = _staging[r.Buffer];
-        new ReadOnlySpan<byte>(a.Mapped + r.ByteOffset + byteOffset, destination.Length).CopyTo(destination);
+        byte* source = a.Mapped + r.ByteOffset + byteOffset;
+        if (destination.Length < ParallelReadMinBytes)
+        {
+            new ReadOnlySpan<byte>(source, destination.Length).CopyTo(destination);
+            return;
+        }
+
+        fixed (byte* target = destination)
+        {
+            ParallelCopy(source, target, destination.Length);
+        }
+    }
+
+    /// <summary>Outputs from this size are read from the staging memory by several threads (<see cref="ParallelCopy"/>).</summary>
+    private const int ParallelReadMinBytes = 4 << 20;
+
+    /// <summary>Bytes each thread of a parallel read copies at least.</summary>
+    private const int ParallelReadChunkBytes = 1 << 20;
+
+    /// <summary>
+    /// Copies <paramref name="length"/> bytes of mapped staging memory in parallel chunks. One thread read the host-cached staging
+    /// memory the GPU had just written at about 4 GB/s (EPYC host, NVIDIA driver: segformer-b0's 79 MB output at batch 8 took
+    /// 19 ms); several threads together reach the memory bandwidth (2.4 ms).
+    /// </summary>
+    private static void ParallelCopy(byte* source, byte* target, int length)
+    {
+        int chunks = Math.Min(Math.Min(Environment.ProcessorCount, 16), length / ParallelReadChunkBytes);
+        long per = ((long)length + chunks - 1) / chunks;
+        nint src = (nint)source;
+        nint dst = (nint)target;
+        Parallel.For(0, chunks, i =>
+        {
+            long start = i * per;
+            long count = Math.Min(per, length - start);
+            Buffer.MemoryCopy((byte*)(src + (nint)start), (byte*)(dst + (nint)start), count, count);
+        });
     }
 
     // ---- execution ---------------------------------------------------------------------------
@@ -360,7 +432,13 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             EvictOldestRecording();
 
             long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
-            cbs = RecordStep(key, bindings, skipDownloads);
+            bool transfer = UsesTransferQueue(bindings, skipDownloads);
+            cbs = RecordStep(key, bindings, transfer ? AllOutputs : skipDownloads);
+            if (transfer)
+            {
+                _downloads[key] = RecordDownload(bindings, skipDownloads);
+            }
+
             _recorded[key] = cbs;
             _recordOrder.Enqueue(key);
             if (DiagnosticSwitches.Trace)
@@ -371,7 +449,15 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
 
         var fence = _fence;
         _dev.Api.vkResetFences(1, &fence).CheckResult();
-        _dev.Submit(cbs, fence);
+        if (_downloads.TryGetValue(key, out var download))
+        {
+            _dev.SubmitWithDownload(cbs, _computeDone, download, fence);
+        }
+        else
+        {
+            _dev.Submit(cbs, fence);
+        }
+
         _dev.Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
         ulong* ts = stackalloc ulong[2];
         if (_dev.Api.vkGetQueryPoolResults(_stepPool, 0, 2, 16, ts, 8, VkQueryResultFlags.Bit64) == VkResult.Success)
@@ -448,6 +534,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         var oldest = _recordOrder.Dequeue();
         FreeCbs(_recorded[oldest]);
         _recorded.Remove(oldest);
+        FreeDownload(oldest);
     }
 
     private void CheckWithinCompiledBounds(Bindings bindings)
@@ -847,6 +934,62 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderRead | VkAccessFlags.ShaderWrite);
     }
 
+    /// <summary>Output bytes from which a recording downloads its outputs on the transfer queue (<see cref="VulkanDevice.TransferFamily"/>).</summary>
+    private const ulong TransferQueueMinBytes = 1 << 20;
+
+    /// <summary>The outputs as a skip set: the compute command buffers of a recording that downloads on the transfer queue copy none.</summary>
+    private HashSet<Value> AllOutputs => field ??= [.. _program.OutputRefs.Keys];
+
+    /// <summary>
+    /// True when a recording downloads its outputs on the transfer queue: the device has one and the outputs total at least
+    /// <see cref="TransferQueueMinBytes"/> (below that, the second submission costs more than the slower copy). Data-dependent
+    /// counts are read back with the outputs.
+    /// </summary>
+    private bool UsesTransferQueue(Bindings b, IReadOnlySet<Value> skipDownloads)
+    {
+        if (_dev.TransferFamily < 0)
+        {
+            return false;
+        }
+
+        ulong bytes = 0;
+        foreach (var (value, r) in _program.OutputRefs)
+        {
+            bytes += skipDownloads.Contains(value) ? 0 : UsedBytes(r, b);
+        }
+
+        return bytes >= TransferQueueMinBytes;
+    }
+
+    /// <summary>
+    /// The transfer-queue command buffer that copies the outputs (except <paramref name="skipDownloads"/>) and the data-dependent
+    /// counts to their host staging buffers, after the compute submission has signalled <see cref="_computeDone"/>.
+    /// </summary>
+    private VkCommandBuffer RecordDownload(Bindings b, IReadOnlySet<Value> skipDownloads)
+    {
+        var ai = new VkCommandBufferAllocateInfo { commandPool = _transferPool, level = VkCommandBufferLevel.Primary, commandBufferCount = 1 };
+        VkCommandBuffer cb;
+        _dev.Api.vkAllocateCommandBuffers(&ai, &cb).CheckResult();
+        var beginInfo = new VkCommandBufferBeginInfo();
+        _dev.Api.vkBeginCommandBuffer(cb, &beginInfo).CheckResult();
+        foreach (var (value, r) in _program.OutputRefs)
+        {
+            if (!skipDownloads.Contains(value))
+            {
+                Copy(cb, _alloc[r.Buffer], _staging[r.Buffer], (ulong)r.ByteOffset, UsedBytes(r, b));
+            }
+        }
+
+        foreach (var slot in _program.ProducedSymbols.Values)
+        {
+            Copy(cb, _alloc[slot.Buffer], _staging[slot.Buffer], (ulong)slot.ByteOffset, sizeof(int));
+        }
+
+        Barrier(cb, VkPipelineStageFlags.Transfer, VkAccessFlags.TransferWrite, VkPipelineStageFlags.Host, VkAccessFlags.HostRead);
+        _dev.Api.vkEndCommandBuffer(cb).CheckResult();
+        return cb;
+    }
+
     private void RecordOutputCopies(VkCommandBuffer cb, Bindings b, IReadOnlySet<Value> skipDownloads)
     {
         Barrier(cb, VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderWrite, VkPipelineStageFlags.Transfer, VkAccessFlags.TransferRead);
@@ -905,6 +1048,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         _recorded.Clear();
+        FreeDownloads();
         foreach (var p in _plans.Values)
         {
             foreach (var c in p.Chunks)
@@ -938,5 +1082,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         _dev.Api.vkDestroyFence(_fence, null);
         _dev.Api.vkDestroyQueryPool(_stepPool, null);
         _dev.Api.vkDestroyCommandPool(_pool, null);
+        if (_transferPool != VkCommandPool.Null)
+        {
+            _dev.Api.vkDestroyCommandPool(_transferPool, null);
+            _dev.Api.vkDestroySemaphore(_computeDone, null);
+        }
+
     }
 }

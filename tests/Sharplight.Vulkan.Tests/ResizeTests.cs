@@ -50,4 +50,25 @@ public sealed class ResizeTests
 
     [Fact] public void Upsample2x() => Run("2x", "nearest", "asymmetric", "floor", 1, 16, 14, 14, 28, 28);
     [Fact] public void BilinearUpsample2xStrided() => Run("2x bilinear sliced", "linear", "half_pixel", "round_prefer_floor", 2, 4, 10, 10, 20, 20, slice: true);
+
+    /// <summary>
+    /// Upsampled maps concatenated along channels over a batch of 3 (a feature-pyramid head): the resizes write their
+    /// batch-strided slices of the concatenation directly; the input read again elsewhere and the dense branch are copied.
+    /// </summary>
+    [Fact]
+    public void ResizesWrittenIntoChannelConcat()
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var a = tg.InF("a", 3, 8, 4, 4);
+        var b = tg.InF("b", 3, 4, 8, 8);
+        var c = tg.InF("c", 3, 4, 16, 16);
+        Value Up(Value v, string mode) => tg.B.Emit1("Resize", [v], Attributes.From(("size", new long[] { 16, 16 }), ("mode", mode), ("coord", "half_pixel")));
+        var shared = Up(b, "nearest");
+        var cat = tg.B.Concat(1, Up(a, "linear"), shared, tg.B.Scale(c, 2f), Up(b, "linear"));
+        tg.B.Output("y", tg.B.Scale(cat, 1f, 0.25f));
+        tg.B.Output("shared", tg.B.Mul(shared, shared));
+        var step = new Step(1, 0, (a, Rnd.F(3 * 8 * 16, 1)), (b, Rnd.F(3 * 4 * 64, 2)), (c, Rnd.F(3 * 4 * 256, 3)));
+        Diff.Check("Resize.concat", tg.B.Build(), step, atol: 2e-5, rtol: 2e-5);
+    }
 }

@@ -128,14 +128,21 @@ internal sealed unsafe class MemoryAllocator : IDisposable
     private MemoryBlock NewBlock(ulong size, MemoryUsage usage, bool dedicated)
     {
         var api = _dev.Api;
-        var bci = new VkBufferCreateInfo
-        {
-            size = size,
-            usage = VkBufferUsageFlags.StorageBuffer | VkBufferUsageFlags.TransferSrc | VkBufferUsageFlags.TransferDst | VkBufferUsageFlags.ShaderDeviceAddress,
-            sharingMode = VkSharingMode.Exclusive,
-        };
         VkBuffer buf;
-        api.vkCreateBuffer(&bci, null, &buf).CheckResult();
+        // With a transfer queue, buffers are shared by both queue families (outputs are downloaded on the transfer queue).
+        fixed (uint* families = _dev.SharingFamilies)
+        {
+            var bci = new VkBufferCreateInfo
+            {
+                size = size,
+                usage = VkBufferUsageFlags.StorageBuffer | VkBufferUsageFlags.TransferSrc | VkBufferUsageFlags.TransferDst | VkBufferUsageFlags.ShaderDeviceAddress,
+                sharingMode = _dev.SharingFamilies.Length > 1 ? VkSharingMode.Concurrent : VkSharingMode.Exclusive,
+                queueFamilyIndexCount = (uint)_dev.SharingFamilies.Length,
+                pQueueFamilyIndices = _dev.SharingFamilies.Length > 1 ? families : null,
+            };
+            api.vkCreateBuffer(&bci, null, &buf).CheckResult();
+        }
+
         VkMemoryRequirements req;
         api.vkGetBufferMemoryRequirements(buf, &req);
 
