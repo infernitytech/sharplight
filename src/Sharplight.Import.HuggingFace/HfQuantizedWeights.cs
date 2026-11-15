@@ -20,6 +20,7 @@ internal static class HfQuantizedWeights
     public static IReadOnlyDictionary<string, SafetensorsTensor> Resolve(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors)
     {
         var resolved = HfFp8Weights.Resolve(config, tensors);
+        resolved = HfQuarkFloatWeights.Resolve(config, resolved);
         resolved = HfFp4Weights.Resolve(resolved);
         resolved = HfIntegerWeights.Resolve(config, resolved);
         resolved = HfBitsAndBytesWeights.Resolve(resolved);

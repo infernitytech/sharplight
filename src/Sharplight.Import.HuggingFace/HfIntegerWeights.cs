@@ -45,10 +45,20 @@ internal static class HfIntegerWeights
         switch (method?.ToLowerInvariant())
         {
             case "gptq":
-                layouts.AddRange(HfGptqLayouts.Find(settings, tensors, consumed));
+                layouts.AddRange(HfMarlinLayouts.IsMarlin(settings)
+                    ? HfMarlinLayouts.Find(settings, tensors, consumed)
+                    : HfGptqLayouts.Find(settings, tensors, consumed));
                 break;
             case "awq":
-                layouts.AddRange(HfAwqLayouts.Find(settings, tensors, consumed));
+                layouts.AddRange(HfAwqLayouts.Version(settings) switch
+                {
+                    "gemv_fast" => HfAwqGemvFastLayouts.Find(settings, tensors, consumed),
+                    "marlin" => HfMarlinLayouts.Find(settings, tensors, consumed),
+                    _ => HfAwqLayouts.Find(settings, tensors, consumed),
+                });
+                break;
+            case "quark":
+                layouts.AddRange(HfQuarkLayouts.Find(settings, tensors, consumed));
                 break;
             case "compressed-tensors":
                 layouts.AddRange(HfCompressedIntLayouts.Find(settings, tensors, consumed));
@@ -123,6 +133,11 @@ internal static class HfIntegerWeights
 
     private static SafetensorsTensor Encode(HfIntegerLayout layout)
     {
+        if (layout.Affine)
+        {
+            return HfAffineWeights.Encode(layout);
+        }
+
         var order = ColumnOrder(layout, out bool sorted);
         var type = sorted ? TargetType(layout) : DataType.BF16;
         if (type == DataType.BF16)

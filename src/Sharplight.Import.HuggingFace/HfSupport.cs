@@ -70,7 +70,7 @@ public static class HfSupport
     /// <summary>
     /// The checkpoint's quantization method and whether the importer reads it. Read: FP8 (<c>fp8</c> block scales, compressed-tensors
     /// with 8-bit float weights, ModelOpt <c>FP8</c>), NVFP4 (ModelOpt, compressed-tensors), MXFP4 (compressed-tensors; <c>mxfp4</c>
-    /// for gpt-oss, AMD Quark), GPTQ (2, 3, 4 and 8 bits), AWQ (<c>gemm</c> / <c>gemv</c>), compressed-tensors integer weights,
+    /// for gpt-oss, AMD Quark), GPTQ (2, 3, 4 and 8 bits), AWQ (<c>gemm</c> / <c>gemv</c> / <c>gemv_fast</c> / <c>marlin</c>), GPTQ Marlin, compressed-tensors integer weights,
     /// bitsandbytes, MLX quantization (affine and the <c>mxfp4</c> / <c>nvfp4</c> / <c>mxfp8</c> modes), AutoRound (GPTQ / AWQ packings)
     /// and AQLM (dequantized while read). Not read: the methods with codebook or framework-specific layouts (HQQ, EXL2, quanto, torchao, ...).
     /// </summary>
@@ -150,13 +150,19 @@ public static class HfSupport
         }
     }
 
-    /// <summary>GPTQ: 2, 3, 4 and 8-bit codes in the <c>gptq</c> / <c>gptq_v2</c> layouts (<see cref="HfGptqLayouts"/>).</summary>
+    /// <summary>
+    /// GPTQ: 2, 3, 4 and 8-bit codes in the <c>gptq</c> / <c>gptq_v2</c> layouts (<see cref="HfGptqLayouts"/>), and 4 / 8-bit Marlin repacks
+    /// without act-order (<see cref="HfMarlinLayouts"/>).
+    /// </summary>
     private static HfQuantizationSupport Gptq(string method, JsonElement settings)
     {
         int bits = HfPackedBits.Int(settings, "bits", 4);
         string format = String(settings, "checkpoint_format") ?? "gptq";
-        bool read = bits is 2 or 3 or 4 or 8 && format is "gptq" or "gptq_v2";
-        return new HfQuantizationSupport(string.Create(CultureInfo.InvariantCulture, $"{method} ({bits}-bit)"), read ? SupportLevel.Supported : SupportLevel.Unsupported);
+        bool marlin = HfMarlinLayouts.IsMarlin(settings);
+        bool actOrder = settings.TryGetProperty("desc_act", out var desc) && desc.ValueKind == JsonValueKind.True;
+        bool read = marlin ? bits is 4 or 8 && !actOrder : bits is 2 or 3 or 4 or 8 && format is "gptq" or "gptq_v2";
+        return new HfQuantizationSupport(string.Create(CultureInfo.InvariantCulture, $"{method} ({(marlin ? "marlin, " : "")}{bits}-bit)"),
+            read ? SupportLevel.Supported : SupportLevel.Unsupported);
     }
 
     /// <summary>AutoRound: integer weights packed like GPTQ or AWQ GEMM (<see cref="HfAutoRound"/>).</summary>
@@ -174,12 +180,15 @@ public static class HfSupport
             read ? SupportLevel.Supported : SupportLevel.Unsupported);
     }
 
-    /// <summary>AWQ: 4-bit codes in the <c>gemm</c> and <c>gemv</c> layouts (<see cref="HfAwqLayouts"/>).</summary>
+    /// <summary>
+    /// AWQ: 4-bit codes in the <c>gemm</c>, <c>gemv</c> (<see cref="HfAwqLayouts"/>), <c>gemv_fast</c> (<see cref="HfAwqGemvFastLayouts"/>) and
+    /// <c>marlin</c> (<see cref="HfMarlinLayouts"/>) layouts.
+    /// </summary>
     private static HfQuantizationSupport Awq(string method, JsonElement settings)
     {
         int bits = HfPackedBits.Int(settings, "bits", HfPackedBits.Int(settings, "w_bit", 4));
         string version = (String(settings, "version") ?? "gemm").ToLowerInvariant();
-        bool read = bits == 4 && version is "gemm" or "gemv";
+        bool read = bits == 4 && version is "gemm" or "gemv" or "gemv_fast" or "marlin";
         return new HfQuantizationSupport($"{method} ({version})", read ? SupportLevel.Supported : SupportLevel.Unsupported);
     }
 
@@ -228,9 +237,10 @@ public static class HfSupport
 
     /// <summary>
     /// AMD Quark: weights quantized to OCP MXFP4 (<c>fp4</c>, 32-value groups, <c>e8m0</c> scales: U8 <c>X.weight</c> and
-    /// <c>X.weight_scale</c>, low nibble first, read by <see cref="HfFp4Weights"/>) or to FP8 E4M3 (<see cref="HfFp8Weights"/>), in
+    /// <c>X.weight_scale</c>, low nibble first, read by <see cref="HfFp4Weights"/>), to MXFP6 and the in-stream <c>mx</c> variants
+    /// (<see cref="HfQuarkFloatWeights"/>), to FP8 E4M3 (<see cref="HfFp8Weights"/>) or to 4 / 8-bit integers (<see cref="HfQuarkLayouts"/>), in
     /// the global and every per-layer spec. Activation specs are ignored (activations are not quantized). Other weight types
-    /// (int4 / int8 in Quark's reordered packing, MXFP6, lists of specs) are not read.
+    /// (lists of specs, float zero points, other dtypes) are not read.
     /// </summary>
     private static HfQuantizationSupport Quark(JsonElement settings)
     {
@@ -256,19 +266,47 @@ public static class HfSupport
                 continue;
             }
 
-            string? type = String(weight, "dtype");
-            bool mxfp4 = type == "fp4" && HfPackedBits.Int(weight, "group_size", 0) == 32 && String(weight, "scale_format") == "e8m0";
-            if (!mxfp4 && type != "fp8_e4m3")
+            string? type = weight.ValueKind == JsonValueKind.Object ? String(weight, "dtype") : null;
+            string? label = weight.ValueKind != JsonValueKind.Object ? null : QuarkWeightType(weight, type);
+            if (label is null)
             {
                 return new HfQuantizationSupport($"quark ({type ?? "weight list"})", SupportLevel.Unsupported);
             }
 
-            types.Add(mxfp4 ? "mxfp4" : "fp8");
+            types.Add(label);
         }
 
         return types.Count == 0
             ? new HfQuantizationSupport("quark", null)
             : new HfQuantizationSupport($"quark ({string.Join(", ", types)})", SupportLevel.Supported);
+    }
+
+    /// <summary>The name of a Quark weight spec the importer reads, or null: MXFP4 / MXFP6 (<see cref="HfFp4Weights"/>, <see cref="HfQuarkFloatWeights"/>), FP8 and 4 / 8-bit integers.</summary>
+    private static string? QuarkWeightType(JsonElement weight, string? type)
+    {
+        if (type == "fp4" && HfPackedBits.Int(weight, "group_size", 0) == 32 && String(weight, "scale_format") == "e8m0")
+        {
+            return "mxfp4";
+        }
+
+        if (type is "fp6_e3m2" or "fp6_e2m3" && HfPackedBits.Int(weight, "group_size", 0) == 32 && String(weight, "scale_format") == "e8m0")
+        {
+            return "mxfp6";
+        }
+
+        if (type == "mx")
+        {
+            return String(weight, "mx_element_dtype") switch { "fp4" => "mxfp4", "fp6_e3m2" or "fp6_e2m3" => "mxfp6", _ => null };
+        }
+
+        if (type is "int4" or "uint4" or "int8" or "uint8")
+        {
+            bool floatZero = String(weight, "zero_point_type") == "float32";
+            string scheme = String(weight, "qscheme") ?? "per_tensor";
+            return !floatZero && scheme is "per_group" or "per_channel" or "per_tensor" ? type : null;
+        }
+
+        return type == "fp8_e4m3" ? "fp8" : null;
     }
 
     private static HfQuantizationSupport ModelOptAlgorithm(string? algorithm)
