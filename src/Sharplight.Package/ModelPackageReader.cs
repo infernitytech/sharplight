@@ -36,6 +36,16 @@ public static class ModelPackageReader
         fs.Seek(definitionSection.Offset, SeekOrigin.Begin);
         var definitionBytes = reader.ReadBytes(checked((int)definitionSection.Length));
 
+        ModelDescription? description = null;
+        foreach (var s in sections.Where(s => s.Kind == PackageSectionKind.Description))
+        {
+            fs.Seek(s.Offset, SeekOrigin.Begin);
+            description = ModelDescription.FromJson(Encoding.UTF8.GetString(reader.ReadBytes(checked((int)s.Length))));
+        }
+
+        var attachments = sections.Where(s => s.Kind == PackageSectionKind.Attachment)
+            .Select(s => new PackageAttachmentInfo(s.Name, s.Offset, s.Length)).ToList();
+
         var artifactSets = new List<ArtifactSetInfo>();
         foreach (var s in sections.Where(s => s.IsArtifactSet))
         {
@@ -55,16 +65,17 @@ public static class ModelPackageReader
             version,
             [.. sections.Select(s => new PackageSectionInfo(s.Tag, s.Name, s.Offset, s.Length))],
             weights,
+            attachments,
             artifactSets,
             CompactedSize(sections),
             tableOffset,
             tableLength,
-            () => DecodeDefinition(definitionBytes, weights, definitionSection.Name));
+            () => DecodeDefinition(definitionBytes, weights, definitionSection.Name, description, attachments));
     }
 
     /// <summary>
     /// The kind tags of every section kind the format defines, in kind-number order: <c>DEFN</c>, <c>WIDX</c>, <c>WDAT</c>,
-    /// <c>KSET</c> (version 1) and <c>ARTS</c>. A <see cref="PackageSectionInfo.Kind"/> that is not in this list is a section of a
+    /// <c>KSET</c> (version 1), <c>ARTS</c>, <c>DESC</c> and <c>ATCH</c>. A <see cref="PackageSectionInfo.Kind"/> that is not in this list is a section of a
     /// newer format version (its number), which readers skip.
     /// </summary>
     public static IReadOnlyList<string> SectionKinds { get; } =
@@ -73,14 +84,16 @@ public static class ModelPackageReader
     /// <summary>Bytes of one section table entry without its name: kind, name length, offset and length.</summary>
     private const int SectionTableEntryBytes = 24;
 
-    private static DefinitionInfo DecodeDefinition(byte[] bytes, IReadOnlyList<PackageWeightInfo> weights, string sectionName)
+    private static DefinitionInfo DecodeDefinition(byte[] bytes, IReadOnlyList<PackageWeightInfo> weights, string sectionName,
+        ModelDescription? description, IReadOnlyList<PackageAttachmentInfo> attachments)
     {
         var detached = weights.ToDictionary(
             w => w.Name,
             w => new WeightInfo { Name = w.Name, Type = w.Type, Shape = w.Shape, Source = new DetachedWeightSource(w.ByteSize) },
             StringComparer.Ordinal);
         using var reader = new BinaryReader(new MemoryStream(bytes, writable: false), Encoding.UTF8);
-        return new DefinitionInfo(DefinitionCodec.Read(reader, detached, [], sectionName));
+        var detachedAttachments = attachments.ToDictionary(a => a.Name, a => (IWeightSource)new DetachedWeightSource(a.Length), StringComparer.Ordinal);
+        return new DefinitionInfo(DefinitionCodec.Read(reader, detached, [], sectionName, description, detachedAttachments));
     }
 
     /// <summary>Size of the file <see cref="ModelPackage.Compact"/> would write (same layout rules).</summary>

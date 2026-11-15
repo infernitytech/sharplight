@@ -7,7 +7,7 @@ using Sharplight.Studio.Models;
 
 namespace Sharplight.Studio.ViewModels.Inspector;
 
-/// <summary>The overview tab: the file, the model, where it came from, its tokenizer, chat template and states.</summary>
+/// <summary>The overview tab: the file, the model (kind and components), where it came from, its tokenizer, chat template and states.</summary>
 internal sealed class OverviewViewModel
 {
     private const int CommitLength = 12;
@@ -45,6 +45,7 @@ internal sealed class OverviewViewModel
             long parameters = info.Weights.Where(w => w.Shape.IsStatic).Sum(w => w.Shape.Elements());
             Model = Facts(
                 ("Name", definition.Name),
+                ("Kind", definition.HasDescription ? definition.Description.Kind : $"{definition.Description.Kind} (no description stored)"),
                 ("Architecture", definition.Architecture),
                 ("Parameters", parameters > 0 ? ByteFormat.Count(parameters) : null),
                 ("Graphs", string.Join(", ", definition.Graphs.Select(g => g.Name))),
@@ -89,7 +90,15 @@ internal sealed class OverviewViewModel
             ("Adds space prefix", Text(metadata, CanonicalKeys.TokenizerAddSpacePrefix)));
         ChatTemplate = metadata.TryGetValue(CanonicalKeys.ChatTemplate, out var template) ? template as string : null;
         States = definition is null ? [] : [.. definition.States.Select(StateRow.From)];
+        var attachmentSizes = info.Attachments.ToDictionary(a => a.Name, a => a.Length, StringComparer.Ordinal);
+        Components = definition is null ? [] : [.. definition.Description.Components.Select(c => ComponentRow.From(c, info.Weights, attachmentSizes))];
     }
+
+    /// <summary>The model's components (kind-specific parts: encoder, decoder, tokenizer, denoiser, ...).</summary>
+    public IReadOnlyList<ComponentRow> Components { get; }
+
+    /// <summary>True when the model has components to show.</summary>
+    public bool HasComponents => Components.Count > 0;
 
     /// <summary>The model name, or the file name.</summary>
     public string Title { get; }

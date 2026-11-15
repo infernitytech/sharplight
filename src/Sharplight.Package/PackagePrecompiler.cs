@@ -12,8 +12,9 @@ namespace Sharplight.Package;
 /// the compilation recorded. Graphs are compiled the way the loaders compile them, so the stored kernels are the ones a later load
 /// asks for: language models through <see cref="LlmModel"/> (decode, decode_multimodal, vision_encode and, with
 /// <see cref="PrecompileOptions.Slots"/> above 1, the serving batch decoder), packed-sequence graphs through
-/// <see cref="EmbeddingModel"/> (embed) and <see cref="Reranker"/> (classify), other graphs (e.g. ONNX models) as a
-/// <see cref="CompiledModel"/> with the given symbol bounds.
+/// <see cref="EmbeddingModel"/> (embed) and <see cref="Reranker"/> (classify), the graphs of every component of a model with a
+/// <see cref="ModelDescription"/> (speech, image generation, ...), and other graphs (e.g. ONNX models), as a <see cref="CompiledModel"/>
+/// with the given symbol bounds plus the component's default bounds.
 /// </summary>
 /// <remarks>
 /// <c>decode_embeddings</c> (the decoder trunk fed with embeddings instead of token ids) is not compiled: no loader compiles it
@@ -115,14 +116,18 @@ public static class PackagePrecompiler
             var artifacts = new CompilationArtifacts(source.CompilationCaches);
             var definition = source.Definition!;
             var stopwatch = Stopwatch.StartNew();
-            if (definition.Graphs.ContainsKey(WellKnown.DecodeGraph) || definition.Graphs.ContainsKey(WellKnown.EmbedGraph)
+            if (definition.Description is { } description && description.Components.Any(c => c.Graphs.Count > 0))
+            {
+                CompileComponents(device, artifacts, definition, description, options);
+            }
+            else if (definition.Graphs.ContainsKey(WellKnown.DecodeGraph) || definition.Graphs.ContainsKey(WellKnown.EmbedGraph)
                 || definition.Graphs.ContainsKey(WellKnown.ClassifyGraph))
             {
                 CompileLanguageModel(packagePath, device, artifacts, definition, options);
             }
             else
             {
-                CompileGraphs(device, artifacts, definition, options);
+                CompileGraphs(device, artifacts, definition, definition.Graphs, new Dictionary<string, long>(), options);
             }
 
             var compileTime = stopwatch.Elapsed;
@@ -231,9 +236,31 @@ public static class PackagePrecompiler
         }
     }
 
-    private static void CompileGraphs(IComputeDevice device, CompilationArtifacts artifacts, ModelDefinition definition, PrecompileOptions options)
+    /// <summary>
+    /// Compiles the graphs of every component of a described model (<see cref="ModelDescription"/>), each with the given bounds plus the
+    /// component's own default bounds (<see cref="ModelComponent.SymbolBounds"/>), so a multi-component model stores the kernels of all
+    /// its parts. The kernels of all components go into the same artifact sets (entries are content addressed).
+    /// </summary>
+    private static void CompileComponents(IComputeDevice device, CompilationArtifacts artifacts, ModelDefinition definition, ModelDescription description,
+        PrecompileOptions options)
+    {
+        foreach (var component in description.Components.Where(c => c.Graphs.Count > 0))
+        {
+            options.Log?.Invoke($"Component '{component.Role}': {string.Join(", ", component.Graphs)}");
+            var graphs = component.Graphs.ToDictionary(name => name, definition.Graph, StringComparer.Ordinal);
+            CompileGraphs(device, artifacts, definition, graphs, component.SymbolBounds, options);
+        }
+    }
+
+    private static void CompileGraphs(IComputeDevice device, CompilationArtifacts artifacts, ModelDefinition definition,
+        IReadOnlyDictionary<string, ComputeGraph> graphs, IReadOnlyDictionary<string, long> componentBounds, PrecompileOptions options)
     {
         var bounds = new Dictionary<string, long>(options.SymbolBounds, StringComparer.Ordinal);
+        foreach (var (symbol, bound) in componentBounds)
+        {
+            bounds.TryAdd(symbol, bound);
+        }
+
         foreach (var (symbol, bound) in options.DefaultSymbolBounds?.Invoke(definition) ?? new Dictionary<string, long>())
         {
             if (bounds.TryAdd(symbol, bound))
@@ -252,7 +279,7 @@ public static class PackagePrecompiler
             CancellationToken = options.CancellationToken,
         };
         var fallback = device.Info.Kind == DeviceKind.Cpu ? null : options.FallbackDevice;
-        foreach (var (name, graph) in definition.Graphs)
+        foreach (var (name, graph) in graphs)
         {
             options.CancellationToken.ThrowIfCancellationRequested();
             var stopwatch = Stopwatch.StartNew();

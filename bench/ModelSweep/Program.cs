@@ -13,6 +13,7 @@
 // kernels); "import" is what the real import does.
 using System.Diagnostics;
 using System.Text.Json;
+using Sharplight.Architectures;
 using Sharplight.Cpu;
 using Sharplight.Hub;
 using Sharplight.Import.Gguf;
@@ -22,6 +23,7 @@ using Sharplight.Models;
 using Sharplight.Templating;
 using ModelSweep;
 
+BuiltinAdapters.RegisterAll();
 GgufImporter.Register();
 HuggingFaceImporter.Register();
 
