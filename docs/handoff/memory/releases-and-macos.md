@@ -1,13 +1,16 @@
 ---
 name: releases-and-macos
-description: Release flow (nbgv tags publish NuGet + Studio AppImage) and the macOS work kept on a separate branch until the user decides
+description: Release flow (release/* branches publish NuGet + Studio via Velopack/R2; see docs/releasing.md) and the macOS work kept on a separate branch until the user decides
 metadata:
   node_type: memory
   type: project
   modified: 2026-11-14T17:07:06.553Z
 ---
 
-Releases (set up 2026-11-14): Nerdbank.GitVersioning (version.json `0.1-alpha`, SemVer 2). A pushed `v*` tag (`nbgv tag`)
+**Superseded 2026-11-15:** releases come from `release/vX.Y` branches (no tag triggers); NuGet publishes from release/*, Studio
+is packed with Velopack for 5 RIDs and uploaded to R2 (develop = unstable, release/* = stable); see docs/releasing.md.
+
+Releases (set up 2026-11-14, tag-based, now replaced): Nerdbank.GitVersioning (version.json `0.1-alpha`, SemVer 2). A pushed `v*` tag (`nbgv tag`)
 runs packages.yml (16 NuGet packages to nuget.org via trusted publishing, repo variable NUGET_USER, environment `nuget`)
 and studio.yml (Studio AppImage + tar.gz attached to the GitHub release). First release: v0.1.2-alpha (NuGet only).
 

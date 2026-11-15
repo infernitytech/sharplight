@@ -1,5 +1,6 @@
 using System.CommandLine;
 using Avalonia;
+using Velopack;
 
 namespace Sharplight.Studio;
 
@@ -12,6 +13,9 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // Velopack's install, update and uninstall hooks run (and exit) here, before anything else touches the process.
+        VelopackApp.Build().Run();
+
         var modelsDir = new Option<string?>("--models-dir")
         {
             Description = "Model store directory (overrides the settings and SHARPLIGHT_MODELS, like the command-line tools).",

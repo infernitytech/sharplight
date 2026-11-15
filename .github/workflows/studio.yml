@@ -1,22 +1,54 @@
 name: Studio
 
-# Builds Sharplight Studio for Linux as an AppImage (one file, no install, no .NET needed) plus a .tar.gz of the same
-# self-contained app folder. Pushes to main upload them as a build artifact; a release tag v* (created with `nbgv tag`)
-# also attaches them to the GitHub release of that tag.
+# Builds Sharplight Studio for Windows x64/ARM64, Linux x64/ARM64 and macOS ARM64 on native runners: a self-contained publish packed
+# with Velopack (vpk) for the update channel `<rid>-stable` (release/* branches) or `<rid>-unstable` (develop; main and pull
+# requests are only built as a check).
+#
+#   push to develop     -> build, upload packages + delta packages to Cloudflare R2, channel <rid>-unstable
+#   push to release/*   -> build, upload to R2, channel <rid>-stable, attach the installers to a GitHub release
+#   push to main, PRs   -> build only (workflow artifacts)
+#
+# R2 credentials live in the GitHub environment `studio-release` (restricted to develop and release/*), see docs/releasing.md.
+# Outputs per platform: Windows Setup.exe + portable zip; Linux AppImage + tar.gz; macOS .pkg + zip.
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches: [develop, main, 'release/**']
+    paths-ignore: ['docs/**', 'bench/**', '**.md']
+  pull_request:
     paths-ignore: ['docs/**', 'bench/**', '**.md']
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  # One run per branch; a running upload is never cancelled halfway (the R2 feed files must stay consistent).
+  group: studio-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  VPK_VERSION: '1.2.161' # keep in step with the Velopack package in Directory.Packages.props
+
 jobs:
-  appimage:
-    runs-on: ubuntu-22.04 # the oldest supported glibc the AppImage then runs on
+  package:
+    name: package (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: win-x64, os: windows-latest }
+          - { rid: win-arm64, os: windows-11-arm }
+          - { rid: linux-x64, os: ubuntu-24.04 }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm }
+          - { rid: osx-arm64, os: macos-15 }
+    runs-on: ${{ matrix.os }}
+    env:
+      # Uploads to R2 only from pushes to develop (unstable) and release/* (stable); never from pull requests or other branches.
+      UPLOAD: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/')) }}
+      CHANNEL_KIND: ${{ startsWith(github.ref, 'refs/heads/release/') && 'stable' || 'unstable' }}
+    # The R2 secrets only exist in this environment; it is entered only by the uploading pushes.
+    environment: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/'))) && 'studio-release' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,7 +56,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '11.0.x'
+          dotnet-version: |
+            10.0.x
+            11.0.x
 
       - name: Version
         id: nbgv
@@ -32,36 +66,116 @@ jobs:
         with:
           setAllVars: true
 
-      - name: Build AppImage
-        run: packaging/linux/build-appimage.sh "${{ steps.nbgv.outputs.NuGetPackageVersion }}" artifacts/studio
+      - name: Install vpk
+        shell: bash
+        run: dotnet tool install --global vpk --version "$VPK_VERSION"
+
+      # TODO(macos): the Vulkan provider needs the MoltenVK package (Sharplight.Vulkan.MoltenVK) that lives on the unmerged branch
+      # macos/round-1 (see docs/macos.md there). Until it is merged the macOS app runs on the CPU provider only; nothing to change
+      # here once the Studio project references the package, the publish picks the dylib up.
+
+      - name: Release notes
+        shell: bash
+        run: packaging/release-notes.sh "$RUNNER_TEMP/release-notes.md"
+
+      - name: Fetch the previous release (for delta packages)
+        if: env.UPLOAD == 'true'
+        shell: bash
+        env:
+          VPK_BUCKET: ${{ secrets.R2_BUCKET }}
+          VPK_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          VPK_SECRET: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          VPK_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          VPK_REGION: auto
+          VPK_PREFIX: ${{ vars.STUDIO_UPDATE_PREFIX || 'studio' }}
+        run: |
+          if [ -z "$VPK_BUCKET" ] || [ -z "$VPK_KEY_ID" ] || [ -z "$VPK_SECRET" ]; then
+            echo "::warning::R2 secrets of the studio-release environment are incomplete; building without deltas."
+            exit 0
+          fi
+          # The first release of a channel has no previous release: continue without deltas.
+          vpk download s3 --channel "${{ matrix.rid }}-$CHANNEL_KIND" --outputDir artifacts/studio \
+            || echo "::notice::No previous release of ${{ matrix.rid }}-$CHANNEL_KIND found; building without deltas."
+
+      - name: Pack
+        shell: bash
+        env:
+          STUDIO_UPDATE_URL: ${{ vars.STUDIO_UPDATE_URL || 'https://download.sharplight.dev/studio' }}
+          # Code signing hooks, unused until the user provides certificates (leave the secrets unset):
+          #   Windows Authenticode: a vpk sign template, e.g. an Azure Trusted Signing or signtool command line with {{file}}.
+          #   macOS Developer ID: identities and a notarytool keychain profile imported by an extra step before this one.
+          VPK_SIGN_TEMPLATE: ${{ secrets.WINDOWS_SIGN_TEMPLATE }}
+          MACOS_SIGN_APP_IDENTITY: ${{ secrets.MACOS_SIGN_APP_IDENTITY }}
+          MACOS_SIGN_INSTALL_IDENTITY: ${{ secrets.MACOS_SIGN_INSTALL_IDENTITY }}
+          MACOS_NOTARY_PROFILE: ${{ secrets.MACOS_NOTARY_PROFILE }}
+        run: >
+          packaging/pack-studio.sh "${{ matrix.rid }}" "${{ matrix.rid }}-$CHANNEL_KIND"
+          "${{ steps.nbgv.outputs.NuGetPackageVersion }}" artifacts/studio "$RUNNER_TEMP/release-notes.md"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: sharplight-studio-${{ steps.nbgv.outputs.NuGetPackageVersion }}-linux-x64
+          name: studio-${{ matrix.rid }}-${{ env.CHANNEL_KIND }}-${{ steps.nbgv.outputs.NuGetPackageVersion }}
           path: artifacts/studio
           if-no-files-found: error
 
+      - name: Upload to Cloudflare R2
+        if: env.UPLOAD == 'true'
+        shell: bash
+        env:
+          VPK_BUCKET: ${{ secrets.R2_BUCKET }}
+          VPK_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          VPK_SECRET: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          VPK_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          VPK_REGION: auto
+          VPK_PREFIX: ${{ vars.STUDIO_UPDATE_PREFIX || 'studio' }}
+        run: |
+          # Until every R2 secret of the studio-release environment is set, packages stay workflow artifacts only.
+          if [ -z "$VPK_BUCKET" ] || [ -z "$VPK_KEY_ID" ] || [ -z "$VPK_SECRET" ]; then
+            echo "::warning::R2 secrets of the studio-release environment are incomplete; skipping the upload."
+            exit 0
+          fi
+          keep=()
+          if [ "$CHANNEL_KIND" = unstable ]; then
+            keep=(--keepMaxReleases 10)
+          fi
+          vpk upload s3 --channel "${{ matrix.rid }}-$CHANNEL_KIND" --outputDir artifacts/studio ${keep[@]+"${keep[@]}"}
+
   release:
-    needs: appimage
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Attach the installers to the GitHub release of the version, for release/* pushes only.
+    needs: package
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
     runs-on: ubuntu-latest
     permissions:
-      contents: write # create the GitHub release and upload its assets
+      contents: write # create the GitHub release (and its tag) and upload its assets
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: nbgv
+        uses: dotnet/nbgv@v0.4
+        with:
+          setAllVars: true
+
       - uses: actions/download-artifact@v4
         with:
-          pattern: sharplight-studio-*
+          pattern: studio-*-stable-*
           merge-multiple: true
           path: studio
 
       - name: Attach to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: v${{ steps.nbgv.outputs.NuGetPackageVersion }}
         run: |
+          # Installers and archives only: the Velopack feed files and the update packages live in R2.
+          mkdir -p assets
+          cp studio/*Setup* studio/*Portable* studio/*.AppImage studio/*.tar.gz studio/*.pkg studio/*.zip assets/ 2>/dev/null || true
+          ls -la assets
           prerelease=""
           if [[ "$TAG" == *-* ]]; then prerelease="--prerelease"; fi
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Sharplight $TAG" --generate-notes $prerelease
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Sharplight Studio $TAG" --generate-notes $prerelease
           fi
-          gh release upload "$TAG" studio/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber

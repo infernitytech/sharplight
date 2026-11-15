@@ -188,6 +188,43 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 
 ![Settings](images/studio/studio-settings.png)
 
+## Installing and updating
+
+Studio is published for Windows x64 and ARM64, Linux x64 and ARM64, and macOS ARM64 (Apple Silicon), self-contained (no .NET
+needed), as [Velopack](https://velopack.io) packages:
+
+| Platform | Install with | Also |
+|---|---|---|
+| Windows | `SharplightStudio-<rid>-<channel>-Setup.exe` | portable zip |
+| Linux | `SharplightStudio-<rid>-<channel>.AppImage` (updates itself in place) | `sharplight-studio-<version>-<rid>.tar.gz` |
+| macOS | `.pkg` installer (the `.app` bundle) | zip |
+
+The macOS and Windows packages are not signed yet (Windows SmartScreen and macOS Gatekeeper warn on first start); signing hooks are in
+`packaging/pack-studio.sh` and `.github/workflows/studio.yml`. On macOS the Vulkan provider needs MoltenVK, which is not part of
+the package yet, so the app runs on the CPU provider.
+
+**Channels.** Every build belongs to one of ten update channels, `<rid>-stable` (built from `release/*` branches) and `<rid>-unstable`
+(built from `develop`), for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64` and `osx-arm64`, for example `win-x64-stable` or
+`osx-arm64-unstable`. An installed app only checks the channel it was installed from; to switch from unstable to stable, install the
+stable package.
+
+**Updates.** Studio checks for a new version at startup and every six hours (*Settings > Updates > Check for updates automatically*).
+When one is found, a dialog shows the version and its release notes (Markdown), then *Download and install* (with progress; Velopack
+downloads a delta package when it can) and *Restart to update*, or *Later*. The Settings section shows the current version and
+channel, the automatic check switch, *Check for updates now* and the time of the last check. Builds that were not installed with
+Velopack (`dotnet run`, a plain build) show "updates unavailable for this build" and never check.
+
+**Update feed.** The packages are served from a public URL (Cloudflare R2 on a custom domain, see `docs/releasing.md`). The URL is
+taken from, in this order:
+
+1. the environment variable `SHARPLIGHT_STUDIO_UPDATE_URL`;
+2. the `UpdateUrl` entry of the settings file;
+3. the URL baked into the build: MSBuild property `StudioUpdateUrl` (assembly metadata `StudioUpdateUrl`). CI sets it from the
+   repository variable `STUDIO_UPDATE_URL` (official builds: `https://download.sharplight.dev/studio`). A local build has none.
+
+Without a URL the update checks are disabled, and the Settings section says so. All channels share that one folder; each has its
+own `releases.<channel>.json` feed.
+
 ## Where things are kept
 
 | What | Where |
@@ -215,6 +252,7 @@ keep using the user folder or to move or copy the models into the new store.
   - `IDocumentExtractor`
   - `ISystemMonitor`
   - `IPlatformServices`
+  - `IUpdateService` (the Velopack wrapper, registered through `Microsoft.Extensions.DependencyInjection`)
 
   Tests run every view model against fakes of these services.
 - **Runtime.** `EngineModelRuntime` owns a `ModelHost` (from `Sharplight.Llm.Serving.Hosting`, the same registry the server uses)
@@ -240,6 +278,8 @@ keep using the user folder or to move or copy the models into the new store.
   architecture, an mmproj projector, real quantized tensor tables read from a prefix, synthetic `Q8_K` and
   unknown type ids, quantized checkpoints, ONNX opsets read behind the graph), the result order, the per-quantization badges and the
   library's import errors;
+- update checks and the update dialog: auto and manual checks, up-to-date and failure messages, *Later*, download progress and
+  restart (against a fake update service), the feed URL precedence, and a headless render of the dialog;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
 - the server page;
 - a headless render of every page that fails on binding errors;
