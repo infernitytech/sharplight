@@ -55,7 +55,7 @@ internal sealed unsafe partial class AttentionOp
             return;
         }
 
-        end = _offsetScalar is not null ? _past + t + 1 : _causal ? Math.Min(_s, t + _s - _t + 1) : _s;
+        end = _offsetScalar is not null ? _causal ? _past + t + 1 : _past + _t : _causal ? Math.Min(_s, t + _s - _t + 1) : _s;
         first = _window > 0 ? Math.Max(0, end - _window) : 0;
     }
 

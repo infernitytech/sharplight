@@ -432,7 +432,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
 | `eagle3` | EAGLE3 drafters | drafter reading target hidden states | **supported** (`Eagle3DraftHead`: loaded as the `draft` auxiliary source of a `decoder` target, whose decode graphs then export the inputs of the three fused layers as `hidden_taps`; becomes the target's draft graph for `MtpSpeculator`, with the drafter's own vocabulary mapped through `d2t`, its own or the target's embedding; HF (EAGLE / SpecForge `midlayer.*` and speculators `layers.0.*` layouts) and GGUF; tiny Llama target and drafter: drafts equal a transformers + numpy reference, greedy output with speculation equals output without, CPU and Vulkan) | `SPECDEC` | LlamaForCausalLMEagle3 | hf/tiny-random-eagle3, gguf/tiny-random-eagle3-f32.gguf |
-| `dflash` | DFlash drafters | diffusion-flash drafter | **missing** | `SPECDEC` | - | - |
+| `dflash` | DFlash drafters | diffusion-flash drafter | **partial**: plain DFlash and DFlash2 drafters load as the `draft` auxiliary source of a `decoder` target (`DflashDraftHead`, `BlockDraftSpeculator`): the target exports the inputs of the drafter's `target_layers` as `hidden_taps`, and one pass of the draft graph writes the new context rows (fc over the taps, `enc.output_norm`) to the drafter's KV cache and denoises a block of the pending token and mask tokens with bidirectional `CachedAttention` (`causal` false, also in the multi-sequence form), sliding layers, sinks and value scale; DFlash2 adds the grouped causal convolution of the attention and MLP inputs and the selector lattice (top-k candidates per row, scored by successor · (gate ⊙ predecessor) + logit, walked on the host). Tiny drafters over the tiny Llama target (`tools/mk_tiny_dflash.py`, a float64 numpy reference of llama.cpp's graph that matches llama.cpp 8ca5a80's drafts 24 / 24): drafts equal the reference, greedy output with speculation equals output without, several sequences batched, CPU and Vulkan; Muse-Glimmer-30B UD-Q4_K_XL with its drafter: the same 40 greedy tokens as llama.cpp, 58.5 % of the drafts accepted (llama.cpp 66.1 % over 48 tokens). Missing: the LiLiCorr correction head, DSpark, taps from `qwen35` / `nemotron_h` targets | `SPECDEC` | - | gguf/tiny-random-dflash-f32.gguf, gguf/tiny-random-dflash2-f32.gguf |
 
 ### Multimodal
 
@@ -749,9 +749,8 @@ Open, with estimates:
    - The fix is a canonical `*.weight_scale` companion that `GraphBuilder.Linear` and `MoeBlock`'s MatMulId paths multiply in. It cannot be folded into the E4M3 block scales without loss.
    - About 1 day with tiny NVFP4 fixtures. It is shared with the HF NVFP4 work of the quantization workstream.
 2. **dflash drafters.** Four files: Muse-Glimmer, Bonsai DFlash2, Bolt, and the Super-VL LiLiCorr variant.
-   - These are block-diffusion drafters over the target's hidden features: a few bidirectional layers denoise a block of masked positions conditioned on taps of the target, and the result is verified by the target.
-   - Needs: a `dflash` canonical architecture, a drafter graph over the exported target taps (the EAGLE-3 `hidden_taps` path already exports them), a block-draft proposer in `MtpSpeculator` (k positions per step instead of a chain), and the DFlash2 / LiLiCorr variants (correction layers).
-   - About 3–4 days with a tiny drafter and a numpy reference of llama.cpp's graph.
+   - Done (bring-up round 11): the `dflash` canonical architecture, the drafter graph over the target's taps with bidirectional cached attention, the block-draft proposer `BlockDraftSpeculator` and the DFlash2 convolution and selector lattice. All four files are reported as draft models by the check and the import. Muse-Glimmer runs with its target (greedy output equals llama.cpp, 58.5 % acceptance vs llama.cpp's 66.1 %).
+   - Open: Bonsai's target is `qwen35`, whose hybrid adapter does not export taps yet (about 0.5 day: the same `hidden_taps` output on the hybrid stack, rollback of the recurrent state is already there). Bolt and Super-VL need the LiLiCorr correction head (a small transformer over the top-k candidates of every block row, with its own heads and embeddings: about 2 days with a numpy reference), plus taps from `nemotron_h` targets (0.5 day) and the NVFP4 per-tensor scales of item 1. Sliding windows of the drafter count from the end of each block run in the multi-sequence form, a deviation from llama.cpp that only matters for contexts longer than the window.
 3. **inkling / inkling2.** Thinking Machines' multimodal models; the HF `model_type` values `inkling_mm_model` and `inkling2` are not supported either. Not surveyed yet: about 1 day to read the remote code, then 2–3 days per architecture if the blocks exist.
 4. **ggml type ids 64–66 and 144–148.**
    - Kimi-K3 UD-TQ2_0 / UD-TQ1_0 / UD-Q1_0 use 64 / 65 / 66 from unsloth's fork. agentionai's Gyro TQ1_0 / TQ2_0 / TQ3_0 use 144–148 from its own fork.
@@ -794,13 +793,13 @@ Per-repository table (check and import columns count files by outcome; greedy on
 | unsloth/LFM2.5-24B-A2B-GGUF | BF16, Q8_0, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, UD-Q3_K_XL, UD-Q4_K_XL, UD-Q5_K_XL, UD-Q6_K_XL | 10 supported | 10 ok |  |
 | unsloth/LFM2.5-8B-A1B-GGUF | BF16, MXFP4_MOE, Q8_0, UD-IQ1_M, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_S, UD-IQ3_XXS, UD-IQ4_NL, ... (22 files) | 22 supported | 22 ok | MXFP4_MOE: Vulkan identical, CPU differs; UD-IQ2_XXS: both differ late (precision) |
 | unsloth/flint-GGUF | BF16, Q8_0, UD-IQ1_M, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, UD-Q3_K_XL, UD-Q4_K_XL, UD-Q5_K_XL, UD-Q6_K_XL | 10 supported | 10 ok |  |
-| unsloth/Muse-Glimmer-30B-GGUF | BF16, Q8_0, UD-IQ2_M, UD-IQ2_XS, UD-IQ2_XXS, UD-IQ3_M, UD-IQ3_XXS, UD-Q2_K_XL, UD-Q3_K_XL, ... (16 files) | 15 supported, 1 arch unsupported | 15 ok, 1 arch unsupported |  |
+| unsloth/Muse-Glimmer-30B-GGUF | BF16, Q8_0, UD-IQ2_M, UD-IQ2_XS, UD-IQ2_XXS, UD-IQ3_M, UD-IQ3_XXS, UD-Q2_K_XL, UD-Q3_K_XL, ... (16 files) | 15 supported, 1 draft | 15 ok, 1 draft | dflash-kquant: drafter of UD-Q4_K_XL, greedy identical to llama.cpp with speculation, 58.5 % accepted (llama.cpp 66.1 %) |
 | unsloth/North-Mini-Code-1.0-GGUF | BF16, MXFP4_MOE, Q8_0, UD-IQ1_M, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_S, UD-IQ3_XXS, UD-IQ4_NL, ... (22 files) | 22 supported | 22 ok |  |
 | unsloth/Inkling-Small-GGUF | UD-IQ1_S | arch unsupported | arch unsupported |  |
 | unsloth/Inkling-2-Small-GGUF | UD-IQ1_S | arch unsupported | arch unsupported |  |
 | unsloth/Mistral-Large-4-1T-A52B-GGUF | UD-IQ1_S | supported | ok |  |
 | unsloth/Muse-Spark-Open-816B-A42B-GGUF | UD-IQ1_S | supported | ok |  |
-| unsloth/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-GGUF | BF16, IQ2_XXS, UD-IQ1_M, UD-IQ1_S, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, ... (14 files) | 12 supported, 1 mapping, 1 arch unsupported | 12 ok, 1 unmapped tensors, 1 arch unsupported |  |
+| unsloth/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-GGUF | BF16, IQ2_XXS, UD-IQ1_M, UD-IQ1_S, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, ... (14 files) | 12 supported, 1 mapping, 1 draft | 12 ok, 1 unmapped tensors, 1 draft | dflash-NVFP4: draft model with a LiLiCorr head (not supported) |
 | unsloth/Llama-3.2-3B-Instruct-GGUF | BF16, F16, IQ4_NL, IQ4_XS, Q2_K, Q2_K_L, Q3_K_M, Q3_K_S, Q4_0, Q4_1, Q4_K_M, Q4_K_S, ... (27 files) | 27 supported | 27 ok |  |
 | unsloth/Ministral-3-3B-Reasoning-2512-GGUF | BF16, IQ4_NL, IQ4_XS, Q2_K, Q2_K_L, Q3_K_M, Q3_K_S, Q4_0, Q4_1, Q4_K_M, Q4_K_S, Q5_K_M, ... (26 files) | 26 supported | 26 ok | UD-IQ3_XXS: identical (Vulkan, CPU) |
 | unsloth/Qwen3-VL-4B-Instruct-GGUF | BF16, IQ4_NL, IQ4_XS, Q2_K, Q2_K_L, Q3_K_M, Q3_K_S, Q4_0, Q4_1, Q4_K_M, Q4_K_S, Q5_K_M, ... (26 files) | 26 supported | 26 ok | UD-IQ2_XXS: identical (Vulkan, CPU) |
@@ -841,7 +840,7 @@ Per-repository table (check and import columns count files by outcome; greedy on
 | ggml-org/Flint-GGUF | BF16, Q4_K_M, Q8_0 | 3 supported | 3 ok |  |
 | ggml-org/SmolLM3-3B-GGUF | Q4_K_M, Q8_0, f16 | 3 supported | 3 ok |  |
 | ggml-org/bge-m3-Q8_0-GGUF | (base) | supported | ok |  |
-| ggml-org/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-GGUF | BF16, NVFP4, Q4_0, Q8_0, lilicorr-NVFP4, mtp-BF16, mtp-Q4_0, mtp-Q8_0 | 3 supported, 3 draft, 1 mapping, 1 arch unsupported | 3 ok, 3 draft, 1 unmapped tensors, 1 arch unsupported |  |
+| ggml-org/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-GGUF | BF16, NVFP4, Q4_0, Q8_0, lilicorr-NVFP4, mtp-BF16, mtp-Q4_0, mtp-Q8_0 | 3 supported, 4 draft, 1 mapping | 3 ok, 4 draft, 1 unmapped tensors | lilicorr-NVFP4: draft model with a LiLiCorr head (not supported) |
 | Qwen/Qwen3-VL-8B-Instruct-GGUF | F16, Q4_K_M, Q8_0 | 3 supported | 3 ok |  |
 | LiquidAI/LFM3-1.7B-GGUF | BF16, F16, NVFP4, Q4_K_M, Q5_K_M, Q6_K, Q8_0, QAD-Q4_0 | 7 supported, 1 mapping | 7 ok, 1 unmapped tensors | QAD-Q4_0: both differ late (precision) |
 | ornith-ai/Ornith-1.5-9B-GGUF | BF16, Q4_K_M, Q5_K_M, Q6_K, Q8_0 | 5 supported | 5 ok |  |
@@ -850,7 +849,7 @@ Per-repository table (check and import columns count files by outcome; greedy on
 | ISTA-DASLab/DeepSeek-V4.1-Flash-1017-GSQ-RCO-GGUF | IQ1_M, IQ2_XS, IQ2_XXS, DeepSeek-V4.1-Flash-Engram-IQ4_NL | 3 shard missing, 1 no arch | 3 shard missing, 1 no arch |  |
 | huihui-ai/Huihui-Qwen3.8-Flash-Next-abliterated-v2-GGUF | Huihui-Qwen3.8-Flash-Next-abliterated-patch-all, Swift-Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS, ... (11 files) | 9 supported, 2 no arch | 9 ok, 2 no arch |  |
 | cdiamond/Qwen3.8-27B-iMatrix-NVFP4-MTP-GGUF | (base) | supported | ok |  |
-| prism-ml/Ternary-Bonsai-2-9B-gguf | DFlash2-Q8_0, PQ2_0, PQ2_0-MTP-Q8_0, PTQ1_0, Q2_0 | 4 supported, 1 arch unsupported | 4 ok, 1 arch unsupported |  |
+| prism-ml/Ternary-Bonsai-2-9B-gguf | DFlash2-Q8_0, PQ2_0, PQ2_0-MTP-Q8_0, PTQ1_0, Q2_0 | 4 supported, 1 draft | 4 ok, 1 draft | DFlash2-Q8_0: draft model, maps completely; its `qwen35` target does not export taps yet |
 | mixedbread-ai/mxbai-embed-large-v1 | f16 | supported | ok |  |
 | huihui-ai/Huihui-Qwen3.6-35B-A3B-abliterated-MTP-GGUF | ggml-model-Q2_K, ggml-model-Q3_K, ggml-model-Q4_K, ggml-model-Q5_K, ggml-model-Q6_K, ... (12 files) | 7 supported, 5 no arch | 7 ok, 5 no arch |  |
 | empero-ai/Qwen3.8-35B-A3B-Distill-GGUF | BF16, IQ2_M, IQ3_M, IQ4_XS, Q2_K, Q3_K_M, Q4_K_M, Q5_K_M, Q6_K, Q8_0 | 10 supported | 10 ok |  |

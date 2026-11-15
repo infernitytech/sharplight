@@ -61,7 +61,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         TRef? rows = ins.Length > 3 + extra ? Dense(Ref(ins[3 + extra])) : null;
         TRef? table = ins.Length > 5 + extra ? Dense(Ref(ins[5 + extra])) : null;
         var attention = new AttentionOp(
-            q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
+            q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), a.Get("causal", true), a.Get("window", 0), a.Get("softcap", 0f),
             rows, (int)a.Get("slots", 1L), sinks, valueDims: (int)a.Get("v_dims", 0L), chunk: a.Get("chunk", 0),
             alibiSlopes: a.Get<float[]?>("alibi_slopes", null), pages: table is null ? null : new KvPages(table, a.Get("block_size", 0L)),
             positionBias: a.Get<float[]?>("position_bias", null), positionBiasRange: a.Get("position_bias_range", 0), selection: selection,

@@ -57,6 +57,72 @@ public class GgufSweepFixtureTests
             GgufHeaderProbe.ReadTensorTable(File.ReadAllBytes(Fixture("Qwen3.8-Flash-Next-UD-IQ1_M")))!).IsDraftModel);
     }
 
+    /// <summary>
+    /// The DFlash drafters of the sweep (llama.cpp's <c>dflash</c> architecture): each is reported as a draft model, as the importer
+    /// treats it. Unsloth's Muse-Glimmer drafter (plain DFlash) and prism-ml's Ternary-Bonsai DFlash2 drafter (convolution, selector
+    /// lattice, YaRN) map completely; the Nemotron 3.5 Bolt and Super-VL drafters carry a LiLiCorr correction head, which is named.
+    /// </summary>
+    [Theory]
+    [InlineData("dflash-kquant-Muse-Glimmer-30B", false)]
+    [InlineData("Ternary-Bonsai-2-9B-DFlash2-Q8_0", false)]
+    [InlineData("dflash-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-NVFP4", true)]
+    [InlineData("lilicorr-NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4", true)]
+    public void DflashHeader_IsADraftModel(string name, bool lilicorr)
+    {
+        var header = File.ReadAllBytes(Fixture(name));
+
+        var check = GgufSupport.Validate(GgufHeaderProbe.ReadMetadata(header), GgufHeaderProbe.ReadTensorTable(header)!);
+
+        Assert.True(check.IsComplete);
+        Assert.True(check.IsDraftModel);
+        Assert.False(check.IsAccepted);
+        if (lilicorr)
+        {
+            Assert.Contains(check.Problems, p => p.Contains("LiLiCorr", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.Contains("speculative-decoding drafter", Assert.Single(check.Problems), StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>The importer maps the plain DFlash drafter's header (a sparse file of its size) to the canonical drafter.</summary>
+    [Fact]
+    public void DflashHeader_ImportsFromItsSparseFile()
+    {
+        var header = File.ReadAllBytes(Fixture("dflash-kquant-Muse-Glimmer-30B"));
+        string path = Path.Combine(Path.GetTempPath(), $"sharplight-dflash-header-{Guid.NewGuid():N}.gguf");
+        try
+        {
+            using (var file = File.Create(path))
+            {
+                file.Write(header);
+                file.SetLength(4L << 30);
+            }
+
+            var source = GgufImporter.Open(path);
+            try
+            {
+                Assert.Equal("dflash", source.Architecture);
+                Assert.Equal([2, 14, 26, 38, 50], source.Arch<int[]>("target_layers"));
+                Assert.Equal(201818, source.Arch<int>("mask_token_id"));
+                Assert.Contains("fc.weight", source.Weights.Keys);
+                Assert.Contains("layers.4.mlp.down.weight", source.Weights.Keys);
+            }
+            finally
+            {
+                foreach (var resource in source.OwnedResources)
+                {
+                    resource.Dispose();
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void InterleavedQ4_0Header_ImportsFromItsSparseFile()
     {
