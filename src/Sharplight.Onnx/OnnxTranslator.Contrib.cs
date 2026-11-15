@@ -82,6 +82,12 @@ internal sealed partial class OnnxTranslator
             case "ExpandDims":
                 ExpandDims(n, ins);
                 break;
+            case "WordConvEmbedding":
+                WordConvEmbedding(n, ins);
+                break;
+            case "MurmurHash3":
+                MurmurHash3(n, ins);
+                break;
             case "MatMulIntegerToFloat":
                 MatMulIntegerToFloat(n, ins);
                 break;

@@ -55,6 +55,12 @@ public sealed class OnnxImportOptions
     public int RuntimeLoopScanBound { get; init; } = 4096;
 
     /// <summary>
+    /// Upper bound on the substrings of one string produced by a <c>StringSplit</c> without <c>maxsplit</c>: its output is sized for it,
+    /// and a run that needs more fails.
+    /// </summary>
+    public int StringSplitBound { get; init; } = 256;
+
+    /// <summary>
     /// Lets block-quantized weights (<c>MatMulNBits</c>) whose f32 block scales are not exactly representable in f16 be stored
     /// in the 4.5 / 8.5-bit block formats with the scales rounded to f16 (relative error at most 2⁻¹¹ per block, about 5e-4
     /// relative RMS on BERT outputs). Off by default: such weights are then dequantized to f32 (exact, 7x the memory traffic).

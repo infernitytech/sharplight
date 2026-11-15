@@ -7,7 +7,7 @@ namespace Sharplight.Onnx;
 // StringConst nodes where a runtime value is needed, and the string operators map to the host-only IR ops of StandardOps.Text.
 internal sealed partial class OnnxTranslator
 {
-    private static readonly HashSet<string> s_stringOps = ["StringNormalizer", "StringConcat", "RegexFullMatch"];
+    private static readonly HashSet<string> s_stringOps = ["StringNormalizer", "StringConcat", "RegexFullMatch", "StringSplit"];
 
     // Operators of other categories that take string inputs themselves.
     private static readonly HashSet<string> s_stringInputOps = ["TfIdfVectorizer"];
@@ -35,6 +35,9 @@ internal sealed partial class OnnxTranslator
                 break;
             case "StringNormalizer":
                 StringNormalizer(n, ins);
+                break;
+            case "StringSplit":
+                StringSplit(n, ins);
                 break;
             case "Identity":
                 SetDyn(n, 0, StrValue(ins[0]!, name));
@@ -94,6 +97,53 @@ internal sealed partial class OnnxTranslator
 
         var source = x.V is { Type.Kind: DataTypeKind.Int } || x.C is { IsFloat: false } ? Idx(x) : AsValue(x);
         return Emit("StringCast", [source], Attributes.From(("type", "str")), name);
+    }
+
+    /// <summary>
+    /// ONNX StringSplit of x (any static shape): substrings <c>[...x dims, count]</c> padded with empty strings (stored token-major, see
+    /// <see cref="OnnxOutputLayout"/>) and the number of substrings of each string. The largest count is a dynamic symbol bounded by
+    /// maxsplit + 1 or <see cref="OnnxImportOptions.StringSplitBound"/>.
+    /// </summary>
+    private void StringSplit(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        string name = Nm(n);
+        var input = ins[0]!;
+        if (input.C is { Count: 0 } empty)
+        {
+            // No strings: no substrings either.
+            _env[n.Outputs[0]] = TranslatedTensor.Const(EmptyConst(OnnxType.String, [.. empty.Dims, 0], n.Outputs[0]));
+            if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+            {
+                _env[n.Outputs[1]] = TranslatedTensor.Const(EmptyConst(OnnxType.Int64, empty.Dims, n.Outputs[1]));
+            }
+
+            return;
+        }
+
+        var x = StrValue(input, name + ".x");
+        if (Sym(x) || input.LeadingUnits > 0)
+        {
+            throw new NotSupportedException("StringSplit of a tensor with a symbolic batch");
+        }
+
+        long maxSplit = n.Has("maxsplit") ? n.Int("maxsplit", -1) : -1;
+        long bound = maxSplit >= 0 ? Math.Min(maxSplit + 1, _opts.StringSplitBound) : _opts.StringSplitBound;
+        string count = NewDynamicSymbol("split", (Dim)Math.Max(1, bound));
+        var attributes = Attributes.From(("delimiter", n.Str("delimiter", "")), ("maxsplit", maxSplit), ("count_symbol", count), ("max_tokens", bound));
+        var outputs = _b.Emit("StringSplit", [x], attributes, name);
+        int rank = input.IsConst ? input.C!.Rank : input.Scalar ? 0 : x.Rank;
+        // A scalar travels as [1]: its substrings [count, 1] are the ONNX [count].
+        SetDyn(n, 0, rank == 0 ? Emit("Reshape", [outputs[0]], Attributes.From(("shape", new long[] { 0 }))) : outputs[0]);
+        if (rank > 0)
+        {
+            // ONNX axis d < rank is IR axis d + 1; the substring axis (ONNX last) is IR axis 0.
+            _env[n.Outputs[0]].OnnxPermutation = [.. Enumerable.Range(1, rank), 0];
+        }
+
+        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+        {
+            _env[n.Outputs[1]] = Typed(outputs[1], OnnxType.Int64);
+        }
     }
 
     /// <summary>The str value of a string tensor: the runtime value, or a StringConst node for a constant.</summary>

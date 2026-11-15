@@ -254,7 +254,8 @@ internal sealed partial class OnnxTranslator
     private void DeclareTensorOutput(string name, TranslatedTensor tensor)
     {
         // A constant-folded output (Shape, Size, ConstantOfShape of pinned shapes, ...) is materialized as a constant and copied out.
-        var source = tensor.V ?? (OnnxType.IsInteger(tensor.C!.ElemType) ? Idx(tensor) : ConstValue(tensor.C, name + ".constant"));
+        var source = tensor.V ?? (tensor.C!.Strings is not null ? StrValue(tensor, name + ".constant")
+            : OnnxType.IsInteger(tensor.C.ElemType) ? Idx(tensor) : ConstValue(tensor.C, name + ".constant"));
         _b.Output(name, OutputCopy(source, name));
         int[] permutation = tensor.TransposedNonZero ? [1, 0] : tensor.OnnxPermutation ?? [];
         if (tensor.LeadingUnits > 0 || permutation.Length > 0)

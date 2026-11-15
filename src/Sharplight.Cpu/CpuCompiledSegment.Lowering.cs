@@ -237,6 +237,12 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "StringCast":
                 LowerStringCast(n);
                 return;
+            case "MurmurHash3":
+                LowerMurmurHash3(n);
+                return;
+            case "StringSplit":
+                LowerStringSplit(n);
+                return;
             case "TreeEnsemble":
                 LowerTreeEnsemble(n);
                 return;
