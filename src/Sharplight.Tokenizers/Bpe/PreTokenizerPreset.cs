@@ -41,7 +41,7 @@ internal sealed partial record PreTokenizerPreset(PreTokenizer Splitter, bool Ig
                 return new(new DefaultRegexStages([Gpt4oPattern]), true, false);
 
             // o200k (gpt-oss, MiniMax-M2, Kanana 2): the same word pattern as Llama 4, with the merges applied (llama.cpp GPT4O).
-            case "gpt-4o" or "minimax-m2" or "kanana2" or "talkie":
+            case "gpt-4o" or "minimax-m2" or "kanana2" or "talkie" or "inkling":
                 return new(new DefaultRegexStages([Gpt4oPattern]), false, false);
 
             // Ling / Ring 2.0 (llama.cpp BAILINGMOE): single digits; tokenizer.json's possessive quantifiers become atomic groups.

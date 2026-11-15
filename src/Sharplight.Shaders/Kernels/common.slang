@@ -113,6 +113,13 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 #define FMT_Q2_0 42
 #define FMT_Q2_0_G128 142
 #define FMT_TERN1_G128 143
+// Trellis-coded formats (TrellisBlocks.cs), decoded through the codebook grid.
+#define FMT_TRELLIS_V4K8 144
+#define FMT_TRELLIS_V4K6 145
+#define FMT_TRELLIS_V4K7 146
+#define FMT_TRELLIS_V2K5 147
+#define FMT_TRELLIS_V2K6 148
+#define FMT_TRELLIS_V2K7 149
 // ggml type ids of the formats decoded in quant_k.slang / quant_iq.slang.
 #define FMT_Q2_K 10
 #define FMT_Q3_K 11
@@ -140,7 +147,12 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 // IQ formats decode through a lookup grid that lives in a device buffer (GridTables.cs). The lowering prepends its address to the parameter block
 // of every kernel that reads such a weight: those kernels declare `uint* grid` first under HAS_GRID and call GRID_BIND(p) at the start of each entry
 // point, which stores it in g_grid for the decoders (quant_iq.slang).
-#if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S || WFMT == FMT_IQ1_S || WFMT == FMT_IQ1_M
+#if WFMT >= FMT_TRELLIS_V4K8 && WFMT <= FMT_TRELLIS_V2K7
+#define WFMT_TRELLIS 1
+#else
+#define WFMT_TRELLIS 0
+#endif
+#if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S || WFMT == FMT_IQ1_S || WFMT == FMT_IQ1_M || WFMT_TRELLIS
 #define HAS_GRID 1
 static uint* g_grid;
 #define GRID_BIND(p) g_grid = (p).grid;
@@ -407,6 +419,60 @@ void load8_tern1(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
     }
 }
 
+#if WFMT_TRELLIS
+// Trellis-coded group-128 blocks { f16 d; u8 qs[steps * k / 8] } (TrellisBlocks.cs): the 16-bit state of step t, from the byte path
+// (k = 8: qs[t - 1] << 8 | qs[t]) or the circular bit stream (16 bits from bit (steps - 1 - t) * k, LSB first).
+uint trellis_state(uint8_t* qs, uint steps, uint k, uint t)
+{
+    if (k == 8)
+    {
+        return (uint(qs[(t + steps - 1) % steps]) << 8) | uint(qs[t]);
+    }
+    uint nbytes = steps * k / 8;
+    uint off = (steps - 1 - t) * k;
+    uint i0 = off >> 3;
+    uint i1 = i0 + 1 >= nbytes ? i0 + 1 - nbytes : i0 + 1;
+    uint i2 = i0 + 2 >= nbytes ? i0 + 2 - nbytes : i0 + 2;
+    uint w = uint(qs[i0]) | (uint(qs[i1]) << 8) | (uint(qs[i2]) << 16);
+    return (w >> (off & 7)) & 0xFFFFu;
+}
+
+// The codebook grid holds point p as one word (f16 value 0 | f16 value 1 << 16).
+void trellis_point(uint p, float d, out float a, out float b)
+{
+    uint w = g_grid[p];
+    a = d * f16tof32(w & 0xFFFFu);
+    b = d * f16tof32(w >> 16);
+}
+
+// Four values per step (32 steps of k bits): group g covers steps 2 (g % 16) and 2 (g % 16) + 1 of block g / 16.
+void load8_trellis4(uint8_t* base, uint64_t rowBytes, uint row, uint g, uint k, out float v[8])
+{
+    uint8_t* blk = base + rowBytes * row + uint64_t(g >> 4) * (2 + 4 * k);
+    float d = h2f(*(uint16_t*)blk);
+    [ForceUnroll]
+    for (uint i = 0; i < 2; i++)
+    {
+        uint x = (trellis_state(blk + 2, 32, k, (g & 15) * 2 + i) & 0x7FFFu) * 0x9E3779B1u;
+        trellis_point(x >> 21, d, v[4 * i], v[4 * i + 1]);
+        trellis_point((x >> 10) & 2047u, d, v[4 * i + 2], v[4 * i + 3]);
+    }
+}
+
+// Two values per step (64 steps of k bits): group g covers steps 4 (g % 16) .. + 3 of block g / 16.
+void load8_trellis2(uint8_t* base, uint64_t rowBytes, uint row, uint g, uint k, out float v[8])
+{
+    uint8_t* blk = base + rowBytes * row + uint64_t(g >> 4) * (2 + 8 * k);
+    float d = h2f(*(uint16_t*)blk);
+    [ForceUnroll]
+    for (uint i = 0; i < 4; i++)
+    {
+        uint x = (trellis_state(blk + 2, 64, k, (g & 15) * 4 + i) & 0x7FFFu) * 0x9E3779B1u;
+        trellis_point(x >> 21, d, v[2 * i], v[2 * i + 1]);
+    }
+}
+#endif
+
 // 16 bytes at any byte address: 4 or 5 aligned words, funnel-shifted (the fifth word is read only when the address is not
 // word aligned, as the bytes may end the buffer).
 uint4 load16_any(uint64_t at)
@@ -551,6 +617,18 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
     load8_q2(base, rowBytes, row, g >> 4, g & 15, 34, v);
 #elif WFMT == FMT_TERN1_G128
     load8_tern1(base, rowBytes, row, g, v);
+#elif WFMT == FMT_TRELLIS_V4K8
+    load8_trellis4(base, rowBytes, row, g, 8, v);
+#elif WFMT == FMT_TRELLIS_V4K6
+    load8_trellis4(base, rowBytes, row, g, 6, v);
+#elif WFMT == FMT_TRELLIS_V4K7
+    load8_trellis4(base, rowBytes, row, g, 7, v);
+#elif WFMT == FMT_TRELLIS_V2K5
+    load8_trellis2(base, rowBytes, row, g, 5, v);
+#elif WFMT == FMT_TRELLIS_V2K6
+    load8_trellis2(base, rowBytes, row, g, 6, v);
+#elif WFMT == FMT_TRELLIS_V2K7
+    load8_trellis2(base, rowBytes, row, g, 7, v);
 #elif WFMT == FMT_Q2_K
     load8_q2_k(base, rowBytes, row, g, v);
 #elif WFMT == FMT_Q3_K

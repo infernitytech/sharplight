@@ -387,6 +387,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `lfm2` | LFM2/LFM2.5 350M-2.6B | gated short-conv (k=3) + GQA attn, QK-norm | **supported** | - | lfm2 | gguf/LFM2.5-1.2B-Instruct, hf/LFM2.5-1.2B-Instruct, hf/tiny-random-lfm2 |
 | `lfm2moe` | LFM2-8B-A1B, LFM2.5-8B-A1B | lfm2 + MoE sigmoid bias | **supported** | - | lfm2_moe | gguf/LFM2.5-8B-A1B, hf/tiny-random-lfm2-moe |
 | `lfm3` | LFM3-1.7B, LFM3-VL/Omni (text part) | gated conv + sliding/full attention (own rope bases, partial rope via `rope_freqs`), QK-norm, per-head sigmoid gate, sandwich norms | **supported** (GGUF: tiny random and real LFM3-1.7B Q8_0 vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan; b11177 predates lfm3. The non-causal "d1" decision variant (bidirectional full-attention layers, no cache) is not supported; no transformers class) | - | - | gguf/LFM3-1.7B, gguf/tiny-random-lfm3-f32 |
+| `inkling` | Inkling, Inkling-Small (Thinking Machines; text decoder) | rope-less GQA attention, sliding-window layers with their own kv head count, q/k norms with scale 1/head_dim, residual short convolutions of k / v / attention output / MLP output, query-conditioned relative position bias, log-floor query temperature, sigmoid MoE whose shared experts are scored by the router, embedding norm, padded vocabulary | **supported** (text decoder on the hybrid stack: `HybridAttention` relative bias (CachedAttention `relative_bias`, CPU and Vulkan), residual short convolutions and per-layer head counts, `MoeBlock` shared-expert sinks; HF `inkling_mm_model` in the published `model.llm.*` layout and GGUF from unsloth's fork; tiny model vs transformers and the fork's llama.cpp (same 24 ids), CPU and Vulkan, batched decoding matches single-sequence decoding; every Inkling-Small GGUF and the Inkling checkpoint pass the check and import from their headers, none runs here (the smallest file is 75 GB). The vision / audio towers and the MTP layers are not imported. `inkling2` is missing, see section 10) | - | inkling_mm_model | hf/tiny-random-inkling, gguf/tiny-random-inkling-f32.gguf |
 
 ### Linear attn
 
@@ -751,10 +752,14 @@ Open, with estimates:
 2. **dflash drafters.** Four files: Muse-Glimmer, Bonsai DFlash2, Bolt, and the Super-VL LiLiCorr variant.
    - Done (bring-up round 11): the `dflash` canonical architecture, the drafter graph over the target's taps with bidirectional cached attention, the block-draft proposer `BlockDraftSpeculator` and the DFlash2 convolution and selector lattice. All four files are reported as draft models by the check and the import. Muse-Glimmer runs with its target (greedy output equals llama.cpp, 58.5 % acceptance vs llama.cpp's 66.1 %).
    - Open: Bonsai's target is `qwen35`, whose hybrid adapter does not export taps yet (about 0.5 day: the same `hidden_taps` output on the hybrid stack, rollback of the recurrent state is already there). Bolt and Super-VL need the LiLiCorr correction head (a small transformer over the top-k candidates of every block row, with its own heads and embeddings: about 2 days with a numpy reference), plus taps from `nemotron_h` targets (0.5 day) and the NVFP4 per-tensor scales of item 1. Sliding windows of the drafter count from the end of each block run in the multi-sequence form, a deviation from llama.cpp that only matters for contexts longer than the window.
-3. **inkling / inkling2.** Thinking Machines' multimodal models; the HF `model_type` values `inkling_mm_model` and `inkling2` are not supported either. Not surveyed yet: about 1 day to read the remote code, then 2–3 days per architecture if the blocks exist.
-4. **ggml type ids 64–66 and 144–148.**
-   - Kimi-K3 UD-TQ2_0 / UD-TQ1_0 / UD-Q1_0 use 64 / 65 / 66 from unsloth's fork. agentionai's Gyro TQ1_0 / TQ2_0 / TQ3_0 use 144–148 from its own fork.
-   - Neither layout is in llama.cpp master. Each needs the fork's block layout, then a decoder and CPU / Vulkan dequantization: about 0.5–1 day per type family once the layout is known.
+3. **inkling2** (Inkling-2-Small, HF `inkling2` and GGUF `inkling2`). Inkling (v1) is supported since bring-up round 11 (section 4).
+   - Inkling 2 changes most of the v1 blocks: block attention residuals (as Kimi K3's `AttentionResiduals`), gated attention with per-token sinks, an L2 clip of q / k / r, an RMS norm on the values, short convolutions whose taps are computed per token, separate q / k / v input norms, softcapped SwiGLU (gate cap 4, up cap 25), a final logit softcap of 30 and per-expert output scales; 384 experts and no shared experts.
+   - New pieces: the per-token convolution taps (a CausalConv1d variant taking the kernel as an input, CPU and Vulkan), the per-token attention sinks, the L2 clip and the softcapped SwiGLU; the rest exists. About 3–4 days with a tiny model against transformers.
+   - Four of its nine GGUFs (BF16, UD-Q3_K_XL, UD-Q4_K_XL, UD-Q8_K_XL) carry NVFP4 tensors with per-tensor scales, so they also need item 1.
+4. **ggml type ids 64–66 and 144–149.** Decoded since bring-up round 11.
+   - 64 / 65 / 66 (unsloth's IQ1_XS / IQ1_XXS / IQ1_XXXS, Kimi-K3 UD-TQ2_0 / UD-TQ1_0 / UD-Q1_0) store IQ1_S blocks without some of their fields; they are widened to IQ1_S blocks as they are read (`GgufNarrowIq1Source`), bit-exact against the fork's `dequantize_row`. All nine Kimi-K3 GGUFs now pass the check and import.
+   - 144–149 (agentionai's TQ2_T, TQK6, TQK7, TQP5, TQP6, TQP7) are the trellis types `trellis_v{4,2}k{5..8}_g128`, decoded by the managed decoder, the CPU dequantization and the Vulkan `load8` paths, bit-exact against a transcription of the fork's reference decoder. Every Gyro trellis tensor is a Hadamard-rotated expert, so the files import through the rotation unfolding, which dequantizes those experts to F16 at load: correct, but over 200 GB for any of them. Running them in their own size needs the rotation applied to the activations instead (x·H before the expert matmuls, a fast Walsh–Hadamard op on CPU and Vulkan) and the trellis types kept as matmul weights: about 2–3 days. Nothing was run on a real file (30–58 GB).
+   - Gyro's `-noPLE` files leave out the n-gram table, which the fork loads from a separate file (`--ple`); the check and the importer report them. Loading the table as an auxiliary source is about 0.5 day.
 5. **MiniMax-H3 pruned files** and the DeepSeek-V4.1 `Engram-IQ4_NL` file have no `general.architecture`. They are malformed at the source and are reported as such; nothing to do.
 6. **HF compressed-tensors quantization nested in `text_config`**, in Kimi-K3 and K3.1-Pro.
    - Their `quantization_config` (MXFP4 pack) sits in `text_config`.
@@ -789,14 +794,14 @@ Per-repository table (check and import columns count files by outcome; greedy on
 | unsloth/GLM-5.3-Flash-GGUF | UD-Q2_K_XL, UD-IQ1_M | 2 supported | 2 ok |  |
 | unsloth/DeepSeek-V4-Flash-0731-GGUF | UD-Q2_K_XL | supported | ok |  |
 | unsloth/DeepSeek-V4.1-Flash-1017-GGUF | UD-IQ1_S, UD-Q2_K_XL | 2 supported | 2 ok |  |
-| unsloth/Kimi-K3-GGUF | UD-IQ1_M, UD-IQ1_S, UD-IQ2_XXS, UD-Q1_0, UD-Q2_K_XL, UD-Q4_K_XL, UD-Q8_K_XL, UD-TQ1_0, UD-TQ2_0 | 6 supported, 1 type 66, 1 type 65, 1 type 64 | 6 ok, 1 type 66, 1 type 65, 1 type 64 |  |
+| unsloth/Kimi-K3-GGUF | UD-IQ1_M, UD-IQ1_S, UD-IQ2_XXS, UD-Q1_0, UD-Q2_K_XL, UD-Q4_K_XL, UD-Q8_K_XL, UD-TQ1_0, UD-TQ2_0 | 9 supported | 9 ok (types 64–66 read as IQ1_S) |  |
 | unsloth/LFM2.5-24B-A2B-GGUF | BF16, Q8_0, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, UD-Q3_K_XL, UD-Q4_K_XL, UD-Q5_K_XL, UD-Q6_K_XL | 10 supported | 10 ok |  |
 | unsloth/LFM2.5-8B-A1B-GGUF | BF16, MXFP4_MOE, Q8_0, UD-IQ1_M, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_S, UD-IQ3_XXS, UD-IQ4_NL, ... (22 files) | 22 supported | 22 ok | MXFP4_MOE: Vulkan identical, CPU differs; UD-IQ2_XXS: both differ late (precision) |
 | unsloth/flint-GGUF | BF16, Q8_0, UD-IQ1_M, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, UD-Q3_K_XL, UD-Q4_K_XL, UD-Q5_K_XL, UD-Q6_K_XL | 10 supported | 10 ok |  |
 | unsloth/Muse-Glimmer-30B-GGUF | BF16, Q8_0, UD-IQ2_M, UD-IQ2_XS, UD-IQ2_XXS, UD-IQ3_M, UD-IQ3_XXS, UD-Q2_K_XL, UD-Q3_K_XL, ... (16 files) | 15 supported, 1 draft | 15 ok, 1 draft | dflash-kquant: drafter of UD-Q4_K_XL, greedy identical to llama.cpp with speculation, 58.5 % accepted (llama.cpp 66.1 %) |
 | unsloth/North-Mini-Code-1.0-GGUF | BF16, MXFP4_MOE, Q8_0, UD-IQ1_M, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_S, UD-IQ3_XXS, UD-IQ4_NL, ... (22 files) | 22 supported | 22 ok |  |
-| unsloth/Inkling-Small-GGUF | UD-IQ1_S | arch unsupported | arch unsupported |  |
-| unsloth/Inkling-2-Small-GGUF | UD-IQ1_S | arch unsupported | arch unsupported |  |
+| unsloth/Inkling-Small-GGUF | BF16, MXFP4_MOE, Q8_0, UD-IQ1_M, UD-IQ1_S, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_S, UD-IQ3_XXS, ... (23 files) | 23 supported | 23 ok | none under 20 GB (smallest 75 GB) |
+| unsloth/Inkling-2-Small-GGUF | BF16, UD-IQ1_M, UD-IQ1_S, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, UD-Q3_K_XL, UD-Q4_K_XL, UD-Q8_K_XL | 9 arch unsupported (inkling2) | 9 arch unsupported |  |
 | unsloth/Mistral-Large-4-1T-A52B-GGUF | UD-IQ1_S | supported | ok |  |
 | unsloth/Muse-Spark-Open-816B-A42B-GGUF | UD-IQ1_S | supported | ok |  |
 | unsloth/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-GGUF | BF16, IQ2_XXS, UD-IQ1_M, UD-IQ1_S, UD-IQ2_M, UD-IQ2_XXS, UD-IQ3_XXS, UD-Q2_K_XL, ... (14 files) | 12 supported, 1 mapping, 1 draft | 12 ok, 1 unmapped tensors, 1 draft | dflash-NVFP4: draft model with a LiLiCorr head (not supported) |
@@ -853,7 +858,7 @@ Per-repository table (check and import columns count files by outcome; greedy on
 | mixedbread-ai/mxbai-embed-large-v1 | f16 | supported | ok |  |
 | huihui-ai/Huihui-Qwen3.6-35B-A3B-abliterated-MTP-GGUF | ggml-model-Q2_K, ggml-model-Q3_K, ggml-model-Q4_K, ggml-model-Q5_K, ggml-model-Q6_K, ... (12 files) | 7 supported, 5 no arch | 7 ok, 5 no arch |  |
 | empero-ai/Qwen3.8-35B-A3B-Distill-GGUF | BF16, IQ2_M, IQ3_M, IQ4_XS, Q2_K, Q3_K_M, Q4_K_M, Q5_K_M, Q6_K, Q8_0 | 10 supported | 10 ok |  |
-| agentionai/Qwen3.8-Flash-Next-Gyro-GGUF | L-TQ3_0, L-TQ3_0-noPLE, M-TQ2_0, M-TQ2_0-noPLE, S-TQ1_0, S-TQ1_0-noPLE, mtp-Qwen3.8-Flash-Next-draft | 2 type 147, 2 type 144, 2 type 145, 1 draft | 2 type 148, 2 type 144, 2 type 146, 1 draft |  |
+| agentionai/Qwen3.8-Flash-Next-Gyro-GGUF | L-TQ3_0, L-TQ3_0-noPLE, M-TQ2_0, M-TQ2_0-noPLE, S-TQ1_0, S-TQ1_0-noPLE, mtp-Qwen3.8-Flash-Next-draft | 3 supported, 3 separate n-gram table (-noPLE), 1 draft | 3 ok (trellis experts unfolded to F16), 3 separate n-gram table, 1 draft |  |
 | Qwen/Qwen3-0.6B | safetensors | supported | ok |  |
 | Qwen/Qwen3-8B | safetensors | supported | ok |  |
 | Qwen/Qwen3-14B | safetensors | supported | ok |  |
@@ -902,8 +907,8 @@ Per-repository table (check and import columns count files by outcome; greedy on
 | nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB | safetensors | model_type unsupported | model_type unsupported |  |
 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16 | safetensors | model_type unsupported | model_type unsupported |  |
 | tencent/Hy4-preview | safetensors | supported | ok |  |
-| thinkingmachines/Inkling | safetensors | model_type unsupported | model_type unsupported |  |
-| thinkingmachines/Inkling-2-Small | safetensors | model_type unsupported | model_type unsupported |  |
+| thinkingmachines/Inkling | safetensors | supported | ok |  |
+| thinkingmachines/Inkling-2-Small | safetensors | model_type unsupported (inkling2) | model_type unsupported |  |
 | LiquidAI/LFM3-1.7B | safetensors | model_type unsupported | model_type unsupported |  |
 | LiquidAI/d1-2B | safetensors | model_type unsupported | model_type unsupported |  |
 | baidu/ERNIE-5.5-Flash-Base | safetensors | model_type unsupported | model_type unsupported |  |

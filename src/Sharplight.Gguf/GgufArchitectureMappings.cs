@@ -15,6 +15,7 @@ internal static class GgufArchitectureMappings
         Register(new HybridGgufMapping());
         Register(new Metis16GgufMapping());
         Register(new MiniMax01GgufMapping());
+        Register(new InklingGgufMapping());
         Register(new Rwkv7GgufMapping());
         Register(new Rwkv6GgufMapping());
         Register(new LatentDecoderGgufMapping());

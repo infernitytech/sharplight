@@ -19,6 +19,11 @@ public class GgufSweepFixtureTests
     [InlineData("embeddinggemma-2-Q8_0")] // the gemma-embedding2 architecture, mapped since
     [InlineData("NVIDIA-Nemotron-3.5-Bolt-74B-A9B-UD-IQ1_M")] // the latent experts (ffn_latent_down / ffn_latent_up) of nemotron_h_moe
     [InlineData("NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0")] // the NextN block appended after the trunk (blk.52.nextn.*)
+    [InlineData("Inkling-Small-UD-IQ1_S")] // the inkling architecture (unsloth's fork), 3 shards
+    [InlineData("Kimi-K3-UD-TQ1_0")] // the fork's narrow IQ1 type 65, read as IQ1_S, 12 shards
+    [InlineData("Qwen3.8-Flash-Next-Gyro-S-TQ1_0")] // Gyro's trellis types 145 / 146 on Hadamard-rotated experts
+    [InlineData("Qwen3.8-Flash-Next-Gyro-M-TQ2_0")] // trellis type 144
+    [InlineData("Qwen3.8-Flash-Next-Gyro-L-TQ3_0")] // trellis types 147-149
     public void ReleasedHeader_IsAccepted(string name)
     {
         var header = File.ReadAllBytes(Fixture(name));
@@ -40,6 +45,22 @@ public class GgufSweepFixtureTests
     /// Qwen3.8-Flash-Next MTP file (qwen4exp, whose NextN head is not imported, so the file maps to no layers at all: the check
     /// recognizes it from the block indices, and the importer says so instead of failing on a missing trunk weight).
     /// </remarks>
+    /// <summary>
+    /// agentionai's <c>-noPLE</c> Gyro files leave out the n-gram table, which the fork loads from a separate file (<c>--ple</c>): the check
+    /// reports that, as the importer does, instead of accepting a file whose import stops at the missing table.
+    /// </summary>
+    [Fact]
+    public void NoPleHeader_IsRejectedForItsSeparateTable()
+    {
+        var header = File.ReadAllBytes(Fixture("Qwen3.8-Flash-Next-Gyro-S-TQ1_0-noPLE"));
+
+        var check = GgufSupport.Validate(GgufHeaderProbe.ReadMetadata(header), GgufHeaderProbe.ReadTensorTable(header)!);
+
+        Assert.True(check.IsComplete);
+        Assert.False(check.IsAccepted);
+        Assert.Contains("n-gram table", Assert.Single(check.Problems), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("mtp-Qwen3.8-27B-Q4_0")]
     [InlineData("mtp-NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0")]

@@ -215,6 +215,8 @@ public class FamilyGenerationTests
         .. KimiK3FamilyCases.All,
         // Bring-up round 9: DeepSeek-V4 (compressed-KV attention, hash routing).
         .. DeepSeekV4Cases.All,
+        // Bring-up round 11: Inkling (relative bias, residual short convolutions, router-scored shared experts).
+        .. InklingFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback, bool f32Kv)
@@ -285,10 +287,16 @@ public class FamilyGenerationTests
     {
         using var session = model.CreateSession(WellKnown.DecodeGraph);
         var logits = session.Process(reference.PromptIds);
-        Assert.Equal(reference.Logits.Length, logits.Length);
+        // A reference cut to the unpadded vocabulary (Inkling): the padded ids beyond it must be suppressed.
+        Assert.True(logits.Length >= reference.Logits.Length, $"{logits.Length} logits, the reference has {reference.Logits.Length}");
+        for (int i = reference.Logits.Length; i < logits.Length; i++)
+        {
+            Assert.True(logits[i] < -1e30f, $"padded token {i} has logit {logits[i]}");
+        }
+
         double scale = reference.Logits.Max(MathF.Abs);
         double worst = 0;
-        for (int i = 0; i < logits.Length; i++)
+        for (int i = 0; i < reference.Logits.Length; i++)
         {
             worst = Math.Max(worst, Math.Abs(logits[i] - reference.Logits[i]));
         }

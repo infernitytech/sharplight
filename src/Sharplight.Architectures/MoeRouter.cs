@@ -55,6 +55,27 @@ internal static class MoeRouter
     /// <exception cref="InvalidDataException">The options do not describe a usable configuration, or hash routing has no token ids.</exception>
     public static (Value Weights, Value Ids, Value Logits) RouteWithLogits(GraphBuilder b, Value h, string prefix, MoeOptions options, Value? tokens = null)
     {
+        var (weights, ids, logits, _) = RouteAll(b, h, prefix, options, tokens);
+        return (weights, ids, logits);
+    }
+
+    /// <summary>
+    /// <see cref="Route"/> for a router that also scores <see cref="MoeOptions.SharedSinks"/> shared experts (the last rows of its weight):
+    /// their scores join the renormalization of the selected weights, and their weights are returned too.
+    /// </summary>
+    /// <param name="b">The graph builder.</param>
+    /// <param name="h">Rows [T, H] the router reads.</param>
+    /// <param name="prefix">Weight-name prefix of the block.</param>
+    /// <param name="options">Routing configuration (with <see cref="MoeOptions.SharedSinks"/> &gt; 0).</param>
+    /// <returns>Mixing weights f32 [T, k], expert indices i32 [T, k] and the shared experts' weights f32 [T, S].</returns>
+    public static (Value Weights, Value Ids, Value SinkWeights) RouteWithSinks(GraphBuilder b, Value h, string prefix, MoeOptions options)
+    {
+        var (weights, ids, _, sinks) = RouteAll(b, h, prefix, options, null);
+        return (weights, ids, sinks ?? throw new InvalidDataException($"{prefix}: the router has no shared-expert sinks."));
+    }
+
+    private static (Value Weights, Value Ids, Value Logits, Value? SinkWeights) RouteAll(GraphBuilder b, Value h, string prefix, MoeOptions options, Value? tokens)
+    {
         if (!options.IsValid)
         {
             throw new InvalidDataException($"{prefix}: MoE weights present but moe.expert_count / moe.expert_used_count / moe.group_count are missing or inconsistent.");
@@ -72,6 +93,14 @@ internal static class MoeRouter
             logits = b.Scale(b.Unary("Tanh", b.Scale(logits, 1f / options.RouterSoftCap)), options.RouterSoftCap, 0f, $"{prefix}router_capped");
         }
 
+        Value? sinkScores = null;
+        if (options.SharedSinks > 0)
+        {
+            // The last rows of the router score the shared experts: they only join the renormalization (and weight those experts).
+            sinkScores = Scores(b, b.Slice(logits, 1, options.Experts, options.SharedSinks), prefix + "sink_", options.ScoreFunction);
+            logits = b.Slice(logits, 1, 0, options.Experts);
+        }
+
         var scores = Scores(b, logits, prefix, options.ScoreFunction);
         if (b.TryWeight(prefix + "router.token_experts") is { } table)
         {
@@ -81,7 +110,8 @@ internal static class MoeRouter
             }
 
             var hashed = b.Emit1("GatherAxis", [table, tokens], Attributes.From(("axis", 0L)), $"{prefix}router_hash_ids");      // [T, k]
-            return (FinishWeights(b, PickScores(b, scores, hashed, prefix, options), hashed, prefix, options), hashed, logits);
+            var (hashWeights, hashSinks) = FinishWeights(b, PickScores(b, scores, hashed, prefix, options), hashed, prefix, options, sinkScores);
+            return (hashWeights, hashed, logits, hashSinks);
         }
 
         var bias = b.TryWeight(prefix + "router_bias");
@@ -104,20 +134,31 @@ internal static class MoeRouter
             weights = b.Emit1("Softmax", [weights], null, $"{prefix}router_weights");
         }
 
-        return (FinishWeights(b, weights, ids, prefix, options), ids, logits);
+        var (finished, sinkWeights) = FinishWeights(b, weights, ids, prefix, options, sinkScores);
+        return (finished, ids, logits, sinkWeights);
     }
 
-    // Renormalization and scaling of the selected weights [T, k] of the experts ids [T, k], last the optional per-expert output scale.
-    private static Value FinishWeights(GraphBuilder b, Value weights, Value ids, string prefix, MoeOptions options)
+    // Renormalization and scaling of the selected weights [T, k] of the experts ids [T, k] (and of the shared-expert sink scores [T, S], which
+    // join the normalization), last the optional per-expert output scale.
+    private static (Value Weights, Value? SinkWeights) FinishWeights(GraphBuilder b, Value weights, Value ids, string prefix, MoeOptions options, Value? sinkScores)
     {
         if (options.NormalizeWeights)
         {
-            weights = b.Binary("Div", weights, b.Scale(b.Emit1("ReduceSum", [weights]), 1f, NormalizeEpsilon));
+            var total = b.Emit1("ReduceSum", [weights]);
+            if (sinkScores is not null)
+            {
+                total = b.Add(total, b.Emit1("ReduceSum", [sinkScores]));
+            }
+
+            var denominator = b.Scale(total, 1f, NormalizeEpsilon);
+            weights = b.Binary("Div", weights, denominator);
+            sinkScores = sinkScores is null ? null : b.Binary("Div", sinkScores, denominator);
         }
 
         if (options.WeightsScale != 1f)
         {
             weights = b.Scale(weights, options.WeightsScale);
+            sinkScores = sinkScores is null ? null : b.Scale(sinkScores, options.WeightsScale);
         }
 
         if (b.TryWeight(prefix + "experts.output_scale") is { } expertScale)
@@ -125,7 +166,7 @@ internal static class MoeRouter
             weights = b.Mul(weights, PickExpertScales(b, expertScale, ids, prefix, options), $"{prefix}router_scaled_weights");
         }
 
-        return weights;
+        return (weights, sinkScores);
     }
 
     // Expert scores [T, E] from the router logits. Softmax-after-top-k keeps the logits: the softmax runs on the selected ones.

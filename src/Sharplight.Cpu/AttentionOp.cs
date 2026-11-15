@@ -21,6 +21,8 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     private readonly float[]? _alibiSlopes;   // ALiBi: per query head slope; scores get -slope * |key - query position|
     private readonly float[]? _positionBias;  // learned relative position bias: [Hq, 2R+1] by clamped key - query distance (T5)
     private readonly int _positionBiasRange;  // R
+    private readonly TRef? _relativeBias;     // query-conditioned relative bias [T, Hq, E] by query - key distance in [0, E)
+    private readonly int _relativeExtent;     // E
     private readonly string? _offsetScalar;   // non-null => cached attention
     private readonly bool _causal;
     private readonly int _hq;
@@ -56,8 +58,11 @@ internal sealed unsafe partial class AttentionOp : CpuOp
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
         TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0, float[]? alibiSlopes = null,
-        KvPages? pages = null, float[]? positionBias = null, int positionBiasRange = 0, TRef? selection = null, CompressedKv? compressed = null, long sequenceRows = 0, long sequenceKeys = 0)
+        KvPages? pages = null, float[]? positionBias = null, int positionBiasRange = 0, TRef? selection = null, CompressedKv? compressed = null, long sequenceRows = 0, long sequenceKeys = 0,
+        TRef? relativeBias = null, int relativeExtent = 0)
     {
+        _relativeBias = relativeBias;
+        _relativeExtent = relativeExtent;
         _sequenceRows = sequenceRows;
         _sequenceKeys = sequenceKeys;
         _selection = selection;
@@ -322,6 +327,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     j0 = Math.Max(j0, (n - 1) / _chunk * _chunk);
                 }
 
+                float* relativeRow = _relativeBias is null ? null : (float*)_relativeBias.P + task * _relativeExtent;
                 float sink = _sinks is null ? float.NegativeInfinity : ((float*)_sinks.P)[h * _sinks.Strides[0]];   // learned per-head logit that attends to nothing
                 float max = sink;
                 for (long entry = j0; entry < n; entry++)
@@ -354,6 +360,15 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     {
                         long distance = Math.Clamp(j - queryPosition, -_positionBiasRange, _positionBiasRange);
                         dot += _positionBias[h * (2 * _positionBiasRange + 1) + distance + _positionBiasRange];
+                    }
+
+                    if (relativeRow != null)
+                    {
+                        long distance = queryPosition - j;
+                        if (distance >= 0 && distance < _relativeExtent)
+                        {
+                            dot += relativeRow[distance];
+                        }
                     }
 
                     if (mrow != null)
