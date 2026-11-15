@@ -136,9 +136,16 @@ public sealed class GgufImporter : IModelImporter
     {
         var weights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         var unmapped = new List<string>();
+        var (scaled, consumed) = GgufNvfp4Scales.Find(tensors);
         foreach (var tensor in tensors)
         {
-            if (mapping is IGgufSplitMapping splitter && splitter.Split(tensor.Name, tensor.ToWeightInfo(), view) is { } parts)
+            if (consumed.Contains(tensor.Name))
+            {
+                continue;
+            }
+
+            var info = scaled.TryGetValue(tensor.Name, out var converted) ? converted : tensor.ToWeightInfo();
+            if (mapping is IGgufSplitMapping splitter && splitter.Split(tensor.Name, info, view) is { } parts)
             {
                 foreach (var part in parts)
                 {
@@ -154,7 +161,7 @@ public sealed class GgufImporter : IModelImporter
                 continue;
             }
 
-            AddWeight(weights, path, name, mapping.MapWeight(tensor.ToWeightInfo().As(name), view));
+            AddWeight(weights, path, name, mapping.MapWeight(info.As(name), view));
         }
 
         foreach (var synthetic in mapping.SyntheticWeights(view, weights).ToList())
