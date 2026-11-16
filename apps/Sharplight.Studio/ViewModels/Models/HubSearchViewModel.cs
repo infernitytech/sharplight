@@ -632,7 +632,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         if (variants.Count == 0)
         {
             IsEstimatingFit = false;
-            if (details.Format is null && result.Compatibility.Compatibility.State != CompatibilityState.UnsupportedKind)
+            if (details.Format is null && details.Layout is null && result.Compatibility.Compatibility.State != CompatibilityState.UnsupportedKind)
             {
                 result.Compatibility = new CompatibilityBadgeViewModel(ModelCompatibility.Unknown("The repository has no GGUF, safetensors or ONNX model files."));
             }

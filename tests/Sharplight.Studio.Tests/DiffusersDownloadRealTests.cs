@@ -1,6 +1,6 @@
 using Sharplight.Hub;
-using Sharplight.Imaging;
 using Sharplight.Models;
+using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.ViewModels.Image;
@@ -33,7 +33,7 @@ public sealed class DiffusersDownloadRealTests
 
         Assert.True(File.Exists(result.Manifest.PackagePath));
         // The planned set only: no README, no flax or .bin copies; the package replaced the sources.
-        Assert.False(Directory.Exists(Path.Combine(result.Manifest.Directory, ModelStore.SourceDirectoryName)));
+        Assert.False(Directory.Exists(Path.Combine(result.Manifest.Directory, "source")));
         Assert.Contains(result.Manifest.SourceFiles, file => file.Path == "unet/diffusion_pytorch_model.safetensors");
         Assert.DoesNotContain(result.Manifest.SourceFiles, file => file.Path == "README.md");
 
