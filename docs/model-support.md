@@ -1441,7 +1441,7 @@ Verification (tools/make-tiny-flux.py, tools/make-flux-references.py; tests `Tin
   video DiTs (Wan, LTX: a frame axis in the latents and 3D RoPE through the same multi-axis sections) reuse the flow sampler and the
   companion-file loading.
 
-## 16. Video generation (2026-11-16)
+## 18. Video generation (2026-11-16)
 
 Video generators are models of kind `video-generation` (see [api-overview.md](api-overview.md) "Video generation"): the importer
 `Sharplight.Import.Diffusers` translates Wan pipeline folders into the canonical `wan` source, `WanAdapter` builds the umT5 text
