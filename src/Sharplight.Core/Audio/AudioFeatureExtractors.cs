@@ -16,7 +16,9 @@ internal static class AudioFeatureExtractors
         return component.ConfigValue("type", "") switch
         {
             LogMelSpectrogram.Type => new LogMelSpectrogram(component, model.ReadAttachment(component.Role, ModelComponentAttachments.MelFilters)),
-            var other => throw new NotSupportedException($"Audio feature extractor type '{other}' is not supported (supported: {LogMelSpectrogram.Type})."),
+            WaveformFeatures.Type => new WaveformFeatures(component),
+            var other => throw new NotSupportedException(
+                $"Audio feature extractor type '{other}' is not supported (supported: {LogMelSpectrogram.Type}, {WaveformFeatures.Type})."),
         };
     }
 }

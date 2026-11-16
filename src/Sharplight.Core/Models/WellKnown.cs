@@ -168,6 +168,29 @@ public static class WellKnown
     public const string EncoderOutput = "encoder_output";
     /// <summary>Symbol of the source-sequence length (rows of the <see cref="InputRole.EncoderOutput"/> input).</summary>
     public const string EncoderSymbol = "E";
+    /// <summary>
+    /// Symbol of the frame count of a variable-length audio encoder's <see cref="InputRole.AudioFeatures"/> input [channels, frames] (samples for
+    /// encoders over the raw waveform); fixed-window encoders (Whisper) have a fixed frame count instead.
+    /// </summary>
+    public const string AudioFrameSymbol = "F";
+    /// <summary>
+    /// Prediction network of a transducer speech recognizer (RNN-T, TDT): input token ids [1] (<see cref="InputRole.TokenIds"/>) and the
+    /// recurrent state inputs <see cref="TransducerHiddenState"/> and <see cref="TransducerCellState"/> [layers, J]; outputs
+    /// <see cref="TransducerPrediction"/> [1, J] and the advanced states under the same names. The host keeps the states, so a hypothesis
+    /// can be continued or abandoned without rolling the graph back.
+    /// </summary>
+    public const string TransducerPredictGraph = "predict";
+    /// <summary>
+    /// Joint network of a transducer speech recognizer: inputs one projected encoder row [1, J] (<see cref="InputRole.EncoderOutput"/>) and
+    /// <see cref="TransducerPrediction"/> [1, J] (<see cref="InputRole.HiddenStates"/>); output <see cref="LogitsOutput"/> [1, tokens + durations].
+    /// </summary>
+    public const string TransducerJointGraph = "joint";
+    /// <summary>Hidden-state input and output of <see cref="TransducerPredictGraph"/>.</summary>
+    public const string TransducerHiddenState = "state_h";
+    /// <summary>Cell-state input and output of <see cref="TransducerPredictGraph"/>.</summary>
+    public const string TransducerCellState = "state_c";
+    /// <summary>The prediction output of <see cref="TransducerPredictGraph"/> (the input of <see cref="TransducerJointGraph"/>).</summary>
+    public const string TransducerPrediction = "prediction";
     /// <summary>Property of encoder-decoder models: the token the decoder starts from (int; T5: the pad token).</summary>
     public const string DecoderStartToken = "decoder_start_token";
     /// <summary>

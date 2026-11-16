@@ -219,6 +219,12 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Conv1d":
                 LowerConv1d(n);
                 return;
+            case "SequenceConv2d":
+                LowerSequenceConv2d(n);
+                return;
+            case "RelativeAttention":
+                LowerRelativeAttention(n);
+                return;
             case "Random":
                 LowerRandom(n);
                 return;
