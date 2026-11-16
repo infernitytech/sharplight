@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Parity harness of the top-20 sweep (not part of Sharplight.slnx): loads one model (GGUF, Hugging Face checkpoint or .slm), then
+    tokenizes the spec's texts, renders its conversations through the chat template and runs greedy continuations, and writes all of
+    it as JSON. tools/parity/reference.py writes the same JSON from transformers (or llama.cpp) and tools/parity/compare.py diffs them.
+    See docs/model-support.md "Top-20 sweep".
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591;CA1031;CA1303;CA2007;CA1849;CA1305;CA1307;CA1310;CA1304;CA1311;CA1862;CA1866;CA1852;CA1812</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <WarningsAsErrors></WarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../samples/Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
+  </ItemGroup>
+</Project>
