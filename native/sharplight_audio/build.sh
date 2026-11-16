@@ -116,14 +116,15 @@ compile_target() {
     export CC_COMMAND="$cc_command" OBJ_DIR="$obj"
     export COMMON_FLAGS="${common[*]}" TP_FLAGS="${tp_flags[*]}" OWN_FLAGS="${own_flags[*]}"
     # shellcheck disable=SC2016
-    xargs -P "$jobs" -I{} bash -c '
-        entry="{}"; kind="${entry%%|*}"; src="${entry#*|}"
+    # The entry is passed as $1 (not substituted with -I): BSD xargs on macOS limits -I replacements to 255 bytes.
+    tr '\n' '\0' < "$list" | xargs -0 -n 1 -P "$jobs" bash -c '
+        entry="$1"; kind="${entry%%|*}"; src="${entry#*|}"
         name="$(echo "$src" | sed "s|/|_|g")"
         o="$OBJ_DIR/$name.o"
         if [ -f "$o" ] && [ "$o" -nt "$src" ] && [ -z "$SLA_FORCE" ]; then exit 0; fi
         if [ "$kind" = tp ]; then flags="$TP_FLAGS"; else flags="$OWN_FLAGS"; fi
         nice -n 15 $CC_COMMAND $COMMON_FLAGS $flags -c "$src" -o "$o" || { echo "FAILED: $src" >&2; exit 255; }
-    ' < "$list"
+    ' _
 
     local objs=()
     while read -r src; do
