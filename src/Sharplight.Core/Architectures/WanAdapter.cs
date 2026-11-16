@@ -103,6 +103,7 @@ public sealed class WanAdapter : IModelAdapter
             .Add(DiffusionConfigKeys.TrainSteps, src.Get(s + "train_steps", 1000))
             .Add(DiffusionConfigKeys.PredictionType, "flow")
             .Add(DiffusionConfigKeys.Shift, src.Get(s + "shift", 5f))
+            .Add(DiffusionConfigKeys.TimestepSpacing, FlowMatchEulerSampler.SchedulerSpacing)
             .Add(DiffusionConfigKeys.Sampler, src.Get(s + "sampler", Samplers.UniPc));
         var vaeGraphs = new List<string> { VideoDiffusionGraphs.VaeDecodeFirst, VideoDiffusionGraphs.VaeDecodeNext };
         if (hasEncoder)

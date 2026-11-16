@@ -5,6 +5,7 @@ using Sharplight.Imaging;
 using Sharplight.Runtime;
 using Sharplight.Samples;
 using Sharplight.Tasks;
+using Sharplight.Video;
 using Sharplight.VideoGeneration;
 
 namespace Sharplight.GenerateVideo;
@@ -28,7 +29,7 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         using var generator = runtime.Services.GetRequiredService<TaskClientProvider>().Create<IVideoGenerator>(model);
         Console.WriteLine($"Loaded {generator.Metadata.ModelName} ({generator.Metadata.Architecture}) on {device.Info.Name} in {stopwatch.Elapsed.TotalSeconds:F1} s");
         var result = await GenerateAsync(generator, cancellationToken);
-        await WriteAsync(result, cancellationToken);
+        await WriteAsync(runtime.Services.GetRequiredService<VideoEncoderCatalog>(), result, cancellationToken);
         return ExitCodes.Success;
     }
 
@@ -73,9 +74,22 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         InitialNoise = settings.Noise is null ? null : ReadFloats(settings.Noise),
     };
 
-    /// <summary>Writes the frames as numbered PNGs into the output folder.</summary>
-    private Task WriteAsync(VideoGenerationResult result, CancellationToken cancellationToken)
+    /// <summary>Writes a video file (the encoder chosen by the extension) or, without an extension, numbered PNGs into a folder.</summary>
+    private async Task WriteAsync(VideoEncoderCatalog encoders, VideoGenerationResult result, CancellationToken cancellationToken)
     {
+        if (Path.HasExtension(settings.Output))
+        {
+            if (encoders.FindForPath(settings.Output) is not { IsAvailable: true })
+            {
+                string available = string.Join(", ", encoders.Available.SelectMany(e => e.FileExtensions));
+                throw new SampleException($"No available encoder writes '{Path.GetExtension(settings.Output)}' files (available: {available}).", ExitCodes.InvalidInput);
+            }
+
+            await encoders.SaveAsync(result.ToClip(), settings.Output, cancellationToken: cancellationToken);
+            Console.WriteLine($"wrote {settings.Output} ({result.Frames.Count} frames, {result.Duration.TotalSeconds:F2} s at {result.FramesPerSecond} fps, seed {result.Seed})");
+            return;
+        }
+
         Directory.CreateDirectory(settings.Output);
         for (int i = 0; i < result.Frames.Count; i++)
         {
@@ -84,7 +98,6 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         }
 
         Console.WriteLine($"wrote {result.Frames.Count} frames ({result.Duration.TotalSeconds:F2} s at {result.FramesPerSecond} fps, seed {result.Seed}) to {settings.Output}");
-        return Task.CompletedTask;
     }
 
     private static Vision.ImageInput ReadImage(string path)

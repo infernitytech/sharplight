@@ -11,7 +11,7 @@ internal sealed class GenerateVideoCommand
     private readonly Option<string> _prompt = new("--prompt", "-p") { Description = "What to generate.", Required = true };
     private readonly Option<string?> _negative = new("--negative-prompt", "-n") { Description = "What the video should not show (default: the model's)." };
     private readonly Option<string?> _image = new("--image", "-i") { Description = "PNG start frame for image-to-video (models that support it, e.g. Wan 2.2 TI2V)." };
-    private readonly Option<string> _output = new("--output", "-o") { Description = "Output: a folder of PNG frames (no extension), or a video file whose extension picks the encoder.", DefaultValueFactory = _ => "video" };
+    private readonly Option<string> _output = new("--output", "-o") { Description = "Output: a video file whose extension picks the encoder (.webm, .gif, .apng / .png, .mp4 with a system ffmpeg), or a folder of PNG frames (no extension).", DefaultValueFactory = _ => "video.webm" };
     private readonly Option<int?> _width = new("--width", "-W") { Description = "Width in pixels (default: the model's)." };
     private readonly Option<int?> _height = new("--height", "-H") { Description = "Height in pixels (default: the model's)." };
     private readonly Option<int?> _frames = new("--frames", "-f") { Description = "Frame count, 1 + 4k for Wan (default: the model's)." };

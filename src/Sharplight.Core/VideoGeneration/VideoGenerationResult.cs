@@ -1,3 +1,4 @@
+using Sharplight.Video;
 using Sharplight.Vision;
 
 namespace Sharplight.VideoGeneration;
@@ -10,4 +11,7 @@ public sealed record VideoGenerationResult(IReadOnlyList<ImageInput> Frames, dou
 {
     /// <summary>Duration of the video.</summary>
     public TimeSpan Duration => TimeSpan.FromSeconds(Frames.Count / FramesPerSecond);
+
+    /// <summary>The frames as a <see cref="VideoClip"/> for the video encoders (<see cref="VideoEncoderCatalog.SaveAsync"/>).</summary>
+    public VideoClip ToClip() => new(Frames, FramesPerSecond);
 }
