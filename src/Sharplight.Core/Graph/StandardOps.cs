@@ -488,6 +488,14 @@ public static partial class StandardOps
                 continue;
             }
 
+            if (req[k] == 0 && k == 0 && src.Rank > 0)
+            {
+                // A fixed outer dim kept with 0 (graphs written for a symbolic token axis built for a fixed one).
+                dims[k] = src[0];
+                known *= src[0].Fixed;
+                continue;
+            }
+
             if (req[k] == -1)
             {
                 if (infer >= 0)

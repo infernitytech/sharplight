@@ -10,7 +10,8 @@ The image is 64×96 (24 image tokens: the padding is exercised).
 Written to OUT (default ~/models/zimage/tiny-random-zimage):
 
   diffusers/              diffusers folder (model_index.json, transformer/, vae/, text_encoder/, tokenizer/, scheduler/)
-  single/zimage.safetensors   the transformer under its own (diffusers) names in one file
+  single/zimage.safetensors   the transformer under the original names (fused q/k/v, as ComfyUI's single files and the GGUF files)
+  single/zimage-Q8_0.gguf     the same as a transformer-only GGUF (lumina2 architecture id; matrices Q8_0, the rest F16)
   reference/*.f32         raw little-endian f32 reference tensors, described by reference/index.json
 
 Requires torch, diffusers, transformers and safetensors. The tokenizer comes from --tokenizer (a Z-Image diffusers folder with
@@ -18,6 +19,7 @@ tokenizer/) or the Hugging Face hub.
 """
 
 import argparse
+import copy
 import json
 import os
 
@@ -46,6 +48,65 @@ class Reference:
     def save(self, extra):
         with open(os.path.join(self.folder, "index.json"), "w") as f:
             json.dump({"tensors": self.index, **extra}, f, indent=1)
+
+
+RENAMES = [("all_x_embedder.2-1.", "x_embedder."), ("all_final_layer.2-1.", "final_layer."), (".attention.to_out.0.", ".attention.out."),
+           (".attention.norm_q.", ".attention.q_norm."), (".attention.norm_k.", ".attention.k_norm.")]
+
+
+def to_original(state):
+    """diffusers ZImageTransformer2DModel weights → the original names (fused attention.qkv)."""
+    out = {}
+    for name, value in state.items():
+        if ".attention.to_k." in name or ".attention.to_v." in name:
+            continue
+        if ".attention.to_q." in name:
+            base = name.replace(".attention.to_q.", ".attention.qkv.")
+            out[base] = torch.cat([state[name], state[name.replace("to_q", "to_k")], state[name.replace("to_q", "to_v")]], dim=0)
+            continue
+        for old, new in RENAMES:
+            name = name.replace(old, new) if name.startswith(old) or old.startswith(".") else name
+        out[name] = value
+    return out
+
+
+def from_original(original, template):
+    """The inverse of to_original, for loading dequantized weights into the reference model."""
+    state = {}
+    for name, value in template.items():
+        if ".attention.to_q." in name or ".attention.to_k." in name or ".attention.to_v." in name:
+            part = "qkv".index(name.split(".attention.to_")[1][0])
+            state[name] = original[name.replace(f".attention.to_{'qkv'[part]}.", ".attention.qkv.")].chunk(3, dim=0)[part]
+            continue
+        mapped = name
+        for old, new in RENAMES:
+            mapped = mapped.replace(old, new) if mapped.startswith(old) or old.startswith(".") else mapped
+        state[name] = original[mapped].reshape(value.shape)
+    return state
+
+
+def write_gguf(path, original):
+    """Writes a transformer-only GGUF (2-D weights with rows of 32k values Q8_0, the rest F16) and returns the dequantized weights."""
+    import gguf
+
+    writer = gguf.GGUFWriter(path, "lumina2")
+    writer.add_quantization_version(gguf.GGML_QUANT_VERSION)
+    dequantized = {}
+    for name, tensor in original.items():
+        data = tensor.to(torch.float32).numpy()
+        if data.ndim == 2 and data.shape[1] % 32 == 0 and data.shape[0] > 64:
+            q = gguf.quants.quantize(data, gguf.GGMLQuantizationType.Q8_0)
+            writer.add_tensor(name, q, raw_shape=q.shape, raw_dtype=gguf.GGMLQuantizationType.Q8_0)
+            dequantized[name] = torch.from_numpy(gguf.quants.dequantize(q, gguf.GGMLQuantizationType.Q8_0).copy())
+        else:
+            half = data.astype(np.float16)
+            writer.add_tensor(name, half)
+            dequantized[name] = torch.from_numpy(half.astype(np.float32))
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+    return dequantized
 
 
 def main():
@@ -86,7 +147,13 @@ def main():
     root = args.out
     pipe.save_pretrained(os.path.join(root, "diffusers"), safe_serialization=True)
     os.makedirs(os.path.join(root, "single"), exist_ok=True)
-    save_file({k: v.contiguous() for k, v in transformer.state_dict().items()}, os.path.join(root, "single", "zimage.safetensors"))
+    state = transformer.state_dict()
+    original = to_original(state)
+    save_file({k: v.contiguous() for k, v in original.items()}, os.path.join(root, "single", "zimage.safetensors"))
+    dequantized = write_gguf(os.path.join(root, "single", "zimage-Q8_0.gguf"), original)
+    quantized = copy.deepcopy(transformer)
+    quantized.load_state_dict(from_original(dequantized, state))
+    quantized.eval()
 
     ref = Reference(os.path.join(root, "reference"))
     tokens = {}
@@ -113,6 +180,8 @@ def main():
     ref.add("transformer_context_mask", mask[None])
     ref.add("transformer_timestep", torch.tensor([sigma * 1000]))
     ref.add("transformer_out", -out[0].squeeze(1)[None])
+    out = quantized([latent[0].unsqueeze(1)], torch.tensor([1 - sigma]), [context[:valid]], return_dict=False)[0]
+    ref.add("transformer_q8_out", -out[0].squeeze(1)[None])
 
     vae_latent = torch.randn(1, 16, lh, lw, generator=g)
     ref.add("vae_latent", vae_latent)
@@ -122,8 +191,13 @@ def main():
     image = pipe(PROMPT, height=HEIGHT, width=WIDTH, num_inference_steps=STEPS, guidance_scale=0.0, latents=noise.clone(),
                  max_sequence_length=LENGTH, output_type="pt").images
     ref.add("image", image[0])
+    timesteps = [float(t) for t in pipe.scheduler.timesteps]
+    pipe.transformer = quantized
+    image = pipe(PROMPT, height=HEIGHT, width=WIDTH, num_inference_steps=STEPS, guidance_scale=0.0, latents=noise.clone(),
+                 max_sequence_length=LENGTH, output_type="pt").images
+    ref.add("q8_image", image[0])
     ref.save({"tokens": tokens, "lengths": lengths, "template": template, "prompt": PROMPT, "steps": STEPS, "height": HEIGHT, "width": WIDTH,
-              "length": LENGTH, "timesteps": [float(t) for t in pipe.scheduler.timesteps]})
+              "length": LENGTH, "timesteps": timesteps})
     print("written", root)
 
 

@@ -10,8 +10,8 @@ namespace Sharplight.ImageGeneration.Tests;
 /// <summary>
 /// The tiny random Z-Image pipeline (tools/make-tiny-zimage.py): the chat-templated Qwen3 prompt tokens, the text encoder's
 /// second-to-last hidden states, the transformer (image and caption padding, caption length from the mask), the VAE and a whole
-/// text-to-image run against diffusers, on the CPU and on Vulkan, from the diffusers folder and from the transformer-only single file
-/// with the folder's text encoder and VAE as companions.
+/// text-to-image run against diffusers, on the CPU and on Vulkan, from the diffusers folder and from the transformer-only files (original
+/// names, Q8_0 GGUF) with the folder's text encoder and VAE as companions.
 /// </summary>
 public sealed class TinyZImageTests
 {
@@ -35,7 +35,7 @@ public sealed class TinyZImageTests
             return Env.Load(diffusers, slot);
         }
 
-        return Env.Load(Path.Combine(Root, "single", "zimage.safetensors"), slot, new Dictionary<string, string>
+        return Env.Load(Path.Combine(Root, "single", source == "gguf" ? "zimage-Q8_0.gguf" : "zimage.safetensors"), slot, new Dictionary<string, string>
         {
             [AuxiliaryRoles.TextEncoder] = Path.Combine(diffusers, "text_encoder"),
             [AuxiliaryRoles.Vae] = Path.Combine(diffusers, "vae", "diffusion_pytorch_model.safetensors"),
@@ -47,7 +47,7 @@ public sealed class TinyZImageTests
         var data = new TheoryData<string, string>();
         foreach (string device in new[] { "cpu", "vulkan" })
         {
-            foreach (string source in new[] { "diffusers", "single" })
+            foreach (string source in new[] { "diffusers", "single", "gguf" })
             {
                 data.Add(device, source);
             }
@@ -85,8 +85,11 @@ public sealed class TinyZImageTests
             (DiffusionGraphs.Timestep, Tensor("transformer_timestep")),
             (DiffusionGraphs.Context, Tensor("transformer_context")),
             (DiffusionGraphs.ContextMask, Tensor("transformer_context_mask")));
-        var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor("transformer_out"));
-        Assert.True(transformerRms < 1e-4, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
+        var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor(source == "gguf" ? "transformer_q8_out" : "transformer_out"));
+        // Q8_0 matrices: the backends' integer dot products quantize the activations as well (the CPU's per-32 blocks cost 2 % on
+        // these random caption features, Vulkan's 0.4 %; the text-to-image runs stay above 40 dB). Vulkan's f16 attention products: 2.5e-4.
+        double tolerance = source == "gguf" ? (device == "cpu" ? 3e-2 : 5e-3) : (device == "cpu" ? 1e-4 : 1e-3);
+        Assert.True(transformerRms < tolerance, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
 
         const float scaling = 0.3611f;
         const float shift = 0.1159f;
@@ -139,7 +142,7 @@ public sealed class TinyZImageTests
         };
         var result = await generator.GenerateAsync(new ImageGenerationRequest { Prompt = index.GetProperty("prompt").GetString()! }, options,
             TestContext.Current.CancellationToken);
-        var expected = PlanarImage.FromPlanar(Tensor("image"), width, height, 0f, 1f);
+        var expected = PlanarImage.FromPlanar(Tensor(source == "gguf" ? "q8_image" : "image"), width, height, 0f, 1f);
         double psnr = Env.Psnr(result.Images[0].Rgb, expected.Rgb);
         Assert.True(psnr > 40, $"Z-Image from {source} on {device}: PSNR {psnr:F1} dB");
     }

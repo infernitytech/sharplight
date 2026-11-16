@@ -17,8 +17,14 @@ internal static partial class ZImageNames
     /// <summary>Whether the names are a Z-Image transformer in the original layout (after removing <paramref name="prefix"/>).</summary>
     /// <param name="names">Tensor names.</param>
     /// <param name="prefix">Prefix in front of the transformer names.</param>
+    /// <remarks>
+    /// Lumina-Image-2.0, whose GGUF files share the <c>lumina2</c> architecture id, has the same refiner layout but a SiLU in front of
+    /// its block modulation (<c>adaLN_modulation.1</c>); Z-Image's is a bare projection (<c>adaLN_modulation.0</c>).
+    /// </remarks>
     public static bool IsOriginal(IEnumerable<string> names, string prefix)
-        => names.Any(n => n == prefix + "cap_pad_token") && names.Any(n => n == prefix + "noise_refiner.0.attention.qkv.weight" || n == prefix + "noise_refiner.0.attention.to_q.weight");
+        => names.Any(n => n == prefix + "cap_pad_token")
+           && names.Any(n => n == prefix + "noise_refiner.0.attention.qkv.weight" || n == prefix + "noise_refiner.0.attention.to_q.weight")
+           && names.Any(n => n == prefix + "layers.0.adaLN_modulation.0.weight");
 
     /// <summary>Adds transformer tensors of either layout (names after <paramref name="prefix"/>; other tensors are ignored).</summary>
     /// <param name="tensors">The tensors by stored name.</param>
