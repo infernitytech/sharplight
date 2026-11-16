@@ -1204,6 +1204,36 @@ Tests: `tests/Sharplight.Speech.Tests` (`MoonshineParityTests`, `ParakeetParityT
 `FourierTransformTests`), fixtures from `tests/Sharplight.Speech.Tests/tools/make_whisper_fixtures.py`; the audio endpoints in
 `Sharplight.Serving.Tests` (`AudioApiTests`); the Studio inspector in `PackageInspectorTests.SpeechPackage_ShowsSpeechRecognitionComponents`; recognition, loading and the Transcribe page for the GGUF and whisper.cpp files in `GgufRealModelTests`.
 
+### 13.1 Speech popularity sweep (2026-11-16)
+
+The most downloaded `automatic-speech-recognition` and `text-to-speech` models of the Hub (sorted by downloads, cross-checked with the
+`text-to-audio` list), tried in the formats they are distributed in. References: transformers 5.23 (greedy, float32, CPU) in a venv; clips: jfk.wav,
+LibriSpeech 1272-128104-0004, and FLEURS test clips in German, Spanish and Japanese. "Same text" compares case- and punctuation-insensitively.
+
+| Model | Format | Result |
+|---|---|---|
+| openai/whisper-large-v3 | HF | same text as transformers on all 5 clips (CPU of the reference, Vulkan) |
+| handy-computer/whisper-large-v3-gguf | GGUF Q5_K_M | same text as transformers on all 5 clips |
+| facebook/wav2vec2-base-960h | HF | **new**: CTC ids and text identical to transformers on jfk and LibriSpeech, CPU and Vulkan (`Wav2Vec2ParityTests`) |
+| jonatasgrosman/wav2vec2-large-xlsr-53-japanese | HF `pytorch_model.bin` | **new**: layer-normed feature encoder and pre-norm layers; text identical to transformers on the Japanese clip |
+| handy-computer/parakeet-tdt-0.6b-v3-gguf | transcribe.cpp GGUF F16, Q8_0 | **new**: F16 text identical to the HF checkpoint on 5 clips, tokens identical on jfk and LibriSpeech, CPU and Vulkan (`ParakeetGgufParityTests`); Q8_0 differs in one capital letter (German) and a few Japanese kana |
+| handy-computer/parakeet-ultra-gguf | GGUF Q8_0 | **new**: the `vad.*` head is ignored; English and Spanish transcripts correct (no reference run) |
+| handy-computer/parakeet-unified-en-0.6b-gguf | GGUF Q8_0 | **new**, partial: RNN-T head with biases and input scaling; transcripts match the reference text, no NeMo reference |
+| handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | GGUF | rejected with a reason: layer-norm convolution module, causal convolutions, chunked-limited attention (cache-aware streaming FastConformer) |
+| Qwen/Qwen3-ASR-1.7B (+ transcribe.cpp GGUF) | HF | unsupported: audio-LLM (conv2d stem, 24-layer windowed audio tower, projector into a Qwen3 decoder); needs the audio-embedding path of the multimodal decoder |
+| mistralai/Voxtral-Mini-4B-Realtime-2602 | HF | unsupported: audio tower, tekken tokenizer, streaming decoder |
+| handy-computer/cohere-transcribe-03-2026-gguf | GGUF | unsupported architecture `cohere_asr` |
+| Systran/faster-whisper-* | CTranslate2 | unsupported format (no importer) |
+| Xenova/whisper-* | ONNX | graphs run through the ONNX runner (section 9), no speech-recognition task on ONNX graphs |
+| hexgrad/Kokoro-82M | PyTorch folder | re-checked: synthesized sentence transcribed by Whisper small with one name misspelled ("Sharplugget") |
+| XTTS v2, Chatterbox, F5-TTS, OmniVoice, VoxCPM2, VibeVoice, Qwen3-TTS, CosyVoice 3, MeloTTS, SpeechT5, Indic Parler-TTS, KittenTTS | various | unsupported architectures (metadata only, not downloaded); each needs its own acoustic model plus codec / flow-matching decoder / vocoder |
+
+Fixes of the sweep: wav2vec2 CTC import and `Wav2Vec2CtcAdapter` (weight-normed grouped positional convolution folded at import, both
+`weight_g`/`weight_v` and parametrization names; character CTC vocabularies become a Unigram tokenizer with `|` as the space); a `parakeet`
+GGUF mapping (transcribe.cpp layout, the Slaney filter bank computed from the front-end parameters since the file stores none:
+`IGgufArchitectureMapping.SyntheticAttachments`, `IgnoresTensor`); the Slaney mel filter bank moved from the Hugging Face importer to
+`Sharplight.Audio.SlaneyMelFilterBank` in Core. Not run: Studio Transcribe page for the new formats, `.slm` of the new models.
+
 ## 14. Vision models (task layer)
 
 Vision models run through the task layer (kinds `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`; see docs/api-overview.md "Tasks"). The host-side

@@ -25,6 +25,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<EncoderAdapter>()
                 .AddModelAdapter<EncoderDecoderAdapter>()
                 .AddModelAdapter<ConformerAsrAdapter>()
+                .AddModelAdapter<Wav2Vec2CtcAdapter>()
                 .AddModelAdapter<NemotronHAdapter>()
                 .AddModelAdapter<HybridAdapter>()
                 .AddModelAdapter<DepthMemoryAdapter>()

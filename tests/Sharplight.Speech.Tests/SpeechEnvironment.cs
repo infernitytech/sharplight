@@ -49,6 +49,10 @@ internal static class SpeechEnvironment
     /// <param name="name">The directory name, e.g. <c>whisper-tiny</c>.</param>
     public static string HuggingFace(string name) => Path.Combine(s_models, "hf", name);
 
+    /// <summary>A speech GGUF file under <c>~/models/speech-gguf</c> (transcribe.cpp layout).</summary>
+    /// <param name="name">The file name, e.g. <c>parakeet-tdt-0.6b-v3-F16.gguf</c>.</param>
+    public static string SpeechGguf(string name) => Path.Combine(s_models, "speech-gguf", name);
+
     /// <summary>A whisper.cpp model file under <c>~/models/whisper.cpp</c>.</summary>
     /// <param name="name">The name without extension, e.g. <c>ggml-tiny.en</c>.</param>
     public static string WhisperCpp(string name) => Path.Combine(s_models, "whisper.cpp", name + ".bin");

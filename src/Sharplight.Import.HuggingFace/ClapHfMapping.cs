@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Sharplight.Architectures;
+using Sharplight.Audio;
 using Sharplight.Models;
 using Sharplight.Tensors;
 
@@ -144,7 +145,7 @@ internal sealed partial class ClapHfMapping : IHfArchitectureMapping
         var feature = FeatureConfig(directory);
         int bins = (int)feature.Double("feature_size", 64);
         int fft = (int)feature.Double("fft_window_size", 1024);
-        var filters = HfMelFilterBank.Create(bins, fft, (int)feature.Double("sampling_rate", 48000), feature.Double("frequency_min", 50), feature.Double("frequency_max", 14000));
+        var filters = SlaneyMelFilterBank.Create(bins, fft, (int)feature.Double("sampling_rate", 48000), feature.Double("frequency_min", 50), feature.Double("frequency_max", 14000));
         return new Dictionary<string, IWeightSource> { [ClapAdapter.MelFiltersAttachment] = new MemoryWeightSource(MemoryMarshal.AsBytes(filters.AsSpan()).ToArray()) };
     }
 
