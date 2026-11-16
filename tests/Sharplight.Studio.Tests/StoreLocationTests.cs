@@ -32,7 +32,8 @@ public sealed class StoreLocationTests
     [Fact]
     public void CommandLine_WinsOverTheSettings()
     {
-        var resolution = StoreLocation.Resolve("/cli", new AppSettings { ModelsLocation = ModelStoreLocation.User });
+        using var dir = new TempDir();
+        var resolution = StoreLocation.Resolve("/cli", new AppSettings { ModelsLocation = ModelStoreLocation.User }, TestServices.CreateLayout(dir.Path));
         Assert.Equal(("/cli", ModelStoreSource.CommandLine), (resolution.Root, resolution.Source));
     }
 
@@ -40,7 +41,7 @@ public sealed class StoreLocationTests
     public void SettingsService_ResolvesTheChosenFolder_AndFollowsChanges()
     {
         using var dir = new TempDir();
-        var settings = new JsonSettingsService(dir.File("settings.json"), null);
+        var settings = new JsonSettingsService(dir.File("settings.json"), null, TestServices.CreateLayout(dir.Path));
         settings.Update(current => current with { ModelsLocation = ModelStoreLocation.Custom, ModelsDirectory = dir.File("custom") });
         if (Environment.GetEnvironmentVariable(ModelStore.EnvironmentVariable) is { Length: > 0 })
         {
@@ -50,6 +51,9 @@ public sealed class StoreLocationTests
         Assert.Equal(dir.File("custom"), settings.StoreRoot);
         Assert.Equal("Settings: custom folder", settings.StoreRootSource);
         settings.Update(current => current with { ModelsLocation = ModelStoreLocation.User });
-        Assert.Equal(ModelStore.UserRoot, settings.StoreRoot);
+        Assert.Equal(ModelStore.SystemRoot, settings.StoreRoot);
+        settings.Update(current => current with { ModelsLocation = ModelStoreLocation.Application });
+        Assert.Equal(TestServices.CreateLayout(dir.Path).ModelsDirectory, settings.StoreRoot);
+        Assert.Equal("Settings: custom storage folder", settings.StoreRootSource);
     }
 }

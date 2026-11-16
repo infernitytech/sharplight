@@ -245,7 +245,8 @@ unchanged sets). The compilation workload (`ModelCompilation`) compiles the grap
 ## The per-user artifact store
 
 The artifact sets of a package also have a second location: the per-user `ArtifactStore` (Sharplight.Core). It sits in
-`sharplight/artifacts` in the local application data folder, which is `~/.local/share/sharplight/artifacts` on Linux. A set there
+`artifacts` in the cache folder of the storage location (`StorageLayout.ArtifactsDirectory`, see [storage.md](storage.md)): that is
+`~/.cache/sharplight/artifacts` in system mode on Linux, and `data/cache/artifacts` next to a portable package. A set there
 is the same set a package holds: the same descriptor, id (`ArtifactDescriptor.Id`), keys, tier and matching. Each set gets its own
 directory named by its id, with the descriptor in `descriptor.json` and one file per entry. An entry file holds the key, the data
 and a SHA-256 of the data. Entry files are not ARTS sections, because each one has to be replaced atomically on its own.

@@ -84,6 +84,91 @@
         </StackPanel>
       </Border>
 
+      <!-- Storage -->
+      <Border Classes="card" DataContext="{Binding Storage}" x:DataType="setvm:StorageSettingsViewModel">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h3" Text="Storage" />
+          <TextBlock Classes="caption" TextWrapping="Wrap"
+                     Text="Where Studio and the engine keep everything they write: settings, history, models, compiled kernels, caches and logs. The command-line tools use the same location." />
+          <TextBlock Classes="caption" TextWrapping="Wrap">
+            <Run Text="In use:" />
+            <Run Text="{Binding CurrentDescription, Mode=OneWay}" FontWeight="Medium" />
+          </TextBlock>
+          <Border Classes="hint" IsVisible="{Binding Notice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" />
+          </Border>
+          <TextBlock Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsLocked}"
+                     Text="SHARPLIGHT_HOME sets the storage folder; unset it to choose another location here." />
+          <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding StudioHomeNote}"
+                     IsVisible="{Binding StudioHomeNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <StackPanel Spacing="6" IsEnabled="{Binding !IsLocked}">
+            <TextBlock Classes="label" Text="Location" />
+            <ListBox Classes="plain" ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}">
+              <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="4" />
+                </ItemsPanelTemplate>
+              </ListBox.ItemsPanel>
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="setvm:StorageModeChoice">
+                  <TextBlock Text="{Binding Name}" Margin="10,5" />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Classes="caption" Text="{Binding SelectedMode.Description}" TextWrapping="Wrap" />
+            <DockPanel IsVisible="{Binding IsCustom}">
+              <Button DockPanel.Dock="Right" Classes="small" Content="Browse…" Command="{Binding BrowseCommand}" Margin="6,0,0,0" />
+              <TextBox Text="{Binding CustomRoot}" PlaceholderText="Folder for everything Sharplight writes" />
+            </DockPanel>
+          </StackPanel>
+          <ItemsControl ItemsSource="{Binding Paths}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="setvm:StoragePathRow">
+                <Grid ColumnDefinitions="200,*" Margin="0,2">
+                  <TextBlock Classes="label" Text="{Binding Name}" />
+                  <StackPanel Grid.Column="1">
+                    <SelectableTextBlock Classes="caption" Text="{Binding Current}" TextWrapping="Wrap" />
+                    <SelectableTextBlock Classes="caption" Text="{Binding Next, StringFormat='→ {0}'}" TextWrapping="Wrap" FontWeight="Medium"
+                                         IsVisible="{Binding Changes}" />
+                  </StackPanel>
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <StackPanel Spacing="8" IsVisible="{Binding HasChange}">
+            <ComboBox ItemsSource="{Binding Transfers}" SelectedItem="{Binding SelectedTransfer}" MinWidth="320" IsEnabled="{Binding !IsBusy}">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="setvm:StorageTransferChoice">
+                  <TextBlock Text="{Binding Name}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <CheckBox Content="Keep the models where they are (they are large; Studio keeps using that folder)" IsChecked="{Binding KeepModels}"
+                      IsVisible="{Binding CanKeepModels}" IsEnabled="{Binding !IsBusy}" />
+            <TextBlock Classes="caption" TextWrapping="Wrap"
+                       Text="Copies are verified before anything is deleted; moved originals are removed when Studio starts again. An interrupted change leaves the current location in use." />
+            <Border Classes="hint" IsVisible="{Binding Problem, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <TextBlock Text="{Binding Problem}" TextWrapping="Wrap" />
+            </Border>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Classes="accent" Content="Change location" Command="{Binding ApplyCommand}" />
+              <Button Classes="small" Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsBusy}" />
+            </StackPanel>
+          </StackPanel>
+          <StackPanel Spacing="4" IsVisible="{Binding IsBusy}">
+            <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" />
+            <TextBlock Classes="caption" Text="{Binding ProgressText}" TextTrimming="CharacterEllipsis" />
+          </StackPanel>
+          <Border Classes="hint" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Classes="small" Content="Restart now" Command="{Binding RestartCommand}" IsVisible="{Binding NeedsRestart}"
+                      VerticalAlignment="Center" Margin="8,0,0,0" />
+              <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+            </DockPanel>
+          </Border>
+        </StackPanel>
+      </Border>
+
       <!-- Models -->
       <Border Classes="card">
         <StackPanel Spacing="12">
@@ -122,7 +207,7 @@
           </StackPanel>
           <ToggleSwitch Content="Precompile after downloading for every GPU and execution provider on this machine (faster first load)" IsChecked="{Binding PrecompileAfterDownload}" />
           <ToggleSwitch Content="Keep the downloaded source files after converting" IsChecked="{Binding KeepSourceFiles}" />
-          <ToggleSwitch Content="Keep compiled kernels in the per-user compilation cache (models that are not precompiled load faster the second time)"
+          <ToggleSwitch Content="Keep compiled kernels in the compilation cache of the storage location (models that are not precompiled load faster the second time)"
                         IsChecked="{Binding UseCompilationCache}" />
         </StackPanel>
       </Border>

@@ -1,10 +1,9 @@
+using Sharplight.Storage;
+
 namespace Sharplight.Hub.Tests;
 
 public sealed class StoreLocationTests : IDisposable
 {
-    private static readonly Func<string, bool> s_writable = _ => true;
-    private static readonly Func<string, bool> s_readOnly = _ => false;
-
     private readonly TempDirectory _directory = new();
 
     public void Dispose() => _directory.Dispose();
@@ -13,51 +12,54 @@ public sealed class StoreLocationTests : IDisposable
 
     private string User => _directory.Combine("user");
 
-    private string AppData => Path.Combine(App, ModelStore.ApplicationDirectoryName);
+    private StorageEnvironment Environment => new() { ApplicationDirectory = App, HomeDirectory = _directory.Combine("home"), Platform = StoragePlatform.Linux };
+
+    private StorageLayout Portable => StorageLayout.Create(StorageMode.Portable, null, Environment);
 
     [Fact]
-    public void CommandLineThenEnvironmentThenSettingsThenApplicationFolder()
+    public void CommandLineThenEnvironmentThenSettingsThenTheStorageLayout()
     {
         var settings = new ModelStoreSettings { Location = ModelStoreLocation.Custom, CustomPath = "/settings" };
 
         Assert.Equal(new ModelStoreResolution("/cli", ModelStoreSource.CommandLine, ModelStoreLocation.Custom),
-            ModelStore.Resolve("/cli", "/env", settings, App, User, s_writable));
+            ModelStore.Resolve("/cli", "/env", settings, Portable, User));
         Assert.Equal(new ModelStoreResolution("/env", ModelStoreSource.EnvironmentVariable, ModelStoreLocation.Custom),
-            ModelStore.Resolve(" ", "/env", settings, App, User, s_writable));
+            ModelStore.Resolve(" ", "/env", settings, Portable, User));
         Assert.Equal(new ModelStoreResolution("/settings", ModelStoreSource.Settings, ModelStoreLocation.Custom),
-            ModelStore.Resolve(null, "", settings, App, User, s_writable));
-        Assert.Equal(new ModelStoreResolution(AppData, ModelStoreSource.Default, ModelStoreLocation.Application),
-            ModelStore.Resolve(null, null, null, App, User, s_writable));
+            ModelStore.Resolve(null, "", settings, Portable, User));
+        Assert.Equal(new ModelStoreResolution(Path.Combine(App, "data", "models"), ModelStoreSource.Default, ModelStoreLocation.Application, StorageMode.Portable),
+            ModelStore.Resolve(null, null, null, Portable, User));
     }
 
     [Fact]
-    public void SettingsChooseTheApplicationUserOrCustomFolder()
+    public void SettingsChooseTheLayoutTheSystemOrACustomFolder()
     {
         Assert.Equal(new ModelStoreResolution(User, ModelStoreSource.Settings, ModelStoreLocation.User),
-            ModelStore.Resolve(null, null, new ModelStoreSettings { Location = ModelStoreLocation.User }, App, User, s_writable));
-        Assert.Equal(new ModelStoreResolution(AppData, ModelStoreSource.Settings, ModelStoreLocation.Application),
-            ModelStore.Resolve(null, null, new ModelStoreSettings(), App, User, s_writable));
+            ModelStore.Resolve(null, null, new ModelStoreSettings { Location = ModelStoreLocation.User }, Portable, User));
+        Assert.Equal(Portable.ModelsDirectory, ModelStore.Resolve(null, null, new ModelStoreSettings(), Portable, User).Root);
 
         // A custom location without a path is no choice: the default applies.
-        Assert.Equal(new ModelStoreResolution(AppData, ModelStoreSource.Default, ModelStoreLocation.Application),
-            ModelStore.Resolve(null, null, new ModelStoreSettings { Location = ModelStoreLocation.Custom, CustomPath = " " }, App, User, s_writable));
+        Assert.Equal(new ModelStoreResolution(Portable.ModelsDirectory, ModelStoreSource.Default, ModelStoreLocation.Application, StorageMode.Portable),
+            ModelStore.Resolve(null, null, new ModelStoreSettings { Location = ModelStoreLocation.Custom, CustomPath = " " }, Portable, User));
     }
 
     [Fact]
-    public void ApplicationFolderNotWritable_FallsBackToTheUserFolder_AndSaysSo()
+    public void ThePortableFallback_IsReported()
     {
-        var byDefault = ModelStore.Resolve(null, null, null, App, User, s_readOnly);
-        Assert.Equal(new ModelStoreResolution(User, ModelStoreSource.Default, ModelStoreLocation.User, ApplicationFolderNotWritable: true), byDefault);
-        Assert.Equal("Default: user folder, the application folder is not writable", byDefault.Description);
+        File.WriteAllText(Path.Combine(_directory.Path, StorageLayout.PortableMarkerFileName), "");
+        var environment = new StorageEnvironment
+        {
+            ApplicationDirectory = _directory.Path,
+            HomeDirectory = _directory.Combine("home"),
+            Platform = StoragePlatform.Linux,
+            CanWrite = _ => false,
+        };
+        var layout = StorageLayout.Resolve(environment);
 
-        var bySettings = ModelStore.Resolve(null, null, new ModelStoreSettings(), App, User, s_readOnly);
-        Assert.Equal(User, bySettings.Root);
-        Assert.True(bySettings.ApplicationFolderNotWritable);
-        Assert.StartsWith("Settings:", bySettings.Description, StringComparison.Ordinal);
+        var resolution = ModelStore.Resolve(null, null, null, layout, User);
 
-        // Only the application folder is probed: explicit directories are used as given.
-        Assert.Equal("/custom", ModelStore.Resolve(null, null, new ModelStoreSettings { Location = ModelStoreLocation.Custom, CustomPath = "/custom" }, App, User, s_readOnly).Root);
-        Assert.Equal("/cli", ModelStore.Resolve("/cli", null, null, App, User, s_readOnly).Root);
+        Assert.Equal(layout.ModelsDirectory, resolution.Root);
+        Assert.StartsWith("Default: system storage; the portable folder", resolution.Description, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -65,73 +67,24 @@ public sealed class StoreLocationTests : IDisposable
     {
         Assert.Equal("--models-dir", new ModelStoreResolution("/x", ModelStoreSource.CommandLine, ModelStoreLocation.Custom).Description);
         Assert.Equal(ModelStore.EnvironmentVariable, new ModelStoreResolution("/x", ModelStoreSource.EnvironmentVariable, ModelStoreLocation.Custom).Description);
-        Assert.Equal("Default: application folder", new ModelStoreResolution("/x", ModelStoreSource.Default, ModelStoreLocation.Application).Description);
-        Assert.Equal("Settings: user folder", new ModelStoreResolution("/x", ModelStoreSource.Settings, ModelStoreLocation.User).Description);
+        Assert.Equal("Default: portable storage", new ModelStoreResolution("/x", ModelStoreSource.Default, ModelStoreLocation.Application, StorageMode.Portable).Description);
+        Assert.Equal("Default: system storage", new ModelStoreResolution("/x", ModelStoreSource.Default, ModelStoreLocation.Application).Description);
+        Assert.Equal("Settings: system folder", new ModelStoreResolution("/x", ModelStoreSource.Settings, ModelStoreLocation.User).Description);
         Assert.Equal("Settings: custom folder", new ModelStoreResolution("/x", ModelStoreSource.Settings, ModelStoreLocation.Custom).Description);
     }
 
     [Fact]
-    public void WriteProbe_CreatesTheFolder_AndRejectsReadOnlyFolders()
+    public void PreviousStores_IncludeTheFoldersOfEarlierVersions()
     {
-        var data = _directory.Combine("writable", ModelStore.ApplicationDirectoryName);
-        Assert.True(ModelStore.CanWrite(data));
-        Assert.True(Directory.Exists(data));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(data));   // the probe file is gone
+        var layout = StorageLayout.Create(StorageMode.System, null, Environment);
+        var legacy = new ModelStore(Path.Combine(App, "data"));   // earlier versions kept models directly in data/ next to the executable
+        Add(legacy, "owner/model", "Q8_0");
 
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
+        var candidates = ModelStore.PreviousStoreCandidates(layout, User);
+        var previous = ModelStore.FindPreviousStore(ModelStore.Resolve(null, null, null, layout, User).Root, candidates);
 
-        var readOnly = _directory.Combine("read-only");
-        Directory.CreateDirectory(readOnly);
-        File.SetUnixFileMode(readOnly, UnixFileMode.UserRead | UnixFileMode.UserExecute);
-        try
-        {
-            bool isPrivileged = Environment.UserName == "root";
-            Assert.Equal(isPrivileged, ModelStore.CanWrite(Path.Combine(readOnly, ModelStore.ApplicationDirectoryName)));
-            Assert.Equal(isPrivileged, ModelStore.CanWrite(readOnly));
-        }
-        finally
-        {
-            File.SetUnixFileMode(readOnly, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-    }
-
-    [Fact]
-    public void SystemInstallLocations_AreNotUsedForModels()
-    {
-        Assert.False(ModelStore.IsInstallLocation(_directory.Combine("app", "data")));
-        if (OperatingSystem.IsLinux())
-        {
-            Assert.True(ModelStore.IsInstallLocation("/usr/lib/sharplight/data"));
-            Assert.False(ModelStore.CanWrite("/usr/lib/sharplight/data"));
-        }
-    }
-
-    [Fact]
-    public void AppImageDirectory_IsNotUsedForModels()
-    {
-        var mounted = _directory.Combine("appimage-mount");
-        Assert.True(ModelStore.IsInstallLocation(Path.Combine(mounted, "usr", "bin", "data"), mounted, App));
-        Assert.False(ModelStore.IsInstallLocation(Path.Combine(User, "models"), mounted, App));
-    }
-
-    [Fact]
-    public void VelopackApplicationDirectory_IsNotUsedForModels()
-    {
-        var root = _directory.Combine("velopack");
-        var current = Path.Combine(root, "current");
-        Directory.CreateDirectory(current);
-        File.WriteAllBytes(Path.Combine(root, "Update.exe"), []);
-        Assert.True(ModelStore.IsInstallLocation(Path.Combine(current, "data"), null, current));
-        Assert.False(ModelStore.IsInstallLocation(Path.Combine(App, "data"), null, App));
-    }
-
-    [Fact]
-    public void ApplicationRoot_IsTheDataFolderNextToTheExecutable()
-    {
-        Assert.Equal(Path.Combine(AppContext.BaseDirectory, "data"), ModelStore.ApplicationRoot);
+        Assert.Equal([User, Path.Combine(App, "data", "models"), Path.Combine(App, "data"), Path.Combine(App, "models")], candidates);
+        Assert.Equal(legacy.Root, previous?.Root);
     }
 
     [Fact]
@@ -146,7 +99,7 @@ public sealed class StoreLocationTests : IDisposable
 
         File.WriteAllText(path, "{ not json");
         Assert.Null(ModelStoreSettings.Load(path));
-        Assert.EndsWith(Path.Combine("sharplight", ModelStoreSettings.FileName), ModelStoreSettings.DefaultFile, StringComparison.Ordinal);
+        Assert.Equal(Path.Combine(Portable.ConfigDirectory, ModelStoreSettings.FileName), ModelStoreSettings.FileFor(Portable));
     }
 
     [Fact]

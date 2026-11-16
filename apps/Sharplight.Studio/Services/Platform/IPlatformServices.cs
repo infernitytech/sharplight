@@ -17,4 +17,7 @@ internal interface IPlatformServices
 
     /// <summary>Opens a folder in the file manager or a URL in the browser.</summary>
     public void Open(string pathOrUrl);
+
+    /// <summary>Starts the app again (the AppImage, or the same executable with the same arguments) and closes this instance.</summary>
+    public void Restart();
 }

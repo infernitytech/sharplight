@@ -1,4 +1,7 @@
+using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 using Sharplight.Studio.Services.Platform;
@@ -82,6 +85,29 @@ internal sealed class AvaloniaPlatformServices(Func<TopLevel?> topLevel) : IPlat
         else if (File.Exists(pathOrUrl))
         {
             _ = launcher.LaunchFileInfoAsync(new FileInfo(pathOrUrl));
+        }
+    }
+
+    /// <inheritdoc/>
+    public void Restart()
+    {
+        // An AppImage is started through its file (APPIMAGE), not through the mounted image the process runs from.
+        var executable = Environment.GetEnvironmentVariable("APPIMAGE") is { Length: > 0 } appImage ? appImage : Environment.ProcessPath;
+        if (executable is null)
+        {
+            return;
+        }
+
+        var start = new ProcessStartInfo(executable) { UseShellExecute = false };
+        foreach (var argument in Environment.GetCommandLineArgs().Skip(1))
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        Process.Start(start)?.Dispose();
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.Shutdown();
         }
     }
 }

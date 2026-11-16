@@ -1,11 +1,12 @@
 using Sharplight.Hub;
+using Sharplight.Storage;
 using Sharplight.Studio.Models;
 
 namespace Sharplight.Studio.Services.Settings;
 
 /// <summary>
 /// Resolves the model store like the command-line tools: <c>--models-dir</c>, then <c>SHARPLIGHT_MODELS</c>, then the location
-/// chosen in the settings, then the <c>data</c> folder in the application directory (the per-user store when that is not writable).
+/// chosen in the settings, then the <c>models</c> folder of the storage layout (portable, system or custom).
 /// </summary>
 internal static class StoreLocation
 {
@@ -17,12 +18,12 @@ internal static class StoreLocation
         return location is null ? null : new ModelStoreSettings { Location = location.Value, CustomPath = custom };
     }
 
-    /// <summary>The location to show in the settings: the chosen one, or the application folder when none was chosen.</summary>
+    /// <summary>The location to show in the settings: the chosen one, or the storage layout's folder when none was chosen.</summary>
     public static ModelStoreLocation Effective(AppSettings settings) => ToStoreSettings(settings)?.Location ?? ModelStoreLocation.Application;
 
-    /// <summary>Resolves with this process's environment and application directory.</summary>
-    public static ModelStoreResolution Resolve(string? commandLine, AppSettings settings)
+    /// <summary>Resolves with this process's environment and <paramref name="layout"/>.</summary>
+    public static ModelStoreResolution Resolve(string? commandLine, AppSettings settings, StorageLayout layout)
     {
-        return ModelStore.Resolve(commandLine, ToStoreSettings(settings));
+        return ModelStore.Resolve(commandLine, ToStoreSettings(settings), layout);
     }
 }

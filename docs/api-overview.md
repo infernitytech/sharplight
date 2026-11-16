@@ -42,7 +42,8 @@ they need no extra `using`):
 | `Sharplight.Core` (`Sharplight.Package`) | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order) |
 | `Sharplight.Audio` | `AddSharplightAudio(o => ...)` | native audio (own C library over miniaudio, libopus, libogg, opusfile, libvorbis): `IAudioDecoder` (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), `IAudioEncoder` (WAV, Ogg Opus), `IAudioDeviceProvider` (playback and capture streams); replaces the WAV-only `AddWavAudio()` services of the core, which stay the fallback when the native library cannot be loaded |
-| `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()` |
+| `Sharplight.Core` | `AddSharplightStorage()`, `AddSharplightStorage(layout)` | the `StorageLayout` (portable, system or custom location of configuration, data, models, caches and logs; [storage.md](storage.md)) |
+| `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightStorage()`, `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()` |
 | `Sharplight.Extensions.AI` | `AddSharplightChatClient(o => ...)`, `AddSharplightEmbeddingGenerator(o => ...)`, `AddSharplightSpeechToTextClient()`, ... | Microsoft.Extensions.AI adapters |
 | `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
 
@@ -554,8 +555,8 @@ crash-safe in-place write. Loads pick the best stored stage per kernel on their 
 compile), and validate device code before the driver sees it. After a load, `CompilationArtifacts.CompileDeviceCodeAsync(providers)`
 turns what it compiled into device code (`LlmModel.Artifacts`, `TaskModel.Artifacts`).
 
-The same artifact sets also live in a second place: the per-user `ArtifactStore` (`sharplight/artifacts` in the local application
-data folder). It uses the descriptors, set ids, keys, tiers and matching of the sets in a package, one subdirectory per set with
+The same artifact sets also live in a second place: the per-user `ArtifactStore` (`artifacts` in the cache folder of the storage
+layout, `ArtifactStore.DirectoryFor(layout)`; see [storage.md](storage.md)). It uses the descriptors, set ids, keys, tiers and matching of the sets in a package, one subdirectory per set with
 its descriptor in `descriptor.json`. Loads look in the package's sets first, then in the store, and only then compile. New SPIR-V
 is written to the store, and so is the driver's pipeline cache, in the pipeline-cache set of the device and driver. Packages change
 only when a host precompiles or converts on purpose. The store helps whenever a package cannot: GGUF, Hugging Face and ONNX models
@@ -568,7 +569,7 @@ and per device `DeviceOptions.KernelCacheDirectory` picks the directory and `Dev
 off.
 
 ```csharp
-var options = new DeviceOptions { KernelCacheDirectory = "/data/sharplight-artifacts" };  // or leave it null: the per-user store
+var options = new DeviceOptions { KernelCacheDirectory = "/data/sharplight-artifacts" };  // or leave it null: the storage layout's store
 using var device = provider.OpenDevice(info, options);
 ArtifactStore? store = device.ArtifactStore;                // the store this device reads and records into
 foreach (var set in store?.ArtifactSets ?? [])
