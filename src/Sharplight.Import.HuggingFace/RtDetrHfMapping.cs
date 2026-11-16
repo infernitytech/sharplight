@@ -83,6 +83,7 @@ internal sealed partial class RtDetrHfMapping : IHfArchitectureMapping
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [a + "hidden_size"] = c.Int("d_model"),
+            [a + "encoder.hidden_size"] = c.GetInt("encoder_hidden_dim") ?? c.Int("d_model"),
             [a + "attention.head_count"] = c.Int("decoder_attention_heads"),
             [a + "aifi.layer_count"] = c.Int("encoder_layers"),
             [a + "aifi.ffn_hidden_size"] = c.Int("encoder_ffn_dim"),
@@ -121,7 +122,8 @@ internal sealed partial class RtDetrHfMapping : IHfArchitectureMapping
         var collector = new HfWeightCollector();
         foreach (var (rawName, tensor) in tensors)
         {
-            if (rawName.EndsWith("num_batches_tracked", StringComparison.Ordinal) || rawName.Contains("denoising_class_embed", StringComparison.Ordinal) || IsBatchNorm(rawName))
+            // The v2 sampling-point scales are constants of the point count (1 / n_points per point).
+            if (rawName.EndsWith("num_batches_tracked", StringComparison.Ordinal) || rawName.EndsWith(".n_points_scale", StringComparison.Ordinal) || rawName.Contains("denoising_class_embed", StringComparison.Ordinal) || IsBatchNorm(rawName))
             {
                 continue;
             }
