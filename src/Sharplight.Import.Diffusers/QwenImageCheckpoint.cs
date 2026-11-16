@@ -28,7 +28,8 @@ internal static class QwenImageCheckpoint
             var weights = new CanonicalWeights();
             QwenImageNames.Add(tensors.Tensors, prefix, weights);
             string format = CheckpointTensors.IsGguf(path) ? "gguf" : "safetensors";
-            return QwenImageSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, QwenImageConfig.FromWeights(weights.Weights), tensors.Resources);
+            return QwenImageSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, QwenImageConfig.Architecture,
+                QwenImageConfig.FromWeights(weights.Weights).WriteTo, tensors.Resources);
         }
         catch
         {

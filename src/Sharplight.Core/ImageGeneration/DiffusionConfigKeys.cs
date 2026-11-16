@@ -67,6 +67,12 @@ public static class DiffusionConfigKeys
     /// </summary>
     public const string PromptSkip = "promptSkip";
 
+    /// <summary>
+    /// Tokenizer: the text an empty prompt (or negative prompt) is replaced with before tokenizing (Qwen-Image 2.1: " ", its encoder has
+    /// no start token to read otherwise); absent: empty prompts stay empty.
+    /// </summary>
+    public const string EmptyPrompt = "emptyPrompt";
+
     /// <summary>Scheduler: number of training timesteps (default 1000).</summary>
     public const string TrainSteps = "trainSteps";
 

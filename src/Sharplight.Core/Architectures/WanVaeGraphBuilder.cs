@@ -124,6 +124,12 @@ internal sealed class WanVaeGraphBuilder
             x = Unpatchify(x);
         }
 
+        if (_image && x.Shape[1].Fixed > 3)
+        {
+            // RGBA decoders (Qwen-Image 2.1): the image is the colour channels.
+            x = _b.Contiguous(_b.Slice(x, 1, 0, 3));
+        }
+
         var clamped = _b.Emit1("Clip", [x], Attributes.From(("min", -1f), ("max", 1f)));
         _b.Output(_image ? DiffusionGraphs.Image : VideoDiffusionGraphs.Frames, _b.Scale(clamped, 0.5f, 0.5f));
         return _b.Build();
@@ -137,6 +143,11 @@ internal sealed class WanVaeGraphBuilder
         {
             var image = _b.Input(DiffusionGraphs.Image, InputRole.Media, DataType.F32, new Shape(1, 3, height, width));
             x = _b.Reshape(_b.Scale(image, 2f, -1f), 1, 3, height, width);
+            if (InputChannels() == 4)
+            {
+                // RGBA encoders (Qwen-Image 2.1): an opaque alpha channel (1 in [−1, 1]).
+                x = _b.Concat(1, x, _b.Scale(_b.Slice(x, 1, 0, 1), 0f, 1f));
+            }
         }
         else if (_first)
         {
@@ -194,6 +205,14 @@ internal sealed class WanVaeGraphBuilder
         _b.Output(_image ? DiffusionGraphs.Latent : VideoDiffusionGraphs.Latent,
             _image ? _b.Reshape(normalized, 1, z, latentHeight, latentWidth) : _b.Reshape(normalized, z, latentHeight, latentWidth));
         return _b.Build();
+    }
+
+    /// <summary>The encoder's input channels per pixel (3, or 4 for RGBA VAEs), from its input convolution.</summary>
+    private long InputChannels()
+    {
+        // Time taps are folded into the input channels (multiples of 3 for RGB); an RGBA 2-D kernel has 4.
+        long channels = _b.Weight(P + "encoder.conv_in.weight").Shape[1].Fixed;
+        return channels % 3 != 0 && channels % 4 == 0 ? 4 : 3;
     }
 
     /// <summary>

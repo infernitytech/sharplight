@@ -59,7 +59,7 @@ internal static class QwenImageFolder
             var vae = new Dictionary<string, object>(StringComparer.Ordinal);
             WanVaeConfig.WriteTo(ReadJson(path, "vae"), vae, QwenImageConfig.Prefix);
             string displayName = Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)));
-            return QwenImageSource.Create("diffusers", displayName, path, weights, config, tensors.Resources, vae, textEncoder);
+            return QwenImageSource.Create("diffusers", displayName, path, weights, QwenImageConfig.Architecture, config.WriteTo, tensors.Resources, vae, textEncoder);
         }
         catch
         {

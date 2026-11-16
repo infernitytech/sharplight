@@ -35,6 +35,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly int _promptSkip;
     private readonly bool _guidanceRenormalization;
     private readonly string? _promptTemplate;
+    private readonly string? _emptyPrompt;
     private readonly bool _embeddedGuidance;
     private readonly bool _classifierFree;
     private bool _releaseTextEncoders;
@@ -62,6 +63,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         _tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
         _schedule = NoiseSchedule.FromComponent(description.Component(ModelComponentRoles.Scheduler));
         _promptTemplate = description.Component(ModelComponentRoles.Tokenizer).ConfigValue<string?>(DiffusionConfigKeys.PromptTemplate, null);
+        _emptyPrompt = description.Component(ModelComponentRoles.Tokenizer).ConfigValue<string?>(DiffusionConfigKeys.EmptyPrompt, null);
         var textEncoder = description.Component(ModelComponentRoles.TextEncoder);
         _contextLength = textEncoder.ConfigValue(DiffusionConfigKeys.ContextLength, 77);
         _promptSkip = textEncoder.ConfigValue(DiffusionConfigKeys.PromptSkip, 0);
@@ -361,6 +363,11 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     /// </summary>
     private PromptConditioning EncodePrompt(string prompt)
     {
+        if (prompt.Length == 0 && _emptyPrompt is not null)
+        {
+            prompt = _emptyPrompt;
+        }
+
         var (tokens, length) = PromptTokens(_tokenizer, _contextLength, prompt, _promptTemplate);
         var (hidden, pooled) = RunTextEncoder(ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, tokens, length);
         int rows = tokens.Length;
