@@ -15,7 +15,7 @@ import os
 import numpy as np
 import torch
 from PIL import Image
-from transformers import AutoModelForDepthEstimation, AutoConfig, AutoImageProcessor, AutoModel, AutoModelForImageClassification, AutoModelForObjectDetection, AutoTokenizer
+from transformers import AutoModelForDepthEstimation, AutoModelForSemanticSegmentation, AutoConfig, AutoImageProcessor, AutoModel, AutoModelForImageClassification, AutoModelForObjectDetection, AutoTokenizer
 
 
 def main() -> None:
@@ -64,6 +64,14 @@ def main() -> None:
                 {"label": model.config.id2label[int(l)], "score": float(sc), "box": [float(v) for v in b]}
                 for sc, l, b in zip(found["scores"], found["labels"], found["boxes"])
             ]
+        elif getattr(config, "architectures", None) and "ForSemanticSegmentation" in config.architectures[0]:
+            model = AutoModelForSemanticSegmentation.from_pretrained(args.model_dir).eval()
+            logits = model(pixel_values=pixels).logits[0]
+            result["logits_shape"] = list(logits.shape)
+            result["logits"] = logits.flatten().tolist()
+            up = torch.nn.functional.interpolate(logits[None], size=(image.height, image.width), mode="bilinear", align_corners=False)[0]
+            result["label_map"] = up.argmax(0).flatten().tolist()
+            result["labels"] = [model.config.id2label[i] for i in range(len(model.config.id2label))]
         elif getattr(config, "architectures", None) and "ForDepthEstimation" in config.architectures[0]:
             model = AutoModelForDepthEstimation.from_pretrained(args.model_dir).eval()
             depth = model(pixel_values=pixels).predicted_depth[0]

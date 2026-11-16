@@ -34,6 +34,9 @@ public static class ModelKinds
     /// <summary>Image (and optionally prompts) in, masks out: semantic, instance or promptable segmentation.</summary>
     public const string ImageSegmentation = "image-segmentation";
 
+    /// <summary>Image in, a class label per pixel out (<c>Sharplight.Vision.ISemanticSegmenter</c>: SegFormer, background removal).</summary>
+    public const string SemanticSegmentation = "image-segmentation-semantic";
+
     /// <summary>Image in, per-pixel depth out.</summary>
     public const string DepthEstimation = "depth-estimation";
 
