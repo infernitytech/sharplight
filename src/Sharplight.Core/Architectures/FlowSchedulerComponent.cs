@@ -51,6 +51,11 @@ internal static class FlowSchedulerComponent
             .Add(DiffusionConfigKeys.BaseSequenceLength, src.Get(s + "base_sequence_length", 256))
             .Add(DiffusionConfigKeys.MaxSequenceLength, src.Get(s + "max_sequence_length", 4096))
             .Add(DiffusionConfigKeys.Sampler, src.Get(s + "sampler", Samplers.Euler));
+        if (src.Get(s + "shift_terminal", 0.0) is > 0 and var terminal)
+        {
+            config.Add(DiffusionConfigKeys.ShiftTerminal, terminal);
+        }
+
         if (src.Get<string?>(s + "timestep_spacing", null) is { } spacing)
         {
             config.Add(DiffusionConfigKeys.TimestepSpacing, spacing);

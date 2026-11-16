@@ -61,7 +61,7 @@ public sealed class ZImageAdapter : IModelAdapter
             throw new ArgumentException($"Image size {width}x{height} must be a positive multiple of {multiple} pixels for {src.Get(CanonicalKeys.Name, src.Architecture)}.");
         }
 
-        var textSource = DecoderSubSource.Extract(src, TextEncoderSourcePrefix, TextEncoderPrefix);
+        var textSource = DecoderTextEncoder.Source(src, TextEncoderSourcePrefix, TextEncoderPrefix);
         var decoder = DecoderHyperParameters.Read(textSource);
         int layer = src.Get(Prefix + "text_encoder.layer", decoder.LogicalLayers - 1);
         var textGraph = new DecoderGraphBuilder(textSource, new AdapterOptions { IncludeAuxiliaryGraphs = false }, decoder)

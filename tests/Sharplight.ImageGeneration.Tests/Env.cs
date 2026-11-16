@@ -69,6 +69,15 @@ internal static class Env
     /// <summary>The tiny random Z-Image pipeline (tools/make-tiny-zimage.py).</summary>
     public static readonly string TinyZImage = Path.Combine(Home, "models/zimage/tiny-random-zimage");
 
+    /// <summary>The tiny random LoRAs and their references (tools/make-tiny-lora.py).</summary>
+    public static readonly string TinyLora = Path.Combine(Home, "models/lora/tiny-lora");
+
+    /// <summary>The tiny random Qwen-Image pipeline (tools/make-tiny-qwen-image.py).</summary>
+    public static readonly string TinyQwenImage = Path.Combine(Home, "models/qwen-image/tiny-random-qwen-image");
+
+    /// <summary>The Qwen-Image model folder (the Qwen-Image diffusers folder without the transformer weights, GGUF files, references).</summary>
+    public static readonly string QwenImageRoot = Path.Combine(Home, "models/qwen-image");
+
     /// <summary>The Z-Image model folder (the Z-Image-Turbo diffusers folder, GGUF files, references).</summary>
     public static readonly string ZImageRoot = Path.Combine(Home, "models/zimage");
 

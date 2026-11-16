@@ -322,7 +322,25 @@ internal static partial class HfTokenizerTranslator
             }
         }
 
-        return list;
+        return LastOccurrences(list);
+    }
+
+    // tokenizers maps each pair to its rank in a dictionary filled in list order, so a pair listed twice (XTTS's vocabulary) ranks at its last
+    // occurrence: drop the earlier ones, keeping the order of the rest.
+    private static string[] LastOccurrences(string[] merges)
+    {
+        var last = new Dictionary<string, int>(merges.Length, StringComparer.Ordinal);
+        for (int i = 0; i < merges.Length; i++)
+        {
+            last[merges[i]] = i;
+        }
+
+        if (last.Count == merges.Length)
+        {
+            return merges;
+        }
+
+        return [.. merges.Where((merge, i) => last[merge] == i)];
     }
 
     private static string EncodeSpaces(string part) => part.Contains(' ') ? part.Replace(' ', 'Ġ') : part;

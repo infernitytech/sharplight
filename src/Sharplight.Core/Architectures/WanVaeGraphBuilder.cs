@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
+using Sharplight.ImageGeneration;
 using Sharplight.Models;
 using Sharplight.Tensors;
 using Sharplight.VideoGeneration;
@@ -35,14 +36,38 @@ internal sealed class WanVaeGraphBuilder
     private readonly WanVaeHyperParameters _hp;
     private readonly bool _first;
     private readonly bool _emitCaches;
+    private readonly bool _image;
 
-    private WanVaeGraphBuilder(string name, Func<string, WeightInfo?> weights, WanVaeHyperParameters hp, bool first)
+    private WanVaeGraphBuilder(string name, Func<string, WeightInfo?> weights, WanVaeHyperParameters hp, bool first, bool image = false)
     {
         _b = new GraphBuilder(name, weights);
-        _emitCaches = true;
+        _image = image;
+        _emitCaches = !image;
         _hp = hp;
         _first = first;
     }
+
+    /// <summary>
+    /// Builds the image decoder (<see cref="DiffusionGraphs.VaeDecode"/>: one latent frame, latents [1, z, h, w] in the pipeline's
+    /// normalized space → image [1, 3, H, W] in [0, 1]) of an image generator with this VAE (Qwen-Image).
+    /// </summary>
+    /// <param name="weights">Canonical weight lookup.</param>
+    /// <param name="hp">The VAE hyper-parameters.</param>
+    /// <param name="latentHeight">Latent height.</param>
+    /// <param name="latentWidth">Latent width.</param>
+    public static ComputeGraph BuildImageDecoder(Func<string, WeightInfo?> weights, WanVaeHyperParameters hp, long latentHeight, long latentWidth)
+        => new WanVaeGraphBuilder(DiffusionGraphs.VaeDecode, weights, hp, first: true, image: true).Decoder(latentHeight, latentWidth);
+
+    /// <summary>
+    /// Builds the image encoder (<see cref="DiffusionGraphs.VaeEncode"/>: image [1, 3, H, W] in [0, 1] → normalized latents
+    /// [1, z, h, w]) of an image generator with this VAE.
+    /// </summary>
+    /// <param name="weights">Canonical weight lookup.</param>
+    /// <param name="hp">The VAE hyper-parameters.</param>
+    /// <param name="height">Image height in pixels.</param>
+    /// <param name="width">Image width in pixels.</param>
+    public static ComputeGraph BuildImageEncoder(Func<string, WeightInfo?> weights, WanVaeHyperParameters hp, long height, long width)
+        => new WanVaeGraphBuilder(DiffusionGraphs.VaeEncode, weights, hp, first: true, image: true).Encoder(height, width, 1);
 
     /// <summary>Builds a decoder graph of one latent frame.</summary>
     /// <param name="weights">Canonical weight lookup.</param>
@@ -76,8 +101,9 @@ internal sealed class WanVaeGraphBuilder
     private ComputeGraph Decoder(long latentHeight, long latentWidth)
     {
         int z = _hp.LatentChannels;
-        var latent = _b.Input(VideoDiffusionGraphs.Latent, InputRole.Other, DataType.F32, new Shape(z, 1, latentHeight, latentWidth));
-        var x = _b.Reshape(latent, 1, z, latentHeight, latentWidth);
+        var x = _image
+            ? _b.Input(DiffusionGraphs.Latent, InputRole.Media, DataType.F32, new Shape(1, z, latentHeight, latentWidth))
+            : _b.Reshape(_b.Input(VideoDiffusionGraphs.Latent, InputRole.Other, DataType.F32, new Shape(z, 1, latentHeight, latentWidth)), 1, z, latentHeight, latentWidth);
         // The pipeline's un-normalization: latents · std + mean per channel.
         x = _b.Add(_b.Mul(x, ChannelConstant("latents_std", _hp.LatentsStd)), ChannelConstant("latents_mean", _hp.LatentsMean));
         x = CausalConv(x, P + "post_quant_conv");
@@ -99,7 +125,7 @@ internal sealed class WanVaeGraphBuilder
         }
 
         var clamped = _b.Emit1("Clip", [x], Attributes.From(("min", -1f), ("max", 1f)));
-        _b.Output(VideoDiffusionGraphs.Frames, _b.Scale(clamped, 0.5f, 0.5f));
+        _b.Output(_image ? DiffusionGraphs.Image : VideoDiffusionGraphs.Frames, _b.Scale(clamped, 0.5f, 0.5f));
         return _b.Build();
     }
 
@@ -107,7 +133,12 @@ internal sealed class WanVaeGraphBuilder
     {
         int z = _hp.LatentChannels;
         Value x;
-        if (_first)
+        if (_image)
+        {
+            var image = _b.Input(DiffusionGraphs.Image, InputRole.Media, DataType.F32, new Shape(1, 3, height, width));
+            x = _b.Reshape(_b.Scale(image, 2f, -1f), 1, 3, height, width);
+        }
+        else if (_first)
         {
             var image = _b.Input(VideoDiffusionGraphs.Image, InputRole.Media, DataType.F32, new Shape(3, height, width));
             x = _b.Reshape(_b.Scale(image, 2f, -1f), 1, 3, height, width);
@@ -160,7 +191,8 @@ internal sealed class WanVaeGraphBuilder
         // The mean half of the latent distribution, normalized: (μ − mean) / std.
         var mean = _b.Slice(x, 1, 0, z);
         var normalized = _b.Mul(_b.Sub(mean, ChannelConstant("latents_mean", _hp.LatentsMean)), ChannelConstant("latents_inv_std", [.. _hp.LatentsStd.Select(s => 1f / s)]));
-        _b.Output(VideoDiffusionGraphs.Latent, _b.Reshape(normalized, z, latentHeight, latentWidth));
+        _b.Output(_image ? DiffusionGraphs.Latent : VideoDiffusionGraphs.Latent,
+            _image ? _b.Reshape(normalized, 1, z, latentHeight, latentWidth) : _b.Reshape(normalized, z, latentHeight, latentWidth));
         return _b.Build();
     }
 

@@ -3,16 +3,17 @@ using Sharplight.Models;
 namespace Sharplight.Architectures;
 
 /// <summary>
-/// A language model embedded in a composite source (an image or video generator's text encoder) as a canonical source of its own: the
-/// metadata under a prefix without it (its architecture under <c>{prefix}architecture</c>) and the weights under a prefix without it.
+/// The decoder language model inside an image generator's source (Z-Image's Qwen3, Qwen-Image's Qwen2.5-VL): its canonical metadata
+/// kept under a metadata prefix and its weights under a weight prefix, taken out again as a decoder source of its own for
+/// <see cref="DecoderGraphBuilder"/>.
 /// </summary>
-internal static class DecoderSubSource
+internal static class DecoderTextEncoder
 {
-    /// <summary>Extracts the embedded source.</summary>
-    /// <param name="src">The composite source.</param>
-    /// <param name="metadataPrefix">The metadata prefix of the embedded source (<c>zimage.text_encoder_source.</c>).</param>
-    /// <param name="weightPrefix">The weight prefix of the embedded source (<c>text_encoder.</c>).</param>
-    public static ModelSource Extract(ModelSource src, string metadataPrefix, string weightPrefix)
+    /// <summary>The text encoder as a decoder source: its canonical metadata and its weights without the prefixes.</summary>
+    /// <param name="src">The image generator's source.</param>
+    /// <param name="metadataPrefix">The prefix of the encoder's metadata (e.g. <c>zimage.text_encoder_source.</c>).</param>
+    /// <param name="weightPrefix">The prefix of the encoder's weights (<c>text_encoder.</c>).</param>
+    public static ModelSource Source(ModelSource src, string metadataPrefix, string weightPrefix)
     {
         var metadata = new Dictionary<string, object>(StringComparer.Ordinal);
         foreach (var (key, value) in src.Metadata)

@@ -113,6 +113,14 @@ internal static partial class HfTokenizerTranslator
         AddByteLevelBpe(md, dir, config, tok, model);
     }
 
+    /// <summary>Adds the canonical <c>tokenizer.*</c> keys of a tokenizer.json written under another file name (XTTS's <c>vocab.json</c>).</summary>
+    /// <param name="md">The canonical metadata being built.</param>
+    /// <param name="tokenizerPath">The tokenizers JSON file.</param>
+    /// <param name="dir">The checkpoint directory (companion files).</param>
+    /// <param name="config">The checkpoint's configuration.</param>
+    public static void AddFromFile(IDictionary<string, object> md, string tokenizerPath, string dir, HfConfig config)
+        => AddFromJson(md, File.ReadAllBytes(tokenizerPath), dir, config);
+
     /// <summary>The parsed <c>tokenizer_config.json</c> (detached from its document), or null when absent.</summary>
     private static JsonElement? ReadTokenizerConfig(string dir)
     {

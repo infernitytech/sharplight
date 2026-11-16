@@ -247,7 +247,7 @@ internal sealed class OrpheusSynthesizer : ISpeechSynthesizer
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var prompt = PromptFor(text, options?.Voice);
-        var sampling = options?.Sampling ?? new SamplingOptions { Temperature = 0.6f, TopK = 0, TopP = 0.8f, RepetitionPenalty = 1.3f, RepetitionWindow = 4096 };
+        var sampling = options.SamplingOr(new SamplingOptions { Temperature = 0.6f, TopK = 0, TopP = 0.8f, RepetitionPenalty = 1.3f, RepetitionWindow = 4096 });
         _session ??= await Task.Run(() => _llm.CreateSession(), cancellationToken).ConfigureAwait(false);
         _session.Reset();
         var generator = new Generator(_session, _llm.Tokenizer);

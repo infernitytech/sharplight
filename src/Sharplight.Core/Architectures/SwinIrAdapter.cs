@@ -164,18 +164,18 @@ public sealed class SwinIrAdapter : IModelAdapter
         long batch = (long)windows * heads;
 
         var h = LayerNorm(b, x, p + "norm1");
-        var (into, back) = WindowIndices(height, width, window, shift);
+        var (into, back) = SwinWindows.Indices(height, width, window, shift);
         h = b.Gather(h, k.I32($"win_{height}_{width}_{shift}", () => into));                                         // [windows·N, C]
         var qkv = b.Linear(h, p + "attn.qkv.weight", p + "attn.qkv.bias");
         Value Heads(int part) => b.Reshape(b.Permute(b.Reshape(b.Slice(qkv, 1, (long)part * c, c), windows, n, heads, d), 0, 2, 1, 3), batch, n, d);
         var scores = b.Emit1("BatchMatMul", [Heads(0), Heads(1)], Attributes.From(("trans_b", true), ("alpha", 1f / MathF.Sqrt(d))));
         scores = b.Reshape(scores, windows, heads, n, n);
-        var table = b.Gather(b.Weight(p + "attn.relative_position_bias_table"), k.I32($"rel_index_{window}", () => RelativeIndex(window)));
+        var table = b.Gather(b.Weight(p + "attn.relative_position_bias_table"), k.I32($"rel_index_{window}", () => SwinWindows.RelativeIndex(window)));
         var bias = b.Permute(b.Reshape(table, n, n, heads), 2, 0, 1);                                                // [heads, N, N]
         scores = b.Add(scores, bias);
         if (shift > 0)
         {
-            scores = b.Add(scores, k.F32($"mask_{height}_{width}_{window}", new Shape(windows, 1, n, n), () => ShiftMask(height, width, window, shift)));
+            scores = b.Add(scores, k.F32($"mask_{height}_{width}_{window}", new Shape(windows, 1, n, n), () => SwinWindows.ShiftMask(height, width, window, shift)));
         }
 
         var probs = b.Emit1("Softmax", [b.Reshape(scores, batch, n, n)]);
@@ -186,88 +186,6 @@ public sealed class SwinIrAdapter : IModelAdapter
         x = b.Add(x, o);
         var m = b.Linear(b.Unary("Gelu", b.Linear(LayerNorm(b, x, p + "norm2"), p + "mlp.fc1.weight", p + "mlp.fc1.bias")), p + "mlp.fc2.weight", p + "mlp.fc2.bias");
         return b.Add(x, m);
-    }
-
-    /// <summary>
-    /// For a grid of height × width rows in windows of side <paramref name="window"/> after a cyclic shift of -<paramref name="shift"/>: the source row of every
-    /// window-major slot and the slot of every row once the shift is undone.
-    /// </summary>
-    private static (int[] Into, int[] Back) WindowIndices(int height, int width, int window, int shift)
-    {
-        var into = new int[height * width];
-        var back = new int[height * width];
-        int perRow = width / window;
-        for (int r = 0; r < height; r++)
-        {
-            for (int c = 0; c < width; c++)
-            {
-                int slot = (((r / window * perRow) + (c / window)) * window * window) + (r % window * window) + (c % window);
-                into[slot] = (((r + shift) % height) * width) + ((c + shift) % width);
-                back[(((r + shift) % height) * width) + ((c + shift) % width)] = slot;
-            }
-        }
-
-        return (into, back);
-    }
-
-    // Index into the (2w-1)² relative position table of every (query, key) pair of a window.
-    private static int[] RelativeIndex(int window)
-    {
-        int n = window * window;
-        var index = new int[n * n];
-        for (int q = 0; q < n; q++)
-        {
-            for (int key = 0; key < n; key++)
-            {
-                int dy = (q / window) - (key / window) + window - 1;
-                int dx = (q % window) - (key % window) + window - 1;
-                index[(q * n) + key] = (dy * ((2 * window) - 1)) + dx;
-            }
-        }
-
-        return index;
-    }
-
-    // The additive mask [windows, 1, N, N] of shifted windows: -100 between positions that came from different regions of the unshifted image.
-    private static float[] ShiftMask(int height, int width, int window, int shift)
-    {
-        var region = new int[height * width];
-        int count = 0;
-        (int Start, int End)[] spans(int length) => [(0, length - window), (length - window, length - shift), (length - shift, length)];
-        foreach (var (y0, y1) in spans(height))
-        {
-            foreach (var (x0, x1) in spans(width))
-            {
-                for (int y = y0; y < y1; y++)
-                {
-                    for (int x = x0; x < x1; x++)
-                    {
-                        region[(y * width) + x] = count;
-                    }
-                }
-
-                count++;
-            }
-        }
-
-        int n = window * window;
-        int perRow = width / window;
-        int windows = height / window * perRow;
-        var mask = new float[windows * n * n];
-        for (int win = 0; win < windows; win++)
-        {
-            for (int q = 0; q < n; q++)
-            {
-                int qr = region[((win / perRow * window) + (q / window)) * width + ((win % perRow) * window) + (q % window)];
-                for (int key = 0; key < n; key++)
-                {
-                    int kr = region[((win / perRow * window) + (key / window)) * width + ((win % perRow) * window) + (key % window)];
-                    mask[(((win * n) + q) * n) + key] = qr == kr ? 0f : -100f;
-                }
-            }
-        }
-
-        return mask;
     }
 
     // [1, C, H, W] as rows [H·W, C].

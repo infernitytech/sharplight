@@ -96,6 +96,7 @@ public sealed class ArchitectureCatalog
     {
         ArgumentNullException.ThrowIfNull(sources);
         options ??= new AdapterOptions();
+        sources = WeightPatches.Merge(sources);
         if (sources.Primary.Definition is { } prebuilt)
         {
             if (sources.Auxiliary.Count > 0)

@@ -66,7 +66,7 @@ public sealed class HunyuanVideoAdapter : IModelAdapter
         long latentWidth = width / spatial;
         int promptLength = src.Get(Prefix + "text_encoder.prompt_length", 256);
         int promptPrefix = src.Get(Prefix + "text_encoder.prompt_prefix", 0);
-        var textSource = DecoderSubSource.Extract(src, TextEncoderSourcePrefix, TextEncoderPrefix);
+        var textSource = DecoderTextEncoder.Source(src, TextEncoderSourcePrefix, TextEncoderPrefix);
         var decoder = DecoderHyperParameters.Read(textSource);
         int layer = src.Get(Prefix + "text_encoder.layer", decoder.LogicalLayers - 2);
         var clip = ClipTextHyperParameters.Read(src, Prefix, "text_encoder_2");

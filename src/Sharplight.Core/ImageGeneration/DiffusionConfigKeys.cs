@@ -61,6 +61,12 @@ public static class DiffusionConfigKeys
     /// </summary>
     public const string JoinSequence = "joinSequence";
 
+    /// <summary>
+    /// Text encoder: leading tokens of the templated prompt whose hidden states are dropped from the conditioning (Qwen-Image: the 34
+    /// tokens of its system prompt; default 0). The encoder's context length counts them; the denoiser sees the rows after them.
+    /// </summary>
+    public const string PromptSkip = "promptSkip";
+
     /// <summary>Scheduler: number of training timesteps (default 1000).</summary>
     public const string TrainSteps = "trainSteps";
 
@@ -129,4 +135,10 @@ public static class DiffusionConfigKeys
     /// count of a dynamic flow shift is the latent pixel count divided by its square.
     /// </summary>
     public const string PatchSize = "patchSize";
+
+    /// <summary>
+    /// Denoiser: classifier-free guidance rescales the guided prediction of every token to the norm of the conditional one (diffusers'
+    /// Qwen-Image pipelines: the norm over the token's channels and patch pixels; default false).
+    /// </summary>
+    public const string GuidanceRenormalization = "guidanceRenormalization";
 }
