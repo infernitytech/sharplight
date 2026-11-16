@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Audio;
 
 namespace Sharplight.Speech;
@@ -14,17 +15,19 @@ internal static class VoiceActivityPresegmentation
 
     /// <summary>Transcribes the speech of <paramref name="audio"/> window by window with <paramref name="recognizer"/>.</summary>
     /// <param name="recognizer">The recognizer; called with the detection option off for each window.</param>
+    /// <param name="services">The container a detector is resolved from when the options carry none, or <see langword="null"/>.</param>
     /// <param name="audio">The recording.</param>
     /// <param name="options">The request, with <see cref="SpeechRecognitionOptions.UseVoiceActivityDetection"/> on.</param>
     /// <param name="cancellationToken">Stops between windows and inside them.</param>
     /// <exception cref="InvalidOperationException">No detector is set.</exception>
-    public static async IAsyncEnumerable<TranscriptionSegment> TranscribeAsync(ISpeechRecognizer recognizer, AudioBuffer audio, SpeechRecognitionOptions options,
+    public static async IAsyncEnumerable<TranscriptionSegment> TranscribeAsync(ISpeechRecognizer recognizer, IServiceProvider? services, AudioBuffer audio, SpeechRecognitionOptions options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var detector = options.VoiceActivityDetector
-            ?? throw new InvalidOperationException("SpeechRecognitionOptions.UseVoiceActivityDetection needs SpeechRecognitionOptions.VoiceActivityDetector.");
+        var detector = options.VoiceActivityDetector ?? Resolve(services, options.VoiceActivityDetectorKey)
+            ?? throw new InvalidOperationException("SpeechRecognitionOptions.UseVoiceActivityDetection needs a voice activity detector: set SpeechRecognitionOptions.VoiceActivityDetector, "
+                + "or register one with services.AddTaskClient<IVoiceActivityDetector>(...) (keyed by SpeechRecognitionOptions.VoiceActivityDetectorKey, or unkeyed).");
         var speech = await detector.DetectAsync(audio, options.VoiceActivity, cancellationToken).ConfigureAwait(false);
-        var inner = options with { UseVoiceActivityDetection = false, VoiceActivityDetector = null };
+        var inner = options with { UseVoiceActivityDetection = false, VoiceActivityDetector = null, VoiceActivityDetectorKey = null };
         foreach (var (start, end) in Windows(speech, audio.SampleRate))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -39,6 +42,18 @@ internal static class VoiceActivityPresegmentation
                 };
             }
         }
+    }
+
+    private static IVoiceActivityDetector? Resolve(IServiceProvider? services, object? key)
+    {
+        if (services is null)
+        {
+            return null;
+        }
+
+        return key is null
+            ? services.GetService<IVoiceActivityDetector>()
+            : services.GetKeyedService<IVoiceActivityDetector>(key);
     }
 
     /// <summary>Groups consecutive speech segments into windows of at most <see cref="MaxWindow"/> (a single longer segment is a window of its own).</summary>

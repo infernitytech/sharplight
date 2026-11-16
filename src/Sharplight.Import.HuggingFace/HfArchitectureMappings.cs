@@ -39,6 +39,9 @@ internal static class HfArchitectureMappings
         Register(new RtDetrHfMapping());
         Register(new DepthAnythingHfMapping());
         Register(new EncodecHfMapping());
+        Register(new ClapHfMapping());
+        Register(new MusicGenHfMapping());
+        Register(new DemucsHfMapping());
         Register(new DacHfMapping());
         Register(new MimiHfMapping());
         Register(new Sam2HfMapping());
