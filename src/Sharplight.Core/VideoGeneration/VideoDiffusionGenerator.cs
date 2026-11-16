@@ -23,6 +23,9 @@ namespace Sharplight.VideoGeneration;
 /// </summary>
 internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
 {
+    /// <summary>Weights above this fraction of the device memory make the generator hold one stage at a time.</summary>
+    private const double HoldOneStageFraction = 0.4;
+
     private readonly TaskModel _model;
     private readonly ITokenizer _tokenizer;
     private readonly NoiseSchedule _schedule;
@@ -73,10 +76,12 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         _defaultSteps = description.ConfigValue(DiffusionConfigKeys.Steps, 50);
         _defaultGuidance = description.ConfigValue(DiffusionConfigKeys.GuidanceScale, 5f);
         _defaultNegative = description.Config.TryGetValue(VideoConfigKeys.NegativePrompt, out var negative) ? negative.GetString() : null;
-        // Models that barely fit hold either the text encoder or the transformer and VAE (compiled again from the cached kernels).
+        // Video activations are large (the VAE decoder at full resolution, attention over tens of thousands of tokens): unless the
+        // weights take little of the device, hold either the text encoder or the transformer and VAE (compiled again from the
+        // cached kernels; the conditioning of the last prompts is reused, so the encoder only returns for new prompts).
         long weightBytes = model.Definition.Weights.Values.Sum(w => w.ByteSize);
         long deviceBytes = model.Options.Devices.Sum(slot => slot.Device.Info.TotalMemory);
-        _holdOneStage = deviceBytes > 0 && weightBytes > deviceBytes * 0.8;
+        _holdOneStage = deviceBytes > 0 && weightBytes > deviceBytes * HoldOneStageFraction;
         Metadata = TaskClientMetadata.For(model.Definition);
     }
 
@@ -172,6 +177,11 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
             var decoded = await Task.Run(() => stream.DecodeImages(Decoder(run, current), LatentFrame(latents, current, run), run.Width, run.Height),
                 cancellationToken).ConfigureAwait(false);
             frames.AddRange(decoded);
+            if (latentFrame == 0)
+            {
+                // The first-frame decoder is not needed again for this video; its activations make room for the next-frame decoder.
+                Release(CompiledKey(VideoDiffusionGraphs.VaeDecodeFirst, run.Dimensions));
+            }
             yield return new VideoGenerationUpdate(VideoGenerationPhase.Decoding, frames.Count, run.Frames, Frames: decoded);
         }
 
@@ -395,6 +405,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         encoder.Run(new RunParameters());
         var latent = new float[run.LatentChannels * run.PlaneSize];
         encoder.GetOutput<float>(VideoDiffusionGraphs.Latent, latent);
+        Release(CompiledKey(VideoDiffusionGraphs.VaeEncode, run.Dimensions));
         return latent;
     }
 

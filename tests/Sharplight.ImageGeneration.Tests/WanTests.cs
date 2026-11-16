@@ -60,6 +60,7 @@ public sealed class WanTests
                 (VideoDiffusionGraphs.Tokens, tokens), (VideoDiffusionGraphs.TokenMask, mask));
             hidden.AsSpan(ids.Length * (hidden.Length / 512)).Clear();
             var (maxAbs, rms) = Env.Compare(hidden, Tensor(variant, name));
+            TestContext.Current.SendDiagnosticMessage($"Wan {variant} umT5 {name}: relative RMS {rms:E2}");
             Assert.True(rms < 5e-3, $"umT5 {name}: max {maxAbs}, relative RMS {rms}");
         }
 
@@ -74,6 +75,7 @@ public sealed class WanTests
             (VideoDiffusionGraphs.Timestep, timesteps),
             (VideoDiffusionGraphs.Context, Tensor(variant, "text_hidden")));
         var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor(variant, "transformer_out"));
+        TestContext.Current.SendDiagnosticMessage($"Wan {variant} transformer: relative RMS {transformerRms:E2}");
         Assert.True(transformerRms < 5e-3, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
     }
 
@@ -105,7 +107,7 @@ public sealed class WanTests
         };
         var stopwatch = Stopwatch.StartNew();
         var result = await generator.GenerateAsync(request, options, TestContext.Current.CancellationToken);
-        TestContext.Current.SendDiagnosticMessage($"Wan {variant} {width}x{height}x{result.Frames.Count}: {stopwatch.Elapsed.TotalSeconds:F1} s");
+        double seconds = stopwatch.Elapsed.TotalSeconds;
         var expected = Tensor(variant, "video");
         int frameValues = 3 * width * height;
         double worst = double.MaxValue;
@@ -115,6 +117,7 @@ public sealed class WanTests
             worst = Math.Min(worst, Env.Psnr(result.Frames[f].Rgb, reference.Rgb));
         }
 
+        TestContext.Current.SendDiagnosticMessage($"Wan {variant} {width}x{height}x{result.Frames.Count}: {seconds:F1} s (incl. compilation), worst frame {worst:F1} dB");
         Assert.True(worst > 25, $"Wan {variant}: worst frame PSNR {worst:F1} dB");
     }
 }

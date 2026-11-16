@@ -386,8 +386,9 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
 - Decoding streams over the latent frames: the first latent frame decodes to one frame, each further one to four; the causal
   convolutions' last two input frames are carried from chunk to chunk (`CausalDecoderStream`), so memory does not grow with the
   clip length and `VideoGenerationUpdate.Frames` delivers the decoded frames as they come.
-- Memory: when the weights take more than 80 % of the device memory, the text encoder is released after encoding and the
-  transformer before decoding (compiled again from the cached kernels for the next request).
+- Memory: when the weights take more than 40 % of the device memory (video activations are large), the text encoder is released
+  after encoding and the transformer before decoding (compiled again from the cached kernels; the conditioning of the last prompts
+  is reused, so the encoder only returns for new prompts).
 - `sharplight-generate-video` (samples/Sharplight.GenerateVideo) is a command-line front end.
 
 ## 1. Load a model (text generation)

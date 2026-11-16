@@ -1423,4 +1423,11 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
 
 - Tiny random Wan pipelines (`~/models/video/tiny-random-wan/{t2v,ti2v}`: Wan 2.1 layout; Wan 2.2 TI2V layout with the residual
   VAE, 2×2 patching and per-token timesteps): umT5 conditioning, transformer, the streamed VAE decode of 9 frames and the image
-  encoder within 1e-4 relative RMS of diffusers / transformers on the CPU.
+  encoder within 1e-4 relative RMS of diffusers / transformers on the CPU and on Vulkan; whole runs from the same initial latents
+  (4 steps, guidance 5, negative prompt) above 40 dB PSNR in every frame: text-to-video with UniPC and with Euler for both
+  layouts, image-to-video for TI2V.
+- Real models on Vulkan (one RTX PRO 4500, 32 GB) against diffusers in f32 on CUDA, 832×480, 17 frames, 20 UniPC steps,
+  guidance 5, the same initial latents: umT5-XXL (bf16 files) 3.0e-6 relative RMS for both models; the transformer 2.4e-4 (Wan 2.1
+  1.3B) and 2.8e-4 (Wan 2.2 TI2V-5B, f32 files) relative RMS; Wan 2.2 TI2V-5B image-to-video worst frame 55.1 dB PSNR (468.7 s
+  for the whole run including the first-time kernel compilation of every graph). The Wan 2.1 folder's f32 umT5 (22.7 GB) is the
+  same model as Wan 2.2's bf16 one (1.7e-3 relative weight difference = bf16 rounding); the references use the bf16 files.
