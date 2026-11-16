@@ -8,7 +8,9 @@
     <WarningsAsErrors></WarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../samples/Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
     <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
