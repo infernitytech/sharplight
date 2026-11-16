@@ -60,6 +60,9 @@ public sealed record NoiseSchedule
     /// </summary>
     public bool DynamicShift { get; init; }
 
+    /// <summary>Flow schedules: the last noise level before 0 after a linear stretch of 1 − σ (0: no stretch).</summary>
+    public double ShiftTerminal { get; init; }
+
     /// <summary>Flow schedules: μ at <see cref="BaseSequenceLength"/> image tokens.</summary>
     public double BaseShift { get; init; } = 0.5;
 
@@ -96,6 +99,7 @@ public sealed record NoiseSchedule
             ClipSample = component.Config.ContainsKey(DiffusionConfigKeys.ClipSample) ? component.ConfigValue(DiffusionConfigKeys.ClipSample, true) : null,
             Shift = component.ConfigValue(DiffusionConfigKeys.Shift, defaults.Shift),
             DynamicShift = component.ConfigValue(DiffusionConfigKeys.DynamicShift, defaults.DynamicShift),
+            ShiftTerminal = component.ConfigValue(DiffusionConfigKeys.ShiftTerminal, defaults.ShiftTerminal),
             BaseShift = component.ConfigValue(DiffusionConfigKeys.BaseShift, defaults.BaseShift),
             MaxShift = component.ConfigValue(DiffusionConfigKeys.MaxShift, defaults.MaxShift),
             BaseSequenceLength = component.ConfigValue(DiffusionConfigKeys.BaseSequenceLength, defaults.BaseSequenceLength),

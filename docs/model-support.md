@@ -1441,7 +1441,7 @@ Verification (tools/make-tiny-flux.py, tools/make-flux-references.py; tests `Tin
   video DiTs (Wan, LTX: a frame axis in the latents and 3D RoPE through the same multi-axis sections) reuse the flow sampler and the
   companion-file loading.
 
-## 16. Video generation (2026-11-16)
+## 18. Video generation (2026-11-16)
 
 Video generators are models of kind `video-generation` (see [api-overview.md](api-overview.md) "Video generation"): the importer
 `Sharplight.Import.Diffusers` translates Wan pipeline folders into the canonical `wan` source, `WanAdapter` builds the umT5 text
@@ -1455,7 +1455,8 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 | Wan 2.1 T2V (1.3B, 14B) | diffusers folder; transformer-only GGUF (city96 / QuantStack, any ggml type) and original-name `.safetensors` (also ComfyUI's `model.diffusion_model.` prefix) with a Wan diffusers folder as companion for the umT5 encoder, tokenizer and VAE | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
 | Wan 2.2 TI2V-5B | diffusers folder; transformer-only GGUF / safetensors with companions as for Wan 2.1 | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
 | Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts); stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing (the I2V and A14B folders are rejected by name) | |
-| LTX-Video, HunyuanVideo, CogVideoX, Mochi | - | missing | |
+| LTX-Video 0.9.0 (2B) | diffusers folder (the T5-XXL text encoder is the one of FLUX.1 / PixArt) | **supported** (text-to-video, multiples of 32, frames 1 + 8k, flow Euler with the resolution-dependent shift and the terminal stretch) | tiny pipeline; 2B below |
+| LTX-Video 0.9.1+ (causal / timestep-conditioned decoder), HunyuanVideo, CogVideoX, Mochi | - | missing (LTX 0.9.1+ rejected by name) | |
 
 Design notes:
 
@@ -1472,6 +1473,11 @@ Design notes:
   Wan 2.2 TI2V with per-token timesteps and first-frame conditioning); `WanCompanionAdapter` takes the text encoder, tokenizer and
   VAE from complete `wan` sources given as auxiliary sources (`AuxiliaryRoles.TextEncoder`, `AuxiliaryRoles.Vae`; one diffusers folder
   serves both), and a file without them fails naming what is missing.
+- LTX-Video: every latent pixel is a token; its RoPE rotates pairs of the whole width by angles linear in fractional (frame, row,
+  column) coordinates (the frame axis scaled by the VAE's temporal compression over the frame rate, 25 fps), computed in the graph as
+  a constant coordinate × frequency product; the text encoder runs without a mask and the cross-attention masks the padding
+  (`VideoDiffusionGraphs.ContextMask`); the non-causal VAE decoder runs over the whole latent video (`vae_decode`: replicated first
+  and last frames in time, depth-to-space 2×2×2 upsamplers, 4×4 unpatching).
 - Tokenizer fix: Hugging Face templates that start with the sequence (T5 / umT5 `$A </s>`) no longer add a BOS token when the
   tokenizer configuration names one.
 
@@ -1483,6 +1489,9 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
   encoder within 1e-4 relative RMS of diffusers / transformers on the CPU and on Vulkan; whole runs from the same initial latents
   (4 steps, guidance 5, negative prompt) above 40 dB PSNR in every frame: text-to-video with UniPC and with Euler for both
   layouts, image-to-video for TI2V.
+- Tiny random LTX-Video pipeline (`~/models/video/tiny-random-ltx`, tools/make-tiny-ltx.py): T5 states, transformer (with a key mask)
+  and the whole-video VAE decode of 17 frames within 1e-4 relative RMS, 4-step text-to-video above 40 dB in every frame, CPU and
+  Vulkan.
 - Real models on Vulkan (one RTX PRO 4500, 32 GB) against diffusers in f32 on CUDA, 832×480, 17 frames, 20 UniPC steps,
   guidance 5, the same initial latents: umT5-XXL (bf16 files) 3.0e-6 relative RMS; the transformer 2.4e-4 (Wan 2.1 1.3B, f32
   files), 2.8e-4 (Wan 2.2 TI2V-5B, f32 files) and 2.0e-3 (QuantStack's Wan2.2-TI2V-5B-Q8_0.gguf with the 2.2 folder as companion)
@@ -1490,6 +1499,12 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
   51.1 dB (first runs including the kernel compilation of every graph: 202 s, 305 s, 460 s). The Wan 2.1 folder's f32 umT5
   (22.7 GB) is the same model as Wan 2.2's bf16 one (1.7e-3 relative weight difference = bf16 rounding); the references use the
   bf16 files.
+- Speed and memory on the 32 GB GPU (Vulkan, `sharplight-generate-video`, 832×480, 33 frames = 9 latent frames, 20 UniPC steps
+  with guidance, each run a new process: the conditioning time includes loading and compiling the umT5 encoder from the kernel
+  cache): Wan 2.1 1.3B (f32 transformer) 4.2 s per step (both guidance passes), decode 19 s, peak 16.3 GB; Wan 2.2 TI2V-5B (f32
+  transformer, one stage resident at a time) 3.3–3.7 s per step, decode 27 s, peak 30.7 GB; Wan 2.2 TI2V-5B Q8_0 GGUF 1.6 s per step,
+  decode 23 s, peak 16.4 GB. diffusers in f32 on CUDA took 3.1 s per step for Wan 2.1 at 17 frames. The decoders are not tuned yet
+  (the frame windows are stacked into the channels, 3× the activation of a native 3-D convolution).
 
 ## 17. Top-20 sweep (2026-11-16)
 
