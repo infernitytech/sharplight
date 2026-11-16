@@ -8,6 +8,7 @@
              xmlns:tasks="using:Sharplight.Studio.ViewModels.Tasks"
              xmlns:settings="using:Sharplight.Studio.ViewModels.Settings"
              xmlns:speech="using:Sharplight.Studio.ViewModels.Speech"
+             xmlns:audio="using:Sharplight.Studio.ViewModels.Audio"
              xmlns:image="using:Sharplight.Studio.ViewModels.Image"
              xmlns:vision="using:Sharplight.Studio.ViewModels.Vision"
              x:Class="Sharplight.Studio.App"
@@ -29,6 +30,9 @@
     </DataTemplate>
     <DataTemplate DataType="speech:SpeakPageViewModel">
       <views:SpeakPage />
+    </DataTemplate>
+    <DataTemplate DataType="audio:AudioPageViewModel">
+      <views:AudioPage />
     </DataTemplate>
     <DataTemplate DataType="image:ImagePageViewModel">
       <views:ImagePage />
