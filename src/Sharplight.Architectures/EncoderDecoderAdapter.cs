@@ -36,6 +36,17 @@ namespace Sharplight.Architectures;
 /// on the host by the model's feature extractor) instead of tokens and runs the <see cref="AudioConvStem"/>. There is no embedding graph,
 /// and the definition describes a <see cref="ModelKinds.SpeechRecognition"/> model (<see cref="SpeechRecognitionDescription"/>: encoder,
 /// decoder, tokenizer and feature-extractor components, the filter bank and tokenizer as attachments).</para>
+/// <para>Conformer encoders (<c>encoder.type</c> "conformer", Canary): the <see cref="WellKnown.EncodeGraph"/> is the
+/// <see cref="ConformerEncoder"/> over a variable-length window of time-major log-mel features; the transformer encoder keys and weights
+/// do not apply.</para>
+/// <para>Variable-length audio (<c>audio.variable_length</c>, with conformer encoders always): the encoder takes time-major features
+/// [<see cref="WellKnown.AudioFrameSymbol"/>, <c>audio.channels</c> (default <c>audio.mel_bins</c>)] of up to <c>audio.max_frames</c>
+/// frames, the cross states hold the rows of the longest window, and the decode graph's <see cref="InputRole.RowSpans"/> input
+/// ([T, 2], each row the span (0, rows of the current window)) limits the cross-attention to the current window.</para>
+/// <para>Rotary attention (<c>attention.rope.dims</c> &gt; 0, with <c>attention.rope.base</c> and <c>attention.rope.style</c>, Moonshine):
+/// queries and keys of the audio encoder's and the decoder's self-attention are rotated by their row positions
+/// (<see cref="InputRole.Positions"/> inputs of both graphs). Per-stack activations: <c>encoder.mlp.activation</c>,
+/// <c>decoder.mlp.activation</c> (default <c>mlp.activation</c>). LayerNorms may lack biases.</para>
 /// <para>Cached cross-attention (<c>cross_attention.cached</c>, for sources of a fixed length <c>encoder.rows</c>): the decoder projects the
 /// cross-attention keys and values once per source into f32 states [rows, heads, head_dim] instead of on every step. The decode graph's
 /// <see cref="InputRole.EncoderOutput"/> input then carries the source on the first pass of a context (E = rows) and no rows afterwards
@@ -63,6 +74,11 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         string norm = src.Arch("norm", "rms");
         float eps = src.Arch("norm_eps", 1e-6f);
         string act = src.Arch("mlp.activation", "relu");
+        string encoderAct = src.Arch("encoder.mlp.activation", act);
+        string decoderAct = src.Arch("decoder.mlp.activation", act);
+        long ropeDims = src.Arch("attention.rope.dims", 0L);
+        float ropeBase = src.Arch("attention.rope.base", 10000f);
+        string ropeStyle = src.Arch("attention.rope.style", "neox");
         float outputScale = src.Arch("output.scale", 1f);
         int ctx = src.Arch("context_length", 512);
         bool preNorm = src.Arch("pre_norm", true);
@@ -74,9 +90,15 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             var other => throw new NotSupportedException($"encoder_decoder: unknown encoder.input '{other}'."),
         };
         bool cachedCross = src.Arch("cross_attention.cached", false);
-        int sourceRows = cachedCross ? src.Arch<int>("encoder.rows") : 0;
         var extraWeights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
-        var stem = audio ? new AudioConvStem(src, extraWeights) : null;
+        bool conformerEncoder = audio && src.Arch("encoder.type", "transformer") == "conformer";
+        var conformer = conformerEncoder ? new ConformerEncoder(src, extraWeights) : null;
+        var stem = audio && !conformerEncoder ? new AudioConvStem(src, extraWeights) : null;
+        bool variableAudio = audio && (conformerEncoder || src.Arch("audio.variable_length", false));
+        int audioChannels = audio ? src.Arch("audio.channels", src.Arch("audio.mel_bins", 1)) : 0;
+        long audioFrames = audio ? (variableAudio ? src.Arch<long>("audio.max_frames") : src.Arch<int>("audio.chunk_samples") / src.Arch<int>("audio.hop_length")) : 0;
+        Dim StemRows(Dim frames) => conformer?.Rows(frames) ?? stem!.Rows(frames);
+        int sourceRows = !cachedCross ? 0 : variableAudio ? (int)StemRows(audioFrames).Fixed : src.Arch<int>("encoder.rows");
         WeightInfo? Lookup(string name) => extraWeights.TryGetValue(name, out var w) ? w : src.Weight(name);
         var encoderBias = StackBias("encoder", encoderLayers, bidirectional: true);
         var decoderBias = StackBias("decoder", decoderLayers, bidirectional: false);
@@ -129,7 +151,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             [WellKnown.DecoderStartToken] = src.Arch("decoder_start_token", 0),
             ["n_layer"] = encoderLayers + decoderLayers,
         };
-        var speech = audio && decoderLayers > 0 ? SpeechRecognitionDescription.Build(src, ctx, sourceRows) : default((ModelDescription Description, IReadOnlyDictionary<string, IWeightSource> Attachments, IReadOnlyDictionary<string, object> Metadata)?);
+        var speech = audio && decoderLayers > 0 ? SpeechRecognitionDescription.Build(src, ctx, sourceRows, variableAudio ? audioFrames : 0) : default((ModelDescription Description, IReadOnlyDictionary<string, IWeightSource> Attachments, IReadOnlyDictionary<string, object> Metadata)?);
         var weights = extraWeights.Count == 0 ? src.Weights : new Dictionary<string, WeightInfo>(src.Weights.Concat(extraWeights), StringComparer.Ordinal);
 
         return new ModelDefinition
@@ -150,15 +172,34 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         {
             var b = new GraphBuilder(WellKnown.EncodeGraph, Lookup);
             Value x;
-            if (stem is not null)
+            Value? encoderPositions = null;
+            if (conformer is not null)
             {
-                Value features;
-                using (b.Group("input"))
+                using (b.Group("output"))
                 {
-                    features = b.Input("features", InputRole.AudioFeatures, DataType.F32, new Shape(src.Arch<int>("audio.mel_bins"), src.Arch<int>("audio.chunk_samples") / src.Arch<int>("audio.hop_length")));
+                    b.Output(WellKnown.EncoderOutput, conformer.Build(b));
                 }
 
-                x = stem.Build(b, features, (t, activation) => Act(b, t, activation));
+                return b.Build();
+            }
+
+            if (stem is not null)
+            {
+                // Fixed windows (Whisper) come channel-major [channels, frames]; variable-length input comes time-major [F, channels].
+                Value signal;
+                using (b.Group("input"))
+                {
+                    signal = variableAudio
+                        ? b.Input("features", InputRole.AudioFeatures, DataType.F32, new Shape(Dim.Sym(WellKnown.AudioFrameSymbol), audioChannels))
+                        : b.Permute(b.Input("features", InputRole.AudioFeatures, DataType.F32, new Shape(audioChannels, audioFrames)), 1, 0);
+                }
+
+                x = stem.Build(b, signal, (t, activation) => Act(b, t, activation));
+                if (ropeDims > 0)
+                {
+                    using var _ = b.Group("input");
+                    encoderPositions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(x.Shape[0], 1));
+                }
             }
             else
             {
@@ -169,7 +210,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                 x = Embeddings(b, "encoder", tokens, positions);
             }
 
-            x = EncoderLayers(b, x, (q, k, v, il, name) => b.Emit1("Attention", [q, k, v], Attributes.From([("scale", scale), ("causal", false), .. BiasAttributes(encoderBias[il])]), name));
+            x = EncoderLayers(b, x, encoderPositions, (q, k, v, il, name) => b.Emit1("Attention", [q, k, v], Attributes.From([("scale", scale), ("causal", false), .. BiasAttributes(encoderBias[il])]), name));
             using (b.Group("output"))
             {
                 b.Output(WellKnown.EncoderOutput, FinalNorm(b, x, "encoder.output_norm", "encoder_output"));
@@ -188,7 +229,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                 x = Embeddings(b, "encoder", inp.Tokens, HasPositions("encoder") ? inp.Positions : null);
             }
 
-            x = EncoderLayers(b, x, (q, k, v, il, name) => PackedSequences.Attention(b, q, k, v, inp.RowSpans, scale, causal: false, name: name, positionBias: encoderBias[il]));
+            x = EncoderLayers(b, x, ropeDims > 0 ? inp.Positions : null, (q, k, v, il, name) => PackedSequences.Attention(b, q, k, v, inp.RowSpans, scale, causal: false, name: name, positionBias: encoderBias[il]));
             using (b.Group("output"))
             {
                 PackedSequences.EmbeddingsOutput(b, FinalNorm(b, x, "encoder.output_norm", "encoder_output"), inp.SequenceSpans, pooling, normalize);
@@ -197,7 +238,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             return b.Build();
         }
 
-        Value EncoderLayers(GraphBuilder b, Value x, Func<Value, Value, Value, int, string, Value> attention)
+        Value EncoderLayers(GraphBuilder b, Value x, Value? positions, Func<Value, Value, Value, int, string, Value> attention)
         {
             for (int il = 0; il < encoderLayers; il++)
             {
@@ -205,10 +246,12 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                 string p = $"encoder.layers.{il}.";
                 x = SubLayer(b, x, p + "attention_norm", h =>
                 {
-                    var attn = attention(Heads(b, Linear(b, h, p + "attention.q")), Heads(b, Linear(b, h, p + "attention.k")), Heads(b, Linear(b, h, p + "attention.v")), il, $"{p}attn");
+                    var q = Rotate(b, Heads(b, Linear(b, h, p + "attention.q")), positions);
+                    var k = Rotate(b, Heads(b, Linear(b, h, p + "attention.k")), positions);
+                    var attn = attention(q, k, Heads(b, Linear(b, h, p + "attention.v")), il, $"{p}attn");
                     return Linear(b, Merge(b, attn), p + "attention.o", $"{p}attn_out");
                 });
-                x = SubLayer(b, x, p + "mlp_norm", h => FeedForward(b, h, p));
+                x = SubLayer(b, x, p + "mlp_norm", h => FeedForward(b, h, p, encoderAct));
             }
 
             return x;
@@ -220,12 +263,20 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             var T = Dim.Sym(WellKnown.TokenSymbol);
             Value x;
             Value encoded;
+            Value? positions;
+            Value? sourceSpans = null;
             using (b.Group("input"))
             {
                 var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
-                var positions = HasPositions("decoder") ? b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1)) : null;
+                positions = HasPositions("decoder") || ropeDims > 0 ? b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1)) : null;
                 encoded = b.Input(WellKnown.EncoderOutput, InputRole.EncoderOutput, DataType.F32, new Shape(Dim.Sym(WellKnown.EncoderSymbol), nEmbd));
-                x = Embeddings(b, "decoder", tokens, positions);
+                if (variableAudio && cachedCross)
+                {
+                    // The cross states hold up to sourceRows rows; each query row sees the rows of the current source only.
+                    sourceSpans = b.Input("source_spans", InputRole.RowSpans, DataType.I32, new Shape(T, 2));
+                }
+
+                x = Embeddings(b, "decoder", tokens, HasPositions("decoder") ? positions : null);
             }
 
             var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
@@ -238,9 +289,9 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                 {
                     var kc = b.State(kCache[layer]);
                     var vc = b.State(vCache[layer]);
-                    b.CacheWrite(kc, Heads(b, Linear(b, h, p + "attention.k")));
+                    b.CacheWrite(kc, Rotate(b, Heads(b, Linear(b, h, p + "attention.k")), positions));
                     b.CacheWrite(vc, Heads(b, Linear(b, h, p + "attention.v")));
-                    var attn = b.Emit1("CachedAttention", [Heads(b, Linear(b, h, p + "attention.q")), kc, vc],
+                    var attn = b.Emit1("CachedAttention", [Rotate(b, Heads(b, Linear(b, h, p + "attention.q")), positions), kc, vc],
                         Attributes.From([("scale", scale), ("offset", WellKnown.PastScalar), .. BiasAttributes(decoderBias[layer])]), $"{p}attn");
                     return Linear(b, Merge(b, attn), p + "attention.o", $"{p}attn_out");
                 });
@@ -261,11 +312,12 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                         values = vc;
                     }
 
-                    var cross = b.Emit1("Attention", [Heads(b, Linear(b, h, p + "cross_attention.q")), keys, values],
+                    var crossQuery = Heads(b, Linear(b, h, p + "cross_attention.q"));
+                    var cross = b.Emit1("Attention", sourceSpans is null ? [crossQuery, keys, values] : [crossQuery, keys, values, sourceSpans],
                         Attributes.From(("scale", scale), ("causal", false)), $"{p}cross_attn");
                     return Linear(b, Merge(b, cross), p + "cross_attention.o", $"{p}cross_attn_out");
                 });
-                x = SubLayer(b, x, p + "mlp_norm", h => FeedForward(b, h, p));
+                x = SubLayer(b, x, p + "mlp_norm", h => FeedForward(b, h, p, decoderAct));
             }
 
             using (b.Group("output"))
@@ -337,17 +389,24 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         Value Linear(GraphBuilder b, Value v, string module, string? name = null)
             => b.Linear(v, module + ".weight", b.HasWeight(module + ".bias") ? module + ".bias" : null, name);
 
+        // Rotary positions on the first attention.rope.dims of every head (self-attention only); identity without rope.
+        Value Rotate(GraphBuilder b, Value heads, Value? positions)
+            => ropeDims > 0 && positions is not null
+                ? b.Emit1("Rope", [heads, positions], Attributes.From(("dims", ropeDims), ("base", ropeBase), ("style", ropeStyle)))
+                : heads;
+
         Value Norm(GraphBuilder b, Value v, string module, string? name = null) => norm switch
         {
             "rms" => b.RmsNorm(v, b.Weight(module + ".weight"), eps, name),
-            "layer" => b.Emit1("LayerNorm", [v, b.Weight(module + ".weight"), b.Weight(module + ".bias")], Attributes.From(("eps", eps)), name),
+            "layer" => b.Emit1("LayerNorm", b.HasWeight(module + ".bias") ? [v, b.Weight(module + ".weight"), b.Weight(module + ".bias")] : [v, b.Weight(module + ".weight")],
+                Attributes.From(("eps", eps)), name),
             _ => throw new NotSupportedException($"encoder_decoder: unknown norm '{norm}'."),
         };
 
-        Value FeedForward(GraphBuilder b, Value h, string p)
+        Value FeedForward(GraphBuilder b, Value h, string p, string activation)
         {
             var up = Linear(b, h, p + "mlp.up");
-            var y = b.HasWeight(p + "mlp.gate.weight") ? b.Mul(Act(b, Linear(b, h, p + "mlp.gate")), up) : Act(b, up);
+            var y = b.HasWeight(p + "mlp.gate.weight") ? b.Mul(Act(b, Linear(b, h, p + "mlp.gate"), activation), up) : Act(b, up, activation);
             return Linear(b, y, p + "mlp.down", $"{p}ffn_out");
         }
 
@@ -357,6 +416,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             "gelu" => b.Unary("Gelu", t),
             "gelu_tanh" => b.Unary("GeluTanh", t),
             "silu" => b.Silu(t),
+            "tanh" => b.Unary("Tanh", t),
             var other => throw new NotSupportedException($"encoder_decoder: unknown activation '{other}'."),
         };
     }

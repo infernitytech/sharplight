@@ -32,8 +32,18 @@ internal static class SpeechEnvironment
 
     static SpeechEnvironment() => new ServiceCollection().AddSharplight();
 
+    /// <summary>The name of the JFK sample (11 s, 16 kHz mono).</summary>
+    public const string JfkName = "jfk";
+
+    /// <summary>The name of the longer recording: LibriSpeech dev-clean 1272-128104-0004 (29.4 s, 16 kHz mono, CC BY 4.0).</summary>
+    public const string LibriSpeechName = "librispeech-1272-128104-0004";
+
     /// <summary>The JFK sample (11 s, 16 kHz mono).</summary>
-    public static string Jfk => Path.Combine(s_models, "audio", "jfk.wav");
+    public static string Jfk => Audio(JfkName);
+
+    /// <summary>A recording under <c>~/models/audio</c>.</summary>
+    /// <param name="name">The file name without the <c>.wav</c> extension.</param>
+    public static string Audio(string name) => Path.Combine(s_models, "audio", name + ".wav");
 
     /// <summary>A Hugging Face checkpoint directory under <c>~/models/hf</c>.</summary>
     /// <param name="name">The directory name, e.g. <c>whisper-tiny</c>.</param>
@@ -50,6 +60,28 @@ internal static class SpeechEnvironment
     /// <summary>Reads a fixture file of the test assembly.</summary>
     /// <param name="name">The file name under Fixtures.</param>
     public static JsonDocument Fixture(string name) => JsonDocument.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name)));
+
+    /// <summary>The largest difference to sampled reference values (<c>count</c>, <c>stride</c>, <c>values</c>), and the largest reference magnitude.</summary>
+    /// <param name="actual">The full tensor.</param>
+    /// <param name="reference">The fixture's sample of the reference tensor.</param>
+    /// <param name="scale">The largest reference magnitude.</param>
+    public static double MaxError(float[] actual, JsonElement reference, out double scale)
+    {
+        Xunit.Assert.Equal(reference.GetProperty("count").GetInt32(), actual.Length);
+        int stride = reference.GetProperty("stride").GetInt32();
+        double error = 0;
+        scale = 0;
+        int index = 0;
+        foreach (var value in reference.GetProperty("values").EnumerateArray())
+        {
+            double expected = value.GetDouble();
+            error = Math.Max(error, Math.Abs(actual[index] - expected));
+            scale = Math.Max(scale, Math.Abs(expected));
+            index += stride;
+        }
+
+        return error;
+    }
 
     /// <summary>True when the model and the audio exist and the device is available; otherwise the test is skipped by the caller.</summary>
     /// <param name="model">The model path.</param>

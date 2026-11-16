@@ -5,18 +5,22 @@ using Sharplight.Models;
 namespace Sharplight.Audio;
 
 /// <summary>
-/// Log-mel spectrogram front end (feature-extractor <c>type</c> <c>log-mel</c>): a short-time Fourier transform with a periodic Hann
-/// window, the power spectrum, a mel filter bank, the logarithm with a floor and an optional dynamic-range clamp and affine rescale.
-/// With Whisper's settings it computes <c>(max(log10(max(mel, 1e-10)), peak − 8) + 4) / 4</c> over the recording plus 30 s of silence,
-/// as the reference implementations do.
+/// Log-mel spectrogram front end (feature-extractor <c>type</c> <c>log-mel</c>): optional pre-emphasis, a short-time Fourier transform with
+/// a Hann window, the power spectrum, a mel filter bank, the logarithm with a floor or an additive guard, an optional dynamic-range clamp
+/// and affine rescale, and an optional per-channel normalization. With Whisper's settings it computes
+/// <c>(max(log10(max(mel, 1e-10)), peak − 8) + 4) / 4</c> over the recording plus 30 s of silence; with NeMo's (Parakeet, Canary)
+/// <c>ln(mel + 2⁻²⁴)</c> of the pre-emphasized signal, each channel normalized to zero mean and unit variance over the recording.
 /// </summary>
 /// <remarks>
 /// Component configuration (all lengths in samples): <c>sampleRate</c>, <c>fftSize</c>, <c>hopLength</c>, <c>melBins</c>, optional
-/// <c>windowSize</c> (default fftSize; centered in the FFT frame), <c>center</c> (default true: frames are centered on multiples of the hop,
+/// <c>windowSize</c> (default fftSize; centered in the FFT frame), <c>periodicWindow</c> (default true; false: the symmetric Hann window),
+/// <c>preemphasis</c> (coefficient a of y[n] = x[n] − a·x[n − 1], default 0), <c>center</c> (default true: frames are centered on multiples of the hop,
 /// the signal is padded by fftSize / 2 on both sides), <c>padMode</c> (<c>reflect</c> (default) or <c>constant</c>),
 /// <c>trailingPadding</c> (zeros appended to the recording, default 0), <c>dropLastFrame</c> (default false), <c>logBase</c> (<c>10</c>
-/// (default) or <c>e</c>), <c>logFloor</c> (default 1e-10), <c>dynamicRange</c> (clamp to the recording's peak minus this many log units; 0 =
-/// none, the default), <c>logOffset</c> and <c>logScale</c> (result = (log + offset) · scale; defaults 0 and 1). The filter bank is the
+/// (default) or <c>e</c>), <c>logFloor</c> (default 1e-10), <c>logGuard</c> (when positive, log(mel + guard) instead of the floor; default 0),
+/// <c>dynamicRange</c> (clamp to the recording's peak minus this many log units; 0 = none, the default), <c>logOffset</c> and <c>logScale</c>
+/// (result = (log + offset) · scale; defaults 0 and 1), <c>normalize</c> (<c>none</c> (default) or <c>per-channel</c>: each channel minus its
+/// mean over the frames, divided by its standard deviation (n − 1 denominator) plus <c>normalizeEpsilon</c>, default 1e-5). The filter bank is the
 /// attachment <see cref="ModelComponentAttachments.MelFilters"/>: little-endian f32 [melBins, fftSize / 2 + 1].
 /// </remarks>
 internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
@@ -32,6 +36,10 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
     private readonly bool _dropLastFrame;
     private readonly bool _log10;
     private readonly double _logFloor;
+    private readonly double _logGuard;
+    private readonly double _preemphasis;
+    private readonly bool _normalizeChannels;
+    private readonly double _normalizeEpsilon;
     private readonly double _dynamicRange;
     private readonly double _logOffset;
     private readonly double _logScale;
@@ -84,14 +92,24 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
             var other => throw new InvalidDataException($"log-mel feature extractor: unknown logBase '{other}'."),
         };
         _logFloor = component.ConfigValue("logFloor", 1e-10);
+        _logGuard = component.ConfigValue("logGuard", 0.0);
+        _preemphasis = component.ConfigValue("preemphasis", 0.0);
+        _normalizeChannels = component.ConfigValue("normalize", "none") switch
+        {
+            "none" => false,
+            "per-channel" => true,
+            var other => throw new InvalidDataException($"log-mel feature extractor: unknown normalize '{other}'."),
+        };
+        _normalizeEpsilon = component.ConfigValue("normalizeEpsilon", 1e-5);
         _dynamicRange = component.ConfigValue("dynamicRange", 0.0);
         _logOffset = component.ConfigValue("logOffset", 0.0);
         _logScale = component.ConfigValue("logScale", 1.0);
         _window = new double[_fftSize];
         int start = (_fftSize - windowSize) / 2;
+        int period = component.ConfigValue("periodicWindow", true) ? windowSize : windowSize - 1;
         for (int i = 0; i < windowSize; i++)
         {
-            _window[start + i] = 0.5 - (0.5 * Math.Cos(2 * Math.PI * i / windowSize));
+            _window[start + i] = 0.5 - (0.5 * Math.Cos(2 * Math.PI * i / period));
         }
 
         _transform = new FourierTransform(_fftSize);
@@ -123,7 +141,13 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
             ComputeFrame(signal, frame, frames, mel, scratch);
             return scratch;
         }, static _ => { });
-        return new AudioFeatures(Normalize(mel), Channels, frames);
+        var features = Normalize(mel);
+        if (_normalizeChannels)
+        {
+            NormalizeChannels(features, frames);
+        }
+
+        return new AudioFeatures(features, Channels, frames);
     }
 
     /// <summary>The recording with the trailing padding and, for centered frames, fftSize / 2 samples of padding on both sides.</summary>
@@ -136,6 +160,15 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
         for (int i = 0; i < samples.Length; i++)
         {
             signal[margin + i] = samples[i];
+        }
+
+        if (_preemphasis != 0)
+        {
+            // Backwards, so every step still reads the original previous sample.
+            for (int i = samples.Length - 1; i >= 1; i--)
+            {
+                signal[margin + i] -= _preemphasis * samples[i - 1];
+            }
         }
 
         if (!_reflect || margin == 0)
@@ -186,7 +219,7 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
         double peak = double.NegativeInfinity;
         for (int i = 0; i < mel.Length; i++)
         {
-            double value = Math.Max(mel[i], _logFloor);
+            double value = _logGuard > 0 ? mel[i] + _logGuard : Math.Max(mel[i], _logFloor);
             mel[i] = _log10 ? Math.Log10(value) : Math.Log(value);
             peak = Math.Max(peak, mel[i]);
         }
@@ -199,6 +232,34 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
         }
 
         return features;
+    }
+
+    // Each channel to zero mean and unit standard deviation over the frames (sample variance, the epsilon added to the deviation).
+    private void NormalizeChannels(float[] features, int frames)
+    {
+        for (int channel = 0; channel < Channels; channel++)
+        {
+            var row = features.AsSpan(channel * frames, frames);
+            double mean = 0;
+            foreach (float v in row)
+            {
+                mean += v;
+            }
+
+            mean /= Math.Max(frames, 1);
+            double sum = 0;
+            foreach (float v in row)
+            {
+                sum += (v - mean) * (v - mean);
+            }
+
+            double deviation = Math.Sqrt(sum / Math.Max(frames - 1, 1));
+            double scale = 1 / (deviation + _normalizeEpsilon);
+            for (int i = 0; i < row.Length; i++)
+            {
+                row[i] = (float)((row[i] - mean) * scale);
+            }
+        }
     }
 
     /// <summary>Per-thread work buffers of one frame.</summary>

@@ -228,6 +228,12 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Lstm":
                 LowerLstm(n);
                 return;
+            case "SequenceConv2d":
+                LowerSequenceConv2d(n);
+                return;
+            case "RelativeAttention":
+                LowerRelativeAttention(n);
+                return;
             case "Random":
                 LowerRandom(n);
                 return;

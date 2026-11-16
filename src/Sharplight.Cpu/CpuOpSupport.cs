@@ -80,6 +80,8 @@ internal static partial class CpuOpSupport
             "Sample" => OpSupport.Yes,
             "Dft" => AllF32(node),
             "Conv1d" or "ConvTranspose1d" or "Interpolate1d" or "Lstm" => AllF32(node),
+            "SequenceConv2d" => AllF32(node),
+            "RelativeAttention" => AllF32(node),
             "Random" => OpSupport.Yes,
             "TreeEnsemble" or "OneVsOne" => AllF32(node),
             "LabelEncode" => node.Inputs[0].Type == DataType.F32 || node.Inputs[0].Type == DataType.I32 || node.Inputs[0].Type == DataType.Str

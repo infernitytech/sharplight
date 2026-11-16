@@ -4,7 +4,8 @@ namespace Sharplight.Speech;
 /// The logit rules of prompted speech decoding, applied before every token choice: never-generated tokens, tokens not allowed first,
 /// and with timestamps the timestamp grammar (timestamps come in pairs around text, never decrease, the window starts with one no later
 /// than the initial limit, and a timestamp wins when all timestamps together are likelier than any single text token). These are the rules
-/// of the reference Whisper decoders, written against the neutral <see cref="SpeechTokenProtocol"/>.
+/// of the reference Whisper decoders, written against the neutral <see cref="SpeechTokenProtocol"/>. Timestamp rules need a protocol with
+/// timestamp tokens.
 /// </summary>
 internal sealed class SpeechLogitFilter(SpeechTokenProtocol protocol, bool timestamps)
 {
@@ -29,7 +30,7 @@ internal sealed class SpeechLogitFilter(SpeechTokenProtocol protocol, bool times
             logits[noTimestamps] = float.NegativeInfinity;
         }
 
-        int begin = protocol.TimestampBeginId;
+        int begin = protocol.TimestampBeginId ?? throw new InvalidOperationException("The speech decoder has no timestamp tokens.");
         bool lastWasTimestamp = generated.Count >= 1 && generated[^1] >= begin;
         bool penultimateWasTimestamp = generated.Count < 2 || generated[^2] >= begin;
         if (lastWasTimestamp)
