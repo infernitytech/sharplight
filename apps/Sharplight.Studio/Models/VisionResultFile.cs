@@ -6,7 +6,7 @@ namespace Sharplight.Studio.Models;
 /// </summary>
 internal sealed class VisionResultFile
 {
-    /// <summary><c>classification</c>, <c>zero-shot</c>, <c>embedding</c>, <c>detection</c> or <c>depth</c>.</summary>
+    /// <summary><c>classification</c>, <c>zero-shot</c>, <c>embedding</c>, <c>detection</c>, <c>depth</c>, <c>segmentation</c>, <c>ocr</c> or <c>upscale</c>.</summary>
     public string Mode { get; set; } = "";
 
     /// <summary>The model that ran it.</summary>
@@ -38,6 +38,30 @@ internal sealed class VisionResultFile
 
     /// <summary>The largest depth value (depth estimation).</summary>
     public float? DepthMax { get; set; }
+
+    /// <summary>The candidate masks, in the model's order (segmentation).</summary>
+    public List<VisionMaskRecord>? Masks { get; set; }
+
+    /// <summary>The number of the mask the page shows (segmentation), from 1.</summary>
+    public int? ShownMask { get; set; }
+
+    /// <summary>The prompt's points (segmentation).</summary>
+    public List<VisionPointRecord>? Points { get; set; }
+
+    /// <summary>The prompt's box (segmentation).</summary>
+    public VisionBoxRecord? PromptBox { get; set; }
+
+    /// <summary>The model's logit that the prompt hit an object (segmentation).</summary>
+    public float? ObjectScore { get; set; }
+
+    /// <summary>The recognized text (OCR).</summary>
+    public string? Text { get; set; }
+
+    /// <summary>The width of the upscaled image in pixels (upscaling).</summary>
+    public int? OutputWidth { get; set; }
+
+    /// <summary>The height of the upscaled image in pixels (upscaling).</summary>
+    public int? OutputHeight { get; set; }
 
     /// <summary>The length of the embedding vector (embedding).</summary>
     public int? Dimensions { get; set; }

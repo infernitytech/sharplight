@@ -3,8 +3,8 @@ using Sharplight.Vision;
 
 namespace Sharplight.Studio.Tests.Fakes;
 
-/// <summary>One fake client for the four vision interfaces (a model gets the one of its kind); records the options of every request.</summary>
-internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDetector, IDepthEstimator
+/// <summary>One fake client for the vision interfaces (a model gets the one of its kind); records the options of every request.</summary>
+internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDetector, IDepthEstimator, IImageSegmenter, ITextRecognizer, IImageUpscaler
 {
     public TaskClientMetadata Metadata { get; } = new(Sharplight.Models.ModelKinds.ImageClassification, "fake-vision", "vit");
 
@@ -33,6 +33,7 @@ internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDete
     {
         Options.Add(options);
         SlowWork.Block(StepWork, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(new ImageClassification([new(0, "tabby cat", 0.71f, 2f), new(1, "tiger cat", 0.2f, 1f), new(2, "Egyptian cat", 0.09f, 0f)]));
     }
 
@@ -78,9 +79,71 @@ internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDete
         return Task.FromResult(new DepthMap(image.Width, image.Height, values));
     }
 
+    /// <summary>The prompts every segmentation received, in order.</summary>
+    public List<SegmentationPrompt> Prompts { get; } = [];
+
+    /// <summary>How often the image stage ran.</summary>
+    public int Encodings { get; private set; }
+
+    /// <summary>The text every recognition returns.</summary>
+    public string Text { get; set; } = "Hello Sharplight";
+
+    public int Scale => 2;
+
+    public Task<SegmentationImage> EncodeImageAsync(ImageInput image, CancellationToken cancellationToken = default)
+    {
+        Encodings++;
+        return Task.FromResult(NewSegmentationImage(image));
+    }
+
+    public Task<ImageSegmentation> SegmentAsync(SegmentationImage image, SegmentationPrompt prompt, SegmentationOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        Options.Add(options);
+        Prompts.Add(prompt);
+        SlowWork.Block(StepWork, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        // Three candidates: the left half, the left quarter and the whole image; the first has the best score.
+        SegmentMask Mask(int width, float score)
+        {
+            var pixels = new bool[image.Width * image.Height];
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                pixels[i] = i % image.Width < width;
+            }
+
+            return new SegmentMask(image.Width, image.Height, pixels, score);
+        }
+
+        return Task.FromResult(new ImageSegmentation([Mask(image.Width / 2, 0.95f), Mask(image.Width / 4, 0.8f), Mask(image.Width, 0.6f)], 4f));
+    }
+
+    public Task<TextRecognition> RecognizeAsync(ImageInput image, TextRecognitionOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        Options.Add(options);
+        SlowWork.Block(StepWork, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(new TextRecognition(Text, [new TextRegion(Text, null)]));
+    }
+
+    public Task<ImageInput> UpscaleAsync(ImageInput image, UpscaleOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        Options.Add(options);
+        SlowWork.Block(StepWork, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        options?.Progress?.Report(1);
+        var rgb = new byte[3 * image.Width * Scale * image.Height * Scale];
+        Array.Fill(rgb, (byte)200);
+        return Task.FromResult(new ImageInput(image.Width * Scale, image.Height * Scale, rgb));
+    }
+
     public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
     public void Dispose()
     {
     }
+
+    // SegmentationImage has no public constructor (only a segmenter makes them): the fake builds one through its internal one.
+    private SegmentationImage NewSegmentationImage(ImageInput image)
+        => (SegmentationImage)Activator.CreateInstance(typeof(SegmentationImage), System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic, null,
+            [this, image.Width, image.Height, Array.Empty<float>(), Array.Empty<float>(), Array.Empty<float>()], null)!;
 }

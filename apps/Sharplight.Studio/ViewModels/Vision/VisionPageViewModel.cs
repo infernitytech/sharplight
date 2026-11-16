@@ -31,10 +31,15 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     private const string ResultName = "result.json";
     private const string AnnotatedName = "annotated.png";
     private const string DepthName = "depth.png";
+    private const string OverlayName = "overlay.png";
+    private const string UpscaledName = "upscaled.png";
     private const int EmbeddingPreviewValues = 12;
 
     private static readonly string[] s_kinds =
-        [ModelKinds.ImageClassification, ModelKinds.ImageEmbedding, ModelKinds.ObjectDetection, ModelKinds.DepthEstimation];
+    [
+        ModelKinds.ImageClassification, ModelKinds.ImageEmbedding, ModelKinds.ObjectDetection, ModelKinds.DepthEstimation,
+        ModelKinds.ImageSegmentation, ModelKinds.Ocr, ModelKinds.ImageUpscaling,
+    ];
 
     private VisionResultFile? _file;
     private ImageInput? _shown;
@@ -42,6 +47,8 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     private byte[]? _storedMain;
     private byte[]? _storedDepth;
     private DepthMap? _depth;
+    private byte[]? _storedAfter;
+    private IReadOnlyList<SegmentMask> _masks = [];
     private int _version;
 
     /// <param name="services">The services.</param>
@@ -50,7 +57,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         : base(services, navigator, s_kinds, "vision", CreateParameters(services))
     {
         Source = new ImageInputViewModel(services.Platform, text => Notice = text, "Image", "Drop an image here or choose a file (PNG, JPEG, WebP, BMP, GIF).", OnInputChanged);
-        foreach (string key in new[] { "threshold", "colormap", "invert" })
+        foreach (string key in new[] { "threshold", "colormap", "invert", "mask" })
         {
             Panel.Parameters.First(parameter => parameter.Key == key).PropertyChanged += (_, _) => RefreshView();
         }
@@ -91,6 +98,9 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         VisionMode.Embed => ParseCandidates(Candidates).Count > 0 ? "Score labels" : "Embed",
         VisionMode.Detect => "Detect objects",
         VisionMode.Depth => "Estimate depth",
+        VisionMode.Segment => "Segment",
+        VisionMode.Ocr => "Read text",
+        VisionMode.Upscale => "Upscale",
         _ => "Run",
     };
 
@@ -101,6 +111,9 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         VisionMode.Embed => "Image embedding: score candidate labels (models with a text tower, such as CLIP and SigLIP), or get the image's vector.",
         VisionMode.Detect => "Object detection: boxes with labels and scores; the threshold moves after the run.",
         VisionMode.Depth => "Depth estimation: a depth map beside the image.",
+        VisionMode.Segment => "Segmentation: run once (it starts from the middle of the image), then click the object (right click: not this) or draw a box around it; the mask follows.",
+        VisionMode.Ocr => "Text recognition: the text the picture shows (a line of text works best).",
+        VisionMode.Upscale => "Upscaling: the image enlarged by the model, with a slider to compare before and after; large images are cut into blended tiles.",
         _ => "Load an image model to choose what to do with a picture.",
     };
 
@@ -109,7 +122,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
 
     /// <summary>The result's mode (<c>classification</c>, <c>zero-shot</c>, <c>embedding</c>, <c>detection</c>, <c>depth</c>), or empty.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasResult), nameof(ShowRows), nameof(ShowDepth), nameof(ShowEmbedding), nameof(CanExportImage))]
+    [NotifyPropertyChangedFor(nameof(HasResult), nameof(ShowRows), nameof(ShowDepth), nameof(ShowEmbedding), nameof(CanExportImage), nameof(ShowText), nameof(ShowAfter), nameof(CanPrompt))]
     public partial string ResultMode { get; set; } = "";
 
     /// <summary>The image of the result as PNG: the input, or the input with the boxes drawn on it.</summary>
@@ -119,6 +132,14 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     /// <summary>The depth map as PNG (depth estimation).</summary>
     [ObservableProperty]
     public partial byte[]? DepthPng { get; set; }
+
+    /// <summary>The upscaled image as PNG (upscaling).</summary>
+    [ObservableProperty]
+    public partial byte[]? AfterPng { get; set; }
+
+    /// <summary>The recognized text (OCR).</summary>
+    [ObservableProperty]
+    public partial string ResultText { get; set; } = "";
 
     /// <summary>The classes or objects of the result.</summary>
     public ObservableCollection<VisionRowViewModel> Rows { get; } = [];
@@ -135,7 +156,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     public bool HasResult => ResultMode.Length > 0;
 
     /// <summary>The result is a list of classes or objects.</summary>
-    public bool ShowRows => ResultMode is "classification" or "zero-shot" or "detection";
+    public bool ShowRows => ResultMode is "classification" or "zero-shot" or "detection" or "segmentation";
 
     /// <summary>The result has a depth map.</summary>
     public bool ShowDepth => ResultMode == "depth";
@@ -144,7 +165,16 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     public bool ShowEmbedding => ResultMode == "embedding";
 
     /// <summary>The result has an image to export (annotated boxes or the depth map).</summary>
-    public bool CanExportImage => ResultMode is "detection" or "depth";
+    public bool CanExportImage => ResultMode is "detection" or "depth" or "segmentation" or "upscale";
+
+    /// <summary>The result is recognized text.</summary>
+    public bool ShowText => ResultMode == "ocr";
+
+    /// <summary>The result has an enlarged image beside the original.</summary>
+    public bool ShowAfter => ResultMode == "upscale";
+
+    /// <summary>Clicks and drags on the image prompt the segmentation (the model is a promptable segmenter and has encoded the image).</summary>
+    public bool CanPrompt => ResultMode == "segmentation";
 
     /// <summary>The objects shown are fewer than the model found, or there are none (detection).</summary>
     [ObservableProperty]
@@ -154,7 +184,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     internal Task Refresh { get; private set; } = Task.CompletedTask;
 
     /// <summary>Why <see cref="RunCommand"/> cannot run, for the hint under the button; empty when it can.</summary>
-    public string RunHint => !HasModel ? "Load an image classification, embedding, detection or depth model first." : !Source.HasImage ? "Choose or drop an image first." : "";
+    public string RunHint => !HasModel ? "Load an image classification, embedding, detection, depth, segmentation, OCR or upscaling model first." : !Source.HasImage ? "Choose or drop an image first." : "";
 
     /// <inheritdoc/>
     protected override void OnModelChanged(ILoadedModel? model)
@@ -176,6 +206,9 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
 
     private void OnInputChanged()
     {
+        // A prompt belongs to one image.
+        _points.Clear();
+        _box = null;
         OnPropertyChanged(nameof(RunHint));
         RunCommand.NotifyCanExecuteChanged();
     }
@@ -188,6 +221,9 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
             ModelKinds.ImageEmbedding => VisionMode.Embed,
             ModelKinds.ObjectDetection => VisionMode.Detect,
             ModelKinds.DepthEstimation => VisionMode.Depth,
+            ModelKinds.ImageSegmentation => VisionMode.Segment,
+            ModelKinds.Ocr => VisionMode.Ocr,
+            ModelKinds.ImageUpscaling => VisionMode.Upscale,
             _ => VisionMode.None,
         };
         Panel.SetVisible("topk", Mode is VisionMode.Classify or VisionMode.Embed or VisionMode.None);
@@ -197,6 +233,11 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         Panel.SetVisible("maxdet", Mode == VisionMode.Detect);
         Panel.SetVisible("colormap", Mode == VisionMode.Depth);
         Panel.SetVisible("invert", Mode == VisionMode.Depth);
+        Panel.SetVisible("segtool", Mode == VisionMode.Segment);
+        Panel.SetVisible("mask", Mode == VisionMode.Segment);
+        Panel.SetVisible("maxtokens", Mode == VisionMode.Ocr);
+        Panel.SetVisible("tile", Mode == VisionMode.Upscale);
+        Panel.SetVisible("tilepad", Mode == VisionMode.Upscale);
         OnPropertyChanged(nameof(Mode));
         OnPropertyChanged(nameof(RunText));
         OnPropertyChanged(nameof(ModeDescription));
@@ -213,10 +254,16 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         _shownPng = null;
         _storedMain = null;
         _storedDepth = null;
+        _storedAfter = null;
         _depth = null;
+        _masks = [];
+        _points.Clear();
+        _box = null;
         Rows.Clear();
         MainPng = null;
         DepthPng = null;
+        AfterPng = null;
+        ResultText = "";
         ResultSummary = "";
         EmbeddingText = "";
         RowsHint = "";
@@ -241,22 +288,26 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         var values = Panel.Snapshot();
         var candidates = ParseCandidates(Candidates);
         var mode = Mode;
+        var prompt = mode == VisionMode.Segment ? BuildPrompt(image) : null;
+        int maskChoice = MaskChoice();
         string name = Source.Name;
         string path = Source.Path;
         double threshold = Panel.GetNumber("threshold");
         Panel.Persist();
         Notice = "";
-        Queue.Enqueue(name, model.Id, context => AnalyzeAsync(model, mode, image, png, name, path, options, values, candidates, threshold, context));
+        Queue.Enqueue(name, model.Id, context => AnalyzeAsync(model, mode, image, png, name, path, options, values, candidates, threshold, prompt, maskChoice, context));
         OnPropertyChanged(nameof(IsRunning));
         RunCommand.NotifyCanExecuteChanged();
     }
 
     private async Task AnalyzeAsync(ILoadedModel model, VisionMode mode, ImageInput image, byte[]? png, string name, string path, VisionOptions options,
-        Dictionary<string, string> values, IReadOnlyList<string> candidates, double threshold, RunContext context)
+        Dictionary<string, string> values, IReadOnlyList<string> candidates, double threshold, SegmentationPrompt? prompt, int maskChoice, RunContext context)
     {
         var watch = Stopwatch.StartNew();
         var file = new VisionResultFile { Model = model.Id, Image = name, Width = image.Width, Height = image.Height };
         DepthMap? depth = null;
+        IReadOnlyList<SegmentMask> masks = [];
+        ImageInput? upscaled = null;
         string? note = null;
         RunOutcome outcome = RunOutcome.Completed;
         string? error = null;
@@ -334,6 +385,47 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                     break;
                 }
 
+                case VisionMode.Segment:
+                {
+                    using var lease = await model.AcquireClientAsync<IImageSegmenter>(token).ConfigureAwait(false);
+                    var result = await SegmentAsync(lease.Client, model.Id, image, prompt!, options.Segmentation, context, token).ConfigureAwait(false);
+                    masks = result.Masks;
+                    file.Mode = "segmentation";
+                    file.Masks = [.. masks.Select((mask, index) => new VisionMaskRecord(index + 1, mask.Score, mask.Area))];
+                    file.ShownMask = ChosenMask(masks, maskChoice) + 1;
+                    file.ObjectScore = result.ObjectScore;
+                    file.Points = [.. prompt!.Points.Select(point => new VisionPointRecord(point.X, point.Y, point.IsPositive))];
+                    file.PromptBox = prompt.Box is { } box ? new VisionBoxRecord(0, "prompt", 1, box.X1, box.Y1, box.X2, box.Y2) : null;
+                    break;
+                }
+
+                case VisionMode.Ocr:
+                {
+                    using var lease = await model.AcquireClientAsync<ITextRecognizer>(token).ConfigureAwait(false);
+                    context.Report(null, "Reading");
+                    var result = await lease.Client.RecognizeAsync(image, options.Recognition, token).ConfigureAwait(false);
+                    file.Mode = "ocr";
+                    file.Text = result.Text;
+                    break;
+                }
+
+                case VisionMode.Upscale:
+                {
+                    using var lease = await model.AcquireClientAsync<IImageUpscaler>(token).ConfigureAwait(false);
+                    context.Report(null, "Upscaling");
+                    var upscale = new UpscaleOptions
+                    {
+                        TileSize = options.Upscale.TileSize,
+                        TilePadding = options.Upscale.TilePadding,
+                        Progress = new Progress<double>(fraction => context.Report(fraction, "Upscaling")),
+                    };
+                    upscaled = await lease.Client.UpscaleAsync(image, upscale, token).ConfigureAwait(false);
+                    file.Mode = "upscale";
+                    file.OutputWidth = upscaled.Width;
+                    file.OutputHeight = upscaled.Height;
+                    break;
+                }
+
                 default:
                     throw new NotSupportedException("The chosen model is not a vision model.");
             }
@@ -371,16 +463,29 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                 files[DepthName] = ImageFiles.ToPng(DepthColormap.Render(depth!, options.Colormap, options.Invert));
                 fileNames.Add(DepthName);
             }
+            else if (file.Mode == "segmentation")
+            {
+                files[OverlayName] = ImageFiles.ToPng(SegmentationOverlay.Render(image, masks.Count > 0 ? masks[ChosenMask(masks, maskChoice)] : null, prompt!.Points, prompt.Box));
+                fileNames.Add(OverlayName);
+            }
+            else if (file.Mode == "upscale")
+            {
+                files[UpscaledName] = ImageFiles.ToPng(upscaled!);
+                fileNames.Add(UpscaledName);
+            }
 
             files[ResultName] = JsonSerializer.SerializeToUtf8Bytes(file, StudioJsonContext.Default.VisionResultFile);
             fileNames.Add(ResultName);
             var shownFile = file;
             var shownDepth = depth;
             var shownPng = png;
+            var shownMasks = masks;
+            byte[]? shownAfter = file.Mode == "upscale" ? files[UpscaledName] : null;
             Services.Dispatcher.Post(() =>
             {
                 Notice = note ?? "";
-                Show(shownFile, image, shownPng, shownDepth, null, null, string.Join(" · ", metadata.Select(pair => $"{pair.Key}: {pair.Value}")));
+                _masks = shownMasks;
+                Show(shownFile, image, shownPng, shownDepth, null, null, string.Join(" · ", metadata.Select(pair => $"{pair.Key}: {pair.Value}")), shownAfter);
             });
         }
 
@@ -441,6 +546,16 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                 return count == 0 ? "No objects above the threshold" : $"{count} object(s): " + string.Join(", ", file.Boxes!.Where(box => box.Score >= file.Threshold).Select(box => box.Label).Distinct().Take(6));
             case "depth":
                 return $"Depth range {file.DepthMin:0.##} to {file.DepthMax:0.##}";
+            case "segmentation":
+                var best = file.Masks!.MaxBy(mask => mask.Score);
+                metadata["masks"] = file.Masks!.Count.ToString(CultureInfo.InvariantCulture);
+                return best is null ? "No mask" : $"{file.Masks!.Count} candidate mask(s), best {VisionRowViewModel.Percent(best.Score)} ({best.Area} px)";
+            case "ocr":
+                metadata["characters"] = file.Text!.Length.ToString(CultureInfo.InvariantCulture);
+                return file.Text.Length == 0 ? "No text found" : file.Text.Length > 120 ? file.Text[..120] + "…" : file.Text;
+            case "upscale":
+                metadata["output"] = $"{file.OutputWidth} × {file.OutputHeight}";
+                return $"{file.Width} × {file.Height} to {file.OutputWidth} × {file.OutputHeight}";
             default:
                 metadata["dimensions"] = file.Dimensions.GetValueOrDefault().ToString(CultureInfo.InvariantCulture);
                 return $"{file.Dimensions} dimensions";
@@ -485,10 +600,13 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
             }
         }
 
-        byte[]? stored = record.Files.Contains(AnnotatedName) && File.Exists(Archive.PathOf(record, AnnotatedName)) ? File.ReadAllBytes(Archive.PathOf(record, AnnotatedName)) : null;
+        string mainName = file.Mode == "segmentation" ? OverlayName : AnnotatedName;
+        byte[]? stored = record.Files.Contains(mainName) && File.Exists(Archive.PathOf(record, mainName)) ? File.ReadAllBytes(Archive.PathOf(record, mainName)) : null;
+        byte[]? storedAfter = record.Files.Contains(UpscaledName) && File.Exists(Archive.PathOf(record, UpscaledName)) ? File.ReadAllBytes(Archive.PathOf(record, UpscaledName)) : null;
         byte[]? storedDepth = record.Files.Contains(DepthName) && File.Exists(Archive.PathOf(record, DepthName)) ? File.ReadAllBytes(Archive.PathOf(record, DepthName)) : null;
         Notice = "";
-        Show(file, image, null, null, stored, storedDepth, string.Join(" · ", record.Metadata.Select(pair => $"{pair.Key}: {pair.Value}")));
+        _masks = [];
+        Show(file, image, null, null, stored, storedDepth, string.Join(" · ", record.Metadata.Select(pair => $"{pair.Key}: {pair.Value}")), storedAfter);
         if (image is not null)
         {
             Source.Set(image, source!);
@@ -499,7 +617,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     /// Shows a result. A depth map is kept to re-color it; a detection's boxes to move the threshold. For a stored run whose input is
     /// gone only the stored PNGs are shown.
     /// </summary>
-    private void Show(VisionResultFile file, ImageInput? image, byte[]? imagePng, DepthMap? depth, byte[]? storedMain, byte[]? storedDepth, string summary)
+    private void Show(VisionResultFile file, ImageInput? image, byte[]? imagePng, DepthMap? depth, byte[]? storedMain, byte[]? storedDepth, string summary, byte[]? storedAfter = null)
     {
         _version++;
         _file = file;
@@ -507,7 +625,16 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         _shownPng = imagePng;
         _storedMain = storedMain;
         _storedDepth = storedDepth;
+        _storedAfter = storedAfter;
         _depth = depth;
+        ResultText = file.Text ?? "";
+        if (file.Mode == "segmentation")
+        {
+            _points.Clear();
+            _points.AddRange((file.Points ?? []).Select(point => new SegmentationPoint(point.X, point.Y, point.Positive)));
+            _box = file.PromptBox is { } box ? new BoundingBox(box.X1, box.Y1, box.X2, box.Y2) : null;
+        }
+
         ResultSummary = summary;
         EmbeddingText = file.Embedding is { } vector
             ? $"{vector.Length} dimensions. First values: " + string.Join(", ", vector.Take(EmbeddingPreviewValues).Select(value => value.ToString("0.000", CultureInfo.InvariantCulture))) + (vector.Length > EmbeddingPreviewValues ? ", …" : "")
@@ -532,11 +659,17 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         var depth = _depth;
         var storedMain = _storedMain;
         var storedDepth = _storedDepth;
+        var storedAfter = _storedAfter;
         var imagePng = _shownPng;
+        var masks = _masks;
+        var points = _points.ToList();
+        var box = _box;
+        int maskChoice = MaskChoice();
         Refresh = Task.Run(() =>
         {
             byte[]? main = null;
             byte[]? depthPng = null;
+            byte[]? afterPng = null;
             var rows = new List<VisionRowViewModel>();
             string hint = "";
             switch (file.Mode)
@@ -555,6 +688,17 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                 case "depth":
                     main = image is not null ? imagePng ??= ImageFiles.ToPng(image) : null;
                     depthPng = depth is not null ? ImageFiles.ToPng(DepthColormap.Render(depth, colormap, invert)) : storedDepth;
+                    break;
+                case "segmentation":
+                    rows = [.. (file.Masks ?? []).Select(mask => new VisionRowViewModel($"Mask {mask.Index}", mask.Score, $"{mask.Area} px"))];
+                    hint = rows.Count == 0 ? "The model found no mask." : "Click the object, or draw a box around it, to prompt again.";
+                    main = image is not null && masks.Count > 0
+                        ? ImageFiles.ToPng(SegmentationOverlay.Render(image, masks[ChosenMask(masks, maskChoice)], points, box))
+                        : image is not null ? ImageFiles.ToPng(SegmentationOverlay.Render(image, null, points, box)) : storedMain;
+                    break;
+                case "upscale":
+                    main = image is not null ? imagePng ??= ImageFiles.ToPng(image) : null;
+                    afterPng = storedAfter;
                     break;
                 case "classification" or "zero-shot":
                     rows = [.. file.Labels!.Select(label => new VisionRowViewModel(label.Label, label.Score))];
@@ -581,6 +725,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                 RowsHint = hint;
                 MainPng = main;
                 DepthPng = depthPng;
+                AfterPng = afterPng;
             });
         });
     }
@@ -621,18 +766,25 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     [RelayCommand]
     private async Task ExportImageAsync()
     {
-        byte[]? bytes = ResultMode == "depth" ? DepthPng : ResultMode == "detection" ? MainPng : null;
+        byte[]? bytes = ResultMode switch
+        {
+            "depth" => DepthPng,
+            "detection" or "segmentation" => MainPng,
+            "upscale" => AfterPng,
+            _ => null,
+        };
         if (bytes is not null)
         {
             string stem = Path.GetFileNameWithoutExtension(_file?.Image ?? "image");
-            await Exporter.SaveAsync(Services.Platform, "Export image", $"{stem}-{(ResultMode == "depth" ? "depth" : "annotated")}.png", bytes);
+            string suffix = ResultMode switch { "depth" => "depth", "segmentation" => "mask", "upscale" => "upscaled", _ => "annotated" };
+            await Exporter.SaveAsync(Services.Platform, "Export image", $"{stem}-{suffix}.png", bytes);
         }
     }
 
     /// <summary>Copies the result's text (the classes with scores, the objects, or the embedding) to the clipboard.</summary>
     [RelayCommand]
     private Task CopyAsync()
-        => Services.Platform.CopyTextAsync(ShowEmbedding ? EmbeddingText : string.Join('\n', Rows.Select(row => $"{row.Label}\t{row.ScoreText}")));
+        => Services.Platform.CopyTextAsync(ShowText ? ResultText : ShowEmbedding ? EmbeddingText : string.Join('\n', Rows.Select(row => $"{row.Label}\t{row.ScoreText}")));
 
     /// <summary>Cancels the queued and running analyses.</summary>
     [RelayCommand]
@@ -650,6 +802,13 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
             new ChoiceParameterViewModel("colormap", "Depth colors", "How the depth map is colored (near is bright in grayscale).",
                 [new(DepthColormap.Gray, "Grayscale"), new(DepthColormap.Turbo, "Turbo"), new(DepthColormap.Viridis, "Viridis"), new(DepthColormap.Inferno, "Inferno")], DepthColormap.Turbo),
             new BoolParameterViewModel("invert", "Invert the depth colors", "Swap near and far."),
+            new ChoiceParameterViewModel("segtool", "Prompt tool", "What dragging on the segmented image does: click points (right click: not the object) or draw a box.",
+                [new(SegmentTool.Point, "Points"), new(SegmentTool.Box, "Box")], SegmentTool.Point),
+            new ChoiceParameterViewModel("mask", "Mask shown", "Which candidate mask the overlay shows: the one with the best predicted IoU, or a numbered one.",
+                [new("best", "Best"), new("1", "Mask 1"), new("2", "Mask 2"), new("3", "Mask 3")], "best"),
+            new NumberParameterViewModel("maxtokens", "Most tokens", "The longest text the recognizer writes, in tokens.", 8, 512, 8, 128),
+            new NumberParameterViewModel("tile", "Tile size", "Large images are cut into tiles of this many input pixels (0: the whole image at once, which needs the most memory).", 0, 1024, 32, 192),
+            new NumberParameterViewModel("tilepad", "Tile padding", "Context in pixels that neighbouring tiles share; the overlap is blended, so more padding hides seams better.", 0, 64, 4, 16),
         ];
         ParameterPreset[] presets =
         [
@@ -664,6 +823,9 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
             new ImageEmbeddingOptions { Normalize = panel.GetBool("normalize") },
             panel.GetText("template"),
             panel.GetChoice("colormap"),
-            panel.GetBool("invert")), presets);
+            panel.GetBool("invert"),
+            new SegmentationOptions { MultipleMasks = true },
+            new TextRecognitionOptions { MaxTokens = panel.GetInt("maxtokens") },
+            new UpscaleOptions { TileSize = panel.GetInt("tile"), TilePadding = panel.GetInt("tilepad") }), presets);
     }
 }
