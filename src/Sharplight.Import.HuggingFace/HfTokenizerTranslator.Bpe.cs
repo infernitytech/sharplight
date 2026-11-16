@@ -64,7 +64,7 @@ internal static partial class HfTokenizerTranslator
         // CLIP: byte-level BPE with an end-of-word marker on the last character of every piece.
         bool clip = model.TryGetProperty("end_of_word_suffix", out var suffix) && suffix.GetString() == "</w>";
         md[CanonicalKeys.TokenizerModel] = clip ? "clip" : spaceBpe ? "bpe" : "gpt2";
-        md[CanonicalKeys.TokenizerPre] = spaceBpe || clip ? "default" : DetectPreTokenizer(tok);
+        md[CanonicalKeys.TokenizerPre] = spaceBpe || clip ? "default" : ConfiguredPreTokenizer(tokenizerConfig) ?? DetectPreTokenizer(tok);
         if (clip)
         {
             md[CanonicalKeys.TokenizerLowercase] = true;
@@ -205,6 +205,29 @@ internal static partial class HfTokenizerTranslator
            || (token.StartsWith("<unused", StringComparison.Ordinal) && token.EndsWith('>'));
 
     // ---- pre-tokenizer ------------------------------------------------------------------------
+
+    /// <summary>
+    /// The preset of the split regex that tokenizer_config.json's <c>pretokenize_regex</c> sets (transformers 5 applies it over
+    /// tokenizer.json's own Split step: Qwen3.5 derivatives ship the Qwen2 regex in tokenizer.json and the mark-aware one here), or null when it is absent or not a known preset.
+    /// </summary>
+    private static string? ConfiguredPreTokenizer(JsonElement? tokenizerConfig)
+    {
+        if (tokenizerConfig is not { } config || !config.TryGetProperty("pretokenize_regex", out var regex) || regex.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        string pattern = regex.GetString() ?? "";
+        foreach (var (preset, known) in s_knownRegexes)
+        {
+            if (pattern == known)
+            {
+                return preset;
+            }
+        }
+
+        return null;   // unknown: tokenizer.json's own split decides
+    }
 
     /// <summary>The llama.cpp pre-tokenizer preset matching tokenizer.json's pre-tokenizer.</summary>
     /// <exception cref="NotSupportedException">The split regexes match no known preset.</exception>

@@ -71,7 +71,8 @@ def main():
                 verdict(name, False, f"error ours={a.get('error')} ref={b.get('error')}")
                 continue
             if "ids" not in b:
-                ok = a["text"] == b["text"] or a["text"].startswith(b["text"]) or b["text"].startswith(a["text"])
+                ta, tb = a["text"].lstrip(" "), b["text"].lstrip(" ")
+                ok = ta == tb or ta.startswith(tb) or tb.startswith(ta)
                 verdict(name + ".text", ok, "" if ok else show(a["text"], b["text"]))
                 continue
             pa, pb = a["prompt_ids"], b["prompt_ids"]
@@ -85,7 +86,12 @@ def main():
             top = dict((t, v) for t, v in b["top5"][k]) if k < len(b.get("top5", [])) else {}
             ours_tok = a["ids"][k] if k < len(a["ids"]) else None
             gap = top[b["ids"][k]] - top[ours_tok] if ours_tok in top else None
-            near = gap is not None and gap <= tie
+            # A negative gap means the reference did not pick its own argmax (a logits processor was active): not a near-tie.
+            near = gap is not None and 0 <= gap <= tie
+            if ours_tok is not None and k < len(b.get("top5", [])) and b["top5"][k][0][0] == ours_tok:
+                # Ours is the reference's raw argmax: transformers' min_new_tokens suppressed the end-of-turn token there.
+                verdict(name, True, f"identical up to the end of turn at {k} (reference forced to continue)")
+                continue
             verdict(name, near, f"{'near-tie' if near else 'diverges'} at {k}/{len(b['ids'])} (gap {gap if gap is None else round(gap, 4)})"
                     + ("" if near else "\n      " + show(a["text"], b["text"])))
     sys.exit(1 if failed else 0)

@@ -10,6 +10,7 @@ namespace Sharplight.Tokenizers.Spm;
 internal abstract class ByteFallbackTokenizer : ITokenizer
 {
     private readonly byte[][] _bytes;   // UTF-8 of each vocabulary string
+    private readonly string? _spacePrefixScheme;   // TokenizerData.SpacePrefixScheme
     private int[] _endOfGeneration = [];
 
     /// <summary>Creates the shared state; derived classes build their lookup structures and then call <see cref="ResolveEndOfGeneration"/>.</summary>
@@ -40,6 +41,7 @@ internal abstract class ByteFallbackTokenizer : ITokenizer
         AddBos = data.AddBos ?? true;
         AddEos = data.AddEos ?? false;
         AddSpacePrefix = data.AddSpacePrefix ?? defaultAddSpacePrefix;
+        _spacePrefixScheme = data.SpacePrefixScheme;
         Specials = new SpecialTokens(Tokens, i => Types[i], orderByUtf8Bytes: true);
     }
 
@@ -57,6 +59,25 @@ internal abstract class ByteFallbackTokenizer : ITokenizer
 
     /// <summary>Whether a dummy space is prepended to text (and removed again when decoding).</summary>
     protected bool AddSpacePrefix { get; }
+
+    /// <summary>
+    /// A text fragment with the space prefix where the tokenizer puts it (<see cref="TokenizerData.SpacePrefixScheme"/>): by default
+    /// (llama.cpp) after the start of the text and after every special token; with "first" (Hugging Face's Metaspace) only at the start of
+    /// the text, and with "first" / "always" never on a fragment that already starts with a space.
+    /// </summary>
+    /// <param name="fragment">The text between special tokens.</param>
+    /// <param name="atTextStart">Whether the fragment starts the text (no special token before it).</param>
+    /// <param name="previousWasSpecial">Whether a special token or the start of the text precedes the fragment.</param>
+    protected string WithSpacePrefix(string fragment, bool atTextStart, bool previousWasSpecial)
+    {
+        bool prefix = _spacePrefixScheme switch
+        {
+            "first" => AddSpacePrefix && atTextStart && !fragment.StartsWith(' '),
+            "always" => AddSpacePrefix && !fragment.StartsWith(' '),
+            _ => AddSpacePrefix && previousWasSpecial,
+        };
+        return prefix ? " " + fragment : fragment;
+    }
 
     /// <inheritdoc/>
     public int VocabSize => Tokens.Length;

@@ -47,8 +47,16 @@ public class VoiceActivitySpeechRecognitionTests
         var cpu = AudioModels.Open(gpu: false);
         var keyed = new ServiceCollection()
             .AddSharplight()
-            .AddTaskClient<IVoiceActivityDetector>(options => { options.ModelPath = vadPath; options.Devices = [cpu]; }, "vad")
-            .AddTaskClient<ISpeechRecognizer>(options => { options.ModelPath = recognizerPath; options.Devices = [cpu]; })
+            .AddTaskClient<IVoiceActivityDetector>(options =>
+            {
+                options.ModelPath = vadPath;
+                options.Devices = [cpu];
+            }, "vad")
+            .AddTaskClient<ISpeechRecognizer>(options =>
+            {
+                options.ModelPath = recognizerPath;
+                options.Devices = [cpu];
+            })
             .BuildServiceProvider();
         var recognizer = keyed.GetRequiredService<ISpeechRecognizer>();
         var segmented = await recognizer.TranscribeAsync(audio, new SpeechRecognitionOptions { UseVoiceActivityDetection = true, VoiceActivityDetectorKey = "vad" });
@@ -58,8 +66,16 @@ public class VoiceActivitySpeechRecognitionTests
 
         var unkeyed = new ServiceCollection()
             .AddSharplight()
-            .AddTaskClient<IVoiceActivityDetector>(options => { options.ModelPath = vadPath; options.Devices = [cpu]; })
-            .AddTaskClient<ISpeechRecognizer>(options => { options.ModelPath = recognizerPath; options.Devices = [cpu]; })
+            .AddTaskClient<IVoiceActivityDetector>(options =>
+            {
+                options.ModelPath = vadPath;
+                options.Devices = [cpu];
+            })
+            .AddTaskClient<ISpeechRecognizer>(options =>
+            {
+                options.ModelPath = recognizerPath;
+                options.Devices = [cpu];
+            })
             .BuildServiceProvider();
         var again = await unkeyed.GetRequiredService<ISpeechRecognizer>().TranscribeAsync(audio, new SpeechRecognitionOptions { UseVoiceActivityDetection = true });
         Assert.Equal(segmented.Text, again.Text);
