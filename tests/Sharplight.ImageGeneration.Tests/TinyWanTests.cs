@@ -229,6 +229,28 @@ public sealed class TinyWanTests
 
     public static TheoryData<string> Devices => ["cpu", "vulkan"];
 
+    [Theory]
+    [MemberData(nameof(Devices))]
+    public async Task ImageToVideoByConcatenationMatchesDiffusers(string device)
+    {
+        Assert.SkipUnless(Present("i2v"), "tiny-random-wan i2v missing");
+        var slot = Env.Device(device);
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        using var model = Env.Load(Path.Combine(Root("i2v"), "diffusers"), slot!);
+        using var generator = Env.Clients.Create<IVideoGenerator>(model);
+        Assert.True(((VideoGenerationDefaults)generator.GetService(typeof(VideoGenerationDefaults))!).SupportsImage);
+        var index = Index("i2v");
+        var request = new VideoGenerationRequest
+        {
+            Prompt = index.GetProperty("prompt").GetString()!,
+            NegativePrompt = index.GetProperty("negative_prompt").GetString(),
+            Image = PngCodec.Decode(File.ReadAllBytes(Path.Combine(Root("i2v"), "reference", "input.png"))),
+        };
+        var options = Options(index, "i2v", Samplers.UniPc) with { GuidanceScale2 = index.GetProperty("guidance_scale_2").GetSingle() };
+        var result = await generator.GenerateAsync(request, options, TestContext.Current.CancellationToken);
+        AssertVideo(result, Tensor("i2v", "video_i2v"), index, $"concatenated image conditioning on {device}");
+    }
+
     [Fact]
     public void TransformerOnlyFileWithoutCompanionsNamesWhatIsMissing()
     {

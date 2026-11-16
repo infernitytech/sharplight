@@ -36,6 +36,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
     private readonly int _patchSize;
     private readonly bool _tokenTimesteps;
     private readonly bool _firstFrameConditioning;
+    private readonly int _conditionChannels;
     private readonly int _defaultWidth;
     private readonly int _defaultHeight;
     private readonly int _defaultFrames;
@@ -73,6 +74,10 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
             : [];
         _wholeVideoDecoder = vae.Graphs.Contains(VideoDiffusionGraphs.VaeDecode);
         _firstFrameConditioning = description.ConfigValue(VideoConfigKeys.FirstFrameConditioning, false) && vae.Graphs.Contains(VideoDiffusionGraphs.VaeEncode);
+        // A transformer that takes more channels than the VAE gives is conditioned on a concatenated mask and the encoded video of the
+        // start image followed by blank frames (Wan 2.2 I2V-A14B: 16 + 4 + 16 channels).
+        int transformerChannels = transformer.ConfigValue(DiffusionConfigKeys.LatentChannels, 16);
+        _conditionChannels = vae.Graphs.Contains(VideoDiffusionGraphs.VaeEncodeNext) ? Math.Max(0, transformerChannels - vae.ConfigValue(DiffusionConfigKeys.LatentChannels, 16)) : 0;
         _defaultWidth = description.ConfigValue(DiffusionConfigKeys.Width, 832);
         _defaultHeight = description.ConfigValue(DiffusionConfigKeys.Height, 480);
         _defaultFrames = description.ConfigValue(VideoConfigKeys.Frames, 81);
@@ -106,7 +111,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         if (serviceKey is null && serviceType == typeof(VideoGenerationDefaults))
         {
             return new VideoGenerationDefaults(_defaultWidth, _defaultHeight, _defaultFrames, _framesPerSecond, _defaultSteps, _defaultGuidance, _schedule.Sampler,
-                SizeMultiple, _temporalDownscale, _firstFrameConditioning, _defaultNegative);
+                SizeMultiple, _temporalDownscale, _firstFrameConditioning || _conditionChannels > 0, _defaultNegative);
         }
 
         return serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model
@@ -133,7 +138,12 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
     {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (request.Image is not null && !_firstFrameConditioning)
+        if (_conditionChannels > 0 && request.Image is null)
+        {
+            throw new ArgumentException($"{_model.Definition.Name} generates from a start image; set VideoGenerationRequest.Image.", nameof(request));
+        }
+
+        if (request.Image is not null && !_firstFrameConditioning && _conditionChannels == 0)
         {
             throw new NotSupportedException($"{_model.Definition.Name} generates from text only; it does not take a start image.");
         }
@@ -142,7 +152,8 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         yield return new VideoGenerationUpdate(VideoGenerationPhase.Conditioning, 0, 1);
         string? negative = request.NegativePrompt ?? _defaultNegative;
         var conditioning = await Task.Run(() => Conditioning(request.Prompt, negative, run.Guided), cancellationToken).ConfigureAwait(false);
-        var firstFrame = request.Image is null ? null : await Task.Run(() => EncodeImage(request.Image, run), cancellationToken).ConfigureAwait(false);
+        var firstFrame = request.Image is null || !_firstFrameConditioning ? null : await Task.Run(() => EncodeImage(request.Image, run), cancellationToken).ConfigureAwait(false);
+        var condition = _conditionChannels > 0 ? await Task.Run(() => ConditionVideo(request.Image!, run), cancellationToken).ConfigureAwait(false) : null;
         yield return new VideoGenerationUpdate(VideoGenerationPhase.Conditioning, 1, 1);
 
         var sampler = Samplers.Create(run.Sampler, _schedule, run.Steps, TokenCount(run));
@@ -158,7 +169,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         {
             cancellationToken.ThrowIfCancellationRequested();
             int step = index;
-            var prediction = await Task.Run(() => Denoise(run, conditioning, sampler, step, latents, firstFrame), cancellationToken).ConfigureAwait(false);
+            var prediction = await Task.Run(() => Denoise(run, conditioning, sampler, step, latents, firstFrame, condition), cancellationToken).ConfigureAwait(false);
             long noiseStream = noiseStreams++;
             sampler.Step(index, prediction, latents, () => LatentNoise.Draw(run.Seed, noiseStream, latents.Length));
             bool preview = run.PreviewInterval > 0 && _rgbFactors.Length > 0 && (index + 1) % run.PreviewInterval == 0;
@@ -346,7 +357,8 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
     /// (low-noise) expert with its own guidance scale below the boundary timestep; the first expert is released at the switch when the
     /// model holds one stage at a time.
     /// </summary>
-    private float[] Denoise(VideoRun run, PromptRow[] conditioning, DiffusionSampler sampler, int index, float[] latents, float[]? firstFrame)
+    private float[] Denoise(VideoRun run, PromptRow[] conditioning, DiffusionSampler sampler, int index, float[] latents, float[]? firstFrame,
+        float[]? condition)
     {
         float timestep = sampler.Timesteps[index];
         bool second = _boundaryTimestep is { } boundary && timestep < boundary;
@@ -364,6 +376,12 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         {
             input = (float[])latents.Clone();
             ReplaceFirstFrame(input, firstFrame, run);
+        }
+
+        if (condition is not null)
+        {
+            // [C, T, h, w] layout: concatenating channels appends the condition's planes.
+            input = [.. latents, .. condition];
         }
 
         var timesteps = TimestepInput(run, timestep, firstFrame is not null);
@@ -460,6 +478,57 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
 
     private CompiledModel Decoder(VideoRun run, int latentFrame)
         => Compiled(ModelComponentRoles.Vae, latentFrame == 0 ? VideoDiffusionGraphs.VaeDecodeFirst : VideoDiffusionGraphs.VaeDecodeNext, run.Dimensions);
+
+    /// <summary>
+    /// The concatenated conditioning [mask channels + C, T, h, w] of image-to-video by channel concatenation: a mask that is 1 on the
+    /// first latent frame (its temporal-compression frames) and 0 elsewhere, then the normalized latents of the start image followed by
+    /// blank (mid-gray) frames, encoded chunk by chunk by the causal encoder.
+    /// </summary>
+    private float[] ConditionVideo(ImageInput image, VideoRun run)
+    {
+        var planes = new float[3 * image.Width * image.Height];
+        PlanarImage.ToPlanar(image, planes, 0f, 1f);
+        var first = image.Width == run.Width && image.Height == run.Height
+            ? planes
+            : PlanarResize.Resize(planes, 3, image.Height, image.Width, run.Height, run.Width);
+        var stream = new CausalDecoderStream();
+        var frames = new List<float[]>(run.LatentFrames)
+        {
+            stream.Encode(Compiled(ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeEncode, run.Dimensions), VideoDiffusionGraphs.Image, first),
+        };
+        // Blank frames are 0 in the model's [−1, 1] pixel range, i.e. 0.5 in [0, 1].
+        var blank = new float[3 * _temporalDownscale * run.Width * run.Height];
+        blank.AsSpan().Fill(0.5f);
+        var next = run.LatentFrames > 1 ? Compiled(ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeEncodeNext, run.Dimensions) : null;
+        for (int t = 1; t < run.LatentFrames; t++)
+        {
+            frames.Add(stream.Encode(next!, VideoDiffusionGraphs.Frames, blank));
+        }
+
+        int plane = run.PlaneSize;
+        int maskChannels = _conditionChannels - run.LatentChannels;
+        var condition = new float[_conditionChannels * run.LatentFrames * plane];
+        for (int m = 0; m < maskChannels; m++)
+        {
+            condition.AsSpan(m * run.LatentFrames * plane, plane).Fill(1f);
+        }
+
+        for (int c = 0; c < run.LatentChannels; c++)
+        {
+            for (int t = 0; t < run.LatentFrames; t++)
+            {
+                frames[t].AsSpan(c * plane, plane).CopyTo(condition.AsSpan(((maskChannels + c) * run.LatentFrames + t) * plane));
+            }
+        }
+
+        if (_holdOneStage)
+        {
+            Release(CompiledKey(VideoDiffusionGraphs.VaeEncode, run.Dimensions));
+            Release(CompiledKey(VideoDiffusionGraphs.VaeEncodeNext, run.Dimensions));
+        }
+
+        return condition;
+    }
 
     /// <summary>The normalized first latent frame [C, h, w] of the start image (resized to the output size).</summary>
     private float[] EncodeImage(ImageInput image, VideoRun run)

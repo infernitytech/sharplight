@@ -82,6 +82,10 @@ public sealed class WanAdapter : IModelAdapter
         if (hasEncoder)
         {
             graphs[VideoDiffusionGraphs.VaeEncode] = WanVaeGraphBuilder.BuildEncoder(src.Weight, vae, height, width);
+            if (!vae.Residual)
+            {
+                graphs[VideoDiffusionGraphs.VaeEncodeNext] = WanVaeGraphBuilder.BuildEncoderNext(src.Weight, vae, height, width);
+            }
         }
 
         var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
@@ -139,6 +143,10 @@ public sealed class WanAdapter : IModelAdapter
         if (hasEncoder)
         {
             vaeGraphs.Add(VideoDiffusionGraphs.VaeEncode);
+            if (!vae.Residual)
+            {
+                vaeGraphs.Add(VideoDiffusionGraphs.VaeEncodeNext);
+            }
         }
 
         var model = new ComponentConfigBuilder()
