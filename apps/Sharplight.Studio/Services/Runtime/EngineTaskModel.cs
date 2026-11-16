@@ -1,6 +1,7 @@
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Hosting;
 using Sharplight.Studio.Models;
+using Sharplight.Studio.Services.Threading;
 using Sharplight.Tasks;
 
 namespace Sharplight.Studio.Services.Runtime;
@@ -14,6 +15,7 @@ internal sealed class EngineTaskModel : IEngineModel
 {
     private readonly ModelHost _host;
     private readonly Action _changed;
+    private readonly UpdateThrottle _publish;
     private LoadProgressTracker _tracker = new();
     private bool _hasProgress;
 
@@ -28,6 +30,7 @@ internal sealed class EngineTaskModel : IEngineModel
         Capabilities = request.Capabilities;
         _host = host;
         _changed = changed;
+        _publish = new UpdateThrottle(PublishNow);
         LoadedAt = DateTimeOffset.UtcNow;
     }
 
@@ -156,12 +159,33 @@ internal sealed class EngineTaskModel : IEngineModel
     }
 
     /// <inheritdoc/>
-    public void Dispose() => Abandon.Cancel();
+    public void Dispose()
+    {
+        Abandon.Cancel();
+        _publish.Dispose();
+    }
 
+    /// <summary>
+    /// Shows a load status: the engine reports per kernel and per uploaded tensor, so listeners and <see cref="IModelRuntime.ModelsChanged"/>
+    /// hear about it at most about 15 times a second (the latest status), and at once when the load is done.
+    /// </summary>
     private void Publish(LoadStatus status)
     {
         LoadStatus = status;
-        LoadListener?.Report(status);
+        _publish.Request();
+        if (status.IsDone)
+        {
+            _publish.Flush();
+        }
+    }
+
+    private void PublishNow()
+    {
+        if (LoadStatus is { } status)
+        {
+            LoadListener?.Report(status);
+        }
+
         _changed();
     }
 }

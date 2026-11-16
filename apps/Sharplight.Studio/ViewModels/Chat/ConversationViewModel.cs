@@ -7,6 +7,7 @@ using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Documents;
 using Sharplight.Studio.Services.Platform;
 using Sharplight.Studio.Services.Runtime;
+using Sharplight.Studio.Services.Threading;
 
 namespace Sharplight.Studio.ViewModels.Chat;
 
@@ -392,27 +393,22 @@ internal sealed partial class ConversationViewModel : ObservableObject
         _generation = generation;
         MessageStats? stats = null;
         string? error = null;
+        var buffer = new ChatStreamBuffer();
+        var shown = new UpdateThrottle(() => _services.Dispatcher.Post(() => buffer.ApplyTo(view)));
         try
         {
-            await foreach (var update in model.StreamChatAsync(input, generation.Token))
+            // The stream is read on a worker (a model may do its first work, such as building the prompt or compiling a vision tower, in
+            // the call itself); the UI thread only shows the collected text, at most about 15 times a second.
+            await Task.Run(async () =>
             {
-                switch (update.Kind)
+                await foreach (var update in model.StreamChatAsync(input, generation.Token).ConfigureAwait(false))
                 {
-                    case ChatStreamKind.Content:
-                        view.AppendContent(update.Text);
-                        break;
-                    case ChatStreamKind.Reasoning:
-                        view.AppendReasoning(update.Text);
-                        break;
-                    case ChatStreamKind.ToolCall:
-                        view.AppendContent($"\n\n`→ {update.Text}`\n");
-                        break;
-                    case ChatStreamKind.Finished:
-                        stats = update.Stats;
-                        error = update.Error;
-                        break;
+                    buffer.Add(update);
+                    shown.Request();
                 }
-            }
+            }, CancellationToken.None);
+            stats = buffer.Stats;
+            error = buffer.Error;
         }
         catch (Exception failure) when (failure is not OutOfMemoryException)
         {
@@ -420,6 +416,8 @@ internal sealed partial class ConversationViewModel : ObservableObject
         }
         finally
         {
+            shown.Dispose();
+            buffer.ApplyTo(view);
             _generation = null;
             view.IsStreaming = false;
             IsGenerating = false;

@@ -1219,7 +1219,10 @@ preprocessing is the neutral `ImageProcessorConfig` stored with the model. Refer
 | DETR (`facebook/detr-resnet-50`: timm ResNet-50 with folded frozen batch norm, 6+6 layer transformer, 100 queries) | HF `detr` | object-detection | supported: same four detections, boxes within 2 px, scores within 0.02 | CPU = Vulkan (identical detections) |
 | RT-DETR (`PekingU/rtdetr_r18vd`: ResNet-D backbone, hybrid encoder with AIFI and CSP-RepVGG FPN/PAN, top-k query selection with anchors, multi-scale deformable attention through `GridSample`, box refinement) | HF `rt_detr` | object-detection | supported: same five detections | CPU = Vulkan |
 | Depth Anything V2 (`depth-anything/Depth-Anything-V2-Small-hf`: DINOv2 backbone with four tapped layers, DPT reassemble and feature-fusion neck, convolutional head; relative depth) | HF `depth_anything` | depth-estimation | supported: `IDepthEstimator.EstimateAsync` | depth map 1.5e-4 (CPU = Vulkan) |
-| SAM 2 (promptable segmentation), Mask2Former, DPT (other heads), YOLO, TrOCR, Florence-2, Real-ESRGAN, SwinIR | - | - | not started | - |
+| SAM 2 / SAM 2.1 (`facebook/sam2.1-hiera-tiny`: Hiera encoder with windowed attention, q-pooling and global blocks, FPN neck, Fourier prompt encoder, two-way mask decoder with high-resolution skips; image path only) | HF `sam2`, `sam2_video` | image-segmentation | supported: `IImageSegmenter` (`EncodeImageAsync` once, `SegmentAsync` per point / box prompt) | point, points with a negative one and box prompts: all three candidate masks IoU > 0.98 and predicted IoU within 0.02 of transformers, CPU and Vulkan |
+| TrOCR (`microsoft/trocr-base-printed`: ViT encoder, post-norm decoder via `encoder_decoder` with `encoder.input` "image") | HF `vision-encoder-decoder` | ocr | supported (`ITextRecognizer.RecognizeAsync`, greedy) | text exactly transformers' ("SHARPLIGHT READS PRINTED TEXT FROM IMAGES."), CPU and Vulkan |
+| Real-ESRGAN x4plus (RRDBNet, official `.pth` through the restricted unpickler) | `SuperResolutionImporter` | image-upscaling | supported (`IImageUpscaler.UpscaleAsync`, tiles blended) | whole image > 40 dB PSNR from the reference implementation, tiled run > 40 dB (Vulkan) |
+| Mask2Former, DPT (other heads), YOLO, Florence-2, SwinIR | - | - | not started | - |
 
 The residual 1e-3 of the image towers is the resize (Pillow rounds to 8 bits per pass; the sample's pixel difference is not yet bit-exact), identical on both backends. Text towers match to float rounding.
 
@@ -1229,6 +1232,25 @@ Detector limits: the graphs run on a fixed square canvas (640 px, `DetrHfMapping
 resize DETR to 800/1333 px keeping the aspect ratio (a static graph cannot follow; the reference is generated with the same 640 px resize, `vision-reference.py --size 640`). Boxes are returned in pixels of the original image.
 DETR needs the timm backbone layout (`use_timm_backbone`, ResNet-18/34/50/101), RT-DETR the ResNet-D backbone with one AIFI level and box refinement; others are rejected by `Validate` with a reason.
 SigLIP's tokenizer removes all ASCII punctuation as transformers' `SiglipTokenizer` does (the fast tokenizer.json spares `/ < >`).
+
+## 16. Audio models beyond speech (task layer)
+
+Codecs and voice activity run through the task layer (kinds `audio-codec` and `voice-activity`, see docs/api-overview.md "Audio codecs and voice activity"; tests in
+`tests/Sharplight.AudioModels.Tests`). References come from transformers (`EncodecModel`, `DacModel`, `MimiModel`, CPU) and onnxruntime plus the segmentation function of
+the `silero-vad` package on `jfk.wav` (resampled to the codec's rate, a whole number of frames); checkpoints live in `~/models/audio-models/<name>`, reference tensors in
+`~/models/audio-models/refs`.
+
+| Model | Importer | Kind | Status | Parity |
+|---|---|---|---|---|
+| EnCodec 24 kHz (`facebook/encodec_24khz`: causal SEANet with reflect padding, 2-layer LSTM, 32 euclidean RVQ stages) | HF `encodec` | audio-codec | supported (the 48 kHz non-causal variant is rejected by `Validate`) | codes token-exact at 6 kbps (CPU and Vulkan); at 24 kbps the test allows 0.1 % of the codes to differ (near ties between entries of the deep stages, which round differently from the reference); the decoder from the reference codes: relative RMS < 1e-3 (CPU and Vulkan) |
+| DAC 44 kHz (`descript/dac_44khz`: snake activations, 9 factorized cosine RVQ stages) | HF `dac` | audio-codec | supported | codes token-exact, decoded audio relative RMS < 1e-3 (CPU and Vulkan) |
+| Mimi (`kyutai/mimi`: SEANet, 8+8 layer sliding-window transformers, split semantic + acoustic RVQ, 12.5 Hz) | HF `mimi` | audio-codec | supported; 32 stages, 8 by default | codes token-exact for 8 and 32 stages, decoded audio relative RMS < 1e-3 (CPU and Vulkan) |
+| Silero VAD v5 (`silero_vad_16k_op15.onnx`: learned STFT, four convolutions, one LSTM step) | `Sharplight.Import.SileroVad` | voice-activity | supported (16 kHz; the 8 kHz branch of the full export is not imported) | frame probabilities within 1e-3 of onnxruntime, segments identical to `get_speech_timestamps` on two clips (CPU and Vulkan) |
+| Demucs (htdemucs), CLAP (`laion/clap-htsat-unfused`), MusicGen small | - | audio-separation, audio-embedding, music-generation | not started (kinds named in `ModelKinds`) | - |
+
+Limits: the codecs run on one channel; the encoder pads the audio at the end with zeros to a whole frame (the references pad per layer, so the last frame of audio whose
+length is not a frame multiple can differ), audio longer than the component's bound runs in independent segments (no overlap, a seam can be audible in the non-causal DAC).
+EnCodec's streaming chunking of the 48 kHz model is not implemented.
 
 ## 15. Image generation (2026-11-15)
 

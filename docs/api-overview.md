@@ -33,7 +33,7 @@ they need no extra `using`):
 | | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddCompositeModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
 | | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
 | | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
-| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
+| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageSegmenter`, `AddTextRecognizer`, `AddImageUpscaler`, `AddImageGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
 | `Sharplight.Core` (`Sharplight.Architectures`) | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
 | `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => ...)`, `AddOnnxImporter()` | the format (ONNX also its graph adapter) |
 | `Sharplight.Import.WhisperCpp` | `AddWhisperCppImporter()` | whisper.cpp `ggml` model files |
@@ -120,6 +120,11 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `image-embedding` | `IImageEmbedder` | `EmbedImageAsync(ImageInput)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `ImageEmbeddingOptions` | `float[]`, `ImageClassification` |
 | `depth-estimation` | `IDepthEstimator` | `EstimateAsync(ImageInput)` | - | `DepthEstimationOptions` | `DepthMap` (per-pixel values, `ToGrayscale()`) |
 | `object-detection` | `IObjectDetector` | `DetectAsync(ImageInput)` | - | `ObjectDetectionOptions` (score threshold, max detections, optional NMS) | `ObjectDetection` (`DetectedObject`: class, label, score, `BoundingBox` in pixels) |
+| `image-segmentation` | `IImageSegmenter` | `EncodeImageAsync(ImageInput)` once per image, then `SegmentAsync(SegmentationImage, SegmentationPrompt)` per prompt (or `SegmentAsync(ImageInput, SegmentationPrompt)`) | - | `SegmentationOptions` (all candidate masks or the best one) | `ImageSegmentation` (`SegmentMask`: per-pixel mask at the image size, predicted IoU, area; object score) |
+| `ocr` | `ITextRecognizer` | `RecognizeAsync(ImageInput)` | - | `TextRecognitionOptions` (max tokens) | `TextRecognition` (text, `TextRegion`s with optional boxes) |
+| `image-upscaling` | `IImageUpscaler` | `UpscaleAsync(ImageInput)` | `UpscaleOptions.Progress` reports finished tiles | `UpscaleOptions` (tile size, tile padding, progress) | `ImageInput` at `Scale` times the size |
+| `audio-codec` | `IAudioCodec` | `EncodeAsync(AudioBuffer)` → codes, `DecodeAsync(CodecCodes)` → `AudioBuffer` | - | `AudioCodecOptions` (number of codebooks) | `CodecCodes` (codebook-major i32 codes) |
+| `voice-activity` | `IVoiceActivityDetector` | `DetectAsync(AudioBuffer)` → segments, `ProbabilitiesAsync` | - | `VoiceActivityOptions` (thresholds, minimum speech and silence, padding, maximum segment) | `SpeechSegment` (start and end sample, `Start`, `End`) |
 
 Every client is an `ITaskClient`: `Metadata` (kind, model name, architecture), `GetService(Type)` for the objects behind it,
 `IDisposable` (it owns its compiled graphs, not the model), async calls with a `CancellationToken`. The shape mirrors
@@ -161,6 +166,31 @@ Audio and image I/O for the task layer: `AudioBuffer` (interleaved float samples
 `AudioResampler` (band-limited windowed sinc), `WavFile` (read: integer PCM 8/16/24/32-bit and float 32/64-bit, plain or
 `WAVE_FORMAT_EXTENSIBLE`; write: PCM16, PCM24, PCM32, float32), `PngCodec` (encode RGB; decode 8-bit gray, gray+alpha, RGB, RGBA and
 palette PNGs) and `PlanarImage` (8-bit interleaved RGB to and from `[3, height, width]` float planes in any value range).
+
+### Threading contract
+
+Task clients are safe to call from a UI thread, and implementations (built-in or registered) keep this contract:
+
+- **Every `...Async` method returns to its caller before any compute.** Compiling graphs, running them, tokenizing, decoding audio
+  or images and encoding results run on a background thread; built-in clients use dedicated (long-running) threads, since a graph
+  run blocks on device fences and would starve the thread pool. `Task.FromResult` over synchronous work is not allowed.
+- **Streams are produced by a background loop** that queues its items for the consumer and never waits for it (a slow consumer, such
+  as a UI that renders every preview, does not slow generation down), and the consumer's `MoveNextAsync` never runs a step itself.
+- **Cancellation** is observed between steps (a denoising step, a decoded audio window, a generated token). A cancelled or abandoned
+  enumeration (`break`, dispose) completes only after the step in progress, so once it has ended the client, and the model behind
+  it, are idle and may be disposed or unloaded. Exceptions of the producer surface at the consumer after the items produced before.
+- **No synchronization context is captured**: library code awaits with `ConfigureAwait(false)` throughout; results, progress
+  callbacks (`IProgress<T>`, `Log`) and stream items arrive on background threads, and applications marshal only state updates to
+  their UI thread (throttled: progress can be reported per kernel, per tensor or per token).
+- **One request at a time per client**: built-in clients serialize requests (later ones wait for the earlier). Disposing a client while
+  a request runs is not supported.
+- `TaskModel.LoadAsync` loads on a background thread; the synchronous `TaskModel.Load` and `CreateTokenizer`/`CompileComponent` block
+  and belong on a worker, never on a UI thread. Synchronous serving calls (`ModelService.StartChat`, which builds and tokenizes the
+  prompt) likewise.
+
+Sharplight Studio follows the same rule on its side: every page runs engine work on workers (the run queue, `Task.Run` around service
+calls), posts only state changes to the dispatcher, throttles progress, streamed text and previews to about 15 UI updates a second,
+decodes bitmaps off the UI thread and writes output files from the worker.
 
 ### Speech recognition
 
@@ -212,8 +242,41 @@ Object detectors (DETR: `DetrAdapter`; RT-DETR: `RtDetrAdapter`; graph `detect`:
 non-maximum suppression are generic host-side utilities in Core (`BoundingBox`, `BoxUtilities.NonMaxSuppression`, `ObjectDetectionOptions`). `samples/Sharplight.Vision` (`sharplight-vision classify|detect|depth model image.png [--label prompt]... [-o out.png]`)
 is this in a command-line tool (`depth` writes a grayscale PNG, `detect` draws the boxes). Depth Anything (`DepthEstimationAdapter`, graph `estimate_depth`) runs through `services.AddDepthEstimator(...)`.
 
+Promptable segmentation (SAM 2: `Sam2Adapter`, `vision-encoder` + `mask-decoder` components, graphs `segment_encode` and `segment_decode`) separates the expensive image stage from the cheap
+prompt stage: `EncodeImageAsync` returns a `SegmentationImage` (embedding and skip features, held by the host), and every click or box of an interactive session is one `SegmentAsync` over it.
+A prompt is points (positive or negative) and/or a `BoundingBox` in image pixels; the graph takes them as `point_coords` and `point_kinds` (`SegmentPromptKinds`) with a symbolic point count, so there is no limit
+on the number of points. The decoder's low-resolution logits are resampled to the image on the host. OCR (TrOCR: the `encoder_decoder` adapter with an image encoder, `encoder.input` "image") reuses the speech recognizers' decoding machinery
+(KV-cached decoder, cross-attention keys and values cached once per source) with the model's tokenizer; `ITextRecognizer` is the task client. Upscalers (Real-ESRGAN: `RrdbNetAdapter`, graph `upscale` of generic Conv, Resize and LeakyRelu ops)
+are rebuilt for every input size through the model's dimensions (`height`, `width`); `IImageUpscaler` runs an image that fits one tile whole and cuts a larger one into overlapping tiles (`UpscaleOptions.TileSize`, `TilePadding`)
+whose outputs are blended with linear weights, so seams are invisible. The official `RealESRGAN_x4plus.pth` loads through the restricted unpickler of `Sharplight.Import.PyTorch` (`SuperResolutionImporter`).
+All three inference paths run on the thread pool, never on the caller's thread.
+
 The importers and architecture adapters for speech and image models come in their own workstreams; the task layer defines the
 interfaces, options, results, the description and the host-side plumbing they plug into.
+
+### Audio codecs and voice activity
+
+`audio-codec` models (EnCodec 24 kHz, DAC 44 kHz, Mimi; architectures `encodec`, `dac`, `mimi` in `Sharplight.Core/Architectures`, imported from Hugging Face
+checkpoints by `Sharplight.Import.HuggingFace`) have an `encoder` component with the graph `audio_encode` (mono samples in, the code of every residual quantizer
+stage out) and a `decoder` component with `audio_decode` (the codes of every stage and a codebook mask in, audio out); `AudioCodecGraphs` documents the
+contract, so another codec is an adapter that emits the same graphs. `IAudioCodec.EncodeAsync` converts the audio to mono at the codec's rate, pads it to a whole number of
+frames and runs it in segments of at most the component's frame bound; `AudioCodecOptions.Codebooks` keeps the first stages (the bit rate); `DecodeAsync` takes any
+number of stages up to `CodebookCount` (the others are masked out). Time-domain graphs are built from `Conv1d` (causal reflect or zero padding, dilation, strides),
+`ConvTranspose1d`, `Lstm`, the snake and ELU activations, residual quantization as `MatMul` + `ArgMax` + `Gather`, and Mimi's transformers (`Rope`, `Attention` with
+a causal sliding window).
+
+```csharp
+using var codec = provider.GetRequiredService<TaskClientProvider>().Create<IAudioCodec>(model);
+CodecCodes codes = await codec.EncodeAsync(WavFile.Read("talk.wav"), new AudioCodecOptions { Codebooks = 8 });
+AudioBuffer again = await codec.DecodeAsync(codes);
+```
+
+`voice-activity` models (Silero VAD v5, imported from its 16 kHz ONNX export by `Sharplight.Import.SileroVad`) have one component whose stateful graph `vad_step` runs once
+per 512-sample frame (the frame with the 64 samples before it, and the recurrent state in and out). `IVoiceActivityDetector.ProbabilitiesAsync` returns the frame
+probabilities, `DetectAsync` the segments (`SpeechSegmentation.FromProbabilities` is the reference implementation's hysteresis, minimum durations, padding and splitting
+of overlong segments, usable with any detector). Long-form speech recognition can use a detector as pre-segmentation:
+`new SpeechRecognitionOptions { UseVoiceActivityDetection = true, VoiceActivityDetector = detector }` transcribes only the speech, in windows of at most 30 s that start
+at speech, with segment and word times on the recording's timeline.
 
 ### Image generation
 

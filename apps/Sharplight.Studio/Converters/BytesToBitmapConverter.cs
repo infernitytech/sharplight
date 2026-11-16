@@ -1,6 +1,5 @@
 using System.Globalization;
 using Avalonia.Data.Converters;
-using Avalonia.Media.Imaging;
 
 namespace Sharplight.Studio.Converters;
 
@@ -20,10 +19,8 @@ internal sealed class BytesToBitmapConverter : IValueConverter
 
         try
         {
-            using var stream = new MemoryStream(bytes);
-            return parameter is string text && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int width)
-                ? Bitmap.DecodeToWidth(stream, width)
-                : new Bitmap(stream);
+            int width = parameter is string text && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) ? parsed : 0;
+            return DecodedBitmaps.Get(bytes, width);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or IOException or NotSupportedException)
         {

@@ -75,12 +75,30 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
     }
 
     /// <inheritdoc/>
-    public async IAsyncEnumerable<TranscriptionSegment> TranscribeStreamingAsync(AudioBuffer audio, SpeechRecognitionOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Returns at once: recognition runs on a background task (<see cref="BackgroundCompute"/>), one request at a time per client, and
+    /// queues the segments for the caller without waiting for them to be consumed.
+    /// </remarks>
+    public IAsyncEnumerable<TranscriptionSegment> TranscribeStreamingAsync(AudioBuffer audio, SpeechRecognitionOptions? options = null,
+        CancellationToken cancellationToken = default)
+        => BackgroundCompute.StreamAsync(token => TranscribeCoreAsync(audio, options, token), cancellationToken);
+
+    private async IAsyncEnumerable<TranscriptionSegment> TranscribeCoreAsync(AudioBuffer audio, SpeechRecognitionOptions? options,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(audio);
         ObjectDisposedException.ThrowIf(_disposed, this);
         options ??= SpeechRecognitionOptions.Default;
+        if (options.UseVoiceActivityDetection)
+        {
+            await foreach (var segment in VoiceActivityPresegmentation.TranscribeAsync(this, audio, options, cancellationToken).ConfigureAwait(false))
+            {
+                yield return segment;
+            }
+
+            yield break;
+        }
+
         ArgumentOutOfRangeException.ThrowIfLessThan(options.BeamSize, 1, nameof(options));
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try

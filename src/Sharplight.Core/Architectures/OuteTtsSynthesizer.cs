@@ -25,6 +25,7 @@ internal sealed class OuteTtsSynthesizer : ISpeechSynthesizer
     private readonly int _vocabSize;
     private readonly int _nFft;
     private readonly int _hop;
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private InferenceSession? _session;
     private CompiledModel? _codec;
     private bool _disposed;
@@ -76,27 +77,21 @@ internal sealed class OuteTtsSynthesizer : ISpeechSynthesizer
     }
 
     /// <inheritdoc/>
+    /// <remarks>Returns at once: synthesis runs on a background task (<see cref="BackgroundCompute"/>), one request at a time per client.</remarks>
     public async Task<SpeechSynthesisResult> SynthesizeAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var codes = new List<int>();
-        await foreach (var word in GenerateWordsAsync(text, options, cancellationToken).ConfigureAwait(false))
-        {
-            codes.AddRange(word);
-        }
-
-        var audio = await Task.Run(() => Decode(codes), cancellationToken).ConfigureAwait(false);
+        var codes = await GenerateCodesAsync(text, options, cancellationToken).ConfigureAwait(false);
+        var audio = await BackgroundCompute.RunAsync(_gate, () => Decode(codes), cancellationToken).ConfigureAwait(false);
         return new SpeechSynthesisResult(audio, options?.Voice);
     }
 
     /// <inheritdoc/>
-    public async IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        await foreach (var word in GenerateWordsAsync(text, options, cancellationToken).ConfigureAwait(false))
-        {
-            yield return await Task.Run(() => Decode(word), cancellationToken).ConfigureAwait(false);
-        }
-    }
+    /// <remarks>
+    /// Returns at once: synthesis runs on a background task (<see cref="BackgroundCompute"/>), one request at a time per client, and queues
+    /// each word's audio for the caller without waiting for it to be consumed.
+    /// </remarks>
+    public IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
+        => BackgroundCompute.StreamAsync(token => SynthesizeCoreAsync(text, options, token), cancellationToken);
 
     /// <summary>Generates the codec tokens of the utterance and returns them in one list (the language-model half of <see cref="SynthesizeAsync"/>).</summary>
     /// <param name="text">The text to speak.</param>
@@ -105,12 +100,37 @@ internal sealed class OuteTtsSynthesizer : ISpeechSynthesizer
     public async Task<int[]> GenerateCodesAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
     {
         var codes = new List<int>();
-        await foreach (var word in GenerateWordsAsync(text, options, cancellationToken).ConfigureAwait(false))
+        await foreach (var word in BackgroundCompute.StreamAsync(token => GenerateWordsGatedAsync(text, options, token), cancellationToken).ConfigureAwait(false))
         {
             codes.AddRange(word);
         }
 
         return [.. codes];
+    }
+
+    private async IAsyncEnumerable<AudioBuffer> SynthesizeCoreAsync(string text, SpeechSynthesisOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var word in GenerateWordsGatedAsync(text, options, cancellationToken).ConfigureAwait(false))
+        {
+            yield return await Task.Run(() => Decode(word), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary><see cref="GenerateWordsAsync"/> holding the client's gate (one request at a time: the session is shared).</summary>
+    private async IAsyncEnumerable<int[]> GenerateWordsGatedAsync(string text, SpeechSynthesisOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var word in GenerateWordsAsync(text, options, cancellationToken).ConfigureAwait(false))
+            {
+                yield return word;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>The prompt a request runs on (see <see cref="OuteTtsPrompt"/>).</summary>
@@ -207,5 +227,6 @@ internal sealed class OuteTtsSynthesizer : ISpeechSynthesizer
         _disposed = true;
         _session?.Dispose();
         _codec?.Dispose();
+        _gate.Dispose();
     }
 }

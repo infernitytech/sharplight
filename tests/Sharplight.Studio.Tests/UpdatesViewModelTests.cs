@@ -33,6 +33,22 @@ public sealed class UpdatesViewModelTests
     }
 
     [Fact]
+    public void FoundUpdate_EnablesTheDownloadButton()
+    {
+        using var services = new TestServices();
+        services.Updates.Result = UpdateCheckResult.Found(s_offer);
+        using var updates = new UpdatesViewModel(services.Services, interval: TimeSpan.FromDays(1));
+        Assert.False(updates.DownloadCommand.CanExecute(null));
+        var raised = 0;
+        updates.DownloadCommand.CanExecuteChanged += (_, _) => raised++;
+
+        _ = updates.StartAsync();
+
+        Assert.True(raised > 0);
+        Assert.True(updates.DownloadCommand.CanExecute(null));
+    }
+
+    [Fact]
     public void Startup_WithAutoCheckOff_DoesNotCheck()
     {
         using var services = new TestServices(new AppSettings { AutoCheckForUpdates = false });

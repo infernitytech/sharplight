@@ -291,12 +291,11 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         try
         {
             Progress = 0;
-            var log = new Progress<LoadStatus>(status =>
-            {
-                Status = status.Text;
-                Progress = status.Fraction;
-            });
-            var model = await _services.Runtime.LoadAsync(ToRequest(), log, cancellation.Token);
+            // Only the latest status matters: the load reports per kernel and per tensor, the UI shows about 15 a second.
+            using var log = new DispatchingProgress<LoadStatus>(_services.Dispatcher, ShowLoadStatus, static (_, _) => true);
+            var request = ToRequest();
+            var model = await Task.Run(() => _services.Runtime.LoadAsync(request, log, cancellation.Token), CancellationToken.None);
+            log.Flush();
             Detach();
             _loaded(model);
         }
@@ -312,6 +311,15 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         {
             _loading = null;
             IsLoading = false;
+        }
+    }
+
+    private void ShowLoadStatus(LoadStatus status)
+    {
+        if (IsLoading)
+        {
+            Status = status.Text;
+            Progress = status.Fraction;
         }
     }
 
