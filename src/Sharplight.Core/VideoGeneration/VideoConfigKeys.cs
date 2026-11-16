@@ -29,10 +29,40 @@ public static class VideoConfigKeys
     public const string FirstFrameConditioning = "firstFrameConditioning";
 
     /// <summary>
+    /// Model: the video is conditioned on a last frame as well (<see cref="VideoGenerationRequest.LastImage"/>; Wan 2.1 FLF2V), which
+    /// image-to-video by channel concatenation then requires.
+    /// </summary>
+    public const string LastFrameConditioning = "lastFrameConditioning";
+
+    /// <summary>
     /// Model (two experts): the fraction of the training timesteps from which down the second denoiser runs (Wan 2.2 A14B: 0.875; the
     /// first runs for timesteps ≥ ratio · train steps).
     /// </summary>
     public const string BoundaryRatio = "boundaryRatio";
+
+    /// <summary>
+    /// Model: the guidance scale is an input of the denoiser (<c>ImageGeneration.DiffusionGraphs.Guidance</c>, the scale · 1000; guidance-distilled
+    /// HunyuanVideo) instead of classifier-free guidance; one denoiser evaluation per step.
+    /// </summary>
+    public const string EmbeddedGuidance = "embeddedGuidance";
+
+    /// <summary>Text encoder: the prompt template, with <c>{}</c> where the prompt goes (HunyuanVideo's system instruction).</summary>
+    public const string PromptTemplate = "promptTemplate";
+
+    /// <summary>
+    /// Text encoder: leading tokens of the templated prompt whose states are dropped (the template's instruction); the encoder graph takes
+    /// these plus the context length and the denoiser the context length.
+    /// </summary>
+    public const string PromptPrefixTokens = "promptPrefixTokens";
+
+    /// <summary>
+    /// VAE (whole-video decoder): latent frames per decoded tile beyond the first; longer videos are decoded in overlapping tiles of
+    /// one more latent frame, <see cref="DecodeTileStride"/> latent frames apart, blended over the overlap (diffusers' temporal tiling).
+    /// </summary>
+    public const string DecodeTileFrames = "decodeTileFrames";
+
+    /// <summary>VAE: latent frames between the starts of consecutive decode tiles (<see cref="DecodeTileFrames"/>).</summary>
+    public const string DecodeTileStride = "decodeTileStride";
 
     /// <summary>Model (two experts): the default guidance scale of the second denoiser.</summary>
     public const string GuidanceScale2 = "guidanceScale2";

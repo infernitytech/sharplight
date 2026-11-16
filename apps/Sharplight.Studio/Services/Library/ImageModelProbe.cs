@@ -226,7 +226,7 @@ internal static class ImageModelProbe
                 return ModelKinds.Ocr;
             }
 
-            if (architecture.EndsWith("ForSemanticSegmentation", StringComparison.Ordinal) || type == "segformer" && !architecture.EndsWith("ForImageClassification", StringComparison.Ordinal))
+            if (architecture.EndsWith("ForSemanticSegmentation", StringComparison.Ordinal) || architecture == "BiRefNet" || type == "segformer" && !architecture.EndsWith("ForImageClassification", StringComparison.Ordinal))
             {
                 return ModelKinds.SemanticSegmentation;
             }

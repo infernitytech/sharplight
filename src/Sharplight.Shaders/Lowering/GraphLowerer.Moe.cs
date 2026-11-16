@@ -101,6 +101,13 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
+    /// Items up to which the expert matvec (one item per token and slot, each computed alone) serves a step: at least the items of the
+    /// row-invariant rows (<see cref="InvariantRows"/> tokens of <paramref name="slots"/> experts each), so a speculative verification
+    /// step computes its rows exactly as single-row steps do instead of switching to the grouped GEMM.
+    /// </summary>
+    private long InvariantMatvecItems(long items, long slots) => Math.Max(items, InvariantRows * slots);
+
+    /// <summary>
     /// Two expert products of the same activations and routing (gate / up) whose outputs only feed one elementwise group, which
     /// may also read per-expert rows of f32 tables through the same routing (<paramref name="gathers"/>, e.g. the experts' biases):
     /// batches on the int-dot expert matvec (decode) run one launch that computes both products and applies the group in its
@@ -126,7 +133,7 @@ public sealed partial class GraphLowerer
             var m = Macros(("WFMT", WeightFormat(w.Type)!.Value), ("K", K), ("N", N), ("E", w.Shape[0]), ("S", S), ("PER_SLOT", x.Rank == 3),
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
             string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N);
-            long mv = DiagnosticSwitches.MoeIntDotMaxItems;
+            long mv = InvariantMatvecItems(DiagnosticSwitches.MoeIntDotMaxItems, S);
             var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id2 {output.Name} [{w.Shape[0]}x{K}→{N}]x2 {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]",
                 [.. gathers, a, bNode, .. group], a, x, xs, rowsPerLead, [w, Ref(bNode.Inputs[1])], ids, y, m, mv, S,
@@ -175,7 +182,7 @@ public sealed partial class GraphLowerer
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
             string source = ExpertSumEpilogueSource(product, gathers, [.. group.SelectMany(g => g.Inputs).Where(v => v != product.Output && !inGroup.Contains(v)
                 && !gathered.Contains(v)).Distinct()], scalars, group, summed, N);
-            long mv = DiagnosticSwitches.MoeIntDotMaxItems;
+            long mv = InvariantMatvecItems(DiagnosticSwitches.MoeIntDotMaxItems, S);
             var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id-sum {reduce.Output.Name} [{w.Shape[0]}x{K}→{N}] {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]+slot-sum",
                 [.. gathers, product, .. group, permute, reduce], product, x, xs, rowsPerLead, [w], ids, y, m, mv, S,
@@ -288,8 +295,8 @@ public sealed partial class GraphLowerer
         // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much
         // later, the int-dot matvec only from about 16 items per expert).
         bool intDot = UseIntDotMatvec(n, w.Type, K);
-        long mv = intDot ? DiagnosticSwitches.MoeIntDotMaxItems
-            : coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E);
+        long mv = InvariantMatvecItems(intDot ? DiagnosticSwitches.MoeIntDotMaxItems
+            : coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E), S);
         string label = $"matmul-id {n.Output.Name} [{E}x{K}→{N}] {w.Type}";
 
         // Decode / few rows: one matvec per (token, slot), with int8 dot products when the format allows.

@@ -86,11 +86,12 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         string encoderInput = src.Arch("encoder.input", "tokens");
         bool audio = encoderInput switch
         {
-            "tokens" or "image" => false,
+            "tokens" or "image" or "image_text" => false,
             "audio" => true,
             var other => throw new NotSupportedException($"encoder_decoder: unknown encoder.input '{other}'."),
         };
         bool image = encoderInput == "image";
+        bool imageText = encoderInput == "image_text";
         int crossWidth = src.Arch("encoder.hidden_size", nEmbd);
         bool cachedCross = src.Arch("cross_attention.cached", false);
         var extraWeights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
@@ -131,7 +132,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         }
 
         var graphs = new Dictionary<string, ComputeGraph>();
-        if (!audio && !image)
+        if (!audio && !image && !imageText)
         {
             graphs[WellKnown.EmbedGraph] = BuildEmbed();
         }
@@ -155,7 +156,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             ["n_layer"] = encoderLayers + decoderLayers,
         };
         var speech = audio && decoderLayers > 0 ? SpeechRecognitionDescription.Build(src, ctx, sourceRows, variableAudio ? audioFrames : 0) : default((ModelDescription Description, IReadOnlyDictionary<string, IWeightSource> Attachments, IReadOnlyDictionary<string, object> Metadata)?);
-        var recognition = image && decoderLayers > 0 ? TextRecognitionDescription.Build(src, ctx, sourceRows) : default((ModelDescription Description, IReadOnlyDictionary<string, object> Metadata, IReadOnlyDictionary<string, IWeightSource> Attachments)?);
+        var recognition = (image || imageText) && decoderLayers > 0 ? TextRecognitionDescription.Build(src, ctx, sourceRows) : default((ModelDescription Description, IReadOnlyDictionary<string, object> Metadata, IReadOnlyDictionary<string, IWeightSource> Attachments)?);
         var weights = extraWeights.Count == 0 ? src.Weights : new Dictionary<string, WeightInfo>(src.Weights.Concat(extraWeights), StringComparer.Ordinal);
 
         return new ModelDefinition
@@ -192,6 +193,11 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                 }
 
                 return b.Build();
+            }
+
+            if (imageText)
+            {
+                return BuildImageTextEncode(b);
             }
 
             if (conformer is not null)
@@ -232,6 +238,36 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             }
 
             x = EncoderLayers(b, x, encoderPositions, (q, k, v, il, name) => b.Emit1("Attention", [q, k, v], Attributes.From([("scale", scale), ("causal", false), .. BiasAttributes(encoderBias[il])]), name));
+            using (b.Group("output"))
+            {
+                b.Output(WellKnown.EncoderOutput, FinalNorm(b, x, "encoder.output_norm", "encoder_output"));
+            }
+
+            return b.Build();
+        }
+
+        // Image and prompt in one encoder (Florence-2): the DaViT tower's rows come first, then the prompt's token embeddings; learned positions over all rows, the
+        // embedding norm and the bidirectional layers. The source length varies with the prompt: the decoder's cross-attention limits itself to the rows of the current source.
+        ComputeGraph BuildImageTextEncode(GraphBuilder b)
+        {
+            var tower = new DaViTGraph(src, b, new ConstantCache(b));
+            int imageSize = src.Arch<int>("vision.image_size");
+            int imageRows = tower.Rows(imageSize);
+            var pixels = b.Input("pixels", InputRole.Media, DataType.F32, new Shape(1, 3, imageSize, imageSize));
+            var imageFeatures = tower.Build(pixels);
+            b.Output(WellKnown.ImageFeaturesOutput, imageFeatures);
+            Value x;
+            using (b.Group("input"))
+            {
+                var T = Dim.Sym(WellKnown.TokenSymbol);
+                var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
+                var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(Dim.Of(imageRows) + T, 1));
+                x = b.Concat(0, imageFeatures, b.Gather(b.Weight("token_embedding.weight"), tokens, "inp_embd"));
+                x = b.Add(x, b.Gather(b.Weight("encoder.position_embedding.weight"), b.Reshape(positions, 0), "pos_embd"));
+                x = b.HasWeight("encoder.embedding_norm.weight") ? Norm(b, x, "encoder.embedding_norm") : x;
+            }
+
+            x = EncoderLayers(b, x, null, (q, k, v, il, name) => b.Emit1("Attention", [q, k, v], Attributes.From([("scale", scale), ("causal", false), .. BiasAttributes(encoderBias[il])]), name));
             using (b.Group("output"))
             {
                 b.Output(WellKnown.EncoderOutput, FinalNorm(b, x, "encoder.output_norm", "encoder_output"));
@@ -291,7 +327,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                 var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
                 positions = HasPositions("decoder") || ropeDims > 0 ? b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1)) : null;
                 encoded = b.Input(WellKnown.EncoderOutput, InputRole.EncoderOutput, DataType.F32, new Shape(Dim.Sym(WellKnown.EncoderSymbol), crossWidth));
-                if (variableAudio && cachedCross)
+                if ((variableAudio || imageText) && cachedCross)
                 {
                     // The cross states hold up to sourceRows rows; each query row sees the rows of the current source only.
                     sourceSpans = b.Input("source_spans", InputRole.RowSpans, DataType.I32, new Shape(T, 2));

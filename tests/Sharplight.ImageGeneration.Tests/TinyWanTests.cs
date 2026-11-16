@@ -251,6 +251,71 @@ public sealed class TinyWanTests
         AssertVideo(result, Tensor("i2v", "video_i2v"), index, $"concatenated image conditioning on {device}");
     }
 
+    public static TheoryData<string, string> ClipCases()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (string device in new[] { "cpu", "vulkan" })
+        {
+            data.Add(device, "clip");
+            data.Add(device, "flf2v");
+        }
+
+        return data;
+    }
+
+    /// <summary>
+    /// Wan 2.1 I2V ("clip") and FLF2V ("flf2v") layouts: the CLIP image encoder's penultimate states of the start (and last) image, the
+    /// transformer with the image cross-attention and whole image-to-video runs.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(ClipCases))]
+    public async Task ImageEncoderConditioningMatchesDiffusers(string device, string variant)
+    {
+        Assert.SkipUnless(Present(variant), $"tiny-random-wan {variant} missing");
+        var slot = Env.Device(device);
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        using var model = Env.Load(Path.Combine(Root(variant), "diffusers"), slot!);
+        var index = Index(variant);
+        var dims = Dimensions(index);
+        var reference = Path.Combine(Root(variant), "reference");
+        var start = PngCodec.Decode(File.ReadAllBytes(Path.Combine(reference, "input.png")));
+        var last = index.TryGetProperty("last_image", out var lastName) ? PngCodec.Decode(File.ReadAllBytes(Path.Combine(reference, lastName.GetString()!))) : null;
+
+        var component = model.Description.Component(ModelComponentRoles.VisionEncoder);
+        var processor = new ImageProcessor(ImageProcessorConfig.FromJson(component.Config[ImageProcessor.ComponentKey]));
+        var states = new List<float>();
+        foreach (var image in last is null ? [start] : new[] { start, last })
+        {
+            states.AddRange(GraphRunner.Run(model, ModelComponentRoles.VisionEncoder, VideoDiffusionGraphs.ImageEncode, VideoDiffusionGraphs.ImageHidden, 0,
+                (VideoDiffusionGraphs.Image, processor.Process(image).Patchify(component.ConfigValue(DiffusionConfigKeys.PatchSize, 14)))));
+        }
+
+        var (imageMax, imageRms) = Env.Compare([.. states], Tensor(variant, "image_hidden"));
+        Assert.True(imageRms < 1e-4, $"image encoder: max {imageMax}, relative RMS {imageRms}");
+
+        var prediction = GraphRunner.Run(model, ModelComponentRoles.Transformer, VideoDiffusionGraphs.Denoise, VideoDiffusionGraphs.Prediction, 0, dims,
+            (VideoDiffusionGraphs.Latent, Tensor(variant, "transformer_latent")),
+            (VideoDiffusionGraphs.Timestep, Tensor(variant, "transformer_timestep")),
+            (VideoDiffusionGraphs.Context, Tensor(variant, "transformer_context")),
+            (VideoDiffusionGraphs.ImageContext, Tensor(variant, "transformer_image")));
+        var (maxAbs, rms) = Env.Compare(prediction, Tensor(variant, "transformer_out"));
+        Assert.True(rms < 1e-4, $"transformer: max {maxAbs}, relative RMS {rms}");
+
+        using var generator = Env.Clients.Create<IVideoGenerator>(model);
+        var defaults = (VideoGenerationDefaults)generator.GetService(typeof(VideoGenerationDefaults))!;
+        Assert.True(defaults.RequiresImage);
+        Assert.Equal(last is not null, defaults.SupportsLastImage);
+        var request = new VideoGenerationRequest
+        {
+            Prompt = index.GetProperty("prompt").GetString()!,
+            NegativePrompt = index.GetProperty("negative_prompt").GetString(),
+            Image = start,
+            LastImage = last,
+        };
+        var result = await generator.GenerateAsync(request, Options(index, variant, Samplers.UniPc), TestContext.Current.CancellationToken);
+        AssertVideo(result, Tensor(variant, "video_i2v"), index, $"{variant} image-to-video on {device}");
+    }
+
     [Fact]
     public void TransformerOnlyFileWithoutCompanionsNamesWhatIsMissing()
     {

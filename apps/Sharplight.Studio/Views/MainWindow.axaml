@@ -196,6 +196,26 @@
         </Border>
       </Panel>
 
+      <!-- About dialog (application menu, Help) -->
+      <Panel x:Name="AboutDialog" IsVisible="{Binding About.IsOpen}" x:DataType="vm:MainWindowViewModel">
+        <Border Background="#99000000" />
+        <Border Classes="card" Width="440" HorizontalAlignment="Center" VerticalAlignment="Center" x:DataType="vm:MainWindowViewModel" DataContext="{Binding About}">
+          <StackPanel Spacing="8" x:DataType="vm:AboutViewModel">
+            <Image Source="avares://sharplight-studio/Assets/Icons/sharplight-studio-256.png" Width="72" Height="72" HorizontalAlignment="Center" />
+            <TextBlock Classes="h2" Text="{Binding Name}" HorizontalAlignment="Center" />
+            <TextBlock Classes="caption" Text="{Binding Version, StringFormat='Version {0}'}" HorizontalAlignment="Center" />
+            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" TextAlignment="Center" />
+            <TextBlock Classes="caption" Text="{Binding License}" TextWrapping="Wrap" TextAlignment="Center" />
+            <TextBlock Classes="caption" Text="{Binding Copyright}" TextAlignment="Center" />
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,6,0,0">
+              <Button Classes="small" Content="GitHub" Command="{Binding OpenLinkCommand}" CommandParameter="{Binding Repository}" />
+              <Button Classes="small" Content="Releases" Command="{Binding OpenLinkCommand}" CommandParameter="https://github.com/infernitytech/sharplight/releases" />
+              <Button x:Name="AboutCloseButton" Classes="accent small" Content="Close" Command="{Binding CloseCommand}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </Panel>
+
       <!-- Resize edges (custom chrome, not maximized) -->
       <Panel x:Name="ResizeEdges">
         <Border Classes="edge" Tag="North" Height="5" VerticalAlignment="Top" Cursor="TopSide" Margin="8,0" />

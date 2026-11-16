@@ -39,6 +39,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Server = new ServerPageViewModel(services);
         Stats = new StatsPageViewModel(services);
         Settings = new SettingsPageViewModel(services);
+        About = new AboutViewModel(services.Platform, services.Updates.CurrentVersion);
         StoreMigration = new StoreMigrationViewModel(services, () => _ = Models.Library.RefreshAsync());
         Pages = [Chat, Transcribe, Speak, Audio, Image, Video, Vision, Tasks, Models, Server, Stats];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
@@ -84,6 +85,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     /// <summary>Update checks and the "update available" dialog (the same instance the Settings page shows).</summary>
     public UpdatesViewModel Updates => Settings.Updates;
+
+    /// <summary>The About dialog.</summary>
+    public AboutViewModel About { get; }
 
     /// <summary>The one-time offer to move the models of a previous store.</summary>
     public StoreMigrationViewModel StoreMigration { get; }
@@ -131,6 +135,32 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     [RelayCommand]
     private void DismissStorageNotice() => StorageNotice = null;
+
+    /// <summary>Shows the About dialog (application menu on macOS).</summary>
+    [RelayCommand]
+    public void ShowAbout() => About.IsOpen = true;
+
+    /// <summary>Shows the Settings page.</summary>
+    [RelayCommand]
+    public Task OpenSettingsAsync() => NavigateAsync(Settings);
+
+    /// <summary>Shows the Settings page and checks for an update now.</summary>
+    [RelayCommand]
+    public async Task CheckForUpdatesAsync()
+    {
+        await NavigateAsync(Settings);
+        await Updates.CheckAsync(manual: true);
+    }
+
+    /// <summary>Opens a link (documentation, issue tracker) in the browser.</summary>
+    [RelayCommand]
+    public void OpenLink(string? url)
+    {
+        if (!string.IsNullOrEmpty(url))
+        {
+            _services.Platform.Open(url);
+        }
+    }
 
     [RelayCommand]
     private Task OpenStorageSettingsAsync()

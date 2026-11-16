@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Sharplight.Audio;
 using Sharplight.Import.HuggingFace;
 using Sharplight.Import.PyTorch;
 using Sharplight.Models;
@@ -96,6 +97,11 @@ public sealed class ChatterboxImporter : IModelImporter
             {
                 using var voice = TorchCheckpointFile.Open(conds, new TorchCheckpointOptions { AllowPermuted = true });
                 AddVoice(voice, attachments);
+            }
+
+            if (weights.ContainsKey("ve.proj.weight"))
+            {
+                AddCloningFilters(attachments);
             }
 
             metadata[CanonicalKeys.Architecture] = Architecture;
@@ -224,6 +230,17 @@ public sealed class ChatterboxImporter : IModelImporter
         Add("gen.prompt_token", "flow_tokens.i32", integer: true);
         Add("gen.prompt_feat", "flow_mel.f32", integer: false);
         Add("gen.embedding", "flow_speaker.f32", integer: false);
+    }
+
+    // The mel filter banks of the cloning front ends (librosa's Slaney banks): the voice encoder's 40 bins and the S3 tokenizer's 128 bins at 16 kHz
+    // (n_fft 400), the flow prompt's 80 bins up to 8 kHz at 24 kHz (n_fft 1920).
+    private static void AddCloningFilters(Dictionary<string, IWeightSource> attachments)
+    {
+        static MemoryWeightSource Bank(int bins, int fftSize, int sampleRate, double? maxFrequency)
+            => new(() => MemoryMarshal.AsBytes(SlaneyMelFilterBank.Create(bins, fftSize, sampleRate, 0.0, maxFrequency).AsSpan()).ToArray());
+        attachments["voice-features/mel-filters"] = Bank(40, 400, 16000, 8000);
+        attachments["speech-token-features/mel-filters"] = Bank(128, 400, 16000, null);
+        attachments["prompt-features/mel-filters"] = Bank(80, 1920, 24000, 8000);
     }
 
     // The release's fixed T3 and S3Gen settings (chatterbox models/t3/modules/t3_config.py, s3gen/s3gen.py).

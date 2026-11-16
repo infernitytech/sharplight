@@ -12,8 +12,9 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private const int KB = 1024;
 
     /// <summary>
-    /// Up to this many rows the fused dequantize-dot kernel runs once per row, so every row accumulates in the same order as a single row
-    /// does: a speculative verification step (2-4 rows) gives the logits of plain one-row decoding bit for bit.
+    /// Up to this many rows every row is computed alone, as a single row is (the fused dequantize-dot kernel once per row, or the
+    /// one-row dot instead of the two-row one), so a speculative verification step (2-4 rows) gives the logits of plain one-row decoding
+    /// bit for bit.
     /// </summary>
     private const int FusedRowsMax = 4;
     private readonly TRef _x;
@@ -196,7 +197,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
                         }
                     }
                     long t = 0;
-                    for (; t + 2 <= m; t += 2)
+                    for (; m > FusedRowsMax && t + 2 <= m; t += 2)
                     {
                         Simd.Dot4x2(xr[t] + kb, xr[t + 1] + kb, wp[0], wp[1], wp[2], wp[3], len, res);
                         float* a0 = acc + t * 4;
@@ -210,7 +211,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
                         a1[2] += res[6];
                         a1[3] += res[7];
                     }
-                    if (t < m)
+                    for (; t < m; t++)
                     {
                         Simd.Dot4(xr[t] + kb, wp[0], wp[1], wp[2], wp[3], len, res);
                         float* a0 = acc + t * 4;

@@ -28,6 +28,10 @@ namespace Sharplight.VideoGeneration;
 /// <see cref="Frames"/> f32 [F, 3, H, W] in [0, 1] (non-causal decoders).</item>
 /// <item><see cref="VaeEncode"/> (component <c>vae</c>, optional): the causal VAE encoder of one image, input <see cref="Image"/> f32
 /// [3, H, W] in [0, 1]; output <see cref="Latent"/> f32 [C, h, w] (the normalized mean of the first latent frame), for image-to-video.</item>
+/// <item><see cref="ImageEncode"/> (component <c>vision-encoder</c>, optional): an image encoder whose states condition the denoiser
+/// (Wan 2.1 I2V / FLF2V: CLIP ViT-H/14's penultimate hidden states), input <see cref="Image"/> f32 [P, 3·p²] (the image prepared by the
+/// component's image processor and cut into p×p patches), output <see cref="ImageHidden"/> f32 [N, E]; the denoiser then takes
+/// <see cref="ImageContext"/> f32 [N · images, E], the states of the start image (and of the last image) one after the other.</item>
 /// </list>
 /// Sizes are fixed per graph; a model is rebuilt for other sizes with the <see cref="Frames"/> (latent frames), <see cref="Height"/> and
 /// <see cref="Width"/> (pixels) dimensions (<c>TaskModel.DefinitionFor</c>).
@@ -100,6 +104,15 @@ public static class VideoDiffusionGraphs
 
     /// <summary>Input of <see cref="VaeEncode"/>: one image [3, H, W] in [0, 1].</summary>
     public const string Image = "image";
+
+    /// <summary>The image encoder graph (component <see cref="Models.ModelComponentRoles.VisionEncoder"/>).</summary>
+    public const string ImageEncode = "image_encode";
+
+    /// <summary>Output of <see cref="ImageEncode"/>: the image states [N, E].</summary>
+    public const string ImageHidden = "image_hidden";
+
+    /// <summary>Optional input of <see cref="Denoise"/>: the image conditioning [N · images, E].</summary>
+    public const string ImageContext = "image_context";
 
     /// <summary>Name prefix of the decoders' cache inputs.</summary>
     public const string CacheInPrefix = "cache_in.";
