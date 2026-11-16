@@ -88,21 +88,7 @@ internal static unsafe class HfQuarkFloatWeights
             return tensors;
         }
 
-        var result = new Dictionary<string, SafetensorsTensor>(StringComparer.Ordinal);
-        foreach (var (name, tensor) in tensors)
-        {
-            if (!consumed.Contains(name))
-            {
-                result[name] = tensor;
-            }
-        }
-
-        foreach (var (name, tensor) in converted)
-        {
-            result[name] = tensor;
-        }
-
-        return result;
+        return HfTensorMerge.Replace(tensors, consumed, converted);
     }
 
     /// <summary>The E4M3 code of every 6-bit code (sign, exponent, mantissa from the top) with the given mantissa width (2: E3M2, 3: E2M3).</summary>
