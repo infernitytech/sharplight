@@ -106,9 +106,11 @@ public sealed partial class GraphLowerer
             throw new NotSupportedException($"int8 GEMM layout {string.Join(',', layout)} does not give {tileRows}-token tiles.");
         }
 
-        return Macros(("WFMT", WeightFormat(type)!.Value), ("K", k), ("N", n), ("Y_STRIDE", n), ("ROW_BYTES", type.ByteSize(k) + "ull"),
+        var macros = Macros(("WFMT", WeightFormat(type)!.Value), ("K", k), ("N", n), ("Y_STRIDE", n), ("ROW_BYTES", type.ByteSize(k) + "ull"),
             ("MQ_WM", layout[0]), ("MQ_WN", layout[1]), ("MQ_FM", layout[2]), ("MQ_FN", layout[3]), ("MQ_BK", MmqBlockK(type, k)),
             ("SPLITK", split), ("MQ_GENERIC_LAYOUT", DiagnosticSwitches.MmqGenericLayout));
+        AddTileGroup(macros);
+        return macros;
     }
 
     /// <summary>

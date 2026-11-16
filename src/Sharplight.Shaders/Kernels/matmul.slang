@@ -968,6 +968,10 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     GRID_BIND(p);
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
+    // GEMM_GROUP: grouped tile order (common.slang) for launches without K splits.
+#if !MOE && defined(GEMM_GROUP) && (!defined(SPLITK) || SPLITK == 1)
+    gid.xy = grouped_tile(gid.xy, (N + GBN - 1) / GBN, (p.T + GBM - 1) / GBM, GEMM_GROUP);
+#endif
     uint n0 = gid.x * GBN;
 #if MOE
     // The tile's expert and items; t indexes the tile's rows (0 .. rows - 1) instead of tokens.
@@ -1233,11 +1237,16 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     GroupMemoryBarrierWithGroupSync();
 
     uint cur = 0;
+#ifndef GEMM_EXP
+#define GEMM_EXP 0
+#endif
     for (uint k0 = kBeg; k0 < kEnd; k0 += GBK)
     {
-        bool more = k0 + GBK < kEnd;
+        bool more = k0 + GBK < kEnd && GEMM_EXP != 1;
         if (more) { FETCH(0, k0 + GBK) }
+#if GEMM_EXP != 2
         COMPUTE(cur)
+#endif
 #if GNBUF == 2
         if (more) { STAGE(0, cur ^ 1) }
         GroupMemoryBarrierWithGroupSync();
@@ -1383,6 +1392,9 @@ half nv_decode(NvWBlock* b, uint32_t blockCoord[2], uint32_t c[2])
 [numthreads(256, 1, 1)]
 void gemm_nv2(uint3 gid : SV_GroupID, uniform Params p)
 {
+#ifdef GEMM_GROUP
+    gid.xy = grouped_tile(gid.xy, (N + NV_BN - 1) / NV_BN, (p.T + NV_BT - 1) / NV_BT, GEMM_GROUP);
+#endif
     uint n0 = gid.x * NV_BN, t0 = gid.y * NV_BT;
 #ifndef SPLITK
 #define SPLITK 1

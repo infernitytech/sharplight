@@ -269,6 +269,18 @@ internal static class DiagnosticSwitches
     /// <summary>True when tensor-core GEMMs read an f16 copy of the activations.</summary>
     public static bool GemmHalfActivations { get; } = IsNotZero("SHARPLIGHT_GEMM_X16");
 
+    /// <summary>
+    /// Token tiles per group of the grouped tile order of the tensor-core GEMMs (<c>SHARPLIGHT_GEMM_GROUP=n</c>; 0 keeps the
+    /// launch order, column tiles first).
+    /// </summary>
+    public static int GemmTileGroup { get; } = int.Parse(Read("SHARPLIGHT_GEMM_GROUP") ?? "16", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Extra macros for the tensor-core GEMM kernels (<c>SHARPLIGHT_GEMM_MACROS=NAME=value,NAME=value</c>), for kernel experiments.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> GemmExtraMacros { get; } = (Read("SHARPLIGHT_GEMM_MACROS") ?? "")
+        .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(kv => kv.Split('=')).ToDictionary(kv => kv[0], kv => kv.Length > 1 ? kv[1] : "1");
+
     /// <summary>Default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</summary>
     public static bool WorkgroupMatrixGemm { get; } = IsSet("SHARPLIGHT_GEMM_NV2");
 
