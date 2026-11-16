@@ -204,7 +204,10 @@ internal sealed class FluxTransformerGraphBuilder
             ("sections", new[] { _hp.AxesDim[0] / 2, _hp.AxesDim[1] / 2, _hp.AxesDim[2] / 2, 0 }));
         q = _b.Emit1("Rope", [q, _positions, _frequencyFactors], rope);
         k = _b.Emit1("Rope", [k, _positions, _frequencyFactors], rope);
-        var attended = _b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(_hp.HeadDim)), ("causal", false)));
+        // f16 products with f32 accumulation (tensor-core flash attention): FLUX is trained and run in bf16, and the exact f32
+        // kernel for 128-wide heads is the scalar one (96 % of a 1024×1024 step).
+        var attended = _b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(_hp.HeadDim)), ("causal", false),
+            (StandardOps.F16ProductsAttribute, true)));
         return _b.Reshape(attended, rows, _hp.HiddenSize);
     }
 

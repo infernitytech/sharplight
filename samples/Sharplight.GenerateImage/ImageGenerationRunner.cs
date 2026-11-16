@@ -37,14 +37,36 @@ internal sealed class ImageGenerationRunner(GenerateImageSettings settings)
         {
             ModelPath = settings.Model,
             Auxiliary = Companions(),
+            AllowReducedPrecision = settings.ReducedPrecision,
             Devices = [new DeviceSlot { Device = device }],
             Log = message => Console.Error.WriteLine(message.Split('\n')[0]),
         }, cancellationToken);
         using var generator = runtime.Services.GetRequiredService<TaskClientProvider>().Create<IImageGenerator>(model);
         Console.WriteLine($"Loaded {generator.Metadata.ModelName} ({generator.Metadata.Architecture}) on {device.Info.Name} in {stopwatch.Elapsed.TotalSeconds:F1} s");
-        stopwatch.Restart();
+        ImageGenerationResult? result = null;
+        for (int run = 0; run < Math.Max(1, settings.Runs); run++)
+        {
+            result = await RunOnceAsync(generator, run, cancellationToken);
+        }
+
+        for (int i = 0; i < result!.Images.Count; i++)
+        {
+            string path = result.Images.Count == 1 ? settings.Output : InsertSuffix(settings.Output, i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            PngCodec.Write(path, result.Images[i]);
+            Console.WriteLine($"wrote {path} (seed {result.Seed + i})");
+        }
+
+        return ExitCodes.Success;
+    }
+
+    /// <summary>One generation, timed: the first step includes encoding the prompts (and compiling on the first run), the last update the decode.</summary>
+    private async Task<ImageGenerationResult> RunOnceAsync(IImageGenerator generator, int run, CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
         ImageGenerationResult? result = null;
         double firstStep = 0;
+        double lastStep = 0;
+        int steps = 0;
         await foreach (var update in generator.GenerateStreamingAsync(Request(), Options(), cancellationToken))
         {
             if (update.Result is { } finished)
@@ -58,6 +80,8 @@ internal sealed class ImageGenerationRunner(GenerateImageSettings settings)
                 firstStep = stopwatch.Elapsed.TotalSeconds;
             }
 
+            lastStep = stopwatch.Elapsed.TotalSeconds;
+            steps = update.Step;
             Console.Write($"\rstep {update.Step}/{update.TotalSteps}  {stopwatch.Elapsed.TotalSeconds:F1} s");
             if (update.Preview is { } preview)
             {
@@ -65,17 +89,12 @@ internal sealed class ImageGenerationRunner(GenerateImageSettings settings)
             }
         }
 
+        double total = stopwatch.Elapsed.TotalSeconds;
+        double perStep = steps > 1 ? (lastStep - firstStep) / (steps - 1) : 0;
         Console.WriteLine();
-        var total = stopwatch.Elapsed.TotalSeconds;
-        for (int i = 0; i < result!.Images.Count; i++)
-        {
-            string path = result.Images.Count == 1 ? settings.Output : InsertSuffix(settings.Output, i.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            PngCodec.Write(path, result.Images[i]);
-            Console.WriteLine($"wrote {path} (seed {result.Seed + i})");
-        }
-
-        Console.WriteLine($"generation {total:F2} s (first step incl. compilation {firstStep:F2} s)");
-        return ExitCodes.Success;
+        Console.WriteLine($"run {run + 1}: {total:F2} s (prompt encoding + first step {firstStep:F2} s{(run == 0 ? ", incl. compilation" : "")}, "
+            + $"{perStep:F2} s per further step, decode {total - lastStep:F2} s)");
+        return result ?? throw new InvalidOperationException("Image generation produced no result.");
     }
 
     private ImageGenerationRequest Request() => new()

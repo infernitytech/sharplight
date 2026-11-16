@@ -44,4 +44,8 @@ internal sealed record GenerateImageSettings
     public bool Cpu { get; init; }
 
     public int Device { get; init; }
+
+    public bool ReducedPrecision { get; init; }
+
+    public int Runs { get; init; } = 1;
 }

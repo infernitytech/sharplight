@@ -28,11 +28,13 @@ internal sealed class GenerateImageCommand
     private readonly Option<int> _preview = new("--preview-every") { Description = "Write a latent preview PNG every N steps (0: none)." };
     private readonly Option<bool> _cpu = new("--cpu") { Description = "Run on the CPU instead of the GPU." };
     private readonly Option<int> _device = new("--device") { Description = "Device index of the provider." };
+    private readonly Option<int> _runs = new("--runs") { Description = "Generate this many times (timings of warm runs; the last run's images are written).", DefaultValueFactory = _ => 1 };
+    private readonly Option<bool> _reducedPrecision = new("--reduced-precision") { Description = "Opt-in: f16 products where the default keeps near-f32 accuracy (faster attention and f32-weight matmuls)." };
 
     public Command Build()
     {
         var command = new RootCommand("Generates images with a Sharplight image-generation model (Stable Diffusion 1.x / 2.x / XL, FLUX.1) through the DI task API.");
-        foreach (var option in new Option[] { _model, _textEncoder, _textEncoder2, _vae, _prompt, _negative, _output, _width, _height, _steps, _guidance, _seed, _count, _sampler, _initImage, _mask, _strength, _noise, _preview, _cpu, _device })
+        foreach (var option in new Option[] { _model, _textEncoder, _textEncoder2, _vae, _prompt, _negative, _output, _width, _height, _steps, _guidance, _seed, _count, _sampler, _initImage, _mask, _strength, _noise, _preview, _cpu, _device, _reducedPrecision, _runs })
         {
             command.Options.Add(option);
         }
@@ -64,5 +66,7 @@ internal sealed class GenerateImageCommand
         PreviewInterval = result.GetValue(_preview),
         Cpu = result.GetValue(_cpu),
         Device = result.GetValue(_device),
+        ReducedPrecision = result.GetValue(_reducedPrecision),
+        Runs = result.GetValue(_runs),
     };
 }

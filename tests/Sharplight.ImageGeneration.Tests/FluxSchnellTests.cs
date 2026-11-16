@@ -49,8 +49,10 @@ public sealed class FluxSchnellTests
         using var model = Env.Load(ModelPath(source), slot!);
         var index = Index();
         var second = index.GetProperty("tokens_2").EnumerateObject().ToList();
-        // Q8_0 weights (GGUF) against the bf16 reference: the quantization error, not the implementation's.
-        double tolerance = source == "gguf" ? 3e-2 : 5e-3;
+        // Q8_0 weights (GGUF) against the bf16 reference: the weights' error, not the implementation's. The T5 encoder GGUF is 20 %
+        // (relative RMS) from the bf16 encoder's output; transformers running the dequantized GGUF weights gives the same 0.205.
+        double tolerance = source == "gguf" ? 5e-2 : 5e-3;
+        double t5Tolerance = source == "gguf" ? 0.25 : 5e-3;
         int i = 0;
         foreach (var prompt in index.GetProperty("tokens").EnumerateObject())
         {
@@ -65,7 +67,7 @@ public sealed class FluxSchnellTests
                 (DiffusionGraphs.Tokens, secondTokens));
             (maxAbs, rms) = Env.Compare(hidden, Tensor($"text2_hidden_{i}"));
             TestContext.Current.SendDiagnosticMessage($"{source} T5 {i}: relative RMS {rms:E2}");
-            Assert.True(rms < tolerance, $"T5 {i}: max {maxAbs}, relative RMS {rms}");
+            Assert.True(rms < t5Tolerance, $"T5 {i}: max {maxAbs}, relative RMS {rms}");
             i++;
         }
 
@@ -136,7 +138,9 @@ public sealed class FluxSchnellTests
 
         double psnr = Env.Psnr(result.Images[0].Rgb, expected.Rgb);
         TestContext.Current.SendDiagnosticMessage($"{source} {size}: PSNR {psnr:F1} dB; load {load:F1} s, first run (compiling) {first:F1} s, second run {second:F1} s");
-        Assert.True(psnr > (source == "gguf" ? 25 : 35), $"{source} {size}: PSNR {psnr:F1} dB");
+        // Q8_0 transformer and T5 against the bf16 pipeline: visually the same image, fine texture differs (stable-diffusion.cpp on the
+        // same files is 21.7 / 26.3 dB from diffusers at 512 / 1024).
+        Assert.True(psnr > (source == "gguf" ? 20 : 35), $"{source} {size}: PSNR {psnr:F1} dB");
     }
 
     [Fact]
@@ -148,5 +152,48 @@ public sealed class FluxSchnellTests
         Assert.EndsWith(".gguf", companions[AuxiliaryRoles.SecondTextEncoder], StringComparison.Ordinal);
         Assert.Equal("clip_l.safetensors", Path.GetFileName(companions[AuxiliaryRoles.TextEncoder]));
         Assert.Equal("ae.safetensors", Path.GetFileName(companions[AuxiliaryRoles.Vae]));
+    }
+
+    /// <summary>
+    /// Per-kernel GPU times of one transformer evaluation (diagnostics: runs only with <c>SHARPLIGHT_VK_PROFILE=1</c> and
+    /// <c>SHARPLIGHT_FLUX_PROFILE_SIZE</c> set to the image size; the report goes to stderr).
+    /// </summary>
+    [Fact]
+    public void DenoiserProfile()
+    {
+        Assert.SkipUnless(int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_FLUX_PROFILE_SIZE"), out int size), "profiling not requested");
+        var slot = Gpu("gguf");
+        Assert.SkipWhen(slot is null, "FLUX.1-schnell GGUF or a Vulkan GPU missing");
+        using var model = Env.Load(ModelPath("gguf"), slot!);
+        var dims = new Dictionary<string, long> { [DiffusionGraphs.Height] = size, [DiffusionGraphs.Width] = size };
+        using var compiled = model.CompileComponent(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, null, dims);
+        var random = new Random(1);
+        foreach (var input in compiled.Graph.Inputs)
+        {
+            var values = new float[input.Shape.Elements()];
+            for (int i = 0; i < values.Length; i++)
+            {
+                values[i] = (float)(random.NextDouble() - 0.5);
+            }
+
+            compiled.SetInput<float>(input, values);
+        }
+
+        var parameters = new Runtime.RunParameters();
+        parameters.Symbols[DiffusionGraphs.BatchSymbol] = 1;
+        compiled.Run(parameters);
+        var segments = compiled.Segments.OfType<Vulkan.VulkanSegment>().ToList();
+        foreach (var segment in segments)
+        {
+            segment.ResetProfile();
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        compiled.Run(parameters);
+        Console.Error.WriteLine($"denoiser {size}x{size}: {stopwatch.Elapsed.TotalMilliseconds:F0} ms wall");
+        foreach (var segment in segments)
+        {
+            Console.Error.WriteLine(segment.ProfileReport());
+        }
     }
 }
