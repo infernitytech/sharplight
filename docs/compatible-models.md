@@ -1,0 +1,276 @@
+# Compatible models
+
+Last updated: 2026-11-16.
+
+This is the list of models that have been tried with Sharplight and work. It only contains what was actually tested; a model that is not
+listed has not been tried yet, which does not mean it fails. Technical detail (architecture coverage, quantization formats, test
+methodology, numbers) is in [model-support.md](model-support.md), ONNX details in [onnx-support.md](onnx-support.md).
+
+## What "compatible" means
+
+A model is listed when it **imports** (the file format is read, the architecture is recognized, tokenizer and chat template or feature
+extractor come along) and **runs** on the CPU provider, the Vulkan provider, or both. The Providers column says which were tested. Each row
+also says how the output was checked:
+
+| Level | Meaning |
+|---|---|
+| **Verified** | Output compared with a reference implementation on real weights: greedy tokens identical to transformers or llama.cpp, text identical to whisper.cpp, images or audio within a stated PSNR or relative error of diffusers, stable-diffusion.cpp, the model's own package, or onnxruntime. |
+| **Verified (tiny)** | The architecture is verified against its reference on a small random checkpoint of the same structure; no real checkpoint was compared. |
+| **Loads** | The real checkpoint passes the compatibility check and the import (weights mapped, tokenizer built). Generation was not compared with a reference. |
+| **Partial** | Works with a stated limitation. |
+
+Formats: safetensors and GGUF (every ggml quantization type, including the IQ, TQ, MXFP4, NVFP4 and Bonsai types), Hugging Face
+quantization (FP8, NVFP4, MXFP4, GPTQ, AWQ and others, see model-support.md), whisper.cpp `.bin`, diffusers folders, single-file
+checkpoints, stable-diffusion.cpp GGUF, ONNX, and Sharplight's own `.slm` package (every model above can be stored in one).
+
+Differences from a reference that are not errors: quantized files round differently between runtimes (int8 activation dot products,
+f16 accumulation), so greedy text from a 2-3 bit file can diverge from llama.cpp after some tokens even when the logits agree (correlation
+above 0.98 in every such case checked).
+
+**Requesting a model:** open an issue on the GitHub repository with the Hub repository id (and the file or quantization you use). Models that
+fail to import are reported with a reason; those reasons are collected in the last section.
+
+---
+
+## 1. Text generation
+
+### 1.1 Language models, verified against a reference (real checkpoints)
+
+Greedy generation compared token by token. "llama.cpp" = llama.cpp, "transformers" = Hugging Face transformers (fp32 compute).
+
+| Model | Hub repository | Format | Providers | Verification | Notes | Verified |
+|---|---|---|---|---|---|---|
+| Qwen3 0.6B | Qwen/Qwen3-0.6B, Qwen/Qwen3-0.6B-GGUF, unsloth/Qwen3-0.6B-GGUF, bartowski/Qwen_Qwen3-0.6B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | HF and GGUF import to identical weights; greedy ids identical | bartowski IQ2_M: Vulkan identical to llama.cpp, CPU differs late (precision) | 2026-11-15 |
+| Qwen2.5 0.5B Instruct | Qwen/Qwen2.5-0.5B-Instruct | safetensors, GGUF Q8_0, f16 | CPU, Vulkan | HF vs GGUF parity | | 2026-11-14 |
+| Qwen3-VL 2B Instruct | Qwen/Qwen3-VL-2B-Instruct | safetensors, GGUF Q4_K_M | CPU, Vulkan | greedy ids identical to transformers; text identical to llama.cpp | image input via the mmproj file, see section 1.3 | 2026-11-14 |
+| Qwen3-VL 4B Instruct | unsloth/Qwen3-VL-4B-Instruct-GGUF | GGUF UD-IQ2_XXS | CPU, Vulkan | greedy identical to llama.cpp | | 2026-11-15 |
+| Qwen3.5 0.8B | Qwen/Qwen3.5-0.8B | safetensors, GGUF BF16 | CPU, Vulkan | HF vs GGUF parity; mmproj vs llama.cpp | hybrid (gated delta net) architecture | 2026-11-14 |
+| Qwen3.6 35B-A3B (MoE) | Qwen/Qwen3.6-35B-A3B, unsloth/Qwen3.6-35B-A3B-GGUF | GGUF UD-Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| Qwen3-Coder-Next | unsloth/Qwen3-Coder-Next-GGUF | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | 48 GB file | 2026-11-14 |
+| Qwen3.8-Flash-Next | unsloth/Qwen3.8-Flash-Next-GGUF | GGUF UD-Q4_K_XL | CPU, Vulkan | text identical to llama.cpp | 111 GB file | 2026-11-14 |
+| Qwen3-4B | unsloth/Qwen3-4B-Instruct-2507-GGUF | GGUF UD-IQ1_S | CPU | identical to llama.cpp on CPU; Vulkan differs (precision) | UD-Q2_K_XL differs on both late in the text | 2026-11-15 |
+| Qwen3-30B-A3B | unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF | GGUF UD-TQ1_0 | CPU | identical to llama.cpp on CPU; Vulkan differs (precision) | | 2026-11-15 |
+| Llama 3.2 1B Instruct | meta-llama/Llama-3.2-1B-Instruct, bartowski/Llama-3.2-1B-Instruct-GGUF | safetensors, GGUF Q4_0, Q4_0_4_4, Q4_0_8_8 | CPU, Vulkan | Q4_0 identical to llama.cpp on both; interleaved types identical on CPU | | 2026-11-15 |
+| Llama 3.2 3B Instruct | meta-llama/Llama-3.2-3B-Instruct, unsloth/Llama-3.2-3B-Instruct-GGUF | safetensors, GGUF | CPU, Vulkan | HF vs GGUF parity | | 2026-11-14 |
+| Mistral 7B Instruct v0.3 | mistralai/Mistral-7B-Instruct-v0.3 | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| Ministral 3 3B | unsloth/Ministral-3-3B-Reasoning-2512-GGUF | GGUF UD-IQ3_XXS | CPU, Vulkan | greedy identical to llama.cpp | also verified with its Pixtral mmproj | 2026-11-15 |
+| Gemma 4 E2B-it | google/gemma-4-E2B-it | safetensors, GGUF BF16, Q8_0 | CPU, Vulkan | ids identical to transformers; text identical to llama.cpp | | 2026-11-14 |
+| Gemma 4 E4B-it (QAT q4_0) | google/gemma-4-E4B-it-qat-q4_0-gguf | GGUF q4_0 | CPU, Vulkan | greedy identical to llama.cpp | | 2026-11-15 |
+| Gemma 4 26B-A4B-it (MoE) | google/gemma-4-26B-A4B-it, unsloth/gemma-4-26B-A4B-it-GGUF | GGUF UD-Q4_K_XL | CPU, Vulkan | chat prompt identical to llama.cpp on both | very short raw prompts: Vulkan differs (int8 activations) | 2026-11-15 |
+| Gemma 4 12B-it | google/gemma-4-12B-it | safetensors, GGUF | CPU, Vulkan | HF vs GGUF parity | | 2026-11-14 |
+| Gemma 3 1B / 4B it | google/gemma-3-1b-it, google/gemma-3-4b-it-GGUF, unsloth/gemma-3-4b-it-GGUF | safetensors, GGUF Q4_K_M, UD-IQ2_M | CPU, Vulkan | HF vs GGUF parity; 4B Q4_K_M text identical to llama.cpp | 4B UD-IQ2_M: Vulkan identical, CPU differs late | 2026-11-15 |
+| Gemma 2 2B it | google/gemma-2-2b-it, bartowski/gemma-2-2b-it-GGUF | safetensors, GGUF | CPU, Vulkan | HF vs GGUF parity | | 2026-11-14 |
+| Gemma 3n E2B it | google/gemma-3n-E2B-it | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| Phi-4 mini instruct | microsoft/Phi-4-mini-instruct, bartowski/microsoft_Phi-4-mini-instruct-GGUF | GGUF Q4_K_M, IQ4_NL | CPU, Vulkan | text / greedy identical to llama.cpp | | 2026-11-15 |
+| Phi-3.5 mini instruct | microsoft/Phi-3.5-mini-instruct | safetensors, GGUF | CPU, Vulkan | HF vs GGUF parity | | 2026-11-14 |
+| Phi-2 | microsoft/phi-2 | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| SmolLM2 360M Instruct | HuggingFaceTB/SmolLM2-360M-Instruct | safetensors, GGUF | CPU, Vulkan | HF vs GGUF parity | | 2026-11-14 |
+| SmolLM3 3B | HuggingFaceTB/SmolLM3-3B, bartowski/HuggingFaceTB_SmolLM3-3B-GGUF | GGUF Q4_K_M, IQ3_XS | CPU, Vulkan | Q4_K_M identical to llama.cpp | IQ3_XS: Vulkan identical, CPU differs late | 2026-11-15 |
+| OLMoE 1B-7B Instruct (MoE) | allenai/OLMoE-1B-7B-0924-Instruct | safetensors, GGUF | CPU, Vulkan | HF vs GGUF parity | | 2026-11-14 |
+| OLMo 2 1B Instruct | allenai/OLMo-2-0425-1B-Instruct | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| gpt-oss 20B (MoE) | openai/gpt-oss-20b, ggml-org/gpt-oss-20b-GGUF | safetensors, GGUF MXFP4 | CPU, Vulkan | text identical to llama.cpp (GGUF) | | 2026-11-14 |
+| GLM-4 9B 0414 | THUDM/GLM-4-9B-0414 | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| GLM-4.7-Flash (MLA, MoE) | zai-org/GLM-4.7-Flash, unsloth/GLM-4.7-Flash-GGUF | GGUF UD-TQ1_0 | CPU, Vulkan | greedy identical to llama.cpp | | 2026-11-15 |
+| DeepSeek-V2-Lite Chat (MLA, MoE) | deepseek-ai/DeepSeek-V2-Lite-Chat | GGUF Q4_K_M | CPU | text identical to llama.cpp | | 2026-11-14 |
+| DeepSeek-Coder-V2-Lite Instruct | bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF | GGUF IQ2_XS | CPU, Vulkan | greedy identical to llama.cpp | | 2026-11-15 |
+| MiniCPM3 4B | openbmb/MiniCPM3-4B | GGUF Q4_K_M | CPU | text identical to llama.cpp | | 2026-11-14 |
+| MiniCPM4.1 8B | openbmb/MiniCPM4.1-8B | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| MiMo 9B (distill) | bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF | GGUF IQ2_M | CPU | identical to llama.cpp on CPU; Vulkan differs (precision) | | 2026-11-15 |
+| LFM2.5 1.2B Instruct | LiquidAI/LFM2.5-1.2B-Instruct, bartowski/LiquidAI_LFM2.5-1.2B-Instruct-GGUF | safetensors, GGUF Q4_K_M, IQ3_XXS | CPU, Vulkan | ids identical to transformers; text / greedy identical to llama.cpp | hybrid short-convolution architecture | 2026-11-15 |
+| LFM2.5 8B-A1B (MoE) | LiquidAI/LFM2.5-8B-A1B, unsloth/LFM2.5-8B-A1B-GGUF | GGUF Q4_K_M, MXFP4_MOE | CPU, Vulkan | text identical to llama.cpp (Vulkan for MXFP4_MOE) | UD-IQ2_XXS differs late | 2026-11-15 |
+| LFM3 1.7B | LiquidAI/LFM3-1.7B, LiquidAI/LFM3-1.7B-GGUF | safetensors (bf16), GGUF incl. NVFP4 | CPU, Vulkan | 16 greedy ids identical to transformers | QAD-Q4_0 differs late | 2026-11-15 |
+| Spark-X2.6 4B | XHToken/Spark-X2.6-4B | safetensors (bf16) | CPU, Vulkan | 16 greedy ids identical to transformers | | 2026-11-15 |
+| Mage-VL-Cowork | microsoft/Mage-VL-Cowork | safetensors (bf16) | CPU, Vulkan | 16 greedy ids identical to transformers | text decoder only; the OneVision image tower is not imported | 2026-11-15 |
+| NVIDIA Nemotron 3 Nano 4B | nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16 | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; text identical to llama.cpp | hybrid Mamba-2 / attention | 2026-11-14 |
+| NVIDIA Nemotron 3.5 Bolt E4B | NVIDIA-Nemotron-3.5-Bolt-E4B (GGUF) | GGUF UD-Q4_K_XL | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| Muse-Glimmer 30B | meta-models/Muse-Glimmer-30B, unsloth/Muse-Glimmer-30B-GGUF | safetensors, GGUF UD-Q4_K_XL | CPU, Vulkan | HF vs GGUF parity; text identical to llama.cpp; DFlash drafter output identical | speculative decoding with the DFlash drafter | 2026-11-15 |
+| Falcon-H1 0.5B Instruct | tiiuae/Falcon-H1-0.5B-Instruct | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; text identical to llama.cpp | | 2026-11-14 |
+| Granite 4.0 H 350M | ibm-granite/granite-4.0-h-350m | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; text identical to llama.cpp | | 2026-11-14 |
+| Jamba Reasoning 3B | ai21labs/AI21-Jamba-Reasoning-3B | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| Mamba 130M / Mamba-2 130M | state-spaces/mamba-130m-hf, state-spaces/mamba2-130m-hf | safetensors | CPU, Vulkan | ids identical to transformers | | 2026-11-14 |
+| RWKV7 G1 1.5B | rwkv7-g1h-1.5b (GGUF) | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| GPT-2 | openai-community/gpt2 | safetensors, GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| Pythia 160M | EleutherAI/pythia-160m | safetensors, GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| Bonsai 1.7B, Ternary-Bonsai 1.7B / 2-2B | prism-ml (Bonsai GGUF) | GGUF Q1_0, Q2_0, PQ2_0, PTQ1_0 | CPU, Vulkan | HF vs GGUF parity | 1-2 bit formats | 2026-11-14 |
+
+More text models were verified against llama.cpp on GGUF files and are summarized by family in model-support.md section 8.1 (all Q4_K_M or
+Q8_0, text identical to llama.cpp on CPU and Vulkan): Granite 3.x dense and MoE (granite-3.1-1b-a400m, granite-3.3-2b), Command-R7B and Aya Expanse 8B,
+StarCoder2 3B, InternLM2.5 1.8B chat, ERNIE-4.5 0.3B and 21B-A3B, EXAONE 3.5 2.4B and 4.0 1.2B, StableLM 2 1.6B, BLOOM 560M, FLAN-T5 small,
+Nemotron-Mini 4B, Apertus 8B, AFM-4.5B, SmallThinker 4B-A0.6B, OpenELM 270M, Nanbeige 4.2 3B, BitNet b1.58 2B (TQ2_0), Hunyuan 0.5B, LFM2-VL 450M, Falcon-H1,
+Mamba and RWKV6 World 1.6B, Qwen3-VL 2B. Two of them generate degenerate text in llama.cpp itself (Hunyuan 0.5B, EXAONE 4.0 1.2B); Sharplight matches that output.
+
+### 1.2 Language models that load (header check and import, output not compared)
+
+These real checkpoints, and every quantization file listed, were imported through the full load path (mapping, graph build, tokenizer, chat
+template) during the round-10 sweep of popular Hub repositories. Weights were not downloaded; output has not been compared with a reference.
+Counts are files per repository.
+
+| Model family | Hub repositories | Formats | Notes | Checked |
+|---|---|---|---|---|
+| Qwen3 / Qwen3.5 / Qwen3.6 / Qwen3.8 dense and MoE | Qwen/Qwen3-8B, Qwen3-14B, Qwen3-30B-A3B, Qwen3-Coder-30B-A3B-Instruct, Qwen2.5-7B-Instruct, Qwen3.5-9B, Qwen3.8-27B, Qwen3.8-27B-FP8, Qwen3.6-35B-A3B, Qwen3.8-Flash-Next (+ FP8), Qwen3.8-2.4T-A95B; unsloth and bartowski GGUF repositories of the same models (about 20 repositories, 24 to 31 files each); Qwen/Qwen3-VL-8B-Instruct-GGUF; unsloth/Qwen2.5-VL-7B-Instruct-GGUF; ggml-org Qwen2.5-VL-3B, Qwen2.5-Omni-3B, Qwen3-Omni-30B-A3B | safetensors, GGUF BF16 to IQ1_S, FP8 | Omni models: text decoder only | 2026-11-15 |
+| Llama and Mistral | bartowski/Meta-Llama-3.1-8B-Instruct-GGUF, bartowski/Llama-3.2-3B-Instruct-GGUF, mistralai/Mistral-7B-Instruct-v0.2, unsloth/Mistral-Large-4-1T-A52B-GGUF | safetensors, GGUF | | 2026-11-15 |
+| Gemma | unsloth/gemma-4-{E2B,E4B,12b,26B-A4B,31B}-it-GGUF (21 to 22 files each), google/gemma-4-31B-it, google/gemma-4-26B-A4B-it, nvidia/Gemma-4-26B-A4B-NVFP4, unsloth/embeddinggemma-2-GGUF | safetensors, GGUF, ModelOpt NVFP4 | | 2026-11-15 |
+| DeepSeek | deepseek-ai/DeepSeek-V3.2, DeepSeek-R1, DeepSeek-V4-Flash-0731; unsloth DeepSeek-V4-Flash and V4.1-Flash GGUF; bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF | safetensors (FP8, FP4), GGUF | 284B V4-Flash was imported from headers only | 2026-11-15 |
+| GLM | zai-org/GLM-5, GLM-5.3, GLM-5.3-Flash, GLM-4.5-Air; unsloth GLM-5.3-Flash GGUF; ggml-org GLM-4.6V, GLM-OCR | safetensors, GGUF | | 2026-11-15 |
+| gpt-oss | openai/gpt-oss-120b, unsloth gpt-oss-20b / 120b GGUF (16 files) | safetensors, GGUF | | 2026-11-15 |
+| Kimi, MiniMax, Step | moonshotai/Kimi-K3, Kimi-K3.1-Pro (MXFP4); unsloth/Kimi-K3-GGUF (9 files); MiniMaxAI/MiniMax-M2.5; ggml-org/Step-3.5-Flash-GGUF | safetensors, GGUF | | 2026-11-15 |
+| NVIDIA Nemotron | nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16, NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16; unsloth and ggml-org Nemotron 3.5 Bolt, Lightning, Super-VL GGUF | safetensors, GGUF incl. NVFP4 | MTP and draft files load as drafts of their target | 2026-11-15 |
+| Liquid, Flint, Muse, Inkling, Hy4, Clover, Ornith, Granite, Yi, others | LiquidAI/LFM2.5-24B-A2B (GGUF), RecursiveSI/flint, unsloth/Muse-Spark-Open-816B-A42B-GGUF, thinkingmachines/Inkling and unsloth/Inkling-Small-GGUF (23 files), tencent/Hy4-preview, Diffuspace/Clover-35B-A3B-Preview, ornith-ai/Ornith-1.0-35B and Ornith-1.5 GGUF, ibm-granite/granite-4.1-3b-llmon-preview, dphn/dolphin-2.9.1-yi-1.5-34b, openbmb/MiniCPM5-2B, HuggingFaceTB/SmolLM2-135M, bartowski Nanbeige4.3-33B, Thomson-1.0-Small, KAT-Coder-V2.5-Dev, farbodtavakkoli OTel-2.0-Decision, webAI TwIL-8B, ggml-org Clef-Flash | safetensors, GGUF | Clover: block-diffusion preview tensors not imported | 2026-11-15 |
+| PaliGemma | google/paligemma-3b-pt-224 | safetensors | Partial: text decoder decodes causally, which matches transformers for text-only input; image prefix attention is not implemented | 2026-11-15 |
+
+In all, 1,080 of 1,138 GGUF files across 88 repositories and 49 of 72 Hub checkpoints passed this sweep; the remainder are in section 9.
+
+### 1.3 Vision-language models
+
+| Model | Hub repository | Format | Providers | Verification | Notes | Verified |
+|---|---|---|---|---|---|---|
+| Qwen3-VL 2B Instruct | Qwen/Qwen3-VL-2B-Instruct | safetensors, GGUF + mmproj | CPU, Vulkan | greedy text identical to transformers / llama.cpp; mmproj vs llama.cpp | | 2026-11-14 |
+| Qwen3.5 0.8B | Qwen/Qwen3.5-0.8B | GGUF BF16 + mmproj | CPU, Vulkan | mmproj vs llama.cpp | | 2026-11-14 |
+| Qwen3.8 27B | Qwen/Qwen3.8-27B | GGUF mmproj (BF16) | CPU, Vulkan | projector output vs llama.cpp | | 2026-11-14 |
+| Ministral 3 3B, Gemma 3 4B, LFM2-VL 450M | mistralai / google / LiquidAI | GGUF + mmproj | CPU, Vulkan | text vs llama.cpp (see 1.1); projector files load | | 2026-11-14 |
+| PaddleOCR-VL 1.6, Unlimited-OCR | PaddlePaddle/PaddleOCR-VL-1.6, baidu/Unlimited-OCR | safetensors | CPU | Loads | | 2026-11-15 |
+
+### 1.4 Diffusion language models
+
+| Model | Hub repository | Verification | Notes |
+|---|---|---|---|
+| Dream, LLaDA, RND1, LLaDA-MoE architectures | Dream-7B, LLaDA-8B (and tiny random checkpoints of each) | Verified (tiny): masked-diffusion unmasking loop against the reference implementations on CPU and Vulkan | No real checkpoint compared yet |
+
+### 1.5 Embedding and reranking models
+
+Cosine similarity above 0.999 per embedding and identical token ids against the reference; rerankers within about 1e-3 of the reference logits.
+
+| Model | Hub repository | Format | Providers | Verification | Verified |
+|---|---|---|---|---|---|
+| bge-small-en-v1.5 | BAAI/bge-small-en-v1.5 | safetensors, GGUF f16, Q8_0 | CPU, Vulkan | cosine > 0.999 vs reference | 2026-11-14 |
+| all-MiniLM-L6-v2 | sentence-transformers/all-MiniLM-L6-v2 | safetensors, GGUF f16 | CPU, Vulkan | cosine > 0.999 | 2026-11-14 |
+| e5-small-v2, multilingual-e5-small | intfloat/e5-small-v2, intfloat/multilingual-e5-small | safetensors | CPU, Vulkan | cosine > 0.999 | 2026-11-14 |
+| nomic-embed-text v1.5 | nomic-ai/nomic-embed-text-v1.5 | safetensors, GGUF f16, Q8_0 | CPU, Vulkan | cosine > 0.999 | 2026-11-14 |
+| ms-marco-MiniLM-L6-v2 (reranker) | cross-encoder/ms-marco-MiniLM-L6-v2 | safetensors | CPU, Vulkan | logits within ~1e-3 | 2026-11-14 |
+| bge-reranker-base, bge-reranker-v2-m3 | BAAI/bge-reranker-base, BAAI/bge-reranker-v2-m3 | safetensors | CPU, Vulkan (v2-m3: Vulkan) | logits within ~1e-3 | 2026-11-14 |
+| EmbeddingGemma 300M and 2 | ggml-org/embeddinggemma-300M-GGUF, unsloth/embeddinggemma-2-GGUF | GGUF | CPU, Vulkan | Loads | 2026-11-15 |
+| bge-m3, mxbai-embed-large-v1 | ggml-org/bge-m3-Q8_0-GGUF, mixedbread-ai/mxbai-embed-large-v1 | GGUF | CPU, Vulkan | Loads | 2026-11-15 |
+
+---
+
+## 2. Speech to text
+
+Verified on CPU and Vulkan. Reference: transformers (token-exact greedy ids), whisper.cpp (segments and text).
+
+| Model | Hub repository | Formats | Verification | Notes | Verified |
+|---|---|---|---|---|---|
+| Whisper tiny, tiny.en, base, base.en, small, small.en | openai/whisper-*, ggerganov/whisper.cpp | HF, whisper.cpp `.bin` (f16, q5_1), `.slm` | ids identical to transformers (with and without timestamps, 5-beam search, language detection); whisper.cpp f16 identical, q5_1 same words (3 of 24 runs differ in one punctuation mark) | | 2026-11-15 |
+| Whisper large-v3-turbo | openai/whisper-large-v3-turbo, oxide-lab/whisper-large-v3-turbo-GGUF | HF, whisper.cpp `.bin` f16 / q5_0 / q8_0, whisper GGUF Q8_0 / Q4_K_M | transcript identical to whisper.cpp | medium and large-v1/v2/v3 map the same way, not verified | 2026-11-15 |
+| Whisper as GGUF (tiny, base) | handy-computer/whisper-*-gguf | GGUF F32, F16, Q8_0, Q4_K_M | tiny F16 / F32 identical to whisper.cpp, quantized word for word | Candle-style whisper GGUF files are rejected with a message | 2026-11-15 |
+| Distil-Whisper small.en, large-v3.5 | distil-whisper/distil-small.en, distil-whisper/distil-large-v3.5 | HF | ids identical to transformers, beam search identical | | 2026-11-15 |
+| Moonshine tiny, base | UsefulSensors/moonshine-tiny, UsefulSensors/moonshine-base | HF, `.slm` | ids identical to transformers | | 2026-11-16 |
+| Parakeet CTC 0.6B | nvidia/parakeet-ctc-0.6b | HF (transformers format), `.slm` | ids identical to transformers | 1.1B maps the same way, not verified | 2026-11-16 |
+| Parakeet TDT 0.6B v3 | nvidia/parakeet-tdt-0.6b-v3 | HF, `.slm` | ids identical to transformers | | 2026-11-16 |
+| Canary 1B v2 | nvidia/canary-1b-v2 | HF, `.slm` | ids identical to transformers (English transcription with punctuation) | translation prompt works; no timestamps | 2026-11-16 |
+| Parakeet RNN-T | nvidia/parakeet-rnnt-* | HF | Partial: maps, not verified | | |
+
+Long recordings are cut into 30 s windows (Whisper uses its own timestamp-driven loop). Not yet: temperature fallback, Whisper word timestamps.
+
+## 3. Text to speech
+
+| Model | Hub repository | Formats | Providers | Verification | Notes | Verified |
+|---|---|---|---|---|---|---|
+| Kokoro 82M v1.0 | hexgrad/Kokoro-82M | PyTorch folder, `.slm` | CPU, Vulkan | symbols, durations and F0 identical to the `kokoro` package; waveform within 1.3e-2 relative RMS (the reference's own noise floor) | all voice packs load; English front end only | 2026-11-15 |
+| Orpheus 3B + SNAC 24 kHz | canopylabs/orpheus-3b-0.1-ft (unsloth mirror), hubertsiuzdak/snac_24khz | safetensors | CPU, Vulkan | 0 argmax disagreements over 140 tokens vs transformers; SNAC decoder within 2.4e-6 | voices tara, leah, jess, leo, dan, mia, zac, zoe | 2026-11-15 |
+| OuteTTS 0.2 500M + WavTokenizer-Large-75 | OuteAI/OuteTTS-0.2-500M, WavTokenizer GGUF | GGUF pair | CPU, Vulkan | teacher-forced logits vs llama.cpp; decoder waveform within 2e-3 | no default speaker profile; OuteTTS 0.3 not supported | 2026-11-15 |
+
+## 4. Image generation
+
+Reference: diffusers (same initial noise) and stable-diffusion.cpp. PSNR values are image-vs-image on a fixed seed; above about 30 dB the
+images are visually identical. All run on CPU and Vulkan (Vulkan used for the real checkpoints). Supported: txt2img, img2img, inpainting by mask blend, `.slm`.
+
+| Model | Hub repository | Formats | Verification | Notes | Verified |
+|---|---|---|---|---|---|
+| Stable Diffusion 1.5 | SD 1.5 checkpoints (diffusers folder, original single file, GGUF) | diffusers folder, single file `.safetensors` / `.ckpt`, GGUF f16, Q8_0, Q4_0 | Euler 76.3 dB, DDIM 76.2 dB, DPM++ 2M Karras 73.8 dB, PNDM 58.8 dB vs diffusers fp32; GGUF f16 48.7 dB | Q4_0 file produces a degenerate image in every implementation | 2026-11-15 |
+| Stable Diffusion 2.1 (768-v) | stabilityai/stable-diffusion-2-1 (community mirror) | diffusers folder, single file | Euler 70.2 dB, DDIM 64.1 dB, DPM++ 2M Karras 51.8 dB | fp16 files: visually identical, 28 to 38 dB | 2026-11-15 |
+| SDXL base 1.0 | stabilityai/stable-diffusion-xl-base-1.0, gpustack/stable-diffusion-xl-base-1.0-GGUF, kostakoff/stable-diffusion-xl-base-1.0-GGUF | diffusers folder, single file, GGUF Q8_0 / Q4_0 / Q4_K | Euler 42.4 dB, DPM++ 2M Karras 30.0 dB (fp16 files); GGUF Q8_0 27.7 dB | Q4_K: visually equivalent (17.3 dB); separate VAE / text-encoder files not supported | 2026-11-15 |
+| SDXL-Turbo | stabilityai/sdxl-turbo, OlegSkutte/sdxl-turbo-GGUF | diffusers, GGUF Q8_0 | Q8_0 28.5 dB vs stabilityai/sdxl-turbo | 4 steps, no guidance | 2026-11-15 |
+| SDXL-Lightning | mzwing/SDXL-Lightning-GGUF | GGUF | Partial: maps the same way as SDXL, not verified | | |
+| SD-Turbo | stabilityai/sd-turbo | diffusers | Loads | | |
+| FLUX.1-schnell | black-forest-labs/FLUX.1-schnell, city96/FLUX.1-schnell-gguf | diffusers (bf16), GGUF Q8_0 + CLIP-L, T5-XXL, VAE companions | bf16: 32.5 dB (512) / 38.8 dB (1024) vs diffusers; Q8_0: 33.4 dB / 39.7 dB vs diffusers running the same files | companion files found beside the GGUF; 1024x1024 step about 1 s on a 32 GB GPU | 2026-11-15 |
+| FLUX.1-dev | black-forest-labs/FLUX.1-dev, city96/FLUX.1-dev-gguf | GGUF Q8_0 + companions | 31.7 dB (512, 20 steps) vs diffusers on the same files | 28 steps at 1024x1024 in 33 s, 23.5 GB device memory | 2026-11-15 |
+
+## 5. Vision
+
+Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical unless stated). One sample image per model.
+
+| Model | Hub repository | Task | Verification | Notes | Verified |
+|---|---|---|---|---|---|
+| ViT base | google/vit-base-patch16-224 | classification | same top-1, logits 1.2e-3 | | 2026-11-15 |
+| DINOv2 small | facebook/dinov2-small | image embedding | CLS embedding 1.2e-3 | registers variant supported | 2026-11-15 |
+| CLIP ViT-B/32 | openai/clip-vit-base-patch32 | image and text embedding, zero-shot | image 2.6e-3, text 1e-6, zero-shot logits 4.5e-4 | | 2026-11-15 |
+| SigLIP base | google/siglip-base-patch16-224 | image and text embedding, zero-shot | image 2.2e-3, text 1e-6, logits 6.3e-4 | | 2026-11-15 |
+| DETR ResNet-50 | facebook/detr-resnet-50 | detection | same four detections, boxes within 2 px | fixed 640 px square canvas | 2026-11-15 |
+| RT-DETR R18vd | PekingU/rtdetr_r18vd | detection | same five detections | fixed square canvas | 2026-11-15 |
+| Depth Anything V2 small | depth-anything/Depth-Anything-V2-Small-hf | depth | depth map 1.5e-4 | fixed 518 px canvas | 2026-11-15 |
+| SAM 2.1 Hiera tiny | facebook/sam2.1-hiera-tiny | segmentation (point, box prompts) | mask IoU > 0.98 vs transformers | image path only, no video | 2026-11-16 |
+| TrOCR base printed | microsoft/trocr-base-printed | OCR | text identical to transformers | greedy | 2026-11-16 |
+| Real-ESRGAN x4plus | xinntao/Real-ESRGAN (official `.pth`) | 4x upscaling | > 40 dB PSNR vs the reference, also tiled | | 2026-11-16 |
+
+## 6. Audio
+
+Reference: transformers (EnCodec, DAC, Mimi), onnxruntime and the `silero-vad` package (VAD). CPU and Vulkan.
+
+| Model | Hub repository | Kind | Verification | Notes | Verified |
+|---|---|---|---|---|---|
+| EnCodec 24 kHz | facebook/encodec_24khz | codec | codes token-exact at 6 kbps; decoder < 1e-3 relative RMS | 48 kHz model rejected; at 24 kbps up to 0.1 % of codes differ (near ties) | 2026-11-16 |
+| DAC 44 kHz | descript/dac_44khz | codec | codes token-exact, decoded audio < 1e-3 | | 2026-11-16 |
+| Mimi | kyutai/mimi | codec | codes token-exact for 8 and 32 stages | | 2026-11-16 |
+| Silero VAD v5 | snakers4/silero-vad (16 kHz ONNX) | voice activity | probabilities within 1e-3 of onnxruntime, segments identical | 8 kHz branch not imported; also used to pre-segment long speech recognition | 2026-11-16 |
+
+## 7. ONNX models
+
+130 ONNX models were run against onnxruntime 1.3x on CPU and Vulkan (round 8 added the operators several of the failing ones needed; see
+onnx-support.md for the current state of each). Statuses below are from the survey and the later rounds; "OK" means outputs within the strict
+tolerance of onnxruntime (typically relative RMS below 1e-5).
+
+| Group | Models (Hub repositories: onnxmodelzoo/*, Xenova/*, onnx-community/*, others) | Result |
+|---|---|---|
+| Image classification | ResNet-18/50/101-DUC, DenseNet-9, ShuffleNet-v2, SqueezeNet 1.1, MobileNetV2, EfficientNet-Lite4, ConvNeXt-tiny, Swin-tiny, DeiT-tiny, ViT-base, MobileViT, MobileViTv2, SegFormer-b0 | Verified (CPU, Vulkan) |
+| Quantized (int8) | MobileNetV2-int8, ResNet50-int8, EfficientNet-Lite4-int8, ConvNeXt-tiny-q, CLIP-vision-int8 | Verified within relative RMS 5e-2 to 2e-1 (int8 requantization noise) |
+| Detection and pose | DETR (ResNet-50, panoptic), YOLOS-tiny, RT-DETR-r18, YOLOv8n, YOLOv8n-seg, YOLOv8n-pose, YOLO11n, YOLO11n-face, YOLOv10n, YOLO26n, RetinaNet-9, TinyYOLOv2, RFB-320, SCRFD-10g, ViTPose-base, RTMPose-m | Verified |
+| SSD, YOLOv3, Faster R-CNN, Mask R-CNN | onnxmodelzoo ssd-10, yolov3-12, FasterRCNN-12, MaskRCNN-12 | Operators NonMaxSuppression, RoiAlign, Loop implemented in round 8; matched onnxruntime on ssd-10, yolov3-12, fasterrcnn-12, maskrcnn-12 |
+| Depth, segmentation, matting | Depth-Anything-small / V2-small / V2-base, FCN-ResNet50, MobileSAM encoder and decoder, SAM2 encoder, U2-Netp, MODNet, RAFT-large | Verified |
+| Super-resolution and style | Real-ESRGAN x4v3, Swin2SR, super-resolution-10, candy-9, mosaic-9, AnimeGAN (hayao, v2), SDXL VAE, UVDoc | Verified |
+| Text encoders | BERT base (fp32, q4, fp16), DistilBERT, MiniLM-L6, RoBERTa, DeBERTa-v3-small, ModernBERT-base, nomic-moe, CLIP text, SigLIP text and vision, T5-small encoder, distilBART, BERT-SQuAD-12 | Verified; BERT fp16 and dynamic-int8 within 5e-2 |
+| Decoders | GPT-2 (plain, past, merged), gpt2-lm-head-10, T5-small decoder, distilBART decoder, Whisper tiny encoder and decoders, Moonshine encoder, TrOCR-small-printed, ViT-GPT2 captioning, Florence-2-base (4 parts), Qwen2.5-0.5B q4, Gemma-3-270m, LFM2-350M, Phi-3.5-mini q4f16 | Verified (decoders run in their no-past branch); Gemma-3, LFM2 and Phi-3.5 match onnxruntime since round 8 |
+| Speech and audio | wav2vec2-base, Silero VAD, OpenUnmix vocals, Zipformer streaming encoder, PP-OCR detection and recognition (v2, v3, v5) | Verified |
+| Other | tiny-mamba, tiny Stable Diffusion text / UNet / VAE, arcface (ResNet100, w600k-r50), emotion-FerPlus, mnist-12 | Verified |
+| Partial or not working | Qwen2.5-0.5B fp16 and dynamic-int8 (numerically off), ssd-12-int8 (differs from onnxruntime 1.32; matched 1.31), BERT-SQuAD-12-int8 (runtime-B MatMulInteger), GLiNER-small (dynamic Expand), Grounding-DINO-tiny, DPT-hybrid-MiDaS (convolution variant), Kokoro ONNX (the STFT operator is implemented since round 8; not re-run) | see onnx-support.md |
+
+## 8. Video generation
+
+None yet.
+
+## 9. Known unsupported or not working
+
+Popular models tried that do not work today, with the reason. These are tracked; most are a matter of days of work, not of principle.
+
+| Model | Hub repository | Reason |
+|---|---|---|
+| Inkling 2 Small | thinkingmachines/Inkling-2-Small, unsloth/Inkling-2-Small-GGUF | new `inkling2` blocks not implemented |
+| DeepSeek V4.1 Flash (HF) | deepseek-ai/DeepSeek-V4.1-Flash | Hugging Face tensor-name mapping missing (the GGUF files import) |
+| SenseNova-Loop, LiquidAI d1 | sensenova/SenseNova-Loop-9B-Preview, LiquidAI/d1-2B | layer loops and hyper-connections; non-causal decision variant |
+| Unlimited-OCR-2, KLM-1.6, Raon-1-nano | baidu/Unlimited-OCR-2, MinimaLabs/KLM-1.6, KRAFTON/Raon-1-nano | new attention variants not implemented |
+| Dory 1.0, ERNIE-5.5-Flash-Base, LongCat-2.5 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16, baidu/ERNIE-5.5-Flash-Base, meituan-longcat/LongCat-2.5 | no modeling code published, cannot be verified |
+| MiniMax M3.1 Flash | MiniMaxAI/MiniMax-M3.1-Flash | MXFP8 weights not read |
+| MiMo V2.6 Pro RL | XiaomiMiMo/MiMo-V2.6-Pro-RL | FP8 scale layout of the fused `qkv_proj` not read |
+| Nemotron 3.5 Super-VL and Bolt (ModelOpt NVFP4 / mixed-precision safetensors) | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4, nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB | ModelOpt mixed-precision layout not read (GGUF versions import) |
+| DFlash drafters with LiLiCorr head | Bolt and Super-VL drafters | correction head not implemented (reported as draft models) |
+| Gated repositories | meta-llama/Llama-3.1-8B-Instruct, google/medgemma-1.5-4b-it, nvidia/Cosmos-Reason2-2B | could not be downloaded without a token; not tested |
+| SD 1.5 inpainting UNet, SDXL refiner, SD3, Chroma, Qwen-Image, Wan, LTX | various | not implemented yet (rejected with a clear message) |
+| LoRA, ControlNet, TAESD | | not implemented |
+| CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
+| Voxtral | mistralai/Voxtral-* | needs the tekken tokenizer and audio embeddings |
+| Mask2Former, YOLO (native), Florence-2 (native), SwinIR | | vision models not implemented (Florence-2 ONNX parts work) |
+| Demucs, CLAP, MusicGen | | audio models not implemented |
+| Mamba / RWKV real checkpoints beyond those above | | not covered by a model test |
+| Candle-format whisper GGUF | oxide-lab/whisper-large-v3-turbo-q4_0.gguf, xkeyC/model_q4_k.gguf | rejected on purpose; use the whisper.cpp or transcribe.cpp files |
+| Files without `general.architecture`, shards missing, `-noPLE` Gyro files | MiniMax-H3 pruned, some imatrix / patch files | malformed or incomplete at the source |
+
+Detailed numbers and the full per-repository sweep table: [model-support.md](model-support.md).
