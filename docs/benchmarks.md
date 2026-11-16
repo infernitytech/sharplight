@@ -1286,6 +1286,29 @@ the CPU; 40 of the 48 layers fill the 32 GB GPU (27.7 GiB), 8 layers run on the 
   op this model runs (the delta-rule replay, the indexer, the n-gram convolution, the CPU layers). Open item: find the op that
   breaks invariance here.
 
+#### 17.5.2 SpecBench, two GPUs
+
+`SpecBench --gpus 2 --cpu-offload --draft mtp-Qwen3.8-Flash-Next-Q8_0.gguf` on two RTX PRO 4500 (the whole trunk on the GPUs, the
+n-gram table on the CPU), plain and speculative through the same engine, depth 47, median of 3 (load average ~18 on the machine,
+spreads tight).
+
+| k | tok/s (min-max) | speedup | acceptance (accepted / drafted) |
+|---|---|---|---|
+| off | 58.2 (55.1-59.1) | | |
+| 1 | 85.3 (83.9-85.6) | 1.47x | 0.88 (179 / 204) |
+| 2 | 72.1 (71.0-79.0) | 1.24x | 0.81 (236 / 293) |
+| 3 | 78.2 (77.3-95.7) | 1.34x | 0.70 (258 / 370) |
+
+One GPU + CPU (8 layers on the CPU) at load average 33 gave plain 24.4, k = 1 27.6 tok/s with acceptance 0.88 / 0.79 / 0.70; its
+timings were dominated by CPU contention and are not used.
+
+Greedy text through the engine: k = 1, 2, 3 are identical to each other and leave plain decoding at one list-item near-tie after
+~520 characters. Two row-invariance gaps were found and fixed on the way: the Vulkan expert matmul left the row-invariant matvec for
+the grouped GEMM above 16 items (a 4-row step with 10 experts per row is 40 items), and the CPU matmuls summed 2-4 rows in another
+order than one row. `SpeculativeRowInvarianceTests` (4-row verification step against 4 single-row steps, logits bitwise) now pass on
+Vulkan for tiny Llama, Qwen3.5, Qwen3.8-MoE, Qwen3-Next-MoE and Qwen3.8-Flash-Next; the remaining gaps are listed as an open item in
+model-support.md.
+
 ### 17.6 MiMo-7B-RL: MTP on bf16 weights (2026-11-16)
 
 XiaomiMiMo/MiMo-7B-RL (HF `mimo`, bf16 safetensors, one MTP layer `model.mtp_layers.0` imported as the NextN draft head), one RTX
