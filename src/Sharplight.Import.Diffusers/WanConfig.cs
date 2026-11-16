@@ -25,15 +25,8 @@ internal sealed record WanConfig
     /// <param name="vae">The VAE's <c>config.json</c>.</param>
     /// <param name="scheduler">The scheduler's <c>scheduler_config.json</c> text, or null.</param>
     /// <param name="pipeline">The folder's <c>model_index.json</c>, or null.</param>
-    /// <exception cref="NotSupportedException">An image-conditioned Wan 2.1 I2V transformer (CLIP image embedding), not supported yet.</exception>
     public static WanConfig FromDiffusers(JsonElement transformer, JsonElement vae, string? scheduler, JsonElement? pipeline)
     {
-        if (transformer.TryGetProperty("image_dim", out var imageDim) && imageDim.ValueKind == JsonValueKind.Number)
-        {
-            throw new NotSupportedException("Not supported yet: Wan image-to-video transformers with a CLIP image embedding (Wan 2.1 I2V / FLF2V); "
-                + "Wan 2.1 text-to-video and Wan 2.2 TI2V are supported.");
-        }
-
         int heads = transformer.Int("num_attention_heads", 40);
         int headDim = transformer.Int("attention_head_dim", 128);
         bool expandTimesteps = pipeline is { } index && index.Bool("expand_timesteps", false);
@@ -52,6 +45,12 @@ internal sealed record WanConfig
         metadata[t + "norm_eps"] = transformer.Float("eps", 1e-6f);
         metadata[t + "cross_attn_norm"] = transformer.Bool("cross_attn_norm", true);
         metadata[t + "token_timesteps"] = expandTimesteps;
+        int imageDim = transformer.TryGetProperty("image_dim", out var image) && image.ValueKind == JsonValueKind.Number ? image.GetInt32() : 0;
+        bool lastFrame = transformer.TryGetProperty("pos_embed_seq_len", out var positions) && positions.ValueKind == JsonValueKind.Number;
+        if (imageDim > 0)
+        {
+            metadata[t + "image_dim"] = imageDim;
+        }
 
         string v = Prefix + "vae.";
         int[] multipliers = vae.TryGetProperty("dim_mult", out _) ? vae.Ints("dim_mult") : [1, 2, 4, 4];
@@ -92,6 +91,14 @@ internal sealed record WanConfig
         metadata[Prefix + "default_steps"] = 50;
         metadata[Prefix + "default_guidance"] = 5.0;
         metadata[Prefix + "first_frame_conditioning"] = expandTimesteps;
+        if (lastFrame)
+        {
+            // FLF2V-14B-720P: first and last frame, 1280×720.
+            metadata[Prefix + "last_frame_conditioning"] = true;
+            metadata[Prefix + "default_width"] = 1280;
+            metadata[Prefix + "default_height"] = 720;
+        }
+
         if (pipeline is { } model && model.TryGetProperty("boundary_ratio", out var boundary) && boundary.ValueKind == JsonValueKind.Number)
         {
             // Two experts (Wan 2.2 A14B): the published guidance is 4 for the high-noise and 3 for the low-noise expert, 40 steps.
@@ -132,6 +139,12 @@ internal sealed record WanConfig
         metadata[p + "norm_eps"] = 1e-6f;
         metadata[p + "cross_attn_norm"] = weights.ContainsKey(t + "blocks.0.norm3.weight");
         metadata[p + "token_timesteps"] = ti2v;
+        if (weights.TryGetValue(t + "img_emb.proj.0.weight", out var imageNorm))
+        {
+            metadata[p + "image_dim"] = (int)imageNorm.Shape[0].Fixed;
+        }
+
+        bool lastFrame = weights.ContainsKey(t + "img_emb.emb_pos");
         metadata[Prefix + "scheduler.sampler"] = Samplers.UniPc;
         metadata[Prefix + "scheduler.shift"] = ti2v ? 5f : 3f;
         metadata[Prefix + "scheduler.train_steps"] = 1000;
@@ -142,6 +155,13 @@ internal sealed record WanConfig
         metadata[Prefix + "default_steps"] = 50;
         metadata[Prefix + "default_guidance"] = 5.0;
         metadata[Prefix + "first_frame_conditioning"] = ti2v;
+        if (lastFrame)
+        {
+            metadata[Prefix + "last_frame_conditioning"] = true;
+            metadata[Prefix + "default_width"] = 1280;
+            metadata[Prefix + "default_height"] = 720;
+        }
+
         return new WanConfig { Metadata = metadata };
     }
 

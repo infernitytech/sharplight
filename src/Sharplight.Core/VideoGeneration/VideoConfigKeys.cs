@@ -29,6 +29,12 @@ public static class VideoConfigKeys
     public const string FirstFrameConditioning = "firstFrameConditioning";
 
     /// <summary>
+    /// Model: the video is conditioned on a last frame as well (<see cref="VideoGenerationRequest.LastImage"/>; Wan 2.1 FLF2V), which
+    /// image-to-video by channel concatenation then requires.
+    /// </summary>
+    public const string LastFrameConditioning = "lastFrameConditioning";
+
+    /// <summary>
     /// Model (two experts): the fraction of the training timesteps from which down the second denoiser runs (Wan 2.2 A14B: 0.875; the
     /// first runs for timesteps ≥ ratio · train steps).
     /// </summary>

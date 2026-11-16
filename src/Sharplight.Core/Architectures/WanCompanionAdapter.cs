@@ -6,7 +6,8 @@ namespace Sharplight.Architectures;
 
 /// <summary>
 /// Loads a transformer-only Wan checkpoint (GGUF or original-name safetensors) with its companions: the text encoder and its
-/// tokenizer (<see cref="AuxiliaryRoles.TextEncoder"/>) and the VAE (<see cref="AuxiliaryRoles.Vae"/>), each taken from a complete
+/// tokenizer (<see cref="AuxiliaryRoles.TextEncoder"/>), the VAE (<see cref="AuxiliaryRoles.Vae"/>) and for Wan 2.1 I2V / FLF2V the
+/// CLIP image encoder (<see cref="AuxiliaryRoles.ImageEncoder"/>; a folder with only the configurations and the image encoder serves), each taken from a complete
 /// <c>wan</c> source of the same family (typically the model's diffusers folder; one folder may serve both roles). The parts are merged
 /// into the canonical source, which <see cref="WanAdapter"/> builds, so the model is rebuilt for other sizes and saved as one
 /// <c>.slm</c> like a complete checkpoint.
@@ -19,7 +20,7 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
     private static readonly HashSet<string> s_familyKeys =
     [
         Prefix + "transformer.head_count", Prefix + "transformer.token_timesteps", Prefix + "first_frame_conditioning", Prefix + "frames_per_second",
-        Prefix + "negative_prompt",
+        Prefix + "negative_prompt", Prefix + "last_frame_conditioning",
     ];
 
     /// <inheritdoc/>
@@ -30,7 +31,7 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
     {
         ArgumentNullException.ThrowIfNull(sources);
         return sources.Primary.Architecture == WanAdapter.Architecture && sources.Auxiliary.Count > 0
-            && sources.Auxiliary.All(pair => pair.Key is AuxiliaryRoles.TextEncoder or AuxiliaryRoles.Vae or AuxiliaryRoles.SecondTransformer
+            && sources.Auxiliary.All(pair => pair.Key is AuxiliaryRoles.TextEncoder or AuxiliaryRoles.Vae or AuxiliaryRoles.SecondTransformer or AuxiliaryRoles.ImageEncoder
                 && pair.Value.Architecture == WanAdapter.Architecture);
     }
 
@@ -54,6 +55,10 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
             if (role == AuxiliaryRoles.TextEncoder)
             {
                 Take(source, weights, metadata, "text_encoder.", [Prefix + "text_encoder.", TokenizerKeys]);
+            }
+            else if (role == AuxiliaryRoles.ImageEncoder)
+            {
+                Take(source, weights, metadata, "image_encoder.", [Prefix + "image_encoder."]);
             }
             else
             {

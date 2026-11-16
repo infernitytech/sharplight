@@ -29,4 +29,7 @@ public static class AuxiliaryRoles
 
     /// <summary>A second denoiser of a two-expert model (Wan 2.2 A14B: the low-noise transformer beside the high-noise one).</summary>
     public const string SecondTransformer = "transformer-2";
+
+    /// <summary>The image encoder whose states condition a video model (Wan 2.1 I2V / FLF2V: CLIP ViT-H/14 with its image processor).</summary>
+    public const string ImageEncoder = "image-encoder";
 }
