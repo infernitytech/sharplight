@@ -278,6 +278,49 @@ public sealed class DiscoverFiltersTests
     }
 
     [Fact]
+    public async Task SupportedDiffusersRepository_ShowsItsPartsAndVariants_AndCanBeDownloaded()
+    {
+        using var services = new TestServices();
+        var summary = new HubModelSummary("o/tiny-sd", 10, 1, false, "diffusers", "text-to-image", null, [ModelFormat.Diffusers], []);
+        services.Hub.Results.Add(summary);
+        var components = new[] { new HubComponent("unet", 3_400_000_000, 1), new HubComponent("vae", 330_000_000, 1) };
+        services.Hub.Details = repository => new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], null), ModelFormat.Diffusers,
+            [new VariantInfo("fp16", 2_000_000_000, 12, false, true), new VariantInfo("full", 4_000_000_000, 12, false, false)], ModelFormat.Diffusers, components);
+        var search = CreateSearch(services);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ImageGeneration);
+        search.Query = "tiny";
+        await search.SearchCommand.ExecuteAsync(null);
+        await search.FitEstimate;
+
+        Assert.Equal("", search.NoDownloadReason);
+        Assert.True(search.IsMultiComponent);
+        Assert.True(search.IsPulledAsOne);
+        Assert.Equal(["unet", "vae"], search.Components.Select(component => component.Name));
+        Assert.Equal(["fp16", "full"], search.Variants.Select(variant => variant.Tag));
+        Assert.Equal("fp16", search.SelectedVariant!.Tag);
+        Assert.True(search.DownloadCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task UnsupportedDiffusersPipeline_ShowsTheImportersReason_AndCannotBeDownloaded()
+    {
+        using var services = new TestServices();
+        var summary = new HubModelSummary("o/sd3", 10, 1, false, "diffusers", "text-to-image", null, [ModelFormat.Diffusers], []);
+        services.Hub.Results.Add(summary);
+        services.Hub.Details = repository => new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], null), null, [], ModelFormat.Diffusers,
+            [new HubComponent("transformer", 4_000_000_000, 1)], "Not supported yet: Stable Diffusion 3.");
+        var search = CreateSearch(services);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ImageGeneration);
+        search.Query = "sd3";
+        await search.SearchCommand.ExecuteAsync(null);
+        await search.FitEstimate;
+
+        Assert.Equal("Not supported yet: Stable Diffusion 3.", search.NoDownloadReason);
+        Assert.False(search.IsPulledAsOne);
+        Assert.False(search.DownloadCommand.CanExecute(null));
+    }
+
+    [Fact]
     public async Task GatedRepository_SaysWhatToDo_DependingOnTheToken()
     {
         using var services = new TestServices();

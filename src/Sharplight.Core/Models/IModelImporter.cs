@@ -37,4 +37,12 @@ public interface IModelImporter
     /// </summary>
     /// <param name="path">The primary model file or directory.</param>
     public IReadOnlyDictionary<string, string> FindCompanions(string path) => new Dictionary<string, string>();
+
+    /// <summary>
+    /// Whether this importer can load a multi-component pipeline repository (a Diffusers <c>model_index.json</c>), judged from its pipeline
+    /// class and component names before anything is downloaded. Null (the default) when the importer does not know the pipeline kind.
+    /// </summary>
+    /// <param name="pipelineClass">The pipeline class the repository declares.</param>
+    /// <param name="components">The component folder names it uses.</param>
+    public PipelineSupport? ClassifyPipeline(string pipelineClass, IReadOnlyCollection<string> components) => null;
 }
