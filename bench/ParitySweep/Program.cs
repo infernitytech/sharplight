@@ -1,6 +1,6 @@
 // Parity harness of the top-20 sweep.
 //
-//   ParitySweep <model path> <spec.json> <out.json> [--cpu] [--gen N] [--no-gen] [--teacher reference.json] [--convert package.slm] [--devices N] [--cpu-offload] [--draft mtp.gguf] [--mtp N]
+//   ParitySweep <model path> <spec.json> <out.json> [--cpu] [--gen N] [--no-gen] [--teacher reference.json] [--convert package.slm] [--devices N] [--cpu-offload] [--draft mtp.gguf] [--mtp N] [--gpu-mem GiB]
 //
 // spec.json: { "texts": [..], "chats": [{ "name", "messages": [..], "tools": [..], "context": {..} }], "prompts": [..], "chat_prompts": [names] }
 // Output: tokenizer ids + decoded text per text, rendered chat text + ids per conversation, greedy ids per prompt.
@@ -26,6 +26,7 @@ string? teacher = null;
 string? convert = null;
 int deviceCount = 1;
 string? draft = null;
+long? memoryLimit = null;
 int mtpDrafts = 0;
 bool cpuOffload = args.Contains("--cpu-offload");
 int gen = 48;
@@ -34,6 +35,10 @@ for (int i = 3; i < args.Length - 1; i++)
     if (args[i] == "--gen")
     {
         gen = int.Parse(args[i + 1]);
+    }
+    else if (args[i] == "--gpu-mem")
+    {
+        memoryLimit = (long)(double.Parse(args[i + 1], System.Globalization.CultureInfo.InvariantCulture) * (1L << 30));
     }
     else if (args[i] == "--draft")
     {
@@ -61,7 +66,7 @@ using var runtime = new SampleRuntime();
 var provider = runtime.SelectProvider(cpu);
 // --devices N: the model is placed over the first N devices of the provider (equal weights); --cpu-offload adds the CPU for what does not fit.
 var slots = Enumerable.Range(0, deviceCount)
-    .Select(index => new DeviceSlot { Device = provider.OpenDevice(SampleRuntime.GetDevice(provider, index), new DeviceOptions()), Weight = 1 })
+    .Select(index => new DeviceSlot { Device = provider.OpenDevice(SampleRuntime.GetDevice(provider, index), new DeviceOptions()), Weight = 1, MemoryLimit = memoryLimit })
     .ToList();
 DeviceSlot? fallback = null;
 if (cpuOffload)

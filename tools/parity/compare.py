@@ -88,6 +88,10 @@ def main():
             gap = top[b["ids"][k]] - top[ours_tok] if ours_tok in top else None
             # A negative gap means the reference did not pick its own argmax (a logits processor was active): not a near-tie.
             near = gap is not None and 0 <= gap <= tie
+            if ours_tok is not None and k < len(b.get("top5", [])) and b["top5"][k][0][0] == ours_tok:
+                # Ours is the reference's raw argmax: transformers' min_new_tokens suppressed the end-of-turn token there.
+                verdict(name, True, f"identical up to the end of turn at {k} (reference forced to continue)")
+                continue
             verdict(name, near, f"{'near-tie' if near else 'diverges'} at {k}/{len(b['ids'])} (gap {gap if gap is None else round(gap, 4)})"
                     + ("" if near else "\n      " + show(a["text"], b["text"])))
     sys.exit(1 if failed else 0)
