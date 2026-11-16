@@ -1267,8 +1267,8 @@ planner placed every trunk layer on the CPU (1 GiB on the GPU, 61 GiB on the CPU
 
 #### 17.5.1 After the placement fix: trunk on the GPU
 
-Same model, prompt and CLI run; the files on local disk. Caution: the CLI runs plain prompts through the single-session `Generator`
-and speculative ones through the engine (see 17.6), so the speedups below are not like for like; the `SpecBench` rerun follows. The 26.8 GiB n-gram table (IQ4_NL) is its own placement group and goes to
+Same model, prompt and CLI run; the files on local disk. Caution: single cold CLI runs, one per k (see 17.6), so the speedups
+below are rough; the `SpecBench` rerun follows. The 26.8 GiB n-gram table (IQ4_NL) is its own placement group and goes to
 the CPU; 40 of the 48 layers fill the 32 GB GPU (27.7 GiB), 8 layers run on the CPU.
 
 | k | one RTX PRO 4500 + CPU tok/s | acceptance | output vs k = 0 |
@@ -1300,8 +1300,10 @@ greedy, median of 5 or 3 runs; `--dump` checks the text): output is byte-identic
 | 3 | 63.7 (59.8-66.1) | 1.14x | 0.30 (179 / 601) |
 
 MiMo's MTP layer is trained for the next-but-one token only; chained further it guesses much worse, so k = 1 is the setting.
-A first CLI measurement reported 1.98x: the CLI decodes plain prompts through the single-session `Generator` (37.6 tok/s here)
-and speculative ones through the engine, so the two did not compare. Speedups in this section come from `SpecBench` only.
+A first CLI measurement reported 1.98x: its plain run was a single cold run (37.6 tok/s; the first run after the download, while
+the GPU was shared) against later speculative runs. Rerun with a warm shader cache the CLI's plain decode gives 56.9 tok/s, the
+same as the engine (`SpecBench` 56.0; Llama-3.2-1B Q8_0: CLI 494, engine 451 tok/s), so the CLI's `Generator` path is not slower.
+Speedups in this section come from `SpecBench` only (warm-up, repeated runs, plain and speculative through the same engine).
 
 ## 18. Chunked gated delta rule and token-parallel conv1d for prefill (2026-11-14)
 
