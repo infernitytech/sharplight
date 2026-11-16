@@ -62,6 +62,7 @@ def build_models():
     generator = torch.Generator().manual_seed(6)
     vae = AutoencoderKLLTXVideo(
         in_channels=3, out_channels=3, latent_channels=8, block_out_channels=(8, 16, 32, 32), layers_per_block=(1, 1, 1, 1, 1),
+        decoder_block_out_channels=(8, 16, 32, 32), decoder_layers_per_block=(1, 1, 1, 1, 1), decoder_spatio_temporal_scaling=(True, True, True, False),
         spatio_temporal_scaling=(True, True, True, False), patch_size=4, patch_size_t=1, decoder_causal=False, encoder_causal=True,
         resnet_norm_eps=1e-6, scaling_factor=1.0)
     with torch.no_grad():
