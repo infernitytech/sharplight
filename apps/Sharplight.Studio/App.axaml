@@ -9,6 +9,7 @@
              xmlns:settings="using:Sharplight.Studio.ViewModels.Settings"
              xmlns:speech="using:Sharplight.Studio.ViewModels.Speech"
              xmlns:image="using:Sharplight.Studio.ViewModels.Image"
+             xmlns:video="using:Sharplight.Studio.ViewModels.Video"
              xmlns:vision="using:Sharplight.Studio.ViewModels.Vision"
              x:Class="Sharplight.Studio.App"
              RequestedThemeVariant="Dark">
@@ -32,6 +33,9 @@
     </DataTemplate>
     <DataTemplate DataType="image:ImagePageViewModel">
       <views:ImagePage />
+    </DataTemplate>
+    <DataTemplate DataType="video:VideoPageViewModel">
+      <views:VideoPage />
     </DataTemplate>
     <DataTemplate DataType="vision:VisionPageViewModel">
       <views:VisionPage />

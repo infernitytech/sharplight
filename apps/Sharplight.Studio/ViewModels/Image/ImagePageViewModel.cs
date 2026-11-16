@@ -264,7 +264,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     [RelayCommand(CanExecute = nameof(CanRun))]
     private void Run()
     {
-        if (!TryReadSeed(out long? seed))
+        if (!SeedParser.TryRead(Panel.GetText("seed"), out long? seed))
         {
             Notice = "The seed must be a whole number (leave it empty for a random one).";
             return;
@@ -283,24 +283,6 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         Queue.Enqueue(title, model.Id, context => GenerateAsync(model, plan, title, context));
         OnPropertyChanged(nameof(IsGenerating));
         RunCommand.NotifyCanExecuteChanged();
-    }
-
-    private bool TryReadSeed(out long? seed)
-    {
-        string text = Panel.GetText("seed").Trim();
-        seed = null;
-        if (text.Length == 0)
-        {
-            return true;
-        }
-
-        if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed) && parsed >= 0)
-        {
-            seed = parsed;
-            return true;
-        }
-
-        return false;
     }
 
     private async Task GenerateAsync(ILoadedModel model, GenerationPlan plan, string title, RunContext context)

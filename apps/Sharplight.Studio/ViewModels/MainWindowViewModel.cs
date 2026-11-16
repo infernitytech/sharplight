@@ -13,6 +13,7 @@ using Sharplight.Studio.ViewModels.Speech;
 using Sharplight.Studio.ViewModels.Stats;
 using Sharplight.Studio.ViewModels.Tasks;
 using Sharplight.Studio.ViewModels.Updates;
+using Sharplight.Studio.ViewModels.Video;
 using Sharplight.Studio.ViewModels.Vision;
 
 namespace Sharplight.Studio.ViewModels;
@@ -29,6 +30,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Transcribe = new TranscribePageViewModel(services, this);
         Speak = new SpeakPageViewModel(services, this);
         Image = new ImagePageViewModel(services, this);
+        Video = new VideoPageViewModel(services, this);
         Vision = new VisionPageViewModel(services, this);
         Tasks = new TasksPageViewModel(services, this);
         Models = new ModelsPageViewModel(services, this);
@@ -36,7 +38,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Stats = new StatsPageViewModel(services);
         Settings = new SettingsPageViewModel(services);
         StoreMigration = new StoreMigrationViewModel(services, () => _ = Models.Library.RefreshAsync());
-        Pages = [Chat, Transcribe, Speak, Image, Vision, Tasks, Models, Server, Stats];
+        Pages = [Chat, Transcribe, Speak, Image, Video, Vision, Tasks, Models, Server, Stats];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         services.Server.StateChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         UpdateStatus();
@@ -53,6 +55,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     /// <summary>Image page: image generation.</summary>
     public ImagePageViewModel Image { get; }
+
+    /// <summary>Video page: video generation.</summary>
+    public VideoPageViewModel Video { get; }
 
     /// <summary>Vision page: image classification, embedding, object detection and depth estimation.</summary>
     public VisionPageViewModel Vision { get; }
@@ -144,6 +149,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
             Sharplight.Models.ModelKinds.SpeechRecognition => Transcribe,
             Sharplight.Models.ModelKinds.SpeechSynthesis => Speak,
             Sharplight.Models.ModelKinds.ImageGeneration => Image,
+            Sharplight.Models.ModelKinds.VideoGeneration => Video,
             Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding
                 or Sharplight.Models.ModelKinds.ObjectDetection or Sharplight.Models.ModelKinds.DepthEstimation => Vision,
             _ => null,

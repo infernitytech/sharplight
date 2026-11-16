@@ -58,12 +58,12 @@ public sealed class ModelKindTests
     public async Task Library_ShowsKinds_AndFiltersByThem()
     {
         using var services = new TestServices();
-        services.Library.Entries.AddRange([Entry("qwen", ModelKinds.TextGeneration), Entry("llama", ModelKinds.TextGeneration), Entry("sd", "video-generation"),
+        services.Library.Entries.AddRange([Entry("qwen", ModelKinds.TextGeneration), Entry("llama", ModelKinds.TextGeneration), Entry("sd", "ocr"),
             Entry("whisper", ModelKinds.SpeechRecognition, inferred: true)]);
         var library = CreateLibrary(services);
         await library.RefreshAsync();
 
-        Assert.Equal(["All kinds (4)", "Text generation (2)", "Speech to text (1)", "Video generation (1)"], library.KindFilters.Select(filter => filter.Title));
+        Assert.Equal(["All kinds (4)", "Text generation (2)", "Speech to text (1)", "OCR (1)"], library.KindFilters.Select(filter => filter.Title));
         Assert.True(library.HasKindFilter);
         Assert.Equal(4, library.VisibleEntries.Count);
         Assert.Equal("Text generation", library.Entries[0].KindTitle);
@@ -72,7 +72,7 @@ public sealed class ModelKindTests
         Assert.Contains("cannot run models of this kind yet", library.Entries[2].KindToolTip, StringComparison.Ordinal);
         Assert.Contains("guessed", library.Entries[3].KindToolTip, StringComparison.Ordinal);
 
-        library.SelectedKindFilter = library.KindFilters.Single(filter => filter.Kind == "video-generation");
+        library.SelectedKindFilter = library.KindFilters.Single(filter => filter.Kind == "ocr");
         Assert.Equal(["sd"], library.VisibleEntries.Select(entry => entry.Id));
         Assert.False(library.IsFilteredEmpty);
 
@@ -86,10 +86,10 @@ public sealed class ModelKindTests
     public async Task Library_FilterFollowsDeletes_AndFallsBackToAllKinds()
     {
         using var services = new TestServices();
-        services.Library.Entries.AddRange([Entry("qwen", ModelKinds.TextGeneration), Entry("sd", "video-generation")]);
+        services.Library.Entries.AddRange([Entry("qwen", ModelKinds.TextGeneration), Entry("sd", "ocr")]);
         var library = CreateLibrary(services);
         await library.RefreshAsync();
-        library.SelectKind("video-generation");
+        library.SelectKind("ocr");
 
         var sd = library.Entries.Single(entry => entry.Id == "sd");
         await library.DeleteCommand.ExecuteAsync(sd);
@@ -105,14 +105,14 @@ public sealed class ModelKindTests
     public async Task Library_DoesNotLoadAKindTheEngineCannotRun()
     {
         using var services = new TestServices();
-        services.Library.Entries.Add(Entry("sd", "video-generation"));
+        services.Library.Entries.Add(Entry("sd", "ocr"));
         var library = CreateLibrary(services);
         await library.RefreshAsync();
 
         library.LoadCommand.Execute(library.Entries[0]);
 
         Assert.Null(library.LoadPanel);
-        Assert.Contains("video generation model", library.Status, StringComparison.Ordinal);
+        Assert.Contains("ocr model", library.Status, StringComparison.Ordinal);
         Assert.Contains("cannot run", library.Status, StringComparison.Ordinal);
     }
 
@@ -147,14 +147,14 @@ public sealed class ModelKindTests
     public async Task TasksPage_CountsModelsPerKind_AndRoutesTheCards()
     {
         using var services = new TestServices();
-        services.Library.Entries.AddRange([Entry("qwen", ModelKinds.TextGeneration), Entry("sd", "video-generation"), Entry("sd2", "video-generation")]);
+        services.Library.Entries.AddRange([Entry("qwen", ModelKinds.TextGeneration), Entry("sd", "ocr"), Entry("sd2", "ocr")]);
         services.Runtime.Add(new FakeModel("qwen"));
         var navigator = new FakeNavigator();
         var page = new TasksPageViewModel(services.Services, navigator);
         await page.ActivateAsync();
 
         var text = page.Kinds.Single(card => card.Info.Id == ModelKinds.TextGeneration);
-        var image = page.Kinds.Single(card => card.Info.Id == "video-generation");
+        var image = page.Kinds.Single(card => card.Info.Id == "ocr");
         Assert.Equal(1, text.LibraryCount);
         Assert.Equal(1, text.ResidentCount);
         Assert.Equal("1 in library, 1 resident", text.Summary);
@@ -168,7 +168,7 @@ public sealed class ModelKindTests
         image.OpenCommand.Execute(null);
         image.BrowseCommand.Execute(null);
         image.ShowLibraryCommand.Execute(null);
-        Assert.Equal(["chat", "library:video-generation", "discover:VideoGeneration", "library:video-generation"], navigator.Visited);
+        Assert.Equal(["chat", "library:ocr", "discover:Ocr", "library:ocr"], navigator.Visited);
     }
 
     [Fact]
