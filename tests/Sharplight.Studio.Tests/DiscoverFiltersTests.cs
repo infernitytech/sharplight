@@ -210,30 +210,17 @@ public sealed class DiscoverFiltersTests
 
         Assert.Equal([(ModelTask?)null, ModelTask.TimeSeries], services.Hub.HighlightTasks);
         Assert.True(search.IsShowingHighlights);
-<<<<<<< HEAD
-        Assert.Equal("OCR models", search.HighlightsHeading);
-        Assert.Equal(["Trending", "Most downloaded"], search.Highlights.Select(section => section.Title));
-        var badge = search.Highlights[0].Items[0].Compatibility;
-        Assert.Equal("Not yet supported: OCR", badge.Text);
-        Assert.True(badge.IsBad);
-        Assert.Contains("OCR", search.Highlights[0].Items[0].KindTitle, StringComparison.Ordinal);
-=======
         Assert.Equal("Time series models", search.HighlightsHeading);
         Assert.Equal(["Trending", "Most downloaded"], search.Highlights.Select(section => section.Title));
         var badge = search.Highlights[0].Items[0].Compatibility;
         Assert.Equal("Not yet supported: Time series", badge.Text);
         Assert.True(badge.IsBad);
         Assert.Contains("Time series", search.Highlights[0].Items[0].KindTitle, StringComparison.Ordinal);
->>>>>>> develop
 
         // "Supported only" hides them, and says why the page is empty; turning it off brings them back.
         search.ShowOnlySupported = true;
         Assert.Empty(search.Highlights);
-<<<<<<< HEAD
-        Assert.Contains("cannot run ocr models yet", search.HighlightsStatus, StringComparison.Ordinal);
-=======
         Assert.Contains("cannot run time series models yet", search.HighlightsStatus, StringComparison.Ordinal);
->>>>>>> develop
         search.ShowOnlySupported = false;
         Assert.Equal(2, search.Highlights.Count);
         Assert.Equal("", search.HighlightsStatus);
@@ -257,13 +244,8 @@ public sealed class DiscoverFiltersTests
         // The kind is named, nothing is hidden silently, and the supported result comes first.
         Assert.Equal(["a/qwen-chat", "black-forest-labs/FLUX.1-schnell"], search.Results.Select(result => result.Id));
         var flux = search.Results[1];
-<<<<<<< HEAD
-        Assert.Equal("Not yet supported: OCR", flux.Compatibility.Text);
-        Assert.Equal("OCR", flux.KindTitle);
-=======
         Assert.Equal("Not yet supported: Time series", flux.Compatibility.Text);
         Assert.Equal("Time series", flux.KindTitle);
->>>>>>> develop
         Assert.Equal("DIFFUSERS", flux.Formats);
 
         search.ShowOnlySupported = true;
@@ -288,13 +270,6 @@ public sealed class DiscoverFiltersTests
         Assert.True(search.IsMultiComponent);
         Assert.Equal(["unet", "text_encoder", "vae"], search.Components.Select(component => component.Name));
         Assert.Contains("Diffusers · 3 parts", search.DetailFormat, StringComparison.Ordinal);
-<<<<<<< HEAD
-        Assert.Contains("Not yet supported: ocr", search.NoDownloadReason, StringComparison.Ordinal);
-        Assert.Empty(search.Variants);
-        Assert.False(search.DownloadCommand.CanExecute(null));
-        // The kind verdict stays; it is not replaced by "no model files".
-        Assert.Equal("Not yet supported: OCR", search.SelectedResult!.Compatibility.Text);
-=======
         Assert.Contains("Not yet supported: time series", search.NoDownloadReason, StringComparison.Ordinal);
         Assert.Empty(search.Variants);
         Assert.False(search.DownloadCommand.CanExecute(null));
@@ -343,7 +318,6 @@ public sealed class DiscoverFiltersTests
         Assert.Equal("Not supported yet: Stable Diffusion 3.", search.NoDownloadReason);
         Assert.False(search.IsPulledAsOne);
         Assert.False(search.DownloadCommand.CanExecute(null));
->>>>>>> develop
     }
 
     [Fact]
@@ -372,22 +346,14 @@ public sealed class DiscoverFiltersTests
     {
         var image = CompatibilityChecker.FromSummary(new HubModelSummary("a/sd", 1, 1, false, "diffusers", "time-series-forecasting", null, [ModelFormat.Diffusers], []));
         Assert.Equal(CompatibilityState.UnsupportedKind, image.State);
-<<<<<<< HEAD
-        Assert.Equal("Not yet supported: OCR", image.Text);
-=======
         Assert.Equal("Not yet supported: Time series", image.Text);
->>>>>>> develop
         Assert.True(image.IsUnsupported);
 
         // No pipeline tag: judged by the files, as before. Language and embedding tasks run, so they are checked by architecture.
         Assert.Equal(CompatibilityState.Supported, CompatibilityChecker.FromSummary(Model("a/untagged", pipeline: null)).State);
         Assert.Equal(CompatibilityState.Supported, CompatibilityChecker.FromSummary(Model("a/vlm", pipeline: "image-text-to-text")).State);
         Assert.Equal(CompatibilityState.Supported, CompatibilityChecker.FromSummary(Model("a/embedder", pipeline: "feature-extraction")).State);
-<<<<<<< HEAD
-        Assert.Equal(CompatibilityState.UnsupportedKind, CompatibilityChecker.FromSummary(Model("a/forecaster", pipeline: "time-series-forecasting")).State);
-=======
         Assert.Equal(CompatibilityState.UnsupportedKind, CompatibilityChecker.FromSummary(Model("a/3d", pipeline: "text-to-3d")).State);
->>>>>>> develop
     }
 
     [Fact]
@@ -400,8 +366,8 @@ public sealed class DiscoverFiltersTests
         }
 
         Assert.True(ModelKindCatalog.For(ModelKinds.TextGeneration).Runnable);
-        Assert.True(ModelKindCatalog.For(ModelKinds.VideoGeneration).Runnable);
         Assert.False(ModelKindCatalog.For("time-series").Runnable);
+        Assert.True(ModelKindCatalog.For(ModelKinds.VideoGeneration).Runnable);
         // A kind nobody listed gets a readable generic entry.
         var unknown = ModelKindCatalog.For("point-cloud-segmentation");
         Assert.Equal("point cloud segmentation", unknown.Title);
