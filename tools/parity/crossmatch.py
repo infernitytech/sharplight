@@ -24,8 +24,10 @@ def main():
     for g in ours[0]["greedy"]:
         prompt = g["prompt"]
         a = [x["text"] for o in ours for x in o["greedy"] if x["prompt"] == prompt and "text" in x]
-        b = [x["text"] for r in refs for x in r["greedy"] if x["prompt"] == prompt and "text" in x]
+        b = [x["text"] for r in refs for x in r["greedy"] if x["prompt"] == prompt and "text" in x and "error" not in x]
         if not b:
+            failed = True
+            print(f"FAIL cross[{prompt[:30]}] no llama.cpp output")
             continue
         ok = any(x.startswith(y) or y.startswith(x) for x in a for y in b)
         ours_len = max((common(x, y) for x in a for y in b), default=0)
