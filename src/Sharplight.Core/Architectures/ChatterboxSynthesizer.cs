@@ -53,6 +53,8 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
     private CompiledModel? _flowEncoder;
     private CompiledModel? _estimator;
     private CompiledModel? _vocoder;
+    private ChatterboxVoiceCloning? _cloning;
+    private (AudioBuffer Recording, ChatterboxVoice Voice)? _lastClone;
     private bool _disposed;
 
     /// <summary>Creates the synthesizer; nothing is compiled until the first request.</summary>
@@ -126,7 +128,7 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
         ArgumentNullException.ThrowIfNull(text);
         ObjectDisposedException.ThrowIf(_disposed, this);
         var audio = await BackgroundCompute.RunAsync(_gate, () => Synthesize(text, options, cancellationToken), cancellationToken).ConfigureAwait(false);
-        return new SpeechSynthesisResult(audio, options?.Voice ?? DefaultVoice);
+        return new SpeechSynthesisResult(audio, options?.ReferenceAudio is not null ? "reference" : options?.Voice ?? DefaultVoice);
     }
 
     /// <inheritdoc/>
@@ -145,16 +147,44 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
         return [_startText, .. _tokenizer.Encode(normalized, addSpecial: false, parseSpecial: true), _stopText];
     }
 
-    /// <summary>The conditioning rows of a voice [rows, hidden] (compiles the conditioning graph on first use).</summary>
-    /// <param name="voice">The voice name.</param>
-    /// <param name="exaggeration">The emotion exaggeration (0.5 by default).</param>
-    public float[] ConditionRows(string voice, float exaggeration)
+    /// <summary>Whether the model can speak with the voice of a recording (<see cref="SpeechSynthesisOptions.ReferenceAudio"/>).</summary>
+    public bool SupportsCloning => ChatterboxVoiceCloning.Supports(_model);
+
+    /// <summary>A built-in voice.</summary>
+    /// <param name="name">The voice name.</param>
+    public ChatterboxVoice LoadVoice(string name)
+        => new(Floats(name, "speaker.f32"), Ints(name, "prompt_tokens.i32"), Ints(name, "flow_tokens.i32"), Floats(name, "flow_mel.f32"), Floats(name, "flow_speaker.f32"));
+
+    /// <summary>The voice of a recording (compiles the cloning encoders on first use).</summary>
+    /// <param name="recording">The recording.</param>
+    /// <param name="cancellationToken">Stops between stages.</param>
+    /// <exception cref="NotSupportedException">The model was imported without the voice encoder.</exception>
+    public ChatterboxVoice CloneVoice(AudioBuffer recording, CancellationToken cancellationToken = default)
     {
+        if (!SupportsCloning)
+        {
+            throw new NotSupportedException("This Chatterbox model has no voice encoder (ve.safetensors), so it cannot clone a voice.");
+        }
+
+        var cloning = _cloning ??= new ChatterboxVoiceCloning(_model);
+        return cloning.Clone(recording, cancellationToken);
+    }
+
+    /// <summary>The conditioning rows of a voice [rows, hidden] (compiles the conditioning graph on first use).</summary>
+    /// <param name="voice">The voice.</param>
+    /// <param name="exaggeration">The emotion exaggeration (0.5 by default).</param>
+    public float[] ConditionRows(ChatterboxVoice voice, float exaggeration)
+    {
+        ArgumentNullException.ThrowIfNull(voice);
         var compiled = _condition ??= _model.CompileComponent(ChatterboxAdapter.ConditionRole);
-        compiled.SetInput<float>(Input(compiled, ChatterboxConditionGraph.SpeakerInput), Floats(voice, "speaker.f32"));
-        compiled.SetInput<int>(Input(compiled, ChatterboxConditionGraph.PromptInput), Ints(voice, "prompt_tokens.i32"));
+        int prompt = voice.PromptTokens.Length;
+        compiled.SetInput<float>(Input(compiled, ChatterboxConditionGraph.SpeakerInput), voice.Speaker);
+        compiled.SetInput<int>(Input(compiled, ChatterboxConditionGraph.PromptInput), voice.PromptTokens);
+        compiled.SetInput<int>(Input(compiled, ChatterboxConditionGraph.PromptPositionsInput), [.. Enumerable.Range(0, prompt)]);
         compiled.SetInput<float>(Input(compiled, ChatterboxConditionGraph.EmotionInput), [exaggeration]);
-        compiled.Run(new RunParameters());
+        var conditionRun = new RunParameters();
+        conditionRun.Symbols[ChatterboxConditionGraph.PromptSymbol] = prompt;
+        compiled.Run(conditionRun);
         var output = compiled.Graph.Outputs[ChatterboxConditionGraph.RowsOutput];
         var rows = new float[output.Shape[0].Fixed * output.Shape[1].Fixed];
         compiled.GetOutput<float>(ChatterboxConditionGraph.RowsOutput, rows);
@@ -247,10 +277,11 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
 
     /// <summary>The flow encoder's <c>mu</c> [2 · tokens, 80] for the voice's flow prompt followed by the speech tokens, and the speaker condition [80].</summary>
     /// <param name="speech">The speech tokens (tokens outside the codebook are dropped).</param>
-    /// <param name="voice">The voice name.</param>
-    public (float[] Mu, float[] Speaker) EncodeFlow(int[] speech, string voice)
+    /// <param name="voice">The voice.</param>
+    public (float[] Mu, float[] Speaker) EncodeFlow(int[] speech, ChatterboxVoice voice)
     {
-        int[] tokens = [.. Ints(voice, "flow_tokens.i32"), .. speech.Where(t => t < _speechVocabulary)];
+        ArgumentNullException.ThrowIfNull(voice);
+        int[] tokens = [.. voice.FlowTokens, .. speech.Where(t => t < _speechVocabulary)];
         if (tokens.Length > ChatterboxAdapter.MaxFlowTokens)
         {
             throw new ArgumentException($"At most {ChatterboxAdapter.MaxFlowTokens} flow tokens are decoded at once, got {tokens.Length}.", nameof(speech));
@@ -260,7 +291,7 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
         encoder.SetInput<int>(Input(encoder, ChatterboxFlowEncoderGraph.TokensInput), tokens);
         encoder.SetInput<int>(Input(encoder, ChatterboxFlowEncoderGraph.DistancesInput), Distances(tokens.Length));
         encoder.SetInput<int>(Input(encoder, ChatterboxFlowEncoderGraph.UpDistancesInput), Distances(2 * tokens.Length));
-        encoder.SetInput<float>(Input(encoder, ChatterboxFlowEncoderGraph.SpeakerInput), Floats(voice, "flow_speaker.f32"));
+        encoder.SetInput<float>(Input(encoder, ChatterboxFlowEncoderGraph.SpeakerInput), voice.FlowSpeaker);
         var run = new RunParameters();
         run.Symbols[WellKnown.TokenSymbol] = tokens.Length;
         encoder.Run(run);
@@ -270,10 +301,6 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
         encoder.GetOutput<float>(ChatterboxFlowEncoderGraph.SpeakerOutput, speaker);
         return (mu, speaker);
     }
-
-    /// <summary>The voice's prompt mel [frames, 80] (the flow's condition before the generated frames).</summary>
-    /// <param name="voice">The voice name.</param>
-    public float[] PromptMel(string voice) => Floats(voice, "flow_mel.f32");
 
     /// <summary>One evaluation of the flow-matching field [frames, 80] (all inputs time-major).</summary>
     /// <param name="x">The current sample.</param>
@@ -291,12 +318,12 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
 
     /// <summary>The mel spectrogram [frames, 80] of speech tokens, starting from the given noise (or the noise source's) [prompt + frames, 80].</summary>
     /// <param name="speech">The speech tokens (tokens outside the codebook are dropped).</param>
-    /// <param name="voice">The voice name.</param>
+    /// <param name="voice">The voice.</param>
     /// <param name="noise">The starting noise, time-major, or <see langword="null"/> for the noise source.</param>
-    public float[] Mel(int[] speech, string voice, float[]? noise = null)
+    public float[] Mel(int[] speech, ChatterboxVoice voice, float[]? noise = null)
     {
         var (mu, speaker) = EncodeFlow(speech, voice);
-        var promptMel = Floats(voice, "flow_mel.f32");
+        var promptMel = voice.FlowMel;
         int frames = mu.Length / 80;
         int promptFrames = promptMel.Length / 80;
         var cond = new float[frames * 80];
@@ -386,6 +413,7 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
         _flowEncoder?.Dispose();
         _estimator?.Dispose();
         _vocoder?.Dispose();
+        _cloning?.Dispose();
         _gate.Dispose();
     }
 
@@ -422,11 +450,30 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
         return text;
     }
 
+    // The recording's voice when the request has one (the last recording's voice is kept for the next request with the same recording), else the
+    // named built-in voice.
+    private ChatterboxVoice VoiceFor(SpeechSynthesisOptions? options, CancellationToken cancellationToken)
+    {
+        if (options?.ReferenceAudio is not { } recording)
+        {
+            return LoadVoice(options?.Voice ?? DefaultVoice);
+        }
+
+        if (_lastClone is { } last && ReferenceEquals(last.Recording, recording))
+        {
+            return last.Voice;
+        }
+
+        var voice = CloneVoice(recording, cancellationToken);
+        _lastClone = (recording, voice);
+        return voice;
+    }
+
     private string DefaultVoice => Voices.Contains("default") ? "default" : Voices.Count > 0 ? Voices[0] : throw new InvalidOperationException("The model has no voices.");
 
     private AudioBuffer Synthesize(string text, SpeechSynthesisOptions? options, CancellationToken cancellationToken)
     {
-        string voice = options?.Voice ?? DefaultVoice;
+        var voice = VoiceFor(options, cancellationToken);
         var sampling = options.SamplingOr(new SamplingOptions { Temperature = 0.8f, TopK = 0, TopP = 1f, MinP = 0.05f, RepetitionPenalty = 1.2f });
         var condition = ConditionRows(voice, DefaultExaggeration);
         var speech = SpeechTokens(TextTokens(text), condition, sampling, cancellationToken);

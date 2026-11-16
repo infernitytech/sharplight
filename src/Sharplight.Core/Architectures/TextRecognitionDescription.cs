@@ -32,12 +32,30 @@ internal static class TextRecognitionDescription
         };
         var metadata = src.Metadata.Where(e => !e.Key.StartsWith("tokenizer.", StringComparison.Ordinal)).ToDictionary(StringComparer.Ordinal);
         var processor = System.Text.Json.Nodes.JsonNode.Parse(src.Get<string>(CanonicalKeys.ImageProcessor))!;
+        bool promptEncoder = src.Arch("encoder.input", "image") == "image_text";
+        var config = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        if (promptEncoder)
+        {
+            config["tasks"] = JsonSerializer.SerializeToElement(System.Text.Json.Nodes.JsonNode.Parse(src.Arch<string>("prompt.tasks")));
+            config["promptBos"] = JsonSerializer.SerializeToElement(src.Arch("prompt.bos_token", 0));
+            config["promptEos"] = JsonSerializer.SerializeToElement(src.Arch("prompt.eos_token", 2));
+            config["quadTasks"] = JsonSerializer.SerializeToElement(src.Arch("prompt.quad_tasks", "").Split(',', StringSplitOptions.RemoveEmptyEntries));
+            config["locationBins"] = JsonSerializer.SerializeToElement(src.Arch("prompt.location_bins", 1000));
+        }
+
         var description = new ModelDescription
         {
             Kind = ModelKinds.Ocr,
+            Config = config,
             Components =
             [
-                new ModelComponent { Role = ModelComponentRoles.Encoder, Graphs = [WellKnown.EncodeGraph], WeightPrefixes = ["vision."] },
+                new ModelComponent
+                {
+                    Role = ModelComponentRoles.Encoder,
+                    Graphs = [WellKnown.EncodeGraph],
+                    WeightPrefixes = promptEncoder ? ["vision.", "encoder.", "token_embedding."] : ["vision."],
+                    SymbolBounds = promptEncoder ? new Dictionary<string, long>(StringComparer.Ordinal) { [WellKnown.TokenSymbol] = src.Arch("prompt.max_tokens", 128) } : new Dictionary<string, long>(StringComparer.Ordinal),
+                },
                 new ModelComponent
                 {
                     Role = ModelComponentRoles.Decoder,
@@ -50,7 +68,8 @@ internal static class TextRecognitionDescription
                         [WellKnown.EncoderSymbol] = sourceRows,
                         ["R"] = 1,
                     },
-                    Config = ComponentConfig.Of(("startToken", src.Arch("decoder_start_token", 0)), ("endToken", src.Arch("end_token", 2)), ("contextLength", decoderContext)),
+                    Config = ComponentConfig.Of(("startToken", src.Arch("decoder_start_token", 0)), ("endToken", src.Arch("end_token", 2)), ("contextLength", decoderContext),
+                        ("forcedFirstToken", src.Arch("forced_bos_token", -1)), ("noRepeatNgram", src.Arch("no_repeat_ngram_size", 0))),
                 },
                 new ModelComponent
                 {
