@@ -16,4 +16,10 @@ public sealed record VideoGenerationRequest
     /// text-to-video. Needs a model that supports it (<see cref="VideoGenerationDefaults.SupportsImage"/>).
     /// </summary>
     public ImageInput? Image { get; init; }
+
+    /// <summary>
+    /// The last frame for first-and-last-frame generation (resized to the output size), or <see langword="null"/>. Needs a model that
+    /// supports it (<see cref="VideoGenerationDefaults.SupportsLastImage"/>) and a start <see cref="Image"/>.
+    /// </summary>
+    public ImageInput? LastImage { get; init; }
 }
