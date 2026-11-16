@@ -103,7 +103,8 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
             if (encoders.FindForPath(settings.Output) is not { IsAvailable: true })
             {
                 string available = string.Join(", ", encoders.Available.SelectMany(e => e.FileExtensions));
-                throw new SampleException($"No available encoder writes '{Path.GetExtension(settings.Output)}' files (available: {available}).", ExitCodes.InvalidInput);
+                string reason = BundledFfmpeg.IsAvailable ? "" : $" {BundledFfmpeg.UnavailableReason}";
+                throw new SampleException($"No available encoder writes '{Path.GetExtension(settings.Output)}' files (available: {available}).{reason}", ExitCodes.InvalidInput);
             }
 
             await encoders.SaveAsync(result.ToClip(), settings.Output, cancellationToken: cancellationToken);

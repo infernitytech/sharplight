@@ -93,7 +93,27 @@ public sealed class VideoPageTests
         }
 
         Assert.Equal("", page.Notice);
-        Assert.Contains(page.ExportFormats, format => format is { Format: "gif", IsAvailable: true });
+        Assert.Contains(page.Export.Formats, format => format is { Format: "gif", IsAvailable: true });
+        if (Sharplight.Video.BundledFfmpeg.IsAvailable)
+        {
+            // The export panel's choices reach the encoder, and the written video can be the start image of the next run.
+            page.Export.SelectedFormat = page.Export.Formats.Single(format => format.Format == "mp4");
+            await page.Export.CodecsLoaded;
+            page.Export.SelectedCodec = page.Export.Codecs.Single(codec => codec.Id == "av1");
+            page.Export.SelectedPreset = "fastest";
+            page.Export.Quality = 60;
+            Assert.True(page.ExportCommand.CanExecute(null));
+            string mp4 = Path.Combine(folder, "clip.mp4");
+            await page.ExportToAsync(mp4, page.Export.ToOptions());
+            Assert.Equal("", page.Notice);
+            var info = await new Sharplight.Video.FfmpegVideoDecoder().ProbeAsync(mp4, TestContext.Current.CancellationToken);
+            Assert.Equal(("av1", 48, 32), (info.VideoCodec, info.Width, info.Height));
+
+            await page.UseVideoFrameAsync(mp4, first: false);
+            Assert.True(page.Source.HasImage);
+            Assert.Equal((48, 32), (page.Source.Image!.Width, page.Source.Image.Height));
+            Assert.Contains("last frame", page.Source.Path, StringComparison.Ordinal);
+        }
         var output = Assert.Single(page.Gallery.Items);
         Assert.Contains("first-frame.png", output.Files.Select(file => file.Name));
     }

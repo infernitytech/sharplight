@@ -268,8 +268,9 @@ fi
 if pending opus; then
 opus_args=()
 if [ "$arch" = aarch64 ]; then
-    # NEON is part of AArch64, and opus has no run-time detection for mingw on Arm.
-    opus_args+=(-DOPUS_PRESUME_NEON=ON)
+    # NEON is part of AArch64, and opus has no run-time detection for mingw on Arm; its NEON prototypes are only declared with the
+    # MAY_HAVE macros, which CMake leaves out once run-time detection is off.
+    opus_args+=(-DOPUS_PRESUME_NEON=ON -DOPUS_MAY_HAVE_NEON=OFF "-DCMAKE_C_FLAGS=$opt_flags -DOPUS_ARM_MAY_HAVE_NEON -DOPUS_ARM_MAY_HAVE_NEON_INTR")
 fi
 cmake_build opus -DOPUS_BUILD_SHARED_LIBRARY=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF -DOPUS_FORTIFY_SOURCE=OFF \
     -DOPUS_STACK_PROTECTOR=OFF -DOPUS_INSTALL_PKG_CONFIG_MODULE=ON -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF ${opus_args[@]+"${opus_args[@]}"}

@@ -24,7 +24,9 @@ namespace Sharplight.Studio.ViewModels.Video;
 /// The Video page (kind <c>video-generation</c>): a prompt (and negative prompt, and for models that take one a start image) goes to
 /// the chosen model's <see cref="IVideoGenerator"/>. The streaming call reports the phases (prompt encoding, denoising steps, decoding);
 /// previews and the decoded frames are shown as they arrive, then the finished video plays in the <see cref="Player"/> and can be
-/// exported through the <see cref="VideoEncoderCatalog"/> (WebM, MP4 where ffmpeg exists, GIF, APNG). Built from the shared inference blocks.
+/// exported through the <see cref="VideoEncoderCatalog"/> with the format, codec and quality chosen in <see cref="Export"/> (MP4, WebM, MOV,
+/// MKV through the bundled FFmpeg; GIF, APNG). A frame of an existing video can be the start image (<see cref="VideoDecoderCatalog"/>).
+/// Built from the shared inference blocks.
 /// </summary>
 internal sealed partial class VideoPageViewModel : InferencePageViewModel
 {
@@ -37,6 +39,7 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
     private static readonly ParameterChoice[] s_samplers = [new("", "Model default"), new(Samplers.UniPc, "UniPC"), new(Samplers.Euler, "Euler")];
 
     private readonly VideoEncoderCatalog _encoders;
+    private readonly VideoDecoderCatalog _decoders;
     private VideoGenerationDefaults? _defaults;
 
     /// <summary>The model whose defaults the panel was set to (they are applied once per model, not on every state change of it).</summary>
@@ -46,12 +49,28 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
 
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
-    /// <param name="encoders">The video encoders for export; null uses the ones of <c>AddSharplightVideo()</c> (WebM, MP4 with ffmpeg, GIF, APNG).</param>
-    public VideoPageViewModel(StudioServices services, INavigator navigator, VideoEncoderCatalog? encoders = null)
+    /// <param name="encoders">The video encoders for export; null uses the ones of <c>AddSharplightVideo()</c>.</param>
+    /// <param name="decoders">The video decoders for the start frame; null uses the one of <c>AddSharplightVideo()</c>.</param>
+    public VideoPageViewModel(StudioServices services, INavigator navigator, VideoEncoderCatalog? encoders = null, VideoDecoderCatalog? decoders = null)
         : base(services, navigator, ModelKinds.VideoGeneration, "video", CreateParameters(services))
     {
-        _encoders = encoders ?? new ServiceCollection().AddSharplightVideo().BuildServiceProvider().GetRequiredService<VideoEncoderCatalog>();
-        ExportFormats = CreateExportFormats(_encoders);
+        if (encoders is null || decoders is null)
+        {
+            ServiceProvider video = new ServiceCollection().AddSharplightVideo().BuildServiceProvider();
+            encoders ??= video.GetRequiredService<VideoEncoderCatalog>();
+            decoders ??= video.GetRequiredService<VideoDecoderCatalog>();
+        }
+
+        _encoders = encoders;
+        _decoders = decoders;
+        Export = new VideoExportViewModel(_encoders);
+        Export.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(VideoExportViewModel.SelectedFormat))
+            {
+                ExportCommand.NotifyCanExecuteChanged();
+            }
+        };
         Source = new ImageInputViewModel(services.Platform, text => Notice = text, "Start image", "Optional: the first frame of the video (image to video). Drop a file here or choose one.");
         Player = new VideoPlayerViewModel();
         Player.PropertyChanged += (_, args) =>
@@ -81,8 +100,11 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
     /// <summary>The playback of the frames shown.</summary>
     public VideoPlayerViewModel Player { get; }
 
-    /// <summary>The export buttons, one per file format.</summary>
-    public IReadOnlyList<VideoExportFormatViewModel> ExportFormats { get; }
+    /// <summary>The export settings (format, codec, preset, quality).</summary>
+    public VideoExportViewModel Export { get; }
+
+    /// <summary>A start frame can be taken from a video file (the bundled decoder is available).</summary>
+    public bool CanUseVideoFrames => _decoders.IsAvailable;
 
     /// <summary>What the video should show.</summary>
     [ObservableProperty]
@@ -529,14 +551,13 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
     [RelayCommand]
     private void Cancel() => Queue.CancelAll();
 
-    private bool CanExport(VideoExportFormatViewModel? format) => HasResult && format is { IsAvailable: true };
+    private bool CanExport() => HasResult && Export.SelectedFormat is { IsAvailable: true };
 
-    /// <summary>Asks where to save the video and writes it in <paramref name="format"/>.</summary>
-    /// <param name="format">The file format chosen.</param>
+    /// <summary>Asks where to save the video and writes it with the format, codec and quality of <see cref="Export"/>.</summary>
     [RelayCommand(CanExecute = nameof(CanExport))]
-    private async Task ExportAsync(VideoExportFormatViewModel? format)
+    private async Task ExportAsync()
     {
-        if (format is null || _result is null)
+        if (Export.SelectedFormat is not { } format || _result is null)
         {
             return;
         }
@@ -544,13 +565,14 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
         var filter = new FileFilter(format.Label, [$"*{format.Extension}"]);
         if (await Services.Platform.PickSaveFileAsync("Export video", $"sharplight-{_result.Seed}{format.Extension}", filter) is { } path)
         {
-            await ExportToAsync(path);
+            await ExportToAsync(path, Export.ToOptions());
         }
     }
 
     /// <summary>Encodes the shown video to <paramref name="path"/> (the format follows the extension) off the UI thread.</summary>
     /// <param name="path">The file to write.</param>
-    internal async Task ExportToAsync(string path)
+    /// <param name="options">The codec and quality settings, or null for the format's defaults.</param>
+    internal async Task ExportToAsync(string path, VideoEncodeOptions? options = null)
     {
         if (_result is not { } result)
         {
@@ -560,26 +582,63 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
         try
         {
             var clip = result.ToClip();
-            await Task.Run(() => _encoders.SaveAsync(clip, path)).ConfigureAwait(true);
+            await Task.Run(() => _encoders.SaveAsync(clip, path, options)).ConfigureAwait(true);
             Notice = "";
             StepText = $"Saved {Path.GetFileName(path)}";
         }
-        catch (Exception failure) when (failure is NotSupportedException or IOException or PlatformNotSupportedException or UnauthorizedAccessException)
+        catch (Exception failure) when (failure is NotSupportedException or IOException or PlatformNotSupportedException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
         {
             Notice = $"The video could not be exported: {failure.Message}";
         }
     }
 
-    private static VideoExportFormatViewModel[] CreateExportFormats(VideoEncoderCatalog encoders)
+    /// <summary>Lets the user pick a video and takes its first or last frame as the start image.</summary>
+    /// <param name="which"><c>first</c> or <c>last</c>.</param>
+    [RelayCommand]
+    private async Task PickStartFrameAsync(string? which)
     {
-        bool Has(string format) => encoders.TryFind(format, out _);
-        return
-        [
-            new(VideoFormats.Mp4, "MP4", ".mp4", Has(VideoFormats.Mp4), Has(VideoFormats.Mp4) ? "H.264 video through ffmpeg" : "Needs ffmpeg on the PATH (H.264 is not bundled)"),
-            new(VideoFormats.WebM, "WebM", ".webm", Has(VideoFormats.WebM), Has(VideoFormats.WebM) ? "VP9 video" : "The native video library is not available on this system"),
-            new(VideoFormats.Gif, "GIF", ".gif", Has(VideoFormats.Gif), "Animated GIF (256 colors per frame)"),
-            new(VideoFormats.Apng, "APNG", ".apng", Has(VideoFormats.Apng), "Animated PNG (lossless)"),
-        ];
+        var filter = new FileFilter("Videos", [.. _decoders.FileExtensions.Select(extension => $"*{extension}")]);
+        IReadOnlyList<string> files = await Services.Platform.PickFilesAsync("Start from a video", [filter], allowMultiple: false);
+        if (files.Count == 1)
+        {
+            await UseVideoFrameAsync(files[0], which == "first");
+        }
+    }
+
+    /// <summary>Decodes the first or last frame of <paramref name="path"/> (off the UI thread) into <see cref="Source"/>.</summary>
+    /// <param name="path">The video file.</param>
+    /// <param name="first">The first frame instead of the last one (the last continues the video).</param>
+    internal async Task UseVideoFrameAsync(string path, bool first)
+    {
+        if (!_decoders.TryGet(out IVideoDecoder? decoder))
+        {
+            Notice = "Videos cannot be read: the bundled FFmpeg libraries are missing from this installation.";
+            return;
+        }
+
+        try
+        {
+            ImageInput frame = await Task.Run(() => ReadFrameAsync(decoder, path, first)).ConfigureAwait(true);
+            Source.Set(frame, $"{Path.GetFileName(path)} ({(first ? "first" : "last")} frame)");
+        }
+        catch (Exception failure) when (failure is InvalidDataException or IOException or PlatformNotSupportedException or UnauthorizedAccessException)
+        {
+            Notice = $"{Path.GetFileName(path)} cannot be read: {failure.Message}";
+        }
+    }
+
+    private static async Task<ImageInput> ReadFrameAsync(IVideoDecoder decoder, string path, bool first)
+    {
+        VideoInfo info = await decoder.ProbeAsync(path).ConfigureAwait(false);
+        double frameSeconds = info.FramesPerSecond > 0 ? 1 / info.FramesPerSecond : 0.1;
+        TimeSpan start = first ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Max(0, info.Duration.TotalSeconds - 4 * frameSeconds));
+        VideoFrame? last = null;
+        await foreach (VideoFrame frame in decoder.ReadFramesAsync(path, new VideoDecodeOptions { Start = start, MaxFrames = first ? 1 : null }).ConfigureAwait(false))
+        {
+            last = frame;
+        }
+
+        return last?.ToImage() ?? throw new InvalidDataException("The video has no frames.");
     }
 
     private static ParameterPanelViewModel<VideoGenerationOptions> CreateParameters(StudioServices services)
