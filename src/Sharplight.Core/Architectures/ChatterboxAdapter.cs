@@ -32,11 +32,38 @@ internal sealed class ChatterboxAdapter : IModelAdapter
     /// <summary>The role of the vocoder component.</summary>
     public const string VocoderRole = "vocoder";
 
+    /// <summary>The role of the voice encoder (speaker embedding of a recording).</summary>
+    public const string VoiceEncoderRole = "voice-encoder";
+
+    /// <summary>The role of the S3 speech tokenizer (speech tokens of a recording).</summary>
+    public const string SpeechTokenizerRole = "speech-tokenizer";
+
+    /// <summary>The role of the CAM++ speaker encoder (x-vector of a recording).</summary>
+    public const string SpeakerEncoderRole = "speaker-encoder";
+
+    /// <summary>The role of the voice encoder's front end (40 mel energies at 16 kHz).</summary>
+    public const string VoiceFeaturesRole = "voice-features";
+
+    /// <summary>The role of the speech tokenizer's front end (Whisper-style log-mel at 16 kHz).</summary>
+    public const string SpeechTokenFeaturesRole = "speech-token-features";
+
+    /// <summary>The role of the speaker encoder's front end (Kaldi filter bank at 16 kHz).</summary>
+    public const string SpeakerFeaturesRole = "speaker-features";
+
+    /// <summary>The role of the flow prompt's front end (Matcha log-mel at 24 kHz).</summary>
+    public const string PromptFeaturesRole = "prompt-features";
+
+    /// <summary>The longest recording the cloning encoders accept, in seconds.</summary>
+    public const int MaxCloneSeconds = 30;
+
     /// <summary>The family recorded in the text model's configuration.</summary>
     public const string Family = "chatterbox";
 
     /// <summary>The prefix of the voice attachments (<c>voices/{name}/speaker.f32</c> and the other parts of a voice).</summary>
     public const string VoicePrefix = "voices/";
+
+    /// <summary>The mel frames of one voice-encoder partial.</summary>
+    public const int VoicePartialFrames = 160;
 
     /// <summary>The most speech tokens one request generates.</summary>
     public const int MaxSpeechTokens = 1000;
@@ -80,12 +107,21 @@ internal sealed class ChatterboxAdapter : IModelAdapter
         WeightInfo? Lookup(string name) => weights.GetValueOrDefault(name);
         var graphs = new Dictionary<string, ComputeGraph>(text.Graphs, StringComparer.Ordinal)
         {
-            [ChatterboxConditionGraph.GraphName] = ChatterboxConditionGraph.Build(Lookup, src.Get<int>(a + "t3.prompt_tokens"), src.Get<int>(a + "t3.perceiver_queries"),
+            [ChatterboxConditionGraph.GraphName] = ChatterboxConditionGraph.Build(Lookup, src.Get<int>(a + "t3.perceiver_queries"),
                 src.Get<int>(a + "t3.perceiver_heads"), hidden),
             [ChatterboxFlowEncoderGraph.GraphName] = ChatterboxFlowEncoderGraph.Build(Lookup, encoderLayers, upLayers),
             [ChatterboxEstimatorGraph.GraphName] = ChatterboxEstimatorGraph.Build(Lookup, midBlocks, transformers),
             [ChatterboxVocoderGraph.GraphName] = ChatterboxVocoderGraph.Build(Lookup, rates, kernels, nFft, hop, harmonics),
         };
+        bool cloning = weights.ContainsKey("ve.proj.weight") && weights.ContainsKey("s3gen.tokenizer.encoder.conv1.weight")
+            && weights.ContainsKey("s3gen.speaker_encoder.head.conv1.weight") && src.Attachments.ContainsKey(VoiceFeaturesRole + "/mel-filters");
+        if (cloning)
+        {
+            graphs[ChatterboxVoiceEncoderGraph.GraphName] = ChatterboxVoiceEncoderGraph.Build(Lookup, VoicePartialFrames, 40, 3);
+            graphs[S3TokenizerGraph.GraphName] = S3TokenizerGraph.Build(Lookup, "s3gen.tokenizer.", 128, 6, 20, 1280);
+            graphs[CamPlusGraph.GraphName] = CamPlusGraph.Build(Lookup, "s3gen.speaker_encoder.", 80);
+        }
+
         long samplesPerFrame = ChatterboxVocoderGraph.SamplesPerFrame(rates, hop);
         var description = new ModelDescription
         {
@@ -107,6 +143,7 @@ internal sealed class ChatterboxAdapter : IModelAdapter
                     Graphs = [ChatterboxConditionGraph.GraphName],
                     WeightPrefixes = ["t3.cond_enc.", "t3.speech_pos_emb.", "token_embedding."],
                     Config = ComponentConfig.Of(("promptTokens", src.Get<int>(a + "t3.prompt_tokens"))),
+                    SymbolBounds = new Dictionary<string, long> { [ChatterboxConditionGraph.PromptSymbol] = src.Get<int>(a + "t3.prompt_tokens") },
                     Attachments = src.Attachments.Keys.Where(k => k.StartsWith(VoicePrefix, StringComparison.Ordinal)).ToDictionary(k => k, k => k, StringComparer.Ordinal),
                 },
                 new ModelComponent
@@ -133,6 +170,7 @@ internal sealed class ChatterboxAdapter : IModelAdapter
                     SymbolBounds = new Dictionary<string, long> { [WellKnown.TokenSymbol] = 2L * MaxSpeechTokens },
                 },
                 new ModelComponent { Role = ModelComponentRoles.Tokenizer, MetadataPrefix = null },
+                .. (cloning ? CloningComponents() : []),
             ],
             Config = ComponentConfig.Of(("sampleRate", src.Get<int>(a + "sample_rate"))),
         };
@@ -152,6 +190,69 @@ internal sealed class ChatterboxAdapter : IModelAdapter
     }
 
     // The number of indexed modules under a prefix ("prefix{i}.").
+    // The encoders and front ends that turn a recording into a voice (ChatterboxTTS.prepare_conditionals).
+    private static ModelComponent[] CloningComponents()
+    {
+        const int Rate16 = 16000;
+        long maxFrames16 = MaxCloneSeconds * Rate16 / 160;
+        static Dictionary<string, string> Filters(string role)
+            => new(StringComparer.Ordinal) { [ModelComponentAttachments.MelFilters] = role + "/mel-filters" };
+        return
+        [
+            new ModelComponent
+            {
+                Role = VoiceEncoderRole,
+                Graphs = [ChatterboxVoiceEncoderGraph.GraphName],
+                WeightPrefixes = ["ve."],
+                Config = ComponentConfig.Of(("partialFrames", VoicePartialFrames), ("partialRate", 1.3), ("minCoverage", 0.8), ("trimDecibels", 20.0)),
+            },
+            new ModelComponent
+            {
+                Role = SpeechTokenizerRole,
+                Graphs = [S3TokenizerGraph.GraphName],
+                WeightPrefixes = ["s3gen.tokenizer."],
+                Config = ComponentConfig.Of(("framesPerToken", 4), ("levels", 3)),
+                SymbolBounds = new Dictionary<string, long> { [WellKnown.TokenSymbol] = maxFrames16 },
+            },
+            new ModelComponent
+            {
+                Role = SpeakerEncoderRole,
+                Graphs = [CamPlusGraph.GraphName],
+                WeightPrefixes = ["s3gen.speaker_encoder."],
+                SymbolBounds = new Dictionary<string, long>
+                {
+                    [WellKnown.TokenSymbol] = maxFrames16,
+                    [CamPlusGraph.SegmentSymbol] = (maxFrames16 / 2 / CamPlusGraph.SegmentLength) + 2,
+                },
+            },
+            new ModelComponent
+            {
+                Role = VoiceFeaturesRole,
+                Config = ComponentConfig.Of(("type", "log-mel"), ("sampleRate", Rate16), ("fftSize", 400), ("hopLength", 160), ("melBins", 40), ("logBase", "none")),
+                Attachments = Filters(VoiceFeaturesRole),
+            },
+            new ModelComponent
+            {
+                Role = SpeechTokenFeaturesRole,
+                Config = ComponentConfig.Of(("type", "log-mel"), ("sampleRate", Rate16), ("fftSize", 400), ("hopLength", 160), ("melBins", 128),
+                    ("dropLastFrame", true), ("logBase", "10"), ("logFloor", 1e-10), ("dynamicRange", 8.0), ("logOffset", 4.0), ("logScale", 0.25)),
+                Attachments = Filters(SpeechTokenFeaturesRole),
+            },
+            new ModelComponent
+            {
+                Role = SpeakerFeaturesRole,
+                Config = ComponentConfig.Of(("type", "kaldi-fbank"), ("sampleRate", Rate16), ("melBins", 80), ("subtractMean", true)),
+            },
+            new ModelComponent
+            {
+                Role = PromptFeaturesRole,
+                Config = ComponentConfig.Of(("type", "log-mel"), ("sampleRate", 24000), ("fftSize", 1920), ("hopLength", 480), ("melBins", 80), ("center", false),
+                    ("edgePadding", 720), ("magnitude", true), ("magnitudeGuard", 1e-9), ("logBase", "e"), ("logFloor", 1e-5)),
+                Attachments = Filters(PromptFeaturesRole),
+            },
+        ];
+    }
+
     private static int CountLayers(ModelSource src, string prefix)
     {
         int count = 0;
