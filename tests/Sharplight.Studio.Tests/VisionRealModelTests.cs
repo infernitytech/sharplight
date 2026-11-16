@@ -14,7 +14,10 @@ namespace Sharplight.Studio.Tests;
 /// </summary>
 public sealed class VisionRealModelTests
 {
-    private static readonly string s_vision = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/vision");
+    private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    // Models of the first vision rounds live in models/vision, those of the popularity sweep in models/vision-sweep.
+    private static string FolderOf(string name) => Path.Combine(s_home, Directory.Exists(Path.Combine(s_home, "models/vision", name)) ? "models/vision" : "models/vision-sweep", name);
 
     [Fact]
     public Task Segmentation_RunsWithARealSam2Model() => RunAsync("sam2.1-hiera-tiny", "model.safetensors", ModelKinds.ImageSegmentation, VisionMode.Segment, page =>
@@ -36,9 +39,24 @@ public sealed class VisionRealModelTests
         Assert.Equal((input.Width * 4, input.Height * 4), (output.Width, output.Height));
     });
 
+    [Fact]
+    public Task Upscaling_RunsWithARealSwinIrModel() => RunAsync("swinir-classical-x4", "001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth", ModelKinds.ImageUpscaling, VisionMode.Upscale, page =>
+    {
+        Assert.NotNull(page.AfterPng);
+        var input = PngCodec.Decode(page.MainPng!);
+        var output = PngCodec.Decode(page.AfterPng!);
+        Assert.Equal((input.Width * 4, input.Height * 4), (output.Width, output.Height));
+    });
+
+    [Fact]
+    public Task Classification_RunsWithARealTimmResNetModel() => RunAsync("resnet50.a1_in1k", "model.safetensors", ModelKinds.ImageClassification, VisionMode.Classify, page => Assert.NotEmpty(page.Rows));
+
+    [Fact]
+    public Task Detection_RunsWithARealRtDetrR50Model() => RunAsync("rtdetr_r50vd", "model.safetensors", ModelKinds.ObjectDetection, VisionMode.Detect, page => Assert.NotEmpty(page.Rows));
+
     private static async Task RunAsync(string name, string weights, string kind, VisionMode mode, Action<VisionPageViewModel> check)
     {
-        string folder = Path.Combine(s_vision, name);
+        string folder = FolderOf(name);
         string sample = Path.Combine(folder, "sharplight-sample.png");
         Assert.SkipUnless(File.Exists(Path.Combine(folder, weights)) && File.Exists(sample), $"{name} not found");
         using var fakes = new TestServices();

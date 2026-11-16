@@ -40,6 +40,7 @@ public static class TaskServiceCollectionExtensions
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, VideoDiffusionGeneratorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, EncoderDecoderSpeechRecognizerFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, FrameSpeechRecognizerFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, AudioLanguageSpeechRecognizerFactory>());
             if (!services.Any(d => d.ServiceType == typeof(ITaskClientFactory) && d.ImplementationInstance is ImageEncoderFactory))
             {
                 services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageClassification, typeof(IImageClassifier)));

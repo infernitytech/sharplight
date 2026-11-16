@@ -117,11 +117,11 @@ public sealed class DiffusersImporter : IModelImporter
         return pipelineClass switch
         {
             "StableDiffusionPipeline" or "StableDiffusionImg2ImgPipeline" or "StableDiffusionInpaintPipeline" or "StableDiffusionXLPipeline"
-                or "StableDiffusionXLImg2ImgPipeline" or "StableDiffusionXLInpaintPipeline" or "FluxPipeline" or "WanPipeline" or "WanImageToVideoPipeline"
+                or "StableDiffusionXLImg2ImgPipeline" or "StableDiffusionXLInpaintPipeline" or "FluxPipeline" or "WanPipeline" or "WanImageToVideoPipeline" or "LTXPipeline"
                 or "StableDiffusion3Pipeline" or "StableDiffusion3Img2ImgPipeline" or "StableDiffusion3InpaintPipeline" or "ChromaPipeline"
                 or "ChromaImg2ImgPipeline" or "ZImagePipeline" or "ZImageImg2ImgPipeline"
                 => components.Contains("unet") || components.Contains("transformer") ? new PipelineSupport(true) : new PipelineSupport(false, $"Not supported yet: {pipelineClass} has no UNet or transformer."),
-            _ => new PipelineSupport(false, $"Not supported yet: {Describe(pipelineClass)}. Sharplight loads the Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image and Wan 2.1 / 2.2 pipelines."),
+            _ => new PipelineSupport(false, $"Not supported yet: {Describe(pipelineClass)}. Sharplight loads the Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image, Wan 2.1 / 2.2 and LTX-Video pipelines."),
         };
     }
 

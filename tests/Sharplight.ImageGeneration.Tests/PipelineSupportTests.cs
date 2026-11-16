@@ -16,6 +16,7 @@ public sealed class PipelineSupportTests
     [InlineData("ChromaPipeline", "transformer,vae", true)]
     [InlineData("ZImagePipeline", "transformer,vae", true)]
     [InlineData("QwenImagePipeline", "transformer,vae", false)]
+    [InlineData("LTXPipeline", "transformer,vae,text_encoder", true)]
     [InlineData("HunyuanVideoPipeline", "transformer,vae", false)]
     public void ClassifiesPipelines(string pipelineClass, string components, bool supported)
     {

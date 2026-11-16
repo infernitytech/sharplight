@@ -70,6 +70,7 @@ public sealed class RtDetrAdapter : IModelAdapter
         private readonly ModelSource _src;
         private readonly GraphBuilder _b;
         private readonly int _d;
+        private readonly int _e;
         private readonly int _heads;
         private readonly int _size;
         private readonly int _levels;
@@ -84,6 +85,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             _src = src;
             _b = new GraphBuilder(WellKnown.DetectGraph, src.Weight);
             _d = src.Arch<int>("hidden_size");
+            _e = src.Arch("encoder.hidden_size", _d);
             _heads = src.Arch<int>("attention.head_count");
             _size = src.Arch<int>("image_size");
             _levels = src.Arch("level_count", 3);
@@ -99,7 +101,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             var b = _b;
             var pixels = b.Input("pixels", InputRole.Media, DataType.F32, new Shape(1, 3, _size, _size));
             var depths = _src.Arch<string>("backbone.depths").Split(',').Select(int.Parse).ToArray();
-            var stages = ResNetBackbone.Build(b, pixels, new ResNetOptions("backbone.", depths, false, true, true));
+            var stages = ResNetBackbone.Build(b, pixels, new ResNetOptions("backbone.", depths, _src.Arch("backbone.bottleneck", false), true, true, _src.Arch("backbone.stride_in_first_conv", false)));
             var maps = new Value[_levels];
             var shapes = new (int H, int W)[_levels];
             for (int i = 0; i < _levels; i++)
@@ -182,20 +184,20 @@ public sealed class RtDetrAdapter : IModelAdapter
         {
             var b = _b;
             int n = shape.H * shape.W;
-            var x = b.Contiguous(b.Permute(b.Reshape(map, _d, n), 1, 0));
-            var pos = b.Constant("aifi_position", DataType.F32, new Shape(n, _d), Bytes(Position(shape.H, shape.W)));
+            var x = b.Contiguous(b.Permute(b.Reshape(map, _e, n), 1, 0));
+            var pos = b.Constant("aifi_position", DataType.F32, new Shape(n, _e), Bytes(Position(shape.H, shape.W, _e)));
             int layers = _src.Arch("aifi.layer_count", 1);
             string act = _src.Arch("aifi.mlp.activation", "gelu");
             for (int l = 0; l < layers; l++)
             {
                 string p = $"aifi.{l}.";
                 var qk = b.Add(x, pos);
-                x = LayerNorm(b.Add(x, Attention(qk, qk, x, p + "self_attn.", n, n)), p + "self_attn_norm");
+                x = LayerNorm(b.Add(x, Attention(qk, qk, x, p + "self_attn.", n, n, _e)), p + "self_attn_norm");
                 var ffn = b.Linear(TowerBlocks.Activation(b, b.Linear(x, p + "ffn.up.weight", p + "ffn.up.bias"), act), p + "ffn.down.weight", p + "ffn.down.bias");
                 x = LayerNorm(b.Add(x, ffn), p + "ffn_norm");
             }
 
-            return b.Reshape(b.Contiguous(b.Permute(x, 1, 0)), 1, _d, shape.H, shape.W);
+            return b.Reshape(b.Contiguous(b.Permute(x, 1, 0)), 1, _e, shape.H, shape.W);
         }
 
         private void Decode(Value source, (int H, int W)[] shapes, int total)
@@ -278,15 +280,16 @@ public sealed class RtDetrAdapter : IModelAdapter
             return b.Unary("Log", b.Binary("Div", x1, x2));
         }
 
-        private Value Attention(Value query, Value key, Value value, string p, int qRows, int kRows)
+        private Value Attention(Value query, Value key, Value value, string p, int qRows, int kRows, int? width = null)
         {
             var b = _b;
-            int hd = _d / _heads;
+            int d = width ?? _d;
+            int hd = d / _heads;
             var q = b.Reshape(b.Linear(query, p + "q.weight", p + "q.bias"), qRows, _heads, hd);
             var k = b.Reshape(b.Linear(key, p + "k.weight", p + "k.bias"), kRows, _heads, hd);
             var v = b.Reshape(b.Linear(value, p + "v.weight", p + "v.bias"), kRows, _heads, hd);
             var a = b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(hd)), ("causal", false)));
-            return b.Linear(b.Reshape(a, qRows, _d), p + "o.weight", p + "o.bias");
+            return b.Linear(b.Reshape(a, qRows, d), p + "o.weight", p + "o.bias");
         }
 
         private Value Mlp(Value x, string p, int layers)
@@ -306,15 +309,15 @@ public sealed class RtDetrAdapter : IModelAdapter
         private Value LayerNorm(Value x, string name) => TowerBlocks.LayerNorm(_b, x, name, _eps);
 
         // [sin(h) | cos(h) | sin(w) | cos(w)] with geometric frequencies, row-major over the grid.
-        private float[] Position(int height, int width)
+        private static float[] Position(int height, int width, int channels)
         {
-            int dim = _d / 4;
-            var result = new float[height * width * _d];
+            int dim = channels / 4;
+            var result = new float[height * width * channels];
             for (int y = 0; y < height; y++)
             {
                 for (int x = 0; x < width; x++)
                 {
-                    int row = (y * width + x) * _d;
+                    int row = (y * width + x) * channels;
                     for (int i = 0; i < dim; i++)
                     {
                         double omega = 1.0 / Math.Pow(10000.0, (double)i / dim);

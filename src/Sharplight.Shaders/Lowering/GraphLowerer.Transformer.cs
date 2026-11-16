@@ -137,6 +137,16 @@ public sealed partial class GraphLowerer
         idx = EnsureDense(idx, "gather-idx");
 
         long D = table.Shape[^1];
+        if (D % 8 != 0 && !table.Type.IsQuantized)
+        {
+            // Rows that are not a multiple of the kernel's 8-value groups (e.g. 180 channels): one thread per output value.
+            string element = $"p.in0[uint64_t(clamp(p.in1[d0], 0, {table.Shape[0] - 1})) * {table.Strides[0]}u + d1]";
+            string load = table.Type == DataType.F16 ? $"h2f({element})" : table.Type == DataType.BF16 ? $"bf2f({element})" : element;
+            var rowsOut = Produce(n.Output);
+            EmitGen($"gather {n.Output.Name}", [n], rowsOut.Shape, rowsOut.Symbol, [table, idx], [rowsOut], $"  p.out0[idx] = {load};");
+            return;
+        }
+
         long rowBytes;
         if (table.Type.IsQuantized || table.IsDense)
         {
