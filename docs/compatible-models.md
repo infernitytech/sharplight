@@ -233,6 +233,9 @@ images are visually identical. All run on CPU and Vulkan (Vulkan used for the re
 | SD-Turbo | stabilityai/sd-turbo | diffusers | Loads | | |
 | FLUX.1-schnell | black-forest-labs/FLUX.1-schnell, city96/FLUX.1-schnell-gguf | diffusers (bf16), GGUF Q8_0 + CLIP-L, T5-XXL, VAE companions | bf16: 32.5 dB (512) / 38.8 dB (1024) vs diffusers; Q8_0: 33.4 dB / 39.7 dB vs diffusers running the same files | companion files found beside the GGUF; 1024x1024 step about 1 s on a 32 GB GPU | 2026-11-15 |
 | FLUX.1-dev | black-forest-labs/FLUX.1-dev, city96/FLUX.1-dev-gguf | GGUF Q8_0 + companions | 31.7 dB (512, 20 steps) vs diffusers on the same files | 28 steps at 1024x1024 in 33 s, 23.5 GB device memory | 2026-11-15 |
+| SD3.5 Medium | stabilityai/stable-diffusion-3.5-medium (ungated mirror adamo1139/stable-diffusion-3.5-medium-ungated), city96/stable-diffusion-3.5-medium-gguf | diffusers (fp16), GGUF Q8_0 + CLIP-L, CLIP-G, T5-XXL, VAE companions | fp16: 46.6 dB (512) / 38.8 dB (1024) vs diffusers f32; transformer 1.4e-4; Q8_0: 42.5 dB (512) / 29.4 dB (1024) vs diffusers on the same files | 28 steps, guidance 7; 1024x1024 in 12.6 s | 2026-11-16 |
+| Chroma1-HD | lodestones/Chroma1-HD, silveroxides/Chroma1-HD-GGUF | GGUF Q8_0 + T5-XXL, VAE companions | 46.3 dB (512) / 37.8 dB (1024) vs diffusers on the same files (boolean text mask, as the original Chroma) | 20 guided steps at 1024x1024 in 48 s | 2026-11-16 |
+| Z-Image-Turbo | Tongyi-MAI/Z-Image-Turbo, unsloth/Z-Image-Turbo-GGUF | diffusers, GGUF Q8_0 + Qwen3-4B text encoder, VAE companions | 49.6 dB (512) / 46.4 dB (1024) vs diffusers on the same files; text encoder 1.4e-4, transformer 1.5e-3 | 9 steps, no guidance; 1024x1024 in 14.6 s; companions found in the pipeline folder beside the GGUF folder | 2026-11-16 |
 
 ## 5. Vision
 
@@ -328,7 +331,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | Nemotron 3.5 Super-VL and Bolt (ModelOpt NVFP4 / mixed-precision safetensors) | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4, nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB | ModelOpt mixed-precision layout not read (GGUF versions import) |
 | DFlash drafters with LiLiCorr head | Bolt and Super-VL drafters | correction head not implemented (reported as draft models) |
 | Gated repositories | meta-llama/Llama-3.1-8B-Instruct, google/medgemma-1.5-4b-it, nvidia/Cosmos-Reason2-2B | could not be downloaded without a token; not tested |
-| SD 1.5 inpainting UNet, SDXL refiner, SD3, Chroma, Qwen-Image, Wan, LTX | various | not implemented yet (rejected with a clear message) |
+| SD 1.5 inpainting UNet, SDXL refiner, Qwen-Image, Lumina-Image-2.0, LTX | various | not implemented yet (rejected with a clear message) |
 | LoRA, ControlNet, TAESD | | not implemented |
 | CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
 | Mask2Former, YOLO (native), Florence-2 (native), SegFormer | | vision models not implemented (Florence-2 ONNX parts work; SwinIR is native since 2026-11-16) |

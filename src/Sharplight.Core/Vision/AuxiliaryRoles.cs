@@ -18,8 +18,11 @@ public static class AuxiliaryRoles
     /// </summary>
     public const string TextEncoder = "text-encoder";
 
-    /// <summary>The second text encoder of an image generator distributed without it (FLUX's T5-XXL).</summary>
+    /// <summary>The second text encoder of an image generator distributed without it (FLUX's T5-XXL, SD3's CLIP-G).</summary>
     public const string SecondTextEncoder = "text-encoder-2";
+
+    /// <summary>The third text encoder of an image generator distributed without it (SD3's T5-XXL).</summary>
+    public const string ThirdTextEncoder = "text-encoder-3";
 
     /// <summary>The autoencoder of an image generator distributed without it (FLUX's 16-channel VAE).</summary>
     public const string Vae = "vae";

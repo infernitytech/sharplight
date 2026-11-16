@@ -39,6 +39,13 @@ public interface IModelImporter
     public IReadOnlyDictionary<string, string> FindCompanions(string path) => new Dictionary<string, string>();
 
     /// <summary>
+    /// The companion files the model at <paramref name="path"/> needs, in presentation order (e.g. the CLIP and T5 text encoders and the
+    /// VAE of a transformer-only diffusion checkpoint); empty when it needs none (the default).
+    /// </summary>
+    /// <param name="path">The primary model file or directory.</param>
+    public IReadOnlyList<CompanionFile> DescribeCompanions(string path) => [];
+
+    /// <summary>
     /// Whether this importer can load a multi-component pipeline repository (a Diffusers <c>model_index.json</c>), judged from its pipeline
     /// class and component names before anything is downloaded. Null (the default) when the importer does not know the pipeline kind.
     /// </summary>

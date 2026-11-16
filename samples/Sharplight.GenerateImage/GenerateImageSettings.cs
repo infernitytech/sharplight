@@ -9,6 +9,8 @@ internal sealed record GenerateImageSettings
 
     public string? SecondTextEncoder { get; init; }
 
+    public string? ThirdTextEncoder { get; init; }
+
     public string? Vae { get; init; }
 
     public required string Prompt { get; init; }
