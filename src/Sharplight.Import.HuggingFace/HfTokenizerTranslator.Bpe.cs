@@ -30,9 +30,10 @@ internal static partial class HfTokenizerTranslator
         // Gemma 4, ERNIE 4.5: character-level BPE with merge ranks and byte fallback over a space → ▁ normalizer (no pre-tokenizer
         // regex), optionally preceded by a Prepend("▁") normalizer (the SentencePiece dummy prefix).
         bool? prependsSpace = model.IsTrue("byte_fallback") && tok.TryGetProperty("normalizer", out var normalizer) ? SpaceNormalizer(normalizer) : null;
-        // NeMo's SentencePiece BPE (Parakeet, Canary): the space → ▁ step is a Metaspace pre-tokenizer instead of a normalizer.
+        // NeMo's SentencePiece BPE (Parakeet, Canary): the space → ▁ step is a Metaspace pre-tokenizer instead of a normalizer. A
+        // ByteLevel step in the same pre-tokenizer (Mistral 3's tekken conversion) makes it a byte-level BPE, which stays on that path.
         if (prependsSpace is null && model.IsTrue("byte_fallback") && tok.TryGetProperty("pre_tokenizer", out var preTokenizer)
-            && preTokenizer.ValueKind == JsonValueKind.Object && FindMetaspace(preTokenizer) is not null)
+            && preTokenizer.ValueKind == JsonValueKind.Object && FindMetaspace(preTokenizer) is not null && !HasByteLevel(preTokenizer))
         {
             prependsSpace = AddsSpacePrefix(tok);
         }
