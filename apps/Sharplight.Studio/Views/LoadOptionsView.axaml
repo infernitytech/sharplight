@@ -169,7 +169,7 @@
           <TextBlock Classes="label" Text="Vocoder (codec decoder file)" />
           <DockPanel>
             <Button DockPanel.Dock="Right" Classes="small" Content="Browse" Command="{Binding BrowseVocoderCommand}" Margin="8,0,0,0" />
-            <TextBox Text="{Binding VocoderPath}" PlaceholderText="WavTokenizer .gguf" />
+            <TextBox Text="{Binding VocoderPath}" PlaceholderText="WavTokenizer .gguf or SNAC folder" />
           </DockPanel>
           <TextBlock Classes="caption" TextWrapping="Wrap" Text="This speech model is a language model that writes audio codes; the vocoder turns them into sound. A .slm package made with the vocoder needs none." />
         </StackPanel>

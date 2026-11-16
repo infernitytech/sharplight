@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Kokoro importer for Sharplight: reads the Kokoro-82M text-to-speech checkpoint (PyTorch weights with weight normalization, config.json, voice packs) into Sharplight speech-synthesis models.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../Sharplight.Import.PyTorch/Sharplight.Import.PyTorch.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.TextToSpeech.Tests" />
+  </ItemGroup>
+</Project>

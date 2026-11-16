@@ -96,9 +96,18 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     /// <summary>The model generates text, so context, batching, KV cache and speculation apply (the other kinds load with defaults).</summary>
     public bool IsLanguageModel => !TaskKindClients.Handles(Entry.Entry.Kind);
 
-    /// <summary>A speech synthesis model given as a language-model file needs the codec decoder file next to it.</summary>
+    /// <summary>
+    /// A speech synthesis model given as a language-model file or folder (OuteTTS with its WavTokenizer, Orpheus with SNAC) needs the codec decoder next to it; a package and a
+    /// self-contained checkpoint folder (Kokoro) do not.
+    /// </summary>
     public bool NeedsVocoder => Entry.Entry.Kind == Sharplight.Models.ModelKinds.SpeechSynthesis
-        && !Entry.Entry.Path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase);
+        && !Entry.Entry.Path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase) && !IsKokoroFolder(Entry.Entry.Path);
+
+    private static bool IsKokoroFolder(string path)
+    {
+        string config = System.IO.Path.Combine(path, "config.json");
+        return Directory.Exists(path) && File.Exists(config) && File.ReadAllText(config).Contains("\"istftnet\"", StringComparison.Ordinal);
+    }
 
     /// <summary>The codec decoder file of a speech synthesis model (<see cref="NeedsVocoder"/>).</summary>
     [ObservableProperty]
@@ -263,9 +272,9 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             return;
         }
 
-        if (NeedsVocoder && !File.Exists(VocoderPath.Trim()))
+        if (NeedsVocoder && !File.Exists(VocoderPath.Trim()) && !Directory.Exists(VocoderPath.Trim()))
         {
-            Status = "Choose the vocoder file (the WavTokenizer .gguf that goes with this model).";
+            Status = "Choose the vocoder (the WavTokenizer .gguf or the SNAC folder that goes with this model).";
             return;
         }
 
@@ -309,10 +318,11 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     [RelayCommand]
     private async Task BrowseVocoderAsync()
     {
-        var files = await _services.Platform.PickFilesAsync("Choose the vocoder", [new FileFilter("GGUF files", ["*.gguf"])], allowMultiple: false);
+        var files = await _services.Platform.PickFilesAsync("Choose the vocoder", [new FileFilter("Codec files", ["*.gguf", "config.json", "pytorch_model.bin"])], allowMultiple: false);
         if (files.Count > 0)
         {
-            VocoderPath = files[0];
+            // A checkpoint folder (SNAC) is named by any of its files.
+            VocoderPath = files[0].EndsWith(".gguf", StringComparison.OrdinalIgnoreCase) ? files[0] : System.IO.Path.GetDirectoryName(files[0]) ?? files[0];
         }
     }
 

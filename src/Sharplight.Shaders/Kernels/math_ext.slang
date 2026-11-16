@@ -36,6 +36,18 @@ float erf_accurate(float x)
     return x < 0.0 ? -r : r;
 }
 
+// IEEE atan2: a zero y gives 0 or pi (with the sign of y) instead of whatever the driver's atan2 returns for it.
+float atan2_ieee(float y, float x)
+{
+    if (y == 0.0)
+    {
+        bool negative_y = (asuint(y) >> 31) != 0;
+        bool negative_x = (asuint(x) >> 31) != 0;
+        return negative_x ? (negative_y ? -3.14159274 : 3.14159274) : (negative_y ? -0.0 : 0.0);
+    }
+    return atan2(y, x);
+}
+
 // ONNX Pow: integer exponents work for negative bases; pow(x, 0) = 1.
 float pow_onnx(float a, float b)
 {

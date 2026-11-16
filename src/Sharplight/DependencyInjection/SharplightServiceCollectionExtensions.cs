@@ -47,6 +47,8 @@ public static class SharplightServiceCollectionExtensions
                 .AddHuggingFaceImporter()
                 .AddOnnxImporter()
                 .AddWhisperCppImporter()
+                .AddKokoroImporter()
+                .AddSnacImporter()
                 .AddDiffusersImporter()
                 .AddPackageImporter();
         }
