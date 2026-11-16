@@ -1454,7 +1454,8 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 |---|---|---|---|
 | Wan 2.1 T2V (1.3B, 14B) | diffusers folder; transformer-only GGUF (city96 / QuantStack, any ggml type) and original-name `.safetensors` (also ComfyUI's `model.diffusion_model.` prefix) with a Wan diffusers folder as companion for the umT5 encoder, tokenizer and VAE | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
 | Wan 2.2 TI2V-5B | diffusers folder; transformer-only GGUF / safetensors with companions as for Wan 2.1 | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
-| Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts); stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing (the I2V and A14B folders are rejected by name) | |
+| Wan 2.2 T2V-A14B, I2V-A14B (two experts) | diffusers folder with transformer_2; high- and low-noise transformer GGUFs (QuantStack / city96) with `AuxiliaryRoles.SecondTransformer` and a Wan 2.1 folder as companion | **supported, tiny-verified** (expert switch at the boundary timestep 0.875 · 1000, `GuidanceScale2`; I2V by concatenating a first-frame mask and the encoded start-image video, streamed causal VAE encoder) | tiny pipelines; real A14B not yet compared (blocked by filesystem throughput) |
+| Wan 2.1 I2V / FLF2V (CLIP image embedding); stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing (Wan 2.1 I2V folders are rejected by name) | |
 | LTX-Video 0.9.0 (2B) | diffusers folder (the T5-XXL text encoder is the one of FLUX.1 / PixArt) | **supported** (text-to-video, multiples of 32, frames 1 + 8k, flow Euler with the resolution-dependent shift and the terminal stretch) | tiny pipeline; 2B below |
 | LTX-Video 0.9.1+ (causal / timestep-conditioned decoder), HunyuanVideo, CogVideoX, Mochi | - | missing (LTX 0.9.1+ rejected by name) | |
 
@@ -1478,6 +1479,12 @@ Design notes:
   a constant coordinate × frequency product; the text encoder runs without a mask and the cross-attention masks the padding
   (`VideoDiffusionGraphs.ContextMask`); the non-causal VAE decoder runs over the whole latent video (`vae_decode`: replicated first
   and last frames in time, depth-to-space 2×2×2 upsamplers, 4×4 unpatching).
+- Two experts (Wan 2.2 A14B): a second transformer component (`transformer-2`, graph `denoise_2`) runs for the timesteps below
+  `boundaryRatio` · train steps with `guidanceScale2`; the first expert is released at the switch when the model holds one stage at a time.
+- Image-to-video by channel concatenation (Wan 2.2 I2V-A14B): the transformer takes more channels than the VAE gives; the pipeline
+  encodes the start image followed by blank frames with the streamed causal encoder (`vae_encode`, then `vae_encode_next` per
+  temporal-compression frames, the temporal downsampling over the previous chunk's last frame) and concatenates a mask that is 1 on the
+  first latent frame and the encoded latents to the noisy latents of every transformer input.
 - Tokenizer fix: Hugging Face templates that start with the sequence (T5 / umT5 `$A </s>`) no longer add a BOS token when the
   tokenizer configuration names one.
 
@@ -1492,6 +1499,8 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
 - Tiny random LTX-Video pipeline (`~/models/video/tiny-random-ltx`, tools/make-tiny-ltx.py): T5 states, transformer (with a key mask)
   and the whole-video VAE decode of 17 frames within 1e-4 relative RMS, 4-step text-to-video above 40 dB in every frame, CPU and
   Vulkan.
+- Tiny two-expert pipelines (`tiny-random-wan/a14b`: text-to-video; `tiny-random-wan/i2v`: concatenated image-to-video): both experts
+  within 1e-4, whole runs above 40 dB in every frame, CPU and Vulkan.
 - Real models on Vulkan (one RTX PRO 4500, 32 GB) against diffusers in f32 on CUDA, 832×480, 17 frames, 20 UniPC steps,
   guidance 5, the same initial latents: umT5-XXL (bf16 files) 3.0e-6 relative RMS; the transformer 2.4e-4 (Wan 2.1 1.3B, f32
   files), 2.8e-4 (Wan 2.2 TI2V-5B, f32 files) and 2.0e-3 (QuantStack's Wan2.2-TI2V-5B-Q8_0.gguf with the 2.2 folder as companion)
