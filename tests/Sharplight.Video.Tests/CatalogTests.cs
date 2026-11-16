@@ -23,19 +23,35 @@ public sealed class CatalogTests
     }
 
     [Fact]
-    public void SharplightVideoAddsWebMAndMp4AndReportsAvailability()
+    public void SharplightVideoAddsTheBundledEncodersAheadOfTheManagedOnes()
     {
         var services = new ServiceCollection();
-        services.AddSharplightVideo(o => o.FfmpegPath = "/nonexistent/ffmpeg");
+        services.AddVideoEncoders();
+        services.AddSharplightVideo(o => o.EnableHardwareEncoders = false);
         services.AddSharplightVideo();
         using ServiceProvider provider = services.BuildServiceProvider();
 
         var catalog = provider.GetRequiredService<VideoEncoderCatalog>();
+        var decoders = provider.GetRequiredService<VideoDecoderCatalog>();
 
-        Assert.Equal(4, provider.GetServices<IVideoEncoder>().Count());
-        Assert.Equal(Native.NativeVideoLibrary.IsAvailable, catalog.TryFind(VideoFormats.WebM, out _));
-        Assert.False(catalog.TryFind(VideoFormats.Mp4, out _));
-        Assert.DoesNotContain(catalog.Available, e => e.Format == VideoFormats.Mp4);
+        Assert.Equal(8, provider.GetServices<IVideoEncoder>().Count());
+        Assert.Single(provider.GetServices<IVideoDecoder>());
+        Assert.Equal(BundledFfmpeg.IsAvailable, catalog.TryFind(VideoFormats.Mp4, out _));
+        Assert.Equal(BundledFfmpeg.IsAvailable, decoders.IsAvailable);
+        Assert.Equal(BundledFfmpeg.IsAvailable, catalog.FindForPath("clip.gif") is FfmpegVideoEncoder);
+        Assert.Equal(BundledFfmpeg.IsAvailable, catalog.FindForPath("clip.apng") is FfmpegVideoEncoder);
+    }
+
+    [Fact]
+    public void TheHighestPriorityAvailableEncoderWinsAndUnavailableOnesFallBack()
+    {
+        var managed = new GifVideoEncoder();
+        var preferred = new FakeEncoder(VideoFormats.Gif, priority: 10, available: true);
+        var missing = new FakeEncoder(VideoFormats.Gif, priority: 20, available: false);
+
+        Assert.Same(preferred, new VideoEncoderCatalog([managed, missing, preferred]).FindForPath("a.gif"));
+        Assert.Same(managed, new VideoEncoderCatalog([managed, missing]).FindForPath("a.gif"));
+        Assert.Equal([preferred], new VideoEncoderCatalog([managed, preferred]).Available);
     }
 
     [Fact]

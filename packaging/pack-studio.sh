@@ -39,8 +39,9 @@ if [ -n "${STUDIO_UPDATE_URL:-}" ]; then
 fi
 
 # Trimming and native AOT stay off: Avalonia compiled bindings, System.CommandLine and the engine's reflection are not trim-safe yet.
+# SharplightRequireFfmpeg makes the build fail when the FFmpeg libraries of the target are missing (src/Sharplight.Video).
 dotnet publish "$repo/apps/Sharplight.Studio/Sharplight.Studio.csproj" -c Release -r "$rid" --self-contained \
-    -p:PublishReadyToRun=true ${props[@]+"${props[@]}"} -o "$publish"
+    -p:PublishReadyToRun=true -p:SharplightRequireFfmpeg=true ${props[@]+"${props[@]}"} -o "$publish"
 
 # Sharplight.Audio's native library (built by native.yml into native/sharplight_audio/out/<rid>/) rides along under runtimes/<rid>/native/.
 if ! ls "$publish/runtimes/$rid/native/"*sharplight_audio* >/dev/null 2>&1; then
@@ -48,11 +49,8 @@ if ! ls "$publish/runtimes/$rid/native/"*sharplight_audio* >/dev/null 2>&1; then
     exit 1
 fi
 
-# Sharplight.Video's native library (libvpx, built by native.yml into native/sharplight_video/out/<rid>/) rides along the same way.
-if ! ls "$publish/runtimes/$rid/native/"*sharplight_video* >/dev/null 2>&1; then
-    echo "the native video library for $rid is missing from the publish output (build it with native/sharplight_video/build.sh or download the native-video artifacts into native/sharplight_video/out)" >&2
-    exit 1
-fi
+# Sharplight.Video's FFmpeg libraries (built by native.yml into native/ffmpeg/out/<rid>/) ride along the same way, with their license texts.
+"$repo/packaging/check-ffmpeg.sh" "$publish" "$rid"
 
 cp "$repo/src/Sharplight.Audio/THIRD-PARTY-NOTICES.md" "$publish/THIRD-PARTY-NOTICES-Audio.md"
 cp "$repo/src/Sharplight.Video/THIRD-PARTY-NOTICES.md" "$publish/THIRD-PARTY-NOTICES-Video.md"

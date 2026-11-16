@@ -8,11 +8,14 @@ public sealed class VideoEncoderCatalog
     private readonly IVideoEncoder[] _encoders;
 
     /// <summary>Creates the catalog over the registered encoders.</summary>
-    /// <param name="encoders">All registered encoders; for a format with several, the first available one wins.</param>
+    /// <param name="encoders">
+    /// All registered encoders; for a format with several, the available one with the highest <see cref="IVideoEncoder.Priority"/> wins
+    /// (the first registered among equals).
+    /// </param>
     public VideoEncoderCatalog(IEnumerable<IVideoEncoder> encoders)
     {
         ArgumentNullException.ThrowIfNull(encoders);
-        _encoders = [.. encoders];
+        _encoders = [.. encoders.OrderByDescending(e => e.Priority)];
     }
 
     /// <summary>The encoders that are usable on this machine, one per format.</summary>

@@ -1,142 +1,69 @@
-using System.Diagnostics;
-using System.Globalization;
 using Microsoft.Extensions.Options;
+using Sharplight.Video.Ffmpeg;
 
 namespace Sharplight.Video;
 
 /// <summary>
-/// MP4 with H.264 (<see cref="VideoFormats.Mp4"/>) through a system <c>ffmpeg</c> that must be installed separately (H.264 is patent
-/// encumbered, so no encoder is bundled and ffmpeg is only ever run as a separate process). Raw RGB frames are piped to
-/// <c>ffmpeg -f rawvideo -pix_fmt rgb24 ... -c:v libx264 -pix_fmt yuv420p</c>, which writes a fragmented MP4 (<c>frag_keyframe+empty_moov</c>:
-/// the movie header first, so no seekable output and no temporary file are needed) to its standard output, copied to the destination
-/// stream as it arrives. <see cref="IsAvailable"/> is false when ffmpeg is not found.
+/// Encodes one format (<see cref="VideoFormats.Mp4"/>, <see cref="VideoFormats.WebM"/>, <see cref="VideoFormats.Mov"/>,
+/// <see cref="VideoFormats.Matroska"/>, <see cref="VideoFormats.Gif"/> or <see cref="VideoFormats.Apng"/>) with the FFmpeg libraries
+/// Sharplight ships (<see cref="BundledFfmpeg"/>): H.264 (OpenH264), AV1 (SVT-AV1), VP9 / VP8 (libvpx), ProRes, FFV1, APNG, GIF with an
+/// optimized palette, the hardware encoders of the machine, and an AAC / Opus / FLAC / PCM sound track from <see cref="VideoClip.Audio"/>.
+/// Takes precedence over the managed GIF and APNG encoders (<see cref="Priority"/>); <see cref="IsAvailable"/> is false when the libraries
+/// are missing, and the catalog then falls back to the managed encoders.
 /// </summary>
 public sealed class FfmpegVideoEncoder : IVideoEncoder
 {
-    private readonly SharplightVideoOptions _options;
-    private readonly Lazy<string?> _executable;
+    /// <summary>The <see cref="Priority"/> of the bundled encoders (the managed ones have 0).</summary>
+    public const int BundledPriority = 10;
 
-    /// <summary>Creates the encoder.</summary>
-    /// <param name="options">The ffmpeg path; <see langword="null"/> searches <c>PATH</c>.</param>
-    public FfmpegVideoEncoder(IOptions<SharplightVideoOptions>? options = null)
+    private readonly FfmpegContainer _container;
+    private readonly bool _hardware;
+
+    /// <summary>Creates the encoder of one format.</summary>
+    /// <param name="format">The format id (<see cref="VideoFormats"/>).</param>
+    /// <param name="options">Whether hardware encoders are offered; <see langword="null"/> uses the defaults.</param>
+    /// <exception cref="ArgumentException">The format is not one of the bundled formats.</exception>
+    public FfmpegVideoEncoder(string format, IOptions<SharplightVideoOptions>? options = null)
     {
-        _options = options?.Value ?? new SharplightVideoOptions();
-        _executable = new Lazy<string?>(() => FfmpegLocator.Find(_options.FfmpegPath));
+        ArgumentException.ThrowIfNullOrEmpty(format);
+        _container = FfmpegContainers.ForFormat(format);
+        _hardware = options?.Value.EnableHardwareEncoders ?? true;
     }
 
-    /// <inheritdoc />
-    public string Format => VideoFormats.Mp4;
+    /// <summary>The formats this encoder class handles (one instance per format).</summary>
+    public static IReadOnlyList<string> Formats { get; } = [.. FfmpegContainers.All.Select(c => c.Format)];
 
     /// <inheritdoc />
-    public IReadOnlyList<string> FileExtensions { get; } = [".mp4", ".m4v"];
+    public string Format => _container.Format;
 
     /// <inheritdoc />
-    public bool IsAvailable => _executable.Value is not null;
+    public IReadOnlyList<string> FileExtensions => _container.FileExtensions;
+
+    /// <inheritdoc />
+    public bool IsAvailable => BundledFfmpeg.IsAvailable;
+
+    /// <inheritdoc />
+    public int Priority => BundledPriority;
+
+    /// <inheritdoc />
+    /// <remarks>The first call tries the hardware encoders once (tens of milliseconds); call it off the UI thread.</remarks>
+    public IReadOnlyList<VideoCodecInfo> Codecs => IsAvailable ? [.. UsableCodecs().Select(c => c.ToInfo(_container.AudioCodecs))] : [];
 
     /// <inheritdoc />
     public async Task EncodeAsync(VideoClip clip, Stream output, VideoEncodeOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(clip);
         ArgumentNullException.ThrowIfNull(output);
-        string executable = _executable.Value ?? throw new PlatformNotSupportedException("ffmpeg was not found; install it or set SharplightVideoOptions.FfmpegPath to write MP4 files.");
+        BundledFfmpeg.ThrowIfUnavailable();
         VideoEncodeOptions settings = options ?? new VideoEncodeOptions();
-        await RunAsync(executable, clip, settings, output, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task RunAsync(string executable, VideoClip clip, VideoEncodeOptions options, Stream output, CancellationToken cancellationToken)
-    {
-        var start = new ProcessStartInfo(executable)
-        {
-            RedirectStandardInput = true,
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (string argument in Arguments(clip, options))
-        {
-            start.ArgumentList.Add(argument);
-        }
-
-        using var process = Process.Start(start) ?? throw new InvalidOperationException("ffmpeg could not be started.");
-        using CancellationTokenRegistration registration = cancellationToken.Register(() => Kill(process));
-        Task<string> errors = process.StandardError.ReadToEndAsync(CancellationToken.None);
-        Task copy = process.StandardOutput.BaseStream.CopyToAsync(output, cancellationToken);
-        try
-        {
-            Stream input = process.StandardInput.BaseStream;
-            foreach (var frame in clip.Frames)
+        await Task.Run(
+            () =>
             {
-                await input.WriteAsync(frame.Rgb, cancellationToken).ConfigureAwait(false);
-            }
-
-            await input.FlushAsync(cancellationToken).ConfigureAwait(false);
-            input.Close();
-        }
-        catch (IOException) when (process.HasExited)
-        {
-            // ffmpeg stopped reading because it failed; the exit code and its message below explain why.
-        }
-
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        string message = await errors.ConfigureAwait(false);
-        await copy.ConfigureAwait(false);
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidOperationException($"ffmpeg failed with exit code {process.ExitCode}: {message.Trim()}");
-        }
+                FfmpegEncodePlan plan = FfmpegEncodePlanner.Create(_container, UsableCodecs(), clip, settings, output.CanSeek);
+                FfmpegVideoWriter.Write(plan, clip, output, cancellationToken);
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
-    private static IEnumerable<string> Arguments(VideoClip clip, VideoEncodeOptions options)
-    {
-        string size = string.Create(CultureInfo.InvariantCulture, $"{clip.Width}x{clip.Height}");
-        string rate = clip.FramesPerSecond.ToString("R", CultureInfo.InvariantCulture);
-        string[] input = ["-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", size, "-r", rate, "-i", "-"];
-        foreach (string argument in input)
-        {
-            yield return argument;
-        }
-
-        // H.264 in 4:2:0 needs even dimensions: pad odd sizes by one pixel.
-        yield return "-vf";
-        yield return "pad=ceil(iw/2)*2:ceil(ih/2)*2";
-        yield return "-c:v";
-        yield return "libx264";
-        yield return "-pix_fmt";
-        yield return "yuv420p";
-        if (options.BitrateKilobitsPerSecond is int bitrate)
-        {
-            yield return "-b:v";
-            yield return string.Create(CultureInfo.InvariantCulture, $"{bitrate}k");
-        }
-        else
-        {
-            yield return "-crf";
-            yield return string.Create(CultureInfo.InvariantCulture, $"{40 - Math.Clamp(options.Quality, 0, 100) * 26 / 100}");
-        }
-
-        if (options.MaxThreads > 0)
-        {
-            yield return "-threads";
-            yield return options.MaxThreads.ToString(CultureInfo.InvariantCulture);
-        }
-
-        yield return "-movflags";
-        yield return "frag_keyframe+empty_moov+default_base_moof";
-        yield return "-f";
-        yield return "mp4";
-        yield return "pipe:1";
-    }
-
-    private static void Kill(Process process)
-    {
-        try
-        {
-            process.Kill(entireProcessTree: true);
-        }
-        catch (InvalidOperationException)
-        {
-            // The process has already exited.
-        }
-    }
+    private IReadOnlyList<FfmpegCodec> UsableCodecs() => FfmpegCodecProbe.Usable(_container, _hardware);
 }
