@@ -1258,11 +1258,46 @@ planner placed every trunk layer on the CPU (1 GiB on the GPU, 61 GiB on the CPU
   (0.84 / 0.70 / 0.59), which checks the head on the real weights.
 * The three speculative runs are identical to each other; they leave the plain run at one near-tie (" Pre" 22.225 vs " Origins"
   22.167 in the prefill logits at that position, which pick " Pre" as plain decoding does): the CPU verification rows (2-4 at a
-  time) round differently from single-row decode on the IQ1_S experts. Open: check the small-batch CPU matmul path of the
-  IQ quants for row-count-dependent results.
+  time) went through the chunked dequantize-then-dot path while single-row decode used the fused dequantize-dot kernel, which sums
+  in another order. Fixed: up to 4 rows now run the fused kernel row by row (`MatMulOp`, `MatMulIdOp`), so verification rows
+  are bit-identical to single-row decode.
 * No speedup on this placement: the MoE layers run on the CPU, where each verification row reads its own experts, so a step
-  costs nearly (k + 1) times a single-row step. A speedup needs the trunk on GPUs (two 32 GB GPUs, or a GPU that holds the
-  n-gram layer); the head stays off by default (`--speculate-mtp 0`).
+  costs nearly (k + 1) times a single-row step. Fixed in the planner since: a lookup table (a weight only `Gather` reads, the
+  26.8 GiB n-gram table here) is its own placement group and goes to the CPU alone, so the trunk layers fill the GPU(s).
+
+#### 17.5.1 After the placement fix: trunk on the GPU
+
+Same model, prompt and CLI run; the files on local disk. The 26.8 GiB n-gram table (IQ4_NL) is its own placement group and goes to
+the CPU; 40 of the 48 layers fill the 32 GB GPU (27.7 GiB), 8 layers run on the CPU.
+
+| k | one RTX PRO 4500 + CPU tok/s | acceptance | output vs k = 0 |
+|---|---|---|---|
+| off | 17.8 | | |
+| 1 | 19.7 (1.11x) | 0.87 (92 / 106) | one near-tie |
+| 2 | 25.0 (1.41x) | 0.79 (121 / 154) | as k = 1 |
+| 3 | 20.7 (1.16x) | 0.64 (130 / 204) | as k = 1 |
+
+* Plain decode went from 0.99 to 17.8 tok/s with the placement fix (llama.cpp `-ngl 33` on the older 96 GB machine: 13.9 Vulkan, 18.8 CUDA).
+* k = 2 is the best setting here (1.41x); the 8 CPU layers make every verification row cost more, so k = 3 loses again.
+* The speculative runs are identical to each other and meet the plain run at the same near-tie as above (gap 0.06), now
+  flipped the other way: on the GPU, `RowInvariantRows` makes the matmuls and attention of 2-4-row steps bit-identical to
+  single-row steps (the row-invariance tests now include the IQ formats and expert matmuls, all bit-identical), but not every
+  op this model runs (the delta-rule replay, the indexer, the n-gram convolution, the CPU layers). Open item: find the op that
+  breaks invariance here.
+
+### 17.6 MiMo-7B-RL: MTP on bf16 weights (2026-11-16)
+
+XiaomiMiMo/MiMo-7B-RL (HF `mimo`, bf16 safetensors, one MTP layer `model.mtp_layers.0` imported as the NextN draft head), one RTX
+PRO 4500, CLI, raw essay prompt, greedy, 200 tokens. Output is byte-identical to plain decoding for k = 1, 2 and 3.
+
+| k | tok/s | acceptance (accepted / drafted) |
+|---|---|---|
+| off | 37.6 | |
+| 1 | 74.6 (1.98x) | 0.66 (79 / 119) |
+| 2 | 50.0 (1.33x) | 0.43 (91 / 213) |
+| 3 | 34.9 (0.93x) | 0.30 (93 / 313) |
+
+MiMo's MTP layer is trained for the next-but-one token only; chained further it guesses much worse, so k = 1 is the setting.
 
 ## 18. Chunked gated delta rule and token-parallel conv1d for prefill (2026-11-14)
 

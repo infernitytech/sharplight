@@ -39,7 +39,7 @@ internal sealed class WanVaeGraphBuilder
     private WanVaeGraphBuilder(string name, Func<string, WeightInfo?> weights, WanVaeHyperParameters hp, bool first)
     {
         _b = new GraphBuilder(name, weights);
-        _emitCaches = name != VideoDiffusionGraphs.VaeEncode;
+        _emitCaches = true;
         _hp = hp;
         _first = first;
     }
@@ -60,7 +60,18 @@ internal sealed class WanVaeGraphBuilder
     /// <param name="height">Image height in pixels.</param>
     /// <param name="width">Image width in pixels.</param>
     public static ComputeGraph BuildEncoder(Func<string, WeightInfo?> weights, WanVaeHyperParameters hp, long height, long width)
-        => new WanVaeGraphBuilder(VideoDiffusionGraphs.VaeEncode, weights, hp, first: true).Encoder(height, width);
+        => new WanVaeGraphBuilder(VideoDiffusionGraphs.VaeEncode, weights, hp, first: true).Encoder(height, width, 1);
+
+    /// <summary>
+    /// Builds the encoder graph of each further chunk of temporal-compression frames (one latent frame), with the causal caches of the
+    /// previous chunk (<see cref="VideoDiffusionGraphs.VaeEncodeNext"/>; the Wan 2.1 VAE).
+    /// </summary>
+    /// <param name="weights">Canonical weight lookup.</param>
+    /// <param name="hp">The VAE hyper-parameters.</param>
+    /// <param name="height">Frame height in pixels.</param>
+    /// <param name="width">Frame width in pixels.</param>
+    public static ComputeGraph BuildEncoderNext(Func<string, WeightInfo?> weights, WanVaeHyperParameters hp, long height, long width)
+        => new WanVaeGraphBuilder(VideoDiffusionGraphs.VaeEncodeNext, weights, hp, first: false).Encoder(height, width, hp.TemporalDownscale);
 
     private ComputeGraph Decoder(long latentHeight, long latentWidth)
     {
@@ -92,11 +103,21 @@ internal sealed class WanVaeGraphBuilder
         return _b.Build();
     }
 
-    private ComputeGraph Encoder(long height, long width)
+    private ComputeGraph Encoder(long height, long width, long frames)
     {
         int z = _hp.LatentChannels;
-        var image = _b.Input(VideoDiffusionGraphs.Image, InputRole.Media, DataType.F32, new Shape(3, height, width));
-        var x = _b.Reshape(_b.Scale(image, 2f, -1f), 1, 3, height, width);
+        Value x;
+        if (_first)
+        {
+            var image = _b.Input(VideoDiffusionGraphs.Image, InputRole.Media, DataType.F32, new Shape(3, height, width));
+            x = _b.Reshape(_b.Scale(image, 2f, -1f), 1, 3, height, width);
+        }
+        else
+        {
+            var video = _b.Input(VideoDiffusionGraphs.Frames, InputRole.Media, DataType.F32, new Shape(3, frames, height, width));
+            x = _b.Contiguous(_b.Permute(_b.Scale(video, 2f, -1f), 1, 0, 2, 3));
+        }
+
         if (_hp.PatchSize > 1)
         {
             x = Patchify(x);
@@ -122,7 +143,7 @@ internal sealed class WanVaeGraphBuilder
 
             if (down)
             {
-                x = Downsample(x, $"{P}encoder.down_blocks.{index++}");
+                x = Downsample(x, $"{P}encoder.down_blocks.{index++}", _hp.TemporalDownsample[i]);
             }
         }
 
@@ -131,6 +152,11 @@ internal sealed class WanVaeGraphBuilder
         x = CausalConv(x, P + "quant_conv");
         long latentHeight = x.Shape[2].Fixed;
         long latentWidth = x.Shape[3].Fixed;
+        if (x.Shape[0].Fixed != 1)
+        {
+            throw new InvalidOperationException($"The encoder chunk produced {x.Shape[0].Fixed} latent frames instead of one.");
+        }
+
         // The mean half of the latent distribution, normalized: (μ − mean) / std.
         var mean = _b.Slice(x, 1, 0, z);
         var normalized = _b.Mul(_b.Sub(mean, ChannelConstant("latents_mean", _hp.LatentsMean)), ChannelConstant("latents_inv_std", [.. _hp.LatentsStd.Select(s => 1f / s)]));
@@ -304,8 +330,43 @@ internal sealed class WanVaeGraphBuilder
         return DiffusionBlocks.Upsample(_b, x, prefix + ".resample.1");
     }
 
-    /// <summary>Strided 2× downsampling (zero padding right and bottom, 3×3 stride-2 convolution); the first chunk skips the temporal step.</summary>
-    private Value Downsample(Value x, string prefix) => DiffusionBlocks.Conv(_b, x, prefix + ".resample.1", stride: 2, pads: [0, 0, 1, 1]);
+    /// <summary>
+    /// Strided 2× downsampling (zero padding right and bottom, 3×3 stride-2 convolution). A temporal level halves the frames of a further
+    /// chunk with a (3, 1, 1) stride-2 convolution over the previous chunk's last frame and this chunk's frames; the first chunk skips it
+    /// and only passes its frame on as the cache.
+    /// </summary>
+    private Value Downsample(Value x, string prefix, bool temporal = false)
+    {
+        x = DiffusionBlocks.Conv(_b, x, prefix + ".resample.1", stride: 2, pads: [0, 0, 1, 1]);
+        if (!temporal)
+        {
+            return x;
+        }
+
+        string cacheName = prefix[P.Length..] + ".time_conv";
+        long frames = x.Shape[0].Fixed;
+        long channels = x.Shape[1].Fixed;
+        if (_first)
+        {
+            _b.Output(VideoDiffusionGraphs.CacheOutPrefix + cacheName, x);
+            return x;
+        }
+
+        var cache = _b.Input(VideoDiffusionGraphs.CacheInPrefix + cacheName, InputRole.Other, DataType.F32, new Shape(1, channels, x.Shape[2].Fixed, x.Shape[3].Fixed));
+        var full = _b.Concat(0, cache, x);
+        var windows = new Value[frames / 2];
+        for (int o = 0; o < windows.Length; o++)
+        {
+            windows[o] = _b.Concat(1, _b.Slice(full, 0, 2 * o, 1), _b.Slice(full, 0, 2 * o + 1, 1), _b.Slice(full, 0, 2 * o + 2, 1));
+        }
+
+        _b.Output(VideoDiffusionGraphs.CacheOutPrefix + cacheName, _b.Contiguous(_b.Slice(x, 0, frames - 1, 1)));
+        var stacked = windows.Length == 1 ? windows[0] : _b.Concat(0, windows);
+        var weight = _b.Weight(prefix + ".time_conv.weight");
+        var bias = _b.TryWeight(prefix + ".time_conv.bias");
+        var attributes = Attributes.From(("strides", new[] { 1L, 1L }), ("pads", new[] { 0L, 0L, 0L, 0L }));
+        return _b.Emit1("Conv", bias is null ? [stacked, weight] : [stacked, weight, bias], attributes);
+    }
 
     /// <summary>
     /// The decoder shortcut of the residual VAE (<c>DupUp3D</c>): the input channels repeated to out · ft · 2 · 2 and shuffled into ft

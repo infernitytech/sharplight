@@ -27,4 +27,13 @@ public static class VideoConfigKeys
     /// and <see cref="TokenTimesteps"/>.
     /// </summary>
     public const string FirstFrameConditioning = "firstFrameConditioning";
+
+    /// <summary>
+    /// Model (two experts): the fraction of the training timesteps from which down the second denoiser runs (Wan 2.2 A14B: 0.875; the
+    /// first runs for timesteps ≥ ratio · train steps).
+    /// </summary>
+    public const string BoundaryRatio = "boundaryRatio";
+
+    /// <summary>Model (two experts): the default guidance scale of the second denoiser.</summary>
+    public const string GuidanceScale2 = "guidanceScale2";
 }

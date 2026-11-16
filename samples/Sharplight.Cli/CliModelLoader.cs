@@ -22,14 +22,16 @@ internal static class CliModelLoader
             deviceOptions.DisabledFeatures.Add(feature);
         }
 
-        var slots = settings.SplitWeights
-            .Select(weight => new DeviceSlot
-            {
-                Device = provider.OpenDevice(deviceInfo, deviceOptions),
-                Weight = weight,
-                MemoryLimit = settings.GpuMemoryLimitBytes,
-            })
-            .ToList();
+        var slots = settings.GpuCount > 1
+            ? OpenGpus(provider, runtime.DeviceIndex, settings, deviceOptions)
+            : settings.SplitWeights
+                .Select(weight => new DeviceSlot
+                {
+                    Device = provider.OpenDevice(deviceInfo, deviceOptions),
+                    Weight = weight,
+                    MemoryLimit = settings.GpuMemoryLimitBytes,
+                })
+                .ToList();
         var fallback = runtime.CpuOffload ? OpenCpuFallback() : null;
         var progress = new ConsoleLoadProgress();
 
@@ -51,6 +53,21 @@ internal static class CliModelLoader
         var model = LlmModel.Load(sampleRuntime.Loader, modelPath, loadOptions);
         var graph = settings.ImagePaths.Count > 0 ? WellKnown.DecodeMultimodalGraph : WellKnown.DecodeGraph;
         return new LoadedModel(model, graph, slots, fallback);
+    }
+
+    /// <summary>
+    /// One slot per physical GPU from <paramref name="first"/> on; the layer shares are the <c>--split</c> weights when there is one per GPU,
+    /// else every GPU's available memory.
+    /// </summary>
+    private static List<DeviceSlot> OpenGpus(IExecutionProvider provider, int first, CliSettings settings, DeviceOptions deviceOptions)
+    {
+        bool weighted = settings.SplitWeights.Count == settings.GpuCount;
+        return [.. Enumerable.Range(0, settings.GpuCount).Select(i => new DeviceSlot
+        {
+            Device = provider.OpenDevice(SampleRuntime.GetDevice(provider, first + i), deviceOptions),
+            Weight = weighted ? settings.SplitWeights[i] : null,
+            MemoryLimit = settings.GpuMemoryLimitBytes,
+        })];
     }
 
     private static Dictionary<string, string> Auxiliary(string? mmproj, string? draft)

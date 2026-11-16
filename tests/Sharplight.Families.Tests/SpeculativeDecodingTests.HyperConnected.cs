@@ -63,7 +63,15 @@ public partial class SpeculativeDecodingTests
     public async Task HyperConnectedMtpHead_Proposes_ReferenceDrafts(string variant, bool vulkan)
     {
         var (modelPath, auxiliary) = HyperConnectedVariant(variant);
-        string referencePath = Path.Combine(HyperConnectedModelPath, "qwen4exp_mtp_reference.json");
+        await Proposes_ReferenceDrafts(modelPath, auxiliary, Path.Combine(HyperConnectedModelPath, "qwen4exp_mtp_reference.json"), vulkan, cpuFallback: true);
+    }
+
+    /// <summary>
+    /// The model's draft head proposes the reference drafts of <paramref name="referencePath"/> (a list of {prompt, pending, drafts}): after
+    /// each prompt the target's next token is "pending" and the head's first proposal starts with "drafts".
+    /// </summary>
+    private static async Task Proposes_ReferenceDrafts(string modelPath, Dictionary<string, string> auxiliary, string referencePath, bool vulkan, bool cpuFallback)
+    {
         Assert.SkipUnless(File.Exists(referencePath) && Path.Exists(modelPath), $"{referencePath} or {modelPath} not present");
         using var reference = JsonDocument.Parse(File.ReadAllText(referencePath));
         var cases = reference.RootElement.EnumerateArray().Select(e => (
@@ -71,7 +79,7 @@ public partial class SpeculativeDecodingTests
             Pending: e.GetProperty("pending").GetInt32(),
             Drafts: e.GetProperty("drafts").EnumerateArray().Select(t => t.GetInt32()).ToArray())).ToList();
         using var device = OpenDevice(vulkan);
-        using var fallback = vulkan ? OpenDevice(false) : null;
+        using var fallback = vulkan && cpuFallback ? OpenDevice(false) : null;
         using var model = LlmModel.Load(TestHost.Loader, modelPath, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = false, Auxiliary = auxiliary,

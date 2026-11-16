@@ -40,6 +40,15 @@ public static class VideoDiffusionGraphs
     /// <summary>The denoiser graph (one evaluation of the video transformer).</summary>
     public const string Denoise = "denoise";
 
+    /// <summary>
+    /// The second denoiser graph of a two-expert model (component <see cref="SecondTransformerRole"/>; Wan 2.2 A14B's low-noise expert): the
+    /// same values as <see cref="Denoise"/>, evaluated for the timesteps below the model's <see cref="VideoConfigKeys.BoundaryRatio"/>.
+    /// </summary>
+    public const string Denoise2 = "denoise_2";
+
+    /// <summary>The role of the second denoiser component of a two-expert model.</summary>
+    public const string SecondTransformerRole = "transformer-2";
+
     /// <summary>The VAE decoder graph of the first latent frame.</summary>
     public const string VaeDecodeFirst = "vae_decode_first";
 
@@ -49,8 +58,15 @@ public static class VideoDiffusionGraphs
     /// <summary>The VAE decoder graph of the whole latent video (non-causal decoders, LTX-Video), used instead of the streamed pair.</summary>
     public const string VaeDecode = "vae_decode";
 
-    /// <summary>The VAE encoder graph of one image (the first latent frame).</summary>
+    /// <summary>The VAE encoder graph of one image (the first latent frame); it also returns the causal caches for <see cref="VaeEncodeNext"/>.</summary>
     public const string VaeEncode = "vae_encode";
+
+    /// <summary>
+    /// The VAE encoder graph of each further chunk of frames: input <see cref="Frames"/> f32 [3, r, H, W] in [0, 1] (r the temporal
+    /// compression) with the cache inputs of the previous chunk; output <see cref="Latent"/> [C, h, w], the next latent frame (image-to-video
+    /// models that condition on an encoded video of the start image followed by blank frames, Wan 2.2 I2V-A14B).
+    /// </summary>
+    public const string VaeEncodeNext = "vae_encode_next";
 
     /// <summary>Input of <see cref="TextEncode"/>: token ids.</summary>
     public const string Tokens = "tokens";

@@ -6,7 +6,7 @@ namespace Sharplight.Studio.Models;
 /// </summary>
 internal sealed class VisionResultFile
 {
-    /// <summary><c>classification</c>, <c>zero-shot</c>, <c>embedding</c>, <c>detection</c>, <c>depth</c>, <c>segmentation</c>, <c>ocr</c> or <c>upscale</c>.</summary>
+    /// <summary><c>classification</c>, <c>zero-shot</c>, <c>embedding</c>, <c>detection</c>, <c>depth</c>, <c>segmentation</c>, <c>semantic</c>, <c>ocr</c> or <c>upscale</c>.</summary>
     public string Mode { get; set; } = "";
 
     /// <summary>The model that ran it.</summary>
@@ -38,6 +38,9 @@ internal sealed class VisionResultFile
 
     /// <summary>The largest depth value (depth estimation).</summary>
     public float? DepthMax { get; set; }
+
+    /// <summary>The result is an alpha matte: the main image is the cut-out (semantic segmentation of a background-removal model).</summary>
+    public bool? Matte { get; set; }
 
     /// <summary>The candidate masks, in the model's order (segmentation).</summary>
     public List<VisionMaskRecord>? Masks { get; set; }

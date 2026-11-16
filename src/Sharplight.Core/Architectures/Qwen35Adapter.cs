@@ -145,7 +145,14 @@ public sealed class Qwen35Adapter : IModelAdapter
         }
 
         var sidecar = MtpSidecar(sources);
-        int nextn = sidecar?.Arch("mtp.layer_count", 0) ?? src.Arch("mtp.layer_count", 0);
+        var mtpSource = sidecar ?? src;
+        int nextn = mtpSource.Arch("mtp.layer_count", 0);
+        if (nextn == 0)
+        {
+            // Checkpoints whose config leaves out the MTP layer count (tiny Qwen3-Next): the layers the weights carry.
+            nextn = mtpSource.Weights.Keys.Where(k => k.StartsWith("mtp.layers.", StringComparison.Ordinal))
+                .Select(k => k.Split('.')[2]).Distinct(StringComparer.Ordinal).Count();
+        }
         int valueHeads = src.Arch<int>("linear_attention.value_head_count");
         var hp = new HParams(
             NLayer: src.Arch<int>("layer_count"),

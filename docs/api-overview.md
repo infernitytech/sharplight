@@ -268,7 +268,7 @@ configured models like every other kind. CLIP and SigLIP (adapter `ImageTextAdap
 to the same embedder: `EmbedTextAsync` embeds a prompt into the image space and `ClassifyZeroShotAsync` scores an image against candidate prompts (softmax for CLIP, sigmoid for SigLIP, with the model's learned scale and bias).
 Object detectors (DETR: `DetrAdapter`; RT-DETR: `RtDetrAdapter`; graph `detect`: normalized `pixels` in, per-query `logits` and `boxes` out) run through `services.AddObjectDetector(...)`; the box decoding, thresholding and
 non-maximum suppression are generic host-side utilities in Core (`BoundingBox`, `BoxUtilities.NonMaxSuppression`, `ObjectDetectionOptions`). `samples/Sharplight.Vision` (`sharplight-vision classify|detect|depth model image.png [--label prompt]... [-o out.png]`)
-is this in a command-line tool (`depth` writes a grayscale PNG, `detect` draws the boxes). Depth Anything (`DepthEstimationAdapter`, graph `estimate_depth`) runs through `services.AddDepthEstimator(...)`.
+is this in a command-line tool (`depth` writes a grayscale PNG, `detect` draws the boxes). Depth Anything (`DepthEstimationAdapter`, graph `estimate_depth`) runs through `services.AddDepthEstimator(...)`. Per-pixel segmentation (SegFormer, `SegformerAdapter`, graph `segment_semantic`, kind `image-segmentation-semantic`) runs through `services.AddSemanticSegmenter(...)` / `ISemanticSegmenter.SegmentAsync(image)`: a label map at the image size, the class names, `Mask(classId)` and, for matting models, `Alpha`.
 
 Promptable segmentation (SAM 2: `Sam2Adapter`, `vision-encoder` + `mask-decoder` components, graphs `segment_encode` and `segment_decode`) separates the expensive image stage from the cheap
 prompt stage: `EncodeImageAsync` returns a `SegmentationImage` (embedding and skip features, held by the host), and every click or box of an interactive session is one `SegmentAsync` over it.
@@ -619,7 +619,7 @@ output is distributed exactly as without speculation. Two speculators exist:
   `HiddenStates`). Drafts are the head's greedy choices, chained k times per step. Heads: Qwen3.5 / Qwen3-Next MTP layers,
   the hyper-connected MTP head of Qwen3.8-Flash-Next (`qwen4exp`: reads the trunk's residual streams before the final mixer,
   the decode output `hidden_streams` named by `WellKnown.DraftHiddenSource`, and mixes its own streams before the LM head;
-  `MtpDraftHead.BuildHyperConnected`), and the NextN layer of DeepSeek-V3 (`latent_decoder`) and GLM-4.5 (`decoder`, any family whose checkpoint carries a NextN
+  `MtpDraftHead.BuildHyperConnected`), and the NextN layer of DeepSeek-V3 (`latent_decoder`), GLM-4.5 and MiMo-7B (`decoder`, any family whose checkpoint carries a NextN
   layer after uniform layers; `MtpDraftHead.FirstNextnModule`). The head compiles against `LlmModel.SharedWeights`, so its
   embedding and LM head are the decoder's buffers (only its own layer adds device memory).
 
@@ -636,7 +636,7 @@ delta nets, Mamba, RWKV, short convs) get their recurrent ops compiled in rollba
 the state at the run start, `Truncate` picks how many rows to keep, and the slot's next run replays them inside the same
 kernel before its own rows. The engine speculates while at most `SpeculationMaxBatch` sequences decode and verifies at most
 `SpeculationMaxDraftRows` drafts per step (fewer per sequence as the batch grows); requests with an output constraint are not
-speculated. CLI and server: `--speculate-mtp k`, `--speculate-ngram k` (the CLI's `--draft <file>` loads an MTP draft file such as
+speculated. CLI and server: `--speculate-mtp k`, `--speculate-ngram k` (the CLI's `--gpus N` places the model over N physical GPUs; `--draft <file>` loads an MTP draft file such as
 `mtp-*.gguf`, an EAGLE-3 or a DFlash drafter as the `draft` auxiliary source; Studio: the load option "Draft head tokens", 0 = off); `sharplight-convert precompile --drafts k` stores
 the kernels of the verifying decoders and the draft head. `LlmModel.EstimateFootprint(slots, ctx, kvCacheTokens, draftTokens,
 draftHead, maxLogitsRows)` counts the rollback record states, the verification logits rows and (with `draftHead`) the head's

@@ -13,6 +13,9 @@ internal static class WanNames
     /// <summary>Canonical prefix of the transformer.</summary>
     public const string TransformerPrefix = "transformer.";
 
+    /// <summary>Canonical prefix of the second (low-noise) transformer of a two-expert model.</summary>
+    public const string SecondTransformerPrefix = "transformer_2.";
+
     /// <summary>Canonical prefix of the VAE.</summary>
     public const string VaePrefix = "vae.";
 
@@ -49,23 +52,24 @@ internal static class WanNames
     /// <param name="name">The tensor name without the component prefix.</param>
     /// <param name="stored">The stored tensor.</param>
     /// <param name="weights">The canonical set.</param>
-    public static void AddTransformer(string name, WeightInfo stored, CanonicalWeights weights)
+    /// <param name="prefix">The canonical prefix (<see cref="TransformerPrefix"/>, or <see cref="SecondTransformerPrefix"/> for a second expert).</param>
+    public static void AddTransformer(string name, WeightInfo stored, CanonicalWeights weights, string prefix = TransformerPrefix)
     {
         string canonical = TransformerName(name);
         if (canonical.EndsWith("modulation", StringComparison.Ordinal))
         {
-            weights.AddF32(TransformerPrefix + canonical, stored.As(TransformerPrefix + canonical, new Shape(stored.Shape.Elements())));
+            weights.AddF32(prefix + canonical, stored.As(prefix + canonical, new Shape(stored.Shape.Elements())));
             return;
         }
 
         if (canonical == "patch_embedding.weight")
         {
             long outputs = stored.Shape[0].Fixed;
-            weights.Add(TransformerPrefix + canonical, stored.As(TransformerPrefix + canonical, new Shape(outputs, stored.Shape.Elements() / outputs)));
+            weights.Add(prefix + canonical, stored.As(prefix + canonical, new Shape(outputs, stored.Shape.Elements() / outputs)));
             return;
         }
 
-        weights.Add(TransformerPrefix + canonical, stored);
+        weights.Add(prefix + canonical, stored);
     }
 
     /// <summary>Adds a VAE tensor (diffusers names) under its canonical name.</summary>

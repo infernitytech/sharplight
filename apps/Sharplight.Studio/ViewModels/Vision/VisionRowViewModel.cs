@@ -9,12 +9,13 @@ internal sealed class VisionRowViewModel
     /// <param name="score">The score, 0 to 1.</param>
     /// <param name="detail">More about the row (the box of a detection), or empty.</param>
     /// <param name="colorIndex">The class index whose box color the row shows, or -1 for no color.</param>
-    public VisionRowViewModel(string label, float score, string detail = "", int colorIndex = -1)
+    /// <param name="rgb">A color (0xRRGGBB) that replaces the one of <paramref name="colorIndex"/>, or <see langword="null"/>.</param>
+    public VisionRowViewModel(string label, float score, string detail = "", int colorIndex = -1, uint? rgb = null)
     {
         Label = label;
         Score = score;
         Detail = detail;
-        Color = colorIndex < 0 ? null : $"#{ImageAnnotator.ColorOf(colorIndex):X6}";
+        Color = rgb is { } custom ? $"#{custom:X6}" : colorIndex < 0 ? null : $"#{ImageAnnotator.ColorOf(colorIndex):X6}";
     }
 
     /// <summary>The class name.</summary>

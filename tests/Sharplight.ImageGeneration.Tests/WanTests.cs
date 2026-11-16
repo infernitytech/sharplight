@@ -18,21 +18,41 @@ namespace Sharplight.ImageGeneration.Tests;
 public sealed class WanTests
 {
     /// <summary>"2.1", "2.2" (diffusers folders) and "2.2-gguf" (QuantStack's Q8_0 transformer with the 2.2 folder as companion).</summary>
-    public static TheoryData<string> Variants => ["2.1", "2.2", "2.2-gguf"];
+    public static TheoryData<string> Variants => ["2.1", "2.2", "2.2-gguf", "2.2-a14b"];
+
+    private static readonly string A14bRoot = Path.Combine(Env.VideoRoot, "wan22-a14b-gguf");
 
     private static string FolderOf(string variant)
-        => Path.Combine(Env.VideoRoot, variant == "2.1" ? "Wan2.1-T2V-1.3B-Diffusers" : "Wan2.2-TI2V-5B-Diffusers");
+        => Path.Combine(Env.VideoRoot, variant is "2.1" or "2.2-a14b" ? "Wan2.1-T2V-1.3B-Diffusers" : "Wan2.2-TI2V-5B-Diffusers");
 
     private static string ModelPath(string variant)
-        => variant == "2.2-gguf" ? Path.Combine(Env.VideoRoot, "wan22-gguf", "Wan2.2-TI2V-5B-Q8_0.gguf") : FolderOf(variant);
+        => variant switch
+        {
+            "2.2-gguf" => Path.Combine(Env.VideoRoot, "wan22-gguf", "Wan2.2-TI2V-5B-Q8_0.gguf"),
+            "2.2-a14b" => Path.Combine(A14bRoot, "HighNoise", "Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf"),
+            _ => FolderOf(variant),
+        };
 
     private static TaskModel Load(string variant, Runtime.DeviceSlot slot)
-        => variant == "2.2-gguf"
-            ? Env.Load(ModelPath(variant), slot, new Dictionary<string, string> { [AuxiliaryRoles.TextEncoder] = FolderOf(variant), [AuxiliaryRoles.Vae] = FolderOf(variant) })
-            : Env.Load(ModelPath(variant), slot);
+        => variant switch
+        {
+            "2.2-gguf" => Env.Load(ModelPath(variant), slot, new Dictionary<string, string> { [AuxiliaryRoles.TextEncoder] = FolderOf(variant), [AuxiliaryRoles.Vae] = FolderOf(variant) }),
+            "2.2-a14b" => Env.Load(ModelPath(variant), slot, new Dictionary<string, string>
+            {
+                [AuxiliaryRoles.TextEncoder] = FolderOf(variant),
+                [AuxiliaryRoles.Vae] = FolderOf(variant),
+                [AuxiliaryRoles.SecondTransformer] = Path.Combine(A14bRoot, "LowNoise", "Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf"),
+            }),
+            _ => Env.Load(ModelPath(variant), slot),
+        };
 
     /// <summary>Q8_0 weights against the f32 reference: the file's quantization error, not the implementation's.</summary>
-    private static double Tolerance(string variant) => variant == "2.2-gguf" ? 5e-2 : 5e-3;
+    private static double Tolerance(string variant) => variant switch
+    {
+        "2.2-gguf" => 5e-2,
+        "2.2-a14b" => 3e-2,
+        _ => 5e-3,
+    };
 
     private static string Reference(string variant) => Path.Combine(Env.VideoRoot, variant == "2.1" ? "wan21-reference" : "wan22-i2v-reference", "reference");
 
@@ -90,6 +110,17 @@ public sealed class WanTests
             (VideoDiffusionGraphs.Context, Tensor(variant, "text_hidden")));
         var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor(variant, "transformer_out"));
         TestContext.Current.SendDiagnosticMessage($"Wan {variant} transformer: relative RMS {transformerRms:E2}");
+        if (variant == "2.2-a14b")
+        {
+            var low = GraphRunner.Run(model, VideoDiffusionGraphs.SecondTransformerRole, VideoDiffusionGraphs.Denoise2, VideoDiffusionGraphs.Prediction, 0, dims,
+                (VideoDiffusionGraphs.Latent, Tensor(variant, "noise")),
+                (VideoDiffusionGraphs.Timestep, timesteps),
+                (VideoDiffusionGraphs.Context, Tensor(variant, "text_hidden")));
+            var (lowMax, lowRms) = Env.Compare(low, Tensor(variant, "transformer_2_out"));
+            TestContext.Current.SendDiagnosticMessage($"Wan {variant} low-noise transformer: relative RMS {lowRms:E2}");
+            Assert.True(lowRms < Tolerance(variant), $"low-noise transformer: max {lowMax}, relative RMS {lowRms}");
+        }
+
         Assert.True(transformerRms < Tolerance(variant), $"transformer: max {transformerMax}, relative RMS {transformerRms}");
     }
 
@@ -108,7 +139,7 @@ public sealed class WanTests
         {
             Prompt = index.GetProperty("prompt").GetString()!,
             NegativePrompt = index.GetProperty("negative_prompt").GetString(),
-            Image = index.GetProperty("image").GetString() is { } image ? PngCodec.Read(Path.Combine(Path.GetDirectoryName(Reference(variant))!, image)) : null,
+            Image = index.TryGetProperty("image", out var imageName) && imageName.GetString() is { } image ? PngCodec.Read(Path.Combine(Path.GetDirectoryName(Reference(variant))!, image)) : null,
         };
         var options = new VideoGenerationOptions
         {
@@ -117,6 +148,7 @@ public sealed class WanTests
             Frames = index.GetProperty("frames").GetInt32(),
             Steps = index.GetProperty("steps").GetInt32(),
             GuidanceScale = index.GetProperty("guidance_scale").GetSingle(),
+            GuidanceScale2 = index.TryGetProperty("guidance_scale_2", out var second) ? second.GetSingle() : null,
             InitialNoise = Tensor(variant, "noise"),
         };
         var stopwatch = Stopwatch.StartNew();

@@ -157,7 +157,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
             Sharplight.Models.ModelKinds.ImageGeneration => Image,
             Sharplight.Models.ModelKinds.VideoGeneration => Video,
             Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding
-                or Sharplight.Models.ModelKinds.ObjectDetection or Sharplight.Models.ModelKinds.DepthEstimation or Sharplight.Models.ModelKinds.ImageSegmentation
+                or Sharplight.Models.ModelKinds.ObjectDetection or Sharplight.Models.ModelKinds.DepthEstimation or Sharplight.Models.ModelKinds.ImageSegmentation or Sharplight.Models.ModelKinds.SemanticSegmentation
                 or Sharplight.Models.ModelKinds.Ocr or Sharplight.Models.ModelKinds.ImageUpscaling => Vision,
             _ => null,
         };

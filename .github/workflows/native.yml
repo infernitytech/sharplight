@@ -50,7 +50,7 @@ jobs:
           if-no-files-found: error
 
   video-cross:
-    name: video: all platforms (zig)
+    name: "video: all platforms (zig)"
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -74,7 +74,7 @@ jobs:
           if-no-files-found: error
 
   video-native-tests:
-    name: video: native tests (linux-x64, ASan + UBSan)
+    name: "video: native tests (linux-x64, ASan + UBSan)"
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

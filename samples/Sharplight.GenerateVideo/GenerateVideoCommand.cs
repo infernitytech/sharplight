@@ -9,6 +9,7 @@ internal sealed class GenerateVideoCommand
 {
     private readonly Option<string> _model = new("--model", "-m") { Description = "Model: a diffusers folder (Wan 2.1 T2V, Wan 2.2 TI2V), a transformer-only Wan .gguf / .safetensors (with --companions) or an .slm package.", Required = true };
     private readonly Option<string?> _companions = new("--companions") { Description = "For a transformer-only checkpoint: a Wan diffusers folder of the same family that provides the text encoder, tokenizer and VAE." };
+    private readonly Option<string?> _transformer2 = new("--transformer-2") { Description = "For a two-expert model given as transformer-only files (Wan 2.2 A14B GGUF): the low-noise expert; --model is the high-noise one." };
     private readonly Option<string> _prompt = new("--prompt", "-p") { Description = "What to generate.", Required = true };
     private readonly Option<string?> _negative = new("--negative-prompt", "-n") { Description = "What the video should not show (default: the model's)." };
     private readonly Option<string?> _image = new("--image", "-i") { Description = "PNG start frame for image-to-video (models that support it, e.g. Wan 2.2 TI2V)." };
@@ -19,6 +20,7 @@ internal sealed class GenerateVideoCommand
     private readonly Option<double?> _fps = new("--fps") { Description = "Playback rate of the written video (default: the model's)." };
     private readonly Option<int?> _steps = new("--steps") { Description = "Denoising steps (default: the model's)." };
     private readonly Option<float?> _guidance = new("--guidance", "--cfg-scale") { Description = "Classifier-free guidance scale (default: the model's)." };
+    private readonly Option<float?> _guidance2 = new("--guidance-2") { Description = "Guidance scale of the low-noise expert of two-expert models (default: the model's)." };
     private readonly Option<long?> _seed = new("--seed", "-s") { Description = "Seed (default: random)." };
     private readonly Option<string?> _sampler = new("--sampler") { Description = $"Sampler: {string.Join(", ", Samplers.Flow)} (default: the model's)." };
     private readonly Option<string?> _noise = new("--noise") { Description = "Raw little-endian f32 file with the initial latents [C, T, h, w] (reproduces another implementation's run)." };
@@ -29,7 +31,7 @@ internal sealed class GenerateVideoCommand
     public Command Build()
     {
         var command = new RootCommand("Generates videos with a Sharplight video-generation model (Wan) through the DI task API.");
-        foreach (var option in new Option[] { _model, _companions, _prompt, _negative, _image, _output, _width, _height, _frames, _fps, _steps, _guidance, _seed, _sampler, _noise, _cpu, _device, _reducedPrecision })
+        foreach (var option in new Option[] { _model, _companions, _transformer2, _prompt, _negative, _image, _output, _width, _height, _frames, _fps, _steps, _guidance, _guidance2, _seed, _sampler, _noise, _cpu, _device, _reducedPrecision })
         {
             command.Options.Add(option);
         }
@@ -42,6 +44,8 @@ internal sealed class GenerateVideoCommand
     {
         Model = result.GetValue(_model)!,
         Companions = result.GetValue(_companions),
+        SecondTransformer = result.GetValue(_transformer2),
+        Guidance2 = result.GetValue(_guidance2),
         Prompt = result.GetValue(_prompt)!,
         NegativePrompt = result.GetValue(_negative),
         Image = result.GetValue(_image),

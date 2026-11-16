@@ -35,6 +35,9 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
         "Comma-separated layer shares, one per device slot, e.g. 0.5,0.5. The same GPU is opened once per entry, which exercises the multi-device pipeline path.",
         "weights");
 
+    private readonly Option<int> _gpus = OptionFactory.Integer("--gpus",
+        "Place the model over this many GPUs, starting at --device (equal layer shares; with --split, one share per GPU).", 1, minimum: 1, helpName: "count");
+
     private readonly Option<double?> _gpuMemory = new("--gpu-mem")
     {
         HelpName = "GiB",
@@ -120,6 +123,7 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
         _pull.AddTo(command);
         HubCommands.AddTo(command, _store, sampleRuntime);
         command.Options.Add(_split);
+        command.Options.Add(_gpus);
         command.Options.Add(_gpuMemory);
         command.Options.Add(_mmproj);
         command.Options.Add(_draft);
@@ -186,6 +190,7 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
             listDevices,
             runtime,
             splitWeights,
+            parseResult.GetValue(_gpus),
             gpuMemoryBytes,
             parseResult.GetValue(_mmproj),
             parseResult.GetValue(_draft),
