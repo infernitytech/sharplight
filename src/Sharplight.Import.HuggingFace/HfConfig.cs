@@ -141,6 +141,7 @@ internal sealed partial class HfConfig : IDisposable
     {
         ["BailingMoeV2ForCausalLM"] = "bailing_moe_v2",
         ["CogVLMForCausalLM"] = "cogvlm",
+        ["BiRefNet"] = "birefnet",
     };
 
     // Remote-code causal-LM classes whose config.json names another family's model_type (GroveMoE says qwen3_moe): the class decides.

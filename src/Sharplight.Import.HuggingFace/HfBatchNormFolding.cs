@@ -15,8 +15,9 @@ internal static class HfBatchNormFolding
     /// <param name="mean">The running mean [O].</param>
     /// <param name="variance">The running variance [O].</param>
     /// <param name="epsilon">The variance epsilon.</param>
+    /// <param name="convBias">The convolution's own bias [O], or null for a bias-free convolution.</param>
     /// <param name="name">The canonical name of the folded convolution (without <c>.weight</c> / <c>.bias</c>).</param>
-    public static (WeightInfo Weight, WeightInfo Bias) Fold(WeightInfo conv, WeightInfo gamma, WeightInfo beta, WeightInfo mean, WeightInfo variance, float epsilon, string name)
+    public static (WeightInfo Weight, WeightInfo Bias) Fold(WeightInfo conv, WeightInfo gamma, WeightInfo beta, WeightInfo mean, WeightInfo variance, float epsilon, string name, WeightInfo? convBias = null)
     {
         long outputs = conv.Shape[0].Fixed;
         float[] Scale()
@@ -46,7 +47,8 @@ internal static class HfBatchNormFolding
             var scale = Scale();
             var b = HfTransforms.DecodeF32(beta);
             var m = HfTransforms.DecodeF32(mean);
-            return HfTransforms.EncodeF32([.. b.Select((value, i) => value - m[i] * scale[i])]);
+            var own = convBias is null ? null : HfTransforms.DecodeF32(convBias);
+            return HfTransforms.EncodeF32([.. b.Select((value, i) => value - ((m[i] - (own?[i] ?? 0f)) * scale[i]))]);
         });
         return (weight, bias);
     }

@@ -92,20 +92,28 @@ public sealed class QwenImageTests
         }
     }
 
-    public static TheoryData<int> Sizes => [512, 1024];
+    public static TheoryData<string, int> Sizes => new() { { "qwen-image", 512 }, { "qwen-image", 1024 }, { "qwen-image-2512", 1024 } };
 
+    /// <summary>
+    /// Text to image against diffusers: Qwen-Image (Q4_K_M) and Qwen-Image-2512 (unsloth's Q4_K_M, the same layout and companions;
+    /// references in qwen-image-2512-q4km-reference).
+    /// </summary>
     [Theory]
     [MemberData(nameof(Sizes))]
-    public async Task TextToImageMatchesDiffusers(int size)
+    public async Task TextToImageMatchesDiffusers(string variant, int size)
     {
+        string gguf = variant == "qwen-image" ? Gguf : Path.Combine(Root, "gguf", "qwen-image-2512-Q4_K_M.gguf");
+        string reference = variant == "qwen-image" ? Reference : Path.Combine(Root, "qwen-image-2512-q4km-reference");
         var slot = Gpu();
-        Assert.SkipWhen(slot is null, "Qwen-Image, its references or a Vulkan GPU missing");
-        Assert.SkipUnless(File.Exists(Path.Combine(Reference, $"image_{size}.f32")), $"no {size} reference");
+        Assert.SkipWhen(slot is null || !File.Exists(gguf), "Qwen-Image, its references or a Vulkan GPU missing");
+        Assert.SkipUnless(File.Exists(Path.Combine(reference, $"image_{size}.f32")), $"no {variant} {size} reference");
+        float[] Tensor(string name) => Env.ReadFloats(Path.Combine(reference, name + ".f32"));
         var stopwatch = Stopwatch.StartNew();
-        using var model = Env.Load(Gguf, slot!, Companions());
+        using var model = Env.Load(gguf, slot!, Companions());
         using var generator = Env.Clients.Create<IImageGenerator>(model);
         double load = stopwatch.Elapsed.TotalSeconds;
-        var index = Index();
+        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(reference, "index.json")));
+        var index = document.RootElement;
         var options = new ImageGenerationOptions
         {
             Width = size,
@@ -126,12 +134,12 @@ public sealed class QwenImageTests
         if (output.Length > 0)
         {
             Directory.CreateDirectory(output);
-            File.WriteAllBytes(Path.Combine(output, $"qwen-image-{size}-sharplight.png"), PngCodec.Encode(result.Images[0]));
-            File.WriteAllBytes(Path.Combine(output, $"qwen-image-{size}-diffusers.png"), PngCodec.Encode(expected));
+            File.WriteAllBytes(Path.Combine(output, $"{variant}-{size}-sharplight.png"), PngCodec.Encode(result.Images[0]));
+            File.WriteAllBytes(Path.Combine(output, $"{variant}-{size}-diffusers.png"), PngCodec.Encode(expected));
         }
 
         double psnr = Env.Psnr(result.Images[0].Rgb, expected.Rgb);
-        TestContext.Current.SendDiagnosticMessage($"{size}: PSNR {psnr:F1} dB; load {load:F1} s, first run (compiling) {first:F1} s, second run {second:F1} s");
+        TestContext.Current.SendDiagnosticMessage($"{variant} {size}: PSNR {psnr:F1} dB; load {load:F1} s, first run (compiling) {first:F1} s, second run {second:F1} s");
         Assert.True(psnr > 25, $"{size}: PSNR {psnr:F1} dB");
     }
 }

@@ -1381,7 +1381,9 @@ preprocessing is the neutral `ImageProcessorConfig` stored with the model. Refer
 | timm ResNet (`timm/resnet18.a1_in1k`, `resnet34`, `resnet50`, `wide_resnet50_2.racm_in1k`: 7x7 stem, basic or bottleneck blocks, batch norm folded) | HF folder with a timm `config.json` (`timm_resnet`) | image-classification | supported (no label names in the repositories: indices only) | logits within 2e-3 relative rms of timm, same top-1 (CPU and Vulkan) |
 | Table Transformer (`microsoft/table-transformer-detection`: DETR with a ResNet-18 backbone, pre-norm layers, final norms) | HF `table-transformer` | object-detection | supported | same detection as transformers on a synthetic table, CPU = Vulkan |
 | SegFormer (`nvidia/segformer-b0-finetuned-ade-512-512`, b5 ADE 640: mix-transformer encoder with spatial-reduction attention and depthwise Mix-FFN, all-MLP decoder with the batch norm folded into the fusion convolution) | HF `segformer` | image-segmentation-semantic | supported: `ISemanticSegmenter.SegmentAsync` (label map at the input size, class names, per-class masks, optional logits; a single-channel model returns an alpha matte) | b0: logits 5.1e-4, label map 99.81 % identical; b5: logits 1.5e-6 (CPU) / 5.3e-7 (Vulkan), label map 99.998 % / 100 % |
-| Mask2Former, DPT (other heads), YOLO / YOLOS, Florence-2 | - | - | not started (see the sweep below) | - |
+| BiRefNet / RMBG-2.0 (`ZhengPeng7/BiRefNet`, `briaai/RMBG-2.0`: Swin encoder on the image and its half-size copy, deformable-ASPP decoder with the image's own patches injected per scale, gradient attention; batch norms folded) | HF remote-code class `BiRefNet` (`birefnet`) | image-segmentation-semantic (single-channel matte, alpha in `SemanticSegmentation.Alpha`) | supported: Studio's Semantic mode exports the alpha cut-out | matte logits 1.9e-6 (BiRefNet) / 2.3e-6 (RMBG-2.0) relative rms, CPU and Vulkan |
+| Florence-2 base (`florence-community/Florence-2-base`: DaViT tower with window and channel attention, 2-D position and temporal embeddings in the projector, image rows merged into the BART encoder input) | HF `florence2` (`encoder_decoder` with `encoder.input` "image_text") | ocr (`ITextRecognizer.RecognizeAsync` with `TextRecognitionOptions.Task` / `Input`; boxes from `<loc_N>` tokens in `Regions`) | supported: `<OCR>`, `<CAPTION>`, `<DETAILED_CAPTION>`, `<OD>` and the other prompt tasks as text | image features 6.3e-4, encoder 1.1e-3; greedy text and boxes identical to transformers (num_beams=1) |
+| Mask2Former, DPT (other heads), YOLO / YOLOS | - | - | not started (see the sweep below) | - |
 
 ### Vision popularity sweep (2026-11-16)
 
@@ -1424,13 +1426,13 @@ Fixes of the sweep (each with a regression test or a model in the suites above):
 
 Not covered, with what is missing:
 
-- **Florence-2** (OCR, caption, grounding): needs the DaViT vision tower (convolutional embeddings, window and channel attention blocks), the 2D position and temporal embeddings of its projector, image rows
-  merged into the BART encoder's input embeddings (the `encoder_decoder` adapter takes either an image or text), the task prompts and the `ITextRecognizer` surface for them. Not started (about a day or two of work).
+- **Florence-2** (round 6): done for the tasks that return text or boxes (`DaViTGraph`, `encoder.input` "image_text", prompts and generation settings stored with the model, `LocationTextParser`). Missing: beam search (the
+  checkpoint's default is 3 beams; the client is greedy with the no-repeat n-gram rule), the polygon / segmentation tasks (`<REFERRING_EXPRESSION_SEGMENTATION>`, `<REGION_TO_SEGMENTATION>`) and region inputs given as `<loc_N>` tokens are passed through as text only.
 - **TrOCR small** (`deit` encoder with a distillation token, sinusoidal decoder positions) and **large** (BEiT encoder); BLIP captioning, Donut, manga-ocr, GLM-OCR (other encoder-decoder families); PaddleOCR (Paddle format).
 - **Semantic segmentation** (round 5): the per-pixel task exists now (`ISemanticSegmenter`, kind `image-segmentation-semantic`, graph `segment_semantic`: `pixels` [1, 3, H, W] in, class scores [1, K, h, w] out; the client resamples
   the scores bilinearly to the input size and takes the arg-max, as transformers' post-processing does; K = 1 is read as a matte with a sigmoid). SegFormer (`SegformerAdapter`, `SegformerHfMapping`) is the first architecture; Studio's
   Vision page has a `Semantic` mode (colored overlay with a legend of the classes by pixel share, PNG export; a matte model exports the cut-out as PNG with alpha, `PngCodec.EncodeRgba`). The graph runs on the processor's fixed square
-  size (512 / 640 / 1024 px, no aspect ratio kept). Still missing: Mask2Former / OneFormer (universal: instance and panoptic), UperNet, CLIPSeg and the matting models BiRefNet / RMBG-2.0.
+  size (512 / 640 / 1024 px, no aspect ratio kept). Still missing: Mask2Former / OneFormer (universal: instance and panoptic), UperNet, CLIPSeg and (BiRefNet / RMBG-2.0 matting is done, see the table).
 - **Detection**: YOLOS, DETR checkpoints without the timm backbone, Ultralytics YOLO (`.pt`; their ONNX exports run through the ONNX importer), RT-DETR v2 variants listed above.
 - **Classification**: timm / HF families other than ResNet (MobileNetV3, EfficientNet, ConvNeXt, RepVGG, EfficientViT, Swin / SwinV2, EVA02 `timm_wrapper`, `SiglipForImageClassification`
   such as prithivMLmods' classifiers), HF `resnet` (microsoft/resnet-50), and `open_clip`-only repositories (timm/ViT-B-16-SigLIP, Marqo fashion models).
@@ -1771,7 +1773,8 @@ Verification (tools/make-tiny-qwen-image.py, tools/make-qwen-image-references.py
   guided 4-step txt2img above 40 dB in all 6 combinations.
 - Qwen-Image, city96's Q4_K_M GGUF with the pipeline's Qwen2.5-VL text encoder (bf16) and VAE as companions, on Vulkan against diffusers running
   the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 20 steps, true CFG 4, negative prompt " ", same latents: text
-  encoder 4.6–6.4e-4, transformer 8.4e-3 relative RMS; images 30.9 dB (512) / 29.8 dB (1024). Studio: the load panel shows the Qwen2.5-VL and
+  encoder 4.6–6.4e-4, transformer 8.4e-3 relative RMS; images 30.9 dB (512) / 29.8 dB (1024). Qwen-Image-2512 (unsloth's Q4_K_M, same
+  companions; its blocks 0, 52 and 58 exceed the f16 bound): 25.5 dB (1024), visually identical. Studio: the load panel shows the Qwen2.5-VL and
   VAE slots and fills them (with the Qwen2.5-VL-7B Q8_0 GGUF and ComfyUI's VAE beside the transformer), and the Image page generates.
 - Speed (Vulkan, Q4_K_M, warm, conditioning reused; the 13 GB transformer and the 16 GB bf16 text encoder alternate on the 32 GB GPU):
   512×512 20 guided steps 34 s, 1024×1024 131 s (3.3 s per step and both rows); diffusers (GGUF dequantized on the fly, CUDA f32) 8.2 s per

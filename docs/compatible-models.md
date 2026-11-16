@@ -242,6 +242,35 @@ images are visually identical. All run on CPU and Vulkan (Vulkan used for the re
 | Qwen-Image | Qwen/Qwen-Image, city96/Qwen-Image-gguf, unsloth/Qwen2.5-VL-7B-Instruct-GGUF (text encoder) | GGUF Q4_K_M + Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a Qwen2.5-VL GGUF) and VAE (the pipeline's or ComfyUI's `qwen_image_vae.safetensors`) companions | Q4_K_M: 30.9 dB (512) / 29.8 dB (1024) vs diffusers on the same files (20 steps, true CFG 4); text encoder 4.6-6.4e-4, transformer 8.4e-3 | 1024x1024 20 guided steps in 131 s on a 32 GB GPU (13 GB transformer + 16 GB bf16 text encoder, alternating); Studio loads the GGUF with its companions; the diffusers folder loads (verified on the tiny pipeline; its 41 GB bf16 transformer was not run) | 2026-11-16 |
 | Z-Image-Turbo | Tongyi-MAI/Z-Image-Turbo, unsloth/Z-Image-Turbo-GGUF | diffusers, GGUF Q8_0 + Qwen3-4B text encoder, VAE companions | 49.6 dB (512) / 46.4 dB (1024) vs diffusers on the same files; text encoder 1.4e-4, transformer 1.5e-3 | 9 steps, no guidance; 1024x1024 in 14.6 s; companions found in the pipeline folder beside the GGUF folder | 2026-11-16 |
 
+### 4.1 Popularity sweep (2026-11-16)
+
+The most downloaded text-to-image checkpoints on the Hub that use a supported architecture, loaded as distributed (single-file
+`.safetensors`; tools/make-sweep-references.py, `SweepTests`): Vulkan against diffusers' `from_single_file` (f32, CUDA) from the same latents,
+Euler, 20 steps, guidance 7 with a negative prompt (SDXL-Lightning: 4 steps on trailing timesteps, no guidance, as its model card runs it).
+All images are visually the same picture; the lower values of the anime merges come from their high-frequency line work.
+
+| Model | Hub repository | File | PSNR vs diffusers | Load + first image |
+|---|---|---|---|---|
+| Realistic Vision 5.1 (SD 1.5) | SG161222/Realistic_Vision_V5.1_noVAE | Realistic_Vision_V5.1_fp16-no-ema.safetensors | 46.1 dB (512) | 19 s |
+| DreamShaper 8 (SD 1.5) | Lykon/DreamShaper | DreamShaper_8_pruned.safetensors | 44.3 dB (512) | 54 s |
+| RealVisXL 5.0 | SG161222/RealVisXL_V5.0 | RealVisXL_V5.0_fp16.safetensors | 40.2 dB (1024) | 107 s |
+| Juggernaut XL v9 | RunDiffusion/Juggernaut-XL-v9 | Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors | 44.1 dB | 77 s |
+| Animagine XL 4.0 | cagliostrolab/animagine-xl-4.0 | animagine-xl-4.0.safetensors | 40.1 dB | 90 s |
+| Pony Diffusion V6 XL | LyliaEngine/Pony_Diffusion_V6_XL | ponyDiffusionV6XL_v6StartWithThisOne.safetensors | 40.4 dB | 111 s |
+| WAI-Illustrious-SDXL 17.0 | LyliaEngine/waiIllustriousSDXL_v170 | waiIllustriousSDXL_v170.safetensors | 31.8 dB | 52 s |
+| Illustrious XL 0.1 | OnomaAIResearch/Illustrious-xl-early-release-v0 | Illustrious-XL-v0.1.safetensors | 36.2 dB | 118 s |
+| NoobAI XL 1.1 | Laxhar/noobai-XL-1.1 | NoobAI-XL-v1.1.safetensors | 28.5 dB | 89 s |
+| SDXL-Lightning 4-step | ByteDance/SDXL-Lightning | sdxl_lightning_4step.safetensors | 45.9 dB | 92 s |
+| Qwen-Image-2512 | unsloth/Qwen-Image-2512-GGUF | qwen-image-2512-Q4_K_M.gguf + the Qwen-Image companions | 25.5 dB (1024, 20 steps, true CFG 4; vs diffusers on the same files; visually identical, three blocks run exact attention) | 150 s |
+
+Real LoRAs on SDXL base 1.0 (single file), `RealLoraTests` (diffusers `load_lora_weights`, Euler, same latents, no guidance): ByteDance's
+`sdxl_lightning_4step_lora.safetensors` (kohya, SGM names) 45.0 dB, nerijs/pixel-art-xl (kohya, strength 0.9) 64.8 dB; the unadapted
+images are 21 / 29 dB away.
+
+The Diffusers repositories of these (RealVisXL, Juggernaut, Animagine, NoobAI, Illustrious: `StableDiffusionXLPipeline`) are offered for
+download in Studio (`ClassifyPipeline`), the single files load in Studio's library like the SDXL base file. Not covered, because their
+architectures are not implemented yet: Qwen-Image 2.1 (the most downloaded family now), FLUX.2 Klein / Dev, Krea-2, MiniMax-H3-Image.
+
 LoRA (merged at load, role `lora@scale`; tools/make-tiny-lora.py, `TinyLoraTests`): random LoRAs on the tiny SD 1.5, SDXL and
 FLUX.1-dev pipelines against diffusers' `load_lora_weights` from the same noise, strength 0.8: SD 1.5 kohya and PEFT 82 dB (CPU) / 76 dB
 (Vulkan), SDXL kohya (SGM names, both text encoders) and PEFT 44 / 41 dB, FLUX kohya (original names, fused q/k/v) and PEFT (q/k/v and
@@ -275,6 +304,8 @@ Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical u
 | Depth Anything V2 base / large, Depth Anything V1 base | depth-anything/Depth-Anything-V2-Base-hf, Depth-Anything-V2-Large-hf, LiheYoung/depth-anything-base-hf | depth | depth map 7.4e-5 / 9.8e-5 / 1.2e-4 | fixed 518 px canvas | 2026-11-16 |
 | SegFormer b0 ADE20K, b5 ADE20K (640 px) | nvidia/segformer-b0-finetuned-ade-512-512, nvidia/segformer-b5-finetuned-ade-640-640 | image-segmentation-semantic | logits 5.1e-4 / 1.5e-6, label map 99.81 % / 99.998 % identical (CPU = Vulkan) | fixed square input; `pytorch_model.bin` read for b5 | 2026-11-16 |
 | TrOCR base handwritten | microsoft/trocr-base-handwritten | OCR | text identical to transformers | greedy; TrOCR small (DeiT encoder, sinusoidal positions) and large (BEiT) not supported | 2026-11-16 |
+| BiRefNet, RMBG-2.0 (background removal) | ZhengPeng7/BiRefNet, briaai/RMBG-2.0 (CC BY-NC 4.0, gated: accept the terms) | image-segmentation-semantic (matte) | matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors' code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical | 1024 px square; the network's settings are read from the checkpoint's `birefnet.py` (never run): Swin t/s/b/l backbone, deformable-ASPP decoder; both code revisions' input-patch channel orders | 2026-11-16 |
+| Florence-2 base | florence-community/Florence-2-base | OCR / caption / detection (`ITextRecognizer` tasks `<OCR>`, `<CAPTION>`, `<DETAILED_CAPTION>`, `<OD>`, ...) | image features 6.3e-4 and encoder output 1.1e-3 vs transformers; greedy text and `<OD>` boxes identical on two images (CPU and Vulkan) | num_beams=1 with the checkpoint's no-repeat n-gram (3) and forced BOS; beam search, region-to-X polygon tasks not done | 2026-11-16 |
 
 ## 6. Audio
 
