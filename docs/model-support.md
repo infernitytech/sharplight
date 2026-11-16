@@ -1329,7 +1329,8 @@ preprocessing is the neutral `ImageProcessorConfig` stored with the model. Refer
 | SwinIR classical and real-world x4 (`001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth`: Swin blocks with relative position bias and shifted windows, sub-pixel convolutions; `nearest+conv` upsampler for the real-world models) | `SuperResolutionImporter` (also reads the RRDBNet files) | image-upscaling | supported (`IImageUpscaler.UpscaleAsync`; sizes are multiples of the window of 8, the client pads edges by repetition where the reference reflects) | whole image 92.9 dB (Vulkan) / 91.6 dB (CPU) PSNR from the authors' network, tiled 61.6 dB; the real-world variant is built but not verified |
 | timm ResNet (`timm/resnet18.a1_in1k`, `resnet34`, `resnet50`, `wide_resnet50_2.racm_in1k`: 7x7 stem, basic or bottleneck blocks, batch norm folded) | HF folder with a timm `config.json` (`timm_resnet`) | image-classification | supported (no label names in the repositories: indices only) | logits within 2e-3 relative rms of timm, same top-1 (CPU and Vulkan) |
 | Table Transformer (`microsoft/table-transformer-detection`: DETR with a ResNet-18 backbone, pre-norm layers, final norms) | HF `table-transformer` | object-detection | supported | same detection as transformers on a synthetic table, CPU = Vulkan |
-| Mask2Former, DPT (other heads), YOLO / YOLOS, Florence-2, SegFormer | - | - | not started (see the sweep below) | - |
+| SegFormer (`nvidia/segformer-b0-finetuned-ade-512-512`, b5 ADE 640: mix-transformer encoder with spatial-reduction attention and depthwise Mix-FFN, all-MLP decoder with the batch norm folded into the fusion convolution) | HF `segformer` | image-segmentation-semantic | supported: `ISemanticSegmenter.SegmentAsync` (label map at the input size, class names, per-class masks, optional logits; a single-channel model returns an alpha matte) | b0: logits 5.1e-4, label map 99.81 % identical; b5: logits 1.5e-6 (CPU) / 5.3e-7 (Vulkan), label map 99.998 % / 100 % |
+| Mask2Former, DPT (other heads), YOLO / YOLOS, Florence-2 | - | - | not started (see the sweep below) | - |
 
 ### Vision popularity sweep (2026-11-16)
 
@@ -1375,8 +1376,10 @@ Not covered, with what is missing:
 - **Florence-2** (OCR, caption, grounding): needs the DaViT vision tower (convolutional embeddings, window and channel attention blocks), the 2D position and temporal embeddings of its projector, image rows
   merged into the BART encoder's input embeddings (the `encoder_decoder` adapter takes either an image or text), the task prompts and the `ITextRecognizer` surface for them. Not started (about a day or two of work).
 - **TrOCR small** (`deit` encoder with a distillation token, sinusoidal decoder positions) and **large** (BEiT encoder); BLIP captioning, Donut, manga-ocr, GLM-OCR (other encoder-decoder families); PaddleOCR (Paddle format).
-- **Semantic and universal segmentation** (SegFormer b0-b5, Mask2Former, OneFormer, UperNet, CLIPSeg, BiRefNet / RMBG): the segmentation task is prompt based (`IImageSegmenter`, SAM); a per-pixel label task and the
-  architectures are missing. SegFormer (mix transformer, all-MLP decoder) would be the first.
+- **Semantic segmentation** (round 5): the per-pixel task exists now (`ISemanticSegmenter`, kind `image-segmentation-semantic`, graph `segment_semantic`: `pixels` [1, 3, H, W] in, class scores [1, K, h, w] out; the client resamples
+  the scores bilinearly to the input size and takes the arg-max, as transformers' post-processing does; K = 1 is read as a matte with a sigmoid). SegFormer (`SegformerAdapter`, `SegformerHfMapping`) is the first architecture; Studio's
+  Vision page has a `Semantic` mode (colored overlay with a legend of the classes by pixel share, PNG export; a matte model exports the cut-out as PNG with alpha, `PngCodec.EncodeRgba`). The graph runs on the processor's fixed square
+  size (512 / 640 / 1024 px, no aspect ratio kept). Still missing: Mask2Former / OneFormer (universal: instance and panoptic), UperNet, CLIPSeg and the matting models BiRefNet / RMBG-2.0.
 - **Detection**: YOLOS, DETR checkpoints without the timm backbone, Ultralytics YOLO (`.pt`; their ONNX exports run through the ONNX importer), RT-DETR v2 variants listed above.
 - **Classification**: timm / HF families other than ResNet (MobileNetV3, EfficientNet, ConvNeXt, RepVGG, EfficientViT, Swin / SwinV2, EVA02 `timm_wrapper`, `SiglipForImageClassification`
   such as prithivMLmods' classifiers), HF `resnet` (microsoft/resnet-50), and `open_clip`-only repositories (timm/ViT-B-16-SigLIP, Marqo fashion models).

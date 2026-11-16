@@ -50,6 +50,7 @@ public static class TaskServiceCollectionExtensions
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, ObjectDetectorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, DepthEstimatorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, SemanticSegmenterFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.AudioCodecFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.VoiceActivityDetectorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.AudioEmbedderFactory>());
@@ -243,6 +244,12 @@ public static class TaskServiceCollectionExtensions
         /// <returns>The service collection.</returns>
         public IServiceCollection AddObjectDetector(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
             => services.AddTaskClient<IObjectDetector>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="ISemanticSegmenter"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model to load.</param>
+        /// <param name="serviceKey">The key to register under, or <see langword="null"/>.</param>
+        public IServiceCollection AddSemanticSegmenter(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<ISemanticSegmenter>(configure, serviceKey);
 
         /// <summary>Adds an <see cref="IDepthEstimator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
         /// <param name="configure">Configures the model path, devices and compile settings.</param>

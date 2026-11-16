@@ -182,6 +182,47 @@ public sealed class VisionPageTests
     }
 
     [Fact]
+    public async Task Semantic_ShowsAnOverlayWithALegend_AndExportsIt()
+    {
+        using var services = new TestServices();
+        Vision(services, ModelKinds.SemanticSegmentation, typeof(ISemanticSegmenter), out var client);
+        var page = await OpenAsync(services);
+        Assert.Equal(VisionMode.Semantic, page.Mode);
+        await RunAsync(page);
+
+        Assert.Equal("semantic", page.ResultMode);
+        Assert.Equal(["sky", "road"], page.Rows.Select(row => row.Label));
+        Assert.All(page.Rows, row => Assert.True(row.HasColor));
+        Assert.NotEqual(page.Rows[0].Color, page.Rows[1].Color);
+        Assert.Equal(0.5f, page.Rows[0].Score, 2);
+        var overlay = PngCodec.Decode(page.MainPng!);
+        Assert.Equal((80, 64), (overlay.Width, overlay.Height));
+        Assert.NotEqual(overlay.Rgb[0..3], overlay.Rgb[(3 * 79)..(3 * 79 + 3)]);
+        Assert.Single(client.Options);
+
+        string target = services.Directory + "/semantic.png";
+        services.Platform.SaveTo = target;
+        await page.ExportImageCommand.ExecuteAsync(null);
+        Assert.Equal(overlay.Rgb, PngCodec.Decode(await File.ReadAllBytesAsync(target, TestContext.Current.CancellationToken)).Rgb);
+    }
+
+    [Fact]
+    public async Task Semantic_OfAMattingModel_CutsTheSubjectOutWithAnAlphaChannel()
+    {
+        using var services = new TestServices();
+        Vision(services, ModelKinds.SemanticSegmentation, typeof(ISemanticSegmenter), out var client);
+        client.Matte = true;
+        var page = await OpenAsync(services);
+        await RunAsync(page);
+
+        Assert.Equal("semantic", page.ResultMode);
+        var png = page.MainPng!;
+        Assert.Equal(6, png[25]);
+        Assert.Contains("cut out", page.RowsHint, StringComparison.Ordinal);
+        Assert.All(page.Rows, row => Assert.False(row.HasColor));
+    }
+
+    [Fact]
     public async Task Depth_ShowsTheMapBesideTheImage_AndRecolorsWithoutANewRun()
     {
         using var services = new TestServices();

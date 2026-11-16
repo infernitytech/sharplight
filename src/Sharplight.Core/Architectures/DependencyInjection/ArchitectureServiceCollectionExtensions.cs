@@ -37,6 +37,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<DetrAdapter>()
                 .AddModelAdapter<RtDetrAdapter>()
                 .AddModelAdapter<DepthEstimationAdapter>()
+                .AddModelAdapter<SegformerAdapter>()
                 .AddModelAdapter<Sam2Adapter>()
                 .AddModelAdapter<RrdbNetAdapter>()
                 .AddModelAdapter<SwinIrAdapter>()
