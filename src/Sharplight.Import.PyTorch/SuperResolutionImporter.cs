@@ -38,7 +38,8 @@ public sealed partial class SuperResolutionImporter : IModelImporter
         try
         {
             using var file = TorchCheckpointFile.Open(path, s_options);
-            return file.Tensors.Keys.Any(k => k.EndsWith("conv_first.weight", StringComparison.Ordinal)) && file.Tensors.Keys.Any(k => k.EndsWith("body.0.rdb1.conv1.weight", StringComparison.Ordinal));
+            return file.Tensors.Keys.Any(k => k.EndsWith("conv_first.weight", StringComparison.Ordinal))
+                && file.Tensors.Keys.Any(k => k.EndsWith("body.0.rdb1.conv1.weight", StringComparison.Ordinal) || k.EndsWith("layers.0.residual_group.blocks.0.attn.qkv.weight", StringComparison.Ordinal));
         }
         catch (Exception e) when (e is InvalidDataException or UnsafePickleException or NotSupportedException or IOException)
         {
@@ -78,6 +79,11 @@ public sealed partial class SuperResolutionImporter : IModelImporter
                 }
 
                 string name = key[prefix.Length..];
+                if (IsRebuiltBuffer(name))
+                {
+                    continue;
+                }
+
                 if (entry.DType != TorchDType.Float32)
                 {
                     throw new NotSupportedException($"{Path.GetFileName(path)}: tensor '{key}' is {entry.DType}, only float32 super-resolution checkpoints are supported.");
@@ -94,7 +100,12 @@ public sealed partial class SuperResolutionImporter : IModelImporter
 
             if (!weights.TryGetValue("conv_first.weight", out var first) || !weights.ContainsKey("conv_last.weight"))
             {
-                throw new NotSupportedException($"{Path.GetFileName(path)}: not an RRDBNet checkpoint (no conv_first / conv_last).");
+                throw new NotSupportedException($"{Path.GetFileName(path)}: not an RRDBNet or SwinIR checkpoint (no conv_first / conv_last).");
+            }
+
+            if (weights.ContainsKey("layers.0.residual_group.blocks.0.attn.qkv.weight"))
+            {
+                return OpenSwinIr(path, weights, file);
             }
 
             int blocks = weights.Keys.Select(k => BlockName().Match(k)).Where(m => m.Success).Select(m => int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) + 1).DefaultIfEmpty(0).Max();
@@ -129,6 +140,66 @@ public sealed partial class SuperResolutionImporter : IModelImporter
             file.Dispose();
             throw;
         }
+    }
+
+    // SwinIR stores its relative position indices (int64) and shift masks as buffers; the adapter rebuilds both for the graph's size.
+    private static bool IsRebuiltBuffer(string name) => name.EndsWith(".relative_position_index", StringComparison.Ordinal) || name.EndsWith(".attn_mask", StringComparison.Ordinal);
+
+    // SwinIR checkpoints of the classical (sub-pixel convolution) and real-world x4 (nearest + convolution) variants with the 1conv residual connection; the
+    // window size follows from the relative position table, the upscale factor from the upsampler's convolutions.
+    private static ModelSource OpenSwinIr(string path, Dictionary<string, WeightInfo> weights, TorchCheckpointFile file)
+    {
+        string name = Path.GetFileName(path);
+        if (!weights.TryGetValue("layers.0.conv.weight", out var residual) || residual.Shape.Rank != 4)
+        {
+            throw new NotSupportedException($"{name}: only SwinIR checkpoints with the 1conv residual connection are supported.");
+        }
+
+        long rows = weights["layers.0.residual_group.blocks.0.attn.relative_position_bias_table"].Shape[0].Fixed;
+        int window = ((int)Math.Round(Math.Sqrt(rows)) + 1) / 2;
+        string upsampler;
+        int scale;
+        if (weights.ContainsKey("conv_up1.weight") && weights.ContainsKey("conv_up2.weight") && weights.ContainsKey("conv_hr.weight"))
+        {
+            upsampler = "nearest+conv";
+            scale = 4;
+        }
+        else if (weights.TryGetValue("upsample.0.weight", out var up) && weights.TryGetValue("conv_before_upsample.0.weight", out var before))
+        {
+            upsampler = "pixelshuffle";
+            long ratio = up.Shape[0].Fixed / before.Shape[0].Fixed;
+            int stages = 0;
+            while (weights.ContainsKey($"upsample.{2 * stages}.weight"))
+            {
+                stages++;
+            }
+
+            scale = ratio == 9 ? 3 : 1 << stages;
+        }
+        else
+        {
+            throw new NotSupportedException($"{name}: SwinIR checkpoints without an upsampler (denoising, JPEG artifact removal) are not supported.");
+        }
+
+        string a = "swinir.";
+        return new ModelSource
+        {
+            Format = FormatName,
+            Architecture = "swinir",
+            Metadata = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                [CanonicalKeys.Architecture] = "swinir",
+                [CanonicalKeys.Name] = Path.GetFileNameWithoutExtension(path),
+                [a + "window_size"] = window,
+                [a + "scale"] = scale,
+                [a + "upsampler"] = upsampler,
+                [a + "img_range"] = 1f,
+                [a + "default_size"] = 64,
+            },
+            Weights = weights,
+            OwnedResources = [file],
+            Path = path,
+        };
     }
 
     [GeneratedRegex(@"^body\.(\d+)\.rdb1\.conv1\.weight$")]

@@ -38,6 +38,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<DepthEstimationAdapter>()
                 .AddModelAdapter<Sam2Adapter>()
                 .AddModelAdapter<RrdbNetAdapter>()
+                .AddModelAdapter<SwinIrAdapter>()
                 .AddModelAdapter<KokoroAdapter>()
                 .AddModelAdapter<EncodecAdapter>()
                 .AddModelAdapter<DacAdapter>()

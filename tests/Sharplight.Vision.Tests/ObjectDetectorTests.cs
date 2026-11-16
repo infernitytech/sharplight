@@ -13,7 +13,7 @@ public class ObjectDetectorTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    private static string Model(string name) => Path.Combine(Home, "models/vision", name);
+    private static string Model(string name) => Path.Combine(Home, Directory.Exists(Path.Combine(Home, "models/vision", name)) ? "models/vision" : "models/vision-sweep", name);
 
     private static bool Available(string name) => File.Exists(Path.Combine(Model(name), "sharplight-reference.json"));
 
@@ -31,6 +31,8 @@ public class ObjectDetectorTests
     [Theory]
     [InlineData("detr-resnet-50")]
     [InlineData("rtdetr_r18vd")]
+    [InlineData("rtdetr_r50vd")]
+    [InlineData("rtdetr_v2_r18vd")]
     public async Task DetectorMatchesTransformers(string name)
     {
         if (!Available(name))
@@ -73,10 +75,13 @@ public class ObjectDetectorTests
         _ = expectedLogits;
     }
 
-    [Fact]
-    public async Task DepthEstimatorMatchesTransformers()
+    [Theory]
+    [InlineData("depth-anything-v2-small")]
+    [InlineData("Depth-Anything-V2-Base-hf")]
+    [InlineData("depth-anything-base-hf")]
+    public async Task DepthEstimatorMatchesTransformers(string name)
     {
-        const string Name = "depth-anything-v2-small";
+        string Name = name;
         if (!Available(Name))
         {
             return;
