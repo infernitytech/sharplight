@@ -1051,6 +1051,7 @@ codecs and vocoders are graphs of generic Core ops; the host runs only the token
 | Orpheus 3B fine-tune (Llama decoder over SNAC codes) + SNAC 24 kHz decoder | supported, CPU and Vulkan | transformers (fp32, greedy chain of 140 tokens, teacher forced) and the `snac` package | prompt ids identical; 0 argmax disagreements over 140 positions, worst top-logit delta 0.003 (CPU and Vulkan); SNAC decoder waveform relative RMS 2.1e-6 (CPU) / 2.4e-6 (Vulkan) with the reference's noise |
 | Chatterbox (ResembleAI/chatterbox, English; T3 Llama 520M over S3 speech tokens, S3Gen flow matching, HiFT vocoder), built-in voice | supported, CPU and Vulkan | the `chatterbox-tts` package 0.1.7 on torch (CPU, float32; `tests/Sharplight.TextToSpeech.Tests/tools/make_chatterbox_reference.py`) | text tokens identical; conditioning rows 7e-7 (CPU) / 4e-7 (Vulkan) relative RMS; T3 guided greedy chain teacher forced: 0 argmax disagreements over 92 steps (reference margins down to 1.5e-3); flow mel for the reference tokens and noise 4.4e-7 / 5.9e-7; HiFT F0 7.4e-7 / 7.8e-7 and waveform 5.6e-6 / 7.0e-6 with the reference's source draws |
 | F5-TTS v1 Base (SWivid; flow-matching diffusion transformer over characters) + Vocos mel 24 kHz, voice of a reference recording | supported, CPU and Vulkan | the `f5-tts` package 1.1.22 on torch (CPU, float32; `tools/make_f5tts_reference.py`, jfk.wav as the reference) | character ids and duration identical; sampled mel from the reference's log-mel and noise (32 guided Euler steps) 4.2e-6 (CPU) / 3.5e-5 (Vulkan) relative RMS; Vocos waveform 2.4e-5 / 1.8e-5; the reference log-mel within 5e-3 on a 24 kHz copy of the recording (from 16 kHz the resamplers differ in near-silent frames, which the log floor magnifies) |
+| XTTS v2 (Coqui; GPT-2 over audio codes + HiFi-GAN decoder), the 58 built-in speakers, English | supported, CPU and Vulkan | coqui-tts 0.28.0 on torch (CPU, float32; `tools/make_xtts_reference.py`, speaker "Claribel Dervla") | text ids identical (abbreviations, numbers as num2words spells them, symbols); greedy codes 90 of 90 identical (repetition penalty 10); latents 6.4e-5 (CPU) / 6.8e-5 (Vulkan) relative RMS; HiFi-GAN waveform of the reference latents 1.6e-4 / 1.8e-4; sampled with the model's settings, a four-sentence passage transcribed word for word by Qwen3-ASR-1.7B; Vulkan real-time factor 0.24 (4.2 s of audio in 1.0 s, RTX PRO 4500), CPU 1.2 |
 | CSM-1B + Mimi, Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
@@ -1132,6 +1133,25 @@ between punctuation and words reproduced for text without Chinese characters), t
 32 Euler steps over sway-sampled times (coefficient −1) with guidance 2 (a second evaluation without reference audio and text, keeping the filler
 mask), Vocos over the frames after the reference. Not done: Chinese text (pinyin conversion), automatic transcription of the reference, chunking of
 long texts.
+
+XTTS v2 loading: the model is Coqui's checkpoint folder (`Sharplight.Import.Xtts`, `XttsImporter`: `config.json` with `model_args`, Python's bare
+`Infinity` read as null; `model.pth`, a training checkpoint whose config object is built inert by the restricted unpickler (`InertModulePrefixes`),
+the state dictionary under `model`; `vocab.json`, a tokenizers file whose merges list repeats pairs: the Hugging Face translator now keeps each
+pair's last occurrence, as tokenizers ranks them; `speakers_xtts.pth`, the built-in speakers as `voices/{name}/latents.f32` and `speaker.f32`,
+permuted tensors reordered by the new `TorchPermutation`). The GPT-2 maps to canonical decoder weights (`token_embedding` the audio-code
+embedding, `lm_head` with bias, XTTS's final norm as the new optional `output_norm_2` after `output_norm`), the text and position tables stay on the
+host. `XttsAdapter` (canonical `xtts`) builds the decoder graphs with `decoder.embedding_input` and `xtts_vocoder` (the HiFi-GAN with the speaker
+embedding's 1x1 conditioning per upsampling stage). `XttsSynthesizer` follows `Xtts.inference`: English cleaning (`XttsTextNormalizer`), the
+language token and `[SPACE]`, start 261 / stop 0; prompt rows = the speaker's 32 conditioning latents, text embedding plus learned position, the
+start-of-audio row; then code by code with the model's sampling settings from `config.json` (temperature 0.75, top-k 50, top-p 0.85, repetition
+penalty 5 over the codes and the reference's two placeholder ids); the final hidden states (`InferenceSession.CaptureHidden`, new) at the start row
+and every code are the latents, linearly interpolated ×4 and ×24000/22050 (torch `align_corners=False`) and decoded with the speaker embedding.
+Text is spoken sentence by sentence (wrapped at 250 characters). Sampling: a request whose `SpeechSynthesisOptions.Sampling` is left at its defaults
+(only a seed set) now gets the model's own settings in all sampling synthesizers (XTTS, Chatterbox, Orpheus, OuteTTS); `samples/Sharplight.Speak`
+passes only the seed unless `--greedy` (with its former fixed settings XTTS ran to the 605-code limit on most seeds; coqui and Sharplight give
+4.5 to 6.2 s for the same sentence over six seeds). Not done: cloning a voice from a recording (the conditioning encoder: mel, Perceiver
+resampler, speaker encoder as graphs), the cleaners of the 16 other languages (they are lowercased only; Chinese, Japanese and Korean need their
+romanizers), decimal numbers, ordinals and currency amounts as num2words spells them, the speed option.
 
 ## 13. Speech to text (task kind `speech-recognition`)
 
@@ -1260,8 +1280,9 @@ LibriSpeech 1272-128104-0004, and FLEURS test clips in German, Spanish and Japan
 | handy-computer/cohere-transcribe-03-2026-gguf | GGUF | unsupported architecture `cohere_asr` |
 | Systran/faster-whisper-* | CTranslate2 | unsupported format (no importer) |
 | Xenova/whisper-* | ONNX | graphs run through the ONNX runner (section 9), no speech-recognition task on ONNX graphs |
+| coqui/XTTS-v2, ResembleAI/chatterbox, SWivid/F5-TTS | PyTorch / safetensors folders | **supported since 2026-11-16** (section 12) |
 | hexgrad/Kokoro-82M | PyTorch folder | re-checked: synthesized sentence transcribed by Whisper small with one name misspelled ("Sharplugget") |
-| XTTS v2, Chatterbox, F5-TTS, OmniVoice, VoxCPM2, VibeVoice, Qwen3-TTS, CosyVoice 3, MeloTTS, SpeechT5, Indic Parler-TTS, KittenTTS | various | unsupported architectures (metadata only, not downloaded); each needs its own acoustic model plus codec / flow-matching decoder / vocoder |
+| OmniVoice, VoxCPM2, VibeVoice, Qwen3-TTS, CosyVoice 3, MeloTTS, SpeechT5, Indic Parler-TTS, KittenTTS | various | unsupported architectures (metadata only, not downloaded); each needs its own acoustic model plus codec / flow-matching decoder / vocoder |
 
 Fixes of the sweep: wav2vec2 CTC import and `Wav2Vec2CtcAdapter` (weight-normed grouped positional convolution folded at import, both
 `weight_g`/`weight_v` and parametrization names; character CTC vocabularies become a Unigram tokenizer with `|` as the space); a `parakeet`

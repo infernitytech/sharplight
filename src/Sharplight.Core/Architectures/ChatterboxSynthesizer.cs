@@ -427,9 +427,7 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
     private AudioBuffer Synthesize(string text, SpeechSynthesisOptions? options, CancellationToken cancellationToken)
     {
         string voice = options?.Voice ?? DefaultVoice;
-        var sampling = options?.Sampling is { } requested && !ReferenceEquals(options, SpeechSynthesisOptions.Default) && requested != new SamplingOptions()
-            ? requested
-            : new SamplingOptions { Temperature = 0.8f, TopK = 0, TopP = 1f, MinP = 0.05f, RepetitionPenalty = 1.2f };
+        var sampling = options.SamplingOr(new SamplingOptions { Temperature = 0.8f, TopK = 0, TopP = 1f, MinP = 0.05f, RepetitionPenalty = 1.2f });
         var condition = ConditionRows(voice, DefaultExaggeration);
         var speech = SpeechTokens(TextTokens(text), condition, sampling, cancellationToken);
         if (speech.Length == 0)
