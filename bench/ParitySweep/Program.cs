@@ -1,6 +1,6 @@
 // Parity harness of the top-20 sweep.
 //
-//   ParitySweep <model path> <spec.json> <out.json> [--cpu] [--gen N] [--no-gen]
+//   ParitySweep <model path> <spec.json> <out.json> [--cpu] [--gen N] [--no-gen] [--teacher reference.json] [--convert package.slm] [--devices N] [--cpu-offload]
 //
 // spec.json: { "texts": [..], "chats": [{ "name", "messages": [..], "tools": [..], "context": {..} }], "prompts": [..], "chat_prompts": [names] }
 // Output: tokenizer ids + decoded text per text, rendered chat text + ids per conversation, greedy ids per prompt.
@@ -23,12 +23,23 @@ string outPath = args[2];
 bool cpu = args.Contains("--cpu");
 bool noGen = args.Contains("--no-gen");
 string? teacher = null;
+string? convert = null;
+int deviceCount = 1;
+bool cpuOffload = args.Contains("--cpu-offload");
 int gen = 48;
 for (int i = 3; i < args.Length - 1; i++)
 {
     if (args[i] == "--gen")
     {
         gen = int.Parse(args[i + 1]);
+    }
+    else if (args[i] == "--devices")
+    {
+        deviceCount = int.Parse(args[i + 1]);
+    }
+    else if (args[i] == "--convert")
+    {
+        convert = args[i + 1];
     }
     else if (args[i] == "--teacher")
     {
@@ -38,12 +49,33 @@ for (int i = 3; i < args.Length - 1; i++)
 
 using var runtime = new SampleRuntime();
 var provider = runtime.SelectProvider(cpu);
-var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, 0), new DeviceOptions());
+// --devices N: the model is placed over the first N devices of the provider (equal weights); --cpu-offload adds the CPU for what does not fit.
+var slots = Enumerable.Range(0, deviceCount)
+    .Select(index => new DeviceSlot { Device = provider.OpenDevice(SampleRuntime.GetDevice(provider, index), new DeviceOptions()), Weight = 1 })
+    .ToList();
+DeviceSlot? fallback = null;
+if (cpuOffload)
+{
+    var cpuProvider = runtime.SelectProvider(cpu: true);
+    fallback = new DeviceSlot { Device = cpuProvider.OpenDevice(SampleRuntime.GetDevice(cpuProvider, 0), new DeviceOptions()) };
+}
+
 var result = new JsonObject { ["model"] = Path.GetFileName(modelPath.TrimEnd('/')), ["device"] = cpu ? "cpu" : "vulkan" };
 var sw = System.Diagnostics.Stopwatch.StartNew();
+if (convert is not null)
+{
+    // Convert to a .slm package first and run every check on the package instead of the original files.
+    runtime.Converter.Convert(modelPath, convert);
+    result["convert_ms"] = sw.ElapsedMilliseconds;
+    result["package_bytes"] = new FileInfo(convert).Length;
+    modelPath = convert;
+    sw.Restart();
+}
+
 using var model = LlmModel.Load(runtime.Loader, modelPath, new LlmLoadOptions
 {
-    Devices = [new DeviceSlot { Device = device }],
+    Devices = slots,
+    Fallback = fallback,
     ContextLength = 2048,
 });
 result["load_ms"] = sw.ElapsedMilliseconds;
@@ -197,7 +229,12 @@ if (!noGen)
 }
 
 File.WriteAllText(outPath, result.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
-device.Dispose();
+foreach (var slot in slots)
+{
+    slot.Device.Dispose();
+}
+
+fallback?.Device.Dispose();
 return 0;
 
 static ChatMessage ToMessage(JsonObject m)
