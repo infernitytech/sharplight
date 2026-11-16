@@ -102,4 +102,35 @@ public sealed class TinyHunyuanVideoTests
         var (pooledMax, pooledRms) = Env.Compare(pooled, Tensor("pooled"));
         Assert.True(pooledRms < 1e-4, $"CLIP pooled: max {pooledMax}, relative RMS {pooledRms}");
     }
+
+    /// <summary>The transformer as an original-name single file (as GGUF / ComfyUI store it) with the diffusers folder as companion.</summary>
+    [Theory]
+    [MemberData(nameof(Devices))]
+    public void TransformerOnlyFileWithCompanions(string device)
+    {
+        string single = Path.Combine(Root, "single", "hunyuan-video.safetensors");
+        Assert.SkipUnless(File.Exists(single), "tiny-random-hunyuan-video single file missing");
+        var slot = Env.Device(device);
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        var error = Assert.Throws<NotSupportedException>(() => Env.Load(single, slot!));
+        Assert.Contains("text-encoder", error.Message, StringComparison.Ordinal);
+        string folder = Path.Combine(Root, "diffusers");
+        using var model = Env.Load(single, slot!, new Dictionary<string, string> { [Vision.AuxiliaryRoles.TextEncoder] = folder, [Vision.AuxiliaryRoles.Vae] = folder });
+        var index = Index();
+        var dims = new Dictionary<string, long>
+        {
+            [VideoDiffusionGraphs.FramesDimension] = (index.GetProperty("frames").GetInt32() - 1) / 4 + 1,
+            [VideoDiffusionGraphs.Height] = index.GetProperty("height").GetInt32(),
+            [VideoDiffusionGraphs.Width] = index.GetProperty("width").GetInt32(),
+        };
+        var prediction = GraphRunner.Run(model, ModelComponentRoles.Transformer, VideoDiffusionGraphs.Denoise, VideoDiffusionGraphs.Prediction, 0, dims,
+            (VideoDiffusionGraphs.Latent, Tensor("transformer_latent")),
+            (VideoDiffusionGraphs.Timestep, new[] { 700f }),
+            (VideoDiffusionGraphs.Context, Tensor("text_hidden")),
+            (VideoDiffusionGraphs.ContextMask, Tensor("text_mask")),
+            (DiffusionGraphs.Pooled, Tensor("pooled")),
+            (DiffusionGraphs.Guidance, new[] { index.GetProperty("guidance_scale").GetSingle() }));
+        var (maxAbs, rms) = Env.Compare(prediction, Tensor("transformer_out"));
+        Assert.True(rms < 1e-4, $"transformer: max {maxAbs}, relative RMS {rms}");
+    }
 }

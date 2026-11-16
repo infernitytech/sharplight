@@ -179,6 +179,7 @@ internal static class HunyuanVideoFolder
         metadata[t + "patch_size"] = config.Int("patch_size", 2);
         metadata[t + "patch_size_t"] = config.Int("patch_size_t", 1);
         metadata[t + "head_count"] = config.Int("num_attention_heads", 24);
+        metadata[t + "hidden_size"] = config.Int("num_attention_heads", 24) * config.Int("attention_head_dim", 128);
         metadata[t + "head_dim"] = config.Int("attention_head_dim", 128);
         metadata[t + "double_layers"] = config.Int("num_layers", 20);
         metadata[t + "single_layers"] = config.Int("num_single_layers", 40);
@@ -208,7 +209,9 @@ internal static class HunyuanVideoFolder
     }
 
     /// <summary>The prompt handling, scheduler and pipeline defaults (720×1280, 129 frames at 24 fps, 50 steps, embedded guidance 6).</summary>
-    private static void AddDefaults(Dictionary<string, object> metadata, string? scheduler)
+    /// <param name="metadata">The canonical metadata.</param>
+    /// <param name="scheduler">The scheduler's <c>scheduler_config.json</c> text, or null.</param>
+    public static void AddDefaults(Dictionary<string, object> metadata, string? scheduler)
     {
         metadata[Prefix + "text_encoder.prompt_length"] = 256;
         metadata[Prefix + "text_encoder.prompt_template"] = PromptTemplate;

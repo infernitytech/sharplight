@@ -66,6 +66,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<FluxAdapter>()
                 .AddModelAdapter<WanAdapter>()
                 .AddCompositeModelAdapter<WanCompanionAdapter>()
+                .AddCompositeModelAdapter<HunyuanVideoCompanionAdapter>()
                 .AddModelAdapter<LtxAdapter>()
                 .AddModelAdapter<HunyuanVideoAdapter>()
                 .AddCompositeModelAdapter<FluxCompanionAdapter>()
