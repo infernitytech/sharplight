@@ -35,6 +35,7 @@ internal static class HfArchitectureMappings
         Register(new EncoderHfMapping());
         Register(new VitHfMapping());
         Register(new ClipHfMapping());
+        Register(new TimmResNetHfMapping());
         Register(new DetrHfMapping());
         Register(new RtDetrHfMapping());
         Register(new DepthAnythingHfMapping());

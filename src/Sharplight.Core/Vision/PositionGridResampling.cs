@@ -42,15 +42,16 @@ public static class PositionGridResampling
     /// <param name="inSize">Side of the source grid.</param>
     /// <param name="outSize">Side of the target grid.</param>
     /// <param name="width">Length of each vector.</param>
+    /// <param name="antialias">True for PyTorch's <c>antialias=True</c> (the filter widens when shrinking), as DINOv2 with registers resizes its table.</param>
     /// <returns>The <c>outSize · outSize · width</c> values.</returns>
-    public static float[] ResizeGrid(ReadOnlySpan<float> grid, int inSize, int outSize, int width)
+    public static float[] ResizeGrid(ReadOnlySpan<float> grid, int inSize, int outSize, int width, bool antialias = false)
     {
         if (grid.Length != (long)inSize * inSize * width)
         {
             throw new ArgumentException($"Expected {(long)inSize * inSize * width} values for a {inSize}x{inSize} grid of {width}.", nameof(grid));
         }
 
-        var m = Bicubic(inSize, outSize);
+        var m = antialias ? ImageResampling.AntialiasedBicubic(inSize, outSize) : Bicubic(inSize, outSize);
         // Rows first: [out, in] × [in, in·width], then columns.
         var rows = new float[(long)outSize * inSize * width];
         for (int oy = 0; oy < outSize; oy++)

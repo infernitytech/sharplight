@@ -16,14 +16,15 @@ public sealed record ProcessedImage(float[] Planes, int Width, int Height, int S
     /// Cuts the image into square patches in raster order (patch rows top to bottom, left to right), each flattened channel-major then
     /// row-major: the input of a patch-embedding matrix product (the flattened convolution).
     /// </summary>
-    /// <param name="patchSize">Side of a patch; must divide the width and the height.</param>
-    /// <returns>A <c>(Width/p · Height/p) · (3·p·p)</c> array.</returns>
-    /// <exception cref="ArgumentException">The patch size does not divide the image size.</exception>
+    /// <param name="patchSize">Side of a patch; the pixels past the last whole patch of a row or column are dropped.</param>
+    /// <returns>A <c>(⌊Width/p⌋ · ⌊Height/p⌋) · (3·p·p)</c> array.</returns>
+    /// <exception cref="ArgumentException">The patch is larger than the image.</exception>
     public float[] Patchify(int patchSize)
     {
-        if (patchSize <= 0 || Width % patchSize != 0 || Height % patchSize != 0)
+        // A patch convolution without padding drops the remainder at the right and bottom edge (SigLIP so400m: 384 px with 14 px patches is a 27 x 27 grid).
+        if (patchSize <= 0 || Width < patchSize || Height < patchSize)
         {
-            throw new ArgumentException($"Patch size {patchSize} does not divide the {Width}x{Height} model input.");
+            throw new ArgumentException($"Patch size {patchSize} does not fit the {Width}x{Height} model input.");
         }
 
         int gw = Width / patchSize;

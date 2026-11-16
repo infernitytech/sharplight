@@ -1291,7 +1291,61 @@ preprocessing is the neutral `ImageProcessorConfig` stored with the model. Refer
 | SAM 2 / SAM 2.1 (`facebook/sam2.1-hiera-tiny`: Hiera encoder with windowed attention, q-pooling and global blocks, FPN neck, Fourier prompt encoder, two-way mask decoder with high-resolution skips; image path only) | HF `sam2`, `sam2_video` | image-segmentation | supported: `IImageSegmenter` (`EncodeImageAsync` once, `SegmentAsync` per point / box prompt) | point, points with a negative one and box prompts: all three candidate masks IoU > 0.98 and predicted IoU within 0.02 of transformers, CPU and Vulkan |
 | TrOCR (`microsoft/trocr-base-printed`: ViT encoder, post-norm decoder via `encoder_decoder` with `encoder.input` "image") | HF `vision-encoder-decoder` | ocr | supported (`ITextRecognizer.RecognizeAsync`, greedy) | text exactly transformers' ("SHARPLIGHT READS PRINTED TEXT FROM IMAGES."), CPU and Vulkan |
 | Real-ESRGAN x4plus (RRDBNet, official `.pth` through the restricted unpickler) | `SuperResolutionImporter` | image-upscaling | supported (`IImageUpscaler.UpscaleAsync`, tiles blended) | whole image > 40 dB PSNR from the reference implementation, tiled run > 40 dB (Vulkan) |
-| Mask2Former, DPT (other heads), YOLO, Florence-2, SwinIR | - | - | not started | - |
+| SwinIR classical and real-world x4 (`001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth`: Swin blocks with relative position bias and shifted windows, sub-pixel convolutions; `nearest+conv` upsampler for the real-world models) | `SuperResolutionImporter` (also reads the RRDBNet files) | image-upscaling | supported (`IImageUpscaler.UpscaleAsync`; sizes are multiples of the window of 8, the client pads edges by repetition where the reference reflects) | whole image 92.9 dB (Vulkan) / 91.6 dB (CPU) PSNR from the authors' network, tiled 61.6 dB; the real-world variant is built but not verified |
+| timm ResNet (`timm/resnet18.a1_in1k`, `resnet34`, `resnet50`, `wide_resnet50_2.racm_in1k`: 7x7 stem, basic or bottleneck blocks, batch norm folded) | HF folder with a timm `config.json` (`timm_resnet`) | image-classification | supported (no label names in the repositories: indices only) | logits within 2e-3 relative rms of timm, same top-1 (CPU and Vulkan) |
+| Table Transformer (`microsoft/table-transformer-detection`: DETR with a ResNet-18 backbone, pre-norm layers, final norms) | HF `table-transformer` | object-detection | supported | same detection as transformers on a synthetic table, CPU = Vulkan |
+| Mask2Former, DPT (other heads), YOLO / YOLOS, Florence-2, SegFormer | - | - | not started (see the sweep below) | - |
+
+### Vision popularity sweep (2026-11-16)
+
+Models taken from the Hub's download ranking per task (image-classification, zero-shot-image-classification, image-feature-extraction, object-detection,
+image-segmentation, depth-estimation, image-to-text, image-to-image), distinct architectures first, run through the task layer on CPU and Vulkan against
+transformers / timm / the authors' network (tests: `ImageEncoderTests`, `ObjectDetectorTests`, `TextRecognizerTests`, `ImageUpscalerTests` in `tests/Sharplight.Vision.Tests`, references
+from `tools/vision-reference.py`, `tools/timm-reference.py`, `tools/ocr-reference.py`, `tools/swinir-reference.py`). Checkpoints in `~/models/vision-sweep/<name>`.
+
+| Model | Task | Result (relative rms of the compared outputs unless stated; CPU = Vulkan) |
+|---|---|---|
+| SwinIR classical x4 | upscaling | 92.9 dB (Vulkan) / 91.6 dB (CPU) PSNR whole image, 61.6 dB tiled |
+| Falconsai/nsfw_image_detection (ViT) | classification | logits < 2e-3, same top-1 |
+| timm resnet18 / resnet34 / resnet50 (a1_in1k), wide_resnet50_2 (racm_in1k) | classification | logits < 2e-3, same top-1 |
+| openai/clip-vit-base-patch16 (`pytorch_model.bin` only), clip-vit-large-patch14 | embedding, zero-shot | image 2.1e-3 / 2.4e-3, text 1e-6, zero-shot logits 4.6e-4 / 3.3e-4 |
+| laion/CLIP-ViT-B-32-laion2B-s34B-b79K (GELU CLIP) | embedding, zero-shot | image 2.7e-3, zero-shot logits 5.0e-4 |
+| google/siglip2-base-patch16-224, google/siglip-so400m-patch14-384 | embedding, zero-shot | image 1.3e-3 / 1.6e-3, zero-shot logits 1.5e-4 / 1.8e-4 |
+| facebook/dinov2-base, dinov2-with-registers-base, dino-vitb16 (`.bin` only), google/vit-base-patch16-224-in21k | embedding | CLS embedding < 2e-3 |
+| PekingU/rtdetr_r50vd, rtdetr_r101vd_coco_o365, rtdetr_v2_r18vd | detection | same detections (R101: 2 cats, sofa, 2 remotes), boxes within 2 px, scores within 0.02 |
+| microsoft/table-transformer-detection | detection | same detection as transformers |
+| Depth-Anything-V2-Base-hf, Depth-Anything-V2-Large-hf, LiheYoung/depth-anything-base-hf (V1) | depth | depth map 7.4e-5 / 9.8e-5 / 1.2e-4 |
+| microsoft/trocr-base-handwritten | OCR | text exactly transformers' |
+
+The Studio Vision page loads and runs SwinIR (upscale), timm ResNet-50 (classify) and RT-DETR R50 (detect) headlessly on the real engine runtime (`VisionRealModelTests`); the library recognizes timm folders by their `architecture` / `pretrained_cfg`.
+
+Fixes of the sweep (each with a regression test or a model in the suites above):
+
+- **SwinIR** is a new adapter (`SwinIrAdapter`, canonical `swinir`: window attention with rebuilt relative position indices and shift masks as constants, window partition and cyclic shift as one row gather,
+  sub-pixel or nearest + convolution upsamplers); `SuperResolutionImporter` reads the official `.pth` files (the int64 index and mask buffers are skipped and rebuilt).
+- **Vulkan `Gather`** moved rows of 8 values only; activations with other widths (SwinIR's 180 channels) now gather one value per thread (quantized tables keep the 8-value requirement).
+- **timm ResNet**: new `resnet` adapter (`ResNetClassifierAdapter`) and `TimmResNetHfMapping` for timm's `config.json` (no `model_type`; `HfConfig.ModelType` reports `timm_resnet`); the processor comes from `pretrained_cfg`
+  (shortest edge `floor(size / crop_pct)`, center crop). torchvision's `CenterCrop` rounds its offsets to the nearest integer (ties to even) where Hugging Face's processors truncate, which moved the logits of the `crop_pct` 0.95
+  models by 2.5-4 %: `ImageProcessorConfig.CropOffsetNearest` selects it (set for timm models).
+- **RT-DETR**: ResNet-50 / 101 backbones (bottleneck blocks; the backbone configurations omit the depths), an encoder width apart from `d_model` (R101: 384 against 256), and the v2 checkpoints (`rt_detr_v2`:
+  the `n_points_scale` constants are the same 1 / n per point as v1's; per-level point counts, other offset scales and the discrete sampling method are rejected by `Validate`).
+- **Table Transformer**: `DetrAdapter` has a pre-norm form (`detr.pre_norm`) with the encoder's final norm.
+- **DINOv2 with registers** resamples its position table with `antialias=True` (`interpolate_antialias`), plain DINOv2 without.
+- **SigLIP 2** pads its prompts with the tokenizer's `<pad>` (0) where the text configuration only has the default 1 (the text embeddings were 0.46 off).
+- **SigLIP so400m** (384 px, 14 px patches = a 27 x 27 grid and 6 dropped pixels): `ProcessedImage.Patchify` drops the remainder like the patch convolution.
+- **laion repositories** hold the checkpoint twice (`model.safetensors` and `open_clip_model.safetensors`); the open_clip export is no longer read as a shard.
+
+Not covered, with what is missing:
+
+- **Florence-2** (OCR, caption, grounding): needs the DaViT vision tower (convolutional embeddings, window and channel attention blocks), the 2D position and temporal embeddings of its projector, image rows
+  merged into the BART encoder's input embeddings (the `encoder_decoder` adapter takes either an image or text), the task prompts and the `ITextRecognizer` surface for them. Not started (about a day or two of work).
+- **TrOCR small** (`deit` encoder with a distillation token, sinusoidal decoder positions) and **large** (BEiT encoder); BLIP captioning, Donut, manga-ocr, GLM-OCR (other encoder-decoder families); PaddleOCR (Paddle format).
+- **Semantic and universal segmentation** (SegFormer b0-b5, Mask2Former, OneFormer, UperNet, CLIPSeg, BiRefNet / RMBG): the segmentation task is prompt based (`IImageSegmenter`, SAM); a per-pixel label task and the
+  architectures are missing. SegFormer (mix transformer, all-MLP decoder) would be the first.
+- **Detection**: YOLOS, DETR checkpoints without the timm backbone, Ultralytics YOLO (`.pt`; their ONNX exports run through the ONNX importer), RT-DETR v2 variants listed above.
+- **Classification**: timm / HF families other than ResNet (MobileNetV3, EfficientNet, ConvNeXt, RepVGG, EfficientViT, Swin / SwinV2, EVA02 `timm_wrapper`, `SiglipForImageClassification`
+  such as prithivMLmods' classifiers), HF `resnet` (microsoft/resnet-50), and `open_clip`-only repositories (timm/ViT-B-16-SigLIP, Marqo fashion models).
+- **Depth / pose / features**: DPT-hybrid and DPT-large, DepthPro, Depth Anything 3, ZoeDepth, ViTPose, SuperPoint / LightGlue, DINOv3, SigLIP 2 NaFlex.
 
 The residual 1e-3 of the image towers is the resize (Pillow rounds to 8 bits per pass; the sample's pixel difference is not yet bit-exact), identical on both backends. Text towers match to float rounding.
 

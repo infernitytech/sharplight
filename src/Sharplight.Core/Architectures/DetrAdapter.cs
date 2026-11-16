@@ -10,7 +10,7 @@ namespace Sharplight.Architectures;
 
 /// <summary>
 /// DETR-style set-prediction object detectors (canonical arch <c>detr</c>): a ResNet backbone (<see cref="ResNetBackbone"/>, batch norm folded), a 1x1
-/// input projection, a post-norm transformer encoder over the flattened last stage with sine position embeddings, a decoder with learned object queries,
+/// input projection, a transformer encoder (post-norm; pre-norm with final norms for Table Transformer, <c>pre_norm</c>) over the flattened last stage with sine position embeddings, a decoder with learned object queries,
 /// a class head and a three-layer box head. Builds <see cref="WellKnown.DetectGraph"/> for a fixed square input and describes the model as an
 /// <see cref="ModelKinds.ObjectDetection"/> model (softmax with a no-object class) for the Core detector client.
 /// </summary>
@@ -44,6 +44,7 @@ public sealed class DetrAdapter : IModelAdapter
         string act = src.Arch("mlp.activation", "relu");
         int queries = src.Arch<int>("query_count");
         int size = src.Arch<int>("image_size");
+        bool preNorm = src.Arch("pre_norm", false);
         var backbone = new ResNetOptions("backbone.", [.. src.Arch<string>("backbone.depths").Split(',').Select(int.Parse)], src.Arch("backbone.bottleneck", true), false, false);
         var graph = BuildGraph();
         var labels = src.Get(CanonicalKeys.ClassifierLabels, Array.Empty<string>());
@@ -93,10 +94,24 @@ public sealed class DetrAdapter : IModelAdapter
             {
                 using var _ = b.Group($"encoder.layers.{il}");
                 string p = $"encoder.layers.{il}.";
+                if (preNorm)
+                {
+                    var normed = LayerNorm(b, memory, p + "self_attn_norm");
+                    var qkn = b.Add(normed, pos);
+                    memory = b.Add(memory, Attention(b, qkn, qkn, normed, p + "self_attn.", n, n));
+                    memory = b.Add(memory, Ffn(b, LayerNorm(b, memory, p + "ffn_norm"), p));
+                    continue;
+                }
+
                 var qk = b.Add(memory, pos);
                 var attn = Attention(b, qk, qk, memory, p + "self_attn.", n, n);
                 memory = LayerNorm(b, b.Add(memory, attn), p + "self_attn_norm");
                 memory = LayerNorm(b, b.Add(memory, Ffn(b, memory, p)), p + "ffn_norm");
+            }
+
+            if (preNorm)
+            {
+                memory = LayerNorm(b, memory, "encoder.norm");
             }
 
             var queryPos = b.Weight("query_position.weight");
@@ -106,6 +121,17 @@ public sealed class DetrAdapter : IModelAdapter
             {
                 using var _ = b.Group($"decoder.layers.{il}");
                 string p = $"decoder.layers.{il}.";
+                if (preNorm)
+                {
+                    var normed = LayerNorm(b, h, p + "self_attn_norm");
+                    var qkn = b.Add(normed, queryPos);
+                    h = b.Add(h, Attention(b, qkn, qkn, normed, p + "self_attn.", queries, queries));
+                    var crossIn = LayerNorm(b, h, p + "cross_attn_norm");
+                    h = b.Add(h, Attention(b, b.Add(crossIn, queryPos), keys, memory, p + "cross_attn.", queries, n));
+                    h = b.Add(h, Ffn(b, LayerNorm(b, h, p + "ffn_norm"), p));
+                    continue;
+                }
+
                 var qk = b.Add(h, queryPos);
                 h = LayerNorm(b, b.Add(h, Attention(b, qk, qk, h, p + "self_attn.", queries, queries)), p + "self_attn_norm");
                 h = LayerNorm(b, b.Add(h, Attention(b, b.Add(h, queryPos), keys, memory, p + "cross_attn.", queries, n)), p + "cross_attn_norm");

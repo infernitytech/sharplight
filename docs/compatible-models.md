@@ -250,6 +250,17 @@ Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical u
 | SAM 2.1 Hiera tiny | facebook/sam2.1-hiera-tiny | segmentation (point, box prompts) | mask IoU > 0.98 vs transformers | image path only, no video | 2026-11-16 |
 | TrOCR base printed | microsoft/trocr-base-printed | OCR | text identical to transformers | greedy | 2026-11-16 |
 | Real-ESRGAN x4plus | xinntao/Real-ESRGAN (official `.pth`) | 4x upscaling | > 40 dB PSNR vs the reference, also tiled | | 2026-11-16 |
+| SwinIR classical x4 | JingyunLiang/SwinIR (`001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth`) | 4x upscaling | 92.9 dB (Vulkan) / 91.6 dB (CPU) PSNR vs the authors' network, tiled 61.6 dB | sizes in multiples of 8; real-world x4 variant built, not verified | 2026-11-16 |
+| ResNet 18 / 34 / 50, Wide ResNet 50-2 | timm/resnet18.a1_in1k, resnet34.a1_in1k, resnet50.a1_in1k, wide_resnet50_2.racm_in1k | classification | logits < 2e-3 vs timm, same top-1 | no label names in timm repositories; other timm families not supported | 2026-11-16 |
+| NSFW image detection (ViT) | Falconsai/nsfw_image_detection | classification | logits < 2e-3, same top-1 | | 2026-11-16 |
+| CLIP ViT-B/16, ViT-L/14 | openai/clip-vit-base-patch16, openai/clip-vit-large-patch14 | image and text embedding, zero-shot | image 2.1e-3 / 2.4e-3, zero-shot logits 4.6e-4 / 3.3e-4 | B/16 ships only `pytorch_model.bin` | 2026-11-16 |
+| CLIP ViT-B/32 LAION-2B | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | image and text embedding, zero-shot | image 2.7e-3, zero-shot logits 5.0e-4 | the `open_clip_*` files of the repository are ignored | 2026-11-16 |
+| SigLIP 2 base, SigLIP so400m | google/siglip2-base-patch16-224, google/siglip-so400m-patch14-384 | image and text embedding, zero-shot | image 1.3e-3 / 1.6e-3, zero-shot logits 1.5e-4 / 1.8e-4 | SigLIP 2 NaFlex and giant-opt not tried | 2026-11-16 |
+| DINOv2 base, DINOv2 with registers base, DINO ViT-B/16 | facebook/dinov2-base, facebook/dinov2-with-registers-base, facebook/dino-vitb16 | image embedding | CLS embedding < 2e-3 | | 2026-11-16 |
+| RT-DETR R50vd, R101vd (COCO + O365), v2 R18vd | PekingU/rtdetr_r50vd, PekingU/rtdetr_r101vd_coco_o365, PekingU/rtdetr_v2_r18vd | detection | same detections as transformers, boxes within 2 px | fixed square canvas | 2026-11-16 |
+| Table Transformer detection | microsoft/table-transformer-detection | detection | same detection as transformers | fixed square canvas | 2026-11-16 |
+| Depth Anything V2 base / large, Depth Anything V1 base | depth-anything/Depth-Anything-V2-Base-hf, Depth-Anything-V2-Large-hf, LiheYoung/depth-anything-base-hf | depth | depth map 7.4e-5 / 9.8e-5 / 1.2e-4 | fixed 518 px canvas | 2026-11-16 |
+| TrOCR base handwritten | microsoft/trocr-base-handwritten | OCR | text identical to transformers | greedy; TrOCR small (DeiT encoder, sinusoidal positions) and large (BEiT) not supported | 2026-11-16 |
 
 ## 6. Audio
 
@@ -320,7 +331,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | SD 1.5 inpainting UNet, SDXL refiner, SD3, Chroma, Qwen-Image, Wan, LTX | various | not implemented yet (rejected with a clear message) |
 | LoRA, ControlNet, TAESD | | not implemented |
 | CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
-| Mask2Former, YOLO (native), Florence-2 (native), SwinIR | | vision models not implemented (Florence-2 ONNX parts work) |
+| Mask2Former, YOLO (native), Florence-2 (native), SegFormer | | vision models not implemented (Florence-2 ONNX parts work; SwinIR is native since 2026-11-16) |
 | Demucs, CLAP, MusicGen | | audio models not implemented |
 | Mamba / RWKV real checkpoints beyond those above | | not covered by a model test |
 | Candle-format whisper GGUF | oxide-lab/whisper-large-v3-turbo-q4_0.gguf, xkeyC/model_q4_k.gguf | rejected on purpose; use the whisper.cpp or transcribe.cpp files |

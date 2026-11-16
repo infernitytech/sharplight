@@ -227,6 +227,12 @@ internal static class ImageModelProbe
                 return ModelKinds.ImageClassification;
             }
 
+            // timm checkpoints have an architecture name and a pretrained_cfg instead of a model_type.
+            if (type.Length == 0 && root.TryGetProperty("pretrained_cfg", out _) && root.TryGetProperty("architecture", out _))
+            {
+                return ModelKinds.ImageClassification;
+            }
+
             // Encoders without a classifier head: CLIP and SigLIP (image and text towers), DINOv2 and plain ViT trunks.
             return type is "clip" or "siglip" or "siglip2" or "dinov2" or "dino" or "vit" or "deit" or "beit" or "owlvit" ? ModelKinds.ImageEmbedding : null;
         }

@@ -63,7 +63,8 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
             _poolIndex = _textCompiled.Graph.Inputs.First(v => v.Input!.Name == "pool_index");
             _contextLength = text.Config["contextLength"].GetInt32();
             _poolEos = text.Config["pool"].GetString() == "eos";
-            _padId = text.Config.TryGetValue("padTokenId", out var pad) ? pad.GetInt32() : _tokenizer.PadId ?? 0;
+            // The tokenizer's own padding token wins over the configuration's (SigLIP 2 pads with <pad> (0), its text configuration only has the default 1).
+            _padId = _tokenizer.PadId ?? (text.Config.TryGetValue("padTokenId", out var pad) ? pad.GetInt32() : 0);
             var shape = _textCompiled.Graph.Outputs[WellKnown.PooledOutput].Shape;
             _textDimensions = (int)shape[shape.Rank - 1].Fixed;
         }

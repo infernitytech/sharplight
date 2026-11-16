@@ -38,7 +38,7 @@ def main() -> None:
     result: dict = {"model_type": config.model_type, "pixel_sample": pixels.flatten()[:16].tolist()}
 
     with torch.no_grad():
-        if config.model_type in ("clip", "siglip"):
+        if config.model_type in ("clip", "siglip", "siglip2"):
             model = AutoModel.from_pretrained(args.model_dir).eval()
             # Projected features computed from the towers (the return type of get_*_features differs between transformers versions).
             project_image = model.visual_projection if config.model_type == "clip" else (lambda x: x)
@@ -46,8 +46,8 @@ def main() -> None:
             result["image_embedding"] = project_image(model.vision_model(pixel_values=pixels).pooler_output)[0].tolist()
             if args.text:
                 tokenizer = AutoTokenizer.from_pretrained(args.model_dir)
-                padding = "max_length" if config.model_type == "siglip" else True
-                tokens = tokenizer(args.text, padding=padding, max_length=64 if config.model_type == "siglip" else None, return_tensors="pt")
+                padding = "max_length" if config.model_type != "clip" else True
+                tokens = tokenizer(args.text, padding=padding, max_length=64 if config.model_type != "clip" else None, return_tensors="pt")
                 result["texts"] = args.text
                 result["token_ids"] = tokens["input_ids"].tolist()
                 result["text_embeddings"] = project_text(model.text_model(**tokens).pooler_output).tolist()
