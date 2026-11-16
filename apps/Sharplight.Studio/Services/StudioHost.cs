@@ -67,7 +67,7 @@ internal sealed class StudioHost : IDisposable
         var server = new KestrelApiServer(runtime.Host);
         var services = new StudioServices(settings, runtime, hub, new ModelLibrary(settings, engine.Converter), new SqliteConversationStore(database), stats, server,
             new DocumentExtractor(), new SystemMonitor(runtime), platform, dispatcher, theme,
-            container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(paths.PagesDirectory),
+            container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(paths.PagesDirectory, paths.GenerationsDirectory),
             new EngineAudioPlayer(audioDecoder, audioDevices, settings), new EngineAudioRecorder(audioDevices, audioEncoder, settings),
             audioDecoder, audioDevices, storage);
         return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), server, container);

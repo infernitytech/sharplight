@@ -1,5 +1,7 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.VisualTree;
 using Avalonia.Logging;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
@@ -71,7 +73,20 @@ public sealed class ImageScreenshotTests
             await HeadlessApp.WaitForAsync(window, () => viewModel.Image.HasResult);
             await HeadlessApp.RenderAsync(window);
             Assert.Equal(3, viewModel.Image.Images.Count);
+            // The gallery strip below the result loads its thumbnails on worker threads.
+            await HeadlessApp.WaitForAsync(window, () => viewModel.Image.Generations.Visible.Count == 3 && viewModel.Image.Generations.Visible.All(item => item.Thumbnail is not null));
+            await HeadlessApp.RenderAsync(window);
             Save(window, "image");
+            // Scrolled down to the gallery of stored images, with one of them selected.
+            viewModel.Image.Generations.SelectedItem = viewModel.Image.Generations.Visible[1];
+            await HeadlessApp.RenderAsync(window);
+            foreach (var scroller in window.GetVisualDescendants().OfType<ScrollViewer>().Where(scroller => scroller.Extent.Height > scroller.Viewport.Height + 1 && scroller.Viewport.Width > 600))
+            {
+                scroller.ScrollToEnd();
+            }
+
+            await HeadlessApp.RenderAsync(window);
+            Save(window, "image-gallery");
             viewModel.Image.SideTab = 2;
             await HeadlessApp.RenderAsync(window);
             Save(window, "image-outputs");

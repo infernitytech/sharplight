@@ -15,7 +15,12 @@ internal sealed partial class App : Application
     private StudioHost? _host;
 
     /// <inheritdoc/>
-    public override void Initialize() => AvaloniaXamlLoader.Load(this);
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+        // The name macOS shows in the application menu ("About ...", "Hide ...", "Quit ..."); the bundle's Info.plist has the same.
+        Name = AboutViewModel.ApplicationName;
+    }
 
     /// <inheritdoc/>
     public override void OnFrameworkInitializationCompleted()
@@ -30,6 +35,8 @@ internal sealed partial class App : Application
             ApplyChrome(window, _host.Services.Settings);
             var viewModel = new MainWindowViewModel(_host.Services);
             window.DataContext = viewModel;
+            NativeMenu.SetMenu(this, AppMenu.BuildApplicationMenu(viewModel));
+            NativeMenu.SetMenu(window, AppMenu.BuildMenuBar(viewModel));
             desktop.MainWindow = window;
             desktop.ShutdownRequested += (_, _) =>
             {
