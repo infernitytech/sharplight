@@ -181,7 +181,7 @@ public sealed class LlmModel : IDisposable
     public InferenceSession CreateSession(string graph = WellKnown.DecodeGraph, long? memoryLimit = null)
     {
         var sw = Stopwatch.StartNew();
-        var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: _options.MaxBatchTokens);
+        var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: BatchTokens);
         var compiled = CompiledModel.Compile(WithSamplingHead(Definition.Graph(graph)), placement);
         _options.Log?.Invoke($"Compiled '{graph}' in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
         CompiledModel? encoder = null;
@@ -315,7 +315,7 @@ public sealed class LlmModel : IDisposable
         var sw = Stopwatch.StartNew();
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
-        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged,
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, BatchTokens, placement, UsesDeviceSampling, paged,
             rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0);
         string kv = paged > 0 ? $", paged KV cache of {paged} tokens" : "";
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
@@ -369,7 +369,7 @@ public sealed class LlmModel : IDisposable
         // A paged head cache gets a block per slot more than the target's: its rows run up to draftTokens past the target's.
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value + (long)slots * (draftTokens + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
         // With a device sampling head the draft tokens (greedy) are chosen on the device: only token ids come back.
-        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged, textPositionAxes: TextPositionAxes);
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, BatchTokens, placement, UsesDeviceSampling, paged, textPositionAxes: TextPositionAxes);
         _options.Log?.Invoke($"Compiled '{WellKnown.DraftGraph}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         ReportReady(WellKnown.DraftGraph);   // placement, compile and upload progress come through the compile options
         var tokenMap = Definition.Properties.TryGetValue(WellKnown.DraftTokenMap, out var map) ? map as int[] : null;
@@ -382,7 +382,7 @@ public sealed class LlmModel : IDisposable
         long? kvCacheTokens, Stopwatch sw)
     {
         int blockRows = Math.Min(draftTokens, blockSize - 1) + 1;
-        var placement = PlacementFor(null, ctx, rowBound: (long)slots * blockRows, maxTokens: Math.Max(_options.MaxBatchTokens, slots * blockRows));
+        var placement = PlacementFor(null, ctx, rowBound: (long)slots * blockRows, maxTokens: Math.Max(BatchTokens, slots * blockRows));
         // The block runs past the target's rows; its rows are cut after every pass.
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value + (long)slots * (blockRows + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, (int)placement.Compile.MaxTokens, placement, deviceSampling: false, paged,
@@ -395,6 +395,64 @@ public sealed class LlmModel : IDisposable
     }
 
     private const long DefaultReserve = 1L << 30;
+
+    /// <summary>Largest rows per forward pass chosen automatically (<see cref="TaskLoadOptions.MaxBatchTokens"/> 0).</summary>
+    public const int AutomaticMaxBatchTokens = 2048;
+
+    /// <summary>
+    /// Smallest rows per forward pass chosen automatically, and the choice on CPU-only placements (512, the fixed default before
+    /// the automatic choice).
+    /// </summary>
+    public const int AutomaticMinBatchTokens = 512;
+
+    private int? _batchTokens;
+
+    /// <summary>
+    /// Rows per forward pass of this model's sessions and batch decoders (prompts are prefilled in chunks of this many tokens):
+    /// <see cref="TaskLoadOptions.MaxBatchTokens"/>, or when that is 0 (the default of <see cref="LlmLoadOptions"/>) the largest of
+    /// <see cref="AutomaticMaxBatchTokens"/>, 1024 and <see cref="AutomaticMinBatchTokens"/> (at most the context length) whose
+    /// estimated footprint (<see cref="PlacementPlanner.Estimate"/>: weights, one sequence's state, activations) fits the devices'
+    /// available memory. Fixed by the first compilation of the model, so every session and decoder agrees.
+    /// </summary>
+    /// <remarks>
+    /// Larger chunks fill the GPU better at prefill: one 2048-row pass instead of four 512-row passes takes 30-40 % less time on
+    /// small models (fewer launches, larger GEMM grids, one attention pass over the prompt).
+    /// </remarks>
+    public int BatchTokens => _batchTokens ??= ResolveBatchTokens();
+
+    private int ResolveBatchTokens()
+    {
+        if (_options.MaxBatchTokens > 0)
+        {
+            return _options.MaxBatchTokens;
+        }
+
+        var devices = _options.Devices.Where(slot => slot.Device.Info.Kind != DeviceKind.Cpu).ToList();
+        if (devices.Count == 0 || !Definition.Graphs.ContainsKey(WellKnown.DecodeGraph))
+        {
+            return AutomaticMinBatchTokens;
+        }
+
+        long reserve = _options.ReservePerDevice ?? DefaultReserve;
+        long capacity = devices.Sum(slot => Math.Max(0, (slot.MemoryLimit ?? slot.Device.AvailableMemory) - reserve));
+        int context = _options.ContextLength > 0 ? _options.ContextLength : AutomaticMaxBatchTokens;
+        int rows = Math.Max(AutomaticMinBatchTokens, Math.Min(AutomaticMaxBatchTokens, context));
+        while (rows > AutomaticMinBatchTokens && SessionFootprint(rows, context).Total > capacity)
+        {
+            rows /= 2;
+        }
+
+        _options.Log?.Invoke($"Rows per forward pass: {rows} (automatic, {capacity / 1048576} MiB available).");
+        return rows;
+    }
+
+    /// <summary>Estimated footprint of a single-sequence session compiled for <paramref name="rows"/> rows per pass.</summary>
+    private ModelFootprint SessionFootprint(int rows, int contextLength) => PlacementPlanner.Estimate(Definition.Graph(WellKnown.DecodeGraph), new CompileOptions
+    {
+        MaxTokens = rows,
+        ContextLength = contextLength,
+        SymbolBounds = new Dictionary<string, long> { ["R"] = rows },
+    });
 
     /// <summary>
     /// Whether decoders get a device sampling head: enabled by the options and the environment, and the logits are computed on an
@@ -418,7 +476,7 @@ public sealed class LlmModel : IDisposable
         ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
         Compile = new CompileOptions
         {
-            MaxTokens = maxTokens ?? _options.MaxBatchTokens,
+            MaxTokens = maxTokens ?? BatchTokens,
             ContextLength = contextLength,
             SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = MaxSourceTokens(contextLength) },
             DisabledFeatures = _options.DisabledFeatures.ToHashSet(StringComparer.Ordinal),
@@ -431,7 +489,7 @@ public sealed class LlmModel : IDisposable
     };
 
     /// <summary>Longest source sequence of an encoder-decoder model: a context's length, at least a batch.</summary>
-    private int MaxSourceTokens(int contextLength) => Math.Max(_options.MaxBatchTokens, contextLength);
+    private int MaxSourceTokens(int contextLength) => Math.Max(BatchTokens, contextLength);
 
     private void ReportReady(string graph) => new LoadProgressCounter(_options.Progress, LoadStage.Ready, 1, graph).Complete();
 
@@ -488,9 +546,9 @@ public sealed class LlmModel : IDisposable
         long rows = maxLogitsRows ?? (long)slots * (Math.Max(0, draftTokens) + 1);
         var fp = PlacementPlanner.Estimate(graph, new CompileOptions
         {
-            MaxTokens = _options.MaxBatchTokens,
+            MaxTokens = BatchTokens,
             ContextLength = ctx,
-            SymbolBounds = new Dictionary<string, long> { ["R"] = multi ? Math.Min(rows, _options.MaxBatchTokens) : _options.MaxBatchTokens },
+            SymbolBounds = new Dictionary<string, long> { ["R"] = multi ? Math.Min(rows, BatchTokens) : BatchTokens },
         }, multi ? slots : 1, paged);
         if (!multi || draftTokens <= 0)
         {
@@ -510,7 +568,7 @@ public sealed class LlmModel : IDisposable
         long headPaged = paged > 0 ? PagedRows(kvCacheTokens!.Value + (long)slots * (draftTokens + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
         var headFp = PlacementPlanner.Estimate(head, new CompileOptions
         {
-            MaxTokens = _options.MaxBatchTokens,
+            MaxTokens = BatchTokens,
             ContextLength = ctx,
             // A block drafter reads the logits of its whole block.
             SymbolBounds = new Dictionary<string, long> { ["R"] = Definition.Property(WellKnown.DraftBlockSize, 0) > 0 ? (long)slots * (draftTokens + 1) : slots },
