@@ -11,7 +11,7 @@ namespace Sharplight.Models;
 /// </summary>
 /// <example>
 /// <code>
-/// using var services = SharplightDefaults.CreateServiceProvider();   // Sharplight.Defaults
+/// using var services = SharplightDefaults.CreateServiceProvider();   // Sharplight
 /// var loader = services.GetRequiredService&lt;ModelLoader&gt;();
 /// using var model = LlmModel.Load(loader, "qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [slot] });
 /// </code>

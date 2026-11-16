@@ -5,18 +5,18 @@ This is a short tour of the types an application uses. Every public type and mem
 
 ## Assemblies
 
-The core engine and everything an application calls to run a model live in `Sharplight.Core`. Model formats (importers) and the
-graph generation for model architectures (adapters) are separate assemblies, so the core never knows a file format: format names
-(GGUF, safetensors, ONNX, diffusers, whisper.cpp, ...) appear only in `Sharplight.Import.*`.
+The core engine and everything an application calls to run a model live in `Sharplight.Core`, including the graph generation for
+model architectures (adapters, namespace `Sharplight.Architectures`) and the `.slm` package format (namespace `Sharplight.Package`).
+Model formats (importers) are separate assemblies, so the core never knows a file format: format names (GGUF, safetensors, ONNX,
+diffusers, whisper.cpp, ...) appear only in `Sharplight.Import.*`. Most applications reference only the `Sharplight` package and
+call `services.AddSharplight()`.
 
 | Assembly | Role | Main entry points |
 |---|---|---|
 | `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
-| `Sharplight.Architectures` | Execution-graph generation: architecture adapters that turn canonical model sources into Sharplight graphs | `services.AddBuiltinArchitectures()` |
 | `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.WhisperCpp`, `.Diffusers`, `.PyTorch` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter`, `WhisperCppImporter`, `DiffusersImporter`, `services.AddXxxImporter()` |
-| `Sharplight.Package` | Read and write `.slm` packages (every model kind: description, components, attachments), convert models to them and precompile them for every provider and device (portable code, then device code) | `ModelPackage`, `ModelPackageReader`, `ModelConverter`, `PackagePrecompiler`, `services.AddPackageImporter()` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` (+ `Sharplight.Shaders`) | Execution providers | `CpuExecutionProvider`, `VulkanProvider` |
-| `Sharplight.Defaults` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
+| `Sharplight` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplightServer`, `UseSharplightServer`, `MapSharplightServer`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
 | `Sharplight.Hub` | Search and pull Hugging Face models into a local store ([model-hub.md](model-hub.md)) | `HubClient`, `ModelPuller`, `ModelStore` |
 | `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `SharplightSpeechToTextClient`, `SharplightTextToSpeechClient`, `SharplightImageGenerator` |
@@ -34,15 +34,15 @@ they need no extra `using`):
 | | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
 | | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
 | | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
-| `Sharplight.Architectures` | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
+| `Sharplight.Core` (`Sharplight.Architectures`) | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
 | `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => ...)`, `AddOnnxImporter()` | the format (ONNX also its graph adapter) |
 | `Sharplight.Import.WhisperCpp` | `AddWhisperCppImporter()` | whisper.cpp `ggml` model files |
 | `Sharplight.Import.Diffusers` | `AddDiffusersImporter()` | diffusers folders and single-file Stable Diffusion checkpoints (ranks above the generic importers: `IModelImporter.Priority`) |
 | `Sharplight.Import.PyTorch` | `AddPyTorchImporter(o => ...)` | the restricted-unpickler settings (`TorchCheckpointOptions`) for pickle checkpoints (`pytorch_model*.bin` shards of the Hugging Face importer) |
-| `Sharplight.Package` | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |
+| `Sharplight.Core` (`Sharplight.Package`) | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order) |
 | `Sharplight.Audio` | `AddSharplightAudio(o => ...)` | native audio (own C library over miniaudio, libopus, libogg, opusfile, libvorbis): `IAudioDecoder` (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), `IAudioEncoder` (WAV, Ogg Opus), `IAudioDeviceProvider` (playback and capture streams); replaces the WAV-only `AddWavAudio()` services of the core, which stay the fallback when the native library cannot be loaded |
-| `Sharplight.Defaults` | `AddSharplight()` | all of the above: `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()` |
+| `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()` |
 | `Sharplight.Extensions.AI` | `AddSharplightChatClient(o => ...)`, `AddSharplightEmbeddingGenerator(o => ...)`, `AddSharplightSpeechToTextClient()`, ... | Microsoft.Extensions.AI adapters |
 | `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
 
@@ -89,7 +89,7 @@ leak when instances are created repeatedly), so only the options of the provider
 | `GgufImporter.Register()`, `HuggingFaceImporter.Register()`, `OnnxImporter.Register()`, `ModelPackageImporter.Register()` | `services.AddGgufImporter()`, `.AddHuggingFaceImporter()`, `.AddOnnxImporter()`, `.AddPackageImporter()` (a new format: `services.AddModelImporter<MyImporter>()`) |
 | `BuiltinAdapters.RegisterAll()`, `ModelAdapterRegistry.Register(a)`, `ModelAdapterRegistry.RegisterAuxiliaryOnly(arch, role)`, `MultimodalRegistry.Register(m)` | `services.AddBuiltinArchitectures()`, `.AddModelAdapter<T>()`, `.AddAuxiliaryArchitecture(arch, role)`, `.AddMultimodalArchitecture<T>()` |
 | `ModelAdapterRegistry.RegisterComposite(a)` (an `IModelAdapter` with `CanLoad(ModelSourceSet)`) | `services.AddCompositeModelAdapter<T>()` with `T : ICompositeModelAdapter` (`CanLoad(sources)`, `Build(sources, options, architectures)`: component models are built with the catalog it gets) |
-| `services.AddSharplightSpeechSynthesis()` (Sharplight.Architectures) | part of `services.AddBuiltinArchitectures()` |
+| `services.AddSharplightSpeechSynthesis()` (now in Sharplight.Core) | part of `services.AddBuiltinArchitectures()` |
 | `CpuExecutionProvider.Register()`, `ProviderRegistry.Register(() => new VulkanProvider())`, `VulkanProvider.EnableValidation = true` | `services.AddCpuProvider()`, `.AddVulkanProvider(o => o.EnableValidation = true)` |
 | `ModelImporterRegistry.Open/OpenSet(path)`, `ModelAdapterRegistry.Build(sources)` | `loader.Importers.Open(path)`, `loader.Open(path, auxiliary)`, `loader.Build(sources)` (or `loader.Build(path)`) |
 | `ProviderRegistry.Discover()` (tuples), `ProviderRegistry.ForProfile(p)`, `devicePool.Open("vulkan", 0)` | `providers.Discover()` (`DiscoveredProvider`), `providers.TryFindForProfile(p, out var provider)`, `devicePool.Open(providers, "vulkan", 0)` |
