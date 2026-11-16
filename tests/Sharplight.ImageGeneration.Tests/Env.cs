@@ -78,8 +78,10 @@ internal static class Env
     /// <summary>The tiny random Wan pipelines (tools/make-tiny-wan.py: t2v, ti2v).</summary>
     public static readonly string TinyWan = Path.Combine(Home, "models/video/tiny-random-wan");
 
-    /// <summary>The video models' folder.</summary>
-    public static readonly string VideoRoot = Path.Combine(Home, "models/video");
+    /// <summary>The video models' folder (SHARPLIGHT_VIDEO_ROOT overrides it, e.g. with a copy on a local disk).</summary>
+    public static readonly string VideoRoot = Environment.GetEnvironmentVariable("SHARPLIGHT_VIDEO_ROOT") is { Length: > 0 } videoRoot
+        ? videoRoot
+        : Path.Combine(Home, "models/video");
 
     /// <summary>Stable Diffusion 1.5 as a diffusers folder.</summary>
     public static readonly string Sd15Diffusers = Path.Combine(Home, "models/sd/sd15-diffusers");
