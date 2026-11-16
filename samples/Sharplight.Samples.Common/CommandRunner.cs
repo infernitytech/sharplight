@@ -48,7 +48,8 @@ public static class CommandRunner
 
     /// <summary>
     /// Wraps a command action so that a <see cref="SampleException"/> is reported as <c>error: message</c> with
-    /// <see cref="SampleException.ExitCode"/> and cancellation (Ctrl+C) yields <see cref="ExitCodes.Cancelled"/>. Other exceptions
+    /// <see cref="SampleException.ExitCode"/>, a model the importers do not support (<see cref="NotSupportedException"/>) as
+    /// <c>error: message</c> with <see cref="ExitCodes.InvalidInput"/>, and cancellation (Ctrl+C) yields <see cref="ExitCodes.Cancelled"/>. Other exceptions
     /// are unexpected and propagate with a stack trace.
     /// </summary>
     public static Func<ParseResult, CancellationToken, Task<int>> Guard(Func<ParseResult, CancellationToken, Task<int>> action)
@@ -68,6 +69,12 @@ public static class CommandRunner
             {
                 await Console.Error.WriteLineAsync("cancelled");
                 return ExitCodes.Cancelled;
+            }
+            catch (NotSupportedException error)
+            {
+                // A model the importers recognize but do not support (e.g. a FLUX checkpoint, a Candle whisper GGUF): their message says why.
+                await Console.Error.WriteLineAsync($"error: {error.Message}");
+                return ExitCodes.InvalidInput;
             }
         };
     }

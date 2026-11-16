@@ -41,7 +41,13 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         new(Samplers.Ddim, "DDIM"), new(Samplers.Pndm, "PNDM"), new(Samplers.DpmPlusPlus2M, "DPM++ 2M"), new(Samplers.DpmPlusPlus2MKarras, "DPM++ 2M (Karras)"),
     ];
 
+    private const int GenericSteps = 20;
+    private const double GenericGuidance = 7.5;
+
     private ImageParametersFile? _last;
+
+    /// <summary>The model whose distilled defaults (few steps, no guidance) the panel was set to, or null.</summary>
+    private string? _distilledDefaultsOf;
 
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
@@ -134,6 +140,68 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     {
         OnPropertyChanged(nameof(RunHint));
         RunCommand.NotifyCanExecuteChanged();
+        if (model is { Kind: ModelKinds.ImageGeneration, State: ResidentState.Ready or ResidentState.Busy })
+        {
+            ModelDefaults = ApplyModelDefaultsAsync(model);
+        }
+    }
+
+    /// <summary>The latest reading of a model's defaults (for tests).</summary>
+    internal Task ModelDefaults { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
+    /// Sets steps, guidance and sampler to a distilled model's defaults (SDXL-Turbo: 4 steps without guidance), since the usual 20 steps
+    /// with guidance 7.5 spoil its pictures; switching back to a regular model restores the usual values. Regular models keep what the
+    /// user chose.
+    /// </summary>
+    private async Task ApplyModelDefaultsAsync(ILoadedModel model)
+    {
+        ImageGenerationDefaults? defaults;
+        try
+        {
+            using var lease = await model.AcquireClientAsync<IImageGenerator>(CancellationToken.None).ConfigureAwait(false);
+            defaults = lease.Client.GetService(typeof(ImageGenerationDefaults)) as ImageGenerationDefaults;
+        }
+        catch (Exception error) when (error is InvalidOperationException or NotSupportedException or ObjectDisposedException)
+        {
+            return;
+        }
+
+        if (defaults is null)
+        {
+            return;
+        }
+
+        bool distilled = defaults.GuidanceScale <= 1f;
+        Services.Dispatcher.Post(() =>
+        {
+            if (SelectedModel?.Id != model.Id)
+            {
+                return;
+            }
+
+            if (distilled)
+            {
+                Panel.Apply(new Dictionary<string, string>
+                {
+                    ["steps"] = defaults.Steps.ToString(CultureInfo.InvariantCulture),
+                    ["guidance"] = defaults.GuidanceScale.ToString(CultureInfo.InvariantCulture),
+                    ["sampler"] = "",
+                });
+                _distilledDefaultsOf = model.Id;
+                Notice = $"{model.Id} is a distilled model: set to its defaults, {defaults.Steps} steps without guidance.";
+            }
+            else if (_distilledDefaultsOf is not null)
+            {
+                Panel.Apply(new Dictionary<string, string>
+                {
+                    ["steps"] = GenericSteps.ToString(CultureInfo.InvariantCulture),
+                    ["guidance"] = GenericGuidance.ToString(CultureInfo.InvariantCulture),
+                });
+                _distilledDefaultsOf = null;
+                Notice = "";
+            }
+        });
     }
 
     /// <inheritdoc/>
@@ -502,8 +570,8 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         ParameterViewModel[] parameters =
         [
             new ChoiceParameterViewModel("size", "Size", "Pixels per side; the model's own size gives the best pictures, other sizes rebuild the model once.", s_sizes),
-            new NumberParameterViewModel("steps", "Steps", "Denoising steps: more are slower and finer.", 1, 100, 1, 20),
-            new NumberParameterViewModel("guidance", "Guidance", "How closely the picture follows the prompt (classifier-free guidance); distilled models ignore it.", 0, 20, 0.5, 7.5),
+            new NumberParameterViewModel("steps", "Steps", "Denoising steps: more are slower and finer.", 1, 100, 1, GenericSteps),
+            new NumberParameterViewModel("guidance", "Guidance", "How closely the picture follows the prompt (classifier-free guidance); distilled models ignore it.", 0, 20, 0.5, GenericGuidance),
             new ChoiceParameterViewModel("sampler", "Sampler", "The scheduler that steps the noise away.", s_samplers),
             new NumberParameterViewModel("strength", "Strength", "Image to image: how much of the input image is replaced (1 ignores it).", 0.05, 1, 0.05, 0.75),
             new TextParameterViewModel("seed", "Seed", "Empty picks a random seed; a number repeats the picture.", "Random"),

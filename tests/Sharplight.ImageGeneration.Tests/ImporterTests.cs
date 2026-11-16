@@ -77,11 +77,11 @@ public sealed class ImporterTests
         }
     }
 
-    public static TheoryData<string> Sd15Files => ["single", "ckpt", "f16", "Q8_0", "Q4_0", "sd21", "sdxl"];
+    public static TheoryData<string> SingleFiles => ["single", "ckpt", "f16", "Q8_0", "Q4_0", "sd21", "sdxl", "sdxl-Q8_0", "sdxl-Q4_0", "sdxl-Q4_K", "sdxl-turbo"];
 
     [Theory]
-    [MemberData(nameof(Sd15Files))]
-    public void Sd15CheckpointsMapToTheDiffusersNames(string variant)
+    [MemberData(nameof(SingleFiles))]
+    public void SingleFileCheckpointsMapToTheDiffusersNames(string variant)
     {
         string path = variant switch
         {
@@ -89,12 +89,13 @@ public sealed class ImporterTests
             "ckpt" => Env.Sd15Ckpt,
             "sd21" => Env.Sd21SingleFile,
             "sdxl" => Env.SdxlSingleFile,
+            _ when variant.StartsWith("sdxl-", StringComparison.Ordinal) => Env.SdxlGguf(variant["sdxl-".Length..]),
             _ => Env.Sd15Gguf(variant),
         };
         string diffusers = variant switch
         {
             "sd21" => Env.Sd21Diffusers,
-            "sdxl" => Env.SdxlDiffusers,
+            _ when variant.StartsWith("sdxl", StringComparison.Ordinal) => Env.SdxlDiffusers,
             _ => Env.Sd15Diffusers,
         };
         Assert.SkipUnless(File.Exists(path) && Directory.Exists(diffusers), "SD files missing");
@@ -110,13 +111,16 @@ public sealed class ImporterTests
             }
 
             Assert.Equal(folder.Metadata["latent_diffusion.unet.head_counts"], file.Metadata["latent_diffusion.unet.head_counts"]);
-            foreach (string key in new[] { "unet.sample_size", "unet.head_counts", "text_encoder.head_count", "text_encoder.activation", "text_encoder.clip_skip",
+            // SDXL-Turbo is the SDXL network trained for 512×512.
+            Assert.Equal(variant == "sdxl-turbo" ? 64L : Convert.ToInt64(folder.Metadata["latent_diffusion.unet.sample_size"]),
+                Convert.ToInt64(file.Metadata["latent_diffusion.unet.sample_size"]));
+            foreach (string key in new[] { "unet.head_counts", "text_encoder.head_count", "text_encoder.activation", "text_encoder.clip_skip",
                          "scheduler.prediction_type", "vae.scaling_factor", "zero_empty_negative" })
             {
                 Assert.Equal(folder.Metadata["latent_diffusion." + key], file.Metadata["latent_diffusion." + key]);
             }
 
-            if (variant == "sdxl")
+            if (variant.StartsWith("sdxl", StringComparison.Ordinal))
             {
                 foreach (string key in new[] { "text_encoder_2.layer_count", "text_encoder_2.head_count", "text_encoder_2.activation", "text_encoder_2.clip_skip",
                              "text_encoder_2.final_norm", "text_encoder_2.pad_id", "unet.class_embedding_input", "unet.addition_time_dim",
@@ -160,5 +164,64 @@ public sealed class ImporterTests
                 resource.Dispose();
             }
         }
+    }
+
+    [Theory]
+    [InlineData("flux", "double_blocks.0.img_attn.qkv.weight", "FLUX (diffusion transformer)")]
+    [InlineData(null, "model.diffusion_model.double_blocks.0.img_attn.qkv.weight", "FLUX (diffusion transformer)")]
+    [InlineData(null, "model.diffusion_model.joint_blocks.0.x_block.attn.qkv.weight", "Stable Diffusion 3 (diffusion transformer)")]
+    public void DiffusionTransformerGguf_IsClaimedAndRejectedAsNotSupportedYet(string? architecture, string tensor, string family)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "sharplight-dit-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string path = Path.Combine(directory, "model.gguf");
+            WriteGguf(path, architecture, tensor);
+            var importer = new DiffusersImporter();
+            Assert.True(importer.CanOpen(path));
+            var error = Assert.Throws<NotSupportedException>(() => importer.Open(path));
+            Assert.StartsWith($"Not supported yet: {family}.", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    /// <summary>A minimal GGUF v3 file: an optional <c>general.architecture</c> and one 4-element f32 tensor.</summary>
+    private static void WriteGguf(string path, string? architecture, string tensor)
+    {
+        using var stream = File.Create(path);
+        using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8);
+        void String(string text)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+            writer.Write((ulong)bytes.Length);
+            writer.Write(bytes);
+        }
+
+        writer.Write("GGUF"u8);
+        writer.Write(3u);
+        writer.Write(1UL);
+        writer.Write(architecture is null ? 0UL : 1UL);
+        if (architecture is not null)
+        {
+            String("general.architecture");
+            writer.Write(8u);
+            String(architecture);
+        }
+
+        String(tensor);
+        writer.Write(1u);
+        writer.Write(4UL);
+        writer.Write(0u);
+        writer.Write(0UL);
+        while (stream.Position % 32 != 0)
+        {
+            writer.Write((byte)0);
+        }
+
+        writer.Write(new byte[16]);
     }
 }

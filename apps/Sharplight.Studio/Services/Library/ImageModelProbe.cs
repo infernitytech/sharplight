@@ -16,6 +16,11 @@ internal static class ImageModelProbe
     private const string UNetPrefix = "model.diffusion_model.";
     private const long MaxSafetensorsHeader = 256L << 20;
 
+    private static readonly HashSet<string> s_diffusionTransformerArchitectures = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "flux", "sd3", "aura", "auraflow", "chroma", "hidream", "lumina2", "qwen_image", "wan", "hyvid", "ltxv", "cosmos",
+    };
+
     private static readonly string[] s_checkpointNameHints = ["stable-diffusion", "stable_diffusion", "sd-", "sd_", "sd1", "sd2", "sdxl", "v1-5", "v2-1", "dreamshaper", "diffusion"];
 
     /// <summary>The kind of the model file or folder, or null when it is not a recognized image model.</summary>
@@ -78,12 +83,18 @@ internal static class ImageModelProbe
         }
     }
 
+    /// <summary>
+    /// A stable-diffusion.cpp GGUF (a <c>model.diffusion_model.</c> denoiser), or a diffusion transformer (FLUX, SD3: their GGUF
+    /// architectures or block names), which the Image page lists so that loading one says whether it is supported.
+    /// </summary>
     private static bool GgufHasUNet(string path)
     {
         try
         {
             using var file = GgufFile.Open(path);
-            return file.Tensors.Any(tensor => tensor.Name.StartsWith(UNetPrefix, StringComparison.Ordinal));
+            return file.Architecture is { } architecture && s_diffusionTransformerArchitectures.Contains(architecture)
+                || file.Tensors.Any(tensor => tensor.Name.StartsWith(UNetPrefix, StringComparison.Ordinal)
+                    || tensor.Name.StartsWith("double_blocks.", StringComparison.Ordinal) || tensor.Name.StartsWith("joint_blocks.", StringComparison.Ordinal));
         }
         catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
         {
