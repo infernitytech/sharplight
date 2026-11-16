@@ -1278,6 +1278,8 @@ from `tools/vision-reference.py`, `tools/timm-reference.py`, `tools/ocr-referenc
 | Depth-Anything-V2-Base-hf, Depth-Anything-V2-Large-hf, LiheYoung/depth-anything-base-hf (V1) | depth | depth map 7.4e-5 / 9.8e-5 / 1.2e-4 |
 | microsoft/trocr-base-handwritten | OCR | text exactly transformers' |
 
+The Studio Vision page loads and runs SwinIR (upscale), timm ResNet-50 (classify) and RT-DETR R50 (detect) headlessly on the real engine runtime (`VisionRealModelTests`); the library recognizes timm folders by their `architecture` / `pretrained_cfg`.
+
 Fixes of the sweep (each with a regression test or a model in the suites above):
 
 - **SwinIR** is a new adapter (`SwinIrAdapter`, canonical `swinir`: window attention with rebuilt relative position indices and shift masks as constants, window partition and cyclic shift as one row gather,
