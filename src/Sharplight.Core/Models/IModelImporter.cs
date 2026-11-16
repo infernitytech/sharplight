@@ -29,4 +29,12 @@ public interface IModelImporter
 
     /// <summary>Opens <paramref name="path"/> (a file or a directory) as a canonical model source.</summary>
     public ModelSource Open(string path);
+
+    /// <summary>
+    /// The companion files the model at <paramref name="path"/> needs and this importer finds next to it, by auxiliary role (e.g. the
+    /// text encoders and the VAE of a transformer-only diffusion checkpoint). <see cref="ModelImporterCatalog.OpenSet"/> opens them for
+    /// the roles the caller does not give; empty by default.
+    /// </summary>
+    /// <param name="path">The primary model file or directory.</param>
+    public IReadOnlyDictionary<string, string> FindCompanions(string path) => new Dictionary<string, string>();
 }

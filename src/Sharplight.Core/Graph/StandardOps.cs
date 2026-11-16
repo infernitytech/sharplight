@@ -135,6 +135,13 @@ public static partial class StandardOps
     public const string F32ActivationsAttribute = "f32_activations";
 
     /// <summary>
+    /// Attention attribute (bool, default false): the op may run with f16 products and f32 accumulation (tensor-core kernels) as
+    /// <see cref="Runtime.CompileOptions.AllowReducedPrecision"/> would allow, whatever the compile options. Set by adapters of models
+    /// that are trained and evaluated in bf16 / f16 (diffusion transformers), whose attention gains nothing from exact f32 products.
+    /// </summary>
+    public const string F16ProductsAttribute = "f16_products";
+
+    /// <summary>
     /// y = x · Wᵀ. x: [..., K] (f32), W: [N, K] (any float or quantized format) → [..., N].
     /// This is the "Linear" layout used by GGUF/PyTorch weights. Attribute: <see cref="F32ActivationsAttribute"/>.
     /// </summary>

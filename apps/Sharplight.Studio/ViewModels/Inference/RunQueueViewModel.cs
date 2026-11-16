@@ -2,13 +2,14 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Studio.Services.Platform;
+using Sharplight.Studio.Services.Threading;
 
 namespace Sharplight.Studio.ViewModels.Inference;
 
 /// <summary>
 /// The run queue every inference page shares: runs are started one after the other per model (a second run on the same model waits
 /// for the first), can be cancelled while queued or running, and stay listed with their outcome until cleared. Work runs on a pool
-/// thread; progress and state changes reach the view models on the UI thread.
+/// thread; progress and state changes reach the view models on the UI thread, progress throttled to about 15 updates a second.
 /// </summary>
 internal sealed partial class RunQueueViewModel : ObservableObject
 {
@@ -43,8 +44,12 @@ internal sealed partial class RunQueueViewModel : ObservableObject
     public RunItemViewModel Enqueue(string title, string modelId, Func<RunContext, Task> work)
     {
         var item = new RunItemViewModel(title, modelId) { Status = RunStatus.Queued };
-        Items.Add(item);
-        ActiveCount++;
+        lock (_lock)
+        {
+            Items.Add(item);
+            ActiveCount = CountActive();
+        }
+
         OnPropertyChanged(nameof(HasItems));
         item.Completion = Task.Run(() => RunAsync(item, work));
         return item;
@@ -64,9 +69,12 @@ internal sealed partial class RunQueueViewModel : ObservableObject
     [RelayCommand]
     public void ClearFinished()
     {
-        foreach (var item in Items.Where(item => item.IsFinished).ToList())
+        lock (_lock)
         {
-            Items.Remove(item);
+            foreach (var item in Items.Where(item => item.IsFinished).ToList())
+            {
+                Items.Remove(item);
+            }
         }
 
         OnPropertyChanged(nameof(HasItems));
@@ -85,6 +93,8 @@ internal sealed partial class RunQueueViewModel : ObservableObject
 
         RunStatus outcome;
         string detail = "";
+        var progress = new RunProgress();
+        using var throttle = new UpdateThrottle(() => Update(() => progress.ApplyTo(item)));
         try
         {
             await gate.WaitAsync(item.Token).ConfigureAwait(false);
@@ -92,28 +102,18 @@ internal sealed partial class RunQueueViewModel : ObservableObject
             {
                 item.Token.ThrowIfCancellationRequested();
                 Update(() => item.Status = RunStatus.Running);
-                var context = new RunContext(item.Token, (fraction, text) => Update(() =>
+                var context = new RunContext(item.Token, (fraction, text) =>
                 {
-                    if (fraction is { } value)
-                    {
-                        item.IsIndeterminate = false;
-                        item.Progress = Math.Clamp(value, 0, 1);
-                    }
-                    else
-                    {
-                        item.IsIndeterminate = true;
-                    }
-
-                    if (text is not null)
-                    {
-                        item.Detail = text;
-                    }
-                }));
+                    // Runs report per step or token: the latest state reaches the UI at most about 15 times a second.
+                    progress.Set(fraction, text);
+                    throttle.Request();
+                });
                 await work(context).ConfigureAwait(false);
                 outcome = RunStatus.Completed;
             }
             finally
             {
+                throttle.Flush();
                 gate.Release();
             }
         }
@@ -129,12 +129,26 @@ internal sealed partial class RunQueueViewModel : ObservableObject
 
         Update(() =>
         {
-            item.Status = outcome;
-            item.Detail = detail;
-            item.IsIndeterminate = false;
-            item.Progress = outcome == RunStatus.Completed ? 1 : item.Progress;
-            ActiveCount = Items.Count(other => other.IsActive);
+            // Under the lock: on the UI thread nothing contends, but a dispatcher that runs updates inline (tests) can finish two runs on
+            // two threads at once, and the last count written must see both outcomes.
+            lock (_lock)
+            {
+                item.Status = outcome;
+                item.Detail = detail;
+                item.IsIndeterminate = false;
+                item.Progress = outcome == RunStatus.Completed ? 1 : item.Progress;
+                ActiveCount = CountActive();
+            }
         });
+    }
+
+    /// <summary>The runs still queued or running.</summary>
+    private int CountActive()
+    {
+        lock (_lock)
+        {
+            return Items.Count(other => other.IsActive);
+        }
     }
 
     private void Update(Action change) => _dispatcher.Post(change);

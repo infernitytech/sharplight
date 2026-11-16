@@ -83,12 +83,15 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         int ctx = src.Arch("context_length", 512);
         bool preNorm = src.Arch("pre_norm", true);
         float embeddingScale = src.Arch("embedding_scale", 1f);
-        bool audio = src.Arch("encoder.input", "tokens") switch
+        string encoderInput = src.Arch("encoder.input", "tokens");
+        bool audio = encoderInput switch
         {
-            "tokens" => false,
+            "tokens" or "image" => false,
             "audio" => true,
             var other => throw new NotSupportedException($"encoder_decoder: unknown encoder.input '{other}'."),
         };
+        bool image = encoderInput == "image";
+        int crossWidth = src.Arch("encoder.hidden_size", nEmbd);
         bool cachedCross = src.Arch("cross_attention.cached", false);
         var extraWeights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         bool conformerEncoder = audio && src.Arch("encoder.type", "transformer") == "conformer";
@@ -128,7 +131,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         }
 
         var graphs = new Dictionary<string, ComputeGraph>();
-        if (!audio)
+        if (!audio && !image)
         {
             graphs[WellKnown.EmbedGraph] = BuildEmbed();
         }
@@ -152,6 +155,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             ["n_layer"] = encoderLayers + decoderLayers,
         };
         var speech = audio && decoderLayers > 0 ? SpeechRecognitionDescription.Build(src, ctx, sourceRows, variableAudio ? audioFrames : 0) : default((ModelDescription Description, IReadOnlyDictionary<string, IWeightSource> Attachments, IReadOnlyDictionary<string, object> Metadata)?);
+        var recognition = image && decoderLayers > 0 ? TextRecognitionDescription.Build(src, ctx, sourceRows) : default((ModelDescription Description, IReadOnlyDictionary<string, object> Metadata, IReadOnlyDictionary<string, IWeightSource> Attachments)?);
         var weights = extraWeights.Count == 0 ? src.Weights : new Dictionary<string, WeightInfo>(src.Weights.Concat(extraWeights), StringComparer.Ordinal);
 
         return new ModelDefinition
@@ -161,11 +165,11 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             Weights = weights,
             Graphs = graphs,
             States = states,
-            SourceMetadata = speech?.Metadata ?? src.Metadata,
+            SourceMetadata = speech?.Metadata ?? recognition?.Metadata ?? src.Metadata,
             OwnedResources = src.OwnedResources,
             Properties = props,
-            Description = speech?.Description,
-            Attachments = speech?.Attachments ?? src.Attachments,
+            Description = speech?.Description ?? recognition?.Description,
+            Attachments = speech?.Attachments ?? recognition?.Attachments ?? src.Attachments,
         };
 
         ComputeGraph BuildEncode()
@@ -173,6 +177,23 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             var b = new GraphBuilder(WellKnown.EncodeGraph, Lookup);
             Value x;
             Value? encoderPositions = null;
+            if (image)
+            {
+                var tower = new TowerOptions(src.Arch<int>("vision.layer_count"), src.Arch<int>("vision.hidden_size"), src.Arch<int>("vision.attention.head_count"),
+                    src.Arch("vision.norm_eps", 1e-6f), src.Arch("vision.mlp.activation", "gelu"), "vision.");
+                var towerImage = new ImageTowerOptions(tower, src.Arch<int>("vision.patch_size"), src.Arch<int>("vision.image_size"), src.Arch("vision.register_count", 0), "cls");
+                int grid = towerImage.ImageSize / towerImage.Patch;
+                var patches = b.Input("patches", InputRole.Media, DataType.F32, new Shape(grid * grid, 3 * towerImage.Patch * towerImage.Patch));
+                var embedded = ImageTowerGraph.Embed(b, patches, towerImage, out int imageRows);
+                embedded = TowerBlocks.Layers(b, embedded, tower, imageRows, causal: false);
+                using (b.Group("output"))
+                {
+                    b.Output(WellKnown.EncoderOutput, TowerBlocks.LayerNorm(b, embedded, "vision.output_norm", tower.Eps));
+                }
+
+                return b.Build();
+            }
+
             if (conformer is not null)
             {
                 using (b.Group("output"))
@@ -269,7 +290,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             {
                 var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
                 positions = HasPositions("decoder") || ropeDims > 0 ? b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1)) : null;
-                encoded = b.Input(WellKnown.EncoderOutput, InputRole.EncoderOutput, DataType.F32, new Shape(Dim.Sym(WellKnown.EncoderSymbol), nEmbd));
+                encoded = b.Input(WellKnown.EncoderOutput, InputRole.EncoderOutput, DataType.F32, new Shape(Dim.Sym(WellKnown.EncoderSymbol), crossWidth));
                 if (variableAudio && cachedCross)
                 {
                     // The cross states hold up to sourceRows rows; each query row sees the rows of the current source only.

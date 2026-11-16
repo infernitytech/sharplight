@@ -11,4 +11,16 @@ public static class AuxiliaryRoles
 
     /// <summary>The decoder of an audio codec that turns the codec tokens a speech language model generates into a waveform (OuteTTS's WavTokenizer).</summary>
     public const string Vocoder = "vocoder";
+
+    /// <summary>
+    /// The (first) text encoder of an image generator distributed without it (FLUX's CLIP-L next to a transformer-only file); the same
+    /// name as the component role.
+    /// </summary>
+    public const string TextEncoder = "text-encoder";
+
+    /// <summary>The second text encoder of an image generator distributed without it (FLUX's T5-XXL).</summary>
+    public const string SecondTextEncoder = "text-encoder-2";
+
+    /// <summary>The autoencoder of an image generator distributed without it (FLUX's 16-channel VAE).</summary>
+    public const string Vae = "vae";
 }

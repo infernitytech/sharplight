@@ -22,11 +22,18 @@ internal static class ClipTextGraphBuilder
     /// <param name="name">Graph name (<see cref="DiffusionGraphs.TextEncode"/> or <see cref="DiffusionGraphs.TextEncode2"/>).</param>
     /// <param name="pooled">
     /// Also output <see cref="DiffusionGraphs.Pooled"/>: the last layer's final-normed state at the end token (the first occurrence
-    /// of the largest token id, as in transformers), times <c>{prefix}projection.weight</c>.
+    /// of the largest token id, as in transformers), times <c>{prefix}projection.weight</c> when the encoder has one (SDXL's
+    /// OpenCLIP; FLUX uses CLIP's unprojected pooler output).
     /// </param>
+    /// <param name="hidden">Output <see cref="DiffusionGraphs.Hidden"/> (false: only the pooled embedding, FLUX's CLIP encoder).</param>
     public static ComputeGraph Build(Func<string, WeightInfo?> weights, ClipTextHyperParameters hp, string prefix, string name = DiffusionGraphs.TextEncode,
-        bool pooled = false)
+        bool pooled = false, bool hidden = true)
     {
+        if (!pooled && !hidden)
+        {
+            throw new ArgumentException("The text encoder graph needs an output.", nameof(hidden));
+        }
+
         var b = new GraphBuilder(name, weights);
         int rows = hp.ContextLength;
         int headDim = hp.HiddenSize / hp.HeadCount;
@@ -61,14 +68,18 @@ internal static class ClipTextGraphBuilder
             }
         }
 
-        var hidden = hp.FinalNorm ? DiffusionBlocks.LayerNorm(b, conditioning!, prefix + "final_norm", hp.NormEps) : conditioning!;
-        b.Output(DiffusionGraphs.Hidden, hidden);
+        if (hidden)
+        {
+            b.Output(DiffusionGraphs.Hidden, hp.FinalNorm ? DiffusionBlocks.LayerNorm(b, conditioning!, prefix + "final_norm", hp.NormEps) : conditioning!);
+        }
+
         if (pooled)
         {
             var normed = DiffusionBlocks.LayerNorm(b, x, prefix + "final_norm", hp.NormEps);
             var end = b.Reshape(b.Emit1("ArgMax", [b.Reshape(b.Emit1("Cast", [tokens], Attributes.From(("type", "f32"))), 1, rows)]), 1);
             var state = b.Gather(normed, end);
-            b.Output(DiffusionGraphs.Pooled, b.Reshape(b.Linear(state, prefix + "projection.weight"), -1));
+            var projected = b.HasWeight(prefix + "projection.weight") ? b.Linear(state, prefix + "projection.weight") : state;
+            b.Output(DiffusionGraphs.Pooled, b.Reshape(projected, -1));
         }
 
         return b.Build();

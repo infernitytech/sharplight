@@ -48,6 +48,9 @@ public static class TaskServiceCollectionExtensions
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, DepthEstimatorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.AudioCodecFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.VoiceActivityDetectorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, ImageSegmenterFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextRecognizerFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, ImageUpscalerFactory>());
 
             return services;
         }
@@ -250,6 +253,57 @@ public static class TaskServiceCollectionExtensions
         /// <returns>The service collection.</returns>
         public IServiceCollection AddDepthEstimator(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
             => services.AddTaskClient<IDepthEstimator>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IImageSegmenter"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddImageSegmenter(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IImageSegmenter>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IImageSegmenter"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddImageSegmenter(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IImageSegmenter>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="ITextRecognizer"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddTextRecognizer(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<ITextRecognizer>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="ITextRecognizer"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddTextRecognizer(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<ITextRecognizer>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IImageUpscaler"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddImageUpscaler(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IImageUpscaler>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IImageUpscaler"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddImageUpscaler(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IImageUpscaler>(configure, serviceKey);
 
         /// <summary>Adds an <see cref="IImageGenerator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
         /// <param name="configure">Configures the model path, devices and compile settings.</param>

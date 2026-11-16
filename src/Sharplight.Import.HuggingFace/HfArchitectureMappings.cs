@@ -41,6 +41,8 @@ internal static class HfArchitectureMappings
         Register(new EncodecHfMapping());
         Register(new DacHfMapping());
         Register(new MimiHfMapping());
+        Register(new Sam2HfMapping());
+        Register(new TrOcrHfMapping());
         Register(new T5HfMapping());
         Register(new BartHfMapping());
         Register(new WhisperHfMapping());

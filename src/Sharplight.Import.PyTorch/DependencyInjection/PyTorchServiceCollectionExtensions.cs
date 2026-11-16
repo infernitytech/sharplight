@@ -10,7 +10,7 @@ public static class PyTorchServiceCollectionExtensions
         /// <summary>
         /// Adds the settings of the restricted PyTorch unpickler (<see cref="TorchCheckpointOptions"/>, from Microsoft.Extensions.Options)
         /// that the importers reading pickle checkpoints use: the Hugging Face importer reads <c>pytorch_model*.bin</c> shards with them.
-        /// Idempotent; each call adds <paramref name="configure"/>. <c>services.AddHuggingFaceImporter()</c> calls it.
+        /// Also adds the super-resolution importer (<see cref="SuperResolutionImporter"/>: RRDBNet <c>.pth</c> files). Idempotent; each call adds <paramref name="configure"/>. <c>services.AddHuggingFaceImporter()</c> calls it.
         /// </summary>
         /// <param name="configure">Configures the unpickler, or <see langword="null"/> for the defaults.</param>
         /// <returns>The service collection.</returns>
@@ -23,6 +23,7 @@ public static class PyTorchServiceCollectionExtensions
                 options.Configure(configure);
             }
 
+            services.AddModelImporter<SuperResolutionImporter>();
             return services;
         }
     }

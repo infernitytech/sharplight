@@ -167,8 +167,8 @@ public sealed class ImporterTests
     }
 
     [Theory]
-    [InlineData("flux", "double_blocks.0.img_attn.qkv.weight", "FLUX (diffusion transformer)")]
-    [InlineData(null, "model.diffusion_model.double_blocks.0.img_attn.qkv.weight", "FLUX (diffusion transformer)")]
+    [InlineData("sd3", "joint_blocks.0.x_block.attn.qkv.weight", "Stable Diffusion 3 (diffusion transformer)")]
+    [InlineData("chroma", "double_blocks.0.img_attn.qkv.weight", "chroma (diffusion transformer)")]
     [InlineData(null, "model.diffusion_model.joint_blocks.0.x_block.attn.qkv.weight", "Stable Diffusion 3 (diffusion transformer)")]
     public void DiffusionTransformerGguf_IsClaimedAndRejectedAsNotSupportedYet(string? architecture, string tensor, string family)
     {

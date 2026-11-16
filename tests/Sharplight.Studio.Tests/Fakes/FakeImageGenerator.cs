@@ -19,6 +19,9 @@ internal sealed class FakeImageGenerator : IImageGenerator
     /// <summary>When set, the stream waits on it after the first step (until cancelled).</summary>
     public TaskCompletionSource? Gate { get; set; }
 
+    /// <summary>Blocking work per step (a stand-in for a graph run that holds its thread), or zero.</summary>
+    public TimeSpan StepWork { get; set; }
+
     public Task<ImageGenerationResult> GenerateAsync(ImageGenerationRequest request, ImageGenerationOptions? options = null, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The page streams.");
 
@@ -32,6 +35,7 @@ internal sealed class FakeImageGenerator : IImageGenerator
         {
             await Task.Yield();
             cancellationToken.ThrowIfCancellationRequested();
+            SlowWork.Block(StepWork);
             var preview = options.PreviewInterval > 0 && step % options.PreviewInterval == 0 ? Gradient(8, 8, step) : null;
             yield return new ImageGenerationUpdate(step, steps, null, preview);
             if (step == 1 && Gate is { } gate)

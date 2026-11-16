@@ -21,7 +21,10 @@ public sealed record NoiseSchedule
     /// <summary><c>linear</c>, <c>scaled_linear</c> or <c>squaredcos_cap_v2</c>.</summary>
     public string BetaSchedule { get; init; } = "scaled_linear";
 
-    /// <summary>What the denoiser predicts: <c>epsilon</c>, <c>v_prediction</c> or <c>sample</c>.</summary>
+    /// <summary>
+    /// What the denoiser predicts: <c>epsilon</c>, <c>v_prediction</c> or <c>sample</c> (variance-preserving schedules of the betas), or
+    /// <c>flow</c> (rectified flow: the velocity ε − x₀ of x = (1 − σ) · x₀ + σ · ε, σ from 1 to 0; the betas are unused).
+    /// </summary>
     public string PredictionType { get; init; } = "epsilon";
 
     /// <summary>
@@ -48,6 +51,30 @@ public sealed record NoiseSchedule
     /// <summary>The sampler the model was published with (<see cref="Samplers"/>).</summary>
     public string Sampler { get; init; } = Samplers.Euler;
 
+    /// <summary>Flow schedules: the static shift s of the noise levels, σ' = s·σ / (1 + (s − 1)·σ) (1: unshifted).</summary>
+    public float Shift { get; init; } = 1f;
+
+    /// <summary>
+    /// Flow schedules: whether the shift depends on the image size, σ' = e^μ / (e^μ + 1/σ − 1) with μ interpolated linearly from
+    /// <see cref="BaseShift"/> at <see cref="BaseSequenceLength"/> image tokens to <see cref="MaxShift"/> at <see cref="MaxSequenceLength"/>.
+    /// </summary>
+    public bool DynamicShift { get; init; }
+
+    /// <summary>Flow schedules: μ at <see cref="BaseSequenceLength"/> image tokens.</summary>
+    public double BaseShift { get; init; } = 0.5;
+
+    /// <summary>Flow schedules: μ at <see cref="MaxSequenceLength"/> image tokens.</summary>
+    public double MaxShift { get; init; } = 1.15;
+
+    /// <summary>Flow schedules: the image token count of <see cref="BaseShift"/>.</summary>
+    public int BaseSequenceLength { get; init; } = 256;
+
+    /// <summary>Flow schedules: the image token count of <see cref="MaxShift"/>.</summary>
+    public int MaxSequenceLength { get; init; } = 4096;
+
+    /// <summary>Whether this is a rectified-flow schedule (<see cref="PredictionType"/> <c>flow</c>).</summary>
+    public bool IsFlow => PredictionType == "flow";
+
     /// <summary>Reads the schedule from a <c>scheduler</c> component's configuration; absent keys keep the defaults.</summary>
     /// <param name="component">The scheduler component.</param>
     public static NoiseSchedule FromComponent(ModelComponent component)
@@ -67,6 +94,12 @@ public sealed record NoiseSchedule
             ZeroTerminalSnr = component.ConfigValue(DiffusionConfigKeys.ZeroTerminalSnr, defaults.ZeroTerminalSnr),
             Sampler = component.ConfigValue(DiffusionConfigKeys.Sampler, defaults.Sampler),
             ClipSample = component.Config.ContainsKey(DiffusionConfigKeys.ClipSample) ? component.ConfigValue(DiffusionConfigKeys.ClipSample, true) : null,
+            Shift = component.ConfigValue(DiffusionConfigKeys.Shift, defaults.Shift),
+            DynamicShift = component.ConfigValue(DiffusionConfigKeys.DynamicShift, defaults.DynamicShift),
+            BaseShift = component.ConfigValue(DiffusionConfigKeys.BaseShift, defaults.BaseShift),
+            MaxShift = component.ConfigValue(DiffusionConfigKeys.MaxShift, defaults.MaxShift),
+            BaseSequenceLength = component.ConfigValue(DiffusionConfigKeys.BaseSequenceLength, defaults.BaseSequenceLength),
+            MaxSequenceLength = component.ConfigValue(DiffusionConfigKeys.MaxSequenceLength, defaults.MaxSequenceLength),
         };
     }
 

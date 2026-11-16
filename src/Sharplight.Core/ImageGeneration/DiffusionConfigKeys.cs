@@ -16,8 +16,17 @@ public static class DiffusionConfigKeys
     /// <summary>Model: default number of denoising steps (default 25).</summary>
     public const string Steps = "steps";
 
-    /// <summary>Model: default classifier-free guidance scale (default 7.5; distilled models set 1).</summary>
+    /// <summary>
+    /// Model: default guidance scale (default 7.5; distilled models set 1). For denoisers that take the scale as an input
+    /// (<see cref="DiffusionGraphs.Guidance"/>, guidance-distilled FLUX.1-dev) it is that input instead of classifier-free guidance.
+    /// </summary>
     public const string GuidanceScale = "guidanceScale";
+
+    /// <summary>
+    /// Model: whether a guidance scale above 1 runs classifier-free guidance (default true). Distilled models that were not trained for
+    /// it (FLUX.1-schnell, FLUX.1-dev) set false: the scale then only feeds a <see cref="DiffusionGraphs.Guidance"/> input, if any.
+    /// </summary>
+    public const string ClassifierFreeGuidance = "classifierFreeGuidance";
 
     /// <summary>Denoiser and VAE: latent channels.</summary>
     public const string LatentChannels = "latentChannels";
@@ -72,4 +81,28 @@ public static class DiffusionConfigKeys
 
     /// <summary>Scheduler: the default sampler (<see cref="Samplers"/> names).</summary>
     public const string Sampler = "sampler";
+
+    /// <summary>Scheduler (flow): the static shift of the noise levels (default 1, see <see cref="NoiseSchedule.Shift"/>).</summary>
+    public const string Shift = "shift";
+
+    /// <summary>Scheduler (flow): whether the shift depends on the image size (see <see cref="NoiseSchedule.DynamicShift"/>).</summary>
+    public const string DynamicShift = "dynamicShift";
+
+    /// <summary>Scheduler (flow): μ of the dynamic shift at <see cref="BaseSequenceLength"/> image tokens (default 0.5).</summary>
+    public const string BaseShift = "baseShift";
+
+    /// <summary>Scheduler (flow): μ of the dynamic shift at <see cref="MaxSequenceLength"/> image tokens (default 1.15).</summary>
+    public const string MaxShift = "maxShift";
+
+    /// <summary>Scheduler (flow): image tokens of <see cref="BaseShift"/> (default 256).</summary>
+    public const string BaseSequenceLength = "baseSequenceLength";
+
+    /// <summary>Scheduler (flow): image tokens of <see cref="MaxShift"/> (default 4096).</summary>
+    public const string MaxSequenceLength = "maxSequenceLength";
+
+    /// <summary>
+    /// Denoiser: latent pixels per token along each axis (transformers that patchify the latents: FLUX 2; default 1). The image token
+    /// count of a dynamic flow shift is the latent pixel count divided by its square.
+    /// </summary>
+    public const string PatchSize = "patchSize";
 }

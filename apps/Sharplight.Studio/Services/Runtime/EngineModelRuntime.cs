@@ -5,6 +5,7 @@ using Sharplight.Llm.Serving.Hosting;
 using Sharplight.Llm.Serving.Speculative;
 using Sharplight.Runtime;
 using Sharplight.Studio.Models;
+using Sharplight.Studio.Services.Threading;
 using Sharplight.Tasks;
 using Sharplight.Tensors;
 using Sharplight.Vision;
@@ -31,6 +32,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private readonly IReadOnlyList<ComputeDeviceOption> _physical;
     private readonly FootprintEstimator _estimator;
     private readonly EngineServices _engine;
+    private readonly UpdateThrottle _changed;
 
     /// <summary>Enumerates the devices and creates the host.</summary>
     /// <param name="engine">The engine services (loader, providers).</param>
@@ -58,6 +60,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
             Resolve = Resolve,
         });
         Host.ModelsChanged += OnHostChanged;
+        _changed = new UpdateThrottle(() => ModelsChanged?.Invoke(this, EventArgs.Empty));
     }
 
     /// <summary>The models, shared with the HTTP endpoints.</summary>
@@ -86,6 +89,19 @@ internal sealed class EngineModelRuntime : IModelRuntime
     public event EventHandler<RequestRecord>? RequestCompleted;
 
     /// <inheritdoc/>
+    public IReadOnlyDictionary<string, string> FindCompanions(string path)
+    {
+        try
+        {
+            return _engine.Loader.Importers.FindCompanions(path);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException)
+        {
+            return new Dictionary<string, string>();
+        }
+    }
+
+    /// <inheritdoc/>
     public async Task<ILoadedModel> LoadAsync(ModelLoadRequest request, IProgress<LoadStatus>? progress, CancellationToken cancellationToken)
     {
         if (Host.Contains(request.Id))
@@ -93,7 +109,9 @@ internal sealed class EngineModelRuntime : IModelRuntime
             throw new InvalidOperationException($"A model named '{request.Id}' is already loaded.");
         }
 
-        var model = Add(request, _residency().PinManualLoads);
+        // Opening the devices (driver initialization, pipeline caches) can take seconds: never on the caller's (UI) thread.
+        bool pinned = _residency().PinManualLoads;
+        var model = await Task.Run(() => Add(request, pinned), cancellationToken).ConfigureAwait(false);
         model.LoadListener = progress;
         try
         {
@@ -183,6 +201,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
         }
 
         Host.Dispose();
+        _changed.Dispose();
         _estimator.Dispose();
         _pool.Dispose();
     }
@@ -202,6 +221,8 @@ internal sealed class EngineModelRuntime : IModelRuntime
             }
 
             model?.Dispose();
+
+            // Not throttled: a removed model must leave the pickers at once (a pending throttled call fires later, harmlessly).
             ModelsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -386,7 +407,11 @@ internal sealed class EngineModelRuntime : IModelRuntime
         RaiseChanged();
     }
 
-    private void RaiseChanged() => ModelsChanged?.Invoke(this, EventArgs.Empty);
+    /// <summary>
+    /// Raises <see cref="ModelsChanged"/>, throttled: host state changes, lease releases and load progress would otherwise make every
+    /// listening view model refresh many times a second.
+    /// </summary>
+    private void RaiseChanged() => _changed.Request();
 
     private void OnRequestFinished(string model, ComputeDeviceOption device, FinishedRequest finished)
     {

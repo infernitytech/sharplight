@@ -17,6 +17,9 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     private readonly INavigator _navigator;
     private readonly IReadOnlyList<string> _kinds;
 
+    /// <summary>The model <see cref="OnModelChanged"/> was last called with.</summary>
+    private ILoadedModel? _notifiedModel;
+
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
     /// <param name="kind">The model kind the page runs (<see cref="Sharplight.Models.ModelKinds"/>).</param>
@@ -48,13 +51,18 @@ internal abstract partial class InferencePageViewModel : PageViewModel
         {
             if (args.PropertyName == nameof(ModelPickerViewModel.SelectedModel))
             {
-                OnPropertyChanged(nameof(SelectedModel));
-                OnPropertyChanged(nameof(HasModel));
-                OnModelChanged(SelectedModel);
+                NotifyModelChanged();
             }
             else if (args.PropertyName == nameof(ModelPickerViewModel.HasModels))
             {
                 OnPropertyChanged(nameof(HasModels));
+            }
+        };
+        Picker.SelectedModelStateChanged += (_, _) =>
+        {
+            if (SelectedModel is { } model)
+            {
+                OnModelStateChanged(model);
             }
         };
         Queue.PropertyChanged += (_, args) =>
@@ -118,7 +126,21 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     public override Task ActivateAsync()
     {
         Picker.Refresh();
+        if (!ReferenceEquals(_notifiedModel, SelectedModel))
+        {
+            // Chosen while the page was being built (the picker keeps its options now, so a refresh does not choose again).
+            NotifyModelChanged();
+        }
+
         return Task.CompletedTask;
+    }
+
+    private void NotifyModelChanged()
+    {
+        _notifiedModel = SelectedModel;
+        OnPropertyChanged(nameof(SelectedModel));
+        OnPropertyChanged(nameof(HasModel));
+        OnModelChanged(SelectedModel);
     }
 
     /// <summary>Chooses <paramref name="model"/> in the picker.</summary>
@@ -135,17 +157,27 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     {
     }
 
+    /// <summary>The chosen model's state changed (it finished loading, went to sleep, a run started or ended) while it stayed chosen.</summary>
+    /// <param name="model">The chosen model.</param>
+    protected virtual void OnModelStateChanged(ILoadedModel model)
+    {
+    }
+
     /// <summary>Called when the queue became busy or idle.</summary>
     protected virtual void OnBusyChanged()
     {
     }
 
-    /// <summary>Records a finished run in the history (and the gallery when it produced files).</summary>
+    /// <summary>
+    /// Records a finished run in the history (and the gallery when it produced files). Called by the run's worker: the files are written
+    /// there, the history entry is added on the UI thread.
+    /// </summary>
     /// <param name="record">The run.</param>
     /// <param name="files">Its output files by name.</param>
     protected void Archived(RunRecord record, IReadOnlyDictionary<string, byte[]>? files = null)
     {
-        Services.Dispatcher.Post(() => Archive.Add(record, files));
+        Archive.WriteFiles(record, files);
+        Services.Dispatcher.Post(() => Archive.Add(record));
     }
 
     [RelayCommand]

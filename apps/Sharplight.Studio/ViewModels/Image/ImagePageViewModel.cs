@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.ImageGeneration;
 using Sharplight.Models;
+using Sharplight.Studio.Converters;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Imaging;
@@ -29,6 +30,9 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     private const string ParametersName = "parameters.json";
     private const int PromptTitleLength = 70;
 
+    /// <summary>The decode width of the result thumbnails (ImagePage.axaml).</summary>
+    private const int ThumbnailWidth = 144;
+
     private static readonly ParameterChoice[] s_sizes =
     [
         new("native", "Model default"), new("128x128", "128 × 128"), new("256x256", "256 × 256"), new("384x384", "384 × 384"), new("512x512", "512 × 512"),
@@ -48,6 +52,9 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
 
     /// <summary>The model whose distilled defaults (few steps, no guidance) the panel was set to, or null.</summary>
     private string? _distilledDefaultsOf;
+
+    /// <summary>The chosen model whose defaults were read, or null.</summary>
+    private ILoadedModel? _defaultsReadFrom;
 
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
@@ -140,8 +147,19 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     {
         OnPropertyChanged(nameof(RunHint));
         RunCommand.NotifyCanExecuteChanged();
-        if (model is { Kind: ModelKinds.ImageGeneration, State: ResidentState.Ready or ResidentState.Busy })
+        _defaultsReadFrom = null;
+        ReadModelDefaults(model);
+    }
+
+    /// <inheritdoc/>
+    protected override void OnModelStateChanged(ILoadedModel model) => ReadModelDefaults(model);
+
+    /// <summary>Reads the defaults of a chosen model once it is resident, once per choice (reading leases the model).</summary>
+    private void ReadModelDefaults(ILoadedModel? model)
+    {
+        if (model is { Kind: ModelKinds.ImageGeneration, State: ResidentState.Ready or ResidentState.Busy } && !ReferenceEquals(_defaultsReadFrom, model))
         {
+            _defaultsReadFrom = model;
             ModelDefaults = ApplyModelDefaultsAsync(model);
         }
     }
@@ -150,7 +168,8 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     internal Task ModelDefaults { get; private set; } = Task.CompletedTask;
 
     /// <summary>
-    /// Sets steps, guidance and sampler to a distilled model's defaults (SDXL-Turbo: 4 steps without guidance), since the usual 20 steps
+    /// Sets steps, guidance and sampler to a distilled model's defaults (SDXL-Turbo, FLUX.1-schnell: 4 steps without guidance; FLUX.1-dev:
+    /// 28 steps with its embedded guidance 3.5), since the usual 20 steps
     /// with guidance 7.5 spoil its pictures; switching back to a regular model restores the usual values. Regular models keep what the
     /// user chose.
     /// </summary>
@@ -172,7 +191,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
             return;
         }
 
-        bool distilled = defaults.GuidanceScale <= 1f;
+        bool distilled = defaults.GuidanceScale <= 1f || !defaults.ClassifierFreeGuidance;
         Services.Dispatcher.Post(() =>
         {
             if (SelectedModel?.Id != model.Id)
@@ -189,7 +208,9 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
                     ["sampler"] = "",
                 });
                 _distilledDefaultsOf = model.Id;
-                Notice = $"{model.Id} is a distilled model: set to its defaults, {defaults.Steps} steps without guidance.";
+                Notice = defaults.GuidanceScale <= 1f
+                    ? $"{model.Id} is a distilled model: set to its defaults, {defaults.Steps} steps without guidance."
+                    : $"{model.Id} is a guidance-distilled model: set to its defaults, {defaults.Steps} steps, guidance {defaults.GuidanceScale.ToString(CultureInfo.InvariantCulture)}.";
             }
             else if (_distilledDefaultsOf is not null)
             {
@@ -306,6 +327,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         ImageGenerationResult? result = null;
         RunOutcome outcome = RunOutcome.Completed;
         string? error = null;
+        var display = new StepDisplay(Services.Dispatcher, ShowStep);
         try
         {
             context.Report(null, "Loading the model");
@@ -324,22 +346,11 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
             {
                 string step = $"Step {update.Step} of {update.TotalSteps}";
                 context.Report(update.TotalSteps > 0 ? (double)update.Step / update.TotalSteps : null, step);
-                if (update.Preview is { } preview)
-                {
-                    byte[] png = ImageFiles.ToPng(preview);
-                    Services.Dispatcher.Post(() =>
-                    {
-                        PreviewPng = png;
-                        StepText = step;
-                    });
-                }
-                else
-                {
-                    Services.Dispatcher.Post(() => StepText = step);
-                }
-
+                display.Report(step, update.Preview);
                 result = update.Result ?? result;
             }
+
+            display.Flush();
         }
         catch (OperationCanceledException)
         {
@@ -349,6 +360,10 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         {
             outcome = RunOutcome.Failed;
             error = failure.GetBaseException().Message;
+        }
+        finally
+        {
+            display.Dispose();
         }
 
         double seconds = watch.Elapsed.TotalSeconds;
@@ -399,6 +414,8 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         {
             var image = finished.Images[i];
             byte[] png = PngMetadata.Embed(ImageFiles.ToPng(image), Metadata(file, finished.Seed + i));
+            DecodedBitmaps.Prepare(png);
+            DecodedBitmaps.Prepare(png, ThumbnailWidth);
             var item = new GeneratedImageViewModel(i + 1, png, image, finished.Seed + i);
             shown.Add(item);
             files[item.FileName] = png;
@@ -503,6 +520,15 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         yield return new("Size", $"{file.Width}x{file.Height}");
         yield return new("Model", file.Model);
         yield return new("Software", "Sharplight Studio");
+    }
+
+    private void ShowStep(string step, byte[]? previewPng)
+    {
+        StepText = step;
+        if (previewPng is not null)
+        {
+            PreviewPng = previewPng;
+        }
     }
 
     private void Show(List<GeneratedImageViewModel> images, string summary)

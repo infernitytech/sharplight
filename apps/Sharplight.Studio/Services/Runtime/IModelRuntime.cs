@@ -25,6 +25,13 @@ internal interface IModelRuntime : IDisposable
     /// <exception cref="InvalidOperationException">A model with the same id exists.</exception>
     public Task<ILoadedModel> LoadAsync(ModelLoadRequest request, IProgress<LoadStatus>? progress, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The companion files a model file needs that the engine's importers find beside it, by auxiliary role (a transformer-only FLUX
+    /// file: the <c>text-encoder</c>, <c>text-encoder-2</c> and <c>vae</c> files); empty when it needs none or none were found.
+    /// </summary>
+    /// <param name="path">The model file.</param>
+    public IReadOnlyDictionary<string, string> FindCompanions(string path) => new Dictionary<string, string>();
+
     /// <summary>Waits for running requests (at most a few seconds), frees the model's memory and removes it.</summary>
     public Task UnloadAsync(string id);
 

@@ -33,7 +33,7 @@ they need no extra `using`):
 | | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddCompositeModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
 | | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
 | | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
-| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
+| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageSegmenter`, `AddTextRecognizer`, `AddImageUpscaler`, `AddImageGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
 | `Sharplight.Core` (`Sharplight.Architectures`) | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
 | `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => ...)`, `AddOnnxImporter()` | the format (ONNX also its graph adapter) |
 | `Sharplight.Import.WhisperCpp` | `AddWhisperCppImporter()` | whisper.cpp `ggml` model files |
@@ -120,6 +120,9 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `image-embedding` | `IImageEmbedder` | `EmbedImageAsync(ImageInput)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `ImageEmbeddingOptions` | `float[]`, `ImageClassification` |
 | `depth-estimation` | `IDepthEstimator` | `EstimateAsync(ImageInput)` | - | `DepthEstimationOptions` | `DepthMap` (per-pixel values, `ToGrayscale()`) |
 | `object-detection` | `IObjectDetector` | `DetectAsync(ImageInput)` | - | `ObjectDetectionOptions` (score threshold, max detections, optional NMS) | `ObjectDetection` (`DetectedObject`: class, label, score, `BoundingBox` in pixels) |
+| `image-segmentation` | `IImageSegmenter` | `EncodeImageAsync(ImageInput)` once per image, then `SegmentAsync(SegmentationImage, SegmentationPrompt)` per prompt (or `SegmentAsync(ImageInput, SegmentationPrompt)`) | - | `SegmentationOptions` (all candidate masks or the best one) | `ImageSegmentation` (`SegmentMask`: per-pixel mask at the image size, predicted IoU, area; object score) |
+| `ocr` | `ITextRecognizer` | `RecognizeAsync(ImageInput)` | - | `TextRecognitionOptions` (max tokens) | `TextRecognition` (text, `TextRegion`s with optional boxes) |
+| `image-upscaling` | `IImageUpscaler` | `UpscaleAsync(ImageInput)` | `UpscaleOptions.Progress` reports finished tiles | `UpscaleOptions` (tile size, tile padding, progress) | `ImageInput` at `Scale` times the size |
 | `audio-codec` | `IAudioCodec` | `EncodeAsync(AudioBuffer)` → codes, `DecodeAsync(CodecCodes)` → `AudioBuffer` | - | `AudioCodecOptions` (number of codebooks) | `CodecCodes` (codebook-major i32 codes) |
 | `voice-activity` | `IVoiceActivityDetector` | `DetectAsync(AudioBuffer)` → segments, `ProbabilitiesAsync` | - | `VoiceActivityOptions` (thresholds, minimum speech and silence, padding, maximum segment) | `SpeechSegment` (start and end sample, `Start`, `End`) |
 
@@ -163,6 +166,31 @@ Audio and image I/O for the task layer: `AudioBuffer` (interleaved float samples
 `AudioResampler` (band-limited windowed sinc), `WavFile` (read: integer PCM 8/16/24/32-bit and float 32/64-bit, plain or
 `WAVE_FORMAT_EXTENSIBLE`; write: PCM16, PCM24, PCM32, float32), `PngCodec` (encode RGB; decode 8-bit gray, gray+alpha, RGB, RGBA and
 palette PNGs) and `PlanarImage` (8-bit interleaved RGB to and from `[3, height, width]` float planes in any value range).
+
+### Threading contract
+
+Task clients are safe to call from a UI thread, and implementations (built-in or registered) keep this contract:
+
+- **Every `...Async` method returns to its caller before any compute.** Compiling graphs, running them, tokenizing, decoding audio
+  or images and encoding results run on a background thread; built-in clients use dedicated (long-running) threads, since a graph
+  run blocks on device fences and would starve the thread pool. `Task.FromResult` over synchronous work is not allowed.
+- **Streams are produced by a background loop** that queues its items for the consumer and never waits for it (a slow consumer, such
+  as a UI that renders every preview, does not slow generation down), and the consumer's `MoveNextAsync` never runs a step itself.
+- **Cancellation** is observed between steps (a denoising step, a decoded audio window, a generated token). A cancelled or abandoned
+  enumeration (`break`, dispose) completes only after the step in progress, so once it has ended the client, and the model behind
+  it, are idle and may be disposed or unloaded. Exceptions of the producer surface at the consumer after the items produced before.
+- **No synchronization context is captured**: library code awaits with `ConfigureAwait(false)` throughout; results, progress
+  callbacks (`IProgress<T>`, `Log`) and stream items arrive on background threads, and applications marshal only state updates to
+  their UI thread (throttled: progress can be reported per kernel, per tensor or per token).
+- **One request at a time per client**: built-in clients serialize requests (later ones wait for the earlier). Disposing a client while
+  a request runs is not supported.
+- `TaskModel.LoadAsync` loads on a background thread; the synchronous `TaskModel.Load` and `CreateTokenizer`/`CompileComponent` block
+  and belong on a worker, never on a UI thread. Synchronous serving calls (`ModelService.StartChat`, which builds and tokenizes the
+  prompt) likewise.
+
+Sharplight Studio follows the same rule on its side: every page runs engine work on workers (the run queue, `Task.Run` around service
+calls), posts only state changes to the dispatcher, throttles progress, streamed text and previews to about 15 UI updates a second,
+decodes bitmaps off the UI thread and writes output files from the worker.
 
 ### Speech recognition
 
@@ -214,6 +242,15 @@ Object detectors (DETR: `DetrAdapter`; RT-DETR: `RtDetrAdapter`; graph `detect`:
 non-maximum suppression are generic host-side utilities in Core (`BoundingBox`, `BoxUtilities.NonMaxSuppression`, `ObjectDetectionOptions`). `samples/Sharplight.Vision` (`sharplight-vision classify|detect|depth model image.png [--label prompt]... [-o out.png]`)
 is this in a command-line tool (`depth` writes a grayscale PNG, `detect` draws the boxes). Depth Anything (`DepthEstimationAdapter`, graph `estimate_depth`) runs through `services.AddDepthEstimator(...)`.
 
+Promptable segmentation (SAM 2: `Sam2Adapter`, `vision-encoder` + `mask-decoder` components, graphs `segment_encode` and `segment_decode`) separates the expensive image stage from the cheap
+prompt stage: `EncodeImageAsync` returns a `SegmentationImage` (embedding and skip features, held by the host), and every click or box of an interactive session is one `SegmentAsync` over it.
+A prompt is points (positive or negative) and/or a `BoundingBox` in image pixels; the graph takes them as `point_coords` and `point_kinds` (`SegmentPromptKinds`) with a symbolic point count, so there is no limit
+on the number of points. The decoder's low-resolution logits are resampled to the image on the host. OCR (TrOCR: the `encoder_decoder` adapter with an image encoder, `encoder.input` "image") reuses the speech recognizers' decoding machinery
+(KV-cached decoder, cross-attention keys and values cached once per source) with the model's tokenizer; `ITextRecognizer` is the task client. Upscalers (Real-ESRGAN: `RrdbNetAdapter`, graph `upscale` of generic Conv, Resize and LeakyRelu ops)
+are rebuilt for every input size through the model's dimensions (`height`, `width`); `IImageUpscaler` runs an image that fits one tile whole and cuts a larger one into overlapping tiles (`UpscaleOptions.TileSize`, `TilePadding`)
+whose outputs are blended with linear weights, so seams are invisible. The official `RealESRGAN_x4plus.pth` loads through the restricted unpickler of `Sharplight.Import.PyTorch` (`SuperResolutionImporter`).
+All three inference paths run on the thread pool, never on the caller's thread.
+
 The importers and architecture adapters for speech and image models come in their own workstreams; the task layer defines the
 interfaces, options, results, the description and the host-side plumbing they plug into.
 
@@ -252,6 +289,39 @@ second graph of the `text-encoder` component whose pooled embedding and the size
 pipeline (`LatentDiffusionGeneratorFactory`, registered by `AddSharplightTasks()`) serves every model whose graphs follow
 `DiffusionGraphs`; a family with another pipeline registers its own factory.
 
+FLUX.1 (schnell, dev and fine-tunes) is the second family on the same pipeline: the importer translates diffusers folders,
+original-name single files and transformer-only GGUF files (city96 / stable-diffusion.cpp) into the canonical `flux` source and
+`FluxAdapter` builds the MMDiT transformer (dual- and single-stream blocks, 3-axis RoPE, modulation), the T5 encoder, the CLIP
+encoder (pooled embedding only) and the 16-channel VAE from generic Core ops (components `text-encoder`, `text-encoder-2`,
+`tokenizer`, `tokenizer-2`, `denoiser`, `vae`, `scheduler`). The scheduler component describes a rectified-flow schedule
+(`predictionType: flow`, static or resolution-dependent shift), which the pipeline samples with `FlowMatchEulerSampler` (the
+`euler` sampler of flow models); the transformer takes the pooled embedding and, for guidance-distilled models, the guidance scale
+as inputs (`DiffusionGraphs.Guidance`), and the model turns classifier-free guidance off (`DiffusionConfigKeys.ClassifierFreeGuidance`).
+The denoiser is built for one row; the pipeline runs a guided step row by row for such denoisers. The same contract fits the
+other DiTs (SD3, Chroma, Qwen-Image; video DiTs add a frame axis to the latents).
+
+Transformer-only checkpoints need companion files, given as auxiliary sources by role (`AuxiliaryRoles.TextEncoder` = CLIP-L,
+`AuxiliaryRoles.SecondTextEncoder` = T5-XXL as GGUF or safetensors, `AuxiliaryRoles.Vae`); `FluxCompanionAdapter` merges them into
+the canonical source, so the model is rebuilt for other sizes and saved as one `.slm` like a complete checkpoint. Roles the caller
+leaves out are filled with the files the importer finds beside the transformer (`IModelImporter.FindCompanions`, also offered as
+`ModelImporterCatalog.FindCompanions` for UIs):
+
+```csharp
+using var model = TaskModel.Load(loader, new TaskLoadOptions
+{
+    ModelPath = "flux1-schnell-Q8_0.gguf",
+    Auxiliary = new Dictionary<string, string>
+    {
+        [AuxiliaryRoles.TextEncoder] = "clip_l.safetensors",
+        [AuxiliaryRoles.SecondTextEncoder] = "t5-v1_1-xxl-encoder-Q8_0.gguf",
+        [AuxiliaryRoles.Vae] = "ae.safetensors",
+    },
+    Devices = [slot],
+});
+using var generator = clients.Create<IImageGenerator>(model);
+var result = await generator.GenerateAsync(new ImageGenerationRequest { Prompt = "a lighthouse at dusk" });   // 4 steps, 1024 × 1024
+```
+
 ```csharp
 var services = new ServiceCollection()
     .AddSharplight()
@@ -271,17 +341,22 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
 }
 ```
 
-- Samplers (`Samplers`): `euler`, `euler-karras`, `euler-ancestral`, `ddim`, `pndm`, `dpm++2m`, `dpm++2m-karras`; each follows the
-  diffusers scheduler step by step and is configured from the model's `scheduler` component (`NoiseSchedule`: betas, prediction type,
+- Samplers (`Samplers`): `euler`, `euler-karras`, `euler-ancestral`, `ddim`, `pndm`, `dpm++2m`, `dpm++2m-karras` (flow models:
+  `euler`, diffusers' `FlowMatchEulerDiscreteScheduler`); each follows the diffusers scheduler step by step and is configured from the model's `scheduler` component (`NoiseSchedule`: betas, prediction type,
   timestep spacing, offset; the original scheduler configuration is kept as the attachment `scheduler/source-config.json`). The
   default is the sampler the model was published with.
 - Classifier-free guidance runs on the host: the negative prompt (or the empty prompt) and the prompt are one batched denoiser run
-  per step. Image i of a request uses `Seed + i`; the noise is a counter-based Gaussian stream, identical on every machine and
+  per step (two runs for denoisers built for one row). Guidance-distilled models take the scale as a denoiser input instead, and
+  models without either (FLUX.1-schnell) ignore it.
+- The conditioning of the previous request is reused when the prompts are the same (new seeds, sizes or steps encode nothing).
+- Memory: when the weights take more than 80 % of the device memory (FLUX's bf16 files on a 32 GB GPU), the generator holds either
+  the text encoders or the denoiser and VAE: the text encoders are released after encoding, and the denoiser and VAE before new
+  prompts are encoded (they are compiled again from the cached kernels). Image i of a request uses `Seed + i`; the noise is a counter-based Gaussian stream, identical on every machine and
   provider. `ImageGenerationOptions.InitialNoise` replaces it (reproducing another implementation's run).
 - Image-to-image: `ImageGenerationRequest.Image` with `Strength`; inpainting: plus `Mask` (white = regenerate; the input is
   re-imposed outside the mask after every step).
-- Sizes: the graphs are built for the native size (512×512 for SD 1.x, 768×768 for SD 2.x 768-v, 1024×1024 for SDXL) and stored
-  that way in `.slm`; another `Width` / `Height` (multiples of 64) rebuilds the model once per size through
+- Sizes: the graphs are built for the native size (512×512 for SD 1.x, 768×768 for SD 2.x 768-v, 1024×1024 for SDXL and FLUX) and stored
+  that way in `.slm`; another `Width` / `Height` (multiples of 64; FLUX: of 16) rebuilds the model once per size through
   `TaskModel.DefinitionFor(dimensions)` (the adapter rebuilds from the canonical metadata and weights, so `.slm` packages work too).
 - Classifier-free guidance with SDXL: without a negative prompt the unconditional row is all zeros (the model's
   `force_zeros_for_empty_prompt`); an explicit `NegativePrompt = ""` encodes the empty prompt.
