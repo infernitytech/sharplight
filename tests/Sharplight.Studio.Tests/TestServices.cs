@@ -1,9 +1,11 @@
 using Sharplight.Audio;
+using Sharplight.Storage;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Documents;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Platform;
+using Sharplight.Studio.Services.Settings;
 using Sharplight.Studio.Services.Storage;
 using Sharplight.Studio.Tests.Fakes;
 
@@ -21,7 +23,30 @@ internal sealed class TestServices : IDisposable
         Conversations = new SqliteConversationStore(database);
         Stats = new SqliteStatsStore(database);
         Services = new StudioServices(Settings, Runtime, Hub, Library, Conversations, Stats, Server, new DocumentExtractor(), Platform,
-            Platform, dispatcher ?? Platform, Platform, Updates, Precompiler, new FilePageStorage(_dir.File("pages")), Audio, Audio, decoder ?? new WavAudioDecoder(), AudioDevices);
+            Platform, dispatcher ?? Platform, Platform, Updates, Precompiler, new FilePageStorage(_dir.File("pages")), Audio, Audio, decoder ?? new WavAudioDecoder(), AudioDevices,
+            CreateStorage(Settings, _dir.File("app"), _dir.File("home")));
+    }
+
+    /// <summary>A custom storage layout in <paramref name="root"/>, for services that need one.</summary>
+    public static StorageLayout CreateLayout(string root)
+    {
+        var environment = new StorageEnvironment { ApplicationDirectory = root, HomeDirectory = root, Platform = StoragePlatform.Linux };
+        return StorageLayout.Create(StorageMode.Custom, System.IO.Path.Combine(root, "storage"), environment);
+    }
+
+    /// <summary>A storage location service for a package in <paramref name="application"/> and a user home in <paramref name="home"/>.</summary>
+    public static StorageLocationService CreateStorage(FakeSettings settings, string application, string home,
+        IReadOnlyDictionary<string, string>? variables = null)
+    {
+        System.IO.Directory.CreateDirectory(application);
+        var environment = new StorageEnvironment
+        {
+            ApplicationDirectory = application,
+            HomeDirectory = home,
+            Platform = StoragePlatform.Linux,
+            GetVariable = name => variables?.GetValueOrDefault(name),
+        };
+        return new StorageLocationService(environment, StorageLayout.Resolve(environment), settings);
     }
 
     public FakeSettings Settings { get; }

@@ -317,6 +317,8 @@ internal sealed unsafe class BinaryOp : CpuOp
                 return a != 0 && b != 0 ? 1f : 0f;
             case BinaryKind.Or:
                 return a != 0 || b != 0 ? 1f : 0f;
+            case BinaryKind.Atan2:
+                return MathF.Atan2(a, b);
             default:
                 return (a != 0) != (b != 0) ? 1f : 0f;
         }

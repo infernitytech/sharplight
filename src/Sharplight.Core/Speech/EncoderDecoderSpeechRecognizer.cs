@@ -138,12 +138,14 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
     {
         int windowFrames = network.FeatureFrames;
         int segmentFrames = Math.Min(windowFrames, state.ContentFrames - state.Seek);
-        var window = new float[network.FeatureChannels * windowFrames];
-        features.CopyWindow(state.Seek, windowFrames, window);
-        network.Encode(window);
+        // Variable-length encoders take just the remaining content; fixed windows are filled up with the front end's padding.
+        int encodedFrames = network.VariableLength ? Math.Max(segmentFrames, network.MinFeatureFrames) : windowFrames;
+        var window = new float[network.FeatureChannels * encodedFrames];
+        features.CopyWindow(state.Seek, encodedFrames, window);
+        network.Encode(window, encodedFrames);
         state.Language ??= DetectLanguage(network, state.Options);
 
-        bool timestamps = state.Options.Timestamps != TimestampGranularity.None;
+        bool timestamps = state.Options.Timestamps != TimestampGranularity.None && _protocol.HasTimestamps;
         var decoding = DecodeWindow(network, state, timestamps, cancellationToken);
         double frameSeconds = (double)_features.HopLength / SampleRate;
         double offset = state.Seek * frameSeconds;
@@ -156,8 +158,8 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
 
         var segments = new List<TranscriptionSegment>();
         var tokens = decoding.Tokens;
-        int framesPerRow = windowFrames / network.SourceRows;
-        int begin = _protocol.TimestampBeginId;
+        int framesPerRow = windowFrames / network.MaxSourceRows;
+        int begin = _protocol.TimestampBeginId ?? int.MaxValue;
         bool singleTimestampEnding = tokens.Count >= 2 && tokens[^2] < begin && tokens[^1] >= begin;
         var boundaries = new List<int>();
         for (int i = 1; i < tokens.Count; i++)
@@ -211,8 +213,8 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
 
     private void AddSegment(List<TranscriptionSegment> segments, IReadOnlyList<int> tokens, double start, double end, WindowDecoding decoding, string? language)
     {
-        int[] text = [.. tokens.Where(t => t < _protocol.EndId)];
-        // Timestamp and other control tokens are above the end token; only the text is decoded.
+        int[] text = [.. tokens.Where(t => t != _protocol.EndId && !(t >= _protocol.TimestampBeginId))];
+        // Timestamps are left out; other control tokens are special and skipped by the tokenizer.
         string decoded = _tokenizer.Decode(text, skipSpecial: true);
         if (string.IsNullOrWhiteSpace(decoded) || end <= start)
         {
@@ -231,7 +233,10 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
         });
     }
 
-    /// <summary>The requested language's token, the detected one on a multilingual model, or null for single-language models.</summary>
+    /// <summary>
+    /// The requested language's token, the model's default language for models that cannot detect it, the detected one on other multilingual
+    /// models, or null for single-language models.
+    /// </summary>
     private int? DetectLanguage(SpeechEncoderDecoder network, SpeechRecognitionOptions options)
     {
         if (!_protocol.IsMultilingual)
@@ -242,6 +247,11 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
         if (options.Language is { } code)
         {
             return _protocol.LanguageToken(code);
+        }
+
+        if (_protocol.DefaultLanguage is { } fallback)
+        {
+            return _protocol.LanguageToken(fallback);
         }
 
         var logits = network.Decode([_protocol.StartId]);

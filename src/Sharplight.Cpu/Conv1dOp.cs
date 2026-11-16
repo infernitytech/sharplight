@@ -17,14 +17,16 @@ internal sealed unsafe class Conv1dOp : CpuOp
     private readonly int _padLeft;
     private readonly int _dilation;
     private readonly int _groups;
+    private readonly bool _reflect;
     private readonly Action<int> _body;
     private long _tin;
     private long _tout;
     private long _per;
 
     /// <summary>Creates the op.</summary>
-    public Conv1dOp(TRef x, TRef w, TRef? bias, TRef y, int stride, int padLeft, int dilation, int groups)
+    public Conv1dOp(TRef x, TRef w, TRef? bias, TRef y, int stride, int padLeft, int dilation, int groups, bool reflect = false)
     {
+        _reflect = reflect;
         _x = x;
         _w = w;
         _bias = bias;
@@ -78,7 +80,11 @@ internal sealed unsafe class Conv1dOp : CpuOp
                 for (long k = 0; k < taps; k++)
                 {
                     long ti = origin + (k * _dilation);
-                    if (ti < 0 || ti >= _tin)
+                    if (_reflect)
+                    {
+                        ti = Reflect(ti, _tin);
+                    }
+                    else if (ti < 0 || ti >= _tin)
                     {
                         continue;
                     }
@@ -94,5 +100,15 @@ internal sealed unsafe class Conv1dOp : CpuOp
                 y[(t * outputs) + o] = acc;
             }
         }
+    }
+
+    private static long Reflect(long index, long length)
+    {
+        if (index < 0)
+        {
+            return -index;
+        }
+
+        return index >= length ? (2 * (length - 1)) - index : index;
     }
 }

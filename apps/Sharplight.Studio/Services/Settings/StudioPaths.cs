@@ -1,10 +1,18 @@
+using Sharplight.Storage;
+
 namespace Sharplight.Studio.Services.Settings;
 
-/// <summary>Where the app keeps its settings and data (<c>SHARPLIGHT_STUDIO_HOME</c> overrides both).</summary>
+/// <summary>
+/// Where the app keeps its own files: <c>studio</c> in the configuration and data folders of the storage layout
+/// (<see cref="StorageLayout"/>), or one directory given by <c>SHARPLIGHT_STUDIO_HOME</c>.
+/// </summary>
 internal sealed record StudioPaths(string ConfigDirectory, string DataDirectory)
 {
-    /// <summary>Environment variable that moves settings and data into one directory (portable use, tests).</summary>
+    /// <summary>Environment variable that moves settings and data into one directory (tests, side-by-side profiles).</summary>
     public const string HomeVariable = "SHARPLIGHT_STUDIO_HOME";
+
+    /// <summary>Name of the app's folder in the storage layout's configuration and data folders.</summary>
+    public const string ApplicationDirectoryName = "studio";
 
     /// <summary>The settings file.</summary>
     public string SettingsFile => Path.Combine(ConfigDirectory, "settings.json");
@@ -15,17 +23,19 @@ internal sealed record StudioPaths(string ConfigDirectory, string DataDirectory)
     /// <summary>The conversation and statistics database.</summary>
     public string DatabaseFile => Path.Combine(DataDirectory, "studio.db");
 
-    /// <summary>The per-user locations: <c>sharplight/studio</c> under the roaming and local application data directories.</summary>
-    public static StudioPaths Default()
+    /// <summary>The pages' presets, history and outputs.</summary>
+    public string PagesDirectory => Path.Combine(DataDirectory, "pages");
+
+    /// <summary>The app's folders in <paramref name="layout"/>, or <paramref name="home"/> for both when it is set.</summary>
+    /// <param name="layout">The storage layout.</param>
+    /// <param name="home">The value of <see cref="HomeVariable"/>, or null.</param>
+    public static StudioPaths From(StorageLayout layout, string? home)
     {
-        var home = Environment.GetEnvironmentVariable(HomeVariable);
         if (!string.IsNullOrWhiteSpace(home))
         {
             return new StudioPaths(home, home);
         }
 
-        string Folder(Environment.SpecialFolder folder) =>
-            Path.Combine(Environment.GetFolderPath(folder, Environment.SpecialFolderOption.DoNotVerify), "sharplight", "studio");
-        return new StudioPaths(Folder(Environment.SpecialFolder.ApplicationData), Folder(Environment.SpecialFolder.LocalApplicationData));
+        return new StudioPaths(layout.GetConfigDirectory(ApplicationDirectoryName), layout.GetDataDirectory(ApplicationDirectoryName));
     }
 }

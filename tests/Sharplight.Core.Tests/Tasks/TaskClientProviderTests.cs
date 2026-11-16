@@ -63,12 +63,13 @@ public class TaskClientProviderTests
         using var services = new ServiceCollection().AddSharplightTasks().AddSharplightTasks().BuildServiceProvider();
         using var once = new ServiceCollection().AddSharplightTasks().BuildServiceProvider();
         var provider = services.GetRequiredService<TaskClientProvider>();
-        // Registering twice adds nothing: one built-in factory per (kind, client type).
+        // Registering twice adds nothing. Speech recognition has two built-in implementations (prompted encoder-decoders and frame-aligned
+        // CTC / transducer decoders); a model's description decides which one creates its client.
         var factories = services.GetServices<ITaskClientFactory>().ToList();
         Assert.Equal(once.GetServices<ITaskClientFactory>().Count(), factories.Count);
-        Assert.Equal(factories.Count, factories.Select(f => (f.Kind, f.ClientType)).Distinct().Count());
+        Assert.Equal(factories.Count, factories.Select(f => (f.Kind, f.ClientType, f.GetType())).Distinct().Count());
         Assert.Single(factories, f => f.Kind == ModelKinds.TextGeneration);
-        Assert.Single(factories, f => f.Kind == ModelKinds.SpeechRecognition);
+        Assert.Equal(2, factories.Count(f => f.Kind == ModelKinds.SpeechRecognition));
         Assert.Single(factories, f => f.Kind == ModelKinds.ImageGeneration);
         using var decoder = Model(null, "llama", WellKnown.DecodeGraph);
         using var graphOnly = Model(null, "onnx", "main");

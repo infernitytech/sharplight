@@ -19,7 +19,8 @@ sharplight-server rm qwen3-0.6b:q8_0
 
 | Option | Meaning |
 | --- | --- |
-| `--models-dir DIR` | Model store (default: `SHARPLIGHT_MODELS`, else the location chosen with `store use`, else `data` next to the executable, or the per-user store `~/.local/share/sharplight/models` when that is not writable; see [docs/model-hub.md](../../docs/model-hub.md#store)). All commands. |
+| `--models-dir DIR` | Model store (default: `SHARPLIGHT_MODELS`, else the location chosen with `store use`, else the `models` folder of the storage location: portable, system or custom, see `storage` and [docs/storage.md](../../docs/storage.md)). All commands. |
+| `storage`, `storage use portable\|system\|DIR` | Show or change where configuration, models, caches and logs are kept (`--copy`, `--fresh`, `--keep-models`). |
 | `--revision REV`, `--force` | Branch, tag or commit to pull (`main`); rebuild a model that is up to date. |
 | `--keep-source`, `--no-precompile` | Keep the downloaded files; skip kernel precompilation. |
 | `--no-pull` | `run`/`serve`: fail instead of pulling a model that is not stored. |

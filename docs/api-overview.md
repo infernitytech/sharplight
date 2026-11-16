@@ -29,7 +29,7 @@ they need no extra `using`):
 
 | package | registration | registers |
 |---|---|---|
-| `Sharplight.Core` | `AddSharplightTasks()` | `TaskClientProvider`, the built-in factories (text generation, Whisper-family speech recognition, image classification/embedding, object detection, depth estimation, latent-diffusion image generation), the `ModelLoader` |
+| `Sharplight.Core` | `AddSharplightTasks()` | `TaskClientProvider`, the built-in factories (text generation, speech recognition: prompted encoder-decoders such as Whisper, Moonshine and Canary, and frame-aligned CTC / transducer models such as Parakeet, image classification/embedding, object detection, depth estimation, latent-diffusion image generation), the `ModelLoader` |
 | | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddCompositeModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
 | | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
 | | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
@@ -37,12 +37,15 @@ they need no extra `using`):
 | `Sharplight.Core` (`Sharplight.Architectures`) | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
 | `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => ...)`, `AddOnnxImporter()` | the format (ONNX also its graph adapter) |
 | `Sharplight.Import.WhisperCpp` | `AddWhisperCppImporter()` | whisper.cpp `ggml` model files |
+| `Sharplight.Import.Kokoro` | `AddKokoroImporter()` | Kokoro-82M checkpoint folders (`config.json`, `.pth` with weight normalization, `voices/*.pt`, `lexicon/*.json`) |
+| `Sharplight.Import.Snac` | `AddSnacImporter()` | SNAC audio codec checkpoint folders (the decoding half; auxiliary `vocoder` of Orpheus) |
 | `Sharplight.Import.Diffusers` | `AddDiffusersImporter()` | diffusers folders and single-file Stable Diffusion checkpoints (ranks above the generic importers: `IModelImporter.Priority`) |
 | `Sharplight.Import.PyTorch` | `AddPyTorchImporter(o => ...)` | the restricted-unpickler settings (`TorchCheckpointOptions`) for pickle checkpoints (`pytorch_model*.bin` shards of the Hugging Face importer) |
 | `Sharplight.Core` (`Sharplight.Package`) | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order) |
 | `Sharplight.Audio` | `AddSharplightAudio(o => ...)` | native audio (own C library over miniaudio, libopus, libogg, opusfile, libvorbis): `IAudioDecoder` (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), `IAudioEncoder` (WAV, Ogg Opus), `IAudioDeviceProvider` (playback and capture streams); replaces the WAV-only `AddWavAudio()` services of the core, which stay the fallback when the native library cannot be loaded |
-| `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()` |
+| `Sharplight.Core` | `AddSharplightStorage()`, `AddSharplightStorage(layout)` | the `StorageLayout` (portable, system or custom location of configuration, data, models, caches and logs; [storage.md](storage.md)) |
+| `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightStorage()`, `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()` |
 | `Sharplight.Extensions.AI` | `AddSharplightChatClient(o => ...)`, `AddSharplightEmbeddingGenerator(o => ...)`, `AddSharplightSpeechToTextClient()`, ... | Microsoft.Extensions.AI adapters |
 | `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
 
@@ -197,6 +200,15 @@ prompts each window with the text so far, `Prompt` conditions the first. `Timest
 timestamp tokens (one segment per window, as transformers does by default). Each `TranscriptionSegment` carries its token ids, mean log
 probability and no-speech probability. Not yet: temperature fallback, word timestamps.
 
+The same recognizer serves the other prompted encoder-decoders: Moonshine (raw-waveform encoder over variable-length windows, start token
+only, no timestamps) and Canary (FastConformer encoder, a prompt template with source and target language; `Translate` targets English,
+requests without `Language` are English). A second built-in implementation, registered by `AddSharplightTasks()` as well, serves models
+whose decoder component configures a frame-aligned decoding (`decoding` "ctc", "rnnt" or "tdt"; Parakeet): per window (up to 30 s, no
+padding) the encoder, then on the host CTC greedy or prefix beam search (`BeamSize`) or greedy RNN-T / TDT over the `predict` and `joint`
+graphs. Both answer through the same `ISpeechRecognizer` with the same options, segments and streaming; the frame-aligned one fills
+`TranscriptionSegment.Words` for `TimestampGranularity.Word` from the token rows. Which implementation a model gets follows from its
+description (`ITaskClientFactory.CanCreate`), so applications, the HTTP endpoints and Studio's Transcribe page need no changes.
+
 ```csharp
 var services = new ServiceCollection().AddSharplight()
     .AddSpeechRecognizer(o => { o.ModelPath = "ggml-small.bin"; o.Devices = [slot]; });   // or a HF directory / .slm
@@ -210,7 +222,7 @@ foreach (var segment in result.Segments)
 ```
 
 The sample `samples/Sharplight.Transcribe` (`sharplight-transcribe model audio.wav [--language en] [--translate] [--beam-size 5] [--format srt]`) is this
-in a command-line tool. Models of other speech families (CTC, transducers, audio LLMs) plug in as their own `ITaskClientFactory` for the
+in a command-line tool. Models of other speech families (audio LLMs) plug in as their own `ITaskClientFactory` for the
 same kind; the feature extraction sits behind a small internal interface so a graph-based front end can replace the host one.
 
 Vision models share host-side preprocessing in Core: `ImageProcessorConfig` (resize mode and filter, center crop, rescale, mean and std;
@@ -570,8 +582,8 @@ crash-safe in-place write. Loads pick the best stored stage per kernel on their 
 compile), and validate device code before the driver sees it. After a load, `CompilationArtifacts.CompileDeviceCodeAsync(providers)`
 turns what it compiled into device code (`LlmModel.Artifacts`, `TaskModel.Artifacts`).
 
-The same artifact sets also live in a second place: the per-user `ArtifactStore` (`sharplight/artifacts` in the local application
-data folder). It uses the descriptors, set ids, keys, tiers and matching of the sets in a package, one subdirectory per set with
+The same artifact sets also live in a second place: the per-user `ArtifactStore` (`artifacts` in the cache folder of the storage
+layout, `ArtifactStore.DirectoryFor(layout)`; see [storage.md](storage.md)). It uses the descriptors, set ids, keys, tiers and matching of the sets in a package, one subdirectory per set with
 its descriptor in `descriptor.json`. Loads look in the package's sets first, then in the store, and only then compile. New SPIR-V
 is written to the store, and so is the driver's pipeline cache, in the pipeline-cache set of the device and driver. Packages change
 only when a host precompiles or converts on purpose. The store helps whenever a package cannot: GGUF, Hugging Face and ONNX models
@@ -584,7 +596,7 @@ and per device `DeviceOptions.KernelCacheDirectory` picks the directory and `Dev
 off.
 
 ```csharp
-var options = new DeviceOptions { KernelCacheDirectory = "/data/sharplight-artifacts" };  // or leave it null: the per-user store
+var options = new DeviceOptions { KernelCacheDirectory = "/data/sharplight-artifacts" };  // or leave it null: the storage layout's store
 using var device = provider.OpenDevice(info, options);
 ArtifactStore? store = device.ArtifactStore;                // the store this device reads and records into
 foreach (var set in store?.ArtifactSets ?? [])

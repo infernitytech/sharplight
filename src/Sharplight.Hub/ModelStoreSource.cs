@@ -12,6 +12,6 @@ public enum ModelStoreSource
     /// <summary>The application's settings (<see cref="ModelStoreSettings"/>).</summary>
     Settings,
 
-    /// <summary>Nothing was configured: the application folder.</summary>
+    /// <summary>Nothing was configured: the <c>models</c> folder of the storage layout.</summary>
     Default,
 }
