@@ -1113,7 +1113,7 @@ adapter, the model knowledge lives in the importers, and only the feature extrac
 | Moonshine tiny, base | Hugging Face `moonshine`; `.slm` | **supported** (CPU and Vulkan) | transformers (encoder output, token-exact greedy ids) | hf/moonshine-{tiny,base}, audio/jfk.wav, audio/librispeech-1272-128104-0004.wav |
 | Parakeet CTC (parakeet-ctc-0.6b; 1.1b maps the same way) and TDT (parakeet-tdt-0.6b-v3); RNN-T maps but is not verified | Hugging Face `parakeet_ctc`, `parakeet_tdt`, `parakeet_rnnt` (transformers format); `.slm` | **supported** (CPU and Vulkan) | transformers (NeMo log-mel features, encoder output, token-exact greedy CTC / TDT ids) | hf/parakeet-ctc-0.6b, hf/parakeet-tdt-0.6b-v3 |
 | Canary (canary-1b-v2) | Hugging Face `canary` (transformers format); `.slm` | **supported** (CPU and Vulkan; transcription and translation prompts, no timestamps) | transformers (encoder output, token-exact greedy ids of an English transcription with punctuation) | hf/canary-1b-v2 |
-| Voxtral | - | **missing** (needs the tekken tokenizer and audio embeddings in front of the text generator) | - | - |
+| Qwen3-ASR (1.7B), Voxtral Mini 3B: audio language models | Hugging Face (`qwen3_asr` original and `-hf` layouts, `voxtral` with `tekken.json`); transcribe.cpp `qwen3_asr` GGUF | **supported** (CPU and Vulkan), section 13.2 | transformers (token-exact greedy ids) | hf/Qwen3-ASR-1.7B[-hf], speech-gguf/Qwen3-ASR-1.7B-F16.gguf, hf/Voxtral-Mini-3B-2507 |
 
 How it is built (2026-11-15):
 
@@ -1220,8 +1220,8 @@ LibriSpeech 1272-128104-0004, and FLEURS test clips in German, Spanish and Japan
 | handy-computer/parakeet-ultra-gguf | GGUF Q8_0 | **new**: the `vad.*` head is ignored; English and Spanish transcripts correct (no reference run) |
 | handy-computer/parakeet-unified-en-0.6b-gguf | GGUF Q8_0 | **new**, partial: RNN-T head with biases and input scaling; transcripts match the reference text, no NeMo reference |
 | handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | GGUF | rejected with a reason: layer-norm convolution module, causal convolutions, chunked-limited attention (cache-aware streaming FastConformer) |
-| Qwen/Qwen3-ASR-1.7B (+ transcribe.cpp GGUF) | HF | unsupported: audio-LLM (conv2d stem, 24-layer windowed audio tower, projector into a Qwen3 decoder); needs the audio-embedding path of the multimodal decoder |
-| mistralai/Voxtral-Mini-4B-Realtime-2602 | HF | unsupported: audio tower, tekken tokenizer, streaming decoder |
+| Qwen/Qwen3-ASR-1.7B (+ transcribe.cpp GGUF) | HF, GGUF | **supported since 2026-11-16** (section 13.2): greedy ids identical to transformers |
+| mistralai/Voxtral-Mini-4B-Realtime-2602 | HF | unsupported: streaming (delayed-token) decoder; the offline mistralai/Voxtral-Mini-3B-2507 is supported since 2026-11-16 (section 13.2) |
 | handy-computer/cohere-transcribe-03-2026-gguf | GGUF | unsupported architecture `cohere_asr` |
 | Systran/faster-whisper-* | CTranslate2 | unsupported format (no importer) |
 | Xenova/whisper-* | ONNX | graphs run through the ONNX runner (section 9), no speech-recognition task on ONNX graphs |
@@ -1233,6 +1233,45 @@ Fixes of the sweep: wav2vec2 CTC import and `Wav2Vec2CtcAdapter` (weight-normed 
 GGUF mapping (transcribe.cpp layout, the Slaney filter bank computed from the front-end parameters since the file stores none:
 `IGgufArchitectureMapping.SyntheticAttachments`, `IgnoresTensor`); the Slaney mel filter bank moved from the Hugging Face importer to
 `Sharplight.Audio.SlaneyMelFilterBank` in Core. Not run: Studio Transcribe page for the new formats, `.slm` of the new models.
+
+### 13.2 Audio language models (2026-11-16)
+
+Audio language models recognize speech with a language model: an audio tower turns the log-mel features into embedding rows, which replace
+the audio placeholder tokens of a transcription prompt in the decoder's multimodal graph, the same path the image embeddings of
+vision-language models take (`decode_multimodal`, rows with mask 1 take the embedding instead of the token embedding). They load as
+speech-recognition models through `ISpeechRecognizer` (`AudioLanguageSpeechRecognizer`, chosen when the encoder component is an audio tower and
+the decoder component carries an audio prompt), so the Transcribe page, the audio endpoints and `samples/Sharplight.Transcribe` use them unchanged.
+
+- **Model**: canonical `decoder` with `decoder.audio.*` keys (`AudioTowerParameters`) and `audio.*` weights. Two towers: `chunked-conv2d`
+  (Qwen3-ASR: 100-frame chunks through three strided 3×3 convolutions over mel bins × frames with GELU, laid out back to back in one time-major
+  map with each chunk padded to 104 rows and row masks between the convolutions so a single `SequenceConv2d` per layer keeps the chunks
+  independent; the flattened channels projected, the in-chunk sinusoid positions added, the valid rows gathered; pre-norm layers whose attention
+  stays within 8-chunk windows (`Attention` with row spans); final LayerNorm; GELU projector) and `whisper` (Voxtral: Whisper's encoder over one
+  30 s window, every four rows concatenated before the projector). `DecoderAdapter` adds the tower's `audio_encode` graph, the multimodal graph
+  and the speech-recognition description (components `encoder`, `decoder`, `tokenizer`, `feature-extractor`; `AudioLanguageModelDescription`).
+- **Prompt** (`AudioPromptSettings`, written by the importer and kept in the decoder component so packages carry it): a template with
+  `{context}` (the request's `Prompt`), `{audio}` (one placeholder token per embedding row) and `{language}`; the language prefix
+  (`language {language}<asr_text>` for Qwen3-ASR, `lang:{code}` for Voxtral) when the request names a language; the transcript marker
+  (`<asr_text>`): without a language Qwen3-ASR writes `language English<asr_text>…`, the recognizer returns the text after the marker and the
+  language before it (`SpeechLanguages`, ISO 639 codes to English names, in Core).
+- **Host**: Whisper's log-mel front end (128 bins; 30 s of trailing silence as the reference pads to 30 s), recordings cut into 30 s windows,
+  greedy decoding (or the request's sampling) until the end-of-turn token; one segment per window.
+- **Importers**: `Qwen3AsrHfMapping` (both layouts of Qwen3-ASR: the original release with `thinker.*` tensors and `thinker_config`, which
+  `HfConfig` now flattens, and transformers' `-hf` conversion), `Qwen3AsrGgufMapping` (transcribe.cpp's `qwen3_asr` GGUF files: `stt.qwen3_asr.*`
+  keys, `enc.*` / `dec.*` tensors), `VoxtralHfMapping` (Voxtral; the tokenizer comes from `tekken.json`, translated to a byte-level BPE whose
+  merges are recovered from the ranks, special tokens first, pre-tokenizer `tekken`).
+
+| Check (fixtures from `tools/make_qwen3_asr_fixtures.py`, transformers 5.23, float32) | Result |
+|---|---|
+| Qwen3-ASR 1.7B, greedy ids vs transformers `generate`, language detected and English forced, jfk.wav and LibriSpeech 1272-128104-0004 | identical, CPU and Vulkan (8 of 8) |
+| Qwen3-ASR 1.7B, projected audio embeddings | LibriSpeech within 2e-3 of the largest value; jfk max abs error 4.8e-4 of max 0.099 (CPU and Vulkan agree; the log-mel of jfk is within 6e-4 of transformers' near the recording's peak, LibriSpeech within 1.4e-4) |
+| Qwen3-ASR 1.7B, `-hf` layout and transcribe.cpp F16 GGUF (jfk, Vulkan, language detected) | ids identical to transformers (the GGUF file types `<asr_text>` as a normal token; the mapping makes the added tokens user-defined) |
+| Voxtral Mini 3B, greedy ids vs transformers (mistral-common transcription template), without a language and with English, jfk and LibriSpeech | identical, CPU and Vulkan (8 of 8) |
+| Voxtral Mini 3B, projected audio embeddings (375 rows per 30 s window) | CPU within 2e-3 of the largest value; Vulkan within 1.2e-2 (bf16 weights) |
+
+Tests: `Qwen3AsrParityTests` (features, embeddings, greedy ids, the `-hf` layout and the GGUF file), `VoxtralParityTests` (embeddings, greedy ids);
+fixtures from `tools/make_qwen3_asr_fixtures.py` and `tools/make_voxtral_fixtures.py`. Not done: the Qwen3-ASR forced aligner (timestamps),
+Qwen3-ASR 0.6B and Voxtral Small runs, long-form context across windows, a `.slm` round trip of these models.
 
 ## 14. Vision models (task layer)
 

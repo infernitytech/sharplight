@@ -24,6 +24,7 @@ internal static class GgufArchitectureMappings
         Register(new WavTokenizerGgufMapping());
         Register(new WhisperGgufMapping());
         Register(new ParakeetGgufMapping());
+        Register(new Qwen3AsrGgufMapping());
         Register(new DflashGgufMapping());
         Register(new Gemma4AssistantGgufMapping());
         Register(new ClipGgufMapping());

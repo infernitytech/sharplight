@@ -53,6 +53,8 @@ internal static class HfArchitectureMappings
         Register(new ParakeetHfMapping());
         Register(new Wav2Vec2HfMapping());
         Register(new CanaryHfMapping());
+        Register(new Qwen3AsrHfMapping());
+        Register(new VoxtralHfMapping());
         foreach (var family in DecoderFamilies())
         {
             Register(family);

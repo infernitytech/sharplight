@@ -172,6 +172,8 @@ Verified on CPU and Vulkan. Reference: transformers (token-exact greedy ids), wh
 | Parakeet as GGUF (TDT 0.6B v3) | handy-computer/parakeet-tdt-0.6b-v3-gguf | transcribe.cpp GGUF F16, Q8_0 | F16: text identical to the Hugging Face checkpoint on 5 clips (English, LibriSpeech, German, Spanish, Japanese); Q8_0: same text except one capital letter in German and a few kana in Japanese | Q4_K_M, Q5_K_M, Q6_K map the same way, not run | 2026-11-16 |
 | Parakeet unified (RNN-T, English) | handy-computer/parakeet-unified-en-0.6b-gguf | transcribe.cpp GGUF Q8_0 | Partial: transcripts match the reference text on jfk and LibriSpeech, no NeMo reference at hand to compare tokens | streaming chunked-attention settings read, but run with full context | 2026-11-16 |
 | Parakeet RNN-T | nvidia/parakeet-rnnt-* | HF | Partial: maps, not verified | | |
+| Qwen3-ASR 1.7B (audio language model) | Qwen/Qwen3-ASR-1.7B, Qwen/Qwen3-ASR-1.7B-hf, handy-computer/Qwen3-ASR-1.7B-gguf | HF (original and transformers layouts), transcribe.cpp GGUF | greedy ids identical to transformers on jfk and LibriSpeech, language detected and English forced, CPU and Vulkan; the `-hf` layout and the transcribe.cpp F16 GGUF give the same ids; the language the model names is returned | 30 languages; recordings in 30 s windows; Qwen3-ASR 0.6B maps the same way, not run | 2026-11-16 |
+| Voxtral Mini 3B (audio language model) | mistralai/Voxtral-Mini-3B-2507 | HF (transformers layout, `tekken.json` tokenizer) | greedy ids identical to transformers on jfk and LibriSpeech, without a language and with English given, CPU and Vulkan | 30 s per window (375 audio rows); Voxtral Small 24B maps the same way, not run; the realtime 4B (streaming decoder) is not supported | 2026-11-16 |
 
 Long recordings are cut into 30 s windows (Whisper uses its own timestamp-driven loop). Not yet: temperature fallback, Whisper word timestamps.
 
@@ -259,8 +261,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 |---|---|---|
 | Inkling 2 Small | thinkingmachines/Inkling-2-Small, unsloth/Inkling-2-Small-GGUF | new `inkling2` blocks not implemented |
 | DeepSeek V4.1 Flash (HF) | deepseek-ai/DeepSeek-V4.1-Flash | Hugging Face tensor-name mapping missing (the GGUF files import) |
-| Qwen3-ASR 1.7B | Qwen/Qwen3-ASR-1.7B, handy-computer/Qwen3-ASR-1.7B-gguf | audio-LLM: chunked-window Whisper-style audio tower (conv2d stem, 24 layers) whose output rows are injected into a Qwen3 decoder; the audio-embedding path of the multimodal decoder and the ASR prompt are missing |
-| Voxtral Mini 4B Realtime | mistralai/Voxtral-Mini-4B-Realtime-2602 | audio tower plus the tekken tokenizer and a streaming (delayed-token) decoder |
+| Voxtral Mini 4B Realtime | mistralai/Voxtral-Mini-4B-Realtime-2602 | streaming (delayed-token) decoder; the offline Voxtral Mini 3B is supported (section 2) |
 | Cohere Transcribe 03-2026 | handy-computer/cohere-transcribe-03-2026-gguf | `cohere_asr` (conformer encoder with an autoregressive decoder) not implemented |
 | Nemotron 3.5 ASR streaming | handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | cache-aware streaming FastConformer: causal convolutions with layer-norm, chunked-limited attention context; the file loads as `parakeet` and is rejected with that reason |
 | faster-whisper (CTranslate2) | Systran/faster-whisper-* | CTranslate2 `model.bin` format has no importer (the same models import from the OpenAI checkpoints or whisper.cpp / transcribe.cpp files) |
@@ -277,7 +278,6 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | SD 1.5 inpainting UNet, SDXL refiner, SD3, Chroma, Qwen-Image, Wan, LTX | various | not implemented yet (rejected with a clear message) |
 | LoRA, ControlNet, TAESD | | not implemented |
 | CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
-| Voxtral | mistralai/Voxtral-* | needs the tekken tokenizer and audio embeddings |
 | Mask2Former, YOLO (native), Florence-2 (native), SwinIR | | vision models not implemented (Florence-2 ONNX parts work) |
 | Demucs, CLAP, MusicGen | | audio models not implemented |
 | Mamba / RWKV real checkpoints beyond those above | | not covered by a model test |
