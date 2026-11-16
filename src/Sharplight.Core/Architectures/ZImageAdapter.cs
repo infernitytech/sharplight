@@ -61,7 +61,7 @@ public sealed class ZImageAdapter : IModelAdapter
             throw new ArgumentException($"Image size {width}x{height} must be a positive multiple of {multiple} pixels for {src.Get(CanonicalKeys.Name, src.Architecture)}.");
         }
 
-        var textSource = TextEncoderSource(src);
+        var textSource = DecoderSubSource.Extract(src, TextEncoderSourcePrefix, TextEncoderPrefix);
         var decoder = DecoderHyperParameters.Read(textSource);
         int layer = src.Get(Prefix + "text_encoder.layer", decoder.LogicalLayers - 1);
         var textGraph = new DecoderGraphBuilder(textSource, new AdapterOptions { IncludeAuxiliaryGraphs = false }, decoder)
@@ -88,38 +88,6 @@ public sealed class ZImageAdapter : IModelAdapter
             OwnedResources = src.OwnedResources,
             Attachments = attachments,
             Description = Describe(src, transformer, vae, promptLength, schedulerAttachment),
-        };
-    }
-
-    /// <summary>The text encoder as a decoder source of its own: its canonical metadata and its weights without the prefix.</summary>
-    private static ModelSource TextEncoderSource(ModelSource src)
-    {
-        var metadata = new Dictionary<string, object>(StringComparer.Ordinal);
-        foreach (var (key, value) in src.Metadata)
-        {
-            if (key.StartsWith(TextEncoderSourcePrefix, StringComparison.Ordinal))
-            {
-                metadata[key[TextEncoderSourcePrefix.Length..]] = value;
-            }
-        }
-
-        var weights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
-        foreach (var (name, weight) in src.Weights)
-        {
-            if (name.StartsWith(TextEncoderPrefix, StringComparison.Ordinal))
-            {
-                weights[name[TextEncoderPrefix.Length..]] = weight;
-            }
-        }
-
-        string architecture = metadata.TryGetValue("architecture", out var stored) ? stored.ToString()! : "decoder";
-        return new ModelSource
-        {
-            Format = src.Format,
-            Architecture = architecture,
-            Metadata = metadata,
-            Weights = weights,
-            Path = src.Path,
         };
     }
 

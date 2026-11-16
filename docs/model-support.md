@@ -1698,7 +1698,8 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 | Wan 2.1 T2V (1.3B, 14B) | diffusers folder; transformer-only GGUF (city96 / QuantStack, any ggml type) and original-name `.safetensors` (also ComfyUI's `model.diffusion_model.` prefix) with a Wan diffusers folder as companion for the umT5 encoder, tokenizer and VAE | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
 | Wan 2.2 TI2V-5B | diffusers folder; transformer-only GGUF / safetensors with companions as for Wan 2.1 | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
 | Wan 2.2 T2V-A14B, I2V-A14B (two experts) | diffusers folder with transformer_2; high- and low-noise transformer GGUFs (QuantStack / city96) with `AuxiliaryRoles.SecondTransformer` and a Wan 2.1 folder as companion | **supported** (expert switch at the boundary timestep 0.875 · 1000, `GuidanceScale2`; I2V by concatenating a first-frame mask and the encoded start-image video, streamed causal VAE encoder) | tiny pipelines; T2V-A14B Q4_K_M below |
-| Wan 2.1 I2V / FLF2V (CLIP image embedding); stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing (Wan 2.1 I2V folders are rejected by name) | |
+| Wan 2.1 I2V-14B, FLF2V-14B (CLIP image embedding) | diffusers folder (with `image_encoder/` and `image_processor/`); transformer-only GGUF (city96) with a Wan 2.1 folder for umT5 / VAE and the I2V / FLF2V configuration folder as `AuxiliaryRoles.ImageEncoder` | **supported** (CLIP ViT-H/14 penultimate states, the image embedding and the added image key/value cross-attention; FLF2V: `VideoGenerationRequest.LastImage`, the two images' states with the learned position table, the mask 1 on the last frame) | tiny pipelines; I2V and FLF2V Q4_K_M below |
+| Stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing | |
 | LTX-Video 0.9.0 (2B) | diffusers folder (the T5-XXL text encoder is the one of FLUX.1 / PixArt) | **supported** (text-to-video, multiples of 32, frames 1 + 8k, flow Euler with the resolution-dependent shift and the terminal stretch) | tiny pipeline; 2B below |
 | LTX-Video 0.9.1+ (causal / timestep-conditioned decoder), HunyuanVideo, CogVideoX, Mochi | - | missing (LTX 0.9.1+ rejected by name) | |
 
@@ -1761,6 +1762,11 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
   ±1e-3 changes Sharplight's own result by 22–26 dB per frame, as much as it differs from diffusers. 14.6 s per step (both guidance
   passes) at 832×480×33 frames, decode 26 s, peak 16.1 GB (one expert resident at a time), 334 s in all; diffusers took 23 s per step at
   17 frames.
+- Wan 2.1 I2V-14B-480P and FLF2V-14B-720P (city96 Q4_K_M GGUFs; umT5 and the VAE from the Wan 2.1 1.3B folder, CLIP ViT-H/14 from
+  the I2V / FLF2V configuration folders; tools/make-wan-i2v-references.py: diffusers on the same GGUFs, f32 on CUDA without TF32,
+  832×480, 17 frames, 20 UniPC steps, guidance 5, a start image (and a zoomed crop of it as the last image)): CLIP states 3.5e-3 / 3.4e-3
+  relative RMS against transformers on the CPU (one-level pixel differences of the bicubic resize; transformers' own CUDA run with TF32
+  convolutions is 1e-2 away), transformer 3.9e-4 / 1.7e-4; image-to-video 30.6–48.1 dB per frame, first-and-last-frame 50.8–60.2 dB.
 - Speed and memory on the 32 GB GPU (Vulkan, `sharplight-generate-video`, 832×480, 33 frames = 9 latent frames, 20 UniPC steps
   with guidance, each run a new process: the conditioning time includes loading and compiling the umT5 encoder from the kernel
   cache): Wan 2.1 1.3B (f32 transformer) 4.2 s per step (both guidance passes), decode 19 s, peak 16.3 GB; Wan 2.2 TI2V-5B (f32

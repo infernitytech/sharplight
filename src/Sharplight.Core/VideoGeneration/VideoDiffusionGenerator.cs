@@ -41,6 +41,13 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
     private readonly bool _firstFrameConditioning;
     private readonly int _conditionChannels;
     private readonly bool _imageEncoder;
+    private readonly string? _promptTemplate;
+    private readonly int _promptPrefix;
+    private readonly ITokenizer? _secondTokenizer;
+    private readonly int _secondContextLength;
+    private readonly bool _embeddedGuidance;
+    private readonly int _tileFrames;
+    private readonly int _tileStride;
     private readonly bool _lastFrameConditioning;
     private readonly int _defaultWidth;
     private readonly int _defaultHeight;
@@ -66,7 +73,17 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         var description = model.Description;
         _tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
         _schedule = NoiseSchedule.FromComponent(description.Component(ModelComponentRoles.Scheduler));
-        _contextLength = description.Component(ModelComponentRoles.TextEncoder).ConfigValue(DiffusionConfigKeys.ContextLength, 512);
+        var textEncoder = description.Component(ModelComponentRoles.TextEncoder);
+        _contextLength = textEncoder.ConfigValue(DiffusionConfigKeys.ContextLength, 512);
+        _promptPrefix = textEncoder.ConfigValue(VideoConfigKeys.PromptPrefixTokens, 0);
+        _promptTemplate = textEncoder.Config.TryGetValue(VideoConfigKeys.PromptTemplate, out var template) ? template.GetString() : null;
+        if (description.TryGetComponent(DiffusionGraphs.SecondTextEncoderRole, out var secondEncoder))
+        {
+            _secondTokenizer = model.CreateTokenizer(DiffusionGraphs.SecondTokenizerRole);
+            _secondContextLength = secondEncoder.ConfigValue(DiffusionConfigKeys.ContextLength, 77);
+        }
+
+        _embeddedGuidance = description.ConfigValue(VideoConfigKeys.EmbeddedGuidance, false);
         var transformer = description.Component(ModelComponentRoles.Transformer);
         _patchSize = transformer.ConfigValue(DiffusionConfigKeys.PatchSize, 2);
         _tokenTimesteps = transformer.ConfigValue(VideoConfigKeys.TokenTimesteps, false);
@@ -78,6 +95,8 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
             ? [.. factors.EnumerateArray().Select(f => f.GetSingle())]
             : [];
         _wholeVideoDecoder = vae.Graphs.Contains(VideoDiffusionGraphs.VaeDecode);
+        _tileFrames = vae.ConfigValue(VideoConfigKeys.DecodeTileFrames, 0);
+        _tileStride = vae.ConfigValue(VideoConfigKeys.DecodeTileStride, 0);
         _firstFrameConditioning = description.ConfigValue(VideoConfigKeys.FirstFrameConditioning, false) && vae.Graphs.Contains(VideoDiffusionGraphs.VaeEncode);
         // A transformer that takes more channels than the VAE gives is conditioned on a concatenated mask and the encoded video of the
         // start image followed by blank frames (Wan 2.2 I2V-A14B: 16 + 4 + 16 channels).
@@ -284,7 +303,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
             Steps = steps,
             Guidance = guidance,
             Guidance2 = options.GuidanceScale2 ?? options.GuidanceScale ?? _defaultGuidance2,
-            Guided = guidance > 1f,
+            Guided = guidance > 1f && !_embeddedGuidance,
             Seed = options.Seed ?? Random.Shared.NextInt64(1L << 53),
             Sampler = options.Scheduler ?? _schedule.Sampler,
             PreviewInterval = options.PreviewInterval,
@@ -331,6 +350,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         if (_holdOneStage)
         {
             Release(VideoDiffusionGraphs.TextEncode);
+            Release(DiffusionGraphs.TextEncode2);
         }
 
         _lastConditioning = (prompt, negative, guided, rows);
@@ -343,7 +363,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
     /// </summary>
     private PromptRow EncodePrompt(string prompt)
     {
-        var tokens = PromptTokenizer.Tokenize(_tokenizer, _contextLength, CleanPrompt(prompt), out int count);
+        var tokens = PromptTokenizer.Tokenize(_tokenizer, _promptPrefix + _contextLength, CleanPrompt(prompt), out int count, _promptTemplate);
         var mask = new float[tokens.Length];
         mask.AsSpan(0, count).Fill(1f);
         var encoder = Compiled(ModelComponentRoles.TextEncoder, VideoDiffusionGraphs.TextEncode, null);
@@ -364,7 +384,28 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
             hidden.AsSpan(count * width).Clear();
         }
 
-        return new PromptRow(hidden, mask);
+        var pooled = _secondTokenizer is null ? null : EncodePooled(prompt);
+        if (_promptPrefix == 0)
+        {
+            return new PromptRow(hidden, mask, pooled);
+        }
+
+        // The template's instruction tokens condition the prompt's states but are dropped from the conditioning.
+        int rowWidth = hidden.Length / tokens.Length;
+        return new PromptRow(hidden.AsSpan(_promptPrefix * rowWidth).ToArray(), mask.AsSpan(_promptPrefix).ToArray(), pooled);
+    }
+
+    /// <summary>The second text encoder's pooled embedding of a prompt (HunyuanVideo's CLIP-L).</summary>
+    private float[] EncodePooled(string prompt)
+    {
+        var tokens = PromptTokenizer.Tokenize(_secondTokenizer!, _secondContextLength, CleanPrompt(prompt), out _);
+        var encoder = Compiled(DiffusionGraphs.SecondTextEncoderRole, DiffusionGraphs.TextEncode2, null);
+        encoder.SetInput<int>(Input(encoder, DiffusionGraphs.Tokens), tokens);
+        var parameters = new RunParameters();
+        encoder.Run(parameters);
+        var pooled = new float[encoder.OutputShape(DiffusionGraphs.Pooled, parameters).Aggregate(1L, (a, b) => a * b)];
+        encoder.GetOutput<float>(DiffusionGraphs.Pooled, pooled);
+        return pooled;
     }
 
     /// <summary>The Wan pipelines' prompt cleaning: HTML entities decoded (twice), whitespace runs collapsed, trimmed.</summary>
@@ -407,13 +448,14 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         }
 
         var timesteps = TimestepInput(run, timestep, firstFrame is not null);
-        var conditional = RunTransformer(transformer, run, input, timesteps, conditioning[0], imageContext);
+        float? embedded = _embeddedGuidance ? guidance : null;
+        var conditional = RunTransformer(transformer, run, input, timesteps, conditioning[0], imageContext, embedded);
         if (!run.Guided)
         {
             return conditional;
         }
 
-        var unconditional = RunTransformer(transformer, run, input, timesteps, conditioning[1], imageContext);
+        var unconditional = RunTransformer(transformer, run, input, timesteps, conditioning[1], imageContext, embedded);
         for (int i = 0; i < conditional.Length; i++)
         {
             conditional[i] = unconditional[i] + guidance * (conditional[i] - unconditional[i]);
@@ -440,7 +482,8 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         return values;
     }
 
-    private static float[] RunTransformer(CompiledModel transformer, VideoRun run, float[] latents, float[] timesteps, PromptRow context, float[]? imageContext)
+    private static float[] RunTransformer(CompiledModel transformer, VideoRun run, float[] latents, float[] timesteps, PromptRow context, float[]? imageContext,
+        float? guidance)
     {
         transformer.SetInput<float>(Input(transformer, VideoDiffusionGraphs.Latent), latents);
         transformer.SetInput<float>(Input(transformer, VideoDiffusionGraphs.Timestep), timesteps);
@@ -453,6 +496,16 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         if (imageContext is not null)
         {
             transformer.SetInput<float>(Input(transformer, VideoDiffusionGraphs.ImageContext), imageContext);
+        }
+
+        if (context.Pooled is not null)
+        {
+            transformer.SetInput<float>(Input(transformer, DiffusionGraphs.Pooled), context.Pooled);
+        }
+
+        if (guidance is { } scale)
+        {
+            transformer.SetInput<float>(Input(transformer, DiffusionGraphs.Guidance), [scale]);
         }
 
         transformer.Run(new RunParameters());
@@ -484,17 +537,17 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         return frame;
     }
 
-    /// <summary>Decodes the whole latent video with a non-causal decoder (<see cref="VideoDiffusionGraphs.VaeDecode"/>).</summary>
+    /// <summary>
+    /// Decodes the whole latent video with a whole-video decoder (<see cref="VideoDiffusionGraphs.VaeDecode"/>); with decode tiles
+    /// (<see cref="VideoConfigKeys.DecodeTileFrames"/>) a longer video in overlapping temporal tiles (see <see cref="DecodeTiled"/>).
+    /// </summary>
     private List<ImageInput> DecodeWhole(VideoRun run, float[] latents)
     {
-        var decoder = Compiled(ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeDecode, run.Dimensions);
-        decoder.SetInput<float>(Input(decoder, VideoDiffusionGraphs.Latent), latents);
-        var parameters = new RunParameters();
-        decoder.Run(parameters);
-        int count = (int)decoder.OutputShape(VideoDiffusionGraphs.Frames, parameters)[0];
         int frameValues = 3 * run.Width * run.Height;
-        var pixels = new float[count * frameValues];
-        decoder.GetOutput<float>(VideoDiffusionGraphs.Frames, pixels);
+        var pixels = _tileFrames > 0 && _tileStride > 0 && run.LatentFrames > _tileFrames
+            ? DecodeTiled(run, latents)
+            : DecodeLatents(run, latents, run.LatentFrames, run.Dimensions);
+        int count = pixels.Length / frameValues;
         var frames = new List<ImageInput>(count);
         for (int f = 0; f < count; f++)
         {
@@ -502,6 +555,81 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         }
 
         return frames;
+    }
+
+    /// <summary>Runs the whole-video decoder on a latent video [C, T, h, w] of <paramref name="latentFrames"/> frames; returns frames [F, 3, H, W].</summary>
+    private float[] DecodeLatents(VideoRun run, float[] latents, int latentFrames, IReadOnlyDictionary<string, long>? dimensions)
+    {
+        var decoder = Compiled(ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeDecode, dimensions);
+        decoder.SetInput<float>(Input(decoder, VideoDiffusionGraphs.Latent), latents);
+        var parameters = new RunParameters();
+        decoder.Run(parameters);
+        int count = (int)decoder.OutputShape(VideoDiffusionGraphs.Frames, parameters)[0];
+        var pixels = new float[count * 3 * run.Width * run.Height];
+        decoder.GetOutput<float>(VideoDiffusionGraphs.Frames, pixels);
+        return pixels;
+    }
+
+    /// <summary>
+    /// diffusers' temporal tiling: tiles of <see cref="_tileFrames"/> + 1 latent frames starting every <see cref="_tileStride"/> latent
+    /// frames (the last ones shorter), each decoded on its own; a tile after the first drops its first frame and fades in over the
+    /// previous tile's last (tile − stride) · temporal frames; each tile contributes its first stride · temporal frames (the first one
+    /// frame more).
+    /// </summary>
+    private float[] DecodeTiled(VideoRun run, float[] latents)
+    {
+        int frameValues = 3 * run.Width * run.Height;
+        int plane = run.PlaneSize;
+        int strideFrames = _tileStride * _temporalDownscale;
+        int blend = (_tileFrames - _tileStride) * _temporalDownscale;
+        var tiles = new List<float[]>();
+        for (int start = 0; start < run.LatentFrames; start += _tileStride)
+        {
+            int count = Math.Min(_tileFrames + 1, run.LatentFrames - start);
+            var tile = new float[run.LatentChannels * count * plane];
+            for (int c = 0; c < run.LatentChannels; c++)
+            {
+                latents.AsSpan((c * run.LatentFrames + start) * plane, count * plane).CopyTo(tile.AsSpan(c * count * plane));
+            }
+
+            var dimensions = new Dictionary<string, long>
+            {
+                [VideoDiffusionGraphs.FramesDimension] = count,
+                [VideoDiffusionGraphs.Height] = run.Height,
+                [VideoDiffusionGraphs.Width] = run.Width,
+            };
+            var decoded = DecodeLatents(run, tile, count, dimensions);
+            tiles.Add(start > 0 ? decoded.AsSpan(frameValues).ToArray() : decoded);
+        }
+
+        var output = new List<float>();
+        for (int i = 0; i < tiles.Count; i++)
+        {
+            var tile = tiles[i];
+            int tileFrames = tile.Length / frameValues;
+            if (i > 0)
+            {
+                var previous = tiles[i - 1];
+                int previousFrames = previous.Length / frameValues;
+                int extent = Math.Min(Math.Min(previousFrames, tileFrames), blend);
+                for (int x = 0; x < extent; x++)
+                {
+                    float weight = (float)x / extent;
+                    var into = tile.AsSpan(x * frameValues, frameValues);
+                    var from = previous.AsSpan((previousFrames - extent + x) * frameValues, frameValues);
+                    for (int k = 0; k < frameValues; k++)
+                    {
+                        into[k] = from[k] * (1f - weight) + into[k] * weight;
+                    }
+                }
+            }
+
+            int keep = Math.Min(tileFrames, i == 0 ? strideFrames + 1 : strideFrames);
+            output.AddRange(tile.AsSpan(0, keep * frameValues).ToArray());
+        }
+
+        int total = Math.Min(output.Count / frameValues, run.Frames);
+        return output.GetRange(0, total * frameValues).ToArray();
     }
 
     private CompiledModel Decoder(VideoRun run, int latentFrame)
@@ -531,8 +659,13 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
             var chunk = blank;
             if (last is not null && t == run.LatentFrames - 1)
             {
+                // The chunk is [3, frames, H, W]: the last image's planes become each channel's last frame.
                 chunk = (float[])blank.Clone();
-                last.CopyTo(chunk.AsSpan(chunk.Length - last.Length));
+                int pixels = run.Width * run.Height;
+                for (int c = 0; c < 3; c++)
+                {
+                    last.AsSpan(c * pixels, pixels).CopyTo(chunk.AsSpan(((c * _temporalDownscale) + _temporalDownscale - 1) * pixels));
+                }
             }
 
             frames.Add(stream.Encode(next!, VideoDiffusionGraphs.Frames, chunk));
