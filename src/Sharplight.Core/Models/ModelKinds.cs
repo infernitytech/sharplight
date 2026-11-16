@@ -19,6 +19,9 @@ public static class ModelKinds
     /// <summary>Text and optionally an image in, images out (<c>Sharplight.ImageGeneration.IImageGenerator</c>).</summary>
     public const string ImageGeneration = "image-generation";
 
+    /// <summary>Text and optionally a start image in, video frames out (<c>Sharplight.VideoGeneration.IVideoGenerator</c>).</summary>
+    public const string VideoGeneration = "video-generation";
+
     /// <summary>Image in, class scores out (<c>Sharplight.Vision.IImageClassifier</c>).</summary>
     public const string ImageClassification = "image-classification";
 

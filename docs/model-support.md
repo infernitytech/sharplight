@@ -1406,3 +1406,47 @@ Verification (tools/make-tiny-flux.py, tools/make-flux-references.py; tests `Tin
   the first text encoder, a mask input built from the padding), CFG row by row through the existing fallback. Qwen-Image and the
   video DiTs (Wan, LTX: a frame axis in the latents and 3D RoPE through the same multi-axis sections) reuse the flow sampler and the
   companion-file loading.
+
+## 16. Video generation (2026-11-16)
+
+Video generators are models of kind `video-generation` (see [api-overview.md](api-overview.md) "Video generation"): the importer
+`Sharplight.Import.Diffusers` translates Wan pipeline folders into the canonical `wan` source, `WanAdapter` builds the umT5 text
+encoder, the video DiT and the causal 3-D VAE as graphs of generic Core ops (no new op: a causal 3-D convolution is one 2-D
+convolution over the frame windows stacked along the channels, the importer folding the kernel's time taps into its input
+channels), and Core's `VideoDiffusionGenerator` runs them with the UniPC or Euler flow sampler and classifier-free guidance on the
+host, decoding latent frame by latent frame with the causal caches carried between chunks.
+
+| family | formats | status | verified |
+|---|---|---|---|
+| Wan 2.1 T2V (1.3B, 14B) | diffusers folder | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
+| Wan 2.2 TI2V-5B | diffusers folder | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
+| Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts), Wan GGUF (city96 / QuantStack) | - | missing (the I2V and A14B folders are rejected by name) | |
+| LTX-Video, HunyuanVideo, CogVideoX, Mochi | - | missing | |
+
+Design notes:
+
+- Graph contract `VideoDiffusionGraphs`: `text_encode` (tokens and a key mask, so padding is never attended to; the pipeline zeroes
+  the padding rows as the Wan pipelines do), `denoise` (latents [C, T, h, w], timestep [1] or per token, context [512, D]),
+  `vae_decode_first` / `vae_decode_next` (one latent frame in, 1 or 4 frames out, cache inputs `cache_in.*` and outputs
+  `cache_out.*` holding each causal convolution's last two input frames) and `vae_encode` (one image to the first latent frame).
+- Transformer canonical names follow the original Wan checkpoints (`patch_embedding`, `blocks.{i}.self_attn.*`, `norm3`,
+  `cross_attn.*`, `ffn.0|2`, `modulation`, `head.*`), so original-name files and GGUF can map 1:1 later. RoPE over (frame, row,
+  column) uses the `Rope` op's multi-axis sections with per-axis frequency divisors (`AxialRope`, shared with FLUX).
+- The first decoded chunk skips the temporal upsampling (as the reference decoder does), so a clip of T latent frames has
+  1 + 4 (T − 1) frames; decoding memory does not grow with the clip length.
+- Tokenizer fix: Hugging Face templates that start with the sequence (T5 / umT5 `$A </s>`) no longer add a BOS token when the
+  tokenizer configuration names one.
+
+Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyWanTests`, `Wan21Tests` in
+`tests/Sharplight.ImageGeneration.Tests`):
+
+- Tiny random Wan pipelines (`~/models/video/tiny-random-wan/{t2v,ti2v}`: Wan 2.1 layout; Wan 2.2 TI2V layout with the residual
+  VAE, 2×2 patching and per-token timesteps): umT5 conditioning, transformer, the streamed VAE decode of 9 frames and the image
+  encoder within 1e-4 relative RMS of diffusers / transformers on the CPU and on Vulkan; whole runs from the same initial latents
+  (4 steps, guidance 5, negative prompt) above 40 dB PSNR in every frame: text-to-video with UniPC and with Euler for both
+  layouts, image-to-video for TI2V.
+- Real models on Vulkan (one RTX PRO 4500, 32 GB) against diffusers in f32 on CUDA, 832×480, 17 frames, 20 UniPC steps,
+  guidance 5, the same initial latents: umT5-XXL (bf16 files) 3.0e-6 relative RMS for both models; the transformer 2.4e-4 (Wan 2.1
+  1.3B) and 2.8e-4 (Wan 2.2 TI2V-5B, f32 files) relative RMS; Wan 2.2 TI2V-5B image-to-video worst frame 55.1 dB PSNR (468.7 s
+  for the whole run including the first-time kernel compilation of every graph). The Wan 2.1 folder's f32 umT5 (22.7 GB) is the
+  same model as Wan 2.2's bf16 one (1.7e-3 relative weight difference = bf16 rounding); the references use the bf16 files.

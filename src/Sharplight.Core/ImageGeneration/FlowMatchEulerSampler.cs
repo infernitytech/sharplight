@@ -9,6 +9,12 @@ namespace Sharplight.ImageGeneration;
 /// </summary>
 internal sealed class FlowMatchEulerSampler : DiffusionSampler
 {
+    /// <summary>
+    /// <see cref="NoiseSchedule.TimestepSpacing"/> of flow schedules whose pipeline passes no noise levels, so the scheduler's own
+    /// spacing applies (the Wan pipelines).
+    /// </summary>
+    public const string SchedulerSpacing = "scheduler";
+
     private readonly float[] _sigmas;
     private readonly float[] _timesteps;
 
@@ -22,10 +28,15 @@ internal sealed class FlowMatchEulerSampler : DiffusionSampler
         float shiftExp = (float)Math.Exp(Mu(schedule, imageTokens));
         _sigmas = new float[steps + 1];
         _timesteps = new float[steps];
+        // The FLUX / SD3 pipelines pass σ = linspace(1, 1 / steps); pipelines that pass none (Wan) get the scheduler's own levels:
+        // linspace from 1 to its smallest training level (1 / train steps, already shifted once), shifted again.
+        bool schedulerSpacing = schedule.TimestepSpacing == SchedulerSpacing;
+        double train = schedule.TrainSteps;
+        double last = schedulerSpacing ? schedule.Shift / train / (1 + (schedule.Shift - 1) / train) : 1.0 / steps;
         for (int i = 0; i < steps; i++)
         {
-            // np.linspace(1.0, 1 / steps, steps) in double, then f32 as the scheduler stores it.
-            double linear = steps == 1 ? 1.0 : 1.0 + (1.0 / steps - 1.0) * i / (steps - 1);
+            // np.linspace in double, then f32 as the scheduler stores it.
+            double linear = steps == 1 ? 1.0 : 1.0 + (last - 1.0) * i / (steps - 1);
             float sigma = (float)linear;
             sigma = schedule.DynamicShift
                 ? shiftExp / (shiftExp + (1f / sigma - 1f))

@@ -130,25 +130,7 @@ internal sealed class FluxTransformerGraphBuilder
         }
 
         _positions = _b.Constant("rope_positions", DataType.I32, new Shape(rows, 3), MemoryMarshal.AsBytes(positions.AsSpan()).ToArray());
-        int headDim = _hp.HeadDim;
-        var factors = new float[headDim / 2];
-        int pair = 0;
-        foreach (int axisDims in _hp.AxesDim)
-        {
-            for (int j = 0; j < axisDims / 2; j++, pair++)
-            {
-                double op = Math.Pow(_hp.RopeTheta, -2.0 * pair / headDim);
-                double flux = Math.Pow(_hp.RopeTheta, -2.0 * j / axisDims);
-                factors[pair] = (float)(op / flux);
-            }
-        }
-
-        if (pair != headDim / 2)
-        {
-            throw new InvalidDataException($"FLUX RoPE axes {string.Join("+", _hp.AxesDim)} do not cover the head width {headDim}.");
-        }
-
-        _frequencyFactors = _b.Constant("rope_frequency_factors", DataType.F32, new Shape(headDim / 2), MemoryMarshal.AsBytes(factors.AsSpan()).ToArray());
+        _frequencyFactors = AxialRope.FrequencyFactors(_b, "rope_frequency_factors", _hp.HeadDim, _hp.AxesDim, _hp.RopeTheta);
     }
 
     /// <summary>A dual-stream block: modulated pre-norm joint attention and modulated MLPs, each stream with its own weights.</summary>
@@ -200,8 +182,7 @@ internal sealed class FluxTransformerGraphBuilder
     private Value Attend(Value q, Value k, Value v)
     {
         int rows = _textRows + _imageRows;
-        var rope = Attributes.From(("dims", _hp.HeadDim), ("base", _hp.RopeTheta), ("style", "gptj"),
-            ("sections", new[] { _hp.AxesDim[0] / 2, _hp.AxesDim[1] / 2, _hp.AxesDim[2] / 2, 0 }));
+        var rope = AxialRope.Attributes(_hp.HeadDim, _hp.AxesDim, _hp.RopeTheta);
         q = _b.Emit1("Rope", [q, _positions, _frequencyFactors], rope);
         k = _b.Emit1("Rope", [k, _positions, _frequencyFactors], rope);
         // f16 products with f32 accumulation (tensor-core flash attention): FLUX is trained and run in bf16, and the exact f32
