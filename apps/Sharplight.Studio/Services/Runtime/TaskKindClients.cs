@@ -14,7 +14,7 @@ internal static class TaskKindClients
     /// <param name="kind">The model kind.</param>
     public static bool Handles(string kind) => kind is ModelKinds.SpeechRecognition or ModelKinds.SpeechSynthesis or ModelKinds.ImageGeneration
         or ModelKinds.VideoGeneration or ModelKinds.ImageClassification or ModelKinds.ImageEmbedding or ModelKinds.ObjectDetection
-        or ModelKinds.DepthEstimation or ModelKinds.ImageSegmentation or ModelKinds.Ocr or ModelKinds.ImageUpscaling;
+        or ModelKinds.DepthEstimation or ModelKinds.ImageSegmentation or ModelKinds.SemanticSegmentation or ModelKinds.Ocr or ModelKinds.ImageUpscaling;
 
     /// <summary>Creates the client of <paramref name="kind"/> for <paramref name="model"/>.</summary>
     /// <param name="provider">The registered task client factories.</param>
@@ -32,6 +32,7 @@ internal static class TaskKindClients
         ModelKinds.ObjectDetection => provider.Create<IObjectDetector>(model),
         ModelKinds.DepthEstimation => provider.Create<IDepthEstimator>(model),
         ModelKinds.ImageSegmentation => provider.Create<IImageSegmenter>(model),
+        ModelKinds.SemanticSegmentation => provider.Create<ISemanticSegmenter>(model),
         ModelKinds.Ocr => provider.Create<ITextRecognizer>(model),
         ModelKinds.ImageUpscaling => provider.Create<IImageUpscaler>(model),
         _ => throw new NotSupportedException($"Studio has no task client for the kind '{kind}'."),

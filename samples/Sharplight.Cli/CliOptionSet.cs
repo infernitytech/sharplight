@@ -35,6 +35,9 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
         "Comma-separated layer shares, one per device slot, e.g. 0.5,0.5. The same GPU is opened once per entry, which exercises the multi-device pipeline path.",
         "weights");
 
+    private readonly Option<int> _gpus = OptionFactory.Integer("--gpus",
+        "Place the model over this many GPUs, starting at --device (equal layer shares; with --split, one share per GPU).", 1, minimum: 1, helpName: "count");
+
     private readonly Option<double?> _gpuMemory = new("--gpu-mem")
     {
         HelpName = "GiB",
@@ -45,6 +48,12 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
     {
         HelpName = "file",
         Description = "Vision projector file for GGUF models (Hugging Face checkpoints contain their vision tower).",
+    };
+
+    private readonly Option<string?> _draft = new("--draft")
+    {
+        HelpName = "file",
+        Description = "Draft file for speculative decoding: an MTP draft file (mtp-*.gguf with only the NextN layers), an EAGLE-3 or DFlash drafter; use with --speculate-mtp.",
     };
 
     private readonly Option<string[]> _images = new("--image")
@@ -114,8 +123,10 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
         _pull.AddTo(command);
         HubCommands.AddTo(command, _store, sampleRuntime);
         command.Options.Add(_split);
+        command.Options.Add(_gpus);
         command.Options.Add(_gpuMemory);
         command.Options.Add(_mmproj);
+        command.Options.Add(_draft);
         command.Options.Add(_images);
         command.Options.Add(_imageMinTokens);
         command.Options.Add(_imageMaxTokens);
@@ -146,7 +157,7 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
             result.AddError("--bench and --logits are mutually exclusive.");
         }
 
-        if (HasAny(result, _bench, _logits, _save, _mmproj, _images) && result.GetValue(_model) is null)
+        if (HasAny(result, _bench, _logits, _save, _mmproj, _draft, _images) && result.GetValue(_model) is null)
         {
             result.AddError("A model is required for this command.");
         }
@@ -179,8 +190,10 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
             listDevices,
             runtime,
             splitWeights,
+            parseResult.GetValue(_gpus),
             gpuMemoryBytes,
             parseResult.GetValue(_mmproj),
+            parseResult.GetValue(_draft),
             parseResult.GetValue(_images) ?? [],
             imageTokens,
             parseResult.GetValue(_save),

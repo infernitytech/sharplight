@@ -38,12 +38,13 @@ internal static class WanFolder
         var resources = new List<IDisposable>();
         try
         {
-            if (Directory.Exists(Path.Combine(path, "transformer_2")))
+            bool twoExperts = Directory.Exists(Path.Combine(path, "transformer_2"));
+            DiffusersFolder.AddComponent(tensors, path, "transformer");
+            if (twoExperts)
             {
-                throw new NotSupportedException("Not supported yet: Wan 2.2 mixture-of-experts pipelines (A14B, two transformers); Wan 2.1 and Wan 2.2 TI2V-5B are supported.");
+                DiffusersFolder.AddComponent(tensors, path, "transformer_2");
             }
 
-            DiffusersFolder.AddComponent(tensors, path, "transformer");
             DiffusersFolder.AddComponent(tensors, path, "vae");
             var weights = new CanonicalWeights();
             foreach (var (name, weight) in tensors.Tensors)
@@ -54,6 +55,10 @@ internal static class WanFolder
                 if (component == "transformer")
                 {
                     WanNames.AddTransformer(rest, weight, weights);
+                }
+                else if (component == "transformer_2")
+                {
+                    WanNames.AddTransformer(rest, weight, weights, WanNames.SecondTransformerPrefix);
                 }
                 else
                 {

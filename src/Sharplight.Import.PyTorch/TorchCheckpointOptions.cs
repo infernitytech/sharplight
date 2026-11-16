@@ -24,4 +24,10 @@ public sealed class TorchCheckpointOptions
 
     /// <summary>Upper bound on the number of stack and memo entries; guards against pickles built to exhaust memory.</summary>
     public int MaxObjects { get; set; } = 16_000_000;
+
+    /// <summary>
+    /// Accept dense tensors saved as views in another axis order (e.g. a transposed tensor): they are described in storage order with their
+    /// <see cref="TorchTensorEntry.Permutation"/>. Off by default: readers that ignore the permutation would read the axes in the wrong order.
+    /// </summary>
+    public bool AllowPermuted { get; set; }
 }

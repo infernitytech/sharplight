@@ -8,9 +8,15 @@ namespace Sharplight.Runtime;
 /// Pipeline-style partitioner. Placement groups (normally one per layer) are assigned to devices in
 /// graph order, filling each device up to its share of the total memory. Groups that fit nowhere
 /// go to the fallback device (CPU offload); so do individual nodes the chosen device can't run.
+/// With a fallback device, the gathers of a lookup table (a weight that only <c>Gather</c> reads: token embeddings, n-gram tables)
+/// form a placement group of their own (<see cref="TableGroupSuffix"/>), and a table that does not fit the current device goes to the
+/// fallback without taking the following layers with it.
 /// </summary>
 public static class PlacementPlanner
 {
+    /// <summary>Suffix of the placement group that holds the gathers of a lookup table, appended to the group of the gathers.</summary>
+    public const string TableGroupSuffix = "#table";
+
     /// <summary>
     /// Distributes a graph over devices and cuts it into segments.
     /// </summary>
@@ -34,9 +40,10 @@ public static class PlacementPlanner
             throw new ArgumentException("No devices given.");
         }
 
-        var (groupOrder, groupBytes) = MeasureGroups(graph, options.Compile);
+        var groupOf = GroupKeys(graph, fallbackSlot >= 0);
+        var (groupOrder, groupBytes) = MeasureGroups(graph, options.Compile, groupOf);
         var groupDevice = AssignGroups(groupOrder, groupBytes, options, slots.Count, fallbackSlot, out long[] used);
-        var nodeSlot = AssignNodes(graph, slots, groupDevice, fallbackSlot);
+        var nodeSlot = AssignNodes(graph, slots, groupDevice, fallbackSlot, groupOf);
         var segments = BuildSegments(graph, nodeSlot, slots, options.GroupDataDependentCounts);
         return new PlacementPlan
         {
@@ -47,8 +54,73 @@ public static class PlacementPlanner
         };
     }
 
+    /// <summary>
+    /// The placement group of every node: its own group, or with a fallback device, for the gathers of a lookup table (a weight that only
+    /// <c>Gather</c> reads, as its table input) that group plus <see cref="TableGroupSuffix"/>.
+    /// </summary>
+    private static Func<Node, string> GroupKeys(ComputeGraph graph, bool hasFallback)
+    {
+        if (!hasFallback)
+        {
+            return static n => n.Group;
+        }
+
+        var gatherOnly = new Dictionary<WeightInfo, bool>();
+        foreach (var n in graph.Nodes)
+        {
+            for (int i = 0; i < n.Inputs.Length; i++)
+            {
+                if (n.Inputs[i].Weight is { } w)
+                {
+                    bool gathered = IsTableGather(n) && i == 0;
+                    gatherOnly[w] = gatherOnly.TryGetValue(w, out bool before) ? before && gathered : gathered;
+                }
+            }
+        }
+
+        var tables = gatherOnly.Where(kv => kv.Value).Select(kv => kv.Key).ToHashSet();
+        var inTable = new HashSet<Node>(graph.Nodes.Where(n => IsTableGather(n) && n.Inputs[0].Weight is { } table && tables.Contains(table)));
+        if (inTable.Count == 0)
+        {
+            return static n => n.Group;
+        }
+
+        // The index computations that only feed a table's gathers (slices, reshapes of the ids) join them, so the table's device does not
+        // alternate with the layer's for every gather. Nodes with weights or states, and graph outputs, stay where they are.
+        var consumers = new Dictionary<Value, List<Node>>();
+        foreach (var n in graph.Nodes)
+        {
+            foreach (var v in n.Inputs)
+            {
+                if (!consumers.TryGetValue(v, out var list))
+                {
+                    consumers[v] = list = [];
+                }
+
+                list.Add(n);
+            }
+        }
+
+        var graphOutputs = graph.Outputs.Values.ToHashSet();
+        for (int i = graph.Nodes.Count - 1; i >= 0; i--)
+        {
+            var n = graph.Nodes[i];
+            bool feedsOnlyTables = !inTable.Contains(n) && n.Outputs.Length > 0
+                && n.Inputs.All(v => v.Weight is null && v.State is null)
+                && n.Outputs.All(v => !graphOutputs.Contains(v) && consumers.TryGetValue(v, out var users) && users.All(u => inTable.Contains(u) && u.Group == n.Group));
+            if (feedsOnlyTables)
+            {
+                inTable.Add(n);
+            }
+        }
+
+        return n => inTable.Contains(n) ? n.Group + TableGroupSuffix : n.Group;
+    }
+
+    private static bool IsTableGather(Node n) => n.Op.Name == "Gather";
+
     /// <summary>Bytes of weights and state per placement group (each weight and state counted once, in its first group), groups in graph order.</summary>
-    private static (List<string> Order, Dictionary<string, long> Bytes) MeasureGroups(ComputeGraph graph, CompileOptions compile)
+    private static (List<string> Order, Dictionary<string, long> Bytes) MeasureGroups(ComputeGraph graph, CompileOptions compile, Func<Node, string> groupOf)
     {
         var order = new List<string>();
         var bytes = new Dictionary<string, long>();
@@ -56,10 +128,11 @@ public static class PlacementPlanner
         var seenStates = new HashSet<StateDefinition>();
         foreach (var n in graph.Nodes)
         {
-            if (!bytes.ContainsKey(n.Group))
+            string group = groupOf(n);
+            if (!bytes.ContainsKey(group))
             {
-                bytes[n.Group] = 0;
-                order.Add(n.Group);
+                bytes[group] = 0;
+                order.Add(group);
             }
 
             foreach (var v in n.Inputs)
@@ -67,12 +140,12 @@ public static class PlacementPlanner
                 // A weight another compiled model already holds (shared weights) takes no new memory.
                 if (v.Weight is { } w && seenWeights.Add(w) && compile.SharedWeights?.IsResident(w) != true)
                 {
-                    bytes[n.Group] += w.ByteSize;
+                    bytes[group] += w.ByteSize;
                 }
 
                 if (v.State is { } s && seenStates.Add(s))
                 {
-                    bytes[n.Group] += StateBytes(s, compile);
+                    bytes[group] += StateBytes(s, compile);
                 }
             }
         }
@@ -82,12 +155,12 @@ public static class PlacementPlanner
 
     /// <summary>
     /// Greedy fill in graph order: a group moves to the next pipeline device when it does not fit the current one, or when the
-    /// current one already holds its share. Groups that fit nowhere go to the fallback slot. <paramref name="used"/> receives the
-    /// bytes placed on each slot.
+    /// current one already holds its share. Groups that fit nowhere go to the fallback slot. A lookup table's group
+    /// (<see cref="TableGroupSuffix"/>) that does not fit the current device goes to the fallback slot and the fill continues where it was;
+    /// tables larger than every device do not count toward the shares. <paramref name="used"/> receives the bytes placed on each slot.
     /// </summary>
     private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used)
     {
-        long total = groupBytes.Values.Sum();
         int nPipe = options.Devices.Count;
         var capacity = new long[nPipe];
         var share = new double[nPipe];
@@ -97,6 +170,10 @@ public static class PlacementPlanner
             capacity[i] = Math.Max(0, (d.MemoryLimit ?? d.Device.AvailableMemory) - options.ReservePerDevice);
             share[i] = d.Weight ?? capacity[i];
         }
+
+        long largest = nPipe > 0 ? capacity.Max() : 0;
+        bool Offloaded(string g) => fallbackSlot >= 0 && IsTableGroup(g) && groupBytes[g] > largest;
+        long total = groupBytes.Where(kv => !Offloaded(kv.Key)).Sum(kv => kv.Value);
 
         double shareSum = share.Sum();
         var target = new long[nPipe];
@@ -111,6 +188,13 @@ public static class PlacementPlanner
         foreach (var g in groupOrder)
         {
             long b = groupBytes[g];
+            if (fallbackSlot >= 0 && IsTableGroup(g) && (cur >= nPipe || used[cur] + b > capacity[cur]))
+            {
+                groupDevice[g] = fallbackSlot;
+                used[fallbackSlot] += b;
+                continue;
+            }
+
             while (cur < nPipe && (used[cur] + b > capacity[cur] || (used[cur] > 0 && used[cur] + b / 2 > target[cur] && cur < nPipe - 1)))
             {
                 cur++;
@@ -138,17 +222,19 @@ public static class PlacementPlanner
         return groupDevice;
     }
 
+    private static bool IsTableGroup(string group) => group.EndsWith(TableGroupSuffix, StringComparison.Ordinal);
+
     /// <summary>Nodes reading or writing host-only values (strings).</summary>
     private static bool IsHostOnly(Node n) => n.Inputs.Concat(n.Outputs).Any(v => v.Type.Kind == DataTypeKind.String);
 
     /// <summary>Device of every node: its group's device, the fallback for ops that device cannot run, and views follow their input.</summary>
-    private static int[] AssignNodes(ComputeGraph graph, List<DeviceSlot> slots, Dictionary<string, int> groupDevice, int fallbackSlot)
+    private static int[] AssignNodes(ComputeGraph graph, List<DeviceSlot> slots, Dictionary<string, int> groupDevice, int fallbackSlot, Func<Node, string> groupOf)
     {
         var nodeSlot = new int[graph.Nodes.Count];
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
             var n = graph.Nodes[i];
-            int s = groupDevice[n.Group];
+            int s = groupDevice[groupOf(n)];
             if (n.Op.Category is not (OpCategory.View or OpCategory.ControlFlow) && !slots[s].Device.Supports(n).IsSupported)
             {
                 if (fallbackSlot >= 0 && slots[fallbackSlot].Device.Supports(n).IsSupported)

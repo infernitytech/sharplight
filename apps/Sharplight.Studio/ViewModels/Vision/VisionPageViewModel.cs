@@ -38,7 +38,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     private static readonly string[] s_kinds =
     [
         ModelKinds.ImageClassification, ModelKinds.ImageEmbedding, ModelKinds.ObjectDetection, ModelKinds.DepthEstimation,
-        ModelKinds.ImageSegmentation, ModelKinds.Ocr, ModelKinds.ImageUpscaling,
+        ModelKinds.ImageSegmentation, ModelKinds.SemanticSegmentation, ModelKinds.Ocr, ModelKinds.ImageUpscaling,
     ];
 
     private VisionResultFile? _file;
@@ -99,6 +99,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         VisionMode.Detect => "Detect objects",
         VisionMode.Depth => "Estimate depth",
         VisionMode.Segment => "Segment",
+        VisionMode.Semantic => "Label pixels",
         VisionMode.Ocr => "Read text",
         VisionMode.Upscale => "Upscale",
         _ => "Run",
@@ -112,6 +113,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         VisionMode.Detect => "Object detection: boxes with labels and scores; the threshold moves after the run.",
         VisionMode.Depth => "Depth estimation: a depth map beside the image.",
         VisionMode.Segment => "Segmentation: run once (it starts from the middle of the image), then click the object (right click: not this) or draw a box around it; the mask follows.",
+        VisionMode.Semantic => "Semantic segmentation: every pixel gets a class, shown as a colored overlay with a legend; background-removal models cut the subject out (PNG with transparency).",
         VisionMode.Ocr => "Text recognition: the text the picture shows (a line of text works best).",
         VisionMode.Upscale => "Upscaling: the image enlarged by the model, with a slider to compare before and after; large images are cut into blended tiles.",
         _ => "Load an image model to choose what to do with a picture.",
@@ -156,7 +158,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     public bool HasResult => ResultMode.Length > 0;
 
     /// <summary>The result is a list of classes or objects.</summary>
-    public bool ShowRows => ResultMode is "classification" or "zero-shot" or "detection" or "segmentation";
+    public bool ShowRows => ResultMode is "classification" or "zero-shot" or "detection" or "segmentation" or "semantic";
 
     /// <summary>The result has a depth map.</summary>
     public bool ShowDepth => ResultMode == "depth";
@@ -165,7 +167,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
     public bool ShowEmbedding => ResultMode == "embedding";
 
     /// <summary>The result has an image to export (annotated boxes or the depth map).</summary>
-    public bool CanExportImage => ResultMode is "detection" or "depth" or "segmentation" or "upscale";
+    public bool CanExportImage => ResultMode is "detection" or "depth" or "segmentation" or "semantic" or "upscale";
 
     /// <summary>The result is recognized text.</summary>
     public bool ShowText => ResultMode == "ocr";
@@ -222,6 +224,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
             ModelKinds.ObjectDetection => VisionMode.Detect,
             ModelKinds.DepthEstimation => VisionMode.Depth,
             ModelKinds.ImageSegmentation => VisionMode.Segment,
+            ModelKinds.SemanticSegmentation => VisionMode.Semantic,
             ModelKinds.Ocr => VisionMode.Ocr,
             ModelKinds.ImageUpscaling => VisionMode.Upscale,
             _ => VisionMode.None,
@@ -308,6 +311,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         DepthMap? depth = null;
         IReadOnlyList<SegmentMask> masks = [];
         ImageInput? upscaled = null;
+        byte[]? semanticPng = null;
         string? note = null;
         RunOutcome outcome = RunOutcome.Completed;
         string? error = null;
@@ -399,6 +403,18 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                     break;
                 }
 
+                case VisionMode.Semantic:
+                {
+                    using var lease = await model.AcquireClientAsync<ISemanticSegmenter>(token).ConfigureAwait(false);
+                    context.Report(null, "Labelling pixels");
+                    var result = await lease.Client.SegmentAsync(image, new SemanticSegmentationOptions(), token).ConfigureAwait(false);
+                    file.Mode = "semantic";
+                    file.Matte = result.Alpha is not null ? true : null;
+                    file.Labels = [.. result.Classes.Select(c => new VisionLabelRecord(c.ClassId, c.Name, c.Pixels / (float)result.Labels.Length))];
+                    semanticPng = SemanticOverlay.Render(image, result);
+                    break;
+                }
+
                 case VisionMode.Ocr:
                 {
                     using var lease = await model.AcquireClientAsync<ITextRecognizer>(token).ConfigureAwait(false);
@@ -468,6 +484,11 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                 files[OverlayName] = ImageFiles.ToPng(SegmentationOverlay.Render(image, masks.Count > 0 ? masks[ChosenMask(masks, maskChoice)] : null, prompt!.Points, prompt.Box));
                 fileNames.Add(OverlayName);
             }
+            else if (file.Mode == "semantic")
+            {
+                files[OverlayName] = semanticPng!;
+                fileNames.Add(OverlayName);
+            }
             else if (file.Mode == "upscale")
             {
                 files[UpscaledName] = ImageFiles.ToPng(upscaled!);
@@ -485,7 +506,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
             {
                 Notice = note ?? "";
                 _masks = shownMasks;
-                Show(shownFile, image, shownPng, shownDepth, null, null, string.Join(" · ", metadata.Select(pair => $"{pair.Key}: {pair.Value}")), shownAfter);
+                Show(shownFile, image, shownPng, shownDepth, semanticPng, null, string.Join(" · ", metadata.Select(pair => $"{pair.Key}: {pair.Value}")), shownAfter);
             });
         }
 
@@ -546,6 +567,9 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                 return count == 0 ? "No objects above the threshold" : $"{count} object(s): " + string.Join(", ", file.Boxes!.Where(box => box.Score >= file.Threshold).Select(box => box.Label).Distinct().Take(6));
             case "depth":
                 return $"Depth range {file.DepthMin:0.##} to {file.DepthMax:0.##}";
+            case "semantic":
+                metadata["classes"] = file.Labels!.Count.ToString(CultureInfo.InvariantCulture);
+                return file.Matte == true ? "Background removed (alpha matte)" : file.Labels!.Count == 0 ? "No pixels labelled" : string.Join(", ", file.Labels!.Take(4).Select(label => $"{label.Label} {VisionRowViewModel.Percent(label.Score)}"));
             case "segmentation":
                 var best = file.Masks!.MaxBy(mask => mask.Score);
                 metadata["masks"] = file.Masks!.Count.ToString(CultureInfo.InvariantCulture);
@@ -600,7 +624,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
             }
         }
 
-        string mainName = file.Mode == "segmentation" ? OverlayName : AnnotatedName;
+        string mainName = file.Mode is "segmentation" or "semantic" ? OverlayName : AnnotatedName;
         byte[]? stored = record.Files.Contains(mainName) && File.Exists(Archive.PathOf(record, mainName)) ? File.ReadAllBytes(Archive.PathOf(record, mainName)) : null;
         byte[]? storedAfter = record.Files.Contains(UpscaledName) && File.Exists(Archive.PathOf(record, UpscaledName)) ? File.ReadAllBytes(Archive.PathOf(record, UpscaledName)) : null;
         byte[]? storedDepth = record.Files.Contains(DepthName) && File.Exists(Archive.PathOf(record, DepthName)) ? File.ReadAllBytes(Archive.PathOf(record, DepthName)) : null;
@@ -696,6 +720,11 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                         ? ImageFiles.ToPng(SegmentationOverlay.Render(image, masks[ChosenMask(masks, maskChoice)], points, box))
                         : image is not null ? ImageFiles.ToPng(SegmentationOverlay.Render(image, null, points, box)) : storedMain;
                     break;
+                case "semantic":
+                    rows = [.. file.Labels!.Select(label => new VisionRowViewModel(label.Label, label.Score, "", -1, file.Matte == true ? null : SemanticOverlay.ColorOf(label.Index)))];
+                    hint = file.Matte == true ? "The subject is cut out; export the PNG for the transparent image." : "Share of the image per class.";
+                    main = storedMain;
+                    break;
                 case "upscale":
                     main = image is not null ? imagePng ??= ImageFiles.ToPng(image) : null;
                     afterPng = storedAfter;
@@ -769,14 +798,14 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         byte[]? bytes = ResultMode switch
         {
             "depth" => DepthPng,
-            "detection" or "segmentation" => MainPng,
+            "detection" or "segmentation" or "semantic" => MainPng,
             "upscale" => AfterPng,
             _ => null,
         };
         if (bytes is not null)
         {
             string stem = Path.GetFileNameWithoutExtension(_file?.Image ?? "image");
-            string suffix = ResultMode switch { "depth" => "depth", "segmentation" => "mask", "upscale" => "upscaled", _ => "annotated" };
+            string suffix = ResultMode switch { "depth" => "depth", "segmentation" => "mask", "semantic" => "segmented", "upscale" => "upscaled", _ => "annotated" };
             await Exporter.SaveAsync(Services.Platform, "Export image", $"{stem}-{suffix}.png", bytes);
         }
     }

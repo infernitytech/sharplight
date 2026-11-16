@@ -11,7 +11,8 @@ namespace Sharplight.Architectures;
 /// Gated DeltaNet linear-attention layers with a short causal conv. The feed-forward block is a dense SwiGLU MLP or routed
 /// experts plus a sigmoid-gated shared expert (<see cref="MoeBlock"/>). MTP layers, when present, form the
 /// <see cref="WellKnown.DraftGraph"/> (<see cref="MtpDraftHead"/>, hidden states after the final norm, chained after
-/// <c>mtp.output_norm</c>), each a gated-attention layer with its own KV cache. With a span scoring head (<c>span_head.type</c>, e.g. Cloudflare
+/// <c>mtp.output_norm</c>), each a gated-attention layer with its own KV cache; with hyper-connections the head reads the trunk's
+/// residual streams and mixes its own (<see cref="MtpDraftHead.BuildHyperConnected"/>). With a span scoring head (<c>span_head.type</c>, e.g. Cloudflare
 /// Clef) the trunk also forms the stateful <see cref="WellKnown.ScoreSpansGraph"/> (<see cref="SpanScoring"/>).
 /// </summary>
 /// <remarks>
@@ -31,7 +32,9 @@ namespace Sharplight.Architectures;
 /// <c>mlp.{gate,up,down}</c> or the MoE weights documented on <see cref="MoeBlock"/> below <c>mlp.</c>; attention layers <c>attention.{q,k,v,o,q_norm,k_norm}</c> (q rows interleave
 /// [query | output gate] per head); linear-attention layers <c>linear_attention.{qkv,z,beta,alpha,out,norm,conv1d}</c>
 /// (all <c>.weight</c>), <c>linear_attention.a</c> (A = -exp(A_log)) and <c>linear_attention.dt_bias</c>.
-/// MTP: <c>mtp.layers.{j}.*</c> (same per-layer names), <c>mtp.{fc,embedding_norm,hidden_norm,output_norm}.weight</c>. Files without them
+/// MTP: <c>mtp.layers.{j}.*</c> (same per-layer names), <c>mtp.{fc,embedding_norm,hidden_norm,output_norm}.weight</c>; with
+/// hyper-connections <c>mtp.hidden_norm.weight</c> is per stream [streams·H], <c>mtp.output_hc.*</c> replaces <c>mtp.output_norm</c> and
+/// the input projection may be the pair <c>mtp.fc_embedding.weight</c> / <c>mtp.fc_hidden.weight</c>. Files without them
 /// (e.g. GGUFs whose converter strips the NextN layers) take them from an auxiliary <see cref="AuxiliaryRoles.Draft"/> source of the same
 /// architecture that holds only the MTP layers (an "MTP sidecar", such as unsloth's <c>MTP/mtp-*.gguf</c>); its <c>mtp.*</c> weights and
 /// <c>mtp.layer_count</c> are used, everything else (embedding, LM head) comes from the primary source. Such a sidecar on its own is not a model.</item>
@@ -142,7 +145,14 @@ public sealed class Qwen35Adapter : IModelAdapter
         }
 
         var sidecar = MtpSidecar(sources);
-        int nextn = sidecar?.Arch("mtp.layer_count", 0) ?? src.Arch("mtp.layer_count", 0);
+        var mtpSource = sidecar ?? src;
+        int nextn = mtpSource.Arch("mtp.layer_count", 0);
+        if (nextn == 0)
+        {
+            // Checkpoints whose config leaves out the MTP layer count (tiny Qwen3-Next): the layers the weights carry.
+            nextn = mtpSource.Weights.Keys.Where(k => k.StartsWith("mtp.layers.", StringComparison.Ordinal))
+                .Select(k => k.Split('.')[2]).Distinct(StringComparer.Ordinal).Count();
+        }
         int valueHeads = src.Arch<int>("linear_attention.value_head_count");
         var hp = new HParams(
             NLayer: src.Arch<int>("layer_count"),
@@ -208,9 +218,7 @@ public sealed class Qwen35Adapter : IModelAdapter
                 states.Add(vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = options.KvCacheTypeFor(hp.HeadDim), Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.ValueCache, Group = g });
                 if (indexerBudget > 0 && src.Weight($"{g}.attention.indexer.k.weight") is { } indexerKeys)
                 {
-                    // Raw (un-normed, unrotated) indexer keys [ctx, 1, D]: blocks are pooled and normed when scored.
-                    var kvType = options.KvCacheTypeFor(hp.HeadDim);
-                    states.Add(indexerCache[il] = new StateDefinition { Name = $"{g}.indexer_key_cache", Type = kvType == DataType.F32 ? DataType.F32 : DataType.F16, Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), 1, indexerKeys.Shape[0].Fixed), Kind = StateKind.KeyCache, Group = g });
+                    states.Add(indexerCache[il] = IndexerKeyCache(g, indexerKeys));
                 }
             }
 
@@ -262,24 +270,42 @@ public sealed class Qwen35Adapter : IModelAdapter
             allWeights = merged;
         }
         WeightInfo? Lookup(string n) => allWeights.TryGetValue(n, out var w) ? w : null;
+        // MTP draft head; with hyper-connections it reads the trunk's residual streams (HyperConnections.StreamsOutput).
+        bool headPresent = hp.Streams > 0 ? MtpDraftHead.IsHyperConnectedPresent(Lookup) : MtpDraftHead.IsPresent(Lookup);
+        int draftLayers = nextn > 0 && headPresent ? nextn : 0;
         var graphs = new Dictionary<string, ComputeGraph>
         {
             [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, embeddingsInput: false),
         };
-        // MTP draft head (not with hyper-connections: their hidden state is several residual streams).
-        int draftLayers = nextn > 0 && hp.Streams == 0 && MtpDraftHead.IsPresent(Lookup) ? nextn : 0;
         if (draftLayers > 0)
         {
             var mtpK = new StateDefinition[draftLayers];
             var mtpV = new StateDefinition[draftLayers];
+            var mtpIndexer = new StateDefinition?[draftLayers];
             for (int j = 0; j < draftLayers; j++)
             {
                 string g = $"mtp.layers.{j}";
                 states.Add(mtpK[j] = new StateDefinition { Name = $"{g}.k_cache", Type = options.KvCacheTypeFor(hp.HeadDim), Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.KeyCache, Group = g });
                 states.Add(mtpV[j] = new StateDefinition { Name = $"{g}.v_cache", Type = options.KvCacheTypeFor(hp.HeadDim), Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.ValueCache, Group = g });
+                if (indexerBudget > 0 && Lookup($"{g}.attention.indexer.k.weight") is { } indexerKeys)
+                {
+                    var indexerState = IndexerKeyCache(g, indexerKeys);
+                    mtpIndexer[j] = indexerState;
+                    states.Add(indexerState);
+                }
             }
 
-            graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(Lookup, hp.NEmbd, positionAxes, hp.Eps, draftLayers, (b, x, j, positions) =>
+            graphs[WellKnown.DraftGraph] = hp.Streams > 0
+                ? MtpDraftHead.BuildHyperConnected(Lookup, hp.NEmbd, hp.Streams, positionAxes, hp.Eps, draftLayers, (b, x, j, positions) =>
+                {
+                    string p = $"mtp.layers.{j}.";
+                    var (h, inject) = HyperConnections.Mix(b, x, p + "attention_hc.", hp.Streams, hp.NEmbd, hp.Eps);
+                    var attnOut = FullAttention(b, h, p, positions, b.State(mtpK[j]), b.State(mtpV[j]), mtpIndexer[j]);
+                    x = HyperConnections.Inject(b, x, attnOut, inject!, hp.Streams, hp.NEmbd, $"{p}attn_residual");
+                    (h, inject) = HyperConnections.Mix(b, x, p + "ffn_hc.", hp.Streams, hp.NEmbd, hp.Eps);
+                    return HyperConnections.Inject(b, x, FeedForward(b, h, p), inject!, hp.Streams, hp.NEmbd, $"{p}l_out");
+                })
+                : MtpDraftHead.Build(Lookup, hp.NEmbd, positionAxes, hp.Eps, draftLayers, (b, x, j, positions) =>
             {
                 string p = $"mtp.layers.{j}.";
                 var residual = x;
@@ -325,6 +351,11 @@ public sealed class Qwen35Adapter : IModelAdapter
             ["mtp_layers"] = nextn,
             [WellKnown.DraftLayers] = draftLayers,
         };
+        if (hp.Streams > 0 && draftLayers > 0)
+        {
+            props[WellKnown.DraftHiddenSource] = HyperConnections.StreamsOutput;
+        }
+
         // Decision models (Clef): the trunk run from reset states over one prompt, then the span scoring head.
         if (SpanScoring.IsPresent(src))
         {
@@ -447,8 +478,26 @@ public sealed class Qwen35Adapter : IModelAdapter
                 var rows = b.Gather(hidden, outRows!, "selected_rows");
                 b.Output("logits", b.MatMul(rows, b.Weight(headName), "logits"));
                 b.Output("hidden", hidden);
+                if (hp.Streams > 0 && draftLayers > 0)
+                {
+                    b.Output(HyperConnections.StreamsOutput, x);
+                }
             }
             return b.Build();
+        }
+
+        // Raw (un-normed, unrotated) indexer keys [ctx, 1, D] of an attention layer: blocks are pooled and normed when scored.
+        StateDefinition IndexerKeyCache(string group, WeightInfo indexerKeys)
+        {
+            var kvType = options.KvCacheTypeFor(hp.HeadDim);
+            return new StateDefinition
+            {
+                Name = $"{group}.indexer_key_cache",
+                Type = kvType == DataType.F32 ? DataType.F32 : DataType.F16,
+                Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), 1, indexerKeys.Shape[0].Fixed),
+                Kind = StateKind.KeyCache,
+                Group = group,
+            };
         }
 
         // Hyper-connected layer: optional n-gram features, then attention and feed-forward each between a stream mixer and an

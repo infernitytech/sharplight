@@ -170,7 +170,7 @@ internal static class TorchCheckpointReader
         if (root is PickleTensorRef single)
         {
             // A file written by torch.save(tensor): one entry named "tensor".
-            return new Dictionary<string, TorchTensorEntry>(StringComparer.Ordinal) { [SingleTensorName] = Describe(SingleTensorName, single, locate) };
+            return new Dictionary<string, TorchTensorEntry>(StringComparer.Ordinal) { [SingleTensorName] = Describe(SingleTensorName, single, locate, options.AllowPermuted) };
         }
 
         if (root is not PickleDict dict)
@@ -184,11 +184,12 @@ internal static class TorchCheckpointReader
         }
 
         var tensors = new Dictionary<string, TorchTensorEntry>(StringComparer.Ordinal);
-        Flatten(dict, string.Empty, 0, tensors, locate);
+        Flatten(dict, string.Empty, 0, tensors, locate, options.AllowPermuted);
         return tensors;
     }
 
-    private static void Flatten(PickleDict dict, string prefix, int depth, Dictionary<string, TorchTensorEntry> tensors, Func<PickleStorageRef, (long Offset, long Bytes)> locate)
+    private static void Flatten(PickleDict dict, string prefix, int depth, Dictionary<string, TorchTensorEntry> tensors, Func<PickleStorageRef, (long Offset, long Bytes)> locate,
+        bool allowPermuted)
     {
         if (depth > MaxDepth)
         {
@@ -206,20 +207,20 @@ internal static class TorchCheckpointReader
             switch (value)
             {
                 case PickleTensorRef tensor:
-                    if (!tensors.TryAdd(full, Describe(full, tensor, locate)))
+                    if (!tensors.TryAdd(full, Describe(full, tensor, locate, allowPermuted)))
                     {
                         throw new InvalidDataException($"Tensor '{full}' appears twice.");
                     }
 
                     break;
                 case PickleDict nested:
-                    Flatten(nested, full, depth + 1, tensors, locate);
+                    Flatten(nested, full, depth + 1, tensors, locate, allowPermuted);
                     break;
             }
         }
     }
 
-    private static TorchTensorEntry Describe(string name, PickleTensorRef tensor, Func<PickleStorageRef, (long Offset, long Bytes)> locate)
+    private static TorchTensorEntry Describe(string name, PickleTensorRef tensor, Func<PickleStorageRef, (long Offset, long Bytes)> locate, bool allowPermuted)
     {
         long elements = 1;
         foreach (long dim in tensor.Shape)
@@ -229,11 +230,22 @@ internal static class TorchCheckpointReader
 
         // Contiguity: dimensions of size one may carry any stride.
         long expected = 1;
+        int[]? permutation = null;
+        long[] shape = tensor.Shape;
         for (int i = tensor.Shape.Length - 1; i >= 0; i--)
         {
             if (tensor.Shape[i] != 1 && elements > 0 && tensor.Strides[i] != expected)
             {
-                throw new NotSupportedException($"Tensor '{name}' is not contiguous (strides [{string.Join(", ", tensor.Strides)}] for shape [{string.Join(", ", tensor.Shape)}]).");
+                permutation = allowPermuted ? DensePermutation(tensor.Shape, tensor.Strides) : null;
+                if (permutation is null)
+                {
+                    throw new NotSupportedException($"Tensor '{name}' is not contiguous (strides [{string.Join(", ", tensor.Strides)}] for shape [{string.Join(", ", tensor.Shape)}]).");
+                }
+
+                // Storage order: the axes by decreasing stride; logical axis i is storage axis permutation[i].
+                var order = Enumerable.Range(0, tensor.Shape.Length).OrderByDescending(a => tensor.Strides[a]).ThenBy(a => a).ToArray();
+                shape = [.. order.Select(a => tensor.Shape[a])];
+                break;
             }
 
             expected = checked(expected * tensor.Shape[i]);
@@ -249,6 +261,31 @@ internal static class TorchCheckpointReader
             throw new InvalidDataException($"Tensor '{name}' extends past its storage.");
         }
 
-        return new TorchTensorEntry(name, tensor.Storage.DType, tensor.Shape, blobOffset + begin, bytes);
+        return new TorchTensorEntry(name, tensor.Storage.DType, shape, blobOffset + begin, bytes) { Permutation = permutation };
+    }
+
+    // The permutation that makes a dense tensor's strides contiguous (logical axis i = storage axis result[i]), or null when the strides leave gaps.
+    private static int[]? DensePermutation(long[] shape, long[] strides)
+    {
+        var order = Enumerable.Range(0, shape.Length).OrderByDescending(a => strides[a]).ThenBy(a => a).ToArray();
+        long expected = 1;
+        for (int k = order.Length - 1; k >= 0; k--)
+        {
+            int axis = order[k];
+            if (shape[axis] != 1 && strides[axis] != expected)
+            {
+                return null;
+            }
+
+            expected = checked(expected * shape[axis]);
+        }
+
+        var permutation = new int[shape.Length];
+        for (int k = 0; k < order.Length; k++)
+        {
+            permutation[order[k]] = k;
+        }
+
+        return permutation;
     }
 }

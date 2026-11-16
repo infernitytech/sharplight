@@ -18,6 +18,9 @@ internal enum VisionMode
     /// <summary>Depth estimation: a depth map.</summary>
     Depth,
 
+    /// <summary>Per-pixel segmentation: every pixel gets a class (colored overlay with a legend), or a matte cuts the background out.</summary>
+    Semantic,
+
     /// <summary>Promptable segmentation: click points or draw a box, the mask of the object follows.</summary>
     Segment,
 

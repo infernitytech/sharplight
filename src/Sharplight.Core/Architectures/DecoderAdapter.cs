@@ -41,7 +41,7 @@ namespace Sharplight.Architectures;
 /// <c>attention.out_head_norm</c> (weight-less RMS norm of every head's attention output before the gate); <c>post_norm.weight_first</c>
 /// (the sub-layer output norms multiply by their weight before normalizing); <c>attention.qk_norm_after_rope</c> (q/k norms after the rotary embedding, Hunyuan);
 /// <c>attention.clip_qkv</c> (clamp of the q/k/v projections, OLMo 1); <c>attention.layer_head_counts</c> (per-layer query heads, OpenELM).
-/// Optional weights: <c>position_embedding.weight</c> [positions, H] (learned absolute positions added to the token embeddings, GPT-2), <c>embedding_norm.weight</c> (+ <c>.bias</c>: the model's norm of the token embeddings, BLOOM), <c>lm_head.bias</c>, <c>*_norm.bias</c> (layer norm).</item>
+/// Optional weights: <c>position_embedding.weight</c> [positions, H] (learned absolute positions added to the token embeddings, GPT-2), <c>embedding_norm.weight</c> (+ <c>.bias</c>: the model's norm of the token embeddings, BLOOM), <c>lm_head.bias</c>, <c>*_norm.bias</c> (layer norm), <c>output_norm_2.weight</c> (+ <c>.bias</c>: a second norm after the output norm, XTTS).</item>
 /// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>; routing and expert weights are those of <see cref="MoeBlock"/>):
 /// <c>moe.expert_count</c>, <c>moe.expert_used_count</c> (top-k per token), <c>moe.ffn_hidden_size</c> (the experts' inner size;
 /// <c>ffn_hidden_size</c> then only describes dense layers) and the routing keys of <see cref="MoeOptions"/>: <c>moe.router_activation</c>

@@ -48,6 +48,8 @@ public static class SharplightServiceCollectionExtensions
                 .AddOnnxImporter()
                 .AddWhisperCppImporter()
                 .AddKokoroImporter()
+                .AddChatterboxImporter()
+                .AddF5TtsImporter()
                 .AddSnacImporter()
                 .AddSileroVadImporter()
                 .AddDiffusersImporter()

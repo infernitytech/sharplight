@@ -33,4 +33,7 @@ public static class AuxiliaryRoles
     /// e.g. <c>lora@0.8</c>, see <see cref="Models.WeightPatches.Scale"/>).
     /// </summary>
     public const string Lora = "lora";
+
+    /// <summary>A second denoiser of a two-expert model (Wan 2.2 A14B: the low-noise transformer beside the high-noise one).</summary>
+    public const string SecondTransformer = "transformer-2";
 }

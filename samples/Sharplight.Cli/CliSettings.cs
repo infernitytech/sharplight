@@ -11,8 +11,10 @@ namespace Sharplight.Cli;
 /// <param name="ListDevices">Print the available devices first.</param>
 /// <param name="Runtime">Device and sizing options shared with the other samples.</param>
 /// <param name="SplitWeights">Relative layer share per device slot; one entry per opened device (the same GPU may be opened several times).</param>
+/// <param name="GpuCount">Physical GPUs the model is placed over, starting at the selected device (1: the selected device only).</param>
 /// <param name="GpuMemoryLimitBytes">Hard memory cap per device slot, or null for what the device reports as available.</param>
 /// <param name="MmprojPath">Vision projector for GGUF models, or null.</param>
+/// <param name="DraftPath">Draft file for speculative decoding (the <c>draft</c> auxiliary source), or null.</param>
 /// <param name="ImagePaths">Images to describe (the prompt is then formatted with the chat template).</param>
 /// <param name="ImageTokens">Per-image token budget, or null for the model default.</param>
 /// <param name="SavePath">Where to store the compiled model package, or null.</param>
@@ -26,8 +28,10 @@ internal sealed record CliSettings(
     bool ListDevices,
     RuntimeSettings Runtime,
     IReadOnlyList<double> SplitWeights,
+    int GpuCount,
     long? GpuMemoryLimitBytes,
     string? MmprojPath,
+    string? DraftPath,
     IReadOnlyList<string> ImagePaths,
     ImageTokenLimits? ImageTokens,
     string? SavePath,

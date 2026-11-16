@@ -34,14 +34,17 @@ public partial class SpeculativeDecodingTests
         => await Matches_NonSpeculativeDecoding(ModelPath, vulkan, speculator, deviceSampling, SamplingParams.GreedyDefault);
 
     /// <summary>
-    /// NextN heads (DeepSeek-V3 on the latent decoder, GLM-4.5 on the generic decoder, imported from the checkpoint's trailing MTP
-    /// layer): one draft layer, and greedy output with it is token-identical.
+    /// NextN heads (DeepSeek-V3 on the latent decoder, GLM-4.5 / GLM-4 MoE on the generic decoder, imported from the checkpoint's trailing MTP
+    /// layer; the Qwen3-Next MTP layer on the qwen3_5 adapter): one draft layer, and greedy output with it is token-identical.
     /// </summary>
     [Theory]
     [InlineData("tiny-random-deepseek-v3.1", false)]
     [InlineData("tiny-random-deepseek-v3.1", true)]
     [InlineData("tiny-random-glm-4.5", false)]
     [InlineData("tiny-random-glm-4.5", true)]
+    [InlineData("tiny-random-glm-4-moe", false)]
+    [InlineData("tiny-random-qwen3-next-moe", false)]
+    [InlineData("tiny-random-qwen3-next-moe", true)]
     public async Task NextnHead_GreedyOutput_Matches_NonSpeculativeDecoding(string model, bool vulkan)
         => await Matches_NonSpeculativeDecoding(Path.Combine(Path.GetDirectoryName(ModelPath)!, model), vulkan, "mtp", vulkan, SamplingParams.GreedyDefault,
             m => Assert.Equal(1, m.Definition.Properties[WellKnown.DraftLayers]));
@@ -122,14 +125,16 @@ public partial class SpeculativeDecodingTests
     }
 
     private static async Task Matches_NonSpeculativeDecoding(string modelPath, bool vulkan, string speculator, bool deviceSampling, SamplingParams sampling,
-        Action<LlmModel>? check = null, IReadOnlyDictionary<string, string>? auxiliary = null)
+        Action<LlmModel>? check = null, IReadOnlyDictionary<string, string>? auxiliary = null, bool cpuFallback = false)
     {
         Assert.SkipUnless(Path.Exists(modelPath), $"{modelPath} not present");
         using var device = OpenDevice(vulkan);
+        using var fallback = cpuFallback && vulkan ? OpenDevice(false) : null;
         using var model = LlmModel.Load(TestHost.Loader, modelPath, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = deviceSampling,
             Auxiliary = new Dictionary<string, string>(auxiliary ?? new Dictionary<string, string>()),
+            Fallback = fallback is null ? null : new DeviceSlot { Device = fallback },
         });
         Assert.True(model.HasDraftHead);
         check?.Invoke(model);
