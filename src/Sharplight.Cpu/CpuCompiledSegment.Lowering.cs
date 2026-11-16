@@ -219,6 +219,15 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Conv1d":
                 LowerConv1d(n);
                 return;
+            case "ConvTranspose1d":
+                LowerConvTranspose1d(n);
+                return;
+            case "Interpolate1d":
+                LowerInterpolate1d(n);
+                return;
+            case "Lstm":
+                LowerLstm(n);
+                return;
             case "Random":
                 LowerRandom(n);
                 return;

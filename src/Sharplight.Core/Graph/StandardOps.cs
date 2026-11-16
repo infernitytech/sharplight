@@ -41,7 +41,8 @@ public static partial class StandardOps
          "Mod" /* attr fmod (bool): C fmod vs. Python-style sign of divisor */,
          "PRelu" /* x, slope */,
          // Comparisons and logic produce f32 masks (1 = true, 0 = false):
-         "Equal", "NotEqual", "Less", "LessEqual", "Greater", "GreaterEqual", "And", "Or", "Xor"];
+         "Equal", "NotEqual", "Less", "LessEqual", "Greater", "GreaterEqual", "And", "Or", "Xor",
+         "Atan2" /* atan2(a, b): the angle of the point (x = b, y = a) */];
 
     /// <summary>y = x * scale + bias. Input: x (any shape). Attributes: scale (float), bias (float). Output: f32, shape of x.</summary>
     public static readonly OpSchema Scale = new("Scale", OpCategory.Elementwise, 1, 1, Same, "y = x*scale + bias");
