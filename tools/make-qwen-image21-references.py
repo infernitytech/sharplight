@@ -56,6 +56,7 @@ def main():
     parser.add_argument("--sizes", type=int, nargs="+", default=[512, 1024])
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--guidance", type=float, default=1.0)
+    parser.add_argument("--turbo", action="store_true", help="the Turbo checkpoint: its pipeline's 8-step sample_sigmas")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--text-device", default="cpu")
     parser.add_argument("--threads", type=int, default=16)
@@ -78,7 +79,8 @@ def main():
     text = Qwen3VLForConditionalGeneration.from_pretrained(os.path.join(args.model, "text_encoder"), torch_dtype=dtype).to(args.text_device)
     vae = AutoencoderKLQwenImage21.from_pretrained(args.model, subfolder="vae", torch_dtype=dtype)
     scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(args.model, subfolder="scheduler")
-    pipe = QwenImage21Pipeline(scheduler=scheduler, vae=vae, text_encoder=text, processor=processor, transformer=None)
+    turbo = [1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568] if args.turbo else None
+    pipe = QwenImage21Pipeline(scheduler=scheduler, vae=vae, text_encoder=text, processor=processor, transformer=None, sample_sigmas=turbo)
     drop = pipe._drop_idx
     ref = Reference(args.out)
     ref.save({"prompt": PROMPT, "negative": NEGATIVE, "guidance": args.guidance, "steps": args.steps, "length": LENGTH, "drop": drop})
@@ -102,6 +104,17 @@ def main():
             subfolder="transformer")
     else:
         transformer = QwenImage21Transformer2DModel.from_pretrained(args.model, subfolder="transformer", torch_dtype=dtype)
+    if args.transformer_gguf:
+        # diffusers dequantizes GGUF weights on the fly only in linear layers; the BF16 norm scales of unsloth's file would reach the
+        # norms as raw bytes, so they are dequantized up front.
+        from diffusers.quantizers.gguf.utils import dequantize_gguf_tensor
+
+        for module in transformer.modules():
+            if isinstance(module, torch.nn.Linear):
+                continue
+            for name, parameter in list(module.named_parameters(recurse=False)):
+                if hasattr(parameter, "quant_type"):
+                    setattr(module, name, torch.nn.Parameter(dequantize_gguf_tensor(parameter).to(dtype), requires_grad=False))
     device = args.device
     transformer.to(device)
     vae.to(device)

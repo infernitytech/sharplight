@@ -56,6 +56,16 @@ internal static class QwenImage21Folder
             string schedulerPath = Path.Combine(path, "scheduler", "scheduler_config.json");
             var config = QwenImage21Config.FromWeights(weights.Weights)
                 .WithDiffusers(File.Exists(schedulerPath) ? File.ReadAllText(schedulerPath) : null, ReadJson(path, "transformer"));
+            string index = Path.Combine(path, "model_index.json");
+            if (File.Exists(index))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllBytes(index));
+                if (document.RootElement.TryGetProperty("sample_sigmas", out var sigmas) && sigmas.ValueKind == JsonValueKind.Array)
+                {
+                    config = config with { SampleSigmas = [.. sigmas.EnumerateArray().Select(s => s.GetSingle())] };
+                }
+            }
+
             var vae = new Dictionary<string, object>(StringComparer.Ordinal);
             WanVaeConfig.WriteTo(ReadJson(path, "vae"), vae, QwenImage21Config.Prefix);
             string displayName = Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)));

@@ -137,6 +137,12 @@ public static class DiffusionConfigKeys
     public const string ShiftTerminal = "shiftTerminal";
 
     /// <summary>
+    /// Scheduler (flow): the noise levels the pipeline passes for its default number of steps, before the shift (diffusers'
+    /// <c>sample_sigmas</c> pipeline setting, Qwen-Image 2.1 Turbo); absent: σ = linspace(1, 1 / n).
+    /// </summary>
+    public const string SampleSigmas = "sampleSigmas";
+
+    /// <summary>
     /// Denoiser: latent pixels per token along each axis (transformers that patchify the latents: FLUX 2; default 1). The image token
     /// count of a dynamic flow shift is the latent pixel count divided by its square.
     /// </summary>

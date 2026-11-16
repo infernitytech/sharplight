@@ -48,6 +48,15 @@ internal sealed record QwenImage21Config
     /// <summary>Whether text tokens are modulated from t = 0.</summary>
     public bool CausalCondition { get; init; } = true;
 
+    /// <summary>
+    /// The 8-step noise levels of Qwen-Image 2.1 Turbo (its pipeline's <c>sample_sigmas</c>), for transformer-only files recognized by their
+    /// published name.
+    /// </summary>
+    public static readonly float[] TurboSigmas = [1.0f, 0.978453f, 0.95418f, 0.926626f, 0.89508f, 0.845148f, 0.704534f, 0.414568f];
+
+    /// <summary>The pipeline's sampling noise levels before the shift (<c>sample_sigmas</c>, Turbo), or null.</summary>
+    public float[]? SampleSigmas { get; init; }
+
     /// <summary>The original scheduler configuration, or null.</summary>
     public string? SchedulerJson { get; init; }
 
@@ -117,7 +126,12 @@ internal sealed record QwenImage21Config
         metadata[Prefix + "text_encoder.prompt_length"] = PromptLength;
         metadata[Prefix + "text_encoder.prompt_skip"] = PromptSkip;
         metadata[Prefix + "text_encoder.prompt_template"] = PromptTemplate;
-        metadata[Prefix + "default_steps"] = 40;
+        if (SampleSigmas is { Length: > 0 } sigmas)
+        {
+            metadata[Prefix + "scheduler.sample_sigmas"] = sigmas;
+        }
+
+        metadata[Prefix + "default_steps"] = SampleSigmas is { Length: > 0 } turbo ? turbo.Length : 40;
         metadata[Prefix + "default_guidance"] = 1.0;
     }
 }

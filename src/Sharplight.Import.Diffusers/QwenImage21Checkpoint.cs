@@ -28,8 +28,15 @@ internal static class QwenImage21Checkpoint
             var weights = new CanonicalWeights();
             QwenImage21Names.Add(tensors.Tensors, prefix, weights);
             string format = CheckpointTensors.IsGguf(path) ? "gguf" : "safetensors";
-            return QwenImageSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, QwenImage21Config.Architecture,
-                QwenImage21Config.FromWeights(weights.Weights).WriteTo, tensors.Resources);
+            var config = QwenImage21Config.FromWeights(weights.Weights);
+            if (Path.GetFileName(path).Contains("turbo", StringComparison.OrdinalIgnoreCase))
+            {
+                // The Turbo transformer is the base's layout: recognized by its published name, it samples its own 8 steps.
+                config = config with { SampleSigmas = QwenImage21Config.TurboSigmas };
+            }
+
+            return QwenImageSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, QwenImage21Config.Architecture, config.WriteTo,
+                tensors.Resources);
         }
         catch
         {
