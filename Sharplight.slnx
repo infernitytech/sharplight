@@ -1,21 +1,19 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Sharplight.Core/Sharplight.Core.csproj" />
-    <Project Path="src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
+    <Project Path="src/Sharplight/Sharplight.csproj" />
     <Project Path="src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
     <Project Path="src/Sharplight.Import.PyTorch/Sharplight.Import.PyTorch.csproj" />
     <Project Path="src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <Project Path="src/Sharplight.Vulkan.MoltenVK/Sharplight.Vulkan.MoltenVK.csproj" />
-    <Project Path="src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <Project Path="src/Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
     <Project Path="src/Sharplight.Import.Diffusers/Sharplight.Import.Diffusers.csproj" />
     <Project Path="src/Sharplight.Import.WhisperCpp/Sharplight.Import.WhisperCpp.csproj" />
     <Project Path="src/Sharplight.Import.Kokoro/Sharplight.Import.Kokoro.csproj" />
     <Project Path="src/Sharplight.Import.Snac/Sharplight.Import.Snac.csproj" />
-    <Project Path="src/Sharplight.Package/Sharplight.Package.csproj" />
     <Project Path="src/Sharplight.Audio/Sharplight.Audio.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
     <Project Path="src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />

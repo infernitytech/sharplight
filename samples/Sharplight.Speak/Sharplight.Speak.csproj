@@ -6,6 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
+    <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
   </ItemGroup>
 </Project>

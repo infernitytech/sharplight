@@ -2,10 +2,14 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Sharplight.Storage;
 
 namespace Sharplight.Shaders;
 
-/// <summary>The embedded Slang kernel sources, extracted to a content-addressed directory on first use.</summary>
+/// <summary>
+/// The embedded Slang kernel sources, extracted on first use to a content-addressed directory in the storage layout's cache folder
+/// (<see cref="StorageLayout.ShaderSourcesDirectory"/>).
+/// </summary>
 internal static partial class KernelLibrary
 {
     private const string Prefix = "Sharplight.Kernels.";
@@ -86,9 +90,11 @@ internal static partial class KernelLibrary
         var hash = Convert.ToHexString(sha.GetHashAndReset())[..16].ToLowerInvariant();
         var sources = files.ToDictionary(kv => kv.Key, kv => Encoding.UTF8.GetString(kv.Value), StringComparer.Ordinal);
 
-        var dir = Path.Combine(Path.GetTempPath(), "sharplight-kernels-" + hash);
+        // In the cache folder of the storage layout (portable, system or custom), so a portable install writes nothing elsewhere.
+        var dir = Path.Combine(StorageLayout.Resolve(StorageEnvironment.Process).ShaderSourcesDirectory, hash);
         if (!Directory.Exists(dir))
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(dir)!);
             var tmp = dir + "." + Environment.ProcessId;
             Directory.CreateDirectory(tmp);
             foreach (var (k, v) in files)

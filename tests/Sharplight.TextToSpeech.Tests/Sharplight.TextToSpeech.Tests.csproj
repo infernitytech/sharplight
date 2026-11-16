@@ -11,6 +11,6 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <Content Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
-    <ProjectReference Include="../../src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
+    <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
   </ItemGroup>
 </Project>

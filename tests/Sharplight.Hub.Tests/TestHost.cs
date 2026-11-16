@@ -6,7 +6,7 @@ using Sharplight.Runtime;
 namespace Sharplight.Hub.Tests;
 
 /// <summary>
-/// The services the tests load models through: the formats, architectures and execution providers of Sharplight.Defaults
+/// The services the tests load models through: the formats, architectures and execution providers of Sharplight
 /// (<c>services.AddSharplight()</c>), built once per test assembly.
 /// </summary>
 internal static class TestHost

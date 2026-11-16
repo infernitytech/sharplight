@@ -130,7 +130,7 @@ public sealed class ArchitectureCatalog
         if (_adapters.Length == 0)
         {
             return new NotSupportedException($"No adapter for architecture '{source.Architecture}': no architecture adapters are registered. Register them "
-                + "with services.AddSharplight() (Sharplight.Defaults) or services.AddBuiltinArchitectures() (Sharplight.Architectures).");
+                + "with services.AddSharplight() (Sharplight) or services.AddBuiltinArchitectures() (Sharplight.Architectures).");
         }
 
         return new NotSupportedException($"No adapter for architecture '{source.Architecture}'. Registered: {string.Join(", ", _byArchitecture.Keys)}");

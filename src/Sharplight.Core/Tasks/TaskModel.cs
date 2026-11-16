@@ -21,7 +21,7 @@ namespace Sharplight.Tasks;
 /// </summary>
 /// <example>
 /// <code>
-/// using var services = SharplightDefaults.CreateServiceProvider();   // Sharplight.Defaults
+/// using var services = SharplightDefaults.CreateServiceProvider();   // Sharplight
 /// var loader = services.GetRequiredService&lt;ModelLoader&gt;();
 /// using var model = TaskModel.Load(loader, new TaskLoadOptions { ModelPath = "whisper-small.slm", Devices = [slot] });
 /// using var recognizer = services.GetRequiredService&lt;TaskClientProvider&gt;().Create&lt;ISpeechRecognizer&gt;(model);

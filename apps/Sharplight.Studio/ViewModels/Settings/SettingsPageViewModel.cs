@@ -39,11 +39,15 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     {
         _services = services;
         Updates = new UpdatesViewModel(services);
+        Storage = new StorageSettingsViewModel(services);
         Load();
     }
 
     /// <summary>Update checks: version, channel, automatic check and the pending update (shared with the update dialog).</summary>
     public UpdatesViewModel Updates { get; }
+
+    /// <summary>Where everything is kept: portable, system or custom location, and changing it.</summary>
+    public StorageSettingsViewModel Storage { get; }
 
     /// <inheritdoc/>
     public override string Title => "Settings";
@@ -77,7 +81,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     /// <summary>Model store location choices.</summary>
     public IReadOnlyList<StoreLocationChoice> StoreLocations => StoreLocationChoice.All;
 
-    /// <summary>Where the model store is: application folder (default), user folder or <see cref="ModelsDirectory"/>.</summary>
+    /// <summary>Where the model store is: with the other data (default), the system folder or <see cref="ModelsDirectory"/>.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsCustomStore))]
     public partial StoreLocationChoice StoreLocation { get; set; } = StoreLocationChoice.All[0];
@@ -189,7 +193,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     [ObservableProperty]
     public partial bool PrecompileAfterDownload { get; set; }
 
-    /// <summary>Keep compiled kernels in the per-user compilation cache.</summary>
+    /// <summary>Keep compiled kernels in the compilation cache of the storage location.</summary>
     [ObservableProperty]
     public partial bool UseCompilationCache { get; set; }
 
@@ -240,6 +244,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         ModelsDirectory = settings.ModelsDirectory ?? "";
         RefreshStore();
         _initializing = false;
+        Storage.Reset();
         return Task.CompletedTask;
     }
 
@@ -430,6 +435,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     {
         StoreRoot = _services.Settings.StoreRoot;
         StoreRootSource = _services.Settings.StoreRootSource;
+        Storage.Refresh();
     }
 
     private void Save()

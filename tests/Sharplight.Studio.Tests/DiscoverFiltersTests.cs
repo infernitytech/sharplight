@@ -62,13 +62,13 @@ public sealed class DiscoverFiltersTests
     public void Filters_SurviveTheSettingsFile()
     {
         using var directory = new TempDir();
-        var service = new Studio.Services.Settings.JsonSettingsService(directory.File("settings.json"), null);
+        var service = new Studio.Services.Settings.JsonSettingsService(directory.File("settings.json"), null, TestServices.CreateLayout(directory.Path));
         service.Update(settings => settings with
         {
             Discover = new DiscoverFilterSettings { Task = ModelTask.VideoGeneration, Format = ModelFormat.Diffusers, Gated = GatedFilter.Only, Sort = HubSortOrder.Modified },
         });
 
-        var reread = new Studio.Services.Settings.JsonSettingsService(directory.File("settings.json"), null).Current.Discover;
+        var reread = new Studio.Services.Settings.JsonSettingsService(directory.File("settings.json"), null, TestServices.CreateLayout(directory.Path)).Current.Discover;
         Assert.Equal(ModelTask.VideoGeneration, reread.Task);
         Assert.Equal(ModelFormat.Diffusers, reread.Format);
         Assert.Equal(GatedFilter.Only, reread.Gated);
