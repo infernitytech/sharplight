@@ -40,6 +40,12 @@ jobs:
           merge-multiple: true
           path: native/sharplight_audio/out
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-video-*
+          merge-multiple: true
+          path: native/sharplight_video/out
+
       - name: Style checks
         run: |
           python3 tools/check-one-type-per-file.py

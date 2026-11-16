@@ -15,6 +15,7 @@
     <Project Path="src/Sharplight.Import.Kokoro/Sharplight.Import.Kokoro.csproj" />
     <Project Path="src/Sharplight.Import.Snac/Sharplight.Import.Snac.csproj" />
     <Project Path="src/Sharplight.Audio/Sharplight.Audio.csproj" />
+    <Project Path="src/Sharplight.Video/Sharplight.Video.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
     <Project Path="src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <Project Path="src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
@@ -47,6 +48,7 @@
     <Project Path="tests/Sharplight.Import.Gguf.Tests/Sharplight.Import.Gguf.Tests.csproj" />
     <Project Path="tests/Sharplight.Import.HuggingFace.Tests/Sharplight.Import.HuggingFace.Tests.csproj" />
     <Project Path="tests/Sharplight.Audio.Tests/Sharplight.Audio.Tests.csproj" />
+    <Project Path="tests/Sharplight.Video.Tests/Sharplight.Video.Tests.csproj" />
     <Project Path="tests/Sharplight.Hub.Tests/Sharplight.Hub.Tests.csproj" />
     <Project Path="tests/Sharplight.Import.Onnx.Tests/Sharplight.Import.Onnx.Tests.csproj" />
     <Project Path="tests/Sharplight.Import.Onnx.Conformance/Sharplight.Import.Onnx.Conformance.csproj" />

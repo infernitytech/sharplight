@@ -32,6 +32,7 @@ public static class TaskServiceCollectionExtensions
             ArgumentNullException.ThrowIfNull(services);
             services.AddOptions();
             services.AddModelLoader();
+            services.AddVideoEncoders();
             services.TryAddSingleton<TaskClientProvider>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextGeneratorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, LatentDiffusionGeneratorFactory>());

@@ -48,7 +48,14 @@ if ! ls "$publish/runtimes/$rid/native/"*sharplight_audio* >/dev/null 2>&1; then
     exit 1
 fi
 
+# Sharplight.Video's native library (libvpx, built by native.yml into native/sharplight_video/out/<rid>/) rides along the same way.
+if ! ls "$publish/runtimes/$rid/native/"*sharplight_video* >/dev/null 2>&1; then
+    echo "the native video library for $rid is missing from the publish output (build it with native/sharplight_video/build.sh or download the native-video artifacts into native/sharplight_video/out)" >&2
+    exit 1
+fi
+
 cp "$repo/src/Sharplight.Audio/THIRD-PARTY-NOTICES.md" "$publish/THIRD-PARTY-NOTICES-Audio.md"
+cp "$repo/src/Sharplight.Video/THIRD-PARTY-NOTICES.md" "$publish/THIRD-PARTY-NOTICES-Video.md"
 
 args=(--packId SharplightStudio --packVersion "$version" --packDir "$publish" --runtime "$rid" --channel "$channel"
     --outputDir "$out" --packTitle "Sharplight Studio" --packAuthors "Sharplight contributors")
