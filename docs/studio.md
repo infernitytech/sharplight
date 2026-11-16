@@ -338,10 +338,15 @@ results are PNG files that carry the prompt and parameters as text chunks (`para
 next to `parameters.json`. *Save PNG*, *Use as input*, *Reuse seed* and *Reuse prompt* act on the shown image; the gallery's *Reuse
 parameters* (every page has it) sets the parameters, the prompt and the result of a past run, with the seed that run actually used.
 Stable Diffusion 1.x, 2.x and XL work (diffusers folders, single-file `.safetensors` / `.ckpt`, stable-diffusion.cpp GGUF, including
-the SDXL and SDXL-Turbo GGUF files of the Hub). When a distilled model is chosen (SDXL-Turbo, SDXL-Lightning: its default guidance
-is 1 or less), the page sets steps and guidance to the model's defaults (SDXL-Turbo: 4 steps without guidance) and says so; choosing
-a regular model afterwards restores 20 steps and guidance 7.5. FLUX, SD3 and the other diffusion transformers are listed as image
-models, and loading one says "Not supported yet: FLUX (diffusion transformer)". A file that holds only the UNet, or an SDXL UNet
+the SDXL and SDXL-Turbo GGUF files of the Hub), and FLUX.1-schnell / -dev (diffusers folders, original single files, city96 /
+stable-diffusion.cpp GGUF). A FLUX file that holds only the transformer (the usual GGUF downloads) needs its text encoders and VAE:
+the load panel shows *Text encoder (CLIP-L)*, *Text encoder 2 (T5-XXL)* and *VAE* fields, filled with the files found beside it or
+in the sibling `clip` / `text_encoders` / `vae` folders (recognized by their tensors), and passes them as auxiliary files; a `.slm`
+converted from it holds them. When a distilled model is chosen (SDXL-Turbo, SDXL-Lightning, FLUX.1-schnell: default guidance of 1 or
+less; FLUX.1-dev: guidance embedded instead of classifier-free), the page sets steps and guidance to the model's defaults
+(SDXL-Turbo and FLUX.1-schnell: 4 steps without guidance; FLUX.1-dev: 28 steps, guidance 3.5) and says so; choosing a regular model
+afterwards restores 20 steps and guidance 7.5. SD3 and the other diffusion transformers are listed as image models, and loading one
+says "Not supported yet: Stable Diffusion 3 (diffusion transformer)". A file that holds only the UNet, or an SDXL UNet
 without its second text encoder, fails on load naming what is missing; a `.slm` converted from an SDXL GGUF by an earlier version
 (without the second encoder) fails on load asking to import the original file again.
 

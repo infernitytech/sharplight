@@ -1325,9 +1325,13 @@ Verification (tools/make-tiny-flux.py, tools/make-flux-references.py; tests `Tin
   running the dequantized GGUF weights gives the same 0.205, so it is the file's, not the implementation's), `clip_l.safetensors`
   (f16) 3–6e-3. Images: 22.6 dB (512) / 28.9 dB (1024) from the bf16 diffusers pipeline, visually the same picture with different
   fine texture; stable-diffusion.cpp (CUDA, same files, its flux scheduler with the shift disabled to match diffusers' schnell
-  schedule, `--rng cpu` = the same latents) is 21.7 / 26.3 dB from diffusers and 22.0 / 25.8 dB from Sharplight at 512 / 1024. SAMEWEIGHTS
+  schedule, `--rng cpu` = the same latents) is 21.7 / 26.3 dB from diffusers and 22.0 / 25.8 dB from Sharplight at 512 / 1024.
+  Against diffusers running the very same files (dequantized GGUF transformer and T5, `clip_l.safetensors`;
+  `make-flux-references.py --transformer-gguf --t5-gguf --clip-file`): Sharplight 33.4 dB (512) / 39.7 dB (1024),
+  stable-diffusion.cpp 21.8 / 25.8 dB.
 - FLUX.1-dev (city96 Q8_0 GGUF): the transformer with the guidance embedding is 3.3e-4 from diffusers running the dequantized GGUF;
-  20 steps at 512×512 DEVSAME.
+  20 steps at 512×512 (guidance 3.5, dynamic shift) 31.7 dB from diffusers running the same files (Q8_0 transformer and T5,
+  `clip_l.safetensors`); 1024×1024 28 steps in 33.2 s (below).
 - Speed and memory (Vulkan, Q8_0 transformer and T5, warm runs with the conditioning reused): 512×512 0.26 s per step, decode
   0.14 s, 4 steps 1.16 s; 1024×1024 1.04 s per step (attention 26 %, Q8_0 products 55 %), decode 1.05 s, 4 steps 5.2 s; FLUX.1-dev
   1024×1024 1.15 s per step, 28 steps 33.2 s, peak 23.5 GB of device memory. stable-diffusion.cpp CUDA on the same files samples 4
