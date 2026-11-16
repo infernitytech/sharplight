@@ -176,14 +176,24 @@ internal static class ComponentCheckpoint
     private static ModelSource OpenT5(string path, CheckpointTensors tensors, JsonElement? config, Dictionary<string, object> metadata)
     {
         string folder = Path.GetDirectoryName(Path.GetFullPath(path))!;
-        var safetensors = (SafetensorsFile)tensors.Resources.Single();
+        IReadOnlyDictionary<string, SafetensorsTensor> stored = ((SafetensorsFile)tensors.Resources.Single()).Tensors;
+        IReadOnlyList<IDisposable> resources = tensors.Resources;
+        if (IsShard(path))
+        {
+            // One shard of a sharded encoder (a diffusers text_encoder_3 folder): the whole checkpoint.
+            tensors.DisposeAll();
+            var checkpoint = SafetensorsCheckpoint.Open(folder);
+            stored = checkpoint.Tensors;
+            resources = [checkpoint];
+        }
+
         var hfConfig = config is { } c && c.String("model_type", "") is "t5" or "umt5" or "mt5"
             ? HfConfig.Load(folder)
-            : HfConfig.Parse(InferT5Config(safetensors.Tensors), folder);
+            : HfConfig.Parse(InferT5Config(stored), folder);
         var options = new HuggingFaceImportOptions();
         var mapping = new T5HfMapping();
         var weights = new CanonicalWeights();
-        foreach (var (name, weight) in mapping.MapWeights(hfConfig, safetensors.Tensors, options))
+        foreach (var (name, weight) in mapping.MapWeights(hfConfig, stored, options))
         {
             weights.Add(name, weight);
         }
@@ -214,10 +224,15 @@ internal static class ComponentCheckpoint
             Architecture = T5Architecture,
             Metadata = metadata,
             Weights = weights.Weights,
-            OwnedResources = tensors.Resources,
+            OwnedResources = resources,
             Path = path,
         };
     }
+
+    /// <summary>Whether the file is a shard of a checkpoint with a <c>*.safetensors.index.json</c> beside it.</summary>
+    private static bool IsShard(string path)
+        => System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(path), @"-\d{5}-of-\d{5}\.safetensors$")
+           && Directory.EnumerateFiles(Path.GetDirectoryName(Path.GetFullPath(path))!, "*.safetensors.index.json").Any();
 
     /// <summary>A T5 v1.1 encoder configuration (JSON) from the tensor shapes.</summary>
     private static string InferT5Config(IReadOnlyDictionary<string, SafetensorsTensor> tensors)

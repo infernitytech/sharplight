@@ -50,6 +50,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddCompositeModelAdapter<Sd3CompanionAdapter>()
                 .AddModelAdapter<ChromaAdapter>()
                 .AddCompositeModelAdapter<ChromaCompanionAdapter>()
+                .AddModelAdapter<ZImageAdapter>()
+                .AddCompositeModelAdapter<ZImageCompanionAdapter>()
                 .AddAuxiliaryArchitecture(DiffusionCompanionAdapter.ClipTextArchitecture, AuxiliaryRoles.TextEncoder)
                 .AddAuxiliaryArchitecture(DiffusionCompanionAdapter.AutoencoderArchitecture, AuxiliaryRoles.Vae)
                 .AddCompositeModelAdapter<OuteTtsAdapter>()

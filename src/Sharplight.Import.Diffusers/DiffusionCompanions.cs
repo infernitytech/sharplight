@@ -57,6 +57,11 @@ internal static class DiffusionCompanions
         var clipL = new CompanionFile(AuxiliaryRoles.TextEncoder, "Text encoder (CLIP-L)", "clip_l.safetensors");
         var vae = new CompanionFile(AuxiliaryRoles.Vae, "VAE", family == CompanionFamily.Sd3 ? "the SD3 VAE (diffusion_pytorch_model.safetensors)" : "ae.safetensors");
         const string t5 = "t5-v1_1-xxl-encoder-Q8_0.gguf or t5xxl_fp16.safetensors";
+        if (family == CompanionFamily.ZImage)
+        {
+            return [new CompanionFile(AuxiliaryRoles.TextEncoder, "Text encoder (Qwen3-4B)", "Qwen3-4B-Q8_0.gguf"), vae];
+        }
+
         if (family == CompanionFamily.Chroma)
         {
             return [new CompanionFile(AuxiliaryRoles.TextEncoder, "Text encoder (T5-XXL)", t5), vae];
@@ -84,7 +89,14 @@ internal static class DiffusionCompanions
         };
         if (file.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
         {
-            return IsT5Gguf(file) ? t5Role : null;
+            return family == CompanionFamily.ZImage ? (GgufArchitecture(file) == "qwen3" ? AuxiliaryRoles.TextEncoder : null)
+                : GgufArchitecture(file) is "t5encoder" or "t5" ? t5Role
+                : null;
+        }
+
+        if (family == CompanionFamily.ZImage)
+        {
+            return ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.AutoencoderArchitecture && IsSixteenChannelVae(file) ? AuxiliaryRoles.Vae : null;
         }
 
         return ComponentCheckpoint.ClassifyFile(file) switch
@@ -109,20 +121,21 @@ internal static class DiffusionCompanions
         return safetensors.Tensors.FirstOrDefault(t => t.Key.EndsWith("embeddings.token_embedding.weight", StringComparison.Ordinal)).Value?.Shape[1] ?? 0;
     }
 
-    private static bool IsT5Gguf(string file)
+    /// <summary>The <c>general.architecture</c> of a GGUF file, or null.</summary>
+    private static string? GgufArchitecture(string file)
     {
         try
         {
             using var gguf = GgufFile.Open(file);
-            return gguf.Metadata.TryGetValue("general.architecture", out var architecture) && architecture is "t5encoder" or "t5";
+            return gguf.Metadata.TryGetValue("general.architecture", out var architecture) ? architecture as string : null;
         }
         catch (IOException)
         {
-            return false;
+            return null;
         }
         catch (InvalidDataException)
         {
-            return false;
+            return null;
         }
     }
 

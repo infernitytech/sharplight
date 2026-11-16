@@ -17,6 +17,7 @@ Written to OUT/{variant} (default OUT ~/models/sd3/tiny-random-sd3):
   single/sd3-Q8_0.gguf         the transformer as a transformer-only GGUF (city96 layout: matrices Q8_0, the rest F16 / F32)
   reference/*.f32              raw little-endian f32 reference tensors, described by reference/index.json
 
+The heads are 64 wide, as in every SD3 release (files without q/k norms do not tell the head width).
 The Q8_0 references (transformer_q8_out, q8_image) come from the diffusers transformer with the dequantized GGUF weights.
 Requires torch, diffusers, transformers, safetensors and gguf. The tokenizers come from --tokenizers (a FLUX.1 diffusers folder
 with tokenizer/ and tokenizer_2/ (T5)) or the Hugging Face hub.
@@ -62,8 +63,8 @@ def build_models(variant):
     sd35 = variant == "sd35"
     torch.manual_seed(3 if sd35 else 2)
     transformer = SD3Transformer2DModel(
-        sample_size=32, patch_size=2, in_channels=16, num_layers=3, attention_head_dim=32, num_attention_heads=2, joint_attention_dim=192,
-        caption_projection_dim=64, pooled_projection_dim=80, out_channels=16, pos_embed_max_size=24,
+        sample_size=32, patch_size=2, in_channels=16, num_layers=3, attention_head_dim=64, num_attention_heads=2, joint_attention_dim=192,
+        caption_projection_dim=128, pooled_projection_dim=80, out_channels=16, pos_embed_max_size=24,
         dual_attention_layers=(0, 1) if sd35 else (), qk_norm="rms_norm" if sd35 else None)
     vae = AutoencoderKL(
         in_channels=3, out_channels=3, latent_channels=16, layers_per_block=2, norm_num_groups=32, block_out_channels=(32, 32, 64, 64),

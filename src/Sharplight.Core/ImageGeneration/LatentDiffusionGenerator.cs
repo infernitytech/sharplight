@@ -32,6 +32,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly int _thirdContextLength;
     private readonly bool _thirdJoinsSequence;
     private readonly int _contextMaskPadding = -1;
+    private readonly string? _promptTemplate;
     private readonly bool _embeddedGuidance;
     private readonly bool _classifierFree;
     private readonly bool _releaseTextEncoders;
@@ -58,6 +59,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var description = model.Description;
         _tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
         _schedule = NoiseSchedule.FromComponent(description.Component(ModelComponentRoles.Scheduler));
+        _promptTemplate = description.Component(ModelComponentRoles.Tokenizer).ConfigValue<string?>(DiffusionConfigKeys.PromptTemplate, null);
         var textEncoder = description.Component(ModelComponentRoles.TextEncoder);
         _contextLength = textEncoder.ConfigValue(DiffusionConfigKeys.ContextLength, 77);
         _secondEncoderRole = textEncoder.Graphs.Contains(DiffusionGraphs.TextEncode2) ? ModelComponentRoles.TextEncoder
@@ -355,7 +357,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     /// </summary>
     private PromptConditioning EncodePrompt(string prompt)
     {
-        var (tokens, length) = PromptTokens(_tokenizer, _contextLength, prompt);
+        var (tokens, length) = PromptTokens(_tokenizer, _contextLength, prompt, _promptTemplate);
         var (hidden, pooled) = RunTextEncoder(ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, tokens, length);
         int rows = tokens.Length;
         if (_secondEncoderRole is not null)
@@ -482,9 +484,27 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     /// keep the end token, then padding.
     /// </summary>
     /// <returns>The padded ids and the number of prompt tokens before the padding.</returns>
-    private static (int[] Ids, int Length) PromptTokens(ITokenizer tokenizer, int contextLength, string prompt)
+    private static (int[] Ids, int Length) PromptTokens(ITokenizer tokenizer, int contextLength, string prompt, string? template = null)
     {
-        var ids = tokenizer.Encode(prompt, addSpecial: true, parseSpecial: false).ToList();
+        List<int> ids;
+        if (template is not null && template.IndexOf("{prompt}", StringComparison.Ordinal) is int at and >= 0)
+        {
+            // The template's special tokens are parsed, the prompt's text is not; no other special tokens are added.
+            ids = [.. tokenizer.Encode(template[..at], addSpecial: false, parseSpecial: true),
+                .. tokenizer.Encode(prompt, addSpecial: false, parseSpecial: false),
+                .. tokenizer.Encode(template[(at + "{prompt}".Length)..], addSpecial: false, parseSpecial: true)];
+            ids = ids.Count > contextLength ? ids[..contextLength] : ids;
+            int padding = tokenizer.PadId ?? tokenizer.EosId ?? 0;
+            int count = ids.Count;
+            while (ids.Count < contextLength)
+            {
+                ids.Add(padding);
+            }
+
+            return ([.. ids], count);
+        }
+
+        ids = tokenizer.Encode(prompt, addSpecial: true, parseSpecial: false).ToList();
         int end = tokenizer.EosId ?? ids[^1];
         if (ids.Count > contextLength)
         {

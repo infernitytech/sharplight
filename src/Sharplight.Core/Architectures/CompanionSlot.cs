@@ -12,8 +12,9 @@ namespace Sharplight.Architectures;
 /// <param name="MetadataKey">The component key the metadata goes under (<c>{arch}.{key}.</c>).</param>
 /// <param name="TokenizerMetadataPrefix">Where the companion's tokenizer goes ("" = the canonical keys), or null to drop it.</param>
 /// <param name="FamilyKeys">Keys under the component that the primary source keeps.</param>
+/// <param name="ArchitectureKey">A key under the component that receives the companion's architecture (a whole model kept as a source of its own), or null.</param>
 public sealed record CompanionSlot(IReadOnlyList<string> Architectures, string WeightPrefix, Func<string, string?> Rename, string SourceMetadataPrefix,
-    string MetadataKey, string? TokenizerMetadataPrefix, IReadOnlyList<string> FamilyKeys)
+    string MetadataKey, string? TokenizerMetadataPrefix, IReadOnlyList<string> FamilyKeys, string? ArchitectureKey = null)
 {
     /// <summary>Whether a companion of <paramref name="architecture"/> fills this slot.</summary>
     /// <param name="architecture">The companion source's architecture.</param>

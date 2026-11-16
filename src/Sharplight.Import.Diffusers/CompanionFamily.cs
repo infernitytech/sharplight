@@ -11,4 +11,7 @@ internal enum CompanionFamily
 
     /// <summary>Chroma: T5-XXL (its only text encoder), the 16-channel VAE.</summary>
     Chroma,
+
+    /// <summary>Z-Image: a Qwen3-4B language model (GGUF or Hugging Face folder), the 16-channel VAE.</summary>
+    ZImage,
 }

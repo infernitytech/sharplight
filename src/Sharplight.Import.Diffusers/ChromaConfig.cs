@@ -49,11 +49,11 @@ internal sealed record ChromaConfig
     /// <summary>Latent channels.</summary>
     public int LatentChannels { get; init; } = 16;
 
-    /// <summary>Flow scheduler: resolution-dependent shift (Chroma's pipeline: on).</summary>
-    public bool DynamicShift { get; init; } = true;
+    /// <summary>Flow scheduler: resolution-dependent shift (Chroma1-HD's scheduler: off).</summary>
+    public bool DynamicShift { get; init; }
 
-    /// <summary>Flow scheduler: static shift.</summary>
-    public float Shift { get; init; } = 1f;
+    /// <summary>Flow scheduler: static shift (Chroma1-HD's scheduler: 3).</summary>
+    public float Shift { get; init; } = 3f;
 
     /// <summary>Flow scheduler: μ at the base sequence length.</summary>
     public double BaseShift { get; init; } = 0.5;
@@ -122,7 +122,7 @@ internal sealed record ChromaConfig
         return result with
         {
             Shift = s.Float("shift", 1f),
-            DynamicShift = s.Bool("use_dynamic_shifting", true),
+            DynamicShift = s.Bool("use_dynamic_shifting", false),
             BaseShift = s.TryGetProperty("base_shift", out var b) ? b.GetDouble() : 0.5,
             MaxShift = s.TryGetProperty("max_shift", out var m) ? m.GetDouble() : 1.15,
             BaseSequenceLength = s.Int("base_image_seq_len", 256),

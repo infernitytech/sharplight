@@ -51,6 +51,11 @@ internal static partial class SingleFileCheckpoint
                 return Sd3Config.Architecture;
             }
 
+            if (ZImageCheckpoint.TransformerPrefix(names) is not null)
+            {
+                return ZImageConfig.Architecture;
+            }
+
             if (names.Any(n => n.StartsWith(UNetPrefix, StringComparison.Ordinal)))
             {
                 return LatentDiffusionSource.Architecture;

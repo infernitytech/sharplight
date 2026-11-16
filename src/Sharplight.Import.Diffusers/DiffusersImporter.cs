@@ -6,8 +6,8 @@ namespace Sharplight.Import.Diffusers;
 /// Importer for diffusion image models: Stable Diffusion 1.x / 2.x / XL (diffusers pipeline folders, original-layout single-file
 /// <c>.safetensors</c> checkpoints, PyTorch <c>.ckpt</c> checkpoints read with the restricted unpickler, stable-diffusion.cpp GGUF files)
 /// translated into the canonical <c>latent_diffusion</c> source, and the diffusion transformers FLUX.1, SD3 / SD3.5 and Chroma (diffusers
-/// folders, original-name single files and transformer-only GGUF files) translated into the canonical <c>flux</c>, <c>sd3</c> and
-/// <c>chroma</c> sources; plus the stand-alone component files that come with transformer-only checkpoints (CLIP and T5 text encoders,
+/// folders, original-name single files and transformer-only GGUF files) translated into the canonical <c>flux</c>, <c>sd3</c>,
+/// <c>chroma</c> and <c>zimage</c> sources; plus the stand-alone component files that come with transformer-only checkpoints (CLIP and T5 text encoders,
 /// VAEs), which open as component sources and are found beside the transformer (<see cref="FindCompanions"/>). The
 /// <c>LatentDiffusionAdapter</c>, <c>FluxAdapter</c>, <c>Sd3Adapter</c> and <c>ChromaAdapter</c> of Sharplight.Core build the
 /// image-generation models.
@@ -51,17 +51,18 @@ public sealed class DiffusersImporter : IModelImporter
         string? family = DiffusionTransformerCheckpoint.FamilyOf(path);
         bool supported = (kind == FluxConfig.Architecture && family?.StartsWith("FLUX", StringComparison.Ordinal) == true)
             || (kind == Sd3Config.Architecture && family?.StartsWith("Stable Diffusion 3", StringComparison.Ordinal) == true)
-            || kind == ChromaConfig.Architecture;
+            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture;
         if (family is not null && !supported)
         {
             throw new NotSupportedException($"Not supported yet: {family}. Sharplight generates images with the Stable Diffusion UNet models "
-                + $"(SD 1.x, SD 2.x, SDXL), SD3 / SD3.5, FLUX.1 and Chroma; {Path.GetFileName(path)} is another diffusion-transformer model.");
+                + $"(SD 1.x, SD 2.x, SDXL), SD3 / SD3.5, FLUX.1, Chroma and Z-Image; {Path.GetFileName(path)} is another diffusion-transformer model.");
         }
 
         return kind switch
         {
             FluxConfig.Architecture or ChromaConfig.Architecture => FluxCheckpoint.Open(path),
             Sd3Config.Architecture => Sd3Checkpoint.Open(path),
+            ZImageConfig.Architecture => ZImageCheckpoint.Open(path),
             ComponentCheckpoint.ClipArchitecture or ComponentCheckpoint.AutoencoderArchitecture or ComponentCheckpoint.T5Architecture => ComponentCheckpoint.Open(path),
             _ => SingleFileCheckpoint.Open(path),
         };
@@ -76,6 +77,7 @@ public sealed class DiffusersImporter : IModelImporter
         {
             FluxConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.Flux),
             ChromaConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.Chroma),
+            ZImageConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.ZImage),
             Sd3Config.Architecture => DiffusionCompanions.Describe(CompanionFamily.Sd3),
             _ => [],
         };
@@ -90,6 +92,7 @@ public sealed class DiffusersImporter : IModelImporter
         {
             FluxConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Flux),
             ChromaConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Chroma),
+            ZImageConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.ZImage),
             Sd3Config.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Sd3),
             _ => new Dictionary<string, string>(),
         };

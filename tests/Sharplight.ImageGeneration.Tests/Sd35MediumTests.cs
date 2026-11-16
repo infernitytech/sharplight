@@ -9,7 +9,8 @@ namespace Sharplight.ImageGeneration.Tests;
 /// <summary>
 /// Stable Diffusion 3.5 Medium on Vulkan against diffusers references (tools/make-sd3-references.py: f32 weights on CUDA, 28 steps,
 /// guidance 7, 512×512 and 1024×1024, same initial latents) in ~/models/sd3/sd35-medium-reference: from the diffusers folder (fp16
-/// files) and from city96's transformer-only Q8_0 GGUF with the folder's CLIP and VAE files and the T5 encoder GGUF as companions. Skips when the files, the
+/// files) and from city96's transformer-only Q8_0 GGUF with the folder's component files as companions (against diffusers running the
+/// dequantized GGUF transformer, ~/models/sd3/sd35-medium-gguf-reference). Skips when the files, the
 /// references or a GPU are missing.
 /// </summary>
 [Collection(LargeModelCollection.Name)]
@@ -27,12 +28,12 @@ public sealed class Sd35MediumTests
 
     private static string ModelPath(string source) => source == "gguf" ? Env.Sd35MediumGguf : Env.Sd35MediumDiffusers;
 
-    /// <summary>The companions of the transformer-only GGUF: the folder's CLIP and VAE files, city96's T5-XXL encoder Q8_0 GGUF (FLUX's).</summary>
+    /// <summary>The companions of the transformer-only GGUF: the folder's component files (the T5 encoder named by its first shard).</summary>
     private static Dictionary<string, string> Companions() => new()
     {
         [AuxiliaryRoles.TextEncoder] = Path.Combine(Env.Sd35MediumDiffusers, "text_encoder", "model.safetensors"),
         [AuxiliaryRoles.SecondTextEncoder] = Path.Combine(Env.Sd35MediumDiffusers, "text_encoder_2", "model.safetensors"),
-        [AuxiliaryRoles.ThirdTextEncoder] = Env.T5XxlGguf,
+        [AuxiliaryRoles.ThirdTextEncoder] = Path.Combine(Env.Sd35MediumDiffusers, "text_encoder_3", "model-00001-of-00002.safetensors"),
         [AuxiliaryRoles.Vae] = Path.Combine(Env.Sd35MediumDiffusers, "vae", "diffusion_pytorch_model.safetensors"),
     };
 
@@ -83,8 +84,7 @@ public sealed class Sd35MediumTests
                 (DiffusionGraphs.Tokens, thirdTokens));
             var (t5Max, t5Rms) = Env.Compare(t5, Tensor($"text3_hidden_{i}"));
             TestContext.Current.SendDiagnosticMessage($"{source} T5 {i}: relative RMS {t5Rms:E2}");
-            // The T5 encoder GGUF (Q8_0, every matrix) is ~20 % from the f32 encoder's output (see FluxSchnellTests).
-            Assert.True(t5Rms < (source == "gguf" ? 0.3 : 5e-3), $"T5 {i}: max {t5Max}, relative RMS {t5Rms}");
+            Assert.True(t5Rms < 5e-3, $"T5 {i}: max {t5Max}, relative RMS {t5Rms}");
             i++;
         }
 
@@ -145,17 +145,19 @@ public sealed class Sd35MediumTests
         stopwatch.Restart();
         result = await generator.GenerateAsync(request, options, TestContext.Current.CancellationToken);
         double second = stopwatch.Elapsed.TotalSeconds;
-        var expected = PlanarImage.FromPlanar(Tensor($"image_{size}"), size, size, 0f, 1f);
+        // The GGUF transformer against diffusers running the same (dequantized) weights.
+        string reference = source == "gguf" ? Path.Combine(Env.Sd3Root, "sd35-medium-gguf-reference", $"image_{size}.f32") : Path.Combine(Reference, $"image_{size}.f32");
+        var expected = PlanarImage.FromPlanar(Env.ReadFloats(reference), size, size, 0f, 1f);
         string output = Environment.GetEnvironmentVariable("SHARPLIGHT_SD_TEST_OUTPUT") ?? "";
         if (output.Length > 0)
         {
             Directory.CreateDirectory(output);
             File.WriteAllBytes(Path.Combine(output, $"sd35-medium-{source}-{size}-sharplight.png"), PngCodec.Encode(result.Images[0]));
-            File.WriteAllBytes(Path.Combine(output, $"sd35-medium-{size}-diffusers.png"), PngCodec.Encode(expected));
+            File.WriteAllBytes(Path.Combine(output, $"sd35-medium-{source}-{size}-diffusers.png"), PngCodec.Encode(expected));
         }
 
         double psnr = Env.Psnr(result.Images[0].Rgb, expected.Rgb);
         TestContext.Current.SendDiagnosticMessage($"{source} {size}: PSNR {psnr:F1} dB; load {load:F1} s, first run (compiling) {first:F1} s, second run {second:F1} s");
-        Assert.True(psnr > (source == "gguf" ? 18 : 25), $"{source} {size}: PSNR {psnr:F1} dB");
+        Assert.True(psnr > 30, $"{source} {size}: PSNR {psnr:F1} dB");
     }
 }

@@ -74,6 +74,7 @@ internal sealed record Sd3Config
         }
 
         int hidden = (int)patch.Shape[0].Fixed;
+        // Files without q/k norms (SD3) do not tell the head width: every SD3 release has 64-wide heads.
         int headDim = weights.TryGetValue("transformer.joint.0.img_attn.norm_q.weight", out var norm) ? (int)norm.Shape[0].Fixed : 64;
         int dual = 0;
         while (weights.ContainsKey($"transformer.joint.{dual}.img_attn2.qkv.weight"))
@@ -95,9 +96,21 @@ internal sealed record Sd3Config
         };
     }
 
-    /// <summary>This configuration with the scheduler settings of a diffusers folder.</summary>
+    /// <summary>This configuration with the scheduler settings and the head width of a diffusers folder.</summary>
     /// <param name="schedulerJson">The <c>scheduler_config.json</c> text, or null.</param>
-    public Sd3Config WithScheduler(string? schedulerJson)
+    /// <param name="transformerConfig">The <c>transformer/config.json</c>, or null.</param>
+    public Sd3Config WithDiffusers(string? schedulerJson, JsonElement? transformerConfig)
+    {
+        var result = this;
+        if (transformerConfig is { } config && config.TryGetProperty("attention_head_dim", out var headDim))
+        {
+            result = result with { HeadCount = HiddenSize / headDim.GetInt32() };
+        }
+
+        return result.WithSchedulerJson(schedulerJson);
+    }
+
+    private Sd3Config WithSchedulerJson(string? schedulerJson)
     {
         if (schedulerJson is null)
         {

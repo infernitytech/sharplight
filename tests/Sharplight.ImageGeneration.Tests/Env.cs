@@ -66,6 +66,12 @@ internal static class Env
     /// <summary>The tiny random Chroma pipeline (tools/make-tiny-chroma.py).</summary>
     public static readonly string TinyChroma = Path.Combine(Home, "models/chroma/tiny-random-chroma");
 
+    /// <summary>The tiny random Z-Image pipeline (tools/make-tiny-zimage.py).</summary>
+    public static readonly string TinyZImage = Path.Combine(Home, "models/zimage/tiny-random-zimage");
+
+    /// <summary>The Z-Image model folder (the Z-Image-Turbo diffusers folder, GGUF files, references).</summary>
+    public static readonly string ZImageRoot = Path.Combine(Home, "models/zimage");
+
     /// <summary>The Chroma model folder (GGUF files, configurations, references).</summary>
     public static readonly string ChromaRoot = Path.Combine(Home, "models/chroma");
 

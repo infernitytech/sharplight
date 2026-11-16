@@ -81,6 +81,11 @@ public abstract class DiffusionCompanionAdapter : ICompositeModelAdapter
                 metadata[target + key] = value;
             }
 
+            if (slot.ArchitectureKey is { } architectureKey)
+            {
+                metadata[target + architectureKey] = source.Architecture;
+            }
+
             if (slot.TokenizerMetadataPrefix is { } tokenizer)
             {
                 CopyMetadata(source, metadata, TokenizerKeys, tokenizer.Length == 0 ? TokenizerKeys : prefix + tokenizer + TokenizerKeys);
@@ -119,6 +124,16 @@ public abstract class DiffusionCompanionAdapter : ICompositeModelAdapter
         => new([T5Architecture], weightPrefix,
             name => name.StartsWith("encoder.", StringComparison.Ordinal) || name == "token_embedding.weight" ? weightPrefix + name : null,
             T5Architecture + ".", metadataKey, tokenizerMetadataPrefix, ["prompt_length"]);
+
+    /// <summary>
+    /// A language model kept whole as the text encoder (Z-Image's Qwen3): every weight under <paramref name="weightPrefix"/>, every metadata key
+    /// under <c>{arch}.{metadataKey}.</c> with its architecture as <c>architecture</c>, its tokenizer under the canonical keys.
+    /// </summary>
+    /// <param name="weightPrefix">Canonical weight prefix (<c>text_encoder.</c>).</param>
+    /// <param name="metadataKey">Metadata component key (<c>text_encoder_source</c>).</param>
+    /// <param name="architectures">The language-model source architectures accepted (<c>decoder</c>).</param>
+    protected static CompanionSlot LanguageModel(string weightPrefix, string metadataKey, params string[] architectures)
+        => new(architectures, weightPrefix, name => weightPrefix + name, "", metadataKey, "", [], "architecture");
 
     /// <summary>The VAE slot (weights <c>vae.*</c>, the family's latent scaling kept).</summary>
     protected static CompanionSlot Vae()

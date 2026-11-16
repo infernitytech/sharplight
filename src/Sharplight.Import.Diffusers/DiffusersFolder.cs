@@ -17,7 +17,7 @@ internal static class DiffusersFolder
     /// <param name="path">A directory.</param>
     public static bool IsFolder(string path)
         => Directory.Exists(path) && File.Exists(Path.Combine(path, "vae", "config.json"))
-           && (File.Exists(Path.Combine(path, "unet", "config.json")) || FluxFolder.IsFolder(path) || Sd3Folder.IsFolder(path) || ChromaFolder.IsFolder(path));
+           && (File.Exists(Path.Combine(path, "unet", "config.json")) || FluxFolder.IsFolder(path) || Sd3Folder.IsFolder(path) || ChromaFolder.IsFolder(path) || ZImageFolder.IsFolder(path));
 
     /// <summary>Opens the folder as a canonical source.</summary>
     /// <param name="path">The pipeline folder.</param>
@@ -39,9 +39,14 @@ internal static class DiffusersFolder
             return ChromaFolder.Open(path);
         }
 
+        if (ZImageFolder.IsFolder(path))
+        {
+            return ZImageFolder.Open(path);
+        }
+
         if (Directory.Exists(Path.Combine(path, "transformer")) || !Directory.Exists(Path.Combine(path, "text_encoder")))
         {
-            throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1 and Chroma pipelines are supported so far.");
+            throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma and Z-Image pipelines are supported so far.");
         }
 
         bool xl = Directory.Exists(Path.Combine(path, "text_encoder_2"));

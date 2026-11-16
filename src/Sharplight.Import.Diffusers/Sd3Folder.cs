@@ -70,7 +70,8 @@ internal static class Sd3Folder
             resources.AddRange(tensors.Resources);
             var t5 = FluxSource.AddT5Folder(Path.Combine(path, "text_encoder_3"), Path.Combine(path, "tokenizer_3"), weights, resources, Sd3Source.T5Prefix);
             string schedulerPath = Path.Combine(path, "scheduler", "scheduler_config.json");
-            var config = Sd3Config.FromWeights(weights.Weights).WithScheduler(File.Exists(schedulerPath) ? File.ReadAllText(schedulerPath) : null);
+            var config = Sd3Config.FromWeights(weights.Weights)
+                .WithDiffusers(File.Exists(schedulerPath) ? File.ReadAllText(schedulerPath) : null, ReadJson(path, "transformer"));
             var vae = VaeConfig.FromDiffusers(ReadJson(path, "vae"), []);
             var clip = ClipTextConfig.FromTransformers(ReadJson(path, "text_encoder"));
             var clip2 = ClipTextConfig.FromTransformers(ReadJson(path, "text_encoder_2"));
