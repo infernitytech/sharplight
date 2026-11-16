@@ -13,7 +13,7 @@ public static class ArchitectureServiceCollectionExtensions
         /// multimodal families), the multimodal prompt assembly of the Qwen-VL family, the text-to-speech families (OuteTTS with the WavTokenizer
         /// decoder as its <see cref="AuxiliaryRoles.Vocoder"/> source, and its <see cref="Sharplight.Speech.ISpeechSynthesizer"/> factory),
         /// and the drafter architectures that only load as the <see cref="AuxiliaryRoles.Draft"/> source of another model. Idempotent. <c>services.AddSharplight()</c> of the
-        /// Sharplight.Defaults package calls it.
+        /// Sharplight package calls it.
         /// </summary>
         /// <returns>The service collection.</returns>
         public IServiceCollection AddBuiltinArchitectures()

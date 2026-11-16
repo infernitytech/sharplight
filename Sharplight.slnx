@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Sharplight.Core/Sharplight.Core.csproj" />
-    <Project Path="src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
+    <Project Path="src/Sharplight/Sharplight.csproj" />
     <Project Path="src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
     <Project Path="src/Sharplight.Import.PyTorch/Sharplight.Import.PyTorch.csproj" />
     <Project Path="src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />

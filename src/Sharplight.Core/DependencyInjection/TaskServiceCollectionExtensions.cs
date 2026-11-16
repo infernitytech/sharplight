@@ -25,7 +25,7 @@ public static class TaskServiceCollectionExtensions
         /// Adds the <see cref="TaskClientProvider"/>, the <see cref="ModelLoader"/> and the built-in factories: text generation (decoder LLMs
         /// and masked-diffusion LMs), speech recognition with prompted encoder-decoder models (Whisper family), and image classification and
         /// embedding with image encoders, object detection, depth estimation and latent-diffusion image generation (models following
-        /// <see cref="DiffusionGraphs"/>). Idempotent. <c>services.AddSharplight()</c> of the Sharplight.Defaults package calls it.
+        /// <see cref="DiffusionGraphs"/>). Idempotent. <c>services.AddSharplight()</c> of the Sharplight package calls it.
         /// </summary>
         public IServiceCollection AddSharplightTasks()
         {

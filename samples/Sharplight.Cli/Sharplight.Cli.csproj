@@ -2,6 +2,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>sharplight</AssemblyName>
+    <!-- The command stays "sharplight"; the package id differs so it does not clash with the Sharplight library package in restore. -->
+    <PackageId>Sharplight.Cli</PackageId>
     <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>

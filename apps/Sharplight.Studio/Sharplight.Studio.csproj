@@ -35,7 +35,7 @@
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
+    <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
     <ProjectReference Include="../../src/Sharplight.Hub/Sharplight.Hub.csproj" />
     <ProjectReference Include="../../src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <ProjectReference Include="../../src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />

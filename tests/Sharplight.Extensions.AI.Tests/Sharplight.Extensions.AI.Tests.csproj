@@ -14,7 +14,7 @@
     <!-- ServiceCollection.BuildServiceProvider for the DI registration tests -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Defaults/Sharplight.Defaults.csproj" />
+    <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
     <ProjectReference Include="../../src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
