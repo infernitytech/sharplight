@@ -25,6 +25,16 @@ The icon is embedded in the app (window and taskbar icon, sidebar logo, and the 
 The X11 window class is `sharplight-studio`, the `StartupWMClass` of the desktop file, so the taskbar groups the window under its
 launcher.
 
+## Menus (macOS)
+
+The application name is *Sharplight Studio* everywhere macOS shows it: `Application.Name`, and `CFBundleName` and
+`CFBundleDisplayName` of `packaging/macos/Info.plist`. The application menu has *About Sharplight Studio* (an About dialog with the
+version, license and links), *Settings…* (Cmd+,), *Check for Updates…* (opens Settings and checks now) and the standard Services,
+Hide, Hide Others, Show All and Quit items; the menu bar has *File* (model library, Hugging Face search, downloads), *View* (every
+page, Cmd+1 to Cmd+9) and *Help* (documentation, report an issue). They are built by `Platform/AppMenu` as Avalonia `NativeMenu`s.
+Windows and Linux draw no native menu: the same pages and the Settings page are reached through the navigation as before, and the
+About dialog through the same command.
+
 ## Pages
 
 **Chat.** Conversations are stored, one per entry in the list. Answers stream as Markdown (code blocks have a copy button, tables,
@@ -365,6 +375,23 @@ without its second text encoder, fails on load naming what is missing; a `.slm` 
 (without the second encoder) fails on load asking to import the original file again.
 
 ![Image](images/studio/studio-image.png)
+
+*Viewer.* The result is shown in a zoom and pan viewer (`ImageViewer`, shared control `ZoomPanView`): the mouse wheel and a pinch
+zoom around the pointer, dragging pans, a double click toggles fit and 100 %, the buttons give zoom out, zoom in, Fit and 100 %,
+and with the viewer focused `+`, `-`, `0` (fit), `1` (100 %) and the arrow keys work. The bitmap is decoded on a worker thread
+beforehand, so drawing is one transformed blit; far zoom shows single pixels.
+
+*Gallery.* Every generated image is kept: the PNG (with the prompt and parameters as text metadata) and a JSON sidecar (prompt,
+negative prompt, model, seed, steps, guidance, size, sampler, LoRAs, seconds, the parameter panel's values) go to
+`<data folder>/generations/images/yyyy-MM-dd/<id>.png` and `<id>.json`, in the data folder of the storage mode in use
+(portable, system or custom; see Settings). The sidecars are the index, so files copied in or removed by hand are picked up at the
+next start. Below the result a strip shows all images, newest first (virtualized, thumbnails decoded lazily on worker threads, two
+at a time, the latest 400 kept), with a filter by prompt text and by model. Clicking one shows it large; *Reuse settings* fills the
+prompts, seed, size, steps, guidance and the other parameters (and chooses the model when it is loaded), *Copy prompt*, *Open
+folder* (the file manager), *Save as…* and *Delete* (asks to click again) act on the selected image. The history and outputs tabs
+of the side panel keep working as before (the last 200 runs).
+
+![Image gallery](images/studio/studio-image-gallery.png)
 
 **Vision** (one page for `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`, `image-segmentation`, `ocr` and `image-upscaling`; the mode follows the
 kind of the chosen model, and the parameters that do not apply are hidden). Choose or drop an image (PNG through the engine's codec,
