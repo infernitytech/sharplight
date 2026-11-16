@@ -28,7 +28,21 @@ internal sealed partial class HfConfig : IDisposable
             _flat[p.Name] = p.Value;
         }
 
-        if ((doc.RootElement.TryGetProperty("text_config", out var tc) || doc.RootElement.TryGetProperty("llm_config", out tc)) && tc.ValueKind == JsonValueKind.Object)
+        // Qwen's omni-style checkpoints (Qwen3-ASR) nest the language model one level deeper: thinker_config.text_config.
+        bool nested = doc.RootElement.TryGetProperty("thinker_config", out var thinker) && thinker.ValueKind == JsonValueKind.Object;
+        var outer = nested ? thinker : doc.RootElement;
+        if (nested)
+        {
+            foreach (var p in thinker.EnumerateObject())
+            {
+                if (p.Name != "model_type")
+                {
+                    _flat[p.Name] = p.Value;
+                }
+            }
+        }
+
+        if ((outer.TryGetProperty("text_config", out var tc) || outer.TryGetProperty("llm_config", out tc)) && tc.ValueKind == JsonValueKind.Object)
         {
             foreach (var p in tc.EnumerateObject())
             {

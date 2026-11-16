@@ -1113,7 +1113,7 @@ adapter, the model knowledge lives in the importers, and only the feature extrac
 | Moonshine tiny, base | Hugging Face `moonshine`; `.slm` | **supported** (CPU and Vulkan) | transformers (encoder output, token-exact greedy ids) | hf/moonshine-{tiny,base}, audio/jfk.wav, audio/librispeech-1272-128104-0004.wav |
 | Parakeet CTC (parakeet-ctc-0.6b; 1.1b maps the same way) and TDT (parakeet-tdt-0.6b-v3); RNN-T maps but is not verified | Hugging Face `parakeet_ctc`, `parakeet_tdt`, `parakeet_rnnt` (transformers format); `.slm` | **supported** (CPU and Vulkan) | transformers (NeMo log-mel features, encoder output, token-exact greedy CTC / TDT ids) | hf/parakeet-ctc-0.6b, hf/parakeet-tdt-0.6b-v3 |
 | Canary (canary-1b-v2) | Hugging Face `canary` (transformers format); `.slm` | **supported** (CPU and Vulkan; transcription and translation prompts, no timestamps) | transformers (encoder output, token-exact greedy ids of an English transcription with punctuation) | hf/canary-1b-v2 |
-| Voxtral | - | **missing** (needs the tekken tokenizer and audio embeddings in front of the text generator) | - | - |
+| Qwen3-ASR (1.7B), Voxtral Mini 3B: audio language models | Hugging Face (`qwen3_asr` original and `-hf` layouts, `voxtral` with `tekken.json`); transcribe.cpp `qwen3_asr` GGUF | **supported** (CPU and Vulkan), section 13.2 | transformers (token-exact greedy ids) | hf/Qwen3-ASR-1.7B[-hf], speech-gguf/Qwen3-ASR-1.7B-F16.gguf, hf/Voxtral-Mini-3B-2507 |
 
 How it is built (2026-11-15):
 
@@ -1220,8 +1220,8 @@ LibriSpeech 1272-128104-0004, and FLEURS test clips in German, Spanish and Japan
 | handy-computer/parakeet-ultra-gguf | GGUF Q8_0 | **new**: the `vad.*` head is ignored; English and Spanish transcripts correct (no reference run) |
 | handy-computer/parakeet-unified-en-0.6b-gguf | GGUF Q8_0 | **new**, partial: RNN-T head with biases and input scaling; transcripts match the reference text, no NeMo reference |
 | handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | GGUF | rejected with a reason: layer-norm convolution module, causal convolutions, chunked-limited attention (cache-aware streaming FastConformer) |
-| Qwen/Qwen3-ASR-1.7B (+ transcribe.cpp GGUF) | HF | unsupported: audio-LLM (conv2d stem, 24-layer windowed audio tower, projector into a Qwen3 decoder); needs the audio-embedding path of the multimodal decoder |
-| mistralai/Voxtral-Mini-4B-Realtime-2602 | HF | unsupported: audio tower, tekken tokenizer, streaming decoder |
+| Qwen/Qwen3-ASR-1.7B (+ transcribe.cpp GGUF) | HF, GGUF | **supported since 2026-11-16** (section 13.2): greedy ids identical to transformers |
+| mistralai/Voxtral-Mini-4B-Realtime-2602 | HF | unsupported: streaming (delayed-token) decoder; the offline mistralai/Voxtral-Mini-3B-2507 is supported since 2026-11-16 (section 13.2) |
 | handy-computer/cohere-transcribe-03-2026-gguf | GGUF | unsupported architecture `cohere_asr` |
 | Systran/faster-whisper-* | CTranslate2 | unsupported format (no importer) |
 | Xenova/whisper-* | ONNX | graphs run through the ONNX runner (section 9), no speech-recognition task on ONNX graphs |
@@ -1233,6 +1233,45 @@ Fixes of the sweep: wav2vec2 CTC import and `Wav2Vec2CtcAdapter` (weight-normed 
 GGUF mapping (transcribe.cpp layout, the Slaney filter bank computed from the front-end parameters since the file stores none:
 `IGgufArchitectureMapping.SyntheticAttachments`, `IgnoresTensor`); the Slaney mel filter bank moved from the Hugging Face importer to
 `Sharplight.Audio.SlaneyMelFilterBank` in Core. Not run: Studio Transcribe page for the new formats, `.slm` of the new models.
+
+### 13.2 Audio language models (2026-11-16)
+
+Audio language models recognize speech with a language model: an audio tower turns the log-mel features into embedding rows, which replace
+the audio placeholder tokens of a transcription prompt in the decoder's multimodal graph, the same path the image embeddings of
+vision-language models take (`decode_multimodal`, rows with mask 1 take the embedding instead of the token embedding). They load as
+speech-recognition models through `ISpeechRecognizer` (`AudioLanguageSpeechRecognizer`, chosen when the encoder component is an audio tower and
+the decoder component carries an audio prompt), so the Transcribe page, the audio endpoints and `samples/Sharplight.Transcribe` use them unchanged.
+
+- **Model**: canonical `decoder` with `decoder.audio.*` keys (`AudioTowerParameters`) and `audio.*` weights. Two towers: `chunked-conv2d`
+  (Qwen3-ASR: 100-frame chunks through three strided 3×3 convolutions over mel bins × frames with GELU, laid out back to back in one time-major
+  map with each chunk padded to 104 rows and row masks between the convolutions so a single `SequenceConv2d` per layer keeps the chunks
+  independent; the flattened channels projected, the in-chunk sinusoid positions added, the valid rows gathered; pre-norm layers whose attention
+  stays within 8-chunk windows (`Attention` with row spans); final LayerNorm; GELU projector) and `whisper` (Voxtral: Whisper's encoder over one
+  30 s window, every four rows concatenated before the projector). `DecoderAdapter` adds the tower's `audio_encode` graph, the multimodal graph
+  and the speech-recognition description (components `encoder`, `decoder`, `tokenizer`, `feature-extractor`; `AudioLanguageModelDescription`).
+- **Prompt** (`AudioPromptSettings`, written by the importer and kept in the decoder component so packages carry it): a template with
+  `{context}` (the request's `Prompt`), `{audio}` (one placeholder token per embedding row) and `{language}`; the language prefix
+  (`language {language}<asr_text>` for Qwen3-ASR, `lang:{code}` for Voxtral) when the request names a language; the transcript marker
+  (`<asr_text>`): without a language Qwen3-ASR writes `language English<asr_text>…`, the recognizer returns the text after the marker and the
+  language before it (`SpeechLanguages`, ISO 639 codes to English names, in Core).
+- **Host**: Whisper's log-mel front end (128 bins; 30 s of trailing silence as the reference pads to 30 s), recordings cut into 30 s windows,
+  greedy decoding (or the request's sampling) until the end-of-turn token; one segment per window.
+- **Importers**: `Qwen3AsrHfMapping` (both layouts of Qwen3-ASR: the original release with `thinker.*` tensors and `thinker_config`, which
+  `HfConfig` now flattens, and transformers' `-hf` conversion), `Qwen3AsrGgufMapping` (transcribe.cpp's `qwen3_asr` GGUF files: `stt.qwen3_asr.*`
+  keys, `enc.*` / `dec.*` tensors), `VoxtralHfMapping` (Voxtral; the tokenizer comes from `tekken.json`, translated to a byte-level BPE whose
+  merges are recovered from the ranks, special tokens first, pre-tokenizer `tekken`).
+
+| Check (fixtures from `tools/make_qwen3_asr_fixtures.py`, transformers 5.23, float32) | Result |
+|---|---|
+| Qwen3-ASR 1.7B, greedy ids vs transformers `generate`, language detected and English forced, jfk.wav and LibriSpeech 1272-128104-0004 | identical, CPU and Vulkan (8 of 8) |
+| Qwen3-ASR 1.7B, projected audio embeddings | LibriSpeech within 2e-3 of the largest value; jfk max abs error 4.8e-4 of max 0.099 (CPU and Vulkan agree; the log-mel of jfk is within 6e-4 of transformers' near the recording's peak, LibriSpeech within 1.4e-4) |
+| Qwen3-ASR 1.7B, `-hf` layout and transcribe.cpp F16 GGUF (jfk, Vulkan, language detected) | ids identical to transformers (the GGUF file types `<asr_text>` as a normal token; the mapping makes the added tokens user-defined) |
+| Voxtral Mini 3B, greedy ids vs transformers (mistral-common transcription template), without a language and with English, jfk and LibriSpeech | identical, CPU and Vulkan (8 of 8) |
+| Voxtral Mini 3B, projected audio embeddings (375 rows per 30 s window) | CPU within 2e-3 of the largest value; Vulkan within 1.2e-2 (bf16 weights) |
+
+Tests: `Qwen3AsrParityTests` (features, embeddings, greedy ids, the `-hf` layout and the GGUF file), `VoxtralParityTests` (embeddings, greedy ids);
+fixtures from `tools/make_qwen3_asr_fixtures.py` and `tools/make_voxtral_fixtures.py`. Not done: the Qwen3-ASR forced aligner (timestamps),
+Qwen3-ASR 0.6B and Voxtral Small runs, long-form context across windows, a `.slm` round trip of these models.
 
 ## 14. Vision models (task layer)
 
@@ -1495,7 +1534,7 @@ Verification (tools/make-tiny-flux.py, tools/make-flux-references.py; tests `Tin
   video DiTs (Wan, LTX: a frame axis in the latents and 3D RoPE through the same multi-axis sections) reuse the flow sampler and the
   companion-file loading.
 
-## 16. Video generation (2026-11-16)
+## 18. Video generation (2026-11-16)
 
 Video generators are models of kind `video-generation` (see [api-overview.md](api-overview.md) "Video generation"): the importer
 `Sharplight.Import.Diffusers` translates Wan pipeline folders into the canonical `wan` source, `WanAdapter` builds the umT5 text
@@ -1509,7 +1548,8 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 | Wan 2.1 T2V (1.3B, 14B) | diffusers folder; transformer-only GGUF (city96 / QuantStack, any ggml type) and original-name `.safetensors` (also ComfyUI's `model.diffusion_model.` prefix) with a Wan diffusers folder as companion for the umT5 encoder, tokenizer and VAE | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
 | Wan 2.2 TI2V-5B | diffusers folder; transformer-only GGUF / safetensors with companions as for Wan 2.1 | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
 | Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts); stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing (the I2V and A14B folders are rejected by name) | |
-| LTX-Video, HunyuanVideo, CogVideoX, Mochi | - | missing | |
+| LTX-Video 0.9.0 (2B) | diffusers folder (the T5-XXL text encoder is the one of FLUX.1 / PixArt) | **supported** (text-to-video, multiples of 32, frames 1 + 8k, flow Euler with the resolution-dependent shift and the terminal stretch) | tiny pipeline; 2B below |
+| LTX-Video 0.9.1+ (causal / timestep-conditioned decoder), HunyuanVideo, CogVideoX, Mochi | - | missing (LTX 0.9.1+ rejected by name) | |
 
 Design notes:
 
@@ -1526,6 +1566,11 @@ Design notes:
   Wan 2.2 TI2V with per-token timesteps and first-frame conditioning); `WanCompanionAdapter` takes the text encoder, tokenizer and
   VAE from complete `wan` sources given as auxiliary sources (`AuxiliaryRoles.TextEncoder`, `AuxiliaryRoles.Vae`; one diffusers folder
   serves both), and a file without them fails naming what is missing.
+- LTX-Video: every latent pixel is a token; its RoPE rotates pairs of the whole width by angles linear in fractional (frame, row,
+  column) coordinates (the frame axis scaled by the VAE's temporal compression over the frame rate, 25 fps), computed in the graph as
+  a constant coordinate × frequency product; the text encoder runs without a mask and the cross-attention masks the padding
+  (`VideoDiffusionGraphs.ContextMask`); the non-causal VAE decoder runs over the whole latent video (`vae_decode`: replicated first
+  and last frames in time, depth-to-space 2×2×2 upsamplers, 4×4 unpatching).
 - Tokenizer fix: Hugging Face templates that start with the sequence (T5 / umT5 `$A </s>`) no longer add a BOS token when the
   tokenizer configuration names one.
 
@@ -1537,6 +1582,9 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
   encoder within 1e-4 relative RMS of diffusers / transformers on the CPU and on Vulkan; whole runs from the same initial latents
   (4 steps, guidance 5, negative prompt) above 40 dB PSNR in every frame: text-to-video with UniPC and with Euler for both
   layouts, image-to-video for TI2V.
+- Tiny random LTX-Video pipeline (`~/models/video/tiny-random-ltx`, tools/make-tiny-ltx.py): T5 states, transformer (with a key mask)
+  and the whole-video VAE decode of 17 frames within 1e-4 relative RMS, 4-step text-to-video above 40 dB in every frame, CPU and
+  Vulkan.
 - Real models on Vulkan (one RTX PRO 4500, 32 GB) against diffusers in f32 on CUDA, 832×480, 17 frames, 20 UniPC steps,
   guidance 5, the same initial latents: umT5-XXL (bf16 files) 3.0e-6 relative RMS; the transformer 2.4e-4 (Wan 2.1 1.3B, f32
   files), 2.8e-4 (Wan 2.2 TI2V-5B, f32 files) and 2.0e-3 (QuantStack's Wan2.2-TI2V-5B-Q8_0.gguf with the 2.2 folder as companion)
@@ -1544,6 +1592,12 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
   51.1 dB (first runs including the kernel compilation of every graph: 202 s, 305 s, 460 s). The Wan 2.1 folder's f32 umT5
   (22.7 GB) is the same model as Wan 2.2's bf16 one (1.7e-3 relative weight difference = bf16 rounding); the references use the
   bf16 files.
+- Speed and memory on the 32 GB GPU (Vulkan, `sharplight-generate-video`, 832×480, 33 frames = 9 latent frames, 20 UniPC steps
+  with guidance, each run a new process: the conditioning time includes loading and compiling the umT5 encoder from the kernel
+  cache): Wan 2.1 1.3B (f32 transformer) 4.2 s per step (both guidance passes), decode 19 s, peak 16.3 GB; Wan 2.2 TI2V-5B (f32
+  transformer, one stage resident at a time) 3.3–3.7 s per step, decode 27 s, peak 30.7 GB; Wan 2.2 TI2V-5B Q8_0 GGUF 1.6 s per step,
+  decode 23 s, peak 16.4 GB. diffusers in f32 on CUDA took 3.1 s per step for Wan 2.1 at 17 frames. The decoders are not tuned yet
+  (the frame windows are stacked into the channels, 3× the activation of a native 3-D convolution).
 
 ## 17. Top-20 sweep (2026-11-16)
 
