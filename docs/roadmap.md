@@ -8,6 +8,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 
 ## In progress
 
+- **Prefill against vLLM on identical weights** (§38, same HF bf16 / FP8 checkpoints on both sides): prompts now prefill in
+  passes of up to 2048 rows (chosen from the footprint and free memory) and the server prefills a prompt in whole passes,
+  so pp2048 is at 0.93x (Qwen3-0.6B, was 0.65x), 0.81x (Llama-1B, was 0.69x) and 0.72x (Qwen3-8B bf16 and FP8) of vLLM, and
+  TTFT at 16 streams is at vLLM's level (0.84-1.06x of vLLM's, was 3.0-5.4x). Decode is level (0.94-1.04x). Next: the bf16 /
+  FP8 GEMM at large M (about 100 / 170 TFLOPS against vLLM's 140 / 235), causal attention at long context (pp8192
+  0.69-0.75x), per-layer launches at prefill.
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs
