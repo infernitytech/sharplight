@@ -5,6 +5,7 @@
     <NoWarn>$(NoWarn);MEAI001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
@@ -13,7 +14,6 @@
     <Using Include="Xunit" />
     <!-- ServiceCollection.BuildServiceProvider for the DI registration tests -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
     <ProjectReference Include="../../src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />

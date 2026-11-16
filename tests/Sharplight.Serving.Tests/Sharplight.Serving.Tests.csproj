@@ -12,7 +12,6 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
     <ProjectReference Include="../../src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />

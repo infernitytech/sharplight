@@ -9,13 +9,11 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
-    <ProjectReference Include="../Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <ProjectReference Include="../Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
     <ProjectReference Include="../Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <ProjectReference Include="../Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
     <ProjectReference Include="../Sharplight.Import.Diffusers/Sharplight.Import.Diffusers.csproj" />
     <ProjectReference Include="../Sharplight.Import.WhisperCpp/Sharplight.Import.WhisperCpp.csproj" />
-    <ProjectReference Include="../Sharplight.Package/Sharplight.Package.csproj" />
     <ProjectReference Include="../Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../Sharplight.Audio/Sharplight.Audio.csproj" />

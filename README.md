@@ -165,9 +165,9 @@ Tests are xunit v3 / Microsoft.Testing.Platform executables: `dotnet run --proje
 ## Packages
 
 The libraries under `src/` ship as NuGet packages (prerelease): `Sharplight.Core` (engine and task layer, including text
-generation, tokenizers and chat templates), `Sharplight.Architectures`, `Sharplight.Cpu`, `Sharplight.Vulkan`,
-`Sharplight.Shaders`, `Sharplight.Package` (`.slm` packages, conversion and precompilation), `Sharplight`
-(`services.AddSharplight()`), `Sharplight.Hub`, `Sharplight.AspNetCore`, `Sharplight.Extensions.AI`, and one package per source
+generation, tokenizers, chat templates, the architecture adapters and the `.slm` package format), `Sharplight.Cpu`,
+`Sharplight.Vulkan`, `Sharplight.Shaders`, `Sharplight` (the entry package for most uses: `services.AddSharplight()` with
+everything wired up), `Sharplight.Hub`, `Sharplight.AspNetCore`, `Sharplight.Extensions.AI`, and one package per source
 format: `Sharplight.Import.Gguf`, `Sharplight.Import.HuggingFace` and `Sharplight.Import.Onnx`.
 
 `Sharplight.Llm`, `Sharplight.Tokenizers` and `Sharplight.Templating` are no longer published: they are part of

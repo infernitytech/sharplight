@@ -155,7 +155,10 @@ every wave (and whenever a merge round leaves warnings or style debt).
   (SAM 2, Mask2Former), depth (Depth Anything, DPT), OCR (TrOCR, PaddleOCR, Florence-2 / GOT-OCR), upscalers (Real-ESRGAN,
   SwinIR).
 - Audio: codecs (EnCodec, DAC, SNAC, Mimi), MusicGen, Stable Audio Open, CLAP, VAD (Silero), source separation (Demucs).
-- Video generation: Wan 2.x, LTX-Video.
+- Video generation (directly after FLUX, which brings the shared diffusion-transformer, flow-matching and T5 pieces):
+  Wan 2.1 / 2.2 (incl. TI2V-5B, which fits a 32 GB GPU), LTX-Video, HunyuanVideo, CogVideoX, Mochi; 3D causal video VAEs,
+  text-to-video and image-to-video, frames / fps / resolution, MP4 / WebM export (encoder behind the native audio/video
+  layer or an optional ffmpeg), the Studio Video page; GGUF variants as distributed for these models.
 - Speech-to-speech: Moshi, Omni models with talkers (Qwen-Omni).
 - LLM breadth: the remaining llama.cpp archs (168/172 + inkling) and new archs as llama.cpp adds them; mmproj follow-ups.
 

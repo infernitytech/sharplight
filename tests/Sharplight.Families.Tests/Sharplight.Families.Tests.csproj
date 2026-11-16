@@ -11,7 +11,6 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <Content Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
-    <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
     <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
