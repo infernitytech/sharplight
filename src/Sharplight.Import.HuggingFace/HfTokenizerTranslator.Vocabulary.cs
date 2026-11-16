@@ -217,6 +217,29 @@ internal static partial class HfTokenizerTranslator
             : !metaspace.TryGetProperty("add_prefix_space", out var addPrefixSpace) || addPrefixSpace.ValueKind != JsonValueKind.False;
     }
 
+    /// <summary>Whether a (possibly nested) pre-tokenizer has a ByteLevel step.</summary>
+    private static bool HasByteLevel(JsonElement preTokenizer)
+    {
+        string type = preTokenizer.TypeName();
+        if (type == "ByteLevel")
+        {
+            return true;
+        }
+
+        if (type == "Sequence" && preTokenizer.TryGetProperty("pretokenizers", out var children))
+        {
+            foreach (var child in children.EnumerateArray())
+            {
+                if (HasByteLevel(child))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static JsonElement? FindMetaspace(JsonElement preTokenizer)
     {
         string type = preTokenizer.TypeName();
