@@ -9,6 +9,8 @@ internal sealed record GenerateVideoSettings
 
     public string? SecondTransformer { get; init; }
 
+    public string? ImageEncoder { get; init; }
+
     public float? Guidance2 { get; init; }
 
     public required string Prompt { get; init; }
@@ -16,6 +18,8 @@ internal sealed record GenerateVideoSettings
     public string? NegativePrompt { get; init; }
 
     public string? Image { get; init; }
+
+    public string? LastImage { get; init; }
 
     public required string Output { get; init; }
 

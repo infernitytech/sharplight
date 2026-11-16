@@ -12,7 +12,10 @@ namespace Sharplight.Architectures;
 /// sinusoidal embedding gives a time embedding and its six-fold modulation projection, the umT5 hidden states are projected to the
 /// model width, and each block runs modulated self-attention (RMS-normed queries and keys over the whole width, RoPE over
 /// (frame, row, column)), layer-normed cross-attention to the text and a modulated, gated feed-forward; the output is modulated by the
-/// time embedding and projected back to patches. With per-token timesteps (Wan 2.2 TI2V) every token has its own modulation.
+/// time embedding and projected back to patches. With per-token timesteps (Wan 2.2 TI2V) every token has its own modulation. With an
+/// image conditioning (Wan 2.1 I2V / FLF2V) the CLIP image states are embedded (optional position table, LayerNorm, GELU MLP,
+/// LayerNorm) and every cross-attention adds an attention of the same queries to the image rows through its own key and value
+/// projections.
 /// </summary>
 /// <remarks>
 /// Canonical weights (the original Wan names under <c>transformer.</c>; each <c>.weight</c> with its <c>.bias</c> unless noted):
@@ -21,7 +24,9 @@ namespace Sharplight.Architectures;
 /// <c>self_attn.q|k|v|o</c>, <c>self_attn.norm_q|norm_k.weight</c> [D], <c>norm3</c> (the cross-attention input norm, when present),
 /// <c>cross_attn.q|k|v|o</c>, <c>cross_attn.norm_q|norm_k.weight</c>, <c>ffn.0|2</c>, <c>modulation</c> f32 [6D] (shift, scale and
 /// gate of the self-attention, then of the feed-forward); <c>head.head</c> [pt·ph·pw·C, D] (output features in (frame, row,
-/// column, channel) order) and <c>head.modulation</c> f32 [2D] (shift, scale).
+/// column, channel) order) and <c>head.modulation</c> f32 [2D] (shift, scale). Image conditioning: <c>img_emb.proj.0|4</c> (LayerNorms),
+/// <c>img_emb.proj.1|3</c> (the MLP), optional <c>img_emb.emb_pos</c> f32 [image rows, image width] (FLF2V), per block
+/// <c>cross_attn.k_img|v_img</c> and <c>cross_attn.norm_k_img.weight</c>.
 /// </remarks>
 internal sealed class WanTransformerGraphBuilder
 {
@@ -83,16 +88,24 @@ internal sealed class WanTransformerGraphBuilder
         var latent = _b.Input(VideoDiffusionGraphs.Latent, InputRole.Other, DataType.F32, new Shape(_hp.InChannels, _frames, latentHeight, latentWidth));
         var timestep = _b.Input(VideoDiffusionGraphs.Timestep, InputRole.Other, DataType.F32, new Shape(_hp.TokenTimesteps ? _tokens : 1));
         var context = _b.Input(VideoDiffusionGraphs.Context, InputRole.Other, DataType.F32, new Shape(_textRows, _hp.TextDim));
+        var imageContext = _hp.ImageDim > 0
+            ? _b.Input(VideoDiffusionGraphs.ImageContext, InputRole.Other, DataType.F32, new Shape(_hp.ImageTokens, _hp.ImageDim))
+            : null;
         DeclarePositions();
 
         Value timeEmbedding;
         Value modulation;
         Value text;
+        Value? image = null;
         using (_b.Group("conditioning"))
         {
             timeEmbedding = Linear(_b.Silu(Linear(Sinusoids(timestep), _prefix + "time_embedding.0")), _prefix + "time_embedding.2");
             modulation = Linear(_b.Silu(timeEmbedding), _prefix + "time_projection.1");
             text = Linear(_b.Unary("GeluTanh", Linear(context, _prefix + "text_embedding.0")), _prefix + "text_embedding.2");
+            if (imageContext is not null)
+            {
+                image = ImageEmbedding(imageContext);
+            }
         }
 
         Value x;
@@ -104,7 +117,7 @@ internal sealed class WanTransformerGraphBuilder
         for (int i = 0; i < _hp.LayerCount; i++)
         {
             using var _ = _b.Group($"blocks.{i}");
-            x = Block(x, text, modulation, $"{_prefix}blocks.{i}.");
+            x = Block(x, text, image, modulation, $"{_prefix}blocks.{i}.");
         }
 
         using (_b.Group("output"))
@@ -136,14 +149,14 @@ internal sealed class WanTransformerGraphBuilder
     }
 
     /// <summary>One transformer block over the token rows [tokens, D].</summary>
-    private Value Block(Value x, Value text, Value timeModulation, string p)
+    private Value Block(Value x, Value text, Value? image, Value timeModulation, string p)
     {
         int d = _hp.HiddenSize;
         var mod = _b.Add(timeModulation, _b.Reshape(_b.Weight(p + "modulation"), 1, 6L * d));
         var attended = SelfAttention(Modulate(x, Chunk(mod, 0), Chunk(mod, 1)), p + "self_attn");
         x = _b.Add(x, _b.Mul(attended, Chunk(mod, 2)));
         var crossInput = _hp.CrossAttentionNorm ? DiffusionBlocks.LayerNorm(_b, x, p + "norm3", _hp.NormEps) : x;
-        x = _b.Add(x, CrossAttention(crossInput, text, p + "cross_attn"));
+        x = _b.Add(x, CrossAttention(crossInput, text, image, p + "cross_attn"));
         var hidden = Modulate(x, Chunk(mod, 3), Chunk(mod, 4));
         var feedForward = Linear(_b.Unary("GeluTanh", Linear(hidden, p + "ffn.0")), p + "ffn.2");
         return _b.Add(x, _b.Mul(feedForward, Chunk(mod, 5)));
@@ -157,12 +170,34 @@ internal sealed class WanTransformerGraphBuilder
         return Linear(Attend(q, k, v, _tokens), p + ".o");
     }
 
-    private Value CrossAttention(Value x, Value text, string p)
+    private Value CrossAttention(Value x, Value text, Value? image, string p)
     {
         var q = Heads(_b.RmsNorm(Linear(x, p + ".q"), _b.Weight(p + ".norm_q.weight"), _hp.NormEps));
         var k = Heads(_b.RmsNorm(Linear(text, p + ".k"), _b.Weight(p + ".norm_k.weight"), _hp.NormEps));
         var v = Heads(Linear(text, p + ".v"));
-        return Linear(Attend(q, k, v, _tokens), p + ".o");
+        var attended = Attend(q, k, v, _tokens);
+        if (image is not null)
+        {
+            var imageKeys = Heads(_b.RmsNorm(Linear(image, p + ".k_img"), _b.Weight(p + ".norm_k_img.weight"), _hp.NormEps));
+            var imageValues = Heads(Linear(image, p + ".v_img"));
+            attended = _b.Add(attended, Attend(q, imageKeys, imageValues, _tokens));
+        }
+
+        return Linear(attended, p + ".o");
+    }
+
+    /// <summary>The image conditioning [image rows, D]: position table (FLF2V), LayerNorm, Linear, GELU, Linear, LayerNorm.</summary>
+    private Value ImageEmbedding(Value states)
+    {
+        string p = _prefix + "img_emb.";
+        if (_b.HasWeight(p + "emb_pos"))
+        {
+            states = _b.Add(states, _b.Reshape(_b.Weight(p + "emb_pos"), _hp.ImageTokens, _hp.ImageDim));
+        }
+
+        var normed = DiffusionBlocks.LayerNorm(_b, states, p + "proj.0", 1e-5f);
+        var hidden = Linear(_b.Unary("Gelu", Linear(normed, p + "proj.1")), p + "proj.3");
+        return DiffusionBlocks.LayerNorm(_b, hidden, p + "proj.4", 1e-5f);
     }
 
     private Value Rotate(Value heads) => _b.Emit1("Rope", [heads, _positions, _frequencyFactors], AxialRope.Attributes(_hp.HeadDim, _hp.AxesDim, _hp.RopeTheta));

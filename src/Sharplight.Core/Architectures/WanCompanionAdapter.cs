@@ -6,7 +6,8 @@ namespace Sharplight.Architectures;
 
 /// <summary>
 /// Loads a transformer-only Wan checkpoint (GGUF or original-name safetensors) with its companions: the text encoder and its
-/// tokenizer (<see cref="AuxiliaryRoles.TextEncoder"/>) and the VAE (<see cref="AuxiliaryRoles.Vae"/>), each taken from a complete
+/// tokenizer (<see cref="AuxiliaryRoles.TextEncoder"/>), the VAE (<see cref="AuxiliaryRoles.Vae"/>) and for Wan 2.1 I2V / FLF2V the
+/// CLIP image encoder (<see cref="AuxiliaryRoles.ImageEncoder"/>; a folder with only the configurations and the image encoder serves), each taken from a complete
 /// <c>wan</c> source of the same family (typically the model's diffusers folder; one folder may serve both roles). The parts are merged
 /// into the canonical source, which <see cref="WanAdapter"/> builds, so the model is rebuilt for other sizes and saved as one
 /// <c>.slm</c> like a complete checkpoint.
@@ -19,7 +20,7 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
     private static readonly HashSet<string> s_familyKeys =
     [
         Prefix + "transformer.head_count", Prefix + "transformer.token_timesteps", Prefix + "first_frame_conditioning", Prefix + "frames_per_second",
-        Prefix + "negative_prompt",
+        Prefix + "negative_prompt", Prefix + "last_frame_conditioning",
     ];
 
     /// <inheritdoc/>
@@ -30,7 +31,7 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
     {
         ArgumentNullException.ThrowIfNull(sources);
         return sources.Primary.Architecture == WanAdapter.Architecture && sources.Auxiliary.Count > 0
-            && sources.Auxiliary.All(pair => pair.Key is AuxiliaryRoles.TextEncoder or AuxiliaryRoles.Vae or AuxiliaryRoles.SecondTransformer
+            && sources.Auxiliary.All(pair => pair.Key is AuxiliaryRoles.TextEncoder or AuxiliaryRoles.Vae or AuxiliaryRoles.SecondTransformer or AuxiliaryRoles.ImageEncoder
                 && pair.Value.Architecture == WanAdapter.Architecture);
     }
 
@@ -54,6 +55,10 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
             if (role == AuxiliaryRoles.TextEncoder)
             {
                 Take(source, weights, metadata, "text_encoder.", [Prefix + "text_encoder.", TokenizerKeys]);
+            }
+            else if (role == AuxiliaryRoles.ImageEncoder)
+            {
+                Take(source, weights, metadata, "image_encoder.", [Prefix + "image_encoder."]);
             }
             else
             {
@@ -95,8 +100,8 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
 
     /// <summary>
     /// The low-noise expert of a two-expert model given as a second transformer-only file: its transformer weights become the
-    /// <c>transformer_2.</c> ones, with Wan 2.2 A14B's switch at 0.875 of the timesteps and its guidance (4 / 3, 40 steps) unless the
-    /// primary already names them.
+    /// <c>transformer_2.</c> ones, with Wan 2.2 A14B's switch (T2V: 0.875 of the timesteps, guidance 4 / 3; I2V: 0.9, guidance 3.5) and
+    /// 40 steps unless the primary already names them.
     /// </summary>
     private static void AddSecondTransformer(ModelSource source, Dictionary<string, WeightInfo> weights, Dictionary<string, object> metadata)
     {
@@ -111,9 +116,12 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
             }
         }
 
-        metadata.TryAdd(Prefix + "boundary_ratio", 0.875);
-        metadata[Prefix + "default_guidance"] = metadata.ContainsKey(Prefix + "default_guidance_2") ? metadata[Prefix + "default_guidance"] : 4.0;
-        metadata.TryAdd(Prefix + "default_guidance_2", 3.0);
+        // Image-to-video by channel concatenation (I2V-A14B: 36 input channels) switches at 0.9 with guidance 3.5 for both experts,
+        // text-to-video (T2V-A14B) at 0.875 with 4 / 3.
+        bool imageToVideo = metadata.TryGetValue(Prefix + "transformer.in_channels", out var channels) && Convert.ToInt32(channels, CultureInfo.InvariantCulture) == 36;
+        metadata.TryAdd(Prefix + "boundary_ratio", imageToVideo ? 0.9 : 0.875);
+        metadata[Prefix + "default_guidance"] = metadata.ContainsKey(Prefix + "default_guidance_2") ? metadata[Prefix + "default_guidance"] : imageToVideo ? 3.5 : 4.0;
+        metadata.TryAdd(Prefix + "default_guidance_2", imageToVideo ? 3.5 : 3.0);
         metadata[Prefix + "default_steps"] = 40;
     }
 

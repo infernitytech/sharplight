@@ -15,5 +15,7 @@ namespace Sharplight.VideoGeneration;
 /// <param name="FrameStep">Frame counts are 1 + k · this (the VAE's temporal compression).</param>
 /// <param name="SupportsImage">Whether the model generates from a start image (<see cref="VideoGenerationRequest.Image"/>).</param>
 /// <param name="NegativePrompt">The negative prompt used when a request gives none (the model's published default), or <see langword="null"/>.</param>
+/// <param name="RequiresImage">Whether the model generates only from a start image (no text-to-video).</param>
+/// <param name="SupportsLastImage">Whether the model takes a last frame (<see cref="VideoGenerationRequest.LastImage"/>).</param>
 public sealed record VideoGenerationDefaults(int Width, int Height, int Frames, double FramesPerSecond, int Steps, float GuidanceScale, string Sampler,
-    int SizeMultiple, int FrameStep, bool SupportsImage, string? NegativePrompt);
+    int SizeMultiple, int FrameStep, bool SupportsImage, string? NegativePrompt, bool RequiresImage = false, bool SupportsLastImage = false);

@@ -44,6 +44,8 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
     private readonly Lazy<Tables> _tables;
     private InferenceSession? _session;
     private CompiledModel? _vocoder;
+    private XttsVoiceCloning? _cloning;
+    private (AudioBuffer Recording, XttsVoice Voice)? _lastClone;
     private bool _disposed;
 
     /// <summary>Creates the synthesizer; nothing is compiled until the first request.</summary>
@@ -111,9 +113,9 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
     {
         ArgumentNullException.ThrowIfNull(text);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        string voice = options?.Voice ?? DefaultVoice;
-        var audio = await BackgroundCompute.RunAsync(_gate, () => Synthesize(text, voice, options, cancellationToken), cancellationToken).ConfigureAwait(false);
-        return new SpeechSynthesisResult(audio, voice);
+        string name = options?.ReferenceAudio is not null ? "reference" : options?.Voice ?? DefaultVoice;
+        var audio = await BackgroundCompute.RunAsync(_gate, () => Synthesize(text, options, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return new SpeechSynthesisResult(audio, name);
     }
 
     /// <inheritdoc/>
@@ -145,13 +147,14 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
     /// <param name="voice">The voice name.</param>
     /// <param name="sampling">The sampling settings.</param>
     /// <param name="cancellationToken">Stops between codes.</param>
-    public (int[] Codes, float[] Latents) Generate(int[] textTokens, string voice, SamplingOptions sampling, CancellationToken cancellationToken)
+    public (int[] Codes, float[] Latents) Generate(int[] textTokens, XttsVoice voice, SamplingOptions sampling, CancellationToken cancellationToken)
     {
         var tables = _tables.Value;
         var session = _session ??= _llm.CreateSession(WellKnown.DecodeMultimodalGraph);
         session.CaptureHidden = true;
         session.Reset();
-        var latents = Floats(voice, "latents.f32");
+        ArgumentNullException.ThrowIfNull(voice);
+        var latents = voice.Latents;
         int conditionRows = latents.Length / _width;
         int rows = conditionRows + textTokens.Length + 1;
         var prompt = new float[rows * _width];
@@ -197,7 +200,7 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
     /// <summary>The waveform of latents [rows, width] for a voice: linear interpolation to the decoder's frame rate, then the HiFi-GAN.</summary>
     /// <param name="latents">The latents.</param>
     /// <param name="voice">The voice name.</param>
-    public float[] Decode(float[] latents, string voice)
+    public float[] Decode(float[] latents, XttsVoice voice)
     {
         var frames = Interpolate(Interpolate(latents, _width, _upsample), _width, _resample);
         int count = frames.Length / _width;
@@ -208,7 +211,7 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
 
         var vocoder = _vocoder ??= _model.CompileComponent(XttsAdapter.VocoderRole);
         vocoder.SetInput<float>(Input(vocoder, XttsVocoderGraph.LatentsInput), frames);
-        vocoder.SetInput<float>(Input(vocoder, XttsVocoderGraph.SpeakerInput), Floats(voice, "speaker.f32"));
+        vocoder.SetInput<float>(Input(vocoder, XttsVocoderGraph.SpeakerInput), voice.Speaker);
         var run = new RunParameters();
         run.Symbols[WellKnown.TokenSymbol] = count;
         vocoder.Run(run);
@@ -256,13 +259,55 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
         _disposed = true;
         _session?.Dispose();
         _vocoder?.Dispose();
+        _cloning?.Dispose();
         _gate.Dispose();
+    }
+
+    /// <summary>Whether the model can speak with the voice of a recording (<see cref="SpeechSynthesisOptions.ReferenceAudio"/>).</summary>
+    public bool SupportsCloning => XttsVoiceCloning.Supports(_model);
+
+    /// <summary>A built-in speaker.</summary>
+    /// <param name="name">The speaker's name.</param>
+    public XttsVoice LoadVoice(string name) => new(Floats(name, "latents.f32"), Floats(name, "speaker.f32"));
+
+    /// <summary>The voice of a recording (compiles the cloning encoders on first use).</summary>
+    /// <param name="recording">The recording.</param>
+    /// <param name="cancellationToken">Stops between stages.</param>
+    /// <exception cref="NotSupportedException">The model was imported without the cloning encoders.</exception>
+    public XttsVoice CloneVoice(AudioBuffer recording, CancellationToken cancellationToken = default)
+    {
+        if (!SupportsCloning)
+        {
+            throw new NotSupportedException("This XTTS model has no style and speaker encoders, so it cannot clone a voice.");
+        }
+
+        var cloning = _cloning ??= new XttsVoiceCloning(_model);
+        return cloning.Clone(recording, cancellationToken);
+    }
+
+    // The recording's voice when the request has one (kept for the next request with the same recording), else the named speaker.
+    private XttsVoice VoiceFor(SpeechSynthesisOptions? options, CancellationToken cancellationToken)
+    {
+        if (options?.ReferenceAudio is not { } recording)
+        {
+            return LoadVoice(options?.Voice ?? DefaultVoice);
+        }
+
+        if (_lastClone is { } last && ReferenceEquals(last.Recording, recording))
+        {
+            return last.Voice;
+        }
+
+        var voice = CloneVoice(recording, cancellationToken);
+        _lastClone = (recording, voice);
+        return voice;
     }
 
     private string DefaultVoice => Voices.Count > 0 ? Voices[0] : throw new InvalidOperationException("The model has no voices.");
 
-    private AudioBuffer Synthesize(string text, string voice, SpeechSynthesisOptions? options, CancellationToken cancellationToken)
+    private AudioBuffer Synthesize(string text, SpeechSynthesisOptions? options, CancellationToken cancellationToken)
     {
+        var voice = VoiceFor(options, cancellationToken);
         var sampling = options.SamplingOr(_defaultSampling);
         var samples = new List<float>();
         foreach (string sentence in XttsTextSplitter.Split(text, MaxSentenceLength))

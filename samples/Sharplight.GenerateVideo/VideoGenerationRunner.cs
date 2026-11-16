@@ -14,9 +14,14 @@ namespace Sharplight.GenerateVideo;
 /// <summary>Loads the model through the <see cref="SampleRuntime"/> container, creates its <see cref="IVideoGenerator"/> and writes the video.</summary>
 internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
 {
+    /// <summary>Formats tried, in order, when the requested one has no encoder on this machine.</summary>
+    private static readonly string[] s_fallbacks = [".webm", ".mp4", ".apng", ".gif"];
+
     public async Task<int> RunAsync(CancellationToken cancellationToken)
     {
         using var runtime = new SampleRuntime();
+        var encoders = runtime.Services.GetRequiredService<VideoEncoderCatalog>();
+        string output = ResolveOutput(encoders);
         var provider = runtime.SelectProvider(settings.Cpu);
         using var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.Device));
         var stopwatch = Stopwatch.StartNew();
@@ -31,11 +36,11 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         using var generator = runtime.Services.GetRequiredService<TaskClientProvider>().Create<IVideoGenerator>(model);
         Console.WriteLine($"Loaded {generator.Metadata.ModelName} ({generator.Metadata.Architecture}) on {device.Info.Name} in {stopwatch.Elapsed.TotalSeconds:F1} s");
         var result = await GenerateAsync(generator, cancellationToken);
-        await WriteAsync(runtime.Services.GetRequiredService<VideoEncoderCatalog>(), result, cancellationToken);
+        await WriteAsync(encoders, output, result, cancellationToken);
         return ExitCodes.Success;
     }
 
-    /// <summary>The auxiliary sources: a companion folder for the text encoder and VAE, a second (low-noise) expert file.</summary>
+    /// <summary>The auxiliary sources: a companion folder for the text encoder and VAE, a second (low-noise) expert file, an image encoder folder.</summary>
     private Dictionary<string, string> Companions()
     {
         var companions = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -48,6 +53,11 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         if (settings.SecondTransformer is { } second)
         {
             companions[AuxiliaryRoles.SecondTransformer] = second;
+        }
+
+        if (settings.ImageEncoder is { } imageEncoder)
+        {
+            companions[AuxiliaryRoles.ImageEncoder] = imageEncoder;
         }
 
         return companions;
@@ -79,6 +89,7 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         Prompt = settings.Prompt,
         NegativePrompt = settings.NegativePrompt,
         Image = settings.Image is null ? null : ReadImage(settings.Image),
+        LastImage = settings.LastImage is null ? null : ReadImage(settings.LastImage),
     };
 
     private VideoGenerationOptions Options() => new()
@@ -95,30 +106,56 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         InitialNoise = settings.Noise is null ? null : ReadFloats(settings.Noise),
     };
 
-    /// <summary>Writes a video file (the encoder chosen by the extension) or, without an extension, numbered PNGs into a folder.</summary>
-    private async Task WriteAsync(VideoEncoderCatalog encoders, VideoGenerationResult result, CancellationToken cancellationToken)
+    /// <summary>
+    /// The output path, checked before the model loads: a known video format whose encoder is missing on this machine (WebM without the
+    /// native libsharplight_video library, MP4 without a system ffmpeg) falls back to another available format with a message; an unknown
+    /// extension is an error.
+    /// </summary>
+    private string ResolveOutput(VideoEncoderCatalog encoders)
     {
-        if (Path.HasExtension(settings.Output))
+        string output = settings.Output;
+        if (!Path.HasExtension(output) || encoders.FindForPath(output) is not null)
         {
-            if (encoders.FindForPath(settings.Output) is not { IsAvailable: true })
-            {
-                string available = string.Join(", ", encoders.Available.SelectMany(e => e.FileExtensions));
-                throw new SampleException($"No available encoder writes '{Path.GetExtension(settings.Output)}' files (available: {available}).", ExitCodes.InvalidInput);
-            }
+            return output;
+        }
 
-            await encoders.SaveAsync(result.ToClip(), settings.Output, cancellationToken: cancellationToken);
-            Console.WriteLine($"wrote {settings.Output} ({result.Frames.Count} frames, {result.Duration.TotalSeconds:F2} s at {result.FramesPerSecond} fps, seed {result.Seed})");
+        string extension = Path.GetExtension(output).ToLowerInvariant();
+        string available = string.Join(", ", encoders.Available.SelectMany(e => e.FileExtensions));
+        string? reason = extension switch
+        {
+            ".webm" => "WebM needs Sharplight's native video library (libsharplight_video), which this build does not include (build it with native/sharplight_video/build.sh)",
+            ".mp4" or ".m4v" => "MP4 needs an ffmpeg executable on the PATH",
+            _ => null,
+        };
+        string? fallback = s_fallbacks.FirstOrDefault(candidate => encoders.FindForPath("video" + candidate) is not null);
+        if (reason is null || fallback is null)
+        {
+            throw new SampleException($"No available encoder writes '{extension}' files (available: {available}).", ExitCodes.InvalidInput);
+        }
+
+        string replaced = Path.ChangeExtension(output, fallback);
+        Console.Error.WriteLine($"warning: {reason}; writing {replaced} instead.");
+        return replaced;
+    }
+
+    /// <summary>Writes a video file (the encoder chosen by the extension) or, without an extension, numbered PNGs into a folder.</summary>
+    private async Task WriteAsync(VideoEncoderCatalog encoders, string output, VideoGenerationResult result, CancellationToken cancellationToken)
+    {
+        if (Path.HasExtension(output))
+        {
+            await encoders.SaveAsync(result.ToClip(), output, cancellationToken: cancellationToken);
+            Console.WriteLine($"wrote {output} ({result.Frames.Count} frames, {result.Duration.TotalSeconds:F2} s at {result.FramesPerSecond} fps, seed {result.Seed})");
             return;
         }
 
-        Directory.CreateDirectory(settings.Output);
+        Directory.CreateDirectory(output);
         for (int i = 0; i < result.Frames.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            PngCodec.Write(Path.Combine(settings.Output, string.Create(CultureInfo.InvariantCulture, $"frame-{i:D4}.png")), result.Frames[i]);
+            PngCodec.Write(Path.Combine(output, string.Create(CultureInfo.InvariantCulture, $"frame-{i:D4}.png")), result.Frames[i]);
         }
 
-        Console.WriteLine($"wrote {result.Frames.Count} frames ({result.Duration.TotalSeconds:F2} s at {result.FramesPerSecond} fps, seed {result.Seed}) to {settings.Output}");
+        Console.WriteLine($"wrote {result.Frames.Count} frames ({result.Duration.TotalSeconds:F2} s at {result.FramesPerSecond} fps, seed {result.Seed}) to {output}");
     }
 
     private static ImageInput ReadImage(string path)

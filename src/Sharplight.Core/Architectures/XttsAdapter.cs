@@ -21,6 +21,18 @@ internal sealed class XttsAdapter : IModelAdapter
     /// <summary>The role of the waveform decoder component.</summary>
     public const string VocoderRole = "vocoder";
 
+    /// <summary>The role of the style encoder (the GPT's conditioning latents of a recording).</summary>
+    public const string StyleEncoderRole = "style-encoder";
+
+    /// <summary>The role of the speaker encoder (the decoder's speaker embedding of a recording).</summary>
+    public const string SpeakerEncoderRole = "speaker-encoder";
+
+    /// <summary>The role of the style encoder's front end (log-mel at 22.05 kHz).</summary>
+    public const string StyleFeaturesRole = "style-features";
+
+    /// <summary>The role of the speaker encoder's front end (log-mel at 16 kHz).</summary>
+    public const string SpeakerFeaturesRole = "speaker-features";
+
     /// <summary>The family recorded in the text model's configuration.</summary>
     public const string Family = "xtts";
 
@@ -56,6 +68,14 @@ internal sealed class XttsAdapter : IModelAdapter
         {
             [XttsVocoderGraph.GraphName] = XttsVocoderGraph.Build(weights.GetValueOrDefault, width, speakerWidth, [8, 8, 2, 2], [16, 16, 4, 4]),
         };
+        bool cloning = weights.ContainsKey("gpt.conditioning_encoder.init.weight") && weights.ContainsKey("hifigan_decoder.speaker_encoder.fc.weight")
+            && weights.ContainsKey("gpt.mel_stats") && src.Attachments.ContainsKey(StyleFeaturesRole + "/mel-filters");
+        if (cloning)
+        {
+            graphs[XttsConditioningGraph.GraphName] = XttsConditioningGraph.Build(weights.GetValueOrDefault, width, 6, 16, 2, 8);
+            graphs[XttsSpeakerEncoderGraph.GraphName] = XttsSpeakerEncoderGraph.Build(weights.GetValueOrDefault, 64);
+        }
+
         int maxAudio = src.Get<int>(a + "max_audio_tokens");
         int frames = (int)Math.Ceiling(maxAudio * (src.Get<int>(a + "code_stride") / (double)src.Get<int>(a + "output_hop"))
             * (src.Get<int>(a + "sample_rate") / (double)src.Get<int>(a + "input_sample_rate"))) + 8;
@@ -85,6 +105,7 @@ internal sealed class XttsAdapter : IModelAdapter
                     SymbolBounds = new Dictionary<string, long> { [WellKnown.TokenSymbol] = frames },
                 },
                 new ModelComponent { Role = ModelComponentRoles.Tokenizer, MetadataPrefix = null },
+                .. (cloning ? CloningComponents() : []),
             ],
             Config = ComponentConfig.Of(("sampleRate", src.Get<int>(a + "sample_rate"))),
         };
@@ -101,5 +122,44 @@ internal sealed class XttsAdapter : IModelAdapter
             Attachments = src.Attachments,
             OwnedResources = src.OwnedResources,
         };
+    }
+
+    // The encoders and front ends that turn a recording into a voice (Xtts.get_conditioning_latents with the model's settings).
+    private static ModelComponent[] CloningComponents()
+    {
+        static Dictionary<string, string> Filters(string role)
+            => new(StringComparer.Ordinal) { [ModelComponentAttachments.MelFilters] = role + "/mel-filters" };
+        return
+        [
+            new ModelComponent
+            {
+                Role = StyleEncoderRole,
+                Graphs = [XttsConditioningGraph.GraphName],
+                WeightPrefixes = ["gpt.conditioning_encoder.", "gpt.conditioning_perceiver.", "gpt.mel_stats"],
+                Config = ComponentConfig.Of(("maxSeconds", 30), ("chunkSeconds", 4)),
+                SymbolBounds = new Dictionary<string, long> { [WellKnown.TokenSymbol] = (4 * 22050 / 256) + 2 },
+            },
+            new ModelComponent
+            {
+                Role = SpeakerEncoderRole,
+                Graphs = [XttsSpeakerEncoderGraph.GraphName],
+                WeightPrefixes = ["hifigan_decoder.speaker_encoder."],
+                SymbolBounds = new Dictionary<string, long> { [WellKnown.TokenSymbol] = (30 * 16000 / 160) + 2 },
+            },
+            new ModelComponent
+            {
+                Role = StyleFeaturesRole,
+                Config = ComponentConfig.Of(("type", "log-mel"), ("sampleRate", 22050), ("fftSize", 2048), ("windowSize", 1024), ("hopLength", 256), ("melBins", 80),
+                    ("logBase", "e"), ("logFloor", 1e-5)),
+                Attachments = Filters(StyleFeaturesRole),
+            },
+            new ModelComponent
+            {
+                Role = SpeakerFeaturesRole,
+                Config = ComponentConfig.Of(("type", "log-mel"), ("sampleRate", 16000), ("fftSize", 512), ("windowSize", 400), ("hopLength", 160), ("melBins", 64),
+                    ("window", "hamming"), ("preemphasis", 0.97), ("preemphasisEdge", "reflect"), ("logBase", "e"), ("logGuard", 1e-6)),
+                Attachments = Filters(SpeakerFeaturesRole),
+            },
+        ];
     }
 }

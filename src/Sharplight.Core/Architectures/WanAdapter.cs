@@ -1,4 +1,7 @@
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Sharplight.Imaging;
 using Sharplight.ImageGeneration;
 using Sharplight.Models;
 using Sharplight.Tensors;
@@ -33,6 +36,7 @@ public sealed class WanAdapter : IModelAdapter
     private const string TransformerPrefix = "transformer.";
     private const string SecondTransformerPrefix = "transformer_2.";
     private const string VaePrefix = "vae.";
+    private const string ImageEncoderPrefix = "image_encoder.";
     private const string SchedulerAttachment = "scheduler/source-config.json";
 
     /// <inheritdoc/>
@@ -49,6 +53,14 @@ public sealed class WanAdapter : IModelAdapter
         var src = sources.Primary;
         RequireComponents(src);
         var transformer = WanHyperParameters.Read(src, Prefix);
+        bool lastFrame = src.Get(Prefix + "last_frame_conditioning", false);
+        var imageTower = transformer.ImageDim > 0 ? ImageTower(src) : null;
+        if (imageTower is not null)
+        {
+            // The CLIP states of the start image (and of the last one for FLF2V) one after the other.
+            transformer = transformer with { ImageTokens = VisionStatesGraphBuilder.Rows(imageTower.ImageSize, imageTower.Patch) * (lastFrame ? 2 : 1) };
+        }
+
         var vae = WanVaeHyperParameters.Read(src, Prefix);
         var t5 = T5TextHyperParameters.Read(src, Prefix, "text_encoder");
         bool firstFrame = src.Get(Prefix + "first_frame_conditioning", false);
@@ -78,6 +90,11 @@ public sealed class WanAdapter : IModelAdapter
                 SecondTransformerPrefix, VideoDiffusionGraphs.Denoise2);
         }
 
+        if (imageTower is not null)
+        {
+            graphs[VideoDiffusionGraphs.ImageEncode] = VisionStatesGraphBuilder.Build(src.Weight, imageTower);
+        }
+
         bool hasEncoder = src.Weight(VaePrefix + "encoder.conv_in.weight") is not null;
         if (hasEncoder)
         {
@@ -104,14 +121,29 @@ public sealed class WanAdapter : IModelAdapter
             SourceMetadata = src.Metadata,
             OwnedResources = src.OwnedResources,
             Attachments = attachments,
-            Description = Describe(src, transformer, vae, t5, hasEncoder, firstFrame && hasEncoder && transformer.TokenTimesteps, attachments.Count > 0, twoExperts),
+            Description = Describe(src, transformer, vae, t5, hasEncoder, firstFrame && hasEncoder && transformer.TokenTimesteps, attachments.Count > 0, twoExperts,
+                imageTower, lastFrame),
         };
+    }
+
+    /// <summary>The image tower of the image encoder (<c>wan.image_encoder.*</c>; the layers up to the conditioning states).</summary>
+    private static ImageTowerOptions ImageTower(ModelSource src)
+    {
+        string e = Prefix + "image_encoder.";
+        var tower = new TowerOptions(src.Get<int>(e + "layer_count"), src.Get<int>(e + "hidden_size"), src.Get<int>(e + "head_count"), src.Get(e + "norm_eps", 1e-5f),
+            src.Get(e + "activation", "gelu"), ImageEncoderPrefix);
+        return new ImageTowerOptions(tower, src.Get<int>(e + "patch_size"), src.Get<int>(e + "image_size"), 0, "cls");
     }
 
     /// <summary>Fails with the list of missing parts when a transformer-only source comes without its companions.</summary>
     private static void RequireComponents(ModelSource src)
     {
         var missing = new List<string>();
+        if (src.Has(Prefix + "transformer.image_dim") && (!src.Has(Prefix + "image_encoder.layer_count") || src.Weight(ImageEncoderPrefix + "patch_embed.weight") is null))
+        {
+            missing.Add("image-encoder (the CLIP ViT-H/14 image encoder and image processor of a Wan 2.1 I2V / FLF2V diffusers folder)");
+        }
+
         if (!src.Has(Prefix + "text_encoder.hidden_size") || !src.Has("tokenizer.model"))
         {
             missing.Add("text-encoder (umT5-XXL with its tokenizer)");
@@ -130,7 +162,7 @@ public sealed class WanAdapter : IModelAdapter
     }
 
     private static ModelDescription Describe(ModelSource src, WanHyperParameters transformer, WanVaeHyperParameters vae, T5TextHyperParameters t5,
-        bool hasEncoder, bool firstFrame, bool hasSchedulerAttachment, bool twoExperts)
+        bool hasEncoder, bool firstFrame, bool hasSchedulerAttachment, bool twoExperts, ImageTowerOptions? imageTower, bool lastFrame)
     {
         string s = Prefix + "scheduler.";
         var scheduler = new ComponentConfigBuilder()
@@ -156,7 +188,8 @@ public sealed class WanAdapter : IModelAdapter
             .Add(VideoConfigKeys.FramesPerSecond, src.Get(Prefix + "frames_per_second", 16.0))
             .Add(DiffusionConfigKeys.Steps, src.Get(Prefix + "default_steps", 50))
             .Add(DiffusionConfigKeys.GuidanceScale, src.Get(Prefix + "default_guidance", 5.0))
-            .Add(VideoConfigKeys.FirstFrameConditioning, firstFrame);
+            .Add(VideoConfigKeys.FirstFrameConditioning, firstFrame)
+            .Add(VideoConfigKeys.LastFrameConditioning, lastFrame);
         if (twoExperts)
         {
             model.Add(VideoConfigKeys.BoundaryRatio, src.Get(Prefix + "boundary_ratio", 0.875))
@@ -206,6 +239,22 @@ public sealed class WanAdapter : IModelAdapter
                             Graphs = [VideoDiffusionGraphs.Denoise2],
                             WeightPrefixes = [SecondTransformerPrefix],
                             Config = transformerConfig,
+                        },
+                    ]
+                    : Array.Empty<ModelComponent>()),
+                .. (imageTower is not null
+                    ?
+                    [
+                        new ModelComponent
+                        {
+                            Role = ModelComponentRoles.VisionEncoder,
+                            Graphs = [VideoDiffusionGraphs.ImageEncode],
+                            WeightPrefixes = [ImageEncoderPrefix],
+                            Config = new Dictionary<string, JsonElement>
+                            {
+                                [ImageProcessor.ComponentKey] = JsonSerializer.SerializeToElement(JsonNode.Parse(src.Get<string>(Prefix + "image_encoder.processor"))),
+                                [DiffusionConfigKeys.PatchSize] = JsonSerializer.SerializeToElement(imageTower.Patch),
+                            },
                         },
                     ]
                     : Array.Empty<ModelComponent>()),

@@ -13,8 +13,10 @@ namespace Sharplight.Audio;
 /// </summary>
 /// <remarks>
 /// Component configuration (all lengths in samples): <c>sampleRate</c>, <c>fftSize</c>, <c>hopLength</c>, <c>melBins</c>, optional
-/// <c>windowSize</c> (default fftSize; centered in the FFT frame), <c>periodicWindow</c> (default true; false: the symmetric Hann window),
-/// <c>preemphasis</c> (coefficient a of y[n] = x[n] − a·x[n − 1], default 0), <c>center</c> (default true: frames are centered on multiples of the hop,
+/// <c>windowSize</c> (default fftSize; centered in the FFT frame), <c>periodicWindow</c> (default true; false: the symmetric window), <c>window</c>
+/// (<c>hann</c> (default) or <c>hamming</c>: 0.54 − 0.46 cos),
+/// <c>preemphasis</c> (coefficient a of y[n] = x[n] − a·x[n − 1], default 0), <c>preemphasisEdge</c>
+/// (<c>none</c> (default): y[0] = x[0]; <c>reflect</c>: y[0] = x[0] − a·x[1], the reflect-padded filter of Coqui's speaker encoders), <c>center</c> (default true: frames are centered on multiples of the hop,
 /// the signal is padded by fftSize / 2 on both sides), <c>padMode</c> (<c>reflect</c> (default) or <c>constant</c>),
 /// <c>trailingPadding</c> (zeros appended to the recording, default 0), <c>dropLastFrame</c> (default false), <c>edgePadding</c> (samples padded on both sides
 /// in <c>padMode</c> when frames are not centered, default 0), <c>logBase</c> (<c>10</c> (default), <c>e</c> or <c>none</c>: the mel energies themselves), <c>logFloor</c> (default 1e-10), <c>logGuard</c> (when positive, log(mel + guard) instead of the floor; default 0),
@@ -40,6 +42,7 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
     private readonly bool _linear;
     private readonly int _edgePadding;
     private readonly double _magnitudeGuard;
+    private readonly bool _preemphasisReflect;
     private readonly double _logFloor;
     private readonly double _logGuard;
     private readonly double _preemphasis;
@@ -101,6 +104,12 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
         _linear = logBase == "none";
         _edgePadding = component.ConfigValue("edgePadding", 0);
         _magnitudeGuard = component.ConfigValue("magnitudeGuard", 0.0);
+        _preemphasisReflect = component.ConfigValue("preemphasisEdge", "none") switch
+        {
+            "none" => false,
+            "reflect" => true,
+            var other => throw new InvalidDataException($"log-mel feature extractor: unknown preemphasisEdge '{other}'."),
+        };
         _logFloor = component.ConfigValue("logFloor", 1e-10);
         _magnitude = component.ConfigValue("magnitude", false);
         _logGuard = component.ConfigValue("logGuard", 0.0);
@@ -118,9 +127,15 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
         _window = new double[_fftSize];
         int start = (_fftSize - windowSize) / 2;
         int period = component.ConfigValue("periodicWindow", true) ? windowSize : windowSize - 1;
+        double a0 = component.ConfigValue("window", "hann") switch
+        {
+            "hann" => 0.5,
+            "hamming" => 0.54,
+            var other => throw new InvalidDataException($"log-mel feature extractor: unknown window '{other}'."),
+        };
         for (int i = 0; i < windowSize; i++)
         {
-            _window[start + i] = 0.5 - (0.5 * Math.Cos(2 * Math.PI * i / period));
+            _window[start + i] = a0 - ((1 - a0) * Math.Cos(2 * Math.PI * i / period));
         }
 
         _transform = new FourierTransform(_fftSize);
@@ -179,6 +194,11 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
             for (int i = samples.Length - 1; i >= 1; i--)
             {
                 signal[margin + i] -= _preemphasis * samples[i - 1];
+            }
+
+            if (_preemphasisReflect && samples.Length > 1)
+            {
+                signal[margin] -= _preemphasis * samples[1];
             }
         }
 
