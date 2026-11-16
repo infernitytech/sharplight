@@ -30,6 +30,7 @@
           <DockPanel>
             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResult}">
+                <Button Classes="small" Content="Clear prompt" Command="{Binding ClearPromptCommand}" IsVisible="{Binding CanPrompt}" ToolTip.Tip="Forget the points and the box, and segment from the middle again" />
                 <Button Classes="small" Content="Copy" Command="{Binding CopyCommand}" IsVisible="{Binding !ShowDepth}" />
                 <Button Classes="small" Content="Export PNG" Command="{Binding ExportImageCommand}" IsVisible="{Binding CanExportImage}" ToolTip.Tip="Export the annotated image or the depth map" />
                 <Button Classes="small" Content="Export JSON" Command="{Binding ExportJsonCommand}" />
@@ -44,7 +45,7 @@
               </StackPanel>
               <Grid ColumnDefinitions="*,16,*" IsVisible="{Binding HasResult}">
                 <Border CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center">
-                  <Image Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+                  <Image x:Name="MainImage" Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
                 </Border>
                 <!-- Classes and objects -->
                 <DockPanel Grid.Column="2" IsVisible="{Binding ShowRows}">
@@ -68,6 +69,12 @@
                 <Border Grid.Column="2" CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding ShowDepth}">
                   <Image Source="{Binding DepthPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
                 </Border>
+                <!-- Upscaled image beside the original -->
+                <Border Grid.Column="2" CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding ShowAfter}">
+                  <Image Source="{Binding AfterPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+                </Border>
+                <!-- Recognized text -->
+                <SelectableTextBlock Grid.Column="2" Text="{Binding ResultText}" TextWrapping="Wrap" IsVisible="{Binding ShowText}" VerticalAlignment="Top" FontSize="18" />
                 <!-- Embedding -->
                 <SelectableTextBlock Grid.Column="2" Text="{Binding EmbeddingText}" TextWrapping="Wrap" IsVisible="{Binding ShowEmbedding}" VerticalAlignment="Top" />
               </Grid>

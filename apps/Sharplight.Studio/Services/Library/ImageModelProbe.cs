@@ -123,6 +123,16 @@ internal static class ImageModelProbe
                 return ModelKinds.ObjectDetection;
             }
 
+            if (type is "sam2" or "sam2_video" or "sam" or "sam_hq")
+            {
+                return ModelKinds.ImageSegmentation;
+            }
+
+            if (type == "vision-encoder-decoder" && root.TryGetProperty("decoder", out var decoder) && decoder.TryGetProperty("model_type", out var decoderType) && decoderType.GetString() == "trocr")
+            {
+                return ModelKinds.Ocr;
+            }
+
             if (architecture.EndsWith("ForDepthEstimation", StringComparison.Ordinal) || type is "depth_anything" or "dpt")
             {
                 return ModelKinds.DepthEstimation;
