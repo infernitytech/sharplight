@@ -23,7 +23,7 @@ public static class TaskServiceCollectionExtensions
     {
         /// <summary>
         /// Adds the <see cref="TaskClientProvider"/>, the <see cref="ModelLoader"/> and the built-in factories: text generation (decoder LLMs
-        /// and masked-diffusion LMs), speech recognition with prompted encoder-decoder models (Whisper family), and image classification and
+        /// and masked-diffusion LMs), speech recognition with prompted encoder-decoder models (Whisper family, Moonshine, Canary) and frame-aligned decoders (CTC and transducers: Parakeet), and image classification and
         /// embedding with image encoders, object detection, depth estimation and latent-diffusion image generation (models following
         /// <see cref="DiffusionGraphs"/>). Idempotent. <c>services.AddSharplight()</c> of the Sharplight.Defaults package calls it.
         /// </summary>
@@ -36,6 +36,7 @@ public static class TaskServiceCollectionExtensions
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextGeneratorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, LatentDiffusionGeneratorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, EncoderDecoderSpeechRecognizerFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, FrameSpeechRecognizerFactory>());
             if (!services.Any(d => d.ServiceType == typeof(ITaskClientFactory) && d.ImplementationInstance is ImageEncoderFactory))
             {
                 services.AddSingleton<ITaskClientFactory>(new ImageEncoderFactory(ModelKinds.ImageClassification, typeof(IImageClassifier)));

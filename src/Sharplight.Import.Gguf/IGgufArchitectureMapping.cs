@@ -32,6 +32,12 @@ internal interface IGgufArchitectureMapping
     public string? MapWeightName(string ggufName, GgufMetadataView gguf);
 
     /// <summary>
+    /// The attachment a GGUF tensor is stored as instead of a weight (data a host-side component reads, e.g. a feature extractor's filter
+    /// bank under <c>feature-extractor/mel-filters</c>), or null when the tensor is a weight. Default: none.
+    /// </summary>
+    public string? MapAttachmentName(string ggufName, GgufMetadataView gguf) => null;
+
+    /// <summary>
     /// Optional value/layout transform of a tensor that already carries its canonical name (e.g. a lazily derived row
     /// permutation), so canonical weights are format independent. Default: unchanged (zero-copy).
     /// </summary>

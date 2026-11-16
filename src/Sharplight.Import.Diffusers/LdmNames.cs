@@ -64,6 +64,12 @@ internal static partial class LdmNames
             if (names.Contains($"output_blocks.{n}.1.conv.weight"))
             {
                 blocks[$"output_blocks.{n}.1.conv"] = $"up_blocks.{upLevel}.upsamplers.0.conv";
+                if (names.Contains($"output_blocks.{n}.1.proj_in.weight"))
+                {
+                    // Some stable-diffusion.cpp SDXL GGUF files (gpustack's) store the upsampler at index 1 next to the attention block
+                    // instead of at index 2; the longer "conv" prefix keeps it apart from the attention tensors.
+                    blocks[$"output_blocks.{n}.1"] = $"up_blocks.{upLevel}.attentions.{j}";
+                }
             }
             else
             {

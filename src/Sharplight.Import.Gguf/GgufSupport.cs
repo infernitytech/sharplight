@@ -115,7 +115,7 @@ public static class GgufSupport
                 return new GgufImportCheck(problems, IsComplete: true, IsDraftModel: mapping.IsDraftModel);
             }
 
-            var (_, _, weights) = GgufImporter.Map("", metadata, infos, mapping, view);
+            var (_, _, weights, _) = GgufImporter.Map("", metadata, infos, mapping, view);
             if (IsDraftLayersOnly(weights.Keys))
             {
                 return new GgufImportCheck(

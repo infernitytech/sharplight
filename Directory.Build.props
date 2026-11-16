@@ -30,11 +30,11 @@
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
   <!-- Only the libraries under src/ ship as NuGet packages. -->
-  <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/src/'))">
+  <PropertyGroup Condition="($(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\')))">
     <IsPackable>true</IsPackable>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
-  <ItemGroup Condition="$(MSBuildProjectDirectory.Contains('/src/'))">
+  <ItemGroup Condition="($(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\')))">
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
   <!--
@@ -46,7 +46,7 @@
     <TieredCompilationQuickJitForLoops>false</TieredCompilationQuickJitForLoops>
   </PropertyGroup>
   <!-- Tests and samples are not public API: no XML documentation requirement. -->
-  <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('/samples/'))">
+  <PropertyGroup Condition="($(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('\tests\'))) Or ($(MSBuildProjectDirectory.Contains('/samples/')) Or $(MSBuildProjectDirectory.Contains('\samples\')))">
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 </Project>

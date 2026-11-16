@@ -45,6 +45,17 @@ internal static class Env
     /// <summary>Stable Diffusion 1.5 as stable-diffusion.cpp GGUF files.</summary>
     public static string Sd15Gguf(string type) => Path.Combine(Home, $"models/sd/gguf/stable-diffusion-v1-5-pruned-emaonly-{type}.gguf");
 
+    /// <summary>
+    /// SDXL as stable-diffusion.cpp GGUF files from the Hub: "Q8_0" / "Q4_0" (gpustack/stable-diffusion-xl-base-1.0-GGUF, sd.cpp's
+    /// own tensor names), "Q4_K" (kostakoff/stable-diffusion-xl-base-1.0-GGUF, the original SGM names) and "turbo" (OlegSkutte/sdxl-turbo-GGUF).
+    /// </summary>
+    public static string SdxlGguf(string variant) => Path.Combine(Home, variant switch
+    {
+        "Q4_K" => "models/sd/gguf/sd_xl_base_1.0_0_Q4_K.gguf",
+        "turbo" => "models/sd/gguf/sd_xl_turbo_1.0.q8_0.gguf",
+        _ => $"models/sd/gguf/stable-diffusion-xl-base-1.0-{variant}.gguf",
+    });
+
     /// <summary>The service provider with every format, adapter, provider and the task layer.</summary>
     public static ServiceProvider Services { get; } = new ServiceCollection().AddSharplight().BuildServiceProvider();
 

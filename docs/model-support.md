@@ -1070,9 +1070,14 @@ adapter, the model knowledge lives in the importers, and only the feature extrac
 
 | Family | Formats | Status | Verified against | Test assets |
 |---|---|---|---|---|
-| Whisper tiny, base, small (and `.en`); medium, large-v1/v2/v3 and turbo map the same way but are not verified yet | Hugging Face `whisper` checkpoints; whisper.cpp ggml `.bin` (f32, f16, q4_0/q4_1/q5_0/q5_1/q8_0, k-quants); `.slm` | **supported** (CPU and Vulkan) | transformers (log-mel, encoder output, token-exact greedy ids with and without timestamps, language detection) and whisper.cpp 5922450f CPU build (segments and texts) | hf/whisper-{tiny,tiny.en,base,small}, whisper.cpp/ggml-{tiny,tiny.en,base,base.en,small,small.en}[-q5_1].bin, audio/jfk.wav |
+| Whisper tiny, base, small (and `.en`), large-v3-turbo; medium, large-v1/v2/v3 map the same way but are not verified yet | Hugging Face `whisper` checkpoints; whisper.cpp ggml `.bin` (f32, f16, q4_0/q4_1/q5_0/q5_1/q8_0, k-quants); `.slm` | **supported** (CPU and Vulkan) | transformers (log-mel, encoder output, token-exact greedy ids with and without timestamps, language detection) and whisper.cpp 5922450f CPU build (segments and texts) | hf/whisper-{tiny,tiny.en,base,small}, whisper.cpp/ggml-{tiny,tiny.en,base,base.en,small,small.en}[-q5_1].bin, audio/jfk.wav |
+| Whisper as GGUF (any size; tested tiny, base, large-v3-turbo) | transcribe.cpp GGUF (`general.architecture = whisper`, `stt.*` keys, `enc.*` / `dec.*` tensors: the handy-computer/whisper-*-gguf repositories, F32, F16, Q8_0, Q4_K_M ...); whisper.cpp ggml files published with a `.gguf` extension (oxide-lab/whisper-large-v3-turbo-GGUF `whisper.cpp/`) | **supported** (CPU and Vulkan) | whisper.cpp (the same model's ggml file): tiny F16 / F32 segments and texts identical, quantized files word for word; imports to the whisper.cpp file's canonical names, shapes, decoding keys, suppress lists and filter bank | whisper-gguf/handy-computer/whisper-{tiny-{F16,F32,Q8_0,Q4_K_M},base-Q4_K_M,large-v3-turbo-{Q8_0,Q4_K_M}}.gguf, whisper-gguf/oxide-lab/whisper.cpp/whisper-large-v3-turbo-q5_0.gguf |
+| Whisper as Candle GGUF (oxide-lab root files, xkeyC) | GGUF with Hugging Face tensor names under `model.`, tokenizer and configuration in separate JSON files | **rejected by name** ("Candle whisper GGUF ... not supported; use the whisper.cpp or transcribe.cpp files") | - | whisper-gguf/oxide-lab/whisper-large-v3-turbo-q4_0.gguf, whisper-gguf/xkeyC/model_q4_k.gguf |
 | Distil-Whisper (distil-small.en, distil-large-v3.5) | Hugging Face (`whisper` model type; f16 `model.safetensors` beside an `fp32` variant) | **supported** (CPU and Vulkan; same graph, 2-layer decoders) | transformers (encoder output, token-exact greedy ids with and without timestamps, beam search) | hf/distil-small.en, hf/distil-large-v3.5 |
-| Moonshine, Parakeet (CTC / TDT), Canary, Voxtral | - | **missing** (next in the speech queue: raw-waveform conv front end, conformer encoder with CTC / transducer decoding loops, Voxtral's audio encoder in front of an LLM) | - | - |
+| Moonshine tiny, base | Hugging Face `moonshine`; `.slm` | **supported** (CPU and Vulkan) | transformers (encoder output, token-exact greedy ids) | hf/moonshine-{tiny,base}, audio/jfk.wav, audio/librispeech-1272-128104-0004.wav |
+| Parakeet CTC (parakeet-ctc-0.6b; 1.1b maps the same way) and TDT (parakeet-tdt-0.6b-v3); RNN-T maps but is not verified | Hugging Face `parakeet_ctc`, `parakeet_tdt`, `parakeet_rnnt` (transformers format); `.slm` | **supported** (CPU and Vulkan) | transformers (NeMo log-mel features, encoder output, token-exact greedy CTC / TDT ids) | hf/parakeet-ctc-0.6b, hf/parakeet-tdt-0.6b-v3 |
+| Canary (canary-1b-v2) | Hugging Face `canary` (transformers format); `.slm` | **supported** (CPU and Vulkan; transcription and translation prompts, no timestamps) | transformers (encoder output, token-exact greedy ids of an English transcription with punctuation) | hf/canary-1b-v2 |
+| Voxtral | - | **missing** (needs the tekken tokenizer and audio embeddings in front of the text generator) | - | - |
 
 How it is built (2026-11-15):
 
@@ -1095,8 +1100,54 @@ How it is built (2026-11-15):
   cache by rewinding it to each beam's shared prefix), no-speech detection, and long-form transcription that advances window by window
   to the last complete timestamp segment (optionally conditioned on the previous text). Not yet: temperature fallback, word timestamps
   (cross-attention alignment heads).
+- GGUF (2026-11-15): `WhisperGgufMapping` in `Sharplight.Import.Gguf` reads transcribe.cpp's self-describing layout (the
+  `whisper-*-gguf` repositories with the most Whisper downloads on the Hub): hyper-parameters from `stt.whisper.*`, the log-mel
+  settings from `stt.frontend.*`, the filter bank tensor `frontend.mel_filterbank` as the `feature-extractor/mel-filters` attachment
+  (GGUF mappings can store tensors as attachments, `IGgufArchitectureMapping.MapAttachmentName`), the stored BPE vocabulary and merges
+  (every id from end-of-text on typed as control), the special token ids and the transformers suppress lists. whisper.cpp ggml files
+  renamed to `.gguf` open through `WhisperCppImporter` (it claims files by their magic, not their extension). Candle's whisper GGUF
+  files are rejected with a message that names them.
+- large-v3-turbo on jfk.wav: whisper.cpp f16, q5_0 and q8_0 files, the transcribe.cpp Q8_0 / Q4_K_M files and oxide-lab's whisper.cpp
+  q5_0 `.gguf` all give whisper.cpp's transcript ("And so, my fellow Americans, ask not ...").
 - Hugging Face checkpoints that ship weight variants next to `model.safetensors` (`model.fp32.safetensors`, ...) load the default file
   only, as transformers does.
+
+Round 2 (2026-11-16): the other speech families on the same engine and task client.
+
+- **Moonshine** (`MoonshineHfMapping` → `encoder_decoder`): a variable-length audio encoder over the raw waveform (feature extractor
+  `waveform`): the `AudioConvStem` generalized to unpadded convolutions with per-convolution activations and a one-group signal norm, rotary
+  attention (`attention.rope.*`, GPT-J pairs on the first 90 % / 62 % of each head) in the encoder and the decoder's self-attention, a
+  SwiGLU decoder MLP (the fused `fc1` split), bias-free LayerNorms, and a decoder prompted with the start token only. The checkpoint's
+  head-dimension padding only aligns the reference kernels and is not mapped. Windows are up to 30 s and not padded; the decoder's cross
+  states hold the rows of the longest window and the decode graph's `RowSpans` input limits the cross-attention to the current window.
+- **Parakeet** (`ParakeetHfMapping` → `conformer_asr`, `ConformerAsrAdapter` + `ConformerEncoder`): NeMo's front end on the host
+  (`log-mel` with pre-emphasis, a symmetric 400-sample window, ln(mel + 2⁻²⁴), per-channel normalization), the 8× depthwise-separable
+  subsampling on the new generic `SequenceConv2d` op (2-D convolution over a time-major feature map whose time axis varies per run),
+  conformer blocks with Transformer-XL relative-position attention on the new generic `RelativeAttention` op (CPU and Vulkan), batch norm
+  folded into a scale and shift at load, the depthwise convolution on `Conv1d` with groups. CTC models output the logits from the encode
+  graph; transducers get the `predict` graph (embedding + LSTM layers from generic ops, the states kept by the host) and the `joint` graph.
+  The decoding runs on the host in Core (`FrameSpeechRecognizer`): CTC greedy (merge repeats, drop blanks) or a prefix beam search
+  (`BeamSize`), greedy RNN-T and TDT (duration-aware row advance, NeMo's symbols-per-step guard). Each window becomes one segment with the
+  times of its first and last token; `TimestampGranularity.Word` gives word times from the token rows (80 ms per encoder row).
+- **Canary** (`CanaryHfMapping` → `encoder_decoder` with `encoder.type` "conformer"): the Parakeet encoder in front of the pre-norm
+  transformer decoder (NeMo's fixed sinusoidal positions as the position table, an embedding LayerNorm), prompted with the checkpoint's
+  template (`speech.prompt_template_ids`: start of context, start of transcript, emotion, source and target language, punctuation, no ITN,
+  no timestamps, no diarization); `Translate` sets the target language to English; requests without a language use English
+  (`speech.default_language`, Canary has no language detection).
+- Recordings longer than a window (30 s) are cut into consecutive windows for the window-length families (Moonshine, Parakeet, Canary)
+  without overlap; Whisper keeps its timestamp-driven long-form loop.
+
+Parity of round 2 (fixtures from `tools/make_{moonshine,parakeet,canary}_fixtures.py`; jfk.wav and the 29.4 s LibriSpeech dev-clean
+utterance 1272-128104-0004, each one window):
+
+| Check | Result |
+|---|---|
+| greedy ids vs transformers `generate`: moonshine-tiny, moonshine-base | identical, CPU and Vulkan, both clips |
+| greedy ids vs transformers: parakeet-ctc-0.6b (CTC), parakeet-tdt-0.6b-v3 (TDT) | identical, CPU and Vulkan, both clips |
+| greedy ids vs transformers: canary-1b-v2 (English transcription with punctuation) | identical, CPU and Vulkan, both clips |
+| NeMo log-mel features vs transformers' `ParakeetFeatureExtractor` | max abs error 6e-5 (values up to 3.4) |
+| encoder output, Moonshine | ≤ 3.3e-5 relative (CPU: f32 sums of the 127-tap waveform convolution in another order), Vulkan ≤ 1e-5 |
+| encoder output, Parakeet and Canary (24 / 32 conformer blocks) | ≤ 2.5e-5 relative, CPU and Vulkan |
 
 Parity on jfk.wav (11 s):
 
@@ -1111,10 +1162,11 @@ Parity on jfk.wav (11 s):
 | whisper.cpp f16 files (6 models): segments with timestamps and `-nt` text | identical to whisper.cpp's CPU build, CPU and Vulkan |
 | whisper.cpp q5_1 files (6 models) | same words; 3 of 24 runs differ in one punctuation mark. ggml multiplies quantized weights with activations quantized to 8 bits, Sharplight with the dequantized weights; whisper.cpp's own CPU and CUDA builds disagree on the same commas (e.g. small.en-q5_1) |
 
-Tests: `tests/Sharplight.Speech.Tests` (`WhisperTransformersParityTests`, `WhisperCppParityTests`, `WhisperCppVocabularyTests`,
+Tests: `tests/Sharplight.Speech.Tests` (`MoonshineParityTests`, `ParakeetParityTests`, `CanaryParityTests`, `CtcDecodingTests`,
+`WhisperTransformersParityTests`, `WhisperCppParityTests`, `WhisperGgufParityTests`, `WhisperCppVocabularyTests`,
 `SpeechPackageTests`: conversion to `.slm`, loading through the DI task API with identical tokens, per-component precompilation;
 `FourierTransformTests`), fixtures from `tests/Sharplight.Speech.Tests/tools/make_whisper_fixtures.py`; the audio endpoints in
-`Sharplight.Serving.Tests` (`AudioApiTests`); the Studio inspector in `PackageInspectorTests.SpeechPackage_ShowsSpeechRecognitionComponents`.
+`Sharplight.Serving.Tests` (`AudioApiTests`); the Studio inspector in `PackageInspectorTests.SpeechPackage_ShowsSpeechRecognitionComponents`; recognition, loading and the Transcribe page for the GGUF and whisper.cpp files in `GgufRealModelTests`.
 
 ## 14. Vision models (task layer)
 
@@ -1153,8 +1205,9 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 |---|---|---|---|
 | Stable Diffusion 1.x (SD 1.5) | diffusers folder (with or without `model_index.json`), original single-file `.safetensors` or `.ckpt` (restricted unpickler, nothing executed), stable-diffusion.cpp GGUF (f16, Q8_0, Q4_0, any ggml type for linear weights) | **supported** (txt2img, negative prompts, img2img, mask-blend inpainting, any size that is a multiple of 64, `.slm` with per-component precompilation) | below |
 | Stable Diffusion 2.x (2.1 768-v, 2.1 base) | diffusers folder, original single-file `.safetensors` / `.ckpt` (OpenCLIP ViT-H tower; 768 files default to v-prediction at 768×768, files named like the 512 / base releases to epsilon at 512×512) | **supported** (as SD 1.x) | below |
-| SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, SD3, FLUX, Chroma, Qwen-Image, video (Wan, LTX) | - | missing | the graph contract (`DiffusionGraphs`), the description and the pipeline are kind-generic; SD3 / FLUX need a DiT and flow-matching samplers |
+| SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection), stable-diffusion.cpp GGUF in both naming schemes (sd.cpp's own `cond_stage_model.1.transformer.*`, e.g. gpustack/stable-diffusion-xl-base-1.0-GGUF Q8_0 / Q4_0; the SGM names, e.g. kostakoff/stable-diffusion-xl-base-1.0-GGUF Q4_K) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
+| SDXL-Turbo, SDXL-Lightning (distilled SDXL) | the SDXL formats; stable-diffusion.cpp GGUF (OlegSkutte/sdxl-turbo-GGUF, mzwing/SDXL-Lightning-GGUF) | **supported** (single files are recognized by their published names: Turbo 512×512, Euler ancestral on trailing timesteps, 4 steps, no guidance; Lightning 1024×1024, Euler trailing, the file's step count, no guidance, the 1-step "x0" file predicts the sample) | Turbo below; Lightning maps the same way, not verified |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, SD3, FLUX, Chroma, Qwen-Image, video (Wan, LTX) | - | missing (FLUX, SD3 and the other diffusion transformers are recognized in GGUF and safetensors single files and rejected as "Not supported yet: FLUX (diffusion transformer)" by the diffusers importer) | the graph contract (`DiffusionGraphs`), the description and the pipeline are kind-generic; SD3 / FLUX need a DiT and flow-matching samplers |
 | LoRA (kohya / diffusers), ControlNet, TAESD | - | missing | |
 
 Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
@@ -1191,6 +1244,23 @@ Verification (tools/make-diffusion-references.py writes the diffusers references
   upcast to fp32, CUDA): UNet 5.7e-5, VAE decode 1.5e-5, second text encoder 6e-4 relative RMS; Euler 42.4 dB, DPM++ 2M Karras
   30.0 dB (visually identical; the multistep sampler drifts further). Unlike SD 2.1 (attention upcast in its config, 2.2 % UNet
   error in f16), SDXL keeps its accuracy with f16 weights.
+- SDXL as stable-diffusion.cpp GGUF (2026-11-15; `SdxlGgufTests`, `ImporterTests.SingleFileCheckpointsMapToTheDiffusersNames`): the
+  gpustack Q8_0 / Q4_0, kostakoff Q4_K and OlegSkutte SDXL-Turbo Q8_0 files map to exactly the SDXL diffusers folder's names and
+  shapes. Against diffusers (fp32-upcast published files, same initial noise), on Vulkan: gpustack Q8_0 text encoders 1.3e-4 /
+  6e-4, pooled 4e-4, UNet 2.4e-3 relative RMS, Euler 1024×1024 27.7 dB; kostakoff Q4_K (norm scales quantized too) bigG hidden
+  states 20 % off, the image visually equivalent (17.3 dB); SDXL-Turbo Q8_0 against stabilityai/sdxl-turbo (512×512, 4 Euler steps
+  on trailing timesteps, no guidance; ~/models/sd/sdxl-turbo-reference): text encoders 3.5e-3 / 4e-2 (every tensor Q8_0, embeddings
+  and norms included), pooled 2.8e-2, UNet 1.0e-2 relative RMS, image 28.5 dB (stable-diffusion.cpp 5dcfa79 CUDA on the same file,
+  Euler, 4 steps, `--rng cpu`: 18.9 dB from diffusers; it uses the file's projection as stored, which for this file is OpenCLIP's
+  orientation, and its own sigma spacing). Three file quirks: sd.cpp renames the bigG projection
+  without transposing it, so its orientation follows the source (diffusers-converted files such as gpustack's: transformers'
+  layout; files converted from an original checkpoint such as OlegSkutte's: OpenCLIP's), told apart by the diffusers conversion's
+  mark (gpustack's files keep the upsampler of an attention level at `output_blocks.N.1`, beside the attention block, which the
+  importer also maps); the Q4_K files quantize the projection and the fused q/k/v biases, which are decoded before they are
+  transposed or split. An SDXL UNet without its second encoder fails on import naming it, and a package converted before this fix
+  fails on load ("Import the original checkpoint again") instead of at the first image ("The denoiser needs a pooled text
+  embedding"). UNet-only files (no VAE / text encoder) fail naming the missing parts; separate VAE / text-encoder files are not
+  supported yet.
 - Indicative speed on the shared RTX PRO 4500 (GPU 0, other agents active, not a benchmark): Sharplight denoises at about 0.1 s per
   step (CFG batch of 2, 512×512, f16 GGUF), sd.cpp sampled 20 steps in 17.1 s (Vulkan) and 22.8 s (CUDA) in the same session.
   Without a precompiled `.slm` the first load spends 50–130 s compiling the UNet kernels (Slang, CPU-bound); `sharplight-convert

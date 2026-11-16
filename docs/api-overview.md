@@ -29,7 +29,7 @@ they need no extra `using`):
 
 | package | registration | registers |
 |---|---|---|
-| `Sharplight.Core` | `AddSharplightTasks()` | `TaskClientProvider`, the built-in factories (text generation, Whisper-family speech recognition, image classification/embedding, object detection, depth estimation, latent-diffusion image generation), the `ModelLoader` |
+| `Sharplight.Core` | `AddSharplightTasks()` | `TaskClientProvider`, the built-in factories (text generation, speech recognition: prompted encoder-decoders such as Whisper, Moonshine and Canary, and frame-aligned CTC / transducer models such as Parakeet, image classification/embedding, object detection, depth estimation, latent-diffusion image generation), the `ModelLoader` |
 | | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddCompositeModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
 | | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
 | | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
@@ -173,6 +173,15 @@ prompts each window with the text so far, `Prompt` conditions the first. `Timest
 timestamp tokens (one segment per window, as transformers does by default). Each `TranscriptionSegment` carries its token ids, mean log
 probability and no-speech probability. Not yet: temperature fallback, word timestamps.
 
+The same recognizer serves the other prompted encoder-decoders: Moonshine (raw-waveform encoder over variable-length windows, start token
+only, no timestamps) and Canary (FastConformer encoder, a prompt template with source and target language; `Translate` targets English,
+requests without `Language` are English). A second built-in implementation, registered by `AddSharplightTasks()` as well, serves models
+whose decoder component configures a frame-aligned decoding (`decoding` "ctc", "rnnt" or "tdt"; Parakeet): per window (up to 30 s, no
+padding) the encoder, then on the host CTC greedy or prefix beam search (`BeamSize`) or greedy RNN-T / TDT over the `predict` and `joint`
+graphs. Both answer through the same `ISpeechRecognizer` with the same options, segments and streaming; the frame-aligned one fills
+`TranscriptionSegment.Words` for `TimestampGranularity.Word` from the token rows. Which implementation a model gets follows from its
+description (`ITaskClientFactory.CanCreate`), so applications, the HTTP endpoints and Studio's Transcribe page need no changes.
+
 ```csharp
 var services = new ServiceCollection().AddSharplight()
     .AddSpeechRecognizer(o => { o.ModelPath = "ggml-small.bin"; o.Devices = [slot]; });   // or a HF directory / .slm
@@ -186,7 +195,7 @@ foreach (var segment in result.Segments)
 ```
 
 The sample `samples/Sharplight.Transcribe` (`sharplight-transcribe model audio.wav [--language en] [--translate] [--beam-size 5] [--format srt]`) is this
-in a command-line tool. Models of other speech families (CTC, transducers, audio LLMs) plug in as their own `ITaskClientFactory` for the
+in a command-line tool. Models of other speech families (audio LLMs) plug in as their own `ITaskClientFactory` for the
 same kind; the feature extraction sits behind a small internal interface so a graph-based front end can replace the host one.
 
 Vision models share host-side preprocessing in Core: `ImageProcessorConfig` (resize mode and filter, center crop, rescale, mean and std;
