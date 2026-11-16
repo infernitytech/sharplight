@@ -1954,12 +1954,14 @@ compared with llama.cpp b11177, which lacks `lfm3` (checked against transformers
 
 Open:
 
-1. **Vulkan row invariance for every op of qwen4exp.** Speculative verification (2-4 rows) must compute each row exactly as plain
-   one-row decoding does. `RowInvariantRows` guarantees that for matmuls and attention (`RowInvarianceTests`), but on
-   Qwen3.8-Flash-Next (UD-IQ1_S) the MTP runs leave plain greedy output at one near-tie (logit gap 0.06; benchmarks section 17.5.1).
-   Ruled out: matmuls and expert matmuls (`MatMulId`) of every format family incl. IQ1_S / IQ4_NL (`RowInvarianceTests`). Left: the
-   delta-rule record-and-replay, the QSA indexer, the n-gram convolution, the CPU layers' ops other than matmuls.
-   The CPU matmul side is fixed (up to 4 rows run the fused kernel row by row).
+1. **Row invariance of speculative verification on qwen4exp.** A verification step (2-4 rows) must compute each row exactly as a
+   one-row step does. Fixed: CPU matmuls (up to 4 rows run the single-row arithmetic), the Vulkan expert matmul (row-invariant
+   steps stay on the expert matvec). `SpeculativeRowInvarianceTests` pass on Vulkan for tiny Llama, Qwen3.5, Qwen3.8-MoE,
+   Qwen3-Next-MoE and Qwen3.8-Flash-Next. Open: (a) tiny Qwen3.8-Flash-Next on the CPU still differs in the last bits; it is not the
+   n-gram embedding, the QSA indexer, attention or the matmuls (bisected with config variants and a one-layer model; dense and MoE
+   Qwen pass), which leaves the hyper-connection mixers' CPU ops (Tile, the permuted ReduceSum) and the sigmoid-gated delta rule;
+   (b) the real Qwen3.8-Flash-Next (UD-IQ1_S, two GPUs, n-gram table on the CPU) still meets plain greedy output at one near-tie
+   with MTP (benchmarks section 17.5.2), so some op of the real model (or its CPU table gathers) is not row-invariant yet.
 2. **OPT variants.** Post-norm OPT (`do_layer_norm_before = false`, OPT-350m) and projected embeddings (`word_embed_proj_dim` other than the
    hidden size) are refused by the mapping; both are small additions to the decoder (a post-norm layer flag and in/out projections).
 3. **Larger safetensors.** bf16 checkpoints above ~30 GB were not run through the HF importer (only GGUF, and FP8 for Qwen3.8-27B), by
