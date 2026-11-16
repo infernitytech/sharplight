@@ -13,8 +13,11 @@ public sealed record EngineOptions
     /// so this bounds how much a long prompt can slow down the running streams.
     /// </summary>
     public int MaxBatchTokens { get; set; }
-    /// <summary>Maximum prompt rows of one sequence per step. Smaller chunks interleave long prefills with other sequences' decoding.</summary>
-    public int PrefillChunk { get; set; } = 512;
+    /// <summary>
+    /// Maximum prompt rows of one sequence per step (0, the default: the step's token budget, so a prompt takes whole passes of the
+    /// decoder's rows). Smaller chunks interleave long prefills with other sequences' decoding at the cost of prefill speed.
+    /// </summary>
+    public int PrefillChunk { get; set; }
     /// <summary>Reuse the cached context of idle slots for prompts sharing a prefix.</summary>
     public bool PrefixCache { get; set; } = true;
     /// <summary>Applied to requests without their own <see cref="GenerationRequest.Timeout"/>.</summary>

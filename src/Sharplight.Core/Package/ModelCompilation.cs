@@ -180,7 +180,8 @@ internal sealed class ModelCompilation(string packagePath, ModelDefinition defin
         }
 
         // A component's own row and context bounds replace the batch and context options, as TaskModel.CompileComponent does at load.
-        long maxTokens = componentBounds.TryGetValue(WellKnown.TokenSymbol, out long rows) ? rows : options.BatchTokens;
+        long maxTokens = componentBounds.TryGetValue(WellKnown.TokenSymbol, out long rows) ? rows
+            : options.BatchTokens > 0 ? options.BatchTokens : LlmModel.AutomaticMinBatchTokens;
         long contextLength = componentBounds.TryGetValue(WellKnown.ContextSymbol, out long context) ? context : options.ContextLength;
         bounds.Remove(WellKnown.TokenSymbol);
         bounds.Remove(WellKnown.ContextSymbol);

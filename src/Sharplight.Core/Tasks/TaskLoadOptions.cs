@@ -29,7 +29,10 @@ public class TaskLoadOptions
     /// </summary>
     public int ContextLength { get; set; }
 
-    /// <summary>Upper bound of the row symbol (tokens, frames, latent positions) per forward pass.</summary>
+    /// <summary>
+    /// Upper bound of the row symbol (tokens, frames, latent positions) per forward pass. Language models (<see cref="Llm.LlmLoadOptions"/>)
+    /// take 0 as their default: rows chosen from the model's footprint and the free device memory (<see cref="Llm.LlmModel.BatchTokens"/>).
+    /// </summary>
     public int MaxBatchTokens { get; set; } = 512;
 
     /// <summary>
