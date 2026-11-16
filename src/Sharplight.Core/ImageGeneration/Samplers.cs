@@ -31,14 +31,27 @@ public static class Samplers
     /// <summary>Every supported name.</summary>
     public static IReadOnlyList<string> All { get; } = [Euler, EulerKarras, EulerAncestral, Ddim, Pndm, DpmPlusPlus2M, DpmPlusPlus2MKarras];
 
+    /// <summary>The samplers of rectified-flow models (<see cref="NoiseSchedule.IsFlow"/>): Euler on the flow ODE.</summary>
+    public static IReadOnlyList<string> Flow { get; } = [Euler];
+
     /// <summary>Creates a sampler for one run.</summary>
-    /// <param name="name">A name of <see cref="All"/> (case-insensitive; <c>_</c> and <c>-</c> are interchangeable).</param>
+    /// <param name="name">A name of <see cref="All"/> (case-insensitive; <c>_</c> and <c>-</c> are interchangeable); for flow schedules one of <see cref="Flow"/>.</param>
     /// <param name="schedule">The model's noise schedule.</param>
     /// <param name="steps">Denoising steps.</param>
-    /// <exception cref="NotSupportedException">The name is unknown.</exception>
-    internal static DiffusionSampler Create(string name, NoiseSchedule schedule, int steps)
+    /// <param name="imageTokens">The denoiser's image tokens per image (flow schedules with a dynamic shift).</param>
+    /// <exception cref="NotSupportedException">The name is unknown or does not apply to the schedule.</exception>
+    internal static DiffusionSampler Create(string name, NoiseSchedule schedule, int steps, int imageTokens = 0)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(steps, 1);
+        if (schedule.IsFlow)
+        {
+            return Normalize(name) switch
+            {
+                Euler or "flow-euler" => new FlowMatchEulerSampler(schedule, steps, imageTokens),
+                _ => throw new NotSupportedException($"Sampler '{name}' does not apply to rectified-flow models (supported: {string.Join(", ", Flow)})."),
+            };
+        }
+
         return Normalize(name) switch
         {
             Euler => new EulerSampler(schedule, steps, karras: false),

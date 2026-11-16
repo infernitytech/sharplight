@@ -5,6 +5,12 @@ internal sealed record GenerateImageSettings
 {
     public required string Model { get; init; }
 
+    public string? TextEncoder { get; init; }
+
+    public string? SecondTextEncoder { get; init; }
+
+    public string? Vae { get; init; }
+
     public required string Prompt { get; init; }
 
     public string? NegativePrompt { get; init; }
@@ -38,4 +44,8 @@ internal sealed record GenerateImageSettings
     public bool Cpu { get; init; }
 
     public int Device { get; init; }
+
+    public bool ReducedPrecision { get; init; }
+
+    public int Runs { get; init; } = 1;
 }

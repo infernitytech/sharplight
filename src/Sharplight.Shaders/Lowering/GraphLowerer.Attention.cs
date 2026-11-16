@@ -415,7 +415,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>A Slang initializer list of round-trip float literals.</summary>
-    private static string Literals(float[] values) => "{ " + string.Join(", ", values.Select(s => s.ToString("R", CultureInfo.InvariantCulture) + "f")) + " }";
+    private static string Literals(float[] values) => "{ " + string.Join(", ", values.Select(s => F(s) + "f")) + " }";   // "4.0f": "4f" is no float literal
 
     /// <summary>The shared f32 scratch buffer of split attention, grown to at least <paramref name="bytes"/>.</summary>
     private TensorRef AttentionScratch(long bytes)
@@ -446,7 +446,7 @@ public sealed partial class GraphLowerer
         long halfTiles = 32 * (paddedD + 8) * 2 + 32 * (paddedKV + 8) * 2 + 32 * 40 * 2;
         long sharedBytes = halfTiles * (SplitFlash(plan) ? 2 : 1) + 32 * 32 * 4 + 32 * 64 * 4;
         bool typeAllowed = plan.K.Type == DataType.F16 || IsQuantizedKv(plan.K.Type)
-                           || (plan.K.Type == DataType.F32 && (_opt.Compile.AllowReducedPrecision || FastMatrixProducts || SplitFlash(plan)));
+                           || (plan.K.Type == DataType.F32 && (ReducedPrecision(plan) || FastMatrixProducts || SplitFlash(plan)));
         return DiagnosticSwitches.AttentionFlash && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16)
                && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32 && typeAllowed
                && plan.D % 8 == 0 && plan.DV % 8 == 0 && paddedD <= 256 && paddedDV <= 256
@@ -592,7 +592,11 @@ public sealed partial class GraphLowerer
     /// matrix precision use single f16 products.
     /// </summary>
     private bool SplitFlash(AttentionPlan plan)
-        => plan.K.Type == DataType.F32 && !_opt.Compile.AllowReducedPrecision && !FastMatrixProducts && DiagnosticSwitches.AttentionSplitHalf;
+        => plan.K.Type == DataType.F32 && !ReducedPrecision(plan) && !FastMatrixProducts && DiagnosticSwitches.AttentionSplitHalf;
+
+    /// <summary>Whether f16 products are allowed: by the compile options or by the node (<see cref="StandardOps.F16ProductsAttribute"/>).</summary>
+    private bool ReducedPrecision(AttentionPlan plan)
+        => _opt.Compile.AllowReducedPrecision || plan.Node.Attributes.Get(StandardOps.F16ProductsAttribute, false);
 
     /// <summary>
     /// Key ranges per query block of bidirectional flash attention (FA_KSPLIT): enough workgroups for about
