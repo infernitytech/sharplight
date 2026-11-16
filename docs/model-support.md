@@ -1154,7 +1154,8 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Stable Diffusion 1.x (SD 1.5) | diffusers folder (with or without `model_index.json`), original single-file `.safetensors` or `.ckpt` (restricted unpickler, nothing executed), stable-diffusion.cpp GGUF (f16, Q8_0, Q4_0, any ggml type for linear weights) | **supported** (txt2img, negative prompts, img2img, mask-blend inpainting, any size that is a multiple of 64, `.slm` with per-component precompilation) | below |
 | Stable Diffusion 2.x (2.1 768-v, 2.1 base) | diffusers folder, original single-file `.safetensors` / `.ckpt` (OpenCLIP ViT-H tower; 768 files default to v-prediction at 768×768, files named like the 512 / base releases to epsilon at 512×512) | **supported** (as SD 1.x) | below |
 | SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, SD3, FLUX, Chroma, Qwen-Image, video (Wan, LTX) | - | missing | the graph contract (`DiffusionGraphs`), the description and the pipeline are kind-generic; SD3 / FLUX need a DiT and flow-matching samplers |
+| FLUX.1-schnell, FLUX.1-dev (and fine-tunes with the same layout) | diffusers folder; original single-file `.safetensors` (Black Forest Labs names, also with ComfyUI's `model.diffusion_model.` prefix); transformer-only GGUF (city96 / stable-diffusion.cpp: any ggml type) plus companion files: CLIP-L (`clip_l.safetensors`), T5-XXL (encoder GGUF with its tokenizer, or `t5xxl_*.safetensors` with the embedded T5 vocabulary), VAE (`ae.safetensors`), given as auxiliary sources or found beside the transformer | **supported** (txt2img, img2img, inpainting; flow-matching Euler with FLUX's static / resolution-dependent shift; dev's guidance embedding; any size that is a multiple of 16; `.slm`) | [below](#flux) |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, SD3, Chroma, Qwen-Image, video (Wan, LTX) | - | missing | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic; see the [FLUX notes](#flux) for SD3 / Chroma |
 | LoRA (kohya / diffusers), ControlNet, TAESD | - | missing | |
 
 Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
@@ -1195,3 +1196,45 @@ Verification (tools/make-diffusion-references.py writes the diffusers references
   step (CFG batch of 2, 512×512, f16 GGUF), sd.cpp sampled 20 steps in 17.1 s (Vulkan) and 22.8 s (CUDA) in the same session.
   Without a precompiled `.slm` the first load spends 50–130 s compiling the UNet kernels (Slang, CPU-bound); `sharplight-convert
   precompile` stores them in the package.
+
+### FLUX
+
+<a id="flux"></a>
+FLUX.1 runs on the same pipeline as the UNet models (2026-11-15). Design:
+
+- Canonical source `flux` (`Sharplight.Import.Diffusers`): `transformer.*` in the original Black Forest Labs layout (fused q/k/v,
+  `img_*` / `txt_*` streams of the dual-stream blocks, `linear1` / `linear2` of the single-stream blocks; diffusers' separate
+  projections are joined lazily, zero-copy for GGUF / single files), the CLIP-L encoder under `text_encoder.*`, the T5 encoder under
+  `text_encoder_2.*` in the encoder vocabulary of the `encoder_decoder` architecture (so a T5 encoder GGUF read by the GGUF importer
+  maps 1:1), the VAE under `vae.*`, the CLIP tokenizer under the canonical `tokenizer.*` keys and the T5 tokenizer under
+  `flux.tokenizer_2.tokenizer.*`, the flow schedule (`flux.scheduler.*`: shift, dynamic shift, base / max shift and sequence lengths)
+  and the defaults (schnell: 4 steps, no guidance, T5 prompts of 256 tokens; dev: 28 steps, guidance 3.5, 512 tokens).
+- `FluxAdapter` (Sharplight.Architectures) builds five graphs of generic ops: the CLIP graph with only the pooled output
+  (`ClipTextGraphBuilder`, final-normed end token, no projection), the T5 graph (`T5TextGraphBuilder`: bucketed relative position
+  bias as the attention op's `position_bias`, gated tanh-GELU, no attention mask as in diffusers), the transformer
+  (`FluxTransformerGraphBuilder`: patchify / unpatchify as reshape + permute, sinusoidal timestep / guidance embeddings, modulation
+  chunks as slices of one projection, per-head RMS-normed q/k, RoPE over (0, row, column) positions through the `Rope` op's
+  multi-axis sections plus per-frequency divisors that give each axis its own θ^(−2j/d) series, joint bidirectional `Attention`)
+  and the existing 16-channel KL decoder / encoder (scaling 0.3611, shift 0.1159). No new op was needed.
+- Core: `NoiseSchedule` describes rectified-flow schedules (`predictionType: flow`), `FlowMatchEulerSampler` follows diffusers'
+  `FlowMatchEulerDiscreteScheduler` as the FLUX pipeline drives it (σ = linspace(1, 1/n), static or μ-shifted by the image token
+  count, timestep = σ·1000, img2img start int(n − n·strength)); `LatentDiffusionGenerator` gained a second text-encoder component
+  with its own tokenizer (`text-encoder-2`, `tokenizer-2`), per-token joining of the hidden states (encoders without them only give
+  the pooled embedding), the `guidance` denoiser input, the `classifierFreeGuidance` model switch, row-by-row runs for denoisers built
+  for one row, and the release of the text encoders after encoding when the weights take more than 80 % of the device memory.
+- Companion files: `IModelImporter.FindCompanions` (Core) lets an importer name the files a model needs; `ModelImporterCatalog.OpenSet`
+  opens them for the auxiliary roles the caller leaves out. The diffusers importer recognizes stand-alone component files by their
+  tensors (CLIP text encoders, KL autoencoders in original or diffusers names, T5 encoders; configurations from a `config.json`
+  beside them or from the shapes; T5 files without a tokenizer get the embedded T5 v1.1 vocabulary) and looks for them beside the
+  transformer and in the sibling `clip`, `text_encoders`, `vae` folders of ComfyUI's layout. `FluxCompanionAdapter` merges the
+  auxiliary sources (`text-encoder`: `clip_text_encoder`, `text-encoder-2`: any `encoder_decoder` T5, `vae`: `kl_autoencoder`) into
+  the canonical source, keeping the family's VAE scaling. Studio's load panel shows the three companion fields for transformer-only
+  files, filled with what was found; `sharplight-generate-image` takes `--text-encoder`, `--text-encoder-2` and `--vae`.
+- Later families: SD3 / SD3.5 are MMDiTs with joint attention as well (different block layout: separate q/k/v with optional
+  RMS norms, 2D sin-cos position embedding instead of RoPE, three text encoders whose CLIP hidden states are padded and concatenated
+  with T5's along the sequence, CFG): a second transformer builder, a sequence-joining mode for the text conditioning, the existing
+  flow sampler with shift 3. Chroma is a FLUX.1-schnell derivative without CLIP whose modulation comes from a small "distilled
+  guidance" MLP instead of the per-block modulation projections, with a T5 attention mask and real CFG: a FluxAdapter variant (T5 as
+  the first text encoder, a mask input built from the padding), CFG row by row through the existing fallback. Qwen-Image and the
+  video DiTs (Wan, LTX: a frame axis in the latents and 3D RoPE through the same multi-axis sections) reuse the flow sampler and the
+  companion-file loading.

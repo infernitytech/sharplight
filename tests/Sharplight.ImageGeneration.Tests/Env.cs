@@ -42,6 +42,9 @@ internal static class Env
     /// <summary>FLUX.1-schnell as city96's transformer-only Q8_0 GGUF, with the T5 GGUF, clip_l.safetensors and ae.safetensors beside it.</summary>
     public static readonly string FluxSchnellGguf = Path.Combine(FluxRoot, "gguf", "flux1-schnell-Q8_0.gguf");
 
+    /// <summary>FLUX.1-dev as city96's transformer-only Q8_0 GGUF (its companions are those of <see cref="FluxSchnellGguf"/>).</summary>
+    public static readonly string FluxDevGguf = Path.Combine(FluxRoot, "gguf-dev", "flux1-dev-Q8_0.gguf");
+
     /// <summary>The tiny random FLUX pipelines (tools/make-tiny-flux.py), one folder per variant ("dev", "schnell").</summary>
     public static readonly string TinyFlux = Path.Combine(Home, "models/flux/tiny-random-flux");
 
@@ -122,11 +125,16 @@ internal static class Env
     public static DeviceSlot? Device(string name) => name == "cpu" ? Cpu() : Vulkan();
 
     /// <summary>Loads a model as a task model on one device.</summary>
-    public static TaskModel Load(string path, DeviceSlot slot) => TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [slot] });
+    public static TaskModel Load(string path, DeviceSlot slot) => TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [slot], Log = Log });
 
     /// <summary>Loads a model with auxiliary files by role (companions of a transformer-only checkpoint).</summary>
     public static TaskModel Load(string path, DeviceSlot slot, IReadOnlyDictionary<string, string> auxiliary)
-        => TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [slot], Auxiliary = new Dictionary<string, string>(auxiliary) });
+        => TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [slot], Auxiliary = new Dictionary<string, string>(auxiliary), Log = Log });
+
+    /// <summary>Load and compile messages on stderr when <c>SHARPLIGHT_TEST_LOG</c> is set (diagnosing slow or stuck large-model tests).</summary>
+    private static Action<string>? Log => Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_LOG") is { Length: > 0 }
+        ? message => Console.Error.WriteLine($"{DateTime.Now:HH:mm:ss} {message}")
+        : null;
 
     /// <summary>Reads a raw little-endian f32 file.</summary>
     public static float[] ReadFloats(string path)

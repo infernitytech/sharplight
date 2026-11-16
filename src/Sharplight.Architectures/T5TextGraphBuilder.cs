@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.ImageGeneration;
 using Sharplight.Models;
@@ -7,7 +8,8 @@ namespace Sharplight.Architectures;
 
 /// <summary>
 /// Builds the text-encoder graph of a T5 encoder (T5 v1.1 / Flan-T5, as FLUX and SD3 use it): token embeddings, pre-norm RMS
-/// layers of bidirectional self-attention with T5's bucketed relative position bias and a (gated) feed-forward, the final norm.
+/// layers of bidirectional self-attention with T5's bucketed relative position bias (a [heads, L, L] bias gathered from the bucket
+/// table, added to batched per-head score products) and a (gated) feed-forward, the final norm.
 /// One padded prompt of the fixed context length per run, no attention mask (the padding tokens take part, as in the diffusers
 /// pipelines). Weights in the encoder-decoder vocabulary of <see cref="EncoderDecoderAdapter"/> under a prefix.
 /// </summary>
@@ -22,23 +24,18 @@ internal static class T5TextGraphBuilder
     {
         var b = new GraphBuilder(name, weights);
         int rows = hp.ContextLength;
-        int inner = hp.HeadCount * hp.HeadDim;
         var tokens = b.Input(DiffusionGraphs.Tokens, InputRole.TokenIds, DataType.I32, new Shape(rows));
         var x = b.Gather(b.Weight(prefix + "token_embedding.weight"), tokens);
-        var shared = weights(prefix + "encoder.attention.relative_bias.weight") is { } table
-            ? RelativePositionBias.FromBuckets(table, hp.MaxDistance, bidirectional: true)
-            : null;
+        string sharedTable = prefix + "encoder.attention.relative_bias.weight";
+        var sharedBias = b.HasWeight(sharedTable) ? PositionBias(b, sharedTable, hp, "relative_bias") : null;
         for (int layer = 0; layer < hp.LayerCount; layer++)
         {
             using var _ = b.Group($"layers.{layer}");
             string p = $"{prefix}encoder.layers.{layer}.";
-            var bias = weights(p + "attention.relative_bias.weight") is { } own ? RelativePositionBias.FromBuckets(own, hp.MaxDistance, bidirectional: true) : shared;
+            var bias = b.HasWeight(p + "attention.relative_bias.weight") ? PositionBias(b, p + "attention.relative_bias.weight", hp, $"relative_bias_{layer}") : sharedBias;
             var h = b.RmsNorm(x, b.Weight(p + "attention_norm.weight"), hp.NormEps);
-            var q = b.Reshape(b.Linear(h, p + "attention.q.weight"), rows, hp.HeadCount, hp.HeadDim);
-            var k = b.Reshape(b.Linear(h, p + "attention.k.weight"), rows, hp.HeadCount, hp.HeadDim);
-            var v = b.Reshape(b.Linear(h, p + "attention.v.weight"), rows, hp.HeadCount, hp.HeadDim);
-            var attended = b.Emit1("Attention", [q, k, v], Attributes.From([("scale", 1f), ("causal", false), .. bias?.Attributes ?? []]));
-            x = b.Add(x, b.Linear(b.Reshape(attended, rows, inner), p + "attention.o.weight"));
+            var attended = Attention(b, b.Linear(h, p + "attention.q.weight"), b.Linear(h, p + "attention.k.weight"), b.Linear(h, p + "attention.v.weight"), bias, hp);
+            x = b.Add(x, b.Linear(attended, p + "attention.o.weight"));
             h = b.RmsNorm(x, b.Weight(p + "mlp_norm.weight"), hp.NormEps);
             var up = b.Linear(h, p + "mlp.up.weight");
             var activated = b.HasWeight(p + "mlp.gate.weight") ? b.Mul(Activate(b, b.Linear(h, p + "mlp.gate.weight"), hp.Activation), up) : Activate(b, up, hp.Activation);
@@ -47,6 +44,48 @@ internal static class T5TextGraphBuilder
 
         b.Output(DiffusionGraphs.Hidden, b.RmsNorm(x, b.Weight(prefix + "encoder.output_norm.weight"), hp.NormEps));
         return b.Build();
+    }
+
+    /// <summary>
+    /// T5's bucketed relative position bias of the whole prompt, [heads, L, L] (query rows, key columns): the bucket table [buckets,
+    /// heads] gathered by the constant bucket index of every key − query distance.
+    /// </summary>
+    private static Value PositionBias(GraphBuilder b, string table, T5TextHyperParameters hp, string name)
+    {
+        int rows = hp.ContextLength;
+        var weight = b.Weight(table);
+        int buckets = (int)weight.Shape[0].Fixed;
+        var indices = new int[rows * rows];
+        for (int query = 0; query < rows; query++)
+        {
+            for (int key = 0; key < rows; key++)
+            {
+                indices[query * rows + key] = RelativePositionBias.Bucket(key - query, buckets, hp.MaxDistance, bidirectional: true);
+            }
+        }
+
+        var index = b.Constant(name + "_buckets", DataType.I32, new Shape((long)rows * rows), MemoryMarshal.AsBytes(indices.AsSpan()).ToArray());
+        var gathered = b.Reshape(b.Gather(weight, index), rows, rows, hp.HeadCount);
+        return b.Contiguous(b.Permute(gathered, 2, 0, 1));
+    }
+
+    /// <summary>
+    /// Unscaled bidirectional attention with an additive per-head bias, written out as batched products over the heads (the bias
+    /// table of T5-XXL, 64 heads × 257 distances, is too large for the attention kernels' constant tables).
+    /// </summary>
+    private static Value Attention(GraphBuilder b, Value q, Value k, Value v, Value? bias, T5TextHyperParameters hp)
+    {
+        int rows = hp.ContextLength;
+        Value Heads(Value x) => b.Contiguous(b.Permute(b.Reshape(x, rows, hp.HeadCount, hp.HeadDim), 1, 0, 2));
+        var scores = b.Emit1("BatchMatMul", [Heads(q), Heads(k)], Attributes.From(("trans_b", true)));
+        if (bias is not null)
+        {
+            scores = b.Add(scores, bias);
+        }
+
+        var probabilities = b.Emit1("Softmax", [scores]);
+        var attended = b.Emit1("BatchMatMul", [probabilities, Heads(v)]);
+        return b.Reshape(b.Contiguous(b.Permute(attended, 1, 0, 2)), rows, hp.HeadCount * hp.HeadDim);
     }
 
     private static Value Activate(GraphBuilder b, Value x, string activation) => activation switch

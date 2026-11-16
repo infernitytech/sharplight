@@ -59,7 +59,8 @@ public sealed class FluxSchnellTests
             var pooled = GraphRunner.Run(model, ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, DiffusionGraphs.Pooled, 0, (DiffusionGraphs.Tokens, tokens));
             var (maxAbs, rms) = Env.Compare(pooled, Tensor($"text_pooled_{i}"));
             TestContext.Current.SendDiagnosticMessage($"{source} CLIP pooled {i}: relative RMS {rms:E2}");
-            Assert.True(rms < 5e-3, $"pooled {i}: max {maxAbs}, relative RMS {rms}");
+            // clip_l.safetensors (beside the GGUF) holds f16 weights, the diffusers folder bf16 ones.
+            Assert.True(rms < (source == "gguf" ? 2e-2 : 5e-3), $"pooled {i}: max {maxAbs}, relative RMS {rms}");
             var hidden = GraphRunner.Run(model, DiffusionGraphs.SecondTextEncoderRole, DiffusionGraphs.TextEncode2, DiffusionGraphs.Hidden, 0,
                 (DiffusionGraphs.Tokens, secondTokens));
             (maxAbs, rms) = Env.Compare(hidden, Tensor($"text2_hidden_{i}"));

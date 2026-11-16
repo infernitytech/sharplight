@@ -167,7 +167,7 @@ public sealed class TinyFluxTests
             {
                 Assert.Equal("encoder_decoder", source.Architecture);
                 Assert.Equal(2, source.Get<int>("encoder_decoder.encoder.layer_count"));
-                Assert.Equal(8, source.Get<int>("encoder_decoder.attention.head_dim"));
+                Assert.Equal(4, source.Get<int>("encoder_decoder.attention.head_dim"));
                 var tokenizer = Tokenizers.TokenizerFactory.Create(Tokenizers.TokenizerData.FromMetadata(source.Metadata));
                 foreach (var prompt in Index("schnell").GetProperty("tokens_2").EnumerateObject())
                 {
@@ -236,6 +236,51 @@ public sealed class TinyFluxTests
                 TestContext.Current.CancellationToken);
             double psnr = Env.Psnr(result.Images[0].Rgb, PlanarImage.FromPlanar(Tensor("dev", "q8_image"), width, height, 0f, 1f).Rgb);
             Assert.True(psnr > 40, $"bare companions on {device}: PSNR {psnr:F1} dB");
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageOfATransformerOnlyFileHoldsTheCompanions()
+    {
+        Assert.SkipUnless(Present("schnell"), "tiny-random-flux missing");
+        _ = Env.Services;
+        string folder = BareLayout("schnell");
+        string package = Path.Combine(folder, "flux-tiny.slm");
+        try
+        {
+            // The companions beside the transformer are found and merged; the package needs nothing else.
+            TestHost.Converter.Convert(Path.Combine(folder, "flux-tiny-Q8_0.gguf"), package);
+            var info = Sharplight.Package.ModelPackageReader.Open(package);
+            Assert.Equal(ModelKinds.ImageGeneration, info.Definition.Description.Kind);
+            Assert.Equal(["text-encoder", "text-encoder-2", "tokenizer", "tokenizer-2", "denoiser", "vae", "scheduler"],
+                info.Definition.Description.Components.Select(c => c.Role));
+            foreach (string file in Directory.GetFiles(folder).Where(f => !f.EndsWith(".slm", StringComparison.Ordinal)))
+            {
+                File.Delete(file);
+            }
+
+            using var model = Env.Load(package, Env.Cpu());
+            using var generator = Env.Clients.Create<IImageGenerator>(model);
+            var index = Index("schnell");
+            int height = index.GetProperty("height").GetInt32();
+            int width = index.GetProperty("width").GetInt32();
+            var options = new ImageGenerationOptions
+            {
+                Width = width,
+                Height = height,
+                Steps = index.GetProperty("steps").GetInt32(),
+                InitialNoise = Tensor("schnell", "noise"),
+            };
+            var ct = TestContext.Current.CancellationToken;
+            var result = await generator.GenerateAsync(new ImageGenerationRequest { Prompt = index.GetProperty("prompt").GetString()! }, options, ct);
+            double psnr = Env.Psnr(result.Images[0].Rgb, PlanarImage.FromPlanar(Tensor("schnell", "q8_image"), width, height, 0f, 1f).Rgb);
+            Assert.True(psnr > 40, $"package: PSNR {psnr:F1} dB");
+            var square = await generator.GenerateAsync(new ImageGenerationRequest { Prompt = "a red cube" }, new ImageGenerationOptions { Width = 32, Height = 32, Seed = 3 }, ct);
+            Assert.Equal(32, square.Images[0].Width);
         }
         finally
         {

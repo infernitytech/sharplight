@@ -415,7 +415,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>A Slang initializer list of round-trip float literals.</summary>
-    private static string Literals(float[] values) => "{ " + string.Join(", ", values.Select(s => s.ToString("R", CultureInfo.InvariantCulture) + "f")) + " }";
+    private static string Literals(float[] values) => "{ " + string.Join(", ", values.Select(s => F(s) + "f")) + " }";   // "4.0f": "4f" is no float literal
 
     /// <summary>The shared f32 scratch buffer of split attention, grown to at least <paramref name="bytes"/>.</summary>
     private TensorRef AttentionScratch(long bytes)

@@ -13,7 +13,11 @@ For a diffusers FLUX folder (MODEL) this writes raw little-endian f32 tensors pl
   latents_{size}                    its final latents (model space, unpacked)
 
 Weights are upcast to f32 (--dtype) and everything runs on --device (default cpu: the 12B transformer needs ~48 GB of RAM in f32).
+--transformer-gguf replaces the folder's transformer with a transformer-only GGUF (dequantized on the fly by diffusers; e.g. a
+FLUX.1-dev Q8_0 file with the text encoders and VAE of a FLUX.1-schnell folder, which are the same); --dev then also selects the
+FLUX.1-dev scheduler (resolution-dependent shift).
 Usage: make-flux-references.py MODEL OUT [--sizes 512 1024] [--steps N] [--guidance G] [--device cpu] [--threads 24]
+       [--transformer-gguf FILE --dev]
 """
 
 import argparse
@@ -63,6 +67,8 @@ def main():
     parser.add_argument("--dtype", default="float32")
     parser.add_argument("--threads", type=int, default=24)
     parser.add_argument("--skip", nargs="*", default=[], help="parts to skip: text transformer vae images")
+    parser.add_argument("--transformer-gguf", default=None)
+    parser.add_argument("--dev", action="store_true", help="the GGUF transformer is FLUX.1-dev: guidance embedding, dynamic shift")
     args = parser.parse_args()
     torch.set_num_threads(args.threads)
     torch.set_grad_enabled(False)
@@ -70,7 +76,26 @@ def main():
     from diffusers import FluxPipeline
 
     dtype = getattr(torch, args.dtype)
-    pipe = FluxPipeline.from_pretrained(args.model, torch_dtype=dtype)
+    extra = {}
+    if args.transformer_gguf:
+        import shutil
+        import tempfile
+        from diffusers import FlowMatchEulerDiscreteScheduler, FluxTransformer2DModel, GGUFQuantizationConfig
+        config_dir = tempfile.mkdtemp(dir=os.environ.get("TMPDIR"))
+        os.makedirs(os.path.join(config_dir, "transformer"))
+        with open(os.path.join(args.model, "transformer", "config.json")) as f:
+            config = json.load(f)
+        config["guidance_embeds"] = args.dev
+        with open(os.path.join(config_dir, "transformer", "config.json"), "w") as f:
+            json.dump(config, f)
+        extra["transformer"] = FluxTransformer2DModel.from_single_file(
+            args.transformer_gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), torch_dtype=dtype, config=config_dir,
+            subfolder="transformer")
+        shutil.rmtree(config_dir)
+        if args.dev:
+            extra["scheduler"] = FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000, shift=3.0, use_dynamic_shifting=True, base_shift=0.5,
+                                                                 max_shift=1.15, base_image_seq_len=256, max_image_seq_len=4096)
+    pipe = FluxPipeline.from_pretrained(args.model, torch_dtype=dtype, **extra)
     pipe.to(args.device)
     dev = pipe.transformer.config.guidance_embeds
     steps = args.steps or (28 if dev else 4)

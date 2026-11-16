@@ -69,7 +69,7 @@ def build_models(guidance):
         vocab_size=49408, hidden_size=64, intermediate_size=128, num_attention_heads=1, num_hidden_layers=2, max_position_embeddings=77,
         hidden_act="quick_gelu", bos_token_id=0, eos_token_id=2, pad_token_id=1))
     text_2 = T5EncoderModel(T5Config(
-        vocab_size=32128, d_model=32, d_kv=8, d_ff=64, num_layers=2, num_heads=4, feed_forward_proj="gated-gelu",
+        vocab_size=32128, d_model=32, d_kv=4, d_ff=64, num_layers=2, num_heads=8, feed_forward_proj="gated-gelu",
         relative_attention_num_buckets=32, relative_attention_max_distance=128, dense_act_fn="gelu_new", is_gated_act=True))
     with torch.no_grad():
         for model in (transformer, vae, text, text_2):
