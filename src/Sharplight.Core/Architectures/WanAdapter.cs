@@ -31,6 +31,7 @@ public sealed class WanAdapter : IModelAdapter
     private const string Prefix = Architecture + ".";
     private const string TextEncoderPrefix = "text_encoder.";
     private const string TransformerPrefix = "transformer.";
+    private const string SecondTransformerPrefix = "transformer_2.";
     private const string VaePrefix = "vae.";
     private const string SchedulerAttachment = "scheduler/source-config.json";
 
@@ -70,6 +71,13 @@ public sealed class WanAdapter : IModelAdapter
             [VideoDiffusionGraphs.VaeDecodeFirst] = WanVaeGraphBuilder.BuildDecoder(src.Weight, vae, latentHeight, latentWidth, first: true),
             [VideoDiffusionGraphs.VaeDecodeNext] = WanVaeGraphBuilder.BuildDecoder(src.Weight, vae, latentHeight, latentWidth, first: false),
         };
+        bool twoExperts = src.Weight(SecondTransformerPrefix + "patch_embedding.weight") is not null;
+        if (twoExperts)
+        {
+            graphs[VideoDiffusionGraphs.Denoise2] = WanTransformerGraphBuilder.Build(src.Weight, transformer, latentFrames, latentHeight, latentWidth, t5.ContextLength,
+                SecondTransformerPrefix, VideoDiffusionGraphs.Denoise2);
+        }
+
         bool hasEncoder = src.Weight(VaePrefix + "encoder.conv_in.weight") is not null;
         if (hasEncoder)
         {
@@ -92,7 +100,7 @@ public sealed class WanAdapter : IModelAdapter
             SourceMetadata = src.Metadata,
             OwnedResources = src.OwnedResources,
             Attachments = attachments,
-            Description = Describe(src, transformer, vae, t5, hasEncoder, firstFrame && hasEncoder && transformer.TokenTimesteps, attachments.Count > 0),
+            Description = Describe(src, transformer, vae, t5, hasEncoder, firstFrame && hasEncoder && transformer.TokenTimesteps, attachments.Count > 0, twoExperts),
         };
     }
 
@@ -118,7 +126,7 @@ public sealed class WanAdapter : IModelAdapter
     }
 
     private static ModelDescription Describe(ModelSource src, WanHyperParameters transformer, WanVaeHyperParameters vae, T5TextHyperParameters t5,
-        bool hasEncoder, bool firstFrame, bool hasSchedulerAttachment)
+        bool hasEncoder, bool firstFrame, bool hasSchedulerAttachment, bool twoExperts)
     {
         string s = Prefix + "scheduler.";
         var scheduler = new ComponentConfigBuilder()
@@ -141,11 +149,22 @@ public sealed class WanAdapter : IModelAdapter
             .Add(DiffusionConfigKeys.Steps, src.Get(Prefix + "default_steps", 50))
             .Add(DiffusionConfigKeys.GuidanceScale, src.Get(Prefix + "default_guidance", 5.0))
             .Add(VideoConfigKeys.FirstFrameConditioning, firstFrame);
+        if (twoExperts)
+        {
+            model.Add(VideoConfigKeys.BoundaryRatio, src.Get(Prefix + "boundary_ratio", 0.875))
+                .Add(VideoConfigKeys.GuidanceScale2, src.Get(Prefix + "default_guidance_2", src.Get(Prefix + "default_guidance", 5.0)));
+        }
+
         if (src.Get<string?>(Prefix + "negative_prompt", null) is { } negative)
         {
             model.Add(VideoConfigKeys.NegativePrompt, negative);
         }
 
+        var transformerConfig = new ComponentConfigBuilder()
+            .Add(DiffusionConfigKeys.LatentChannels, transformer.InChannels)
+            .Add(DiffusionConfigKeys.PatchSize, transformer.PatchSize[1])
+            .Add(VideoConfigKeys.TokenTimesteps, transformer.TokenTimesteps)
+            .Build();
         return new ModelDescription
         {
             Kind = ModelKinds.VideoGeneration,
@@ -168,12 +187,20 @@ public sealed class WanAdapter : IModelAdapter
                     Role = ModelComponentRoles.Transformer,
                     Graphs = [VideoDiffusionGraphs.Denoise],
                     WeightPrefixes = [TransformerPrefix],
-                    Config = new ComponentConfigBuilder()
-                        .Add(DiffusionConfigKeys.LatentChannels, transformer.InChannels)
-                        .Add(DiffusionConfigKeys.PatchSize, transformer.PatchSize[1])
-                        .Add(VideoConfigKeys.TokenTimesteps, transformer.TokenTimesteps)
-                        .Build(),
+                    Config = transformerConfig,
                 },
+                .. (twoExperts
+                    ?
+                    [
+                        new ModelComponent
+                        {
+                            Role = VideoDiffusionGraphs.SecondTransformerRole,
+                            Graphs = [VideoDiffusionGraphs.Denoise2],
+                            WeightPrefixes = [SecondTransformerPrefix],
+                            Config = transformerConfig,
+                        },
+                    ]
+                    : Array.Empty<ModelComponent>()),
                 new ModelComponent
                 {
                     Role = ModelComponentRoles.Vae,

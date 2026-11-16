@@ -5,6 +5,8 @@ Variants (written to OUT/{variant}, default OUT ~/models/video/tiny-random-wan):
 
   t2v    Wan 2.1 layout: WanTransformer3DModel (3-D patches, (t, h, w) RoPE, cross-attention to umT5 tokens), the umT5 encoder,
          the 3-D causal VAE (AutoencoderKLWan, 16-channel style with z 4 here), text-to-video
+  a14b   Wan 2.2 A14B layout: the t2v layout with two experts (transformer for the high-noise timesteps, transformer_2 below the
+         boundary 0.875 · 1000, guidance 5 and 3)
   ti2v   Wan 2.2 TI2V layout: the same transformer with per-token timesteps (expand_timesteps), the residual VAE with 2×2
          patchification (is_residual, patch_size 2), text-to-video and image-to-video (the first latent frame from the image)
 
@@ -30,10 +32,11 @@ import torch
 PROMPTS = ["a cat walking on grass", "Ein Hund, der im Schnee spielt!! 123", ""]
 PROMPT = "a red panda eating bamboo in a forest, cinematic"
 NEGATIVE = "blurry, low quality"
-SIZES = {"t2v": (32, 48), "ti2v": (64, 96)}  # (height, width): the TI2V VAE compresses 16× spatially
+SIZES = {"t2v": (32, 48), "ti2v": (64, 96), "a14b": (32, 48)}  # (height, width): the TI2V VAE compresses 16× spatially
 FRAMES = 9
 STEPS = 4
 GUIDANCE = 5.0
+GUIDANCE_2 = 3.0
 MAX_SEQUENCE = 512
 
 
@@ -143,10 +146,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", default=os.path.expanduser("~/models/video/tiny-random-wan"))
     parser.add_argument("--tokenizer", default=os.path.expanduser("~/models/video/Wan2.1-T2V-1.3B-Diffusers/tokenizer"))
-    parser.add_argument("--variant", choices=["t2v", "ti2v", "all"], default="all")
+    parser.add_argument("--variant", choices=["t2v", "ti2v", "a14b", "all"], default="all")
     args = parser.parse_args()
     torch.set_grad_enabled(False)
-    for variant in (["t2v", "ti2v"] if args.variant == "all" else [args.variant]):
+    for variant in (["t2v", "ti2v", "a14b"] if args.variant == "all" else [args.variant]):
         make(variant, os.path.join(args.out, variant), args.tokenizer)
 
 
@@ -157,9 +160,18 @@ def make(variant, out, tokenizer_path):
     ti2v = variant == "ti2v"
     HEIGHT, WIDTH = SIZES[variant]
     transformer, vae, text = build_models(variant)
+    experts = {}
+    if variant == "a14b":
+        torch.manual_seed(9)
+        from diffusers import WanTransformer3DModel
+        second = WanTransformer3DModel(**transformer.config)
+        with torch.no_grad():
+            for p in second.parameters():
+                p.add_(torch.randn_like(p) * 0.05)
+        experts = {"transformer_2": second.eval(), "boundary_ratio": 0.875}
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path if os.path.isdir(tokenizer_path) else "google/umt5-xxl")
     unipc, euler = schedulers()
-    pipe = WanPipeline(tokenizer=tokenizer, text_encoder=text, vae=vae, scheduler=unipc, transformer=transformer, expand_timesteps=ti2v)
+    pipe = WanPipeline(tokenizer=tokenizer, text_encoder=text, vae=vae, scheduler=unipc, transformer=transformer, expand_timesteps=ti2v, **experts)
     pipe.save_pretrained(os.path.join(out, "diffusers"), safe_serialization=True)
     write_single(os.path.join(out, "single"), transformer)
     ref = Reference(os.path.join(out, "reference"))
@@ -194,6 +206,10 @@ def make(variant, out, tokenizer_path):
     ref.add("transformer_timestep", timestep[0])
     ref.add("transformer_context", context[0])
     ref.add("transformer_out", transformer(latent, timestep, context, return_dict=False)[0][0])
+    if experts:
+        ref.add("transformer_2_out", experts["transformer_2"](latent, timestep, context, return_dict=False)[0][0])
+        extra["guidance_scale_2"] = GUIDANCE_2
+        extra["boundary_ratio"] = experts["boundary_ratio"]
 
     # VAE: decode random model-space latents (the pipeline's un-normalization included), encode one image (the first chunk).
     mean = torch.tensor(vae.config.latents_mean).view(1, z, 1, 1, 1)
@@ -211,7 +227,8 @@ def make(variant, out, tokenizer_path):
     for name, scheduler in (("unipc", unipc), ("euler", euler)):
         pipe.scheduler = scheduler
         video = pipe(prompt=PROMPT, negative_prompt=NEGATIVE, height=HEIGHT, width=WIDTH, num_frames=FRAMES, num_inference_steps=STEPS,
-                     guidance_scale=GUIDANCE, latents=noise.clone(), output_type="np", max_sequence_length=MAX_SEQUENCE).frames[0]
+                     guidance_scale=GUIDANCE, latents=noise.clone(), output_type="np", max_sequence_length=MAX_SEQUENCE,
+                     **({"guidance_scale_2": GUIDANCE_2} if experts else {})).frames[0]
         ref.add(f"video_{name}", torch.from_numpy(np.ascontiguousarray(video)).permute(0, 3, 1, 2))
     pipe.scheduler = unipc
 

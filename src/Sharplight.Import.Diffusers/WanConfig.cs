@@ -92,6 +92,15 @@ internal sealed record WanConfig
         metadata[Prefix + "default_steps"] = 50;
         metadata[Prefix + "default_guidance"] = 5.0;
         metadata[Prefix + "first_frame_conditioning"] = expandTimesteps;
+        if (pipeline is { } model && model.TryGetProperty("boundary_ratio", out var boundary) && boundary.ValueKind == JsonValueKind.Number)
+        {
+            // Two experts (Wan 2.2 A14B): the published guidance is 4 for the high-noise and 3 for the low-noise expert, 40 steps.
+            metadata[Prefix + "boundary_ratio"] = boundary.GetDouble();
+            metadata[Prefix + "default_guidance"] = 4.0;
+            metadata[Prefix + "default_guidance_2"] = 3.0;
+            metadata[Prefix + "default_steps"] = 40;
+        }
+
         return new WanConfig { Metadata = metadata };
     }
 

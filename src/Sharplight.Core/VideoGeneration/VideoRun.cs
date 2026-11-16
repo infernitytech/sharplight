@@ -33,6 +33,9 @@ internal sealed record VideoRun
     /// <summary>Classifier-free guidance scale.</summary>
     public required float Guidance { get; init; }
 
+    /// <summary>Classifier-free guidance scale of the second expert (two-expert models).</summary>
+    public required float Guidance2 { get; init; }
+
     /// <summary>Whether guidance runs (scale above 1): two denoiser runs per step.</summary>
     public required bool Guided { get; init; }
 

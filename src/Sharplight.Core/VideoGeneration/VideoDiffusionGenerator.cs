@@ -42,6 +42,8 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
     private readonly double _framesPerSecond;
     private readonly int _defaultSteps;
     private readonly float _defaultGuidance;
+    private readonly float _defaultGuidance2;
+    private readonly double? _boundaryTimestep;
     private readonly string? _defaultNegative;
     private readonly float[] _rgbFactors;
     private readonly bool _holdOneStage;
@@ -77,6 +79,10 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         _framesPerSecond = description.ConfigValue(VideoConfigKeys.FramesPerSecond, 16.0);
         _defaultSteps = description.ConfigValue(DiffusionConfigKeys.Steps, 50);
         _defaultGuidance = description.ConfigValue(DiffusionConfigKeys.GuidanceScale, 5f);
+        _defaultGuidance2 = description.ConfigValue(VideoConfigKeys.GuidanceScale2, _defaultGuidance);
+        _boundaryTimestep = description.TryGetComponent(VideoDiffusionGraphs.SecondTransformerRole, out _)
+            ? description.ConfigValue(VideoConfigKeys.BoundaryRatio, 0.875) * _schedule.TrainSteps
+            : null;
         _defaultNegative = description.Config.TryGetValue(VideoConfigKeys.NegativePrompt, out var negative) ? negative.GetString() : null;
         // Video activations are large (the VAE decoder at full resolution, attention over tens of thousands of tokens): unless the
         // weights take little of the device, hold either the text encoder or the transformer and VAE (compiled again from the
@@ -168,6 +174,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         if (_holdOneStage)
         {
             Release(CompiledKey(VideoDiffusionGraphs.Denoise, run.Dimensions));
+            Release(CompiledKey(VideoDiffusionGraphs.Denoise2, run.Dimensions));
         }
 
         var frames = new List<ImageInput>(run.Frames);
@@ -243,6 +250,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
             LatentWidth = width / _spatialDownscale,
             Steps = steps,
             Guidance = guidance,
+            Guidance2 = options.GuidanceScale2 ?? options.GuidanceScale ?? _defaultGuidance2,
             Guided = guidance > 1f,
             Seed = options.Seed ?? Random.Shared.NextInt64(1L << 53),
             Sampler = options.Scheduler ?? _schedule.Sampler,
@@ -333,10 +341,24 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
 
-    /// <summary>One guided denoiser evaluation: conditional, then unconditional, combined on the host.</summary>
+    /// <summary>
+    /// One guided denoiser evaluation: conditional, then unconditional, combined on the host. Two-expert models run the second
+    /// (low-noise) expert with its own guidance scale below the boundary timestep; the first expert is released at the switch when the
+    /// model holds one stage at a time.
+    /// </summary>
     private float[] Denoise(VideoRun run, PromptRow[] conditioning, DiffusionSampler sampler, int index, float[] latents, float[]? firstFrame)
     {
-        var transformer = Compiled(ModelComponentRoles.Transformer, VideoDiffusionGraphs.Denoise, run.Dimensions);
+        float timestep = sampler.Timesteps[index];
+        bool second = _boundaryTimestep is { } boundary && timestep < boundary;
+        if (second && _holdOneStage)
+        {
+            Release(CompiledKey(VideoDiffusionGraphs.Denoise, run.Dimensions));
+        }
+
+        var transformer = second
+            ? Compiled(VideoDiffusionGraphs.SecondTransformerRole, VideoDiffusionGraphs.Denoise2, run.Dimensions)
+            : Compiled(ModelComponentRoles.Transformer, VideoDiffusionGraphs.Denoise, run.Dimensions);
+        float guidance = second ? run.Guidance2 : run.Guidance;
         var input = latents;
         if (firstFrame is not null)
         {
@@ -344,7 +366,6 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
             ReplaceFirstFrame(input, firstFrame, run);
         }
 
-        float timestep = sampler.Timesteps[index];
         var timesteps = TimestepInput(run, timestep, firstFrame is not null);
         var conditional = RunTransformer(transformer, run, input, timesteps, conditioning[0]);
         if (!run.Guided)
@@ -355,7 +376,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         var unconditional = RunTransformer(transformer, run, input, timesteps, conditioning[1]);
         for (int i = 0; i < conditional.Length; i++)
         {
-            conditional[i] = unconditional[i] + run.Guidance * (conditional[i] - unconditional[i]);
+            conditional[i] = unconditional[i] + guidance * (conditional[i] - unconditional[i]);
         }
 
         return conditional;

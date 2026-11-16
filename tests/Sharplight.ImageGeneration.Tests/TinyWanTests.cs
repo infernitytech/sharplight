@@ -196,6 +196,39 @@ public sealed class TinyWanTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(Devices))]
+    public async Task TwoExpertsMatchDiffusers(string device)
+    {
+        Assert.SkipUnless(Present("a14b"), "tiny-random-wan a14b missing");
+        var slot = Env.Device(device);
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        using var model = Env.Load(Path.Combine(Root("a14b"), "diffusers"), slot!);
+        var index = Index("a14b");
+        var dims = Dimensions(index);
+        foreach (var (role, graph, reference) in new[]
+        {
+            (ModelComponentRoles.Transformer, VideoDiffusionGraphs.Denoise, "transformer_out"),
+            (VideoDiffusionGraphs.SecondTransformerRole, VideoDiffusionGraphs.Denoise2, "transformer_2_out"),
+        })
+        {
+            var prediction = GraphRunner.Run(model, role, graph, VideoDiffusionGraphs.Prediction, 0, dims,
+                (VideoDiffusionGraphs.Latent, Tensor("a14b", "transformer_latent")),
+                (VideoDiffusionGraphs.Timestep, Tensor("a14b", "transformer_timestep")),
+                (VideoDiffusionGraphs.Context, Tensor("a14b", "transformer_context")));
+            var (maxAbs, rms) = Env.Compare(prediction, Tensor("a14b", reference));
+            Assert.True(rms < 1e-4, $"{graph}: max {maxAbs}, relative RMS {rms}");
+        }
+
+        using var generator = Env.Clients.Create<IVideoGenerator>(model);
+        var request = new VideoGenerationRequest { Prompt = index.GetProperty("prompt").GetString()!, NegativePrompt = index.GetProperty("negative_prompt").GetString() };
+        var options = Options(index, "a14b", Samplers.UniPc) with { GuidanceScale2 = index.GetProperty("guidance_scale_2").GetSingle() };
+        var result = await generator.GenerateAsync(request, options, TestContext.Current.CancellationToken);
+        AssertVideo(result, Tensor("a14b", "video_unipc"), index, $"two experts on {device}");
+    }
+
+    public static TheoryData<string> Devices => ["cpu", "vulkan"];
+
     [Fact]
     public void TransformerOnlyFileWithoutCompanionsNamesWhatIsMissing()
     {

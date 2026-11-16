@@ -78,9 +78,9 @@ public sealed class DiffusersImporter : IModelImporter
             return null;
         }
 
-        if (components.Contains("transformer_2") || (components.Contains("image_encoder") && pipelineClass.StartsWith("Wan", StringComparison.Ordinal)))
+        if (pipelineClass == "WanImageToVideoPipeline" && (components.Contains("transformer_2") || components.Contains("image_encoder")))
         {
-            return new PipelineSupport(false, "Not supported yet: image-conditioned Wan (I2V, two-expert A14B) pipelines. Wan 2.1 T2V and Wan 2.2 TI2V are supported.");
+            return new PipelineSupport(false, "Not supported yet: image-conditioned Wan pipelines (Wan 2.1 I2V / FLF2V, Wan 2.2 I2V-A14B). Wan 2.1 T2V, Wan 2.2 TI2V and T2V-A14B are supported.");
         }
 
         return pipelineClass switch

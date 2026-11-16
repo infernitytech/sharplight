@@ -25,9 +25,8 @@ namespace Sharplight.Architectures;
 /// </remarks>
 internal sealed class WanTransformerGraphBuilder
 {
-    private const string P = "transformer.";
-
     private readonly GraphBuilder _b;
+    private readonly string _prefix;
     private readonly WanHyperParameters _hp;
     private readonly long _frames;
     private readonly long _rows;
@@ -38,14 +37,15 @@ internal sealed class WanTransformerGraphBuilder
     private Value _frequencyFactors = null!;
 
     private WanTransformerGraphBuilder(Func<string, WeightInfo?> weights, WanHyperParameters hp, long latentFrames, long latentHeight, long latentWidth,
-        int textRows)
+        int textRows, string prefix, string name)
     {
         if (hp.PatchSize[0] != 1)
         {
             throw new NotSupportedException($"Wan transformer: temporal patch size {hp.PatchSize[0]} is not supported (only 1).");
         }
 
-        _b = new GraphBuilder(VideoDiffusionGraphs.Denoise, weights);
+        _b = new GraphBuilder(name, weights);
+        _prefix = prefix;
         _hp = hp;
         _frames = latentFrames;
         _rows = latentHeight / hp.PatchSize[1];
@@ -61,8 +61,11 @@ internal sealed class WanTransformerGraphBuilder
     /// <param name="latentHeight">Latent height (a multiple of the patch height).</param>
     /// <param name="latentWidth">Latent width (a multiple of the patch width).</param>
     /// <param name="textRows">Tokens of the text conditioning.</param>
-    public static ComputeGraph Build(Func<string, WeightInfo?> weights, WanHyperParameters hp, long latentFrames, long latentHeight, long latentWidth, int textRows)
-        => new WanTransformerGraphBuilder(weights, hp, latentFrames, latentHeight, latentWidth, textRows).Build();
+    /// <param name="prefix">Canonical weight prefix (<c>transformer.</c>, or <c>transformer_2.</c> for a second expert).</param>
+    /// <param name="name">Graph name.</param>
+    public static ComputeGraph Build(Func<string, WeightInfo?> weights, WanHyperParameters hp, long latentFrames, long latentHeight, long latentWidth, int textRows,
+        string prefix = "transformer.", string name = VideoDiffusionGraphs.Denoise)
+        => new WanTransformerGraphBuilder(weights, hp, latentFrames, latentHeight, latentWidth, textRows, prefix, name).Build();
 
     /// <summary>Tokens of a latent video of that size.</summary>
     /// <param name="hp">The transformer hyper-parameters.</param>
@@ -87,29 +90,29 @@ internal sealed class WanTransformerGraphBuilder
         Value text;
         using (_b.Group("conditioning"))
         {
-            timeEmbedding = Linear(_b.Silu(Linear(Sinusoids(timestep), P + "time_embedding.0")), P + "time_embedding.2");
-            modulation = Linear(_b.Silu(timeEmbedding), P + "time_projection.1");
-            text = Linear(_b.Unary("GeluTanh", Linear(context, P + "text_embedding.0")), P + "text_embedding.2");
+            timeEmbedding = Linear(_b.Silu(Linear(Sinusoids(timestep), _prefix + "time_embedding.0")), _prefix + "time_embedding.2");
+            modulation = Linear(_b.Silu(timeEmbedding), _prefix + "time_projection.1");
+            text = Linear(_b.Unary("GeluTanh", Linear(context, _prefix + "text_embedding.0")), _prefix + "text_embedding.2");
         }
 
         Value x;
         using (_b.Group("input"))
         {
-            x = Linear(Patchify(latent), P + "patch_embedding");
+            x = Linear(Patchify(latent), _prefix + "patch_embedding");
         }
 
         for (int i = 0; i < _hp.LayerCount; i++)
         {
             using var _ = _b.Group($"blocks.{i}");
-            x = Block(x, text, modulation, $"{P}blocks.{i}.");
+            x = Block(x, text, modulation, $"{_prefix}blocks.{i}.");
         }
 
         using (_b.Group("output"))
         {
-            var table = _b.Weight(P + "head.modulation");
+            var table = _b.Weight(_prefix + "head.modulation");
             var shift = _b.Add(_b.Reshape(_b.Slice(table, 0, 0, d), 1, d), timeEmbedding);
             var scale = _b.Add(_b.Reshape(_b.Slice(table, 0, d, d), 1, d), timeEmbedding);
-            var projected = Linear(Modulate(x, shift, scale), P + "head.head");
+            var projected = Linear(Modulate(x, shift, scale), _prefix + "head.head");
             _b.Output(VideoDiffusionGraphs.Prediction, Unpatchify(projected));
         }
 
