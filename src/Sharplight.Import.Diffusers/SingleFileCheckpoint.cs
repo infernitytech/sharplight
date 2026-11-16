@@ -61,6 +61,11 @@ internal static partial class SingleFileCheckpoint
                 return WanConfig.Architecture;
             }
 
+            if (QwenImageCheckpoint.TransformerPrefix(names) is not null)
+            {
+                return QwenImageConfig.Architecture;
+            }
+
             if (names.Any(n => n.StartsWith(UNetPrefix, StringComparison.Ordinal)))
             {
                 return LatentDiffusionSource.Architecture;

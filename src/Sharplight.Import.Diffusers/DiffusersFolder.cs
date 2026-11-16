@@ -18,7 +18,7 @@ internal static class DiffusersFolder
     public static bool IsFolder(string path)
         => Directory.Exists(path) && File.Exists(Path.Combine(path, "vae", "config.json"))
            && (File.Exists(Path.Combine(path, "unet", "config.json")) || FluxFolder.IsFolder(path) || WanFolder.IsFolder(path) || LtxFolder.IsFolder(path)
-               || Sd3Folder.IsFolder(path) || ChromaFolder.IsFolder(path) || ZImageFolder.IsFolder(path));
+               || Sd3Folder.IsFolder(path) || ChromaFolder.IsFolder(path) || ZImageFolder.IsFolder(path) || QwenImageFolder.IsFolder(path));
 
     /// <summary>Opens the folder as a canonical source.</summary>
     /// <param name="path">The pipeline folder.</param>
@@ -43,6 +43,11 @@ internal static class DiffusersFolder
         if (ZImageFolder.IsFolder(path))
         {
             return ZImageFolder.Open(path);
+        }
+
+        if (QwenImageFolder.IsFolder(path))
+        {
+            return QwenImageFolder.Open(path);
         }
 
         if (WanFolder.IsFolder(path))

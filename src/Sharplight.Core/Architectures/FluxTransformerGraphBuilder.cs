@@ -12,13 +12,17 @@ namespace Sharplight.Architectures;
 /// and the pooled text embedding form the modulation vector, dual-stream blocks attend jointly over the text and image tokens with
 /// separate weights per stream, single-stream blocks run over the joined sequence (attention and MLP in parallel), and the image
 /// tokens are projected back to latents. Attention uses per-head RMS-normed queries and keys and 3-axis RoPE over (0, row, column)
-/// positions (text tokens at the origin). One image per run (a fixed batch of 1).
+/// positions (text tokens at the origin). One image per run (a fixed batch of 1). Qwen-Image's MMDiT is the same network without
+/// single-stream blocks, pooled embedding or guidance: the text features RMS-normed first, separate q/k/v projections, centred RoPE
+/// positions (<see cref="FluxHyperParameters.CenteredPositions"/>).
 /// </summary>
 /// <remarks>
 /// Canonical weights (each <c>.weight</c> with its <c>.bias</c>, except the norm scales): <c>transformer.img_in</c> [D, C·p²],
-/// <c>transformer.txt_in</c> [D, context], <c>transformer.time_in.in_layer|out_layer</c>, <c>transformer.vector_in.in_layer|out_layer</c>,
+/// <c>transformer.txt_in</c> [D, context], optional <c>transformer.txt_norm.weight</c> [context], <c>transformer.time_in.in_layer|out_layer</c>,
+/// <c>transformer.vector_in.in_layer|out_layer</c> (with a pooled embedding),
 /// optional <c>transformer.guidance_in.in_layer|out_layer</c>; per dual-stream block <c>transformer.double.{i}.</c>
-/// <c>{img,txt}_mod</c> [6D, D] (shift, scale, gate of the attention, then of the MLP), <c>{img,txt}_attn.qkv</c> [3D, D],
+/// <c>{img,txt}_mod</c> [6D, D] (shift, scale, gate of the attention, then of the MLP), <c>{img,txt}_attn.qkv</c> [3D, D] (or
+/// <c>{img,txt}_attn.q|k|v</c> [D, D]),
 /// <c>{img,txt}_attn.norm_q|norm_k.weight</c> [head dim], <c>{img,txt}_attn.proj</c>, <c>{img,txt}_mlp.up|down</c>; per single-stream
 /// block <c>transformer.single.{i}.</c> <c>mod</c> [3D, D], <c>linear1</c> [3D + M, D] (q, k, v, MLP input), <c>norm_q|norm_k.weight</c>,
 /// <c>linear2</c> [D, D + M]; <c>transformer.final.mod</c> [2D, D] (shift, scale), <c>transformer.final.linear</c> [C·p², D].
@@ -84,7 +88,6 @@ internal sealed class FluxTransformerGraphBuilder
             }
             else
             {
-                var pooled = _b.Input(DiffusionGraphs.Pooled, InputRole.Other, DataType.F32, new Shape(1, _hp.PooledDim));
                 var guidance = _hp.GuidanceEmbed ? _b.Input(DiffusionGraphs.Guidance, InputRole.Other, DataType.F32, new Shape(1)) : null;
                 var vector = Mlp(Sinusoids(timestep, "time_frequencies", FrequencyChannels), P + "time_in");
                 if (guidance is not null)
@@ -92,7 +95,12 @@ internal sealed class FluxTransformerGraphBuilder
                     vector = _b.Add(vector, Mlp(Sinusoids(_b.Scale(guidance, 1000f), "guidance_frequencies", FrequencyChannels), P + "guidance_in"));
                 }
 
-                vector = _b.Add(vector, Mlp(pooled, P + "vector_in"));
+                if (_hp.PooledDim > 0)
+                {
+                    var pooled = _b.Input(DiffusionGraphs.Pooled, InputRole.Other, DataType.F32, new Shape(1, _hp.PooledDim));
+                    vector = _b.Add(vector, Mlp(pooled, P + "vector_in"));
+                }
+
                 _modulationInput = _b.Silu(vector);
             }
         }
@@ -102,7 +110,14 @@ internal sealed class FluxTransformerGraphBuilder
         using (_b.Group("input"))
         {
             image = Linear(Patchify(latent), P + "img_in");
-            text = Linear(_b.Reshape(context, _textRows, _hp.ContextDim), P + "txt_in");
+            text = _b.Reshape(context, _textRows, _hp.ContextDim);
+            if (_b.HasWeight(P + "txt_norm.weight"))
+            {
+                // Qwen-Image RMS-normalizes the text features before projecting them.
+                text = _b.RmsNorm(text, _b.Weight(P + "txt_norm.weight"), NormEps);
+            }
+
+            text = Linear(text, P + "txt_in");
         }
 
         for (int i = 0; i < _hp.DoubleLayers; i++)
@@ -130,19 +145,33 @@ internal sealed class FluxTransformerGraphBuilder
     }
 
     /// <summary>
-    /// The constant RoPE positions [text + image rows, 3] (text at the origin, image tokens at (0, row, column)) and the per-frequency
-    /// divisors that turn the op's single geometric frequency series into FLUX's per-axis series θ^(−2j / axis dims).
+    /// The constant RoPE positions [text + image rows, 3] and the per-frequency divisors that turn the op's single geometric frequency
+    /// series into FLUX's per-axis series θ^(−2j / axis dims). FLUX: text at the origin, image tokens at (0, row, column). Centred
+    /// (Qwen-Image): image tokens at (0, row − ⌈rows / 2⌉, column − ⌈columns / 2⌉), text token j at m + j on all three axes with
+    /// m = max(⌊rows / 2⌋, ⌊columns / 2⌋).
     /// </summary>
     private void DeclarePositions()
     {
         int rows = _textRows + _imageRows;
         var positions = new int[rows * 3];
-        long columns = _latentWidth / _hp.PatchSize;
+        int gridRows = (int)(_latentHeight / _hp.PatchSize);
+        int columns = (int)(_latentWidth / _hp.PatchSize);
+        int rowOffset = _hp.CenteredPositions ? gridRows - gridRows / 2 : 0;
+        int columnOffset = _hp.CenteredPositions ? columns - columns / 2 : 0;
+        if (_hp.CenteredPositions)
+        {
+            int start = Math.Max(gridRows / 2, columns / 2);
+            for (int t = 0; t < _textRows; t++)
+            {
+                positions[t * 3] = positions[t * 3 + 1] = positions[t * 3 + 2] = start + t;
+            }
+        }
+
         for (int t = 0; t < _imageRows; t++)
         {
             int row = _textRows + t;
-            positions[row * 3 + 1] = (int)(t / columns);
-            positions[row * 3 + 2] = (int)(t % columns);
+            positions[row * 3 + 1] = t / columns - rowOffset;
+            positions[row * 3 + 2] = t % columns - columnOffset;
         }
 
         _positions = _b.Constant("rope_positions", DataType.I32, new Shape(rows, 3), MemoryMarshal.AsBytes(positions.AsSpan()).ToArray());
@@ -187,10 +216,27 @@ internal sealed class FluxTransformerGraphBuilder
     private (Value Q, Value K, Value V) Projections(Value x, string p, int rows)
     {
         int d = _hp.HiddenSize;
-        var qkv = Linear(x, p + ".qkv");
-        var q = _b.RmsNorm(Heads(_b.Contiguous(_b.Slice(qkv, 1, 0, d)), rows), _b.Weight(p + ".norm_q.weight"), NormEps);
-        var k = _b.RmsNorm(Heads(_b.Contiguous(_b.Slice(qkv, 1, d, d)), rows), _b.Weight(p + ".norm_k.weight"), NormEps);
-        var v = Heads(_b.Contiguous(_b.Slice(qkv, 1, 2 * d, d)), rows);
+        Value query;
+        Value key;
+        Value value;
+        if (_b.HasWeight(p + ".qkv.weight"))
+        {
+            var qkv = Linear(x, p + ".qkv");
+            query = _b.Contiguous(_b.Slice(qkv, 1, 0, d));
+            key = _b.Contiguous(_b.Slice(qkv, 1, d, d));
+            value = _b.Contiguous(_b.Slice(qkv, 1, 2 * d, d));
+        }
+        else
+        {
+            // Separate projections (Qwen-Image files: their quantization types may differ, so they are not joined).
+            query = Linear(x, p + ".q");
+            key = Linear(x, p + ".k");
+            value = Linear(x, p + ".v");
+        }
+
+        var q = _b.RmsNorm(Heads(query, rows), _b.Weight(p + ".norm_q.weight"), NormEps);
+        var k = _b.RmsNorm(Heads(key, rows), _b.Weight(p + ".norm_k.weight"), NormEps);
+        var v = Heads(value, rows);
         return (q, k, v);
     }
 

@@ -57,6 +57,12 @@ internal sealed record FluxHyperParameters
     /// <summary>Whether the text padding is masked in attention (Chroma: <see cref="DiffusionGraphs.ContextMask"/> input).</summary>
     public bool MaskedText { get; init; }
 
+    /// <summary>
+    /// Whether the RoPE positions are centred (Qwen-Image: image rows and columns around 0, the text after the largest image position)
+    /// instead of FLUX's (text at the origin, image from (0, 0)).
+    /// </summary>
+    public bool CenteredPositions { get; init; }
+
     /// <summary>Width per head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
 
@@ -83,6 +89,7 @@ internal sealed record FluxHyperParameters
             ApproximatorLayers = source.Get(p + "approximator_layers", 0),
             ApproximatorChannels = source.Get(p + "approximator_channels", 64),
             MaskedText = source.Get(p + "masked_text", false),
+            CenteredPositions = source.Get(p + "centered_positions", false),
         };
     }
 }

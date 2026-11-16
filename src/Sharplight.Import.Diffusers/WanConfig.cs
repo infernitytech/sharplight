@@ -53,20 +53,7 @@ internal sealed record WanConfig
         metadata[t + "cross_attn_norm"] = transformer.Bool("cross_attn_norm", true);
         metadata[t + "token_timesteps"] = expandTimesteps;
 
-        string v = Prefix + "vae.";
-        int[] multipliers = vae.TryGetProperty("dim_mult", out _) ? vae.Ints("dim_mult") : [1, 2, 4, 4];
-        metadata[v + "latent_channels"] = vae.Int("z_dim", 16);
-        metadata[v + "channel_multipliers"] = multipliers;
-        metadata[v + "residual_blocks"] = vae.Int("num_res_blocks", 2);
-        metadata[v + "temporal_downsample"] = vae.TryGetProperty("temperal_downsample", out var temporal)
-            ? temporal.EnumerateArray().Select(e => e.GetBoolean()).ToArray()
-            : new[] { false, true, true };
-        metadata[v + "residual"] = residual;
-        metadata[v + "patch_size"] = vae.Int("patch_size", 1);
-        metadata[v + "latents_mean"] = Floats(vae, "latents_mean");
-        metadata[v + "latents_std"] = Floats(vae, "latents_std");
-        metadata[v + "spatial_downscale"] = vae.Int("scale_factor_spatial", 8);
-        metadata[v + "temporal_downscale"] = vae.Int("scale_factor_temporal", 4);
+        WanVaeConfig.WriteTo(vae, metadata, Prefix);
 
         string s = Prefix + "scheduler.";
         string sampler = Samplers.UniPc;
@@ -135,9 +122,4 @@ internal sealed record WanConfig
         metadata[Prefix + "first_frame_conditioning"] = ti2v;
         return new WanConfig { Metadata = metadata };
     }
-
-    private static float[] Floats(JsonElement config, string key)
-        => config.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Array
-            ? [.. value.EnumerateArray().Select(e => e.GetSingle())]
-            : throw new InvalidDataException($"The VAE configuration has no '{key}' list.");
 }

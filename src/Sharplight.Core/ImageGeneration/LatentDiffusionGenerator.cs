@@ -32,6 +32,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly int _thirdContextLength;
     private readonly bool _thirdJoinsSequence;
     private readonly int _contextMaskPadding = -1;
+    private readonly int _promptSkip;
+    private readonly bool _guidanceRenormalization;
     private readonly string? _promptTemplate;
     private readonly bool _embeddedGuidance;
     private readonly bool _classifierFree;
@@ -62,6 +64,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         _promptTemplate = description.Component(ModelComponentRoles.Tokenizer).ConfigValue<string?>(DiffusionConfigKeys.PromptTemplate, null);
         var textEncoder = description.Component(ModelComponentRoles.TextEncoder);
         _contextLength = textEncoder.ConfigValue(DiffusionConfigKeys.ContextLength, 77);
+        _promptSkip = textEncoder.ConfigValue(DiffusionConfigKeys.PromptSkip, 0);
         _secondEncoderRole = textEncoder.Graphs.Contains(DiffusionGraphs.TextEncode2) ? ModelComponentRoles.TextEncoder
             : description.TryGetComponent(DiffusionGraphs.SecondTextEncoderRole, out var second) && second.Graphs.Contains(DiffusionGraphs.TextEncode2)
                 ? DiffusionGraphs.SecondTextEncoderRole
@@ -85,6 +88,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
 
         var denoiser = description.Component(ModelComponentRoles.Denoiser);
         _patchSize = denoiser.ConfigValue(DiffusionConfigKeys.PatchSize, 1);
+        _guidanceRenormalization = denoiser.ConfigValue(DiffusionConfigKeys.GuidanceRenormalization, false);
         if (model.ComponentGraph(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise).Inputs.Any(i => i.Name == DiffusionGraphs.ContextMask))
         {
             _contextMaskPadding = denoiser.ConfigValue(DiffusionConfigKeys.ContextMaskPadding, 0);
@@ -360,6 +364,15 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var (tokens, length) = PromptTokens(_tokenizer, _contextLength, prompt, _promptTemplate);
         var (hidden, pooled) = RunTextEncoder(ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, tokens, length);
         int rows = tokens.Length;
+        if (_promptSkip > 0 && hidden is not null)
+        {
+            // The template's leading tokens (Qwen-Image's system prompt) condition the prompt's hidden states but are not part of the context.
+            int width = hidden.Length / rows;
+            hidden = hidden.AsSpan(_promptSkip * width).ToArray();
+            rows -= _promptSkip;
+            length = Math.Max(0, length - _promptSkip);
+        }
+
         if (_secondEncoderRole is not null)
         {
             int[] secondTokens;
@@ -519,7 +532,57 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             guided[i] = unconditional + run.Guidance * (conditional - unconditional);
         }
 
+        if (_guidanceRenormalization)
+        {
+            RenormalizePerToken(guided, output.AsSpan(run.LatentSize, run.LatentSize), run);
+        }
+
         return guided;
+    }
+
+    /// <summary>
+    /// Scales the guided prediction of every token (a patch of <see cref="_patchSize"/>² latent pixels over all channels) to the norm
+    /// of the conditional prediction of that token, as diffusers' Qwen-Image pipelines do on their packed latents.
+    /// </summary>
+    private void RenormalizePerToken(float[] guided, ReadOnlySpan<float> conditional, DiffusionRun run)
+    {
+        int p = _patchSize;
+        int rows = run.LatentHeight / p;
+        int columns = run.LatentWidth / p;
+        int plane = run.LatentHeight * run.LatentWidth;
+        for (int row = 0; row < rows; row++)
+        {
+            for (int column = 0; column < columns; column++)
+            {
+                double conditionalSquares = 0;
+                double guidedSquares = 0;
+                for (int c = 0; c < run.LatentChannels; c++)
+                {
+                    for (int dy = 0; dy < p; dy++)
+                    {
+                        int offset = c * plane + (row * p + dy) * run.LatentWidth + column * p;
+                        for (int dx = 0; dx < p; dx++)
+                        {
+                            conditionalSquares += conditional[offset + dx] * (double)conditional[offset + dx];
+                            guidedSquares += guided[offset + dx] * (double)guided[offset + dx];
+                        }
+                    }
+                }
+
+                float scale = guidedSquares > 0 ? (float)(Math.Sqrt(conditionalSquares) / Math.Sqrt(guidedSquares)) : 1f;
+                for (int c = 0; c < run.LatentChannels; c++)
+                {
+                    for (int dy = 0; dy < p; dy++)
+                    {
+                        int offset = c * plane + (row * p + dy) * run.LatentWidth + column * p;
+                        for (int dx = 0; dx < p; dx++)
+                        {
+                            guided[offset + dx] *= scale;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>One denoiser run over <paramref name="rows"/> conditioning rows starting at <paramref name="firstRow"/>.</summary>
