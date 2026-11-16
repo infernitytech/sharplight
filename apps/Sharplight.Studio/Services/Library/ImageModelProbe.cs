@@ -18,6 +18,7 @@ internal static class ImageModelProbe
     private const string FluxTransformerTensor = "double_blocks.0.img_attn.qkv.weight";
     private const string Sd3TransformerTensor = "joint_blocks.0.x_block.attn.qkv.weight";
     private const string ZImageTransformerTensor = "noise_refiner.0.attention.qkv.weight";
+    private const string QwenImageTransformerTensor = "transformer_blocks.0.img_mod.1.weight";
     private const long MaxSafetensorsHeader = 256L << 20;
 
     private static readonly HashSet<string> s_diffusionTransformerArchitectures = new(StringComparer.OrdinalIgnoreCase)
@@ -55,7 +56,8 @@ internal static class ImageModelProbe
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
             if (SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor)
-                || SafetensorsHeaderContains(path, Sd3TransformerTensor) || SafetensorsHeaderContains(path, ZImageTransformerTensor))
+                || SafetensorsHeaderContains(path, Sd3TransformerTensor) || SafetensorsHeaderContains(path, ZImageTransformerTensor)
+                || SafetensorsHeaderContains(path, QwenImageTransformerTensor))
             {
                 return ModelKinds.ImageGeneration;
             }
@@ -86,7 +88,7 @@ internal static class ImageModelProbe
     }
 
     /// <summary>
-    /// Whether an image model file holds only a FLUX, Chroma, SD3 or Z-Image transformer (original tensor names, as city96 / stable-diffusion.cpp GGUF files
+    /// Whether an image model file holds only a FLUX, Chroma, SD3, Z-Image or Qwen-Image transformer (original tensor names, as city96 / stable-diffusion.cpp GGUF files
     /// and the official single files are distributed), so its text encoders and VAE come as companion files.
     /// </summary>
     /// <param name="path">A model file.</param>
@@ -95,7 +97,7 @@ internal static class ImageModelProbe
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
             return (SafetensorsHeaderContains(path, FluxTransformerTensor) || SafetensorsHeaderContains(path, Sd3TransformerTensor)
-                    || SafetensorsHeaderContains(path, ZImageTransformerTensor))
+                    || SafetensorsHeaderContains(path, ZImageTransformerTensor) || SafetensorsHeaderContains(path, QwenImageTransformerTensor))
                 && !SafetensorsHeaderContains(path, "text_encoders.");
         }
 
@@ -108,7 +110,8 @@ internal static class ImageModelProbe
         {
             using var file = GgufFile.Open(path);
             return file.Tensors.Any(tensor => tensor.Name.EndsWith(FluxTransformerTensor, StringComparison.Ordinal)
-                || tensor.Name.EndsWith(Sd3TransformerTensor, StringComparison.Ordinal) || tensor.Name.EndsWith(ZImageTransformerTensor, StringComparison.Ordinal));
+                || tensor.Name.EndsWith(Sd3TransformerTensor, StringComparison.Ordinal) || tensor.Name.EndsWith(ZImageTransformerTensor, StringComparison.Ordinal)
+                || tensor.Name.EndsWith(QwenImageTransformerTensor, StringComparison.Ordinal));
         }
         catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
         {

@@ -418,6 +418,22 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
   provider. `ImageGenerationOptions.InitialNoise` replaces it (reproducing another implementation's run).
 - Image-to-image: `ImageGenerationRequest.Image` with `Strength`; inpainting: plus `Mask` (white = regenerate; the input is
   re-imposed outside the mask after every step).
+- LoRA: LoRA files are auxiliary sources with roles starting with `AuxiliaryRoles.Lora` (`lora`, `lora:2`, ...; a `@scale` suffix sets
+  the strength, e.g. `lora@0.8`). Their importer turns them into an `IWeightPatch` (`ModelSource.FormatData`) that `WeightPatches.Merge`
+  applies to the primary's canonical weights before the adapter builds the model (W + s · α / r · up · down, computed when the weight
+  is read; quantized weights become f16). The diffusers importer reads kohya-ss files (SD 1.x diffusers names, SDXL's SGM names,
+  FLUX's original names with fused q/k/v), diffusers / PEFT files (`lora_A` / `lora_B`, also with fused targets split into row blocks)
+  and ComfyUI's, for SD 1.x / 2.x / XL, FLUX, Chroma and Qwen-Image; LyCORIS / DoRA variants are rejected. A package saved with
+  `sharplight-convert` keeps the merged weights.
+
+```csharp
+using var model = TaskModel.Load(loader, new TaskLoadOptions
+{
+    ModelPath = "sd_xl_base_1.0.safetensors",
+    Auxiliary = new Dictionary<string, string> { [$"{AuxiliaryRoles.Lora}@0.8"] = "pixel-art-xl.safetensors" },
+    Devices = [slot],
+});
+```
 - Sizes: the graphs are built for the native size (512×512 for SD 1.x, 768×768 for SD 2.x 768-v, 1024×1024 for SDXL and FLUX) and stored
   that way in `.slm`; another `Width` / `Height` (multiples of 64; FLUX: of 16) rebuilds the model once per size through
   `TaskModel.DefinitionFor(dimensions)` (the adapter rebuilds from the canonical metadata and weights, so `.slm` packages work too).

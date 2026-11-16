@@ -18,8 +18,12 @@ internal sealed partial class DecoderGraphBuilder
     /// <param name="hiddenOutput">Name of the output f32 [rows, hidden size].</param>
     /// <param name="rows">Tokens per prompt.</param>
     /// <param name="layer">The layer whose input is the output (0 … layer count).</param>
+    /// <param name="finalNorm">
+    /// Whether the last layer's output goes through the final norm (transformers' <c>hidden_states[-1]</c>, Qwen-Image's conditioning);
+    /// only with <paramref name="layer"/> = the layer count.
+    /// </param>
     /// <exception cref="InvalidDataException">The decoder's layout has no single hidden state per layer.</exception>
-    public ComputeGraph BuildLayerHiddenStates(string name, string tokensInput, string hiddenOutput, int rows, int layer)
+    public ComputeGraph BuildLayerHiddenStates(string name, string tokensInput, string hiddenOutput, int rows, int layer, bool finalNorm = false)
     {
         if (layer < 0 || layer > _hp.LogicalLayers || _hp.AltUpStreams > 0 || _hp.Cycles is not null)
         {
@@ -55,7 +59,7 @@ internal sealed partial class DecoderGraphBuilder
 
         _tapValues = [];
         x = Layers(b, x, positions, FrequencyFactors(b), perLayer, spans);
-        _tapValues[_hp.LogicalLayers] = x;
+        _tapValues[_hp.LogicalLayers] = finalNorm ? OutputNorm(b, x) : x;
         b.Output(hiddenOutput, _tapValues[layer]);
         _tapValues = null;
         _adapterSlots = null;
