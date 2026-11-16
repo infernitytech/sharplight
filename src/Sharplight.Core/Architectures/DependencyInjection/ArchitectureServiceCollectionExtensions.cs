@@ -36,6 +36,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<DetrAdapter>()
                 .AddModelAdapter<RtDetrAdapter>()
                 .AddModelAdapter<DepthEstimationAdapter>()
+                .AddModelAdapter<Sam2Adapter>()
+                .AddModelAdapter<RrdbNetAdapter>()
                 .AddModelAdapter<KokoroAdapter>()
                 .AddTaskClientFactory<KokoroSynthesizerFactory>()
                 .AddCompositeModelAdapter<OrpheusAdapter>()

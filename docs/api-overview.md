@@ -15,6 +15,7 @@ call `services.AddSharplight()`.
 |---|---|---|
 | `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
 | `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.WhisperCpp`, `.Diffusers`, `.PyTorch` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter`, `WhisperCppImporter`, `DiffusersImporter`, `services.AddXxxImporter()` |
+| `Sharplight.Video` | Video encoding: WebM (VP8 / VP9 through a native libvpx build), MP4 (H.264 through an optional system ffmpeg); the core adds animated PNG and GIF | `VideoEncoderCatalog`, `IVideoEncoder`, `VideoClip`, `services.AddSharplightVideo()` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` (+ `Sharplight.Shaders`) | Execution providers | `CpuExecutionProvider`, `VulkanProvider` |
 | `Sharplight` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplightServer`, `UseSharplightServer`, `MapSharplightServer`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
@@ -33,7 +34,7 @@ they need no extra `using`):
 | | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddCompositeModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
 | | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
 | | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
-| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageGenerator`, `AddVideoGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
+| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageSegmenter`, `AddTextRecognizer`, `AddImageUpscaler`, `AddImageGenerator`, `AddVideoGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
 | `Sharplight.Core` (`Sharplight.Architectures`) | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
 | `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => ...)`, `AddOnnxImporter()` | the format (ONNX also its graph adapter) |
 | `Sharplight.Import.WhisperCpp` | `AddWhisperCppImporter()` | whisper.cpp `ggml` model files |
@@ -44,10 +45,36 @@ they need no extra `using`):
 | `Sharplight.Core` (`Sharplight.Package`) | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order) |
 | `Sharplight.Audio` | `AddSharplightAudio(o => ...)` | native audio (own C library over miniaudio, libopus, libogg, opusfile, libvorbis): `IAudioDecoder` (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), `IAudioEncoder` (WAV, Ogg Opus), `IAudioDeviceProvider` (playback and capture streams); replaces the WAV-only `AddWavAudio()` services of the core, which stay the fallback when the native library cannot be loaded |
+| `Sharplight.Core` | `AddVideoEncoders()` (also called by `AddSharplightTasks()`) | the `VideoEncoderCatalog` and the managed animated PNG and GIF encoders ([Video encoding](#video-encoding)) |
+| `Sharplight.Video` | `AddSharplightVideo(o => ...)` | `WebMVideoEncoder` (VP9 or VP8 over the native libvpx; `SharplightVideoOptions.WebMCodec`) and `FfmpegVideoEncoder` (MP4 / H.264 through a system ffmpeg; `SharplightVideoOptions.FfmpegPath`), plus everything of `AddVideoEncoders()` |
 | `Sharplight.Core` | `AddSharplightStorage()`, `AddSharplightStorage(layout)` | the `StorageLayout` (portable, system or custom location of configuration, data, models, caches and logs; [storage.md](storage.md)) |
-| `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightStorage()`, `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()` |
+| `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightStorage()`, `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()`, `AddSharplightVideo()` |
 | `Sharplight.Extensions.AI` | `AddSharplightChatClient(o => ...)`, `AddSharplightEmbeddingGenerator(o => ...)`, `AddSharplightSpeechToTextClient()`, ... | Microsoft.Extensions.AI adapters |
 | `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
+
+## Video encoding
+
+`VideoClip` (frames as `ImageInput`, frames per second) is what video generation produces; `IVideoEncoder` writes it in one file format and
+`VideoEncoderCatalog` (resolved from the container) picks the encoder by format id or file extension:
+
+| format (`VideoFormats`) | extensions | encoder | available when |
+|---|---|---|---|
+| `webm` | `.webm` | `WebMVideoEncoder`: VP9 (default) or VP8 from libvpx (`native/sharplight_video`, BSD-3-Clause, built with zig for win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64), managed WebM muxer | the native library loads (always on the platforms above) |
+| `mp4` | `.mp4`, `.m4v` | `FfmpegVideoEncoder`: raw RGB piped to `ffmpeg` (`libx264`, yuv420p, fast start); H.264 is patent encumbered, so ffmpeg is never bundled | `ffmpeg` is on `PATH` or `SharplightVideoOptions.FfmpegPath` points to it |
+| `apng` | `.apng`, `.png` | `ApngVideoEncoder` (managed, lossless, changed-rectangle frames) | always |
+| `gif` | `.gif` | `GifVideoEncoder` (managed, GIF89a, per-frame palette, optional ordered dithering, loop extension) | always |
+
+```csharp
+var services = new ServiceCollection().AddSharplight().BuildServiceProvider();   // or AddSharplightVideo() alone
+var videos = services.GetRequiredService<VideoEncoderCatalog>();
+var clip = new VideoClip(frames, framesPerSecond: 24);          // frames: IReadOnlyList<ImageInput>, all the same size
+await videos.SaveAsync(clip, "out.webm", new VideoEncodeOptions { Quality = 85 });   // format chosen by extension
+if (videos.TryFind(VideoFormats.Mp4, out var mp4)) { await mp4.EncodeAsync(clip, stream); }
+```
+
+`VideoEncodeOptions` is small and immutable: `Quality` (0 to 100, the quantizer of WebM / MP4, dithering of GIF), `BitrateKilobitsPerSecond`
+(WebM / MP4 target instead of constant quality), `Loop` (GIF / APNG) and `MaxThreads`. All encoders do their CPU work on the thread pool.
+`catalog.Available` lists what works on the machine. The libvpx build is generic C (no SIMD yet), so VP9 encoding favors small clips.
 
 All registrations are idempotent. Options are Microsoft.Extensions.Options with settable properties (`TaskLoadOptions`,
 `LlmLoadOptions`, `EmbeddingLoadOptions`, `VulkanProviderOptions`, `HuggingFaceImportOptions`, `TorchCheckpointOptions`, `SharplightServerOptions`, ...), so they
@@ -121,6 +148,9 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `image-embedding` | `IImageEmbedder` | `EmbedImageAsync(ImageInput)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `ImageEmbeddingOptions` | `float[]`, `ImageClassification` |
 | `depth-estimation` | `IDepthEstimator` | `EstimateAsync(ImageInput)` | - | `DepthEstimationOptions` | `DepthMap` (per-pixel values, `ToGrayscale()`) |
 | `object-detection` | `IObjectDetector` | `DetectAsync(ImageInput)` | - | `ObjectDetectionOptions` (score threshold, max detections, optional NMS) | `ObjectDetection` (`DetectedObject`: class, label, score, `BoundingBox` in pixels) |
+| `image-segmentation` | `IImageSegmenter` | `EncodeImageAsync(ImageInput)` once per image, then `SegmentAsync(SegmentationImage, SegmentationPrompt)` per prompt (or `SegmentAsync(ImageInput, SegmentationPrompt)`) | - | `SegmentationOptions` (all candidate masks or the best one) | `ImageSegmentation` (`SegmentMask`: per-pixel mask at the image size, predicted IoU, area; object score) |
+| `ocr` | `ITextRecognizer` | `RecognizeAsync(ImageInput)` | - | `TextRecognitionOptions` (max tokens) | `TextRecognition` (text, `TextRegion`s with optional boxes) |
+| `image-upscaling` | `IImageUpscaler` | `UpscaleAsync(ImageInput)` | `UpscaleOptions.Progress` reports finished tiles | `UpscaleOptions` (tile size, tile padding, progress) | `ImageInput` at `Scale` times the size |
 
 Every client is an `ITaskClient`: `Metadata` (kind, model name, architecture), `GetService(Type)` for the objects behind it,
 `IDisposable` (it owns its compiled graphs, not the model), async calls with a `CancellationToken`. The shape mirrors
@@ -212,6 +242,15 @@ to the same embedder: `EmbedTextAsync` embeds a prompt into the image space and 
 Object detectors (DETR: `DetrAdapter`; RT-DETR: `RtDetrAdapter`; graph `detect`: normalized `pixels` in, per-query `logits` and `boxes` out) run through `services.AddObjectDetector(...)`; the box decoding, thresholding and
 non-maximum suppression are generic host-side utilities in Core (`BoundingBox`, `BoxUtilities.NonMaxSuppression`, `ObjectDetectionOptions`). `samples/Sharplight.Vision` (`sharplight-vision classify|detect|depth model image.png [--label prompt]... [-o out.png]`)
 is this in a command-line tool (`depth` writes a grayscale PNG, `detect` draws the boxes). Depth Anything (`DepthEstimationAdapter`, graph `estimate_depth`) runs through `services.AddDepthEstimator(...)`.
+
+Promptable segmentation (SAM 2: `Sam2Adapter`, `vision-encoder` + `mask-decoder` components, graphs `segment_encode` and `segment_decode`) separates the expensive image stage from the cheap
+prompt stage: `EncodeImageAsync` returns a `SegmentationImage` (embedding and skip features, held by the host), and every click or box of an interactive session is one `SegmentAsync` over it.
+A prompt is points (positive or negative) and/or a `BoundingBox` in image pixels; the graph takes them as `point_coords` and `point_kinds` (`SegmentPromptKinds`) with a symbolic point count, so there is no limit
+on the number of points. The decoder's low-resolution logits are resampled to the image on the host. OCR (TrOCR: the `encoder_decoder` adapter with an image encoder, `encoder.input` "image") reuses the speech recognizers' decoding machinery
+(KV-cached decoder, cross-attention keys and values cached once per source) with the model's tokenizer; `ITextRecognizer` is the task client. Upscalers (Real-ESRGAN: `RrdbNetAdapter`, graph `upscale` of generic Conv, Resize and LeakyRelu ops)
+are rebuilt for every input size through the model's dimensions (`height`, `width`); `IImageUpscaler` runs an image that fits one tile whole and cuts a larger one into overlapping tiles (`UpscaleOptions.TileSize`, `TilePadding`)
+whose outputs are blended with linear weights, so seams are invisible. The official `RealESRGAN_x4plus.pth` loads through the restricted unpickler of `Sharplight.Import.PyTorch` (`SuperResolutionImporter`).
+All three inference paths run on the thread pool, never on the caller's thread.
 
 The importers and architecture adapters for speech and image models come in their own workstreams; the task layer defines the
 interfaces, options, results, the description and the host-side plumbing they plug into.

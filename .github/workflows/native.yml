@@ -1,6 +1,7 @@
-name: Native audio
+name: Native libraries
 
-# Builds Sharplight's native audio library (native/sharplight_audio: miniaudio, libopus, libogg, opusfile and stb_vorbis from third_party/)
+# Builds Sharplight's native libraries. Audio:
+# the audio library (native/sharplight_audio: miniaudio, libopus, libogg, opusfile and stb_vorbis from third_party/)
 # for win-x64, win-arm64, linux-x64, linux-arm64 and osx-arm64 and uploads the binaries as the artifacts `native-audio-*`. The binaries are
 # never committed: ci.yml, packages.yml and studio.yml call this workflow and download the artifacts into native/sharplight_audio/out/
 # before building, testing or packing (src/Sharplight.Audio packs them as runtimes/<rid>/native/).
@@ -9,6 +10,10 @@ name: Native audio
 #   osx-arm64                                    built with the system clang on macOS (the Apple SDK provides the CoreAudio headers)
 #   native tests                                 C tests with ASan + UBSan (round-trips, null-backend devices, decoder fuzzing) on linux-x64
 #   smoke                                        the managed audio tests on the other native runners (decode fixtures, null-backend devices)
+#
+# Video (native/sharplight_video: libvpx VP8/VP9 encoders from third_party/, generic C, no platform SDK needed) is cross-compiled with zig
+# for all five platforms on ubuntu (artifacts `native-video-*`; the osx-arm64 binary is exercised by the smoke job on macOS), verified,
+# tested with ASan + UBSan on linux-x64, and smoke-tested through the managed Sharplight.Video tests.
 #
 # Triggered by the workflows that need the binaries; run it by hand to check a change to native/ or third_party/ in isolation.
 
@@ -43,6 +48,50 @@ jobs:
           name: native-audio-zig
           path: native-out/*/
           if-no-files-found: error
+
+  video-cross:
+    name: video: all platforms (zig)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install zig
+        run: echo "ZIG=$(native/sharplight_audio/install-zig.sh "$RUNNER_TEMP/zig" | tail -1)" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          SLV_OUT: ${{ github.workspace }}/native-video-out
+          SLV_BUILD: ${{ runner.temp }}/slv-obj
+        run: native/sharplight_video/build.sh all --jobs "$(nproc)"
+
+      - name: Verify
+        run: native/sharplight_video/verify.sh native-video-out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-video-zig
+          path: native-video-out/*/
+          if-no-files-found: error
+
+  video-native-tests:
+    name: video: native tests (linux-x64, ASan + UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install zig
+        run: echo "ZIG=$(native/sharplight_audio/install-zig.sh "$RUNNER_TEMP/zig" | tail -1)" >> "$GITHUB_ENV"
+
+      - name: Build the sanitizer variant
+        env:
+          SLV_OUT: ${{ runner.temp }}/slv-asan
+          SLV_BUILD: ${{ runner.temp }}/slv-asan-obj
+        run: native/sharplight_video/build.sh host-sanitize --jobs "$(nproc)"
+
+      - name: Run
+        env:
+          SLV_OUT: ${{ runner.temp }}/slv-asan
+        run: native/sharplight_video/tests/run.sh "$SLV_OUT/linux-x64-asan"
 
   native-tests:
     name: native tests (linux-x64, ASan + UBSan)
@@ -87,7 +136,7 @@ jobs:
 
   smoke:
     name: smoke (${{ matrix.rid }})
-    needs: [cross, macos]
+    needs: [cross, macos, video-cross]
     strategy:
       fail-fast: false
       matrix:
@@ -112,8 +161,19 @@ jobs:
           merge-multiple: true
           path: native/sharplight_audio/out
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-video-*
+          merge-multiple: true
+          path: native/sharplight_video/out
+
       # Decodes every fixture format against the analytic signal and runs the null-backend device tests on the real platform; ffmpeg is
       # not installed there, so the ffmpeg comparison skips itself.
       - name: Audio tests
         shell: bash
         run: dotnet run --project tests/Sharplight.Audio.Tests -c Release
+
+      # Encodes a clip to WebM with the platform's libvpx build and checks the file (decoded with ffmpeg where it is installed).
+      - name: Video tests
+        shell: bash
+        run: dotnet run --project tests/Sharplight.Video.Tests -c Release
