@@ -14,10 +14,30 @@ internal sealed partial class ImageViewer : UserControl
     /// <summary>Whether there is a bitmap (shows the buttons).</summary>
     public static readonly DirectProperty<ImageViewer, bool> HasImageProperty = AvaloniaProperty.RegisterDirect<ImageViewer, bool>(nameof(HasImage), viewer => viewer.Source is not null);
 
+    /// <summary>The second picture of a before/after comparison (shown right of the divider), or null.</summary>
+    public static readonly StyledProperty<IImage?> CompareSourceProperty = AvaloniaProperty.Register<ImageViewer, IImage?>(nameof(CompareSource));
+
+    /// <summary>Where the comparison divides the pictures, 0 to 1.</summary>
+    public static readonly StyledProperty<double> DividerProperty = AvaloniaProperty.Register<ImageViewer, double>(nameof(Divider), 0.5, defaultBindingMode: Avalonia.Data.BindingMode.TwoWay);
+
+    /// <summary>The primary pointer button places points and boxes instead of dragging (see <see cref="Controls.ZoomPanView.CapturesPrimaryProperty"/>).</summary>
+    public static readonly StyledProperty<bool> CapturesPrimaryProperty = AvaloniaProperty.Register<ImageViewer, bool>(nameof(CapturesPrimary));
+
+    /// <summary>Whether a comparison is shown.</summary>
+    public static readonly DirectProperty<ImageViewer, bool> IsComparingProperty = AvaloniaProperty.RegisterDirect<ImageViewer, bool>(nameof(IsComparing), viewer => viewer.CompareSource is not null);
+
+    /// <summary>Raised on a press on the picture while <see cref="CapturesPrimary"/> (position as fractions of the picture).</summary>
+    public event EventHandler<Controls.ImagePointerEventArgs>? ImagePressed;
+
+    /// <summary>Raised on the release after <see cref="ImagePressed"/>.</summary>
+    public event EventHandler<Controls.ImagePointerEventArgs>? ImageReleased;
+
     /// <summary>Creates the viewer.</summary>
     public ImageViewer()
     {
         InitializeComponent();
+        Zoom.ImagePressed += (_, args) => ImagePressed?.Invoke(this, args);
+        Zoom.ImageReleased += (_, args) => ImageReleased?.Invoke(this, args);
         Zoom.PropertyChanged += (_, change) =>
         {
             if (change.Property == Controls.ZoomPanView.ZoomTextProperty)
@@ -34,6 +54,33 @@ internal sealed partial class ImageViewer : UserControl
         set => SetValue(SourceProperty, value);
     }
 
+    /// <summary>The second picture of a comparison.</summary>
+    public IImage? CompareSource
+    {
+        get => GetValue(CompareSourceProperty);
+        set => SetValue(CompareSourceProperty, value);
+    }
+
+    /// <summary>The comparison divider, 0 to 1.</summary>
+    public double Divider
+    {
+        get => GetValue(DividerProperty);
+        set => SetValue(DividerProperty, value);
+    }
+
+    /// <summary>The primary button places things instead of dragging.</summary>
+    public bool CapturesPrimary
+    {
+        get => GetValue(CapturesPrimaryProperty);
+        set => SetValue(CapturesPrimaryProperty, value);
+    }
+
+    /// <summary>Whether a comparison is shown.</summary>
+    public bool IsComparing => CompareSource is not null;
+
+    /// <summary>The cursor to show over the picture (a cross while it places things).</summary>
+    public Controls.ZoomPanView View => Zoom;
+
     /// <summary>Whether there is a bitmap.</summary>
     public bool HasImage => Source is not null;
 
@@ -44,6 +91,10 @@ internal sealed partial class ImageViewer : UserControl
         if (change.Property == SourceProperty)
         {
             RaisePropertyChanged(HasImageProperty, change.OldValue is not null, change.NewValue is not null);
+        }
+        else if (change.Property == CompareSourceProperty)
+        {
+            RaisePropertyChanged(IsComparingProperty, change.OldValue is not null, change.NewValue is not null);
         }
     }
 

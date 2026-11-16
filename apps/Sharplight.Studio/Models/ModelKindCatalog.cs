@@ -13,6 +13,9 @@ internal static class ModelKindCatalog
     /// <summary>The kind of embedding models (a package describes them as text generation; its graphs tell them apart).</summary>
     public const string Embeddings = "embeddings";
 
+    /// <summary>The kind of LoRA adapter files: not models of their own, they attach to image models in the load panel.</summary>
+    public const string Lora = "lora";
+
     /// <summary>The kind of models that fit no other.</summary>
     public const string Other = "other";
 
@@ -23,6 +26,7 @@ internal static class ModelKindCatalog
         new(ModelKinds.SpeechRecognition, "Speech to text", "IconMic", [ModelTask.SpeechToText], Runnable: true),
         new(ModelKinds.SpeechSynthesis, "Text to speech", "IconSpeaker", [ModelTask.TextToSpeech], Runnable: true),
         new(ModelKinds.ImageGeneration, "Image generation", "IconImage", [ModelTask.ImageGeneration], Runnable: true),
+        new(Lora, "LoRA", "IconImage", [], Runnable: false),
         new(ModelKinds.VideoGeneration, "Video generation", "IconVideo", [ModelTask.VideoGeneration], Runnable: true),
         new(ModelKinds.ImageClassification, "Image classification", "IconTag", [ModelTask.ImageClassification], Runnable: true),
         new(ModelKinds.ImageEmbedding, "Image embedding", "IconEmbed", [], Runnable: true),

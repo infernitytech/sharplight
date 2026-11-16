@@ -3,6 +3,7 @@
              xmlns:vm="using:Sharplight.Studio.ViewModels.Video"
              xmlns:iv="using:Sharplight.Studio.Views.Inference"
              xmlns:conv="using:Sharplight.Studio.Converters"
+             xmlns:vw="using:Sharplight.Studio.Views"
              x:Class="Sharplight.Studio.Views.VideoPage"
              x:DataType="vm:VideoPageViewModel">
   <iv:InferenceFrame>
@@ -35,6 +36,7 @@
               </StackPanel>
               <TextBlock Classes="h2" Text="Result" VerticalAlignment="Center" />
             </DockPanel>
+            <vw:GalleryStripView DockPanel.Dock="Bottom" Margin="0,8,0,0" DataContext="{Binding Generations}" />
             <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,8,0,0">
               <!-- Playback -->
               <Panel IsVisible="{Binding Player.CanPlay}">
@@ -69,8 +71,8 @@
                 <Path Classes="icon huge" Data="{StaticResource IconVideo}" HorizontalAlignment="Center" />
                 <TextBlock Classes="muted" Text="The video appears here, frame by frame." HorizontalAlignment="Center" />
               </StackPanel>
-              <Border CornerRadius="8" ClipToBounds="True" IsVisible="{Binding Player.HasFrames}" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Image Source="{Binding Player.CurrentFrame, Converter={x:Static conv:FrameToBitmapConverter.Instance}}" Stretch="Uniform" MinHeight="200" MinWidth="200" />
+              <Border CornerRadius="8" ClipToBounds="True" IsVisible="{Binding Player.HasFrames}" MinHeight="320">
+                <vw:ImageViewer Source="{Binding Player.CurrentFrame, Converter={x:Static conv:FrameToBitmapConverter.Instance}}" />
               </Border>
             </Panel>
           </DockPanel>

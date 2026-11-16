@@ -26,6 +26,7 @@ internal sealed class EngineTaskModel : IEngineModel
         Path = request.Path;
         Device = device;
         Settings = request.Settings;
+        Auxiliary = request.Auxiliary ?? [];
         IsPinned = pinned;
         Capabilities = request.Capabilities;
         _host = host;
@@ -48,6 +49,9 @@ internal sealed class EngineTaskModel : IEngineModel
 
     /// <inheritdoc/>
     public LoadSettings Settings { get; }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<(string Role, string Path)> Auxiliary { get; }
 
     /// <inheritdoc/>
     public ModelCapabilities Capabilities { get; }
