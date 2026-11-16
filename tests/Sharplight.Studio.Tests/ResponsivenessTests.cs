@@ -115,6 +115,7 @@ public sealed class ResponsivenessTests
         var watch = System.Diagnostics.Stopwatch.StartNew();
         page.RunCommand.Execute(null);
         await page.Queue.Items[^1].Completion.WaitAsync(TestContext.Current.CancellationToken);
+        await WaitForAsync(() => !page.Queue.Items[^1].IsActive);
         Assert.Equal(RunStatus.Completed, page.Queue.Items[^1].Status);
         Assert.True(dispatcher.Posts <= PostBudget(watch.Elapsed), $"{dispatcher.Posts} UI jobs for 100 steps in {watch.Elapsed.TotalSeconds:F1} s");
 
@@ -155,6 +156,7 @@ public sealed class ResponsivenessTests
         var page = new SpeakPageViewModel(services.Services, new FakeNavigator());
         await page.ActivateAsync();
         page.InputText = "one two three";
+        page.Panel.Parameters.OfType<BoolParameterViewModel>().Single(parameter => parameter.Key == "stream").Value = true;
 
         await RunResponsiveAsync(page, page.RunCommand, "speech synthesis");
         page.InputText = string.Join(' ', Enumerable.Range(0, 30).Select(i => $"word{i}"));
@@ -259,6 +261,9 @@ public sealed class ResponsivenessTests
         run.Execute(null);
         await page.Queue.Items[^1].Completion.WaitAsync(TestContext.Current.CancellationToken);
         heartbeat.StopAndAssertResponsive(what);
+
+        // The final state is posted to the UI thread after the run's task completed.
+        await WaitForAsync(() => !page.Queue.Items[^1].IsActive);
         Assert.Equal(RunStatus.Completed, page.Queue.Items[^1].Status);
     }
 

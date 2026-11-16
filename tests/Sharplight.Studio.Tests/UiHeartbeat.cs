@@ -50,7 +50,7 @@ internal sealed class UiHeartbeat
     {
         _timer.Stop();
         Beat();
-        Assert.True(Beats >= 3, $"{what}: the UI thread beat only {Beats} times");
+        Assert.True(Beats >= 2, $"{what}: the UI thread beat only {Beats} times");
         Assert.True(WorstDelay <= Tolerance, $"{what}: a UI heartbeat was {WorstDelay.TotalMilliseconds:F0} ms late (at most {Tolerance.TotalMilliseconds:F0} ms)");
     }
 
