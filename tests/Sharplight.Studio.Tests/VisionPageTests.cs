@@ -249,4 +249,98 @@ public sealed class VisionPageTests
         Assert.Contains("cannot be read", page.Notice, StringComparison.Ordinal);
         Assert.True(page.Source.HasImage);
     }
+
+    private static async Task WaitAsync(VisionPageViewModel page)
+    {
+        await page.Queue.Items[^1].Completion.WaitAsync(TestContext.Current.CancellationToken);
+        await page.Refresh.WaitAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Segmentation_StartsInTheMiddle_ThenFollowsClicksAndBoxesOfOneEncodedImage()
+    {
+        using var services = new TestServices();
+        Vision(services, ModelKinds.ImageSegmentation, typeof(IImageSegmenter), out var client);
+        var page = await OpenAsync(services);
+        Assert.Equal((VisionMode.Segment, "Segment"), (page.Mode, page.RunText));
+        Assert.True(Visible(page, "segtool"));
+        await RunAsync(page);
+
+        Assert.Equal("segmentation", page.ResultMode);
+        Assert.True(page.CanPrompt);
+        Assert.Equal(new SegmentationPoint(40, 32), client.Prompts[0].Points.Single());
+        Assert.Equal(["Mask 1", "Mask 2", "Mask 3"], page.Rows.Select(row => row.Label));
+        var best = PngCodec.Decode(page.MainPng!);
+        Assert.Equal((80, 64), (best.Width, best.Height));
+
+        // A click adds a point on the object; the image is not encoded again.
+        page.PlacePoint(0.25, 0.5, negative: false);
+        await WaitAsync(page);
+        Assert.Equal([new SegmentationPoint(40, 32), new SegmentationPoint(20, 32)], client.Prompts[1].Points);
+        page.PlacePoint(0.9, 0.5, negative: true);
+        await WaitAsync(page);
+        Assert.False(client.Prompts[2].Points[2].IsPositive);
+        Assert.Equal(1, client.Encodings);
+
+        // A box replaces the points.
+        page.PlaceBox(0.5, 0.75, 0.25, 0.25);
+        await WaitAsync(page);
+        Assert.Empty(client.Prompts[3].Points);
+        Assert.Equal(new BoundingBox(20, 16, 40, 48), client.Prompts[3].Box);
+
+        // The mask choice redraws without a new run.
+        var before = PngCodec.Decode(page.MainPng!).Rgb;
+        page.Panel.Parameters.OfType<ChoiceParameterViewModel>().Single(parameter => parameter.Key == "mask").Deserialize("3");
+        await page.Refresh.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.NotEqual(before, PngCodec.Decode(page.MainPng!).Rgb);
+        Assert.Equal(4, client.Prompts.Count);
+
+        page.ClearPromptCommand.Execute(null);
+        await WaitAsync(page);
+        Assert.Equal(new SegmentationPoint(40, 32), client.Prompts[4].Points.Single());
+        Assert.Null(client.Prompts[4].Box);
+        Assert.Equal(["overlay.png", "result.json"], page.Gallery.Items[0].Files.Select(file => file.Name));
+    }
+
+    [Fact]
+    public async Task Ocr_ShowsTheRecognizedText()
+    {
+        using var services = new TestServices();
+        Vision(services, ModelKinds.Ocr, typeof(ITextRecognizer), out var client);
+        var page = await OpenAsync(services);
+        Assert.Equal((VisionMode.Ocr, "Read text"), (page.Mode, page.RunText));
+        Number(page, "maxtokens").Value = 64;
+        await RunAsync(page);
+
+        Assert.True(page.ShowText);
+        Assert.Equal("Hello Sharplight", page.ResultText);
+        Assert.Equal(64, ((TextRecognitionOptions)client.Options[0]!).MaxTokens);
+        await page.CopyCommand.ExecuteAsync(null);
+        Assert.Equal("Hello Sharplight", services.Platform.Copied[^1]);
+        Assert.Contains("Hello Sharplight", page.History.Items[0].Preview, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Upscaling_ShowsBeforeAndAfter_AndExportsTheEnlargedImage()
+    {
+        using var services = new TestServices();
+        Vision(services, ModelKinds.ImageUpscaling, typeof(IImageUpscaler), out var client);
+        var page = await OpenAsync(services);
+        Assert.Equal((VisionMode.Upscale, "Upscale"), (page.Mode, page.RunText));
+        Number(page, "tile").Value = 96;
+        Number(page, "tilepad").Value = 8;
+        await RunAsync(page);
+
+        Assert.True(page.ShowAfter);
+        var options = (UpscaleOptions)client.Options[0]!;
+        Assert.Equal((96, 8), (options.TileSize, options.TilePadding));
+        var after = PngCodec.Decode(page.AfterPng!);
+        Assert.Equal((160, 128), (after.Width, after.Height));
+        Assert.Equal((80, 64), (PngCodec.Decode(page.MainPng!).Width, PngCodec.Decode(page.MainPng!).Height));
+        string target = services.Directory + "/up.png";
+        services.Platform.SaveTo = target;
+        await page.ExportImageCommand.ExecuteAsync(null);
+        Assert.Equal(160, PngCodec.Decode(await File.ReadAllBytesAsync(target, TestContext.Current.CancellationToken)).Width);
+        Assert.Equal(["upscaled.png", "result.json"], page.Gallery.Items[0].Files.Select(file => file.Name));
+    }
 }

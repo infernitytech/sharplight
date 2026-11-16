@@ -27,7 +27,8 @@ internal sealed partial class LoadedModelViewModel : ObservableObject
         Sharplight.Models.ModelKinds.SpeechSynthesis => "Speak",
         Sharplight.Models.ModelKinds.ImageGeneration => "Image",
         Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding or Sharplight.Models.ModelKinds.ObjectDetection
-            or Sharplight.Models.ModelKinds.DepthEstimation => "Vision",
+            or Sharplight.Models.ModelKinds.DepthEstimation or Sharplight.Models.ModelKinds.ImageSegmentation or Sharplight.Models.ModelKinds.Ocr
+            or Sharplight.Models.ModelKinds.ImageUpscaling => "Vision",
         _ => "Chat",
     };
 
