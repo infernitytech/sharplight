@@ -26,15 +26,18 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
     private readonly IAudioFeatureExtractor _features;
     private readonly SpeechTokenProtocol _protocol;
     private readonly ITokenizer _tokenizer;
+    private readonly IServiceProvider? _services;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SpeechEncoderDecoder? _network;
     private bool _disposed;
 
     /// <summary>Creates the recognizer; nothing is compiled until the first request.</summary>
     /// <param name="model">A speech-recognition model with encoder, decoder, tokenizer and feature-extractor components.</param>
-    public EncoderDecoderSpeechRecognizer(TaskModel model)
+    /// <param name="services">The container a voice activity detector is resolved from for <see cref="SpeechRecognitionOptions.UseVoiceActivityDetection"/>, or <see langword="null"/>.</param>
+    public EncoderDecoderSpeechRecognizer(TaskModel model, IServiceProvider? services = null)
     {
         _model = model;
+        _services = services;
         _features = AudioFeatureExtractors.Create(model);
         _protocol = SpeechTokenProtocol.From(model.Metadata(ModelComponentRoles.Decoder));
         _tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
@@ -91,7 +94,7 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
         options ??= SpeechRecognitionOptions.Default;
         if (options.UseVoiceActivityDetection)
         {
-            await foreach (var segment in VoiceActivityPresegmentation.TranscribeAsync(this, audio, options, cancellationToken).ConfigureAwait(false))
+            await foreach (var segment in VoiceActivityPresegmentation.TranscribeAsync(this, _services, audio, options, cancellationToken).ConfigureAwait(false))
             {
                 yield return segment;
             }

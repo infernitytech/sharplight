@@ -23,6 +23,7 @@ internal sealed class FrameSpeechRecognizer : ISpeechRecognizer
     private readonly IAudioFeatureExtractor _features;
     private readonly FrameDecodingSettings _settings;
     private readonly ITokenizer _tokenizer;
+    private readonly IServiceProvider? _services;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SpeechEncoder? _encoder;
     private TransducerNetwork? _transducer;
@@ -30,9 +31,11 @@ internal sealed class FrameSpeechRecognizer : ISpeechRecognizer
 
     /// <summary>Creates the recognizer; nothing is compiled until the first request.</summary>
     /// <param name="model">A speech-recognition model with encoder, decoder, tokenizer and feature-extractor components.</param>
-    public FrameSpeechRecognizer(TaskModel model)
+    /// <param name="services">The container a voice activity detector is resolved from for <see cref="SpeechRecognitionOptions.UseVoiceActivityDetection"/>, or <see langword="null"/>.</param>
+    public FrameSpeechRecognizer(TaskModel model, IServiceProvider? services = null)
     {
         _model = model;
+        _services = services;
         _features = AudioFeatureExtractors.Create(model);
         _settings = FrameDecodingSettings.From(model.Description.Component(ModelComponentRoles.Decoder));
         _tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
@@ -80,7 +83,7 @@ internal sealed class FrameSpeechRecognizer : ISpeechRecognizer
         options ??= SpeechRecognitionOptions.Default;
         if (options.UseVoiceActivityDetection)
         {
-            await foreach (var segment in VoiceActivityPresegmentation.TranscribeAsync(this, audio, options, cancellationToken).ConfigureAwait(false))
+            await foreach (var segment in VoiceActivityPresegmentation.TranscribeAsync(this, _services, audio, options, cancellationToken).ConfigureAwait(false))
             {
                 yield return segment;
             }

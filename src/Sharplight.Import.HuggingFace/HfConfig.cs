@@ -96,7 +96,8 @@ internal sealed partial class HfConfig : IDisposable
         => _modelType ?? (Eagle3HfMapping.IsDrafter(this) ? "eagle3"
             : Architectures.Select(a => s_remoteCodeOverrides.GetValueOrDefault(a)).FirstOrDefault(t => t is not null) is { } overridden ? overridden
             : Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString()
-            : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null));
+            : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null)
+                ?? (Root.TryGetProperty("sources", out _) && Root.TryGetProperty("t_layers", out _) ? "htdemucs" : null));
 
     private HfConfig(HfConfig config, string modelType)
     {
