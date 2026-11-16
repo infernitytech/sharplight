@@ -13,7 +13,8 @@ For a diffusers FLUX folder (MODEL) this writes raw little-endian f32 tensors pl
   latents_{size}                    its final latents (model space, unpacked)
 
 Weights are upcast to f32 (--dtype) and everything runs on --device (default cpu: the 12B transformer needs ~48 GB of RAM in f32).
---transformer-gguf replaces the folder's transformer with a transformer-only GGUF (dequantized on the fly by diffusers; e.g. a
+--t5-gguf and --clip-file replace the text encoders by the companion files of a transformer-only checkpoint (same weights as
+Sharplight loads them). --transformer-gguf replaces the folder's transformer with a transformer-only GGUF (dequantized on the fly by diffusers; e.g. a
 FLUX.1-dev Q8_0 file with the text encoders and VAE of a FLUX.1-schnell folder, which are the same); --dev then also selects the
 FLUX.1-dev scheduler (resolution-dependent shift).
 Usage: make-flux-references.py MODEL OUT [--sizes 512 1024] [--steps N] [--guidance G] [--device cpu] [--threads 24]
@@ -56,6 +57,29 @@ class Reference:
             json.dump({"tensors": self.index, **self.extra}, f, indent=1)
 
 
+def load_t5_gguf(model, path, dtype):
+    """Loads the dequantized weights of a llama.cpp T5 encoder GGUF (city96's t5-v1_1-xxl-encoder files) into a T5EncoderModel."""
+    import gguf
+    names = {"attn_q": "layer.0.SelfAttention.q", "attn_k": "layer.0.SelfAttention.k", "attn_v": "layer.0.SelfAttention.v",
+             "attn_o": "layer.0.SelfAttention.o", "attn_norm": "layer.0.layer_norm", "ffn_gate": "layer.1.DenseReluDense.wi_0",
+             "ffn_up": "layer.1.DenseReluDense.wi_1", "ffn_down": "layer.1.DenseReluDense.wo", "ffn_norm": "layer.1.layer_norm",
+             "attn_rel_b": "layer.0.SelfAttention.relative_attention_bias"}
+    state = {}
+    for t in gguf.GGUFReader(path).tensors:
+        a = gguf.quants.dequantize(t.data, t.tensor_type).astype(np.float32).reshape([int(x) for x in reversed(t.shape)])
+        if t.name == "token_embd.weight":
+            key = "shared.weight"
+        elif t.name == "enc.output_norm.weight":
+            key = "encoder.final_layer_norm.weight"
+        else:
+            parts = t.name.split(".")
+            key = f"encoder.block.{parts[2]}.{names[parts[3]]}.weight"
+        state[key] = torch.from_numpy(a.copy()).to(dtype)
+    state["encoder.embed_tokens.weight"] = state["shared.weight"]
+    missing = model.load_state_dict(state, strict=False)
+    assert not missing.missing_keys, missing.missing_keys
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("model")
@@ -69,6 +93,8 @@ def main():
     parser.add_argument("--skip", nargs="*", default=[], help="parts to skip: text transformer vae images")
     parser.add_argument("--transformer-gguf", default=None)
     parser.add_argument("--dev", action="store_true", help="the GGUF transformer is FLUX.1-dev: guidance embedding, dynamic shift")
+    parser.add_argument("--t5-gguf", default=None, help="replace the T5 encoder by a T5 encoder GGUF (dequantized; llama.cpp names)")
+    parser.add_argument("--clip-file", default=None, help="replace the CLIP text encoder weights by a stand-alone file (clip_l.safetensors)")
     args = parser.parse_args()
     torch.set_num_threads(args.threads)
     torch.set_grad_enabled(False)
@@ -96,6 +122,13 @@ def main():
             extra["scheduler"] = FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000, shift=3.0, use_dynamic_shifting=True, base_shift=0.5,
                                                                  max_shift=1.15, base_image_seq_len=256, max_image_seq_len=4096)
     pipe = FluxPipeline.from_pretrained(args.model, torch_dtype=dtype, **extra)
+    if args.t5_gguf:
+        load_t5_gguf(pipe.text_encoder_2, args.t5_gguf, dtype)
+    if args.clip_file:
+        from safetensors.torch import load_file
+        state = {k: v.to(dtype) for k, v in load_file(args.clip_file).items()}
+        missing = pipe.text_encoder.load_state_dict(state, strict=False)
+        assert not [k for k in missing.missing_keys if "position_ids" not in k], missing.missing_keys
     pipe.to(args.device)
     dev = pipe.transformer.config.guidance_embeds
     steps = args.steps or (28 if dev else 4)

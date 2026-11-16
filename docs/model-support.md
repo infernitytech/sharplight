@@ -1210,12 +1210,17 @@ FLUX.1 runs on the same pipeline as the UNet models (2026-11-15). Design:
   `flux.tokenizer_2.tokenizer.*`, the flow schedule (`flux.scheduler.*`: shift, dynamic shift, base / max shift and sequence lengths)
   and the defaults (schnell: 4 steps, no guidance, T5 prompts of 256 tokens; dev: 28 steps, guidance 3.5, 512 tokens).
 - `FluxAdapter` (Sharplight.Architectures) builds five graphs of generic ops: the CLIP graph with only the pooled output
-  (`ClipTextGraphBuilder`, final-normed end token, no projection), the T5 graph (`T5TextGraphBuilder`: bucketed relative position
-  bias as the attention op's `position_bias`, gated tanh-GELU, no attention mask as in diffusers), the transformer
+  (`ClipTextGraphBuilder`, final-normed end token, no projection), the T5 graph (`T5TextGraphBuilder`: the bucketed relative
+  position bias gathered into a [heads, L, L] tensor and added to batched per-head score products (`BatchMatMul`, `Softmax`):
+  T5-XXL's 64 × 257 bias table as the attention op's constant `position_bias` stalls the Vulkan attention kernel; projections keep
+  f32 activations in the integer-dot kernels of quantized weights, gated tanh-GELU, no attention mask as in diffusers), the transformer
   (`FluxTransformerGraphBuilder`: patchify / unpatchify as reshape + permute, sinusoidal timestep / guidance embeddings, modulation
   chunks as slices of one projection, per-head RMS-normed q/k, RoPE over (0, row, column) positions through the `Rope` op's
-  multi-axis sections plus per-frequency divisors that give each axis its own θ^(−2j/d) series, joint bidirectional `Attention`)
-  and the existing 16-channel KL decoder / encoder (scaling 0.3611, shift 0.1159). No new op was needed.
+  multi-axis sections plus per-frequency divisors that give each axis its own θ^(−2j/d) series, joint bidirectional `Attention`
+  with the new `f16_products` attribute (`StandardOps.F16ProductsAttribute`: f16 products with f32 accumulation for that node, as
+  `AllowReducedPrecision` would allow; FLUX is trained and run in bf16, and the exact f32 kernel for 128-wide heads is the scalar
+  one because the split-precision flash tiles exceed 48 KB of workgroup memory: a 1024×1024 step took 18.6 s, 96 % in attention,
+  and takes 1.04 s with it) and the existing 16-channel KL decoder / encoder (scaling 0.3611, shift 0.1159). No new op was needed.
 - Core: `NoiseSchedule` describes rectified-flow schedules (`predictionType: flow`), `FlowMatchEulerSampler` follows diffusers'
   `FlowMatchEulerDiscreteScheduler` as the FLUX pipeline drives it (σ = linspace(1, 1/n), static or μ-shifted by the image token
   count, timestep = σ·1000, img2img start int(n − n·strength)); `LatentDiffusionGenerator` gained a second text-encoder component

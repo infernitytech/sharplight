@@ -140,7 +140,16 @@ public sealed class FluxSchnellTests
         TestContext.Current.SendDiagnosticMessage($"{source} {size}: PSNR {psnr:F1} dB; load {load:F1} s, first run (compiling) {first:F1} s, second run {second:F1} s");
         // Q8_0 transformer and T5 against the bf16 pipeline: visually the same image, fine texture differs (stable-diffusion.cpp on the
         // same files is 21.7 / 26.3 dB from diffusers at 512 / 1024).
-        Assert.True(psnr > (source == "gguf" ? 20 : 35), $"{source} {size}: PSNR {psnr:F1} dB");
+        // bf16 files with f16 attention products (the attention's f16_products) against diffusers in f32: 32.5 / 38.8 dB.
+        Assert.True(psnr > (source == "gguf" ? 20 : 30), $"{source} {size}: PSNR {psnr:F1} dB");
+        string sameWeights = Path.Combine(Env.FluxRoot, "schnell-gguf-reference", $"image_{size}.f32");
+        if (source == "gguf" && File.Exists(sameWeights))
+        {
+            // diffusers running the very same files (dequantized GGUF transformer and T5, clip_l.safetensors).
+            double same = Env.Psnr(result.Images[0].Rgb, PlanarImage.FromPlanar(Env.ReadFloats(sameWeights), size, size, 0f, 1f).Rgb);
+            TestContext.Current.SendDiagnosticMessage($"gguf {size}: PSNR {same:F1} dB against diffusers on the same weights");
+            Assert.True(same > 30, $"gguf {size}: PSNR {same:F1} dB against diffusers on the same weights");
+        }
     }
 
     [Fact]

@@ -8,13 +8,16 @@ namespace Sharplight.ImageGeneration.Tests;
 /// <summary>
 /// FLUX.1-dev (guidance embedding, resolution-dependent shift) from city96's Q8_0 GGUF on Vulkan, with the companions of the schnell
 /// GGUF folder (the text encoders and VAE are the same), against diffusers running the same GGUF transformer (dequantized, f32 on the
-/// CPU; tools/make-flux-references.py --transformer-gguf --dev) in ~/models/flux/dev-q8-reference. Skips when the files, the references
-/// or a GPU are missing.
+/// CPU; tools/make-flux-references.py --transformer-gguf --dev): the transformer against ~/models/flux/dev-q8-reference, the
+/// text-to-image run against ~/models/flux/dev-gguf-reference (also the T5 GGUF and clip_l.safetensors, the very same weights).
+/// Skips when the files, the references or a GPU are missing.
 /// </summary>
 [Collection(LargeModelCollection.Name)]
 public sealed class FluxDevTests
 {
     private static readonly string Reference = Path.Combine(Env.FluxRoot, "dev-q8-reference");
+
+    private static readonly string SameWeightsReference = Path.Combine(Env.FluxRoot, "dev-gguf-reference");
 
     private static float[] Tensor(string name) => Env.ReadFloats(Path.Combine(Reference, name + ".f32"));
 
@@ -62,8 +65,15 @@ public sealed class FluxDevTests
     {
         var slot = Gpu();
         Assert.SkipWhen(slot is null, "FLUX.1-dev GGUF, its references or a Vulkan GPU missing");
-        var index = Index();
+        Assert.SkipUnless(File.Exists(Path.Combine(SameWeightsReference, "index.json")), "dev-gguf-reference missing");
+        JsonElement index;
+        using (var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(SameWeightsReference, "index.json"))))
+        {
+            index = document.RootElement.Clone();
+        }
+
         int size = index.GetProperty("sizes")[0].GetInt32();
+        float[] Same(string name) => Env.ReadFloats(Path.Combine(SameWeightsReference, name + ".f32"));
         using var model = Load(slot!);
         using var generator = Env.Clients.Create<IImageGenerator>(model);
         var options = new ImageGenerationOptions
@@ -72,11 +82,11 @@ public sealed class FluxDevTests
             Height = size,
             Steps = index.GetProperty("steps").GetInt32(),
             GuidanceScale = index.GetProperty("guidance_scale").GetSingle(),
-            InitialNoise = Tensor($"noise_{size}"),
+            InitialNoise = Same($"noise_{size}"),
         };
         var result = await generator.GenerateAsync(new ImageGenerationRequest { Prompt = index.GetProperty("prompt").GetString()! }, options,
             TestContext.Current.CancellationToken);
-        var expected = PlanarImage.FromPlanar(Tensor($"image_{size}"), size, size, 0f, 1f);
+        var expected = PlanarImage.FromPlanar(Same($"image_{size}"), size, size, 0f, 1f);
         string output = Environment.GetEnvironmentVariable("SHARPLIGHT_SD_TEST_OUTPUT") ?? "";
         if (output.Length > 0)
         {
