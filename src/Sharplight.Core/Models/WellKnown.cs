@@ -210,6 +210,9 @@ public static class WellKnown
     public const string EncodeGraph = "encode";
     /// <summary>Name of the output of <see cref="EncodeGraph"/> (the encoded source sequence, one row per source token).</summary>
     public const string EncoderOutput = "encoder_output";
+
+    /// <summary>Output of an image-and-prompt encoder graph: the rows the vision tower and projector produce, before they are merged with the prompt.</summary>
+    public const string ImageFeaturesOutput = "image_features";
     /// <summary>Symbol of the source-sequence length (rows of the <see cref="InputRole.EncoderOutput"/> input).</summary>
     public const string EncoderSymbol = "E";
     /// <summary>

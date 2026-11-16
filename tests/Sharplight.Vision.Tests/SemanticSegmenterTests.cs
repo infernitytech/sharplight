@@ -70,11 +70,6 @@ public class SemanticSegmenterTests
             TestContext.Current.SendDiagnosticMessage($"{name} {backend}: matte logits relative rms {rms:e2}, max abs {maxAbs:e2}, foreground agreement {agreement:p3}");
             var (alphaMax, _, alphaRms) = Env.Compare([.. result.Logits!.Select(Sigmoid)], [.. expected.Select(Sigmoid)]);
             TestContext.Current.SendDiagnosticMessage($"{name} {backend}: alpha max abs {alphaMax:e2}, relative rms {alphaRms:e2}");
-            if (Environment.GetEnvironmentVariable("SHARPLIGHT_DUMP") is { } dump)
-            {
-                File.WriteAllBytes(Path.Combine(dump, $"{name}-{backend}.f32"), System.Runtime.InteropServices.MemoryMarshal.AsBytes<float>(result.Logits!).ToArray());
-            }
-
             int off = 0;
             for (int i = 0; i < expected.Length; i++)
             {
@@ -82,7 +77,7 @@ public class SemanticSegmenterTests
             }
 
             TestContext.Current.SendDiagnosticMessage($"{name} {backend}: {off} of {expected.Length} pixels with alpha difference above 0.05");
-            Assert.True(off < expected.Length * 0.005, $"{backend}: {off} pixels with an alpha difference above 0.05 (max {alphaMax})");
+            Assert.True(alphaMax < 0.01f && off == 0, $"{backend}: {off} pixels with an alpha difference above 0.05 (max {alphaMax})");
             Assert.True(agreement > 0.999, $"{backend}: foreground agreement {agreement}");
         }
     }

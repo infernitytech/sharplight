@@ -49,6 +49,7 @@ internal static class HfArchitectureMappings
         Register(new MimiHfMapping());
         Register(new Sam2HfMapping());
         Register(new TrOcrHfMapping());
+        Register(new Florence2HfMapping());
         Register(new T5HfMapping());
         Register(new BartHfMapping());
         Register(new WhisperHfMapping());

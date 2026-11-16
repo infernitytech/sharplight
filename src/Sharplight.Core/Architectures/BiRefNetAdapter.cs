@@ -15,7 +15,7 @@ namespace Sharplight.Architectures;
 /// </summary>
 /// <remarks>
 /// Hyper-parameters (<c>birefnet.*</c>): <c>image_size</c>, <c>embed_dim</c>, <c>depths</c>, <c>head_counts</c> (comma-separated), <c>window</c>, <c>decoder_inter</c> (the decoder blocks' inner width, 64),
-/// <c>aspp_kernels</c> (the deformable branches' kernel sizes, 1,3,7); canonical key <see cref="CanonicalKeys.ImageProcessor"/>. Weights: <c>enc.*</c> (the Swin backbone: <c>patch_embed.proj</c>,
+/// <c>aspp_kernels</c> (the deformable branches' kernel sizes, 1,3,7), <c>patch_order</c> ("channel": the input patches' channels run color, tile row, tile column; "tile": tile column, tile row, color); canonical key <see cref="CanonicalKeys.ImageProcessor"/>. Weights: <c>enc.*</c> (the Swin backbone: <c>patch_embed.proj</c>,
 /// <c>patch_embed.norm</c>, <c>layers.{i}.blocks.{j}.*</c>, <c>layers.{i}.downsample.{norm, reduction}</c>, <c>norm{i}</c>), <c>squeeze.*</c> and <c>dec.*</c> (decoder blocks, lateral and
 /// input-patch convolutions, gradient attention convolutions) with every batch norm folded into its convolution.
 /// </remarks>
@@ -74,6 +74,7 @@ public sealed class BiRefNetAdapter : IModelAdapter
         private readonly int[] _heads;
         private readonly int _window;
         private readonly int[] _asppKernels;
+        private readonly bool _tileMajor;
 
         public Builder(ModelSource src, int size)
         {
@@ -84,6 +85,7 @@ public sealed class BiRefNetAdapter : IModelAdapter
             _depths = [.. src.Arch<string>("depths").Split(',').Select(int.Parse)];
             _heads = [.. src.Arch<string>("head_counts").Split(',').Select(int.Parse)];
             _window = src.Arch<int>("window");
+            _tileMajor = src.Arch("patch_order", "channel") == "tile";
             _asppKernels = [.. src.Arch<string>("aspp_kernels").Split(',').Select(int.Parse)];
         }
 
@@ -218,7 +220,8 @@ public sealed class BiRefNetAdapter : IModelAdapter
             return _b.Mul(p, _b.Sigmoid(Conv(g, $"dec.gdt_convs_attn_{level}.0", 1, 0, 1)));
         }
 
-        // The image cut into a grid of tiles of the stage's side, one channel per (color, tile) pair, through two convolutions.
+        // The image cut into a grid of tiles of the stage's side, one channel per (color, tile) pair (channels ordered color, row, column; or, in the tile order of the later
+        // reference code, column, row, color), through two convolutions.
         private Value Patches(Value pixels, int side, string name)
         {
             int grid = _size / side;
@@ -226,7 +229,7 @@ public sealed class BiRefNetAdapter : IModelAdapter
             if (grid > 1)
             {
                 var split = _b.Reshape(pixels, 3, grid, side, grid, side);
-                tiles = _b.Reshape(_b.Contiguous(_b.Permute(split, 0, 1, 3, 2, 4)), 1, 3L * grid * grid, side, side);
+                tiles = _b.Reshape(_b.Contiguous(_b.Permute(split, _tileMajor ? [3, 1, 0, 2, 4] : [0, 1, 3, 2, 4])), 1, 3L * grid * grid, side, side);
             }
 
             return Conv(Conv(tiles, name + ".conv1", 1, 1, 1), name + ".conv_out", 1, 1, 1);

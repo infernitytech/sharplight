@@ -99,6 +99,7 @@ internal sealed class BiRefNetHfMapping : IHfArchitectureMapping
             [a + "head_counts"] = string.Join(',', backbone.Heads),
             [a + "window"] = backbone.Window,
             [a + "aspp_kernels"] = "1,3,7",
+            [a + "patch_order"] = Source(c)!.Contains("get_patches_batch", StringComparison.Ordinal) ? "tile" : "channel",
             [CanonicalKeys.ImageProcessor] = processor.ToJson().ToJsonString(),
         };
     }

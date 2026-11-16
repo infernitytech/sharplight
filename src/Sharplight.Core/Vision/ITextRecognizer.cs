@@ -9,6 +9,9 @@ namespace Sharplight.Vision;
 /// </summary>
 public interface ITextRecognizer : ITaskClient
 {
+    /// <summary>The tasks of a prompted model (<see cref="TextRecognitionOptions.Task"/>), the default first; empty for models that only read text.</summary>
+    public IReadOnlyList<string> Tasks => [];
+
     /// <summary>Reads the text of an image.</summary>
     /// <param name="image">The image, any size.</param>
     /// <param name="options">Request settings, or <see langword="null"/> for the defaults.</param>
