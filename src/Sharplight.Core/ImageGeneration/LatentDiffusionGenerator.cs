@@ -31,6 +31,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly bool _embeddedGuidance;
     private readonly bool _classifierFree;
     private readonly bool _releaseTextEncoders;
+    private (string Prompt, string? Negative, bool Guided, PromptConditioning Conditioning)? _lastConditioning;
     private readonly int _patchSize;
     private readonly int _latentChannels;
     private readonly int _downscale;
@@ -120,13 +121,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
         var run = Plan(request, options ?? ImageGenerationOptions.Default);
-        var context = await Task.Run(() => EncodePrompts(request, run.Guided), cancellationToken).ConfigureAwait(false);
-        if (_releaseTextEncoders)
-        {
-            Release(DiffusionGraphs.TextEncode);
-            Release(DiffusionGraphs.TextEncode2);
-        }
-
+        var context = await Task.Run(() => Conditioning(request, run.Guided), cancellationToken).ConfigureAwait(false);
         var reference = request.Image is null ? null : await Task.Run(() => EncodeImage(request.Image, run), cancellationToken).ConfigureAwait(false);
         var mask = request.Mask is null ? null : LatentMask(request.Mask, run);
         var images = new List<ImageInput>(run.Count);
@@ -244,6 +239,36 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         }
 
         return run;
+    }
+
+    /// <summary>
+    /// The conditioning of a request, reused when the prompts are those of the previous request. Models that barely fit the device
+    /// hold either the text encoders or the denoiser: the other components are released before encoding and the encoders after it.
+    /// </summary>
+    private PromptConditioning Conditioning(ImageGenerationRequest request, bool guided)
+    {
+        if (_lastConditioning is { } last && last.Prompt == request.Prompt && last.Negative == request.NegativePrompt && last.Guided == guided)
+        {
+            return last.Conditioning;
+        }
+
+        if (_releaseTextEncoders)
+        {
+            foreach (string key in _compiled.Keys.Where(k => k != DiffusionGraphs.TextEncode && k != DiffusionGraphs.TextEncode2).ToList())
+            {
+                Release(key);
+            }
+        }
+
+        var conditioning = EncodePrompts(request, guided);
+        if (_releaseTextEncoders)
+        {
+            Release(DiffusionGraphs.TextEncode);
+            Release(DiffusionGraphs.TextEncode2);
+        }
+
+        _lastConditioning = (request.Prompt, request.NegativePrompt, guided, conditioning);
+        return conditioning;
     }
 
     /// <summary>The text conditioning: the negative prompt's row first when guided, then the prompt's.</summary>

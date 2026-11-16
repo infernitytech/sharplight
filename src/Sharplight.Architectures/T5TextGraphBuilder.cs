@@ -34,12 +34,12 @@ internal static class T5TextGraphBuilder
             string p = $"{prefix}encoder.layers.{layer}.";
             var bias = b.HasWeight(p + "attention.relative_bias.weight") ? PositionBias(b, p + "attention.relative_bias.weight", hp, $"relative_bias_{layer}") : sharedBias;
             var h = b.RmsNorm(x, b.Weight(p + "attention_norm.weight"), hp.NormEps);
-            var attended = Attention(b, b.Linear(h, p + "attention.q.weight"), b.Linear(h, p + "attention.k.weight"), b.Linear(h, p + "attention.v.weight"), bias, hp);
-            x = b.Add(x, b.Linear(attended, p + "attention.o.weight"));
+            var attended = Attention(b, Linear(b, h, p + "attention.q.weight"), Linear(b, h, p + "attention.k.weight"), Linear(b, h, p + "attention.v.weight"), bias, hp);
+            x = b.Add(x, Linear(b, attended, p + "attention.o.weight"));
             h = b.RmsNorm(x, b.Weight(p + "mlp_norm.weight"), hp.NormEps);
-            var up = b.Linear(h, p + "mlp.up.weight");
-            var activated = b.HasWeight(p + "mlp.gate.weight") ? b.Mul(Activate(b, b.Linear(h, p + "mlp.gate.weight"), hp.Activation), up) : Activate(b, up, hp.Activation);
-            x = b.Add(x, b.Linear(activated, p + "mlp.down.weight"));
+            var up = Linear(b, h, p + "mlp.up.weight");
+            var activated = b.HasWeight(p + "mlp.gate.weight") ? b.Mul(Activate(b, Linear(b, h, p + "mlp.gate.weight"), hp.Activation), up) : Activate(b, up, hp.Activation);
+            x = b.Add(x, Linear(b, activated, p + "mlp.down.weight"));
         }
 
         b.Output(DiffusionGraphs.Hidden, b.RmsNorm(x, b.Weight(prefix + "encoder.output_norm.weight"), hp.NormEps));
@@ -87,6 +87,13 @@ internal static class T5TextGraphBuilder
         var attended = b.Emit1("BatchMatMul", [probabilities, Heads(v)]);
         return b.Reshape(b.Contiguous(b.Permute(attended, 1, 0, 2)), rows, hp.HeadCount * hp.HeadDim);
     }
+
+    /// <summary>
+    /// A projection whose input stays f32 in the integer-dot kernels of quantized weights: T5 activations carry outliers of 10⁴ and
+    /// more that int8 activation quantization flattens (a Q8_0 T5-XXL loses a fifth of its output otherwise).
+    /// </summary>
+    private static Value Linear(GraphBuilder b, Value x, string weight)
+        => b.Emit1("MatMul", [x, b.Weight(weight)], Attributes.From((StandardOps.F32ActivationsAttribute, true)));
 
     private static Value Activate(GraphBuilder b, Value x, string activation) => activation switch
     {

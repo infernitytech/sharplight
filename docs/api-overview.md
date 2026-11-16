@@ -272,8 +272,10 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
 - Classifier-free guidance runs on the host: the negative prompt (or the empty prompt) and the prompt are one batched denoiser run
   per step (two runs for denoisers built for one row). Guidance-distilled models take the scale as a denoiser input instead, and
   models without either (FLUX.1-schnell) ignore it.
-- Memory: when the weights take more than 80 % of the device memory (FLUX's bf16 files on a 32 GB GPU), the text encoders are
-  released after encoding a request's prompts and compiled again for the next one. Image i of a request uses `Seed + i`; the noise is a counter-based Gaussian stream, identical on every machine and
+- The conditioning of the previous request is reused when the prompts are the same (new seeds, sizes or steps encode nothing).
+- Memory: when the weights take more than 80 % of the device memory (FLUX's bf16 files on a 32 GB GPU), the generator holds either
+  the text encoders or the denoiser and VAE: the text encoders are released after encoding, and the denoiser and VAE before new
+  prompts are encoded (they are compiled again from the cached kernels). Image i of a request uses `Seed + i`; the noise is a counter-based Gaussian stream, identical on every machine and
   provider. `ImageGenerationOptions.InitialNoise` replaces it (reproducing another implementation's run).
 - Image-to-image: `ImageGenerationRequest.Image` with `Strength`; inpainting: plus `Mask` (white = regenerate; the input is
   re-imposed outside the mask after every step).
