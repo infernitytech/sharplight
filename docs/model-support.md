@@ -1516,8 +1516,8 @@ Verification (tools/make-tiny-zimage.py, tools/make-zimage-references.py; `TinyZ
   3e-2 (CPU) of diffusers on the dequantized weights; 4-step txt2img above 40 dB in all 6 combinations.
 - Z-Image-Turbo, unsloth's Q8_0 GGUF with the pipeline's Qwen3-4B `text_encoder` folder (bf16) and VAE as companions, against
   diffusers running the same files (dequantized GGUF transformer on CUDA, f32 text encoder): text encoder 1.4e-4, transformer 1.5e-3
-  (Vulkan) / 9.5e-3 (CPU) relative RMS; images ZIMAGE_PSNR.
-- Speed (Vulkan, Q8_0, warm): ZIMAGE_SPEED.
+  (Vulkan) / 9.5e-3 (CPU) relative RMS; images 49.6 dB (512) / 46.4 dB (1024), 9 steps from the same latents.
+- Speed (Vulkan, Q8_0, warm): 512×512 9 steps 4.3 s, 1024×1024 14.6 s (1.6 s per step; the text encoder 8 GB bf16 + transformer 7.3 GB on the device); diffusers (GGUF dequantized on the fly, CUDA f32) 0.65 s / 2.5 s per step. Studio: the load panel shows the Qwen3-4B and VAE slots, fills them from the pipeline folder beside the GGUF folder, and the Image page generates (tiny pipeline and Z-Image-Turbo Q8_0 at 512×512).
 
 ## 16. Video generation (2026-11-16)
 

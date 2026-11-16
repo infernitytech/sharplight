@@ -196,7 +196,7 @@ images are visually identical. All run on CPU and Vulkan (Vulkan used for the re
 | FLUX.1-dev | black-forest-labs/FLUX.1-dev, city96/FLUX.1-dev-gguf | GGUF Q8_0 + companions | 31.7 dB (512, 20 steps) vs diffusers on the same files | 28 steps at 1024x1024 in 33 s, 23.5 GB device memory | 2026-11-15 |
 | SD3.5 Medium | stabilityai/stable-diffusion-3.5-medium (ungated mirror adamo1139/stable-diffusion-3.5-medium-ungated), city96/stable-diffusion-3.5-medium-gguf | diffusers (fp16), GGUF Q8_0 + CLIP-L, CLIP-G, T5-XXL, VAE companions | fp16: 46.6 dB (512) / 38.8 dB (1024) vs diffusers f32; transformer 1.4e-4; Q8_0: 42.5 dB (512) / 29.4 dB (1024) vs diffusers on the same files | 28 steps, guidance 7; 1024x1024 in 12.6 s | 2026-11-16 |
 | Chroma1-HD | lodestones/Chroma1-HD, silveroxides/Chroma1-HD-GGUF | GGUF Q8_0 + T5-XXL, VAE companions | 46.3 dB (512) / 37.8 dB (1024) vs diffusers on the same files (boolean text mask, as the original Chroma) | 20 guided steps at 1024x1024 in 48 s | 2026-11-16 |
-| Z-Image-Turbo | Tongyi-MAI/Z-Image-Turbo, unsloth/Z-Image-Turbo-GGUF | diffusers, GGUF Q8_0 + Qwen3-4B text encoder, VAE companions | ZIMAGE_ROW | 9 steps, no guidance | 2026-11-16 |
+| Z-Image-Turbo | Tongyi-MAI/Z-Image-Turbo, unsloth/Z-Image-Turbo-GGUF | diffusers, GGUF Q8_0 + Qwen3-4B text encoder, VAE companions | 49.6 dB (512) / 46.4 dB (1024) vs diffusers on the same files; text encoder 1.4e-4, transformer 1.5e-3 | 9 steps, no guidance; 1024x1024 in 14.6 s; companions found in the pipeline folder beside the GGUF folder | 2026-11-16 |
 
 ## 5. Vision
 
