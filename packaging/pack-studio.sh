@@ -41,7 +41,7 @@ fi
 # Trimming and native AOT stay off: Avalonia compiled bindings, System.CommandLine and the engine's reflection are not trim-safe yet.
 # SharplightRequireFfmpeg makes the build fail when the FFmpeg libraries of the target are missing (src/Sharplight.Video).
 dotnet publish "$repo/apps/Sharplight.Studio/Sharplight.Studio.csproj" -c Release -r "$rid" --self-contained \
-    -p:PublishReadyToRun=true -p:SharplightRequireFfmpeg=true ${props[@]+"${props[@]}"} -o "$publish"
+    -p:PublishReadyToRun=true -p:SharplightRequireFfmpeg=true -p:SharplightFfmpegRid="$rid" ${props[@]+"${props[@]}"} -o "$publish"
 
 # Sharplight.Audio's native library (built by native.yml into native/sharplight_audio/out/<rid>/) rides along under runtimes/<rid>/native/.
 if ! ls "$publish/runtimes/$rid/native/"*sharplight_audio* >/dev/null 2>&1; then

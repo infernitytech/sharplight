@@ -4,7 +4,8 @@
     FFmpeg.AutoGen. The binaries are not committed: CI builds them (native.yml) into native/ffmpeg/out/<rid>/, and this project packs them as
     runtimes/<rid>/native/ and copies the ones of the build machine (or of the RuntimeIdentifier) next to the application.
     SharplightFfmpegDirectory overrides the directory. Set SharplightRequireFfmpeg=true (CI packaging does) to fail the build when the
-    libraries of a target platform are missing instead of shipping a package that cannot encode.
+    libraries of a target platform are missing instead of shipping a package that cannot encode: all five platforms, or only
+    SharplightFfmpegRid (an application's RID-specific publish passes its RID, which does not reach referenced libraries otherwise).
   -->
   <PropertyGroup>
     <Description>Video encoding and decoding for Sharplight with bundled LGPL FFmpeg libraries (H.264 via OpenH264, AV1 via SVT-AV1 and dav1d, VP8/VP9 via libvpx, ProRes, FFV1, GIF, APNG; AAC/Opus audio; NVENC, VideoToolbox and Media Foundation where available) on win-x64, win-arm64, linux-x64, linux-arm64 and osx-arm64.</Description>
@@ -38,7 +39,8 @@
   <!-- The libraries every platform must have (the names the loader opens, BundledFfmpeg.LibraryFileNames). -->
   <Target Name="SharplightCheckFfmpeg" BeforeTargets="Build;Pack" Condition="'$(SharplightRequireFfmpeg)' == 'true'">
     <ItemGroup>
-      <_SharplightFfmpegChecked Include="@(SharplightFfmpegRid)" Condition="'$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == '%(Identity)'" />
+      <_SharplightFfmpegChecked Include="$(SharplightFfmpegRid)" Condition="'$(SharplightFfmpegRid)' != ''" />
+      <_SharplightFfmpegChecked Include="@(SharplightFfmpegRid)" Condition="'$(SharplightFfmpegRid)' == '' And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == '%(Identity)')" />
       <_SharplightFfmpegMissing Include="@(_SharplightFfmpegChecked)" Condition="!Exists('$(SharplightFfmpegDirectory)%(Identity)/ffmpeg-configuration.txt')" />
     </ItemGroup>
     <Error Condition="'@(_SharplightFfmpegMissing)' != ''" Text="The bundled FFmpeg libraries are missing for @(_SharplightFfmpegMissing) in $(SharplightFfmpegDirectory) (build them with native/ffmpeg/build.sh or download the native-ffmpeg-* CI artifacts)." />

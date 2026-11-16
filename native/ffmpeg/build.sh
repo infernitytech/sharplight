@@ -8,8 +8,8 @@
 #   win-x64, win-arm64       llvm-mingw (UCRT; libc++ and libunwind linked statically), on an x86_64 Linux host
 #   osx-arm64                the system clang on a macOS host (Apple SDK for VideoToolbox / AudioToolbox), deployment target 11.0
 # Sources and build tools are pinned in third_party/sources.json ("buildSources", "buildTools") and fetched by fetch.sh.
-# Host requirements: python3, curl, make, cmake, ninja, pkg-config, a host C compiler (for nasm), perl; meson is installed into a
-# venv when it is not on PATH.
+# Host requirements: python3 (with venv), curl, make, cmake, ninja, pkg-config, a host C compiler (for nasm), perl; meson 1.12.1 is
+# installed into a venv under the cache (MESON overrides it).
 # Environment: ZIG (zig binary for the Linux targets), SLF_CACHE (downloads + extracted sources, default native/ffmpeg/cache),
 #              SLF_BUILD (build trees, default native/ffmpeg/build), SLF_OUT (output root, default native/ffmpeg/out; the libraries
 #              land in $SLF_OUT/<rid>/), SLF_KEEP (keep the build tree of a successful build).
@@ -112,7 +112,10 @@ case "$family" in
         cxx_runtime="-Wl,-Bstatic -lc++ -lunwind -Wl,-Bdynamic"
         ;;
     darwin)
-        CC="$(xcrun -f clang)"; CXX="$(xcrun -f clang++)"; AR="$(xcrun -f ar)"; RANLIB="$(xcrun -f ranlib)"; NM="$(xcrun -f nm)"
+        # The xcrun shims find the SDK (SDKROOT); the bare toolchain binaries would not see the system headers.
+        SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+        export SDKROOT
+        CC="/usr/bin/clang"; CXX="/usr/bin/clang++"; AR="$(xcrun -f ar)"; RANLIB="$(xcrun -f ranlib)"; NM="$(xcrun -f nm)"
         STRIP="$(xcrun -f strip)"; WINDRES=""
         export MACOSX_DEPLOYMENT_TARGET=11.0
         opt_flags="$opt_flags -arch arm64 -mmacosx-version-min=11.0"
@@ -128,13 +131,14 @@ if [ "$x86" = 1 ]; then
     if [ ! -x "$nasm" ]; then
         rm -rf "$build/nasm"
         cp -r "$(source_dir nasm)" "$build/nasm"
-        (cd "$build/nasm" && run ./configure --prefix="$cache/tools/nasm" > configure.log && run make -j"$jobs" nasm > make.log && mkdir -p "$cache/tools/nasm/bin" && cp nasm "$nasm")
+        (cd "$build/nasm" && logged "$build/nasm/configure.log" ./configure --prefix="$cache/tools/nasm" && logged "$build/nasm/make.log" make -j"$jobs" nasm \
+            && mkdir -p "$cache/tools/nasm/bin" && cp nasm "$nasm")
     fi
 fi
 
-if command -v meson > /dev/null; then
-    meson="meson"
-else
+# meson at the pinned version (dav1d and OpenH264 build with it); MESON overrides it.
+meson="${MESON:-}"
+if [ -z "$meson" ]; then
     if [ ! -x "$cache/tools/venv/bin/meson" ]; then
         python3 -m venv "$cache/tools/venv"
         printf 'meson==1.12.1 --hash=sha256:930bc7542cbd9f57009e182fd014eba48cf1a0180a7b9006d2d32d8f168d8b02\n' > "$cache/tools/meson-requirements.txt"
@@ -211,11 +215,11 @@ cmake_build() {
     shift
     local dir="$build/$name"
     rm -rf "$dir"
-    run cmake -S "$(source_dir "$name")" -B "$dir" -G Ninja -DCMAKE_TOOLCHAIN_FILE="$cmake_toolchain" -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-        -DCMAKE_C_FLAGS="$opt_flags" -DCMAKE_CXX_FLAGS="$opt_flags" "$@" > "$build/$name.configure.log"
-    run cmake --build "$dir" --parallel "$jobs" > "$build/$name.build.log"
-    run cmake --install "$dir" > "$build/$name.install.log"
+    logged "$build/$name.configure.log" cmake -S "$(source_dir "$name")" -B "$dir" -G Ninja -DCMAKE_TOOLCHAIN_FILE="$cmake_toolchain" \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_C_FLAGS="$opt_flags" -DCMAKE_CXX_FLAGS="$opt_flags" "$@"
+    logged "$build/$name.build.log" cmake --build "$dir" --parallel "$jobs"
+    logged "$build/$name.install.log" cmake --install "$dir"
 }
 
 meson_build() {
@@ -223,14 +227,25 @@ meson_build() {
     shift
     local dir="$build/$name"
     rm -rf "$dir"
-    run "$meson" setup "$dir" "$(source_dir "$name")" "${meson_target[@]}" --prefix "$prefix" --libdir lib --buildtype release \
-        --default-library static "$@" > "$build/$name.configure.log"
-    run ninja -C "$dir" -j "$jobs" > "$build/$name.build.log"
-    run ninja -C "$dir" install > "$build/$name.install.log"
+    logged "$build/$name.configure.log" "$meson" setup "$dir" "$(source_dir "$name")" "${meson_target[@]}" --prefix "$prefix" --libdir lib \
+        --buildtype release --default-library static "$@"
+    logged "$build/$name.build.log" ninja -C "$dir" -j "$jobs"
+    logged "$build/$name.install.log" ninja -C "$dir" install
 }
 
 step() {
     echo "== $rid: $1"
+}
+
+# Runs a build command with its output in a log file; on failure the end of the log goes to stderr (CI shows nothing else).
+logged() {
+    local log="$1"
+    shift
+    if ! run "$@" > "$log" 2>&1; then
+        echo "FAILED: $* (end of $log):" >&2
+        tail -n 60 "$log" >&2
+        return 1
+    fi
 }
 
 # Finished dependency steps leave a stamp, so a rerun with SLF_KEEP (after a failure further on) resumes instead of rebuilding.
@@ -296,9 +311,9 @@ mkdir -p "$build/libvpx"
     if [ -n "$nasm" ]; then
         export PATH="$(dirname "$nasm"):$PATH"
     fi
-    run "$(source_dir libvpx)/configure" "${vpx_args[@]}" > "$build/libvpx.configure.log"
-    run make -j"$jobs" > "$build/libvpx.build.log" 2>&1
-    run make install > "$build/libvpx.install.log" 2>&1
+    logged "$build/libvpx.configure.log" "$(source_dir libvpx)/configure" "${vpx_args[@]}"
+    logged "$build/libvpx.build.log" make -j"$jobs"
+    logged "$build/libvpx.install.log" make install
 )
 done_step libvpx
 fi
@@ -418,7 +433,7 @@ mkdir -p "$build/ffmpeg"
 (
     cd "$build/ffmpeg"
     if ! run "$(source_dir ffmpeg)/configure" "${ff_args[@]}" > "$build/ffmpeg.configure.log" 2>&1; then
-        tail -40 "$build/ffmpeg/ffbuild/config.log" >&2
+        tail -n 60 "$build/ffmpeg/ffbuild/config.log" >&2
         exit 1
     fi
     if [ "$family" = linux ]; then
