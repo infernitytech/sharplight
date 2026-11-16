@@ -127,6 +127,9 @@ def main():
     if args.clip_file:
         from safetensors.torch import load_file
         state = {k: v.to(dtype) for k, v in load_file(args.clip_file).items()}
+        expected = pipe.text_encoder.state_dict()
+        if not any(k.startswith("text_model.") for k in expected):
+            state = {k.removeprefix("text_model."): v for k, v in state.items()}
         missing = pipe.text_encoder.load_state_dict(state, strict=False)
         assert not [k for k in missing.missing_keys if "position_ids" not in k], missing.missing_keys
     pipe.to(args.device)
