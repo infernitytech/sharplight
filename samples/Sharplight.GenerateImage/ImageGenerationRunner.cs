@@ -16,7 +16,8 @@ internal sealed class ImageGenerationRunner(GenerateImageSettings settings)
     private Dictionary<string, string> Companions()
     {
         var companions = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (role, path) in new[] { (AuxiliaryRoles.TextEncoder, settings.TextEncoder), (AuxiliaryRoles.SecondTextEncoder, settings.SecondTextEncoder), (AuxiliaryRoles.Vae, settings.Vae) })
+        foreach (var (role, path) in new[] { (AuxiliaryRoles.TextEncoder, settings.TextEncoder), (AuxiliaryRoles.SecondTextEncoder, settings.SecondTextEncoder),
+            (AuxiliaryRoles.ThirdTextEncoder, settings.ThirdTextEncoder), (AuxiliaryRoles.Vae, settings.Vae) })
         {
             if (path is not null)
             {

@@ -205,6 +205,8 @@ Verified on CPU and Vulkan. Reference: transformers (token-exact greedy ids), wh
 | Parakeet as GGUF (TDT 0.6B v3) | handy-computer/parakeet-tdt-0.6b-v3-gguf | transcribe.cpp GGUF F16, Q8_0 | F16: text identical to the Hugging Face checkpoint on 5 clips (English, LibriSpeech, German, Spanish, Japanese); Q8_0: same text except one capital letter in German and a few kana in Japanese | Q4_K_M, Q5_K_M, Q6_K map the same way, not run | 2026-11-16 |
 | Parakeet unified (RNN-T, English) | handy-computer/parakeet-unified-en-0.6b-gguf | transcribe.cpp GGUF Q8_0 | Partial: transcripts match the reference text on jfk and LibriSpeech, no NeMo reference at hand to compare tokens | streaming chunked-attention settings read, but run with full context | 2026-11-16 |
 | Parakeet RNN-T | nvidia/parakeet-rnnt-* | HF | Partial: maps, not verified | | |
+| Qwen3-ASR 1.7B (audio language model) | Qwen/Qwen3-ASR-1.7B, Qwen/Qwen3-ASR-1.7B-hf, handy-computer/Qwen3-ASR-1.7B-gguf | HF (original and transformers layouts), transcribe.cpp GGUF | greedy ids identical to transformers on jfk and LibriSpeech, language detected and English forced, CPU and Vulkan; the `-hf` layout and the transcribe.cpp F16 GGUF give the same ids; the language the model names is returned | 30 languages; recordings in 30 s windows; Qwen3-ASR 0.6B maps the same way, not run | 2026-11-16 |
+| Voxtral Mini 3B (audio language model) | mistralai/Voxtral-Mini-3B-2507 | HF (transformers layout, `tekken.json` tokenizer) | greedy ids identical to transformers on jfk and LibriSpeech, without a language and with English given, CPU and Vulkan | 30 s per window (375 audio rows); Voxtral Small 24B maps the same way, not run; the realtime 4B (streaming decoder) is not supported | 2026-11-16 |
 
 Long recordings are cut into 30 s windows (Whisper uses its own timestamp-driven loop). Not yet: temperature fallback, Whisper word timestamps.
 
@@ -231,6 +233,9 @@ images are visually identical. All run on CPU and Vulkan (Vulkan used for the re
 | SD-Turbo | stabilityai/sd-turbo | diffusers | Loads | | |
 | FLUX.1-schnell | black-forest-labs/FLUX.1-schnell, city96/FLUX.1-schnell-gguf | diffusers (bf16), GGUF Q8_0 + CLIP-L, T5-XXL, VAE companions | bf16: 32.5 dB (512) / 38.8 dB (1024) vs diffusers; Q8_0: 33.4 dB / 39.7 dB vs diffusers running the same files | companion files found beside the GGUF; 1024x1024 step about 1 s on a 32 GB GPU | 2026-11-15 |
 | FLUX.1-dev | black-forest-labs/FLUX.1-dev, city96/FLUX.1-dev-gguf | GGUF Q8_0 + companions | 31.7 dB (512, 20 steps) vs diffusers on the same files | 28 steps at 1024x1024 in 33 s, 23.5 GB device memory | 2026-11-15 |
+| SD3.5 Medium | stabilityai/stable-diffusion-3.5-medium (ungated mirror adamo1139/stable-diffusion-3.5-medium-ungated), city96/stable-diffusion-3.5-medium-gguf | diffusers (fp16), GGUF Q8_0 + CLIP-L, CLIP-G, T5-XXL, VAE companions | fp16: 46.6 dB (512) / 38.8 dB (1024) vs diffusers f32; transformer 1.4e-4; Q8_0: 42.5 dB (512) / 29.4 dB (1024) vs diffusers on the same files | 28 steps, guidance 7; 1024x1024 in 12.6 s | 2026-11-16 |
+| Chroma1-HD | lodestones/Chroma1-HD, silveroxides/Chroma1-HD-GGUF | GGUF Q8_0 + T5-XXL, VAE companions | 46.3 dB (512) / 37.8 dB (1024) vs diffusers on the same files (boolean text mask, as the original Chroma) | 20 guided steps at 1024x1024 in 48 s | 2026-11-16 |
+| Z-Image-Turbo | Tongyi-MAI/Z-Image-Turbo, unsloth/Z-Image-Turbo-GGUF | diffusers, GGUF Q8_0 + Qwen3-4B text encoder, VAE companions | 49.6 dB (512) / 46.4 dB (1024) vs diffusers on the same files; text encoder 1.4e-4, transformer 1.5e-3 | 9 steps, no guidance; 1024x1024 in 14.6 s; companions found in the pipeline folder beside the GGUF folder | 2026-11-16 |
 
 ## 5. Vision
 
@@ -248,6 +253,17 @@ Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical u
 | SAM 2.1 Hiera tiny | facebook/sam2.1-hiera-tiny | segmentation (point, box prompts) | mask IoU > 0.98 vs transformers | image path only, no video | 2026-11-16 |
 | TrOCR base printed | microsoft/trocr-base-printed | OCR | text identical to transformers | greedy | 2026-11-16 |
 | Real-ESRGAN x4plus | xinntao/Real-ESRGAN (official `.pth`) | 4x upscaling | > 40 dB PSNR vs the reference, also tiled | | 2026-11-16 |
+| SwinIR classical x4 | JingyunLiang/SwinIR (`001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth`) | 4x upscaling | 92.9 dB (Vulkan) / 91.6 dB (CPU) PSNR vs the authors' network, tiled 61.6 dB | sizes in multiples of 8; real-world x4 variant built, not verified | 2026-11-16 |
+| ResNet 18 / 34 / 50, Wide ResNet 50-2 | timm/resnet18.a1_in1k, resnet34.a1_in1k, resnet50.a1_in1k, wide_resnet50_2.racm_in1k | classification | logits < 2e-3 vs timm, same top-1 | no label names in timm repositories; other timm families not supported | 2026-11-16 |
+| NSFW image detection (ViT) | Falconsai/nsfw_image_detection | classification | logits < 2e-3, same top-1 | | 2026-11-16 |
+| CLIP ViT-B/16, ViT-L/14 | openai/clip-vit-base-patch16, openai/clip-vit-large-patch14 | image and text embedding, zero-shot | image 2.1e-3 / 2.4e-3, zero-shot logits 4.6e-4 / 3.3e-4 | B/16 ships only `pytorch_model.bin` | 2026-11-16 |
+| CLIP ViT-B/32 LAION-2B | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | image and text embedding, zero-shot | image 2.7e-3, zero-shot logits 5.0e-4 | the `open_clip_*` files of the repository are ignored | 2026-11-16 |
+| SigLIP 2 base, SigLIP so400m | google/siglip2-base-patch16-224, google/siglip-so400m-patch14-384 | image and text embedding, zero-shot | image 1.3e-3 / 1.6e-3, zero-shot logits 1.5e-4 / 1.8e-4 | SigLIP 2 NaFlex and giant-opt not tried | 2026-11-16 |
+| DINOv2 base, DINOv2 with registers base, DINO ViT-B/16 | facebook/dinov2-base, facebook/dinov2-with-registers-base, facebook/dino-vitb16 | image embedding | CLS embedding < 2e-3 | | 2026-11-16 |
+| RT-DETR R50vd, R101vd (COCO + O365), v2 R18vd | PekingU/rtdetr_r50vd, PekingU/rtdetr_r101vd_coco_o365, PekingU/rtdetr_v2_r18vd | detection | same detections as transformers, boxes within 2 px | fixed square canvas | 2026-11-16 |
+| Table Transformer detection | microsoft/table-transformer-detection | detection | same detection as transformers | fixed square canvas | 2026-11-16 |
+| Depth Anything V2 base / large, Depth Anything V1 base | depth-anything/Depth-Anything-V2-Base-hf, Depth-Anything-V2-Large-hf, LiheYoung/depth-anything-base-hf | depth | depth map 7.4e-5 / 9.8e-5 / 1.2e-4 | fixed 518 px canvas | 2026-11-16 |
+| TrOCR base handwritten | microsoft/trocr-base-handwritten | OCR | text identical to transformers | greedy; TrOCR small (DeiT encoder, sinusoidal positions) and large (BEiT) not supported | 2026-11-16 |
 
 ## 6. Audio
 
@@ -282,7 +298,16 @@ tolerance of onnxruntime (typically relative RMS below 1e-5).
 
 ## 8. Video generation
 
-None yet.
+Reference: diffusers in f32 on CUDA (same initial latents), 832×480 (LTX: 704×480), 17 frames (LTX: 25), 20 steps; PSNR is the worst
+frame. Vulkan on a 32 GB GPU. Supported: text-to-video, image-to-video where the model has it, streaming decode, export to WebM / GIF /
+APNG (MP4 with a system ffmpeg), `.slm`.
+
+| Model | Hub repository | Formats | Verification | Notes | Verified |
+|---|---|---|---|---|---|
+| Wan 2.1 T2V 1.3B | Wan-AI/Wan2.1-T2V-1.3B-Diffusers | diffusers folder; transformer-only GGUF / safetensors with the folder as companion | text-to-video 50.8 dB, transformer 2.4e-4, umT5 3e-6 relative RMS | 4.2 s per step at 832×480×33 frames (f32), 16.3 GB | 2026-11-16 |
+| Wan 2.2 TI2V 5B | Wan-AI/Wan2.2-TI2V-5B-Diffusers | diffusers folder | image-to-video 55.1 dB, transformer 2.8e-4 | text- and image-to-video; 3.5 s per step (f32), 30.7 GB | 2026-11-16 |
+| LTX-Video 0.9.0 (2B) | Lightricks/LTX-Video (diffusers folder; T5-XXL of FLUX.1 / PixArt) | diffusers folder | text-to-video 57.5 dB, transformer 1.8e-5, T5 1.4e-5 relative RMS (704×480, 25 frames) | LTX-Video 0.9.1+ (causal / timestep-conditioned VAE) not yet | 2026-11-16 |
+| Wan 2.2 TI2V 5B GGUF | QuantStack/Wan2.2-TI2V-5B-GGUF (Q8_0) | GGUF + the Wan 2.2 diffusers folder as companion | image-to-video 51.1 dB vs the f32 reference, transformer 2.0e-3 | 1.6 s per step, 16.4 GB | 2026-11-16 |
 
 ## 9. Known unsupported or not working
 
@@ -292,8 +317,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 |---|---|---|
 | Inkling 2 Small | thinkingmachines/Inkling-2-Small, unsloth/Inkling-2-Small-GGUF | new `inkling2` blocks not implemented |
 | DeepSeek V4.1 Flash (HF) | deepseek-ai/DeepSeek-V4.1-Flash | Hugging Face tensor-name mapping missing (the GGUF files import) |
-| Qwen3-ASR 1.7B | Qwen/Qwen3-ASR-1.7B, handy-computer/Qwen3-ASR-1.7B-gguf | audio-LLM: chunked-window Whisper-style audio tower (conv2d stem, 24 layers) whose output rows are injected into a Qwen3 decoder; the audio-embedding path of the multimodal decoder and the ASR prompt are missing |
-| Voxtral Mini 4B Realtime | mistralai/Voxtral-Mini-4B-Realtime-2602 | audio tower plus the tekken tokenizer and a streaming (delayed-token) decoder |
+| Voxtral Mini 4B Realtime | mistralai/Voxtral-Mini-4B-Realtime-2602 | streaming (delayed-token) decoder; the offline Voxtral Mini 3B is supported (section 2) |
 | Cohere Transcribe 03-2026 | handy-computer/cohere-transcribe-03-2026-gguf | `cohere_asr` (conformer encoder with an autoregressive decoder) not implemented |
 | Nemotron 3.5 ASR streaming | handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | cache-aware streaming FastConformer: causal convolutions with layer-norm, chunked-limited attention context; the file loads as `parakeet` and is rejected with that reason |
 | faster-whisper (CTranslate2) | Systran/faster-whisper-* | CTranslate2 `model.bin` format has no importer (the same models import from the OpenAI checkpoints or whisper.cpp / transcribe.cpp files) |
@@ -307,11 +331,10 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | Nemotron 3.5 Super-VL and Bolt (ModelOpt NVFP4 / mixed-precision safetensors) | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4, nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB | ModelOpt mixed-precision layout not read (GGUF versions import) |
 | DFlash drafters with LiLiCorr head | Bolt and Super-VL drafters | correction head not implemented (reported as draft models) |
 | Gated repositories | meta-llama/Llama-3.1-8B-Instruct, google/medgemma-1.5-4b-it, nvidia/Cosmos-Reason2-2B | could not be downloaded without a token; not tested |
-| SD 1.5 inpainting UNet, SDXL refiner, SD3, Chroma, Qwen-Image, Wan, LTX | various | not implemented yet (rejected with a clear message) |
+| SD 1.5 inpainting UNet, SDXL refiner, Qwen-Image, Lumina-Image-2.0, LTX | various | not implemented yet (rejected with a clear message) |
 | LoRA, ControlNet, TAESD | | not implemented |
 | CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
-| Voxtral | mistralai/Voxtral-* | needs the tekken tokenizer and audio embeddings |
-| Mask2Former, YOLO (native), Florence-2 (native), SwinIR | | vision models not implemented (Florence-2 ONNX parts work) |
+| Mask2Former, YOLO (native), Florence-2 (native), SegFormer | | vision models not implemented (Florence-2 ONNX parts work; SwinIR is native since 2026-11-16) |
 | Demucs, CLAP, MusicGen | | audio models not implemented |
 | Mamba / RWKV real checkpoints beyond those above | | not covered by a model test |
 | Candle-format whisper GGUF | oxide-lab/whisper-large-v3-turbo-q4_0.gguf, xkeyC/model_q4_k.gguf | rejected on purpose; use the whisper.cpp or transcribe.cpp files |

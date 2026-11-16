@@ -121,7 +121,7 @@ public sealed class HuggingFaceImporter(HuggingFaceImportOptions? options = null
             // EAGLE-3 drafters ship without a tokenizer: they use their target's.
             if (mapping.NeedsTokenizer && (!Eagle3HfMapping.IsDrafter(config) || File.Exists(Path.Combine(dir, "tokenizer.json"))))
             {
-                HfTokenizerTranslator.AddTo(md, File.Exists(Path.Combine(dir, "tokenizer.json")) ? dir : weightsDir, config);
+                HfTokenizerTranslator.AddTo(md, TokenizerFolder(dir, weightsDir), config);
             }
             HfSentenceTransformers.AddTo(md, dir, config);
             mapping.AddMetadata(md, config, dir);
@@ -177,5 +177,30 @@ public sealed class HuggingFaceImporter(HuggingFaceImportOptions? options = null
             throw new UnsupportedWeightFormatException(quantization.Method!,
                 $"{new DirectoryInfo(dir).Name}: weights quantized with {quantization.Method} are not supported (supported: unquantized, FP8, NVFP4, MXFP4, GPTQ, AWQ, compressed-tensors, bitsandbytes).");
         }
+    }
+
+    /// <summary>
+    /// The folder with the tokenizer: the model folder, the weights folder, or for the text encoder of a diffusers pipeline
+    /// (<c>text_encoder{suffix}</c>) the sibling <c>tokenizer{suffix}</c> folder (Z-Image's Qwen3).
+    /// </summary>
+    private static string TokenizerFolder(string dir, string weightsDir)
+    {
+        if (File.Exists(Path.Combine(dir, "tokenizer.json")) || File.Exists(Path.Combine(weightsDir, "tokenizer.json")))
+        {
+            return File.Exists(Path.Combine(dir, "tokenizer.json")) ? dir : weightsDir;
+        }
+
+        string name = Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir)));
+        string? parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir)));
+        if (parent is not null && name.StartsWith("text_encoder", StringComparison.Ordinal))
+        {
+            string sibling = Path.Combine(parent, "tokenizer" + name["text_encoder".Length..]);
+            if (File.Exists(Path.Combine(sibling, "tokenizer.json")))
+            {
+                return sibling;
+            }
+        }
+
+        return weightsDir;
     }
 }

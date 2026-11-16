@@ -1,0 +1,117 @@
+using System.Diagnostics;
+using System.Text.Json;
+using Sharplight.Imaging;
+using Sharplight.Models;
+using Sharplight.Vision;
+
+namespace Sharplight.ImageGeneration.Tests;
+
+/// <summary>
+/// Chroma1-HD (silveroxides' transformer-only Q8_0 GGUF, with the T5-XXL encoder and the VAE of the FLUX.1-schnell folder as companions)
+/// on Vulkan against diffusers running the same files (tools/make-chroma-references.py: the dequantized GGUF transformer and f32 T5 / VAE
+/// on CUDA, 20 steps, guidance 4, a negative prompt, the boolean transformer mask, same initial latents) in
+/// ~/models/chroma/chroma1-hd-reference. Skips when the files, the references or a GPU are missing.
+/// </summary>
+[Collection(LargeModelCollection.Name)]
+public sealed class ChromaHdTests
+{
+    private static readonly string Reference = Path.Combine(Env.ChromaRoot, "chroma1-hd-reference");
+    private static readonly string Gguf = Path.Combine(Env.ChromaRoot, "gguf", "Chroma1-HD-Q8_0.gguf");
+
+    private static float[] Tensor(string name) => Env.ReadFloats(Path.Combine(Reference, name + ".f32"));
+
+    private static JsonElement Index()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(Reference, "index.json")));
+        return document.RootElement.Clone();
+    }
+
+    private static Dictionary<string, string> Companions() => new()
+    {
+        [AuxiliaryRoles.TextEncoder] = Path.Combine(Env.FluxSchnellDiffusers, "text_encoder_2", "model-00001-of-00002.safetensors"),
+        [AuxiliaryRoles.Vae] = Path.Combine(Env.FluxSchnellDiffusers, "vae", "diffusion_pytorch_model.safetensors"),
+    };
+
+    private static Runtime.DeviceSlot? Gpu()
+        => File.Exists(Gguf) && Directory.Exists(Env.FluxSchnellDiffusers) && File.Exists(Path.Combine(Reference, "index.json")) ? Env.Vulkan() : null;
+
+    [Fact]
+    public void GraphsMatchDiffusers()
+    {
+        var slot = Gpu();
+        Assert.SkipWhen(slot is null, "Chroma1-HD, its references or a Vulkan GPU missing");
+        using var model = Env.Load(Gguf, slot!, Companions());
+        var index = Index();
+        int i = 0;
+        foreach (var prompt in index.GetProperty("tokens").EnumerateObject())
+        {
+            int[] tokens = [.. prompt.Value.EnumerateArray().Select(t => t.GetInt32())];
+            int length = tokens.TakeWhile(t => t != 0).Count();
+            var mask = new float[tokens.Length];
+            mask.AsSpan(0, length).Fill(1f);
+            var hidden = GraphRunner.Run(model, ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, DiffusionGraphs.Hidden, 0,
+                (DiffusionGraphs.Tokens, tokens), (DiffusionGraphs.TokenMask, mask));
+            int d = hidden.Length / tokens.Length;
+            var (maxAbs, rms) = Env.Compare(hidden.AsSpan(0, length * d), Tensor($"text_hidden_{i}").AsSpan(0, length * d));
+            TestContext.Current.SendDiagnosticMessage($"T5 {i}: relative RMS {rms:E2}");
+            Assert.True(rms < 5e-3, $"T5 {i}: max {maxAbs}, relative RMS {rms}");
+            i++;
+        }
+
+        int size = index.GetProperty("transformer_size").GetInt32();
+        var dims = new Dictionary<string, long> { [DiffusionGraphs.Height] = size, [DiffusionGraphs.Width] = size };
+        var prediction = GraphRunner.Run(model, ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, DiffusionGraphs.Prediction, 1, dims,
+            (DiffusionGraphs.Latent, Tensor("transformer_latent")), (DiffusionGraphs.Timestep, Tensor("transformer_timestep")),
+            (DiffusionGraphs.Context, Tensor("transformer_context")), (DiffusionGraphs.ContextMask, Tensor("transformer_context_mask")));
+        var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor("transformer_out"));
+        TestContext.Current.SendDiagnosticMessage($"transformer: relative RMS {transformerRms:E2}");
+        Assert.True(transformerRms < 2e-2, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
+    }
+
+    public static TheoryData<int> Sizes => [512, 1024];
+
+    [Theory]
+    [MemberData(nameof(Sizes))]
+    public async Task TextToImageMatchesDiffusers(int size)
+    {
+        var slot = Gpu();
+        Assert.SkipWhen(slot is null, "Chroma1-HD, its references or a Vulkan GPU missing");
+        Assert.SkipUnless(File.Exists(Path.Combine(Reference, $"image_{size}.f32")), $"no {size} reference");
+        var stopwatch = Stopwatch.StartNew();
+        using var model = Env.Load(Gguf, slot!, Companions());
+        using var generator = Env.Clients.Create<IImageGenerator>(model);
+        double load = stopwatch.Elapsed.TotalSeconds;
+        var index = Index();
+        var options = new ImageGenerationOptions
+        {
+            Width = size,
+            Height = size,
+            Steps = index.GetProperty("steps").GetInt32(),
+            GuidanceScale = index.GetProperty("guidance_scale").GetSingle(),
+            InitialNoise = Tensor($"noise_{size}"),
+        };
+        var request = new ImageGenerationRequest
+        {
+            Prompt = index.GetProperty("prompt").GetString()!,
+            NegativePrompt = index.GetProperty("negative_prompt").GetString()!,
+        };
+        stopwatch.Restart();
+        var result = await generator.GenerateAsync(request, options, TestContext.Current.CancellationToken);
+        double first = stopwatch.Elapsed.TotalSeconds;
+        stopwatch.Restart();
+        result = await generator.GenerateAsync(request, options, TestContext.Current.CancellationToken);
+        double second = stopwatch.Elapsed.TotalSeconds;
+        var expected = PlanarImage.FromPlanar(Tensor($"image_{size}"), size, size, 0f, 1f);
+        string output = Environment.GetEnvironmentVariable("SHARPLIGHT_SD_TEST_OUTPUT") ?? "";
+        if (output.Length > 0)
+        {
+            Directory.CreateDirectory(output);
+            File.WriteAllBytes(Path.Combine(output, $"chroma1-hd-{size}-sharplight.png"), PngCodec.Encode(result.Images[0]));
+            File.WriteAllBytes(Path.Combine(output, $"chroma1-hd-{size}-diffusers.png"), PngCodec.Encode(expected));
+        }
+
+        double psnr = Env.Psnr(result.Images[0].Rgb, expected.Rgb);
+        TestContext.Current.SendDiagnosticMessage($"{size}: PSNR {psnr:F1} dB; load {load:F1} s, first run (compiling) {first:F1} s, second run {second:F1} s");
+        Assert.True(psnr > 25, $"{size}: PSNR {psnr:F1} dB");
+    }
+}

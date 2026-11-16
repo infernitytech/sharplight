@@ -63,6 +63,14 @@ public sealed class ModelImporterCatalog
         => TryFind(path, out var importer) ? importer.FindCompanions(path) : new Dictionary<string, string>();
 
     /// <summary>
+    /// The companion files the model at <paramref name="path"/> needs (<see cref="IModelImporter.DescribeCompanions"/>); empty when no
+    /// importer opens the path or the model needs none.
+    /// </summary>
+    /// <param name="path">The primary model file or directory.</param>
+    public IReadOnlyList<CompanionFile> DescribeCompanions(string path)
+        => TryFind(path, out var importer) ? importer.DescribeCompanions(path) : [];
+
+    /// <summary>
     /// Opens a primary model plus auxiliary sources (e.g. a vision projector under <see cref="Vision.AuxiliaryRoles.Mmproj"/>); roles the
     /// caller leaves out are filled with the companion files the primary's importer finds (<see cref="FindCompanions"/>).
     /// </summary>

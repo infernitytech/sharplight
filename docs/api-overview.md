@@ -436,7 +436,9 @@ Video generators are models of kind `video-generation` with the client `IVideoGe
 folders (Wan 2.1 text-to-video, Wan 2.2 TI2V text- and image-to-video) into the canonical `wan` source, and `WanAdapter`
 (Sharplight.Architectures) builds the umT5 text encoder (with a key mask), the video diffusion transformer (3-D patches, RoPE over
 (frame, row, column), cross-attention to the text tokens, per-token timesteps for TI2V) and the causal 3-D VAE as graphs of generic
-Core ops (components `text-encoder`, `tokenizer`, `transformer`, `vae`, `scheduler`; graph contract `VideoDiffusionGraphs`). Core's
+Core ops (components `text-encoder`, `tokenizer`, `transformer`, `vae`, `scheduler`; graph contract `VideoDiffusionGraphs`). LTX-Video
+0.9.0 folders become the canonical `ltx` source (`LtxAdapter`: the unmasked T5 encoder, a transformer with key-masked
+cross-attention and fractional RoPE, the non-causal VAE decoder over the whole latent video). Core's
 built-in `VideoDiffusionGenerator` (registered by `AddSharplightTasks()`) runs every model that follows the contract.
 
 ```csharp

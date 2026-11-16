@@ -137,7 +137,7 @@ internal sealed class SafetensorsCheckpoint : IDisposable
     }
 
     /// <summary>
-    /// Drops weight variants (<c>model.fp32.safetensors</c>, <c>model.fp16.safetensors</c>, ...) when the default <c>model.safetensors</c> is
+    /// Drops weight variants (<c>model.fp32.safetensors</c>, <c>model.fp16.safetensors</c>, ...) and open_clip's export (<c>open_clip_*.safetensors</c>) when the default <c>model.safetensors</c> is
     /// present: transformers loads a variant only when asked for it, and a variant repeats every tensor of the default file.
     /// </summary>
     /// <param name="shards">The safetensors files of the directory.</param>
@@ -151,7 +151,8 @@ internal sealed class SafetensorsCheckpoint : IDisposable
         return shards.Where(p =>
         {
             string name = Path.GetFileName(p);
-            return name == "model.safetensors" || !name.StartsWith("model.", StringComparison.Ordinal);
+            // open_clip_model.safetensors (laion repositories) is the same checkpoint in open_clip's tensor names.
+            return name == "model.safetensors" || !(name.StartsWith("model.", StringComparison.Ordinal) || name.StartsWith("open_clip_", StringComparison.Ordinal));
         }).ToList();
     }
 

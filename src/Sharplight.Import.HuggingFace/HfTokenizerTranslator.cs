@@ -36,6 +36,12 @@ internal static partial class HfTokenizerTranslator
             return;
         }
 
+        if (!File.Exists(tokenizerPath) && IsTekken(dir))
+        {
+            AddTekken(md, dir, config);
+            return;
+        }
+
         if (!File.Exists(tokenizerPath) && IsSlowByteLevelBpe(dir))
         {
             AddFromJson(md, ConvertSlowByteLevelBpe(dir), dir, config);

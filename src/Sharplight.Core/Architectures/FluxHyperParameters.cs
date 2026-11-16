@@ -1,3 +1,4 @@
+using Sharplight.ImageGeneration;
 using Sharplight.Models;
 
 namespace Sharplight.Architectures;
@@ -29,7 +30,7 @@ internal sealed record FluxHyperParameters
     /// <summary>Width of the text conditioning (the T5 hidden size).</summary>
     public required int ContextDim { get; init; }
 
-    /// <summary>Width of the pooled text embedding (CLIP).</summary>
+    /// <summary>Width of the pooled text embedding (CLIP; 0 without, Chroma).</summary>
     public required int PooledDim { get; init; }
 
     /// <summary>Whether the guidance scale is embedded (guidance-distilled models, FLUX.1-dev).</summary>
@@ -44,12 +45,24 @@ internal sealed record FluxHyperParameters
     /// <summary>Native image size in pixels.</summary>
     public required int SampleSize { get; init; }
 
+    /// <summary>
+    /// Layers of the modulation approximator (Chroma's "distilled guidance" MLP that replaces the per-block modulation projections and
+    /// the timestep / pooled-text embedders); 0 for FLUX.
+    /// </summary>
+    public int ApproximatorLayers { get; init; }
+
+    /// <summary>Input width of the approximator (sinusoidal timestep, guidance and modulation-index channels; Chroma: 64).</summary>
+    public int ApproximatorChannels { get; init; } = 64;
+
+    /// <summary>Whether the text padding is masked in attention (Chroma: <see cref="DiffusionGraphs.ContextMask"/> input).</summary>
+    public bool MaskedText { get; init; }
+
     /// <summary>Width per head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
 
     /// <summary>Reads the keys.</summary>
     /// <param name="source">The canonical source.</param>
-    /// <param name="prefix">The architecture prefix (<c>flux.</c>).</param>
+    /// <param name="prefix">The architecture prefix (<c>flux.</c>, <c>chroma.</c>).</param>
     public static FluxHyperParameters Read(ModelSource source, string prefix)
     {
         string p = prefix + "transformer.";
@@ -62,11 +75,14 @@ internal sealed record FluxHyperParameters
             DoubleLayers = source.Get<int>(p + "double_layers"),
             SingleLayers = source.Get<int>(p + "single_layers"),
             ContextDim = source.Get<int>(p + "context_dim"),
-            PooledDim = source.Get<int>(p + "pooled_dim"),
+            PooledDim = source.Get(p + "pooled_dim", 0),
             GuidanceEmbed = source.Get(p + "guidance_embed", false),
             AxesDim = source.Get<int[]>(p + "axes_dim", [16, 56, 56]),
             RopeTheta = source.Get(p + "rope_theta", 10000f),
             SampleSize = source.Get(p + "sample_size", 1024),
+            ApproximatorLayers = source.Get(p + "approximator_layers", 0),
+            ApproximatorChannels = source.Get(p + "approximator_channels", 64),
+            MaskedText = source.Get(p + "masked_text", false),
         };
     }
 }

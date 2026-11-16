@@ -30,7 +30,7 @@ internal sealed partial class DetrHfMapping : IHfArchitectureMapping
     public string Architecture => "detr";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["detr"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["detr", "table-transformer"];
 
     /// <inheritdoc/>
     public bool NeedsTokenizer => false;
@@ -77,6 +77,7 @@ internal sealed partial class DetrHfMapping : IHfArchitectureMapping
             [a + "image_size"] = InputSize,
             [a + "backbone.depths"] = string.Join(',', depths),
             [a + "backbone.bottleneck"] = bottleneck,
+            [a + "pre_norm"] = c.ModelType == "table-transformer",
             [CanonicalKeys.ImageProcessor] = processor.ToJson().ToJsonString(),
         };
         if (Labels(c) is { Length: > 0 } labels)
@@ -132,6 +133,11 @@ internal sealed partial class DetrHfMapping : IHfArchitectureMapping
         if (name == "model.query_position_embeddings.weight")
         {
             return "query_position.weight";
+        }
+
+        if (name.StartsWith("model.encoder.layernorm.", StringComparison.Ordinal))
+        {
+            return "encoder.norm." + name["model.encoder.layernorm.".Length..];
         }
 
         if (name.StartsWith("model.decoder.layernorm.", StringComparison.Ordinal))

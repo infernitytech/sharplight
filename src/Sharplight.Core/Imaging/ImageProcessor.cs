@@ -35,9 +35,9 @@ public sealed class ImageProcessor(ImageProcessorConfig config)
         byte[] rgb = rw == image.Width && rh == image.Height ? image.Rgb : Resize(image, rw, rh);
         int cw = Config.CropWidth > 0 ? Config.CropWidth : rw;
         int ch = Config.CropHeight > 0 ? Config.CropHeight : rh;
-        // Hugging Face's center_crop offset is (size - crop) / 2 rounded toward zero; images smaller than the crop are zero padded.
-        int left = (rw - cw) / 2;
-        int top = (rh - ch) / 2;
+        // Hugging Face's center_crop offset is (size - crop) / 2 rounded toward zero, torchvision's the nearest integer (ties to even); images smaller than the crop are zero padded.
+        int left = CropOffset(rw - cw);
+        int top = CropOffset(rh - ch);
         var planes = new float[3L * cw * ch];
         int plane = cw * ch;
         for (int c = 0; c < 3; c++)
@@ -60,6 +60,8 @@ public sealed class ImageProcessor(ImageProcessorConfig config)
 
         return new ProcessedImage(planes, cw, ch, image.Width, image.Height, (float)rw / image.Width, (float)rh / image.Height, left, top);
     }
+
+    private int CropOffset(int excess) => Config.CropOffsetNearest ? (int)Math.Round(excess / 2.0, MidpointRounding.ToEven) : excess / 2;
 
     private (int Width, int Height) ResizedSize(int width, int height)
     {
