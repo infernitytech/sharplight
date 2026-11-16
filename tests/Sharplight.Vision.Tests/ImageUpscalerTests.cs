@@ -46,7 +46,7 @@ public class ImageUpscalerTests
             var whole = await upscaler.UpscaleAsync(input, new UpscaleOptions { TileSize = 0 }, TestContext.Current.CancellationToken);
             Assert.Equal((expected.Width, expected.Height), (whole.Width, whole.Height));
             double psnr = Psnr(whole, expected);
-            TestContext.Current.SendDiagnosticMessage($"{backend}: whole image {psnr:f1} dB from the reference");
+            TestContext.Current.SendDiagnosticMessage($"{name} {backend}: whole image {psnr:f1} dB from the reference");
             Assert.True(psnr > 40, $"{backend}: {psnr} dB");
             if (backend == "cpu")
             {
@@ -56,7 +56,7 @@ public class ImageUpscalerTests
             var progress = new List<double>();
             var tiled = await upscaler.UpscaleAsync(input, new UpscaleOptions { TileSize = 64, TilePadding = 16, Progress = new Progress<double>(progress.Add) }, TestContext.Current.CancellationToken);
             double tiledPsnr = Psnr(tiled, expected);
-            TestContext.Current.SendDiagnosticMessage($"{backend}: tiled {tiledPsnr:f1} dB from the reference, {progress.Count} tiles");
+            TestContext.Current.SendDiagnosticMessage($"{name} {backend}: tiled {tiledPsnr:f1} dB from the reference, {progress.Count} tiles");
             Assert.True(tiledPsnr > tiledMinimum, $"{backend}: tiled {tiledPsnr} dB");
             Assert.True(progress.Count > 1);
         }

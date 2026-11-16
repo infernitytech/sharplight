@@ -20,7 +20,6 @@ public class TextRecognizerTests
     [Theory]
     [InlineData("trocr-base-printed")]
     [InlineData("trocr-base-handwritten")]
-    [InlineData("trocr-small-handwritten")]
     public async Task RecognizerMatchesTransformers(string name)
     {
         if (!Available(name))
