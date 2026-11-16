@@ -124,14 +124,12 @@ public sealed class ImagingServicesTests
     [Fact]
     public void TheImageKinds_AreRunnable_AndHaveTaskClients()
     {
-        foreach (string kind in new[] { ModelKinds.ImageGeneration, ModelKinds.ImageClassification, ModelKinds.ImageEmbedding, ModelKinds.ObjectDetection, ModelKinds.DepthEstimation })
+        foreach (string kind in new[] { ModelKinds.ImageGeneration, ModelKinds.ImageClassification, ModelKinds.ImageEmbedding, ModelKinds.ObjectDetection, ModelKinds.DepthEstimation,
+            ModelKinds.ImageSegmentation, ModelKinds.Ocr, ModelKinds.ImageUpscaling })
         {
             Assert.True(ModelKindCatalog.For(kind).Runnable, kind);
             Assert.True(TaskKindClients.Handles(kind), kind);
         }
-
-        Assert.False(ModelKindCatalog.For(ModelKinds.ImageSegmentation).Runnable);
-        Assert.False(TaskKindClients.Handles(ModelKinds.ImageSegmentation));
     }
 }
 

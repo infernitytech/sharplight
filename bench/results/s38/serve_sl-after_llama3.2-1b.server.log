@@ -1,0 +1,13 @@
+Graph optimization (sharplight-ir/1): decode 356 -> 356 nodes, decode_embeddings 355 -> 355 nodes, embed 324 -> 324 nodes, classify 324 -> 324 nodes [30 ms]
+Loaded Llama-3.2-1B-Instruct (decoder): 147 tensors, 2.47 GB, vocab 128256 [1014 ms]
+Rows per forward pass: 2048 (automatic, 28988 MiB available).
+Compiling 78 / 78, 78 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 2.47 / 2.47 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' for 16 sequences x 4096 tokens in 618 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 18 groups, 4.30 GiB weights+state
+1 segment(s): [0@0: 357 nodes]
+Ready (decode)
+Model 'Llama-3' loaded in 1714 ms (estimated 5093 MiB, resident 4766 MiB).
+Serving 'Llama-3' (both API, VRAM reserve 1.00 GiB) on http://127.0.0.1:18093
+  Llama-3 [Chat] Loaded 4766 MiB
+  NVIDIA RTX PRO 4500 Blackwell: total 32623 MiB, budget 30013 MiB, used 4880 MiB (ours 4877 MiB), available 25133 MiB

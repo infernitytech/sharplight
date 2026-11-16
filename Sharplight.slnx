@@ -14,6 +14,7 @@
     <Project Path="src/Sharplight.Import.WhisperCpp/Sharplight.Import.WhisperCpp.csproj" />
     <Project Path="src/Sharplight.Import.Kokoro/Sharplight.Import.Kokoro.csproj" />
     <Project Path="src/Sharplight.Import.Snac/Sharplight.Import.Snac.csproj" />
+    <Project Path="src/Sharplight.Import.SileroVad/Sharplight.Import.SileroVad.csproj" />
     <Project Path="src/Sharplight.Audio/Sharplight.Audio.csproj" />
     <Project Path="src/Sharplight.Video/Sharplight.Video.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
@@ -58,6 +59,7 @@
     <Project Path="tests/Sharplight.Serving.Tests/Sharplight.Serving.Tests.csproj" />
     <Project Path="tests/Sharplight.Studio.Tests/Sharplight.Studio.Tests.csproj" />
     <Project Path="tests/Sharplight.TextToSpeech.Tests/Sharplight.TextToSpeech.Tests.csproj" />
+    <Project Path="tests/Sharplight.AudioModels.Tests/Sharplight.AudioModels.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
     <Project Path="tests/Sharplight.Vision.Tests/Sharplight.Vision.Tests.csproj" />
     <Project Path="tests/Sharplight.ImageGeneration.Tests/Sharplight.ImageGeneration.Tests.csproj" />

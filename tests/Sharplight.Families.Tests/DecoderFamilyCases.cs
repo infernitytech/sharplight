@@ -4,7 +4,7 @@ namespace Sharplight.Families.Tests;
 
 /// <summary>
 /// The generic-decoder families (model-support.md waves 0 and 2): Mixtral, SmolLM3, OLMo 1/2, GLM-4, ERNIE 4.5, Hunyuan, EXAONE 3/4, Seed-OSS, InternLM2, OpenELM, Granite and
-/// Granite-MoE, MiniCPM, Phi-2, StarCoder2, Command-R and Cohere2 (GGUF only: the tiny Cohere checkpoints have a hidden size of 8, which makes their logits too close to ties to compare), Falcon, GPT-NeoX/Pythia, GPT-J, GPT-2, Nemotron, StableLM, Apertus, AFM (Arcee) and Gemma 1.
+/// Granite-MoE, MiniCPM, Phi-2, StarCoder2, Command-R and Cohere2 (GGUF only: the tiny Cohere checkpoints have a hidden size of 8, which makes their logits too close to ties to compare), Falcon, GPT-NeoX/Pythia, GPT-J, GPT-2, OPT, Nemotron, StableLM, Apertus, AFM (Arcee) and Gemma 1.
 /// Hugging Face cases compare greedy token ids with transformers (fp32 compute on the checkpoint's weights); GGUF cases compare the continuation with llama.cpp b11177.
 /// Q4_K_M files of small models are sensitive to the matmul summation order (llama.cpp's own CUDA and CPU builds disagree on several of them), so a few
 /// cases compare only the leading tokens, or the llama.cpp CPU output, as the case name says. Tiny random checkpoints other than the ones in model-support.md section 8.2
@@ -36,6 +36,8 @@ internal static class DecoderFamilyCases
         new("tiny-random-StableLmForCausalLM HF (stablelm, transformers)", "hf/tiny-random-StableLmForCausalLM", HfPrompt, "ids", [833,388,663,804,240,882,438,214,804,240,976,652,380,419,75,362,603,513,359,928,113,865,753,485], ""),
         new("tiny-random-apertus HF (apertus, transformers)", "hf/tiny-random-apertus", HfPrompt, "ids", [102189,38378,36614,115617,12645,92943,63656,53945,106613,73344,57606,90642,2323,30545,102189,38378,36614,115617,12645,92943,63656,53945,106613,73344], ""),
         new("tiny-random-gpt2 HF (gpt2, transformers)", "hf/tiny-random-gpt2", HfPrompt, "ids", [89,389,389,389,389,389,389,389,389,389,389,368,368,389,389,926,606,368,389,389,389,926,368,368], ""),
+        // OPT: learned positions with offset 2, ReLU MLP, slow tokenizer files (tools/mk_tiny_opt.py, transformers 5.23).
+        new("tiny-random-opt HF (opt, transformers)", "hf/tiny-random-opt", HfPrompt, "ids", [10581,10581,17283,50266,12457,36595,10581,14506,17054,17054,10581,10581,10581,50266,9098,10581,12457,10581,10581,40582,10581,50266,10581,13697], ""),
         new("tiny-random-gptj HF (gptj, transformers)", "hf/tiny-random-gptj", HfPrompt, "ids", [314,208,523,88,973,653,287,646,646,646,646,646,646,646,646,646,646,646,646,646,646,646,646,646], ""),
         new("tiny-random-nemotron HF (nemotron, transformers)", "hf/tiny-random-nemotron", HfPrompt, "ids", [244,792,445,772,84,591,884,84,244,6,228,84,527,197,6,423,388,711,563,659,464,886,659], ""),
         new("tiny-random-gemma HF (gemma, transformers)", "hf/tiny-random-gemma", HfPrompt, "ids", [368,142,909,933,309,706,239,411,399,839,345,303,596,627,871,41,7,140,965,52,683,714,7,755], ""),

@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <AssemblyName>sharplight</AssemblyName>
-    <!-- The command stays "sharplight"; the package id differs so it does not clash with the Sharplight library package in restore. -->
-    <PackageId>Sharplight.Cli</PackageId>
+    <!-- The assembly cannot be called "sharplight": assembly names compare case-insensitively, so it would shadow the Sharplight
+         library. The command stays "sharplight": a copy of the app host under that name (it starts Sharplight.Cli.dll). -->
+    <AssemblyName>Sharplight.Cli</AssemblyName>
     <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
@@ -18,4 +18,7 @@
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
   </ItemGroup>
+  <Target Name="CopySharplightCommand" AfterTargets="Build" Condition="Exists('$(OutDir)$(AssemblyName)$(_NativeExecutableExtension)')">
+    <Copy SourceFiles="$(OutDir)$(AssemblyName)$(_NativeExecutableExtension)" DestinationFiles="$(OutDir)sharplight$(_NativeExecutableExtension)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

@@ -39,6 +39,7 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
     private readonly bool _poolEos;
     private readonly int _padId;
     private readonly int _textDimensions;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     public ImageEncoderClient(TaskModel model)
     {
@@ -88,34 +89,43 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
             throw new NotSupportedException($"{Metadata.ModelName} has no classifier head.");
         }
 
-        var (_, logits) = Run(image);
-        return Task.FromResult(Rank(logits, Labels, _sigmoid, options?.TopK ?? 5));
+        return BackgroundCompute.RunAsync(_gate, () =>
+        {
+            var (_, logits) = Run(image);
+            return Rank(logits, Labels, _sigmoid, options?.TopK ?? 5);
+        }, cancellationToken);
     }
 
     public Task<float[]> EmbedImageAsync(ImageInput image, ImageEmbeddingOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
         cancellationToken.ThrowIfCancellationRequested();
-        var (pooled, _) = Run(image);
-        if (options?.Normalize ?? true)
+        return BackgroundCompute.RunAsync(_gate, () =>
         {
-            Normalize(pooled);
-        }
+            var (pooled, _) = Run(image);
+            if (options?.Normalize ?? true)
+            {
+                Normalize(pooled);
+            }
 
-        return Task.FromResult(pooled);
+            return pooled;
+        }, cancellationToken);
     }
 
     public Task<float[]> EmbedTextAsync(string text, ImageEmbeddingOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(text);
         cancellationToken.ThrowIfCancellationRequested();
-        var embedding = RunText(text);
-        if (options?.Normalize ?? true)
+        return BackgroundCompute.RunAsync(_gate, () =>
         {
-            Normalize(embedding);
-        }
+            var embedding = RunText(text);
+            if (options?.Normalize ?? true)
+            {
+                Normalize(embedding);
+            }
 
-        return Task.FromResult(embedding);
+            return embedding;
+        }, cancellationToken);
     }
 
     public Task<ImageClassification> ClassifyZeroShotAsync(ImageInput image, IReadOnlyList<string> candidates, ImageClassificationOptions? options = null,
@@ -125,31 +135,35 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
         ArgumentNullException.ThrowIfNull(candidates);
         cancellationToken.ThrowIfCancellationRequested();
         RequireText();
-        var (pooled, _) = Run(image);
-        Normalize(pooled);
-        var logits = new float[candidates.Count];
-        for (int i = 0; i < candidates.Count; i++)
+        return BackgroundCompute.RunAsync(_gate, () =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var text = RunText(candidates[i]);
-            Normalize(text);
-            double dot = 0;
-            for (int d = 0; d < text.Length; d++)
+            var (pooled, _) = Run(image);
+            Normalize(pooled);
+            var logits = new float[candidates.Count];
+            for (int i = 0; i < candidates.Count; i++)
             {
-                dot += (double)pooled[d] * text[d];
+                cancellationToken.ThrowIfCancellationRequested();
+                var text = RunText(candidates[i]);
+                Normalize(text);
+                double dot = 0;
+                for (int d = 0; d < text.Length; d++)
+                {
+                    dot += (double)pooled[d] * text[d];
+                }
+
+                var (scale, bias) = ZeroShotScale();
+                logits[i] = (float)(dot * scale + bias);
             }
 
-            var (scale, bias) = ZeroShotScale();
-            logits[i] = (float)(dot * scale + bias);
-        }
-
-        return Task.FromResult(Rank(logits, candidates, _sigmoid, options?.TopK ?? 5));
+            return Rank(logits, candidates, _sigmoid, options?.TopK ?? 5);
+        }, cancellationToken);
     }
 
     public void Dispose()
     {
         _textCompiled?.Dispose();
         _compiled.Dispose();
+        _gate.Dispose();
     }
 
     private void RequireText()

@@ -2,7 +2,7 @@
 # Qwen3.8-27B decode on Sharplight (Vulkan, CPU) and llama.cpp (CUDA, Vulkan, CPU); docs/benchmarks.md section 15.
 # LLAMA_DIR: folder with the runtime.llama-<build>-{cuda13,vulkan,cpu} builds; Q4KM / Q8: model paths.
 cd "$(dirname "$0")/.."
-SL="dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll"
+SL="dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll"
 L=${LLAMA_DIR:?set LLAMA_DIR}
 declare -A M=([q4km]=${Q4KM:?set Q4KM} [q8]=${Q8:?set Q8})
 for q in q4km q8; do m=${M[$q]}

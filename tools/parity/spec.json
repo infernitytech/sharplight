@@ -1,0 +1,31 @@
+{
+  "texts": [
+    "Hello world! The quick brown fox jumps over the lazy dog. 1234567890 3.14159 2026-11-16",
+    "Grüße aus München — ça va? ¿Qué tal? Привет, как дела? Γειά σου κόσμε! Zażółć gęślą jaźń.",
+    "日本語のテキストと中文文本，한국어 텍스트. العربية हिन्दी ไทย Tiếng Việt",
+    "Code: def f(x):\n    return x**2  # comment\n\n\tTabs\tand  multiple   spaces   \n\n\n",
+    "Emoji 🤖🚀👍🏽 and symbols ©®™ ∑∫√ €£¥ <tag attr=\"v\">&amp;</tag>",
+    " leading space, trailing space ",
+    "don't won't I'm they're CAPS lowercase MiXeD 00042 1,000,000"
+  ],
+  "chats": [
+    { "name": "user_only", "messages": [ { "role": "user", "content": "What is the capital of France?" } ] },
+    { "name": "system_multi", "messages": [
+        { "role": "system", "content": "You are a helpful assistant." },
+        { "role": "user", "content": "Hi" },
+        { "role": "assistant", "content": "Hello! How can I help?" },
+        { "role": "user", "content": "Tell me a joke." } ] },
+    { "name": "no_generation_prompt", "add_generation_prompt": false, "messages": [
+        { "role": "user", "content": "Say hi." },
+        { "role": "assistant", "content": "Hi!" } ] },
+    { "name": "tools",
+      "tools": [ { "type": "function", "function": { "name": "get_weather", "description": "Get the current weather for a city.",
+        "parameters": { "type": "object", "properties": { "city": { "type": "string", "description": "City name" } }, "required": [ "city" ] } } } ],
+      "messages": [
+        { "role": "user", "content": "What's the weather in Paris?" },
+        { "role": "assistant", "content": "", "tool_calls": [ { "id": "call_1", "type": "function", "function": { "name": "get_weather", "arguments": { "city": "Paris" } } } ] },
+        { "role": "tool", "tool_call_id": "call_1", "name": "get_weather", "content": "{\"temperature\": 18, \"sky\": \"cloudy\"}" } ] }
+  ],
+  "prompts": [ "The capital of France is", "def fibonacci(n):" ],
+  "chat_prompts": [ "user_only" ]
+}

@@ -14,6 +14,9 @@ internal sealed class FakeSynthesizer : ISpeechSynthesizer
 
     public IReadOnlyList<string> Voices { get; set; } = [];
 
+    /// <summary>Blocking work per step (a stand-in for a graph run that holds its thread), or zero.</summary>
+    public TimeSpan StepWork { get; set; }
+
     /// <summary>Texts and options of every request.</summary>
     public List<(string Text, SpeechSynthesisOptions? Options, bool Streaming)> Requests { get; } = [];
 
@@ -34,6 +37,7 @@ internal sealed class FakeSynthesizer : ISpeechSynthesizer
         {
             await Task.Yield();
             cancellationToken.ThrowIfCancellationRequested();
+            SlowWork.Block(StepWork);
             yield return Tone(0.2);
         }
     }

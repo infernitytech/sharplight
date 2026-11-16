@@ -42,4 +42,19 @@ public static class ModelKinds
 
     /// <summary>Image in, larger image out.</summary>
     public const string ImageUpscaling = "image-upscaling";
+
+    /// <summary>Audio in, discrete codes out and codes back to audio (<c>Sharplight.Audio.IAudioCodec</c>).</summary>
+    public const string AudioCodec = "audio-codec";
+
+    /// <summary>Audio in, speech segments out (<c>Sharplight.Audio.IVoiceActivityDetector</c>).</summary>
+    public const string VoiceActivity = "voice-activity";
+
+    /// <summary>A mixture in, its sources (stems) out (<c>Sharplight.Audio.IAudioSeparator</c>).</summary>
+    public const string AudioSeparation = "audio-separation";
+
+    /// <summary>Audio and text in, vectors in a shared space out; zero-shot audio classification (<c>Sharplight.Audio.IAudioEmbedder</c>).</summary>
+    public const string AudioEmbedding = "audio-embedding";
+
+    /// <summary>Text in, music audio out (<c>Sharplight.Audio.IMusicGenerator</c>).</summary>
+    public const string MusicGeneration = "music-generation";
 }

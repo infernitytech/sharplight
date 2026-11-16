@@ -17,4 +17,13 @@ internal enum VisionMode
 
     /// <summary>Depth estimation: a depth map.</summary>
     Depth,
+
+    /// <summary>Promptable segmentation: click points or draw a box, the mask of the object follows.</summary>
+    Segment,
+
+    /// <summary>Text recognition: the text of the image.</summary>
+    Ocr,
+
+    /// <summary>Upscaling: the image enlarged.</summary>
+    Upscale,
 }

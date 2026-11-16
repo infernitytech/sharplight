@@ -106,16 +106,21 @@ internal sealed partial class ConvertViewModel : ObservableObject
     {
         IsConverting = true;
         Log = "";
-        var log = new Progress<string>(line => Log = Log.Length == 0 ? line : Log + "\n" + line);
+        // A conversion logs a line per tensor: lines reach the UI in batches, not one dispatcher job and string copy per line.
+        using var log = new DispatchingProgress<string>(_services.Dispatcher, AppendLog);
         try
         {
             var projector = Projector.Trim().Length > 0 ? Projector.Trim() : null;
-            await _services.Library.ConvertAsync(Source.Trim(), projector, Destination.Trim(), log, CancellationToken.None);
+            string source = Source.Trim();
+            string destination = Destination.Trim();
+            await Task.Run(() => _services.Library.ConvertAsync(source, projector, destination, log, CancellationToken.None), CancellationToken.None);
+            log.Flush();
             Log += "\nDone: the package was added to the library.";
             _converted();
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
+            log.Flush();
             Log += "\nFailed: " + error.GetBaseException().Message;
         }
         finally
@@ -126,4 +131,10 @@ internal sealed partial class ConvertViewModel : ObservableObject
 
     [RelayCommand]
     private void Close() => _closed();
+
+    private void AppendLog(IReadOnlyList<string> lines)
+    {
+        string text = string.Join("\n", lines);
+        Log = Log.Length == 0 ? text : Log + "\n" + text;
+    }
 }

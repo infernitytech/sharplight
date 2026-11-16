@@ -48,6 +48,13 @@ public sealed class PrecompileTests
         var running = library.PrecompileAsync(entry);
         Assert.True(entry.IsPrecompiling);
         Assert.False(entry.CanPrecompile);
+
+        // The service runs on a worker (never on the UI thread): wait until it started and reported.
+        for (int i = 0; i < 1000 && (!services.Precompiler.IsBusy(path) || entry.PrecompileRows.Count == 0); i++)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
         Assert.True(services.Precompiler.IsBusy(path));
         var row = Assert.Single(entry.PrecompileRows);
         Assert.Equal("vulkan · GPU A", row.Title);
