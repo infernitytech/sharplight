@@ -1077,8 +1077,8 @@ overlap-adds the frames (`OverlapAdd`, `center=True` trimming). The English fron
 trained with: sentence splitting, the gold and silver lexicons with plural, past tense, progressive and possessive endings, the article before a vowel, numbers read as
 words, letter-to-sound rules for unknown words, punctuation passed through; it does not do misaki's part-of-speech dependent choices (heteronyms, the stress of function
 words), so unusual sentences differ from misaki slightly (`Language = "phonemes"` bypasses it and takes Kokoro phoneme symbols). British voices (`b*`) use the `gb`
-lexicons; other languages need a front end that is not implemented. `SpeechSynthesisOptions.Speed` divides the predicted durations; streaming yields one buffer per chunk
-of at most 510 symbols (one or more sentences).
+lexicons; other languages need a front end that is not implemented. `SpeechSynthesisOptions.Speed` divides the predicted durations; streaming yields one buffer per sentence
+(a sentence of more than 510 symbols is split at word boundaries).
 
 Orpheus loading: the language model is the primary source (a Hugging Face Llama checkpoint, here the `unsloth/orpheus-3b-0.1-ft` mirror of the gated canopylabs release) and
 the SNAC folder its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", snacFolder)]`, `--vocoder` of `samples/Sharplight.Speak`). `OrpheusAdapter` is a

@@ -27,7 +27,7 @@ internal sealed class KokoroPhonemizer
         _secondary = secondary;
     }
 
-    /// <summary>Splits <paramref name="text"/> into chunks of at most <paramref name="maxSymbols"/> phoneme symbols, at sentence ends where possible.</summary>
+    /// <summary>Splits <paramref name="text"/> into one chunk per sentence (longer sentences are split at word boundaries into chunks of at most <paramref name="maxSymbols"/> phoneme symbols).</summary>
     /// <param name="text">The text, or phonemes when <paramref name="language"/> is <see cref="PhonemeLanguage"/>.</param>
     /// <param name="language">The language code or <see cref="PhonemeLanguage"/>.</param>
     /// <param name="maxSymbols">The longest chunk.</param>
@@ -48,7 +48,7 @@ internal sealed class KokoroPhonemizer
             }
         }
 
-        return Pack(sentences, maxSymbols);
+        return sentences.SelectMany(sentence => Split(sentence, maxSymbols));
     }
 
     /// <summary>The phonemes of one passage.</summary>
@@ -361,34 +361,6 @@ internal sealed class KokoroPhonemizer
         if (start < text.Length)
         {
             yield return text[start..];
-        }
-    }
-
-    private static IEnumerable<string> Pack(List<string> sentences, int maxSymbols)
-    {
-        var current = new StringBuilder();
-        foreach (string sentence in sentences)
-        {
-            foreach (string part in Split(sentence, maxSymbols))
-            {
-                if (current.Length > 0 && current.Length + 1 + part.Length > maxSymbols)
-                {
-                    yield return current.ToString();
-                    current.Clear();
-                }
-
-                if (current.Length > 0)
-                {
-                    current.Append(' ');
-                }
-
-                current.Append(part);
-            }
-        }
-
-        if (current.Length > 0)
-        {
-            yield return current.ToString();
         }
     }
 
