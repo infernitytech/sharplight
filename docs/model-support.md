@@ -1538,6 +1538,9 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
   51.1 dB (first runs including the kernel compilation of every graph: 202 s, 305 s, 460 s). The Wan 2.1 folder's f32 umT5
   (22.7 GB) is the same model as Wan 2.2's bf16 one (1.7e-3 relative weight difference = bf16 rounding); the references use the
   bf16 files.
+- LTX-Video 0.9.0 (2B, f32 transformer files; T5-XXL bf16) on Vulkan against diffusers f32 on CUDA, 704×480, 25 frames, 20 Euler
+  steps, guidance 3, same initial latents: T5 states 1.4e-5, transformer 1.8e-5 relative RMS, text-to-video worst frame 57.5 dB
+  (134 s for the first run including kernel compilation; diffusers 1.0 s per step).
 - Speed and memory on the 32 GB GPU (Vulkan, `sharplight-generate-video`, 832×480, 33 frames = 9 latent frames, 20 UniPC steps
   with guidance, each run a new process: the conditioning time includes loading and compiling the umT5 encoder from the kernel
   cache): Wan 2.1 1.3B (f32 transformer) 4.2 s per step (both guidance passes), decode 19 s, peak 16.3 GB; Wan 2.2 TI2V-5B (f32

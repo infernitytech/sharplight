@@ -284,7 +284,16 @@ tolerance of onnxruntime (typically relative RMS below 1e-5).
 
 ## 8. Video generation
 
-None yet.
+Reference: diffusers in f32 on CUDA (same initial latents), 832×480 (LTX: 704×480), 17 frames (LTX: 25), 20 steps; PSNR is the worst
+frame. Vulkan on a 32 GB GPU. Supported: text-to-video, image-to-video where the model has it, streaming decode, export to WebM / GIF /
+APNG (MP4 with a system ffmpeg), `.slm`.
+
+| Model | Hub repository | Formats | Verification | Notes | Verified |
+|---|---|---|---|---|---|
+| Wan 2.1 T2V 1.3B | Wan-AI/Wan2.1-T2V-1.3B-Diffusers | diffusers folder; transformer-only GGUF / safetensors with the folder as companion | text-to-video 50.8 dB, transformer 2.4e-4, umT5 3e-6 relative RMS | 4.2 s per step at 832×480×33 frames (f32), 16.3 GB | 2026-11-16 |
+| Wan 2.2 TI2V 5B | Wan-AI/Wan2.2-TI2V-5B-Diffusers | diffusers folder | image-to-video 55.1 dB, transformer 2.8e-4 | text- and image-to-video; 3.5 s per step (f32), 30.7 GB | 2026-11-16 |
+| LTX-Video 0.9.0 (2B) | Lightricks/LTX-Video (diffusers folder; T5-XXL of FLUX.1 / PixArt) | diffusers folder | text-to-video 57.5 dB, transformer 1.8e-5, T5 1.4e-5 relative RMS (704×480, 25 frames) | LTX-Video 0.9.1+ (causal / timestep-conditioned VAE) not yet | 2026-11-16 |
+| Wan 2.2 TI2V 5B GGUF | QuantStack/Wan2.2-TI2V-5B-GGUF (Q8_0) | GGUF + the Wan 2.2 diffusers folder as companion | image-to-video 51.1 dB vs the f32 reference, transformer 2.0e-3 | 1.6 s per step, 16.4 GB | 2026-11-16 |
 
 ## 9. Known unsupported or not working
 
