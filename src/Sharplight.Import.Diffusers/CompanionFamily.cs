@@ -14,4 +14,7 @@ internal enum CompanionFamily
 
     /// <summary>Z-Image: a Qwen3-4B language model (GGUF or Hugging Face folder), the 16-channel VAE.</summary>
     ZImage,
+
+    /// <summary>Qwen-Image: a Qwen2.5-VL-7B language model (GGUF or Hugging Face folder), the causal 3-D (Wan 2.1-layout) VAE.</summary>
+    QwenImage,
 }

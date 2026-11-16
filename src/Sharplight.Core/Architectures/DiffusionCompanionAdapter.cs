@@ -20,6 +20,9 @@ public abstract class DiffusionCompanionAdapter : ICompositeModelAdapter
     /// <summary>Canonical architecture of a T5 encoder source (the encoder of an <c>encoder_decoder</c> model).</summary>
     public const string T5Architecture = "encoder_decoder";
 
+    /// <summary>Architecture id of stand-alone causal 3-D (Wan 2.1-layout) VAE sources.</summary>
+    public const string WanAutoencoderArchitecture = "wan_autoencoder";
+
     private const string TokenizerKeys = "tokenizer.";
 
     /// <inheritdoc/>
@@ -139,6 +142,14 @@ public abstract class DiffusionCompanionAdapter : ICompositeModelAdapter
     protected static CompanionSlot Vae()
         => new([AutoencoderArchitecture], "vae.", name => name.StartsWith("vae.", StringComparison.Ordinal) ? name : null,
             AutoencoderArchitecture + ".vae.", "vae", null, ["scaling_factor", "shift_factor", "latent_rgb_factors"]);
+
+    /// <summary>
+    /// The slot of a causal 3-D VAE file (Qwen-Image's; architecture <c>wan_autoencoder</c>): its <c>vae.*</c> weights and its
+    /// <c>wan_autoencoder.vae.*</c> keys under the family's <c>vae.</c>.
+    /// </summary>
+    protected static CompanionSlot CausalVae()
+        => new([WanAutoencoderArchitecture], "vae.", name => name.StartsWith("vae.", StringComparison.Ordinal) ? name : null,
+            WanAutoencoderArchitecture + ".vae.", "vae", null, []);
 
     /// <summary>Replaces the metadata keys under <paramref name="to"/> with the source's keys under <paramref name="from"/> (prefix replaced).</summary>
     private static void CopyMetadata(ModelSource source, Dictionary<string, object> metadata, string from, string to)

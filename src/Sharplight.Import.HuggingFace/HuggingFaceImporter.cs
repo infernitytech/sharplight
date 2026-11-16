@@ -195,7 +195,8 @@ public sealed class HuggingFaceImporter(HuggingFaceImportOptions? options = null
         if (parent is not null && name.StartsWith("text_encoder", StringComparison.Ordinal))
         {
             string sibling = Path.Combine(parent, "tokenizer" + name["text_encoder".Length..]);
-            if (File.Exists(Path.Combine(sibling, "tokenizer.json")))
+            // Qwen-Image's tokenizer folder has only the slow tokenizer's files (vocab.json, merges.txt).
+            if (File.Exists(Path.Combine(sibling, "tokenizer.json")) || (Directory.Exists(sibling) && HfTokenizerTranslator.IsSlowByteLevelBpe(sibling)))
             {
                 return sibling;
             }
