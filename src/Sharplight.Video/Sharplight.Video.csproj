@@ -10,7 +10,8 @@
   <PropertyGroup>
     <Description>Video encoding and decoding for Sharplight with bundled LGPL FFmpeg libraries (H.264 via OpenH264, AV1 via SVT-AV1 and dav1d, VP8/VP9 via libvpx, ProRes, FFV1, GIF, APNG; AAC/Opus audio; NVENC, VideoToolbox and Media Foundation where available) on win-x64, win-arm64, linux-x64, linux-arm64 and osx-arm64.</Description>
     <PackageTags>$(PackageTags);video;ffmpeg;mp4;webm;h264;av1;vp9;prores</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <!-- The managed code is MIT; the bundled FFmpeg libraries are LGPL 2.1+ (with BSD/zlib/MIT components, see THIRD-PARTY-NOTICES.md). -->
+    <PackageLicenseExpression>MIT AND LGPL-2.1-or-later</PackageLicenseExpression>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <SharplightFfmpegDirectory Condition="'$(SharplightFfmpegDirectory)' == ''">$(MSBuildThisFileDirectory)../../native/ffmpeg/out/</SharplightFfmpegDirectory>
     <SharplightFfmpegLicenses>$(MSBuildThisFileDirectory)../../native/ffmpeg/licenses/</SharplightFfmpegLicenses>

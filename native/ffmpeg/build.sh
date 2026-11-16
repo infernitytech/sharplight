@@ -69,6 +69,17 @@ run() {
     fi
 }
 
+# Runs a build command with its output in a log file; on failure the end of the log goes to stderr (CI shows nothing else).
+logged() {
+    local log="$1"
+    shift
+    if ! run "$@" > "$log" 2>&1; then
+        echo "FAILED: $* (end of $log):" >&2
+        tail -n 60 "$log" >&2
+        return 1
+    fi
+}
+
 # ---------------------------------------------------------------------------------------------------------------------------------
 # Toolchain
 # ---------------------------------------------------------------------------------------------------------------------------------
@@ -237,17 +248,6 @@ step() {
     echo "== $rid: $1"
 }
 
-# Runs a build command with its output in a log file; on failure the end of the log goes to stderr (CI shows nothing else).
-logged() {
-    local log="$1"
-    shift
-    if ! run "$@" > "$log" 2>&1; then
-        echo "FAILED: $* (end of $log):" >&2
-        tail -n 60 "$log" >&2
-        return 1
-    fi
-}
-
 # Finished dependency steps leave a stamp, so a rerun with SLF_KEEP (after a failure further on) resumes instead of rebuilding.
 stamps="$build/stamps"
 mkdir -p "$stamps"
@@ -324,7 +324,8 @@ done_step dav1d
 fi
 
 if pending svt-av1; then
-svt_args=(-DBUILD_APPS=OFF -DBUILD_TESTING=OFF -DSVT_AV1_LTO=OFF -DREPRODUCIBLE_BUILDS=ON -DEXCLUDE_HASH=ON -DENABLE_STACK_PROTECTOR=OFF)
+# LOG_QUIET: SVT-AV1 would print its configuration to the application's stderr on every encode (errors still reach FFmpeg).
+svt_args=(-DBUILD_APPS=OFF -DBUILD_TESTING=OFF -DSVT_AV1_LTO=OFF -DREPRODUCIBLE_BUILDS=ON -DEXCLUDE_HASH=ON -DENABLE_STACK_PROTECTOR=OFF -DLOG_QUIET=ON)
 if [ "$family" = windows ]; then
     # Windows on Arm has no SVE support to dispatch to.
     svt_args+=(-DENABLE_SVE=OFF -DENABLE_SVE2=OFF)
