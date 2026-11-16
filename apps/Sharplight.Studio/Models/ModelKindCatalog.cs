@@ -28,6 +28,7 @@ internal static class ModelKindCatalog
         new(ModelKinds.ImageEmbedding, "Image embedding", "IconEmbed", [], Runnable: true),
         new(ModelKinds.ObjectDetection, "Object detection", "IconScan", [ModelTask.ObjectDetection], Runnable: true),
         new(ModelKinds.ImageSegmentation, "Segmentation", "IconSegment", [ModelTask.Segmentation], Runnable: true),
+        new(ModelKinds.SemanticSegmentation, "Semantic segmentation", "IconSegment", [], Runnable: true),
         new(ModelKinds.DepthEstimation, "Depth estimation", "IconLayers", [ModelTask.DepthEstimation], Runnable: true),
         new(ModelKinds.Ocr, "OCR", "IconDocument", [ModelTask.Ocr], Runnable: true),
         new(ModelKinds.ImageUpscaling, "Upscaling", "IconUpscale", [ModelTask.Upscaling], Runnable: true),

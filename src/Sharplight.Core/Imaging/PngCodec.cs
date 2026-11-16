@@ -33,6 +33,52 @@ public static class PngCodec
         return stream.ToArray();
     }
 
+    /// <summary>Encodes an image with an alpha channel (a cut-out) as RGBA PNG bytes.</summary>
+    /// <param name="image">The image.</param>
+    /// <param name="alpha">The opacity of every pixel, <c>Width · Height</c> bytes (255 opaque).</param>
+    /// <param name="level">The zlib compression level.</param>
+    /// <exception cref="ArgumentException">The image or the alpha plane has the wrong size.</exception>
+    public static byte[] EncodeRgba(ImageInput image, ReadOnlySpan<byte> alpha, CompressionLevel level = CompressionLevel.Optimal)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        image.Validate();
+        if (alpha.Length != image.Width * image.Height)
+        {
+            throw new ArgumentException($"Expected {image.Width * image.Height} alpha bytes, got {alpha.Length}.", nameof(alpha));
+        }
+
+        using var stream = new MemoryStream();
+        stream.Write(Signature);
+        var header = new byte[13];
+        BinaryPrimitives.WriteInt32BigEndian(header, image.Width);
+        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(4), image.Height);
+        header[8] = 8;
+        header[9] = ColorRgba;
+        WriteChunk(stream, "IHDR"u8, header);
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, level, leaveOpen: true))
+        {
+            var row = new byte[(image.Width * 4) + 1];
+            for (int y = 0; y < image.Height; y++)
+            {
+                for (int x = 0; x < image.Width; x++)
+                {
+                    int i = (y * image.Width) + x;
+                    row[1 + (4 * x)] = image.Rgb[3 * i];
+                    row[2 + (4 * x)] = image.Rgb[(3 * i) + 1];
+                    row[3 + (4 * x)] = image.Rgb[(3 * i) + 2];
+                    row[4 + (4 * x)] = alpha[i];
+                }
+
+                zlib.Write(row);
+            }
+        }
+
+        WriteChunk(stream, "IDAT"u8, compressed.ToArray());
+        WriteChunk(stream, "IEND"u8, []);
+        return stream.ToArray();
+    }
+
     /// <summary>Writes an image as a PNG file.</summary>
     /// <param name="path">The file (created or overwritten).</param>
     /// <param name="image">The image.</param>
