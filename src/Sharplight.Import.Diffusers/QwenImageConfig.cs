@@ -114,6 +114,7 @@ internal sealed record QwenImageConfig
         metadata[t + "rope_theta"] = 10000f;
         metadata[t + "centered_positions"] = true;
         metadata[t + "masked_text"] = true;
+        metadata[t + "f32_activations"] = true;
         metadata[t + "sample_size"] = 1024;
 
         // The scheduler: the pipeline's σ = linspace(1, 1 / n), the exponential dynamic shift and the terminal stretch.

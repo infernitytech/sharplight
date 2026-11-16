@@ -63,6 +63,12 @@ internal sealed record FluxHyperParameters
     /// </summary>
     public bool CenteredPositions { get; init; }
 
+    /// <summary>
+    /// Whether the MLP down projections keep f32 activations in the integer-dot kernels of quantized weights (Qwen-Image, whose MLP inputs
+    /// are too large for the int8 activation quantization).
+    /// </summary>
+    public bool F32Activations { get; init; }
+
     /// <summary>Width per head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
 
@@ -90,6 +96,7 @@ internal sealed record FluxHyperParameters
             ApproximatorChannels = source.Get(p + "approximator_channels", 64),
             MaskedText = source.Get(p + "masked_text", false),
             CenteredPositions = source.Get(p + "centered_positions", false),
+            F32Activations = source.Get(p + "f32_activations", false),
         };
     }
 }

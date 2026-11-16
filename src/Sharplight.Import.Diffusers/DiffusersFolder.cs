@@ -62,7 +62,7 @@ internal static class DiffusersFolder
 
         if (Directory.Exists(Path.Combine(path, "transformer")) || !Directory.Exists(Path.Combine(path, "text_encoder")))
         {
-            throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image, Wan and LTX-Video pipelines are supported so far.");
+            throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image, Qwen-Image, Wan and LTX-Video pipelines are supported so far.");
         }
 
         bool xl = Directory.Exists(Path.Combine(path, "text_encoder_2"));

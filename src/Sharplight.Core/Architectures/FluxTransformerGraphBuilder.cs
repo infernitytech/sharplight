@@ -33,8 +33,10 @@ internal sealed class FluxTransformerGraphBuilder
     private const string P = "transformer.";
     private const float NormEps = 1e-6f;
     private const int FrequencyChannels = 256;
+    private const float F16ProductBound = 50f;
 
     private readonly GraphBuilder _b;
+    private readonly Func<string, WeightInfo?> _weights;
     private readonly FluxHyperParameters _hp;
     private readonly int _textRows;
     private readonly int _imageRows;
@@ -49,6 +51,7 @@ internal sealed class FluxTransformerGraphBuilder
     private FluxTransformerGraphBuilder(Func<string, WeightInfo?> weights, FluxHyperParameters hp, long latentHeight, long latentWidth, int textRows)
     {
         _b = new GraphBuilder(DiffusionGraphs.Denoise, weights);
+        _weights = weights;
         _hp = hp;
         _textRows = textRows;
         _latentHeight = latentHeight;
@@ -186,7 +189,7 @@ internal sealed class FluxTransformerGraphBuilder
         var textMod = Modulation(p + "txt_mod", 6, 3 * _hp.SingleLayers + 6 * _hp.DoubleLayers + 6 * index);
         var (iq, ik, iv) = Projections(Modulate(image, Chunk(imageMod, 0, d), Chunk(imageMod, 1, d)), p + "img_attn", _imageRows);
         var (tq, tk, tv) = Projections(Modulate(text, Chunk(textMod, 0, d), Chunk(textMod, 1, d)), p + "txt_attn", _textRows);
-        var attended = Attend(_b.Concat(0, tq, iq), _b.Concat(0, tk, ik), _b.Concat(0, tv, iv));
+        var attended = Attend(_b.Concat(0, tq, iq), _b.Concat(0, tk, ik), _b.Concat(0, tv, iv), F16Safe(p + "img_attn.") && F16Safe(p + "txt_attn."));
         var textAttention = _b.Slice(attended, 0, 0, _textRows);
         var imageAttention = _b.Slice(attended, 0, _textRows, _imageRows);
         image = _b.Add(image, _b.Mul(Chunk(imageMod, 2, d), Linear(imageAttention, p + "img_attn.proj")));
@@ -208,8 +211,26 @@ internal sealed class FluxTransformerGraphBuilder
         var k = _b.RmsNorm(Heads(_b.Contiguous(_b.Slice(projected, 1, d, d)), rows), _b.Weight(p + "norm_k.weight"), NormEps);
         var v = Heads(_b.Contiguous(_b.Slice(projected, 1, 2 * d, d)), rows);
         var mlp = _b.Unary("GeluTanh", _b.Slice(projected, 1, 3 * d, mlpWidth));
-        var joined = _b.Concat(1, Attend(q, k, v), mlp);
+        var joined = _b.Concat(1, Attend(q, k, v, F16Safe(p)), mlp);
         return _b.Add(x, _b.Mul(Chunk(mod, 2, d), Linear(joined, p + "linear2")));
+    }
+
+    /// <summary>
+    /// Whether a block's attention may take f16 products: its RMS-normed queries and keys are bounded by the norm scales, and products of
+    /// up to <see cref="F16ProductBound"/> keep the f16 rounding of the scores small. Qwen-Image's first block scales queries and keys by
+    /// up to 63 and 48 (scores lose 2 % in f16): it runs the exact kernel.
+    /// </summary>
+    private bool F16Safe(string p)
+    {
+        var q = _weights(p + "norm_q.weight");
+        var k = _weights(p + "norm_k.weight");
+        if (q is null || k is null || !WeightConversions.IsFloat(q.Type) || !WeightConversions.IsFloat(k.Type))
+        {
+            return true;
+        }
+
+        float bound = WeightConversions.ReadFloats(q).Max(MathF.Abs) * WeightConversions.ReadFloats(k).Max(MathF.Abs);
+        return bound <= F16ProductBound;
     }
 
     /// <summary>The RMS-normed query, key and value heads of one stream.</summary>
@@ -241,7 +262,7 @@ internal sealed class FluxTransformerGraphBuilder
     }
 
     /// <summary>Bidirectional attention over the joint sequence with RoPE on queries and keys; returns rows [T, D].</summary>
-    private Value Attend(Value q, Value k, Value v)
+    private Value Attend(Value q, Value k, Value v, bool f16Products)
     {
         int rows = _textRows + _imageRows;
         var rope = AxialRope.Attributes(_hp.HeadDim, _hp.AxesDim, _hp.RopeTheta);
@@ -250,7 +271,7 @@ internal sealed class FluxTransformerGraphBuilder
         // f16 products with f32 accumulation (tensor-core flash attention): FLUX is trained and run in bf16, and the exact f32
         // kernel for 128-wide heads is the scalar one (96 % of a 1024×1024 step).
         var attended = _b.Emit1("Attention", _keyBias is null ? [q, k, v] : [q, k, v, _keyBias], Attributes.From(("scale", 1f / MathF.Sqrt(_hp.HeadDim)),
-            ("causal", false), (StandardOps.F16ProductsAttribute, true)));
+            ("causal", false), (StandardOps.F16ProductsAttribute, f16Products)));
         return _b.Reshape(attended, rows, _hp.HiddenSize);
     }
 
@@ -322,7 +343,21 @@ internal sealed class FluxTransformerGraphBuilder
     /// <summary>Chunk <paramref name="index"/> of width <paramref name="width"/> of a modulation vector [1, k·D].</summary>
     private Value Chunk(Value modulation, int index, int width) => _b.Slice(modulation, 1, (long)index * width, width);
 
-    private Value FeedForward(Value x, string p) => Linear(_b.Unary("GeluTanh", Linear(x, p + ".up")), p + ".down");
+    /// <summary>
+    /// The GELU feed-forward. With <see cref="FluxHyperParameters.F32Activations"/> (Qwen-Image: its MLP inputs reach 10⁴ and more) the down
+    /// projection keeps f32 activations in the integer-dot kernels of quantized weights.
+    /// </summary>
+    private Value FeedForward(Value x, string p)
+    {
+        var hidden = _b.Unary("GeluTanh", Linear(x, p + ".up"));
+        if (!_hp.F32Activations)
+        {
+            return Linear(hidden, p + ".down");
+        }
+
+        var y = _b.Emit1("MatMul", [hidden, _b.Weight(p + ".down.weight")], Attributes.From((StandardOps.F32ActivationsAttribute, true)));
+        return _b.TryWeight(p + ".down.bias") is { } bias ? _b.Add(y, bias) : y;
+    }
 
     /// <summary>Two linear layers with a SiLU between (the timestep, guidance and pooled-text embedders).</summary>
     private Value Mlp(Value x, string p) => Linear(_b.Silu(Linear(x, p + ".in_layer")), p + ".out_layer");

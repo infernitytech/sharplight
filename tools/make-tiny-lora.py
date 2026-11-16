@@ -97,7 +97,8 @@ def run_sd(root, family, out):
     attention = r"attentions\.\d+\.transformer_blocks\.\d+\.(attn1|attn2)\.(to_q|to_k|to_v|to_out\.0)$|attentions\.\d+\.transformer_blocks\.\d+\.ff\.net\.2$"
     unet = random_lora(linear_shapes(pipe.unet, attention), g)
     text = random_lora(linear_shapes(pipe.text_encoder, r"self_attn\.(q_proj|k_proj|v_proj|out_proj)$|mlp\.fc1$"), g)
-    text2 = random_lora(linear_shapes(pipe.text_encoder_2, r"self_attn\.(q_proj|v_proj)$"), g) if xl else {}
+    # diffusers recognizes a kohya text-encoder LoRA by its out_proj modules: the second encoder gets all four projections.
+    text2 = random_lora(linear_shapes(pipe.text_encoder_2, r"self_attn\.(q_proj|k_proj|v_proj|out_proj)$"), g) if xl else {}
     folder = os.path.join(out, family)
     os.makedirs(folder, exist_ok=True)
     peft = {**peft_state("unet", scale_lora(unet)), **peft_state("text_encoder", scale_lora(text))}
@@ -169,7 +170,8 @@ def run_flux(root, out):
         put(f"double_blocks_{i}_img_mlp_2", *double[p + "ff.net.2"])
     for i in range(len(t.single_transformer_blocks)):
         p = f"single_transformer_blocks.{i}."
-        put(f"single_blocks_{i}_linear1", *fused([single[p + f"attn.to_{x}"] for x in "qkv"] + [single[p + "proj_mlp"]]))
+        # diffusers' kohya converter splits linear1 with FLUX.1's real widths (3 x 3072 + 12288), so the tiny file leaves it out
+        # (the PEFT file adapts q / k / v / proj_mlp, the row blocks of linear1).
         put(f"single_blocks_{i}_linear2", *single[p + "proj_out"])
     save_file(kohya, os.path.join(folder, "kohya.safetensors"))
 

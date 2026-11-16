@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Sharplight.Imaging;
-using Sharplight.Runtime;
 using Sharplight.Vision;
 
 namespace Sharplight.ImageGeneration.Tests;

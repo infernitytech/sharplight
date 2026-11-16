@@ -1396,8 +1396,10 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | SD3 / SD3.5 (SD3 Medium, SD3.5 Medium / Large and fine-tunes) | diffusers folder; Stability's single file (`model.diffusion_model.*`, the VAE under `first_stage_model.*`); transformer-only GGUF (city96 / stable-diffusion.cpp `sd3`, any ggml type) plus companions: CLIP-L, CLIP-G (`clip_g.safetensors`), T5-XXL (encoder GGUF, `t5xxl_*.safetensors` or a sharded `text_encoder_3` folder named by a shard), the 16-channel VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance; three text encoders; any size that is a multiple of 16 up to the position grid; `.slm`) | [below](#sd3) |
 | Chroma (Chroma1-HD / Base / Flash and fine-tunes) | diffusers folder; original single file (FLUX names plus `distilled_guidance_layer.*`); transformer-only GGUF (silveroxides, any ggml type) plus companions: T5-XXL, the FLUX VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance with negative prompts; masked T5 and text attention) | [below](#chroma) |
 | Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image, Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
-| LoRA (kohya / diffusers), ControlNet, TAESD | - | missing | |
+| Qwen-Image (Qwen-Image and fine-tunes with the same layout, e.g. Qwen-Image-2512) | diffusers folder; transformer-only GGUF (city96 / QuantStack / unsloth, `qwen_image` architecture id, any ggml type) and ComfyUI single files plus companions: the Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a `qwen2vl` GGUF), the causal VAE (the pipeline's `vae` file or ComfyUI's `qwen_image_vae.safetensors` in the original Wan names) | **supported** (txt2img, img2img, inpainting; true CFG with diffusers' norm rescaling; 50 steps, guidance 4 by default) | [below](#qwen-image) |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1, Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
+| LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
+| ControlNet, TAESD | - | missing | |
 
 Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
 
@@ -1645,6 +1647,62 @@ Verification (tools/make-tiny-zimage.py, tools/make-zimage-references.py; `TinyZ
   diffusers running the same files (dequantized GGUF transformer on CUDA, f32 text encoder): text encoder 1.4e-4, transformer 1.5e-3
   (Vulkan) / 9.5e-3 (CPU) relative RMS; images 49.6 dB (512) / 46.4 dB (1024), 9 steps from the same latents.
 - Speed (Vulkan, Q8_0, warm): 512×512 9 steps 4.3 s, 1024×1024 14.6 s (1.6 s per step; the text encoder 8 GB bf16 + transformer 7.3 GB on the device); diffusers (GGUF dequantized on the fly, CUDA f32) 0.65 s / 2.5 s per step. Studio: the load panel shows the Qwen3-4B and VAE slots, fills them from the pipeline folder beside the GGUF folder, and the Image page generates (tiny pipeline and Z-Image-Turbo Q8_0 at 512×512).
+
+### Qwen-Image
+
+<a id="qwen-image"></a>
+Qwen-Image (2026-11-16): a 20B dual-stream MMDiT conditioned on Qwen2.5-VL-7B hidden states, with Wan 2.1's causal VAE. Design:
+
+- Canonical source `qwen_image`: the transformer in the FLUX transformer vocabulary (`transformer.double.{i}.{img,txt}_{mod, attn.q|k|v|proj|
+  norm_q|norm_k, mlp.up|down}`, `img_in`, `txt_norm`, `txt_in`, `time_in`, `final.mod` with diffusers' (scale, shift) halves swapped,
+  `final.linear`); the q / k / v projections stay separate (city96's Q4_K_M quantizes them with different types). The text encoder is kept
+  whole as in Z-Image (`text_encoder.`, its metadata under `qwen_image.text_encoder_source.`; Qwen2.5-VL's vision tower is not used). The
+  VAE is the Wan 2.1 layout (`vae.*` as for Wan, `qwen_image.vae.*` with the per-channel latent normalization); stand-alone VAE files open
+  as `wan_autoencoder` components, in diffusers or original Wan names (`WanVaeOriginalNames`, ComfyUI's `qwen_image_vae.safetensors`).
+  Family keys: the system-prompt template, 34 skipped template tokens, 512 prompt tokens, the exponential dynamic shift (0.5 to 0.9 between
+  256 and 8192 image tokens) with the terminal stretch to 0.02, 50 steps, guidance 4.
+- `QwenImageAdapter`: the text graph is the decoder graph with the final norm (`BuildLayerHiddenStates(..., finalNorm: true)`, transformers'
+  `hidden_states[-1]`) over 34 + 512 rows; the transformer is `FluxTransformerGraphBuilder` without single-stream blocks, pooled embedding or
+  guidance, with the RMS-normed text input, separate projections, the text key mask and centred RoPE positions (image rows and columns
+  around 0, text token j at max(rows / 2, columns / 2) + j on all three axes, (16, 56, 56) dimensions, θ 10000); the VAE graphs are
+  `WanVaeGraphBuilder`'s first-chunk graphs as image graphs (`BuildImageDecoder` / `BuildImageEncoder`).
+- Core: `DiffusionConfigKeys.PromptSkip` (the generator drops the template's rows from the conditioning and the mask) and
+  `DiffusionConfigKeys.GuidanceRenormalization` (true CFG rescaled per token to the conditional prediction's norm over channels and patch
+  pixels, as diffusers' QwenImagePipeline). Attention takes f16 products only where the RMS norm scales bound the scores
+  (max |norm_q| · max |norm_k| ≤ 50): Qwen-Image's first block scales queries and keys by up to 63 and 48 and lost 2 % of the transformer
+  output in f16 (8.4e-3 with that block exact); FLUX and Chroma stay ≤ 5 everywhere. Qwen2.5-VL's slow tokenizer files (vocab.json and
+  merges.txt only) are converted as transformers' Qwen2Converter does (NFC, the Qwen2 split, the added tokens of tokenizer_config.json).
+
+Verification (tools/make-tiny-qwen-image.py, tools/make-qwen-image-references.py; `TinyQwenImageTests`, `QwenImageTests`,
+`QwenImageImageTests` in Studio.Tests):
+
+- Tiny random Qwen-Image (`~/models/qwen-image/tiny-random-qwen-image`, 64×96, non-square RoPE grid, random latent normalization): prompt
+  tokens equal transformers'; text encoder (after the skipped tokens), transformer (masked padding), VAE decode and encode within 1e-4 / 1e-3
+  (Vulkan) of diffusers from the diffusers folder, the ComfyUI-named single file and the Q8_0 GGUF with companions (GGUF within 5e-3 / 3e-2);
+  guided 4-step txt2img above 40 dB in all 6 combinations.
+- Qwen-Image, city96's Q4_K_M GGUF with the pipeline's Qwen2.5-VL text encoder (bf16) and VAE as companions, on Vulkan against diffusers running
+  the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 20 steps, true CFG 4, negative prompt " ", same latents: text
+  encoder 4.6–6.4e-4, transformer 8.4e-3 relative RMS; images 30.9 dB (512) / 29.8 dB (1024). Studio: the load panel shows the Qwen2.5-VL and
+  VAE slots and fills them (with the Qwen2.5-VL-7B Q8_0 GGUF and ComfyUI's VAE beside the transformer), and the Image page generates.
+- Speed (Vulkan, Q4_K_M, warm, conditioning reused; the 13 GB transformer and the 16 GB bf16 text encoder alternate on the 32 GB GPU):
+  512×512 20 guided steps 34 s, 1024×1024 131 s (3.3 s per step and both rows); diffusers (GGUF dequantized on the fly, CUDA f32) 8.2 s per
+  step at 1024.
+
+### LoRA
+
+<a id="lora"></a>
+LoRAs are merged at load (2026-11-16): a LoRA file is an auxiliary source (role `lora`, `lora:2`, ...; `lora@0.8` for strength 0.8) whose
+`FormatData` is an `IWeightPatch`; `WeightPatches.Merge` (Core, before any adapter) replaces the targeted canonical weights with
+W + s · α / r · up · down, computed when the weight is read (quantized weights are decoded and become f16). `DiffusionLoraPatch`
+(Import.Diffusers) maps modules through the importer's own name mappings: kohya names are re-dotted by known multi-word names
+(`KohyaNames`), SDXL's SGM UNet names mapped as diffusers' `_maybe_map_sgm_blocks_to_diffusers`; diffusers / PEFT names go through
+`DiffusersNames` (UNet, CLIP), `FluxNames` (q / k / v and the single blocks' MLP input as row blocks of the fused projections) or
+`QwenImageNames`. A module that matches no weight fails naming the module and the model family.
+
+Verification (tools/make-tiny-lora.py, `TinyLoraTests`): random rank-4 LoRAs (α 8, strength 0.8) on the tiny SD 1.5, SDXL and FLUX.1-dev
+pipelines against diffusers' `load_lora_weights` from the same noise: SD 1.5 kohya and PEFT (UNet attention / MLP, text encoder) 82 dB
+(CPU) / 76 dB (Vulkan); SDXL kohya (SGM names, both text encoders) and PEFT 44 / 41 dB; FLUX kohya (original names, fused q/k/v) and PEFT
+81–85 / 75 dB; the unadapted image is 11–14 dB away.
 
 ## 18. Video generation (2026-11-16)
 

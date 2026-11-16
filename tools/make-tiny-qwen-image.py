@@ -90,7 +90,7 @@ def main():
 
     torch.manual_seed(7)
     transformer = QwenImageTransformer2DModel(patch_size=2, in_channels=64, out_channels=16, num_layers=2, attention_head_dim=32,
-                                              num_attention_heads=4, joint_attention_dim=64, axes_dims_rope=(8, 12, 12))
+                                              num_attention_heads=4, joint_attention_dim=64, axes_dims_rope=(4, 14, 14))
     rng = torch.Generator().manual_seed(3)
     latents_mean = (torch.randn(16, generator=rng) * 0.5).tolist()
     latents_std = (torch.rand(16, generator=rng) + 0.75).tolist()
