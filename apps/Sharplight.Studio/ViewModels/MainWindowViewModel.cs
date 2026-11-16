@@ -9,6 +9,7 @@ using Sharplight.Studio.ViewModels.Inference;
 using Sharplight.Studio.ViewModels.Models;
 using Sharplight.Studio.ViewModels.Server;
 using Sharplight.Studio.ViewModels.Settings;
+using Sharplight.Studio.ViewModels.Audio;
 using Sharplight.Studio.ViewModels.Speech;
 using Sharplight.Studio.ViewModels.Stats;
 using Sharplight.Studio.ViewModels.Tasks;
@@ -28,6 +29,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Chat = new ChatPageViewModel(services, this);
         Transcribe = new TranscribePageViewModel(services, this);
         Speak = new SpeakPageViewModel(services, this);
+        Audio = new AudioPageViewModel(services, this);
         Image = new ImagePageViewModel(services, this);
         Vision = new VisionPageViewModel(services, this);
         Tasks = new TasksPageViewModel(services, this);
@@ -36,7 +38,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Stats = new StatsPageViewModel(services);
         Settings = new SettingsPageViewModel(services);
         StoreMigration = new StoreMigrationViewModel(services, () => _ = Models.Library.RefreshAsync());
-        Pages = [Chat, Transcribe, Speak, Image, Vision, Tasks, Models, Server, Stats];
+        Pages = [Chat, Transcribe, Speak, Audio, Image, Vision, Tasks, Models, Server, Stats];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         services.Server.StateChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         UpdateStatus();
@@ -50,6 +52,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     /// <summary>Speak page: text to speech.</summary>
     public SpeakPageViewModel Speak { get; }
+
+    /// <summary>Audio page: audio codecs and voice activity detection.</summary>
+    public AudioPageViewModel Audio { get; }
 
     /// <summary>Image page: image generation.</summary>
     public ImagePageViewModel Image { get; }
@@ -143,9 +148,11 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         {
             Sharplight.Models.ModelKinds.SpeechRecognition => Transcribe,
             Sharplight.Models.ModelKinds.SpeechSynthesis => Speak,
+            Sharplight.Models.ModelKinds.AudioCodec or Sharplight.Models.ModelKinds.VoiceActivity => Audio,
             Sharplight.Models.ModelKinds.ImageGeneration => Image,
             Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding
-                or Sharplight.Models.ModelKinds.ObjectDetection or Sharplight.Models.ModelKinds.DepthEstimation => Vision,
+                or Sharplight.Models.ModelKinds.ObjectDetection or Sharplight.Models.ModelKinds.DepthEstimation or Sharplight.Models.ModelKinds.ImageSegmentation
+                or Sharplight.Models.ModelKinds.Ocr or Sharplight.Models.ModelKinds.ImageUpscaling => Vision,
             _ => null,
         };
         if (page is null)

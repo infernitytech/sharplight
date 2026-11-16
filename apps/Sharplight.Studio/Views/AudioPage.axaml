@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:au="using:Sharplight.Studio.ViewModels.Audio"
+             xmlns:iv="using:Sharplight.Studio.Views.Inference"
+             x:Class="Sharplight.Studio.Views.AudioPage"
+             x:DataType="au:AudioPageViewModel">
+  <iv:InferenceFrame>
+    <iv:InferenceFrame.Workspace>
+      <Grid RowDefinitions="Auto,*" RowSpacing="14">
+        <!-- Input -->
+        <Border x:Name="InputCard" Classes="card" DragDrop.AllowDrop="True">
+          <StackPanel Spacing="12">
+            <TextBlock Classes="h2" Text="Audio" />
+            <TextBlock Classes="muted" Text="{Binding ModeDescription}" TextWrapping="Wrap" />
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Classes="small" Content="Choose file" Command="{Binding ChooseFileCommand}" Margin="12,0,0,0" />
+              <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="{Binding AudioName2}" TextTrimming="CharacterEllipsis" FontWeight="Medium" IsVisible="{Binding HasAudio}" ToolTip.Tip="{Binding AudioPath}" />
+                <TextBlock Classes="caption" Text="{Binding AudioSummary}" IsVisible="{Binding HasAudio}" />
+                <TextBlock Classes="muted" Text="Drop an audio file here or choose one." IsVisible="{Binding !HasAudio}" TextWrapping="Wrap" />
+              </StackPanel>
+            </DockPanel>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Classes="accent" Content="{Binding RunText}" Command="{Binding RunCommand}" />
+              <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsRunning}" />
+              <TextBlock Classes="caption" Text="{Binding RunHint}" VerticalAlignment="Center" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <!-- Result -->
+        <Border Grid.Row="1" Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="h2" Text="Result" />
+            <TextBlock Classes="muted" Text="The result appears here once the run is done." IsVisible="{Binding !HasResult}" />
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasReconstruction}">
+              <Button Classes="accent small" Command="{Binding PlayCommand}" Content="{Binding PlayText}" />
+              <Button Classes="small" Content="Save as WAV" Command="{Binding SaveCommand}" />
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding Segments}" IsVisible="{Binding IsVoiceActivity}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="au:SpeechSegmentViewModel">
+                  <StackPanel Spacing="2" Margin="0,2">
+                    <Border Height="8" Width="560" HorizontalAlignment="Left" CornerRadius="4" Background="{DynamicResource SurfaceAltBrush}">
+                      <Border Height="8" Width="{Binding BarWidth}" Margin="{Binding Offset}" HorizontalAlignment="Left" CornerRadius="4" Background="{DynamicResource AccentBrush}" />
+                    </Border>
+                    <TextBlock Classes="caption" Text="{Binding Text}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="caption" Text="{Binding ResultSummary}" IsVisible="{Binding HasResult}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </iv:InferenceFrame.Workspace>
+  </iv:InferenceFrame>
+</UserControl>

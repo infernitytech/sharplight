@@ -479,46 +479,11 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         return values;
     }
 
-    /// <summary>
-    /// Tokenizes a prompt to exactly the context length: the tokenizer's special tokens (CLIP: start and end; T5: end), truncated to
-    /// keep the end token, then padding.
-    /// </summary>
-    /// <returns>The padded ids and the number of prompt tokens before the padding.</returns>
+    /// <summary>A prompt's padded ids (<see cref="PromptTokenizer"/>) and the number of prompt tokens before the padding.</summary>
     private static (int[] Ids, int Length) PromptTokens(ITokenizer tokenizer, int contextLength, string prompt, string? template = null)
     {
-        List<int> ids;
-        if (template is not null && template.IndexOf("{prompt}", StringComparison.Ordinal) is int at and >= 0)
-        {
-            // The template's special tokens are parsed, the prompt's text is not; no other special tokens are added.
-            ids = [.. tokenizer.Encode(template[..at], addSpecial: false, parseSpecial: true),
-                .. tokenizer.Encode(prompt, addSpecial: false, parseSpecial: false),
-                .. tokenizer.Encode(template[(at + "{prompt}".Length)..], addSpecial: false, parseSpecial: true)];
-            ids = ids.Count > contextLength ? ids[..contextLength] : ids;
-            int padding = tokenizer.PadId ?? tokenizer.EosId ?? 0;
-            int count = ids.Count;
-            while (ids.Count < contextLength)
-            {
-                ids.Add(padding);
-            }
-
-            return ([.. ids], count);
-        }
-
-        ids = tokenizer.Encode(prompt, addSpecial: true, parseSpecial: false).ToList();
-        int end = tokenizer.EosId ?? ids[^1];
-        if (ids.Count > contextLength)
-        {
-            ids = [.. ids.Take(contextLength - 1), end];
-        }
-
-        int length = ids.Count;
-        int pad = tokenizer.PadId ?? end;
-        while (ids.Count < contextLength)
-        {
-            ids.Add(pad);
-        }
-
-        return ([.. ids], length);
+        int[] ids = PromptTokenizer.Tokenize(tokenizer, contextLength, prompt, out int count, template);
+        return (ids, count);
     }
 
     private float[] Denoise(DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index, float[] latents)

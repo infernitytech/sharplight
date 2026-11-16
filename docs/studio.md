@@ -39,7 +39,7 @@ different models run at the same time. Images and documents can be attached by d
 classification, object detection, segmentation, depth estimation, OCR, upscaling, audio, embeddings, time series, 3D, bio,
 robotics) with the number of library and resident models of that kind. The engine runs text generation (the chat page), speech to
 text (Transcribe), text to speech (Speak), image generation (Image), the image models (classification, embedding, object detection,
-depth estimation: Vision) and embeddings today. The cards of the runnable kinds open their page; the other kinds say
+depth estimation, segmentation, OCR, upscaling: Vision) and embeddings today. The cards of the runnable kinds open their page; the other kinds say
 *Not yet supported* and their buttons lead to the library filtered to that kind and to Discover filtered to that model type. When
 the engine gains a kind, its card opens a page of its own, built from the shared pieces described under *Inference pages* below.
 
@@ -360,7 +360,7 @@ without its second text encoder, fails on load naming what is missing; a `.slm` 
 
 ![Image](images/studio/studio-image.png)
 
-**Vision** (one page for `image-classification`, `image-embedding`, `object-detection` and `depth-estimation`; the mode follows the
+**Vision** (one page for `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`, `image-segmentation`, `ocr` and `image-upscaling`; the mode follows the
 kind of the chosen model, and the parameters that do not apply are hidden). Choose or drop an image (PNG through the engine's codec,
 JPEG, WebP, BMP and GIF through the platform's decoders).
 
@@ -373,21 +373,33 @@ JPEG, WebP, BMP and GIF through the platform's decoders).
 - *Depth* shows the depth map beside the image, in grayscale or with the turbo, viridis or inferno color map (changed without a new
   run, optionally inverted).
 
-Every run keeps `result.json` (plus `annotated.png` or `depth.png`) in the outputs; the history restores the result and the
+- *Segmentation* (SAM 2) starts from the middle of the image. Click the image to add a point (left button or plain click keeps the
+  object, right button or Ctrl-click excludes a region), or choose the *Box* tool and drag a box; every prompt re-runs only the cheap
+  mask stage on the already encoded image. The best mask is overlaid in color and every candidate mask is listed with its score; the
+  *Mask* option shows another candidate instead. *Clear prompt* starts over.
+- *OCR* (TrOCR, text recognition of a line of text) shows the recognized text, which can be selected and copied.
+- *Upscaling* (Real-ESRGAN) shows the original and the enlarged image with a comparison slider (original left of the divider,
+  upscaled right of it). Large images are cut into overlapping tiles that are blended; the *Tile size* and *Tile padding* options
+  trade memory against seams, and the run reports the progress per tile. *Export PNG* writes the upscaled image.
+
+Every run keeps `result.json` (plus `annotated.png`, `depth.png`, `overlay.png` or `upscaled.png`) in the outputs; the history restores the result and the
 parameters, also when the original image is gone (the stored PNGs are shown then). Annotated images are drawn by Studio itself
 with a small built-in font (upper-case letters, digits and basic punctuation).
 
 ![Vision detection](images/studio/studio-vision-detection.png) ![Vision depth](images/studio/studio-vision-depth.png)
 ![Vision zero-shot](images/studio/studio-vision-zero-shot.png)
+![Vision segmentation](images/studio/studio-vision-segmentation.png) ![Vision OCR](images/studio/studio-vision-ocr.png)
+![Vision upscaling](images/studio/studio-vision-upscale.png)
 
 The library recognizes the image models without a package: a diffusers folder (`model_index.json`), a single-file checkpoint (its
 safetensors header or GGUF tensor table names the UNet, or a GGUF names a diffusion transformer such as FLUX; a `.ckpt` only by its
 name), and Hugging Face vision checkpoints by the
 architecture of their `config.json` (`...ForImageClassification`, `...ForObjectDetection`, `...ForDepthEstimation`, CLIP, SigLIP and
-DINOv2 as embedding models). These kinds load through the same load panel, simplified to the device (no context, batching or KV
+DINOv2 as embedding models, SAM 2 as segmentation, a TrOCR vision-encoder-decoder as OCR) and Real-ESRGAN / SwinIR upscalers
+(`.pth` files and folders by name, safetensors by their tensor names). These kinds load through the same load panel, simplified to the device (no context, batching or KV
 cache), and the *Tasks* cards and the library's *Load* open the right page.
 
-Not supported yet: segmentation, OCR, upscaling and video models (the cards say so), a painting tool for masks (a mask is a file),
+Not supported yet: video models (the cards say so), a painting tool for masks (a mask is a file),
 and diffusers pipelines with a transformer instead of a UNet (Flux, SD3: the loader reports it).
 
 The side panel's *History* and *Outputs* tabs:

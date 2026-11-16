@@ -75,6 +75,12 @@ internal static class Env
     /// <summary>The Chroma model folder (GGUF files, configurations, references).</summary>
     public static readonly string ChromaRoot = Path.Combine(Home, "models/chroma");
 
+    /// <summary>The tiny random Wan pipelines (tools/make-tiny-wan.py: t2v, ti2v).</summary>
+    public static readonly string TinyWan = Path.Combine(Home, "models/video/tiny-random-wan");
+
+    /// <summary>The video models' folder.</summary>
+    public static readonly string VideoRoot = Path.Combine(Home, "models/video");
+
     /// <summary>Stable Diffusion 1.5 as a diffusers folder.</summary>
     public static readonly string Sd15Diffusers = Path.Combine(Home, "models/sd/sd15-diffusers");
 

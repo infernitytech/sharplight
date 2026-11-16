@@ -145,7 +145,7 @@ internal sealed record Sd3Config
         metadata[s + "dynamic_shift"] = false;
         metadata[s + "sampler"] = "euler";
         // The SD3 pipelines let the scheduler space the noise levels over its training range.
-        metadata[s + "sigma_range"] = "trained";
+        metadata[s + "timestep_spacing"] = "scheduler";
         if (SchedulerJson is not null)
         {
             metadata[s + "source_config"] = SchedulerJson;

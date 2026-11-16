@@ -61,7 +61,7 @@ public sealed class ChromaAdapter : IModelAdapter
         long latentWidth = width / downscale;
         var graphs = new Dictionary<string, Graph.ComputeGraph>
         {
-            [DiffusionGraphs.TextEncode] = T5TextGraphBuilder.Build(src.Weight, t5, TextEncoderPrefix, DiffusionGraphs.TextEncode, masked: true),
+            [DiffusionGraphs.TextEncode] = T5TextGraphBuilder.Build(src.Weight, t5, TextEncoderPrefix, DiffusionGraphs.TextEncode, DiffusionGraphs.TokenMask),
             [DiffusionGraphs.Denoise] = FluxTransformerGraphBuilder.Build(src.Weight, transformer, latentHeight, latentWidth, t5.ContextLength),
             [DiffusionGraphs.VaeDecode] = AutoencoderGraphBuilder.BuildDecoder(src.Weight, vae, latentHeight, latentWidth),
             [DiffusionGraphs.VaeEncode] = AutoencoderGraphBuilder.BuildEncoder(src.Weight, vae, height, width),

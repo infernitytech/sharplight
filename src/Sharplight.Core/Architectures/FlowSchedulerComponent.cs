@@ -8,7 +8,7 @@ namespace Sharplight.Architectures;
 /// <summary>
 /// The scheduler component of rectified-flow image generators (FLUX, SD3, Chroma, Qwen-Image): the flow-matching keys under
 /// <c>{prefix}scheduler.*</c> (<c>train_steps</c>, <c>shift</c>, <c>dynamic_shift</c>, <c>base_shift</c>, <c>max_shift</c>,
-/// <c>base_sequence_length</c>, <c>max_sequence_length</c>, <c>sampler</c>, <c>sigma_range</c>, <c>source_config</c>) as a description component, and the
+/// <c>base_sequence_length</c>, <c>max_sequence_length</c>, <c>sampler</c>, <c>timestep_spacing</c> (<c>scheduler</c>: the scheduler's own levels, see <see cref="FlowMatchEulerSampler"/>), <c>source_config</c>) as a description component, and the
 /// original scheduler configuration as an attachment.
 /// </summary>
 internal static class FlowSchedulerComponent
@@ -50,8 +50,12 @@ internal static class FlowSchedulerComponent
             .Add(DiffusionConfigKeys.MaxShift, src.Get(s + "max_shift", 1.15))
             .Add(DiffusionConfigKeys.BaseSequenceLength, src.Get(s + "base_sequence_length", 256))
             .Add(DiffusionConfigKeys.MaxSequenceLength, src.Get(s + "max_sequence_length", 4096))
-            .Add(DiffusionConfigKeys.Sampler, src.Get(s + "sampler", Samplers.Euler))
-            .Add(DiffusionConfigKeys.FlowSigmaRange, src.Get(s + "sigma_range", "unit"));
+            .Add(DiffusionConfigKeys.Sampler, src.Get(s + "sampler", Samplers.Euler));
+        if (src.Get<string?>(s + "timestep_spacing", null) is { } spacing)
+        {
+            config.Add(DiffusionConfigKeys.TimestepSpacing, spacing);
+        }
+
         return new ModelComponent
         {
             Role = ModelComponentRoles.Scheduler,

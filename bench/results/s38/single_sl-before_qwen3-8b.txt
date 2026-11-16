@@ -1,0 +1,8 @@
+[N=16 run=1] prefill 16 tok: best 20 ms = 782.2 tok/s | decode: best 53.54, median 53.20, mean 53.18 tok/s | GPU ms/step: best 18.55, median 18.63, wall best 18.68
+[N=16 run=2] prefill 16 tok: best 20 ms = 783.0 tok/s | decode: best 53.63, median 53.14, mean 53.14 tok/s | GPU ms/step: best 18.52, median 18.63, wall best 18.65
+[N=512 run=1] prefill 512 tok: best 76 ms = 6693.4 tok/s | decode: best 52.59, median 52.38, mean 52.37 tok/s | GPU ms/step: best 18.90, median 18.91, wall best 19.02
+[N=512 run=2] prefill 512 tok: best 76 ms = 6694.9 tok/s | decode: best 52.67, median 52.46, mean 52.45 tok/s | GPU ms/step: best 18.87, median 18.89, wall best 18.99
+[N=2048 run=1] prefill 2048 tok: best 333 ms = 6141.4 tok/s | decode: best 52.07, median 51.90, mean 51.61 tok/s | GPU ms/step: best 19.04, median 19.06, wall best 19.21
+[N=2048 run=2] prefill 2048 tok: best 334 ms = 6140.4 tok/s | decode: best 52.21, median 51.92, mean 51.92 tok/s | GPU ms/step: best 19.05, median 19.08, wall best 19.16
+[N=8192 run=1] prefill 8192 tok: best 1571 ms = 5215.4 tok/s | decode: best 49.15, median 49.05, mean 49.02 tok/s | GPU ms/step: best 20.25, median 20.26, wall best 20.35
+[N=8192 run=2] prefill 8192 tok: best 1577 ms = 5195.9 tok/s | decode: best 49.13, median 48.95, mean 48.91 tok/s | GPU ms/step: best 20.25, median 20.27, wall best 20.35

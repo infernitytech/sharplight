@@ -134,7 +134,7 @@ public static class PngCodec
     /// <exception cref="InvalidDataException">The file is not a PNG this decoder supports, or it is damaged.</exception>
     public static ImageInput Read(string path) => Decode(File.ReadAllBytes(path));
 
-    private static byte[] CompressRows(ImageInput image, CompressionLevel level)
+    internal static byte[] CompressRows(ImageInput image, CompressionLevel level)
     {
         int stride = image.Width * 3;
         using var compressed = new MemoryStream();
@@ -249,7 +249,7 @@ public static class PngCodec
         return new ImageInput(header.Width, header.Height, rgb);
     }
 
-    private static void WriteChunk(Stream stream, ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)
+    internal static void WriteChunk(Stream stream, ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)
     {
         Span<byte> word = stackalloc byte[4];
         BinaryPrimitives.WriteInt32BigEndian(word, data.Length);

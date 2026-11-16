@@ -17,12 +17,18 @@ internal static class ImageModelProbe
     private const string UNetPrefix = "model.diffusion_model.";
     private const string FluxTransformerTensor = "double_blocks.0.img_attn.qkv.weight";
     private const string Sd3TransformerTensor = "joint_blocks.0.x_block.attn.qkv.weight";
+    private const string ZImageTransformerTensor = "noise_refiner.0.attention.qkv.weight";
     private const long MaxSafetensorsHeader = 256L << 20;
 
     private static readonly HashSet<string> s_diffusionTransformerArchitectures = new(StringComparer.OrdinalIgnoreCase)
     {
         "flux", "sd3", "aura", "auraflow", "chroma", "hidream", "lumina2", "qwen_image", "wan", "hyvid", "ltxv", "cosmos",
     };
+
+    private static readonly string[] s_upscalerNameHints = ["esrgan", "swinir", "realesr", "upscal", "super-resolution", "superres"];
+
+    // Tensor names of the RRDBNet (Real-ESRGAN) and SwinIR super-resolution networks.
+    private static readonly string[] s_upscalerTensors = ["body.0.rdb1.conv1.weight", "RRDB_trunk.0.RDB1", "conv_before_upsample"];
 
     private static readonly string[] s_checkpointNameHints = ["stable-diffusion", "stable_diffusion", "sd-", "sd_", "sd1", "sd2", "sdxl", "v1-5", "v2-1", "dreamshaper", "diffusion"];
 
@@ -32,14 +38,36 @@ internal static class ImageModelProbe
     {
         if (Directory.Exists(path))
         {
-            return IsDiffusersFolder(path) ? ModelKinds.ImageGeneration : KindOfConfig(Path.Combine(path, "config.json"));
+            if (IsDiffusersFolder(path))
+            {
+                return ModelKinds.ImageGeneration;
+            }
+
+            if (File.Exists(Path.Combine(path, "config.json")))
+            {
+                return KindOfConfig(Path.Combine(path, "config.json"));
+            }
+
+            // A folder holding a Real-ESRGAN / SwinIR checkpoint (.pth, or a named .safetensors).
+            return Directory.EnumerateFiles(path, "*.pth").Concat(Directory.EnumerateFiles(path, "*.safetensors")).Any(file => KindOf(file) == ModelKinds.ImageUpscaling) ? ModelKinds.ImageUpscaling : null;
         }
 
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
-            return SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor) || SafetensorsHeaderContains(path, Sd3TransformerTensor)
-                ? ModelKinds.ImageGeneration
-                : null;
+            if (SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor)
+                || SafetensorsHeaderContains(path, Sd3TransformerTensor) || SafetensorsHeaderContains(path, ZImageTransformerTensor))
+            {
+                return ModelKinds.ImageGeneration;
+            }
+
+            return s_upscalerTensors.Any(tensor => SafetensorsHeaderContains(path, tensor)) ? ModelKinds.ImageUpscaling : null;
+        }
+
+        // Real-ESRGAN and SwinIR are distributed as pickled .pth files, which the name recognizes.
+        if (path.EndsWith(".pth", StringComparison.OrdinalIgnoreCase))
+        {
+            string name = Path.GetFileName(path);
+            return s_upscalerNameHints.Any(hint => name.Contains(hint, StringComparison.OrdinalIgnoreCase)) ? ModelKinds.ImageUpscaling : null;
         }
 
         if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
@@ -58,7 +86,7 @@ internal static class ImageModelProbe
     }
 
     /// <summary>
-    /// Whether an image model file holds only a FLUX or SD3 transformer (original tensor names, as city96 / stable-diffusion.cpp GGUF files
+    /// Whether an image model file holds only a FLUX, Chroma, SD3 or Z-Image transformer (original tensor names, as city96 / stable-diffusion.cpp GGUF files
     /// and the official single files are distributed), so its text encoders and VAE come as companion files.
     /// </summary>
     /// <param name="path">A model file.</param>
@@ -66,7 +94,8 @@ internal static class ImageModelProbe
     {
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
-            return (SafetensorsHeaderContains(path, FluxTransformerTensor) || SafetensorsHeaderContains(path, Sd3TransformerTensor))
+            return (SafetensorsHeaderContains(path, FluxTransformerTensor) || SafetensorsHeaderContains(path, Sd3TransformerTensor)
+                    || SafetensorsHeaderContains(path, ZImageTransformerTensor))
                 && !SafetensorsHeaderContains(path, "text_encoders.");
         }
 
@@ -79,7 +108,7 @@ internal static class ImageModelProbe
         {
             using var file = GgufFile.Open(path);
             return file.Tensors.Any(tensor => tensor.Name.EndsWith(FluxTransformerTensor, StringComparison.Ordinal)
-                || tensor.Name.EndsWith(Sd3TransformerTensor, StringComparison.Ordinal));
+                || tensor.Name.EndsWith(Sd3TransformerTensor, StringComparison.Ordinal) || tensor.Name.EndsWith(ZImageTransformerTensor, StringComparison.Ordinal));
         }
         catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
         {
@@ -158,6 +187,16 @@ internal static class ImageModelProbe
             if (architecture.EndsWith("ForObjectDetection", StringComparison.Ordinal) || type is "detr" or "rt_detr" or "conditional_detr" or "deformable_detr" or "yolos")
             {
                 return ModelKinds.ObjectDetection;
+            }
+
+            if (type is "sam2" or "sam2_video" or "sam" or "sam_hq")
+            {
+                return ModelKinds.ImageSegmentation;
+            }
+
+            if (type == "vision-encoder-decoder" && root.TryGetProperty("decoder", out var decoder) && decoder.TryGetProperty("model_type", out var decoderType) && decoderType.GetString() == "trocr")
+            {
+                return ModelKinds.Ocr;
             }
 
             if (architecture.EndsWith("ForDepthEstimation", StringComparison.Ordinal) || type is "depth_anything" or "dpt")

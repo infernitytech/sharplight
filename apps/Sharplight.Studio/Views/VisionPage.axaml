@@ -30,6 +30,7 @@
           <DockPanel>
             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResult}">
+                <Button Classes="small" Content="Clear prompt" Command="{Binding ClearPromptCommand}" IsVisible="{Binding CanPrompt}" ToolTip.Tip="Forget the points and the box, and segment from the middle again" />
                 <Button Classes="small" Content="Copy" Command="{Binding CopyCommand}" IsVisible="{Binding !ShowDepth}" />
                 <Button Classes="small" Content="Export PNG" Command="{Binding ExportImageCommand}" IsVisible="{Binding CanExportImage}" ToolTip.Tip="Export the annotated image or the depth map" />
                 <Button Classes="small" Content="Export JSON" Command="{Binding ExportJsonCommand}" />
@@ -43,8 +44,8 @@
                 <TextBlock Classes="muted" Text="What the model sees appears here." HorizontalAlignment="Center" />
               </StackPanel>
               <Grid ColumnDefinitions="*,16,*" IsVisible="{Binding HasResult}">
-                <Border CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center">
-                  <Image Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+                <Border CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding !ShowAfter}">
+                  <Image x:Name="MainImage" Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
                 </Border>
                 <!-- Classes and objects -->
                 <DockPanel Grid.Column="2" IsVisible="{Binding ShowRows}">
@@ -68,6 +69,18 @@
                 <Border Grid.Column="2" CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding ShowDepth}">
                   <Image Source="{Binding DepthPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
                 </Border>
+                <!-- Before/after comparison: the slider moves the divider between the original (left) and the upscaled image (right) -->
+                <DockPanel Grid.ColumnSpan="3" IsVisible="{Binding ShowAfter}">
+                  <Slider x:Name="CompareSlider" DockPanel.Dock="Bottom" Minimum="0" Maximum="1" Value="0.5" Margin="0,8,0,0" ToolTip.Tip="Drag to compare: original on the left, upscaled on the right" />
+                  <Border CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <Panel>
+                      <Image Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+                      <Image x:Name="AfterImage" Source="{Binding AfterPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+                    </Panel>
+                  </Border>
+                </DockPanel>
+                <!-- Recognized text -->
+                <SelectableTextBlock Grid.Column="2" Text="{Binding ResultText}" TextWrapping="Wrap" IsVisible="{Binding ShowText}" VerticalAlignment="Top" FontSize="18" />
                 <!-- Embedding -->
                 <SelectableTextBlock Grid.Column="2" Text="{Binding EmbeddingText}" TextWrapping="Wrap" IsVisible="{Binding ShowEmbedding}" VerticalAlignment="Top" />
               </Grid>

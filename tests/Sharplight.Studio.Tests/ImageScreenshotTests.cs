@@ -42,6 +42,12 @@ public sealed class ImageScreenshotTests
         vit.Clients[typeof(IImageClassifier)] = vision;
         var clip = new FakeModel("clip-vit-base-patch32") { Kind = ModelKinds.ImageEmbedding };
         clip.Clients[typeof(IImageEmbedder)] = vision;
+        var sam = new FakeModel("sam2.1-hiera-tiny") { Kind = ModelKinds.ImageSegmentation };
+        sam.Clients[typeof(IImageSegmenter)] = vision;
+        var trocr = new FakeModel("trocr-base-printed") { Kind = ModelKinds.Ocr };
+        trocr.Clients[typeof(ITextRecognizer)] = vision;
+        var esrgan = new FakeModel("realesrgan-x4plus") { Kind = ModelKinds.ImageUpscaling };
+        esrgan.Clients[typeof(IImageUpscaler)] = vision;
         string photo = services.Directory + "/street.png";
         PngCodec.Write(photo, Scene(480, 360));
         new ThemeService(Application.Current!).Apply(AppTheme.Dark, "Violet");
@@ -102,6 +108,30 @@ public sealed class ImageScreenshotTests
             await viewModel.Vision.Refresh;
             await HeadlessApp.RenderAsync(window);
             Save(window, "vision-zero-shot");
+
+            services.Runtime.Add(sam);
+            services.Runtime.Add(trocr);
+            services.Runtime.Add(esrgan);
+            viewModel.Vision.SelectModel(sam);
+            viewModel.Vision.RunCommand.Execute(null);
+            await viewModel.Vision.Queue.Items[^1].Completion;
+            await viewModel.Vision.Refresh;
+            await HeadlessApp.RenderAsync(window);
+            Save(window, "vision-segmentation");
+
+            viewModel.Vision.SelectModel(trocr);
+            viewModel.Vision.RunCommand.Execute(null);
+            await viewModel.Vision.Queue.Items[^1].Completion;
+            await viewModel.Vision.Refresh;
+            await HeadlessApp.RenderAsync(window);
+            Save(window, "vision-ocr");
+
+            viewModel.Vision.SelectModel(esrgan);
+            viewModel.Vision.RunCommand.Execute(null);
+            await viewModel.Vision.Queue.Items[^1].Completion;
+            await viewModel.Vision.Refresh;
+            await HeadlessApp.RenderAsync(window);
+            Save(window, "vision-upscale");
 
             viewModel.Vision.SideTab = 2;
             await HeadlessApp.RenderAsync(window);

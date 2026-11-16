@@ -23,14 +23,14 @@ public static class SharplightServiceCollectionExtensions
         /// <summary>
         /// Adds the model formats and architectures (<see cref="AddSharplightModelFormats"/>), the execution providers
         /// (<see cref="AddSharplightProviders"/>), the task layer (<c>services.AddSharplightTasks()</c>) and the native audio services
-        /// (<c>services.AddSharplightAudio()</c>: decoding, encoding, playback and capture), and the storage layout
+        /// (<c>services.AddSharplightAudio()</c>: decoding, encoding, playback and capture), the video encoders (<c>services.AddSharplightVideo()</c>: WebM, MP4 through ffmpeg, GIF, APNG), and the storage layout
         /// (<c>services.AddSharplightStorage()</c>: where configuration, data, models and caches are kept). Idempotent.
         /// </summary>
         /// <returns>The service collection.</returns>
         public IServiceCollection AddSharplight()
         {
             ArgumentNullException.ThrowIfNull(services);
-            return services.AddSharplightStorage().AddSharplightModelFormats().AddSharplightProviders().AddSharplightTasks().AddSharplightAudio();
+            return services.AddSharplightStorage().AddSharplightModelFormats().AddSharplightProviders().AddSharplightTasks().AddSharplightAudio().AddSharplightVideo();
         }
 
         /// <summary>
@@ -49,6 +49,7 @@ public static class SharplightServiceCollectionExtensions
                 .AddWhisperCppImporter()
                 .AddKokoroImporter()
                 .AddSnacImporter()
+                .AddSileroVadImporter()
                 .AddDiffusersImporter()
                 .AddPackageImporter();
         }

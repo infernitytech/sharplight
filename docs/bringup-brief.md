@@ -47,3 +47,4 @@ docs/api-overview.md.
   `develop` directly.
 - Final report: architectures now supported (with test model, CPU/Vulkan parity result), new ops /
   building blocks, what is left, and anything the other agents need to know.
+- Every model bring-up or sweep adds its verified models to docs/compatible-models.md.

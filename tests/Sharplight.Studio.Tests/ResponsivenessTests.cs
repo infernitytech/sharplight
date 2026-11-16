@@ -181,6 +181,64 @@ public sealed class ResponsivenessTests
     });
 
     [Fact]
+    public Task VisionSegmentation_RunsOffTheUiThread_AndRerunsFromClicks() => HeadlessApp.RunAsync(async () =>
+    {
+        using var services = new TestServices(dispatcher: new CountingDispatcher());
+        var vision = new FakeVision { StepWork = StepWork * 2 };
+        var page = await VisionPageAsync(services, vision, ModelKinds.ImageSegmentation, typeof(IImageSegmenter));
+
+        await RunResponsiveAsync(page, page.RunCommand, "segmentation");
+        page.PlacePoint(0.25, 0.5, negative: false);
+        await WaitForAsync(() => vision.Prompts.Count >= 2);
+        await WaitForAsync(() => !page.Queue.Items[^1].IsActive);
+        Assert.Equal(RunStatus.Completed, page.Queue.Items[^1].Status);
+    });
+
+    [Fact]
+    public Task VisionOcr_RunsOffTheUiThread() => HeadlessApp.RunAsync(async () =>
+    {
+        using var services = new TestServices(dispatcher: new CountingDispatcher());
+        var vision = new FakeVision { StepWork = StepWork * 2 };
+        var page = await VisionPageAsync(services, vision, ModelKinds.Ocr, typeof(ITextRecognizer));
+
+        await RunResponsiveAsync(page, page.RunCommand, "text recognition");
+        Assert.Equal("Hello Sharplight", page.ResultText);
+    });
+
+    [Fact]
+    public Task VisionUpscaling_RunsOffTheUiThread() => HeadlessApp.RunAsync(async () =>
+    {
+        using var services = new TestServices(dispatcher: new CountingDispatcher());
+        var vision = new FakeVision { StepWork = StepWork * 2 };
+        var page = await VisionPageAsync(services, vision, ModelKinds.ImageUpscaling, typeof(IImageUpscaler));
+
+        await RunResponsiveAsync(page, page.RunCommand, "upscaling");
+        Assert.NotNull(page.AfterPng);
+    });
+
+    [Fact]
+    public Task VisionUpscaling_Cancels() => HeadlessApp.RunAsync(async () =>
+    {
+        using var services = new TestServices(dispatcher: new CountingDispatcher());
+        var vision = new FakeVision { StepWork = StepWork * 8 };
+        var page = await VisionPageAsync(services, vision, ModelKinds.ImageUpscaling, typeof(IImageUpscaler));
+        await CancelMidRunAsync(page, page.RunCommand);
+    });
+
+    private static async Task<VisionPageViewModel> VisionPageAsync(TestServices services, FakeVision vision, string kind, Type client)
+    {
+        var model = new FakeModel("vision") { Kind = kind };
+        model.Clients[client] = vision;
+        services.Runtime.Add(model);
+        var page = new VisionPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        string path = Path.Combine(services.Directory, "cat.png");
+        PngCodec.Write(path, FakeImageGenerator.Gradient(80, 64, 2));
+        Assert.True(await page.Source.SetFileAsync(path));
+        return page;
+    }
+
+    [Fact]
     public Task Library_PrecompileAndConvert_StayOffTheUiThread_AndThrottleProgress() => HeadlessApp.RunAsync(async () =>
     {
         var dispatcher = new CountingDispatcher();

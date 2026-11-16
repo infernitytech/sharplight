@@ -38,6 +38,9 @@ internal static class HfArchitectureMappings
         Register(new DetrHfMapping());
         Register(new RtDetrHfMapping());
         Register(new DepthAnythingHfMapping());
+        Register(new EncodecHfMapping());
+        Register(new DacHfMapping());
+        Register(new MimiHfMapping());
         Register(new Sam2HfMapping());
         Register(new TrOcrHfMapping());
         Register(new T5HfMapping());
@@ -102,6 +105,7 @@ internal static class HfArchitectureMappings
         yield return new GptNeoXHfMapping();
         yield return new GptJHfMapping();
         yield return new Gpt2HfMapping();
+        yield return new OptHfMapping();
         yield return new OlmoHfMapping();
         yield return new NemotronDenseHfMapping();
         yield return new StableLmHfMapping();

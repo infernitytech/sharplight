@@ -118,9 +118,6 @@ public static class DiffusionConfigKeys
     /// </summary>
     public const string ContextMaskPadding = "contextMaskPadding";
 
-    /// <summary>Scheduler (flow): <c>unit</c> or <c>trained</c>, see <see cref="NoiseSchedule.FlowSigmaRange"/> (default <c>unit</c>).</summary>
-    public const string FlowSigmaRange = "flowSigmaRange";
-
     /// <summary>
     /// Denoiser: latent pixels per token along each axis (transformers that patchify the latents: FLUX 2; default 1). The image token
     /// count of a dynamic flow shift is the latent pixel count divided by its square.
