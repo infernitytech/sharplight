@@ -9,8 +9,8 @@ public sealed class PrecompileOptions
     /// <summary>Default <see cref="ContextLength"/>.</summary>
     public const int DefaultContextLength = 4096;
 
-    /// <summary>Default <see cref="BatchTokens"/>.</summary>
-    public const int DefaultBatchTokens = 512;
+    /// <summary>Default <see cref="BatchTokens"/>: 0, the language model's automatic choice (<see cref="Llm.LlmModel.BatchTokens"/>).</summary>
+    public const int DefaultBatchTokens = 0;
 
     /// <summary>
     /// Context length language-model graphs are compiled for. Stored kernels are only used by loads with the same value, so give
@@ -18,7 +18,10 @@ public sealed class PrecompileOptions
     /// </summary>
     public int ContextLength { get; init; } = DefaultContextLength;
 
-    /// <summary>Rows per forward pass (language models) or token bound (other graphs); must match the runtime's.</summary>
+    /// <summary>
+    /// Rows per forward pass (language models) or token bound (other graphs); must match the runtime's. 0: the automatic choice for
+    /// language models (resolved on the compiling device as a load there resolves it), 512 for other graphs.
+    /// </summary>
     public int BatchTokens { get; init; } = DefaultBatchTokens;
 
     /// <summary>

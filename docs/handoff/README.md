@@ -150,6 +150,11 @@ every wave (and whenever a merge round leaves warnings or style debt).
   later the new model classes (Whisper, SD) vs whisper.cpp / stable-diffusion.cpp / diffusers.
 - Studio S0/S1 (see the Studio track below).
 
+**Popularity sweeps (user, 2026-11-16):** download the most popular Hub models per type and fix whatever fails (import,
+parity vs reference, Studio loading, `.slm`): text generation top 20 under 30 GB (running), then speech (STT + TTS),
+vision (classification, detection, segmentation, depth, OCR, upscaling), image generation (text-to-image,
+image-to-image, GGUF variants), later every other kind. Results tables in docs/model-support.md.
+
 **Wave 2:**
 - Vision: classification / image embeddings (ViT, DINOv2/v3, CLIP, SigLIP), detection (DETR, RT-DETR, YOLO), segmentation
   (SAM 2, Mask2Former), depth (Depth Anything, DPT), OCR (TrOCR, PaddleOCR, Florence-2 / GOT-OCR), upscalers (Real-ESRGAN,
@@ -228,7 +233,7 @@ merges into; develop merges into main once everything is green; releases come fr
 
 **Per round:** privacy scan of the diff (no personal email, no home paths), merge to develop, build, all suites in parallel
 across the GPUs, remove the worktree, the machine cleanup (prune worktrees, old temp files), start the next item. Keep
-docs/model-support.md, docs/onnx-support.md and this file current. Push to GitHub only when the user says so; never push
+docs/model-support.md, docs/onnx-support.md and this file current. Every model bring-up or sweep adds its verified models to docs/compatible-models.md. Push to GitHub only when the user says so; never push
 a `v*` tag; `macos/round-1` stays separate.
 
 Agent briefs: docs/bringup-brief.md (architecture rules; note it still says `master` — the branch is `main`, and the

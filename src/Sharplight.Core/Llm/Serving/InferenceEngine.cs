@@ -76,6 +76,7 @@ public sealed class InferenceEngine : IDisposable
     private readonly HashSet<int> _eog;
     private readonly TaskCompletionSource _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly int _budget;
+    private readonly int _prefillChunk;
     private long _nextId, _tick;
     private int _rr, _transit;
     private bool _stop, _draining;
@@ -142,6 +143,7 @@ public sealed class InferenceEngine : IDisposable
         _queue = new RequestQueue(_opt.FairShareHalfLife);
         _eog = [.. tokenizer.EndOfGenerationIds];
         _budget = Math.Max(1, _opt.MaxBatchTokens > 0 ? Math.Min(_opt.MaxBatchTokens, decoder.MaxBatchTokens) : decoder.MaxBatchTokens);
+        _prefillChunk = _opt.PrefillChunk > 0 ? _opt.PrefillChunk : _budget;
         _specRequests = new SpeculationRequest[decoder.SlotCount];
         _specViews = new ContextView[decoder.SlotCount];
         if (_opt.Speculator is { } spec)
@@ -914,7 +916,7 @@ public sealed class InferenceEngine : IDisposable
                 continue;
             }
 
-            int chunk = Math.Min(Math.Min(Math.Min(_opt.PrefillChunk, replay.Length - s.ReplayPos), budget.Tokens), KvRoom(s.Slot!, budget.KvBlocks));
+            int chunk = Math.Min(Math.Min(Math.Min(_prefillChunk, replay.Length - s.ReplayPos), budget.Tokens), KvRoom(s.Slot!, budget.KvBlocks));
             if (chunk <= 0)
             {
                 continue;
@@ -936,7 +938,7 @@ public sealed class InferenceEngine : IDisposable
                 continue;
             }
 
-            int chunk = Math.Min(Math.Min(Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos), budget.Tokens), KvRoom(s.Slot!, budget.KvBlocks));
+            int chunk = Math.Min(Math.Min(Math.Min(_prefillChunk, s.Prompt.Length - s.PromptPos), budget.Tokens), KvRoom(s.Slot!, budget.KvBlocks));
             if (chunk <= 0)
             {
                 continue;
@@ -1219,11 +1221,11 @@ public sealed class InferenceEngine : IDisposable
                 int slot = s.Slot!.Index;
                 if (s.Replay is { } replay)
                 {
-                    chunks += _decoder.KvBlocksNeeded(slot, Math.Min(_opt.PrefillChunk, replay.Length - s.ReplayPos));
+                    chunks += _decoder.KvBlocksNeeded(slot, Math.Min(_prefillChunk, replay.Length - s.ReplayPos));
                 }
                 else if (s.Prefilling)
                 {
-                    chunks += _decoder.KvBlocksNeeded(slot, Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos));
+                    chunks += _decoder.KvBlocksNeeded(slot, Math.Min(_prefillChunk, s.Prompt.Length - s.PromptPos));
                 }
                 else
                 {

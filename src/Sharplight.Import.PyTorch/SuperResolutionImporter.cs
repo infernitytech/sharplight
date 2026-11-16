@@ -28,6 +28,7 @@ public sealed partial class SuperResolutionImporter : IModelImporter
     /// <inheritdoc/>
     public bool CanOpen(string path)
     {
+        path = CheckpointOf(path);
         string extension = Path.GetExtension(path);
         if (!File.Exists(path) || !(extension.Equals(".pth", StringComparison.OrdinalIgnoreCase) || extension.Equals(".pt", StringComparison.OrdinalIgnoreCase)))
         {
@@ -45,12 +46,25 @@ public sealed partial class SuperResolutionImporter : IModelImporter
         }
     }
 
+    // A folder (as downloaded from a model repository) holds its checkpoint as the only .pth / .pt file.
+    private static string CheckpointOf(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return path;
+        }
+
+        var files = Directory.EnumerateFiles(path, "*.pth").Concat(Directory.EnumerateFiles(path, "*.pt")).ToList();
+        return files.Count == 1 ? files[0] : path;
+    }
+
     /// <summary>Opens a super-resolution checkpoint.</summary>
-    /// <param name="path">The <c>.pth</c> file.</param>
+    /// <param name="path">The <c>.pth</c> file, or a folder holding only one.</param>
     /// <returns>The canonical source; it owns the memory-mapped file.</returns>
     /// <exception cref="NotSupportedException">The file is not an RRDBNet checkpoint.</exception>
     public ModelSource Open(string path)
     {
+        path = CheckpointOf(path);
         var file = TorchCheckpointFile.Open(path, s_options);
         try
         {

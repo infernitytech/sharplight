@@ -7,15 +7,17 @@ namespace Sharplight.Llm;
 
 /// <summary>
 /// Options for loading and compiling a language model with <see cref="LlmModel.Load(ModelLoader, string, LlmLoadOptions)"/>: the
-/// settings every model kind shares (<see cref="TaskLoadOptions"/>; <see cref="TaskLoadOptions.ContextLength"/> defaults to 8192 here)
-/// plus the text-generation ones. Settable properties, so it binds with Microsoft.Extensions.Options.
+/// settings every model kind shares (<see cref="TaskLoadOptions"/>; <see cref="TaskLoadOptions.ContextLength"/> defaults to 8192 here
+/// and <see cref="TaskLoadOptions.MaxBatchTokens"/> to 0, the automatic choice of <see cref="LlmModel.BatchTokens"/>) plus the
+/// text-generation ones. Settable properties, so it binds with Microsoft.Extensions.Options.
 /// </summary>
 public sealed class LlmLoadOptions : TaskLoadOptions
 {
-    /// <summary>Creates options with the text-generation defaults (8192-token context).</summary>
+    /// <summary>Creates options with the text-generation defaults (8192-token context, automatic rows per forward pass).</summary>
     public LlmLoadOptions()
     {
         ContextLength = 8192;
+        MaxBatchTokens = 0;
     }
 
     /// <summary>

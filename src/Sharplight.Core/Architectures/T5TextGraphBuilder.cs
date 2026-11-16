@@ -10,8 +10,9 @@ namespace Sharplight.Architectures;
 /// Builds the text-encoder graph of a T5 encoder (T5 v1.1 / Flan-T5, as FLUX and SD3 use it): token embeddings, pre-norm RMS
 /// layers of bidirectional self-attention with T5's bucketed relative position bias (a [heads, L, L] bias gathered from the bucket
 /// table, added to batched per-head score products) and a (gated) feed-forward, the final norm.
-/// One padded prompt of the fixed context length per run, no attention mask (the padding tokens take part, as in the diffusers
-/// pipelines). Weights in the encoder-decoder vocabulary of <see cref="EncoderDecoderAdapter"/> under a prefix.
+/// One padded prompt of the fixed context length per run; without a mask input the padding tokens take part (the FLUX / SD3
+/// pipelines), with a mask input (the <c>maskInput</c> of <see cref="Build"/>: 1 for prompt tokens, 0 for padding) no token attends to the
+/// padding (the Wan pipelines). Weights in the encoder-decoder vocabulary of <see cref="EncoderDecoderAdapter"/> under a prefix.
 /// </summary>
 internal static class T5TextGraphBuilder
 {
@@ -20,11 +21,21 @@ internal static class T5TextGraphBuilder
     /// <param name="hp">The encoder hyper-parameters.</param>
     /// <param name="prefix">Canonical weight prefix of the encoder (<c>text_encoder_2.</c>).</param>
     /// <param name="name">Graph name.</param>
-    public static ComputeGraph Build(Func<string, WeightInfo?> weights, T5TextHyperParameters hp, string prefix, string name = DiffusionGraphs.TextEncode2)
+    /// <param name="maskInput">Name of an f32 [L] key-mask input (1 = token, 0 = padding), or <see langword="null"/> for none.</param>
+    public static ComputeGraph Build(Func<string, WeightInfo?> weights, T5TextHyperParameters hp, string prefix, string name = DiffusionGraphs.TextEncode2,
+        string? maskInput = null)
     {
         var b = new GraphBuilder(name, weights);
         int rows = hp.ContextLength;
         var tokens = b.Input(DiffusionGraphs.Tokens, InputRole.TokenIds, DataType.I32, new Shape(rows));
+        Value? keyMask = null;
+        if (maskInput is not null)
+        {
+            // (mask − 1) · 10⁹: 0 for tokens, a large negative score for padding keys, broadcast over heads and query rows.
+            var mask = b.Input(maskInput, InputRole.Other, DataType.F32, new Shape(rows));
+            keyMask = b.Reshape(b.Scale(mask, 1e9f, -1e9f), 1, 1, rows);
+        }
+
         var x = b.Gather(b.Weight(prefix + "token_embedding.weight"), tokens);
         string sharedTable = prefix + "encoder.attention.relative_bias.weight";
         var sharedBias = b.HasWeight(sharedTable) ? PositionBias(b, sharedTable, hp, "relative_bias") : null;
@@ -33,6 +44,11 @@ internal static class T5TextGraphBuilder
             using var _ = b.Group($"layers.{layer}");
             string p = $"{prefix}encoder.layers.{layer}.";
             var bias = b.HasWeight(p + "attention.relative_bias.weight") ? PositionBias(b, p + "attention.relative_bias.weight", hp, $"relative_bias_{layer}") : sharedBias;
+            if (keyMask is not null)
+            {
+                bias = bias is null ? keyMask : b.Add(bias, keyMask);
+            }
+
             var h = b.RmsNorm(x, b.Weight(p + "attention_norm.weight"), hp.NormEps);
             var attended = Attention(b, Linear(b, h, p + "attention.q.weight"), Linear(b, h, p + "attention.k.weight"), Linear(b, h, p + "attention.v.weight"), bias, hp);
             x = b.Add(x, Linear(b, attended, p + "attention.o.weight"));

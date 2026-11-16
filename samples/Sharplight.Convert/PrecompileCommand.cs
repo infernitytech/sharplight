@@ -51,8 +51,8 @@ internal sealed class PrecompileCommand
     private readonly Option<int> _context = OptionFactory.Integer("--ctx", "Context length LLM graphs are compiled for (use the value the model will run with).",
         RuntimeOptionSet.DefaultContextLength, helpName: "tokens");
 
-    private readonly Option<int> _batch = OptionFactory.Integer("--batch", "Rows per forward pass (use the value the model will run with).",
-        RuntimeOptionSet.DefaultBatchTokens, helpName: "rows");
+    private readonly Option<int> _batch = OptionFactory.Integer("--batch", "Rows per forward pass (use the value the model will run with; 0: automatic, as at run time).",
+        RuntimeOptionSet.DefaultBatchTokens, minimum: 0, helpName: "rows");
 
     private readonly Option<int> _slots = OptionFactory.Integer("--slots",
         "Sequences of the serving batch decoder to compile, as sharplight-server --slots (1 skips it).", DefaultServeSlots, helpName: "count");

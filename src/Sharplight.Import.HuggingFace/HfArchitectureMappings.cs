@@ -108,6 +108,7 @@ internal static class HfArchitectureMappings
         yield return new GptNeoXHfMapping();
         yield return new GptJHfMapping();
         yield return new Gpt2HfMapping();
+        yield return new OptHfMapping();
         yield return new OlmoHfMapping();
         yield return new NemotronDenseHfMapping();
         yield return new StableLmHfMapping();

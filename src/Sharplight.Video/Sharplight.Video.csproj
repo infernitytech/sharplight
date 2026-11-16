@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Video encoding for Sharplight: WebM (VP8 / VP9) through Sharplight's own C library (native/sharplight_video: libvpx from third_party/)
+    and a managed WebM muxer, and MP4 (H.264) through an optional system ffmpeg. The binaries are not committed: CI cross-compiles them with
+    zig (native/sharplight_video/build.sh) into native/sharplight_video/out/<rid>/, and this project packs them as runtimes/<rid>/native/
+    and copies the one for the build machine next to the application. SharplightVideoNativeDirectory overrides the directory.
+  -->
+  <PropertyGroup>
+    <Description>Video encoding for Sharplight: WebM (VP8 and VP9 via libvpx) on win-x64, win-arm64, linux-x64, linux-arm64 and osx-arm64, and MP4 (H.264) through an optional system ffmpeg.</Description>
+    <PackageTags>$(PackageTags);video;webm;vp8;vp9;libvpx;mp4</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SharplightVideoNativeDirectory Condition="'$(SharplightVideoNativeDirectory)' == ''">$(MSBuildThisFileDirectory)../../native/sharplight_video/out/</SharplightVideoNativeDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <InternalsVisibleTo Include="Sharplight.Video.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(SharplightVideoNativeDirectory)linux-x64/libsharplight_video.so" Condition="Exists('$(SharplightVideoNativeDirectory)linux-x64/libsharplight_video.so') And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'linux-x64')"
+          Link="runtimes/linux-x64/native/libsharplight_video.so" Pack="true" PackagePath="runtimes/linux-x64/native/" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(SharplightVideoNativeDirectory)linux-arm64/libsharplight_video.so" Condition="Exists('$(SharplightVideoNativeDirectory)linux-arm64/libsharplight_video.so') And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'linux-arm64')"
+          Link="runtimes/linux-arm64/native/libsharplight_video.so" Pack="true" PackagePath="runtimes/linux-arm64/native/" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(SharplightVideoNativeDirectory)win-x64/sharplight_video.dll" Condition="Exists('$(SharplightVideoNativeDirectory)win-x64/sharplight_video.dll') And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'win-x64')"
+          Link="runtimes/win-x64/native/sharplight_video.dll" Pack="true" PackagePath="runtimes/win-x64/native/" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(SharplightVideoNativeDirectory)win-arm64/sharplight_video.dll" Condition="Exists('$(SharplightVideoNativeDirectory)win-arm64/sharplight_video.dll') And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'win-arm64')"
+          Link="runtimes/win-arm64/native/sharplight_video.dll" Pack="true" PackagePath="runtimes/win-arm64/native/" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(SharplightVideoNativeDirectory)osx-arm64/libsharplight_video.dylib" Condition="Exists('$(SharplightVideoNativeDirectory)osx-arm64/libsharplight_video.dylib') And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'osx-arm64')"
+          Link="runtimes/osx-arm64/native/libsharplight_video.dylib" Pack="true" PackagePath="runtimes/osx-arm64/native/" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>
