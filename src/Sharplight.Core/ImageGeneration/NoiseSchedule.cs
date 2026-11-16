@@ -72,6 +72,13 @@ public sealed record NoiseSchedule
     /// <summary>Flow schedules: the image token count of <see cref="MaxShift"/>.</summary>
     public int MaxSequenceLength { get; init; } = 4096;
 
+    /// <summary>
+    /// Flow schedules: the range the noise levels are spaced over before the shift: <c>unit</c> (σ from 1 to 1 / steps, as the FLUX,
+    /// Chroma and Qwen-Image pipelines pass them; the default) or <c>trained</c> (from the scheduler's largest to its smallest training
+    /// noise level, diffusers' <c>FlowMatchEulerDiscreteScheduler.set_timesteps</c> without explicit sigmas, as the SD3 pipelines use it).
+    /// </summary>
+    public string FlowSigmaRange { get; init; } = "unit";
+
     /// <summary>Whether this is a rectified-flow schedule (<see cref="PredictionType"/> <c>flow</c>).</summary>
     public bool IsFlow => PredictionType == "flow";
 
@@ -100,6 +107,7 @@ public sealed record NoiseSchedule
             MaxShift = component.ConfigValue(DiffusionConfigKeys.MaxShift, defaults.MaxShift),
             BaseSequenceLength = component.ConfigValue(DiffusionConfigKeys.BaseSequenceLength, defaults.BaseSequenceLength),
             MaxSequenceLength = component.ConfigValue(DiffusionConfigKeys.MaxSequenceLength, defaults.MaxSequenceLength),
+            FlowSigmaRange = component.ConfigValue(DiffusionConfigKeys.FlowSigmaRange, defaults.FlowSigmaRange),
         };
     }
 

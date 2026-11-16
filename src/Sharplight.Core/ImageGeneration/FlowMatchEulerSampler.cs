@@ -2,7 +2,7 @@ namespace Sharplight.ImageGeneration;
 
 /// <summary>
 /// Euler's method on the rectified-flow ODE, as diffusers' <c>FlowMatchEulerDiscreteScheduler</c> driven by the FLUX / SD3 pipelines:
-/// noise levels σ linearly spaced from 1 to 1 / steps, shifted (statically by <see cref="NoiseSchedule.Shift"/>, or with
+/// noise levels σ linearly spaced from 1 to 1 / steps (FLUX) or over the training range (SD3, <see cref="NoiseSchedule.FlowSigmaRange"/>), shifted (statically by <see cref="NoiseSchedule.Shift"/>, or with
 /// <see cref="NoiseSchedule.DynamicShift"/> by μ interpolated from the image's token count), followed by 0; the model timestep is
 /// σ · train steps; the denoiser predicts the velocity v = ε − x₀ and each step moves the sample by (σₙₑₓₜ − σ) · v. Samples are
 /// x = (1 − σ) · x₀ + σ · ε, so the initial sample is the unscaled noise and the model input is the sample itself.
@@ -22,14 +22,30 @@ internal sealed class FlowMatchEulerSampler : DiffusionSampler
         float shiftExp = (float)Math.Exp(Mu(schedule, imageTokens));
         _sigmas = new float[steps + 1];
         _timesteps = new float[steps];
+        bool trained = schedule.FlowSigmaRange == "trained";
+        // The scheduler's training noise levels end at the shifted 1 / train steps (computed in f32 as diffusers does).
+        float last = 1f / schedule.TrainSteps;
+        double trainedMin = schedule.Shift * last / (1f + (schedule.Shift - 1f) * last);
         for (int i = 0; i < steps; i++)
         {
-            // np.linspace(1.0, 1 / steps, steps) in double, then f32 as the scheduler stores it.
-            double linear = steps == 1 ? 1.0 : 1.0 + (1.0 / steps - 1.0) * i / (steps - 1);
-            float sigma = (float)linear;
-            sigma = schedule.DynamicShift
-                ? shiftExp / (shiftExp + (1f / sigma - 1f))
-                : schedule.Shift * sigma / (1f + (schedule.Shift - 1f) * sigma);
+            float sigma;
+            if (trained)
+            {
+                // np.linspace(σmax·T, σmin·T, steps) / T and the static shift in double, then f32.
+                double start = 1.0;
+                double linear = steps == 1 ? start : start + (trainedMin - start) * i / (steps - 1);
+                sigma = (float)(schedule.Shift * linear / (1.0 + (schedule.Shift - 1.0) * linear));
+            }
+            else
+            {
+                // np.linspace(1.0, 1 / steps, steps) in double, then f32 as the scheduler stores it.
+                double linear = steps == 1 ? 1.0 : 1.0 + (1.0 / steps - 1.0) * i / (steps - 1);
+                sigma = (float)linear;
+                sigma = schedule.DynamicShift
+                    ? shiftExp / (shiftExp + (1f / sigma - 1f))
+                    : schedule.Shift * sigma / (1f + (schedule.Shift - 1f) * sigma);
+            }
+
             _sigmas[i] = sigma;
             _timesteps[i] = sigma * schedule.TrainSteps;
         }

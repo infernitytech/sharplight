@@ -16,6 +16,7 @@ internal static class ImageModelProbe
 {
     private const string UNetPrefix = "model.diffusion_model.";
     private const string FluxTransformerTensor = "double_blocks.0.img_attn.qkv.weight";
+    private const string Sd3TransformerTensor = "joint_blocks.0.x_block.attn.qkv.weight";
     private const long MaxSafetensorsHeader = 256L << 20;
 
     private static readonly HashSet<string> s_diffusionTransformerArchitectures = new(StringComparer.OrdinalIgnoreCase)
@@ -36,7 +37,9 @@ internal static class ImageModelProbe
 
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
-            return SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor) ? ModelKinds.ImageGeneration : null;
+            return SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor) || SafetensorsHeaderContains(path, Sd3TransformerTensor)
+                ? ModelKinds.ImageGeneration
+                : null;
         }
 
         if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
@@ -55,7 +58,7 @@ internal static class ImageModelProbe
     }
 
     /// <summary>
-    /// Whether an image model file holds only a FLUX transformer (original tensor names, as city96 / stable-diffusion.cpp GGUF files
+    /// Whether an image model file holds only a FLUX or SD3 transformer (original tensor names, as city96 / stable-diffusion.cpp GGUF files
     /// and the official single files are distributed), so its text encoders and VAE come as companion files.
     /// </summary>
     /// <param name="path">A model file.</param>
@@ -63,7 +66,8 @@ internal static class ImageModelProbe
     {
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
-            return SafetensorsHeaderContains(path, FluxTransformerTensor) && !SafetensorsHeaderContains(path, "text_encoders.");
+            return (SafetensorsHeaderContains(path, FluxTransformerTensor) || SafetensorsHeaderContains(path, Sd3TransformerTensor))
+                && !SafetensorsHeaderContains(path, "text_encoders.");
         }
 
         if (!path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
@@ -74,7 +78,8 @@ internal static class ImageModelProbe
         try
         {
             using var file = GgufFile.Open(path);
-            return file.Tensors.Any(tensor => tensor.Name.EndsWith(FluxTransformerTensor, StringComparison.Ordinal));
+            return file.Tensors.Any(tensor => tensor.Name.EndsWith(FluxTransformerTensor, StringComparison.Ordinal)
+                || tensor.Name.EndsWith(Sd3TransformerTensor, StringComparison.Ordinal));
         }
         catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
         {

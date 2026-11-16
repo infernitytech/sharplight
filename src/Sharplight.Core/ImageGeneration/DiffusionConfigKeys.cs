@@ -49,6 +49,12 @@ public static class DiffusionConfigKeys
     /// </summary>
     public const string ZeroEmptyNegative = "zeroEmptyNegative";
 
+    /// <summary>
+    /// Text encoder: the component's hidden states are appended to the other encoders' along the sequence (zero-padded to the wider
+    /// width) instead of being joined per token (SD3's T5 encoder; default false).
+    /// </summary>
+    public const string JoinSequence = "joinSequence";
+
     /// <summary>Scheduler: number of training timesteps (default 1000).</summary>
     public const string TrainSteps = "trainSteps";
 
@@ -99,6 +105,15 @@ public static class DiffusionConfigKeys
 
     /// <summary>Scheduler (flow): image tokens of <see cref="MaxShift"/> (default 4096).</summary>
     public const string MaxSequenceLength = "maxSequenceLength";
+
+    /// <summary>
+    /// Denoiser: the padding tokens after the prompt that stay visible in a <see cref="DiffusionGraphs.ContextMask"/> (Chroma: 1, the
+    /// first padding token; default 0).
+    /// </summary>
+    public const string ContextMaskPadding = "contextMaskPadding";
+
+    /// <summary>Scheduler (flow): <c>unit</c> or <c>trained</c>, see <see cref="NoiseSchedule.FlowSigmaRange"/> (default <c>unit</c>).</summary>
+    public const string FlowSigmaRange = "flowSigmaRange";
 
     /// <summary>
     /// Denoiser: latent pixels per token along each axis (transformers that patchify the latents: FLUX 2; default 1). The image token

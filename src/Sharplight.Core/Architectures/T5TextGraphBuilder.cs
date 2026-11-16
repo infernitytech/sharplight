@@ -10,7 +10,7 @@ namespace Sharplight.Architectures;
 /// Builds the text-encoder graph of a T5 encoder (T5 v1.1 / Flan-T5, as FLUX and SD3 use it): token embeddings, pre-norm RMS
 /// layers of bidirectional self-attention with T5's bucketed relative position bias (a [heads, L, L] bias gathered from the bucket
 /// table, added to batched per-head score products) and a (gated) feed-forward, the final norm.
-/// One padded prompt of the fixed context length per run, no attention mask (the padding tokens take part, as in the diffusers
+/// One padded prompt of the fixed context length per run, by default without attention mask (the padding tokens take part, as in the diffusers
 /// pipelines). Weights in the encoder-decoder vocabulary of <see cref="EncoderDecoderAdapter"/> under a prefix.
 /// </summary>
 internal static class T5TextGraphBuilder
@@ -20,19 +20,30 @@ internal static class T5TextGraphBuilder
     /// <param name="hp">The encoder hyper-parameters.</param>
     /// <param name="prefix">Canonical weight prefix of the encoder (<c>text_encoder_2.</c>).</param>
     /// <param name="name">Graph name.</param>
-    public static ComputeGraph Build(Func<string, WeightInfo?> weights, T5TextHyperParameters hp, string prefix, string name = DiffusionGraphs.TextEncode2)
+    /// <param name="masked">
+    /// Run with the prompt's attention mask (Chroma): the input <see cref="DiffusionGraphs.TokenMask"/> f32 [L] excludes the padding keys.
+    /// </param>
+    public static ComputeGraph Build(Func<string, WeightInfo?> weights, T5TextHyperParameters hp, string prefix, string name = DiffusionGraphs.TextEncode2,
+        bool masked = false)
     {
         var b = new GraphBuilder(name, weights);
         int rows = hp.ContextLength;
         var tokens = b.Input(DiffusionGraphs.Tokens, InputRole.TokenIds, DataType.I32, new Shape(rows));
+        // Padding keys get −1e9 (0 → −1e9, 1 → 0), broadcast over heads and query rows.
+        Value? keyBias = masked
+            ? b.Reshape(b.Scale(b.Input(DiffusionGraphs.TokenMask, InputRole.Other, DataType.F32, new Shape(rows)), 1e9f, -1e9f), 1, 1, rows)
+            : null;
         var x = b.Gather(b.Weight(prefix + "token_embedding.weight"), tokens);
         string sharedTable = prefix + "encoder.attention.relative_bias.weight";
-        var sharedBias = b.HasWeight(sharedTable) ? PositionBias(b, sharedTable, hp, "relative_bias") : null;
+        var sharedBias = b.HasWeight(sharedTable) ? WithKeyBias(b, PositionBias(b, sharedTable, hp, "relative_bias"), keyBias) : keyBias;
         for (int layer = 0; layer < hp.LayerCount; layer++)
         {
             using var _ = b.Group($"layers.{layer}");
             string p = $"{prefix}encoder.layers.{layer}.";
-            var bias = b.HasWeight(p + "attention.relative_bias.weight") ? PositionBias(b, p + "attention.relative_bias.weight", hp, $"relative_bias_{layer}") : sharedBias;
+            var bias = b.HasWeight(p + "attention.relative_bias.weight")
+                ? WithKeyBias(b, PositionBias(b, p + "attention.relative_bias.weight", hp, $"relative_bias_{layer}"), keyBias)
+                : sharedBias;
+
             var h = b.RmsNorm(x, b.Weight(p + "attention_norm.weight"), hp.NormEps);
             var attended = Attention(b, Linear(b, h, p + "attention.q.weight"), Linear(b, h, p + "attention.k.weight"), Linear(b, h, p + "attention.v.weight"), bias, hp);
             x = b.Add(x, Linear(b, attended, p + "attention.o.weight"));
@@ -45,6 +56,8 @@ internal static class T5TextGraphBuilder
         b.Output(DiffusionGraphs.Hidden, b.RmsNorm(x, b.Weight(prefix + "encoder.output_norm.weight"), hp.NormEps));
         return b.Build();
     }
+
+    private static Value WithKeyBias(GraphBuilder b, Value bias, Value? keyBias) => keyBias is null ? bias : b.Add(bias, keyBias);
 
     /// <summary>
     /// T5's bucketed relative position bias of the whole prompt, [heads, L, L] (query rows, key columns): the bucket table [buckets,

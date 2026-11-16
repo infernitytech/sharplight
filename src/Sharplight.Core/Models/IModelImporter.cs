@@ -37,4 +37,11 @@ public interface IModelImporter
     /// </summary>
     /// <param name="path">The primary model file or directory.</param>
     public IReadOnlyDictionary<string, string> FindCompanions(string path) => new Dictionary<string, string>();
+
+    /// <summary>
+    /// The companion files the model at <paramref name="path"/> needs, in presentation order (e.g. the CLIP and T5 text encoders and the
+    /// VAE of a transformer-only diffusion checkpoint); empty when it needs none (the default).
+    /// </summary>
+    /// <param name="path">The primary model file or directory.</param>
+    public IReadOnlyList<CompanionFile> DescribeCompanions(string path) => [];
 }

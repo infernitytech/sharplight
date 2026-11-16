@@ -6,7 +6,7 @@ namespace Sharplight.Import.Diffusers;
 /// <summary>
 /// Assembles the canonical <see cref="ModelSource"/> of a FLUX model (architecture <c>flux</c>): the transformer configuration, and
 /// whichever of the CLIP text encoder, the T5 encoder (with its tokenizer) and the VAE the checkpoint brings. A transformer-only
-/// source gets its companions as auxiliary sources (see <see cref="FluxCompanions"/>).
+/// source gets its companions as auxiliary sources (see <see cref="DiffusionCompanions"/>).
 /// </summary>
 internal static class FluxSource
 {
@@ -68,8 +68,10 @@ internal static class FluxSource
     /// <param name="tokenizerFolder">The <c>tokenizer_2</c> folder (tokenizer.json).</param>
     /// <param name="weights">The canonical set the weights are added to.</param>
     /// <param name="resources">Receives the opened checkpoint.</param>
+    /// <param name="prefix">The canonical weight prefix (FLUX: <see cref="T5Prefix"/>; SD3: <c>text_encoder_3.</c>).</param>
     /// <returns>The canonical <c>encoder_decoder.*</c> and <c>tokenizer.*</c> keys.</returns>
-    public static IReadOnlyDictionary<string, object> AddT5Folder(string encoderFolder, string tokenizerFolder, CanonicalWeights weights, List<IDisposable> resources)
+    public static IReadOnlyDictionary<string, object> AddT5Folder(string encoderFolder, string tokenizerFolder, CanonicalWeights weights, List<IDisposable> resources,
+        string prefix = T5Prefix)
     {
         var config = HfConfig.Load(encoderFolder);
         var options = new HuggingFaceImportOptions();
@@ -78,7 +80,7 @@ internal static class FluxSource
         resources.Add(checkpoint);
         foreach (var (name, weight) in mapping.MapWeights(config, checkpoint.Tensors, options))
         {
-            weights.Add(T5Prefix + name, weight);
+            weights.Add(prefix + name, weight);
         }
 
         var metadata = new Dictionary<string, object>(mapping.MapHyperParameters(config, options), StringComparer.Ordinal);

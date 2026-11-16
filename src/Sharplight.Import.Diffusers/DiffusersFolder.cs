@@ -5,7 +5,8 @@ namespace Sharplight.Import.Diffusers;
 
 /// <summary>
 /// Reads a diffusers pipeline folder (<c>model_index.json</c> with <c>unet/</c>, <c>vae/</c>, <c>text_encoder/</c>, <c>tokenizer/</c> and
-/// <c>scheduler/</c>) of a Stable Diffusion 1.x / 2.x / XL pipeline; FLUX folders (<c>transformer/</c>) go to <see cref="FluxFolder"/>.
+/// <c>scheduler/</c>) of a Stable Diffusion 1.x / 2.x / XL pipeline; FLUX and SD3 folders (<c>transformer/</c>) go to <see cref="FluxFolder"/>
+/// and <see cref="Sd3Folder"/>.
 /// </summary>
 internal static class DiffusersFolder
 {
@@ -16,7 +17,7 @@ internal static class DiffusersFolder
     /// <param name="path">A directory.</param>
     public static bool IsFolder(string path)
         => Directory.Exists(path) && File.Exists(Path.Combine(path, "vae", "config.json"))
-           && (File.Exists(Path.Combine(path, "unet", "config.json")) || FluxFolder.IsFolder(path));
+           && (File.Exists(Path.Combine(path, "unet", "config.json")) || FluxFolder.IsFolder(path) || Sd3Folder.IsFolder(path) || ChromaFolder.IsFolder(path));
 
     /// <summary>Opens the folder as a canonical source.</summary>
     /// <param name="path">The pipeline folder.</param>
@@ -28,9 +29,19 @@ internal static class DiffusersFolder
             return FluxFolder.Open(path);
         }
 
+        if (Sd3Folder.IsFolder(path))
+        {
+            return Sd3Folder.Open(path);
+        }
+
+        if (ChromaFolder.IsFolder(path))
+        {
+            return ChromaFolder.Open(path);
+        }
+
         if (Directory.Exists(Path.Combine(path, "transformer")) || !Directory.Exists(Path.Combine(path, "text_encoder")))
         {
-            throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x / XL and FLUX.1 pipelines are supported so far.");
+            throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1 and Chroma pipelines are supported so far.");
         }
 
         bool xl = Directory.Exists(Path.Combine(path, "text_encoder_2"));

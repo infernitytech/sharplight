@@ -130,9 +130,10 @@ internal static class ComponentCheckpoint
             DiffusersNames.AddClipText(name, weight, "", weights);
         }
 
+        // Without a configuration: OpenAI CLIP-L uses quick-GELU, OpenCLIP bigG (SDXL's / SD3's second encoder, 1280 wide) GELU.
         var clip = config is { } c && c.String("model_type", "") is "clip_text_model" or "clip"
             ? ClipTextConfig.FromTransformers(c)
-            : ClipTextConfig.FromWeights(weights.Weights, "", "quick_gelu");
+            : ClipTextConfig.FromWeights(weights.Weights, "", weights.Weights["token_embedding.weight"].Shape[1].Fixed == 1280 ? "gelu" : "quick_gelu");
         clip.WriteTo(metadata, "", ClipArchitecture);
         // A diffusers text_encoder folder has its tokenizer beside it; stand-alone files use the OpenAI CLIP vocabulary.
         string sibling = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(path)))!, "tokenizer");
@@ -169,8 +170,8 @@ internal static class ComponentCheckpoint
 
     /// <summary>
     /// A T5 encoder from Hugging Face names: the configuration from <c>config.json</c> beside the file or inferred (T5 v1.1: gated
-    /// tanh-GELU feed-forward, ε 1e-6), the tokenizer from a <c>tokenizer.json</c> beside the file or in a sibling <c>tokenizer_2</c>
-    /// folder (diffusers layout).
+    /// tanh-GELU feed-forward, ε 1e-6), the tokenizer from a <c>tokenizer.json</c> beside the file or in the sibling tokenizer folder of
+    /// a diffusers layout (<c>text_encoder_2</c> → <c>tokenizer_2</c>).
     /// </summary>
     private static ModelSource OpenT5(string path, CheckpointTensors tensors, JsonElement? config, Dictionary<string, object> metadata)
     {
@@ -192,8 +193,12 @@ internal static class ComponentCheckpoint
             metadata[key] = value;
         }
 
-        string? tokenizer = new[] { folder, Path.Combine(Path.GetDirectoryName(folder) ?? folder, "tokenizer_2") }
-            .FirstOrDefault(d => File.Exists(Path.Combine(d, "tokenizer.json")));
+        // A diffusers component folder text_encoder{suffix} has its tokenizer in tokenizer{suffix} (FLUX: _2, SD3: _3, Chroma: none).
+        string folderName = Path.GetFileName(folder);
+        string? sibling = folderName.StartsWith("text_encoder", StringComparison.Ordinal)
+            ? Path.Combine(Path.GetDirectoryName(folder) ?? folder, "tokenizer" + folderName["text_encoder".Length..])
+            : null;
+        string? tokenizer = new[] { folder, sibling }.OfType<string>().FirstOrDefault(d => File.Exists(Path.Combine(d, "tokenizer.json")));
         if (tokenizer is not null)
         {
             HfTokenizerTranslator.AddTo(metadata, tokenizer, hfConfig);

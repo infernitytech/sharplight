@@ -102,6 +102,19 @@ internal sealed class EngineModelRuntime : IModelRuntime
     }
 
     /// <inheritdoc/>
+    public IReadOnlyList<Sharplight.Models.CompanionFile> DescribeCompanions(string path)
+    {
+        try
+        {
+            return _engine.Loader.Importers.DescribeCompanions(path);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException)
+        {
+            return [];
+        }
+    }
+
+    /// <inheritdoc/>
     public async Task<ILoadedModel> LoadAsync(ModelLoadRequest request, IProgress<LoadStatus>? progress, CancellationToken cancellationToken)
     {
         if (Host.Contains(request.Id))

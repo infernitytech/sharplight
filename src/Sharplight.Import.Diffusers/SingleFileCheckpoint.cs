@@ -27,8 +27,8 @@ internal static partial class SingleFileCheckpoint
     public static bool IsCheckpoint(string path) => Kind(path) == LatentDiffusionSource.Architecture;
 
     /// <summary>
-    /// What a checkpoint file holds: <c>latent_diffusion</c> (a Stable Diffusion UNet checkpoint), <c>flux</c> (an original-layout FLUX
-    /// transformer), a stand-alone component (<see cref="ComponentCheckpoint.Classify"/>), or null (not a diffusion file, or unreadable).
+    /// What a checkpoint file holds: <c>latent_diffusion</c> (a Stable Diffusion UNet checkpoint), <c>flux</c> / <c>chroma</c> / <c>sd3</c> (an
+    /// original-layout FLUX / Chroma / SD3 transformer), a stand-alone component (<see cref="ComponentCheckpoint.Classify"/>), or null (not a diffusion file, or unreadable).
     /// </summary>
     /// <param name="path">A file.</param>
     public static string? Kind(string path)
@@ -41,9 +41,14 @@ internal static partial class SingleFileCheckpoint
         try
         {
             var names = TensorNames(path);
-            if (FluxCheckpoint.TransformerPrefix(names) is not null)
+            if (FluxCheckpoint.TransformerPrefix(names) is { } fluxPrefix)
             {
-                return FluxConfig.Architecture;
+                return names.Contains(fluxPrefix + "distilled_guidance_layer.in_proj.weight") ? ChromaConfig.Architecture : FluxConfig.Architecture;
+            }
+
+            if (Sd3Checkpoint.TransformerPrefix(names) is not null)
+            {
+                return Sd3Config.Architecture;
             }
 
             if (names.Any(n => n.StartsWith(UNetPrefix, StringComparison.Ordinal)))
