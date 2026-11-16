@@ -1488,7 +1488,8 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Chroma (Chroma1-HD / Base / Flash and fine-tunes) | diffusers folder; original single file (FLUX names plus `distilled_guidance_layer.*`); transformer-only GGUF (silveroxides, any ggml type) plus companions: T5-XXL, the FLUX VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance with negative prompts; masked T5 and text attention) | [below](#chroma) |
 | Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
 | Qwen-Image (Qwen-Image and fine-tunes with the same layout, e.g. Qwen-Image-2512) | diffusers folder; transformer-only GGUF (city96 / QuantStack / unsloth, `qwen_image` architecture id, any ggml type) and ComfyUI single files plus companions: the Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a `qwen2vl` GGUF), the causal VAE (the pipeline's `vae` file or ComfyUI's `qwen_image_vae.safetensors` in the original Wan names) | **supported** (txt2img, img2img, inpainting; true CFG with diffusers' norm rescaling; 50 steps, guidance 4 by default) | [below](#qwen-image) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1, Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
+| Qwen-Image 2.1 (and its Turbo) | diffusers folder; transformer-only GGUF (unsloth: no metadata, ComfyUI names) and ComfyUI single files plus companions: the Qwen3-VL-8B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the pipeline's VAE file | **supported** (text-to-image; 40 steps without guidance by default; Turbo: its 8-step schedule from the pipeline's `sample_sigmas` or the file name) | [below](#qwen-image-21) |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
 | ControlNet, TAESD | - | missing | |
 
@@ -1779,6 +1780,39 @@ Verification (tools/make-tiny-qwen-image.py, tools/make-qwen-image-references.py
 - Speed (Vulkan, Q4_K_M, warm, conditioning reused; the 13 GB transformer and the 16 GB bf16 text encoder alternate on the 32 GB GPU):
   512×512 20 guided steps 34 s, 1024×1024 131 s (3.3 s per step and both rows); diffusers (GGUF dequantized on the fly, CUDA f32) 8.2 s per
   step at 1024.
+
+### Qwen-Image 2.1
+
+<a id="qwen-image-21"></a>
+Qwen-Image 2.1 (2026-11-16, the most downloaded text-to-image family on the Hub at the time): a 7B single-stream DiT over [text, image]
+conditioned on Qwen3-VL-8B, with a 64-channel 16× residual VAE that reads and writes RGBA. Design:
+
+- Canonical source `qwen_image21`: `transformer.{img_in, txt_in.norm (the zero-centred scale + 1), txt_in.in_layer|out_layer, time_in.*,
+  modulation, blocks.{i}.attn.q|k|v|o|norm_q|norm_k, blocks.{i}.mlp.gate|up|down, final.mod, final.linear}` (ComfyUI's / unsloth's fused
+  `img_mlp.gate_up` split into row blocks, gate first); the Qwen3-VL text model kept whole (`text_encoder.`, the tokenizer from the
+  pipeline's `processor/` folder); the VAE in the Wan names (`WanVaeConfig`, residual, 5 levels, separate decoder width). Family keys: the
+  system-prompt template with its 14-token system turn skipped, 512 prompt tokens, an empty prompt read as " ", the Qwen-Image flow schedule,
+  40 steps, no guidance; Turbo: the pipeline's `sample_sigmas` (8 steps; transformer-only files named `*turbo*`).
+- `QwenImage21TransformerGraphBuilder`: one token per latent pixel; the text through the RMS norm and a GELU MLP; blocks with LayerNorm ·
+  (1 + scale) and tanh gates from one shared modulation projection (text rows from t = 0, image rows from the step's t); block-causal
+  attention as two attention ops: text rows causal over the text (row spans), image rows over all visible text and the whole image (key
+  bias); SwiGLU with f32 activations in the down projection; the scale-only final norm. RoPE: text j at (j, j, j), image tokens at
+  (n, centred row, centred column) with n the visible text tokens, computed in the graph from the context mask. The text graph is the decoder
+  graph's last layer output before the final norm. The VAE graphs are the Wan image graphs, which now take and drop the alpha channel of
+  RGBA VAEs (opaque alpha in, colour channels out).
+- Core: `DiffusionConfigKeys.EmptyPrompt` (Qwen-Image 2.1: " "), `DiffusionConfigKeys.SampleSigmas` (pipeline noise levels before the shift
+  for the default step count).
+
+Verification (tools/make-tiny-qwen-image21.py, tools/make-qwen-image21-references.py; `TinyQwenImage21Tests`, `QwenImage21Tests`):
+
+- Tiny random Qwen-Image 2.1 (64×96, 5-level RGBA VAE): prompt tokens equal transformers'; text encoder, transformer, VAE decode and encode
+  within 1e-4 / 1e-3 (Vulkan) of diffusers from the diffusers folder, the ComfyUI single file and a Q8_0 GGUF without metadata (GGUF within
+  5e-3 / 3e-2); guided 4-step txt2img above 40 dB in all 6 combinations.
+- Qwen-Image 2.1, unsloth's Q8_0 GGUF with the pipeline's Qwen3-VL text encoder (bf16) and VAE as companions, on Vulkan against diffusers on
+  the same files (dequantized GGUF transformer on CUDA, f32 text encoder; diffusers keeps the GGUF's BF16 norm scales undecoded, so the
+  reference script dequantizes them first), 20 steps without guidance, same latents: text encoder 7.3–9.6e-4, transformer 1.4e-2 (random
+  inputs); images 42.2 dB (512) / 37.4 dB (1024). Speed (Vulkan, warm): 1024×1024 20 steps 35.8 s (1.8 s per step), 512×512 10.6 s;
+  diffusers (GGUF dequantized on the fly, CUDA f32) 2.8 s per step at 1024.
 
 ### LoRA
 

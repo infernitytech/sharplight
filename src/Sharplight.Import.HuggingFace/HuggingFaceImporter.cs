@@ -200,6 +200,13 @@ public sealed class HuggingFaceImporter(HuggingFaceImportOptions? options = null
             {
                 return sibling;
             }
+
+            // Qwen-Image 2.1 keeps its tokenizer with the vision-language processor.
+            string processor = Path.Combine(parent, "processor");
+            if (File.Exists(Path.Combine(processor, "tokenizer.json")))
+            {
+                return processor;
+            }
         }
 
         return weightsDir;

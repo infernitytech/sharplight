@@ -56,6 +56,11 @@ internal static class FlowSchedulerComponent
             config.Add(DiffusionConfigKeys.ShiftTerminal, terminal);
         }
 
+        if (src.Has(s + "sample_sigmas"))
+        {
+            config.Add(DiffusionConfigKeys.SampleSigmas, src.Get<float[]>(s + "sample_sigmas"));
+        }
+
         if (src.Get<string?>(s + "timestep_spacing", null) is { } spacing)
         {
             config.Add(DiffusionConfigKeys.TimestepSpacing, spacing);
