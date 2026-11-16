@@ -317,7 +317,7 @@ public sealed class VisionPageTests
         Assert.Equal(64, ((TextRecognitionOptions)client.Options[0]!).MaxTokens);
         await page.CopyCommand.ExecuteAsync(null);
         Assert.Equal("Hello Sharplight", services.Platform.Copied[^1]);
-        Assert.Contains("Hello Sharplight", page.History.Items[0].Preview, StringComparison.Ordinal);
+        Assert.Contains("Hello Sharplight", page.History.Items[0].Summary, StringComparison.Ordinal);
     }
 
     [Fact]

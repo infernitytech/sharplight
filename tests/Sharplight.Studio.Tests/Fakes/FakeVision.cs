@@ -99,6 +99,7 @@ internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDete
     {
         Options.Add(options);
         Prompts.Add(prompt);
+        SlowWork.Block(StepWork, cancellationToken);
         // Three candidates: the left half, the left quarter and the whole image; the first has the best score.
         SegmentMask Mask(int width, float score)
         {
@@ -117,12 +118,14 @@ internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDete
     public Task<TextRecognition> RecognizeAsync(ImageInput image, TextRecognitionOptions? options = null, CancellationToken cancellationToken = default)
     {
         Options.Add(options);
+        SlowWork.Block(StepWork, cancellationToken);
         return Task.FromResult(new TextRecognition(Text, [new TextRegion(Text, null)]));
     }
 
     public Task<ImageInput> UpscaleAsync(ImageInput image, UpscaleOptions? options = null, CancellationToken cancellationToken = default)
     {
         Options.Add(options);
+        SlowWork.Block(StepWork, cancellationToken);
         options?.Progress?.Report(1);
         var rgb = new byte[3 * image.Width * Scale * image.Height * Scale];
         Array.Fill(rgb, (byte)200);

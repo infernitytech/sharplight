@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Media;
 using Sharplight.Studio.ViewModels.Vision;
 
 namespace Sharplight.Studio.Views;
@@ -17,6 +19,23 @@ internal sealed partial class VisionPage : UserControl
         image.PointerEntered += (_, _) => image.Cursor = ViewModel is { CanPrompt: true } ? new Cursor(StandardCursorType.Cross) : Cursor.Default;
         image.PointerPressed += (_, e) => OnPressed(image, e);
         image.PointerReleased += (_, e) => OnReleased(image, e);
+        var slider = this.FindControl<Slider>("CompareSlider")!;
+        var after = this.FindControl<Image>("AfterImage")!;
+        slider.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == RangeBase.ValueProperty)
+            {
+                ClipAfter(after, slider.Value);
+            }
+        };
+        after.SizeChanged += (_, _) => ClipAfter(after, slider.Value);
+    }
+
+    // Shows only the part of the upscaled image right of the divider; the original shows through on the left.
+    private static void ClipAfter(Image after, double divider)
+    {
+        var bounds = after.Bounds;
+        after.Clip = new RectangleGeometry(new Rect(bounds.Width * divider, 0, bounds.Width * (1 - divider), bounds.Height));
     }
 
     private VisionPageViewModel? ViewModel => DataContext as VisionPageViewModel;

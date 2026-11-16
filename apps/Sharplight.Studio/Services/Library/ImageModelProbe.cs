@@ -23,6 +23,11 @@ internal static class ImageModelProbe
         "flux", "sd3", "aura", "auraflow", "chroma", "hidream", "lumina2", "qwen_image", "wan", "hyvid", "ltxv", "cosmos",
     };
 
+    private static readonly string[] s_upscalerNameHints = ["esrgan", "swinir", "realesr", "upscal", "super-resolution", "superres"];
+
+    // Tensor names of the RRDBNet (Real-ESRGAN) and SwinIR super-resolution networks.
+    private static readonly string[] s_upscalerTensors = ["body.0.rdb1.conv1.weight", "RRDB_trunk.0.RDB1", "conv_before_upsample"];
+
     private static readonly string[] s_checkpointNameHints = ["stable-diffusion", "stable_diffusion", "sd-", "sd_", "sd1", "sd2", "sdxl", "v1-5", "v2-1", "dreamshaper", "diffusion"];
 
     /// <summary>The kind of the model file or folder, or null when it is not a recognized image model.</summary>
@@ -31,12 +36,35 @@ internal static class ImageModelProbe
     {
         if (Directory.Exists(path))
         {
-            return IsDiffusersFolder(path) ? ModelKinds.ImageGeneration : KindOfConfig(Path.Combine(path, "config.json"));
+            if (IsDiffusersFolder(path))
+            {
+                return ModelKinds.ImageGeneration;
+            }
+
+            if (File.Exists(Path.Combine(path, "config.json")))
+            {
+                return KindOfConfig(Path.Combine(path, "config.json"));
+            }
+
+            // A folder holding a Real-ESRGAN / SwinIR checkpoint (.pth, or a named .safetensors).
+            return Directory.EnumerateFiles(path, "*.pth").Concat(Directory.EnumerateFiles(path, "*.safetensors")).Any(file => KindOf(file) == ModelKinds.ImageUpscaling) ? ModelKinds.ImageUpscaling : null;
         }
 
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
-            return SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor) ? ModelKinds.ImageGeneration : null;
+            if (SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor))
+            {
+                return ModelKinds.ImageGeneration;
+            }
+
+            return s_upscalerTensors.Any(tensor => SafetensorsHeaderContains(path, tensor)) ? ModelKinds.ImageUpscaling : null;
+        }
+
+        // Real-ESRGAN and SwinIR are distributed as pickled .pth files, which the name recognizes.
+        if (path.EndsWith(".pth", StringComparison.OrdinalIgnoreCase))
+        {
+            string name = Path.GetFileName(path);
+            return s_upscalerNameHints.Any(hint => name.Contains(hint, StringComparison.OrdinalIgnoreCase)) ? ModelKinds.ImageUpscaling : null;
         }
 
         if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
