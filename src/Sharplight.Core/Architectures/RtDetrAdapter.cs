@@ -99,7 +99,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             var b = _b;
             var pixels = b.Input("pixels", InputRole.Media, DataType.F32, new Shape(1, 3, _size, _size));
             var depths = _src.Arch<string>("backbone.depths").Split(',').Select(int.Parse).ToArray();
-            var stages = ResNetBackbone.Build(b, pixels, new ResNetOptions("backbone.", depths, false, true, true));
+            var stages = ResNetBackbone.Build(b, pixels, new ResNetOptions("backbone.", depths, _src.Arch("backbone.bottleneck", false), true, true, _src.Arch("backbone.stride_in_first_conv", false)));
             var maps = new Value[_levels];
             var shapes = new (int H, int W)[_levels];
             for (int i = 0; i < _levels; i++)

@@ -147,7 +147,7 @@ internal sealed partial class VitHfMapping : IHfArchitectureMapping
                     collector.Add(HfTransforms.Plain(info, "patch_embed.bias"));
                     continue;
                 case "embeddings.position_embeddings":
-                    collector.Add(PositionEmbedding(info, hidden, imageSize / patch));
+                    collector.Add(PositionEmbedding(info, hidden, imageSize / patch, c.GetBool("interpolate_antialias") == true));
                     continue;
                 case "layernorm.weight" or "layernorm.bias":
                     collector.Add(HfTransforms.Plain(info, "output_norm." + name[(name.IndexOf('.', StringComparison.Ordinal) + 1)..]));
@@ -185,7 +185,7 @@ internal sealed partial class VitHfMapping : IHfArchitectureMapping
     }
 
     // [1, 1 + g², hidden] → [1 + grid², hidden]: the class row is kept, the patch grid is resampled when the input size differs.
-    private static WeightInfo PositionEmbedding(WeightInfo info, int hidden, int grid)
+    private static WeightInfo PositionEmbedding(WeightInfo info, int hidden, int grid, bool antialias)
     {
         long rows = info.Shape.Elements() / hidden;
         int sourceGrid = (int)Math.Round(Math.Sqrt(rows - 1));
@@ -197,7 +197,7 @@ internal sealed partial class VitHfMapping : IHfArchitectureMapping
         return WeightInfo.Derived("position_embedding.weight", DataType.F32, new Shape(1 + (long)grid * grid, hidden), () =>
         {
             var values = HfTransforms.DecodeF32(info);
-            var patches = PositionGridResampling.ResizeGrid(values.AsSpan(hidden, values.Length - hidden), sourceGrid, grid, hidden);
+            var patches = PositionGridResampling.ResizeGrid(values.AsSpan(hidden, values.Length - hidden), sourceGrid, grid, hidden, antialias);
             var all = new float[hidden + patches.Length];
             values.AsSpan(0, hidden).CopyTo(all);
             patches.CopyTo(all.AsSpan(hidden));

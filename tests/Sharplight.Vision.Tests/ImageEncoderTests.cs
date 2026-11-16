@@ -36,6 +36,10 @@ public class ImageEncoderTests
     [Theory]
     [InlineData("vit-base-patch16-224")]
     [InlineData("nsfw_image_detection")]
+    [InlineData("resnet50.a1_in1k")]
+    [InlineData("resnet18.a1_in1k")]
+    [InlineData("resnet34.a1_in1k")]
+    [InlineData("wide_resnet50_2.racm_in1k")]
     public async Task VitClassifierMatchesTransformers(string name)
     {
         if (!Available(name))
@@ -68,6 +72,7 @@ public class ImageEncoderTests
     [InlineData("dinov2-small")]
     [InlineData("dinov2-base")]
     [InlineData("dinov2-with-registers-base")]
+    [InlineData("dino-vitb16")]
     public async Task Dinov2EmbeddingMatchesTransformers(string name)
     {
         if (!Available(name))
@@ -118,7 +123,8 @@ public class ImageEncoderTests
             for (int i = 0; i < texts.Length; i++)
             {
                 var actual = tokenizer.Encode(texts[i]);
-                Assert.Equal(ids[i].Take(actual.Length), actual);
+                Assert.True(ids[i].Take(actual.Length).SequenceEqual(actual), $"{name}: ids [{string.Join(", ", actual)}] vs reference [{string.Join(", ", ids[i].Take(actual.Length + 2))}]");
+                Assert.True(ids[i].Skip(actual.Length).All(t => t == ids[i][^1]), $"{name}: ids [{string.Join(", ", actual)}] are followed by more than padding in [{string.Join(", ", ids[i].Take(actual.Length + 2))}]");
             }
 
             using var embedder = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageEmbedder>(model);

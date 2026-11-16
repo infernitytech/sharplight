@@ -33,6 +33,8 @@ public class ObjectDetectorTests
     [InlineData("rtdetr_r18vd")]
     [InlineData("rtdetr_r50vd")]
     [InlineData("rtdetr_v2_r18vd")]
+    [InlineData("rtdetr_r101vd_coco_o365")]
+    [InlineData("table-transformer-detection")]
     public async Task DetectorMatchesTransformers(string name)
     {
         if (!Available(name))
@@ -79,6 +81,7 @@ public class ObjectDetectorTests
     [InlineData("depth-anything-v2-small")]
     [InlineData("Depth-Anything-V2-Base-hf")]
     [InlineData("depth-anything-base-hf")]
+    [InlineData("Depth-Anything-V2-Large-hf")]
     public async Task DepthEstimatorMatchesTransformers(string name)
     {
         string Name = name;
