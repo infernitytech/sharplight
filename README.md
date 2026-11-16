@@ -193,18 +193,20 @@ dotnet run -c Release --project samples/Sharplight.Server -- serve qwen3-0.6b:q8
 
 Defaults keep near-f32 accuracy; `--reduced-precision` opts in to faster f16 kernel paths where they exist.
 
-Downloaded and converted models are stored in a `data` folder next to the executable, or in the per-user folder
-(`~/.local/share/sharplight/models` on Linux) when the application directory is not writable. `--models-dir`,
-`SHARPLIGHT_MODELS` or `sharplight store use user|application|DIR` choose another location; `store migrate` moves models
-from the per-user folder used by earlier versions ([docs/model-hub.md](docs/model-hub.md#store)). Compiled kernels are cached
-per user (`~/.local/share/sharplight/kernels`).
+Everything the tools and Studio write (settings, models, compiled kernels, caches, logs) goes to one storage location. There are
+three modes: **system** (the default: `~/.config`, `~/.local/share` and `~/.cache` on Linux, AppData on Windows, `~/Library` on
+macOS), **portable** (a `data` folder next to the AppImage, install folder or executable, selected by a `sharplight.portable` file
+there) or **custom** (one folder). `sharplight storage use portable|system|DIR` switches between them and moves the files along,
+and Studio does the same on its settings page ([docs/storage.md](docs/storage.md)). `--models-dir`, `SHARPLIGHT_MODELS` or
+`sharplight store use user|default|DIR` move only the models, and `store migrate` takes over the models of earlier versions
+([docs/model-hub.md](docs/model-hub.md#store)).
 
 ## Sharplight Studio
 
 A desktop app (Avalonia) to search and download Hugging Face models and convert them automatically. It chats with several
 resident models at once (Markdown, reasoning, image and document attachments) and serves them over the OpenAI and Anthropic
-APIs. It also records per-model speed and latency statistics. Models go to a `data` folder next to the app by default; the
-settings page switches to the per-user folder or a custom one. Its package inspector shows everything in a `.slm` file:
+APIs. It also records per-model speed and latency statistics. Its files go to the storage location chosen on the settings page:
+portable next to the app, the system folders, or a custom folder. Its package inspector shows everything in a `.slm` file:
 the model kind and components, metadata, tokenizer, the execution graphs (drawn, as IR and as a table), weights, precompiled artifacts and the raw section
 layout.
 

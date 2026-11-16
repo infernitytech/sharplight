@@ -78,6 +78,13 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     /// <summary>The one-time offer to move the models of a previous store.</summary>
     public StoreMigrationViewModel StoreMigration { get; }
 
+    /// <summary>
+    /// Why the storage location asked for is not in use (a portable folder that is not writable, a custom folder that is missing), shown
+    /// until dismissed; null otherwise.
+    /// </summary>
+    [ObservableProperty]
+    public partial string? StorageNotice { get; set; }
+
     /// <summary>The download queue, for the indicator shown on every page.</summary>
     public DownloadsViewModel Downloads => Models.Downloads;
 
@@ -107,8 +114,19 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     public Task StartAsync()
     {
         StoreMigration.Check();
+        StorageNotice = _services.StorageLocation.Current.Notice;
         _ = Updates.StartAsync();
         return NavigateAsync(_services.Runtime.LoadedModels.Count == 0 ? Models : Chat);
+    }
+
+    [RelayCommand]
+    private void DismissStorageNotice() => StorageNotice = null;
+
+    [RelayCommand]
+    private Task OpenStorageSettingsAsync()
+    {
+        StorageNotice = null;
+        return NavigateAsync(Settings);
     }
 
     /// <inheritdoc/>

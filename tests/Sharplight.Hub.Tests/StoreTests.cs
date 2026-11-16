@@ -107,10 +107,10 @@ public sealed class StoreTests : IDisposable
     }
 
     [Fact]
-    public void UserStoreIsSharedByEveryExecutable()
+    public void SystemStoreIsSharedByEveryExecutable()
     {
-        Assert.EndsWith(Path.Combine("sharplight", "models"), ModelStore.UserRoot, StringComparison.Ordinal);
-        Assert.True(Path.IsPathRooted(ModelStore.UserRoot));
+        Assert.EndsWith(Path.Combine("sharplight", "models"), ModelStore.SystemRoot, StringComparison.Ordinal);
+        Assert.True(Path.IsPathRooted(ModelStore.SystemRoot));
     }
 
     [Theory]
