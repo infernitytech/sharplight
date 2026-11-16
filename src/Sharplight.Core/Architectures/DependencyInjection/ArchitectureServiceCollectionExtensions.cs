@@ -43,6 +43,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddAuxiliaryArchitecture(SnacParameters.Architecture, AuxiliaryRoles.Vocoder)
                 .AddModelAdapter<LatentDiffusionAdapter>()
                 .AddModelAdapter<FluxAdapter>()
+                .AddModelAdapter<WanAdapter>()
                 .AddCompositeModelAdapter<FluxCompanionAdapter>()
                 .AddAuxiliaryArchitecture(FluxCompanionAdapter.ClipTextArchitecture, AuxiliaryRoles.TextEncoder)
                 .AddAuxiliaryArchitecture(FluxCompanionAdapter.AutoencoderArchitecture, AuxiliaryRoles.Vae)

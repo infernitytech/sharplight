@@ -379,27 +379,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         return values;
     }
 
-    /// <summary>
-    /// Tokenizes a prompt to exactly the context length: the tokenizer's special tokens (CLIP: start and end; T5: end), truncated to
-    /// keep the end token, then padding.
-    /// </summary>
     private static int[] PromptTokens(ITokenizer tokenizer, int contextLength, string prompt)
-    {
-        var ids = tokenizer.Encode(prompt, addSpecial: true, parseSpecial: false).ToList();
-        int end = tokenizer.EosId ?? ids[^1];
-        if (ids.Count > contextLength)
-        {
-            ids = [.. ids.Take(contextLength - 1), end];
-        }
-
-        int pad = tokenizer.PadId ?? end;
-        while (ids.Count < contextLength)
-        {
-            ids.Add(pad);
-        }
-
-        return [.. ids];
-    }
+        => PromptTokenizer.Tokenize(tokenizer, contextLength, prompt, out _);
 
     private float[] Denoise(DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index, float[] latents)
     {

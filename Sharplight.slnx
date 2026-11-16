@@ -34,6 +34,7 @@
     <Project Path="samples/Sharplight.AgentHost/Sharplight.AgentHost.csproj" />
     <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
     <Project Path="samples/Sharplight.GenerateImage/Sharplight.GenerateImage.csproj" />
+    <Project Path="samples/Sharplight.GenerateVideo/Sharplight.GenerateVideo.csproj" />
     <Project Path="samples/Sharplight.Transcribe/Sharplight.Transcribe.csproj" />
     <Project Path="samples/Sharplight.Vision/Sharplight.Vision.csproj" />
   </Folder>

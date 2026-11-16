@@ -29,11 +29,11 @@ they need no extra `using`):
 
 | package | registration | registers |
 |---|---|---|
-| `Sharplight.Core` | `AddSharplightTasks()` | `TaskClientProvider`, the built-in factories (text generation, speech recognition: prompted encoder-decoders such as Whisper, Moonshine and Canary, and frame-aligned CTC / transducer models such as Parakeet, image classification/embedding, object detection, depth estimation, latent-diffusion image generation), the `ModelLoader` |
+| `Sharplight.Core` | `AddSharplightTasks()` | `TaskClientProvider`, the built-in factories (text generation, speech recognition: prompted encoder-decoders such as Whisper, Moonshine and Canary, and frame-aligned CTC / transducer models such as Parakeet, image classification/embedding, object detection, depth estimation, latent-diffusion image generation, video diffusion generation), the `ModelLoader` |
 | | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddCompositeModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
 | | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
 | | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
-| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
+| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageGenerator`, `AddVideoGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
 | `Sharplight.Core` (`Sharplight.Architectures`) | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
 | `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => ...)`, `AddOnnxImporter()` | the format (ONNX also its graph adapter) |
 | `Sharplight.Import.WhisperCpp` | `AddWhisperCppImporter()` | whisper.cpp `ggml` model files |
@@ -116,6 +116,7 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `speech-recognition` | `ISpeechRecognizer` | `TranscribeAsync(AudioBuffer)` | `TranscribeStreamingAsync` → `TranscriptionSegment` | `SpeechRecognitionOptions` | `Transcription` |
 | `speech-synthesis` | `ISpeechSynthesizer` | `SynthesizeAsync(text)` | `SynthesizeStreamingAsync` → `AudioBuffer` | `SpeechSynthesisOptions` | `SpeechSynthesisResult` |
 | `image-generation` | `IImageGenerator` | `GenerateAsync(ImageGenerationRequest)` | `GenerateStreamingAsync` → `ImageGenerationUpdate` | `ImageGenerationOptions` | `ImageGenerationResult` |
+| `video-generation` | `IVideoGenerator` | `GenerateAsync(VideoGenerationRequest)` | `GenerateStreamingAsync` → `VideoGenerationUpdate` | `VideoGenerationOptions` | `VideoGenerationResult` |
 | `image-classification` | `IImageClassifier` | `ClassifyAsync(ImageInput)` | - (one image, one result) | `ImageClassificationOptions` | `ImageClassification` |
 | `image-embedding` | `IImageEmbedder` | `EmbedImageAsync(ImageInput)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `ImageEmbeddingOptions` | `float[]`, `ImageClassification` |
 | `depth-estimation` | `IDepthEstimator` | `EstimateAsync(ImageInput)` | - | `DepthEstimationOptions` | `DepthMap` (per-pixel values, `ToGrayscale()`) |
@@ -302,6 +303,53 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
   `POST /v1/images/generations` (`prompt`, `n`, `size`, `response_format: "b64_json"` with PNG data, plus the extensions
   `negative_prompt`, `steps`, `guidance_scale`, `seed` and `sampler`); `MapSharplight()` maps it when a generator is registered,
   `MapSharplightImages()` maps it alone. Requests to one generator run one at a time.
+
+### Video generation
+
+Video generators are models of kind `video-generation` with the client `IVideoGenerator` (`GenerateAsync(VideoGenerationRequest)`,
+`GenerateStreamingAsync` → `VideoGenerationUpdate`), built like the image generators: `Sharplight.Import.Diffusers` reads Wan pipeline
+folders (Wan 2.1 text-to-video, Wan 2.2 TI2V text- and image-to-video) into the canonical `wan` source, and `WanAdapter`
+(Sharplight.Architectures) builds the umT5 text encoder (with a key mask), the video diffusion transformer (3-D patches, RoPE over
+(frame, row, column), cross-attention to the text tokens, per-token timesteps for TI2V) and the causal 3-D VAE as graphs of generic
+Core ops (components `text-encoder`, `tokenizer`, `transformer`, `vae`, `scheduler`; graph contract `VideoDiffusionGraphs`). Core's
+built-in `VideoDiffusionGenerator` (registered by `AddSharplightTasks()`) runs every model that follows the contract.
+
+```csharp
+var services = new ServiceCollection()
+    .AddSharplight()
+    .AddVideoGenerator(o => { o.ModelPath = "Wan2.1-T2V-1.3B-Diffusers"; o.Devices = [slot]; });
+await using var provider = services.BuildServiceProvider();
+var generator = provider.GetRequiredService<IVideoGenerator>();
+
+var request = new VideoGenerationRequest { Prompt = "a red fox trotting through snow", NegativePrompt = "blurry" };
+var options = new VideoGenerationOptions { Width = 832, Height = 480, Frames = 33, Steps = 30, Seed = 7 };
+await foreach (var update in generator.GenerateStreamingAsync(request, options))
+{
+    Console.Write($"\r{update.Phase} {update.Step}/{update.TotalSteps}");   // Denoising steps, then decoded frames (update.Frames)
+    if (update.Result is { } video)
+    {
+        // video.Frames: 8-bit RGB frames, video.FramesPerSecond
+    }
+}
+```
+
+- Options (`VideoGenerationOptions`): width and height (multiples of the VAE's downscale times the patch size: 16 for Wan 2.1, 32
+  for Wan 2.2 TI2V), frames (1 + 4k; other counts are rounded down), frames per second of the result, steps, guidance scale, seed,
+  sampler (`unipc`, the Wan default, or `euler`: both follow the diffusers schedulers step by step with the model's flow shift),
+  explicit initial latents [C, T, h, w] (`InitialNoise`) and preview frames. `VideoGenerationDefaults` (via `GetService`) reports the
+  model's defaults (Wan 2.1: 832×480, 81 frames at 16 fps; Wan 2.2 TI2V: 1280×704, 121 frames at 24 fps; 50 steps, guidance 5)
+  and whether it takes a start image.
+- Text conditioning: the prompt is tokenized to 512 tokens, encoded with the padding masked out and the padding rows zeroed (the Wan
+  pipelines' conditioning); classifier-free guidance runs the conditional and unconditional transformer one after the other.
+- Image-to-video (`VideoGenerationRequest.Image`, models with first-frame conditioning such as Wan 2.2 TI2V): the start image is
+  encoded by the VAE as the first latent frame, which replaces that frame in every transformer input (its tokens at timestep 0) and
+  in the result.
+- Decoding streams over the latent frames: the first latent frame decodes to one frame, each further one to four; the causal
+  convolutions' last two input frames are carried from chunk to chunk (`CausalDecoderStream`), so memory does not grow with the
+  clip length and `VideoGenerationUpdate.Frames` delivers the decoded frames as they come.
+- Memory: when the weights take more than 80 % of the device memory, the text encoder is released after encoding and the
+  transformer before decoding (compiled again from the cached kernels for the next request).
+- `sharplight-generate-video` (samples/Sharplight.GenerateVideo) is a command-line front end.
 
 ## 1. Load a model (text generation)
 

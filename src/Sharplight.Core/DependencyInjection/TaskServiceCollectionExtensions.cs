@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Sharplight.ImageGeneration;
+using Sharplight.VideoGeneration;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Speech;
@@ -35,6 +36,7 @@ public static class TaskServiceCollectionExtensions
             services.TryAddSingleton<TaskClientProvider>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextGeneratorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, LatentDiffusionGeneratorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, VideoDiffusionGeneratorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, EncoderDecoderSpeechRecognizerFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, FrameSpeechRecognizerFactory>());
             if (!services.Any(d => d.ServiceType == typeof(ITaskClientFactory) && d.ImplementationInstance is ImageEncoderFactory))
@@ -265,6 +267,23 @@ public static class TaskServiceCollectionExtensions
         /// <returns>The service collection.</returns>
         public IServiceCollection AddImageGenerator(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
             => services.AddTaskClient<IImageGenerator>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IVideoGenerator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model to load.</param>
+        /// <param name="serviceKey">Registers the client as a keyed service under this key, or <see langword="null"/> for the default service.</param>
+        /// <returns>The same service collection.</returns>
+        public IServiceCollection AddVideoGenerator(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IVideoGenerator>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IVideoGenerator"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).
+        /// </summary>
+        /// <param name="configure">Configures the model to load.</param>
+        /// <param name="serviceKey">Registers the client as a keyed service under this key, or <see langword="null"/> for the default service.</param>
+        /// <returns>The same service collection.</returns>
+        public IServiceCollection AddVideoGenerator(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IVideoGenerator>(configure, serviceKey);
     }
 
     private static TClient CreateClient<TClient>(IServiceProvider provider, TaskModelKey modelKey)

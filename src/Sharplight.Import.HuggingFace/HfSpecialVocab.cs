@@ -189,6 +189,11 @@ internal sealed class HfSpecialVocab
 
             _addFlags["bos"] = first == _bos || first == _cls;
         }
+        else
+        {
+            // The template starts with the sequence (T5 / umT5: "$A </s>"): no BOS, whatever the tokenizer config names.
+            _addFlags["bos"] = false;
+        }
 
         if (Has(last))
         {
