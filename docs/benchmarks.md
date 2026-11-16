@@ -5096,3 +5096,25 @@ Q4_K_M differs on the two long prompts after 120-150 generated words (near-tie f
 
 ### 38.6 Tests
 
+Release, niced, `SHARPLIGHT_VK_DEVICES=2`, after merging `develop` at `05b1c9cd`: Vulkan 1487 passed / 22 skipped, Cpu 1305 / 36
+skipped, Serving 294 / 13 skipped, Families 975 / 364 skipped (large models off) with 2 failures: `tiny-random-mistral-3 HF`
+on both CPU and Vulkan (generates other tokens from the first one on). That case loads with an explicit `MaxBatchTokens =
+256` and fails on the CPU provider as well, so it does not involve this change; it passed in section 36's run and came in
+with the `develop` merge (not bisected here).
+
+### 38.7 Next levers
+
+* **bf16 / FP8 GEMM at large M** (38.3: about 100 / 170 TFLOPS against vLLM's 140 / 235 on the 8B): the 8B's prefill and its
+  TTFT are GEMM bound.
+* **Causal attention at long context**: pp8192 at 0.69-0.75x of vLLM against 0.72-0.93x at 2048.
+* **Per-layer launches and barriers at prefill** on the small models (Llama-1B pp2048 0.81x).
+
+### 38.8 Reproduce
+
+```bash
+export SHARPLIGHT_VK_DEVICES=2 CUDA_VISIBLE_DEVICES=2 VLLM_VENV=~/venvs/vllm
+bench/s38_all.sh vllm
+TAG=before SL_ARGS="--batch 512" SRV_ARGS="--prefill-chunk 512" bench/s38_all.sh sharplight
+bench/s38_all.sh sharplight after
+python3 bench/s38_summarize.py bench/results/s38 before,after
+```
