@@ -1,6 +1,6 @@
 // Parity harness of the top-20 sweep.
 //
-//   ParitySweep <model path> <spec.json> <out.json> [--cpu] [--gen N] [--no-gen] [--teacher reference.json] [--convert package.slm] [--devices N] [--cpu-offload]
+//   ParitySweep <model path> <spec.json> <out.json> [--cpu] [--gen N] [--no-gen] [--teacher reference.json] [--convert package.slm] [--devices N] [--cpu-offload] [--draft mtp.gguf] [--mtp N]
 //
 // spec.json: { "texts": [..], "chats": [{ "name", "messages": [..], "tools": [..], "context": {..} }], "prompts": [..], "chat_prompts": [names] }
 // Output: tokenizer ids + decoded text per text, rendered chat text + ids per conversation, greedy ids per prompt.
@@ -25,6 +25,8 @@ bool noGen = args.Contains("--no-gen");
 string? teacher = null;
 string? convert = null;
 int deviceCount = 1;
+string? draft = null;
+int mtpDrafts = 0;
 bool cpuOffload = args.Contains("--cpu-offload");
 int gen = 48;
 for (int i = 3; i < args.Length - 1; i++)
@@ -32,6 +34,14 @@ for (int i = 3; i < args.Length - 1; i++)
     if (args[i] == "--gen")
     {
         gen = int.Parse(args[i + 1]);
+    }
+    else if (args[i] == "--draft")
+    {
+        draft = args[i + 1];
+    }
+    else if (args[i] == "--mtp")
+    {
+        mtpDrafts = int.Parse(args[i + 1]);
     }
     else if (args[i] == "--devices")
     {
@@ -74,6 +84,7 @@ if (convert is not null)
 
 using var model = LlmModel.Load(runtime.Loader, modelPath, new LlmLoadOptions
 {
+    Auxiliary = draft is null ? new Dictionary<string, string>(StringComparer.Ordinal) : new Dictionary<string, string>(StringComparer.Ordinal) { [Sharplight.Vision.AuxiliaryRoles.Draft] = draft },
     Devices = slots,
     Fallback = fallback,
     ContextLength = 2048,
@@ -190,6 +201,45 @@ if (!noGen)
     }
 
     result["greedy"] = greedy;
+
+    // Multi-token prediction: the same greedy continuations through the engine with the model's MTP head drafting; the text must not change.
+    if (mtpDrafts > 0)
+    {
+        result["has_draft_head"] = model.HasDraftHead;
+        if (model.HasDraftHead)
+        {
+            var speculative = new JsonArray();
+            var decoder = model.CreateBatchDecoder(1, maxLogitsRows: mtpDrafts + 1, draftTokens: mtpDrafts);
+            using var engine = new Sharplight.Llm.Serving.InferenceEngine(decoder, tok,
+                new Sharplight.Llm.Serving.EngineOptions { Speculator = model.CreateMtpSpeculator(1, mtpDrafts) });
+            foreach (var (name, ids) in prompts)
+            {
+                var request = new Sharplight.Llm.Serving.GenerationRequest
+                {
+                    PromptTokens = ids,
+                    MaxTokens = gen,
+                    StopAtEog = false,
+                    Sampling = Sharplight.Llm.Serving.SamplingParams.GreedyDefault,
+                };
+                var text = new System.Text.StringBuilder();
+                foreach (var chunk in engine.Submit(request).ReadAllAsync().ToBlockingEnumerable())
+                {
+                    text.Append(chunk.Text);
+                }
+
+                speculative.Add(new JsonObject { ["prompt"] = name, ["text"] = text.ToString() });
+            }
+
+            var metrics = engine.GetMetrics();
+            result["mtp"] = new JsonObject
+            {
+                ["greedy"] = speculative,
+                ["draft_tokens"] = metrics.DraftTokens,
+                ["accepted_draft_tokens"] = metrics.AcceptedDraftTokens,
+                ["acceptance_rate"] = metrics.DraftAcceptanceRate,
+            };
+        }
+    }
 
     // Teacher forcing on the reference's tokens: our logits at the reference's top-5 ids per step (precision diagnostics).
     if (teacher is not null)

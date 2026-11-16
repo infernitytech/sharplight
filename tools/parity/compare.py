@@ -86,7 +86,8 @@ def main():
             top = dict((t, v) for t, v in b["top5"][k]) if k < len(b.get("top5", [])) else {}
             ours_tok = a["ids"][k] if k < len(a["ids"]) else None
             gap = top[b["ids"][k]] - top[ours_tok] if ours_tok in top else None
-            near = gap is not None and gap <= tie
+            # A negative gap means the reference did not pick its own argmax (a logits processor was active): not a near-tie.
+            near = gap is not None and 0 <= gap <= tie
             verdict(name, near, f"{'near-tie' if near else 'diverges'} at {k}/{len(b['ids'])} (gap {gap if gap is None else round(gap, 4)})"
                     + ("" if near else "\n      " + show(a["text"], b["text"])))
     sys.exit(1 if failed else 0)
