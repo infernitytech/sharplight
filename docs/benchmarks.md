@@ -5089,8 +5089,9 @@ Notes:
 ### 38.5 Greedy output
 
 200-token greedy outputs of a short, a ~600-token and a ~3000-token prompt, `--batch 512` against the new default on the same
-build: byte-identical on Qwen3-0.6B (bf16), Llama-3.2-1B (bf16), Gemma-3-1B Q8_0 (sliding window) and OLMoE Q4_K_M. Qwen3-8B
-Q4_K_M differs on the two long prompts after 120-150 generated words (near-tie flips, both continuations coherent): its
+build: byte-identical on Qwen3-0.6B, Llama-3.2-1B and Qwen3-8B (bf16 HF), Gemma-3-1B Q8_0 (sliding window) and OLMoE Q4_K_M.
+Qwen3-8B-FP8 differs on the ~600-token prompt after about 40 generated words ("read through the notes" against "read
+through the provided text"; the other two prompts are identical). Qwen3-8B Q4_K_M differs on the two long prompts after 120-150 generated words (near-tie flips, both continuations coherent): its
 [4096 → N] GEMMs take K splits at 512 rows and none at 2048, a summation-order change of the kind accepted for section 34.5.
 `--batch 512` restores the previous output. The Families references (llama.cpp / transformers goldens) are unchanged (38.6).
 
