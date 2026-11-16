@@ -1258,11 +1258,12 @@ planner placed every trunk layer on the CPU (1 GiB on the GPU, 61 GiB on the CPU
   (0.84 / 0.70 / 0.59), which checks the head on the real weights.
 * The three speculative runs are identical to each other; they leave the plain run at one near-tie (" Pre" 22.225 vs " Origins"
   22.167 in the prefill logits at that position, which pick " Pre" as plain decoding does): the CPU verification rows (2-4 at a
-  time) round differently from single-row decode on the IQ1_S experts. Open: check the small-batch CPU matmul path of the
-  IQ quants for row-count-dependent results.
+  time) went through the chunked dequantize-then-dot path while single-row decode used the fused dequantize-dot kernel, which sums
+  in another order. Fixed: up to 4 rows now run the fused kernel row by row (`MatMulOp`, `MatMulIdOp`), so verification rows
+  are bit-identical to single-row decode.
 * No speedup on this placement: the MoE layers run on the CPU, where each verification row reads its own experts, so a step
-  costs nearly (k + 1) times a single-row step. A speedup needs the trunk on GPUs (two 32 GB GPUs, or a GPU that holds the
-  n-gram layer); the head stays off by default (`--speculate-mtp 0`).
+  costs nearly (k + 1) times a single-row step. Fixed in the planner since: a lookup table (a weight only `Gather` reads, the
+  26.8 GiB n-gram table here) is its own placement group and goes to the CPU alone, so the trunk layers fill the GPU(s).
 
 ## 18. Chunked gated delta rule and token-parallel conv1d for prefill (2026-11-14)
 
