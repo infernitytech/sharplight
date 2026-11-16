@@ -37,6 +37,8 @@ they need no extra `using`):
 | `Sharplight.Architectures` | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
 | `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => ...)`, `AddOnnxImporter()` | the format (ONNX also its graph adapter) |
 | `Sharplight.Import.WhisperCpp` | `AddWhisperCppImporter()` | whisper.cpp `ggml` model files |
+| `Sharplight.Import.Kokoro` | `AddKokoroImporter()` | Kokoro-82M checkpoint folders (`config.json`, `.pth` with weight normalization, `voices/*.pt`, `lexicon/*.json`) |
+| `Sharplight.Import.Snac` | `AddSnacImporter()` | SNAC audio codec checkpoint folders (the decoding half; auxiliary `vocoder` of Orpheus) |
 | `Sharplight.Import.Diffusers` | `AddDiffusersImporter()` | diffusers folders and single-file Stable Diffusion checkpoints (ranks above the generic importers: `IModelImporter.Priority`) |
 | `Sharplight.Import.PyTorch` | `AddPyTorchImporter(o => ...)` | the restricted-unpickler settings (`TorchCheckpointOptions`) for pickle checkpoints (`pytorch_model*.bin` shards of the Hugging Face importer) |
 | `Sharplight.Package` | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |

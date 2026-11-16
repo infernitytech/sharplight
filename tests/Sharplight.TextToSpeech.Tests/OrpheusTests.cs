@@ -49,7 +49,8 @@ public class OrpheusTests
             energy += (double)reference[i] * reference[i];
         }
 
-        Assert.True(Math.Sqrt(error / energy) < 2e-3, $"relative RMS error {Math.Sqrt(error / energy):E2}");
+        ParityReport.Write($"SNAC decoder {(gpu ? "vulkan" : "cpu")}: waveform relative RMS error {Math.Sqrt(error / energy):E2}");
+        Assert.True(Math.Sqrt(error / energy) < 1e-4, $"relative RMS error {Math.Sqrt(error / energy):E2}");
     }
 
     /// <summary>
@@ -105,9 +106,33 @@ public class OrpheusTests
             logits = session.Process([sequence[position + 1]]);
         }
 
+        ParityReport.Write($"Orpheus {(gpu ? "vulkan" : "cpu")}: {hard} argmax disagreements beyond margin {ToleranceMargin}, {ties} within; worst top-logit delta {worst:F3} over {sequence.Length - promptLength} positions");
         Assert.True(hard == 0 && worst < MaxLogitDelta, $"{hard} disagreements beyond margin {ToleranceMargin}, {ties} within; worst logit delta {worst:F4} over {sequence.Length - promptLength} positions");
     }
 
+    [Fact]
+    public async Task Text_is_spoken_end_to_end_on_the_gpu()
+    {
+        TtsModels.Require(RequiredFiles());
+        using var model = TtsModels.LoadOrpheus(TtsModels.Open(gpu: true));
+        using var synthesizer = TtsModels.Synthesizer(model);
+        Assert.Contains("tara", synthesizer.Voices);
+        var options = new Sharplight.Speech.SpeechSynthesisOptions { Voice = "tara", Sampling = new SamplingOptions { Temperature = 0.6f, TopP = 0.8f, TopK = 0, RepetitionPenalty = 1.3f, RepetitionWindow = 4096, Seed = 7 } };
+        var result = await synthesizer.SynthesizeAsync("Hello there.", options, TestContext.Current.CancellationToken);
+        Assert.Equal(24000, result.Audio.SampleRate);
+        Assert.InRange(result.Audio.Samples.Length / 24000.0, 0.5, 8.0);
+        Assert.Contains(result.Audio.Samples, sample => MathF.Abs(sample) > 0.02f);
+        int buffers = 0;
+        int samples = 0;
+        await foreach (var buffer in synthesizer.SynthesizeStreamingAsync("Hello there.", options, TestContext.Current.CancellationToken))
+        {
+            buffers++;
+            samples += buffer.Samples.Length;
+        }
+
+        Assert.True(buffers >= 1 && samples > 12000, $"{buffers} buffers, {samples} samples");
+    }
+
     private const float ToleranceMargin = 0.1f;
-    private const double MaxLogitDelta = 0.6;
+    private const double MaxLogitDelta = 0.05;
 }

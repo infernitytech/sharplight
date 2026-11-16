@@ -97,17 +97,13 @@ internal static class KokoroAcousticGraph
     {
         int bins = (p.NFft / 2) + 1;
         var harmonics = HarmonicSource(b, p, f0, noise);                                                                   // [samples, 1]
-        Debug(b, "source", harmonics);
-        Debug(b, "decoder", x);
         var stft = b.Constant("stft_basis", DataType.F32, new Shape(2 * bins, 1, p.NFft), KokoroBlocks.Bytes(StftBasis(p.NFft)));
         var transformed = b.Emit1("Conv1d", [harmonics, stft],
             Attributes.From(("pad_left", (long)(p.NFft / 2)), ("pad_right", (long)(p.NFft / 2)), ("stride", (long)p.Hop), ("pad_mode", "reflect")));
         var re = b.Slice(transformed, 1, 0, bins);
         var im = b.Slice(transformed, 1, bins, bins);
-        Debug(b, "stft", transformed);
         var spec = b.Unary("Sqrt", b.Add(b.Unary("Square", re), b.Unary("Square", im)));
         var har = b.Concat(1, spec, Angle(b, im, re));                                                                      // [frames, 2 * bins]
-        Debug(b, "har", har);
 
         long channels = p.InitialChannels;
         for (int i = 0; i < p.UpsampleRates.Length; i++)
@@ -146,13 +142,11 @@ internal static class KokoroAcousticGraph
             }
 
             x = b.Scale(sum!, 1f / p.ResBlockKernels.Length);
-            Debug(b, $"stage{i}", x);
             channels = outChannels;
         }
 
         x = KokoroBlocks.LeakyRelu(b, x, 0.01f);
         x = KokoroBlocks.Conv(b, x, "decoder.generator.conv_post", 3);
-        Debug(b, "post", x);
         var magnitude = b.Unary("Exp", b.Slice(x, 1, 0, bins));
         var phase = b.Unary("Sin", b.Slice(x, 1, bins, bins));
         return (b.Mul(magnitude, b.Unary("Cos", phase)), b.Mul(magnitude, b.Unary("Sin", phase)));
@@ -169,14 +163,6 @@ internal static class KokoroAcousticGraph
         var flat = b.Binary("Equal", im, zero);
         var half = b.Emit1("Where", [b.Binary("Less", re, zero), pi, zero]);
         return b.Emit1("Where", [flat, half, b.Binary("Atan2", im, re)]);
-    }
-
-    internal static void Debug(GraphBuilder b, string name, Value v)
-    {
-        if (Environment.GetEnvironmentVariable("SHARPLIGHT_KOKORO_DEBUG") == "1")
-        {
-            b.Output("debug." + name, b.Contiguous(v));
-        }
     }
 
     /// <summary>One reflected sample prepended along time (<c>ReflectionPad1d((1, 0))</c>), as a depthwise identity convolution with reflect padding.</summary>

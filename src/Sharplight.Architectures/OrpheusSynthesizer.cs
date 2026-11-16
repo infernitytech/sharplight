@@ -204,7 +204,7 @@ internal sealed class OrpheusSynthesizer : ISpeechSynthesizer
             {
                 scale *= _rates[i];
                 int count = (int)(scale * frames);
-                _codec.SetInput<float>(Input(SnacGraph.NoiseInput(i)), (NoiseSource ?? (n => KokoroSynthesizer.Gaussian(n, i)))(count));
+                _codec.SetInput<float>(Input(SnacGraph.NoiseInput(i)), (NoiseSource ?? (n => SpeechNoise.Gaussian(n, i)))(count));
             }
         }
 

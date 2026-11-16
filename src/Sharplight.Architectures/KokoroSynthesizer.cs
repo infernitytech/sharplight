@@ -103,7 +103,7 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
         foreach (string phonemes in PhonemizerFor(options).Chunks(text, options.Language, _context - 2))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            yield return await Task.Run(() => SynthesizePhonemes(phonemes, options.Voice, options.Speed), cancellationToken).ConfigureAwait(false);
+            yield return await Task.Run(() => SynthesizePhonemes(phonemes, options.Voice, options.Speed, options.Sampling.Seed ?? 0), cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -111,9 +111,10 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
     /// <param name="phonemes">The phonemes of at most <c>context - 2</c> symbols.</param>
     /// <param name="voice">The voice name.</param>
     /// <param name="speed">The speaking rate (1 is the voice's natural rate).</param>
-    public AudioBuffer SynthesizePhonemes(string phonemes, string? voice, float speed = 1f)
+    /// <param name="seed">The seed of the excitation noise.</param>
+    public AudioBuffer SynthesizePhonemes(string phonemes, string? voice, float speed = 1f, int seed = 0)
     {
-        var run = Run(phonemes, voice, speed);
+        var run = Run(phonemes, voice, speed, seed);
         return new AudioBuffer(run.Samples, SampleRate);
     }
 
@@ -121,7 +122,8 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
     /// <param name="phonemes">The phonemes.</param>
     /// <param name="voice">The voice name.</param>
     /// <param name="speed">The speaking rate.</param>
-    public KokoroRun Run(string phonemes, string? voice, float speed = 1f)
+    /// <param name="seed">The seed of the excitation noise (ignored when <see cref="NoiseSource"/> is set).</param>
+    public KokoroRun Run(string phonemes, string? voice, float speed = 1f, int seed = 0)
     {
         ArgumentNullException.ThrowIfNull(phonemes);
         var symbols = new List<int>();
@@ -173,16 +175,16 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
             throw new ArgumentException($"The utterance needs {frames} decoder frames, the model runs at most {_maxFrames}; split the text.", nameof(phonemes));
         }
 
-        var (samples, f0) = Decode(prosody, acoustic, durations, (int)frames, style);
+        var (samples, f0) = Decode(prosody, acoustic, durations, (int)frames, style, seed);
         return new KokoroRun(ids, durations, raw, f0, samples);
     }
 
-    private (float[] Samples, float[] F0) Decode(float[] prosody, float[] acoustic, int[] durations, int frames, float[] style)
+    private (float[] Samples, float[] F0) Decode(float[] prosody, float[] acoustic, int[] durations, int frames, float[] style, int seed)
     {
         var en = Expand(prosody, _p.Hidden + _p.StyleDim, durations, frames);
         var asr = Expand(acoustic, _p.Hidden, durations, frames);
         int count = frames * (int)_p.SamplesPerFrame * _p.Harmonics;
-        var noise = (NoiseSource ?? (n => Gaussian(n, 0)))(count);
+        var noise = (NoiseSource ?? (n => SpeechNoise.Gaussian(n, seed)))(count);
         _acoustic ??= _model.Compile(_model.ComponentGraph(KokoroAdapter.AcousticRole), null, _maxFrames);
         _acoustic.SetInput<float>(Input(_acoustic, KokoroAcousticGraph.ProsodyInput), en);
         _acoustic.SetInput<float>(Input(_acoustic, KokoroAcousticGraph.AcousticInput), asr);
@@ -196,17 +198,6 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
         int spectrumFrames = (frames * samplesPerFrame / _p.Hop) + 1;
         var spectrum = new float[spectrumFrames * _p.NFft];
         _acoustic.GetOutput<float>(KokoroAcousticGraph.FramesOutput, spectrum);
-        if (Environment.GetEnvironmentVariable("SHARPLIGHT_KOKORO_DEBUG") == "1")
-        {
-            foreach (string name in new[] { "source", "decoder", "stft", "har", "stage0", "stage1", "post" })
-            {
-                var shape = _acoustic.OutputShape("debug." + name, parameters);
-                var data = new float[shape.Aggregate(1L, (a, c) => a * c)];
-                _acoustic.GetOutput<float>("debug." + name, data);
-                File.WriteAllBytes(Path.Combine(Environment.GetEnvironmentVariable("SHARPLIGHT_KOKORO_DEBUG_DIR") ?? ".", name + ".bin"), MemoryMarshal.AsBytes(data.AsSpan()).ToArray());
-            }
-        }
-
         var f0 = new float[2 * frames];
         _acoustic.GetOutput<float>(KokoroAcousticGraph.F0Output, f0);
         return (OverlapAdd.Synthesize(spectrum, spectrumFrames, _p.NFft, _p.Hop, Window.Hann(_p.NFft), _p.NFft / 2), f0);
@@ -271,27 +262,6 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
     }
 
     private static Value Input(CompiledModel model, string name) => model.Graph.Inputs.First(i => i.Name == name);
-
-    /// <summary>Standard-normal values (Box-Muller over a seeded generator).</summary>
-    /// <param name="count">The number of values.</param>
-    /// <param name="seed">The seed.</param>
-    internal static float[] Gaussian(int count, int seed)
-    {
-        var random = new Random(seed);
-        var values = new float[count];
-        for (int i = 0; i < count; i += 2)
-        {
-            double radius = Math.Sqrt(-2 * Math.Log(1 - random.NextDouble()));
-            double angle = 2 * Math.PI * random.NextDouble();
-            values[i] = (float)(radius * Math.Cos(angle));
-            if (i + 1 < count)
-            {
-                values[i + 1] = (float)(radius * Math.Sin(angle));
-            }
-        }
-
-        return values;
-    }
 
     /// <inheritdoc/>
     public void Dispose()

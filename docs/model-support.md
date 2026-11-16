@@ -1042,12 +1042,14 @@ Model types still unsupported, with estimates (none is a mapping-only job):
 ## 12. Text to speech (task kind `speech-synthesis`)
 
 Speech synthesizers are `.slm`-storable models of kind `speech-synthesis` run through `ISpeechSynthesizer` (docs/api-overview.md, Tasks). Acoustic models,
-codecs and vocoders are graphs of generic Core ops; the host runs only the token loop (the text-generation session and sampler) and the overlap-add.
+codecs and vocoders are graphs of generic Core ops; the host runs only the token loop (the text-generation session and sampler, or Kokoro's length regulator) and the overlap-add.
 
 | Model | Status | Reference | Parity |
 |---|---|---|---|
 | OuteTTS 0.2 500M + WavTokenizer-Large-75 (GGUF pair) | supported, CPU and Vulkan | llama.cpp 8ca5a80 (`llama-completion`, libllama WavTokenizer graph + numpy iSTFT) | teacher-forced logits: no argmax disagreement beyond a 0.1 margin over 253 positions, worst logit delta 0.32 (CPU) / 0.52 (Vulkan) on logits up to 45 (Q8_0 activation rounding); decoder waveform relative RMS < 2e-3 on both |
-| qwen3tts, pockettts (llama.cpp archs), Kokoro, Orpheus + SNAC, CSM + Mimi, Dia | not started | - | - |
+| Kokoro-82M v1.0 (hexgrad; StyleTTS 2 style model, ALBERT text encoder, iSTFTNet decoder), all voice packs of the repository (af_heart verified) | supported, CPU and Vulkan | `kokoro` 0.9.4 on torch (CPU), excitation noise of the reference run fed to both | symbols, rounded durations and the F0 curve identical (F0 relative RMS 5e-7 CPU, 4e-7 Vulkan); decoder features before the generator 1.5e-6; conv_post output 5e-4; waveform relative RMS 1.3e-2 (CPU) / 1.3e-2 (Vulkan), which is the reproducibility floor of the sine excitation (the reference itself moves 1.0-1.2 % between an f32 and an f64 phase accumulation) |
+| Orpheus 3B fine-tune (Llama decoder over SNAC codes) + SNAC 24 kHz decoder | supported, CPU and Vulkan | transformers (fp32, greedy chain of 140 tokens, teacher forced) and the `snac` package | prompt ids identical; 0 argmax disagreements over 140 positions, worst top-logit delta 0.003 (CPU and Vulkan); SNAC decoder waveform relative RMS 2.1e-6 (CPU) / 2.4e-6 (Vulkan) with the reference's noise |
+| CSM-1B + Mimi, Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
 `samples/Sharplight.Speak`). `OuteTtsAdapter` is a composite adapter (`ICompositeModelAdapter`, `services.AddCompositeModelAdapter<T>()`): it builds the language model with the adapter of its
@@ -1061,6 +1063,40 @@ and `OverlapAdd` (host side of an inverse STFT; the inverse real DFT and window 
 check feeds llama.cpp's tokens to both implementations (`OuteTtsTests`). The streaming form decodes each spoken word separately (the decoder attends over all frames, so
 this differs slightly from the whole-utterance decode). OuteTTS 0.3 and a default speaker profile are not implemented; llama.cpp 8ca5a80 dropped its OuteTTS demo, so the
 reference is the pieces above rather than `llama-tts`.
+
+Kokoro loading: the model is a checkpoint folder (`config.json`, the `.pth` state dictionary, `voices/*.pt`, optionally `lexicon/*.json`); `Sharplight.Import.Kokoro`
+(`KokoroImporter`, `services.AddKokoroImporter()`) folds the weight-normalized convolutions (`weight_g` / `weight_v`, a lazily computed effective `weight`), adds the two
+LSTM bias vectors of each direction, and stores the vocabulary (`tokenizer/vocab.json`), every voice pack (`voices/{name}.f32`, f32 `[510, 1, 256]`: row `n - 1` is the style
+of an utterance of `n` symbols, 128 values for the decoder and 128 for the prosody predictor) and the pronunciation lexicons (`lexicon/{us,gb}_{gold,silver}.json`, the
+misaki dictionaries) as attachments, so a `.slm` package carries everything. `KokoroAdapter` (canonical architecture `kokoro`) builds two graphs: `kokoro_text` over the
+symbols (ALBERT with one shared layer applied 12 times, duration encoder of bidirectional LSTMs and adaptive layer norms, duration head, convolutional text encoder with an
+LSTM) and `kokoro_audio` over the decoder frames (shared LSTM, F0 and noise predictors, the decoder's adaptive residual blocks, the iSTFTNet generator with its
+harmonic-plus-noise source, STFT of the source as a convolution, snake residual blocks, and the frequency-domain half of the inverse STFT). The host (`KokoroSynthesizer`)
+rounds the predicted durations, expands the features to frames (the length regulator is a row copy), draws the excitation noise (a seeded generator, `Sampling.Seed`) and
+overlap-adds the frames (`OverlapAdd`, `center=True` trimming). The English front end (`KokoroPhonemizer`) follows the structure of misaki, the front end the model was
+trained with: sentence splitting, the gold and silver lexicons with plural, past tense, progressive and possessive endings, the article before a vowel, numbers read as
+words, letter-to-sound rules for unknown words, punctuation passed through; it does not do misaki's part-of-speech dependent choices (heteronyms, the stress of function
+words), so unusual sentences differ from misaki slightly (`Language = "phonemes"` bypasses it and takes Kokoro phoneme symbols). British voices (`b*`) use the `gb`
+lexicons; other languages need a front end that is not implemented. `SpeechSynthesisOptions.Speed` divides the predicted durations; streaming yields one buffer per chunk
+of at most 510 symbols (one or more sentences).
+
+Orpheus loading: the language model is the primary source (a Hugging Face Llama checkpoint, here the `unsloth/orpheus-3b-0.1-ft` mirror of the gated canopylabs release) and
+the SNAC folder its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", snacFolder)]`, `--vocoder` of `samples/Sharplight.Speak`). `OrpheusAdapter` is a
+composite adapter like OuteTTS: the language model is built by the adapter of its architecture, `Sharplight.Import.Snac` (`SnacImporter`, `AddSnacImporter()`; priority above
+the Hugging Face importer, which also matches the folder) gives the decoding half of the codec with the weight norms folded, and `SnacGraph` is the decoder as a graph of
+generic ops (codebook lookups, 1x1 projections, nearest-neighbor upsampling to the finest rate, depthwise convolutions, snake activation, transposed convolutions, the
+noise blocks, three dilated residual units per block, tanh). `OrpheusSynthesizer` builds the prompt `[start of human] "{voice}: {text}" [end of text, end of human]` for the
+voices tara, leah, jess, leo, dan, mia, zac and zoe, generates through the text-generation machinery, regroups the audio tokens (seven per frame: one coarse, two medium,
+four fine codes, each offset by its slot) and decodes; the streaming form decodes every 8 frames with 2 frames of context. The SNAC noise blocks draw random numbers: they
+are inputs of the graph (seeded by default) so a decode is reproducible. The decode of one request covers at most 1024 frames (85 s).
+
+New generic Core ops of this round (CPU and Vulkan, time-major `[T, C]` with a symbolic `T`): `ConvTranspose1d` (stride, crop, output padding, groups), `Interpolate1d`
+(nearest and half-pixel linear resampling by a rational factor, with exact integer index arithmetic), `Lstm` (one direction's recurrence over precomputed input
+projections; on the device one workgroup walks the steps), `Atan2` (IEEE zero handling on both providers), reflect padding for `Conv1d`, and `CumSum` accumulating in double
+on the CPU and with compensated summation on the device. The angle of a complex number uses `Where` so the phase of an exactly-zero imaginary part (DC and Nyquist bins) does
+not depend on the sign of that zero. `Sharplight.Import.PyTorch` reads a file written by `torch.save(tensor)` and has the shared weight-norm helpers (`TorchWeightNorm`).
+Not done: CSM (the depth decoder over 32 codebooks and the Mimi decoder), Dia (encoder-decoder with delay-pattern codebook heads and the DAC codec), qwen3tts and pockettts
+(no GGUFs were looked for), and OuteTTS 0.3.
 
 ## 13. Speech to text (task kind `speech-recognition`)
 
