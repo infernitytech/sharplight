@@ -1265,6 +1265,25 @@ planner placed every trunk layer on the CPU (1 GiB on the GPU, 61 GiB on the CPU
   costs nearly (k + 1) times a single-row step. Fixed in the planner since: a lookup table (a weight only `Gather` reads, the
   26.8 GiB n-gram table here) is its own placement group and goes to the CPU alone, so the trunk layers fill the GPU(s).
 
+#### 17.5.1 After the placement fix: trunk on the GPU
+
+Same model, prompt and CLI run; the files on local disk. The 26.8 GiB n-gram table (IQ4_NL) is its own placement group and goes to
+the CPU; 40 of the 48 layers fill the 32 GB GPU (27.7 GiB), 8 layers run on the CPU.
+
+| k | one RTX PRO 4500 + CPU tok/s | acceptance | output vs k = 0 |
+|---|---|---|---|
+| off | 17.8 | | |
+| 1 | 19.7 (1.11x) | 0.87 (92 / 106) | one near-tie |
+| 2 | 25.0 (1.41x) | 0.79 (121 / 154) | as k = 1 |
+| 3 | 20.7 (1.16x) | 0.64 (130 / 204) | as k = 1 |
+
+* Plain decode went from 0.99 to 17.8 tok/s with the placement fix (llama.cpp `-ngl 33` on the older 96 GB machine: 13.9 Vulkan, 18.8 CUDA).
+* k = 2 is the best setting here (1.41x); the 8 CPU layers make every verification row cost more, so k = 3 loses again.
+* The speculative runs are identical to each other and meet the plain run at the same near-tie as above (gap 0.06), now
+  flipped the other way: on the GPU, `RowInvariantRows` makes the matmuls and attention of 2-4-row steps bit-identical to
+  single-row steps, and the row-invariance tests cover those, but not every op this model runs (expert matmuls on IQ1_S, the
+  delta-rule replay, the indexer, the CPU segments' hand-off). Open item: find the op that breaks invariance here.
+
 ## 18. Chunked gated delta rule and token-parallel conv1d for prefill (2026-11-14)
 
 Levers 6 and 7 of section 16.8. Kernels: `src/Sharplight.Shaders/Kernels/chunked.slang` (new), `recurrent.slang`

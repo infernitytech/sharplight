@@ -17,7 +17,7 @@ public sealed class PlacementTableTests
     {
         var tg = new TestGraph();
         x = tg.InF("x", TestGraph.T, Hidden);
-        ids = tg.In("ids", DataType.I32, TestGraph.T);
+        ids = tg.In("ids", DataType.I32, TestGraph.T, 2);
         var h = x;
         for (int layer = 0; layer < 3; layer++)
         {
@@ -25,7 +25,8 @@ public sealed class PlacementTableTests
             if (layer == 1)
             {
                 var table = tg.WF("table", Kit.Rand(TableRows * Hidden, 7), TableRows, Hidden);
-                h = tg.B.Add(h, tg.B.Gather(table, ids));
+                var column = tg.B.Reshape(tg.B.Slice(ids, 1, 1, 1), 0);   // the index computation joins the table's group
+                h = tg.B.Add(h, tg.B.Gather(table, column));
             }
 
             h = tg.B.MatMul(h, tg.WF($"w{layer}", Kit.Rand(Hidden * Hidden, layer), Hidden, Hidden));
@@ -54,9 +55,10 @@ public sealed class PlacementTableTests
 
         Assert.Equal(1, plan.GroupDevice["layers.1" + PlacementPlanner.TableGroupSuffix]);
         Assert.All(new[] { "layers.0", "layers.1", "layers.2" }, g => Assert.Equal(0, plan.GroupDevice[g]));
+        Assert.Equal(3, plan.Segments.Count);   // device, the table's gather with its index slice on the fallback, device
 
         float[] input = Kit.Rand(2 * Hidden, 3);
-        int[] rows = [5, 1000];
+        int[] rows = [0, 5, 0, 1000];
         float[] Run(CompiledModel m)
         {
             Kit.Set(m, x, input);
