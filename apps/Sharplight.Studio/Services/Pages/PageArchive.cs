@@ -45,16 +45,7 @@ internal sealed class PageArchive
     /// <param name="files">The output files by name.</param>
     public void Add(RunRecord record, IReadOnlyDictionary<string, byte[]>? files = null)
     {
-        if (files is { Count: > 0 })
-        {
-            string directory = DirectoryOf(record);
-            Directory.CreateDirectory(directory);
-            foreach (var (name, content) in files)
-            {
-                File.WriteAllBytes(Path.Combine(directory, Path.GetFileName(name)), content);
-            }
-        }
-
+        WriteFiles(record, files);
         _runs.Insert(0, record);
         while (_runs.Count > Capacity)
         {
@@ -63,6 +54,27 @@ internal sealed class PageArchive
         }
 
         Save();
+    }
+
+    /// <summary>
+    /// Writes a run's output files (any thread: workers write them before the run is added on the UI thread, so the UI does not wait
+    /// for the disk).
+    /// </summary>
+    /// <param name="record">The run.</param>
+    /// <param name="files">The output files by name, or null.</param>
+    public void WriteFiles(RunRecord record, IReadOnlyDictionary<string, byte[]>? files)
+    {
+        if (files is not { Count: > 0 })
+        {
+            return;
+        }
+
+        string directory = DirectoryOf(record);
+        Directory.CreateDirectory(directory);
+        foreach (var (name, content) in files)
+        {
+            File.WriteAllBytes(Path.Combine(directory, Path.GetFileName(name)), content);
+        }
     }
 
     /// <summary>Removes a run and its output files.</summary>

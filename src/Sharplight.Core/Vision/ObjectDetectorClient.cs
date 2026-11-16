@@ -25,6 +25,7 @@ internal sealed class ObjectDetectorClient : IObjectDetector
     private readonly bool _background;
     private readonly int _queries;
     private readonly int _classes;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     public ObjectDetectorClient(TaskModel model)
     {
@@ -52,18 +53,25 @@ internal sealed class ObjectDetectorClient : IObjectDetector
     {
         ArgumentNullException.ThrowIfNull(image);
         cancellationToken.ThrowIfCancellationRequested();
-        options ??= new ObjectDetectionOptions();
-        var processed = _processor.Process(image);
-        _compiled.SetInput<float>(_pixels, processed.Planes);
-        _compiled.Run(new RunParameters());
-        var logits = new float[_queries * _classes];
-        var boxes = new float[_queries * 4];
-        _compiled.GetOutput<float>(WellKnown.LogitsOutput, logits);
-        _compiled.GetOutput<float>(WellKnown.BoxesOutput, boxes);
-        return Task.FromResult(Decode(logits, boxes, image.Width, image.Height, options));
+        var settings = options ?? new ObjectDetectionOptions();
+        return BackgroundCompute.RunAsync(_gate, () =>
+        {
+            var processed = _processor.Process(image);
+            _compiled.SetInput<float>(_pixels, processed.Planes);
+            _compiled.Run(new RunParameters());
+            var logits = new float[_queries * _classes];
+            var boxes = new float[_queries * 4];
+            _compiled.GetOutput<float>(WellKnown.LogitsOutput, logits);
+            _compiled.GetOutput<float>(WellKnown.BoxesOutput, boxes);
+            return Decode(logits, boxes, image.Width, image.Height, settings);
+        }, cancellationToken);
     }
 
-    public void Dispose() => _compiled.Dispose();
+    public void Dispose()
+    {
+        _compiled.Dispose();
+        _gate.Dispose();
+    }
 
     private ObjectDetection Decode(float[] logits, float[] boxes, int width, int height, ObjectDetectionOptions options)
     {

@@ -165,6 +165,31 @@ Audio and image I/O for the task layer: `AudioBuffer` (interleaved float samples
 `WAVE_FORMAT_EXTENSIBLE`; write: PCM16, PCM24, PCM32, float32), `PngCodec` (encode RGB; decode 8-bit gray, gray+alpha, RGB, RGBA and
 palette PNGs) and `PlanarImage` (8-bit interleaved RGB to and from `[3, height, width]` float planes in any value range).
 
+### Threading contract
+
+Task clients are safe to call from a UI thread, and implementations (built-in or registered) keep this contract:
+
+- **Every `...Async` method returns to its caller before any compute.** Compiling graphs, running them, tokenizing, decoding audio
+  or images and encoding results run on a background thread; built-in clients use dedicated (long-running) threads, since a graph
+  run blocks on device fences and would starve the thread pool. `Task.FromResult` over synchronous work is not allowed.
+- **Streams are produced by a background loop** that queues its items for the consumer and never waits for it (a slow consumer, such
+  as a UI that renders every preview, does not slow generation down), and the consumer's `MoveNextAsync` never runs a step itself.
+- **Cancellation** is observed between steps (a denoising step, a decoded audio window, a generated token). A cancelled or abandoned
+  enumeration (`break`, dispose) completes only after the step in progress, so once it has ended the client, and the model behind
+  it, are idle and may be disposed or unloaded. Exceptions of the producer surface at the consumer after the items produced before.
+- **No synchronization context is captured**: library code awaits with `ConfigureAwait(false)` throughout; results, progress
+  callbacks (`IProgress<T>`, `Log`) and stream items arrive on background threads, and applications marshal only state updates to
+  their UI thread (throttled: progress can be reported per kernel, per tensor or per token).
+- **One request at a time per client**: built-in clients serialize requests (later ones wait for the earlier). Disposing a client while
+  a request runs is not supported.
+- `TaskModel.LoadAsync` loads on a background thread; the synchronous `TaskModel.Load` and `CreateTokenizer`/`CompileComponent` block
+  and belong on a worker, never on a UI thread. Synchronous serving calls (`ModelService.StartChat`, which builds and tokenizes the
+  prompt) likewise.
+
+Sharplight Studio follows the same rule on its side: every page runs engine work on workers (the run queue, `Task.Run` around service
+calls), posts only state changes to the dispatcher, throttles progress, streamed text and previews to about 15 UI updates a second,
+decodes bitmaps off the UI thread and writes output files from the worker.
+
 ### Speech recognition
 
 The built-in `ISpeechRecognizer` serves encoder-decoder models with a prompted decoder (Whisper and its derivatives, from Hugging Face

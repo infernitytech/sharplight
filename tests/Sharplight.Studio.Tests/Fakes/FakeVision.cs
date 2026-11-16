@@ -14,6 +14,9 @@ internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDete
 
     public bool SupportsText { get; set; } = true;
 
+    /// <summary>Blocking work per step (a stand-in for a graph run that holds its thread), or zero.</summary>
+    public TimeSpan StepWork { get; set; }
+
     public List<object?> Options { get; } = [];
 
     public List<IReadOnlyList<string>> Candidates { get; } = [];
@@ -29,6 +32,7 @@ internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDete
     public Task<ImageClassification> ClassifyAsync(ImageInput image, ImageClassificationOptions? options = null, CancellationToken cancellationToken = default)
     {
         Options.Add(options);
+        SlowWork.Block(StepWork, cancellationToken);
         return Task.FromResult(new ImageClassification([new(0, "tabby cat", 0.71f, 2f), new(1, "tiger cat", 0.2f, 1f), new(2, "Egyptian cat", 0.09f, 0f)]));
     }
 

@@ -82,34 +82,50 @@ public sealed class InferenceBlocksTests
         using var services = new TestServices();
         var queue = new RunQueueViewModel(services.Platform);
         var first = new TaskCompletionSource();
+        var reported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var order = new List<string>();
         var a1 = queue.Enqueue("a1", "model-a", async context =>
         {
-            order.Add("a1 start");
+            lock (order)
+            {
+                order.Add("a1 start");
+            }
+
             context.Report(0.5, "halfway");
+            reported.SetResult();
             await first.Task;
-            order.Add("a1 end");
+            lock (order)
+            {
+                order.Add("a1 end");
+            }
         });
         var a2 = queue.Enqueue("a2", "model-a", _ =>
         {
-            order.Add("a2");
+            lock (order)
+            {
+                order.Add("a2");
+            }
+
             return Task.CompletedTask;
         });
         var b1 = queue.Enqueue("b1", "model-b", _ =>
         {
-            order.Add("b1");
+            lock (order)
+            {
+                order.Add("b1");
+            }
+
             return Task.CompletedTask;
         });
 
+        // Signals instead of polling with a deadline: the test only waits for what it checks (it flaked on a loaded machine).
         await b1.Completion.WaitAsync(TestContext.Current.CancellationToken);
         Assert.Equal(RunStatus.Completed, b1.Status);
         Assert.Equal(RunStatus.Queued, a2.Status);
         Assert.True(queue.IsBusy);
-        for (int i = 0; i < 200 && a1.Progress < 0.5; i++)
-        {
-            await Task.Delay(10, TestContext.Current.CancellationToken);
-        }
+        await reported.Task.WaitAsync(TestContext.Current.CancellationToken);
 
+        // The first report of a run goes through the throttle at once (the dispatcher of these tests runs updates inline).
         Assert.Equal(0.5, a1.Progress);
         Assert.Contains("halfway", a1.StatusText, StringComparison.Ordinal);
 
@@ -127,12 +143,15 @@ public sealed class InferenceBlocksTests
     {
         using var services = new TestServices();
         var queue = new RunQueueViewModel(services.Platform);
-        var running = queue.Enqueue("running", "m", async context => await Task.Delay(Timeout.Infinite, context.CancellationToken));
-        var queued = queue.Enqueue("queued", "m", _ => Task.CompletedTask);
-        for (int i = 0; i < 200 && running.Status != RunStatus.Running; i++)
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var running = queue.Enqueue("running", "m", async context =>
         {
-            await Task.Delay(10, TestContext.Current.CancellationToken);
-        }
+            started.SetResult();
+            await Task.Delay(Timeout.Infinite, context.CancellationToken);
+        });
+        var queued = queue.Enqueue("queued", "m", _ => Task.CompletedTask);
+        await started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(RunStatus.Running, running.Status);
 
         queued.CancelCommand.Execute(null);
         running.CancelCommand.Execute(null);

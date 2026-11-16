@@ -25,6 +25,9 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
     private CancellationTokenSource? _playback;
     private string? _resultPath;
 
+    /// <summary>The chosen model whose voices were listed, or null.</summary>
+    private ILoadedModel? _voicesReadFrom;
+
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
     public SpeakPageViewModel(StudioServices services, INavigator navigator)
@@ -84,7 +87,19 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
     {
         OnPropertyChanged(nameof(RunHint));
         RunCommand.NotifyCanExecuteChanged();
+        _voicesReadFrom = model is { State: ResidentState.Ready or ResidentState.Busy } ? model : null;
         _ = RefreshVoicesAsync(model);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Lists the voices once the chosen model became resident (once per choice: listing leases the model).</remarks>
+    protected override void OnModelStateChanged(ILoadedModel model)
+    {
+        if (model.State is ResidentState.Ready or ResidentState.Busy && !ReferenceEquals(_voicesReadFrom, model))
+        {
+            _voicesReadFrom = model;
+            _ = RefreshVoicesAsync(model);
+        }
     }
 
     /// <inheritdoc/>
@@ -234,9 +249,10 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         };
         if (outcome != RunOutcome.Cancelled)
         {
+            Archive.WriteFiles(record, files);
             Services.Dispatcher.Post(() =>
             {
-                Archive.Add(record, files);
+                Archive.Add(record);
                 if (files is not null)
                 {
                     ShowResult(Archive.PathOf(record, AudioName), string.Join(" · ", metadata.Select(pair => $"{pair.Key}: {pair.Value}")));

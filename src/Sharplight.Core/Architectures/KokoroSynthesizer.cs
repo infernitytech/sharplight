@@ -25,6 +25,7 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
     private readonly int _context;
     private readonly long _maxFrames;
     private readonly Dictionary<string, KokoroPhonemizer> _phonemizers = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private CompiledModel? _text;
     private CompiledModel? _acoustic;
     private bool _disposed;
@@ -94,8 +95,30 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
     }
 
     /// <inheritdoc/>
-    public async IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Returns at once: phonemization and synthesis run on a background task (<see cref="BackgroundCompute"/>), one request at a time per
+    /// client, and each sentence's audio is queued for the caller without waiting for it to be consumed.
+    /// </remarks>
+    public IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
+        => BackgroundCompute.StreamAsync(token => SynthesizeGatedAsync(text, options, token), cancellationToken);
+
+    private async IAsyncEnumerable<AudioBuffer> SynthesizeGatedAsync(string text, SpeechSynthesisOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var item in SynthesizeCoreAsync(text, options, cancellationToken).ConfigureAwait(false))
+            {
+                yield return item;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async IAsyncEnumerable<AudioBuffer> SynthesizeCoreAsync(string text, SpeechSynthesisOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(text);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -274,5 +297,6 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
         _disposed = true;
         _text?.Dispose();
         _acoustic?.Dispose();
+        _gate.Dispose();
     }
 }

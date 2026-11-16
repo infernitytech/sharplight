@@ -22,6 +22,9 @@ internal sealed class FakeLibrary : IModelLibrary
 
     public Task AddLocalAsync(string path) => Task.CompletedTask;
 
+    /// <summary>Replaces the conversion (tests of slow or chatty conversions), or null for an instant one.</summary>
+    public Func<string, IProgress<string>, CancellationToken, string>? Convert { get; set; }
+
     public Task<string> ConvertAsync(string source, string? projector, string destination, IProgress<string> log, CancellationToken cancellationToken) =>
-        Task.FromResult(destination);
+        Task.FromResult(Convert is { } convert ? convert(destination, log, cancellationToken) : destination);
 }

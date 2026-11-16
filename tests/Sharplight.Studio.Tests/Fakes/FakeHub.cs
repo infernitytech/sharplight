@@ -25,6 +25,9 @@ internal sealed class FakeHub : IHubService
 
     public void Release() => _gate.TrySetResult();
 
+    /// <summary>Byte counts reported right after <see cref="FirstUpdate"/> (a chatty download), default none.</summary>
+    public int ProgressFlood { get; set; }
+
     public void Reset()
     {
         _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -113,6 +116,12 @@ internal sealed class FakeHub : IHubService
     {
         Interlocked.Increment(ref _pulls);
         progress.Report(FirstUpdate);
+        for (int i = 1; i <= ProgressFlood; i++)
+        {
+            long received = FirstUpdate.Received + i;
+            progress.Report(FirstUpdate with { Received = received, FileReceived = received });
+        }
+
         Started.TrySetResult();
         await _gate.Task.WaitAsync(cancellationToken);
         progress.Report(new PullUpdate(PullPhase.Converting, "Converting"));

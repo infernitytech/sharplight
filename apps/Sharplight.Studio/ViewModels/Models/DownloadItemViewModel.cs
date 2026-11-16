@@ -180,9 +180,11 @@ internal sealed partial class DownloadItemViewModel : ObservableObject
         Message = "Starting…";
         _lastTimestamp = Stopwatch.GetTimestamp();
         _lastBytes = ReceivedBytes;
+        using var progress = new DispatchingProgress<PullUpdate>(_dispatcher, OnProgress, SameTransfer);
         try
         {
-            var manifest = await Task.Run(() => _hub.PullAsync(Reference, new DispatchingProgress<Services.Hub.PullUpdate>(_dispatcher, OnProgress), cancellation.Token), CancellationToken.None);
+            var manifest = await Task.Run(() => _hub.PullAsync(Reference, progress, cancellation.Token), CancellationToken.None);
+            progress.Flush();
             Phase = PullPhase.Completed;
             Message = $"Stored as {manifest.ShortName}";
             ReceivedBytes = Math.Max(ReceivedBytes, TotalBytes);
@@ -237,6 +239,10 @@ internal sealed partial class DownloadItemViewModel : ObservableObject
         Phase = PullPhase.Cancelled;
         Message = "Cancelled; downloaded parts deleted.";
     }
+
+    /// <summary>A byte count of the same phase, file and message supersedes the one before it (only the latest is shown).</summary>
+    private static bool SameTransfer(PullUpdate previous, PullUpdate next)
+        => previous.Phase == next.Phase && previous.File == next.File && previous.Message == next.Message;
 
     private void OnProgress(PullUpdate update)
     {

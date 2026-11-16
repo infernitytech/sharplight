@@ -19,6 +19,7 @@ internal sealed class DepthEstimatorClient : IDepthEstimator
     private readonly int _patchSize;
     private readonly int _width;
     private readonly int _height;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     public DepthEstimatorClient(TaskModel model)
     {
@@ -44,18 +45,25 @@ internal sealed class DepthEstimatorClient : IDepthEstimator
     {
         ArgumentNullException.ThrowIfNull(image);
         cancellationToken.ThrowIfCancellationRequested();
-        var processed = _processor.Process(image);
-        _compiled.SetInput<float>(_patches, processed.Patchify(_patchSize));
-        _compiled.Run(new RunParameters());
-        var depth = new float[_width * _height];
-        _compiled.GetOutput<float>(WellKnown.DepthOutput, depth);
-        if (options?.ResizeToInput ?? true)
+        return BackgroundCompute.RunAsync(_gate, () =>
         {
-            return Task.FromResult(new DepthMap(image.Width, image.Height, PlaneResampling.Bilinear(depth, _width, _height, image.Width, image.Height)));
-        }
+            var processed = _processor.Process(image);
+            _compiled.SetInput<float>(_patches, processed.Patchify(_patchSize));
+            _compiled.Run(new RunParameters());
+            var depth = new float[_width * _height];
+            _compiled.GetOutput<float>(WellKnown.DepthOutput, depth);
+            if (options?.ResizeToInput ?? true)
+            {
+                return new DepthMap(image.Width, image.Height, PlaneResampling.Bilinear(depth, _width, _height, image.Width, image.Height));
+            }
 
-        return Task.FromResult(new DepthMap(_width, _height, depth));
+            return new DepthMap(_width, _height, depth);
+        }, cancellationToken);
     }
 
-    public void Dispose() => _compiled.Dispose();
+    public void Dispose()
+    {
+        _compiled.Dispose();
+        _gate.Dispose();
+    }
 }

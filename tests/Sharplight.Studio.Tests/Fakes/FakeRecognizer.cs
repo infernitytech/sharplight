@@ -22,6 +22,9 @@ internal sealed class FakeRecognizer : ISpeechRecognizer
     /// <summary>When set, the stream waits on it after the first segment (until cancelled).</summary>
     public TaskCompletionSource? Gate { get; set; }
 
+    /// <summary>Blocking work per step (a stand-in for a graph run that holds its thread), or zero.</summary>
+    public TimeSpan StepWork { get; set; }
+
     /// <summary>When set, the stream throws it after the first segment.</summary>
     public Exception? Failure { get; set; }
 
@@ -39,6 +42,7 @@ internal sealed class FakeRecognizer : ISpeechRecognizer
         {
             await Task.Yield();
             cancellationToken.ThrowIfCancellationRequested();
+            SlowWork.Block(StepWork);
             yield return Script[i];
             if (i == 0)
             {
