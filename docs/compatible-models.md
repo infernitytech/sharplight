@@ -260,6 +260,7 @@ Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical u
 | RT-DETR R50vd, R101vd (COCO + O365), v2 R18vd | PekingU/rtdetr_r50vd, PekingU/rtdetr_r101vd_coco_o365, PekingU/rtdetr_v2_r18vd | detection | same detections as transformers, boxes within 2 px | fixed square canvas | 2026-11-16 |
 | Table Transformer detection | microsoft/table-transformer-detection | detection | same detection as transformers | fixed square canvas | 2026-11-16 |
 | Depth Anything V2 base / large, Depth Anything V1 base | depth-anything/Depth-Anything-V2-Base-hf, Depth-Anything-V2-Large-hf, LiheYoung/depth-anything-base-hf | depth | depth map 7.4e-5 / 9.8e-5 / 1.2e-4 | fixed 518 px canvas | 2026-11-16 |
+| SegFormer b0 ADE20K, b5 ADE20K (640 px) | nvidia/segformer-b0-finetuned-ade-512-512, nvidia/segformer-b5-finetuned-ade-640-640 | image-segmentation-semantic | logits 5.1e-4 / 1.5e-6, label map 99.81 % / 99.998 % identical (CPU = Vulkan) | fixed square input; `pytorch_model.bin` read for b5 | 2026-11-16 |
 | TrOCR base handwritten | microsoft/trocr-base-handwritten | OCR | text identical to transformers | greedy; TrOCR small (DeiT encoder, sinusoidal positions) and large (BEiT) not supported | 2026-11-16 |
 
 ## 6. Audio
