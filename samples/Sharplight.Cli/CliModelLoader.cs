@@ -35,7 +35,7 @@ internal static class CliModelLoader
 
         var loadOptions = new LlmLoadOptions
         {
-            Auxiliary = Auxiliary(settings.MmprojPath),
+            Auxiliary = Auxiliary(settings.MmprojPath, settings.DraftPath),
             ImageTokens = settings.ImageTokens,
             Devices = slots,
             Fallback = fallback,
@@ -53,12 +53,17 @@ internal static class CliModelLoader
         return new LoadedModel(model, graph, slots, fallback);
     }
 
-    private static Dictionary<string, string> Auxiliary(string? mmproj)
+    private static Dictionary<string, string> Auxiliary(string? mmproj, string? draft)
     {
         var auxiliary = new Dictionary<string, string>(StringComparer.Ordinal);
         if (mmproj is not null)
         {
             auxiliary[AuxiliaryRoles.Mmproj] = mmproj;
+        }
+
+        if (draft is not null)
+        {
+            auxiliary[AuxiliaryRoles.Draft] = draft;
         }
 
         return auxiliary;

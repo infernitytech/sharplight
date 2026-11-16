@@ -125,7 +125,6 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
     private static void AddQwen4ExpHyperParameters(GgufMetadataView g, Dictionary<string, object> md, string a)
     {
         md[a + "hyper_connections.count"] = g.Int("hyper_connection.count");
-        md[a + "mtp.layer_count"] = 0;   // the NextN block is not imported (see Split)
         md[a + "linear_attention.gate_activation"] = "sigmoid";
         md[a + "attention.indexer.head_count"] = g.Int("attention.indexer.head_count");
         md[a + "attention.indexer.head_dim"] = g.Int("attention.indexer.key_length");
@@ -229,6 +228,10 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
         ["nextn.shared_head_norm.weight"] = "output_norm.weight",
         ["nextn.shared_head_head.weight"] = "lm_head.weight",
         ["nextn.embed_tokens.weight"] = "token_embedding.weight",
+        // qwen4exp: per-stream hnorm, the head's own stream mixer in place of shared_head_norm
+        ["nextn.hc_head_norm.weight"] = "output_hc.norm.weight",
+        ["nextn.hc_head_down.weight"] = "output_hc.down.weight",
+        ["nextn.hc_head_up.weight"] = "output_hc.up.weight",
     };
 
     private static bool IsQwen3Next(GgufMetadataView g) => g.GgufArchitecture == Qwen3NextArchitecture;
@@ -259,16 +262,10 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
 
     /// <summary>
     /// Splits fused tensors into their canonical weights: the [a | b] projections of newer converters (<see cref="s_fused"/>) and the
-    /// qwen3next <c>ssm_ba</c> layout. The MTP (NextN) block of qwen4exp splits into no weights, since it is not used (as on the
-    /// HF path).
+    /// qwen3next <c>ssm_ba</c> layout.
     /// </summary>
     public IReadOnlyList<WeightInfo>? Split(string ggufName, WeightInfo tensor, GgufMetadataView gguf)
     {
-        if (gguf.GgufArchitecture == Qwen4ExpArchitecture && IsNextnBlock(ggufName, gguf))
-        {
-            return [];
-        }
-
         // The released Clef-Flash files store the one-output scorer as a vector [W] (the converter dropped the unit dimension): one row [1, W].
         if (gguf.GgufArchitecture == ClefGgufHead.Architecture && ggufName == "decision.scorer_out.weight" && tensor.Shape.Rank == 1)
         {
@@ -295,10 +292,6 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
     private string PartName(string ggufName, string fused, string part, GgufMetadataView gguf)
         => MapWeightName(ggufName.Replace(fused, part, StringComparison.Ordinal), gguf)
             ?? throw new InvalidDataException($"GGUF tensor '{ggufName}': no canonical name for its part '{part.Trim('.')}'.");
-
-    private static bool IsNextnBlock(string ggufName, GgufMetadataView gguf)
-        => GgufTensorNames.Block().Match(ggufName) is { Success: true } m
-            && int.Parse(m.Groups[1].Value) >= gguf.Int("block_count") - gguf.Int("nextn_predict_layers", 0);
 
     /// <summary>
     /// qwen3next keeps the HF <c>in_proj_ba</c> layout: per key head [beta (r rows), alpha (r rows)] with r value heads per key

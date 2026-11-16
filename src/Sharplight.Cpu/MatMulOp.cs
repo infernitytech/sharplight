@@ -32,6 +32,12 @@ internal sealed unsafe class MatMulOp : CpuOp
 
     /// <summary><c>SHARPLIGHT_CPU_NO_PREPACK=1</c> packs the B panels of static f32 weights on every run instead of once.</summary>
     private const int KB = 1024;
+
+    /// <summary>
+    /// Up to this many rows the fused dequantize-dot kernel runs once per row, so every row accumulates in the same order as a single row
+    /// does: a speculative verification step (2-4 rows) gives the logits of plain one-row decoding bit for bit.
+    /// </summary>
+    private const int FusedRowsMax = 4;
     private const int GemmMinTilesPerBlock = 4;
     private const int IntDotMinRowsPerChunk = 16;
     private const int PrefetchRows = 2;
@@ -392,13 +398,16 @@ internal sealed unsafe class MatMulOp : CpuOp
                     rows[r] = _w.P + Math.Min(n0 + r, _n - 1) * _rowBytes;
                 }
 
-                if (m == 1 && _fused)
+                if (m <= FusedRowsMax && _fused)
                 {
-                    Quant.DotRows4(_fmt, _xrows[0], rows, _k / bs, res);
-                    float* y1 = (float*)_y.P + n0;
-                    for (int r = 0; r < nr; r++)
+                    for (long t = 0; t < m; t++)
                     {
-                        y1[r] = res[r];
+                        Quant.DotRows4(_fmt, _xrows[t], rows, _k / bs, res);
+                        float* y1 = (float*)_y.P + t * _n + n0;
+                        for (int r = 0; r < nr; r++)
+                        {
+                            y1[r] = res[r];
+                        }
                     }
 
                     continue;

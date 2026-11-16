@@ -27,7 +27,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         int layerCount = c.Int("num_hidden_layers", "n_layers", "n_layer", "num_layers");
-        int mtpLayerCount = IncludesMtp(c, options) ? c.GetInt("mtp_num_hidden_layers") ?? 0 : 0;
+        int mtpLayerCount = options.IncludeMtp ? c.GetInt("mtp_num_hidden_layers") ?? 0 : 0;
         int headCount = c.Int("num_attention_heads", "n_head", "n_heads");
         int hidden = c.Int("hidden_size", "n_embd", "dim");
         int headDim = c.GetInt("head_dim") ?? hidden / headCount;
@@ -257,7 +257,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
 
         if (name.StartsWith("mtp.", StringComparison.Ordinal))
         {
-            return IncludesMtp(c, options) ? MapMtp(name, tensor, targets) : TensorOutcome.Skipped;
+            return options.IncludeMtp ? MapMtp(name, tensor, targets) : TensorOutcome.Skipped;
         }
 
         if (MapOutputMixer(name, tensor.ToWeightInfo()) is { } mixer)
@@ -292,9 +292,6 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         return MapLayerTensor($"layers.{m.Groups[1].Value}.", m.Groups[2].Value, tensor, targets);
     }
 
-    /// <summary>Whether the MTP draft layers are imported (not yet for qwen4_exp, whose MTP head has its own stream mixer).</summary>
-    private static bool IncludesMtp(HfConfig c, HuggingFaceImportOptions options) => options.IncludeMtp && !IsQwen4Exp(c);
-
     private static TensorOutcome Add(HfWeightCollector collector, WeightInfo? weight)
     {
         if (weight is null)
@@ -316,9 +313,14 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         }
 
         var w = tensor.ToWeightInfo();
-        if (name == "mtp.fc.weight")
+        if (name is "mtp.fc.weight" or "mtp.fc_embedding.weight" or "mtp.fc_hidden.weight")
         {
-            return Add(targets.Collector, HfTransforms.Plain(w, "mtp.fc.weight"));
+            return Add(targets.Collector, HfTransforms.Plain(w, name));
+        }
+
+        if (MapMtpMixer(name, w) is { } mixer)
+        {
+            return Add(targets.Collector, mixer);
         }
 
         return Add(targets.Collector, s_mtpNormPlusOne.TryGetValue(name, out var canonical) ? HfTransforms.NormPlusOne(w, canonical) : null);

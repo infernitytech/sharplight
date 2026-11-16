@@ -172,6 +172,13 @@ internal sealed partial class Qwen35HfMapping
         return MapHyperConnection("output_hc.", name[prefix.Length..], w);
     }
 
+    /// <summary>The MTP head's own stream mixer (<c>mtp.hyper_connection_mixer.*</c>) → <c>mtp.output_hc.*</c>.</summary>
+    private static WeightInfo? MapMtpMixer(string name, WeightInfo w)
+    {
+        const string prefix = "mtp.hyper_connection_mixer.";
+        return name.StartsWith(prefix, StringComparison.Ordinal) ? MapHyperConnection("mtp.output_hc.", name[prefix.Length..], w) : null;
+    }
+
     private static WeightInfo? MapHyperConnection(string canonicalPrefix, string suffix, WeightInfo w)
     {
         if (suffix == "hc_norm.weight")
