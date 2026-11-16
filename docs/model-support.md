@@ -1442,7 +1442,7 @@ machine, shared):
 - SD3.5 Medium (diffusers folder, fp16 files, an ungated mirror of stabilityai/stable-diffusion-3.5-medium) on Vulkan against diffusers
   in f32 on CUDA, 28 steps, guidance 7, same latents: CLIP-L / CLIP-G hidden 1.3e-4 / 6e-4, pooled 2–4e-4, T5 5–11e-6, transformer
   1.4e-4, VAE 2.2e-4 relative RMS; images 46.6 dB (512) / 38.8 dB (1024), visually identical. city96's Q8_0 GGUF: transformer 1.5e-3
-  from the fp16 reference; against diffusers running the dequantized GGUF transformer with the folder's encoders: SD35_GGUF_RESULTS.
+  from the fp16 reference; against diffusers running the dequantized GGUF transformer with the folder's encoders: 42.5 dB (512) / 29.4 dB (1024), visually identical (the Q8_0 products quantize the activations; the 28-step 1024 trajectory drifts).
 - Speed (Vulkan, fp16 folder, warm, conditioning reused): 512×512 28 guided steps 2.8 s, 1024×1024 12.6 s (0.45 s per step for both
   rows); diffusers f32 on the same GPU ~1.1 s per step at 1024. First run compiles for 100–180 s without a precompiled `.slm`.
 
@@ -1480,7 +1480,44 @@ Verification (tools/make-tiny-chroma.py, tools/make-chroma-references.py; `TinyC
 ### Z-Image
 
 <a id="z-image"></a>
-ZIMAGE_SECTION
+Z-Image-Turbo (2026-11-16): a ~6B single-stream DiT conditioned on Qwen3-4B hidden states. Design:
+
+- Canonical source `zimage`: `transformer.*` (fused `attention.qkv` per block of the `noise_refiner`, `context_refiner` and `layers`
+  stacks, sandwich RMS norms, SwiGLU `ffn.w1|w2|w3`, the 4D-wide `mod` projections of the timestep embedding, `x_pad_token`,
+  `cap_pad_token`, `cap_embedder`, `final.mod|linear`; diffusers' separate q/k/v joined lazily, the original / GGUF names mapped
+  directly); the text encoder kept whole: its canonical decoder weights under `text_encoder.` and its own canonical metadata under
+  `zimage.text_encoder_source.` (with its architecture), its tokenizer under the canonical keys; family keys: the Qwen3 chat template
+  (`<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n`, `enable_thinking=True` adds nothing), 512 prompt tokens, the
+  second-to-last hidden states, shift 3, 9 steps, no guidance, the FLUX VAE scaling. Lumina-Image-2.0 GGUF files share the `lumina2`
+  architecture id; Z-Image is told apart by its bare block modulation (`adaLN_modulation.0`).
+- `ZImageAdapter`: the text graph is the existing decoder graph (`DecoderGraphBuilder.BuildLayerHiddenStates`: one padded prompt,
+  causal packed attention, the hidden state entering a given layer; Qwen3 runs as it does for text generation). The transformer
+  (`ZImageTransformerGraphBuilder`): image patches (features (row, column, channel)) padded to a multiple of 32 with the pad token;
+  the caption rows (the fixed 512) with the prompt's tokens visible through `DiffusionGraphs.ContextMask` and the rest replaced by
+  the caption pad token; the padded caption length c = 32·⌈n / 32⌉ is computed in the graph (ReduceSum, Ceil) and gives the key
+  mask of the rows ≥ c and the image tokens' RoPE position (c + 1, row, column), so one compiled graph serves every prompt; 3-axis
+  RoPE (32 + 48 + 48, θ 256) through the `Rope` op's sections and per-frequency divisors as for FLUX; tanh-gated modulation; the
+  model's timestep 1 − σ and its negated output stay inside the graph. The down projections keep f32 activations in the integer-dot
+  kernels of quantized weights: their inputs reach 10⁵ (the int8 path produced NaN).
+- Core: prompt templates (`DiffusionConfigKeys.PromptTemplate`, the template's special tokens parsed, the prompt's not); `Reshape`
+  keeps a fixed outer dimension with 0 (decoder code written for a symbolic token axis); a generator that runs out of device memory
+  compiling the denoiser releases the text encoders and keeps releasing them after encoding.
+- Companions: `ZImageCompanionAdapter` (roles `text-encoder`: any `decoder` source, a Qwen3-4B GGUF or the pipeline's `text_encoder`
+  folder; `vae`); found beside the transformer (Qwen3 GGUF, 16-channel VAE) and in diffusers pipeline folders next to the
+  transformer's folder (their `text_encoder` and `vae`). The Hugging Face importer finds a diffusers `text_encoder{N}` folder's
+  tokenizer in `tokenizer{N}`.
+
+Verification (tools/make-tiny-zimage.py, tools/make-zimage-references.py; `TinyZImageTests`, `ZImageTurboTests`,
+`ZImageImageTests` in Studio.Tests):
+
+- Tiny random Z-Image (`~/models/zimage/tiny-random-zimage`, 64×96: 24 image tokens padded to 32): prompt tokens equal transformers'
+  chat-templated ids; the text encoder's hidden states (prompt rows), the transformer and the VAE within 1e-4 on the CPU (Vulkan
+  2.5e-4: f16 attention products) from the diffusers folder and the original-name single file, the Q8_0 GGUF within 5e-3 (Vulkan) /
+  3e-2 (CPU) of diffusers on the dequantized weights; 4-step txt2img above 40 dB in all 6 combinations.
+- Z-Image-Turbo, unsloth's Q8_0 GGUF with the pipeline's Qwen3-4B `text_encoder` folder (bf16) and VAE as companions, against
+  diffusers running the same files (dequantized GGUF transformer on CUDA, f32 text encoder): text encoder 1.4e-4, transformer 1.5e-3
+  (Vulkan) / 9.5e-3 (CPU) relative RMS; images ZIMAGE_PSNR.
+- Speed (Vulkan, Q8_0, warm): ZIMAGE_SPEED.
 
 ## 16. Video generation (2026-11-16)
 

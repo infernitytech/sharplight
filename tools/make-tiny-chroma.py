@@ -200,7 +200,8 @@ def main():
 
     transformer, vae, text = build_models()
     tokenizer = T5TokenizerFast.from_pretrained(args.tokenizers or "black-forest-labs/FLUX.1-schnell", subfolder="tokenizer_2")
-    scheduler = FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000, shift=1.0, use_dynamic_shifting=True, base_shift=0.5, max_shift=1.15,
+    # Chroma1-HD's scheduler (static shift 3), which transformer-only files default to.
+    scheduler = FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000, shift=3.0, use_dynamic_shifting=False, base_shift=0.5, max_shift=1.15,
                                                 base_image_seq_len=256, max_image_seq_len=4096)
     pipe = ChromaPipeline(scheduler=scheduler, vae=vae, text_encoder=text, tokenizer=tokenizer, transformer=transformer)
     use_boolean_mask(pipe)

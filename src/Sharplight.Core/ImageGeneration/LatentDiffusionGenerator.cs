@@ -35,7 +35,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly string? _promptTemplate;
     private readonly bool _embeddedGuidance;
     private readonly bool _classifierFree;
-    private readonly bool _releaseTextEncoders;
+    private bool _releaseTextEncoders;
     private (string Prompt, string? Negative, bool Guided, PromptConditioning Conditioning)? _lastConditioning;
     private readonly int _patchSize;
     private readonly int _latentChannels;
@@ -666,12 +666,32 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         string key = dimensions is null ? graph : $"{graph}@{dimensions[DiffusionGraphs.Width]}x{dimensions[DiffusionGraphs.Height]}";
         if (!_compiled.TryGetValue(key, out var compiled))
         {
-            compiled = _model.CompileComponent(role, graph, null, dimensions);
+            try
+            {
+                compiled = _model.CompileComponent(role, graph, null, dimensions);
+            }
+            catch (InsufficientMemoryException) when (_compiled.Count > 0)
+            {
+                // The graphs held so far take more device memory than the weights' file sizes suggested (weights the backend widens,
+                // other processes on the device): release the other stage (the text encoders, or the denoiser and VAE) and from now
+                // on alternate, as for models that barely fit.
+                bool text = IsTextGraph(graph);
+                foreach (string other in _compiled.Keys.Where(k => IsTextGraph(k) != text).ToList())
+                {
+                    Release(other);
+                }
+
+                _releaseTextEncoders = true;
+                compiled = _model.CompileComponent(role, graph, null, dimensions);
+            }
+
             _compiled[key] = compiled;
         }
 
         return compiled;
     }
+
+    private static bool IsTextGraph(string key) => key is DiffusionGraphs.TextEncode or DiffusionGraphs.TextEncode2 or DiffusionGraphs.TextEncode3;
 
     private void Release(string graph)
     {

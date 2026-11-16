@@ -135,12 +135,10 @@ internal static class DiffusionCompanions
         return ComponentCheckpoint.ClassifyFile(file) switch
         {
             ComponentCheckpoint.ClipArchitecture when family == CompanionFamily.Chroma => null,
-            ComponentCheckpoint.ClipArchitecture => ClipWidth(file) switch
-            {
-                768 => AuxiliaryRoles.TextEncoder,
-                1280 when family == CompanionFamily.Sd3 => AuxiliaryRoles.SecondTextEncoder,
-                _ => null,
-            },
+            // SD3 tells its two CLIP encoders apart by width (OpenCLIP bigG: 1280); FLUX has only CLIP-L.
+            ComponentCheckpoint.ClipArchitecture => family == CompanionFamily.Sd3 && ClipWidth(file) == 1280
+                ? AuxiliaryRoles.SecondTextEncoder
+                : AuxiliaryRoles.TextEncoder,
             ComponentCheckpoint.T5Architecture => t5Role,
             ComponentCheckpoint.AutoencoderArchitecture when IsSixteenChannelVae(file) => AuxiliaryRoles.Vae,
             _ => null,
