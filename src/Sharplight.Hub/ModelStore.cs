@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Sharplight.Storage;
 
 namespace Sharplight.Hub;
 
@@ -23,11 +24,8 @@ public sealed partial class ModelStore
     internal const string PendingPackageFileName = "model.slm.pending";
     internal const string LockFileName = ".pull.lock";
     internal const string CommitFileName = ".commit";
-    /// <summary>Name of the store folder in the application directory (see <see cref="ApplicationRoot"/>).</summary>
-    public const string ApplicationDirectoryName = "data";
-
-    private const string DefaultDirectoryName = "models";
-    private const string UserDirectoryName = "sharplight";
+    private const string LegacyDirectoryName = "models";
+    private const string LegacyApplicationDirectoryName = "data";
     private const string DefaultTagDirectory = "default";
     private const string TemporarySuffix = ".tmp";
     private const char TagSeparator = ':';
@@ -44,7 +42,7 @@ public sealed partial class ModelStore
 
     /// <summary>
     /// The store directory to use (see <see cref="Resolve(string?)"/>): <paramref name="explicitRoot"/> when given, else
-    /// <c>SHARPLIGHT_MODELS</c>, else the shared settings file, else the <c>data</c> folder in the application directory.
+    /// <c>SHARPLIGHT_MODELS</c>, else the shared settings file, else the models folder of the storage layout.
     /// </summary>
     /// <param name="explicitRoot">A directory given on the command line, or <see langword="null"/>.</param>
     public static string ResolveRoot(string? explicitRoot)
@@ -53,57 +51,59 @@ public sealed partial class ModelStore
     }
 
     /// <summary>
-    /// Resolves the store of a command-line tool: <paramref name="commandLine"/> (<c>--models-dir</c>) when given, else
-    /// <c>SHARPLIGHT_MODELS</c>, else the shared settings file (<see cref="ModelStoreSettings.DefaultFile"/>), else the
-    /// application folder (<see cref="ApplicationRoot"/>). The application folder falls back to the per-user store
-    /// (<see cref="UserRoot"/>) when it is not writable.
+    /// Resolves the store of a command-line tool with this process's storage layout (<see cref="StorageLayout.Resolve"/>): see
+    /// <see cref="Resolve(string?, ModelStoreSettings?, StorageLayout)"/>, with the shared settings file of the layout
+    /// (<see cref="ModelStoreSettings.FileFor"/>).
     /// </summary>
     /// <param name="commandLine">A directory given on the command line, or <see langword="null"/>.</param>
     public static ModelStoreResolution Resolve(string? commandLine)
     {
-        return Resolve(commandLine, ModelStoreSettings.Load(ModelStoreSettings.DefaultFile));
+        var layout = StorageLayout.Resolve(StorageEnvironment.Process);
+        return Resolve(commandLine, ModelStoreSettings.Load(ModelStoreSettings.FileFor(layout)), layout);
     }
 
     /// <summary>
-    /// Resolves the store of an application with its own settings: <paramref name="commandLine"/> when given, else
-    /// <c>SHARPLIGHT_MODELS</c>, else <paramref name="settings"/>, else the application folder (<see cref="ApplicationRoot"/>).
-    /// The application folder falls back to the per-user store (<see cref="UserRoot"/>) when it is not writable.
+    /// Resolves the store: <paramref name="commandLine"/> (<c>--models-dir</c>) when given, else <c>SHARPLIGHT_MODELS</c>, else
+    /// <paramref name="settings"/>, else the models folder of <paramref name="layout"/> (<see cref="StorageLayout.ModelsDirectory"/>).
     /// </summary>
     /// <param name="commandLine">A directory given on the command line, or <see langword="null"/>.</param>
-    /// <param name="settings">The application's store setting, or <see langword="null"/> when nothing was chosen.</param>
-    public static ModelStoreResolution Resolve(string? commandLine, ModelStoreSettings? settings)
+    /// <param name="settings">The store setting, or <see langword="null"/> when nothing was chosen.</param>
+    /// <param name="layout">The storage layout in effect.</param>
+    public static ModelStoreResolution Resolve(string? commandLine, ModelStoreSettings? settings, StorageLayout layout)
     {
-        return Resolve(commandLine, Environment.GetEnvironmentVariable(EnvironmentVariable), settings, AppContext.BaseDirectory, UserRoot, CanWrite);
+        ArgumentNullException.ThrowIfNull(layout);
+        return Resolve(commandLine, Environment.GetEnvironmentVariable(EnvironmentVariable), settings, layout, SystemRoot);
     }
 
-    /// <summary>
-    /// The default store: the <c>data</c> folder in the application directory (<see cref="AppContext.BaseDirectory"/>), so an
-    /// unpacked application keeps its models next to itself.
-    /// </summary>
-    public static string ApplicationRoot => Path.Combine(AppContext.BaseDirectory, ApplicationDirectoryName);
+    /// <summary>The model store of the system folders (<see cref="StorageMode.System"/>), shared by every Sharplight tool of the user.</summary>
+    public static string SystemRoot => StorageLayout.Create(StorageMode.System, null, StorageEnvironment.Process).ModelsDirectory;
 
     /// <summary>
-    /// The per-user store, shared by every Sharplight executable of the user: <c>sharplight/models</c> in the local application
-    /// data directory (<c>~/.local/share</c> or <c>XDG_DATA_HOME</c> on Linux, <c>%LOCALAPPDATA%</c> on Windows,
-    /// <c>~/Library/Application Support</c> on macOS).
-    /// </summary>
-    public static string UserRoot => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
-        UserDirectoryName, DefaultDirectoryName);
-
-    /// <summary>
-    /// A store that still holds models while the store in effect (<paramref name="resolution"/>) has none: the per-user store or a
-    /// <c>models</c> folder next to the executable (where earlier versions kept them). Used to offer moving them over.
+    /// A store that still holds models while the store in effect (<paramref name="resolution"/>) has none: the system store, the
+    /// portable store of this package, or where earlier versions kept them (the <c>data</c> or <c>models</c> folder next to the
+    /// package). Used to offer moving them over.
     /// </summary>
     /// <param name="resolution">The store in effect.</param>
+    /// <param name="layout">The storage layout in effect.</param>
     /// <returns>The store with models, or <see langword="null"/> when the store in effect has models or no other store has any.</returns>
-    public static ModelStore? FindPreviousStore(ModelStoreResolution resolution)
+    public static ModelStore? FindPreviousStore(ModelStoreResolution resolution, StorageLayout layout)
     {
-        return FindPreviousStore(resolution.Root, [UserRoot, Path.Combine(AppContext.BaseDirectory, DefaultDirectoryName)]);
+        ArgumentNullException.ThrowIfNull(resolution);
+        ArgumentNullException.ThrowIfNull(layout);
+        return FindPreviousStore(resolution.Root, PreviousStoreCandidates(layout, SystemRoot));
     }
 
-    internal static ModelStoreResolution Resolve(string? commandLine, string? fromEnvironment, ModelStoreSettings? settings, string applicationDirectory,
-        string userRoot, Func<string, bool> canWrite)
+    /// <summary>Where <see cref="FindPreviousStore(ModelStoreResolution, StorageLayout)"/> looks, in order.</summary>
+    internal static IReadOnlyList<string> PreviousStoreCandidates(StorageLayout layout, string systemRoot) =>
+    [
+        systemRoot,
+        Path.Combine(layout.PortableRoot, LegacyDirectoryName),
+        Path.Combine(layout.PackageDirectory, LegacyApplicationDirectoryName),
+        Path.Combine(layout.PackageDirectory, LegacyDirectoryName),
+    ];
+
+    internal static ModelStoreResolution Resolve(string? commandLine, string? fromEnvironment, ModelStoreSettings? settings, StorageLayout layout,
+        string systemRoot)
     {
         if (!string.IsNullOrWhiteSpace(commandLine))
         {
@@ -120,17 +120,17 @@ public sealed partial class ModelStore
             switch (settings.Location)
             {
                 case ModelStoreLocation.User:
-                    return new ModelStoreResolution(userRoot, ModelStoreSource.Settings, ModelStoreLocation.User);
+                    return new ModelStoreResolution(systemRoot, ModelStoreSource.Settings, ModelStoreLocation.User);
                 case ModelStoreLocation.Custom when !string.IsNullOrWhiteSpace(settings.CustomPath):
                     return new ModelStoreResolution(settings.CustomPath.Trim(), ModelStoreSource.Settings, ModelStoreLocation.Custom);
                 case ModelStoreLocation.Application:
-                    return ResolveApplication(ModelStoreSource.Settings, applicationDirectory, userRoot, canWrite);
+                    return new ModelStoreResolution(layout.ModelsDirectory, ModelStoreSource.Settings, ModelStoreLocation.Application, layout.Mode, layout.Notice);
                 default:
                     break;
             }
         }
 
-        return ResolveApplication(ModelStoreSource.Default, applicationDirectory, userRoot, canWrite);
+        return new ModelStoreResolution(layout.ModelsDirectory, ModelStoreSource.Default, ModelStoreLocation.Application, layout.Mode, layout.Notice);
     }
 
     internal static ModelStore? FindPreviousStore(string root, IEnumerable<string> candidates)
@@ -153,116 +153,6 @@ public sealed partial class ModelStore
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// True when models can be stored in <paramref name="directory"/>: it is not inside a system-wide install (<c>/usr</c>,
-    /// Program Files) or a macOS app bundle, it can be created, and a file can be written into it. Creates the directory.
-    /// </summary>
-    internal static bool CanWrite(string directory)
-    {
-        if (IsInstallLocation(Path.GetFullPath(directory)))
-        {
-            return false;
-        }
-
-        try
-        {
-            Directory.CreateDirectory(directory);
-            var probe = Path.Combine(directory, $".write-probe-{Environment.ProcessId}-{Guid.NewGuid():N}");
-            using (new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose))
-            {
-            }
-
-            return true;
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// True for directories that belong to an installation rather than to the user, even when the current process could write to
-    /// them: <c>/usr</c> on Unix, Program Files on Windows, and the inside of a macOS <c>.app</c> bundle (writing there breaks its
-    /// signature).
-    /// </summary>
-    internal static bool IsInstallLocation(string fullPath)
-    {
-        return IsInstallLocation(fullPath, Environment.GetEnvironmentVariable("APPDIR"), AppContext.BaseDirectory);
-    }
-
-    /// <summary>
-    /// <see cref="IsInstallLocation(string)"/> with the environment passed in: <paramref name="appImageDirectory"/> is the AppImage
-    /// runtime's <c>APPDIR</c> (the mounted or extracted image, replaced on every update), and <paramref name="applicationDirectory"/>
-    /// is checked for a Velopack installation (an <c>Update.exe</c> next to the <c>current</c> folder, which updates replace).
-    /// </summary>
-    internal static bool IsInstallLocation(string fullPath, string? appImageDirectory, string applicationDirectory)
-    {
-        if (!string.IsNullOrEmpty(appImageDirectory) && IsInside(fullPath, Path.GetFullPath(appImageDirectory)))
-        {
-            return true;
-        }
-
-        if (IsVelopackInstallation(applicationDirectory) && IsInside(fullPath, Path.GetFullPath(applicationDirectory)))
-        {
-            return true;
-        }
-
-        return IsSystemInstallLocation(fullPath);
-    }
-
-    private static bool IsVelopackInstallation(string applicationDirectory)
-    {
-        var directory = new DirectoryInfo(Path.GetFullPath(applicationDirectory).TrimEnd(Path.DirectorySeparatorChar));
-        if (!string.Equals(directory.Name, "current", StringComparison.OrdinalIgnoreCase) || directory.Parent is null)
-        {
-            return false;
-        }
-
-        return File.Exists(Path.Combine(directory.Parent.FullName, "Update.exe"))
-            || File.Exists(Path.Combine(directory.Parent.FullName, "UpdateNix"))
-            || File.Exists(Path.Combine(directory.Parent.FullName, "UpdateMac"));
-    }
-
-    private static bool IsInside(string fullPath, string root)
-    {
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        var normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        return string.Equals(fullPath.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), comparison)
-            || fullPath.StartsWith(normalizedRoot, comparison);
-    }
-
-    private static bool IsSystemInstallLocation(string fullPath)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            foreach (var folder in new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86 })
-            {
-                var programFiles = Environment.GetFolderPath(folder, Environment.SpecialFolderOption.DoNotVerify);
-                if (programFiles.Length > 0 && fullPath.StartsWith(programFiles.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        if (OperatingSystem.IsMacOS() && fullPath.Contains(".app/Contents/", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return fullPath.StartsWith("/usr/", StringComparison.Ordinal);
-    }
-
-    private static ModelStoreResolution ResolveApplication(ModelStoreSource source, string applicationDirectory, string userRoot, Func<string, bool> canWrite)
-    {
-        var root = Path.Combine(applicationDirectory, ApplicationDirectoryName);
-        return canWrite(root)
-            ? new ModelStoreResolution(root, source, ModelStoreLocation.Application)
-            : new ModelStoreResolution(userRoot, source, ModelStoreLocation.User, ApplicationFolderNotWritable: true);
     }
 
     /// <summary>Every stored model, ordered by name. Directories without a manifest (interrupted pulls) are skipped.</summary>

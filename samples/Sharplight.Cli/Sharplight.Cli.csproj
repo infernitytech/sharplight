@@ -2,6 +2,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>sharplight</AssemblyName>
+    <!-- The command stays "sharplight"; the package id differs so it does not clash with the Sharplight library package in restore. -->
+    <PackageId>Sharplight.Cli</PackageId>
     <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
@@ -15,6 +17,5 @@
     <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Package/Sharplight.Package.csproj" />
   </ItemGroup>
 </Project>

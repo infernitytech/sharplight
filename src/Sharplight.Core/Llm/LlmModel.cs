@@ -24,7 +24,7 @@ namespace Sharplight.Llm;
 /// </summary>
 /// <example>
 /// <code>
-/// using var services = SharplightDefaults.CreateServiceProvider();   // Sharplight.Defaults: formats, architectures, providers, task layer
+/// using var services = SharplightDefaults.CreateServiceProvider();   // Sharplight: formats, architectures, providers, task layer
 /// var loader = services.GetRequiredService&lt;ModelLoader&gt;();
 /// using var model = LlmModel.Load(loader, "qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
 /// using var session = model.CreateSession();
@@ -136,7 +136,7 @@ public sealed class LlmModel : IDisposable
 
     /// <summary>
     /// Loads a model through the loader's importers and architectures (the host registers the formats and architectures it supports:
-    /// <c>services.AddSharplight()</c> of the Sharplight.Defaults package, or e.g. <c>services.AddGgufImporter().AddBuiltinArchitectures()</c>).
+    /// <c>services.AddSharplight()</c> of the Sharplight package, or e.g. <c>services.AddGgufImporter().AddBuiltinArchitectures()</c>).
     /// </summary>
     /// <param name="loader">The model loader (from the service container).</param>
     /// <param name="path">Model file (GGUF, ...) or directory (Hugging Face layout), as understood by the registered importers.</param>

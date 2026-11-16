@@ -86,41 +86,42 @@ The store root is, in order of precedence:
 
 1. `--models-dir DIR`;
 2. the `SHARPLIGHT_MODELS` environment variable;
-3. the location chosen in the settings: Studio's settings page, or for the command-line tools the shared file
-   `sharplight/store.json` in the per-user configuration directory (`~/.config` or `XDG_CONFIG_HOME` on Linux, `%APPDATA%` on
-   Windows, `~/Library/Application Support` on macOS), written by `store use`;
-4. the default: the **application folder**, `data` next to the executable (`AppContext.BaseDirectory`), created on first use.
+3. the location chosen in the settings: Studio's settings page, or for the command-line tools the shared file `store.json` in
+   the configuration folder of the storage location (`~/.config/sharplight/store.json` in system mode on Linux), written by
+   `store use`;
+4. the default: the `models` folder of the storage location (portable, system or custom; see [storage.md](storage.md)).
 
 A location is one of three choices:
 
 | Choice | Directory |
 |---|---|
-| Application folder (default) | `<application directory>/data` |
-| User folder | `sharplight/models` in the local application data directory: `~/.local/share/sharplight/models` on Linux (following `XDG_DATA_HOME`), `%LOCALAPPDATA%\sharplight\models` on Windows, `~/Library/Application Support/sharplight/models` on macOS. Shared by every Sharplight executable of the user. |
+| With the other data (default; `Application` in `store.json`) | `<storage root>/models` in portable and custom mode; `sharplight/models` in the data folder in system mode (`~/.local/share/sharplight/models` on Linux, following `XDG_DATA_HOME`; `%LOCALAPPDATA%\sharplight\models` on Windows; `~/Library/Application Support/sharplight/models` on macOS) |
+| System folder (`User`) | the system store above, whatever the storage mode is. Shared by every Sharplight executable of the user. |
 | Custom folder | Any directory |
 
-When the application folder is not writable (installed under `/usr` or Program Files, a read-only AppImage or other read-only
-mount, inside a macOS `.app` bundle), the user folder is used instead and the source says so ("Default: user folder, the
-application folder is not writable"). Tools unpacked into one directory share its `data` folder; tools built into different
-directories (`sharplight` and `sharplight-server` in a source checkout) share models through the user folder or a custom one
-(`store use user`).
+In system mode, the tools of a user share one store wherever they are installed. A portable package (`sharplight.portable` next
+to it) keeps its models in `data/models` next to itself. If that folder cannot be written (a system-wide install, a read-only mount,
+inside a macOS `.app` bundle), the system folders are used and the source says so ("Default: system storage; the portable folder
+... is not writable").
 
 ```
 sharplight store                    # the store in effect and why
-sharplight store use user           # or: application, or a directory
-sharplight store migrate [--copy]   # move the models of the previous store (the user folder) into the store in effect
+sharplight store use user           # or: default, or a directory
+sharplight store migrate [--copy]   # move the models of the previous store into the store in effect
+sharplight storage use portable     # move everything (settings, models, caches) to another location, see storage.md
 ```
 
-Earlier versions stored models in the user folder by default. When nothing chose the store explicitly, the store in effect has
-no models and the user folder (or a `models` folder next to the executable) has some, the tools print a one-line hint, and
-Studio offers once to keep using the user folder or to move or copy the models (`ModelStore.FindPreviousStore`,
+Earlier versions stored models in a `data` folder next to the executable, or in the per-user folder, which is now the system
+store. The store in effect may have no models while another candidate has some. Candidates are the system store, the portable
+store of the package, and `data` or `models` next to the package. If nothing chose the store explicitly, the tools then print a
+one-line hint, and Studio offers once to keep using that store or to move or copy the models (`ModelStore.FindPreviousStore`,
 `ModelStoreTransfer`). Everything that writes models follows the store root: pulls write their partial downloads
 (`source/*.partial`), the pending package and the manifest inside the model's directory; Studio converts local models into
 `converted/` in the store by default. `sharplight-convert convert` writes exactly the `dst` it is given.
 
-The compilation cache is not part of the model store. Compiled kernels and driver pipeline caches go into the per-user artifact
-store, `sharplight/artifacts` in the local application data directory (`~/.local/share/sharplight/artifacts` on Linux), which every
-model and tool shares (see [model-format.md](model-format.md#the-per-user-artifact-store)).
+The compilation cache is not part of the model store. Compiled kernels and driver pipeline caches go into the artifact store in
+the cache folder of the storage location (`~/.cache/sharplight/artifacts` in system mode on Linux), which every model and tool
+shares (see [model-format.md](model-format.md#the-per-user-artifact-store)).
 
 `ModelStore.Resolve` returns the root with its source (`ModelStoreResolution`); applications with their own settings pass
 their choice as `ModelStoreSettings`. `list` prints the store it reads. Each model lives in `<root>/<owner>/<repo>/<tag>/` with:

@@ -11,9 +11,9 @@ internal sealed record StoreLocationChoice(ModelStoreLocation Value, string Name
     /// <summary>The choices.</summary>
     public static IReadOnlyList<StoreLocationChoice> All { get; } =
     [
-        new(ModelStoreLocation.Application, "Application folder",
-            $"The '{ModelStore.ApplicationDirectoryName}' folder next to the app; the user folder when the app is installed read-only."),
-        new(ModelStoreLocation.User, "User folder", $"Shared by every Sharplight tool of this user: {ModelStore.UserRoot}"),
+        new(ModelStoreLocation.Application, "With the other data",
+            "The 'models' folder of the storage location below (portable, system or custom); moves along when the location changes."),
+        new(ModelStoreLocation.User, "System folder", $"The system store, shared by every Sharplight tool of this user: {ModelStore.SystemRoot}"),
         new(ModelStoreLocation.Custom, "Custom folder", "A folder of your choice."),
     ];
 

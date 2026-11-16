@@ -12,6 +12,8 @@
     <InternalsVisibleTo Include="Sharplight.Families.Tests" />
     <InternalsVisibleTo Include="Sharplight.Extensions.AI.Tests" />
     <InternalsVisibleTo Include="Sharplight.Core.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Package.Tests" />
+    <InternalsVisibleTo Include="Sharplight.TextToSpeech.Tests" />
     <InternalsVisibleTo Include="Sharplight.Speech.Tests" />
     <InternalsVisibleTo Include="BatchBench" />
   </ItemGroup>

@@ -1,10 +1,11 @@
 using System.Text.Json;
+using Sharplight.Storage;
 
 namespace Sharplight.Hub;
 
 /// <summary>
-/// The configured model store location. The command-line tools read it from a small shared file (<see cref="DefaultFile"/>);
-/// applications with their own settings (Sharplight Studio) keep the same choice there.
+/// The configured model store location. The command-line tools read it from a small shared file in the configuration folder of the
+/// storage layout (<see cref="FileFor"/>); applications with their own settings (Sharplight Studio) keep the same choice there.
 /// </summary>
 public sealed record ModelStoreSettings
 {
@@ -19,13 +20,13 @@ public sealed record ModelStoreSettings
     /// <summary>The directory for <see cref="ModelStoreLocation.Custom"/>; ignored otherwise.</summary>
     public string? CustomPath { get; init; }
 
-    /// <summary>
-    /// The shared settings file of the tools: <c>sharplight/store.json</c> in the per-user configuration directory
-    /// (<c>~/.config</c> or <c>XDG_CONFIG_HOME</c> on Linux, <c>%APPDATA%</c> on Windows, <c>~/Library/Application Support</c> on macOS).
-    /// </summary>
-    public static string DefaultFile => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.DoNotVerify),
-        "sharplight", FileName);
+    /// <summary>The shared settings file of the tools: <c>store.json</c> in the configuration folder of <paramref name="layout"/>.</summary>
+    /// <param name="layout">The storage layout in effect.</param>
+    public static string FileFor(StorageLayout layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        return Path.Combine(layout.ConfigDirectory, FileName);
+    }
 
     /// <summary>Reads a settings file.</summary>
     /// <param name="path">The file.</param>

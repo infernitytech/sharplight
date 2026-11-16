@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Audio;
 using Sharplight.Hub;
+using Sharplight.Storage;
 using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Documents;
 using Sharplight.Studio.Services.Hub;
@@ -43,9 +44,16 @@ internal sealed class StudioHost : IDisposable
     /// <summary>Creates every service; <paramref name="modelsDirectory"/> is the <c>--models-dir</c> argument.</summary>
     public static StudioHost Create(string? modelsDirectory, IPlatformServices platform, IUiDispatcher dispatcher, IThemeService theme)
     {
-        var paths = StudioPaths.Default();
-        var settings = new JsonSettingsService(paths.SettingsFile, modelsDirectory);
-        var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddStudioUpdates().AddSharplight().BuildServiceProvider();
+        // The storage layout is known before the settings load: it says where they are. A move into this layout finishes here, before
+        // anything opens the files it copied.
+        var environment = StorageEnvironment.Process;
+        var layout = StorageLayout.Resolve(environment);
+        StorageMigration.CompletePending(layout);
+        var paths = StudioPaths.From(layout, environment.GetVariable(StudioPaths.HomeVariable));
+        var settings = new JsonSettingsService(paths.SettingsFile, modelsDirectory, layout);
+        var storage = new StorageLocationService(environment, layout, settings);
+        var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddSingleton<IStorageLocationService>(storage)
+            .AddSharplightStorage(layout).AddStudioUpdates().AddSharplight().BuildServiceProvider();
         var engine = EngineServices.From(container);
         var audioDecoder = container.GetRequiredService<IAudioDecoder>();
         var audioEncoder = container.GetRequiredService<IAudioEncoder>();
@@ -59,9 +67,9 @@ internal sealed class StudioHost : IDisposable
         var server = new KestrelApiServer(runtime.Host);
         var services = new StudioServices(settings, runtime, hub, new ModelLibrary(settings, engine.Converter), new SqliteConversationStore(database), stats, server,
             new DocumentExtractor(), new SystemMonitor(runtime), platform, dispatcher, theme,
-            container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(Path.Combine(paths.DataDirectory, "pages")),
+            container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(paths.PagesDirectory),
             new EngineAudioPlayer(audioDecoder, audioDevices, settings), new EngineAudioRecorder(audioDevices, audioEncoder, settings),
-            audioDecoder, audioDevices);
+            audioDecoder, audioDevices, storage);
         return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), server, container);
     }
 

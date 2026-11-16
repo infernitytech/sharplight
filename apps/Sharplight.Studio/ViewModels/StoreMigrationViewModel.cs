@@ -6,7 +6,7 @@ using Sharplight.Studio.Services;
 namespace Sharplight.Studio.ViewModels;
 
 /// <summary>
-/// The one-time offer shown when the model store in effect is empty while another store (the per-user store of earlier versions)
+/// The one-time offer shown when the model store in effect is empty while another store (the system store, or the folder next to the app of earlier versions)
 /// has models: keep using that store, or move or copy its models into the store in effect.
 /// </summary>
 internal sealed partial class StoreMigrationViewModel : ObservableObject
@@ -73,11 +73,11 @@ internal sealed partial class StoreMigrationViewModel : ObservableObject
 
     private bool CanChoose() => !IsBusy && !IsDone;
 
-    /// <summary>Keeps using the previous store: the user folder, or that folder as a custom location.</summary>
+    /// <summary>Keeps using the previous store: the system folder, or that folder as a custom location.</summary>
     [RelayCommand(CanExecute = nameof(CanChoose))]
     private void KeepPrevious()
     {
-        bool isUserStore = string.Equals(new ModelStore(PreviousRoot).Root, new ModelStore(ModelStore.UserRoot).Root, StringComparison.Ordinal);
+        bool isUserStore = string.Equals(new ModelStore(PreviousRoot).Root, new ModelStore(ModelStore.SystemRoot).Root, StringComparison.Ordinal);
         _services.Settings.Update(current => isUserStore
             ? current with { ModelsLocation = ModelStoreLocation.User, StoreMigrationAnswered = true }
             : current with { ModelsLocation = ModelStoreLocation.Custom, ModelsDirectory = PreviousRoot, StoreMigrationAnswered = true });
