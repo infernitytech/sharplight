@@ -5,3 +5,5 @@ imports) for torch builds that have no torchaudio, empty wandb / datasets module
 coqui-tts an importable torchcodec (it only checks that the package exists) and ko_speech_tools (Korean romanization, unused for English).
 compliance.kaldi.fbank (make_chatterbox_clone_reference.py) delegates to torchaudio's own pure-torch compliance/kaldi.py, taken from a torchaudio
 wheel and named by the environment variable SL_TORCHAUDIO_KALDI.
+make_xtts_clone_reference.py needs the real torchaudio (MelSpectrogram with the Slaney norm, functional.resample): it puts the unpacked
+torchaudio wheel named by SL_TORCHAUDIO_DIR ahead of these stand-ins.

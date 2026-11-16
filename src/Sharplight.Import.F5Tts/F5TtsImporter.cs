@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using Sharplight.Audio;
 using Sharplight.Import.HuggingFace;
 using Sharplight.Models;
 
@@ -109,32 +110,7 @@ public sealed class F5TtsImporter : IModelImporter
     /// <param name="mels">Mel bins.</param>
     /// <param name="fftSize">The FFT size.</param>
     /// <param name="sampleRate">The sample rate.</param>
-    public static float[] HtkMelFilters(int mels, int fftSize, int sampleRate)
-    {
-        static double ToMel(double hz) => 2595.0 * Math.Log10(1.0 + (hz / 700.0));
-        int bins = (fftSize / 2) + 1;
-        double top = ToMel(sampleRate / 2.0);
-        var points = new double[mels + 2];
-        for (int i = 0; i < points.Length; i++)
-        {
-            double mel = top * i / (mels + 1);
-            points[i] = 700.0 * (Math.Pow(10, mel / 2595.0) - 1.0);
-        }
-
-        var filters = new float[mels * bins];
-        for (int m = 0; m < mels; m++)
-        {
-            for (int k = 0; k < bins; k++)
-            {
-                double frequency = (double)k * (sampleRate / 2) / (bins - 1);
-                double down = (frequency - points[m]) / (points[m + 1] - points[m]);
-                double up = (points[m + 2] - frequency) / (points[m + 2] - points[m + 1]);
-                filters[(m * bins) + k] = (float)Math.Max(0, Math.Min(down, up));
-            }
-        }
-
-        return filters;
-    }
+    public static float[] HtkMelFilters(int mels, int fftSize, int sampleRate) => HtkMelFilterBank.Create(mels, fftSize, sampleRate);
 
     private static string? Checkpoint(string path)
         => Directory.Exists(path) ? Directory.GetFiles(path, "model_*.safetensors").Order(StringComparer.Ordinal).LastOrDefault() : null;
