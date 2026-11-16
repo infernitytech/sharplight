@@ -58,7 +58,7 @@ Greedy generation compared token by token. "llama.cpp" = llama.cpp, "transformer
 | Gemma 4 E4B-it (QAT q4_0) | google/gemma-4-E4B-it-qat-q4_0-gguf | GGUF q4_0 | CPU, Vulkan | greedy identical to llama.cpp | | 2026-11-15 |
 | Gemma 4 26B-A4B-it (MoE) | google/gemma-4-26B-A4B-it, unsloth/gemma-4-26B-A4B-it-GGUF | GGUF UD-Q4_K_XL | CPU, Vulkan | chat prompt identical to llama.cpp on both | very short raw prompts: Vulkan differs (int8 activations) | 2026-11-15 |
 | Gemma 4 12B-it | google/gemma-4-12B-it | safetensors, GGUF | CPU, Vulkan | HF vs GGUF parity | | 2026-11-14 |
-| Gemma 3 1B / 4B it | google/gemma-3-1b-it, google/gemma-3-4b-it-GGUF, unsloth/gemma-3-4b-it-GGUF | safetensors, GGUF Q4_K_M, UD-IQ2_M | CPU, Vulkan | HF vs GGUF parity; 4B Q4_K_M text identical to llama.cpp | 4B UD-IQ2_M: Vulkan identical, CPU differs late | 2026-11-15 |
+| Gemma 3 1B / 4B it | google/gemma-3-1b-it, ggml-org/gemma-3-4b-it-GGUF, unsloth/gemma-3-4b-it-GGUF | safetensors, GGUF Q4_K_M, UD-IQ2_M | CPU, Vulkan | HF vs GGUF parity; 4B Q4_K_M text identical to llama.cpp | 4B UD-IQ2_M: Vulkan identical, CPU differs late | 2026-11-15 |
 | Gemma 2 2B it | google/gemma-2-2b-it, bartowski/gemma-2-2b-it-GGUF | safetensors, GGUF | CPU, Vulkan | HF vs GGUF parity | | 2026-11-14 |
 | Gemma 3n E2B it | google/gemma-3n-E2B-it | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
 | Phi-4 mini instruct | microsoft/Phi-4-mini-instruct, bartowski/microsoft_Phi-4-mini-instruct-GGUF | GGUF Q4_K_M, IQ4_NL | CPU, Vulkan | text / greedy identical to llama.cpp | | 2026-11-15 |
@@ -69,7 +69,7 @@ Greedy generation compared token by token. "llama.cpp" = llama.cpp, "transformer
 | OLMoE 1B-7B Instruct (MoE) | allenai/OLMoE-1B-7B-0924-Instruct | safetensors, GGUF | CPU, Vulkan | HF vs GGUF parity | | 2026-11-14 |
 | OLMo 2 1B Instruct | allenai/OLMo-2-0425-1B-Instruct | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
 | gpt-oss 20B (MoE) | openai/gpt-oss-20b, ggml-org/gpt-oss-20b-GGUF | safetensors, GGUF MXFP4 | CPU, Vulkan | text identical to llama.cpp (GGUF) | | 2026-11-14 |
-| GLM-4 9B 0414 | THUDM/GLM-4-9B-0414 | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
+| GLM-4 9B 0414 | zai-org/GLM-4-9B-0414 | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
 | GLM-4.7-Flash (MLA, MoE) | zai-org/GLM-4.7-Flash, unsloth/GLM-4.7-Flash-GGUF | GGUF UD-TQ1_0 | CPU, Vulkan | greedy identical to llama.cpp | | 2026-11-15 |
 | DeepSeek-V2-Lite Chat (MLA, MoE) | deepseek-ai/DeepSeek-V2-Lite-Chat | GGUF Q4_K_M | CPU | text identical to llama.cpp | | 2026-11-14 |
 | DeepSeek-Coder-V2-Lite Instruct | bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF | GGUF IQ2_XS | CPU, Vulkan | greedy identical to llama.cpp | | 2026-11-15 |
@@ -87,7 +87,7 @@ Greedy generation compared token by token. "llama.cpp" = llama.cpp, "transformer
 | Falcon-H1 0.5B Instruct | tiiuae/Falcon-H1-0.5B-Instruct | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; text identical to llama.cpp | | 2026-11-14 |
 | Granite 4.0 H 350M | ibm-granite/granite-4.0-h-350m | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; text identical to llama.cpp | | 2026-11-14 |
 | Jamba Reasoning 3B | ai21labs/AI21-Jamba-Reasoning-3B | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
-| Mamba 130M / Mamba-2 130M | state-spaces/mamba-130m-hf, state-spaces/mamba2-130m-hf | safetensors | CPU, Vulkan | ids identical to transformers | | 2026-11-14 |
+| Mamba 130M / Mamba-2 130M | state-spaces/mamba-130m-hf, AntonV/mamba2-130m-hf | safetensors | CPU, Vulkan | ids identical to transformers | | 2026-11-14 |
 | RWKV7 G1 1.5B | rwkv7-g1h-1.5b (GGUF) | GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
 | GPT-2 | openai-community/gpt2 | safetensors, GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
 | Pythia 160M | EleutherAI/pythia-160m | safetensors, GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
@@ -163,7 +163,7 @@ Verified on CPU and Vulkan. Reference: transformers (token-exact greedy ids), wh
 | Whisper large-v3-turbo | openai/whisper-large-v3-turbo, oxide-lab/whisper-large-v3-turbo-GGUF | HF, whisper.cpp `.bin` f16 / q5_0 / q8_0, whisper GGUF Q8_0 / Q4_K_M | transcript identical to whisper.cpp | medium and large-v1/v2/v3 map the same way, not verified | 2026-11-15 |
 | Whisper as GGUF (tiny, base) | handy-computer/whisper-*-gguf | GGUF F32, F16, Q8_0, Q4_K_M | tiny F16 / F32 identical to whisper.cpp, quantized word for word | Candle-style whisper GGUF files are rejected with a message | 2026-11-15 |
 | Distil-Whisper small.en, large-v3.5 | distil-whisper/distil-small.en, distil-whisper/distil-large-v3.5 | HF | ids identical to transformers, beam search identical | | 2026-11-15 |
-| Moonshine tiny, base | UsefulSensors/moonshine-tiny, UsefulSensors/moonshine-base | HF, `.slm` | ids identical to transformers | | 2026-11-16 |
+| Moonshine tiny, base | moonshine-ai/moonshine-tiny, moonshine-ai/moonshine-base | HF, `.slm` | ids identical to transformers | | 2026-11-16 |
 | Parakeet CTC 0.6B | nvidia/parakeet-ctc-0.6b | HF (transformers format), `.slm` | ids identical to transformers | 1.1B maps the same way, not verified | 2026-11-16 |
 | Parakeet TDT 0.6B v3 | nvidia/parakeet-tdt-0.6b-v3 | HF, `.slm` | ids identical to transformers | | 2026-11-16 |
 | Canary 1B v2 | nvidia/canary-1b-v2 | HF, `.slm` | ids identical to transformers (English transcription with punctuation) | translation prompt works; no timestamps | 2026-11-16 |
@@ -187,7 +187,7 @@ images are visually identical. All run on CPU and Vulkan (Vulkan used for the re
 | Model | Hub repository | Formats | Verification | Notes | Verified |
 |---|---|---|---|---|---|
 | Stable Diffusion 1.5 | SD 1.5 checkpoints (diffusers folder, original single file, GGUF) | diffusers folder, single file `.safetensors` / `.ckpt`, GGUF f16, Q8_0, Q4_0 | Euler 76.3 dB, DDIM 76.2 dB, DPM++ 2M Karras 73.8 dB, PNDM 58.8 dB vs diffusers fp32; GGUF f16 48.7 dB | Q4_0 file produces a degenerate image in every implementation | 2026-11-15 |
-| Stable Diffusion 2.1 (768-v) | stabilityai/stable-diffusion-2-1 (community mirror) | diffusers folder, single file | Euler 70.2 dB, DDIM 64.1 dB, DPM++ 2M Karras 51.8 dB | fp16 files: visually identical, 28 to 38 dB | 2026-11-15 |
+| Stable Diffusion 2.1 (768-v) | sd2-community/stable-diffusion-2-1 | diffusers folder, single file | Euler 70.2 dB, DDIM 64.1 dB, DPM++ 2M Karras 51.8 dB | fp16 files: visually identical, 28 to 38 dB | 2026-11-15 |
 | SDXL base 1.0 | stabilityai/stable-diffusion-xl-base-1.0, gpustack/stable-diffusion-xl-base-1.0-GGUF, kostakoff/stable-diffusion-xl-base-1.0-GGUF | diffusers folder, single file, GGUF Q8_0 / Q4_0 / Q4_K | Euler 42.4 dB, DPM++ 2M Karras 30.0 dB (fp16 files); GGUF Q8_0 27.7 dB | Q4_K: visually equivalent (17.3 dB); separate VAE / text-encoder files not supported | 2026-11-15 |
 | SDXL-Turbo | stabilityai/sdxl-turbo, OlegSkutte/sdxl-turbo-GGUF | diffusers, GGUF Q8_0 | Q8_0 28.5 dB vs stabilityai/sdxl-turbo | 4 steps, no guidance | 2026-11-15 |
 | SDXL-Lightning | mzwing/SDXL-Lightning-GGUF | GGUF | Partial: maps the same way as SDXL, not verified | | |
