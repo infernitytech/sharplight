@@ -47,7 +47,40 @@ internal static class DiffusionCompanions
             }
         }
 
+        // Diffusers pipeline folders beside the transformer's folder (e.g. the official repository downloaded next to a GGUF folder):
+        // their VAE file and, for Z-Image, their text encoder folder.
+        var pipelines = Path.GetDirectoryName(folder) is { } root
+            ? Directory.EnumerateDirectories(root).Where(d => File.Exists(Path.Combine(d, "model_index.json"))).Order(StringComparer.Ordinal).ToList()
+            : [];
+        foreach (string pipeline in pipelines)
+        {
+            string vae = Path.Combine(pipeline, "vae", "diffusion_pytorch_model.safetensors");
+            if (!found.ContainsKey(AuxiliaryRoles.Vae) && File.Exists(vae) && IsSixteenChannelVae(vae))
+            {
+                found[AuxiliaryRoles.Vae] = vae;
+            }
+
+            string textEncoder = Path.Combine(pipeline, "text_encoder");
+            if (family == CompanionFamily.ZImage && !found.ContainsKey(AuxiliaryRoles.TextEncoder) && IsQwen3Folder(textEncoder))
+            {
+                found[AuxiliaryRoles.TextEncoder] = textEncoder;
+            }
+        }
+
         return found;
+    }
+
+    /// <summary>Whether a folder is a Hugging Face Qwen3 model (Z-Image's text encoder).</summary>
+    private static bool IsQwen3Folder(string folder)
+    {
+        string config = Path.Combine(folder, "config.json");
+        if (!File.Exists(config))
+        {
+            return false;
+        }
+
+        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(config));
+        return document.RootElement.TryGetProperty("model_type", out var type) && type.GetString() == "qwen3";
     }
 
     /// <summary>The companion files of a family, in presentation order.</summary>

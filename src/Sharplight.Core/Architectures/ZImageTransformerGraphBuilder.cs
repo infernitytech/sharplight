@@ -253,8 +253,15 @@ internal sealed class ZImageTransformerGraphBuilder
         return _b.Linear(_b.Reshape(attended, rows, d), p + "out.weight");
     }
 
+    /// <summary>
+    /// The SwiGLU feed-forward. The down projection's input reaches 10⁵ and more in the real model: it stays f32 in the integer-dot
+    /// kernels of quantized weights (their int8 activation blocks keep f16 sums, which overflow).
+    /// </summary>
     private Value FeedForward(Value x, string p)
-        => _b.Linear(_b.Mul(_b.Silu(_b.Linear(x, p + "w1.weight")), _b.Linear(x, p + "w3.weight")), p + "w2.weight");
+    {
+        var hidden = _b.Mul(_b.Silu(_b.Linear(x, p + "w1.weight")), _b.Linear(x, p + "w3.weight"));
+        return _b.Emit1("MatMul", [hidden, _b.Weight(p + "w2.weight")], Attributes.From((StandardOps.F32ActivationsAttribute, true)));
+    }
 
     /// <summary>Two linear layers with a SiLU between (the timestep embedder).</summary>
     private Value Mlp(Value x, string p) => Linear(_b.Silu(Linear(x, p + ".in_layer")), p + ".out_layer");

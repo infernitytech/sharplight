@@ -1266,7 +1266,10 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection), stable-diffusion.cpp GGUF in both naming schemes (sd.cpp's own `cond_stage_model.1.transformer.*`, e.g. gpustack/stable-diffusion-xl-base-1.0-GGUF Q8_0 / Q4_0; the SGM names, e.g. kostakoff/stable-diffusion-xl-base-1.0-GGUF Q4_K) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
 | SDXL-Turbo, SDXL-Lightning (distilled SDXL) | the SDXL formats; stable-diffusion.cpp GGUF (OlegSkutte/sdxl-turbo-GGUF, mzwing/SDXL-Lightning-GGUF) | **supported** (single files are recognized by their published names: Turbo 512×512, Euler ancestral on trailing timesteps, 4 steps, no guidance; Lightning 1024×1024, Euler trailing, the file's step count, no guidance, the 1-step "x0" file predicts the sample) | Turbo below; Lightning maps the same way, not verified |
 | FLUX.1-schnell, FLUX.1-dev (and fine-tunes with the same layout) | diffusers folder; original single-file `.safetensors` (Black Forest Labs names, also with ComfyUI's `model.diffusion_model.` prefix); transformer-only GGUF (city96 / stable-diffusion.cpp: any ggml type) plus companion files: CLIP-L (`clip_l.safetensors`), T5-XXL (encoder GGUF with its tokenizer, or `t5xxl_*.safetensors` with the embedded T5 vocabulary), VAE (`ae.safetensors`), given as auxiliary sources or found beside the transformer | **supported** (txt2img, img2img, inpainting; flow-matching Euler with FLUX's static / resolution-dependent shift; dev's guidance embedding; any size that is a multiple of 16; `.slm`) | [below](#flux) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, SD3, Chroma, Qwen-Image, video (Wan, LTX) | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic; see the [FLUX notes](#flux) for SD3 / Chroma |
+| SD3 / SD3.5 (SD3 Medium, SD3.5 Medium / Large and fine-tunes) | diffusers folder; Stability's single file (`model.diffusion_model.*`, the VAE under `first_stage_model.*`); transformer-only GGUF (city96 / stable-diffusion.cpp `sd3`, any ggml type) plus companions: CLIP-L, CLIP-G (`clip_g.safetensors`), T5-XXL (encoder GGUF, `t5xxl_*.safetensors` or a sharded `text_encoder_3` folder named by a shard), the 16-channel VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance; three text encoders; any size that is a multiple of 16 up to the position grid; `.slm`) | [below](#sd3) |
+| Chroma (Chroma1-HD / Base / Flash and fine-tunes) | diffusers folder; original single file (FLUX names plus `distilled_guidance_layer.*`); transformer-only GGUF (silveroxides, any ggml type) plus companions: T5-XXL, the FLUX VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance with negative prompts; masked T5 and text attention) | [below](#chroma) |
+| Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image, Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA (kohya / diffusers), ControlNet, TAESD | - | missing | |
 
 Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
@@ -1398,14 +1401,86 @@ Verification (tools/make-tiny-flux.py, tools/make-flux-references.py; tests `Tin
   run compiles the kernels for 70–150 s.
 - Studio: the load panel recognizes the transformer-only GGUF, fills in the three companions found beside it and loads; the Image
   page generates through the loaded model (tiny pipeline and FLUX.1-schnell GGUF at 512×512).
-- Later families: SD3 / SD3.5 are MMDiTs with joint attention as well (different block layout: separate q/k/v with optional
-  RMS norms, 2D sin-cos position embedding instead of RoPE, three text encoders whose CLIP hidden states are padded and concatenated
-  with T5's along the sequence, CFG): a second transformer builder, a sequence-joining mode for the text conditioning, the existing
-  flow sampler with shift 3. Chroma is a FLUX.1-schnell derivative without CLIP whose modulation comes from a small "distilled
-  guidance" MLP instead of the per-block modulation projections, with a T5 attention mask and real CFG: a FluxAdapter variant (T5 as
-  the first text encoder, a mask input built from the padding), CFG row by row through the existing fallback. Qwen-Image and the
-  video DiTs (Wan, LTX: a frame axis in the latents and 3D RoPE through the same multi-axis sections) reuse the flow sampler and the
-  companion-file loading.
+- Later families: SD3 / SD3.5, Chroma and Z-Image below; Qwen-Image reuses the flow sampler, the companion-file loading and the
+  decoder graph as its text encoder (as Z-Image does).
+
+### SD3
+
+<a id="sd3"></a>
+SD3 / SD3.5 (2026-11-16). Design:
+
+- Canonical source `sd3` (`Sharplight.Import.Diffusers`): `transformer.*` in the original MMDiT layout (fused q/k/v per stream;
+  diffusers' separate projections are joined lazily, its (scale, shift) `norm_out` and last-block `norm1_context` halves swapped; the
+  patch convolution becomes a linear weight [D, C·p²], the position grid `pos_embed` [G², D]), CLIP-L / CLIP-G under `text_encoder.` /
+  `text_encoder_2.` (each with its projection), the T5 encoder under `text_encoder_3.`, the VAE, the CLIP tokenizer under the canonical
+  keys (CLIP-G prompts reuse its tokens, padded with `!`) and the T5 tokenizer under `sd3.tokenizer_3.`; the family keys (both CLIP
+  encoders' penultimate layer without the final norm, T5 prompts of 256 tokens, the VAE's 1.5305 / 0.0609 scaling, 28 steps,
+  guidance 7, the scheduler's own noise levels with shift 3) are written by the importer, so transformer-only files and their
+  companions get them too. SD3 files without q/k norms do not tell the head width: 64, as every release.
+- `Sd3Adapter` builds the two CLIP graphs (hidden states and projected pooled embeddings), the T5 graph and the transformer
+  (`Sd3TransformerGraphBuilder`: patch rows plus the centre crop of the position grid, timestep + pooled embedding as the
+  modulation vector, joint blocks over [image, text] with the second image-only attention of SD3.5's first blocks and the
+  text-stream-free last block, f16 attention products only with RMS-normed q/k (SD3.5): SD3's unnormed scores lose ~1 % in f16).
+- Core: a third text encoder (`text-encoder-3`, `tokenizer-3`) whose hidden states are appended along the sequence
+  (`DiffusionConfigKeys.JoinSequence`: the CLIP rows [77, 768 + 1280] zero-padded to T5's 4096 and followed by its 256 rows); pooled
+  embeddings of all encoders concatenated in order; the flow sampler's `scheduler` spacing (diffusers' `set_timesteps` without
+  sigmas: linspace from 1 to the shifted smallest training level, shifted again, as the scheduler's f32 / numpy arithmetic does);
+  CFG row by row through the fixed-batch fallback.
+- Companions: `Sd3CompanionAdapter` (roles `text-encoder` CLIP-L, `text-encoder-2` CLIP-G, `text-encoder-3` T5, `vae`) on the generic
+  `DiffusionCompanionAdapter` (FLUX, SD3, Chroma and Z-Image declare their slots); stand-alone CLIP files are told apart by width (768 /
+  1280, the latter with GELU); a T5 named by one shard of a sharded folder opens the whole checkpoint; a diffusers `text_encoder{N}`
+  folder finds its tokenizer in `tokenizer{N}`.
+
+Verification (tools/make-tiny-sd3.py, tools/make-sd3-references.py; `TinySd3Tests`, `Sd35MediumTests`; GPU 0 of the 3× RTX PRO 4500
+machine, shared):
+
+- Tiny random SD3 and SD3.5 pipelines (`~/models/sd3/tiny-random-sd3/{sd3,sd35}`: without q/k norms; with them and the second
+  attention in blocks 0–1): both CLIP encoders (hidden states and pooled), T5, transformer, VAE decode and encode within 1e-4 of
+  diffusers / transformers on CPU and Vulkan, from the diffusers folder, the original-name single file and the Q8_0 GGUF with
+  companions (GGUF within 5e-3 of diffusers on the dequantized weights); guided 4-step txt2img above 40 dB in all 12 combinations;
+  a `.slm` converted from the GGUF with companions holds them and generates the same image.
+- SD3.5 Medium (diffusers folder, fp16 files, an ungated mirror of stabilityai/stable-diffusion-3.5-medium) on Vulkan against diffusers
+  in f32 on CUDA, 28 steps, guidance 7, same latents: CLIP-L / CLIP-G hidden 1.3e-4 / 6e-4, pooled 2–4e-4, T5 5–11e-6, transformer
+  1.4e-4, VAE 2.2e-4 relative RMS; images 46.6 dB (512) / 38.8 dB (1024), visually identical. city96's Q8_0 GGUF: transformer 1.5e-3
+  from the fp16 reference; against diffusers running the dequantized GGUF transformer with the folder's encoders: SD35_GGUF_RESULTS.
+- Speed (Vulkan, fp16 folder, warm, conditioning reused): 512×512 28 guided steps 2.8 s, 1024×1024 12.6 s (0.45 s per step for both
+  rows); diffusers f32 on the same GPU ~1.1 s per step at 1024. First run compiles for 100–180 s without a precompiled `.slm`.
+
+### Chroma
+
+<a id="chroma"></a>
+Chroma (2026-11-16): FLUX.1-schnell's layout without CLIP, with the "distilled guidance" approximator in place of the modulation
+projections and embedders. Design:
+
+- Canonical source `chroma`: the FLUX transformer vocabulary without `*_mod`, `time_in`, `vector_in`, `guidance_in`, plus
+  `transformer.approximator.{in_proj, layers.{i}.in_layer|out_layer, norms.{i}.weight, out_proj}`; T5 under `text_encoder.` (its only
+  text encoder, tokenizer under the canonical keys); family keys: T5 prompts of 512 tokens, the FLUX VAE scaling, static shift 3
+  (Chroma1-HD's scheduler), 35 steps, guidance 5.
+- `ChromaAdapter` reuses `FluxTransformerGraphBuilder`: with the approximator the modulation rows [3·single + 12·double + 2, D] come from
+  the MLP over the sinusoidal timestep (16), guidance-0 (16) and row-index · 1000 (32, computed in f32 as diffusers does) channels, and
+  the blocks slice their (shift, scale, gate) rows instead of projecting the conditioning vector; the T5 graph takes the prompt's key
+  mask (`DiffusionGraphs.TokenMask`), the transformer a `DiffusionGraphs.ContextMask` (the prompt's tokens and the first padding token
+  visible, `DiffusionConfigKeys.ContextMaskPadding` = 1) as a key bias of the joint attention.
+- Masking follows the original Chroma code (and ComfyUI / stable-diffusion.cpp): padding keys excluded. diffusers' ChromaPipeline
+  builds a float 0/1 mask, which `scaled_dot_product_attention` adds to the scores instead of masking (checked: none vs float mask
+  differ, the boolean mask equals dropping the padding); the references use the boolean mask (`make-tiny-chroma.py`,
+  `make-chroma-references.py`).
+
+Verification (tools/make-tiny-chroma.py, tools/make-chroma-references.py; `TinyChromaTests`, `ChromaHdTests`):
+
+- Tiny random Chroma (`~/models/chroma/tiny-random-chroma`): masked T5 (prompt rows), transformer, VAE within 1e-4 on CPU and
+  Vulkan from the diffusers folder, the original-name single file and the Q8_0 GGUF with companions (5e-3); guided txt2img with a
+  negative prompt above 40 dB in all 6 combinations.
+- Chroma1-HD, silveroxides' Q8_0 GGUF with FLUX.1-schnell's T5 (sharded folder) and VAE as companions, on Vulkan against diffusers
+  running the same files (dequantized GGUF transformer, f32 T5 / VAE, CUDA), 20 steps, guidance 4, negative prompt, same latents:
+  T5 ≤ 3e-5, transformer 2.1e-3 relative RMS; images 46.3 dB (512) / 37.8 dB (1024).
+- Speed (Vulkan, Q8_0, warm): 512×512 20 guided steps 12.8 s, 1024×1024 48 s (1.2 s per step and row); diffusers (GGUF dequantized on
+  the fly, CUDA f32) 2.3 s / 7.7 s per guided step.
+
+### Z-Image
+
+<a id="z-image"></a>
+ZIMAGE_SECTION
 
 ## 16. Video generation (2026-11-16)
 

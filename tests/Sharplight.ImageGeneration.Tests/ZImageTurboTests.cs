@@ -68,6 +68,23 @@ public sealed class ZImageTurboTests
         Assert.True(transformerRms < 2e-2, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
     }
 
+    /// <summary>The transformer on the CPU (diagnostics: runs only with <c>SHARPLIGHT_ZIMAGE_CPU=1</c>; minutes).</summary>
+    [Fact]
+    public void TransformerOnTheCpuMatchesDiffusers()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_ZIMAGE_CPU") == "1", "CPU diagnostics not requested");
+        Assert.SkipUnless(File.Exists(Gguf) && File.Exists(Path.Combine(Reference, "index.json")), "Z-Image-Turbo or its references missing");
+        using var model = Env.Load(Gguf, Env.Cpu(), Companions());
+        int size = Index().GetProperty("transformer_size").GetInt32();
+        var dims = new Dictionary<string, long> { [DiffusionGraphs.Height] = size, [DiffusionGraphs.Width] = size };
+        var prediction = GraphRunner.Run(model, ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, DiffusionGraphs.Prediction, 1, dims,
+            (DiffusionGraphs.Latent, Tensor("transformer_latent")), (DiffusionGraphs.Timestep, Tensor("transformer_timestep")),
+            (DiffusionGraphs.Context, Tensor("transformer_context")), (DiffusionGraphs.ContextMask, Tensor("transformer_context_mask")));
+        var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor("transformer_out"));
+        TestContext.Current.SendDiagnosticMessage($"CPU transformer: relative RMS {transformerRms:E2}, NaN {prediction.Count(float.IsNaN)}");
+        Assert.True(transformerRms < 3e-2, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
+    }
+
     public static TheoryData<int> Sizes => [512, 1024];
 
     [Theory]

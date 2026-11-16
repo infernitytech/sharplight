@@ -28,19 +28,30 @@ internal sealed class FlowMatchEulerSampler : DiffusionSampler
         float shiftExp = (float)Math.Exp(Mu(schedule, imageTokens));
         _sigmas = new float[steps + 1];
         _timesteps = new float[steps];
-        // The FLUX / SD3 pipelines pass σ = linspace(1, 1 / steps); pipelines that pass none (Wan) get the scheduler's own levels:
-        // linspace from 1 to its smallest training level (1 / train steps, already shifted once), shifted again.
+        // The FLUX pipelines pass σ = linspace(1, 1 / steps); pipelines that pass none (SD3, Wan) get the scheduler's own levels:
+        // linspace from 1 to its smallest training level (1 / train steps, already shifted once, in f32 as the scheduler computes it),
+        // shifted again in double (the scheduler's numpy arithmetic), then f32.
         bool schedulerSpacing = schedule.TimestepSpacing == SchedulerSpacing;
-        double train = schedule.TrainSteps;
-        double last = schedulerSpacing ? schedule.Shift / train / (1 + (schedule.Shift - 1) / train) : 1.0 / steps;
+        float smallest = 1f / schedule.TrainSteps;
+        double last = schedulerSpacing ? schedule.Shift * smallest / (1f + (schedule.Shift - 1f) * smallest) : 1.0 / steps;
         for (int i = 0; i < steps; i++)
         {
-            // np.linspace in double, then f32 as the scheduler stores it.
+            // np.linspace in double.
             double linear = steps == 1 ? 1.0 : 1.0 + (last - 1.0) * i / (steps - 1);
-            float sigma = (float)linear;
-            sigma = schedule.DynamicShift
-                ? shiftExp / (shiftExp + (1f / sigma - 1f))
-                : schedule.Shift * sigma / (1f + (schedule.Shift - 1f) * sigma);
+            float sigma;
+            if (schedulerSpacing && !schedule.DynamicShift)
+            {
+                sigma = (float)(schedule.Shift * linear / (1.0 + (schedule.Shift - 1.0) * linear));
+            }
+            else
+            {
+                // Passed sigmas are stored as f32 first, then shifted in f32.
+                sigma = (float)linear;
+                sigma = schedule.DynamicShift
+                    ? shiftExp / (shiftExp + (1f / sigma - 1f))
+                    : schedule.Shift * sigma / (1f + (schedule.Shift - 1f) * sigma);
+            }
+
             _sigmas[i] = sigma;
             _timesteps[i] = sigma * schedule.TrainSteps;
         }
