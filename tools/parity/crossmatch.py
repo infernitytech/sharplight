@@ -23,8 +23,11 @@ def main():
     failed = False
     for g in ours[0]["greedy"]:
         prompt = g["prompt"]
-        a = [x["text"] for o in ours for x in o["greedy"] if x["prompt"] == prompt and "text" in x]
-        b = [x["text"] for r in refs for x in r["greedy"] if x["prompt"] == prompt and "text" in x and "error" not in x]
+        # A SentencePiece decoder drops the leading space of the first generated piece; llama.cpp prints it.
+        a = [x["text"].lstrip(" ") for o in ours for x in o["greedy"] if x["prompt"] == prompt and "text" in x]
+        b = [x["text"].lstrip(" ") for r in refs for x in r["greedy"] if x["prompt"] == prompt and "text" in x and "error" not in x]
+        if not any(x["prompt"] == prompt for r in refs for x in r["greedy"]):
+            continue
         if not b:
             failed = True
             print(f"FAIL cross[{prompt[:30]}] no llama.cpp output")

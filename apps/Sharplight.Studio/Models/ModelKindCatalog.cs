@@ -23,7 +23,7 @@ internal static class ModelKindCatalog
         new(ModelKinds.SpeechRecognition, "Speech to text", "IconMic", [ModelTask.SpeechToText], Runnable: true),
         new(ModelKinds.SpeechSynthesis, "Text to speech", "IconSpeaker", [ModelTask.TextToSpeech], Runnable: true),
         new(ModelKinds.ImageGeneration, "Image generation", "IconImage", [ModelTask.ImageGeneration], Runnable: true),
-        new("video-generation", "Video generation", "IconVideo", [ModelTask.VideoGeneration], Runnable: false),
+        new(ModelKinds.VideoGeneration, "Video generation", "IconVideo", [ModelTask.VideoGeneration], Runnable: true),
         new(ModelKinds.ImageClassification, "Image classification", "IconTag", [ModelTask.ImageClassification], Runnable: true),
         new(ModelKinds.ImageEmbedding, "Image embedding", "IconEmbed", [], Runnable: true),
         new(ModelKinds.ObjectDetection, "Object detection", "IconScan", [ModelTask.ObjectDetection], Runnable: true),

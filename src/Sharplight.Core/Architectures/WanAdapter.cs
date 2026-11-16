@@ -46,6 +46,7 @@ public sealed class WanAdapter : IModelAdapter
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(options);
         var src = sources.Primary;
+        RequireComponents(src);
         var transformer = WanHyperParameters.Read(src, Prefix);
         var vae = WanVaeHyperParameters.Read(src, Prefix);
         var t5 = T5TextHyperParameters.Read(src, Prefix, "text_encoder");
@@ -93,6 +94,27 @@ public sealed class WanAdapter : IModelAdapter
             Attachments = attachments,
             Description = Describe(src, transformer, vae, t5, hasEncoder, firstFrame && hasEncoder && transformer.TokenTimesteps, attachments.Count > 0),
         };
+    }
+
+    /// <summary>Fails with the list of missing parts when a transformer-only source comes without its companions.</summary>
+    private static void RequireComponents(ModelSource src)
+    {
+        var missing = new List<string>();
+        if (!src.Has(Prefix + "text_encoder.hidden_size") || !src.Has("tokenizer.model"))
+        {
+            missing.Add("text-encoder (umT5-XXL with its tokenizer)");
+        }
+
+        if (!src.Has(Prefix + "vae.latent_channels"))
+        {
+            missing.Add("vae");
+        }
+
+        if (missing.Count > 0)
+        {
+            throw new NotSupportedException($"'{src.Path}' holds only the Wan transformer; it needs its companions, given as auxiliary sources by role "
+                + $"(a Wan diffusers folder of the same family serves as both): {string.Join(", ", missing)}.");
+        }
     }
 
     private static ModelDescription Describe(ModelSource src, WanHyperParameters transformer, WanVaeHyperParameters vae, T5TextHyperParameters t5,

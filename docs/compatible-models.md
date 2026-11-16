@@ -99,6 +99,39 @@ StarCoder2 3B, InternLM2.5 1.8B chat, ERNIE-4.5 0.3B and 21B-A3B, EXAONE 3.5 2.4
 Nemotron-Mini 4B, Apertus 8B, AFM-4.5B, SmallThinker 4B-A0.6B, OpenELM 270M, Nanbeige 4.2 3B, BitNet b1.58 2B (TQ2_0), Hunyuan 0.5B, LFM2-VL 450M, Falcon-H1,
 Mamba and RWKV6 World 1.6B, Qwen3-VL 2B. Two of them generate degenerate text in llama.cpp itself (Hunyuan 0.5B, EXAONE 4.0 1.2B); Sharplight matches that output.
 
+### 1.1.1 Hub top-20 sweep (2026-11-16)
+
+The most downloaded text-generation models on the Hub plus popular larger ones, each checked as safetensors against transformers and as
+the most downloaded GGUF against llama.cpp b11177: tokenizer on seven multilingual texts, chat template with and without system prompt and
+with tool calls, 48 greedy tokens on three prompts (method and per-model notes in model-support.md section 17). "near-tie" = the first
+differing token is a near tie of the reference itself (llama.cpp's own CPU and Vulkan builds differ there too, or the logit gap is below 0.1).
+
+| Model | Hub repository | Format | Providers | Verification | Notes | Verified |
+|---|---|---|---|---|---|---|
+| GPT-2 | openai-community/gpt2, mradermacher/gpt2-GGUF | safetensors F32, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp per backend | | 2026-11-16 |
+| Qwen3 0.6B | Qwen/Qwen3-0.6B, Qwen/Qwen3-0.6B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids and templates (tools) identical to transformers; GGUF near-tie vs llama.cpp | also as .slm | 2026-11-16 |
+| Qwen3 1.7B / 4B / 8B | Qwen/Qwen3-1.7B, -4B, -8B; unsloth/Qwen3-1.7B-GGUF, Qwen/Qwen3-4B-GGUF, Qwen/Qwen3-8B-GGUF | safetensors, GGUF Q8_0 / Q4_K_M | CPU, Vulkan | ids identical to transformers; 4B / 8B GGUF identical to llama.cpp, 1.7B near-tie | | 2026-11-16 |
+| Qwen3 14B | Qwen/Qwen3-14B, Qwen/Qwen3-14B-GGUF | safetensors (29.5 GB), GGUF Q4_K_M | Vulkan | ids identical to transformers; GGUF identical to llama.cpp | safetensors on one whole 32 GB GPU | 2026-11-16 |
+| Qwen3 32B | Qwen/Qwen3-32B-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; near-tie vs llama.cpp | | 2026-11-16 |
+| Qwen2.5 0.5B / 1.5B / 3B / 7B Instruct | Qwen/Qwen2.5-*-Instruct, Qwen/Qwen2.5-*-Instruct-GGUF | safetensors, GGUF Q8_0 / Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF identical or near-tie vs llama.cpp | the official GGUFs embed an older tool-call template (literal `{{"name": ...}}`), rendered exactly as transformers renders it | 2026-11-16 |
+| Ornith 1.0 9B / 1.5 9B | ornith-ai/Ornith-1.0-9B, ornith-ai/Ornith-1.5-9B-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF near-tie vs llama.cpp | qwen3_5 hybrid | 2026-11-16 |
+| Qwen3.8 27B | Qwen/Qwen3.8-27B-FP8, lmstudio-community/Qwen3.8-27B-GGUF | safetensors FP8, GGUF Q8_0 | Vulkan (2 GPUs) | FP8: ids identical to transformers (bf16 checkpoint) on raw prompts, teacher-forced logit difference 0.16-0.19; Q8_0 identical to llama.cpp | | 2026-11-16 |
+| Qwen3.8-Flash-Next | unsloth/Qwen3.8-Flash-Next-GGUF | GGUF UD-IQ1_S (66 GB) | Vulkan (2 GPUs) + CPU | tokenizer, templates and greedy text identical to llama.cpp | its MTP draft file is refused (qwen4exp MTP head not imported yet) | 2026-11-16 |
+| gpt-oss 20B / 120B | openai/gpt-oss-20b, unsloth/gpt-oss-20b-GGUF, ggml-org/gpt-oss-120b-GGUF | safetensors MXFP4 (20B), GGUF Q4_K_M, MXFP4 (120B) | CPU, Vulkan (120B: 2 GPUs + CPU) | 20B ids identical to transformers; GGUF near-tie vs llama.cpp | | 2026-11-16 |
+| Llama 3.1 8B Instruct | unsloth/Llama-3.1-8B-Instruct, bartowski/Meta-Llama-3.1-8B-Instruct-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids and tool template identical to transformers; GGUF first token a 0.03 near-tie, identical to transformers on the same GGUF | | 2026-11-16 |
+| Llama 3.2 1B Instruct | unsloth/Llama-3.2-1B-Instruct, bartowski/Llama-3.2-1B-Instruct-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | also in Studio and as .slm | 2026-11-16 |
+| Llama 3.3 70B Instruct | bartowski/Llama-3.3-70B-Instruct-GGUF | GGUF Q4_K_M | Vulkan (2 GPUs) | identical to llama.cpp CUDA; llama.cpp Vulkan differs at a near-tie | | 2026-11-16 |
+| Mistral 7B Instruct v0.2 | mistralai/Mistral-7B-Instruct-v0.2, TheBloke/Mistral-7B-Instruct-v0.2-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | tokenizer, chat prompt ids and greedy ids identical to transformers; GGUF identical to transformers on the same GGUF | GGUF prompt ids follow llama.cpp's space-prefix placement | 2026-11-16 |
+| OPT 125M | facebook/opt-125m | PyTorch .bin | CPU, Vulkan | ids identical to transformers | no GGUF (llama.cpp has no OPT); post-norm OPT-350m not supported | 2026-11-16 |
+| Pythia 160M | EleutherAI/pythia-160m, mradermacher/pythia-160m-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF near-tie vs llama.cpp | | 2026-11-16 |
+| SmolLM2 135M | HuggingFaceTB/SmolLM2-135M, prithivMLmods/SmolLM2-135M-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | | 2026-11-16 |
+| Nemotron 3 Nano 4B | nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16, lmstudio-community/NVIDIA-Nemotron-3-Nano-4B-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | Mamba-2 hybrid; also as .slm | 2026-11-16 |
+| MiniCPM5 2B | openbmb/MiniCPM5-2B, bartowski/MiniCPM5-2B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | | 2026-11-16 |
+| LFM3 1.7B | LiquidAI/LFM3-1.7B, LiquidAI/LFM3-1.7B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF teacher-forced vs transformers (llama.cpp b11177 lacks lfm3) | also in Studio | 2026-11-16 |
+| Qwen3 30B-A3B (MoE) | Qwen/Qwen3-30B-A3B-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; greedy identical to llama.cpp (CPU build) | | 2026-11-16 |
+| Qwen3.6 35B-A3B (MoE) | unsloth/Qwen3.6-35B-A3B-GGUF | GGUF UD-Q4_K_M | Vulkan | tokenizer, templates and greedy text identical to llama.cpp | | 2026-11-16 |
+| GLM-4.7-Flash (MLA, MoE) | unsloth/GLM-4.7-Flash-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; greedy near-tie vs llama.cpp | | 2026-11-16 |
+
 ### 1.2 Language models that load (header check and import, output not compared)
 
 These real checkpoints, and every quantization file listed, were imported through the full load path (mapping, graph build, tokenizer, chat

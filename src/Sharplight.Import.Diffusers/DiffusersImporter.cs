@@ -48,15 +48,16 @@ public sealed class DiffusersImporter : IModelImporter
 
         string? kind = SingleFileCheckpoint.Kind(path);
         string? family = DiffusionTransformerCheckpoint.FamilyOf(path);
-        if (family is not null && !(kind == FluxConfig.Architecture && family.StartsWith("FLUX", StringComparison.Ordinal)))
+        if (family is not null && !(kind == FluxConfig.Architecture && family.StartsWith("FLUX", StringComparison.Ordinal)) && kind != WanConfig.Architecture)
         {
             throw new NotSupportedException($"Not supported yet: {family}. Sharplight generates images with the Stable Diffusion UNet models "
-                + $"(SD 1.x, SD 2.x, SDXL) and FLUX.1; {Path.GetFileName(path)} is another diffusion-transformer model.");
+                + $"(SD 1.x, SD 2.x, SDXL), FLUX.1 and Wan; {Path.GetFileName(path)} is another diffusion-transformer model.");
         }
 
         return kind switch
         {
             FluxConfig.Architecture => FluxCheckpoint.Open(path),
+            WanConfig.Architecture => WanCheckpoint.Open(path),
             ComponentCheckpoint.ClipArchitecture or ComponentCheckpoint.AutoencoderArchitecture or ComponentCheckpoint.T5Architecture => ComponentCheckpoint.Open(path),
             _ => SingleFileCheckpoint.Open(path),
         };

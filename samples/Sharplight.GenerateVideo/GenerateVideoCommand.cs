@@ -7,7 +7,8 @@ namespace Sharplight.GenerateVideo;
 /// <summary>The <c>sharplight-generate-video</c> command line.</summary>
 internal sealed class GenerateVideoCommand
 {
-    private readonly Option<string> _model = new("--model", "-m") { Description = "Model: a diffusers folder (Wan 2.1 T2V, Wan 2.2 TI2V) or an .slm package.", Required = true };
+    private readonly Option<string> _model = new("--model", "-m") { Description = "Model: a diffusers folder (Wan 2.1 T2V, Wan 2.2 TI2V), a transformer-only Wan .gguf / .safetensors (with --companions) or an .slm package.", Required = true };
+    private readonly Option<string?> _companions = new("--companions") { Description = "For a transformer-only checkpoint: a Wan diffusers folder of the same family that provides the text encoder, tokenizer and VAE." };
     private readonly Option<string> _prompt = new("--prompt", "-p") { Description = "What to generate.", Required = true };
     private readonly Option<string?> _negative = new("--negative-prompt", "-n") { Description = "What the video should not show (default: the model's)." };
     private readonly Option<string?> _image = new("--image", "-i") { Description = "PNG start frame for image-to-video (models that support it, e.g. Wan 2.2 TI2V)." };
@@ -28,7 +29,7 @@ internal sealed class GenerateVideoCommand
     public Command Build()
     {
         var command = new RootCommand("Generates videos with a Sharplight video-generation model (Wan) through the DI task API.");
-        foreach (var option in new Option[] { _model, _prompt, _negative, _image, _output, _width, _height, _frames, _fps, _steps, _guidance, _seed, _sampler, _noise, _cpu, _device, _reducedPrecision })
+        foreach (var option in new Option[] { _model, _companions, _prompt, _negative, _image, _output, _width, _height, _frames, _fps, _steps, _guidance, _seed, _sampler, _noise, _cpu, _device, _reducedPrecision })
         {
             command.Options.Add(option);
         }
@@ -40,6 +41,7 @@ internal sealed class GenerateVideoCommand
     private GenerateVideoSettings Settings(ParseResult result) => new()
     {
         Model = result.GetValue(_model)!,
+        Companions = result.GetValue(_companions),
         Prompt = result.GetValue(_prompt)!,
         NegativePrompt = result.GetValue(_negative),
         Image = result.GetValue(_image),

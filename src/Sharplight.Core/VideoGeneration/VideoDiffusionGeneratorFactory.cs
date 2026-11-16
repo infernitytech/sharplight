@@ -19,8 +19,8 @@ internal sealed class VideoDiffusionGeneratorFactory : ITaskClientFactory
         var description = model.Description;
         return Has(description, ModelComponentRoles.TextEncoder, VideoDiffusionGraphs.TextEncode)
                && Has(description, ModelComponentRoles.Transformer, VideoDiffusionGraphs.Denoise)
-               && Has(description, ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeDecodeFirst)
-               && Has(description, ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeDecodeNext)
+               && (Has(description, ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeDecode)
+                   || (Has(description, ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeDecodeFirst) && Has(description, ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeDecodeNext)))
                && description.TryGetComponent(ModelComponentRoles.Tokenizer, out _)
                && description.TryGetComponent(ModelComponentRoles.Scheduler, out _);
     }

@@ -366,7 +366,8 @@ public sealed class DiscoverFiltersTests
         }
 
         Assert.True(ModelKindCatalog.For(ModelKinds.TextGeneration).Runnable);
-        Assert.False(ModelKindCatalog.For("video-generation").Runnable);
+        Assert.False(ModelKindCatalog.For("time-series").Runnable);
+        Assert.True(ModelKindCatalog.For(ModelKinds.VideoGeneration).Runnable);
         // A kind nobody listed gets a readable generic entry.
         var unknown = ModelKindCatalog.For("point-cloud-segmentation");
         Assert.Equal("point cloud segmentation", unknown.Title);

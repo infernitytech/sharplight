@@ -54,6 +54,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<LatentDiffusionAdapter>()
                 .AddModelAdapter<FluxAdapter>()
                 .AddModelAdapter<WanAdapter>()
+                .AddCompositeModelAdapter<WanCompanionAdapter>()
+                .AddModelAdapter<LtxAdapter>()
                 .AddCompositeModelAdapter<FluxCompanionAdapter>()
                 .AddAuxiliaryArchitecture(FluxCompanionAdapter.ClipTextArchitecture, AuxiliaryRoles.TextEncoder)
                 .AddAuxiliaryArchitecture(FluxCompanionAdapter.AutoencoderArchitecture, AuxiliaryRoles.Vae)
