@@ -223,6 +223,11 @@ internal static class ImageModelProbe
                 return ModelKinds.Ocr;
             }
 
+            if (architecture.EndsWith("ForSemanticSegmentation", StringComparison.Ordinal) || type == "segformer" && !architecture.EndsWith("ForImageClassification", StringComparison.Ordinal))
+            {
+                return ModelKinds.SemanticSegmentation;
+            }
+
             if (architecture.EndsWith("ForDepthEstimation", StringComparison.Ordinal) || type is "depth_anything" or "dpt")
             {
                 return ModelKinds.DepthEstimation;

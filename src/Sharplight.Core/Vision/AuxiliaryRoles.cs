@@ -26,4 +26,7 @@ public static class AuxiliaryRoles
 
     /// <summary>The autoencoder of an image generator distributed without it (FLUX's 16-channel VAE).</summary>
     public const string Vae = "vae";
+
+    /// <summary>A second denoiser of a two-expert model (Wan 2.2 A14B: the low-noise transformer beside the high-noise one).</summary>
+    public const string SecondTransformer = "transformer-2";
 }

@@ -1049,6 +1049,8 @@ codecs and vocoders are graphs of generic Core ops; the host runs only the token
 | OuteTTS 0.2 500M + WavTokenizer-Large-75 (GGUF pair) | supported, CPU and Vulkan | llama.cpp 8ca5a80 (`llama-completion`, libllama WavTokenizer graph + numpy iSTFT) | teacher-forced logits: no argmax disagreement beyond a 0.1 margin over 253 positions, worst logit delta 0.32 (CPU) / 0.52 (Vulkan) on logits up to 45 (Q8_0 activation rounding); decoder waveform relative RMS < 2e-3 on both |
 | Kokoro-82M v1.0 (hexgrad; StyleTTS 2 style model, ALBERT text encoder, iSTFTNet decoder), all voice packs of the repository (af_heart verified) | supported, CPU and Vulkan | `kokoro` 0.9.4 on torch (CPU), excitation noise of the reference run fed to both | symbols, rounded durations and the F0 curve identical (F0 relative RMS 5e-7 CPU, 4e-7 Vulkan); decoder features before the generator 1.5e-6; conv_post output 5e-4; waveform relative RMS 1.3e-2 (CPU) / 1.3e-2 (Vulkan), which is the reproducibility floor of the sine excitation (the reference itself moves 1.0-1.2 % between an f32 and an f64 phase accumulation) |
 | Orpheus 3B fine-tune (Llama decoder over SNAC codes) + SNAC 24 kHz decoder | supported, CPU and Vulkan | transformers (fp32, greedy chain of 140 tokens, teacher forced) and the `snac` package | prompt ids identical; 0 argmax disagreements over 140 positions, worst top-logit delta 0.003 (CPU and Vulkan); SNAC decoder waveform relative RMS 2.1e-6 (CPU) / 2.4e-6 (Vulkan) with the reference's noise |
+| Chatterbox (ResembleAI/chatterbox, English; T3 Llama 520M over S3 speech tokens, S3Gen flow matching, HiFT vocoder), built-in voice | supported, CPU and Vulkan | the `chatterbox-tts` package 0.1.7 on torch (CPU, float32; `tests/Sharplight.TextToSpeech.Tests/tools/make_chatterbox_reference.py`) | text tokens identical; conditioning rows 7e-7 (CPU) / 4e-7 (Vulkan) relative RMS; T3 guided greedy chain teacher forced: 0 argmax disagreements over 92 steps (reference margins down to 1.5e-3); flow mel for the reference tokens and noise 4.4e-7 / 5.9e-7; HiFT F0 7.4e-7 / 7.8e-7 and waveform 5.6e-6 / 7.0e-6 with the reference's source draws |
+| F5-TTS v1 Base (SWivid; flow-matching diffusion transformer over characters) + Vocos mel 24 kHz, voice of a reference recording | supported, CPU and Vulkan | the `f5-tts` package 1.1.22 on torch (CPU, float32; `tools/make_f5tts_reference.py`, jfk.wav as the reference) | character ids and duration identical; sampled mel from the reference's log-mel and noise (32 guided Euler steps) 4.2e-6 (CPU) / 3.5e-5 (Vulkan) relative RMS; Vocos waveform 2.4e-5 / 1.8e-5; the reference log-mel within 5e-3 on a 24 kHz copy of the recording (from 16 kHz the resamplers differ in near-silent frames, which the log floor magnifies) |
 | CSM-1B + Mimi, Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
@@ -1097,6 +1099,39 @@ on the CPU and with compensated summation on the device. The angle of a complex 
 not depend on the sign of that zero. `Sharplight.Import.PyTorch` reads a file written by `torch.save(tensor)` and has the shared weight-norm helpers (`TorchWeightNorm`).
 Not done: CSM (the depth decoder over 32 codebooks and the Mimi decoder), Dia (encoder-decoder with delay-pattern codebook heads and the DAC codec), qwen3tts and pockettts
 (no GGUFs were looked for), and OuteTTS 0.3.
+
+Chatterbox loading: the checkpoint folder (`Sharplight.Import.Chatterbox`, `ChatterboxImporter`, `services.AddChatterboxImporter()`): T3's Llama is
+mapped like a Hugging Face Llama checkpoint to the canonical decoder weights (the speech-token embedding is the `token_embedding`, the speech head
+the `lm_head`; the llama3 rope scaling becomes `rope.freq_factors`), the text embedding, the learned text and speech positions and the conditioning
+encoder keep their names under `t3.`, S3Gen under `s3gen.` (weight norms folded), the voice encoder under `ve.`; the text tokenizer (a character
+BPE behind tokenizers' `Whitespace` pre-tokenizer, which the Hugging Face tokenizer translator now converts generically to the byte-level form with
+the new `whitespace` pre-tokenizer preset) becomes canonical tokenizer metadata, and `conds.pt` the voice attachments `voices/default/*` (its
+`prompt_feat` is a transposed view: the PyTorch reader accepts dense permuted tensors with `TorchCheckpointOptions.AllowPermuted`).
+`ChatterboxAdapter` (canonical `chatterbox`) builds the decoder graphs through `DecoderAdapter` (`decoder.embedding_input` adds the multimodal graph:
+every T3 row is a host-computed embedding) and four graphs of generic ops: `t3_condition` (speaker projection, the perceiver resampler over the voice's
+150 prompt tokens, the emotion row), `s3gen_encode` (token embedding, pre-lookahead convolutions, six conformer layers with relative-position
+attention, nearest ×2 upsampling, four more layers, the projection to 80 mel bins, and the speaker condition), `s3gen_estimate` (the causal U-Net
+vector field: causal residual blocks with Mish and the time embedding, 56 transformer blocks) and `hift` (F0 predictor, nine-harmonic source with
+its random draws as inputs, the source STFT as a convolution, the upsampling generator with snake residual blocks, the inverse-DFT half).
+`ChatterboxSynthesizer` runs T3 twice side by side for classifier-free guidance (weight 0.5; the unconditional run has zero text embeddings), applies
+the repetition penalty (1.2) to the guided logits and samples (temperature 0.8, min-p 0.05 by default), encodes the voice's 157 flow prompt tokens
+plus the generated ones, runs ten Euler steps of the guided flow (cosine time schedule, guidance 0.7) from Gaussian noise, and vocodes the frames after
+the prompt with a 20 ms fade-in. Not done: voice cloning from a reference clip (the voice encoder, the S3 speech tokenizer and CAMPPlus as graphs), the
+multilingual and Turbo checkpoints, the watermark (the reference adds Perth's implicit watermark; Sharplight does not).
+
+F5-TTS loading: the model is the checkpoint folder (`Sharplight.Import.F5Tts`, `F5TtsImporter`: `model_*.safetensors` with the EMA transformer under
+`ema_model.transformer.`, `vocab.txt`; hyper-parameters read from the weight shapes; the character vocabulary as `tokenizer/characters.json`; the
+reference front end as a log-mel component: magnitude STFT, torchaudio's HTK mel bank without normalization, ln with a 1e-5 floor, the new
+`magnitude` option of `LogMelSpectrogram`) and the Vocos folder its `vocoder` auxiliary (`VocosImporter`; `TaskLoadOptions.Auxiliary =
+[("vocoder", vocosFolder)]`, `--vocoder` of `samples/Sharplight.Speak`). `F5Adapter` (composite, canonical `f5tts`) builds `f5_transformer` (the
+text embedding with ConvNeXt V2 blocks and filler masking, the input projection with the grouped convolutional position embedding, the time MLP, 22
+DiT blocks with adaptive LayerNorm modulation and interleaved-pair rotary attention, the final adaptive norm) and `vocos` (ConvNeXt backbone and the
+ISTFT head up to the inverse-DFT frames). `F5Synthesizer` follows `infer_process`: the reference recording (`SpeechSynthesisOptions.ReferenceAudio`
+and `ReferenceText`, new) RMS-raised to 0.1 when quieter, the characters of reference text plus text (the reference's segmenter's space insertion
+between punctuation and words reproduced for text without Chinese characters), the duration from the reference's frames and the UTF-8 byte ratio,
+32 Euler steps over sway-sampled times (coefficient −1) with guidance 2 (a second evaluation without reference audio and text, keeping the filler
+mask), Vocos over the frames after the reference. Not done: Chinese text (pinyin conversion), automatic transcription of the reference, chunking of
+long texts.
 
 ## 13. Speech to text (task kind `speech-recognition`)
 
@@ -1294,7 +1329,8 @@ preprocessing is the neutral `ImageProcessorConfig` stored with the model. Refer
 | SwinIR classical and real-world x4 (`001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth`: Swin blocks with relative position bias and shifted windows, sub-pixel convolutions; `nearest+conv` upsampler for the real-world models) | `SuperResolutionImporter` (also reads the RRDBNet files) | image-upscaling | supported (`IImageUpscaler.UpscaleAsync`; sizes are multiples of the window of 8, the client pads edges by repetition where the reference reflects) | whole image 92.9 dB (Vulkan) / 91.6 dB (CPU) PSNR from the authors' network, tiled 61.6 dB; the real-world variant is built but not verified |
 | timm ResNet (`timm/resnet18.a1_in1k`, `resnet34`, `resnet50`, `wide_resnet50_2.racm_in1k`: 7x7 stem, basic or bottleneck blocks, batch norm folded) | HF folder with a timm `config.json` (`timm_resnet`) | image-classification | supported (no label names in the repositories: indices only) | logits within 2e-3 relative rms of timm, same top-1 (CPU and Vulkan) |
 | Table Transformer (`microsoft/table-transformer-detection`: DETR with a ResNet-18 backbone, pre-norm layers, final norms) | HF `table-transformer` | object-detection | supported | same detection as transformers on a synthetic table, CPU = Vulkan |
-| Mask2Former, DPT (other heads), YOLO / YOLOS, Florence-2, SegFormer | - | - | not started (see the sweep below) | - |
+| SegFormer (`nvidia/segformer-b0-finetuned-ade-512-512`, b5 ADE 640: mix-transformer encoder with spatial-reduction attention and depthwise Mix-FFN, all-MLP decoder with the batch norm folded into the fusion convolution) | HF `segformer` | image-segmentation-semantic | supported: `ISemanticSegmenter.SegmentAsync` (label map at the input size, class names, per-class masks, optional logits; a single-channel model returns an alpha matte) | b0: logits 5.1e-4, label map 99.81 % identical; b5: logits 1.5e-6 (CPU) / 5.3e-7 (Vulkan), label map 99.998 % / 100 % |
+| Mask2Former, DPT (other heads), YOLO / YOLOS, Florence-2 | - | - | not started (see the sweep below) | - |
 
 ### Vision popularity sweep (2026-11-16)
 
@@ -1340,8 +1376,10 @@ Not covered, with what is missing:
 - **Florence-2** (OCR, caption, grounding): needs the DaViT vision tower (convolutional embeddings, window and channel attention blocks), the 2D position and temporal embeddings of its projector, image rows
   merged into the BART encoder's input embeddings (the `encoder_decoder` adapter takes either an image or text), the task prompts and the `ITextRecognizer` surface for them. Not started (about a day or two of work).
 - **TrOCR small** (`deit` encoder with a distillation token, sinusoidal decoder positions) and **large** (BEiT encoder); BLIP captioning, Donut, manga-ocr, GLM-OCR (other encoder-decoder families); PaddleOCR (Paddle format).
-- **Semantic and universal segmentation** (SegFormer b0-b5, Mask2Former, OneFormer, UperNet, CLIPSeg, BiRefNet / RMBG): the segmentation task is prompt based (`IImageSegmenter`, SAM); a per-pixel label task and the
-  architectures are missing. SegFormer (mix transformer, all-MLP decoder) would be the first.
+- **Semantic segmentation** (round 5): the per-pixel task exists now (`ISemanticSegmenter`, kind `image-segmentation-semantic`, graph `segment_semantic`: `pixels` [1, 3, H, W] in, class scores [1, K, h, w] out; the client resamples
+  the scores bilinearly to the input size and takes the arg-max, as transformers' post-processing does; K = 1 is read as a matte with a sigmoid). SegFormer (`SegformerAdapter`, `SegformerHfMapping`) is the first architecture; Studio's
+  Vision page has a `Semantic` mode (colored overlay with a legend of the classes by pixel share, PNG export; a matte model exports the cut-out as PNG with alpha, `PngCodec.EncodeRgba`). The graph runs on the processor's fixed square
+  size (512 / 640 / 1024 px, no aspect ratio kept). Still missing: Mask2Former / OneFormer (universal: instance and panoptic), UperNet, CLIPSeg and the matting models BiRefNet / RMBG-2.0.
 - **Detection**: YOLOS, DETR checkpoints without the timm backbone, Ultralytics YOLO (`.pt`; their ONNX exports run through the ONNX importer), RT-DETR v2 variants listed above.
 - **Classification**: timm / HF families other than ResNet (MobileNetV3, EfficientNet, ConvNeXt, RepVGG, EfficientViT, Swin / SwinV2, EVA02 `timm_wrapper`, `SiglipForImageClassification`
   such as prithivMLmods' classifiers), HF `resnet` (microsoft/resnet-50), and `open_clip`-only repositories (timm/ViT-B-16-SigLIP, Marqo fashion models).
@@ -1659,7 +1697,8 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 |---|---|---|---|
 | Wan 2.1 T2V (1.3B, 14B) | diffusers folder; transformer-only GGUF (city96 / QuantStack, any ggml type) and original-name `.safetensors` (also ComfyUI's `model.diffusion_model.` prefix) with a Wan diffusers folder as companion for the umT5 encoder, tokenizer and VAE | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
 | Wan 2.2 TI2V-5B | diffusers folder; transformer-only GGUF / safetensors with companions as for Wan 2.1 | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
-| Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts); stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing (the I2V and A14B folders are rejected by name) | |
+| Wan 2.2 T2V-A14B, I2V-A14B (two experts) | diffusers folder with transformer_2; high- and low-noise transformer GGUFs (QuantStack / city96) with `AuxiliaryRoles.SecondTransformer` and a Wan 2.1 folder as companion | **supported, tiny-verified** (expert switch at the boundary timestep 0.875 · 1000, `GuidanceScale2`; I2V by concatenating a first-frame mask and the encoded start-image video, streamed causal VAE encoder) | tiny pipelines; real A14B not yet compared (blocked by filesystem throughput) |
+| Wan 2.1 I2V / FLF2V (CLIP image embedding); stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing (Wan 2.1 I2V folders are rejected by name) | |
 | LTX-Video 0.9.0 (2B) | diffusers folder (the T5-XXL text encoder is the one of FLUX.1 / PixArt) | **supported** (text-to-video, multiples of 32, frames 1 + 8k, flow Euler with the resolution-dependent shift and the terminal stretch) | tiny pipeline; 2B below |
 | LTX-Video 0.9.1+ (causal / timestep-conditioned decoder), HunyuanVideo, CogVideoX, Mochi | - | missing (LTX 0.9.1+ rejected by name) | |
 
@@ -1683,6 +1722,12 @@ Design notes:
   a constant coordinate × frequency product; the text encoder runs without a mask and the cross-attention masks the padding
   (`VideoDiffusionGraphs.ContextMask`); the non-causal VAE decoder runs over the whole latent video (`vae_decode`: replicated first
   and last frames in time, depth-to-space 2×2×2 upsamplers, 4×4 unpatching).
+- Two experts (Wan 2.2 A14B): a second transformer component (`transformer-2`, graph `denoise_2`) runs for the timesteps below
+  `boundaryRatio` · train steps with `guidanceScale2`; the first expert is released at the switch when the model holds one stage at a time.
+- Image-to-video by channel concatenation (Wan 2.2 I2V-A14B): the transformer takes more channels than the VAE gives; the pipeline
+  encodes the start image followed by blank frames with the streamed causal encoder (`vae_encode`, then `vae_encode_next` per
+  temporal-compression frames, the temporal downsampling over the previous chunk's last frame) and concatenates a mask that is 1 on the
+  first latent frame and the encoded latents to the noisy latents of every transformer input.
 - Tokenizer fix: Hugging Face templates that start with the sequence (T5 / umT5 `$A </s>`) no longer add a BOS token when the
   tokenizer configuration names one.
 
@@ -1697,6 +1742,8 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
 - Tiny random LTX-Video pipeline (`~/models/video/tiny-random-ltx`, tools/make-tiny-ltx.py): T5 states, transformer (with a key mask)
   and the whole-video VAE decode of 17 frames within 1e-4 relative RMS, 4-step text-to-video above 40 dB in every frame, CPU and
   Vulkan.
+- Tiny two-expert pipelines (`tiny-random-wan/a14b`: text-to-video; `tiny-random-wan/i2v`: concatenated image-to-video): both experts
+  within 1e-4, whole runs above 40 dB in every frame, CPU and Vulkan.
 - Real models on Vulkan (one RTX PRO 4500, 32 GB) against diffusers in f32 on CUDA, 832×480, 17 frames, 20 UniPC steps,
   guidance 5, the same initial latents: umT5-XXL (bf16 files) 3.0e-6 relative RMS; the transformer 2.4e-4 (Wan 2.1 1.3B, f32
   files), 2.8e-4 (Wan 2.2 TI2V-5B, f32 files) and 2.0e-3 (QuantStack's Wan2.2-TI2V-5B-Q8_0.gguf with the 2.2 folder as companion)

@@ -4,7 +4,7 @@ using Sharplight.Vision;
 namespace Sharplight.Studio.Tests.Fakes;
 
 /// <summary>One fake client for the vision interfaces (a model gets the one of its kind); records the options of every request.</summary>
-internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDetector, IDepthEstimator, IImageSegmenter, ITextRecognizer, IImageUpscaler
+internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDetector, IDepthEstimator, ISemanticSegmenter, IImageSegmenter, ITextRecognizer, IImageUpscaler
 {
     public TaskClientMetadata Metadata { get; } = new(Sharplight.Models.ModelKinds.ImageClassification, "fake-vision", "vit");
 
@@ -62,6 +62,26 @@ internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDete
         Options.Add(options);
         float threshold = options?.ScoreThreshold ?? 0.5f;
         return Task.FromResult(new ObjectDetection([.. Objects.Where(item => item.Score >= threshold)]));
+    }
+
+    /// <summary>Whether the semantic segmenter answers like a matting model (one alpha channel, the left half foreground).</summary>
+    public bool Matte { get; set; }
+
+    IReadOnlyList<string> ISemanticSegmenter.ClassNames => ["sky", "road"];
+
+    public Task<SemanticSegmentation> SegmentAsync(ImageInput image, SemanticSegmentationOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        Options.Add(options);
+        var labels = new int[image.Width * image.Height];
+        for (int i = 0; i < labels.Length; i++)
+        {
+            labels[i] = (i % image.Width) < image.Width / 2 ? 0 : 1;
+        }
+
+        return Task.FromResult(new SemanticSegmentation(image.Width, image.Height, labels, ["sky", "road"])
+        {
+            Alpha = Matte ? [.. labels.Select(l => l == 0 ? 1f : 0f)] : null,
+        });
     }
 
     public Task<DepthMap> EstimateAsync(ImageInput image, DepthEstimationOptions? options = null, CancellationToken cancellationToken = default)

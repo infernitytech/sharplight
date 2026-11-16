@@ -104,6 +104,12 @@ internal static partial class HfTokenizerTranslator
             throw new NotSupportedException($"tokenizer.json model type '{modelType}' is not supported (BPE, WordPiece, Unigram).");
         }
 
+        if (IsWhitespaceBpe(tok, model))
+        {
+            AddWhitespaceBpe(md, dir, config, tok, model);
+            return;
+        }
+
         AddByteLevelBpe(md, dir, config, tok, model);
     }
 

@@ -34,6 +34,13 @@ public static class WellKnown
     /// <summary>Name of the depth map output of <see cref="DepthGraph"/>.</summary>
     public const string DepthOutput = "depth";
     /// <summary>
+    /// Per-pixel (semantic) segmentation: <c>pixels</c> f32 [1, 3, H, W] (the normalized image) in; <see cref="SemanticLogitsOutput"/> f32 [1, K, h, w] (class scores
+    /// per pixel at the model's output resolution, often a fraction of the input) out.
+    /// </summary>
+    public const string SemanticSegmentGraph = "segment_semantic";
+    /// <summary>Name of the class score output of <see cref="SemanticSegmentGraph"/>.</summary>
+    public const string SemanticLogitsOutput = "semantic_logits";
+    /// <summary>
     /// Promptable segmentation, image stage: <c>pixels</c> f32 [1, 3, H, W] (the normalized image) in; the image embedding <see cref="SegmentEmbeddingOutput"/>
     /// [h·w, C] (rows in raster order) and the two high-resolution feature maps <see cref="SegmentFeatures0Output"/> and <see cref="SegmentFeatures1Output"/> ([1, C, H, W]) out. Run once per image.
     /// </summary>

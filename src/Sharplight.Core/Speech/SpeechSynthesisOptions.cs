@@ -1,3 +1,4 @@
+using Sharplight.Audio;
 using Sharplight.Llm;
 
 namespace Sharplight.Speech;
@@ -16,6 +17,15 @@ public sealed record SpeechSynthesisOptions
 
     /// <summary>Token selection of models that generate codec or acoustic tokens autoregressively.</summary>
     public SamplingOptions Sampling { get; init; } = new();
+
+    /// <summary>
+    /// A recording of the voice to speak with (voice cloning), for models that take one (F5-TTS needs it); <see langword="null"/> for the
+    /// <see cref="Voice"/>. Any rate and channel count.
+    /// </summary>
+    public AudioBuffer? ReferenceAudio { get; init; }
+
+    /// <summary>The words spoken in <see cref="ReferenceAudio"/>, for models that align the reference with its text (F5-TTS).</summary>
+    public string? ReferenceText { get; init; }
 
     /// <summary>The defaults.</summary>
     public static SpeechSynthesisOptions Default { get; } = new();
