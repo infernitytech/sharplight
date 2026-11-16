@@ -72,6 +72,7 @@ internal sealed partial class TimmResNetHfMapping : IHfArchitectureMapping
             ShortestEdge = (int)Math.Floor(size / cropPct),
             CropWidth = size,
             CropHeight = size,
+            CropOffsetNearest = true,
             Filter = filter,
             Mean = mean,
             Std = std,

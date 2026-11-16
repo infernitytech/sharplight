@@ -73,6 +73,7 @@ public class ImageEncoderTests
     [InlineData("dinov2-base")]
     [InlineData("dinov2-with-registers-base")]
     [InlineData("dino-vitb16")]
+    [InlineData("vit-base-patch16-224-in21k")]
     public async Task Dinov2EmbeddingMatchesTransformers(string name)
     {
         if (!Available(name))
@@ -101,6 +102,8 @@ public class ImageEncoderTests
     [InlineData("clip-vit-base-patch16")]
     [InlineData("clip-vit-large-patch14")]
     [InlineData("siglip2-base-patch16-224")]
+    [InlineData("CLIP-ViT-B-32-laion2B-s34B-b79K")]
+    [InlineData("siglip-so400m-patch14-384")]
     public async Task DualEncoderMatchesTransformers(string name)
     {
         if (!Available(name) || !Reference(name).TryGetProperty("text_embeddings", out var textRef))
