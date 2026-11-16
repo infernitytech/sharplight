@@ -53,6 +53,33 @@ public sealed class SpeechPackageTests : IDisposable
         Assert.Equal(expected.Segments.SelectMany(s => s.Tokens), actual.Segments.SelectMany(s => s.Tokens));
     }
 
+    /// <summary>The other speech families convert to packages that transcribe like their sources (raw-waveform, CTC and transducer models).</summary>
+    [Theory]
+    [InlineData("moonshine-tiny", "cpu")]
+    [InlineData("parakeet-ctc-0.6b", "vulkan")]
+    [InlineData("parakeet-tdt-0.6b-v3", "vulkan")]
+    public async Task OtherFamiliesPackageAndTranscribeLikeTheirSources(string name, string device)
+    {
+        string source = SpeechEnvironment.HuggingFace(name);
+        if (!SpeechEnvironment.Available(source, device))
+        {
+            Assert.Skip($"{source}, jfk.wav or the {device} device is missing.");
+        }
+
+        string package = Path.Combine(_directory, name + ".slm");
+        TestHost.Converter.Convert(source, package);
+        var description = ModelPackageReader.Open(package).Definition.Description;
+        Assert.Equal(ModelKinds.SpeechRecognition, description.Kind);
+        Assert.Contains(description.Components, c => c.Role == ModelComponentRoles.FeatureExtractor);
+
+        var audio = WavFile.Read(SpeechEnvironment.Jfk);
+        var expected = await Transcribe(source, device, audio, SpeechRecognitionOptions.Default);
+        var actual = await Transcribe(package, device, audio, SpeechRecognitionOptions.Default);
+        Assert.Contains("ask not what your country can do for you", actual.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(expected.Text, actual.Text);
+        Assert.Equal(expected.Segments.SelectMany(s => s.Tokens), actual.Segments.SelectMany(s => s.Tokens));
+    }
+
     /// <summary>Precompiling a speech package for the Vulkan device stores the kernels of both components; a load then compiles nothing new.</summary>
     [Fact]
     public async Task PrecompiledPackageLoadsWithStoredKernels()

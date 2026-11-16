@@ -1072,7 +1072,10 @@ adapter, the model knowledge lives in the importers, and only the feature extrac
 |---|---|---|---|---|
 | Whisper tiny, base, small (and `.en`); medium, large-v1/v2/v3 and turbo map the same way but are not verified yet | Hugging Face `whisper` checkpoints; whisper.cpp ggml `.bin` (f32, f16, q4_0/q4_1/q5_0/q5_1/q8_0, k-quants); `.slm` | **supported** (CPU and Vulkan) | transformers (log-mel, encoder output, token-exact greedy ids with and without timestamps, language detection) and whisper.cpp 5922450f CPU build (segments and texts) | hf/whisper-{tiny,tiny.en,base,small}, whisper.cpp/ggml-{tiny,tiny.en,base,base.en,small,small.en}[-q5_1].bin, audio/jfk.wav |
 | Distil-Whisper (distil-small.en, distil-large-v3.5) | Hugging Face (`whisper` model type; f16 `model.safetensors` beside an `fp32` variant) | **supported** (CPU and Vulkan; same graph, 2-layer decoders) | transformers (encoder output, token-exact greedy ids with and without timestamps, beam search) | hf/distil-small.en, hf/distil-large-v3.5 |
-| Moonshine, Parakeet (CTC / TDT), Canary, Voxtral | - | **missing** (next in the speech queue: raw-waveform conv front end, conformer encoder with CTC / transducer decoding loops, Voxtral's audio encoder in front of an LLM) | - | - |
+| Moonshine tiny, base | Hugging Face `moonshine`; `.slm` | **supported** (CPU and Vulkan) | transformers (encoder output, token-exact greedy ids) | hf/moonshine-{tiny,base}, audio/jfk.wav, audio/librispeech-1272-128104-0004.wav |
+| Parakeet CTC (parakeet-ctc-0.6b; 1.1b maps the same way) and TDT (parakeet-tdt-0.6b-v3); RNN-T maps but is not verified | Hugging Face `parakeet_ctc`, `parakeet_tdt`, `parakeet_rnnt` (transformers format); `.slm` | **supported** (CPU and Vulkan) | transformers (NeMo log-mel features, encoder output, token-exact greedy CTC / TDT ids) | hf/parakeet-ctc-0.6b, hf/parakeet-tdt-0.6b-v3 |
+| Canary (canary-1b-v2) | Hugging Face `canary` (transformers format); `.slm` | **supported** (CPU and Vulkan; transcription and translation prompts, no timestamps) | transformers (encoder output, token-exact greedy ids of an English transcription with punctuation) | hf/canary-1b-v2 |
+| Voxtral | - | **missing** (needs the tekken tokenizer and audio embeddings in front of the text generator) | - | - |
 
 How it is built (2026-11-15):
 
@@ -1098,6 +1101,43 @@ How it is built (2026-11-15):
 - Hugging Face checkpoints that ship weight variants next to `model.safetensors` (`model.fp32.safetensors`, ...) load the default file
   only, as transformers does.
 
+Round 2 (2026-11-16): the other speech families on the same engine and task client.
+
+- **Moonshine** (`MoonshineHfMapping` → `encoder_decoder`): a variable-length audio encoder over the raw waveform (feature extractor
+  `waveform`): the `AudioConvStem` generalized to unpadded convolutions with per-convolution activations and a one-group signal norm, rotary
+  attention (`attention.rope.*`, GPT-J pairs on the first 90 % / 62 % of each head) in the encoder and the decoder's self-attention, a
+  SwiGLU decoder MLP (the fused `fc1` split), bias-free LayerNorms, and a decoder prompted with the start token only. The checkpoint's
+  head-dimension padding only aligns the reference kernels and is not mapped. Windows are up to 30 s and not padded; the decoder's cross
+  states hold the rows of the longest window and the decode graph's `RowSpans` input limits the cross-attention to the current window.
+- **Parakeet** (`ParakeetHfMapping` → `conformer_asr`, `ConformerAsrAdapter` + `ConformerEncoder`): NeMo's front end on the host
+  (`log-mel` with pre-emphasis, a symmetric 400-sample window, ln(mel + 2⁻²⁴), per-channel normalization), the 8× depthwise-separable
+  subsampling on the new generic `SequenceConv2d` op (2-D convolution over a time-major feature map whose time axis varies per run),
+  conformer blocks with Transformer-XL relative-position attention on the new generic `RelativeAttention` op (CPU and Vulkan), batch norm
+  folded into a scale and shift at load, the depthwise convolution on `Conv1d` with groups. CTC models output the logits from the encode
+  graph; transducers get the `predict` graph (embedding + LSTM layers from generic ops, the states kept by the host) and the `joint` graph.
+  The decoding runs on the host in Core (`FrameSpeechRecognizer`): CTC greedy (merge repeats, drop blanks) or a prefix beam search
+  (`BeamSize`), greedy RNN-T and TDT (duration-aware row advance, NeMo's symbols-per-step guard). Each window becomes one segment with the
+  times of its first and last token; `TimestampGranularity.Word` gives word times from the token rows (80 ms per encoder row).
+- **Canary** (`CanaryHfMapping` → `encoder_decoder` with `encoder.type` "conformer"): the Parakeet encoder in front of the pre-norm
+  transformer decoder (NeMo's fixed sinusoidal positions as the position table, an embedding LayerNorm), prompted with the checkpoint's
+  template (`speech.prompt_template_ids`: start of context, start of transcript, emotion, source and target language, punctuation, no ITN,
+  no timestamps, no diarization); `Translate` sets the target language to English; requests without a language use English
+  (`speech.default_language`, Canary has no language detection).
+- Recordings longer than a window (30 s) are cut into consecutive windows for the window-length families (Moonshine, Parakeet, Canary)
+  without overlap; Whisper keeps its timestamp-driven long-form loop.
+
+Parity of round 2 (fixtures from `tools/make_{moonshine,parakeet,canary}_fixtures.py`; jfk.wav and the 29.4 s LibriSpeech dev-clean
+utterance 1272-128104-0004, each one window):
+
+| Check | Result |
+|---|---|
+| greedy ids vs transformers `generate`: moonshine-tiny, moonshine-base | identical, CPU and Vulkan, both clips |
+| greedy ids vs transformers: parakeet-ctc-0.6b (CTC), parakeet-tdt-0.6b-v3 (TDT) | identical, CPU and Vulkan, both clips |
+| greedy ids vs transformers: canary-1b-v2 (English transcription with punctuation) | identical, CPU and Vulkan, both clips |
+| NeMo log-mel features vs transformers' `ParakeetFeatureExtractor` | max abs error 6e-5 (values up to 3.4) |
+| encoder output, Moonshine | ≤ 3.3e-5 relative (CPU: f32 sums of the 127-tap waveform convolution in another order), Vulkan ≤ 1e-5 |
+| encoder output, Parakeet and Canary (24 / 32 conformer blocks) | ≤ 2.5e-5 relative, CPU and Vulkan |
+
 Parity on jfk.wav (11 s):
 
 | Check | Result |
@@ -1111,7 +1151,8 @@ Parity on jfk.wav (11 s):
 | whisper.cpp f16 files (6 models): segments with timestamps and `-nt` text | identical to whisper.cpp's CPU build, CPU and Vulkan |
 | whisper.cpp q5_1 files (6 models) | same words; 3 of 24 runs differ in one punctuation mark. ggml multiplies quantized weights with activations quantized to 8 bits, Sharplight with the dequantized weights; whisper.cpp's own CPU and CUDA builds disagree on the same commas (e.g. small.en-q5_1) |
 
-Tests: `tests/Sharplight.Speech.Tests` (`WhisperTransformersParityTests`, `WhisperCppParityTests`, `WhisperCppVocabularyTests`,
+Tests: `tests/Sharplight.Speech.Tests` (`MoonshineParityTests`, `ParakeetParityTests`, `CanaryParityTests`, `CtcDecodingTests`,
+`WhisperTransformersParityTests`, `WhisperCppParityTests`, `WhisperCppVocabularyTests`,
 `SpeechPackageTests`: conversion to `.slm`, loading through the DI task API with identical tokens, per-component precompilation;
 `FourierTransformTests`), fixtures from `tests/Sharplight.Speech.Tests/tools/make_whisper_fixtures.py`; the audio endpoints in
 `Sharplight.Serving.Tests` (`AudioApiTests`); the Studio inspector in `PackageInspectorTests.SpeechPackage_ShowsSpeechRecognitionComponents`.
