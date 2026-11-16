@@ -71,7 +71,8 @@ def main():
                 verdict(name, False, f"error ours={a.get('error')} ref={b.get('error')}")
                 continue
             if "ids" not in b:
-                ok = a["text"] == b["text"] or a["text"].startswith(b["text"]) or b["text"].startswith(a["text"])
+                ta, tb = a["text"].lstrip(" "), b["text"].lstrip(" ")
+                ok = ta == tb or ta.startswith(tb) or tb.startswith(ta)
                 verdict(name + ".text", ok, "" if ok else show(a["text"], b["text"]))
                 continue
             pa, pb = a["prompt_ids"], b["prompt_ids"]

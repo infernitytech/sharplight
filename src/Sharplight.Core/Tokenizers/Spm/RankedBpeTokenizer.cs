@@ -68,18 +68,21 @@ internal sealed class RankedBpeTokenizer : ByteFallbackTokenizer
         }
 
         bool previousWasSpecial = true;
+        bool atTextStart = true;
         foreach (var (fragment, id) in Specials.Split(text, parseSpecial))
         {
             if (id >= 0)
             {
                 output.Add(id);
                 previousWasSpecial = true;
+                atTextStart = false;
                 continue;
             }
 
-            string withPrefix = (AddSpacePrefix && previousWasSpecial ? " " : "") + fragment;
+            string withPrefix = WithSpacePrefix(fragment, atTextStart, previousWasSpecial);
             EncodeText(withPrefix.Replace(' ', '▁'), output);
             previousWasSpecial = false;
+            atTextStart = false;
         }
 
         if (addSpecial && AddEos && EosId is int eos)

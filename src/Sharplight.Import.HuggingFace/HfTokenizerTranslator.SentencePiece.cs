@@ -55,7 +55,26 @@ internal static partial class HfTokenizerTranslator
         md[CanonicalKeys.TokenizerScores] = scores;
         md[CanonicalKeys.TokenizerTokenTypes] = types;
         md[CanonicalKeys.TokenizerAddSpacePrefix] = model.AddDummyPrefix || NormalizerPrependsSpace(tok);
+        // Non-legacy tokenizer.json (Mistral v0.2, Llama 2 conversions with legacy = false): the dummy prefix comes from a Metaspace
+        // pre-tokenizer, which skips text that already starts with a space and, with prepend_scheme "first", text after a special token.
+        string? scheme = MetaspacePrependScheme(tok);
+        if (!NormalizerPrependsSpace(tok) && scheme is "first" or "always" && md[CanonicalKeys.TokenizerAddSpacePrefix] is true)
+        {
+            md[CanonicalKeys.TokenizerSpacePrefixScheme] = scheme;
+        }
         HfSpecialVocab.AddTo(md, dir, config, tok, ReadTokenizerConfig(dir), addedTokens);
+    }
+
+    /// <summary>The <c>prepend_scheme</c> of tokenizer.json's Metaspace pre-tokenizer, or null when it has none.</summary>
+    private static string? MetaspacePrependScheme(JsonElement tok)
+    {
+        if (!tok.TryGetProperty("pre_tokenizer", out var preTokenizer) || preTokenizer.ValueKind != JsonValueKind.Object
+            || FindMetaspace(preTokenizer) is not { } metaspace)
+        {
+            return null;
+        }
+
+        return metaspace.TryGetProperty("prepend_scheme", out var scheme) ? scheme.GetString() : null;
     }
 
     /// <summary>
