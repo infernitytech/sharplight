@@ -1452,9 +1452,9 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 
 | family | formats | status | verified |
 |---|---|---|---|
-| Wan 2.1 T2V (1.3B, 14B) | diffusers folder | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
-| Wan 2.2 TI2V-5B | diffusers folder | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
-| Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts), Wan GGUF (city96 / QuantStack) | - | missing (the I2V and A14B folders are rejected by name) | |
+| Wan 2.1 T2V (1.3B, 14B) | diffusers folder; transformer-only GGUF (city96 / QuantStack, any ggml type) and original-name `.safetensors` (also ComfyUI's `model.diffusion_model.` prefix) with a Wan diffusers folder as companion for the umT5 encoder, tokenizer and VAE | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
+| Wan 2.2 TI2V-5B | diffusers folder; transformer-only GGUF / safetensors with companions as for Wan 2.1 | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
+| Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts); stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing (the I2V and A14B folders are rejected by name) | |
 | LTX-Video, HunyuanVideo, CogVideoX, Mochi | - | missing | |
 
 Design notes:
@@ -1468,6 +1468,10 @@ Design notes:
   column) uses the `Rope` op's multi-axis sections with per-axis frequency divisors (`AxialRope`, shared with FLUX).
 - The first decoded chunk skips the temporal upsampling (as the reference decoder does), so a clip of T latent frames has
   1 + 4 (T − 1) frames; decoding memory does not grow with the clip length.
+- Transformer-only files: `WanCheckpoint` configures the transformer from its tensor shapes (128-wide heads; 48 latent channels =
+  Wan 2.2 TI2V with per-token timesteps and first-frame conditioning); `WanCompanionAdapter` takes the text encoder, tokenizer and
+  VAE from complete `wan` sources given as auxiliary sources (`AuxiliaryRoles.TextEncoder`, `AuxiliaryRoles.Vae`; one diffusers folder
+  serves both), and a file without them fails naming what is missing.
 - Tokenizer fix: Hugging Face templates that start with the sequence (T5 / umT5 `$A </s>`) no longer add a BOS token when the
   tokenizer configuration names one.
 
@@ -1480,7 +1484,9 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
   (4 steps, guidance 5, negative prompt) above 40 dB PSNR in every frame: text-to-video with UniPC and with Euler for both
   layouts, image-to-video for TI2V.
 - Real models on Vulkan (one RTX PRO 4500, 32 GB) against diffusers in f32 on CUDA, 832×480, 17 frames, 20 UniPC steps,
-  guidance 5, the same initial latents: umT5-XXL (bf16 files) 3.0e-6 relative RMS for both models; the transformer 2.4e-4 (Wan 2.1
-  1.3B) and 2.8e-4 (Wan 2.2 TI2V-5B, f32 files) relative RMS; Wan 2.2 TI2V-5B image-to-video worst frame 55.1 dB PSNR (468.7 s
-  for the whole run including the first-time kernel compilation of every graph). The Wan 2.1 folder's f32 umT5 (22.7 GB) is the
-  same model as Wan 2.2's bf16 one (1.7e-3 relative weight difference = bf16 rounding); the references use the bf16 files.
+  guidance 5, the same initial latents: umT5-XXL (bf16 files) 3.0e-6 relative RMS; the transformer 2.4e-4 (Wan 2.1 1.3B, f32
+  files), 2.8e-4 (Wan 2.2 TI2V-5B, f32 files) and 2.0e-3 (QuantStack's Wan2.2-TI2V-5B-Q8_0.gguf with the 2.2 folder as companion)
+  relative RMS. Whole runs, worst frame PSNR: Wan 2.1 text-to-video 50.8 dB, Wan 2.2 TI2V image-to-video 55.1 dB, the Q8_0 GGUF
+  51.1 dB (first runs including the kernel compilation of every graph: 202 s, 305 s, 460 s). The Wan 2.1 folder's f32 umT5
+  (22.7 GB) is the same model as Wan 2.2's bf16 one (1.7e-3 relative weight difference = bf16 rounding); the references use the
+  bf16 files.

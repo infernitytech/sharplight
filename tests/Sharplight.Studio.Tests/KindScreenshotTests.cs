@@ -45,7 +45,7 @@ public sealed class KindScreenshotTests
             Assert.True(library.HasKindFilter);
             Save(window, "library-kinds");
 
-            library.SelectKind("video-generation");
+            library.SelectKind("time-series");
             await HeadlessApp.RenderAsync(window);
             Assert.Single(library.VisibleEntries);
             Save(window, "library-kind-filter");
@@ -69,7 +69,7 @@ public sealed class KindScreenshotTests
             services.Hub.Results.Clear();
             services.Hub.Results.AddRange(
             [
-                new HubModelSummary("example-lab/Tiny-Diffusion-XL", 640_000, 3_900, false, "diffusers", "text-to-video", null, [ModelFormat.Diffusers], [], License: "apache-2.0"),
+                new HubModelSummary("example-lab/Tiny-Diffusion-XL", 640_000, 3_900, false, "diffusers", "time-series-forecasting", null, [ModelFormat.Diffusers], [], License: "apache-2.0"),
                 new HubModelSummary("example-lab/Pixel-Upscaler", 88_000, 410, false, "diffusers", "image-to-image", null, [ModelFormat.Diffusers], [], License: "mit"),
                 new HubModelSummary("example-lab/Mini-Flow", 12_000, 120, true, "diffusers", "text-to-image", null, [ModelFormat.Diffusers], [], License: "other"),
             ]);
@@ -114,7 +114,7 @@ public sealed class KindScreenshotTests
             Id = id, DisplayName = id, Path = $"/models/{id}.slm", Architecture = architecture, Format = "SLM", SizeBytes = size, Kind = kind, KindInferred = inferred,
             AddedAt = now.AddDays(-2),
         };
-        services.Library.Entries.Add(Other("example-lab/Tiny-Diffusion-XL", "video-generation", 6_900_000_000, "sdxl"));
+        services.Library.Entries.Add(Other("example-lab/Tiny-Diffusion-XL", "time-series", 6_900_000_000, "sdxl"));
         services.Library.Entries.Add(Other("openai/whisper-small", ModelKinds.SpeechRecognition, 488_000_000, "whisper"));
         services.Library.Entries.Add(Other("example-lab/bge-small", ModelKindCatalog.Embeddings, 133_000_000, "bert"));
         services.Hub.TaskHighlights[ModelTask.SpeechToText] =

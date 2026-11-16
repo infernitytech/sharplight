@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using Sharplight.Imaging;
 using Sharplight.Models;
+using Sharplight.Tasks;
 using Sharplight.VideoGeneration;
+using Sharplight.Vision;
 
 namespace Sharplight.ImageGeneration.Tests;
 
@@ -15,10 +17,22 @@ namespace Sharplight.ImageGeneration.Tests;
 [Collection(LargeModelCollection.Name)]
 public sealed class WanTests
 {
-    public static TheoryData<string> Variants => ["2.1", "2.2"];
+    /// <summary>"2.1", "2.2" (diffusers folders) and "2.2-gguf" (QuantStack's Q8_0 transformer with the 2.2 folder as companion).</summary>
+    public static TheoryData<string> Variants => ["2.1", "2.2", "2.2-gguf"];
+
+    private static string FolderOf(string variant)
+        => Path.Combine(Env.VideoRoot, variant == "2.1" ? "Wan2.1-T2V-1.3B-Diffusers" : "Wan2.2-TI2V-5B-Diffusers");
 
     private static string ModelPath(string variant)
-        => Path.Combine(Env.VideoRoot, variant == "2.1" ? "Wan2.1-T2V-1.3B-Diffusers" : "Wan2.2-TI2V-5B-Diffusers");
+        => variant == "2.2-gguf" ? Path.Combine(Env.VideoRoot, "wan22-gguf", "Wan2.2-TI2V-5B-Q8_0.gguf") : FolderOf(variant);
+
+    private static TaskModel Load(string variant, Runtime.DeviceSlot slot)
+        => variant == "2.2-gguf"
+            ? Env.Load(ModelPath(variant), slot, new Dictionary<string, string> { [AuxiliaryRoles.TextEncoder] = FolderOf(variant), [AuxiliaryRoles.Vae] = FolderOf(variant) })
+            : Env.Load(ModelPath(variant), slot);
+
+    /// <summary>Q8_0 weights against the f32 reference: the file's quantization error, not the implementation's.</summary>
+    private static double Tolerance(string variant) => variant == "2.2-gguf" ? 5e-2 : 5e-3;
 
     private static string Reference(string variant) => Path.Combine(Env.VideoRoot, variant == "2.1" ? "wan21-reference" : "wan22-i2v-reference", "reference");
 
@@ -31,7 +45,7 @@ public sealed class WanTests
     }
 
     private static Runtime.DeviceSlot? Gpu(string variant)
-        => Directory.Exists(ModelPath(variant)) && File.Exists(Path.Combine(Reference(variant), "index.json")) ? Env.Vulkan() : null;
+        => (Directory.Exists(ModelPath(variant)) || File.Exists(ModelPath(variant))) && Directory.Exists(FolderOf(variant)) && File.Exists(Path.Combine(Reference(variant), "index.json")) ? Env.Vulkan() : null;
 
     private static Dictionary<string, long> Dimensions(JsonElement index) => new()
     {
@@ -46,7 +60,7 @@ public sealed class WanTests
     {
         var slot = Gpu(variant);
         Assert.SkipWhen(slot is null, $"Wan {variant}, its references or a Vulkan GPU missing");
-        using var model = Env.Load(ModelPath(variant), slot!);
+        using var model = Load(variant, slot!);
         var index = Index(variant);
         var tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
         foreach (var (prompt, name) in new[] { (index.GetProperty("prompt").GetString()!, "text_hidden"), (index.GetProperty("negative_prompt").GetString()!, "negative_hidden") })
@@ -76,7 +90,7 @@ public sealed class WanTests
             (VideoDiffusionGraphs.Context, Tensor(variant, "text_hidden")));
         var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor(variant, "transformer_out"));
         TestContext.Current.SendDiagnosticMessage($"Wan {variant} transformer: relative RMS {transformerRms:E2}");
-        Assert.True(transformerRms < 5e-3, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
+        Assert.True(transformerRms < Tolerance(variant), $"transformer: max {transformerMax}, relative RMS {transformerRms}");
     }
 
     [Theory]
@@ -85,7 +99,7 @@ public sealed class WanTests
     {
         var slot = Gpu(variant);
         Assert.SkipWhen(slot is null, $"Wan {variant}, its references or a Vulkan GPU missing");
-        using var model = Env.Load(ModelPath(variant), slot!);
+        using var model = Load(variant, slot!);
         using var generator = Env.Clients.Create<IVideoGenerator>(model);
         var index = Index(variant);
         int width = index.GetProperty("width").GetInt32();
@@ -118,6 +132,6 @@ public sealed class WanTests
         }
 
         TestContext.Current.SendDiagnosticMessage($"Wan {variant} {width}x{height}x{result.Frames.Count}: {seconds:F1} s (incl. compilation), worst frame {worst:F1} dB");
-        Assert.True(worst > 25, $"Wan {variant}: worst frame PSNR {worst:F1} dB");
+        Assert.True(worst > (variant == "2.2-gguf" ? 20 : 25), $"Wan {variant}: worst frame PSNR {worst:F1} dB");
     }
 }

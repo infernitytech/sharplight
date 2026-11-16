@@ -5,6 +5,8 @@ internal sealed record GenerateVideoSettings
 {
     public required string Model { get; init; }
 
+    public string? Companions { get; init; }
+
     public required string Prompt { get; init; }
 
     public string? NegativePrompt { get; init; }
