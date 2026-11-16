@@ -27,6 +27,13 @@ public static class AuxiliaryRoles
     /// <summary>The autoencoder of an image generator distributed without it (FLUX's 16-channel VAE).</summary>
     public const string Vae = "vae";
 
+    /// <summary>
+    /// A low-rank adaptation (LoRA) merged into the primary's weights at load (<see cref="Models.IWeightPatch"/>). Several LoRAs take
+    /// distinct roles that start with this name (<c>lora</c>, <c>lora:2</c>, ...); a <c>@scale</c> suffix sets the strength (default 1,
+    /// e.g. <c>lora@0.8</c>, see <see cref="Models.WeightPatches.Scale"/>).
+    /// </summary>
+    public const string Lora = "lora";
+
     /// <summary>A second denoiser of a two-expert model (Wan 2.2 A14B: the low-noise transformer beside the high-noise one).</summary>
     public const string SecondTransformer = "transformer-2";
 }

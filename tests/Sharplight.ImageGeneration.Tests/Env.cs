@@ -69,6 +69,15 @@ internal static class Env
     /// <summary>The tiny random Z-Image pipeline (tools/make-tiny-zimage.py).</summary>
     public static readonly string TinyZImage = Path.Combine(Home, "models/zimage/tiny-random-zimage");
 
+    /// <summary>The tiny random LoRAs and their references (tools/make-tiny-lora.py).</summary>
+    public static readonly string TinyLora = Path.Combine(Home, "models/lora/tiny-lora");
+
+    /// <summary>The tiny random Qwen-Image pipeline (tools/make-tiny-qwen-image.py).</summary>
+    public static readonly string TinyQwenImage = Path.Combine(Home, "models/qwen-image/tiny-random-qwen-image");
+
+    /// <summary>The Qwen-Image model folder (the Qwen-Image diffusers folder without the transformer weights, GGUF files, references).</summary>
+    public static readonly string QwenImageRoot = Path.Combine(Home, "models/qwen-image");
+
     /// <summary>The Z-Image model folder (the Z-Image-Turbo diffusers folder, GGUF files, references).</summary>
     public static readonly string ZImageRoot = Path.Combine(Home, "models/zimage");
 
@@ -78,8 +87,10 @@ internal static class Env
     /// <summary>The tiny random Wan pipelines (tools/make-tiny-wan.py: t2v, ti2v).</summary>
     public static readonly string TinyWan = Path.Combine(Home, "models/video/tiny-random-wan");
 
-    /// <summary>The video models' folder.</summary>
-    public static readonly string VideoRoot = Path.Combine(Home, "models/video");
+    /// <summary>The video models' folder (SHARPLIGHT_VIDEO_ROOT overrides it, e.g. with a copy on a local disk).</summary>
+    public static readonly string VideoRoot = Environment.GetEnvironmentVariable("SHARPLIGHT_VIDEO_ROOT") is { Length: > 0 } videoRoot
+        ? videoRoot
+        : Path.Combine(Home, "models/video");
 
     /// <summary>Stable Diffusion 1.5 as a diffusers folder.</summary>
     public static readonly string Sd15Diffusers = Path.Combine(Home, "models/sd/sd15-diffusers");

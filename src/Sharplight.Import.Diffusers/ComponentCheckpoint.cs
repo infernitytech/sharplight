@@ -24,11 +24,22 @@ internal static class ComponentCheckpoint
     /// <summary>Canonical architecture of a T5 encoder source.</summary>
     public const string T5Architecture = "encoder_decoder";
 
+    /// <summary>
+    /// Architecture id of a stand-alone Wan-style causal 3-D VAE (Qwen-Image's, Wan 2.1's: diffusers or original names); weights under
+    /// <c>vae.</c>, configuration under <c>wan_autoencoder.vae.*</c>.
+    /// </summary>
+    public const string WanAutoencoderArchitecture = "wan_autoencoder";
+
     /// <summary>The kind of component a file holds, from its tensor names, or null.</summary>
     /// <param name="names">The tensor names.</param>
     public static string? Classify(IReadOnlyCollection<string> names)
     {
         bool Has(string name) => names.Contains(name);
+        if (LoraCheckpoint.IsLora(names))
+        {
+            return LoraCheckpoint.Architecture;
+        }
+
         if (names.Any(n => n.StartsWith("vision_model.", StringComparison.Ordinal) || n.StartsWith("model.diffusion_model.", StringComparison.Ordinal)))
         {
             return null;
@@ -37,6 +48,11 @@ internal static class ComponentCheckpoint
         if (Has("text_model.encoder.layers.0.self_attn.q_proj.weight") || Has("encoder.layers.0.self_attn.q_proj.weight") && Has("embeddings.token_embedding.weight"))
         {
             return ClipArchitecture;
+        }
+
+        if (WanVaeOriginalNames.IsOriginal(names) || WanVaeOriginalNames.IsDiffusers(names))
+        {
+            return WanAutoencoderArchitecture;
         }
 
         if ((Has("encoder.conv_in.weight") || Has("encoder.down_blocks.0.resnets.0.conv1.weight")) && Has("decoder.conv_in.weight"))
@@ -85,7 +101,7 @@ internal static class ComponentCheckpoint
         try
         {
             tensors.Add(path);
-            string kind = Classify([.. tensors.Tensors.Keys]) ?? throw new NotSupportedException($"'{path}' is not a CLIP text encoder, KL autoencoder or T5 encoder.");
+            string kind = Classify([.. tensors.Tensors.Keys]) ?? throw new NotSupportedException($"'{path}' is not a CLIP text encoder, KL autoencoder, Wan VAE or T5 encoder.");
             string? configPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, "config.json");
             JsonElement? config = File.Exists(configPath) ? ReadJson(configPath) : null;
             var metadata = new Dictionary<string, object>(StringComparer.Ordinal)
@@ -101,6 +117,9 @@ internal static class ComponentCheckpoint
                     break;
                 case AutoencoderArchitecture:
                     OpenVae(tensors, config, weights, metadata);
+                    break;
+                case WanAutoencoderArchitecture:
+                    OpenWanVae(tensors, config, weights, metadata);
                     break;
                 default:
                     return OpenT5(path, tensors, config, metadata);
@@ -173,6 +192,25 @@ internal static class ComponentCheckpoint
     /// tanh-GELU feed-forward, ε 1e-6), the tokenizer from a <c>tokenizer.json</c> beside the file or in the sibling tokenizer folder of
     /// a diffusers layout (<c>text_encoder_2</c> → <c>tokenizer_2</c>).
     /// </summary>
+    private static void OpenWanVae(CheckpointTensors tensors, JsonElement? config, CanonicalWeights weights, Dictionary<string, object> metadata)
+    {
+        var names = tensors.Tensors.Keys.ToList();
+        var renames = WanVaeOriginalNames.IsOriginal(names) ? WanVaeOriginalNames.Map(names) : names.ToDictionary(n => n, n => n, StringComparer.Ordinal);
+        foreach (var (stored, weight) in tensors.Tensors)
+        {
+            WanNames.AddVae(renames[stored], weight, weights);
+        }
+
+        if (config is { } c && c.TryGetProperty("latents_mean", out _))
+        {
+            WanVaeConfig.WriteTo(c, metadata, WanAutoencoderArchitecture + ".");
+        }
+        else
+        {
+            WanVaeConfig.WriteFromWeights(weights.Weights, metadata, WanAutoencoderArchitecture + ".");
+        }
+    }
+
     private static ModelSource OpenT5(string path, CheckpointTensors tensors, JsonElement? config, Dictionary<string, object> metadata)
     {
         string folder = Path.GetDirectoryName(Path.GetFullPath(path))!;

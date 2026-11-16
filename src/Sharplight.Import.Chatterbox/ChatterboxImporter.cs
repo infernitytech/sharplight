@@ -212,7 +212,7 @@ public sealed class ChatterboxImporter : IModelImporter
                 };
             }
 
-            var logical = entry.Permutation is { } permutation ? Permute(storage, entry.Shape, permutation) : storage;
+            var logical = entry.Permutation is { } permutation ? TorchPermutation.ToLogical<double>(storage, entry.Shape, permutation) : storage;
             byte[] bytes = integer
                 ? MemoryMarshal.AsBytes(logical.Select(v => (int)v).ToArray().AsSpan()).ToArray()
                 : MemoryMarshal.AsBytes(logical.Select(v => (float)v).ToArray().AsSpan()).ToArray();
@@ -224,38 +224,6 @@ public sealed class ChatterboxImporter : IModelImporter
         Add("gen.prompt_token", "flow_tokens.i32", integer: true);
         Add("gen.prompt_feat", "flow_mel.f32", integer: false);
         Add("gen.embedding", "flow_speaker.f32", integer: false);
-    }
-
-    // Values in storage order (shape storageShape) as the row-major logical tensor whose axis i is storage axis permutation[i].
-    private static double[] Permute(double[] storage, long[] storageShape, int[] permutation)
-    {
-        int rank = storageShape.Length;
-        var logicalShape = permutation.Select(p => storageShape[p]).ToArray();
-        var storageStrides = new long[rank];
-        long stride = 1;
-        for (int i = rank - 1; i >= 0; i--)
-        {
-            storageStrides[i] = stride;
-            stride *= storageShape[i];
-        }
-
-        var result = new double[storage.Length];
-        var index = new long[rank];
-        for (long flat = 0; flat < result.Length; flat++)
-        {
-            long remainder = flat;
-            long offset = 0;
-            for (int i = rank - 1; i >= 0; i--)
-            {
-                index[i] = remainder % logicalShape[i];
-                remainder /= logicalShape[i];
-                offset += index[i] * storageStrides[permutation[i]];
-            }
-
-            result[flat] = storage[offset];
-        }
-
-        return result;
     }
 
     // The release's fixed T3 and S3Gen settings (chatterbox models/t3/modules/t3_config.py, s3gen/s3gen.py).

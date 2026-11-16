@@ -84,7 +84,7 @@ internal static partial class FluxNames
         return weight.GatherRows(weight.Name, [(half, half), (0, half)]);
     }
 
-    private static string? OriginalName(string name)
+    internal static string? OriginalName(string name)
     {
         if (ApproximatorName(name) is { } approximator)
         {
@@ -152,7 +152,7 @@ internal static partial class FluxNames
     }
 
     /// <summary>The canonical name of a diffusers tensor, and its row block index when several are joined into it (else −1).</summary>
-    private static (string? Canonical, int Part) DiffusersName(string name)
+    internal static (string? Canonical, int Part) DiffusersName(string name)
     {
         if (ApproximatorName(name) is { } approximator)
         {

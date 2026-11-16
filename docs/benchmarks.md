@@ -1281,8 +1281,23 @@ the CPU; 40 of the 48 layers fill the 32 GB GPU (27.7 GiB), 8 layers run on the 
 * k = 2 is the best setting here (1.41x); the 8 CPU layers make every verification row cost more, so k = 3 loses again.
 * The speculative runs are identical to each other and meet the plain run at the same near-tie as above (gap 0.06), now
   flipped the other way: on the GPU, `RowInvariantRows` makes the matmuls and attention of 2-4-row steps bit-identical to
-  single-row steps, and the row-invariance tests cover those, but not every op this model runs (expert matmuls on IQ1_S, the
-  delta-rule replay, the indexer, the CPU segments' hand-off). Open item: find the op that breaks invariance here.
+  single-row steps (the row-invariance tests now include the IQ formats and expert matmuls, all bit-identical), but not every
+  op this model runs (the delta-rule replay, the indexer, the n-gram convolution, the CPU layers). Open item: find the op that
+  breaks invariance here.
+
+### 17.6 MiMo-7B-RL: MTP on bf16 weights (2026-11-16)
+
+XiaomiMiMo/MiMo-7B-RL (HF `mimo`, bf16 safetensors, one MTP layer `model.mtp_layers.0` imported as the NextN draft head), one RTX
+PRO 4500, CLI, raw essay prompt, greedy, 200 tokens. Output is byte-identical to plain decoding for k = 1, 2 and 3.
+
+| k | tok/s | acceptance (accepted / drafted) |
+|---|---|---|
+| off | 37.6 | |
+| 1 | 74.6 (1.98x) | 0.66 (79 / 119) |
+| 2 | 50.0 (1.33x) | 0.43 (91 / 213) |
+| 3 | 34.9 (0.93x) | 0.30 (93 / 313) |
+
+MiMo's MTP layer is trained for the next-but-one token only; chained further it guesses much worse, so k = 1 is the setting.
 
 ## 18. Chunked gated delta rule and token-parallel conv1d for prefill (2026-11-14)
 
