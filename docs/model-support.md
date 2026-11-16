@@ -1853,7 +1853,8 @@ Open:
 1. **Vulkan row invariance for every op of qwen4exp.** Speculative verification (2-4 rows) must compute each row exactly as plain
    one-row decoding does. `RowInvariantRows` guarantees that for matmuls and attention (`RowInvarianceTests`), but on
    Qwen3.8-Flash-Next (UD-IQ1_S) the MTP runs leave plain greedy output at one near-tie (logit gap 0.06; benchmarks section 17.5.1).
-   Candidates: the expert matmuls (`MatMulId`) on IQ1_S, the delta-rule record-and-replay, the QSA indexer, the CPU segments.
+   Ruled out: matmuls and expert matmuls (`MatMulId`) of every format family incl. IQ1_S / IQ4_NL (`RowInvarianceTests`). Left: the
+   delta-rule record-and-replay, the QSA indexer, the n-gram convolution, the CPU layers' ops other than matmuls.
    The CPU matmul side is fixed (up to 4 rows run the fused kernel row by row).
 2. **OPT variants.** Post-norm OPT (`do_layer_norm_before = false`, OPT-350m) and projected embeddings (`word_embed_proj_dim` other than the
    hidden size) are refused by the mapping; both are small additions to the decoder (a post-norm layer flag and in/out projections).
