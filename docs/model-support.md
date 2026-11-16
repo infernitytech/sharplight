@@ -1418,9 +1418,9 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 
 | family | formats | status | verified |
 |---|---|---|---|
-| Wan 2.1 T2V (1.3B, 14B) | diffusers folder | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
-| Wan 2.2 TI2V-5B | diffusers folder | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
-| Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts), Wan GGUF (city96 / QuantStack) | - | missing (the I2V and A14B folders are rejected by name) | |
+| Wan 2.1 T2V (1.3B, 14B) | diffusers folder; transformer-only GGUF (city96 / QuantStack, any ggml type) and original-name `.safetensors` (also ComfyUI's `model.diffusion_model.` prefix) with a Wan diffusers folder as companion for the umT5 encoder, tokenizer and VAE | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
+| Wan 2.2 TI2V-5B | diffusers folder; transformer-only GGUF / safetensors with companions as for Wan 2.1 | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
+| Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts); stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing (the I2V and A14B folders are rejected by name) | |
 | LTX-Video, HunyuanVideo, CogVideoX, Mochi | - | missing | |
 
 Design notes:
@@ -1434,6 +1434,10 @@ Design notes:
   column) uses the `Rope` op's multi-axis sections with per-axis frequency divisors (`AxialRope`, shared with FLUX).
 - The first decoded chunk skips the temporal upsampling (as the reference decoder does), so a clip of T latent frames has
   1 + 4 (T − 1) frames; decoding memory does not grow with the clip length.
+- Transformer-only files: `WanCheckpoint` configures the transformer from its tensor shapes (128-wide heads; 48 latent channels =
+  Wan 2.2 TI2V with per-token timesteps and first-frame conditioning); `WanCompanionAdapter` takes the text encoder, tokenizer and
+  VAE from complete `wan` sources given as auxiliary sources (`AuxiliaryRoles.TextEncoder`, `AuxiliaryRoles.Vae`; one diffusers folder
+  serves both), and a file without them fails naming what is missing.
 - Tokenizer fix: Hugging Face templates that start with the sequence (T5 / umT5 `$A </s>`) no longer add a BOS token when the
   tokenizer configuration names one.
 
