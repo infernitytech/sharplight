@@ -269,6 +269,9 @@ internal static class DiagnosticSwitches
     /// <summary>True when tensor-core GEMMs read an f16 copy of the activations.</summary>
     public static bool GemmHalfActivations { get; } = IsNotZero("SHARPLIGHT_GEMM_X16");
 
+    /// <summary>False runs f16 / bf16 matmul pairs (gate / up) at prefill as two gemm_cm2 launches and an elementwise launch.</summary>
+    public static bool DualGemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2_DUAL");
+
     /// <summary>
     /// Token tiles per group of the grouped tile order of the tensor-core GEMMs (<c>SHARPLIGHT_GEMM_GROUP=n</c>; 0 keeps the
     /// launch order, column tiles first).
