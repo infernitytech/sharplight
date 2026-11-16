@@ -50,19 +50,36 @@ public class F5TtsTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Text_and_reference_mel_match_the_reference(bool gpu)
+    public void Text_and_duration_match_the_reference(bool gpu)
     {
         using var model = Load(gpu);
         using var synthesizer = (F5Synthesizer)TtsModels.Synthesizer(model);
         var (text, cond, duration, _, _) = synthesizer.Prepare(Info().GetProperty("text").GetString()!, Request());
         Assert.Equal(Ints("text"), text);
         Assert.Equal(Info().GetProperty("duration").GetInt32(), duration);
-        var reference = Floats("cond");
+        Assert.Equal(Floats("cond").Length, cond.Length);
+    }
+
+    /// <summary>
+    /// The reference recording's log-mel, on a 24 kHz copy (<c>reference24.wav</c>, resampled by the tool) so that neither side resamples: the log floor
+    /// of 1e-5 turns the resamplers' differences in near-silent frames into large log differences.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reference_mel_matches_the_reference(bool gpu)
+    {
+        TtsModels.Require(Path.Combine(Reference, "reference24.wav"), Path.Combine(Reference, "cond24.bin"));
+        using var model = Load(gpu);
+        using var synthesizer = (F5Synthesizer)TtsModels.Synthesizer(model);
+        var request = Request() with { ReferenceAudio = WavFile.Read(Path.Combine(Reference, "reference24.wav")) };
+        var (_, cond, _, _, _) = synthesizer.Prepare(Info().GetProperty("text").GetString()!, request);
+        var reference = Floats("cond24");
         Assert.Equal(reference.Length, cond.Length);
         double error = RelativeError(reference, cond);
-        int worst = Enumerable.Range(0, reference.Length).MaxBy(i => Math.Abs(reference[i] - cond[i])) / 100;
-        ParityReport.Write($"F5-TTS reference mel {(gpu ? "vulkan" : "cpu")}: relative RMS error {error:E2}, max abs error {MaxAbs(reference, cond):E2} at frame {worst} of {reference.Length / 100}");
-        Assert.True(error < 2e-2, $"reference mel relative RMS error {error:E2}");
+        ParityReport.Write($"F5-TTS reference mel {(gpu ? "vulkan" : "cpu")}: relative RMS error {error:E2}, max abs error {MaxAbs(reference, cond):E2}");
+        // Bins near the 1e-5 floor turn float differences of the magnitude into log differences up to 1 (5e-3 relative RMS overall).
+        Assert.True(error < 1e-2, $"reference mel relative RMS error {error:E2}");
     }
 
     [Theory]

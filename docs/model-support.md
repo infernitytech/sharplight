@@ -1050,6 +1050,7 @@ codecs and vocoders are graphs of generic Core ops; the host runs only the token
 | Kokoro-82M v1.0 (hexgrad; StyleTTS 2 style model, ALBERT text encoder, iSTFTNet decoder), all voice packs of the repository (af_heart verified) | supported, CPU and Vulkan | `kokoro` 0.9.4 on torch (CPU), excitation noise of the reference run fed to both | symbols, rounded durations and the F0 curve identical (F0 relative RMS 5e-7 CPU, 4e-7 Vulkan); decoder features before the generator 1.5e-6; conv_post output 5e-4; waveform relative RMS 1.3e-2 (CPU) / 1.3e-2 (Vulkan), which is the reproducibility floor of the sine excitation (the reference itself moves 1.0-1.2 % between an f32 and an f64 phase accumulation) |
 | Orpheus 3B fine-tune (Llama decoder over SNAC codes) + SNAC 24 kHz decoder | supported, CPU and Vulkan | transformers (fp32, greedy chain of 140 tokens, teacher forced) and the `snac` package | prompt ids identical; 0 argmax disagreements over 140 positions, worst top-logit delta 0.003 (CPU and Vulkan); SNAC decoder waveform relative RMS 2.1e-6 (CPU) / 2.4e-6 (Vulkan) with the reference's noise |
 | Chatterbox (ResembleAI/chatterbox, English; T3 Llama 520M over S3 speech tokens, S3Gen flow matching, HiFT vocoder), built-in voice | supported, CPU and Vulkan | the `chatterbox-tts` package 0.1.7 on torch (CPU, float32; `tests/Sharplight.TextToSpeech.Tests/tools/make_chatterbox_reference.py`) | text tokens identical; conditioning rows 7e-7 (CPU) / 4e-7 (Vulkan) relative RMS; T3 guided greedy chain teacher forced: 0 argmax disagreements over 92 steps (reference margins down to 1.5e-3); flow mel for the reference tokens and noise 4.4e-7 / 5.9e-7; HiFT F0 7.4e-7 / 7.8e-7 and waveform 5.6e-6 / 7.0e-6 with the reference's source draws |
+| F5-TTS v1 Base (SWivid; flow-matching diffusion transformer over characters) + Vocos mel 24 kHz, voice of a reference recording | supported, CPU and Vulkan | the `f5-tts` package 1.1.22 on torch (CPU, float32; `tools/make_f5tts_reference.py`, jfk.wav as the reference) | character ids and duration identical; sampled mel from the reference's log-mel and noise (32 guided Euler steps) 4.2e-6 (CPU) / 3.5e-5 (Vulkan) relative RMS; Vocos waveform 2.4e-5 / 1.8e-5; the reference log-mel within 5e-3 on a 24 kHz copy of the recording (from 16 kHz the resamplers differ in near-silent frames, which the log floor magnifies) |
 | CSM-1B + Mimi, Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
@@ -1117,6 +1118,20 @@ the repetition penalty (1.2) to the guided logits and samples (temperature 0.8, 
 plus the generated ones, runs ten Euler steps of the guided flow (cosine time schedule, guidance 0.7) from Gaussian noise, and vocodes the frames after
 the prompt with a 20 ms fade-in. Not done: voice cloning from a reference clip (the voice encoder, the S3 speech tokenizer and CAMPPlus as graphs), the
 multilingual and Turbo checkpoints, the watermark (the reference adds Perth's implicit watermark; Sharplight does not).
+
+F5-TTS loading: the model is the checkpoint folder (`Sharplight.Import.F5Tts`, `F5TtsImporter`: `model_*.safetensors` with the EMA transformer under
+`ema_model.transformer.`, `vocab.txt`; hyper-parameters read from the weight shapes; the character vocabulary as `tokenizer/characters.json`; the
+reference front end as a log-mel component: magnitude STFT, torchaudio's HTK mel bank without normalization, ln with a 1e-5 floor, the new
+`magnitude` option of `LogMelSpectrogram`) and the Vocos folder its `vocoder` auxiliary (`VocosImporter`; `TaskLoadOptions.Auxiliary =
+[("vocoder", vocosFolder)]`, `--vocoder` of `samples/Sharplight.Speak`). `F5Adapter` (composite, canonical `f5tts`) builds `f5_transformer` (the
+text embedding with ConvNeXt V2 blocks and filler masking, the input projection with the grouped convolutional position embedding, the time MLP, 22
+DiT blocks with adaptive LayerNorm modulation and interleaved-pair rotary attention, the final adaptive norm) and `vocos` (ConvNeXt backbone and the
+ISTFT head up to the inverse-DFT frames). `F5Synthesizer` follows `infer_process`: the reference recording (`SpeechSynthesisOptions.ReferenceAudio`
+and `ReferenceText`, new) RMS-raised to 0.1 when quieter, the characters of reference text plus text (the reference's segmenter's space insertion
+between punctuation and words reproduced for text without Chinese characters), the duration from the reference's frames and the UTF-8 byte ratio,
+32 Euler steps over sway-sampled times (coefficient −1) with guidance 2 (a second evaluation without reference audio and text, keeping the filler
+mask), Vocos over the frames after the reference. Not done: Chinese text (pinyin conversion), automatic transcription of the reference, chunking of
+long texts.
 
 ## 13. Speech to text (task kind `speech-recognition`)
 
