@@ -7,6 +7,10 @@ namespace Sharplight.Import.PyTorch;
 internal static class TorchCheckpointReader
 {
     private const int MaxDepth = 8;
+
+    /// <summary>The name of the only tensor of a file written by <c>torch.save(tensor)</c>.</summary>
+    public const string SingleTensorName = "tensor";
+
     private static readonly BigInteger s_legacyMagic = BigInteger.Parse("119547037146038801333356");
 
     /// <summary>Indexes the tensors of <paramref name="file"/>.</summary>
@@ -163,6 +167,12 @@ internal static class TorchCheckpointReader
 
     private static Dictionary<string, TorchTensorEntry> Resolve(object? root, TorchCheckpointOptions options, Func<PickleStorageRef, (long Offset, long Bytes)> locate)
     {
+        if (root is PickleTensorRef single)
+        {
+            // A file written by torch.save(tensor): one entry named "tensor".
+            return new Dictionary<string, TorchTensorEntry>(StringComparer.Ordinal) { [SingleTensorName] = Describe(SingleTensorName, single, locate) };
+        }
+
         if (root is not PickleDict dict)
         {
             throw new InvalidDataException("The checkpoint does not hold a dictionary of tensors.");
