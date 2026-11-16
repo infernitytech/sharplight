@@ -1267,7 +1267,8 @@ planner placed every trunk layer on the CPU (1 GiB on the GPU, 61 GiB on the CPU
 
 #### 17.5.1 After the placement fix: trunk on the GPU
 
-Same model, prompt and CLI run; the files on local disk. The 26.8 GiB n-gram table (IQ4_NL) is its own placement group and goes to
+Same model, prompt and CLI run; the files on local disk. Caution: the CLI runs plain prompts through the single-session `Generator`
+and speculative ones through the engine (see 17.6), so the speedups below are not like for like; the `SpecBench` rerun follows. The 26.8 GiB n-gram table (IQ4_NL) is its own placement group and goes to
 the CPU; 40 of the 48 layers fill the 32 GB GPU (27.7 GiB), 8 layers run on the CPU.
 
 | k | one RTX PRO 4500 + CPU tok/s | acceptance | output vs k = 0 |
@@ -1288,16 +1289,19 @@ the CPU; 40 of the 48 layers fill the 32 GB GPU (27.7 GiB), 8 layers run on the 
 ### 17.6 MiMo-7B-RL: MTP on bf16 weights (2026-11-16)
 
 XiaomiMiMo/MiMo-7B-RL (HF `mimo`, bf16 safetensors, one MTP layer `model.mtp_layers.0` imported as the NextN draft head), one RTX
-PRO 4500, CLI, raw essay prompt, greedy, 200 tokens. Output is byte-identical to plain decoding for k = 1, 2 and 3.
+PRO 4500. `SpecBench` (as section 17.1: the same `InferenceEngine` path for plain and speculative decoding, essay prompt at depth 47,
+greedy, median of 5 or 3 runs; `--dump` checks the text): output is byte-identical to plain decoding for k = 1, 2 and 3.
 
-| k | tok/s | acceptance (accepted / drafted) |
-|---|---|---|
-| off | 37.6 | |
-| 1 | 74.6 (1.98x) | 0.66 (79 / 119) |
-| 2 | 50.0 (1.33x) | 0.43 (91 / 213) |
-| 3 | 34.9 (0.93x) | 0.30 (93 / 313) |
+| k | tok/s (min-max) | speedup | acceptance (accepted / drafted) |
+|---|---|---|---|
+| off | 56.0 (55.8-56.4) | | |
+| 1 | 77.4 (73.3-83.4) | 1.38x | 0.70 (524 / 754, two runs) |
+| 2 | 73.0 (71.4-74.8) | 1.30x | 0.42 (175 / 413) |
+| 3 | 63.7 (59.8-66.1) | 1.14x | 0.30 (179 / 601) |
 
 MiMo's MTP layer is trained for the next-but-one token only; chained further it guesses much worse, so k = 1 is the setting.
+A first CLI measurement reported 1.98x: the CLI decodes plain prompts through the single-session `Generator` (37.6 tok/s here)
+and speculative ones through the engine, so the two did not compare. Speedups in this section come from `SpecBench` only.
 
 ## 18. Chunked gated delta rule and token-parallel conv1d for prefill (2026-11-14)
 
