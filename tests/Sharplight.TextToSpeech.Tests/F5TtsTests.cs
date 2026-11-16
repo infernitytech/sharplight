@@ -104,8 +104,11 @@ public class F5TtsTests
         Assert.True(audioError < 1e-3, $"waveform relative RMS error {audioError:E2}");
     }
 
-    /// <summary>The first step's field (conditional and without reference and text) for the reference's inputs; needs the debug dumps of the reference tool.</summary>
-    [Theory]
+    /// <summary>
+    /// The first step's field (conditional and without reference and text) for the reference's inputs. Debug only: the <c>dbg_v0*</c> dumps come from an
+    /// ad-hoc script outside the reference tool and do not match its inputs; the sampled-mel test covers the field through all 32 steps.
+    /// </summary>
+    [Theory(Skip = "Debug only: needs dbg_v0 dumps made from the same inputs as the reference tool; Sampled_mel_and_waveform_match_the_reference covers every step.")]
     [InlineData(false)]
     [InlineData(true)]
     public void First_step_velocity_matches_the_reference(bool gpu)
