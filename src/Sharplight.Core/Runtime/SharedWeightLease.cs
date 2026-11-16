@@ -3,7 +3,7 @@ namespace Sharplight.Runtime;
 /// <summary>
 /// A compiled segment's hold on a shared weight buffer (<see cref="SharedWeights.Acquire{T}"/>). The first holder of a buffer
 /// allocated it and fills it (<see cref="MustFill"/>), then calls <see cref="Filled"/>; later holders call
-/// <see cref="WaitFilled"/> before their first use. Disposing the last lease of a buffer frees it.
+/// <see cref="WaitFilled()"/> before their first use. Disposing the last lease of a buffer frees it.
 /// </summary>
 /// <typeparam name="T">The provider's buffer handle.</typeparam>
 public sealed class SharedWeightLease<T> : IDisposable where T : class
