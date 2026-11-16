@@ -17,7 +17,10 @@ namespace Sharplight.ImageGeneration.Tests;
 [Collection(LargeModelCollection.Name)]
 public sealed class WanTests
 {
-    /// <summary>"2.1", "2.2" (diffusers folders) and "2.2-gguf" (QuantStack's Q8_0 transformer with the 2.2 folder as companion).</summary>
+    /// <summary>
+    /// "2.1", "2.2" (diffusers folders), "2.2-gguf" (QuantStack's Q8_0 transformer with the 2.2 folder as companion) and "2.2-a14b"
+    /// (QuantStack's Wan 2.2 T2V-A14B high- and low-noise Q4_K_M experts with the Wan 2.1 folder as companion; tools/make-wan-a14b-references.py).
+    /// </summary>
     public static TheoryData<string> Variants => ["2.1", "2.2", "2.2-gguf", "2.2-a14b"];
 
     private static readonly string A14bRoot = Path.Combine(Env.VideoRoot, "wan22-a14b-gguf");
@@ -54,7 +57,12 @@ public sealed class WanTests
         _ => 5e-3,
     };
 
-    private static string Reference(string variant) => Path.Combine(Env.VideoRoot, variant == "2.1" ? "wan21-reference" : "wan22-i2v-reference", "reference");
+    private static string Reference(string variant) => Path.Combine(Env.VideoRoot, variant switch
+        {
+            "2.1" => "wan21-reference",
+            "2.2-a14b" => "wan22-a14b-reference",
+            _ => "wan22-i2v-reference",
+        }, "reference");
 
     private static float[] Tensor(string variant, string name) => Env.ReadFloats(Path.Combine(Reference(variant), name + ".f32"));
 
@@ -157,13 +165,19 @@ public sealed class WanTests
         var expected = Tensor(variant, "video");
         int frameValues = 3 * width * height;
         double worst = double.MaxValue;
+        var perFrame = new List<string>();
         for (int f = 0; f < result.Frames.Count; f++)
         {
             var reference = PlanarImage.FromPlanar(expected.AsSpan(f * frameValues, frameValues), width, height, 0f, 1f);
-            worst = Math.Min(worst, Env.Psnr(result.Frames[f].Rgb, reference.Rgb));
+            double psnr = Env.Psnr(result.Frames[f].Rgb, reference.Rgb);
+            perFrame.Add($"{psnr:F1}");
+            worst = Math.Min(worst, psnr);
         }
 
-        TestContext.Current.SendDiagnosticMessage($"Wan {variant} {width}x{height}x{result.Frames.Count}: {seconds:F1} s (incl. compilation), worst frame {worst:F1} dB");
-        Assert.True(worst > (variant == "2.2-gguf" ? 20 : 25), $"Wan {variant}: worst frame PSNR {worst:F1} dB");
+        TestContext.Current.SendDiagnosticMessage($"Wan {variant} {width}x{height}x{result.Frames.Count}: {seconds:F1} s (incl. compilation), worst frame {worst:F1} dB "
+            + $"(frames: {string.Join(" ", perFrame)})");
+        // The quantized 14B experts amplify differences: moving the initial noise by 1e-3 changes Sharplight's own result by as much
+        // (22-26 dB per frame) as it differs from diffusers on the same files; the content is the same.
+        Assert.True(worst > (variant is "2.2-gguf" or "2.2-a14b" ? 20 : 25), $"Wan {variant}: worst frame PSNR {worst:F1} dB");
     }
 }

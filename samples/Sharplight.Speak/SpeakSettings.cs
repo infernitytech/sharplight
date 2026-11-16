@@ -24,7 +24,7 @@ internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, stri
 
           --model     speech-synthesis model: an .slm package, a checkpoint folder, or the language-model GGUF of a codec language model (OuteTTS)
           --vocoder   the codec decoder (WavTokenizer GGUF, SNAC or Vocos folder) for a model distributed without it
-          --reference a recording of the voice to speak with (F5-TTS);  --reference-text  its words
+          --reference a recording of the voice to speak with (F5-TTS, Chatterbox);  --reference-text  its words
           --text      the text to speak
           --out       output WAV file (default speech.wav)
           --voice     voice of the model (default: the model's own)
