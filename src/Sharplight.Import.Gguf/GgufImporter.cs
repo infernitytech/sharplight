@@ -115,6 +115,11 @@ public sealed class GgufImporter : IModelImporter
     {
         var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
         var weights = MapWeights(path, tensors, mapping, view, attachments);
+        foreach (var (attachmentName, source) in mapping.SyntheticAttachments(view))
+        {
+            attachments.TryAdd(attachmentName, source);
+        }
+
         if (GgufTensorNames.HoldsOnlyNextnBlocks(tensors.Select(t => t.Name), view)
             && !weights.Keys.Any(k => k.StartsWith("mtp.layers.", StringComparison.Ordinal) || k.StartsWith("layers.", StringComparison.Ordinal)))
         {
@@ -151,6 +156,11 @@ public sealed class GgufImporter : IModelImporter
         foreach (var tensor in tensors)
         {
             if (consumed.Contains(tensor.Name))
+            {
+                continue;
+            }
+
+            if (mapping.IgnoresTensor(tensor.Name, view))
             {
                 continue;
             }

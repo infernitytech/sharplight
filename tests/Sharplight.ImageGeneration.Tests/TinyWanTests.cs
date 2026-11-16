@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Sharplight.Models;
+using Sharplight.Vision;
 using Sharplight.Imaging;
 using Sharplight.Tasks;
 using Sharplight.VideoGeneration;
@@ -145,6 +146,63 @@ public sealed class TinyWanTests
         };
         var result = await generator.GenerateAsync(request, Options(index, "ti2v", Samplers.UniPc), TestContext.Current.CancellationToken);
         AssertVideo(result, Tensor("ti2v", "video_i2v"), index, $"ti2v image-to-video on {device}");
+    }
+
+    public static TheoryData<string, string, string> SingleFileCases()
+    {
+        var data = new TheoryData<string, string, string>();
+        foreach (var row in Cases())
+        {
+            foreach (string file in new[] { "wan.safetensors", "wan-F16.gguf" })
+            {
+                data.Add(row.Data.Item1, row.Data.Item2, file);
+            }
+        }
+
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(SingleFileCases))]
+    public async Task TransformerOnlyFilesWithCompanions(string device, string variant, string file)
+    {
+        Assert.SkipUnless(Present(variant) && File.Exists(Path.Combine(Root(variant), "single", file)), "tiny-random-wan single files missing");
+        var slot = Env.Device(device);
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        string diffusers = Path.Combine(Root(variant), "diffusers");
+        using var model = Env.Load(Path.Combine(Root(variant), "single", file), slot!, new Dictionary<string, string>
+        {
+            [AuxiliaryRoles.TextEncoder] = diffusers,
+            [AuxiliaryRoles.Vae] = diffusers,
+        });
+        var index = Index(variant);
+        var prediction = GraphRunner.Run(model, ModelComponentRoles.Transformer, VideoDiffusionGraphs.Denoise, VideoDiffusionGraphs.Prediction, 0, Dimensions(index),
+            (VideoDiffusionGraphs.Latent, Tensor(variant, "transformer_latent")),
+            (VideoDiffusionGraphs.Timestep, Tensor(variant, "transformer_timestep")),
+            (VideoDiffusionGraphs.Context, Tensor(variant, "transformer_context")));
+        var (maxAbs, rms) = Env.Compare(prediction, Tensor(variant, "transformer_out"));
+        // The GGUF stores the weights in f16.
+        Assert.True(rms < (file.EndsWith(".gguf", StringComparison.Ordinal) ? 3e-3 : 1e-4), $"transformer from {file}: max {maxAbs}, relative RMS {rms}");
+        using var generator = Env.Clients.Create<IVideoGenerator>(model);
+        var request = new VideoGenerationRequest { Prompt = index.GetProperty("prompt").GetString()!, NegativePrompt = index.GetProperty("negative_prompt").GetString() };
+        var result = await generator.GenerateAsync(request, Options(index, variant, Samplers.UniPc), TestContext.Current.CancellationToken);
+        if (file.EndsWith(".safetensors", StringComparison.Ordinal))
+        {
+            AssertVideo(result, Tensor(variant, "video_unipc"), index, $"{variant} from {file} on {device}");
+        }
+        else
+        {
+            Assert.Equal(index.GetProperty("frames").GetInt32(), result.Frames.Count);
+        }
+    }
+
+    [Fact]
+    public void TransformerOnlyFileWithoutCompanionsNamesWhatIsMissing()
+    {
+        Assert.SkipUnless(File.Exists(Path.Combine(Root("t2v"), "single", "wan.safetensors")), "tiny-random-wan single files missing");
+        var error = Assert.Throws<NotSupportedException>(() => Env.Load(Path.Combine(Root("t2v"), "single", "wan.safetensors"), Env.Cpu()));
+        Assert.Contains("text-encoder", error.Message, StringComparison.Ordinal);
+        Assert.Contains("vae", error.Message, StringComparison.Ordinal);
     }
 
     private static VideoGenerationOptions Options(JsonElement index, string variant, string sampler) => new()

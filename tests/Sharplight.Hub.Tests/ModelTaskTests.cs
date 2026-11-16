@@ -187,9 +187,9 @@ public sealed class ModelTaskTests
     }
 
     [Fact]
-    public void MultiComponentRepositoriesAreNotPulled()
+    public void MultiComponentRepositoriesArePulledAsOneModel()
     {
-        Assert.Null(ModelFileSelector.DetectFormat(["model_index.json", "unet/diffusion_pytorch_model.safetensors"]));
-        Assert.Null(ModelFileSelector.DetectFormat(["ggml-small.bin"]));
+        Assert.Equal(ModelFormat.Diffusers, ModelFileSelector.DetectFormat(["model_index.json", "unet/diffusion_pytorch_model.safetensors"]));
+        Assert.Equal(ModelFormat.WhisperCpp, ModelFileSelector.DetectFormat(["ggml-small.bin"]));
     }
 }

@@ -6,7 +6,7 @@ using Sharplight.Models;
 namespace Sharplight.Studio.Services.Library;
 
 /// <summary>
-/// Recognizes the image models of the library from their content (or, where a file cannot be read cheaply, their name): Stable
+/// Recognizes the image (and Wan video) models of the library from their content (or, where a file cannot be read cheaply, their name): Stable
 /// Diffusion and FLUX pipelines (a diffusers folder, a single-file checkpoint, a stable-diffusion.cpp / city96 GGUF; FLUX transformer-only
 /// files need companion files, <see cref="NeedsCompanions"/>) and the Hugging Face vision
 /// checkpoints (image classification, image embedding, object detection, depth estimation) by the architecture of their
@@ -38,7 +38,7 @@ internal static class ImageModelProbe
         {
             if (IsDiffusersFolder(path))
             {
-                return ModelKinds.ImageGeneration;
+                return IsVideoDiffusersFolder(path) ? ModelKinds.VideoGeneration : ModelKinds.ImageGeneration;
             }
 
             if (File.Exists(Path.Combine(path, "config.json")))
@@ -107,6 +107,30 @@ internal static class ImageModelProbe
         catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
         {
             return false;
+        }
+    }
+
+    /// <summary>A Wan pipeline: the transformer is a <c>WanTransformer3DModel</c> (the pipeline's own <c>model_index.json</c> names a Wan pipeline).</summary>
+    private static bool IsVideoDiffusersFolder(string path)
+        => ClassNameOf(Path.Combine(path, "transformer", "config.json")) is "WanTransformer3DModel"
+           || ClassNameOf(Path.Combine(path, "model_index.json")) is { } pipeline && pipeline.StartsWith("Wan", StringComparison.Ordinal);
+
+    /// <summary>The <c>_class_name</c> of a diffusers JSON file, or null when the file is missing, unreadable or names none.</summary>
+    private static string? ClassNameOf(string file)
+    {
+        if (!File.Exists(file))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(file));
+            return document.RootElement.TryGetProperty("_class_name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() : null;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
         }
     }
 

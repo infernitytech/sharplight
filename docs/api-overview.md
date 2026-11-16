@@ -475,6 +475,9 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
 - Memory: when the weights take more than 40 % of the device memory (video activations are large), the text encoder is released
   after encoding and the transformer before decoding (compiled again from the cached kernels; the conditioning of the last prompts
   is reused, so the encoder only returns for new prompts).
+- Transformer-only checkpoints (Wan GGUF files from city96 / QuantStack, original-name `.safetensors`): give a Wan diffusers folder of
+  the same family as `Auxiliary[AuxiliaryRoles.TextEncoder]` and `Auxiliary[AuxiliaryRoles.Vae]` (`WanCompanionAdapter` merges its umT5
+  encoder, tokenizer and VAE).
 - `sharplight-generate-video` (samples/Sharplight.GenerateVideo) is a command-line front end.
 
 ## 1. Load a model (text generation)

@@ -52,6 +52,7 @@ internal static class HfArchitectureMappings
         Register(new WhisperHfMapping());
         Register(new MoonshineHfMapping());
         Register(new ParakeetHfMapping());
+        Register(new Wav2Vec2HfMapping());
         Register(new CanaryHfMapping());
         foreach (var family in DecoderFamilies())
         {

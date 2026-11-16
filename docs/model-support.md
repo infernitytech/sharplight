@@ -1204,6 +1204,36 @@ Tests: `tests/Sharplight.Speech.Tests` (`MoonshineParityTests`, `ParakeetParityT
 `FourierTransformTests`), fixtures from `tests/Sharplight.Speech.Tests/tools/make_whisper_fixtures.py`; the audio endpoints in
 `Sharplight.Serving.Tests` (`AudioApiTests`); the Studio inspector in `PackageInspectorTests.SpeechPackage_ShowsSpeechRecognitionComponents`; recognition, loading and the Transcribe page for the GGUF and whisper.cpp files in `GgufRealModelTests`.
 
+### 13.1 Speech popularity sweep (2026-11-16)
+
+The most downloaded `automatic-speech-recognition` and `text-to-speech` models of the Hub (sorted by downloads, cross-checked with the
+`text-to-audio` list), tried in the formats they are distributed in. References: transformers 5.23 (greedy, float32, CPU) in a venv; clips: jfk.wav,
+LibriSpeech 1272-128104-0004, and FLEURS test clips in German, Spanish and Japanese. "Same text" compares case- and punctuation-insensitively.
+
+| Model | Format | Result |
+|---|---|---|
+| openai/whisper-large-v3 | HF | same text as transformers on all 5 clips (CPU of the reference, Vulkan) |
+| handy-computer/whisper-large-v3-gguf | GGUF Q5_K_M | same text as transformers on all 5 clips |
+| facebook/wav2vec2-base-960h | HF | **new**: CTC ids and text identical to transformers on jfk and LibriSpeech, CPU and Vulkan (`Wav2Vec2ParityTests`) |
+| jonatasgrosman/wav2vec2-large-xlsr-53-japanese | HF `pytorch_model.bin` | **new**: layer-normed feature encoder and pre-norm layers; text identical to transformers on the Japanese clip |
+| handy-computer/parakeet-tdt-0.6b-v3-gguf | transcribe.cpp GGUF F16, Q8_0 | **new**: F16 text identical to the HF checkpoint on 5 clips, tokens identical on jfk and LibriSpeech, CPU and Vulkan (`ParakeetGgufParityTests`); Q8_0 differs in one capital letter (German) and a few Japanese kana |
+| handy-computer/parakeet-ultra-gguf | GGUF Q8_0 | **new**: the `vad.*` head is ignored; English and Spanish transcripts correct (no reference run) |
+| handy-computer/parakeet-unified-en-0.6b-gguf | GGUF Q8_0 | **new**, partial: RNN-T head with biases and input scaling; transcripts match the reference text, no NeMo reference |
+| handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | GGUF | rejected with a reason: layer-norm convolution module, causal convolutions, chunked-limited attention (cache-aware streaming FastConformer) |
+| Qwen/Qwen3-ASR-1.7B (+ transcribe.cpp GGUF) | HF | unsupported: audio-LLM (conv2d stem, 24-layer windowed audio tower, projector into a Qwen3 decoder); needs the audio-embedding path of the multimodal decoder |
+| mistralai/Voxtral-Mini-4B-Realtime-2602 | HF | unsupported: audio tower, tekken tokenizer, streaming decoder |
+| handy-computer/cohere-transcribe-03-2026-gguf | GGUF | unsupported architecture `cohere_asr` |
+| Systran/faster-whisper-* | CTranslate2 | unsupported format (no importer) |
+| Xenova/whisper-* | ONNX | graphs run through the ONNX runner (section 9), no speech-recognition task on ONNX graphs |
+| hexgrad/Kokoro-82M | PyTorch folder | re-checked: synthesized sentence transcribed by Whisper small with one name misspelled ("Sharplugget") |
+| XTTS v2, Chatterbox, F5-TTS, OmniVoice, VoxCPM2, VibeVoice, Qwen3-TTS, CosyVoice 3, MeloTTS, SpeechT5, Indic Parler-TTS, KittenTTS | various | unsupported architectures (metadata only, not downloaded); each needs its own acoustic model plus codec / flow-matching decoder / vocoder |
+
+Fixes of the sweep: wav2vec2 CTC import and `Wav2Vec2CtcAdapter` (weight-normed grouped positional convolution folded at import, both
+`weight_g`/`weight_v` and parametrization names; character CTC vocabularies become a Unigram tokenizer with `|` as the space); a `parakeet`
+GGUF mapping (transcribe.cpp layout, the Slaney filter bank computed from the front-end parameters since the file stores none:
+`IGgufArchitectureMapping.SyntheticAttachments`, `IgnoresTensor`); the Slaney mel filter bank moved from the Hugging Face importer to
+`Sharplight.Audio.SlaneyMelFilterBank` in Core. Not run: Studio Transcribe page for the new formats, `.slm` of the new models.
+
 ## 14. Vision models (task layer)
 
 Vision models run through the task layer (kinds `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`; see docs/api-overview.md "Tasks"). The host-side
@@ -1474,9 +1504,9 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 
 | family | formats | status | verified |
 |---|---|---|---|
-| Wan 2.1 T2V (1.3B, 14B) | diffusers folder | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
-| Wan 2.2 TI2V-5B | diffusers folder | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
-| Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts), Wan GGUF (city96 / QuantStack) | - | missing (the I2V and A14B folders are rejected by name) | |
+| Wan 2.1 T2V (1.3B, 14B) | diffusers folder; transformer-only GGUF (city96 / QuantStack, any ggml type) and original-name `.safetensors` (also ComfyUI's `model.diffusion_model.` prefix) with a Wan diffusers folder as companion for the umT5 encoder, tokenizer and VAE | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
+| Wan 2.2 TI2V-5B | diffusers folder; transformer-only GGUF / safetensors with companions as for Wan 2.1 | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
+| Wan 2.1 I2V / FLF2V (CLIP image embedding), Wan 2.2 A14B (two experts); stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing (the I2V and A14B folders are rejected by name) | |
 | LTX-Video, HunyuanVideo, CogVideoX, Mochi | - | missing | |
 
 Design notes:
@@ -1490,6 +1520,10 @@ Design notes:
   column) uses the `Rope` op's multi-axis sections with per-axis frequency divisors (`AxialRope`, shared with FLUX).
 - The first decoded chunk skips the temporal upsampling (as the reference decoder does), so a clip of T latent frames has
   1 + 4 (T − 1) frames; decoding memory does not grow with the clip length.
+- Transformer-only files: `WanCheckpoint` configures the transformer from its tensor shapes (128-wide heads; 48 latent channels =
+  Wan 2.2 TI2V with per-token timesteps and first-frame conditioning); `WanCompanionAdapter` takes the text encoder, tokenizer and
+  VAE from complete `wan` sources given as auxiliary sources (`AuxiliaryRoles.TextEncoder`, `AuxiliaryRoles.Vae`; one diffusers folder
+  serves both), and a file without them fails naming what is missing.
 - Tokenizer fix: Hugging Face templates that start with the sequence (T5 / umT5 `$A </s>`) no longer add a BOS token when the
   tokenizer configuration names one.
 
@@ -1502,7 +1536,106 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
   (4 steps, guidance 5, negative prompt) above 40 dB PSNR in every frame: text-to-video with UniPC and with Euler for both
   layouts, image-to-video for TI2V.
 - Real models on Vulkan (one RTX PRO 4500, 32 GB) against diffusers in f32 on CUDA, 832×480, 17 frames, 20 UniPC steps,
-  guidance 5, the same initial latents: umT5-XXL (bf16 files) 3.0e-6 relative RMS for both models; the transformer 2.4e-4 (Wan 2.1
-  1.3B) and 2.8e-4 (Wan 2.2 TI2V-5B, f32 files) relative RMS; Wan 2.2 TI2V-5B image-to-video worst frame 55.1 dB PSNR (468.7 s
-  for the whole run including the first-time kernel compilation of every graph). The Wan 2.1 folder's f32 umT5 (22.7 GB) is the
-  same model as Wan 2.2's bf16 one (1.7e-3 relative weight difference = bf16 rounding); the references use the bf16 files.
+  guidance 5, the same initial latents: umT5-XXL (bf16 files) 3.0e-6 relative RMS; the transformer 2.4e-4 (Wan 2.1 1.3B, f32
+  files), 2.8e-4 (Wan 2.2 TI2V-5B, f32 files) and 2.0e-3 (QuantStack's Wan2.2-TI2V-5B-Q8_0.gguf with the 2.2 folder as companion)
+  relative RMS. Whole runs, worst frame PSNR: Wan 2.1 text-to-video 50.8 dB, Wan 2.2 TI2V image-to-video 55.1 dB, the Q8_0 GGUF
+  51.1 dB (first runs including the kernel compilation of every graph: 202 s, 305 s, 460 s). The Wan 2.1 folder's f32 umT5
+  (22.7 GB) is the same model as Wan 2.2's bf16 one (1.7e-3 relative weight difference = bf16 rounding); the references use the
+  bf16 files.
+
+## 17. Top-20 sweep (2026-11-16)
+
+The most downloaded text-generation models on the Hugging Face Hub (`pipeline_tag=text-generation`, sorted by downloads, cross-checked
+with the trending and most-liked lists on 2026-11-16), one per model family and size, safetensors below 30 GB, skipping quantized
+re-uploads (AWQ, NVFP4, FP8 copies) and non-LLM repositories. Each model was tried twice: the original safetensors through the Hugging
+Face importer and the most downloaded GGUF of the same model through the GGUF importer. On request, popular models above 30 GB were
+added as GGUF (and as an FP8 checkpoint where one exists): Qwen3-32B, Qwen3-30B-A3B, GLM-4.7-Flash, Qwen3.6-35B-A3B,
+Llama-3.3-70B-Instruct, gpt-oss-120b, Qwen3.8-27B and Qwen3.8-Flash-Next. The meta-llama repositories are gated for the token used, so
+their official unsloth mirrors were taken (same files).
+
+Method (`bench/ParitySweep`, `tools/parity/`):
+
+- Tokenizer: encode and decode of seven fixed texts (English, German / French / Spanish / Russian / Greek / Polish, Japanese / Chinese /
+  Korean / Arabic / Hindi / Thai / Vietnamese, code with tabs and runs of spaces, emoji and symbols, leading and trailing spaces,
+  contractions and digit groups) against transformers 5.23 (`AutoTokenizer`, no remote code).
+- Chat template: four conversations (user only; system + multi-turn; no generation prompt; a tool definition, an assistant tool call
+  and the tool result) rendered by Sharplight's Jinja engine against transformers' `apply_chat_template`, compared as text and as
+  prompt ids. For a GGUF whose embedded template differs from the checkpoint's, transformers renders the GGUF's own template as the
+  reference.
+- Greedy: 48 tokens for two raw prompts and the rendered `user only` chat prompt. Safetensors against transformers running the
+  checkpoint in fp32 on the CPU (raw logits, no logits processors: the checkpoints' `generation_config` would otherwise add a
+  repetition penalty), with teacher forcing on the reference's tokens (our logits at its top-5 ids at every step). GGUF against
+  llama.cpp b11177 (`llama-completion`) on Vulkan and, when the outputs differ, on the CPU as well.
+- Near-ties: a first differing token whose reference logit gap is at most 0.1 counts as a near-tie. For GGUF a prompt also passes
+  when one of our outputs (Vulkan, CPU) equals one of llama.cpp's backends (they split on the same near-ties, often crosswise), or
+  when ours agree with llama.cpp at least as long as llama.cpp's own backends agree with each other. Remaining differences are checked
+  by teacher forcing against transformers running the same GGUF dequantized (`--gguf-file`), with a tie tolerance of 0.5 for the
+  int8-activation rounding of quantized matmuls.
+- Studio: `TopSweepRealModelTests` loads three of the models through Studio's engine runtime (library recognition, load, greedy chat
+  turn). `.slm`: four models converted to packages and every check rerun on the package (identical results).
+
+Models above one 32 GB GPU ran over two GPUs with Sharplight's multi-device placement (`--devices 2`), gpt-oss-120b and
+Qwen3.8-Flash-Next with the CPU as fallback device for the layers that did not fit; llama.cpp ran with the same two GPUs.
+
+Results (HF = safetensors vs transformers, GGUF = vs llama.cpp unless stated):
+
+| # | Model (downloads rank) | Architecture | Safetensors | HF result | GGUF tested | GGUF result | Issue found | Fix |
+|---|---|---|---|---|---|---|---|---|
+| 1 | openai-community/gpt2 | gpt2 | 0.5 GB F32 | pass: tokenizer, ids identical (3 prompts) | mradermacher/gpt2-GGUF Q8_0 | pass: Vulkan identical to llama.cpp Vulkan, CPU to llama.cpp CPU (their backends split at a near-tie) | none | |
+| 2 | Qwen/Qwen3-0.6B | qwen3 | 1.5 GB | pass: tokenizer, 4 templates incl. tools, ids identical | Qwen/Qwen3-0.6B-GGUF Q8_0 | pass (cross-device near-tie, as gpt2) | none | |
+| 3 | Qwen/Qwen3-14B | qwen3 | 29.5 GB | pass: ids identical (Vulkan, one whole GPU) | Qwen/Qwen3-14B-GGUF Q4_K_M | pass: identical to llama.cpp | none | |
+| 4 | Qwen/Qwen2.5-7B-Instruct | qwen2 | 15.2 GB | pass: ids identical; chat identical up to the end of turn | Qwen/Qwen2.5-7B-Instruct-GGUF Q4_K_M (2 shards) | pass (cross-device near-tie); tool-call template: the GGUF's older template, rendered identically to transformers | none | |
+| 5 | Qwen/Qwen3-8B | qwen3 | 16.4 GB | pass: all identical | Qwen/Qwen3-8B-GGUF Q4_K_M | pass: identical to llama.cpp | none | |
+| 6 | ornith-ai/Ornith-1.5-9B-GGUF (GGUF only; Ornith-1.0-9B for safetensors) | qwen3_5 (hybrid gated delta net) | 18.8 GB | pass after fix: ids identical; tokenizer differed on Devanagari | Ornith-1.5-9B Q4_K_M | pass (cross-device near-tie) | tokenizer_config.json's `pretokenize_regex` (transformers 5 applies it over tokenizer.json) was ignored | 925ec39f |
+| 7 | openai/gpt-oss-20b | gpt_oss (MXFP4 experts) | 13.8 GB | pass: harmony template, ids identical | unsloth/gpt-oss-20b-GGUF Q4_K_M | pass (cross-device near-tie) | none | |
+| 8 | Qwen/Qwen2.5-1.5B-Instruct | qwen2 | 3.1 GB | pass | Qwen/Qwen2.5-1.5B-Instruct-GGUF Q8_0 | pass (template as #4) | none | |
+| 9 | facebook/opt-125m | opt (pytorch .bin, slow tokenizer) | 0.3 GB | pass after fix: tokenizer and ids identical | none published (llama.cpp has no OPT) | - | `opt` unmapped; tokenizers without tokenizer.json (vocab.json + merges.txt) unsupported | 09132005 |
+| 10 | meta-llama/Llama-3.1-8B-Instruct (unsloth mirror) | llama | 16.1 GB | pass: ids identical, tools template identical | bartowski Meta-Llama-3.1-8B-Instruct Q4_K_M | pass: first token is a 0.03 near-tie (" a" / " Paris"); identical to transformers running the same GGUF | none | |
+| 11 | Qwen/Qwen2.5-0.5B-Instruct | qwen2 | 1.0 GB | pass | Qwen/Qwen2.5-0.5B-Instruct-GGUF Q8_0 | pass: teacher forcing vs transformers on the same GGUF, mean logit difference 0.005–0.02, no flip | none | |
+| 12 | EleutherAI/pythia-160m | gpt_neox | 0.4 GB | pass | mradermacher/pythia-160m-GGUF Q8_0 | pass: ours agree with llama.cpp longer than llama.cpp's backends agree with each other | none | |
+| 13 | Qwen/Qwen3-4B | qwen3 | 8.0 GB | pass | Qwen/Qwen3-4B-GGUF Q4_K_M | pass: identical | none | |
+| 14 | Qwen/Qwen3-1.7B | qwen3 | 4.1 GB | pass | unsloth/Qwen3-1.7B-GGUF Q8_0 | pass (cross-device near-tie) | none | |
+| 15 | HuggingFaceTB/SmolLM2-135M | llama | 0.3 GB | pass | prithivMLmods/SmolLM2-135M-GGUF Q8_0 | pass: identical | none | |
+| 16 | Qwen/Qwen2.5-3B-Instruct | qwen2 | 6.2 GB | pass | Qwen/Qwen2.5-3B-Instruct-GGUF Q4_K_M | pass: identical (template as #4) | none | |
+| 17 | nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16 | nemotron_h (Mamba-2 hybrid) | 7.9 GB | pass | lmstudio-community NVIDIA-Nemotron-3-Nano-4B Q4_K_M | pass: identical | none | |
+| 18 | meta-llama/Llama-3.2-1B-Instruct (unsloth mirror) | llama | 2.5 GB | pass | bartowski/Llama-3.2-1B-Instruct-GGUF Q8_0 | pass: identical | none | |
+| 19 | mistralai/Mistral-7B-Instruct-v0.2 | mistral (SentencePiece) | 14.5 GB | pass after fix: tokenizer and chat prompt ids identical, ids identical | TheBloke Mistral-7B-Instruct-v0.2 Q4_K_M | pass: teacher forcing vs transformers on the same GGUF (max 0.21, no flip); prompt ids follow llama.cpp's space-prefix placement by design | non-legacy Metaspace `prepend_scheme: first` not honoured (`▁` after `<s>`, double `▁` before a leading space) | 1f207421 |
+| 20 | openbmb/MiniCPM5-2B | llama (MiniCPM 5 pre-tokenizer) | 5.0 GB | pass | bartowski/MiniCPM5-2B-GGUF Q8_0 | pass: identical | none | |
+| 21 | LiquidAI/LFM3-1.7B (trending) | lfm3 | 3.5 GB | pass | LiquidAI/LFM3-1.7B-GGUF Q8_0 | pass vs transformers by teacher forcing (llama.cpp b11177 cannot load `lfm3`): mean logit difference 0.09–0.19, only exact ties flip | none | |
+
+Larger models (GGUF vs llama.cpp b11177; tokenizer and templates against transformers with the original repository's tokenizer files):
+
+| Model | Architecture | Tested | Placement | Result |
+|---|---|---|---|---|
+| Qwen/Qwen3-32B | qwen3 | Qwen/Qwen3-32B-GGUF Q4_K_M (19.8 GB) | one GPU | pass: tokenizer and templates; greedy near-tie (ours agree with llama.cpp longer than its own backends do) |
+| Qwen/Qwen3-30B-A3B | qwen3moe | Qwen/Qwen3-30B-A3B-GGUF Q4_K_M (18.6 GB) | one GPU | pass: tokenizer and templates; greedy identical to llama.cpp's CPU build (its Vulkan build did not fit beside the other users of the shared GPU) |
+| zai-org/GLM-4.7-Flash | deepseek2-style MLA MoE | unsloth/GLM-4.7-Flash-GGUF Q4_K_M (18.3 GB) | one GPU | pass: tokenizer and templates; greedy cross-device near-tie |
+| Qwen/Qwen3.6-35B-A3B | qwen35moe (hybrid MoE) | unsloth/Qwen3.6-35B-A3B-GGUF UD-Q4_K_M (22.1 GB) | one GPU | pass: tokenizer, templates and greedy text identical to llama.cpp |
+| unsloth/Llama-3.3-70B-Instruct | llama | bartowski Q4_K_M (42.5 GB) | 2 GPUs | pass: identical to llama.cpp CUDA; llama.cpp Vulkan differs at a near-tie in one prompt |
+| openai/gpt-oss-120b | gpt_oss | ggml-org MXFP4 (63.4 GB) | 2 GPUs + CPU | pass: harmony templates; one prompt identical, the other a spacing near-tie ("a,b = 0,1" / "a,b=0,1") with identical text after |
+| Qwen/Qwen3.8-27B | qwen3_5 | lmstudio-community Q8_0 (29 GB); Qwen/Qwen3.8-27B-FP8 (30.9 GB) | 2 GPUs | Q8_0: identical to llama.cpp. FP8 safetensors vs transformers on the bf16 checkpoint (fp32, CPU): raw prompts identical, chat identical to the end of turn, teacher-forced logit difference mean 0.16–0.19 |
+| Qwen/Qwen3.8-Flash-Next | qwen4exp | unsloth UD-IQ1_S (66.4 GB, 3 shards) | 2 GPUs + CPU | pass: tokenizer, templates and greedy text identical to llama.cpp. The MTP draft file (`mtp-Qwen3.8-Flash-Next-Q8_0.gguf`) is refused: the qwen4exp MTP head is not imported (open, below) |
+
+Fixed in this sweep (each with a regression test):
+
+| Problem | Model | Layer | Fix | Test |
+|---|---|---|---|---|
+| `opt` not mapped | facebook/opt-125m | HF importer | `OptHfMapping` (learned positions minus their two-row offset through the new `TryMapSpecialGlobalTensor` hook, ReLU MLP, biases; post-norm and projected-embedding OPT refused with a reason) | tiny-random-opt Families case (`tools/mk_tiny_opt.py`) |
+| Tokenizers without tokenizer.json (vocab.json + merges.txt) refused | facebook/opt-125m (and every GPT2Tokenizer / RobertaTokenizer-style checkpoint) | HF tokenizer translation | the tokenizer.json transformers' GPT2Converter builds is synthesized (ByteLevel split, `add_prefix_space`, special tokens, BOS template for `add_bos_token`) | `SlowBpeTokenizerTests` |
+| Metaspace `prepend_scheme: first` treated as llama.cpp's prefix: `▁` after `<s>` in every chat prompt, `▁▁` before a leading space | mistralai/Mistral-7B-Instruct-v0.2 (non-legacy Llama-2-style tokenizer.json) | Core tokenizer + HF translation | neutral `tokenizer.space_prefix_scheme` ("first" / "always"; absent = llama.cpp's placement, so GGUF keeps matching llama.cpp) | `SentencePieceTests` |
+| tokenizer_config.json's `pretokenize_regex` ignored (transformers 5 applies it over tokenizer.json's split): Devanagari vowel signs split differently | ornith-ai/Ornith-1.0-9B (Qwen3.5 derivatives) | HF tokenizer translation | a known `pretokenize_regex` selects the preset | `PretokenizeRegexTests` |
+
+Not Sharplight bugs, recorded for reference: the official Qwen2.5 GGUFs embed an older chat template whose tool instructions print a
+literal `{{"name": ...}}` (transformers renders that template identically); Mistral GGUF prompt ids follow llama.cpp's space-prefix
+placement and so differ from transformers' after special tokens (intended: llama.cpp is the reference for GGUF); LFM3 GGUF could not be
+compared with llama.cpp b11177, which lacks `lfm3` (checked against transformers by teacher forcing instead).
+
+Open:
+
+1. **qwen4exp MTP head.** Qwen3.8-Flash-Next's MTP layers are not imported, so its `mtp-*.gguf` sidecar is refused with a clear message
+   and speculative decoding with it is unavailable (the target model itself runs and matches llama.cpp). Importing the NextN layers as an
+   MTP draft head is queued as its own feature.
+2. **OPT variants.** Post-norm OPT (`do_layer_norm_before = false`, OPT-350m) and projected embeddings (`word_embed_proj_dim` other than the
+   hidden size) are refused by the mapping; both are small additions to the decoder (a post-norm layer flag and in/out projections).
+3. **Larger safetensors.** bf16 checkpoints above ~30 GB were not run through the HF importer (only GGUF, and FP8 for Qwen3.8-27B), by
+   the sweep's disk rule.

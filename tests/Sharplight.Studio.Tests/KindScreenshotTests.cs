@@ -45,7 +45,7 @@ public sealed class KindScreenshotTests
             Assert.True(library.HasKindFilter);
             Save(window, "library-kinds");
 
-            library.SelectKind("video-generation");
+            library.SelectKind("time-series");
             await HeadlessApp.RenderAsync(window);
             Assert.Single(library.VisibleEntries);
             Save(window, "library-kind-filter");
@@ -69,14 +69,15 @@ public sealed class KindScreenshotTests
             services.Hub.Results.Clear();
             services.Hub.Results.AddRange(
             [
-                new HubModelSummary("example-lab/Tiny-Diffusion-XL", 640_000, 3_900, false, "diffusers", "text-to-video", null, [ModelFormat.Diffusers], [], License: "apache-2.0"),
+                new HubModelSummary("example-lab/Tiny-Diffusion-XL", 640_000, 3_900, false, "diffusers", "time-series-forecasting", null, [ModelFormat.Diffusers], [], License: "apache-2.0"),
                 new HubModelSummary("example-lab/Pixel-Upscaler", 88_000, 410, false, "diffusers", "image-to-image", null, [ModelFormat.Diffusers], [], License: "mit"),
-                new HubModelSummary("example-lab/Mini-Flow", 12_000, 120, true, "diffusers", "text-to-video", null, [ModelFormat.Diffusers], [], License: "other"),
+                new HubModelSummary("example-lab/Mini-Flow", 12_000, 120, true, "diffusers", "text-to-image", null, [ModelFormat.Diffusers], [], License: "other"),
             ]);
-            services.Hub.Details = repository => new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], null), null, [], ModelFormat.Diffusers,
+            services.Hub.Details = repository => new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], null), ModelFormat.Diffusers,
+                [new Studio.Services.Hub.VariantInfo("fp16", 3_470_000_000, 14, false, true), new Studio.Services.Hub.VariantInfo("full", 6_940_000_000, 14, false, false)], ModelFormat.Diffusers,
                 [new HubComponent("unet", 5_140_000_000, 1), new HubComponent("text_encoder_2", 1_390_000_000, 1), new HubComponent("text_encoder", 246_000_000, 1),
                     new HubComponent("vae", 167_000_000, 1)]);
-            discover.Filters.SelectedTask = discover.Filters.Tasks.Single(option => option.Value == ModelTask.VideoGeneration);
+            discover.Filters.SelectedTask = discover.Filters.Tasks.Single(option => option.Value == ModelTask.ImageGeneration);
             discover.Filters.SelectedSort = discover.Filters.Sorts.Single(option => option.Value == HubSortOrder.Trending);
             discover.Filters.SelectedGated = discover.Filters.GatedChoices.Single(option => option.Value == GatedFilter.Hide);
             await HeadlessApp.WaitForAsync(window, () => discover.IsShowingResults && !discover.IsSearching && discover.Results.Count == 2);
@@ -84,7 +85,9 @@ public sealed class KindScreenshotTests
             await HeadlessApp.WaitForAsync(window, () => discover.IsMultiComponent);
             await HeadlessApp.RenderAsync(window);
             Assert.Equal(4, discover.Components.Count);
-            Assert.Equal("Not yet supported: Video generation", discover.SelectedResult!.Compatibility.Text);
+            Assert.True(discover.IsPulledAsOne);
+            Assert.Equal(["fp16", "full"], discover.Variants.Select(variant => variant.Tag));
+            Assert.Equal("", discover.NoDownloadReason);
             Save(window, "discover-multi-component");
 
             // Reset: back to the default highlights.
@@ -111,7 +114,7 @@ public sealed class KindScreenshotTests
             Id = id, DisplayName = id, Path = $"/models/{id}.slm", Architecture = architecture, Format = "SLM", SizeBytes = size, Kind = kind, KindInferred = inferred,
             AddedAt = now.AddDays(-2),
         };
-        services.Library.Entries.Add(Other("example-lab/Tiny-Diffusion-XL", "video-generation", 6_900_000_000, "sdxl"));
+        services.Library.Entries.Add(Other("example-lab/Tiny-Diffusion-XL", "time-series", 6_900_000_000, "sdxl"));
         services.Library.Entries.Add(Other("openai/whisper-small", ModelKinds.SpeechRecognition, 488_000_000, "whisper"));
         services.Library.Entries.Add(Other("example-lab/bge-small", ModelKindCatalog.Embeddings, 133_000_000, "bert"));
         services.Hub.TaskHighlights[ModelTask.SpeechToText] =

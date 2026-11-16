@@ -7,8 +7,9 @@ namespace Sharplight.Video;
 /// <summary>
 /// MP4 with H.264 (<see cref="VideoFormats.Mp4"/>) through a system <c>ffmpeg</c> that must be installed separately (H.264 is patent
 /// encumbered, so no encoder is bundled and ffmpeg is only ever run as a separate process). Raw RGB frames are piped to
-/// <c>ffmpeg -f rawvideo -pix_fmt rgb24 ... -c:v libx264 -pix_fmt yuv420p -movflags +faststart</c>, written to a temporary file (MP4 with
-/// fast start needs a seekable output) and copied to the destination stream. <see cref="IsAvailable"/> is false when ffmpeg is not found.
+/// <c>ffmpeg -f rawvideo -pix_fmt rgb24 ... -c:v libx264 -pix_fmt yuv420p</c>, which writes a fragmented MP4 (<c>frag_keyframe+empty_moov</c>:
+/// the movie header first, so no seekable output and no temporary file are needed) to its standard output, copied to the destination
+/// stream as it arrives. <see cref="IsAvailable"/> is false when ffmpeg is not found.
 /// </summary>
 public sealed class FfmpegVideoEncoder : IVideoEncoder
 {
@@ -39,20 +40,10 @@ public sealed class FfmpegVideoEncoder : IVideoEncoder
         ArgumentNullException.ThrowIfNull(output);
         string executable = _executable.Value ?? throw new PlatformNotSupportedException("ffmpeg was not found; install it or set SharplightVideoOptions.FfmpegPath to write MP4 files.");
         VideoEncodeOptions settings = options ?? new VideoEncodeOptions();
-        string temporary = Path.Combine(Path.GetTempPath(), $"sharplight-{Guid.NewGuid():N}.mp4");
-        try
-        {
-            await RunAsync(executable, clip, settings, temporary, cancellationToken).ConfigureAwait(false);
-            await using var file = new FileStream(temporary, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, useAsync: true);
-            await file.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            File.Delete(temporary);
-        }
+        await RunAsync(executable, clip, settings, output, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task RunAsync(string executable, VideoClip clip, VideoEncodeOptions options, string destination, CancellationToken cancellationToken)
+    private static async Task RunAsync(string executable, VideoClip clip, VideoEncodeOptions options, Stream output, CancellationToken cancellationToken)
     {
         var start = new ProcessStartInfo(executable)
         {
@@ -62,7 +53,7 @@ public sealed class FfmpegVideoEncoder : IVideoEncoder
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (string argument in Arguments(clip, options, destination))
+        foreach (string argument in Arguments(clip, options))
         {
             start.ArgumentList.Add(argument);
         }
@@ -70,7 +61,7 @@ public sealed class FfmpegVideoEncoder : IVideoEncoder
         using var process = Process.Start(start) ?? throw new InvalidOperationException("ffmpeg could not be started.");
         using CancellationTokenRegistration registration = cancellationToken.Register(() => Kill(process));
         Task<string> errors = process.StandardError.ReadToEndAsync(CancellationToken.None);
-        Task discard = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        Task copy = process.StandardOutput.BaseStream.CopyToAsync(output, cancellationToken);
         try
         {
             Stream input = process.StandardInput.BaseStream;
@@ -89,14 +80,14 @@ public sealed class FfmpegVideoEncoder : IVideoEncoder
 
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
         string message = await errors.ConfigureAwait(false);
-        await discard.ConfigureAwait(false);
+        await copy.ConfigureAwait(false);
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException($"ffmpeg failed with exit code {process.ExitCode}: {message.Trim()}");
         }
     }
 
-    private static IEnumerable<string> Arguments(VideoClip clip, VideoEncodeOptions options, string destination)
+    private static IEnumerable<string> Arguments(VideoClip clip, VideoEncodeOptions options)
     {
         string size = string.Create(CultureInfo.InvariantCulture, $"{clip.Width}x{clip.Height}");
         string rate = clip.FramesPerSecond.ToString("R", CultureInfo.InvariantCulture);
@@ -131,8 +122,10 @@ public sealed class FfmpegVideoEncoder : IVideoEncoder
         }
 
         yield return "-movflags";
-        yield return "+faststart";
-        yield return destination;
+        yield return "frag_keyframe+empty_moov+default_base_moof";
+        yield return "-f";
+        yield return "mp4";
+        yield return "pipe:1";
     }
 
     private static void Kill(Process process)

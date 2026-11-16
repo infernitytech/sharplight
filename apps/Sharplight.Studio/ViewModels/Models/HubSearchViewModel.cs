@@ -155,6 +155,10 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsMultiComponent { get; set; }
 
+    /// <summary>The multi-component repository is downloaded as one model (its variants, such as the weight precision, are listed below its parts).</summary>
+    [ObservableProperty]
+    public partial bool IsPulledAsOne { get; set; }
+
     /// <summary>Why the selected repository cannot be downloaded (its kind or layout is not supported yet), or empty.</summary>
     [ObservableProperty]
     public partial string NoDownloadReason { get; set; } = "";
@@ -514,6 +518,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         Files.Clear();
         Components.Clear();
         IsMultiComponent = false;
+        IsPulledAsOne = false;
         NoDownloadReason = "";
         GatedNotice = result.Gated ? GatedText() : "";
         DetailFormat = null;
@@ -570,6 +575,18 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         if (details.Format is not null)
         {
             DetailFormat = details.Format.ToString();
+            if (details.Layout is not null)
+            {
+                // A multi-component repository that is pulled as one model: its parts are shown beside the variants (weight precision).
+                foreach (var part in details.Parts)
+                {
+                    Components.Add(new ComponentViewModel(part));
+                }
+
+                IsMultiComponent = true;
+                IsPulledAsOne = true;
+            }
+
             return;
         }
 
@@ -584,7 +601,8 @@ internal sealed partial class HubSearchViewModel : ObservableObject
             IsMultiComponent = true;
             long total = details.Parts.Sum(part => part.Bytes);
             DetailFormat = $"{ModelFormatTitles.Title(layout)} · {(Components.Count == 1 ? "1 part" : $"{Components.Count} parts")} · {Studio.Models.ByteFormat.Format(total)}";
-            NoDownloadReason = kind.Runnable
+            NoDownloadReason = details.UnsupportedReason.Length > 0 ? details.UnsupportedReason
+                : kind.Runnable
                 ? $"Sharplight cannot download {ModelFormatTitles.Title(layout)} repositories yet."
                 : $"Not yet supported: {kind.Title.ToLowerInvariant()}. Sharplight cannot download or run these models yet; the parts are listed as the one model they form.";
             return;
@@ -614,7 +632,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         if (variants.Count == 0)
         {
             IsEstimatingFit = false;
-            if (details.Format is null && result.Compatibility.Compatibility.State != CompatibilityState.UnsupportedKind)
+            if (details.Format is null && details.Layout is null && result.Compatibility.Compatibility.State != CompatibilityState.UnsupportedKind)
             {
                 result.Compatibility = new CompatibilityBadgeViewModel(ModelCompatibility.Unknown("The repository has no GGUF, safetensors or ONNX model files."));
             }

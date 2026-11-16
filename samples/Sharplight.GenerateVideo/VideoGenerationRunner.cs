@@ -6,6 +6,7 @@ using Sharplight.Runtime;
 using Sharplight.Samples;
 using Sharplight.Tasks;
 using Sharplight.Video;
+using Sharplight.Vision;
 using Sharplight.VideoGeneration;
 
 namespace Sharplight.GenerateVideo;
@@ -22,6 +23,9 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         using var model = await TaskModel.LoadAsync(runtime.Loader, new TaskLoadOptions
         {
             ModelPath = settings.Model,
+            Auxiliary = settings.Companions is { } folder
+                ? new Dictionary<string, string> { [AuxiliaryRoles.TextEncoder] = folder, [AuxiliaryRoles.Vae] = folder }
+                : new Dictionary<string, string>(),
             AllowReducedPrecision = settings.ReducedPrecision,
             Devices = [new DeviceSlot { Device = device }],
             Log = message => Console.Error.WriteLine(message.Split('\n')[0]),
@@ -100,7 +104,7 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         Console.WriteLine($"wrote {result.Frames.Count} frames ({result.Duration.TotalSeconds:F2} s at {result.FramesPerSecond} fps, seed {result.Seed}) to {settings.Output}");
     }
 
-    private static Vision.ImageInput ReadImage(string path)
+    private static ImageInput ReadImage(string path)
         => File.Exists(path) ? PngCodec.Read(path) : throw new SampleException($"Image '{path}' does not exist.", ExitCodes.InvalidInput);
 
     private static float[] ReadFloats(string path)
