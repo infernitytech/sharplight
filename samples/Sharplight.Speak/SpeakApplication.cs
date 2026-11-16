@@ -38,6 +38,8 @@ internal static class SpeakApplication
         var options = new SpeechSynthesisOptions
         {
             Voice = settings.Voice,
+            Language = settings.Language,
+            Speed = settings.Speed,
             Sampling = new SamplingOptions
             {
                 Temperature = settings.Greedy ? 0f : 0.4f,

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Sharplight.Storage;
 
 namespace Sharplight.Runtime;
 
@@ -36,20 +37,28 @@ public sealed class ArtifactStore : ICompilationCacheStore
     /// <summary>The store directory.</summary>
     public string Directory => _entries.Directory;
 
-    /// <summary>The per-user store directory (<c>sharplight/artifacts</c> under the local application data folder).</summary>
-    public static string UserDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "sharplight", "artifacts");
+    /// <summary>
+    /// The store directory of <paramref name="layout"/>: its <see cref="StorageLayout.ArtifactsDirectory"/>, unless
+    /// <see cref="FileCompilationCache.EnvironmentVariable"/> relocates the store or turns it off (then null).
+    /// </summary>
+    /// <param name="layout">The storage layout in effect.</param>
+    public static string? DirectoryFor(StorageLayout layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        return FileCompilationCache.ResolveDirectory(layout.ArtifactsDirectory);
+    }
 
     /// <summary>
     /// The store a device with <paramref name="options"/> uses: none when <see cref="DeviceOptions.UseCompilationCache"/> is off, else
-    /// the one in <see cref="DeviceOptions.KernelCacheDirectory"/>, else the per-user store unless
-    /// <see cref="FileCompilationCache.EnvironmentVariable"/> relocates or disables it. Opened once per directory and process.
+    /// the one in <see cref="DeviceOptions.KernelCacheDirectory"/>, else the one of this process's storage layout
+    /// (<see cref="DirectoryFor"/>, which <see cref="FileCompilationCache.EnvironmentVariable"/> can relocate or disable). Opened once
+    /// per directory and process.
     /// </summary>
     /// <param name="options">The device options.</param>
     public static ArtifactStore? For(DeviceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var directory = !options.UseCompilationCache ? null : options.KernelCacheDirectory ?? FileCompilationCache.ResolveDirectory(UserDirectory);
+        var directory = !options.UseCompilationCache ? null : options.KernelCacheDirectory ?? DirectoryFor(StorageLayout.Resolve(StorageEnvironment.Process));
         return directory is null ? null : s_opened.GetOrAdd(Path.GetFullPath(directory), path => new ArtifactStore(path));
     }
 

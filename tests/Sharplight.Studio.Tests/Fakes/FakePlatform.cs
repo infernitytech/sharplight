@@ -37,6 +37,11 @@ internal sealed class FakePlatform : IPlatformServices, IUiDispatcher, IThemeSer
 
     public void Open(string pathOrUrl) => Opened.Add(pathOrUrl);
 
+    /// <summary>How often <see cref="Restart"/> was called.</summary>
+    public int Restarts { get; private set; }
+
+    public void Restart() => Restarts++;
+
     public void Post(Action action) => action();
 
     public void Apply(AppTheme theme, string accent)

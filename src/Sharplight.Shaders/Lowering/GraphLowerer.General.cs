@@ -499,10 +499,12 @@ public sealed partial class GraphLowerer
         iter[axis] = 1;
         var d = Enumerable.Range(0, x.Rank).Select(Dn).ToArray();
         var cj = d.Select((c, k) => k == axis ? "j" : c).ToArray();
-        string step = product ? "acc *= v;" : "acc += v;";
-        string body = $"  float acc = {(product ? "1.0" : "0.0")};\n  for (uint i = 0; i < {len}u; i++) {{\n    uint j = {(rev ? $"{len - 1}u - i" : "i")};\n" +
+        // The sum is compensated (Neumaier) so that long scans, such as the phase of an oscillator, do not drift in f32.
+        string step = product ? "acc *= v;" : "{ precise float t = acc + v; if (abs(acc) >= abs(v)) { comp += (acc - t) + v; } else { comp += (v - t) + acc; } acc = t; }";
+        string result = product ? "acc" : "acc + comp";
+        string body = $"  float acc = {(product ? "1.0" : "0.0")};\n  float comp = 0.0;\n  for (uint i = 0; i < {len}u; i++) {{\n    uint j = {(rev ? $"{len - 1}u - i" : "i")};\n" +
             $"    float v = {(integer ? $"float(p.in0[{Lin(x, cj)}])" : $"p.in0[{Lin(x, cj)}]")};\n" +
-            (excl ? $"    p.out0[{Lin(y, cj)}] = acc; {step}\n" : $"    {step} p.out0[{Lin(y, cj)}] = acc;\n") + "  }";
+            (excl ? $"    p.out0[{Lin(y, cj)}] = {result}; {step}\n" : $"    {step} p.out0[{Lin(y, cj)}] = {result};\n") + "  }";
         EmitGen(product ? "cumprod" : "cumsum", [n], iter, x.Symbol, [x], [y], body);
     }
 

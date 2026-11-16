@@ -86,6 +86,19 @@ internal sealed class EngineModelRuntime : IModelRuntime
     public event EventHandler<RequestRecord>? RequestCompleted;
 
     /// <inheritdoc/>
+    public IReadOnlyDictionary<string, string> FindCompanions(string path)
+    {
+        try
+        {
+            return _engine.Loader.Importers.FindCompanions(path);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException)
+        {
+            return new Dictionary<string, string>();
+        }
+    }
+
+    /// <inheritdoc/>
     public async Task<ILoadedModel> LoadAsync(ModelLoadRequest request, IProgress<LoadStatus>? progress, CancellationToken cancellationToken)
     {
         if (Host.Contains(request.Id))

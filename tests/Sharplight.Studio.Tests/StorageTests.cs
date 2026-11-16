@@ -92,7 +92,7 @@ public sealed class StorageTests
     {
         using var dir = new TempDir();
         var path = dir.File("config/settings.json");
-        var settings = new JsonSettingsService(path, null);
+        var settings = new JsonSettingsService(path, null, TestServices.CreateLayout(dir.Path));
         int changes = 0;
         settings.Changed += (_, _) => changes++;
         settings.Update(current => current with
@@ -105,13 +105,13 @@ public sealed class StorageTests
         });
 
         Assert.Equal(1, changes);
-        var reloaded = new JsonSettingsService(path, "/from-cli").Current;
+        var reloaded = new JsonSettingsService(path, "/from-cli", TestServices.CreateLayout(dir.Path)).Current;
         Assert.Equal((AppTheme.Light, "Ocean"), (reloaded.Theme, reloaded.Accent));
         Assert.True(reloaded.DefaultLoad.AllowReducedPrecision);
         Assert.Equal(2, reloaded.DefaultLoad.MtpDraftTokens);
         Assert.Equal((true, 15), (reloaded.Residency.LoadOnDemand, reloaded.Residency.IdleUnloadMinutes));
         Assert.Equal(new PendingDownload("Qwen/Qwen3-0.6B-GGUF:Q8_0", 600, true), Assert.Single(reloaded.Downloads));
-        Assert.Equal("/from-cli", new JsonSettingsService(path, "/from-cli").StoreRoot);
+        Assert.Equal("/from-cli", new JsonSettingsService(path, "/from-cli", TestServices.CreateLayout(dir.Path)).StoreRoot);
     }
 
     [Fact]

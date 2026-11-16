@@ -3,21 +3,27 @@ namespace Sharplight.ImageGeneration;
 /// <summary>
 /// The graph contract between image-generation adapters and the built-in latent-diffusion pipeline: graph names, input and output
 /// names, the batch symbol and the dimension names a model is rebuilt with for other image sizes. An adapter whose model follows it
-/// (any UNet or DiT denoiser with a VAE and a text encoder) is served by the pipeline without code of its own.
+/// (any UNet or DiT denoiser with a VAE and one or two text encoders) is served by the pipeline without code of its own.
 /// </summary>
 /// <remarks>
 /// Graphs and their values:
 /// <list type="bullet">
-/// <item><see cref="TextEncode"/> (component <c>text-encoder</c>): input <see cref="Tokens"/> i32 [L] (one padded prompt); output
-/// <see cref="Hidden"/> f32 [L, D] (the conditioning), optionally <see cref="Pooled"/> f32 [P].</item>
-/// <item><see cref="TextEncode2"/> (optional, component <c>text-encoder</c>; SDXL's second encoder): the same values; its hidden
-/// states are appended to the first encoder's per token ([L, D1 + D2]) and its pooled embedding conditions the denoiser. Its
-/// prompt uses the padding id <see cref="DiffusionConfigKeys.SecondPadId"/> after the end token.</item>
+/// <item><see cref="TextEncode"/> (component <c>text-encoder</c>): input <see cref="Tokens"/> i32 [L] (one padded prompt); outputs
+/// <see cref="Hidden"/> f32 [L, D] (the per-token conditioning) and / or <see cref="Pooled"/> f32 [P].</item>
+/// <item><see cref="TextEncode2"/> (optional; component <c>text-encoder</c> (SDXL's second CLIP encoder) or <c>text-encoder-2</c>
+/// (FLUX's T5)): the same values. A <c>tokenizer-2</c> component, when present, tokenizes its prompts to its own
+/// <see cref="DiffusionConfigKeys.ContextLength"/>; otherwise the first tokenizer's tokens are reused with the padding id
+/// <see cref="DiffusionConfigKeys.SecondPadId"/> after the end token.</item>
+/// <item>Conditioning: the <see cref="Hidden"/> outputs of the text graphs are joined per token ([L, D1 + D2]; graphs without one, such
+/// as FLUX's CLIP encoder, only contribute their pooled embedding) and the pooled embedding is the second graph's, else the first's.</item>
 /// <item><see cref="Denoise"/> (component <c>denoiser</c>): inputs <see cref="Latent"/> f32 [N, C, h, w] (the sampler's scaled model
-/// input), <see cref="Timestep"/> f32 [N] and <see cref="Context"/> f32 [N, L, D]; output <see cref="Prediction"/> f32 [N, C, h, w]
-/// (what the scheduler's prediction type says: noise, velocity or sample). N is the symbolic <see cref="BatchSymbol"/>. Denoisers
-/// with added conditioning (SDXL) also take <see cref="Pooled"/> f32 [N, P] and <see cref="SizeConditions"/> f32 [N, 6]
-/// (original height and width, crop top and left, target height and width, in pixels).</item>
+/// input), <see cref="Timestep"/> f32 [N] (the sampler's model timestep; σ · 1000 for flow models) and <see cref="Context"/> f32
+/// [N, L, D]; output <see cref="Prediction"/> f32 [N, C, h, w] (what the scheduler's prediction type says: noise, velocity, sample or
+/// flow velocity). N is the symbolic <see cref="BatchSymbol"/> or a fixed batch (a denoiser built for one row is run once per row of
+/// a guided step). Denoisers with added conditioning (SDXL) also take <see cref="Pooled"/> f32 [N, P] and
+/// <see cref="SizeConditions"/> f32 [N, 6] (original height and width, crop top and left, target height and width, in pixels);
+/// pooled-modulated transformers (FLUX) take <see cref="Pooled"/> alone, guidance-distilled ones (FLUX.1-dev) <see cref="Guidance"/>
+/// f32 [N], the guidance scale, which then replaces classifier-free guidance.</item>
 /// <item><see cref="VaeDecode"/> (component <c>vae</c>): input <see cref="Latent"/> f32 [N, C, h, w] in model space (the graph undoes
 /// the latent scaling); output <see cref="Image"/> f32 [N, 3, H, W] in [0, 1].</item>
 /// <item><see cref="VaeEncode"/> (component <c>vae</c>): input <see cref="Image"/> f32 [N, 3, H, W] in [0, 1]; output <see cref="Latent"/>
@@ -51,6 +57,15 @@ public static class DiffusionGraphs
 
     /// <summary>Optional output of <see cref="TextEncode"/> / <see cref="TextEncode2"/>: pooled (projected) text embedding; input of denoisers with added conditioning.</summary>
     public const string Pooled = "pooled";
+
+    /// <summary>Input of guidance-distilled denoisers: the guidance scale per batch row (replaces classifier-free guidance).</summary>
+    public const string Guidance = "guidance";
+
+    /// <summary>The role of a second text-encoder component (FLUX's T5 encoder, with <see cref="TextEncode2"/>).</summary>
+    public const string SecondTextEncoderRole = "text-encoder-2";
+
+    /// <summary>The role of the tokenizer of the second text encoder when it has its own vocabulary (FLUX's T5).</summary>
+    public const string SecondTokenizerRole = "tokenizer-2";
 
     /// <summary>Input of denoisers with added conditioning: original size, crop offset and target size per batch row.</summary>
     public const string SizeConditions = "size_conditions";

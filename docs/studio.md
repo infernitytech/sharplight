@@ -158,7 +158,7 @@ the engine gains a kind, its card opens a page of its own, built from the shared
   - ONNX: the opset imports (domain and version) are read by skipping the graph by its length (`OnnxOpsetScanner`), usually in one
     or two range requests. Operators are checked when the model is imported.
 - *Library* lists the model store (resolved like the command-line tools: `--models-dir`, `SHARPLIGHT_MODELS`, the setting,
-  then the `data` folder next to the app) and any added `.gguf`, `.slm` or `.onnx` files, for every kind of model in one list.
+  then the `models` folder of the storage location) and any added `.gguf`, `.slm` or `.onnx` files, for every kind of model in one list.
   Every entry carries a kind badge (an icon and the kind's name). The kind is the one the `.slm` model description names (a package
   without a description is a text-generation model; an embedding package is shown as *Embeddings*). Files that have no description
   are guessed from the file (GGUF files and checkpoint folders are language models, except GGUF files of the `whisper` architecture
@@ -257,14 +257,22 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 
 **Settings.**
 - Theme (dark, light, system) and accent palette.
-- Model store: **application folder** (`data` next to the app, the default), **user folder** (`~/.local/share/sharplight/models`
-  on Linux, shared with the command-line tools of the user) or a **custom folder** picked with a folder dialog. The page shows the
-  store in use and why (for example "Default: application folder", or "Default: user folder, the application folder is not
-  writable" for a read-only install), and *Open folder* opens it. `--models-dir` and `SHARPLIGHT_MODELS` take precedence.
+- Storage: where Studio and the engine keep everything they write (settings, history and outputs, models, compiled kernels,
+  caches, logs). **Portable** (a `data` folder next to the AppImage, the install folder or the app bundle), **System folders**
+  (XDG folders on Linux, AppData on Windows, `~/Library` on macOS) or a **Custom folder** picked with a folder dialog. The card shows
+  the location in use and why (with a notice when a portable or custom folder could not be used), and the folder of every kind of
+  file now and with the selected location (read-only). To change it, choose *Move*, *Copy* or *Start fresh*, optionally *Keep the
+  models where they are*, then *Change location*. The files are copied and verified with progress and can be cancelled; the new
+  location is recorded and used after *Restart now*, and moved originals are deleted at that start. `SHARPLIGHT_HOME` locks the
+  location. See [storage.md](storage.md).
+- Model store: **with the other data** (the `models` folder of the storage location, the default), the **system folder**
+  (`~/.local/share/sharplight/models` on Linux, shared with the command-line tools of the user), or a **custom folder** picked with
+  a folder dialog. The page shows the store in use and why (for example "Default: portable storage"), and *Open folder* opens
+  it. `--models-dir` and `SHARPLIGHT_MODELS` take precedence.
 - Hugging Face token (falls back to `HF_TOKEN`).
 - Precompile after download (for every GPU and execution provider on this machine, as the library's *Precompile* does), and
   whether to keep the source files.
-- Compilation cache: keep compiled kernels and the driver pipeline cache in the per-user artifact store, so models that are not
+- Compilation cache: keep compiled kernels and the driver pipeline cache in the artifact store of the storage location, so models that are not
   precompiled (GGUF, Hugging Face, ONNX) load fast from the second time on. It holds the same artifact sets as a precompiled `.slm`
   and is consulted after the package's own sets. On by default; off reads and writes no store files. See
   [model-format.md](model-format.md#the-per-user-artifact-store).
@@ -338,10 +346,15 @@ results are PNG files that carry the prompt and parameters as text chunks (`para
 next to `parameters.json`. *Save PNG*, *Use as input*, *Reuse seed* and *Reuse prompt* act on the shown image; the gallery's *Reuse
 parameters* (every page has it) sets the parameters, the prompt and the result of a past run, with the seed that run actually used.
 Stable Diffusion 1.x, 2.x and XL work (diffusers folders, single-file `.safetensors` / `.ckpt`, stable-diffusion.cpp GGUF, including
-the SDXL and SDXL-Turbo GGUF files of the Hub). When a distilled model is chosen (SDXL-Turbo, SDXL-Lightning: its default guidance
-is 1 or less), the page sets steps and guidance to the model's defaults (SDXL-Turbo: 4 steps without guidance) and says so; choosing
-a regular model afterwards restores 20 steps and guidance 7.5. FLUX, SD3 and the other diffusion transformers are listed as image
-models, and loading one says "Not supported yet: FLUX (diffusion transformer)". A file that holds only the UNet, or an SDXL UNet
+the SDXL and SDXL-Turbo GGUF files of the Hub), and FLUX.1-schnell / -dev (diffusers folders, original single files, city96 /
+stable-diffusion.cpp GGUF). A FLUX file that holds only the transformer (the usual GGUF downloads) needs its text encoders and VAE:
+the load panel shows *Text encoder (CLIP-L)*, *Text encoder 2 (T5-XXL)* and *VAE* fields, filled with the files found beside it or
+in the sibling `clip` / `text_encoders` / `vae` folders (recognized by their tensors), and passes them as auxiliary files; a `.slm`
+converted from it holds them. When a distilled model is chosen (SDXL-Turbo, SDXL-Lightning, FLUX.1-schnell: default guidance of 1 or
+less; FLUX.1-dev: guidance embedded instead of classifier-free), the page sets steps and guidance to the model's defaults
+(SDXL-Turbo and FLUX.1-schnell: 4 steps without guidance; FLUX.1-dev: 28 steps, guidance 3.5) and says so; choosing a regular model
+afterwards restores 20 steps and guidance 7.5. SD3 and the other diffusion transformers are listed as image models, and loading one
+says "Not supported yet: Stable Diffusion 3 (diffusion transformer)". A file that holds only the UNet, or an SDXL UNet
 without its second text encoder, fails on load naming what is missing; a `.slm` converted from an SDXL GGUF by an earlier version
 (without the second encoder) fails on load asking to import the original file again.
 
@@ -428,18 +441,28 @@ own `releases.<channel>.json` feed.
 
 ## Where things are kept
 
+Everything follows the storage location chosen in *Settings > Storage* (portable, system or custom; the full table per mode and
+platform is in [storage.md](storage.md)). `<config>`, `<data>` and `<cache>` are the folders of that location: for example
+`~/.config/sharplight`, `~/.local/share/sharplight` and `~/.cache/sharplight` on Linux in system mode, or `data/config`, `data` and
+`data/cache` next to the AppImage in portable mode.
+
 | What | Where |
 |---|---|
-| Settings (`settings.json`), including the download queue | `sharplight/studio` under the roaming application data directory (`~/.config` on Linux) |
-| Conversations and statistics (`studio.db`), Discover's highlights (`discover-highlights.json`) | `sharplight/studio` under the local application data directory (`~/.local/share` on Linux) |
-| Models | The model store: `data` next to the app by default, else the folder chosen in the settings (see above); converted local models go to `converted/` in it by default |
-| Inference pages: parameter presets, run history and output files (`pages/<page>/`) | `sharplight/studio/pages` under the local application data directory |
-| Compiled kernels | `sharplight/kernels` under the local application data directory (`~/.local/share` on Linux), shared by every tool |
+| Settings (`settings.json`), including the download queue | `<config>/studio` |
+| Conversations and statistics (`studio.db`), Discover's highlights (`discover-highlights.json`) | `<data>/studio` |
+| Inference pages: parameter presets, run history and output files (`pages/<page>/`) | `<data>/studio/pages` |
+| Models | The model store: `<data>/models` by default, else the folder chosen on the *Models* card; converted local models go to `converted/` in it by default |
+| Compiled kernels, extracted shader sources | `<cache>/artifacts`, `<cache>/shaders`, shared by every tool |
+| Logs | `<logs>` (`<data>/logs` in portable and custom mode) |
 
-When the model store in effect is empty while the user folder (the default of earlier versions) has models, Studio offers once to
-keep using the user folder or to move or copy the models into the new store.
+The mode is known before the settings load. A `sharplight.portable` file next to the package selects portable mode. A pointer file
+in the system configuration folder selects a custom folder. `SHARPLIGHT_HOME` overrides both. `SHARPLIGHT_STUDIO_HOME` moves only
+Studio's own settings and data into one directory (tests, side-by-side profiles). `SHARPLIGHT_MODELS` and `--models-dir` move only
+the models, and `SHARPLIGHT_COMPILATION_CACHE` only the compiled kernels.
 
-`SHARPLIGHT_STUDIO_HOME` moves settings and data into one directory (portable use).
+When the model store in effect is empty while another store has models, Studio offers once to keep using that store or to move or
+copy the models into the new one. The other store can be the system store, or the `data` folder next to the app where earlier
+versions kept them.
 
 ## Architecture
 

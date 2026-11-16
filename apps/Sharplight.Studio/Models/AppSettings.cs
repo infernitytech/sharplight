@@ -6,16 +6,16 @@ namespace Sharplight.Studio.Models;
 internal sealed record AppSettings
 {
     /// <summary>
-    /// Where the model store is: the application folder, the user folder or <see cref="ModelsDirectory"/>. Null when never chosen:
-    /// a custom folder when <see cref="ModelsDirectory"/> is set (settings of earlier versions), else the default (application
-    /// folder). <c>--models-dir</c> and <c>SHARPLIGHT_MODELS</c> take precedence.
+    /// Where the model store is: with the other data (the storage layout's <c>models</c> folder), the system folder or
+    /// <see cref="ModelsDirectory"/>. Null when never chosen: a custom folder when <see cref="ModelsDirectory"/> is set (settings of
+    /// earlier versions), else the default (with the other data). <c>--models-dir</c> and <c>SHARPLIGHT_MODELS</c> take precedence.
     /// </summary>
     public ModelStoreLocation? ModelsLocation { get; init; }
 
     /// <summary>The custom model store directory (<see cref="ModelStoreLocation.Custom"/>).</summary>
     public string? ModelsDirectory { get; init; }
 
-    /// <summary>The offer to move the models of a previous store (the per-user store) was answered; it is made once.</summary>
+    /// <summary>The offer to move the models of a previous store (the system store, or the folder next to the app of earlier versions) was answered; it is made once.</summary>
     public bool StoreMigrationAnswered { get; init; }
 
     /// <summary>

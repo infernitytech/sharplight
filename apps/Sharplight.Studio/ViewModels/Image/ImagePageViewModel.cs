@@ -150,7 +150,8 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     internal Task ModelDefaults { get; private set; } = Task.CompletedTask;
 
     /// <summary>
-    /// Sets steps, guidance and sampler to a distilled model's defaults (SDXL-Turbo: 4 steps without guidance), since the usual 20 steps
+    /// Sets steps, guidance and sampler to a distilled model's defaults (SDXL-Turbo, FLUX.1-schnell: 4 steps without guidance; FLUX.1-dev:
+    /// 28 steps with its embedded guidance 3.5), since the usual 20 steps
     /// with guidance 7.5 spoil its pictures; switching back to a regular model restores the usual values. Regular models keep what the
     /// user chose.
     /// </summary>
@@ -172,7 +173,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
             return;
         }
 
-        bool distilled = defaults.GuidanceScale <= 1f;
+        bool distilled = defaults.GuidanceScale <= 1f || !defaults.ClassifierFreeGuidance;
         Services.Dispatcher.Post(() =>
         {
             if (SelectedModel?.Id != model.Id)
@@ -189,7 +190,9 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
                     ["sampler"] = "",
                 });
                 _distilledDefaultsOf = model.Id;
-                Notice = $"{model.Id} is a distilled model: set to its defaults, {defaults.Steps} steps without guidance.";
+                Notice = defaults.GuidanceScale <= 1f
+                    ? $"{model.Id} is a distilled model: set to its defaults, {defaults.Steps} steps without guidance."
+                    : $"{model.Id} is a guidance-distilled model: set to its defaults, {defaults.Steps} steps, guidance {defaults.GuidanceScale.ToString(CultureInfo.InvariantCulture)}.";
             }
             else if (_distilledDefaultsOf is not null)
             {

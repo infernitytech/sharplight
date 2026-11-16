@@ -20,6 +20,8 @@ public sealed class SpeechRealModelTests
     private static readonly string s_outetts = Path.Combine(s_home, "models/tts/outetts-0.2/OuteTTS-0.2-500M-Q8_0.gguf");
     private static readonly string s_vocoder = Path.Combine(s_home, "models/tts/wavtokenizer/WavTokenizer-Large-75-F16.gguf");
 
+    private static readonly string s_kokoro = Path.Combine(s_home, "models/tts/kokoro");
+
     private static LoadSettings Settings(EngineModelRuntime runtime) => new() { DeviceId = runtime.Devices[0].Id, ContextLength = 2048, BatchTokens = 256 };
 
     [Fact]
@@ -119,6 +121,37 @@ public sealed class SpeechRealModelTests
         Assert.True(audio.Duration.TotalSeconds > 0.5);
         Assert.Contains(audio.Samples, sample => MathF.Abs(sample) > 0.01f);
         await runtime.UnloadAsync("outetts");
+    }
+
+    [Fact]
+    public async Task SpeakPage_RunsARealKokoroModel_WithItsVoicesAndLexicon()
+    {
+        Assert.SkipUnless(File.Exists(Path.Combine(s_kokoro, "kokoro-v1_0.pth")) && File.Exists(Path.Combine(s_kokoro, "lexicon", "us_gold.json")), "Kokoro-82M not found");
+        using var fakes = new TestServices();
+        using var runtime = new EngineModelRuntime(EngineServices.From(TestHost.Services), () => new ResidencySettings());
+        Assert.SkipWhen(runtime.Devices.Count == 0, "no compute device");
+        var services = fakes.Services with { Runtime = runtime };
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.Equal(ModelKinds.SpeechSynthesis, ModelInspector.Inspect(s_kokoro).Kind);
+        var model = await runtime.LoadAsync(new ModelLoadRequest("kokoro", s_kokoro, Settings(runtime), [], Kind: ModelKinds.SpeechSynthesis), null, ct);
+        Assert.Equal(ModelKinds.SpeechSynthesis, model.Kind);
+
+        var page = new SpeakPageViewModel(services, new Fakes.FakeNavigator());
+        await page.ActivateAsync();
+        await page.RefreshVoicesAsync(model);
+        page.Panel.Apply(new Dictionary<string, string> { ["voice"] = "af_heart" });
+        page.InputText = "Hello world. This is Sharplight speaking.";
+        page.RunCommand.Execute(null);
+        var item = page.Queue.Items.Single();
+        await item.Completion.WaitAsync(TimeSpan.FromMinutes(5), ct);
+
+        Assert.True(item.Status == RunStatus.Completed, item.StatusText);
+        var output = Assert.Single(page.Gallery.Items);
+        var audio = WavFile.Read(output.Files[0].Path);
+        Assert.True(audio.Duration.TotalSeconds > 2, $"{audio.Duration.TotalSeconds:0.0} s of audio");
+        Assert.Contains(audio.Samples, sample => MathF.Abs(sample) > 0.05f);
+        await runtime.UnloadAsync("kokoro");
     }
 
     [Fact]

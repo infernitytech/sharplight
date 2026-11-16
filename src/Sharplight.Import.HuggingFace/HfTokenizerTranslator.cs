@@ -41,7 +41,21 @@ internal static partial class HfTokenizerTranslator
             throw new NotSupportedException($"{dir}: no tokenizer.json (SentencePiece-only tokenizers are not supported yet).");
         }
 
-        using var tokenizerDocument = JsonDocument.Parse(File.ReadAllBytes(tokenizerPath));
+        AddFromJson(md, File.ReadAllBytes(tokenizerPath), dir, config);
+    }
+
+    /// <summary>
+    /// Adds the canonical <c>tokenizer.*</c> keys of a <c>tokenizer.json</c> given as bytes (e.g. an embedded vocabulary), with the
+    /// optional companion files (<c>tokenizer_config.json</c>, ...) read from <paramref name="dir"/> when it holds them.
+    /// </summary>
+    /// <param name="md">The canonical metadata being built.</param>
+    /// <param name="tokenizerJson">The UTF-8 <c>tokenizer.json</c>.</param>
+    /// <param name="dir">A directory with companion files, or one without any.</param>
+    /// <param name="config">The checkpoint's configuration (vocabulary size and special-token id fallbacks).</param>
+    /// <exception cref="NotSupportedException">The tokenizer model type is not supported.</exception>
+    public static void AddFromJson(IDictionary<string, object> md, byte[] tokenizerJson, string dir, HfConfig config)
+    {
+        using var tokenizerDocument = JsonDocument.Parse(tokenizerJson);
         var tok = tokenizerDocument.RootElement;
 
         var model = tok.GetProperty("model");

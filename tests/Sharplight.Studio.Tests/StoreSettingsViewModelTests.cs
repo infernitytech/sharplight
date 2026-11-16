@@ -7,7 +7,7 @@ namespace Sharplight.Studio.Tests;
 public sealed class StoreSettingsViewModelTests
 {
     [Fact]
-    public void Settings_DefaultToTheApplicationFolder_AndShowWhy()
+    public void Settings_DefaultToTheStorageLayout_AndShowWhy()
     {
         using var services = new TestServices();
         var page = new SettingsPageViewModel(services.Services);
@@ -15,7 +15,7 @@ public sealed class StoreSettingsViewModelTests
         Assert.Equal(ModelStoreLocation.Application, page.StoreLocation.Value);
         Assert.False(page.IsCustomStore);
         Assert.Equal(services.Settings.ApplicationRoot, page.StoreRoot);
-        Assert.Equal("Default: application folder", page.StoreRootSource);
+        Assert.Equal("Default: system storage", page.StoreRootSource);
         Assert.Equal(3, page.StoreLocations.Count);
     }
 
@@ -28,7 +28,7 @@ public sealed class StoreSettingsViewModelTests
         page.StoreLocation = StoreLocationChoice.Get(ModelStoreLocation.User);
         Assert.Equal(ModelStoreLocation.User, services.Settings.Current.ModelsLocation);
         Assert.Equal(services.Settings.UserRoot, page.StoreRoot);
-        Assert.Equal("Settings: user folder", page.StoreRootSource);
+        Assert.Equal("Settings: system folder", page.StoreRootSource);
 
         page.StoreLocation = StoreLocationChoice.Get(ModelStoreLocation.Custom);
         Assert.True(page.IsCustomStore);
@@ -124,7 +124,7 @@ public sealed class StoreSettingsViewModelTests
 
         Assert.False(migration.IsOpen);
         Assert.True(services.Settings.Current.StoreMigrationAnswered);
-        Assert.Equal(previous.Root, services.Settings.StoreRoot);   // not the user folder here, so kept as a custom folder
+        Assert.Equal(previous.Root, services.Settings.StoreRoot);   // not the system folder here, so kept as a custom folder
         Assert.Equal(1, changes);
     }
 
