@@ -42,8 +42,8 @@ public class GgufSweepFixtureTests
     /// </summary>
     /// <remarks>
     /// Also ggml-org's Nemotron 3.5 Lightning MTP file (nemotron_h_moe, its NextN block below <c>mtp.layers.0.</c>) and agentionai's
-    /// Qwen3.8-Flash-Next MTP file (qwen4exp, whose NextN head is not imported, so the file maps to no layers at all: the check
-    /// recognizes it from the block indices, and the importer says so instead of failing on a missing trunk weight).
+    /// Qwen3.8-Flash-Next MTP file (qwen4exp, its NextN block below <c>mtp.layers.0.</c> with the head's own stream mixer: loadable as the
+    /// draft source of the model, not as a model of its own).
     /// </remarks>
     /// <summary>
     /// agentionai's <c>-noPLE</c> Gyro files leave out the n-gram table, which the fork loads from a separate file (<c>--ple</c>): the check
