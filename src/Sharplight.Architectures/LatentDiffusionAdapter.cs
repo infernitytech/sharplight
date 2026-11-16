@@ -38,7 +38,7 @@ namespace Sharplight.Architectures;
 /// <c>final_norm</c>), optionally <c>latent_diffusion.text_encoder_2.*</c> (the same plus <c>pad_id</c>),
 /// <c>latent_diffusion.zero_empty_negative</c>, <c>latent_diffusion.scheduler.*</c> (<c>train_steps</c>, <c>beta_start</c>, <c>beta_end</c>, <c>beta_schedule</c>,
 /// <c>prediction_type</c>, <c>timestep_spacing</c>, <c>steps_offset</c>, <c>set_alpha_to_one</c>, <c>zero_terminal_snr</c>,
-/// <c>sampler</c>, <c>source_config</c>) and the canonical tokenizer keys (<c>tokenizer.model = "clip"</c>).
+/// <c>sampler</c>, <c>source_config</c>, <c>default_steps</c>, <c>default_guidance</c>) and the canonical tokenizer keys (<c>tokenizer.model = "clip"</c>).
 /// <para>
 /// The graphs are built for the native image size, or for <see cref="DiffusionGraphs.Height"/> / <see cref="DiffusionGraphs.Width"/>
 /// from <see cref="AdapterOptions.Dimensions"/> (multiples of the VAE downscale; the UNet needs multiples of 8 latents).
@@ -203,8 +203,8 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
             Config = new ComponentConfigBuilder()
                 .Add(DiffusionConfigKeys.Width, nativeSize)
                 .Add(DiffusionConfigKeys.Height, nativeSize)
-                .Add(DiffusionConfigKeys.Steps, 25)
-                .Add(DiffusionConfigKeys.GuidanceScale, 7.5)
+                .Add(DiffusionConfigKeys.Steps, src.Get(s + "default_steps", 25))
+                .Add(DiffusionConfigKeys.GuidanceScale, src.Get(s + "default_guidance", 7.5f))
                 .Build(),
         };
     }

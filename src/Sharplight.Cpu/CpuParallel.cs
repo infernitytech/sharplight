@@ -14,7 +14,6 @@ namespace Sharplight.Cpu;
 internal static class CpuParallel
 {
     private const int DefaultSpinMicroseconds = 200;
-    private static readonly bool s_usePool = Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_POOL") != "0";
     private static readonly Lazy<CpuThreadPool> s_pool = new(CreatePool);
     private static int s_threads = InitialThreads();
     private static ParallelOptions s_opts = new() { MaxDegreeOfParallelism = s_threads };
@@ -49,7 +48,7 @@ internal static class CpuParallel
             return;
         }
 
-        if (s_usePool && Interlocked.CompareExchange(ref s_busy, 1, 0) == 0)
+        if (DiagnosticSwitches.UsePool && Interlocked.CompareExchange(ref s_busy, 1, 0) == 0)
         {
             try
             {

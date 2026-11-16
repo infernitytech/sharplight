@@ -20,8 +20,6 @@ internal sealed class CpuThreadJob
     private const int CounterStride = 16;
 
     /// <summary><c>SHARPLIGHT_CPU_AFFINITY=0</c> claims all items from one shared counter (the scheduling before ranges).</summary>
-    private static readonly bool s_shared = Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_AFFINITY") == "0";
-
     private readonly Action<int> _body;
     private readonly int _count;
     private readonly int _ranges;
@@ -34,7 +32,7 @@ internal sealed class CpuThreadJob
         _body = body;
         _count = count;
         Participants = participants;
-        _ranges = s_shared ? 1 : Math.Max(1, Math.Min(count, participants + 1));
+        _ranges = DiagnosticSwitches.SharedRanges ? 1 : Math.Max(1, Math.Min(count, participants + 1));
         _batch = Math.Max(1, count / ((participants + 1) * ClaimsPerParticipant));
         _counters = new long[(_ranges + 2) * CounterStride];
         for (int r = 0; r < _ranges; r++)

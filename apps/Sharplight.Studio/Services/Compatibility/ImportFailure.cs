@@ -87,7 +87,8 @@ internal static partial class ImportFailure
 
             if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
             {
-                return FromLocalGguf(path);
+                // Image models in GGUF (stable-diffusion.cpp, FLUX) are not judged by a language-model architecture: their importer's message stands.
+                return Library.ImageModelProbe.KindOf(path) is null ? FromLocalGguf(path) : null;
             }
 
             if (path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase))

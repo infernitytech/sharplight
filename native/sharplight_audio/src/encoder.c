@@ -101,8 +101,32 @@ static int wav_begin(sla_encoder* encoder)
 {
     uint8_t placeholder[WAV_HEADER_MAX];
     memset(placeholder, 0, sizeof(placeholder));
-    size_t header_size = encoder->format == SLA_ENCODE_WAV_FLOAT32 ? 58 : 44;
-    return append(encoder, placeholder, header_size);
+    return append(encoder, placeholder, 44);
+}
+
+/* Scales a sample by 2^(bits-1), rounds to nearest even and clamps to the signed range (-scale .. scale-1). */
+static int32_t quantize(float sample, float scale)
+{
+    float limit = scale;
+    float scaled = sample * scale;
+    if (scaled != scaled)
+    {
+        return 0;
+    }
+
+    if (scaled > limit)
+    {
+        scaled = limit;
+    }
+
+    if (scaled < -limit)
+    {
+        scaled = -limit;
+    }
+
+    int32_t value = (int32_t)lrintf(scaled);
+    int32_t maximum = (int32_t)limit - 1;
+    return value > maximum ? maximum : value;
 }
 
 static void wav_write_samples(sla_encoder* encoder, const float* frames, uint64_t frame_count)
@@ -133,15 +157,12 @@ static void wav_write_samples(sla_encoder* encoder, const float* frames, uint64_
         }
         else if (encoder->format == SLA_ENCODE_WAV_PCM16)
         {
-            float clamped = sample > 1.0f ? 1.0f : (sample < -1.0f ? -1.0f : sample);
-            int32_t value = (int32_t)lrintf(clamped * 32767.0f);
-            put_u16(chunk + used, (uint32_t)(int16_t)value);
+            /* Same rule as Core's WavFile: scale by 2^(bits-1) (the divisor reading uses), round to nearest even, clamp. */
+            put_u16(chunk + used, (uint32_t)(int16_t)quantize(sample, 32768.0f));
         }
         else
         {
-            float clamped = sample > 1.0f ? 1.0f : (sample < -1.0f ? -1.0f : sample);
-            int32_t value = (int32_t)lrintf(clamped * 8388607.0f);
-            uint32_t bits = (uint32_t)value;
+            uint32_t bits = (uint32_t)quantize(sample, 8388608.0f);
             chunk[used] = (uint8_t)(bits & 0xFF);
             chunk[used + 1] = (uint8_t)((bits >> 8) & 0xFF);
             chunk[used + 2] = (uint8_t)((bits >> 16) & 0xFF);
@@ -156,7 +177,7 @@ static void wav_write_samples(sla_encoder* encoder, const float* frames, uint64_
 static sla_result wav_finish(sla_encoder* encoder)
 {
     int is_float = encoder->format == SLA_ENCODE_WAV_FLOAT32;
-    size_t header_size = is_float ? 58 : 44;
+    size_t header_size = 44;
     uint64_t data_size = (uint64_t)(encoder->size - header_size);
     if (data_size > 0xFFFFFFFFu - 64u)
     {
@@ -169,25 +190,16 @@ static sla_result wav_finish(sla_encoder* encoder)
     put_u32(header + 4, (uint32_t)(encoder->size - 8));
     memcpy(header + 8, "WAVE", 4);
     memcpy(header + 12, "fmt ", 4);
-    put_u32(header + 16, is_float ? 18 : 16);
+    put_u32(header + 16, 16);
     put_u16(header + 20, is_float ? 3 : 1);
     put_u16(header + 22, encoder->channels);
     put_u32(header + 24, encoder->sample_rate);
     put_u32(header + 28, encoder->sample_rate * encoder->channels * bytes);
     put_u16(header + 32, encoder->channels * bytes);
     put_u16(header + 34, bytes * 8);
-    size_t position = 36;
-    if (is_float)
-    {
-        put_u16(header + 36, 0);
-        memcpy(header + 38, "fact", 4);
-        put_u32(header + 42, 4);
-        put_u32(header + 46, (uint32_t)encoder->frames_written);
-        position = 50;
-    }
-
-    memcpy(header + position, "data", 4);
-    put_u32(header + position + 4, (uint32_t)data_size);
+    /* Same 44-byte layout as Core's WavFile for every format (no fact chunk for float). */
+    memcpy(header + 36, "data", 4);
+    put_u32(header + 40, (uint32_t)data_size);
     return SLA_OK;
 }
 
