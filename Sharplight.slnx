@@ -13,6 +13,8 @@
     <Project Path="src/Sharplight.Import.Diffusers/Sharplight.Import.Diffusers.csproj" />
     <Project Path="src/Sharplight.Import.WhisperCpp/Sharplight.Import.WhisperCpp.csproj" />
     <Project Path="src/Sharplight.Import.Kokoro/Sharplight.Import.Kokoro.csproj" />
+    <Project Path="src/Sharplight.Import.Chatterbox/Sharplight.Import.Chatterbox.csproj" />
+    <Project Path="src/Sharplight.Import.F5Tts/Sharplight.Import.F5Tts.csproj" />
     <Project Path="src/Sharplight.Import.Snac/Sharplight.Import.Snac.csproj" />
     <Project Path="src/Sharplight.Import.SileroVad/Sharplight.Import.SileroVad.csproj" />
     <Project Path="src/Sharplight.Audio/Sharplight.Audio.csproj" />

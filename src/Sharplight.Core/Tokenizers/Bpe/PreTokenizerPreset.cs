@@ -33,6 +33,10 @@ internal sealed partial record PreTokenizerPreset(PreTokenizer Splitter, bool Ig
                 return new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), true, true);
 
             // Mistral "Tekken" (Pixtral, Nemotron): case-aware word pieces, single digits, ignore_merges.
+            // tokenizers' Whitespace pre-tokenizer (word runs and punctuation runs; Chatterbox's character BPE).
+            case "whitespace":
+                return new(new DefaultRegexStages([@"\w+|[^\w\s]+"]), false, false);
+
             case "pixtral" or "tekken":
                 return new(new DefaultRegexStages([@"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"]), true, false);
 

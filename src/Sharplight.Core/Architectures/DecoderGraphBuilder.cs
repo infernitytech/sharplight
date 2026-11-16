@@ -597,8 +597,12 @@ internal sealed partial class DecoderGraphBuilder
     }
 
     // The final norm of the trunk. Hierarchical cycles end with the high stack's norm, so a model with cycles and no output norm weight has none.
+    // A second output norm after the first (output_norm_2: XTTS's final_norm after GPT-2's ln_f), when the model has one.
     private Value OutputNorm(GraphBuilder b, Value x)
-        => _hp.Cycles is not null && !b.HasWeight("output_norm.weight") ? x : _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
+    {
+        var normed = _hp.Cycles is not null && !b.HasWeight("output_norm.weight") ? x : _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
+        return b.HasWeight("output_norm_2.weight") ? _norm.Apply(b, normed, "output_norm_2.weight", _hp.Eps, "result_norm_2") : normed;
+    }
 
     // One layer over AltUp streams [T, S·H] (Gemma 3n): the streams are mixed into predictions, the active prediction runs through the
     // sequential layer, its output corrects every prediction. The per-layer embedding contribution, gated by the active corrected stream

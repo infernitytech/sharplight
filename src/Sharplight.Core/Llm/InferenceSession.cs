@@ -30,6 +30,8 @@ public sealed class InferenceSession : IDisposable
     private readonly float[] _sampledLogprob = new float[1];
     private SamplingRow? _sampleRow;
     private readonly int _hidden;
+    private float[] _lastHidden = [];
+    private int _lastHiddenLength;
     private float[] _embBuf = [];
     private float[] _maskBuf = [];
     private float[] _mediaBuf = [];
@@ -57,6 +59,15 @@ public sealed class InferenceSession : IDisposable
     /// by less than their row count.
     /// </summary>
     public int RopePosition { get; private set; }
+    /// <summary>
+    /// Keep the final hidden states (the graph's <c>hidden</c> output, after the output norms) of the rows of every forward pass in
+    /// <see cref="LastHidden"/> (models whose next stage reads them, such as XTTS's waveform decoder). Off by default.
+    /// </summary>
+    public bool CaptureHidden { get; set; }
+
+    /// <summary>The hidden states of the last forward pass's rows ([rows, width] row-major) when <see cref="CaptureHidden"/> is on, else empty.</summary>
+    public ReadOnlySpan<float> LastHidden => _lastHidden.AsSpan(0, _lastHiddenLength);
+
     /// <summary>Whether the session's graph accepts media embeddings (a <see cref="WellKnown.DecodeMultimodalGraph"/>).</summary>
     public bool SupportsEmbeddings => _embeddings is not null && _embeddingMask is not null;
     /// <summary>The compiled graph (placement plan, profiling and device state).</summary>
@@ -345,6 +356,19 @@ public sealed class InferenceSession : IDisposable
         else if (wantLogits)
         {
             _compiled.GetOutput<float>("logits", _logits);
+        }
+
+        _lastHiddenLength = 0;
+        if (CaptureHidden && _compiled.Graph.Outputs.TryGetValue("hidden", out var hidden))
+        {
+            int length = T * (int)hidden.Shape[-1].Fixed;
+            if (_lastHidden.Length < length)
+            {
+                _lastHidden = new float[length];
+            }
+
+            _compiled.GetOutput<float>("hidden", _lastHidden.AsSpan(0, length));
+            _lastHiddenLength = length;
         }
     }
 
