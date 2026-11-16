@@ -636,7 +636,7 @@ delta nets, Mamba, RWKV, short convs) get their recurrent ops compiled in rollba
 the state at the run start, `Truncate` picks how many rows to keep, and the slot's next run replays them inside the same
 kernel before its own rows. The engine speculates while at most `SpeculationMaxBatch` sequences decode and verifies at most
 `SpeculationMaxDraftRows` drafts per step (fewer per sequence as the batch grows); requests with an output constraint are not
-speculated. CLI and server: `--speculate-mtp k`, `--speculate-ngram k` (the CLI's `--draft <file>` loads an MTP draft file such as
+speculated. CLI and server: `--speculate-mtp k`, `--speculate-ngram k` (the CLI's `--gpus N` places the model over N physical GPUs; `--draft <file>` loads an MTP draft file such as
 `mtp-*.gguf`, an EAGLE-3 or a DFlash drafter as the `draft` auxiliary source; Studio: the load option "Draft head tokens", 0 = off); `sharplight-convert precompile --drafts k` stores
 the kernels of the verifying decoders and the draft head. `LlmModel.EstimateFootprint(slots, ctx, kvCacheTokens, draftTokens,
 draftHead, maxLogitsRows)` counts the rollback record states, the verification logits rows and (with `draftHead`) the head's

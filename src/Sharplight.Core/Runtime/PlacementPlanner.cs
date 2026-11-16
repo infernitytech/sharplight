@@ -79,7 +79,42 @@ public static class PlacementPlanner
         }
 
         var tables = gatherOnly.Where(kv => kv.Value).Select(kv => kv.Key).ToHashSet();
-        return n => IsTableGather(n) && n.Inputs[0].Weight is { } table && tables.Contains(table) ? n.Group + TableGroupSuffix : n.Group;
+        var inTable = new HashSet<Node>(graph.Nodes.Where(n => IsTableGather(n) && n.Inputs[0].Weight is { } table && tables.Contains(table)));
+        if (inTable.Count == 0)
+        {
+            return static n => n.Group;
+        }
+
+        // The index computations that only feed a table's gathers (slices, reshapes of the ids) join them, so the table's device does not
+        // alternate with the layer's for every gather. Nodes with weights or states, and graph outputs, stay where they are.
+        var consumers = new Dictionary<Value, List<Node>>();
+        foreach (var n in graph.Nodes)
+        {
+            foreach (var v in n.Inputs)
+            {
+                if (!consumers.TryGetValue(v, out var list))
+                {
+                    consumers[v] = list = [];
+                }
+
+                list.Add(n);
+            }
+        }
+
+        var graphOutputs = graph.Outputs.Values.ToHashSet();
+        for (int i = graph.Nodes.Count - 1; i >= 0; i--)
+        {
+            var n = graph.Nodes[i];
+            bool feedsOnlyTables = !inTable.Contains(n) && n.Outputs.Length > 0
+                && n.Inputs.All(v => v.Weight is null && v.State is null)
+                && n.Outputs.All(v => !graphOutputs.Contains(v) && consumers.TryGetValue(v, out var users) && users.All(u => inTable.Contains(u) && u.Group == n.Group));
+            if (feedsOnlyTables)
+            {
+                inTable.Add(n);
+            }
+        }
+
+        return n => inTable.Contains(n) ? n.Group + TableGroupSuffix : n.Group;
     }
 
     private static bool IsTableGather(Node n) => n.Op.Name == "Gather";
