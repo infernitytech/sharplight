@@ -46,6 +46,8 @@ public static class TaskServiceCollectionExtensions
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, ObjectDetectorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, DepthEstimatorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.AudioCodecFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.VoiceActivityDetectorFactory>());
 
             return services;
         }

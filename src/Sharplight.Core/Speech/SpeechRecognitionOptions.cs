@@ -1,3 +1,4 @@
+using Sharplight.Audio;
 using Sharplight.Llm;
 
 namespace Sharplight.Speech;
@@ -31,6 +32,19 @@ public sealed record SpeechRecognitionOptions
     /// default) decodes with <see cref="Sampling"/>. More beams cost one decoder pass per beam and token.
     /// </summary>
     public int BeamSize { get; init; } = 1;
+
+    /// <summary>
+    /// Long recordings: find the stretches of speech first with <see cref="VoiceActivityDetector"/> and transcribe only those, grouped into windows of at most
+    /// 30 seconds that start at speech (no fixed 30 s grid over silence; fewer hallucinated words in pauses, less encoder work). Segment times stay relative to the whole
+    /// recording. Needs <see cref="VoiceActivityDetector"/>. Off by default.
+    /// </summary>
+    public bool UseVoiceActivityDetection { get; init; }
+
+    /// <summary>The detector for <see cref="UseVoiceActivityDetection"/> (a client of kind <c>voice-activity</c>, e.g. Silero VAD); the caller owns it.</summary>
+    public IVoiceActivityDetector? VoiceActivityDetector { get; init; }
+
+    /// <summary>How the detector's probabilities become speech segments for <see cref="UseVoiceActivityDetection"/>, or <see langword="null"/> for the defaults.</summary>
+    public VoiceActivityOptions? VoiceActivity { get; init; }
 
     /// <summary>The defaults.</summary>
     public static SpeechRecognitionOptions Default { get; } = new();
