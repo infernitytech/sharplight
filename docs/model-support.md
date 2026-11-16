@@ -1812,7 +1812,8 @@ Verification (tools/make-tiny-qwen-image21.py, tools/make-qwen-image21-reference
   the same files (dequantized GGUF transformer on CUDA, f32 text encoder; diffusers keeps the GGUF's BF16 norm scales undecoded, so the
   reference script dequantizes them first), 20 steps without guidance, same latents: text encoder 7.3–9.6e-4, transformer 1.4e-2 (random
   inputs); images 42.2 dB (512) / 37.4 dB (1024). Speed (Vulkan, warm): 1024×1024 20 steps 35.8 s (1.8 s per step), 512×512 10.6 s;
-  diffusers (GGUF dequantized on the fly, CUDA f32) 2.8 s per step at 1024.
+  diffusers (GGUF dequantized on the fly, CUDA f32) 2.8 s per step at 1024. Qwen-Image 2.1 Turbo (unsloth's Q8_0, its 8-step schedule from
+  the file name): 34.5 dB (1024) against diffusers with the pipeline's `sample_sigmas`, 8 steps in 14.8 s.
 
 ### LoRA
 
