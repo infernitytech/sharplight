@@ -60,6 +60,37 @@ public sealed class SpeechRealModelTests
         Assert.False(page.HasModels);
     }
 
+    [Theory]
+    [InlineData("moonshine-tiny", "ask not what your country can do for you")]
+    [InlineData("parakeet-ctc-0.6b", "ask not what your country can do for you")]
+    public async Task TranscribePage_RunsTheOtherSpeechFamilies_ThroughTheSameTaskClient(string name, string expected)
+    {
+        string path = Path.Combine(s_home, "models/hf", name);
+        Assert.SkipUnless(Directory.Exists(path) && File.Exists(s_jfk), $"{name} and jfk.wav not found");
+        using var fakes = new TestServices();
+        using var runtime = new EngineModelRuntime(EngineServices.From(TestHost.Services), () => new ResidencySettings());
+        Assert.SkipWhen(runtime.Devices.Count == 0, "no compute device");
+        var services = fakes.Services with { Runtime = runtime };
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.Equal(ModelKinds.SpeechRecognition, ModelInspector.Inspect(path).Kind);
+        var model = await runtime.LoadAsync(new ModelLoadRequest(name, path, Settings(runtime), [], Kind: ModelKinds.SpeechRecognition), null, ct);
+        Assert.Equal(ModelKinds.SpeechRecognition, model.Kind);
+
+        var page = new TranscribePageViewModel(services, new Fakes.FakeNavigator());
+        await page.ActivateAsync();
+        Assert.Equal(name, page.SelectedModel?.Id);
+        Assert.True(await page.SetAudioAsync(s_jfk));
+        page.RunCommand.Execute(null);
+        var item = page.Queue.Items.Single();
+        await item.Completion.WaitAsync(TimeSpan.FromMinutes(5), ct);
+
+        Assert.True(item.Status == RunStatus.Completed, item.StatusText);
+        Assert.Contains(expected, page.TranscriptText, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(page.Segments);
+        await runtime.UnloadAsync(name);
+    }
+
     [Fact]
     public async Task SpeakPage_RunsARealOuteTtsModel_WithItsVocoder()
     {
@@ -106,6 +137,14 @@ public sealed class SpeechRealModelTests
         Assert.True(ModelInspector.Inspect(whisper).KindInferred);
         Assert.Equal(ModelKindCatalog.Other, ModelInspector.Inspect(other).Kind);
         Assert.Equal(ModelKinds.SpeechRecognition, ModelInspector.Inspect(hf).Kind);
+        foreach (string type in new[] { "moonshine", "parakeet_ctc", "parakeet_tdt", "canary" })
+        {
+            string folder = dir.File(type);
+            Directory.CreateDirectory(folder);
+            await File.WriteAllTextAsync(Path.Combine(folder, "config.json"), $$"""{"model_type": "{{type}}"}""", TestContext.Current.CancellationToken);
+            Assert.Equal(ModelKinds.SpeechRecognition, ModelInspector.Inspect(folder).Kind);
+        }
+
         Assert.Equal(ModelKinds.SpeechSynthesis, ModelInspector.Inspect(dir.File("OuteTTS-0.2-500M-Q8_0.gguf")).Kind);
     }
 }

@@ -16,7 +16,7 @@ internal sealed class SpeechTokenProtocol
     {
         StartId = Required(metadata, SpeechKeys.StartId);
         EndId = Required(metadata, SpeechKeys.EndId);
-        TimestampBeginId = Required(metadata, SpeechKeys.TimestampBeginId);
+        TimestampBeginId = Optional(metadata, SpeechKeys.TimestampBeginId);
         NoTimestampsId = Optional(metadata, SpeechKeys.NoTimestampsId);
         TranscribeId = Optional(metadata, SpeechKeys.TranscribeId);
         TranslateId = Optional(metadata, SpeechKeys.TranslateId);
@@ -43,6 +43,8 @@ internal sealed class SpeechTokenProtocol
         }
 
         LanguageIds = languageIds;
+        PromptTemplate = TokenizerMetadataReader.GetIntArray(metadata, SpeechKeys.PromptTemplateIds);
+        DefaultLanguage = metadata.TryGetValue(SpeechKeys.DefaultLanguage, out var language) ? language as string : null;
     }
 
     /// <summary>First prompt token.</summary>
@@ -51,8 +53,14 @@ internal sealed class SpeechTokenProtocol
     /// <summary>End of the text: decoding stops.</summary>
     public int EndId { get; }
 
-    /// <summary>The first timestamp token (0 s from the window start); every id from here up is a timestamp.</summary>
-    public int TimestampBeginId { get; }
+    /// <summary>
+    /// The first timestamp token (0 s from the window start; every id from here up is a timestamp), or null when the model generates no
+    /// timestamps (segments then span their window).
+    /// </summary>
+    public int? TimestampBeginId { get; }
+
+    /// <summary>True when the model generates timestamp tokens.</summary>
+    public bool HasTimestamps => TimestampBeginId is not null;
 
     /// <summary>Token asking for text without timestamps, if the model has one.</summary>
     public int? NoTimestampsId { get; }
@@ -87,13 +95,19 @@ internal sealed class SpeechTokenProtocol
     /// <summary>Token ids of the languages; empty for single-language models.</summary>
     public int[] LanguageIds { get; }
 
+    /// <summary>The prompt template (-1: source language, -2: target language), or null for the start / language / task prompt.</summary>
+    public int[]? PromptTemplate { get; }
+
+    /// <summary>The language used when a request names none, for models that cannot detect it; null when the model detects languages.</summary>
+    public string? DefaultLanguage { get; }
+
     /// <summary>True when the prompt carries a language token.</summary>
     public bool IsMultilingual => LanguageIds.Length > 0;
 
     /// <summary>True when <paramref name="metadata"/> describes a prompted speech decoder.</summary>
     /// <param name="metadata">Canonical metadata of the decoder.</param>
     public static bool IsPresent(IReadOnlyDictionary<string, object> metadata)
-        => metadata.ContainsKey(SpeechKeys.StartId) && metadata.ContainsKey(SpeechKeys.EndId) && metadata.ContainsKey(SpeechKeys.TimestampBeginId);
+        => metadata.ContainsKey(SpeechKeys.StartId) && metadata.ContainsKey(SpeechKeys.EndId);
 
     /// <summary>Reads the protocol from canonical metadata.</summary>
     /// <param name="metadata">Canonical metadata of the decoder.</param>
@@ -119,6 +133,18 @@ internal sealed class SpeechTokenProtocol
     /// <exception cref="NotSupportedException">Translation was asked of a model without a translate token.</exception>
     public List<int> StartSequence(int? language, bool translate, bool timestamps)
     {
+        if (PromptTemplate is { } template)
+        {
+            int source = language ?? throw new InvalidOperationException("The speech prompt needs a language.");
+            int target = translate ? LanguageToken("en") : source;
+            return [.. template.Select(id => id switch
+            {
+                -1 => source,
+                -2 => target,
+                _ => id,
+            })];
+        }
+
         List<int> prompt = [StartId];
         if (language is int languageToken)
         {

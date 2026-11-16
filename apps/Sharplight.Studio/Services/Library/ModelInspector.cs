@@ -53,8 +53,8 @@ internal static class ModelInspector
     }
 
     /// <summary>
-    /// The kind a model file that is not a package probably has: whisper.cpp <c>.bin</c> files (by their magic number) and Whisper
-    /// checkpoint folders recognize speech, a GGUF named like OuteTTS speaks, Stable Diffusion checkpoints and the vision checkpoints
+    /// The kind a model file that is not a package probably has: whisper.cpp <c>.bin</c> files (by their magic number) and checkpoint
+    /// folders of the speech-recognition families (<see cref="s_speechRecognitionModelTypes"/>) recognize speech, a GGUF named like OuteTTS speaks, Stable Diffusion checkpoints and the vision checkpoints
     /// are recognized by <see cref="ImageModelProbe"/>, other GGUF files and checkpoint folders are language models.
     /// </summary>
     private static string InferKind(string path)
@@ -77,11 +77,17 @@ internal static class ModelInspector
         string config = System.IO.Path.Combine(path, "config.json");
         if (Directory.Exists(path) && File.Exists(config))
         {
-            return IsWhisperConfig(config) ? ModelKinds.SpeechRecognition : ModelKinds.TextGeneration;
+            return IsSpeechRecognitionConfig(config) ? ModelKinds.SpeechRecognition : ModelKinds.TextGeneration;
         }
 
         return ModelKindCatalog.Other;
     }
+
+    /// <summary>The Hugging Face <c>model_type</c> values of the speech-recognition checkpoints Sharplight imports.</summary>
+    private static readonly HashSet<string> s_speechRecognitionModelTypes = new(StringComparer.Ordinal)
+    {
+        "whisper", "moonshine", "parakeet_ctc", "parakeet_tdt", "parakeet_rnnt", "canary", "voxtral",
+    };
 
     /// <summary>Whether the file starts with the ggml magic number of whisper.cpp model files.</summary>
     private static bool HasGgmlMagic(string path)
@@ -98,12 +104,12 @@ internal static class ModelInspector
         }
     }
 
-    private static bool IsWhisperConfig(string config)
+    private static bool IsSpeechRecognitionConfig(string config)
     {
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(config));
-            return document.RootElement.TryGetProperty("model_type", out var type) && type.GetString() == "whisper";
+            return document.RootElement.TryGetProperty("model_type", out var type) && type.GetString() is { } name && s_speechRecognitionModelTypes.Contains(name);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
