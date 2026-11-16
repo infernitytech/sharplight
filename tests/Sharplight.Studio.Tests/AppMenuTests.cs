@@ -22,7 +22,7 @@ public sealed class AppMenuTests
     });
 
     [Fact]
-    public async Task ApplicationMenu_HasAboutSettingsAndUpdates_ThatNavigate()
+    public Task ApplicationMenu_HasAboutSettingsAndUpdates_ThatNavigate() => HeadlessApp.RunAsync(async () =>
     {
         using var services = new TestServices();
         var viewModel = new MainWindowViewModel(services.Services);
@@ -43,10 +43,10 @@ public sealed class AppMenuTests
         await RunAsync(Item(menu, "Check for Updates…"));
         Assert.Same(viewModel.Settings, viewModel.CurrentPage);
         Assert.Equal(1, services.Updates.Checks);
-    }
+    });
 
     [Fact]
-    public async Task MenuBar_ViewNavigates_FileOpensLibrary_HelpOpensLinks()
+    public Task MenuBar_ViewNavigates_FileOpensLibrary_HelpOpensLinks() => HeadlessApp.RunAsync(async () =>
     {
         using var services = new TestServices();
         var viewModel = new MainWindowViewModel(services.Services);
@@ -67,5 +67,5 @@ public sealed class AppMenuTests
         var report = help.Items.OfType<NativeMenuItem>().Single(item => item.Header == "Report an Issue…");
         report.Command!.Execute(report.CommandParameter);
         Assert.Equal([AppMenu.IssuesUrl], services.Platform.Opened);
-    }
+    });
 }
