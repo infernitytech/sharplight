@@ -1204,6 +1204,36 @@ Tests: `tests/Sharplight.Speech.Tests` (`MoonshineParityTests`, `ParakeetParityT
 `FourierTransformTests`), fixtures from `tests/Sharplight.Speech.Tests/tools/make_whisper_fixtures.py`; the audio endpoints in
 `Sharplight.Serving.Tests` (`AudioApiTests`); the Studio inspector in `PackageInspectorTests.SpeechPackage_ShowsSpeechRecognitionComponents`; recognition, loading and the Transcribe page for the GGUF and whisper.cpp files in `GgufRealModelTests`.
 
+### 13.1 Speech popularity sweep (2026-11-16)
+
+The most downloaded `automatic-speech-recognition` and `text-to-speech` models of the Hub (sorted by downloads, cross-checked with the
+`text-to-audio` list), tried in the formats they are distributed in. References: transformers 5.23 (greedy, float32, CPU) in a venv; clips: jfk.wav,
+LibriSpeech 1272-128104-0004, and FLEURS test clips in German, Spanish and Japanese. "Same text" compares case- and punctuation-insensitively.
+
+| Model | Format | Result |
+|---|---|---|
+| openai/whisper-large-v3 | HF | same text as transformers on all 5 clips (CPU of the reference, Vulkan) |
+| handy-computer/whisper-large-v3-gguf | GGUF Q5_K_M | same text as transformers on all 5 clips |
+| facebook/wav2vec2-base-960h | HF | **new**: CTC ids and text identical to transformers on jfk and LibriSpeech, CPU and Vulkan (`Wav2Vec2ParityTests`) |
+| jonatasgrosman/wav2vec2-large-xlsr-53-japanese | HF `pytorch_model.bin` | **new**: layer-normed feature encoder and pre-norm layers; text identical to transformers on the Japanese clip |
+| handy-computer/parakeet-tdt-0.6b-v3-gguf | transcribe.cpp GGUF F16, Q8_0 | **new**: F16 text identical to the HF checkpoint on 5 clips, tokens identical on jfk and LibriSpeech, CPU and Vulkan (`ParakeetGgufParityTests`); Q8_0 differs in one capital letter (German) and a few Japanese kana |
+| handy-computer/parakeet-ultra-gguf | GGUF Q8_0 | **new**: the `vad.*` head is ignored; English and Spanish transcripts correct (no reference run) |
+| handy-computer/parakeet-unified-en-0.6b-gguf | GGUF Q8_0 | **new**, partial: RNN-T head with biases and input scaling; transcripts match the reference text, no NeMo reference |
+| handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | GGUF | rejected with a reason: layer-norm convolution module, causal convolutions, chunked-limited attention (cache-aware streaming FastConformer) |
+| Qwen/Qwen3-ASR-1.7B (+ transcribe.cpp GGUF) | HF | unsupported: audio-LLM (conv2d stem, 24-layer windowed audio tower, projector into a Qwen3 decoder); needs the audio-embedding path of the multimodal decoder |
+| mistralai/Voxtral-Mini-4B-Realtime-2602 | HF | unsupported: audio tower, tekken tokenizer, streaming decoder |
+| handy-computer/cohere-transcribe-03-2026-gguf | GGUF | unsupported architecture `cohere_asr` |
+| Systran/faster-whisper-* | CTranslate2 | unsupported format (no importer) |
+| Xenova/whisper-* | ONNX | graphs run through the ONNX runner (section 9), no speech-recognition task on ONNX graphs |
+| hexgrad/Kokoro-82M | PyTorch folder | re-checked: synthesized sentence transcribed by Whisper small with one name misspelled ("Sharplugget") |
+| XTTS v2, Chatterbox, F5-TTS, OmniVoice, VoxCPM2, VibeVoice, Qwen3-TTS, CosyVoice 3, MeloTTS, SpeechT5, Indic Parler-TTS, KittenTTS | various | unsupported architectures (metadata only, not downloaded); each needs its own acoustic model plus codec / flow-matching decoder / vocoder |
+
+Fixes of the sweep: wav2vec2 CTC import and `Wav2Vec2CtcAdapter` (weight-normed grouped positional convolution folded at import, both
+`weight_g`/`weight_v` and parametrization names; character CTC vocabularies become a Unigram tokenizer with `|` as the space); a `parakeet`
+GGUF mapping (transcribe.cpp layout, the Slaney filter bank computed from the front-end parameters since the file stores none:
+`IGgufArchitectureMapping.SyntheticAttachments`, `IgnoresTensor`); the Slaney mel filter bank moved from the Hugging Face importer to
+`Sharplight.Audio.SlaneyMelFilterBank` in Core. Not run: Studio Transcribe page for the new formats, `.slm` of the new models.
+
 ## 14. Vision models (task layer)
 
 Vision models run through the task layer (kinds `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`; see docs/api-overview.md "Tasks"). The host-side
@@ -1246,7 +1276,11 @@ the `silero-vad` package on `jfk.wav` (resampled to the codec's rate, a whole nu
 | DAC 44 kHz (`descript/dac_44khz`: snake activations, 9 factorized cosine RVQ stages) | HF `dac` | audio-codec | supported | codes token-exact, decoded audio relative RMS < 1e-3 (CPU and Vulkan) |
 | Mimi (`kyutai/mimi`: SEANet, 8+8 layer sliding-window transformers, split semantic + acoustic RVQ, 12.5 Hz) | HF `mimi` | audio-codec | supported; 32 stages, 8 by default | codes token-exact for 8 and 32 stages, decoded audio relative RMS < 1e-3 (CPU and Vulkan) |
 | Silero VAD v5 (`silero_vad_16k_op15.onnx`: learned STFT, four convolutions, one LSTM step) | `Sharplight.Import.SileroVad` | voice-activity | supported (16 kHz; the 8 kHz branch of the full export is not imported) | frame probabilities within 1e-3 of onnxruntime, segments identical to `get_speech_timestamps` on two clips (CPU and Vulkan) |
-| Demucs (htdemucs), CLAP (`laion/clap-htsat-unfused`), MusicGen small | - | audio-separation, audio-embedding, music-generation | not started (kinds named in `ModelKinds`) | - |
+| CLAP (`laion/clap-htsat-unfused`: HTS-AT Swin audio tower with a log-mel front end, RoBERTa text tower, projections) | HF `clap` (the fusion variants are rejected) | audio-embedding | supported (10 s clips at 48 kHz; shorter audio is repeated and padded, longer audio is cut or averaged over clips) | audio and text embeddings within 2e-3 relative RMS of transformers, zero-shot logits within 0.05 (CPU and Vulkan) |
+| MusicGen small (`facebook/musicgen-small`: T5 text encoder, 24-layer decoder over four EnCodec 32 kHz codebooks with the delay pattern, classifier-free guidance, non-causal EnCodec decoder) | HF `musicgen` (mono models; one canonical source holds the T5 encoder, the decoder and the codec decoder) | music-generation | supported (greedy and sampling, up to 40 s, streaming in windows) | greedy codes with guidance 3 token-exact against `generate` (60 steps, CPU and Vulkan), decoded audio within 2e-3 relative RMS |
+| Demucs (`htdemucs`: spectral and waveform U-Nets with dilated residual branches, a cross-domain transformer, complex-as-channels spectrogram output) | HF layout `htdemucs` (a safetensors conversion of the state dict with the constructor arguments as `config.json`, e.g. KeighBee/demucs; the original `.th` pickle is not read) | audio-separation | supported (4 stems, 7.8 s segments with 25 % overlap and triangular cross-fade; no Wiener filtering, no shifts, no multi-band models) | stems of a 10 s stereo mix against the demucs package's `apply_model` with the same weights: SDR above 35 dB on every stem and channel (CPU and Vulkan) |
+
+CLAP, MusicGen and Demucs have their references in `tools/audio-reference` (`reference_clap.py`, `reference_musicgen.py`, `reference_demucs.py`). The CLAP checkpoint was converted from `pytorch_model.bin` to safetensors with `torch.load(weights_only=True)` (no pickled code runs), the MusicGen decoder reuses the EnCodec decoder graph with the non-causal padding of the 32 kHz codec (`EncodecParameters.Causal`), and its delay pattern and guidance are written out in `MusicGeneratorClient` (checked first against transformers' decoder stepped by hand). Demucs' host side (spectrogram, normalization, the cross-fade of overlapping segments and the centered padding of the last one) follows `demucs.apply` and `demucs.htdemucs._spec` / `_ispec`.
 
 Limits: the codecs run on one channel; the encoder pads the audio at the end with zeros to a whole frame (the references pad per layer, so the last frame of audio whose
 length is not a frame multiple can differ), audio longer than the component's bound runs in independent segments (no overlap, a seam can be audible in the non-causal DAC).

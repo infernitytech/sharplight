@@ -37,6 +37,34 @@ internal static class HfWeightNormFolding
             return HfTransforms.EncodeF32(v);
         });
 
+    /// <summary>
+    /// The effective weight <c>g · v / ‖v‖</c> of a rank-3 weight normalized along its last axis (<c>weight_norm(dim=2)</c>, wav2vec2's
+    /// positional convolution): the norm is taken per kernel position over the other two axes. Computed on first read as F32.
+    /// </summary>
+    /// <param name="gain">The gain <c>g</c>, one value per kernel position.</param>
+    /// <param name="direction">The direction <c>v</c> [O, C, K].</param>
+    /// <param name="name">The canonical name of the folded weight.</param>
+    public static WeightInfo FoldLastAxis(WeightInfo gain, WeightInfo direction, string name)
+        => WeightInfo.Derived(name, DataType.F32, direction.Shape, () =>
+        {
+            var g = HfTransforms.DecodeF32(gain);
+            var v = HfTransforms.DecodeF32(direction);
+            long last = direction.Shape[2].Fixed;
+            var norms = new double[last];
+            for (long i = 0; i < v.LongLength; i++)
+            {
+                norms[i % last] += (double)v[i] * v[i];
+            }
+
+            for (long i = 0; i < v.LongLength; i++)
+            {
+                long k = i % last;
+                v[i] = (float)(v[i] * g[k] / Math.Sqrt(norms[k]));
+            }
+
+            return HfTransforms.EncodeF32(v);
+        });
+
     /// <summary>The element-wise sum of two same-shaped weights (the two bias vectors of an LSTM layer), computed on first read as F32.</summary>
     /// <param name="a">The first weight.</param>
     /// <param name="b">The second weight.</param>

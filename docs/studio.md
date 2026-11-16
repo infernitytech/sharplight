@@ -101,12 +101,18 @@ the engine gains a kind, its card opens a page of its own, built from the shared
 
   ![Speech models](images/studio/studio-discover-task-highlights.png)
 
-- **Multi-component repositories** are one model. A Diffusers repository (`model_index.json` and one folder per component:
-  `unet`, `vae`, `text_encoder`, ...) shows its components with their weight sizes (the safetensors copy counted once, half-precision
-  duplicates left out), a whisper.cpp repository lists its `ggml-*.bin` files by size and quantization, `.slm` repositories their
-  packages. Their kinds are not supported by the engine yet, so the badge reads *Not yet supported: &lt;kind&gt;* with the kind named
-  and the details say why the download is not offered; nothing is hidden silently. Only the language-model estimates (fit) exist
-  today; other kinds show their total size.
+- **Multi-component repositories** are one model and download as one. A Diffusers repository (`model_index.json` and one folder per
+  component: `unet`, `transformer`, `vae`, `text_encoder`, ...; Stable Diffusion 1.x / 2.x / XL, FLUX.1, Wan 2.1 T2V and Wan 2.2 TI2V)
+  shows its components with their weight sizes. The download plans the file set: `model_index.json`, every used component's
+  configuration, tokenizer and scheduler files and one weight variant per component (safetensors only; the `.bin`, `.ckpt`, ONNX
+  and Flax copies, EMA duplicates, the safety checker's weights and folders `model_index.json` does not list are left out). When the
+  repository has half-precision files the details offer *fp16* (the default, the smaller) and *full* precision with their planned
+  download sizes. The files go through the normal resumable download into one model folder and are converted to one `.slm`
+  package of the model's task kind (image or video generation), which the Image and Video pages load. A whisper.cpp repository lists
+  its `ggml-*.bin` files by quantization and downloads the one you pick (default a small quantized base model); `.slm`
+  repositories list their packages. Pipelines the engine cannot load (the importer judges them from `model_index.json`'s
+  pipeline class and components, e.g. Stable Diffusion 3, image-conditioned Wan, repositories with only `.bin` weights) say why in
+  the details and offer no download; the language-model fit estimate does not apply to them.
 - **Gated repositories.** A gated result carries a *Gated* badge and its details say what to do: accept the terms on Hugging Face
   and add an access token in the settings (or that the token is used). The token (the *Hugging Face token* setting, else
   `HF_TOKEN`) is optional and is sent to huggingface.co only, never to the hosts a download is redirected to. Studio has no

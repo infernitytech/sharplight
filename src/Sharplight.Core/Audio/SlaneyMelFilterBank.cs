@@ -1,26 +1,32 @@
-namespace Sharplight.Import.HuggingFace;
+namespace Sharplight.Audio;
 
 /// <summary>
 /// Triangular mel filter bank on the Slaney mel scale with Slaney (area) normalization, as librosa's <c>filters.mel</c> and transformers'
 /// <c>mel_filter_bank(norm="slaney", mel_scale="slaney")</c> compute it for Whisper's feature extractor (computed in double precision,
 /// rounded to f32 like the stored filters).
 /// </summary>
-internal static class HfMelFilterBank
+public static class SlaneyMelFilterBank
 {
     private const double LinearStep = 200.0 / 3.0;
     private const double LogStartHz = 1000.0;
     private static readonly double s_logStep = Math.Log(6.4) / 27.0;
 
     /// <summary>Filters [melBins, fftSize / 2 + 1] row-major, from 0 Hz to the Nyquist frequency.</summary>
-    public static float[] Create(int melBins, int fftSize, int sampleRate)
+    /// <param name="melBins">The number of mel channels.</param>
+    /// <param name="fftSize">The FFT size.</param>
+    /// <param name="sampleRate">The sample rate in Hz.</param>
+    /// <param name="minFrequency">The lowest frequency of the filters in Hz.</param>
+    /// <param name="maxFrequency">The highest frequency in Hz, or the Nyquist frequency.</param>
+    public static float[] Create(int melBins, int fftSize, int sampleRate, double minFrequency = 0.0, double? maxFrequency = null)
     {
         int bins = (fftSize / 2) + 1;
         double nyquist = sampleRate / 2.0;
-        double melMax = HzToMel(nyquist);
+        double melMin = HzToMel(minFrequency);
+        double melMax = HzToMel(maxFrequency ?? nyquist);
         var edges = new double[melBins + 2];
         for (int i = 0; i < edges.Length; i++)
         {
-            edges[i] = MelToHz(melMax * i / (melBins + 1));
+            edges[i] = MelToHz(melMin + ((melMax - melMin) * i / (melBins + 1)));
         }
 
         var filters = new float[melBins * bins];

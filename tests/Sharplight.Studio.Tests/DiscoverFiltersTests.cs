@@ -65,11 +65,11 @@ public sealed class DiscoverFiltersTests
         var service = new Studio.Services.Settings.JsonSettingsService(directory.File("settings.json"), null, TestServices.CreateLayout(directory.Path));
         service.Update(settings => settings with
         {
-            Discover = new DiscoverFilterSettings { Task = ModelTask.VideoGeneration, Format = ModelFormat.Diffusers, Gated = GatedFilter.Only, Sort = HubSortOrder.Modified },
+            Discover = new DiscoverFilterSettings { Task = ModelTask.TimeSeries, Format = ModelFormat.Diffusers, Gated = GatedFilter.Only, Sort = HubSortOrder.Modified },
         });
 
         var reread = new Studio.Services.Settings.JsonSettingsService(directory.File("settings.json"), null, TestServices.CreateLayout(directory.Path)).Current.Discover;
-        Assert.Equal(ModelTask.VideoGeneration, reread.Task);
+        Assert.Equal(ModelTask.TimeSeries, reread.Task);
         Assert.Equal(ModelFormat.Diffusers, reread.Format);
         Assert.Equal(GatedFilter.Only, reread.Gated);
         Assert.Equal(HubSortOrder.Modified, reread.Sort);
@@ -210,17 +210,30 @@ public sealed class DiscoverFiltersTests
 
         Assert.Equal([(ModelTask?)null, ModelTask.TimeSeries], services.Hub.HighlightTasks);
         Assert.True(search.IsShowingHighlights);
+<<<<<<< HEAD
         Assert.Equal("OCR models", search.HighlightsHeading);
         Assert.Equal(["Trending", "Most downloaded"], search.Highlights.Select(section => section.Title));
         var badge = search.Highlights[0].Items[0].Compatibility;
         Assert.Equal("Not yet supported: OCR", badge.Text);
         Assert.True(badge.IsBad);
         Assert.Contains("OCR", search.Highlights[0].Items[0].KindTitle, StringComparison.Ordinal);
+=======
+        Assert.Equal("Time series models", search.HighlightsHeading);
+        Assert.Equal(["Trending", "Most downloaded"], search.Highlights.Select(section => section.Title));
+        var badge = search.Highlights[0].Items[0].Compatibility;
+        Assert.Equal("Not yet supported: Time series", badge.Text);
+        Assert.True(badge.IsBad);
+        Assert.Contains("Time series", search.Highlights[0].Items[0].KindTitle, StringComparison.Ordinal);
+>>>>>>> develop
 
         // "Supported only" hides them, and says why the page is empty; turning it off brings them back.
         search.ShowOnlySupported = true;
         Assert.Empty(search.Highlights);
+<<<<<<< HEAD
         Assert.Contains("cannot run ocr models yet", search.HighlightsStatus, StringComparison.Ordinal);
+=======
+        Assert.Contains("cannot run time series models yet", search.HighlightsStatus, StringComparison.Ordinal);
+>>>>>>> develop
         search.ShowOnlySupported = false;
         Assert.Equal(2, search.Highlights.Count);
         Assert.Equal("", search.HighlightsStatus);
@@ -244,8 +257,13 @@ public sealed class DiscoverFiltersTests
         // The kind is named, nothing is hidden silently, and the supported result comes first.
         Assert.Equal(["a/qwen-chat", "black-forest-labs/FLUX.1-schnell"], search.Results.Select(result => result.Id));
         var flux = search.Results[1];
+<<<<<<< HEAD
         Assert.Equal("Not yet supported: OCR", flux.Compatibility.Text);
         Assert.Equal("OCR", flux.KindTitle);
+=======
+        Assert.Equal("Not yet supported: Time series", flux.Compatibility.Text);
+        Assert.Equal("Time series", flux.KindTitle);
+>>>>>>> develop
         Assert.Equal("DIFFUSERS", flux.Formats);
 
         search.ShowOnlySupported = true;
@@ -270,11 +288,62 @@ public sealed class DiscoverFiltersTests
         Assert.True(search.IsMultiComponent);
         Assert.Equal(["unet", "text_encoder", "vae"], search.Components.Select(component => component.Name));
         Assert.Contains("Diffusers · 3 parts", search.DetailFormat, StringComparison.Ordinal);
+<<<<<<< HEAD
         Assert.Contains("Not yet supported: ocr", search.NoDownloadReason, StringComparison.Ordinal);
         Assert.Empty(search.Variants);
         Assert.False(search.DownloadCommand.CanExecute(null));
         // The kind verdict stays; it is not replaced by "no model files".
         Assert.Equal("Not yet supported: OCR", search.SelectedResult!.Compatibility.Text);
+=======
+        Assert.Contains("Not yet supported: time series", search.NoDownloadReason, StringComparison.Ordinal);
+        Assert.Empty(search.Variants);
+        Assert.False(search.DownloadCommand.CanExecute(null));
+        // The kind verdict stays; it is not replaced by "no model files".
+        Assert.Equal("Not yet supported: Time series", search.SelectedResult!.Compatibility.Text);
+    }
+
+    [Fact]
+    public async Task SupportedDiffusersRepository_ShowsItsPartsAndVariants_AndCanBeDownloaded()
+    {
+        using var services = new TestServices();
+        var summary = new HubModelSummary("o/tiny-sd", 10, 1, false, "diffusers", "text-to-image", null, [ModelFormat.Diffusers], []);
+        services.Hub.Results.Add(summary);
+        var components = new[] { new HubComponent("unet", 3_400_000_000, 1), new HubComponent("vae", 330_000_000, 1) };
+        services.Hub.Details = repository => new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], null), ModelFormat.Diffusers,
+            [new VariantInfo("fp16", 2_000_000_000, 12, false, true), new VariantInfo("full", 4_000_000_000, 12, false, false)], ModelFormat.Diffusers, components);
+        var search = CreateSearch(services);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ImageGeneration);
+        search.Query = "tiny";
+        await search.SearchCommand.ExecuteAsync(null);
+        await search.FitEstimate;
+
+        Assert.Equal("", search.NoDownloadReason);
+        Assert.True(search.IsMultiComponent);
+        Assert.True(search.IsPulledAsOne);
+        Assert.Equal(["unet", "vae"], search.Components.Select(component => component.Name));
+        Assert.Equal(["fp16", "full"], search.Variants.Select(variant => variant.Tag));
+        Assert.Equal("fp16", search.SelectedVariant!.Tag);
+        Assert.True(search.DownloadCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task UnsupportedDiffusersPipeline_ShowsTheImportersReason_AndCannotBeDownloaded()
+    {
+        using var services = new TestServices();
+        var summary = new HubModelSummary("o/sd3", 10, 1, false, "diffusers", "text-to-image", null, [ModelFormat.Diffusers], []);
+        services.Hub.Results.Add(summary);
+        services.Hub.Details = repository => new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], null), null, [], ModelFormat.Diffusers,
+            [new HubComponent("transformer", 4_000_000_000, 1)], "Not supported yet: Stable Diffusion 3.");
+        var search = CreateSearch(services);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ImageGeneration);
+        search.Query = "sd3";
+        await search.SearchCommand.ExecuteAsync(null);
+        await search.FitEstimate;
+
+        Assert.Equal("Not supported yet: Stable Diffusion 3.", search.NoDownloadReason);
+        Assert.False(search.IsPulledAsOne);
+        Assert.False(search.DownloadCommand.CanExecute(null));
+>>>>>>> develop
     }
 
     [Fact]
@@ -303,14 +372,22 @@ public sealed class DiscoverFiltersTests
     {
         var image = CompatibilityChecker.FromSummary(new HubModelSummary("a/sd", 1, 1, false, "diffusers", "time-series-forecasting", null, [ModelFormat.Diffusers], []));
         Assert.Equal(CompatibilityState.UnsupportedKind, image.State);
+<<<<<<< HEAD
         Assert.Equal("Not yet supported: OCR", image.Text);
+=======
+        Assert.Equal("Not yet supported: Time series", image.Text);
+>>>>>>> develop
         Assert.True(image.IsUnsupported);
 
         // No pipeline tag: judged by the files, as before. Language and embedding tasks run, so they are checked by architecture.
         Assert.Equal(CompatibilityState.Supported, CompatibilityChecker.FromSummary(Model("a/untagged", pipeline: null)).State);
         Assert.Equal(CompatibilityState.Supported, CompatibilityChecker.FromSummary(Model("a/vlm", pipeline: "image-text-to-text")).State);
         Assert.Equal(CompatibilityState.Supported, CompatibilityChecker.FromSummary(Model("a/embedder", pipeline: "feature-extraction")).State);
+<<<<<<< HEAD
         Assert.Equal(CompatibilityState.UnsupportedKind, CompatibilityChecker.FromSummary(Model("a/forecaster", pipeline: "time-series-forecasting")).State);
+=======
+        Assert.Equal(CompatibilityState.UnsupportedKind, CompatibilityChecker.FromSummary(Model("a/3d", pipeline: "text-to-3d")).State);
+>>>>>>> develop
     }
 
     [Fact]

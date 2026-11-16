@@ -11,6 +11,15 @@ namespace Sharplight.Speech;
 /// </summary>
 internal sealed class EncoderDecoderSpeechRecognizerFactory : ITaskClientFactory
 {
+    private readonly IServiceProvider? _services;
+
+    /// <summary>Creates the factory.</summary>
+    /// <param name="services">The container the recognizers resolve a voice activity detector from, or <see langword="null"/> outside dependency injection.</param>
+    public EncoderDecoderSpeechRecognizerFactory(IServiceProvider? services = null)
+    {
+        _services = services;
+    }
+
     public string Kind => ModelKinds.SpeechRecognition;
 
     public Type ClientType => typeof(ISpeechRecognizer);
@@ -25,5 +34,5 @@ internal sealed class EncoderDecoderSpeechRecognizerFactory : ITaskClientFactory
             && SpeechTokenProtocol.IsPresent(model.Metadata(ModelComponentRoles.Decoder));
     }
 
-    public ITaskClient Create(TaskModel model) => new EncoderDecoderSpeechRecognizer(model);
+    public ITaskClient Create(TaskModel model) => new EncoderDecoderSpeechRecognizer(model, _services);
 }

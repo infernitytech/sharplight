@@ -1,4 +1,6 @@
+using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Hub;
+using Sharplight.Models;
 using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Studio.Services.Compatibility;
@@ -71,19 +73,34 @@ internal sealed class HubService : IHubService, IDisposable
         var repo = await client.GetRepositoryAsync(repository, "main", cancellationToken).ConfigureAwait(false);
         var paths = repo.Files.Select(file => file.Path).ToList();
         var format = ModelFileSelector.DetectFormat(paths);
+        string? index = null;
+        if (ModelFileSelector.IndexPath(repo, null) is { } indexPath)
+        {
+            index = await client.GetFileTextAsync(repo, indexPath, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (format == ModelFormat.Diffusers)
+        {
+            var pipeline = index is null ? null : DiffusersPipeline.Parse(index);
+            var support = pipeline is null ? null : ClassifyPipeline(pipeline);
+            if (support is { Supported: false })
+            {
+                return new RepositoryDetails(repo, null, [], ModelFormat.Diffusers, RepoLayouts.DiffusersComponents(repo.Files), support.Reason);
+            }
+
+            try
+            {
+                // A component without safetensors weights cannot be read: say so instead of offering a download that fails.
+                ModelFileSelector.Select(repo, null, index);
+            }
+            catch (HubException error)
+            {
+                return new RepositoryDetails(repo, null, [], ModelFormat.Diffusers, RepoLayouts.DiffusersComponents(repo.Files), error.Message);
+            }
+        }
+
         if (format is null)
         {
-            // A multi-component repository is one model: its parts are listed, but it cannot be pulled yet.
-            if (paths.Contains(RepoLayouts.DiffusersIndex))
-            {
-                return new RepositoryDetails(repo, null, [], ModelFormat.Diffusers, RepoLayouts.DiffusersComponents(repo.Files));
-            }
-
-            if (RepoLayouts.WhisperModels(repo.Files) is { Count: > 0 } whisper)
-            {
-                return new RepositoryDetails(repo, null, [], ModelFormat.WhisperCpp, whisper);
-            }
-
             if (paths.Any(path => path.EndsWith(".slm", StringComparison.OrdinalIgnoreCase)))
             {
                 return new RepositoryDetails(repo, null, [], ModelFormat.Slm,
@@ -93,29 +110,36 @@ internal sealed class HubService : IHubService, IDisposable
             return new RepositoryDetails(repo, null, []);
         }
 
-        var tags = ModelFileSelector.ListVariants(paths);
+        var tags = ModelFileSelector.ListVariants(paths, index);
         var variants = new List<VariantInfo>();
         if (tags.Count == 0)
         {
-            string? index = null;
-            if (ModelFileSelector.IndexPath(repo, null) is { } indexPath)
-            {
-                index = await client.GetFileTextAsync(repo, indexPath, cancellationToken).ConfigureAwait(false);
-            }
-
             variants.Add(ToVariant(ModelFileSelector.Select(repo, null, index), recommended: true));
         }
         else
         {
-            var recommended = ModelFileSelector.Select(repo, null).Tag;
+            var recommended = ModelFileSelector.Select(repo, null, index).Tag;
             foreach (var tag in tags)
             {
-                var selection = ModelFileSelector.Select(repo, tag);
+                var selection = ModelFileSelector.Select(repo, tag, index);
                 variants.Add(ToVariant(selection, string.Equals(selection.Tag, recommended, StringComparison.OrdinalIgnoreCase)));
             }
         }
 
+        if (format is ModelFormat.Diffusers or ModelFormat.WhisperCpp)
+        {
+            var parts = format == ModelFormat.Diffusers ? RepoLayouts.DiffusersComponents(repo.Files) : RepoLayouts.WhisperModels(repo.Files);
+            return new RepositoryDetails(repo, format, variants, format, parts);
+        }
+
         return new RepositoryDetails(repo, format, variants);
+    }
+
+    /// <summary>Asks the registered importers whether the pipeline can be loaded; null when none knows the pipeline kind.</summary>
+    private PipelineSupport? ClassifyPipeline(DiffusersPipeline pipeline)
+    {
+        var catalog = _engine.Services.GetRequiredService<ModelImporterCatalog>();
+        return catalog.Importers.Select(importer => importer.ClassifyPipeline(pipeline.ClassName, pipeline.Components)).FirstOrDefault(support => support is not null);
     }
 
     /// <inheritdoc/>

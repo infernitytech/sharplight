@@ -67,4 +67,45 @@ public sealed class DiffusersImporter : IModelImporter
     /// <param name="path">The model file.</param>
     public IReadOnlyDictionary<string, string> FindCompanions(string path)
         => File.Exists(path) && SingleFileCheckpoint.Kind(path) == FluxConfig.Architecture ? FluxCompanions.Find(path) : new Dictionary<string, string>();
+
+    /// <inheritdoc/>
+    public PipelineSupport? ClassifyPipeline(string pipelineClass, IReadOnlyCollection<string> components)
+    {
+        ArgumentNullException.ThrowIfNull(pipelineClass);
+        ArgumentNullException.ThrowIfNull(components);
+        if (!pipelineClass.EndsWith("Pipeline", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        if (components.Contains("transformer_2") || (components.Contains("image_encoder") && pipelineClass.StartsWith("Wan", StringComparison.Ordinal)))
+        {
+            return new PipelineSupport(false, "Not supported yet: image-conditioned Wan (I2V, two-expert A14B) pipelines. Wan 2.1 T2V and Wan 2.2 TI2V are supported.");
+        }
+
+        return pipelineClass switch
+        {
+            "StableDiffusionPipeline" or "StableDiffusionImg2ImgPipeline" or "StableDiffusionInpaintPipeline" or "StableDiffusionXLPipeline"
+                or "StableDiffusionXLImg2ImgPipeline" or "StableDiffusionXLInpaintPipeline" or "FluxPipeline" or "WanPipeline" or "WanImageToVideoPipeline"
+                => components.Contains("unet") || components.Contains("transformer") ? new PipelineSupport(true) : new PipelineSupport(false, $"Not supported yet: {pipelineClass} has no UNet or transformer."),
+            _ => new PipelineSupport(false, $"Not supported yet: {Describe(pipelineClass)}. Sharplight loads the Stable Diffusion 1.x / 2.x / XL, FLUX.1 and Wan 2.1 / 2.2 pipelines."),
+        };
+    }
+
+    private static string Describe(string pipelineClass)
+    {
+        string name = pipelineClass[..^"Pipeline".Length];
+        return name switch
+        {
+            "StableDiffusion3" => "Stable Diffusion 3",
+            "Chroma" => "Chroma",
+            "AuraFlow" => "AuraFlow",
+            "PixArtSigma" or "PixArtAlpha" => "PixArt",
+            "HunyuanVideo" => "HunyuanVideo",
+            "CogVideoX" => "CogVideoX",
+            "LTX" => "LTX-Video",
+            "Kandinsky" or "Kandinsky3" => "Kandinsky",
+            _ => $"the {pipelineClass} diffusers pipeline",
+        };
+    }
 }
