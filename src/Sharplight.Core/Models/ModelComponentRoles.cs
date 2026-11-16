@@ -25,6 +25,9 @@ public static class ModelComponentRoles
     /// <summary>The denoising network of a diffusion model (UNet, DiT, MMDiT).</summary>
     public const string Denoiser = "denoiser";
 
+    /// <summary>The diffusion transformer of a video generator (the denoising network of <c>video-generation</c> models).</summary>
+    public const string Transformer = "transformer";
+
     /// <summary>Variational autoencoder: maps latents to images (decoder graph) and images to latents (encoder graph).</summary>
     public const string Vae = "vae";
 

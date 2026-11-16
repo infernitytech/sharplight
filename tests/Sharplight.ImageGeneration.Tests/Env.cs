@@ -48,6 +48,12 @@ internal static class Env
     /// <summary>The tiny random FLUX pipelines (tools/make-tiny-flux.py), one folder per variant ("dev", "schnell").</summary>
     public static readonly string TinyFlux = Path.Combine(Home, "models/flux/tiny-random-flux");
 
+    /// <summary>The tiny random Wan pipelines (tools/make-tiny-wan.py: t2v, ti2v).</summary>
+    public static readonly string TinyWan = Path.Combine(Home, "models/video/tiny-random-wan");
+
+    /// <summary>The video models' folder.</summary>
+    public static readonly string VideoRoot = Path.Combine(Home, "models/video");
+
     /// <summary>Stable Diffusion 1.5 as a diffusers folder.</summary>
     public static readonly string Sd15Diffusers = Path.Combine(Home, "models/sd/sd15-diffusers");
 

@@ -6,7 +6,7 @@ using Sharplight.Studio.Services.Runtime;
 namespace Sharplight.Studio.Tests;
 
 /// <summary>
-/// Representative models of the top-20 text-generation sweep (docs/model-support.md section 16) through Studio's own load path: library
+/// Representative models of the top-20 text-generation sweep (docs/model-support.md section 17) through Studio's own load path: library
 /// recognition (<see cref="ModelInspector"/>), loading on the engine runtime and a greedy chat turn with the model's template. A Hugging
 /// Face safetensors folder (Qwen2.5), a llama.cpp-converted GGUF (Llama 3.2) and a hybrid convolution model GGUF (LFM3). Each case skips
 /// when its files are not on disk.

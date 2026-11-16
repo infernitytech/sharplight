@@ -62,7 +62,7 @@ jobs:
           shasum -a 256 "$lib"
 
       - name: Devices and features (MoltenVK)
-        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll --devices
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll --devices
 
       - name: vulkaninfo through the bundled MoltenVK
         continue-on-error: true
@@ -100,14 +100,14 @@ jobs:
       - name: LLM smoke test (CPU)
         if: (success() || failure()) && steps.model.outcome == 'success'
         run: |
-          dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-cpu.txt"
+          dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-cpu.txt"
           grep -q Paris "$RUNNER_TEMP/smoke-cpu.txt"
 
       - name: LLM smoke test (Vulkan via MoltenVK)
         if: (success() || failure()) && steps.model.outcome == 'success'
         timeout-minutes: 15
         run: |
-          dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-vulkan.txt"
+          dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-vulkan.txt"
           grep -q Paris "$RUNNER_TEMP/smoke-vulkan.txt"
 
       - name: CPU kernel tiers (decode and prefill)
@@ -115,7 +115,7 @@ jobs:
         run: |
           for isa in scalar v128 neon neondot; do
             echo "=== SHARPLIGHT_CPU_ISA=$isa"
-            SHARPLIGHT_CPU_ISA=$isa dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu --bench 128 2>&1 | tail -4
+            SHARPLIGHT_CPU_ISA=$isa dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" --cpu --bench 128 2>&1 | tail -4
           done
 
       # The paravirtual runner GPU compiles pipelines slowly (MSL translation and Metal compilation, about 0.6 s each) and Slang
@@ -175,7 +175,7 @@ jobs:
         run: dotnet build samples/Sharplight.Cli -c Release
 
       - name: Devices and features (MoltenVK)
-        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll --devices
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll --devices
 
       - name: Restore the kernel cache
         uses: actions/cache/restore@v4
@@ -195,7 +195,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 90
         run: |
-          cli=samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll
+          cli=samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll
           model="${{ steps.model.outputs.path }}"
           bench() {
             tokens=$1; shift
@@ -245,7 +245,7 @@ jobs:
           dotnet build samples/Sharplight.Cli -c Release
 
       - name: Devices
-        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll --devices
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll --devices
 
       - name: Cpu suite
         run: dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -maxThreads 4 -result-xml "$RUNNER_TEMP/cpu-tests.xml"
@@ -270,7 +270,7 @@ jobs:
       - name: LLM smoke test (CPU)
         if: (success() || failure()) && steps.model.outcome == 'success'
         run: |
-          dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-cpu.txt"
+          dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-cpu.txt"
           grep -q Paris "$RUNNER_TEMP/smoke-cpu.txt"
 
       - name: CPU kernel tiers (decode and prefill)
@@ -278,7 +278,7 @@ jobs:
         run: |
           for isa in scalar v128 neon neondot; do
             echo "=== SHARPLIGHT_CPU_ISA=$isa"
-            SHARPLIGHT_CPU_ISA=$isa dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu --bench 128 2>&1 | tail -4
+            SHARPLIGHT_CPU_ISA=$isa dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" --cpu --bench 128 2>&1 | tail -4
           done
 
       - uses: actions/upload-artifact@v4

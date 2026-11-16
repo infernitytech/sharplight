@@ -28,11 +28,14 @@ public static class Samplers
     /// <summary>DPM-Solver++(2M) with the Karras noise levels.</summary>
     public const string DpmPlusPlus2MKarras = "dpm++2m-karras";
 
+    /// <summary>UniPC (second-order predictor-corrector; flow models only, the Wan default).</summary>
+    public const string UniPc = "unipc";
+
     /// <summary>Every supported name.</summary>
     public static IReadOnlyList<string> All { get; } = [Euler, EulerKarras, EulerAncestral, Ddim, Pndm, DpmPlusPlus2M, DpmPlusPlus2MKarras];
 
-    /// <summary>The samplers of rectified-flow models (<see cref="NoiseSchedule.IsFlow"/>): Euler on the flow ODE.</summary>
-    public static IReadOnlyList<string> Flow { get; } = [Euler];
+    /// <summary>The samplers of rectified-flow models (<see cref="NoiseSchedule.IsFlow"/>): Euler on the flow ODE and UniPC.</summary>
+    public static IReadOnlyList<string> Flow { get; } = [Euler, UniPc];
 
     /// <summary>Creates a sampler for one run.</summary>
     /// <param name="name">A name of <see cref="All"/> (case-insensitive; <c>_</c> and <c>-</c> are interchangeable); for flow schedules one of <see cref="Flow"/>.</param>
@@ -48,6 +51,7 @@ public static class Samplers
             return Normalize(name) switch
             {
                 Euler or "flow-euler" => new FlowMatchEulerSampler(schedule, steps, imageTokens),
+                UniPc or "unipc-multistep" => new UniPcSampler(schedule, steps),
                 _ => throw new NotSupportedException($"Sampler '{name}' does not apply to rectified-flow models (supported: {string.Join(", ", Flow)})."),
             };
         }

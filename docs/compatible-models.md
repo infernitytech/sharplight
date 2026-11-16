@@ -103,7 +103,7 @@ Mamba and RWKV6 World 1.6B, Qwen3-VL 2B. Two of them generate degenerate text in
 
 The most downloaded text-generation models on the Hub plus popular larger ones, each checked as safetensors against transformers and as
 the most downloaded GGUF against llama.cpp b11177: tokenizer on seven multilingual texts, chat template with and without system prompt and
-with tool calls, 48 greedy tokens on three prompts (method and per-model notes in model-support.md section 16). "near-tie" = the first
+with tool calls, 48 greedy tokens on three prompts (method and per-model notes in model-support.md section 17). "near-tie" = the first
 differing token is a near tie of the reference itself (llama.cpp's own CPU and Vulkan builds differ there too, or the logit gap is below 0.1).
 
 | Model | Hub repository | Format | Providers | Verification | Notes | Verified |
