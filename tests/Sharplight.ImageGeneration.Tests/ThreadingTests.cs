@@ -58,7 +58,8 @@ public sealed class ThreadingTests
         }
 
         TestContext.Current.SendDiagnosticMessage($"a MoveNextAsync call held its caller at most {held.TotalMilliseconds:F2} ms of {watch.Elapsed.TotalMilliseconds:F0} ms");
-        Assert.Equal(7, updates.Count);
+        Assert.Equal(updates[^1].TotalSteps + 1, updates.Count);
+        Assert.NotNull(updates[^1].Result);
         Assert.True(held < watch.Elapsed / 4, $"a MoveNextAsync call held its caller {held.TotalMilliseconds:F1} ms");
 
         using var cancellation = new CancellationTokenSource();

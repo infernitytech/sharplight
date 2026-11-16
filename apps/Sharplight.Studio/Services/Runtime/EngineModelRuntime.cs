@@ -208,7 +208,9 @@ internal sealed class EngineModelRuntime : IModelRuntime
             }
 
             model?.Dispose();
-            RaiseChanged();
+
+            // Not throttled: a removed model must leave the pickers at once (a pending throttled call fires later, harmlessly).
+            ModelsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 

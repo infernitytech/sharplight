@@ -17,6 +17,9 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     private readonly INavigator _navigator;
     private readonly IReadOnlyList<string> _kinds;
 
+    /// <summary>The model <see cref="OnModelChanged"/> was last called with.</summary>
+    private ILoadedModel? _notifiedModel;
+
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
     /// <param name="kind">The model kind the page runs (<see cref="Sharplight.Models.ModelKinds"/>).</param>
@@ -48,9 +51,7 @@ internal abstract partial class InferencePageViewModel : PageViewModel
         {
             if (args.PropertyName == nameof(ModelPickerViewModel.SelectedModel))
             {
-                OnPropertyChanged(nameof(SelectedModel));
-                OnPropertyChanged(nameof(HasModel));
-                OnModelChanged(SelectedModel);
+                NotifyModelChanged();
             }
             else if (args.PropertyName == nameof(ModelPickerViewModel.HasModels))
             {
@@ -125,7 +126,21 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     public override Task ActivateAsync()
     {
         Picker.Refresh();
+        if (!ReferenceEquals(_notifiedModel, SelectedModel))
+        {
+            // Chosen while the page was being built (the picker keeps its options now, so a refresh does not choose again).
+            NotifyModelChanged();
+        }
+
         return Task.CompletedTask;
+    }
+
+    private void NotifyModelChanged()
+    {
+        _notifiedModel = SelectedModel;
+        OnPropertyChanged(nameof(SelectedModel));
+        OnPropertyChanged(nameof(HasModel));
+        OnModelChanged(SelectedModel);
     }
 
     /// <summary>Chooses <paramref name="model"/> in the picker.</summary>

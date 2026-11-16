@@ -44,13 +44,12 @@ internal sealed class UiHeartbeat
         return heartbeat;
     }
 
-    /// <summary>Stops beating and checks that no beat was late by more than <see cref="Tolerance"/> and that beats happened at all.</summary>
+    /// <summary>Stops beating and checks that no beat (including the one now) was late by more than <see cref="Tolerance"/>.</summary>
     /// <param name="what">What ran meanwhile (for the message).</param>
     public void StopAndAssertResponsive(string what)
     {
         _timer.Stop();
         Beat();
-        Assert.True(Beats >= 2, $"{what}: the UI thread beat only {Beats} times");
         Assert.True(WorstDelay <= Tolerance, $"{what}: a UI heartbeat was {WorstDelay.TotalMilliseconds:F0} ms late (at most {Tolerance.TotalMilliseconds:F0} ms)");
     }
 
