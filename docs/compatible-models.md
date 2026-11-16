@@ -319,6 +319,7 @@ APNG (MP4 with a system ffmpeg), `.slm`.
 | Wan 2.2 TI2V 5B | Wan-AI/Wan2.2-TI2V-5B-Diffusers | diffusers folder | image-to-video 55.1 dB, transformer 2.8e-4 | text- and image-to-video; 3.5 s per step (f32), 30.7 GB | 2026-11-16 |
 | LTX-Video 0.9.0 (2B) | Lightricks/LTX-Video (diffusers folder; T5-XXL of FLUX.1 / PixArt) | diffusers folder | text-to-video 57.5 dB, transformer 1.8e-5, T5 1.4e-5 relative RMS (704×480, 25 frames) | LTX-Video 0.9.1+ (causal / timestep-conditioned VAE) not yet | 2026-11-16 |
 | Wan 2.2 TI2V 5B GGUF | QuantStack/Wan2.2-TI2V-5B-GGUF (Q8_0) | GGUF + the Wan 2.2 diffusers folder as companion | image-to-video 51.1 dB vs the f32 reference, transformer 2.0e-3 | 1.6 s per step, 16.4 GB | 2026-11-16 |
+| Wan 2.2 T2V A14B GGUF (two experts) | QuantStack/Wan2.2-T2V-A14B-GGUF (HighNoise + LowNoise Q4_K_M) | the two GGUFs (`--transformer-2` / `AuxiliaryRoles.SecondTransformer`) + a Wan 2.1 diffusers folder as companion | against diffusers running the same GGUFs (f32 on CUDA): high- / low-noise transformer 3.4e-4 / 2.3e-4, umT5 3e-6 relative RMS; text-to-video 21-25 dB per frame (832×480, 17 frames, 20 steps), the same scene; a 1e-3 nudge of the initial noise moves Sharplight's own result as far | 14.6 s per step at 832×480×33 frames, 16.1 GB peak, 334 s total (diffusers: 23 s per step at 17 frames) | 2026-11-16 |
 
 ## 9. Known unsupported or not working
 
