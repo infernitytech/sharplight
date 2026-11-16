@@ -5,7 +5,7 @@ namespace Sharplight.Video.Tests;
 /// <summary>Synthetic clips for the encoder tests.</summary>
 internal static class TestClips
 {
-    /// <summary>A smooth diagonal color gradient that moves by a few pixels per frame.</summary>
+    /// <summary>A smooth color gradient (no sharp edges, which 4:2:0 chroma cannot represent) that shifts a little every frame.</summary>
     public static VideoClip MovingGradient(int width = 64, int height = 48, int frames = 10, double fps = 10)
     {
         var list = new List<ImageInput>();
@@ -17,9 +17,9 @@ internal static class TestClips
                 for (int x = 0; x < width; x++)
                 {
                     int o = (y * width + x) * 3;
-                    rgb[o] = (byte)((x * 4 + f * 6) % 256);
-                    rgb[o + 1] = (byte)((y * 5 + f * 3) % 256);
-                    rgb[o + 2] = (byte)(128 + (x + y) % 100);
+                    rgb[o] = (byte)Math.Min(255, 20 + x * 2 + f * 5);
+                    rgb[o + 1] = (byte)Math.Min(255, 30 + y * 3 + f * 2);
+                    rgb[o + 2] = (byte)Math.Min(255, 100 + x + y + f);
                 }
             }
 
