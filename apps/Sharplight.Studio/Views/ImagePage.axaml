@@ -45,6 +45,8 @@
           <DockPanel>
             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResult}">
+                <ToggleButton Classes="small" Content="Compare with input" IsChecked="{Binding CompareWithInput}" IsVisible="{Binding UsesInputImage}"
+                              ToolTip.Tip="Drag the divider to compare the input image (left) with the result (right)" />
                 <Button Classes="small" Content="Save PNG" Command="{Binding SaveImageCommand}" ToolTip.Tip="Save the image; its prompt and parameters are in the file" />
                 <Button Classes="small" Content="Use as input" Command="{Binding UseAsInputCommand}" ToolTip.Tip="Start the next run from this image" />
                 <Button Classes="small" Content="Reuse seed" Command="{Binding ReuseSeedCommand}" ToolTip.Tip="Run again from the same noise" />
@@ -53,39 +55,7 @@
               <TextBlock Classes="h2" Text="Result" VerticalAlignment="Center" />
             </DockPanel>
             <!-- Gallery of every stored image -->
-            <Border DockPanel.Dock="Bottom" Margin="0,8,0,0" DataContext="{Binding Generations}" x:DataType="ga:ImageGalleryViewModel">
-              <Expander Header="{Binding CountText, StringFormat='Gallery: {0}'}" IsExpanded="True" HorizontalAlignment="Stretch">
-                <DockPanel>
-                  <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                    <ComboBox DockPanel.Dock="Right" ItemsSource="{Binding Models}" SelectedItem="{Binding ModelFilter}" MinWidth="150" Margin="6,0,0,0" />
-                    <TextBox Text="{Binding TextFilter}" PlaceholderText="Filter by prompt" />
-                  </DockPanel>
-                  <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0" IsVisible="{Binding HasSelection}">
-                    <Button Classes="small" Content="Reuse settings" Command="{Binding ReuseSettingsCommand}" ToolTip.Tip="Fill the prompts, seed, size, steps and the other parameters from this image" />
-                    <Button Classes="small" Content="Copy prompt" Command="{Binding CopyPromptCommand}" />
-                    <Button Classes="small" Content="Open folder" Command="{Binding OpenFolderCommand}" />
-                    <Button Classes="small" Content="Save as…" Command="{Binding ExportCommand}" />
-                    <Button Classes="small danger" Content="{Binding DeleteText}" Command="{Binding DeleteCommand}" />
-                    <Button Classes="small" Content="Keep" Command="{Binding CancelDeleteCommand}" IsVisible="{Binding IsConfirmingDelete}" />
-                  </StackPanel>
-                  <TextBlock Classes="muted" Text="No pictures yet: everything you generate is kept here." IsVisible="{Binding IsEmpty}" />
-                  <ListBox ItemsSource="{Binding Visible}" SelectedItem="{Binding SelectedItem}" Height="104" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                    <ListBox.ItemsPanel>
-                      <ItemsPanelTemplate>
-                        <VirtualizingStackPanel Orientation="Horizontal" />
-                      </ItemsPanelTemplate>
-                    </ListBox.ItemsPanel>
-                    <ListBox.ItemTemplate>
-                      <DataTemplate x:DataType="ga:GalleryItemViewModel">
-                        <Border Width="84" Height="84" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource BorderSubtleBrush}" ToolTip.Tip="{Binding Caption}">
-                          <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
-                        </Border>
-                      </DataTemplate>
-                    </ListBox.ItemTemplate>
-                  </ListBox>
-                </DockPanel>
-              </Expander>
-            </Border>
+            <vw:GalleryStripView DockPanel.Dock="Bottom" Margin="0,8,0,0" DataContext="{Binding Generations}" />
             <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
               <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" IsVisible="{Binding HasSeveral}">
                 <ListBox ItemsSource="{Binding Images}" SelectedItem="{Binding SelectedImage}">
@@ -112,7 +82,8 @@
                 <TextBlock Classes="muted" Text="The picture appears here, taking shape step by step." HorizontalAlignment="Center" />
               </StackPanel>
               <vw:ImageViewer IsVisible="{Binding ShowPreview}" Source="{Binding PreviewPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
-              <vw:ImageViewer IsVisible="{Binding !ShowPreview}" Source="{Binding SelectedPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
+              <vw:ImageViewer IsVisible="{Binding !ShowPreview}" Source="{Binding SelectedPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}"
+                              CompareSource="{Binding ComparePng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
             </Panel>
           </DockPanel>
         </Border>

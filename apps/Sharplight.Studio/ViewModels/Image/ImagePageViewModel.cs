@@ -303,6 +303,14 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     [ObservableProperty]
     public partial string NegativePrompt { get; set; } = "";
 
+    /// <summary>Shows the input image beside the result with a divider (image to image and inpainting).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ComparePng))]
+    public partial bool CompareWithInput { get; set; }
+
+    /// <summary>The picture the result is compared with, or null.</summary>
+    public byte[]? ComparePng => CompareWithInput && Source.HasImage ? Source.Preview : null;
+
     /// <summary>The page is generating (a run is queued or running).</summary>
     public bool IsGenerating => Queue.IsBusy;
 
@@ -500,6 +508,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     {
         Panel.SetVisible("strength", Source.HasImage);
         OnPropertyChanged(nameof(UsesInputImage));
+        OnPropertyChanged(nameof(ComparePng));
     }
 
     private bool CanRun() => HasModel && Prompt.Trim().Length > 0;

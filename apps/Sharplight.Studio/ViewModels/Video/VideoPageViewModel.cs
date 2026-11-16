@@ -8,7 +8,9 @@ using Sharplight.ImageGeneration;
 using Sharplight.Models;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Gallery;
 using Sharplight.Studio.Services.Imaging;
+using Sharplight.Studio.ViewModels.Gallery;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Platform;
 using Sharplight.Studio.Services.Runtime;
@@ -61,6 +63,108 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
                 OnPropertyChanged(nameof(ShowPlaceholder));
             }
         };
+        _store = new ImageGalleryStore(services.Pages.GenerationsDirectory("videos"));
+        Generations = new ImageGalleryViewModel(_store, services.Platform, services.Dispatcher, OpenStored, ReuseStored, "videos");
+    }
+
+    private readonly ImageGalleryStore _store;
+    private bool _galleryLoaded;
+
+    /// <summary>Every video ever generated (in the data folder of the storage mode): the first frame as its thumbnail, the video file and a JSON sidecar.</summary>
+    public ImageGalleryViewModel Generations { get; }
+
+    /// <inheritdoc/>
+    public override Task ActivateAsync()
+    {
+        if (!_galleryLoaded)
+        {
+            _galleryLoaded = true;
+            _ = Generations.LoadAsync();
+        }
+
+        return base.ActivateAsync();
+    }
+
+    /// <summary>Shows a stored video's first frame (the file is read and decoded on a worker thread); the video file is exported from the gallery.</summary>
+    private void OpenStored(GalleryItemViewModel item)
+    {
+        var entry = item.Entry;
+        _ = Task.Run(() =>
+        {
+            ImageInput frame;
+            try
+            {
+                frame = ImageFiles.Decode(_store.ReadPng(entry));
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException)
+            {
+                Services.Dispatcher.Post(() => Notice = "The video's first frame could not be read: " + error.Message);
+                return;
+            }
+
+            Services.Dispatcher.Post(() =>
+            {
+                if (!ReferenceEquals(Generations.SelectedItem, item))
+                {
+                    return;
+                }
+
+                Notice = "";
+                _result = null;
+                OnPropertyChanged(nameof(HasResult));
+                ExportCommand.NotifyCanExecuteChanged();
+                Player.Load([frame], entry.FramesPerSecond);
+                StepText = "";
+                ResultSummary = $"{entry.Model} · size: {entry.Width} × {entry.Height} · frames: {entry.Frames} at {entry.FramesPerSecond.ToString("0.#", CultureInfo.InvariantCulture)} fps · seed: {entry.Seed} · {entry.Created.LocalDateTime:g}"
+                    + (entry.Video.Length > 0 ? "" : " · no video file (the first frame only)");
+            });
+        });
+    }
+
+    /// <summary>Fills the prompts, the seed and the parameter panel with a stored video's settings, and chooses its model when it is loaded.</summary>
+    private void ReuseStored(GalleryEntry entry)
+    {
+        Panel.Apply(new Dictionary<string, string>(entry.Options) { ["seed"] = entry.Seed.ToString(CultureInfo.InvariantCulture) });
+        Prompt = entry.Prompt;
+        NegativePrompt = entry.NegativePrompt;
+        if (Services.Runtime.LoadedModels.FirstOrDefault(model => model.Id == entry.Model && model.Kind == ModelKinds.VideoGeneration) is { } model)
+        {
+            SelectModel(model);
+        }
+
+        Notice = "";
+    }
+
+    /// <summary>Writes the video, its first frame and its sidecar into the gallery folder (on the worker thread); a full disk must not lose the result.</summary>
+    private void StoreInGallery(VideoParametersFile file, GenerationPlan plan, byte[] firstFrame, (string Name, byte[] Bytes)? video, double seconds)
+    {
+        var entry = new GalleryEntry
+        {
+            Id = ImageGalleryStore.NewId(),
+            Model = file.Model,
+            Prompt = file.Prompt,
+            NegativePrompt = file.NegativePrompt,
+            Seed = file.Seed,
+            Steps = plan.Options.Steps ?? 0,
+            Guidance = plan.Options.GuidanceScale ?? 0,
+            Width = file.Width,
+            Height = file.Height,
+            Frames = file.Frames,
+            FramesPerSecond = file.FramesPerSecond,
+            Sampler = plan.Options.Scheduler ?? "",
+            Seconds = Math.Round(seconds, 2),
+            Options = new Dictionary<string, string>(file.Options),
+        };
+        try
+        {
+            string? extension = video is { } encoded ? Path.GetExtension(encoded.Name) : null;
+            var stored = _store.Add(extension is null ? entry : entry with { Video = entry.Id + extension }, firstFrame, video?.Bytes);
+            Services.Dispatcher.Post(() => Generations.Add(stored));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Services.Dispatcher.Post(() => Notice = "The video could not be added to the gallery: " + error.Message);
+        }
     }
 
     /// <inheritdoc/>
@@ -446,6 +550,7 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
             files[video.Name] = video.Bytes;
         }
 
+        StoreInGallery(file, plan, files[StillName], files.Keys.FirstOrDefault(name => name.StartsWith("video.", StringComparison.Ordinal)) is { } name ? (name, files[name]) : null, seconds);
         Archived(NewRecord(title, model, plan, RunOutcome.Completed, seconds, null, file, [.. files.Keys], metadata), files);
     }
 

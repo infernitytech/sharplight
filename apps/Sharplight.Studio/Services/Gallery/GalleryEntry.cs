@@ -1,6 +1,6 @@
 namespace Sharplight.Studio.Services.Gallery;
 
-/// <summary>One stored generated image: the JSON sidecar next to its PNG in the gallery.</summary>
+/// <summary>One stored generation: the JSON sidecar next to its PNG (the image, or the first frame of a video) in the gallery.</summary>
 internal sealed record GalleryEntry
 {
     /// <summary>A unique id, also the file name (without extension) of the PNG and its sidecar.</summary>
@@ -44,6 +44,15 @@ internal sealed record GalleryEntry
 
     /// <summary>The parameter panel's values, to refill the form.</summary>
     public Dictionary<string, string> Options { get; init; } = [];
+
+    /// <summary>Frames of a stored video (0 for an image); the PNG is then its first frame.</summary>
+    public int Frames { get; init; }
+
+    /// <summary>Frames per second of a stored video.</summary>
+    public double FramesPerSecond { get; init; }
+
+    /// <summary>The video file next to the PNG (<c>&lt;id&gt;.webm</c> or <c>.gif</c>), or empty when none could be encoded.</summary>
+    public string Video { get; init; } = "";
 
     /// <summary>Path of the PNG relative to the gallery folder (<c>2026-11-16/&lt;id&gt;.png</c>); filled by the store.</summary>
     public string File { get; init; } = "";
