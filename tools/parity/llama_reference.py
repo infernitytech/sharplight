@@ -1,6 +1,7 @@
 """llama.cpp greedy reference for the parity harness: runs llama-completion for each raw prompt of the spec.
 
-Usage: python -I llama_reference.py <model.gguf> <spec.json> <out.json> [--gen N] [--build cuda13|vulkan|cpu]
+Usage: python -I llama_reference.py <model.gguf> <spec.json> <out.json> [--gen N] [--build cuda13|vulkan|cpu] [--fit]
+--fit leaves the layer placement to llama.cpp (no -ngl), for models larger than the visible GPUs.
 LLAMA_ROOT must point at the llama.cpp binaries (runtime.llama-b11177-<build>/). Text only (no ids).
 """
 import glob
@@ -21,7 +22,9 @@ def main():
     greedy = []
     for prompt in spec.get("prompts", []):
         cmd = [os.path.join(root, "llama-completion"), "-m", gguf, "-p", prompt, "-n", str(gen), "--temp", "0", "--top-k", "1", "--seed", "1",
-               "-c", "1024", "-no-cnv", "--no-display-prompt", "-t", "8", "--no-warmup", "-ngl", "99" if build != "cpu" else "0", "--ignore-eos"]
+               "-c", "1024", "-no-cnv", "--no-display-prompt", "-t", "8", "--no-warmup", "--ignore-eos"]
+        if "--fit" not in opts:
+            cmd += ["-ngl", "99" if build != "cpu" else "0"]
         res = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, env=env, timeout=900, check=False)
         text = res.stdout.decode("utf-8", errors="replace")
         entry = {"prompt": prompt, "text": text}
