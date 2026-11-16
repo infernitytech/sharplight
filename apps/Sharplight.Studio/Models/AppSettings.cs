@@ -52,6 +52,12 @@ internal sealed record AppSettings
     /// </summary>
     public bool UseSystemTitleBar { get; init; }
 
+    /// <summary>Name of the audio output device Studio plays through; null uses the system default (also when the device is gone).</summary>
+    public string? AudioOutputDevice { get; init; }
+
+    /// <summary>Name of the microphone Studio records; null uses the system default (also when the device is gone).</summary>
+    public string? AudioInputDevice { get; init; }
+
     /// <summary>Discover lists only repositories and quantizations whose compatibility badge is <c>Supported</c>.</summary>
     public bool ShowOnlySupported { get; init; }
 

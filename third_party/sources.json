@@ -1,0 +1,98 @@
+{
+  "components": [
+    {
+      "name": "miniaudio",
+      "version": "0.11.26",
+      "url": "https://github.com/mackron/miniaudio/archive/refs/tags/0.11.26.tar.gz",
+      "sha256": "838ba55a21c9142adf7b76bdc4351e5cd8b7ae128f46b25ec25f94ae9969c600",
+      "archiveRoot": "miniaudio-0.11.26",
+      "copy": [
+        "miniaudio.h",
+        "LICENSE",
+        "extras/decoders/libopus/miniaudio_libopus.c",
+        "extras/decoders/libopus/miniaudio_libopus.h",
+        "extras/decoders/libvorbis/miniaudio_libvorbis.c",
+        "extras/decoders/libvorbis/miniaudio_libvorbis.h"
+      ]
+    },
+    {
+      "name": "opus",
+      "version": "1.6.1",
+      "url": "https://github.com/xiph/opus/archive/refs/tags/v1.6.1.tar.gz",
+      "sha256": "bf0b97ec7a65890b8db90ef94c4d6c18de12584c3085031953a10986f5917745",
+      "archiveRoot": "opus-1.6.1",
+      "copy": [
+        "celt",
+        "silk",
+        "src",
+        "include",
+        "COPYING",
+        "AUTHORS"
+      ],
+      "prune": [
+        "meson.build",
+        "Makefile*",
+        "*.am",
+        "*.in",
+        "*.s",
+        "tests",
+        "dump_modes"
+      ]
+    },
+    {
+      "name": "ogg",
+      "version": "1.3.6",
+      "url": "https://github.com/xiph/ogg/archive/refs/tags/v1.3.6.tar.gz",
+      "sha256": "95b643da661155d79db9de2fca55daed3a8d491039829def246aacb3d9201c81",
+      "archiveRoot": "ogg-1.3.6",
+      "copy": [
+        "src",
+        "include",
+        "COPYING"
+      ],
+      "prune": [
+        "meson.build",
+        "Makefile*",
+        "*.am",
+        "*.in"
+      ]
+    },
+    {
+      "name": "opusfile",
+      "version": "0.12",
+      "url": "https://github.com/xiph/opusfile/archive/refs/tags/v0.12.tar.gz",
+      "sha256": "a20a1dff1cdf0719d1e995112915e9966debf1470ee26bb31b2f510ccf00ef40",
+      "archiveRoot": "opusfile-0.12",
+      "copy": [
+        "src",
+        "include",
+        "COPYING"
+      ],
+      "prune": [
+        "meson.build",
+        "Makefile*",
+        "*.am",
+        "*.in"
+      ]
+    },
+    {
+      "name": "vorbis",
+      "version": "1.3.7+git 1b75110b (master, 2026-08-04)",
+      "url": "https://github.com/xiph/vorbis/archive/1b75110b5a2754ba1931d82dd83cb822b266a21d.tar.gz",
+      "sha256": "bd0f08c8a63debdce27dd71de7d953f9c92e410d1cfe263220bcb49fff2ab749",
+      "archiveRoot": "vorbis-1b75110b5a2754ba1931d82dd83cb822b266a21d",
+      "copy": [
+        "lib",
+        "include",
+        "COPYING",
+        "AUTHORS"
+      ],
+      "prune": [
+        "CMakeLists.txt",
+        "Makefile.am",
+        "*.pl",
+        "*.def"
+      ]
+    }
+  ]
+}

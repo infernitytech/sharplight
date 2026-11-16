@@ -31,7 +31,11 @@ env:
   VPK_VERSION: '1.2.161' # keep in step with the Velopack package in Directory.Packages.props
 
 jobs:
+  native:
+    uses: ./.github/workflows/native.yml
+
   package:
+    needs: native
     name: package (${{ matrix.rid }})
     strategy:
       fail-fast: false
@@ -59,6 +63,13 @@ jobs:
           dotnet-version: |
             10.0.x
             11.0.x
+
+      # Sharplight's native audio library for every platform (native.yml); the publish picks the one of its runtime identifier.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-audio-*
+          merge-multiple: true
+          path: native/sharplight_audio/out
 
       - name: Version
         id: nbgv

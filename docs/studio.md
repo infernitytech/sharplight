@@ -306,9 +306,8 @@ models (kind `Task`), so it counts against the memory budget, is evicted and unl
 and shows in the *Resident* list, whose button opens the page of the model's kind. A page asks the model for its task client
 (`ILoadedModel.AcquireClientAsync<TClient>`), which holds a lease while the run lasts.
 
-**Transcribe** (speech to text, `ISpeechRecognizer`). The input is a WAV file (choose, or drop it on the page) or a recording from
-the microphone. Other audio formats are refused with a note: the engine's audio I/O reads WAV only (convert with
-`ffmpeg -i in.mp3 out.wav`). The options are the language (or detection), transcribe or translate to English, timestamps (segments
+**Transcribe** (speech to text, `ISpeechRecognizer`). The input is an audio file (WAV, FLAC, MP3, Ogg Vorbis or Ogg Opus; choose, or drop it on the page) or a recording from
+the microphone. A file that cannot be decoded is refused with a note. The options are the language (or detection), transcribe or translate to English, timestamps (segments
 or none), beam size, conditioning on the previous text and an initial prompt; presets *Fast*, *Accurate* and *Long recording*. The
 segments appear with their times while the model decodes (the streaming call reports progress by the end of the last segment), and
 the transcript can be copied or exported as `.txt`, `.srt` or `.vtt`. Every run keeps `transcript.txt`, `.srt`, `.vtt` and
@@ -382,12 +381,13 @@ The side panel's *History* and *Outputs* tabs:
 
 ![Transcribe history](images/studio/studio-transcribe-history.png) ![Transcribe outputs](images/studio/studio-transcribe-outputs.png)
 
-**Microphone and playback.** Avalonia has no audio API, and Studio ships no native audio library. It uses the programs the system
-has: playback through `afplay` (macOS), PowerShell's `SoundPlayer` (Windows), or `pw-play`, `paplay`, `aplay` or `ffplay` (Linux);
-recording through `parecord`, `pw-record` or `arecord` (Linux) or `ffmpeg` (macOS; Windows with `SHARPLIGHT_STUDIO_MIC` naming the
-DirectShow device). Without such a program the page says what to install: recording is disabled (audio files still work) and the
-speech result is saved and opened with the system player instead of played in the app. Playback and recording were tested through
-fakes and not on an audio device (this machine has none).
+**Microphone and playback.** Studio plays and records through `Sharplight.Audio`, Sharplight's own native audio library
+(miniaudio device I/O: WASAPI, Core Audio, PulseAudio/PipeWire, ALSA, JACK; decoding of WAV, FLAC, MP3, Ogg Vorbis and Ogg Opus), which
+ships with the app for all five platforms; no program of the system is needed. The Settings page has an *Audio* card with the playback
+device and the microphone (default: the system's); a device that is gone falls back to the default. Recordings are mono 16 kHz WAV files.
+Without an audio backend or device (servers, containers) recording is disabled (audio files still work) and the speech result is saved
+and opened with the system player instead of played in the app. Playback and recording are tested through fakes and, on Linux, with the
+library's null backend; the real backends were not exercised on this machine (it has no audio device).
 
 ## Installing and updating
 
@@ -513,8 +513,8 @@ packages in both themes.
   tensor data shows. Quantizations other than the recommended one share the architecture's verdict until they are selected and
   their tensor tables are read. A tensor table beyond 64 MiB from the start of a file is not read (the verdict is *Unknown*). ONNX
   operators are not checked before import.
-- **Audio formats and devices.** The Transcribe page reads WAV only (the engine has no other decoder yet), and microphone and playback
-  depend on programs of the system (see *Microphone and playback*). Speech runs are not counted in the statistics page, and the
+- **Audio formats and devices.** Microphone and playback depend on a sound server or driver being present
+  (see *Microphone and playback*); the real device backends were only tested through the null backend. Speech runs are not counted in the statistics page, and the
   embedded API server does not serve the speech models yet.
 - **Title bar.** Studio's own title bar is used on Linux only, where the window manager moves and resizes windows on request.
 - **GPU utilisation.** The "Engine busy" chart is the share of time the engines spend stepping, not GPU utilisation read from the

@@ -37,13 +37,25 @@ public sealed partial class GraphLowerer
     /// <summary>Workgroups the split-K SIMT gemm aims for: <see cref="LoweringOptions.ConcurrentWorkgroups"/> when known.</summary>
     private long SimtWorkgroupTarget => _opt.ConcurrentWorkgroups > 0 ? _opt.ConcurrentWorkgroups : SimtTargetWorkgroups;
 
+    /// <summary>Workgroup memory of <c>gemm_wide</c>: double-buffered 16 x 128 f32 tiles of activations and weights.</summary>
+    private const long SimtWideSharedBytes = 2 * SimtWideTileK * SimtWideTile * 4 * 2;
+
+    /// <summary>
+    /// True when the device has workgroup memory to spare beyond <c>gemm_wide</c>'s 32 KB (unless <c>SHARPLIGHT_GEMM_WIDE=force</c>).
+    /// Where 32 KB is the whole per-workgroup limit (Apple GPUs through MoltenVK) the tile occupies a core's workgroup memory on its
+    /// own, together with 64 accumulators per thread: one workgroup per core and nothing to hide its loads behind
+    /// (Qwen2.5-0.5B prefill of 128 tokens on the macOS CI's Apple GPU: 100 tok/s against 629 with the 64 x 64 tile).
+    /// </summary>
+    private bool SimtWideFits => DiagnosticSwitches.ForceWideSimtGemm || SimtWideSharedBytes < _opt.MaxSharedMemory;
+
     /// <summary>
     /// True when <paramref name="rows"/> rows of an <paramref name="n"/>-wide output use <c>gemm_wide</c>: from 512 rows, or from 128
-    /// on devices that run few workgroups at once (vit-base's 197-row matmuls on an integrated GPU: 4.5 -> 2.8 ms).
+    /// on devices that run few workgroups at once (vit-base's 197-row matmuls on an integrated GPU: 4.5 -> 2.8 ms), on devices where
+    /// the tile fits (<see cref="SimtWideFits"/>).
     /// </summary>
     private bool SimtWide(long rows, long n)
         => rows >= (SimtWorkgroupTarget < SimtTargetWorkgroups ? SimtWideMinRowsSmallDevice : SimtWideMinRows) && n >= SimtWideMinColumns
-           && DiagnosticSwitches.WideSimtGemm;
+           && DiagnosticSwitches.WideSimtGemm && SimtWideFits;
 
     /// <summary>Token rows per SIMT gemm tile for <paramref name="rows"/> activation rows of an <paramref name="n"/>-wide output.</summary>
     private long SimtTileRows(long rows, long n) => SimtWide(rows, n) ? SimtWideTile : rows <= SimtSmallTileMaxRows ? 16 : 64;

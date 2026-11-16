@@ -4,6 +4,7 @@
              xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
              xmlns:upvm="using:Sharplight.Studio.ViewModels.Updates"
              xmlns:models="using:Sharplight.Studio.Models"
+             xmlns:audio="using:Sharplight.Studio.Services.Audio"
              x:Class="Sharplight.Studio.Views.SettingsPage"
              x:DataType="setvm:SettingsPageViewModel">
   <ScrollViewer>
@@ -52,6 +53,34 @@
             </ListBox>
           </Grid>
           <ToggleSwitch Content="Use the system title bar" IsChecked="{Binding UseSystemTitleBar}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Audio -->
+      <Border Classes="card">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h3" Text="Audio" />
+          <StackPanel Spacing="6">
+            <TextBlock Classes="label" Text="Playback device" />
+            <ComboBox ItemsSource="{Binding OutputDevices}" SelectedItem="{Binding SelectedOutputDevice}" MinWidth="260">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="audio:AudioDeviceChoice">
+                  <TextBlock Text="{Binding Title}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </StackPanel>
+          <StackPanel Spacing="6">
+            <TextBlock Classes="label" Text="Microphone" />
+            <ComboBox ItemsSource="{Binding InputDevices}" SelectedItem="{Binding SelectedInputDevice}" MinWidth="260">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="audio:AudioDeviceChoice">
+                  <TextBlock Text="{Binding Title}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </StackPanel>
+          <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding AudioStatus}" />
         </StackPanel>
       </Border>
 

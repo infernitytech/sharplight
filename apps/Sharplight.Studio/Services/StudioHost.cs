@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Sharplight.Audio;
 using Sharplight.Hub;
 using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Documents;
@@ -46,6 +47,9 @@ internal sealed class StudioHost : IDisposable
         var settings = new JsonSettingsService(paths.SettingsFile, modelsDirectory);
         var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddStudioUpdates().AddSharplight().BuildServiceProvider();
         var engine = EngineServices.From(container);
+        var audioDecoder = container.GetRequiredService<IAudioDecoder>();
+        var audioEncoder = container.GetRequiredService<IAudioEncoder>();
+        var audioDevices = container.GetRequiredService<IAudioDeviceProvider>();
         var precompiler = new PrecompileService(settings, engine);
         var runtime = new EngineModelRuntime(engine, () => settings.Current.Residency, name => ResolveOnDemand(settings, name, precompiler.IsBusy),
             () => settings.Current.UseCompilationCache);
@@ -56,7 +60,8 @@ internal sealed class StudioHost : IDisposable
         var services = new StudioServices(settings, runtime, hub, new ModelLibrary(settings, engine.Converter), new SqliteConversationStore(database), stats, server,
             new DocumentExtractor(), new SystemMonitor(runtime), platform, dispatcher, theme,
             container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(Path.Combine(paths.DataDirectory, "pages")),
-            new ProcessAudioPlayer(), new ProcessAudioRecorder());
+            new EngineAudioPlayer(audioDecoder, audioDevices, settings), new EngineAudioRecorder(audioDevices, audioEncoder, settings),
+            audioDecoder, audioDevices);
         return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), server, container);
     }
 
