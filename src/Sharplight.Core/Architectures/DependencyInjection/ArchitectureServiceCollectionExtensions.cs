@@ -61,6 +61,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddTaskClientFactory<F5SynthesizerFactory>()
                 .AddModelAdapter<XttsAdapter>()
                 .AddTaskClientFactory<XttsSynthesizerFactory>()
+                .AddModelAdapter<CosyVoiceAdapter>()
+                .AddTaskClientFactory<CosyVoiceSynthesizerFactory>()
                 .AddAuxiliaryArchitecture(SnacParameters.Architecture, AuxiliaryRoles.Vocoder)
                 .AddModelAdapter<LatentDiffusionAdapter>()
                 .AddModelAdapter<FluxAdapter>()
