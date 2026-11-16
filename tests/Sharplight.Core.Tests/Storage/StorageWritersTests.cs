@@ -13,6 +13,7 @@ public sealed partial class StorageWritersTests
     /// <summary>Files allowed to use the patterns, with the reason.</summary>
     private static readonly Dictionary<string, string> s_allowed = new(StringComparer.Ordinal)
     {
+        ["src/Sharplight.Import.Diffusers/T5Vocabulary.cs"] = "Not a data path: a directory name that cannot exist, so the tokenizer translator finds no companion files for the embedded T5 vocabulary.",
         ["src/Sharplight.Core/Storage/StorageEnvironment.cs"] = "the one place that reads the process environment for the layout",
         ["src/Sharplight.Core/Storage/SystemStorageFolders.cs"] = "the platform conventions of the system folders",
         ["src/Sharplight.Audio/Native/NativeAudioLibrary.cs"] = "loads the native library shipped next to the app (read only)",
