@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Silero VAD importer for Sharplight: reads the voice activity detector's ONNX export into a canonical voice-activity model.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
+  </ItemGroup>
+</Project>

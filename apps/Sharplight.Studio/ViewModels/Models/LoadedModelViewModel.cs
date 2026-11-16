@@ -20,12 +20,13 @@ internal sealed partial class LoadedModelViewModel : ObservableObject
     /// <summary>Its id.</summary>
     public string Id => Model.Id;
 
-    /// <summary>The text of the button that opens the model's page: <c>Chat</c>, <c>Transcribe</c>, <c>Speak</c>, <c>Image</c>, <c>Vision</c>.</summary>
+    /// <summary>The text of the button that opens the model's page: <c>Chat</c>, <c>Transcribe</c>, <c>Speak</c>, <c>Image</c>, <c>Vision</c>, <c>Audio</c>.</summary>
     public string OpenText => Model.Kind switch
     {
         Sharplight.Models.ModelKinds.SpeechRecognition => "Transcribe",
         Sharplight.Models.ModelKinds.SpeechSynthesis => "Speak",
         Sharplight.Models.ModelKinds.ImageGeneration => "Image",
+        Sharplight.Models.ModelKinds.AudioCodec or Sharplight.Models.ModelKinds.VoiceActivity => "Audio",
         Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding or Sharplight.Models.ModelKinds.ObjectDetection
             or Sharplight.Models.ModelKinds.DepthEstimation => "Vision",
         _ => "Chat",
