@@ -152,7 +152,7 @@ Next in line: the Gemma 3n MobileNetV5 vision tower and audio encoder.
 | `DIFF` | **Masked-diffusion decoding loop**. bidirectional transformer + iterative unmasking sampler (Dream, LLaDA, RND1). | 4 | 4 | L | done: `denoise` graph (bidirectional, logits for every row), `DiffusionGenerator` (timestep / block schedules; confidence, margin, entropy unmasking), `DiffusionGenerationBackend` in Sharplight.Extensions.AI |
 | `APOS` | **Learned absolute position embeddings**. GPT-2, StarCoder, BERT family: token + position (+ token-type) embedding sum. | 3 | 4 | S | Gather + Add exist; adapter lacks it |
 | `M1` | **Mamba-1 selective scan**. per-channel A [d_inner, d_state], dt_rank low-rank dt projection, x_proj; conv k=4; Mamba, Falcon-Mamba, Jamba, Codestral-Mamba. | 3 | 4 | M | missing: SelectiveScan1 op (CPU + Slang) and its chunked prefill path |
-| `SPECDEC` | **Speculative-decoding drafters (EAGLE3, DFlash, MTP assistants)**. draft graphs that consume target hidden states. | 3 | 3 | L | partial: MTP for the qwen3_5 family and NextN heads of DeepSeek-V3 (`latent_decoder`) / GLM-4.5 (`decoder`, uniform layers) from HF and GGUF (`MtpDraftHead` + `MtpSpeculator`, rollback of recurrent state, shared embedding / LM head, device-side verification); verified on tiny random checkpoints only (no real DeepSeek / GLM checkpoint was run); EAGLE3 drafters as the `draft` auxiliary source (`Eagle3DraftHead`, target layer taps, draft vocabulary map), tiny Llama target and drafter, HF and GGUF; DFlash drafters missing |
+| `SPECDEC` | **Speculative-decoding drafters (EAGLE3, DFlash, MTP assistants)**. draft graphs that consume target hidden states. | 3 | 3 | L | partial: MTP for the qwen3_5 family (incl. the hyper-connected head of Qwen3.8-Flash-Next / `qwen4exp`, `MtpDraftHead.BuildHyperConnected`, HF, GGUF and the `mtp-*.gguf` sidecar) and NextN heads of DeepSeek-V3 (`latent_decoder`) / GLM-4.5 (`decoder`, uniform layers) from HF and GGUF (`MtpDraftHead` + `MtpSpeculator`, rollback of recurrent state, shared embedding / LM head, device-side verification); verified on tiny random checkpoints only (no real DeepSeek / GLM checkpoint was run); EAGLE3 drafters as the `draft` auxiliary source (`Eagle3DraftHead`, target layer taps, draft vocabulary map), tiny Llama target and drafter, HF and GGUF; DFlash drafters missing |
 | `RELPOS` | **Relative-position bias buckets**. T5 style learned bucketed bias added to scores. | 2 | 3 | M | **done**: `position_bias` / `position_bias_range` attention attributes on CPU and Vulkan (`RelativePositionBias`) |
 | `WKV6` | **RWKV-6 time-mix**. data-dependent decay with LoRA, WKV6 recurrence, token shift, group norm. | 2 | 3 | M | missing: Wkv6 op (WKV7 kernel can share structure) |
 | `LOOP` | **Weight-shared layer loops**. Nanbeige (num_loops), HRM-Text (H/L cycles): the same layer repeated with distinct KV slots. | 2 | 3 | S | graph feature: reuse weights, separate cache keys |
@@ -214,7 +214,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `qwen3next` | Qwen3-Next-80B-A3B, Qwen3-Coder-Next | GDN (3/4 layers) + gated attention (1/4, partial rope 0.25, QK-norm), MoE softmax norm-topk + sigmoid-gated shared expert, conv k=4, MTP | **supported** (MTP not used) | - | qwen3_next | gguf/Qwen3-Coder-Next, hf/Qwen3-Coder-Next (config+tokenizer), hf/tiny-random-qwen3-next-moe |
 | `qwen35` | Qwen3.5/3.6/3.8 dense (0.8B...27B) | GDN + gated attention, M-RoPE partial, dense SwiGLU, MTP, vision tower | **supported** | - | qwen3_5 (text) | gguf/Qwen3.5-0.8B (existing), hf/Qwen3.5-0.8B (existing) |
 | `qwen35moe` | Qwen3.5-35B-A3B/122B/397B, Qwen3.6-35B-A3B | qwen35 + MoE softmax (256 experts, top-8) + sigmoid-gated shared expert | **supported** | - | qwen3_5_moe | gguf/Qwen3.6-35B-A3B (+mmproj), hf/Qwen3.6-35B-A3B (config+tokenizer), hf/tiny-random-qwen3.5-moe, hf/tiny-random-qwen3.6-moe, hf/tiny-random-qwen3.8-moe |
-| `qwen4exp` | Qwen3.8-Flash-Next (hf: qwen4_exp, ~200B total params) | GDN + gated attention, MoE 512 experts top-10 + shared, hyper-connections (4 streams, low-rank), QSA sparse-attention indexer (top-k 2048, pooled keys), PLE n-gram hash embeddings (layer 2), M-RoPE, MTP | **supported** (HC, NGRAM, QSA block selection in the sparse regime; MTP not used) | - | qwen4_exp | gguf/Qwen3.8-Flash-Next-UD-Q4_K_XL (+mmproj), hf/Qwen3.8-Flash-Next (config+tokenizer), hf/tiny-random-qwen3.8-flash-next, hf/tiny-random-qwen3.8-flash-next-sparse (+ f32 GGUF) |
+| `qwen4exp` | Qwen3.8-Flash-Next (hf: qwen4_exp, ~200B total params) | GDN + gated attention, MoE 512 experts top-10 + shared, hyper-connections (4 streams, low-rank), QSA sparse-attention indexer (top-k 2048, pooled keys), PLE n-gram hash embeddings (layer 2), M-RoPE, MTP | **supported** (HC, NGRAM, QSA block selection in the sparse regime; MTP head as draft head: HF, GGUF and the `mtp-*.gguf` sidecar, drafts equal a transformers-module reference on the tiny model, acceptance 0.78 / 0.71 / 0.58 at k = 1 / 2 / 3 on the real model) | - | qwen4_exp | gguf/Qwen3.8-Flash-Next-UD-Q4_K_XL (+mmproj), hf/Qwen3.8-Flash-Next (config+tokenizer), hf/tiny-random-qwen3.8-flash-next, hf/tiny-random-qwen3.8-flash-next-sparse (+ f32 GGUF) |
 | `clover_moe` | clover-moe (qwen3-next-like) | GDN + attention + MoE shared | **supported** (GGUF through the qwen3_5 adapter: the tiny Qwen3.5-MoE checkpoint retargeted to clover_moe vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan, b11177 predates it; per-layer `attention.recurrent_layers` must be periodic; HF `clover_moe` (round 11): the remote code's causal commit pass, the block-diffusion preview tensors left out, tiny checkpoint vs the remote code and its llama.cpp GGUF vs llama.cpp 8ca5a80; not run on a real model) | - | clover_moe | gguf/tiny-random-clover-moe-f32, hf/tiny-random-clover-moe |
 
 ### Gemma
@@ -536,7 +536,7 @@ What is new compared with `qwen35` / `qwen3next` (read from src/models/qwen4exp.
 | PLE n-gram hash embedding on one linear layer | GGUF `ple.layers`=[1] (HF `ple_layer_ids`=[2]), n-gram size 3, 8 heads per n-gram order -> 16 heads, per-head offsets/vocab sizes (~20M rows each) and 3 hash multipliers, `per_layer_tok_embd` flat [160, ~320M] Q5_1 = 38 GB, `embedding_length_per_layer_input`=160, `ple_key/value/norm_*`, `ple_conv1d` (k=4 over the 4 streams), conv history in the recurrent cache | `NGRAM` |
 | Gated-delta layers | same as qwen35 but 48 value heads, merged `wqkv_gate` and `ssm_beta_alpha` tensors | supported op; mapping |
 | Full-attention layers | `wq` = [q | gate] interleaved per head, QK-norm, M-RoPE | present (Qwen35Adapter) |
-| MTP block | `eh_proj`, `enorm`, `hnorm` per stream, own HC head | optional, defer |
+| MTP block | `eh_proj`, `enorm`, `hnorm` per stream, own HC head | done: `MtpDraftHead.BuildHyperConnected` (reads the trunk's residual streams before the final mixer, decode output `hidden_streams`) |
 | Quantised weights | Unsloth UD-Q4_K_XL 111 GB (supported tensor types), UD-IQ4_XS 94 GB / UD-Q3_K_XL 90 GB (contain IQ3_XXS and IQ2_S tensors), smallest UD-IQ1_S 66 GB; the 38 GB n-gram table is its own tensor (Q5_1) | quant track Q for everything below Q4_K_XL |
 
 HF checkpoint layout (from `model.safetensors.index.json`, 1658 tensors): the trunk lives under `model.language_model.*`, the vision tower under `model.visual.*`, MTP under `mtp.*` (31 tensors). Per layer: `attn_hyper_connection.{hc_norm,input_mix_weight_down,input_mix_weight_up,block_inject_weight}` and the same four for `mlp_hyper_connection`; `linear_attn.{in_proj_qkv,in_proj_z,in_proj_a,in_proj_b,conv1d,A_log,dt_bias,norm,out_proj}` (separate projections, like Qwen3.5) or `self_attn.{q,k,v,o}_proj` + `{q,k}_norm` + `indexer.{index_qk_proj,q_layernorm,k_layernorm}` (fused indexer q/k projection); `mlp.gate`, **fused 3-D expert tensors** `mlp.experts.{gate_up_proj,down_proj}` (no per-expert tensors to stack), `mlp.shared_expert.{gate,up,down}_proj` and `mlp.shared_expert_gate`; one layer additionally `ple.{key_proj,norm_key,norm_query,norm_conv,conv1d}` and `ple.ple_embedding.{layer_multipliers,ngram_embedding.shard_0..127}` (the n-gram table is split into 128 shards that the importer must concatenate; llama.cpp stores one flat `per_layer_tok_embd`). Final `hyper_connection_mixer.{hc_norm,input_mix_weight_down,input_mix_weight_up}` replaces `model.norm`. The GGUF side is the mirror image with merged `wqkv_gate` / `ssm_beta_alpha` / `hc_*_down_inject` tensors.
@@ -1396,7 +1396,10 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection), stable-diffusion.cpp GGUF in both naming schemes (sd.cpp's own `cond_stage_model.1.transformer.*`, e.g. gpustack/stable-diffusion-xl-base-1.0-GGUF Q8_0 / Q4_0; the SGM names, e.g. kostakoff/stable-diffusion-xl-base-1.0-GGUF Q4_K) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
 | SDXL-Turbo, SDXL-Lightning (distilled SDXL) | the SDXL formats; stable-diffusion.cpp GGUF (OlegSkutte/sdxl-turbo-GGUF, mzwing/SDXL-Lightning-GGUF) | **supported** (single files are recognized by their published names: Turbo 512×512, Euler ancestral on trailing timesteps, 4 steps, no guidance; Lightning 1024×1024, Euler trailing, the file's step count, no guidance, the 1-step "x0" file predicts the sample) | Turbo below; Lightning maps the same way, not verified |
 | FLUX.1-schnell, FLUX.1-dev (and fine-tunes with the same layout) | diffusers folder; original single-file `.safetensors` (Black Forest Labs names, also with ComfyUI's `model.diffusion_model.` prefix); transformer-only GGUF (city96 / stable-diffusion.cpp: any ggml type) plus companion files: CLIP-L (`clip_l.safetensors`), T5-XXL (encoder GGUF with its tokenizer, or `t5xxl_*.safetensors` with the embedded T5 vocabulary), VAE (`ae.safetensors`), given as auxiliary sources or found beside the transformer | **supported** (txt2img, img2img, inpainting; flow-matching Euler with FLUX's static / resolution-dependent shift; dev's guidance embedding; any size that is a multiple of 16; `.slm`) | [below](#flux) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, SD3, Chroma, Qwen-Image, video (Wan, LTX) | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic; see the [FLUX notes](#flux) for SD3 / Chroma |
+| SD3 / SD3.5 (SD3 Medium, SD3.5 Medium / Large and fine-tunes) | diffusers folder; Stability's single file (`model.diffusion_model.*`, the VAE under `first_stage_model.*`); transformer-only GGUF (city96 / stable-diffusion.cpp `sd3`, any ggml type) plus companions: CLIP-L, CLIP-G (`clip_g.safetensors`), T5-XXL (encoder GGUF, `t5xxl_*.safetensors` or a sharded `text_encoder_3` folder named by a shard), the 16-channel VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance; three text encoders; any size that is a multiple of 16 up to the position grid; `.slm`) | [below](#sd3) |
+| Chroma (Chroma1-HD / Base / Flash and fine-tunes) | diffusers folder; original single file (FLUX names plus `distilled_guidance_layer.*`); transformer-only GGUF (silveroxides, any ggml type) plus companions: T5-XXL, the FLUX VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance with negative prompts; masked T5 and text attention) | [below](#chroma) |
+| Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image, Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA (kohya / diffusers), ControlNet, TAESD | - | missing | |
 
 Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
@@ -1528,14 +1531,123 @@ Verification (tools/make-tiny-flux.py, tools/make-flux-references.py; tests `Tin
   run compiles the kernels for 70–150 s.
 - Studio: the load panel recognizes the transformer-only GGUF, fills in the three companions found beside it and loads; the Image
   page generates through the loaded model (tiny pipeline and FLUX.1-schnell GGUF at 512×512).
-- Later families: SD3 / SD3.5 are MMDiTs with joint attention as well (different block layout: separate q/k/v with optional
-  RMS norms, 2D sin-cos position embedding instead of RoPE, three text encoders whose CLIP hidden states are padded and concatenated
-  with T5's along the sequence, CFG): a second transformer builder, a sequence-joining mode for the text conditioning, the existing
-  flow sampler with shift 3. Chroma is a FLUX.1-schnell derivative without CLIP whose modulation comes from a small "distilled
-  guidance" MLP instead of the per-block modulation projections, with a T5 attention mask and real CFG: a FluxAdapter variant (T5 as
-  the first text encoder, a mask input built from the padding), CFG row by row through the existing fallback. Qwen-Image and the
-  video DiTs (Wan, LTX: a frame axis in the latents and 3D RoPE through the same multi-axis sections) reuse the flow sampler and the
-  companion-file loading.
+- Later families: SD3 / SD3.5, Chroma and Z-Image below; Qwen-Image reuses the flow sampler, the companion-file loading and the
+  decoder graph as its text encoder (as Z-Image does).
+
+### SD3
+
+<a id="sd3"></a>
+SD3 / SD3.5 (2026-11-16). Design:
+
+- Canonical source `sd3` (`Sharplight.Import.Diffusers`): `transformer.*` in the original MMDiT layout (fused q/k/v per stream;
+  diffusers' separate projections are joined lazily, its (scale, shift) `norm_out` and last-block `norm1_context` halves swapped; the
+  patch convolution becomes a linear weight [D, C·p²], the position grid `pos_embed` [G², D]), CLIP-L / CLIP-G under `text_encoder.` /
+  `text_encoder_2.` (each with its projection), the T5 encoder under `text_encoder_3.`, the VAE, the CLIP tokenizer under the canonical
+  keys (CLIP-G prompts reuse its tokens, padded with `!`) and the T5 tokenizer under `sd3.tokenizer_3.`; the family keys (both CLIP
+  encoders' penultimate layer without the final norm, T5 prompts of 256 tokens, the VAE's 1.5305 / 0.0609 scaling, 28 steps,
+  guidance 7, the scheduler's own noise levels with shift 3) are written by the importer, so transformer-only files and their
+  companions get them too. SD3 files without q/k norms do not tell the head width: 64, as every release.
+- `Sd3Adapter` builds the two CLIP graphs (hidden states and projected pooled embeddings), the T5 graph and the transformer
+  (`Sd3TransformerGraphBuilder`: patch rows plus the centre crop of the position grid, timestep + pooled embedding as the
+  modulation vector, joint blocks over [image, text] with the second image-only attention of SD3.5's first blocks and the
+  text-stream-free last block, f16 attention products only with RMS-normed q/k (SD3.5): SD3's unnormed scores lose ~1 % in f16).
+- Core: a third text encoder (`text-encoder-3`, `tokenizer-3`) whose hidden states are appended along the sequence
+  (`DiffusionConfigKeys.JoinSequence`: the CLIP rows [77, 768 + 1280] zero-padded to T5's 4096 and followed by its 256 rows); pooled
+  embeddings of all encoders concatenated in order; the flow sampler's `scheduler` spacing (diffusers' `set_timesteps` without
+  sigmas: linspace from 1 to the shifted smallest training level, shifted again, as the scheduler's f32 / numpy arithmetic does);
+  CFG row by row through the fixed-batch fallback.
+- Companions: `Sd3CompanionAdapter` (roles `text-encoder` CLIP-L, `text-encoder-2` CLIP-G, `text-encoder-3` T5, `vae`) on the generic
+  `DiffusionCompanionAdapter` (FLUX, SD3, Chroma and Z-Image declare their slots); stand-alone CLIP files are told apart by width (768 /
+  1280, the latter with GELU); a T5 named by one shard of a sharded folder opens the whole checkpoint; a diffusers `text_encoder{N}`
+  folder finds its tokenizer in `tokenizer{N}`.
+
+Verification (tools/make-tiny-sd3.py, tools/make-sd3-references.py; `TinySd3Tests`, `Sd35MediumTests`; GPU 0 of the 3× RTX PRO 4500
+machine, shared):
+
+- Tiny random SD3 and SD3.5 pipelines (`~/models/sd3/tiny-random-sd3/{sd3,sd35}`: without q/k norms; with them and the second
+  attention in blocks 0–1): both CLIP encoders (hidden states and pooled), T5, transformer, VAE decode and encode within 1e-4 of
+  diffusers / transformers on CPU and Vulkan, from the diffusers folder, the original-name single file and the Q8_0 GGUF with
+  companions (GGUF within 5e-3 of diffusers on the dequantized weights); guided 4-step txt2img above 40 dB in all 12 combinations;
+  a `.slm` converted from the GGUF with companions holds them and generates the same image.
+- SD3.5 Medium (diffusers folder, fp16 files, an ungated mirror of stabilityai/stable-diffusion-3.5-medium) on Vulkan against diffusers
+  in f32 on CUDA, 28 steps, guidance 7, same latents: CLIP-L / CLIP-G hidden 1.3e-4 / 6e-4, pooled 2–4e-4, T5 5–11e-6, transformer
+  1.4e-4, VAE 2.2e-4 relative RMS; images 46.6 dB (512) / 38.8 dB (1024), visually identical. city96's Q8_0 GGUF: transformer 1.5e-3
+  from the fp16 reference; against diffusers running the dequantized GGUF transformer with the folder's encoders: 42.5 dB (512) / 29.4 dB (1024), visually identical (the Q8_0 products quantize the activations; the 28-step 1024 trajectory drifts).
+- Speed (Vulkan, fp16 folder, warm, conditioning reused): 512×512 28 guided steps 2.8 s, 1024×1024 12.6 s (0.45 s per step for both
+  rows); diffusers f32 on the same GPU ~1.1 s per step at 1024. First run compiles for 100–180 s without a precompiled `.slm`.
+
+### Chroma
+
+<a id="chroma"></a>
+Chroma (2026-11-16): FLUX.1-schnell's layout without CLIP, with the "distilled guidance" approximator in place of the modulation
+projections and embedders. Design:
+
+- Canonical source `chroma`: the FLUX transformer vocabulary without `*_mod`, `time_in`, `vector_in`, `guidance_in`, plus
+  `transformer.approximator.{in_proj, layers.{i}.in_layer|out_layer, norms.{i}.weight, out_proj}`; T5 under `text_encoder.` (its only
+  text encoder, tokenizer under the canonical keys); family keys: T5 prompts of 512 tokens, the FLUX VAE scaling, static shift 3
+  (Chroma1-HD's scheduler), 35 steps, guidance 5.
+- `ChromaAdapter` reuses `FluxTransformerGraphBuilder`: with the approximator the modulation rows [3·single + 12·double + 2, D] come from
+  the MLP over the sinusoidal timestep (16), guidance-0 (16) and row-index · 1000 (32, computed in f32 as diffusers does) channels, and
+  the blocks slice their (shift, scale, gate) rows instead of projecting the conditioning vector; the T5 graph takes the prompt's key
+  mask (`DiffusionGraphs.TokenMask`), the transformer a `DiffusionGraphs.ContextMask` (the prompt's tokens and the first padding token
+  visible, `DiffusionConfigKeys.ContextMaskPadding` = 1) as a key bias of the joint attention.
+- Masking follows the original Chroma code (and ComfyUI / stable-diffusion.cpp): padding keys excluded. diffusers' ChromaPipeline
+  builds a float 0/1 mask, which `scaled_dot_product_attention` adds to the scores instead of masking (checked: none vs float mask
+  differ, the boolean mask equals dropping the padding); the references use the boolean mask (`make-tiny-chroma.py`,
+  `make-chroma-references.py`).
+
+Verification (tools/make-tiny-chroma.py, tools/make-chroma-references.py; `TinyChromaTests`, `ChromaHdTests`):
+
+- Tiny random Chroma (`~/models/chroma/tiny-random-chroma`): masked T5 (prompt rows), transformer, VAE within 1e-4 on CPU and
+  Vulkan from the diffusers folder, the original-name single file and the Q8_0 GGUF with companions (5e-3); guided txt2img with a
+  negative prompt above 40 dB in all 6 combinations.
+- Chroma1-HD, silveroxides' Q8_0 GGUF with FLUX.1-schnell's T5 (sharded folder) and VAE as companions, on Vulkan against diffusers
+  running the same files (dequantized GGUF transformer, f32 T5 / VAE, CUDA), 20 steps, guidance 4, negative prompt, same latents:
+  T5 ≤ 3e-5, transformer 2.1e-3 relative RMS; images 46.3 dB (512) / 37.8 dB (1024).
+- Speed (Vulkan, Q8_0, warm): 512×512 20 guided steps 12.8 s, 1024×1024 48 s (1.2 s per step and row); diffusers (GGUF dequantized on
+  the fly, CUDA f32) 2.3 s / 7.7 s per guided step.
+
+### Z-Image
+
+<a id="z-image"></a>
+Z-Image-Turbo (2026-11-16): a ~6B single-stream DiT conditioned on Qwen3-4B hidden states. Design:
+
+- Canonical source `zimage`: `transformer.*` (fused `attention.qkv` per block of the `noise_refiner`, `context_refiner` and `layers`
+  stacks, sandwich RMS norms, SwiGLU `ffn.w1|w2|w3`, the 4D-wide `mod` projections of the timestep embedding, `x_pad_token`,
+  `cap_pad_token`, `cap_embedder`, `final.mod|linear`; diffusers' separate q/k/v joined lazily, the original / GGUF names mapped
+  directly); the text encoder kept whole: its canonical decoder weights under `text_encoder.` and its own canonical metadata under
+  `zimage.text_encoder_source.` (with its architecture), its tokenizer under the canonical keys; family keys: the Qwen3 chat template
+  (`<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n`, `enable_thinking=True` adds nothing), 512 prompt tokens, the
+  second-to-last hidden states, shift 3, 9 steps, no guidance, the FLUX VAE scaling. Lumina-Image-2.0 GGUF files share the `lumina2`
+  architecture id; Z-Image is told apart by its bare block modulation (`adaLN_modulation.0`).
+- `ZImageAdapter`: the text graph is the existing decoder graph (`DecoderGraphBuilder.BuildLayerHiddenStates`: one padded prompt,
+  causal packed attention, the hidden state entering a given layer; Qwen3 runs as it does for text generation). The transformer
+  (`ZImageTransformerGraphBuilder`): image patches (features (row, column, channel)) padded to a multiple of 32 with the pad token;
+  the caption rows (the fixed 512) with the prompt's tokens visible through `DiffusionGraphs.ContextMask` and the rest replaced by
+  the caption pad token; the padded caption length c = 32·⌈n / 32⌉ is computed in the graph (ReduceSum, Ceil) and gives the key
+  mask of the rows ≥ c and the image tokens' RoPE position (c + 1, row, column), so one compiled graph serves every prompt; 3-axis
+  RoPE (32 + 48 + 48, θ 256) through the `Rope` op's sections and per-frequency divisors as for FLUX; tanh-gated modulation; the
+  model's timestep 1 − σ and its negated output stay inside the graph. The down projections keep f32 activations in the integer-dot
+  kernels of quantized weights: their inputs reach 10⁵ (the int8 path produced NaN).
+- Core: prompt templates (`DiffusionConfigKeys.PromptTemplate`, the template's special tokens parsed, the prompt's not); `Reshape`
+  keeps a fixed outer dimension with 0 (decoder code written for a symbolic token axis); a generator that runs out of device memory
+  compiling the denoiser releases the text encoders and keeps releasing them after encoding.
+- Companions: `ZImageCompanionAdapter` (roles `text-encoder`: any `decoder` source, a Qwen3-4B GGUF or the pipeline's `text_encoder`
+  folder; `vae`); found beside the transformer (Qwen3 GGUF, 16-channel VAE) and in diffusers pipeline folders next to the
+  transformer's folder (their `text_encoder` and `vae`). The Hugging Face importer finds a diffusers `text_encoder{N}` folder's
+  tokenizer in `tokenizer{N}`.
+
+Verification (tools/make-tiny-zimage.py, tools/make-zimage-references.py; `TinyZImageTests`, `ZImageTurboTests`,
+`ZImageImageTests` in Studio.Tests):
+
+- Tiny random Z-Image (`~/models/zimage/tiny-random-zimage`, 64×96: 24 image tokens padded to 32): prompt tokens equal transformers'
+  chat-templated ids; the text encoder's hidden states (prompt rows), the transformer and the VAE within 1e-4 on the CPU (Vulkan
+  2.5e-4: f16 attention products) from the diffusers folder and the original-name single file, the Q8_0 GGUF within 5e-3 (Vulkan) /
+  3e-2 (CPU) of diffusers on the dequantized weights; 4-step txt2img above 40 dB in all 6 combinations.
+- Z-Image-Turbo, unsloth's Q8_0 GGUF with the pipeline's Qwen3-4B `text_encoder` folder (bf16) and VAE as companions, against
+  diffusers running the same files (dequantized GGUF transformer on CUDA, f32 text encoder): text encoder 1.4e-4, transformer 1.5e-3
+  (Vulkan) / 9.5e-3 (CPU) relative RMS; images 49.6 dB (512) / 46.4 dB (1024), 9 steps from the same latents.
+- Speed (Vulkan, Q8_0, warm): 512×512 9 steps 4.3 s, 1024×1024 14.6 s (1.6 s per step; the text encoder 8 GB bf16 + transformer 7.3 GB on the device); diffusers (GGUF dequantized on the fly, CUDA f32) 0.65 s / 2.5 s per step. Studio: the load panel shows the Qwen3-4B and VAE slots, fills them from the pipeline folder beside the GGUF folder, and the Image page generates (tiny pipeline and Z-Image-Turbo Q8_0 at 512×512).
 
 ## 18. Video generation (2026-11-16)
 
@@ -1676,7 +1788,7 @@ Larger models (GGUF vs llama.cpp b11177; tokenizer and templates against transfo
 | unsloth/Llama-3.3-70B-Instruct | llama | bartowski Q4_K_M (42.5 GB) | 2 GPUs | pass: identical to llama.cpp CUDA; llama.cpp Vulkan differs at a near-tie in one prompt |
 | openai/gpt-oss-120b | gpt_oss | ggml-org MXFP4 (63.4 GB) | 2 GPUs + CPU | pass: harmony templates; one prompt identical, the other a spacing near-tie ("a,b = 0,1" / "a,b=0,1") with identical text after |
 | Qwen/Qwen3.8-27B | qwen3_5 | lmstudio-community Q8_0 (29 GB); Qwen/Qwen3.8-27B-FP8 (30.9 GB) | 2 GPUs | Q8_0: identical to llama.cpp. FP8 safetensors vs transformers on the bf16 checkpoint (fp32, CPU): raw prompts identical, chat identical to the end of turn, teacher-forced logit difference mean 0.16–0.19 |
-| Qwen/Qwen3.8-Flash-Next | qwen4exp | unsloth UD-IQ1_S (66.4 GB, 3 shards) | 2 GPUs + CPU | pass: tokenizer, templates and greedy text identical to llama.cpp. The MTP draft file (`mtp-Qwen3.8-Flash-Next-Q8_0.gguf`) is refused: the qwen4exp MTP head is not imported (open, below) |
+| Qwen/Qwen3.8-Flash-Next | qwen4exp | unsloth UD-IQ1_S (66.4 GB, 3 shards) | 2 GPUs + CPU | pass: tokenizer, templates and greedy text identical to llama.cpp. The MTP draft file (`mtp-Qwen3.8-Flash-Next-Q8_0.gguf`) loads as the draft source (CLI `--draft`): acceptance 0.78 / 0.71 / 0.58 at k = 1 / 2 / 3 (benchmarks section 17.5) |
 
 Fixed in this sweep (each with a regression test):
 
@@ -1694,10 +1806,7 @@ compared with llama.cpp b11177, which lacks `lfm3` (checked against transformers
 
 Open:
 
-1. **qwen4exp MTP head.** Qwen3.8-Flash-Next's MTP layers are not imported, so its `mtp-*.gguf` sidecar is refused with a clear message
-   and speculative decoding with it is unavailable (the target model itself runs and matches llama.cpp). Importing the NextN layers as an
-   MTP draft head is queued as its own feature.
-2. **OPT variants.** Post-norm OPT (`do_layer_norm_before = false`, OPT-350m) and projected embeddings (`word_embed_proj_dim` other than the
+1. **OPT variants.** Post-norm OPT (`do_layer_norm_before = false`, OPT-350m) and projected embeddings (`word_embed_proj_dim` other than the
    hidden size) are refused by the mapping; both are small additions to the decoder (a post-norm layer flag and in/out projections).
-3. **Larger safetensors.** bf16 checkpoints above ~30 GB were not run through the HF importer (only GGUF, and FP8 for Qwen3.8-27B), by
+2. **Larger safetensors.** bf16 checkpoints above ~30 GB were not run through the HF importer (only GGUF, and FP8 for Qwen3.8-27B), by
    the sweep's disk rule.

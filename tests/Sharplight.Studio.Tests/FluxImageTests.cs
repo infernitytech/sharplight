@@ -81,9 +81,8 @@ public sealed class FluxImageTests
         Assert.True(panel.NeedsCompanions);
         Assert.False(panel.IsLanguageModel);
         string folder = Path.GetDirectoryName(file)!;
-        Assert.Equal(folder, Path.GetDirectoryName(panel.TextEncoderPath));
-        Assert.Equal(folder, Path.GetDirectoryName(panel.SecondTextEncoderPath));
-        Assert.Equal(folder, Path.GetDirectoryName(panel.VaePath));
+        Assert.Equal([AuxiliaryRoles.TextEncoder, AuxiliaryRoles.SecondTextEncoder, AuxiliaryRoles.Vae], panel.Companions.Select(c => c.Role));
+        Assert.All(panel.Companions, companion => Assert.Equal(folder, Path.GetDirectoryName(companion.Path)));
         var request = panel.ToRequest() with { Settings = new LoadSettings { DeviceId = runtime.Devices[0].Id, ContextLength = 2048, BatchTokens = 256 } };
         Assert.Equal([AuxiliaryRoles.TextEncoder, AuxiliaryRoles.SecondTextEncoder, AuxiliaryRoles.Vae], request.Auxiliary!.Select(a => a.Role));
 

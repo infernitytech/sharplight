@@ -14,8 +14,13 @@ namespace Sharplight.ImageGeneration;
 /// (FLUX's T5)): the same values. A <c>tokenizer-2</c> component, when present, tokenizes its prompts to its own
 /// <see cref="DiffusionConfigKeys.ContextLength"/>; otherwise the first tokenizer's tokens are reused with the padding id
 /// <see cref="DiffusionConfigKeys.SecondPadId"/> after the end token.</item>
+/// <item><see cref="TextEncode3"/> (optional; component <see cref="ThirdTextEncoderRole"/> with its own <see cref="ThirdTokenizerRole"/>,
+/// SD3's T5): the same values.</item>
 /// <item>Conditioning: the <see cref="Hidden"/> outputs of the text graphs are joined per token ([L, D1 + D2]; graphs without one, such
-/// as FLUX's CLIP encoder, only contribute their pooled embedding) and the pooled embedding is the second graph's, else the first's.</item>
+/// as FLUX's CLIP encoder, only contribute their pooled embedding); a component whose config sets
+/// <see cref="DiffusionConfigKeys.JoinSequence"/> (SD3's T5) appends its rows along the sequence instead, the narrower rows padded with
+/// zeros to the wider width ([L1 + L3, max(D1 + D2, D3)]). The pooled embedding is the concatenation of every pooled output in encoder
+/// order (SDXL: only the second encoder has one; FLUX: only the first; SD3: both CLIP encoders).</item>
 /// <item><see cref="Denoise"/> (component <c>denoiser</c>): inputs <see cref="Latent"/> f32 [N, C, h, w] (the sampler's scaled model
 /// input), <see cref="Timestep"/> f32 [N] (the sampler's model timestep; σ · 1000 for flow models) and <see cref="Context"/> f32
 /// [N, L, D]; output <see cref="Prediction"/> f32 [N, C, h, w] (what the scheduler's prediction type says: noise, velocity, sample or
@@ -40,6 +45,9 @@ public static class DiffusionGraphs
     /// <summary>The optional second text encoder graph (SDXL).</summary>
     public const string TextEncode2 = "text_encode_2";
 
+    /// <summary>The optional third text encoder graph (SD3's T5 encoder, component <see cref="ThirdTextEncoderRole"/>).</summary>
+    public const string TextEncode3 = "text_encode_3";
+
     /// <summary>The denoiser graph (one evaluation of the UNet / DiT).</summary>
     public const string Denoise = "denoise";
 
@@ -51,6 +59,18 @@ public static class DiffusionGraphs
 
     /// <summary>Input of <see cref="TextEncode"/>: token ids.</summary>
     public const string Tokens = "tokens";
+
+    /// <summary>
+    /// Optional input of the text graphs: f32 [L], 1 for the prompt's tokens (with its end token) and 0 for the padding, for encoders run
+    /// with the prompt's attention mask (Chroma's T5).
+    /// </summary>
+    public const string TokenMask = "token_mask";
+
+    /// <summary>
+    /// Optional input of <see cref="Denoise"/>: f32 [N, L], 1 for the conditioning rows the image may attend to and 0 for masked text
+    /// padding (Chroma: the prompt's tokens and <see cref="DiffusionConfigKeys.ContextMaskPadding"/> padding tokens).
+    /// </summary>
+    public const string ContextMask = "context_mask";
 
     /// <summary>Output of <see cref="TextEncode"/>: per-token conditioning.</summary>
     public const string Hidden = "hidden";
@@ -66,6 +86,12 @@ public static class DiffusionGraphs
 
     /// <summary>The role of the tokenizer of the second text encoder when it has its own vocabulary (FLUX's T5).</summary>
     public const string SecondTokenizerRole = "tokenizer-2";
+
+    /// <summary>The role of a third text-encoder component (SD3's T5 encoder, with <see cref="TextEncode3"/>).</summary>
+    public const string ThirdTextEncoderRole = "text-encoder-3";
+
+    /// <summary>The role of the tokenizer of the third text encoder (SD3's T5).</summary>
+    public const string ThirdTokenizerRole = "tokenizer-3";
 
     /// <summary>Input of denoisers with added conditioning: original size, crop offset and target size per batch row.</summary>
     public const string SizeConditions = "size_conditions";

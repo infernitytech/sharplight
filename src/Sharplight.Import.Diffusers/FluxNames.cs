@@ -9,7 +9,8 @@ namespace Sharplight.Import.Diffusers;
 /// <c>FluxTransformerGraphBuilder</c>), from the original Black Forest Labs names (single files and the transformer-only GGUF files of
 /// city96 / stable-diffusion.cpp: fused q/k/v, (shift, scale) final modulation; renamed zero-copy) and from diffusers'
 /// <c>FluxTransformer2DModel</c> names (separate q/k/v and, in single-stream blocks, the MLP input are joined lazily; the final
-/// modulation's (scale, shift) halves are swapped).
+/// modulation's (scale, shift) halves are swapped). Chroma's transformer (no modulation projections or embedders, the
+/// <c>distilled_guidance_layer.*</c> approximator instead) maps through the same names.
 /// </summary>
 internal static partial class FluxNames
 {
@@ -85,6 +86,11 @@ internal static partial class FluxNames
 
     private static string? OriginalName(string name)
     {
+        if (ApproximatorName(name) is { } approximator)
+        {
+            return approximator;
+        }
+
         var m = OriginalPart().Match(name);
         if (!m.Success)
         {
@@ -148,6 +154,11 @@ internal static partial class FluxNames
     /// <summary>The canonical name of a diffusers tensor, and its row block index when several are joined into it (else −1).</summary>
     private static (string? Canonical, int Part) DiffusersName(string name)
     {
+        if (ApproximatorName(name) is { } approximator)
+        {
+            return (approximator, -1);
+        }
+
         int dot = name.LastIndexOf('.');
         string module = name[..dot];
         string suffix = name[(dot + 1)..];
@@ -220,13 +231,48 @@ internal static partial class FluxNames
         };
     }
 
+    /// <summary>
+    /// The canonical name of a tensor of Chroma's modulation approximator (<c>distilled_guidance_layer.*</c>: the same names in the original
+    /// and diffusers layouts, except the MLP layers (<c>in_layer</c> / <c>out_layer</c>, diffusers <c>linear_1</c> / <c>linear_2</c>) and the
+    /// norm scales (<c>scale</c>, diffusers <c>weight</c>)), or null.
+    /// </summary>
+    private static string? ApproximatorName(string name)
+    {
+        const string Stored = "distilled_guidance_layer.";
+        if (!name.StartsWith(Stored, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string rest = name[Stored.Length..].Replace(".linear_1.", ".in_layer.", StringComparison.Ordinal).Replace(".linear_2.", ".out_layer.", StringComparison.Ordinal);
+        if (rest.StartsWith("norms.", StringComparison.Ordinal) && rest.EndsWith(".scale", StringComparison.Ordinal))
+        {
+            rest = rest[..^".scale".Length] + ".weight";
+        }
+
+        return "approximator." + rest;
+    }
+
+    /// <summary>The number of approximator layers in canonical weights (0 for FLUX).</summary>
+    /// <param name="weights">The canonical weights.</param>
+    public static int CountApproximatorLayers(IReadOnlyDictionary<string, WeightInfo> weights)
+    {
+        int count = 0;
+        while (weights.ContainsKey(string.Create(CultureInfo.InvariantCulture, $"{Canonical}approximator.norms.{count}.weight")))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
     /// <summary>The number of blocks of a kind in canonical weights (<c>double</c> or <c>single</c>).</summary>
     /// <param name="weights">The canonical weights.</param>
     /// <param name="kind">The block kind.</param>
     public static int CountBlocks(IReadOnlyDictionary<string, WeightInfo> weights, string kind)
     {
         int count = 0;
-        while (weights.ContainsKey(string.Create(CultureInfo.InvariantCulture, $"{Canonical}{kind}.{count}.{(kind == "double" ? "img_mod" : "mod")}.weight")))
+        while (weights.ContainsKey(string.Create(CultureInfo.InvariantCulture, $"{Canonical}{kind}.{count}.{(kind == "double" ? "img_attn.qkv" : "linear1")}.weight")))
         {
             count++;
         }

@@ -38,16 +38,15 @@ internal static class T5TextGraphBuilder
 
         var x = b.Gather(b.Weight(prefix + "token_embedding.weight"), tokens);
         string sharedTable = prefix + "encoder.attention.relative_bias.weight";
-        var sharedBias = b.HasWeight(sharedTable) ? PositionBias(b, sharedTable, hp, "relative_bias") : null;
+        var sharedBias = b.HasWeight(sharedTable) ? WithKeyBias(b, PositionBias(b, sharedTable, hp, "relative_bias"), keyMask) : keyMask;
         for (int layer = 0; layer < hp.LayerCount; layer++)
         {
             using var _ = b.Group($"layers.{layer}");
             string p = $"{prefix}encoder.layers.{layer}.";
-            var bias = b.HasWeight(p + "attention.relative_bias.weight") ? PositionBias(b, p + "attention.relative_bias.weight", hp, $"relative_bias_{layer}") : sharedBias;
-            if (keyMask is not null)
-            {
-                bias = bias is null ? keyMask : b.Add(bias, keyMask);
-            }
+            // The key mask is folded into the position bias once (shared table) or per layer (per-layer tables).
+            var bias = b.HasWeight(p + "attention.relative_bias.weight")
+                ? WithKeyBias(b, PositionBias(b, p + "attention.relative_bias.weight", hp, $"relative_bias_{layer}"), keyMask)
+                : sharedBias;
 
             var h = b.RmsNorm(x, b.Weight(p + "attention_norm.weight"), hp.NormEps);
             var attended = Attention(b, Linear(b, h, p + "attention.q.weight"), Linear(b, h, p + "attention.k.weight"), Linear(b, h, p + "attention.v.weight"), bias, hp);
@@ -61,6 +60,8 @@ internal static class T5TextGraphBuilder
         b.Output(DiffusionGraphs.Hidden, b.RmsNorm(x, b.Weight(prefix + "encoder.output_norm.weight"), hp.NormEps));
         return b.Build();
     }
+
+    private static Value WithKeyBias(GraphBuilder b, Value bias, Value? keyBias) => keyBias is null ? bias : b.Add(bias, keyBias);
 
     /// <summary>
     /// T5's bucketed relative position bias of the whole prompt, [heads, L, L] (query rows, key columns): the bucket table [buckets,

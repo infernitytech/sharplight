@@ -9,7 +9,8 @@ internal sealed class GenerateImageCommand
 {
     private readonly Option<string> _model = new("--model", "-m") { Description = "Model: a diffusers folder (SD 1.x / 2.x / XL, FLUX.1), a single-file .safetensors / .ckpt / .gguf checkpoint (FLUX: transformer-only files take their companions from the options below or from files next to them) or an .slm package.", Required = true };
     private readonly Option<string?> _textEncoder = new("--text-encoder") { Description = "Companion of a transformer-only checkpoint: the CLIP-L text encoder (clip_l.safetensors)." };
-    private readonly Option<string?> _textEncoder2 = new("--text-encoder-2") { Description = "Companion of a transformer-only checkpoint: the T5-XXL encoder (.gguf or .safetensors)." };
+    private readonly Option<string?> _textEncoder2 = new("--text-encoder-2") { Description = "Companion of a transformer-only checkpoint: FLUX's T5-XXL encoder (.gguf or .safetensors), SD3's CLIP-G." };
+    private readonly Option<string?> _textEncoder3 = new("--text-encoder-3") { Description = "Companion of a transformer-only SD3 checkpoint: the T5-XXL encoder (.gguf or .safetensors)." };
     private readonly Option<string?> _vae = new("--vae") { Description = "Companion of a transformer-only checkpoint: the VAE (ae.safetensors)." };
     private readonly Option<string> _prompt = new("--prompt", "-p") { Description = "What to generate.", Required = true };
     private readonly Option<string?> _negative = new("--negative-prompt", "-n") { Description = "What the image should not show." };
@@ -34,7 +35,7 @@ internal sealed class GenerateImageCommand
     public Command Build()
     {
         var command = new RootCommand("Generates images with a Sharplight image-generation model (Stable Diffusion 1.x / 2.x / XL, FLUX.1) through the DI task API.");
-        foreach (var option in new Option[] { _model, _textEncoder, _textEncoder2, _vae, _prompt, _negative, _output, _width, _height, _steps, _guidance, _seed, _count, _sampler, _initImage, _mask, _strength, _noise, _preview, _cpu, _device, _reducedPrecision, _runs })
+        foreach (var option in new Option[] { _model, _textEncoder, _textEncoder2, _textEncoder3, _vae, _prompt, _negative, _output, _width, _height, _steps, _guidance, _seed, _count, _sampler, _initImage, _mask, _strength, _noise, _preview, _cpu, _device, _reducedPrecision, _runs })
         {
             command.Options.Add(option);
         }
@@ -48,6 +49,7 @@ internal sealed class GenerateImageCommand
         Model = result.GetValue(_model)!,
         TextEncoder = result.GetValue(_textEncoder),
         SecondTextEncoder = result.GetValue(_textEncoder2),
+            ThirdTextEncoder = result.GetValue(_textEncoder3),
         Vae = result.GetValue(_vae),
         Prompt = result.GetValue(_prompt)!,
         NegativePrompt = result.GetValue(_negative),

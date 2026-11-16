@@ -1233,6 +1233,37 @@ d47, 78.8 at d4096; TTFT at d4096 1601 ms without speculation and 1760 ms with i
 prefill before the change). The "after" runs were all contended and are not comparable. A clean single-stream and TTFT
 comparison is still to be done on an idle GPU.
 
+### 17.5 Qwen3.8-Flash-Next: the hyper-connected MTP head (2026-11-16)
+
+Qwen3.8-Flash-Next (`qwen4exp`) ships one MTP layer that works on the hyper-connected residual: it reads the trunk's four
+residual streams before the final mixer, projects `[enorm(e); hnorm(h)_s]` per stream, runs one hyper-connected QSA attention +
+MoE layer and mixes its streams with its own `hc_head` before the shared LM head (llama.cpp `graph_mtp`). Sharplight builds it
+as `MtpDraftHead.BuildHyperConnected` (decode output `hidden_streams` as the draft hidden source) from HF checkpoints, GGUFs
+with the NextN block, and the separate `mtp-*.gguf` draft file (CLI `--draft <file>`). On the tiny model the drafts equal a
+reference assembled from transformers' own modules (`tools/mk_qwen4exp_mtp_reference.py`) on CPU and Vulkan, HF, GGUF and
+sidecar alike, and greedy output with the head is token-identical.
+
+Real model: unsloth UD-IQ1_S (66 GB, 3 shards) + `mtp-Qwen3.8-Flash-Next-Q8_0.gguf`, one RTX PRO 4500 (32 GB) with CPU offload,
+CLI, raw essay prompt (the SpecBench text), greedy, 200 tokens. The 32 GB GPU cannot hold the layer with the n-gram table, so the
+planner placed every trunk layer on the CPU (1 GiB on the GPU, 61 GiB on the CPU): the numbers are CPU decode, not a GPU result.
+
+| k | tok/s | acceptance (accepted / drafted) | output vs k = 0 |
+|---|---|---|---|
+| off | 0.99 | | |
+| 1 | 1.04 | 0.78 (87 / 111) | same for the first half, then one near-tie |
+| 2 | 0.96 | 0.71 (117 / 164) | as k = 1 |
+| 3 | 0.60 | 0.58 (126 / 218) | as k = 1 |
+
+* Acceptance 0.78 / 0.71 / 0.58 is what the Qwen3.8-27B head reaches (section 17.1: 0.80 / 0.71 / 0.58) and vLLM's on the 27B
+  (0.84 / 0.70 / 0.59), which checks the head on the real weights.
+* The three speculative runs are identical to each other; they leave the plain run at one near-tie (" Pre" 22.225 vs " Origins"
+  22.167 in the prefill logits at that position, which pick " Pre" as plain decoding does): the CPU verification rows (2-4 at a
+  time) round differently from single-row decode on the IQ1_S experts. Open: check the small-batch CPU matmul path of the
+  IQ quants for row-count-dependent results.
+* No speedup on this placement: the MoE layers run on the CPU, where each verification row reads its own experts, so a step
+  costs nearly (k + 1) times a single-row step. A speedup needs the trunk on GPUs (two 32 GB GPUs, or a GPU that holds the
+  n-gram layer); the head stays off by default (`--speculate-mtp 0`).
+
 ## 18. Chunked gated delta rule and token-parallel conv1d for prefill (2026-11-14)
 
 Levers 6 and 7 of section 16.8. Kernels: `src/Sharplight.Shaders/Kernels/chunked.slang` (new), `recurrent.slang`

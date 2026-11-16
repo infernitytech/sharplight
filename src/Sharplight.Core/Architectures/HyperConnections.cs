@@ -16,6 +16,12 @@ namespace Sharplight.Architectures;
 /// </remarks>
 internal static class HyperConnections
 {
+    /// <summary>
+    /// Decode-graph output with the residual streams [T, streams·H] after the last layer, before the final mixer: what a
+    /// hyper-connected MTP head reads as the target's hidden state (<see cref="Models.WellKnown.DraftHiddenSource"/>).
+    /// </summary>
+    public const string StreamsOutput = "hidden_streams";
+
     /// <summary>Widens the embeddings [T, H] to the residual streams [T, streams·H] (every stream starts as a copy).</summary>
     public static Value Expand(GraphBuilder b, Value x, int streams) =>
         b.Emit1("Tile", [x], Attributes.From(("repeats", new long[] { 1, streams })), "hc_expand");
