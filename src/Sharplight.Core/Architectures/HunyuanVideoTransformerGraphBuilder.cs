@@ -17,9 +17,14 @@ namespace Sharplight.Architectures;
 /// the projected pooled CLIP embedding.
 /// </summary>
 /// <remarks>
-/// Canonical weights: diffusers' <c>HunyuanVideoTransformer3DModel</c> names under <c>transformer.</c> (<c>x_embedder.proj</c> with the kernel
-/// flattened to [D, C·pt·p·p], <c>context_embedder.*</c>, <c>time_text_embed.*</c>, <c>transformer_blocks.{i}.*</c>,
-/// <c>single_transformer_blocks.{i}.*</c>, <c>norm_out.linear</c>, <c>proj_out</c>).
+/// Canonical weights: the original HunyuanVideo names under <c>transformer.</c> (what GGUF and ComfyUI files use; diffusers' split
+/// projections are concatenated at import): <c>img_in.proj</c> (the kernel flattened to [D, C·pt·p·p]), <c>time_in.mlp.0|2</c>,
+/// <c>guidance_in.mlp.0|2</c>, <c>vector_in.in_layer|out_layer</c>, <c>txt_in.t_embedder.mlp.0|2</c>, <c>txt_in.c_embedder.linear_1|2</c>,
+/// <c>txt_in.input_embedder</c>, <c>txt_in.individual_token_refiner.blocks.{i}.</c> (<c>norm1</c>, <c>self_attn_qkv</c>, <c>self_attn_proj</c>,
+/// <c>norm2</c>, <c>mlp.fc1|fc2</c>, <c>adaLN_modulation.1</c>), <c>double_blocks.{i}.</c> (<c>img_mod.linear</c>, <c>img_attn_qkv</c>,
+/// <c>img_attn_q_norm|k_norm</c>, <c>img_attn_proj</c>, <c>img_mlp.fc1|fc2</c> and the same for <c>txt_</c>), <c>single_blocks.{i}.</c>
+/// (<c>modulation.linear</c>, <c>linear1</c> = q, k, v and the MLP input, <c>q_norm|k_norm</c>, <c>linear2</c>), <c>final_layer.adaLN_modulation.1</c>
+/// (shift, then scale) and <c>final_layer.linear</c>.
 /// </remarks>
 internal sealed class HunyuanVideoTransformerGraphBuilder
 {
@@ -78,23 +83,23 @@ internal sealed class HunyuanVideoTransformerGraphBuilder
         var guidance = _hp.GuidanceEmbed ? _b.Input(DiffusionGraphs.Guidance, InputRole.Other, DataType.F32, new Shape(1)) : null;
         DeclarePositions();
         // (mask − 1) · 10⁹: padded text keys are ignored, the video keys never.
-        _textKeyBias = _b.Reshape(_b.Scale(mask, 1e9f, -1e9f), 1, 1, _textRows);
+        _textKeyBias = _b.Scale(mask, 1e9f, -1e9f);
         var zeros = _b.Constant("video_key_bias", DataType.F32, new Shape(_videoRows), new byte[_videoRows * sizeof(float)]);
-        _keyBias = _b.Reshape(_b.Concat(0, zeros, _b.Reshape(_b.Scale(mask, 1e9f, -1e9f), _textRows)), 1, 1, _videoRows + _textRows);
+        _keyBias = _b.Concat(0, zeros, _textKeyBias);
 
         Value conditioning;
         Value text;
         using (_b.Group("conditioning"))
         {
             var time = Sinusoids(timestep, "time_frequencies");
-            conditioning = Embedder(time, P + "time_text_embed.timestep_embedder");
+            conditioning = Mlp(time, P + "time_in");
             if (guidance is not null)
             {
                 // The input is the guidance scale; the model embeds scale · 1000 like a timestep.
-                conditioning = _b.Add(conditioning, Embedder(Sinusoids(_b.Scale(guidance, 1000f), "guidance_frequencies"), P + "time_text_embed.guidance_embedder"));
+                conditioning = _b.Add(conditioning, Mlp(Sinusoids(_b.Scale(guidance, 1000f), "guidance_frequencies"), P + "guidance_in"));
             }
 
-            conditioning = _b.Add(conditioning, Embedder(pooled, P + "time_text_embed.text_embedder"));
+            conditioning = _b.Add(conditioning, Linear(_b.Silu(Linear(pooled, P + "vector_in.in_layer")), P + "vector_in.out_layer"));
             text = Refine(context, mask, time);
         }
 
@@ -102,28 +107,28 @@ internal sealed class HunyuanVideoTransformerGraphBuilder
         Value video;
         using (_b.Group("input"))
         {
-            video = Linear(Patchify(latent), P + "x_embedder.proj");
+            video = Linear(Patchify(latent), P + "img_in.proj");
         }
 
         for (int i = 0; i < _hp.DoubleLayers; i++)
         {
             using var _ = _b.Group($"double.{i}");
-            (video, text) = DoubleBlock(video, text, $"{P}transformer_blocks.{i}.");
+            (video, text) = DoubleBlock(video, text, $"{P}double_blocks.{i}.");
         }
 
         var x = _b.Concat(0, video, text);
         for (int i = 0; i < _hp.SingleLayers; i++)
         {
             using var _ = _b.Group($"single.{i}");
-            x = SingleBlock(x, $"{P}single_transformer_blocks.{i}.");
+            x = SingleBlock(x, $"{P}single_blocks.{i}.");
         }
 
         using (_b.Group("output"))
         {
             video = _b.Slice(x, 0, 0, _videoRows);
-            var final = Linear(_modulationInput, P + "norm_out.linear");
-            var normed = Modulate(video, Chunk(final, 1, d), Chunk(final, 0, d));
-            _b.Output(VideoDiffusionGraphs.Prediction, Unpatchify(Linear(normed, P + "proj_out")));
+            var final = Linear(_modulationInput, P + "final_layer.adaLN_modulation.1");
+            var normed = Modulate(video, Chunk(final, 0, d), Chunk(final, 1, d));
+            _b.Output(VideoDiffusionGraphs.Prediction, Unpatchify(Linear(normed, P + "final_layer.linear")));
         }
 
         return _b.Build();
@@ -135,27 +140,28 @@ internal sealed class HunyuanVideoTransformerGraphBuilder
     /// </summary>
     private Value Refine(Value context, Value mask, Value time)
     {
-        string p = P + "context_embedder.";
+        string p = P + "txt_in.";
         int d = _hp.HiddenSize;
         var maskColumn = _b.Reshape(mask, _textRows, 1);
         var sum = _b.Emit1("Reduce", [_b.Mul(context, maskColumn)], Attributes.From(("mode", "sum"), ("axes", new[] { 0L }), ("keepdims", true)));
         var count = _b.Emit1("Reduce", [maskColumn], Attributes.From(("mode", "sum"), ("axes", new[] { 0L }), ("keepdims", true)));
         var mean = _b.Mul(sum, _b.Unary("Recip", count));
-        var vector = _b.Add(Embedder(time, p + "time_text_embed.timestep_embedder"), Embedder(mean, p + "time_text_embed.text_embedder"));
+        var vector = _b.Add(Mlp(time, p + "t_embedder"), Linear(_b.Silu(Linear(mean, p + "c_embedder.linear_1")), p + "c_embedder.linear_2"));
         var gates = _b.Silu(vector);
-        var x = Linear(context, p + "proj_in");
+        var x = Linear(context, p + "input_embedder");
         for (int i = 0; i < _hp.RefinerLayers; i++)
         {
-            string r = $"{p}token_refiner.refiner_blocks.{i}.";
-            var gate = Linear(gates, r + "norm_out.linear");
+            string r = $"{p}individual_token_refiner.blocks.{i}.";
+            var gate = Linear(gates, r + "adaLN_modulation.1");
             var normed = DiffusionBlocks.LayerNorm(_b, x, r + "norm1", NormEps);
-            var q = Heads(Linear(normed, r + "attn.to_q"), _textRows);
-            var k = Heads(Linear(normed, r + "attn.to_k"), _textRows);
-            var v = Heads(Linear(normed, r + "attn.to_v"), _textRows);
+            var qkv = Linear(normed, r + "self_attn_qkv");
+            var q = Heads(_b.Slice(qkv, 1, 0, d), _textRows);
+            var k = Heads(_b.Slice(qkv, 1, d, d), _textRows);
+            var v = Heads(_b.Slice(qkv, 1, 2L * d, d), _textRows);
             var attended = _b.Reshape(_b.Emit1("Attention", [q, k, v, _textKeyBias], Attributes.From(("scale", 1f / MathF.Sqrt(_hp.HeadDim)), ("causal", false))),
                 _textRows, d);
-            x = _b.Add(x, _b.Mul(Linear(attended, r + "attn.to_out.0"), Chunk(gate, 0, d)));
-            var hidden = Linear(_b.Silu(Linear(DiffusionBlocks.LayerNorm(_b, x, r + "norm2", NormEps), r + "ff.net.0.proj")), r + "ff.net.2");
+            x = _b.Add(x, _b.Mul(Linear(attended, r + "self_attn_proj"), Chunk(gate, 0, d)));
+            var hidden = Linear(_b.Silu(Linear(DiffusionBlocks.LayerNorm(_b, x, r + "norm2", NormEps), r + "mlp.fc1")), r + "mlp.fc2");
             x = _b.Add(x, _b.Mul(hidden, Chunk(gate, 1, d)));
         }
 
@@ -183,19 +189,19 @@ internal sealed class HunyuanVideoTransformerGraphBuilder
     private (Value Video, Value Text) DoubleBlock(Value video, Value text, string p)
     {
         int d = _hp.HiddenSize;
-        var videoMod = Linear(_modulationInput, p + "norm1.linear");
-        var textMod = Linear(_modulationInput, p + "norm1_context.linear");
+        var videoMod = Linear(_modulationInput, p + "img_mod.linear");
+        var textMod = Linear(_modulationInput, p + "txt_mod.linear");
         var videoIn = Modulate(video, Chunk(videoMod, 0, d), Chunk(videoMod, 1, d));
         var textIn = Modulate(text, Chunk(textMod, 0, d), Chunk(textMod, 1, d));
-        var (vq, vk, vv) = Projections(videoIn, p + "attn.to_q", p + "attn.to_k", p + "attn.to_v", p + "attn.norm_q", p + "attn.norm_k", _videoRows);
-        var (tq, tk, tv) = Projections(textIn, p + "attn.add_q_proj", p + "attn.add_k_proj", p + "attn.add_v_proj", p + "attn.norm_added_q", p + "attn.norm_added_k", _textRows);
+        var (vq, vk, vv) = Projections(Linear(videoIn, p + "img_attn_qkv"), p + "img_attn_q_norm", p + "img_attn_k_norm", _videoRows);
+        var (tq, tk, tv) = Projections(Linear(textIn, p + "txt_attn_qkv"), p + "txt_attn_q_norm", p + "txt_attn_k_norm", _textRows);
         var attended = Attend(_b.Concat(0, vq, tq), _b.Concat(0, vk, tk), _b.Concat(0, vv, tv));
         var videoAttention = _b.Slice(attended, 0, 0, _videoRows);
         var textAttention = _b.Slice(attended, 0, _videoRows, _textRows);
-        video = _b.Add(video, _b.Mul(Linear(videoAttention, p + "attn.to_out.0"), Chunk(videoMod, 2, d)));
-        text = _b.Add(text, _b.Mul(Linear(textAttention, p + "attn.to_add_out"), Chunk(textMod, 2, d)));
-        video = _b.Add(video, _b.Mul(FeedForward(Modulate(video, Chunk(videoMod, 3, d), Chunk(videoMod, 4, d)), p + "ff"), Chunk(videoMod, 5, d)));
-        text = _b.Add(text, _b.Mul(FeedForward(Modulate(text, Chunk(textMod, 3, d), Chunk(textMod, 4, d)), p + "ff_context"), Chunk(textMod, 5, d)));
+        video = _b.Add(video, _b.Mul(Linear(videoAttention, p + "img_attn_proj"), Chunk(videoMod, 2, d)));
+        text = _b.Add(text, _b.Mul(Linear(textAttention, p + "txt_attn_proj"), Chunk(textMod, 2, d)));
+        video = _b.Add(video, _b.Mul(FeedForward(Modulate(video, Chunk(videoMod, 3, d), Chunk(videoMod, 4, d)), p + "img_mlp"), Chunk(videoMod, 5, d)));
+        text = _b.Add(text, _b.Mul(FeedForward(Modulate(text, Chunk(textMod, 3, d), Chunk(textMod, 4, d)), p + "txt_mlp"), Chunk(textMod, 5, d)));
         return (video, text);
     }
 
@@ -204,20 +210,23 @@ internal sealed class HunyuanVideoTransformerGraphBuilder
     {
         int d = _hp.HiddenSize;
         int rows = _videoRows + _textRows;
-        var mod = Linear(_modulationInput, p + "norm.linear");
+        var mod = Linear(_modulationInput, p + "modulation.linear");
         var normed = Modulate(x, Chunk(mod, 0, d), Chunk(mod, 1, d));
-        var (q, k, v) = Projections(normed, p + "attn.to_q", p + "attn.to_k", p + "attn.to_v", p + "attn.norm_q", p + "attn.norm_k", rows);
-        var mlp = _b.Unary("GeluTanh", Linear(normed, p + "proj_mlp"));
+        var projected = Linear(normed, p + "linear1");
+        long mlpWidth = projected.Shape[1].Fixed - 3L * d;
+        var (q, k, v) = Projections(_b.Slice(projected, 1, 0, 3L * d), p + "q_norm", p + "k_norm", rows);
+        var mlp = _b.Unary("GeluTanh", _b.Slice(projected, 1, 3L * d, mlpWidth));
         var joined = _b.Concat(1, Attend(q, k, v), mlp);
-        return _b.Add(x, _b.Mul(Linear(joined, p + "proj_out"), Chunk(mod, 2, d)));
+        return _b.Add(x, _b.Mul(Linear(joined, p + "linear2"), Chunk(mod, 2, d)));
     }
 
-    /// <summary>Query, key and value heads with per-head RMS-normed queries and keys.</summary>
-    private (Value Q, Value K, Value V) Projections(Value x, string q, string k, string v, string normQ, string normK, int rows)
+    /// <summary>Query, key and value heads of a fused projection [rows, 3D], queries and keys RMS-normed per head.</summary>
+    private (Value Q, Value K, Value V) Projections(Value qkv, string normQ, string normK, int rows)
     {
-        var query = _b.RmsNorm(Heads(Linear(x, q), rows), _b.Weight(normQ + ".weight"), NormEps);
-        var key = _b.RmsNorm(Heads(Linear(x, k), rows), _b.Weight(normK + ".weight"), NormEps);
-        return (query, key, Heads(Linear(x, v), rows));
+        int d = _hp.HiddenSize;
+        var query = _b.RmsNorm(Heads(_b.Slice(qkv, 1, 0, d), rows), _b.Weight(normQ + ".weight"), NormEps);
+        var key = _b.RmsNorm(Heads(_b.Slice(qkv, 1, d, d), rows), _b.Weight(normK + ".weight"), NormEps);
+        return (query, key, Heads(_b.Slice(qkv, 1, 2L * d, d), rows));
     }
 
     /// <summary>Joint attention (video rows, then text rows) with RoPE on the video rows and the padded text keys masked; returns rows [N, D].</summary>
@@ -244,10 +253,10 @@ internal sealed class HunyuanVideoTransformerGraphBuilder
 
     private Value Chunk(Value modulation, int index, int width) => _b.Slice(modulation, 1, (long)index * width, width);
 
-    private Value FeedForward(Value x, string p) => Linear(_b.Unary("GeluTanh", Linear(x, p + ".net.0.proj")), p + ".net.2");
+    private Value FeedForward(Value x, string p) => Linear(_b.Unary("GeluTanh", Linear(x, p + ".fc1")), p + ".fc2");
 
-    /// <summary>Two linear layers with a SiLU between (diffusers' <c>TimestepEmbedding</c> and <c>PixArtAlphaTextProjection</c>).</summary>
-    private Value Embedder(Value x, string p) => Linear(_b.Silu(Linear(x, p + ".linear_1")), p + ".linear_2");
+    /// <summary>The timestep embedders: <c>{p}.mlp.0</c>, SiLU, <c>{p}.mlp.2</c>.</summary>
+    private Value Mlp(Value x, string p) => Linear(_b.Silu(Linear(x, p + ".mlp.0")), p + ".mlp.2");
 
     private Value Linear(Value x, string module) => _b.Linear(x, module + ".weight", _b.HasWeight(module + ".bias") ? module + ".bias" : null);
 
