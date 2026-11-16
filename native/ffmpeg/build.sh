@@ -141,7 +141,7 @@ if [ "$x86" = 1 ]; then
     nasm="$cache/tools/nasm/bin/nasm"
     if [ ! -x "$nasm" ]; then
         rm -rf "$build/nasm"
-        cp -r "$(source_dir nasm)" "$build/nasm"
+        cp -Rp "$(source_dir nasm)" "$build/nasm"
         (cd "$build/nasm" && logged "$build/nasm/configure.log" ./configure --prefix="$cache/tools/nasm" && logged "$build/nasm/make.log" make -j"$jobs" nasm \
             && mkdir -p "$cache/tools/nasm/bin" && cp nasm "$nasm")
     fi
@@ -307,11 +307,21 @@ rm -rf "$build/libvpx"
 mkdir -p "$build/libvpx"
 (
     cd "$build/libvpx"
-    export CC CXX AR NM STRIP LD="$CXX" CFLAGS="$opt_flags" CXXFLAGS="$opt_flags"
+    vpx_cflags="$opt_flags"
+    if [ "$family" = windows ]; then
+        # Its Win32 thread shim (used instead of winpthreads, see below) needs errno.h, which only MSVC pulls in implicitly.
+        vpx_cflags="$opt_flags -include errno.h"
+    fi
+    export CC CXX AR NM STRIP LD="$CXX" CFLAGS="$vpx_cflags" CXXFLAGS="$vpx_cflags"
     if [ -n "$nasm" ]; then
         export PATH="$(dirname "$nasm"):$PATH"
     fi
     logged "$build/libvpx.configure.log" "$(source_dir libvpx)/configure" "${vpx_args[@]}"
+    if [ "$family" = windows ]; then
+        # mingw has a pthread.h (winpthreads), but libvpx must use Win32 threads like everything else in the DLLs.
+        sed -i.bak 's/^#define HAVE_PTHREAD_H 1$/#define HAVE_PTHREAD_H 0/' vpx_config.h
+        rm -f vpx_config.h.bak
+    fi
     logged "$build/libvpx.build.log" make -j"$jobs"
     logged "$build/libvpx.install.log" make install
 )
@@ -361,7 +371,7 @@ step "nv-codec-headers"
 if [ "$family" != darwin ]; then
     # Copied first: its install target writes the generated .pc into the source tree, which the RIDs share.
     rm -rf "$build/nv-codec-headers"
-    cp -r "$(source_dir nv-codec-headers)" "$build/nv-codec-headers"
+    cp -Rp "$(source_dir nv-codec-headers)" "$build/nv-codec-headers"
     make -C "$build/nv-codec-headers" PREFIX="$prefix" install > "$build/nv-codec-headers.log"
 fi
 
@@ -441,6 +451,21 @@ mkdir -p "$build/ffmpeg"
         # The glibc 2.28 stubs still export sysctl(), but zig's (current) glibc headers no longer have sys/sysctl.h.
         sed -i.bak 's/^#define HAVE_SYSCTL 1$/#define HAVE_SYSCTL 0/' config.h
         rm -f config.h.bak
+    fi
+
+    # FFmpeg drops some external codecs silently when their probe fails (libvpx): every requested component must be enabled (the
+    # buffer source / sink filters are always built and have no configuration entry).
+    missing=""
+    for component in $(printf '%s_encoder\n' "${encoders[@]}") $(printf '%s_decoder\n' "${decoders[@]}") $(printf '%s_muxer\n' "${muxers[@]}") \
+        $(printf '%s_demuxer\n' "${demuxers[@]}") $(printf '%s_filter\n' "${filters[@]}" | grep -vE '^a?buffer(sink)?_filter$'); do
+        if ! grep -q "^#define CONFIG_$(echo "$component" | tr a-z A-Z) 1$" config_components.h; then
+            missing="$missing $component"
+        fi
+    done
+    if [ -n "$missing" ]; then
+        echo "FFmpeg left out requested components:$missing (see $build/ffmpeg.config.log)" >&2
+        cp ffbuild/config.log "$build/ffmpeg.config.log"
+        exit 1
     fi
 
     run make -j"$jobs" > "$build/ffmpeg.build.log" 2>&1 || { grep -E "error" "$build/ffmpeg.build.log" | head -20 >&2; exit 1; }

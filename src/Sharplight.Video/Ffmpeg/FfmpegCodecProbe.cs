@@ -4,11 +4,13 @@ using FFmpeg.AutoGen;
 namespace Sharplight.Video.Ffmpeg;
 
 /// <summary>
-/// Which encoders work on this machine: software encoders when the build has them, hardware encoders only after a trial open of a small
-/// frame succeeded (NVENC needs an NVIDIA driver, VideoToolbox and Media Foundation a usable encoder). Cached for the process.
+/// Which encoders work on this machine: software encoders when the build has them, hardware encoders only after a trial encode of a
+/// few small frames succeeded (NVENC needs an NVIDIA driver, VideoToolbox and Media Foundation a usable encoder; some Media Foundation
+/// encoders open and only fail on the first frame). Cached for the process.
 /// </summary>
 internal static unsafe class FfmpegCodecProbe
 {
+    private const int TrialFrames = 3;
     private static readonly ConcurrentDictionary<string, bool> s_usable = new(StringComparer.Ordinal);
 
     /// <summary>Whether the encoder of <paramref name="codec"/> can be used.</summary>
@@ -37,6 +39,8 @@ internal static unsafe class FfmpegCodecProbe
         }
 
         AVCodecContext* context = ffmpeg.avcodec_alloc_context3(encoder);
+        AVFrame* frame = ffmpeg.av_frame_alloc();
+        AVPacket* packet = ffmpeg.av_packet_alloc();
         try
         {
             context->width = 256;
@@ -44,11 +48,59 @@ internal static unsafe class FfmpegCodecProbe
             context->pix_fmt = ffmpeg.av_get_pix_fmt(codec.PixelFormats[0]);
             context->time_base = new AVRational { num = 1, den = 30 };
             context->framerate = new AVRational { num = 30, den = 1 };
-            return ffmpeg.avcodec_open2(context, encoder, null) >= 0;
+            if (ffmpeg.avcodec_open2(context, encoder, null) < 0)
+            {
+                return false;
+            }
+
+            frame->format = (int)context->pix_fmt;
+            frame->width = context->width;
+            frame->height = context->height;
+            if (ffmpeg.av_frame_get_buffer(frame, 0) < 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < TrialFrames; i++)
+            {
+                frame->pts = i;
+                if (!SendAndDrain(context, frame, packet))
+                {
+                    return false;
+                }
+            }
+
+            return SendAndDrain(context, null, packet);
         }
         finally
         {
+            ffmpeg.av_packet_free(&packet);
+            ffmpeg.av_frame_free(&frame);
             ffmpeg.avcodec_free_context(&context);
+        }
+    }
+
+    private static bool SendAndDrain(AVCodecContext* context, AVFrame* frame, AVPacket* packet)
+    {
+        if (ffmpeg.avcodec_send_frame(context, frame) < 0)
+        {
+            return false;
+        }
+
+        while (true)
+        {
+            int result = ffmpeg.avcodec_receive_packet(context, packet);
+            if (FfmpegError.IsAgainOrEnd(result))
+            {
+                return true;
+            }
+
+            if (result < 0)
+            {
+                return false;
+            }
+
+            ffmpeg.av_packet_unref(packet);
         }
     }
 }
