@@ -41,6 +41,9 @@ internal static class HfArchitectureMappings
         Register(new T5HfMapping());
         Register(new BartHfMapping());
         Register(new WhisperHfMapping());
+        Register(new MoonshineHfMapping());
+        Register(new ParakeetHfMapping());
+        Register(new CanaryHfMapping());
         foreach (var family in DecoderFamilies())
         {
             Register(family);

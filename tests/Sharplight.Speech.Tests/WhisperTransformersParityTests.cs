@@ -40,7 +40,7 @@ public sealed class WhisperTransformersParityTests
         var features = AudioFeatureExtractors.Create(model).Extract(audio.Samples);
         var window = new float[features.Channels * 3000];
         features.CopyWindow(0, 3000, window);
-        double error = MaxError(window, fixture.RootElement.GetProperty("features"), out double scale);
+        double error = SpeechEnvironment.MaxError(window, fixture.RootElement.GetProperty("features"), out double scale);
         TestContext.Current.TestOutputHelper?.WriteLine($"{name}: log-mel max abs error {error:G3} (max abs {scale:G3})");
         Assert.True(error < 2e-5 * Math.Max(1, scale), $"log-mel max abs error {error:G3} (scale {scale:G3})");
     }
@@ -62,7 +62,7 @@ public sealed class WhisperTransformersParityTests
         encoder.Run(new RunParameters());
         var output = new float[encoder.Graph.Outputs[WellKnown.EncoderOutput].Shape.Elements()];
         encoder.GetOutput<float>(WellKnown.EncoderOutput, output);
-        double error = MaxError(output, fixture.RootElement.GetProperty("encoder"), out double scale);
+        double error = SpeechEnvironment.MaxError(output, fixture.RootElement.GetProperty("encoder"), out double scale);
         TestContext.Current.TestOutputHelper?.WriteLine($"{name} {device}: encoder max abs error {error:G3} of max abs {scale:G3}");
         // Half-precision checkpoints (distil-small.en) run f16 matrix products on the GPU; transformers upcasts them to f32.
         bool halfWeights = model.Definition.Weights.Values.Any(w => w.Type == DataType.F16);
@@ -159,24 +159,5 @@ public sealed class WhisperTransformersParityTests
         var ids = expected.GetProperty("ids").EnumerateArray().Select(e => e.GetInt32()).ToList();
         int first = ids.FindIndex(id => !prompt.Contains(id));
         return [.. ids.Skip(first).TakeWhile(id => id != end)];
-    }
-
-    /// <summary>The largest difference to the sampled reference values, and the largest reference magnitude.</summary>
-    private static double MaxError(float[] actual, JsonElement reference, out double scale)
-    {
-        Assert.Equal(reference.GetProperty("count").GetInt32(), actual.Length);
-        int stride = reference.GetProperty("stride").GetInt32();
-        double error = 0;
-        scale = 0;
-        int index = 0;
-        foreach (var value in reference.GetProperty("values").EnumerateArray())
-        {
-            double expected = value.GetDouble();
-            error = Math.Max(error, Math.Abs(actual[index] - expected));
-            scale = Math.Max(scale, Math.Abs(expected));
-            index += stride;
-        }
-
-        return error;
     }
 }
