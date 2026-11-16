@@ -35,4 +35,5 @@ internal sealed record StudioServices(
     IAudioPlayer Player,
     IAudioRecorder Recorder,
     IAudioDecoder Decoder,
-    IAudioDeviceProvider AudioDevices);
+    IAudioDeviceProvider AudioDevices,
+    IStorageLocationService StorageLocation);

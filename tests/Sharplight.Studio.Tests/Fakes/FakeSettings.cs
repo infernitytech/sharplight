@@ -6,7 +6,7 @@ namespace Sharplight.Studio.Tests.Fakes;
 
 /// <summary>
 /// In-memory settings. The store follows the settings like the real service: the application folder is
-/// <c>&lt;storeRoot&gt;</c>, the user folder <see cref="UserRoot"/>, a custom folder its path.
+/// <c>&lt;storeRoot&gt;</c>, the system folder <see cref="UserRoot"/>, a custom folder its path.
 /// </summary>
 internal sealed class FakeSettings(AppSettings? initial = null, string storeRoot = "/models") : ISettingsService
 {
@@ -20,6 +20,8 @@ internal sealed class FakeSettings(AppSettings? initial = null, string storeRoot
 
     /// <summary>What <see cref="FindPreviousStore"/> returns.</summary>
     public string? PreviousStore { get; set; }
+
+    public ModelStoreResolution Store => Resolve();
 
     public string StoreRoot => Resolve().Root;
 

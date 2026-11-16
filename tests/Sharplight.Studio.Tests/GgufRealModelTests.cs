@@ -15,7 +15,7 @@ namespace Sharplight.Studio.Tests;
 /// <summary>
 /// The GGUF and whisper.cpp files people download from the Hub for image generation and speech recognition, through Studio's own code
 /// paths: library recognition (<see cref="ModelInspector"/>), loading on the engine runtime and a run on the Image / Transcribe pages.
-/// Each test skips when its file is not on disk. Diffusion transformers (FLUX) are recognized and named as not supported yet.
+/// Each test skips when its file is not on disk. Diffusion transformers other than FLUX (SD3, ...) are recognized and named as not supported yet.
 /// </summary>
 public sealed class GgufRealModelTests
 {
@@ -110,13 +110,13 @@ public sealed class GgufRealModelTests
     }
 
     [Fact]
-    public async Task FluxGguf_IsListedAsAnImageModel_AndLoadingSaysNotSupportedYet()
+    public async Task Sd3Gguf_IsListedAsAnImageModel_AndLoadingSaysNotSupportedYet()
     {
         using var dir = new TempDir();
-        string city96 = dir.File("flux1-dev-Q4_0.gguf");
-        WriteGguf(city96, "flux", "double_blocks.0.img_attn.qkv.weight");
-        string sdcpp = dir.File("flux1-schnell-q8_0.gguf");
-        WriteGguf(sdcpp, null, "model.diffusion_model.double_blocks.0.img_attn.qkv.weight");
+        string city96 = dir.File("sd3.5_large-Q4_0.gguf");
+        WriteGguf(city96, "sd3", "joint_blocks.0.x_block.attn.qkv.weight");
+        string sdcpp = dir.File("sd3_medium-q8_0.gguf");
+        WriteGguf(sdcpp, null, "model.diffusion_model.joint_blocks.0.x_block.attn.qkv.weight");
         using var fakes = new TestServices();
         using var runtime = new EngineModelRuntime(EngineServices.From(TestHost.Services), () => new ResidencySettings());
         Assert.SkipWhen(runtime.Devices.Count == 0, "no compute device");
@@ -128,7 +128,7 @@ public sealed class GgufRealModelTests
             var error = await Assert.ThrowsAnyAsync<Exception>(() =>
                 runtime.LoadAsync(new ModelLoadRequest("flux", path, Settings(runtime), [], Kind: ModelKinds.ImageGeneration), null, ct));
             string shown = ImportFailure.Describe(error, error.GetBaseException().Message, path);
-            Assert.StartsWith("Not supported yet: FLUX (diffusion transformer)", shown, StringComparison.Ordinal);
+            Assert.StartsWith("Not supported yet: Stable Diffusion 3 (diffusion transformer)", shown, StringComparison.Ordinal);
         }
     }
 

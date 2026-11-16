@@ -111,8 +111,20 @@
               </DockPanel>
             </Border>
 
+            <StackPanel Grid.Column="1">
+            <!-- The storage location asked for could not be used (portable folder not writable, custom folder missing) -->
+            <Border Classes="hint" Margin="28,16,28,0" IsVisible="{Binding StorageNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="12,0,0,0">
+                  <Button Classes="small" Content="Storage settings" Command="{Binding OpenStorageSettingsCommand}" />
+                  <Button Classes="small" Content="Dismiss" Command="{Binding DismissStorageNoticeCommand}" />
+                </StackPanel>
+                <TextBlock Text="{Binding StorageNotice, StringFormat='Storage: {0}.'}" TextWrapping="Wrap" VerticalAlignment="Center" />
+              </DockPanel>
+            </Border>
+
             <!-- One-time offer to move the models of a previous store -->
-            <Border Grid.Column="1" Classes="hint" Margin="28,16,28,0" IsVisible="{Binding StoreMigration.IsOpen}">
+            <Border Classes="hint" Margin="28,16,28,0" IsVisible="{Binding StoreMigration.IsOpen}">
               <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="12,0,0,0">
                   <Button Classes="small" Content="Keep using the old folder" Command="{Binding StoreMigration.KeepPreviousCommand}"
@@ -125,6 +137,7 @@
                 <TextBlock Text="{Binding StoreMigration.Message}" TextWrapping="Wrap" VerticalAlignment="Center" />
               </DockPanel>
             </Border>
+            </StackPanel>
 
             <!-- Page -->
             <TransitioningContentControl Grid.Column="1" Grid.Row="1" Content="{Binding CurrentPage}">

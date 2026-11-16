@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Sharplight.Hub;
+using Sharplight.Storage;
 using Sharplight.Studio.Models;
 
 namespace Sharplight.Studio.Services.Settings;
@@ -9,14 +10,16 @@ internal sealed class JsonSettingsService : ISettingsService
 {
     private readonly string _path;
     private readonly string? _commandLineStore;
+    private readonly StorageLayout _layout;
     private readonly Lock _lock = new();
     private AppSettings _current;
     private ModelStoreResolution? _store;
 
-    public JsonSettingsService(string path, string? commandLineStore)
+    public JsonSettingsService(string path, string? commandLineStore, StorageLayout layout)
     {
         _path = path;
         _commandLineStore = commandLineStore;
+        _layout = layout;
         _current = Load(path);
     }
 
@@ -38,14 +41,14 @@ internal sealed class JsonSettingsService : ISettingsService
     /// <inheritdoc/>
     public string StoreRootSource => Store.Description;
 
-    /// <summary>The store in effect, resolved once per settings change (the application folder check writes a probe file).</summary>
-    private ModelStoreResolution Store
+    /// <inheritdoc/>
+    public ModelStoreResolution Store
     {
         get
         {
             lock (_lock)
             {
-                return _store ??= StoreLocation.Resolve(_commandLineStore, _current);
+                return _store ??= StoreLocation.Resolve(_commandLineStore, _current, _layout);
             }
         }
     }
@@ -54,7 +57,7 @@ internal sealed class JsonSettingsService : ISettingsService
     public string? FindPreviousStore()
     {
         var store = Store;
-        return store.Source is ModelStoreSource.CommandLine or ModelStoreSource.EnvironmentVariable ? null : ModelStore.FindPreviousStore(store)?.Root;
+        return store.Source is ModelStoreSource.CommandLine or ModelStoreSource.EnvironmentVariable ? null : ModelStore.FindPreviousStore(store, _layout)?.Root;
     }
 
     /// <inheritdoc/>
@@ -85,7 +88,7 @@ internal sealed class JsonSettingsService : ISettingsService
         }
     }
 
-    private static void Save(string path, AppSettings settings)
+    internal static void Save(string path, AppSettings settings)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + ".tmp";

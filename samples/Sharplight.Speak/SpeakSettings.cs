@@ -10,13 +10,15 @@ namespace Sharplight.Speak;
 /// <param name="DeviceIndex">The device within the provider.</param>
 /// <param name="Seed">Seed of the token sampling, or <see langword="null"/>.</param>
 /// <param name="Greedy">Pick the most likely token every time.</param>
+/// <param name="Language">The language code of the text (Kokoro: <c>a</c> American, <c>b</c> British English, <c>phonemes</c> for phoneme input), or <see langword="null"/>.</param>
+/// <param name="Speed">The speaking rate (1 is natural).</param>
 /// <param name="Stream">Write the audio as it is decoded, one segment at a time, and report the time to the first segment.</param>
 internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, string Text, string OutputPath, string? Voice, bool UseCpu, int DeviceIndex, int? Seed,
-    bool Greedy, bool Stream)
+    bool Greedy, string? Language, float Speed, bool Stream)
 {
     /// <summary>The usage text.</summary>
     public const string Usage = """
-        usage: sharplight-speak --model <file> [--vocoder <file>] --text "<text>" [--out speech.wav] [--voice <name>] [--cpu] [--device <n>] [--seed <n>] [--greedy] [--stream]
+        usage: sharplight-speak --model <file> [--vocoder <file>] --text "<text>" [--out speech.wav] [--voice <name>] [--cpu] [--device <n>] [--seed <n>] [--greedy] [--language <code>] [--speed <x>] [--stream]
 
           --model     speech-synthesis model: an .slm package, or the language-model GGUF of a codec language model (OuteTTS)
           --vocoder   the codec decoder GGUF (WavTokenizer) for a language-model file
@@ -26,6 +28,7 @@ internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, stri
           --cpu       use the CPU provider instead of a GPU
           --device    device index within the provider (default 0)
           --seed      sampling seed;  --greedy  always take the most likely token
+          --language  language of the text (Kokoro: a, b or phonemes);  --speed  speaking rate (default 1)
           --stream    decode and write segment by segment
         """;
 
@@ -41,6 +44,8 @@ internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, stri
         bool cpu = false;
         bool greedy = false;
         bool stream = false;
+        string? language = null;
+        float speed = 1f;
         int device = 0;
         int? seed = null;
         for (int i = 0; i < args.Length; i++)
@@ -75,6 +80,12 @@ internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, stri
                 case "--greedy":
                     greedy = true;
                     break;
+                case "--language":
+                    language = value();
+                    break;
+                case "--speed":
+                    speed = float.Parse(value(), System.Globalization.CultureInfo.InvariantCulture);
+                    break;
                 case "--stream":
                     stream = true;
                     break;
@@ -88,6 +99,6 @@ internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, stri
             return null;
         }
 
-        return new SpeakSettings(model, vocoder, text, output, voice, cpu, device, seed, greedy, stream);
+        return new SpeakSettings(model, vocoder, text, output, voice, cpu, device, seed, greedy, language, speed, stream);
     }
 }

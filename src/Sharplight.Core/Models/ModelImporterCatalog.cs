@@ -54,7 +54,18 @@ public sealed class ModelImporterCatalog
         return importer.Open(path);
     }
 
-    /// <summary>Opens a primary model plus auxiliary sources (e.g. a vision projector under <see cref="Vision.AuxiliaryRoles.Mmproj"/>).</summary>
+    /// <summary>
+    /// The companion files the importer of <paramref name="path"/> finds next to it, by auxiliary role
+    /// (<see cref="IModelImporter.FindCompanions"/>); empty when no importer opens the path or the model needs none.
+    /// </summary>
+    /// <param name="path">The primary model file or directory.</param>
+    public IReadOnlyDictionary<string, string> FindCompanions(string path)
+        => TryFind(path, out var importer) ? importer.FindCompanions(path) : new Dictionary<string, string>();
+
+    /// <summary>
+    /// Opens a primary model plus auxiliary sources (e.g. a vision projector under <see cref="Vision.AuxiliaryRoles.Mmproj"/>); roles the
+    /// caller leaves out are filled with the companion files the primary's importer finds (<see cref="FindCompanions"/>).
+    /// </summary>
     /// <param name="path">The primary model file or directory.</param>
     /// <param name="auxiliary">Auxiliary files by role, or <see langword="null"/> for none.</param>
     /// <returns>The opened sources; on failure everything opened so far is released.</returns>
@@ -63,9 +74,20 @@ public sealed class ModelImporterCatalog
     {
         var primary = Open(path);
         var opened = new Dictionary<string, ModelSource>();
+        var roles = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (role, auxiliaryPath) in auxiliary ?? [])
+        {
+            roles[role] = auxiliaryPath;
+        }
+
+        foreach (var (role, companion) in FindCompanions(path))
+        {
+            roles.TryAdd(role, companion);
+        }
+
         try
         {
-            foreach (var (role, auxiliaryPath) in auxiliary ?? [])
+            foreach (var (role, auxiliaryPath) in roles)
             {
                 opened[role] = Open(auxiliaryPath);
             }

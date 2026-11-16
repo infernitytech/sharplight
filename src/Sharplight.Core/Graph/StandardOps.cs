@@ -41,7 +41,8 @@ public static partial class StandardOps
          "Mod" /* attr fmod (bool): C fmod vs. Python-style sign of divisor */,
          "PRelu" /* x, slope */,
          // Comparisons and logic produce f32 masks (1 = true, 0 = false):
-         "Equal", "NotEqual", "Less", "LessEqual", "Greater", "GreaterEqual", "And", "Or", "Xor"];
+         "Equal", "NotEqual", "Less", "LessEqual", "Greater", "GreaterEqual", "And", "Or", "Xor",
+         "Atan2" /* atan2(a, b): the angle of the point (x = b, y = a) */];
 
     /// <summary>y = x * scale + bias. Input: x (any shape). Attributes: scale (float), bias (float). Output: f32, shape of x.</summary>
     public static readonly OpSchema Scale = new("Scale", OpCategory.Elementwise, 1, 1, Same, "y = x*scale + bias");
@@ -132,6 +133,13 @@ public static partial class StandardOps
     /// format promises f32 activation math (e.g. ONNX MatMulNBits without accuracy_level 4).
     /// </summary>
     public const string F32ActivationsAttribute = "f32_activations";
+
+    /// <summary>
+    /// Attention attribute (bool, default false): the op may run with f16 products and f32 accumulation (tensor-core kernels) as
+    /// <see cref="Runtime.CompileOptions.AllowReducedPrecision"/> would allow, whatever the compile options. Set by adapters of models
+    /// that are trained and evaluated in bf16 / f16 (diffusion transformers), whose attention gains nothing from exact f32 products.
+    /// </summary>
+    public const string F16ProductsAttribute = "f16_products";
 
     /// <summary>
     /// y = x · Wᵀ. x: [..., K] (f32), W: [N, K] (any float or quantized format) → [..., N].

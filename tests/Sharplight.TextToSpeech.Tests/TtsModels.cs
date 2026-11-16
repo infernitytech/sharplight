@@ -22,6 +22,24 @@ internal static class TtsModels
     /// <summary>The WavTokenizer decoder (F16).</summary>
     public static string WavTokenizer => Path.Combine(s_root, "wavtokenizer", "WavTokenizer-Large-75-F16.gguf");
 
+    /// <summary>The Kokoro-82M checkpoint directory.</summary>
+    public static string Kokoro => Path.Combine(s_root, "kokoro");
+
+    /// <summary>Reference tensors of the kokoro Python package (raw little-endian arrays, see <c>KokoroTests</c>).</summary>
+    public static string KokoroReference => Path.Combine(s_root, "kokoro-ref");
+
+    /// <summary>Orpheus 3B (the checkpoint directory).</summary>
+    public static string Orpheus => Path.Combine(s_root, "orpheus-3b");
+
+    /// <summary>The SNAC 24 kHz codec checkpoint directory.</summary>
+    public static string Snac => Path.Combine(s_root, "snac-24khz");
+
+    /// <summary>Reference tensors of the snac Python package (raw arrays).</summary>
+    public static string SnacReference => Path.Combine(s_root, "snac-ref");
+
+    /// <summary>Reference tokens and logits of transformers' Orpheus (raw arrays).</summary>
+    public static string OrpheusReference => Path.Combine(s_root, "orpheus-ref");
+
     /// <summary>A fixture file next to the test assembly.</summary>
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
@@ -58,6 +76,18 @@ internal static class TtsModels
             options.Auxiliary[AuxiliaryRoles.Vocoder] = WavTokenizer;
         }
 
+        return TaskModel.Load(Services.GetRequiredService<ModelLoader>(), options);
+    }
+
+    /// <summary>Loads a model directory or file with its own importer as a task model.</summary>
+    public static TaskModel Load(DeviceSlot slot, string path)
+        => TaskModel.Load(Services.GetRequiredService<ModelLoader>(), new TaskLoadOptions { ModelPath = path, Devices = [slot] });
+
+    /// <summary>Loads Orpheus with its SNAC decoder as a task model.</summary>
+    public static TaskModel LoadOrpheus(DeviceSlot slot)
+    {
+        var options = new TaskLoadOptions { ModelPath = Orpheus, Devices = [slot] };
+        options.Auxiliary[AuxiliaryRoles.Vocoder] = Snac;
         return TaskModel.Load(Services.GetRequiredService<ModelLoader>(), options);
     }
 

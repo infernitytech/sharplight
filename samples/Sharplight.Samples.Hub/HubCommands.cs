@@ -3,7 +3,7 @@ using System.CommandLine;
 namespace Sharplight.Samples.Hub;
 
 /// <summary>
-/// Adds the model store commands (<c>pull</c>, <c>search</c>, <c>list</c>, <c>show</c>, <c>rm</c>, <c>store</c>) and the recursive
+/// Adds the model store commands (<c>pull</c>, <c>search</c>, <c>list</c>, <c>show</c>, <c>rm</c>, <c>store</c>, <c>storage</c>) and the recursive
 /// <c>--models-dir</c> option to a sample's root command, so every Sharplight executable manages the same store the same way.
 /// </summary>
 public static class HubCommands
@@ -21,5 +21,6 @@ public static class HubCommands
         root.Subcommands.Add(new ShowCommand(store).Build());
         root.Subcommands.Add(new RemoveCommand(store).Build());
         root.Subcommands.Add(new StoreCommand(store).Build());
+        root.Subcommands.Add(new StorageCommand(store).Build());
     }
 }
