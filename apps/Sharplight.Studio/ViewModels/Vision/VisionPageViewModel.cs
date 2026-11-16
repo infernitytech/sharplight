@@ -57,7 +57,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         : base(services, navigator, s_kinds, "vision", CreateParameters(services))
     {
         Source = new ImageInputViewModel(services.Platform, text => Notice = text, "Image", "Drop an image here or choose a file (PNG, JPEG, WebP, BMP, GIF).", OnInputChanged);
-        foreach (string key in new[] { "threshold", "colormap", "invert" })
+        foreach (string key in new[] { "threshold", "colormap", "invert", "mask" })
         {
             Panel.Parameters.First(parameter => parameter.Key == key).PropertyChanged += (_, _) => RefreshView();
         }
@@ -113,7 +113,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
         VisionMode.Depth => "Depth estimation: a depth map beside the image.",
         VisionMode.Segment => "Segmentation: run once (it starts from the middle of the image), then click the object (right click: not this) or draw a box around it; the mask follows.",
         VisionMode.Ocr => "Text recognition: the text the picture shows (a line of text works best).",
-        VisionMode.Upscale => "Upscaling: the image enlarged by the model, before and after side by side; large images are cut into blended tiles.",
+        VisionMode.Upscale => "Upscaling: the image enlarged by the model, with a slider to compare before and after; large images are cut into blended tiles.",
         _ => "Load an image model to choose what to do with a picture.",
     };
 

@@ -206,7 +206,7 @@ public sealed class ResponsivenessTests
     });
 
     [Fact]
-    public Task VisionUpscaling_RunsOffTheUiThread_AndCancels() => HeadlessApp.RunAsync(async () =>
+    public Task VisionUpscaling_RunsOffTheUiThread() => HeadlessApp.RunAsync(async () =>
     {
         using var services = new TestServices(dispatcher: new CountingDispatcher());
         var vision = new FakeVision { StepWork = StepWork * 2 };
@@ -214,6 +214,14 @@ public sealed class ResponsivenessTests
 
         await RunResponsiveAsync(page, page.RunCommand, "upscaling");
         Assert.NotNull(page.AfterPng);
+    });
+
+    [Fact]
+    public Task VisionUpscaling_Cancels() => HeadlessApp.RunAsync(async () =>
+    {
+        using var services = new TestServices(dispatcher: new CountingDispatcher());
+        var vision = new FakeVision { StepWork = StepWork * 8 };
+        var page = await VisionPageAsync(services, vision, ModelKinds.ImageUpscaling, typeof(IImageUpscaler));
         await CancelMidRunAsync(page, page.RunCommand);
     });
 
