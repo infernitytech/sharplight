@@ -212,4 +212,28 @@ public class SpeechOpsTests
         var actual = Kit.Out(m, "a", p);
         Kit.AssertClose(ys.Select((v, i) => MathF.Atan2(v, xs[i])).ToArray(), actual, 1e-5, 1e-5);
     }
+
+    [Fact]
+    public void CumSum_AccumulatesInDouble()
+    {
+        const int time = 20000;
+        var tg = new TestGraph();
+        var x = tg.InF("x", TestGraph.T, 1);
+        tg.B.Output("s", tg.B.Emit1("CumSum", [x], Attributes.From(("axis", 0L))));
+        using var m = Kit.Compile(tg.B.Build(), maxTokens: time);
+        var input = Kit.Rand(time, 5).Select(v => (v * 0.5f) + 0.6f).ToArray();
+        Kit.Set(m, x, input);
+        var p = Kit.P(time);
+        m.Run(p);
+        var actual = Kit.Out(m, "s", p);
+        double sum = 0;
+        var expected = new float[time];
+        for (int i = 0; i < time; i++)
+        {
+            sum += input[i];
+            expected[i] = (float)sum;
+        }
+
+        Kit.AssertClose(expected, actual, 0, 1e-7);
+    }
 }

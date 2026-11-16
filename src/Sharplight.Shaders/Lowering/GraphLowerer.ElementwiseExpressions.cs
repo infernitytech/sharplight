@@ -73,7 +73,7 @@ public sealed partial class GraphLowerer
             "Erf" => $"erf_accurate({args[0]})",
             "HardSwish" => $"({args[0]} * clamp({args[0]} * {F(1f / 6f)} + 0.5, 0.0, 1.0))",
             "HardSigmoid" => $"clamp({args[0]} * {F(node.Attributes.Get("alpha", 0.2f))} + {F(node.Attributes.Get("beta", 0.5f))}, 0.0, 1.0)",
-            "Atan2" => $"atan2({args[0]}, {args[1]})",
+            "Atan2" => $"atan2_ieee({args[0]}, {args[1]})",
             "Pow" => $"pow_onnx({args[0]}, {args[1]})",
             _ => throw new NotSupportedException(node.Op.Name),
         };

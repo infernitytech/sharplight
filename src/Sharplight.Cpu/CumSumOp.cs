@@ -26,7 +26,7 @@ internal sealed unsafe class CumSumOp : CpuOp
         _axis = axis;
         _excl = exclusive;
         _rev = reverse;
-        _body = Body;
+        _body = product ? Body : SumBody;
     }
 
     public override void Run(RunParameters p)
@@ -94,6 +94,43 @@ internal sealed unsafe class CumSumOp : CpuOp
                     }
                 }
                 prev = yr;
+            }
+        }
+    }
+
+    /// <summary>The sum form: every running sum is kept in double precision (rounded once per output), so long scans do not drift.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void SumBody(int chunk)
+    {
+        long s = chunk * _per;
+        long e = Math.Min(_outer, s + _per);
+        float* x = (float*)_x.P;
+        float* y = (float*)_y.P;
+        long n = _inner;
+        var acc = new double[n];
+        for (long o = s; o < e; o++)
+        {
+            float* xb = x + o * _a * n;
+            float* yb = y + o * _a * n;
+            Array.Clear(acc);
+            for (long step = 0; step < _a; step++)
+            {
+                long a = _rev ? _a - 1 - step : step;
+                float* xr = xb + a * n;
+                float* yr = yb + a * n;
+                for (long i = 0; i < n; i++)
+                {
+                    if (_excl)
+                    {
+                        yr[i] = (float)acc[i];
+                        acc[i] += xr[i];
+                    }
+                    else
+                    {
+                        acc[i] += xr[i];
+                        yr[i] = (float)acc[i];
+                    }
+                }
             }
         }
     }

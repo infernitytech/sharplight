@@ -81,4 +81,28 @@ public sealed class SpeechOpsTests
         var steps = new[] { 3, 20 }.Select((t, i) => new Step(t, 0, (y, Rnd.F((long)t * 5, 30 + i)), (x, Rnd.F((long)t * 5, 50 + i)))).ToList();
         Diff.Check("Atan2", tg.B.Build(), steps, 1e-4, 1e-4, maxTokens: 20, what: "atan2");
     }
+
+    [Fact]
+    public void Atan2_OfSignedZeros_FollowsIeee()
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var y = tg.InF("y", TG.T, 4);
+        var x = tg.InF("x", TG.T, 4);
+        tg.B.Output("a", tg.B.Binary("Atan2", y, x));
+        float[] ys = [0f, -0f, 0f, -0f];
+        float[] xs = [-1f, -1f, 1f, 1f];
+        Diff.Check("Atan2", tg.B.Build(), [new Step(1, 0, (y, ys), (x, xs))], 0, 0, maxTokens: 4, what: "signed zeros");
+    }
+
+    [Fact]
+    public void CumSum_DoesNotDriftOverLongScans()
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, 3);
+        tg.B.Output("s", tg.B.Emit1("CumSum", [x], Attributes.From(("axis", 0L))));
+        var steps = new[] { 3000, 6000 }.Select((t, i) => new Step(t, 0, (x, Rnd.F((long)t * 3, 70 + i).Select(v => (v * 0.5f) + 0.6f).ToArray()))).ToList();
+        Diff.Check("CumSum", tg.B.Build(), steps, 1e-3, 2e-6, maxTokens: 6000, what: "long scan");
+    }
 }

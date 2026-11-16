@@ -105,12 +105,19 @@ public sealed partial class GraphLowerer
         string body = a.Get("mode", "nearest") == "linear"
             ? $$"""
               uint j = d0, c = d1;
-              float source = max((float(j) + 0.5) * {{down}}.0 / {{up}}.0 - 0.5, 0.0);
-              int i0 = min(int(floor(source)), int(p.tin) - 1);
+              int64_t num = int64_t(2 * j + 1) * {{down}} - {{up}};
+              int i0 = 0;
+              float frac = 0.0;
+              if (num > 0) {
+                int64_t den = 2 * {{up}};
+                i0 = int(num / den);
+                frac = float(num - int64_t(i0) * den) / float(den);
+              }
               int i1 = min(i0 + 1, int(p.tin) - 1);
+              i0 = min(i0, int(p.tin) - 1);
               float a0 = p.in0[uint(i0) * {{channels}}u + c];
               float a1 = p.in0[uint(i1) * {{channels}}u + c];
-              p.out0[idx] = a0 + (a1 - a0) * (source - float(i0));
+              p.out0[idx] = a0 + (a1 - a0) * frac;
             """
             : $$"""
               uint j = d0, c = d1;

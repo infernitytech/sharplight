@@ -24,6 +24,9 @@ public sealed class KokoroImporter : IModelImporter
     /// <summary>The prefix of the voice attachments.</summary>
     public const string VoicePrefix = "voices/";
 
+    /// <summary>The prefix of the pronunciation lexicon attachments (the files of the checkpoint's <c>lexicon</c> folder).</summary>
+    public const string LexiconPrefix = "lexicon/";
+
     /// <summary>The suffix of the voice attachments.</summary>
     public const string VoiceSuffix = ".f32";
 
@@ -61,6 +64,7 @@ public sealed class KokoroImporter : IModelImporter
                 [VocabularyAttachment] = new MemoryWeightSource(Encoding.UTF8.GetBytes(config.VocabularyJson)),
             };
             AddVoices(Path.Combine(directory, "voices"), attachments, owned);
+            AddLexicons(Path.Combine(directory, "lexicon"), attachments);
             var metadata = HyperParameters(config);
             metadata[CanonicalKeys.Architecture] = Architecture;
             metadata[CanonicalKeys.Name] = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar));
@@ -114,7 +118,20 @@ public sealed class KokoroImporter : IModelImporter
                 throw new InvalidDataException($"{voice}: a Kokoro voice pack is a float32 [N, 1, 256] tensor.");
             }
 
-            attachments[VoicePrefix + Path.GetFileNameWithoutExtension(voice) + VoiceSuffix] = new KokoroTorchWeightSource(file, tensor);
+            attachments[VoicePrefix + Path.GetFileNameWithoutExtension(voice) + VoiceSuffix] = new TorchTensorWeightSource(file, tensor);
+        }
+    }
+
+    private static void AddLexicons(string directory, Dictionary<string, IWeightSource> attachments)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return;
+        }
+
+        foreach (string lexicon in Directory.EnumerateFiles(directory, "*.json").Order(StringComparer.Ordinal))
+        {
+            attachments[LexiconPrefix + Path.GetFileName(lexicon)] = new MemoryWeightSource(File.ReadAllBytes(lexicon));
         }
     }
 

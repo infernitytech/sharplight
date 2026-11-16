@@ -42,7 +42,7 @@ internal static class KokoroWeights
             if (name.EndsWith(".weight_g", StringComparison.Ordinal))
             {
                 string stem = name[..^"_g".Length];
-                weights[stem] = Folded(file, stem, entry, tensors[stem + "_v"]);
+                weights[stem] = TorchWeightNorm.Fold(file, stem, entry, tensors[stem + "_v"]);
             }
             else if (name.EndsWith(".weight_v", StringComparison.Ordinal))
             {
@@ -51,7 +51,7 @@ internal static class KokoroWeights
             else if (name.Contains(".bias_ih_l0", StringComparison.Ordinal))
             {
                 string stem = name.Replace(".bias_ih_l0", ".bias_l0", StringComparison.Ordinal);
-                weights[stem] = Summed(file, stem, entry, tensors[name.Replace("bias_ih", "bias_hh", StringComparison.Ordinal)]);
+                weights[stem] = TorchWeightNorm.Sum(file, stem, entry, tensors[name.Replace("bias_ih", "bias_hh", StringComparison.Ordinal)]);
             }
             else if (name.Contains(".bias_hh_l0", StringComparison.Ordinal))
             {
@@ -59,72 +59,11 @@ internal static class KokoroWeights
             }
             else
             {
-                var shape = new Shape(entry.Shape);
-                if (name.Contains(".alpha", StringComparison.Ordinal))
-                {
-                    shape = new Shape(entry.Shape[1]);
-                }
-
-                weights[name] = View(file, name, entry, shape);
+                // The snake parameters are stored as [1, channels, 1].
+                weights[name] = TorchWeightNorm.View(file, name, entry, name.Contains(".alpha", StringComparison.Ordinal) ? new Shape(entry.Shape[1]) : null);
             }
         }
 
         return weights;
     }
-
-    private static WeightInfo View(TorchCheckpointFile file, string name, TorchTensorEntry entry, Shape shape)
-        => new() { Name = name, Type = DataType.F32, Shape = shape, Source = new KokoroTorchWeightSource(file, entry) };
-
-    private static float[] Floats(TorchCheckpointFile file, TorchTensorEntry entry)
-    {
-        if (entry.DType != TorchDType.Float32)
-        {
-            throw new NotSupportedException($"Kokoro: tensor '{entry.Name}' is {entry.DType}, only float32 is supported.");
-        }
-
-        var values = new float[entry.ByteLength / sizeof(float)];
-        new KokoroTorchWeightSource(file, entry).Read(0, System.Runtime.InteropServices.MemoryMarshal.AsBytes(values.AsSpan()));
-        return values;
-    }
-
-    private static WeightInfo Folded(TorchCheckpointFile file, string name, TorchTensorEntry g, TorchTensorEntry v)
-    {
-        var shape = new Shape(v.Shape);
-        return WeightInfo.Derived(name, DataType.F32, shape, () =>
-        {
-            var gain = Floats(file, g);
-            var direction = Floats(file, v);
-            long rows = v.Shape[0];
-            long per = direction.Length / rows;
-            for (long r = 0; r < rows; r++)
-            {
-                double norm = 0;
-                for (long i = 0; i < per; i++)
-                {
-                    norm += (double)direction[(r * per) + i] * direction[(r * per) + i];
-                }
-
-                float scale = (float)(gain[r] / Math.Sqrt(norm));
-                for (long i = 0; i < per; i++)
-                {
-                    direction[(r * per) + i] *= scale;
-                }
-            }
-
-            return System.Runtime.InteropServices.MemoryMarshal.AsBytes(direction.AsSpan()).ToArray();
-        });
-    }
-
-    private static WeightInfo Summed(TorchCheckpointFile file, string name, TorchTensorEntry a, TorchTensorEntry b)
-        => WeightInfo.Derived(name, DataType.F32, new Shape(a.Shape), () =>
-        {
-            var x = Floats(file, a);
-            var y = Floats(file, b);
-            for (int i = 0; i < x.Length; i++)
-            {
-                x[i] += y[i];
-            }
-
-            return System.Runtime.InteropServices.MemoryMarshal.AsBytes(x.AsSpan()).ToArray();
-        });
 }

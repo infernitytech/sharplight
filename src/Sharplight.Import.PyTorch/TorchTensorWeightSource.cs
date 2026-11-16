@@ -1,10 +1,9 @@
-using Sharplight.Import.PyTorch;
 using Sharplight.Models;
 
-namespace Sharplight.Import.Kokoro;
+namespace Sharplight.Import.PyTorch;
 
-/// <summary>Zero-copy view of one tensor inside a memory-mapped PyTorch checkpoint; reads fail once the file is disposed.</summary>
-internal sealed unsafe class KokoroTorchWeightSource(TorchCheckpointFile file, TorchTensorEntry entry) : IWeightSource
+/// <summary>Zero-copy view of one tensor inside a memory-mapped PyTorch checkpoint (<see cref="IWeightSource"/>); reads fail once the file is disposed.</summary>
+public sealed unsafe class TorchTensorWeightSource(TorchCheckpointFile file, TorchTensorEntry entry) : IWeightSource
 {
     /// <inheritdoc/>
     public long ByteLength => entry.ByteLength;

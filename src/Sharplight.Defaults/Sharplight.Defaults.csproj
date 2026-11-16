@@ -16,6 +16,7 @@
     <ProjectReference Include="../Sharplight.Import.Diffusers/Sharplight.Import.Diffusers.csproj" />
     <ProjectReference Include="../Sharplight.Import.WhisperCpp/Sharplight.Import.WhisperCpp.csproj" />
     <ProjectReference Include="../Sharplight.Import.Kokoro/Sharplight.Import.Kokoro.csproj" />
+    <ProjectReference Include="../Sharplight.Import.Snac/Sharplight.Import.Snac.csproj" />
     <ProjectReference Include="../Sharplight.Package/Sharplight.Package.csproj" />
     <ProjectReference Include="../Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../Sharplight.Vulkan/Sharplight.Vulkan.csproj" />

@@ -58,15 +58,19 @@ internal sealed unsafe class Interpolate1dOp : CpuOp
                 continue;
             }
 
-            double source = ((j + 0.5) * _down / _up) - 0.5;
-            if (source < 0)
+            long numerator = (((2 * j) + 1) * _down) - _up;
+            long i0 = 0;
+            double fraction = 0;
+            if (numerator > 0)
             {
-                source = 0;
+                long denominator = 2 * _up;
+                i0 = numerator / denominator;
+                fraction = (double)(numerator - (i0 * denominator)) / denominator;
             }
 
-            long i0 = Math.Min((long)Math.Floor(source), _tin - 1);
             long i1 = Math.Min(i0 + 1, _tin - 1);
-            float frac = (float)(source - i0);
+            i0 = Math.Min(i0, _tin - 1);
+            float frac = (float)fraction;
             for (long c = 0; c < channels; c++)
             {
                 float a = x[(i0 * channels) + c];
