@@ -40,6 +40,7 @@ internal static class HfArchitectureMappings
         Register(new RtDetrHfMapping());
         Register(new DepthAnythingHfMapping());
         Register(new SegformerHfMapping());
+        Register(new BiRefNetHfMapping());
         Register(new EncodecHfMapping());
         Register(new ClapHfMapping());
         Register(new MusicGenHfMapping());
