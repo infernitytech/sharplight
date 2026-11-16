@@ -6,9 +6,9 @@ namespace Sharplight.Vulkan.Tests;
 /// <summary>
 /// <see cref="Runtime.CompileOptions.RowInvariantRows"/>: a step of up to that many activation rows must compute every row
 /// bit-identically to a step of that row alone, as speculative verification needs (its rows must reproduce plain decoding).
-/// Matmuls over every weight format family (f32 matvec formats, the integer-dot formats whose single rows take the f32 matvec
+/// Matmuls over every weight format family (f32 matvec formats, the IQ codebook formats, the integer-dot formats whose single rows take the f32 matvec
 /// or the integer-dot matvec, block FP8) and widths that put few-row batches on the int-dot matvec or the skinny GEMM,
-/// single and as fused gate / up pairs; rows 2-4 against single-row steps over the same rows.
+/// single and as fused gate / up pairs, and expert-indexed (MoE) matmuls; rows 2-4 against single-row steps over the same rows.
 /// The f32 matvec writes its sums as an explicit chain of fused multiply-adds, so its variants agree by construction. Formats
 /// whose single rows take the integer-dot matvec (K-quants) rely on the driver contracting each variant's plain sums alike:
 /// it does at these shapes but not at every one (q4_k [2048→48] differs in the last bit), so verification on such weights is
@@ -18,7 +18,7 @@ public sealed class RowInvarianceTests
 {
     public static IEnumerable<object[]> Cases()
     {
-        foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_k", "q6_k", "f8e4m3_b128" })
+        foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_k", "q6_k", "f8e4m3_b128", "iq1_s", "iq2_xxs", "iq3_xxs", "iq4_nl", "iq4_xs" })
         {
             foreach (var (k, n) in new[] { (1024, 4096), (512, 1024), (2048, 48) })
             {
@@ -50,6 +50,25 @@ public sealed class RowInvarianceTests
         var u = tg.B.MatMul(x, tg.RandW("wu", DataType.Get(fmt), 0.1f, n, k));
         tg.B.Output("y", tg.B.Mul(tg.B.Silu(g), u));
         Check(tg, x, k);
+    }
+
+    /// <summary>Expert-indexed matmuls (MoE, two experts per row chosen by a router on the row), as the routed experts of a verification step run.</summary>
+    [Theory]
+    [InlineData("q8_0")]
+    [InlineData("q4_k")]
+    [InlineData("iq1_s")]
+    [InlineData("iq4_nl")]
+    public void ExpertMatMul(string fmt)
+    {
+        const int K = 512;
+        const int N = 256;
+        const int Experts = 8;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var router = tg.B.MatMul(x, tg.RandW("router", DataType.F32, 0.1f, Experts, K));
+        var ids = tg.B.Emit("TopK", [router], Attributes.From(("k", 2L)))[1];
+        tg.B.Output("y", tg.B.Emit1("MatMulId", [x, tg.RandW("experts", DataType.Get(fmt), 0.1f, Experts, N, K), ids]));
+        Check(tg, x, K);
     }
 
     /// <summary>Runs rows 1-4 one per step, then the same rows in one step of 2, 3 and 4 rows each, and compares bit for bit.</summary>

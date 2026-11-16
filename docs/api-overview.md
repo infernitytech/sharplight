@@ -619,7 +619,7 @@ output is distributed exactly as without speculation. Two speculators exist:
   `HiddenStates`). Drafts are the head's greedy choices, chained k times per step. Heads: Qwen3.5 / Qwen3-Next MTP layers,
   the hyper-connected MTP head of Qwen3.8-Flash-Next (`qwen4exp`: reads the trunk's residual streams before the final mixer,
   the decode output `hidden_streams` named by `WellKnown.DraftHiddenSource`, and mixes its own streams before the LM head;
-  `MtpDraftHead.BuildHyperConnected`), and the NextN layer of DeepSeek-V3 (`latent_decoder`) and GLM-4.5 (`decoder`, any family whose checkpoint carries a NextN
+  `MtpDraftHead.BuildHyperConnected`), and the NextN layer of DeepSeek-V3 (`latent_decoder`), GLM-4.5 and MiMo-7B (`decoder`, any family whose checkpoint carries a NextN
   layer after uniform layers; `MtpDraftHead.FirstNextnModule`). The head compiles against `LlmModel.SharedWeights`, so its
   embedding and LM head are the decoder's buffers (only its own layer adds device memory).
 

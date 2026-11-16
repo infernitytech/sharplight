@@ -6,7 +6,8 @@ namespace Sharplight.Import.HuggingFace;
 
 /// <summary>
 /// Hugging Face decoder-only transformers (<c>llama</c>, <c>mistral</c>, <c>qwen2</c>, <c>qwen3</c>, <c>gemma2</c>,
-/// <c>gemma3_text</c>, <c>phi3</c>, <c>olmoe</c>, <c>qwen3_moe</c>, <c>rnd1</c> (Qwen3-MoE as a masked-diffusion model)) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>). Weights are
+/// <c>gemma3_text</c>, <c>phi3</c>, <c>olmoe</c>, <c>qwen3_moe</c>, <c>rnd1</c> (Qwen3-MoE as a masked-diffusion model), <c>mimo</c> (MiMo-7B:
+/// Qwen2 layers plus multi-token-prediction layers <c>model.mtp_layers.{j}</c>, imported as the NextN draft head)) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>). Weights are
 /// mapped by presence (biases, q/k norms, Gemma's extra norms), Gemma's <c>1 + w</c> norms are folded, rope scaling
 /// (llama3 / yarn / linear) becomes the canonical <c>rope.freq_factors</c> weight.
 /// The Gemma 4 / Muse Glimmer / Flint variants live in <c>DecoderHfMapping.Extended.cs</c>.
@@ -21,7 +22,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } =
     [
-        "llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe", "rnd1",
+        "llama", "mistral", "qwen2", "mimo", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe", "rnd1",
         "gemma4", "gemma4_text", "gemma4_unified", "gemma4_unified_text", "gemma3n", "gemma3n_text", "muse_glimmer", "flint",
     ];
 
@@ -303,6 +304,9 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     }
 
     // ---- weights ------------------------------------------------------------------------------
+    [GeneratedRegex(@"^model\.mtp_layers\.(\d+)\.(.+)$")]
+    private static partial Regex MimoMtpLayerName();
+
     [GeneratedRegex(@"^model\.layers\.(\d+)\.(.+)$")]
     private static partial Regex LayerName();
 
@@ -389,6 +393,16 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
                 continue;
             }
 
+            if (MimoMtpLayerName().Match(name) is { Success: true } mtp)
+            {
+                if (!TryMapMimoMtpTensor(c, context, mtp.Groups[1].Value, mtp.Groups[2].Value, w, collector, experts))
+                {
+                    collector.AddUnmapped(name);
+                }
+
+                continue;
+            }
+
             var m = LayerName().Match(name);
             if (!m.Success || !TryMapLayerTensor(c, context, m.Groups[1].Value, m.Groups[2].Value, w, collector, experts))
             {
@@ -438,6 +452,39 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
         }
     }
 
+    /// <summary>MiMo's NextN-only tensors, HF suffix to canonical suffix below <c>mtp.layers.{j}.</c> (the input projection is mapped apart).</summary>
+    private static readonly Dictionary<string, string> s_mimoNextn = new(StringComparer.Ordinal)
+    {
+        ["token_layernorm.weight"] = "embedding_norm.weight",
+        ["hidden_layernorm.weight"] = "hidden_norm.weight",
+        ["final_layernorm.weight"] = "output_norm.weight",
+    };
+
+    /// <summary>
+    /// One tensor of a MiMo multi-token-prediction layer (<c>model.mtp_layers.{j}.*</c>): a Qwen2 layer plus the NextN tensors. Its
+    /// <c>input_proj</c> reads [hidden | embedding]; the canonical <c>fc</c> reads [embedding | hidden], so the column halves swap.
+    /// </summary>
+    private static bool TryMapMimoMtpTensor(HfConfig c, WeightContext context, string module, string suffix, WeightInfo w, HfWeightCollector collector,
+        SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>> experts)
+    {
+        string prefix = $"mtp.layers.{module}.";
+        if (s_mimoNextn.TryGetValue(suffix, out var nextn))
+        {
+            collector.Add(context.Norm(w, prefix + nextn));
+            return true;
+        }
+
+        if (suffix == "input_proj.weight")
+        {
+            int hidden = (int)(w.Shape[1].Fixed / 2);
+            int[] columns = [.. Enumerable.Range(hidden, hidden), .. Enumerable.Range(0, hidden)];
+            collector.Add(HfExpertLayouts.GatherColumns(w, prefix + "fc.weight", columns));
+            return true;
+        }
+
+        return TryMapLayerTensorAt(c, context, prefix, -1, suffix, w, collector, experts);
+    }
+
     /// <summary>One <c>model.layers.N.*</c> tensor; false when it has no canonical counterpart.</summary>
     private static bool TryMapLayerTensor(
         HfConfig c,
@@ -447,12 +494,28 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
         WeightInfo w,
         HfWeightCollector collector,
         SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>> experts)
+        => TryMapLayerTensorAt(c, context, $"layers.{layer}.", int.Parse(layer), suffix, w, collector, experts);
+
+    /// <summary>One layer tensor below <paramref name="prefix"/> (<paramref name="layer"/>: the trunk layer, or -1 for an MTP layer, which has no experts).</summary>
+    private static bool TryMapLayerTensorAt(
+        HfConfig c,
+        WeightContext context,
+        string prefix,
+        int layer,
+        string suffix,
+        WeightInfo w,
+        HfWeightCollector collector,
+        SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>> experts)
     {
-        string prefix = $"layers.{layer}.";
         if (ExpertName().Match(suffix) is { Success: true } expertMatch)
         {
             // Per-expert tensors are stacked into one weight per layer and kind once all are seen.
-            var key = (int.Parse(layer), expertMatch.Groups[2].Value);
+            if (layer < 0)
+            {
+                return false;
+            }
+
+            var key = (layer, expertMatch.Groups[2].Value);
             if (!experts.TryGetValue(key, out var byIndex))
             {
                 experts[key] = byIndex = [];
