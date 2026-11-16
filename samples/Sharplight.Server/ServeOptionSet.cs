@@ -12,7 +12,7 @@ internal sealed class ServeOptionSet
     /// <summary>Pulled models are precompiled for the default slot count.</summary>
     private const int DefaultSlots = PrecompileTargets.ServeSlots;
     private const int DefaultMaxQueue = 64;
-    private const int DefaultPrefillChunk = 512;
+    private const int DefaultPrefillChunk = 0;
     private const float DefaultTemperature = 0.7f;
     private const string ApiOpenAi = "openai";
     private const string ApiAnthropic = "anthropic";
@@ -81,7 +81,7 @@ internal sealed class ServeOptionSet
 
     private readonly Option<int> _maxQueue = OptionFactory.Integer("--max-queue", "Waiting requests per model before answering 429.", DefaultMaxQueue, helpName: "count");
 
-    private readonly Option<int> _prefillChunk = OptionFactory.Integer("--prefill-chunk", "Prompt rows per step and sequence, interleaved with decoding.", DefaultPrefillChunk, helpName: "rows");
+    private readonly Option<int> _prefillChunk = OptionFactory.Integer("--prefill-chunk", "Prompt rows per step and sequence, interleaved with decoding (0: the step's rows, see --batch).", DefaultPrefillChunk, minimum: 0, helpName: "rows");
 
     private readonly Option<long?> _kvTokens = OptionFactory.Size("--kv-tokens",
         "Paged KV cache: one pool of this many tokens (K/M suffixes) shared by all --slots, each growing up to --ctx as needed; "

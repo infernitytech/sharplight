@@ -32,6 +32,8 @@ internal static class ModelKindCatalog
         new(ModelKinds.Ocr, "OCR", "IconDocument", [ModelTask.Ocr], Runnable: true),
         new(ModelKinds.ImageUpscaling, "Upscaling", "IconUpscale", [ModelTask.Upscaling], Runnable: true),
         new("audio", "Audio", "IconWave", [ModelTask.Audio], Runnable: false),
+        new(ModelKinds.AudioCodec, "Audio codec", "IconWave", [], Runnable: true),
+        new(ModelKinds.VoiceActivity, "Voice activity", "IconWave", [], Runnable: true),
         new(Embeddings, "Embeddings", "IconEmbed", [ModelTask.Embeddings], Runnable: true),
         new("time-series", "Time series", "IconStats", [ModelTask.TimeSeries], Runnable: false),
         new("3d-generation", "3D", "IconCube", [ModelTask.ThreeD], Runnable: false),

@@ -78,6 +78,16 @@ internal sealed class FrameSpeechRecognizer : ISpeechRecognizer
         ArgumentNullException.ThrowIfNull(audio);
         ObjectDisposedException.ThrowIf(_disposed, this);
         options ??= SpeechRecognitionOptions.Default;
+        if (options.UseVoiceActivityDetection)
+        {
+            await foreach (var segment in VoiceActivityPresegmentation.TranscribeAsync(this, audio, options, cancellationToken).ConfigureAwait(false))
+            {
+                yield return segment;
+            }
+
+            yield break;
+        }
+
         ArgumentOutOfRangeException.ThrowIfLessThan(options.BeamSize, 1, nameof(options));
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try

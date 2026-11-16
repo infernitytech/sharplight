@@ -12,8 +12,8 @@ public sealed class RuntimeOptionSet
     /// <summary>Context length used when <c>--ctx</c> is not given.</summary>
     public const int DefaultContextLength = 4096;
 
-    /// <summary>Forward-pass batch size used when <c>--batch</c> is not given.</summary>
-    public const int DefaultBatchTokens = 512;
+    /// <summary>Forward-pass batch size used when <c>--batch</c> is not given: 0, chosen from the model and the free device memory.</summary>
+    public const int DefaultBatchTokens = 0;
 
     /// <summary><c>--cpu</c>.</summary>
     public Option<bool> Cpu { get; } = new("--cpu") { Description = "Run on the CPU provider instead of a GPU." };
@@ -25,7 +25,7 @@ public sealed class RuntimeOptionSet
     public Option<int> Context { get; } = OptionFactory.Integer("--ctx", "Context length in tokens (per sequence).", DefaultContextLength, helpName: "tokens");
 
     /// <summary><c>--batch</c>.</summary>
-    public Option<int> Batch { get; } = OptionFactory.Integer("--batch", "Maximum rows (prompt tokens) per forward pass.", DefaultBatchTokens, helpName: "rows");
+    public Option<int> Batch { get; } = OptionFactory.Integer("--batch", "Maximum rows (prompt tokens) per forward pass (0: up to 2048, chosen from the model's footprint and the free device memory).", DefaultBatchTokens, minimum: 0, helpName: "rows");
 
     /// <summary><c>--kv-type</c>.</summary>
     public Option<string> KvType { get; } = CreateKvType();

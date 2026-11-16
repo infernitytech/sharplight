@@ -1233,6 +1233,25 @@ resize DETR to 800/1333 px keeping the aspect ratio (a static graph cannot follo
 DETR needs the timm backbone layout (`use_timm_backbone`, ResNet-18/34/50/101), RT-DETR the ResNet-D backbone with one AIFI level and box refinement; others are rejected by `Validate` with a reason.
 SigLIP's tokenizer removes all ASCII punctuation as transformers' `SiglipTokenizer` does (the fast tokenizer.json spares `/ < >`).
 
+## 16. Audio models beyond speech (task layer)
+
+Codecs and voice activity run through the task layer (kinds `audio-codec` and `voice-activity`, see docs/api-overview.md "Audio codecs and voice activity"; tests in
+`tests/Sharplight.AudioModels.Tests`). References come from transformers (`EncodecModel`, `DacModel`, `MimiModel`, CPU) and onnxruntime plus the segmentation function of
+the `silero-vad` package on `jfk.wav` (resampled to the codec's rate, a whole number of frames); checkpoints live in `~/models/audio-models/<name>`, reference tensors in
+`~/models/audio-models/refs`.
+
+| Model | Importer | Kind | Status | Parity |
+|---|---|---|---|---|
+| EnCodec 24 kHz (`facebook/encodec_24khz`: causal SEANet with reflect padding, 2-layer LSTM, 32 euclidean RVQ stages) | HF `encodec` | audio-codec | supported (the 48 kHz non-causal variant is rejected by `Validate`) | codes token-exact at 6 kbps (CPU and Vulkan); at 24 kbps the test allows 0.1 % of the codes to differ (near ties between entries of the deep stages, which round differently from the reference); the decoder from the reference codes: relative RMS < 1e-3 (CPU and Vulkan) |
+| DAC 44 kHz (`descript/dac_44khz`: snake activations, 9 factorized cosine RVQ stages) | HF `dac` | audio-codec | supported | codes token-exact, decoded audio relative RMS < 1e-3 (CPU and Vulkan) |
+| Mimi (`kyutai/mimi`: SEANet, 8+8 layer sliding-window transformers, split semantic + acoustic RVQ, 12.5 Hz) | HF `mimi` | audio-codec | supported; 32 stages, 8 by default | codes token-exact for 8 and 32 stages, decoded audio relative RMS < 1e-3 (CPU and Vulkan) |
+| Silero VAD v5 (`silero_vad_16k_op15.onnx`: learned STFT, four convolutions, one LSTM step) | `Sharplight.Import.SileroVad` | voice-activity | supported (16 kHz; the 8 kHz branch of the full export is not imported) | frame probabilities within 1e-3 of onnxruntime, segments identical to `get_speech_timestamps` on two clips (CPU and Vulkan) |
+| Demucs (htdemucs), CLAP (`laion/clap-htsat-unfused`), MusicGen small | - | audio-separation, audio-embedding, music-generation | not started (kinds named in `ModelKinds`) | - |
+
+Limits: the codecs run on one channel; the encoder pads the audio at the end with zeros to a whole frame (the references pad per layer, so the last frame of audio whose
+length is not a frame multiple can differ), audio longer than the component's bound runs in independent segments (no overlap, a seam can be audible in the non-causal DAC).
+EnCodec's streaming chunking of the 48 kHz model is not implemented.
+
 ## 15. Image generation (2026-11-15)
 
 Image generators are regular models of kind `image-generation` (see [api-overview.md](api-overview.md) "Image generation"): the
