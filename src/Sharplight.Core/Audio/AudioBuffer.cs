@@ -82,4 +82,37 @@ public sealed class AudioBuffer
     /// </summary>
     /// <param name="sampleRate">The model's input rate.</param>
     public AudioBuffer ToModelInput(int sampleRate) => ToMono().Resample(sampleRate);
+
+    /// <summary>
+    /// This audio with another sample rate and channel count: resampled, then channels are duplicated (mono to more), averaged
+    /// (more to mono) or truncated/repeated as needed. Returns this buffer when both already match.
+    /// </summary>
+    /// <param name="sampleRate">Target frames per second.</param>
+    /// <param name="channels">Target channels per frame.</param>
+    public AudioBuffer ConvertTo(int sampleRate, int channels)
+    {
+        if (channels <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channels));
+        }
+
+        AudioBuffer resampled = Resample(sampleRate);
+        if (channels == resampled.Channels)
+        {
+            return resampled;
+        }
+
+        int frames = resampled.FrameCount;
+        var mixed = new float[frames * channels];
+        AudioBuffer source = channels == 1 ? resampled.ToMono() : resampled;
+        for (int frame = 0; frame < frames; frame++)
+        {
+            for (int channel = 0; channel < channels; channel++)
+            {
+                mixed[frame * channels + channel] = source.Samples[frame * source.Channels + (channel % source.Channels)];
+            }
+        }
+
+        return new AudioBuffer(mixed, sampleRate, channels);
+    }
 }

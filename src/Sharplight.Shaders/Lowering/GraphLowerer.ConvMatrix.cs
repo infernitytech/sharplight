@@ -22,7 +22,7 @@ public sealed partial class GraphLowerer
     /// Operand parts (1: f16, 2: bf16 hi + lo, 3: bf16 hi + mid + lo, 4: split f16 hi + lo with scales) and pixel columns of
     /// the tile.
     /// </summary>
-    private readonly record struct ConvMatrixForm(int Parts, long TileColumns)
+    private readonly record struct ConvMatrixForm(int Parts, long TileColumns, long TileK = ConvMatrixTileK)
     {
         /// <summary>Shared operand tiles per operand (the split f16 form stages two).</summary>
         public int Tiles => Parts == 4 ? 2 : Parts;
@@ -31,9 +31,13 @@ public sealed partial class GraphLowerer
         public int FragN => (int)(TileColumns / 64);
     }
 
-    /// <summary>Smallest reduction length / output channels per group worth a tensor-core tile.</summary>
-    private const long ConvMatrixMinK = 64;
-    private const long ConvMatrixMinChannels = 32;
+    /// <summary>
+    /// Smallest reduction length / output channels per group worth a tensor-core tile. Narrow convs (expansions from 16-24
+    /// channels over large maps, 16-channel detector stems) are memory bound: the padded tile still beats the SIMT conv_gemm
+    /// (mobilenetv2 b8 fast 0.87 -> 0.58 ms, strict 0.93 -> 0.71 ms; yolov10n 0.88 -> 0.81 ms).
+    /// </summary>
+    private const long ConvMatrixMinK = 16;
+    private const long ConvMatrixMinChannels = 16;
 
     /// <summary>
     /// Smallest output pixel count (all images) worth a tensor-core tile: below one 64-pixel tile the padding is cheaper than
@@ -46,7 +50,7 @@ public sealed partial class GraphLowerer
     /// 4 * <paramref name="warpsM"/> subgroups.
     /// </summary>
     private static long ConvMatrixSharedBytes(int warpsM, ConvMatrixForm form)
-        => form.Tiles * (warpsM * ConvMatrixWarpRows + form.TileColumns) * (ConvMatrixTileK + 8) * 2 + warpsM * 4 * 256 * 4
+        => form.Tiles * (warpsM * ConvMatrixWarpRows + form.TileColumns) * (form.TileK + 8) * 2 + warpsM * 4 * 256 * 4
            + (form.Parts == 4 ? form.TileColumns / 16 * 4 : 0);
 
     /// <summary>
@@ -84,7 +88,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>K split for conv_cm: aims for <see cref="ConvTargetWorkgroups"/>, at least 4 K steps per split.</summary>
-    private static (int Split, long Kps) ChooseConvMatrixSplit(long N, long OG, long G, long HW, long K, long tileRows, long tileColumns)
+    private static (int Split, long Kps) ChooseConvMatrixSplit(long N, long OG, long G, long HW, long K, long tileRows, long tileColumns, long tileK)
     {
         long tiles = (N * HW + tileColumns - 1) / tileColumns * ((OG + tileRows - 1) / tileRows) * G;
         if (tiles == 0)
@@ -93,14 +97,14 @@ public sealed partial class GraphLowerer
             return (1, K);
         }
 
-        long kTiles = (K + ConvMatrixTileK - 1) / ConvMatrixTileK;
+        long kTiles = (K + tileK - 1) / tileK;
         long split = Math.Min(Math.Min((ConvTargetWorkgroups + tiles - 1) / tiles, kTiles / 4), 16);
         if (split < 2)
         {
             return (1, K);
         }
 
-        long kps = (kTiles + split - 1) / split * ConvMatrixTileK;
+        long kps = (kTiles + split - 1) / split * tileK;
         return ((int)((K + kps - 1) / kps), kps);
     }
 
@@ -115,9 +119,15 @@ public sealed partial class GraphLowerer
         long K = w.Shape[1] * w.Shape[2] * w.Shape[3];
         int format = WeightFormat(w.Type) ?? -1;
         long bound = x.Symbol is null ? x.Shape[0] : Bound(Dim.Sym(x.Symbol));
-        // Strict precision with f16 matrices: constant f32 weights split on the host (null otherwise: the bf16 form).
+        // Strict precision with f16 matrices: constant f32 weights split on the host (null otherwise: the bf16 form). The split
+        // forms reduce tap-major (k = tap * CG + channel, the weights of kernels with several taps reordered on the host): with
+        // channel groups of whole 8-value items each staged item of 8 k is one input pixel's 8 channels, one address and bounds
+        // check per item instead of a k / (KH * KW) decomposition and check per value; other channel counts (stems) decompose
+        // once per item and step.
+        long taps = w.Shape[2] * w.Shape[3];
+        bool tapMajor = !DiagnosticSwitches.ConvNoTapMajor;
         var splitWeights = !_opt.Compile.AllowReducedPrecision && w.Type == DataType.F32 && _opt.Has(DeviceFeatures.MatrixF16)
-            ? SplitWeights(n.Inputs[1], w) : null;
+            ? SplitWeights(n.Inputs[1], w, tapMajor ? taps : 1) : null;
         if (ChooseConvMatrixForm(K, OG, HW, format, bound, G, splitWeights is not null) is not { } form)
         {
             return false;
@@ -129,7 +139,7 @@ public sealed partial class GraphLowerer
 
         int warpsM = ConvMatrixWarpsM(OG, form);
         long tileRows = warpsM * ConvMatrixWarpRows;
-        Func<long, (int Split, long Kps)> choose = batch => ChooseConvMatrixSplit(batch, OG, G, HW, K, tileRows, form.TileColumns);
+        Func<long, (int Split, long Kps)> choose = batch => ChooseConvMatrixSplit(batch, OG, G, HW, K, tileRows, form.TileColumns, form.TileK);
         long workspace = 0;
         for (long v = x.Symbol is null ? bound : 1; v <= bound; v++)
         {
@@ -150,8 +160,10 @@ public sealed partial class GraphLowerer
         bool hiOnly = form.Parts == 4 && FastMatrixProducts;
         macros.Add(("HI_ONLY", hiOnly));
         macros.Add(("FRAG_N", form.FragN));
+        macros.Add(("TBK", form.TileK));
         macros.Add(("WARPS_M", warpsM));
         macros.Add(("A_VEC", K % 8 == 0));
+        macros.Add(("TAP_MAJOR", form.Parts == 4 && tapMajor));
         var variants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
             var kernel = ConvKernel("conv_cm.slang", "conv_cm", Macros([.. macros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]), useWorkspace ? null : epilogue);

@@ -82,21 +82,7 @@ internal static class HfFp4Weights
             return tensors;
         }
 
-        var result = new Dictionary<string, SafetensorsTensor>(StringComparer.Ordinal);
-        foreach (var (name, tensor) in tensors)
-        {
-            if (!consumed.Contains(name))
-            {
-                result[name] = tensor;
-            }
-        }
-
-        foreach (var (name, tensor) in converted)
-        {
-            result[name] = tensor;
-        }
-
-        return result;
+        return HfTensorMerge.Replace(tensors, consumed, converted);
     }
 
     private static SafetensorsTensor? Codes(IReadOnlyDictionary<string, SafetensorsTensor> tensors, string stem, bool signedBytes)

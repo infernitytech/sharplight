@@ -14,8 +14,6 @@ internal sealed unsafe partial class CpuCompiledSegment
     ];
 
     /// <summary><c>SHARPLIGHT_CPU_NO_FUSION=1</c> lowers every node on its own (no conv epilogues).</summary>
-    private static readonly bool s_noFusion = Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_NO_FUSION") == "1";
-
     /// <summary>Consumers of every value inside this segment.</summary>
     private readonly Dictionary<Value, List<Node>> _consumers = [];
 
@@ -42,7 +40,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     /// <summary>The only consumer of <paramref name="v"/> when it has exactly one (by one input) and is not a segment output.</summary>
     private Node? SoleConsumer(Value v)
     {
-        if (s_noFusion || _segment.Outputs.Contains(v) || !_consumers.TryGetValue(v, out var list) || list.Count != 1)
+        if (DiagnosticSwitches.NoFusion || _segment.Outputs.Contains(v) || !_consumers.TryGetValue(v, out var list) || list.Count != 1)
         {
             return null;
         }
@@ -129,7 +127,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     /// </summary>
     private (Node Sigmoid, Node Mul)? SiluPattern(Value v)
     {
-        if (s_noFusion || _segment.Outputs.Contains(v) || !_consumers.TryGetValue(v, out var list) || list.Count != 2)
+        if (DiagnosticSwitches.NoFusion || _segment.Outputs.Contains(v) || !_consumers.TryGetValue(v, out var list) || list.Count != 2)
         {
             return null;
         }

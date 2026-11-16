@@ -8,11 +8,15 @@ internal sealed record OutputComparison(string Name, int Count, double MaxAbs, d
     {
         double scale = Math.Max(1.0, expected.Select(Math.Abs).DefaultIfEmpty(0).Max());
         double atol = manifest.AbsoluteTolerance * scale;
-        double maxAbs = 0, maxRel = 0, sumExpected = 0, sumDiff = 0;
+        double maxAbs = 0;
+        double maxRel = 0;
+        double sumExpected = 0;
+        double sumDiff = 0;
         bool ok = true;
         for (int i = 0; i < expected.Length; i++)
         {
-            float a = actual[i], e = expected[i];
+            float a = actual[i];
+            float e = expected[i];
             if (!float.IsFinite(e))
             {
                 continue;

@@ -25,7 +25,7 @@ namespace Sharplight.Studio.ViewModels.Speech;
 internal sealed partial class TranscribePageViewModel : InferencePageViewModel
 {
     private const string TranscriptName = "transcript.json";
-    private static readonly FileFilter s_audioFiles = new("WAV audio", ["*.wav"]);
+    private static readonly FileFilter s_audioFiles = new("Audio files", ["*.wav", "*.flac", "*.mp3", "*.ogg", "*.oga", "*.opus"]);
     private static readonly FileFilter s_allFiles = new("All files", ["*"]);
 
     private static readonly ParameterChoice[] s_languages =
@@ -116,8 +116,8 @@ internal sealed partial class TranscribePageViewModel : InferencePageViewModel
     public string RunHint => !HasModel ? "Load a speech-to-text model first." : !HasAudio ? "Choose or record audio first." : "";
 
     /// <summary>
-    /// Takes <paramref name="path"/> as the input: reads the WAV file and shows its length. Other formats are refused with a notice,
-    /// because the engine's audio I/O reads WAV only.
+    /// Takes <paramref name="path"/> as the input: decodes the file (WAV, FLAC, MP3, Ogg Vorbis or Ogg Opus) and shows its length.
+    /// Unreadable or unsupported files are refused with a notice.
     /// </summary>
     /// <param name="path">The audio file.</param>
     /// <returns>Whether the file is usable.</returns>
@@ -130,22 +130,16 @@ internal sealed partial class TranscribePageViewModel : InferencePageViewModel
             return false;
         }
 
-        if (!path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase))
-        {
-            Notice = $"{Path.GetFileName(path)} is not a WAV file. Studio reads WAV audio only; convert it first, for example with ffmpeg -i input.mp3 output.wav.";
-            return false;
-        }
-
         try
         {
-            var audio = await Task.Run(() => WavFile.Read(path));
+            var audio = await Task.Run(() => Services.Decoder.Decode(path));
             _audio = audio;
             AudioPath = path;
             AudioSummary = $"{AudioFormat.Length(audio.Duration)} · {audio.SampleRate / 1000.0:0.#} kHz · {(audio.Channels == 1 ? "mono" : audio.Channels + " channels")}";
             OnInputChanged();
             return true;
         }
-        catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
+        catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException or PlatformNotSupportedException)
         {
             Notice = $"{Path.GetFileName(path)} cannot be read: {error.Message}";
             return false;

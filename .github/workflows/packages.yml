@@ -20,7 +20,11 @@ permissions:
   contents: read
 
 jobs:
+  native:
+    uses: ./.github/workflows/native.yml
+
   pack:
+    needs: native
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.nbgv.outputs.NuGetPackageVersion }}
@@ -32,6 +36,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '11.0.x'
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-audio-*
+          merge-multiple: true
+          path: native/sharplight_audio/out
 
       - name: Version
         id: nbgv

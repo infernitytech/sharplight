@@ -133,4 +133,14 @@ internal sealed class SpirvCodeGenerator
         options.Settings.TryGetValue("submission_budget_ms", out var setting);
         return DiagnosticSwitches.SubmissionBudgetMs(setting) is { } budgetMs ? Math.Max(0, budgetMs) : detected;
     }
+
+    /// <summary>
+    /// The concurrent-workgroup hint of a device: <paramref name="detected"/> unless the device setting <c>concurrent_workgroups</c>
+    /// or the environment overrides it.
+    /// </summary>
+    public static int EffectiveConcurrentWorkgroups(int detected, DeviceOptions options)
+    {
+        options.Settings.TryGetValue("concurrent_workgroups", out var setting);
+        return DiagnosticSwitches.ConcurrentWorkgroups(setting) is { } workgroups ? Math.Max(0, workgroups) : detected;
+    }
 }

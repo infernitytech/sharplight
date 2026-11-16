@@ -42,6 +42,14 @@ fi
 dotnet publish "$repo/apps/Sharplight.Studio/Sharplight.Studio.csproj" -c Release -r "$rid" --self-contained \
     -p:PublishReadyToRun=true ${props[@]+"${props[@]}"} -o "$publish"
 
+# Sharplight.Audio's native library (built by native.yml into native/sharplight_audio/out/<rid>/) rides along under runtimes/<rid>/native/.
+if ! ls "$publish/runtimes/$rid/native/"*sharplight_audio* >/dev/null 2>&1; then
+    echo "the native audio library for $rid is missing from the publish output (build it with native/sharplight_audio/build.sh or download the native-audio artifacts into native/sharplight_audio/out)" >&2
+    exit 1
+fi
+
+cp "$repo/src/Sharplight.Audio/THIRD-PARTY-NOTICES.md" "$publish/THIRD-PARTY-NOTICES-Audio.md"
+
 args=(--packId SharplightStudio --packVersion "$version" --packDir "$publish" --runtime "$rid" --channel "$channel"
     --outputDir "$out" --packTitle "Sharplight Studio" --packAuthors "Sharplight contributors")
 if [ -n "$notes" ]; then

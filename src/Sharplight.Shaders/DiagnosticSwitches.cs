@@ -53,7 +53,8 @@ namespace Sharplight.Shaders;
 /// dual fp8 GEMM with the elementwise group as its epilogue. <c>SHARPLIGHT_FP8_DUAL_MAX_ROWS=n</c>: largest batch it serves
 /// (default: every batch for which the separate GEMMs would not split K, and 17-64 rows).</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
-/// <item><c>SHARPLIGHT_GEMM_WIDE=0</c>: keep large SIMT (f32) matmuls on the 64 x 64 gemm tile instead of the 128 x 128 gemm_wide.</item>
+/// <item><c>SHARPLIGHT_GEMM_WIDE=0</c>: keep large SIMT (f32) matmuls on the 64 x 64 gemm tile instead of the 128 x 128 gemm_wide;
+/// <c>=force</c> also uses gemm_wide on devices whose workgroup memory it would fill.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG32</c>, <c>SHARPLIGHT_GEMM2_CFG64=wm,wn,fm,fn</c>: force the layout of the 32- and 64-token
@@ -211,6 +212,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>False keeps large SIMT matmuls on the 64 x 64 gemm tile (no gemm_wide).</summary>
     public static bool WideSimtGemm { get; } = IsNotZero("SHARPLIGHT_GEMM_WIDE");
+
+    /// <summary>True (<c>SHARPLIGHT_GEMM_WIDE=force</c>) uses gemm_wide also where its 32 KB fill the device's workgroup memory.</summary>
+    public static bool ForceWideSimtGemm { get; } = Read("SHARPLIGHT_GEMM_WIDE") == "force";
 
     /// <summary>False selects gemm_cm instead of gemm_cm2.</summary>
     public static bool Gemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2");
@@ -414,6 +418,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>Disables the cooperative-matrix convolution (conv_cm).</summary>
     public static bool ConvNoMatrix { get; } = IsSet("SHARPLIGHT_CONV_NO_MATRIX");
+
+    /// <summary>Keeps conv_cm's channel-major reduction order for the split-f16 forms (no tap-major weights).</summary>
+    public static bool ConvNoTapMajor { get; } = IsSet("SHARPLIGHT_CONV_NO_TAP_MAJOR");
+
+    /// <summary>One output per thread in the depthwise conv (conv_dw) instead of up to 4 of a row.</summary>
+    public static bool ConvDwSingle { get; } = IsSet("SHARPLIGHT_CONV_DW_SINGLE");
 
     private static string? Read(string name) => Environment.GetEnvironmentVariable(name);
 

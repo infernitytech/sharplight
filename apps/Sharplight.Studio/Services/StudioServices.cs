@@ -1,3 +1,4 @@
+using Sharplight.Audio;
 using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Documents;
 using Sharplight.Studio.Services.Hub;
@@ -32,4 +33,6 @@ internal sealed record StudioServices(
     IPrecompileService Precompiler,
     IPageStorage Pages,
     IAudioPlayer Player,
-    IAudioRecorder Recorder);
+    IAudioRecorder Recorder,
+    IAudioDecoder Decoder,
+    IAudioDeviceProvider AudioDevices);

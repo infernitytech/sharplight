@@ -4858,3 +4858,129 @@ Measured with `SHARPLIGHT_VK_PROFILE=1` on Qwen3-8B (512-row chunks) and end to 
   (`SHARPLIGHT_VK_NO_BARRIERS=1`: 1.47 → 1.02 ms). Next: rope / q-k norm / cache writes inside the decode attention kernel
   (one barrier and three launches per layer), the residual add and norm in the producing matvec.
 * gpt-oss prefill 0.83-0.86x (MXFP4 expert GEMMs), batched steps at 16-64 streams (not worked on in this round).
+
+## 37. ONNX round 2 on the RTX PRO 4500: convs against TensorRT, phi-3.5 at ORT's level, Unique along an axis (2026-11-15)
+
+Same machine, harness and engines as section 35 (`bench/onnx/parity_bench.py`, one process per measurement, GPU 2
+pinned with `SHARPLIGHT_VK_DEVICES` / `CUDA_VISIBLE_DEVICES`, onnxruntime-gpu 1.32). Raw data in `bench/results/s37/`:
+
+* `gpu-after.jsonl`: two interleaved rounds of the Sharplight (strict, fast) and CUDA EP (TF32, strict) engines with
+  every change of this section and develop merged (the public API pass).
+* `trt.jsonl`: one round of the TensorRT EP (f32 engines, TF32 tactics, engine build excluded) on the convnet and detector
+  rows; the other TensorRT cells are section 35's.
+
+### 37.1 What changed
+
+* **Tap-major conv reduction** (`conv_cm`, split-f16 forms: strict and fast precision). The implicit GEMM now reduces over
+  k = (kh * KW + kw) * CG + c instead of c * KH * KW + kh * KW + kw; the constant split weights are reordered on the host when
+  they are split (cached per tap count). With CG % 8 == 0 a staged item of 8 k is 8 channels of one input pixel: one address
+  and one bounds check per item instead of a k / (KH * KW) decomposition and a check per value. Stems with few channels
+  (3 -> 64 7x7) decompose once per item and step the position per value. The B gather was the bound of the fast form:
+  resnet50 b8's 256-channel 3x3 convs 74 -> 43 us. `SHARPLIGHT_CONV_NO_TAP_MAJOR=1` restores the old order.
+* **Scaling after the products**: the per-block scale and split of the im2col values moved from the global-load step to
+  just before the shared-memory store, after the previous step's products, so the loads stay in flight during the MMAs.
+* **Fast precision keeps block scales across K steps**: a 16-pixel block keeps its power-of-two scale while a step's largest
+  magnitude scales into [2^3, 2^15) (no overflow; values down to 2^-18 of the step's largest stay normal halves); otherwise
+  the scale moves and the block's accumulators are multiplied by the power-of-two factor. The products then accumulate on
+  the tensor cores across steps, as TF32's do, instead of a per-step partial sum and a rescaled add. Strict precision keeps
+  its per-step partial sums (they bound the tensor cores' truncating accumulation).
+* **Narrow convs on the tensor cores**: conv_cm now takes reduction lengths and output channels per group from 16 (were 64
+  and 32). Expansions from 16-24 channels over large maps and 16-channel detector stems are memory bound and the padded
+  tile beats the SIMT conv_gemm (mobilenetv2 b8 fast 0.87 -> 0.58 ms).
+* **Depthwise convs of width 5 and more** compute up to 4 outputs of a row per thread, loading each input row segment and
+  weight once (convnext-tiny b8's 96-channel 7x7 depthwise 72 -> 35 us). `SHARPLIGHT_CONV_DW_SINGLE=1` keeps one output.
+* **Q4_0 decode** reads a group's 8 code bytes as four 16-bit loads instead of eight byte loads (bit-identical). This is the
+  f32-activation matvec of ONNX MatMulNBits weights (accuracy_level 0): phi-3.5-mini q4f16's [3072 -> 3072] matvec
+  12.3 -> 10.2 us. The helper (`load8_q4_0`) is shared with the LLM kernels; the change is local to it and exact.
+* **Vulkan Unique along an axis**: the lowering ignored the IR's `slices` attribute and ran the flattened form, so the three
+  `test_unique_sorted_with_axis*` conformance cases returned [3, 3] instead of [2, 3]. Slices are now compared element by
+  element and sorted lexicographically.
+
+Tried and dropped (measured, no gain): a 64-deep K step in conv_cm (TBK = 64; no change, the step count is not the
+bound), Q4_0 matvec units of 16 values (one load of 8 code bytes for both nibbles: 1.4x slower, fewer loads in flight),
+4 rows per workgroup for Q4 matvecs (phi -3 %, qwen2.5 wall +4 %), fusing a decoder's Q / K / V MatMulNBits into one
+matvec (no GPU-time change: the three matvecs already overlap), several rows per workgroup in `split_rows` (convnext b8
+fast +5 %).
+
+### 37.2 Latency
+
+Wall min latency in ms (minimum over rounds of each process's min-of-N). "Before" is section 35's `gpu-after.jsonl`;
+ORT columns from this round; TensorRT from `trt.jsonl` where measured (convnets, detectors), else section 35.
+
+| model | batch | SL strict | SL fast | ORT TF32 | ORT strict | ORT TensorRT | fast / TF32 | strict / strict | strict / TF32 | fast / TRT |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| resnet50 | 1 | 0.80 → 0.71 | 0.60 → 0.53 | 1.18 | 2.52 | 1.06 | 0.45x | 0.28x | 0.60x | 0.50x |
+| resnet50 | 8 | 3.51 → 3.06 | 2.68 → 2.09 | 2.94 | 5.36 | 2.00 | 0.71x | 0.57x | 1.04x | 1.04x |
+| convnext-tiny | 1 | 1.41 → 1.39 | 1.01 → 0.99 | 1.47 | 1.65 | 0.72 | 0.67x | 0.84x | 0.95x | 1.38x |
+| convnext-tiny | 8 | 5.30 → 4.77 | 3.26 → 3.03 | 4.01 | 5.97 | 2.20 | 0.76x | 0.80x | 1.19x | 1.38x |
+| efficientnet-lite4 | 1 | 0.71 → 0.62 | 0.61 → 0.53 | 1.24 | 12.20 | 0.69 | 0.43x | 0.05x | 0.50x | 0.77x |
+| mobilenetv2 | 1 | 0.36 → 0.31 | 0.32 → 0.27 | 0.71 | 0.69 | 0.33 | 0.38x | 0.45x | 0.44x | 0.83x |
+| mobilenetv2 | 8 | 0.94 → 0.70 | 0.86 → 0.60 | 1.05 | 1.63 | 0.56 | 0.57x | 0.43x | 0.67x | 1.08x |
+| yolov8n | 1 | 1.26 → 1.07 | 1.09 → 0.86 | 1.71 | 3.58 | 1.00 | 0.50x | 0.30x | 0.63x | 0.87x |
+| yolov10n | 1 | 1.12 → 0.98 | 0.97 → 0.82 | 1.72 | 2.56 | 0.72 | 0.48x | 0.39x | 0.57x | 1.14x |
+| ssd-10 (NMS) | 1 | 19.46 → 14.90 | 13.90 → 9.19 | 15.30 | 31.72 | 7.63 | 0.60x | 0.47x | 0.97x | 1.20x |
+| bert-base (16 tok) | 1 | 1.32 → 1.33 | 0.96 → 0.96 | 1.87 | 1.85 | 1.20 | 0.51x | 0.72x | 0.71x | 0.80x |
+| bert-base (16 tok) | 8 | 3.06 → 3.01 | 2.05 → 2.06 | 3.19 | 3.91 | 2.65 | 0.65x | 0.77x | 0.94x | 0.78x |
+| vit-base | 1 | 2.78 → 2.76 | 1.41 → 1.42 | 1.61 | 3.12 | 2.26 | 0.88x | 0.88x | 1.71x | 0.63x |
+| vit-base | 8 | 11.41 → 10.72 | 5.39 → 4.72 | 5.97 | 12.05 | 5.07 | 0.79x | 0.89x | 1.80x | 0.93x |
+| whisper-tiny-encoder | 1 | 2.10 → 1.95 | 1.28 → 1.25 | 1.89 | 3.08 | 1.56 | 0.66x | 0.63x | 1.03x | 0.80x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 3.56 → 3.49 | 3.56 → 3.48 | 6.03 | 5.81 | - | 0.58x | 0.60x | 0.58x | - |
+| phi3.5-mini q4f16 (GQA) | 1 | 6.28 → 4.70 | 6.28 → 4.71 | 4.54 | 4.57 | - | 1.04x | 1.03x | 1.04x | - |
+| segformer-b0 | 1 | 3.01 → 2.86 | 2.79 → 2.69 | 3.28 | 4.23 | 2.18 | 0.82x | 0.68x | 0.87x | 1.23x |
+| segformer-b0 | 8 | 22.34 → 21.53 | 20.65 → 19.84 | 29.83 | 37.04 | 25.64 | 0.67x | 0.58x | 0.72x | 0.77x |
+| mobilesam-encoder | 1 | 7.71 → 7.55 | 6.18 → 5.99 | 9.64 | 12.41 | 4.55 | 0.62x | 0.61x | 0.78x | 1.32x |
+| raft-large | 1 | 55.13 → 46.49 | 44.74 → 36.15 | 59.69 | 102.59 | 44.47 | 0.61x | 0.45x | 0.78x | 0.81x |
+| fasterrcnn-12 (counts) | 1 | 11.30 → 10.53 | 9.43 → 7.91 | 10.55 | 17.43 | - | 0.75x | 0.60x | 1.00x | - |
+| maskrcnn-12 (counts) | 1 | 12.27 → 10.98 | 10.43 → 8.48 | 10.76 | 17.62 | - | 0.79x | 0.62x | 1.02x | - |
+
+### 37.3 Reading the table
+
+* **Convs**: fast precision went down 6-34 % on every conv model (resnet50 b8 2.68 → 2.09 ms, mobilenetv2 b8 0.86 →
+  0.60, ssd-10 13.90 → 9.19, raft 44.7 → 36.2, Faster / Mask R-CNN 9.4 / 10.4 → 7.9 / 8.5); strict went down with them
+  (ssd-10 19.5 → 14.9, resnet50 b8 3.51 → 3.06), so strict now beats ORT's TF32 default on ssd-10 (0.97x) and ties it on
+  resnet50 b8 (1.04x) and Faster R-CNN (1.00x).
+* **TensorRT**: fast is now ahead of or level with TensorRT on resnet50 (0.50x b1, 1.04x b8), efficientnet-lite4 0.77x,
+  mobilenetv2 b1 0.77x, yolov8n 0.94x, raft 0.81x, segformer b8 0.79x and the encoders. Still behind: convnext 1.38x
+  (b1 and b8: LayerNorm, the activation split pre-pass of its GEMMs and the residual add of a transposed operand, not the
+  convs), mobilesam 1.31x, ssd-10 1.20x, yolov10n 1.13x, mobilenetv2 b8 1.09x, segformer b1 1.05x. TensorRT's own
+  numbers move between runs by tactic choice (convnext b1 1.02 → 0.72 ms, resnet50 b1 1.52 → 1.06 ms against
+  section 35).
+* **phi-3.5-mini q4f16 decode step**: 6.28 → 4.70 ms, 1.03-1.04x of ORT CUDA (was 1.38x). Most of it is the Q4_0 group
+  decode (GPU time 4.55 → 4.03 ms), the rest develop's changes since section 35. About 0.35 ms of the wall time is the
+  read-back of the 65 outputs (64 present K / V tensors). With int8 activations (`--reduced-precision`, which the model
+  does not allow: accuracy_level 0) the int-dot matvecs reach 4.26 ms.
+* **Fast against TF32**: faster than ORT's default on every row but phi-3.5 (1.04x); range 0.38-0.89x.
+* **Strict against strict**: 0.05-0.89x on every row but phi-3.5 (1.03x).
+* **Parity**: every strict row passes except ssd-10, as before. Its relative RMS of 2.1e-2 is tie order: all 200
+  reference detections are in Sharplight's output (same label, score within 2e-4, box within 2e-3), 198 at the same
+  position; detections 138 and 139 (label 1, scores 0.06941171 and 0.069411665 in the reference) swap. Not a bug.
+
+### 37.4 Tests
+
+After the develop merge: ONNX importer tests 181 (0 failed, 28 skipped), conformance 4197 with 46 failures, Vulkan 1472 (0 failed), CPU 1289 (0 failed). The conformance failures
+are the known unsupported or nondeterministic cases (Bernoulli, ImageDecoder, f64 BitCast, training Dropout, the two
+dynamic-int8 extra tests) on both providers; the three Vulkan `test_unique_sorted_with_axis*` failures of section 35 are
+fixed.
+
+### 37.5 Open gaps
+
+* **convnext against TensorRT** (1.38x): the conv share is small now; the GEMMs' activation split is a separate pass
+  (`split_rows`, about 0.45 ms of 3.0 at b8) that the producing channel-strided LayerNorm could write, and the residual add
+  reads the block output through a transpose in its own launch.
+* **ssd-10 / mobilesam / yolov10n against TensorRT** (1.1-1.3x): the fast conv runs at about 45-55 TFLOPS on 3x3 convs
+  against the GEMM's 96; with the im2col loads removed it reaches about 60, so the shared staging (single buffer, two
+  barriers per step) and the f32 NCHW gather are the next bounds (NHWC activations, a double-buffered conv pipeline).
+* **phi-3.5**: the f32-activation Q4_0 matvec reads about 520 GB/s ([3072 → 3072]); decomposed attention and rotary run
+  as several small launches (MultiHeadAttention on f16 operands does not take the fused attention, which needs f32).
+* **Strict encoders against TF32**: unchanged (vit 1.7-1.8x), by construction.
+
+### 37.6 Reproduce
+
+```bash
+. bench/onnx/env.sh   # TRT_LIB pointing at the TensorRT 10 libraries for ort-trt
+export SHARPLIGHT_ONNX_MODELS=~/models/onnx SHARPLIGHT_VK_DEVICES=2 CUDA_VISIBLE_DEVICES=2
+python3 bench/onnx/parity_bench.py run gpu-after.jsonl --rounds 2 --engines sl-vulkan,sl-vulkan-fast,ort-cuda,ort-cuda-strict
+python3 bench/onnx/parity_bench.py run trt.jsonl --rounds 1 --engines ort-trt \
+  --models "resnet50,convnext-tiny,efficientnet-lite4,mobilenetv2,yolov8n,yolov10n,ssd-10 (NMS),segformer-b0,mobilesam-encoder"
+SHARPLIGHT_CONV_NO_TAP_MAJOR=1 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/resnet50-v1-12.json vulkan --batch 8 --fast-precision --profile
+```
