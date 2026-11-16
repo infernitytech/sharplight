@@ -615,7 +615,9 @@ output is distributed exactly as without speculation. Two speculators exist:
   own multi-sequence decoder with one attention layer and KV cache per MTP layer, fed the target's hidden states
   (`ISpeculator.UsesHiddenStates`, `Observe`; the decoder captures them through `IBatchDecoder.CaptureHiddenStates` /
   `HiddenStates`). Drafts are the head's greedy choices, chained k times per step. Heads: Qwen3.5 / Qwen3-Next MTP layers,
-  and the NextN layer of DeepSeek-V3 (`latent_decoder`) and GLM-4.5 (`decoder`, any family whose checkpoint carries a NextN
+  the hyper-connected MTP head of Qwen3.8-Flash-Next (`qwen4exp`: reads the trunk's residual streams before the final mixer,
+  the decode output `hidden_streams` named by `WellKnown.DraftHiddenSource`, and mixes its own streams before the LM head;
+  `MtpDraftHead.BuildHyperConnected`), and the NextN layer of DeepSeek-V3 (`latent_decoder`) and GLM-4.5 (`decoder`, any family whose checkpoint carries a NextN
   layer after uniform layers; `MtpDraftHead.FirstNextnModule`). The head compiles against `LlmModel.SharedWeights`, so its
   embedding and LM head are the decoder's buffers (only its own layer adds device memory).
 
@@ -632,7 +634,8 @@ delta nets, Mamba, RWKV, short convs) get their recurrent ops compiled in rollba
 the state at the run start, `Truncate` picks how many rows to keep, and the slot's next run replays them inside the same
 kernel before its own rows. The engine speculates while at most `SpeculationMaxBatch` sequences decode and verifies at most
 `SpeculationMaxDraftRows` drafts per step (fewer per sequence as the batch grows); requests with an output constraint are not
-speculated. CLI and server: `--speculate-mtp k`, `--speculate-ngram k`; `sharplight-convert precompile --drafts k` stores
+speculated. CLI and server: `--speculate-mtp k`, `--speculate-ngram k` (the CLI's `--draft <file>` loads an MTP draft file such as
+`mtp-*.gguf`, an EAGLE-3 or a DFlash drafter as the `draft` auxiliary source; Studio: the load option "Draft head tokens", 0 = off); `sharplight-convert precompile --drafts k` stores
 the kernels of the verifying decoders and the draft head. `LlmModel.EstimateFootprint(slots, ctx, kvCacheTokens, draftTokens,
 draftHead, maxLogitsRows)` counts the rollback record states, the verification logits rows and (with `draftHead`) the head's
 own weights, KV cache and activations; the hosted loader uses it for admission when `MtpDraftTokens` is set.
