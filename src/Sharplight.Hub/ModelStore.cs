@@ -189,6 +189,52 @@ public sealed partial class ModelStore
     /// </summary>
     internal static bool IsInstallLocation(string fullPath)
     {
+        return IsInstallLocation(fullPath, Environment.GetEnvironmentVariable("APPDIR"), AppContext.BaseDirectory);
+    }
+
+    /// <summary>
+    /// <see cref="IsInstallLocation(string)"/> with the environment passed in: <paramref name="appImageDirectory"/> is the AppImage
+    /// runtime's <c>APPDIR</c> (the mounted or extracted image, replaced on every update), and <paramref name="applicationDirectory"/>
+    /// is checked for a Velopack installation (an <c>Update.exe</c> next to the <c>current</c> folder, which updates replace).
+    /// </summary>
+    internal static bool IsInstallLocation(string fullPath, string? appImageDirectory, string applicationDirectory)
+    {
+        if (!string.IsNullOrEmpty(appImageDirectory) && IsInside(fullPath, Path.GetFullPath(appImageDirectory)))
+        {
+            return true;
+        }
+
+        if (IsVelopackInstallation(applicationDirectory) && IsInside(fullPath, Path.GetFullPath(applicationDirectory)))
+        {
+            return true;
+        }
+
+        return IsSystemInstallLocation(fullPath);
+    }
+
+    private static bool IsVelopackInstallation(string applicationDirectory)
+    {
+        var directory = new DirectoryInfo(Path.GetFullPath(applicationDirectory).TrimEnd(Path.DirectorySeparatorChar));
+        if (!string.Equals(directory.Name, "current", StringComparison.OrdinalIgnoreCase) || directory.Parent is null)
+        {
+            return false;
+        }
+
+        return File.Exists(Path.Combine(directory.Parent.FullName, "Update.exe"))
+            || File.Exists(Path.Combine(directory.Parent.FullName, "UpdateNix"))
+            || File.Exists(Path.Combine(directory.Parent.FullName, "UpdateMac"));
+    }
+
+    private static bool IsInside(string fullPath, string root)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return string.Equals(fullPath.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), comparison)
+            || fullPath.StartsWith(normalizedRoot, comparison);
+    }
+
+    private static bool IsSystemInstallLocation(string fullPath)
+    {
         if (OperatingSystem.IsWindows())
         {
             foreach (var folder in new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86 })

@@ -62,7 +62,7 @@ public sealed class GgufImporter : IModelImporter
         var files = GgufModelFiles.Open(path);
         try
         {
-            string ggufArchitecture = files.Architecture ?? throw new InvalidDataException($"{path}: missing general.architecture");
+            string ggufArchitecture = files.Architecture ?? throw MissingArchitecture(path, files.Tensors);
             var mapping = GgufArchitectureMappings.Find(ggufArchitecture) ?? throw new UnsupportedArchitectureException(ggufArchitecture,
                 $"{path}: GGUF architecture '{ggufArchitecture}' has no canonical mapping. Supported: {string.Join(", ", GgufArchitectureMappings.All.SelectMany(m => m.GgufArchitectures))}");
             var view = new GgufMetadataView(files.Metadata, ggufArchitecture, files.FindTensor);
@@ -71,13 +71,14 @@ public sealed class GgufImporter : IModelImporter
                 throw new NotSupportedException($"{path}: {string.Join(" ", problems)}");
             }
 
-            var (architecture, metadata, weights) = Map(path, files.Metadata, files.Tensors, mapping, view);
+            var (architecture, metadata, weights, attachments) = Map(path, files.Metadata, files.Tensors, mapping, view);
             return new ModelSource
             {
                 Format = "gguf",
                 Architecture = architecture,
                 Metadata = metadata,
                 Weights = weights,
+                Attachments = attachments,
                 OwnedResources = [files],
                 Path = path,
             };
@@ -89,19 +90,31 @@ public sealed class GgufImporter : IModelImporter
         }
     }
 
+    /// <summary>The error for a file without <c>general.architecture</c>, naming the layouts known to omit it.</summary>
+    private static Exception MissingArchitecture(string path, IReadOnlyList<GgufTensorInfo> tensors)
+    {
+        if (tensors.Any(tensor => tensor.Name is "model.encoder.conv1.weight" or "encoder.conv1.weight"))
+        {
+            return new NotSupportedException($"{path}: {WhisperGgufMapping.CandleLayout}");
+        }
+
+        return new InvalidDataException($"{path}: missing general.architecture");
+    }
+
     /// <summary>
     /// The mapping steps of an import after <see cref="IGgufArchitectureMapping.Validate"/>: canonical weights (renamed, split, transformed)
-    /// and canonical metadata. They read tensor data only lazily, so <see cref="GgufSupport.Validate"/> runs them on a header alone.
+    /// canonical metadata and the tensors stored as attachments. They read tensor data only lazily, so <see cref="GgufSupport.Validate"/> runs them on a header alone.
     /// </summary>
     /// <param name="path">The file, for errors.</param>
     /// <param name="gguf">The GGUF metadata.</param>
     /// <param name="tensors">Every tensor of every shard.</param>
     /// <param name="mapping">The architecture's mapping.</param>
     /// <param name="view">The metadata view over <paramref name="gguf"/> and <paramref name="tensors"/>.</param>
-    internal static (string Architecture, Dictionary<string, object> Metadata, Dictionary<string, WeightInfo> Weights) Map(string path,
-        IReadOnlyDictionary<string, object> gguf, IReadOnlyList<GgufTensorInfo> tensors, IGgufArchitectureMapping mapping, GgufMetadataView view)
+    internal static (string Architecture, Dictionary<string, object> Metadata, Dictionary<string, WeightInfo> Weights, Dictionary<string, IWeightSource> Attachments) Map(
+        string path, IReadOnlyDictionary<string, object> gguf, IReadOnlyList<GgufTensorInfo> tensors, IGgufArchitectureMapping mapping, GgufMetadataView view)
     {
-        var weights = MapWeights(path, tensors, mapping, view);
+        var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
+        var weights = MapWeights(path, tensors, mapping, view, attachments);
         if (GgufTensorNames.HoldsOnlyNextnBlocks(tensors.Select(t => t.Name), view)
             && !weights.Keys.Any(k => k.StartsWith("mtp.layers.", StringComparison.Ordinal) || k.StartsWith("layers.", StringComparison.Ordinal)))
         {
@@ -125,11 +138,12 @@ public sealed class GgufImporter : IModelImporter
         var metadata = MapMetadata(gguf, mapping, view);
         metadata[CanonicalKeys.Architecture] = architecture;
         mapping.RefineHyperParameters(metadata, view, weights);
-        return (architecture, metadata, weights);
+        return (architecture, metadata, weights, attachments);
     }
 
-    /// <summary>Renames every tensor (splitting fused ones, adding synthetic ones) to its canonical weight.</summary>
-    private static Dictionary<string, WeightInfo> MapWeights(string path, IReadOnlyList<GgufTensorInfo> tensors, IGgufArchitectureMapping mapping, GgufMetadataView view)
+    /// <summary>Renames every tensor (splitting fused ones, adding synthetic ones) to its canonical weight, or adds it to <paramref name="attachments"/>.</summary>
+    private static Dictionary<string, WeightInfo> MapWeights(string path, IReadOnlyList<GgufTensorInfo> tensors, IGgufArchitectureMapping mapping, GgufMetadataView view,
+        Dictionary<string, IWeightSource> attachments)
     {
         var weights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         var unmapped = new List<string>();
@@ -142,6 +156,12 @@ public sealed class GgufImporter : IModelImporter
             }
 
             var info = scaled.TryGetValue(tensor.Name, out var converted) ? converted : tensor.ToWeightInfo();
+            if (mapping.MapAttachmentName(tensor.Name, view) is { } attachment)
+            {
+                attachments[attachment] = info.Source;
+                continue;
+            }
+
             if (mapping is IGgufSplitMapping splitter && splitter.Split(tensor.Name, info, view) is { } parts)
             {
                 foreach (var part in parts)
