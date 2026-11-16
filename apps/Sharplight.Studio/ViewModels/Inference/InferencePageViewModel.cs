@@ -57,6 +57,13 @@ internal abstract partial class InferencePageViewModel : PageViewModel
                 OnPropertyChanged(nameof(HasModels));
             }
         };
+        Picker.SelectedModelStateChanged += (_, _) =>
+        {
+            if (SelectedModel is { } model)
+            {
+                OnModelStateChanged(model);
+            }
+        };
         Queue.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(RunQueueViewModel.IsBusy))
@@ -135,17 +142,27 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     {
     }
 
+    /// <summary>The chosen model's state changed (it finished loading, went to sleep, a run started or ended) while it stayed chosen.</summary>
+    /// <param name="model">The chosen model.</param>
+    protected virtual void OnModelStateChanged(ILoadedModel model)
+    {
+    }
+
     /// <summary>Called when the queue became busy or idle.</summary>
     protected virtual void OnBusyChanged()
     {
     }
 
-    /// <summary>Records a finished run in the history (and the gallery when it produced files).</summary>
+    /// <summary>
+    /// Records a finished run in the history (and the gallery when it produced files). Called by the run's worker: the files are written
+    /// there, the history entry is added on the UI thread.
+    /// </summary>
     /// <param name="record">The run.</param>
     /// <param name="files">Its output files by name.</param>
     protected void Archived(RunRecord record, IReadOnlyDictionary<string, byte[]>? files = null)
     {
-        Services.Dispatcher.Post(() => Archive.Add(record, files));
+        Archive.WriteFiles(record, files);
+        Services.Dispatcher.Post(() => Archive.Add(record));
     }
 
     [RelayCommand]

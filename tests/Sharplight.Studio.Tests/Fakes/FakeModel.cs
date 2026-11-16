@@ -54,6 +54,9 @@ internal sealed class FakeModel(string id, ModelCapabilities capabilities = Mode
     /// <summary>When set, the stream waits on it after the first update (until cancelled).</summary>
     public TaskCompletionSource? Gate { get; set; }
 
+    /// <summary>Blocking work per step (a stand-in for a graph run that holds its thread), or zero.</summary>
+    public TimeSpan StepWork { get; set; }
+
     /// <summary>Inputs received.</summary>
     public List<ChatInput> Inputs { get; } = [];
 
@@ -69,6 +72,7 @@ internal sealed class FakeModel(string id, ModelCapabilities capabilities = Mode
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            SlowWork.Block(StepWork);
             yield return Script[i];
         }
     }

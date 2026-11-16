@@ -295,10 +295,11 @@ internal sealed partial class LibraryViewModel : ObservableObject
         entry.PrecompileCancellation = cancellation;
         entry.BeginPrecompile();
         Status = $"Precompiling {entry.Name}…";
+        using var progress = new DispatchingProgress<PrecompileProgress>(_services.Dispatcher, entry.OnPrecompileProgress, SameStep);
         try
         {
-            var progress = new DispatchingProgress<PrecompileProgress>(_services.Dispatcher, entry.OnPrecompileProgress);
-            var report = await _services.Precompiler.PrecompileAsync(path, progress, cancellation.Token);
+            var report = await Task.Run(() => _services.Precompiler.PrecompileAsync(path, progress, cancellation.Token), CancellationToken.None);
+            progress.Flush();
             entry.CompletePrecompile(report);
             Status = $"{entry.Name}: {entry.PrecompileStatus}";
             await ReloadAsync(entry);
@@ -316,10 +317,16 @@ internal sealed partial class LibraryViewModel : ObservableObject
         }
         finally
         {
+            progress.Flush();
             entry.PrecompileCancellation = null;
             entry.IsPrecompiling = false;
         }
     }
+
+    /// <summary>A kernel count of the same device and stage supersedes the one before it (only the latest is shown).</summary>
+    private static bool SameStep(PrecompileProgress previous, PrecompileProgress next)
+        => previous.Provider == next.Provider && previous.Device == next.Device && previous.Stage == next.Stage
+            && previous.Kernels is not null && next.Kernels is not null;
 
     /// <summary>Cancels a running precompile; nothing is written then.</summary>
     [RelayCommand]

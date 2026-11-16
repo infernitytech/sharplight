@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Hosting;
 using Sharplight.Studio.Models;
+using Sharplight.Studio.Services.Threading;
 
 namespace Sharplight.Studio.Services.Runtime;
 
@@ -19,6 +20,7 @@ internal sealed class EngineLoadedModel : IEngineModel
     private readonly ModelHost _host;
     private readonly Action<EngineLoadedModel, MessageStats> _visionFinished;
     private readonly Action _changed;
+    private readonly UpdateThrottle _publish;
     private readonly Lock _lock = new();
     private bool _reasoningTemplate;
     private Func<string, int>? _countTokens;
@@ -40,6 +42,7 @@ internal sealed class EngineLoadedModel : IEngineModel
         _host = host;
         _visionFinished = visionFinished;
         _changed = changed;
+        _publish = new UpdateThrottle(PublishNow);
         LoadedAt = DateTimeOffset.UtcNow;
     }
 
@@ -182,10 +185,27 @@ internal sealed class EngineLoadedModel : IEngineModel
         Publish(_tracker.Report(progress));
     }
 
+    /// <summary>
+    /// Shows a load status: the engine reports per kernel and per uploaded tensor, so listeners and <see cref="IModelRuntime.ModelsChanged"/>
+    /// hear about it at most about 15 times a second (the latest status), and at once when the load is done.
+    /// </summary>
     private void Publish(LoadStatus status)
     {
         LoadStatus = status;
-        LoadListener?.Report(status);
+        _publish.Request();
+        if (status.IsDone)
+        {
+            _publish.Flush();
+        }
+    }
+
+    private void PublishNow()
+    {
+        if (LoadStatus is { } status)
+        {
+            LoadListener?.Report(status);
+        }
+
         _changed();
     }
 
@@ -207,6 +227,7 @@ internal sealed class EngineLoadedModel : IEngineModel
     public void Dispose()
     {
         Abandon.Cancel();
+        _publish.Dispose();
         ReleaseVision();
     }
 
@@ -252,7 +273,8 @@ internal sealed class EngineLoadedModel : IEngineModel
     private async IAsyncEnumerable<ChatStreamUpdate> StreamTextAsync(ChatModelInstance instance, ChatInput input, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var request = ChatRequestMapper.ToChatRequest(input, _reasoningTemplate);
-        var run = instance.Service.StartChat(request, cancellationToken);
+        // Building the prompt (template, tokenization, grammar) can take a while for long conversations: not on the caller's thread.
+        var run = await Task.Run(() => instance.Service.StartChat(request, cancellationToken), cancellationToken).ConfigureAwait(false);
         await foreach (var chatEvent in run.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))
         {
             if (chatEvent.Content is { Length: > 0 } content)
@@ -294,14 +316,13 @@ internal sealed class EngineLoadedModel : IEngineModel
 
     private async IAsyncEnumerable<ChatStreamUpdate> StreamVisionAsync(ChatModelInstance instance, ChatInput input, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var vision = GetVision(instance);
-
-        // The session runs on its own thread; a channel hands its events to the caller.
+        // The session runs on its own thread (creating it compiles the vision tower); a channel hands its events to the caller.
         var channel = Channel.CreateUnbounded<ChatStreamUpdate>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
         var producer = Task.Run(async () =>
         {
             try
             {
+                var vision = GetVision(instance);
                 var stats = await vision.RunAsync(input, _reasoningTemplate, update => channel.Writer.TryWrite(update), cancellationToken).ConfigureAwait(false);
                 channel.Writer.TryWrite(ChatStreamUpdate.Finished(stats));
                 _visionFinished(this, stats);
