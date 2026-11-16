@@ -1049,6 +1049,7 @@ codecs and vocoders are graphs of generic Core ops; the host runs only the token
 | OuteTTS 0.2 500M + WavTokenizer-Large-75 (GGUF pair) | supported, CPU and Vulkan | llama.cpp 8ca5a80 (`llama-completion`, libllama WavTokenizer graph + numpy iSTFT) | teacher-forced logits: no argmax disagreement beyond a 0.1 margin over 253 positions, worst logit delta 0.32 (CPU) / 0.52 (Vulkan) on logits up to 45 (Q8_0 activation rounding); decoder waveform relative RMS < 2e-3 on both |
 | Kokoro-82M v1.0 (hexgrad; StyleTTS 2 style model, ALBERT text encoder, iSTFTNet decoder), all voice packs of the repository (af_heart verified) | supported, CPU and Vulkan | `kokoro` 0.9.4 on torch (CPU), excitation noise of the reference run fed to both | symbols, rounded durations and the F0 curve identical (F0 relative RMS 5e-7 CPU, 4e-7 Vulkan); decoder features before the generator 1.5e-6; conv_post output 5e-4; waveform relative RMS 1.3e-2 (CPU) / 1.3e-2 (Vulkan), which is the reproducibility floor of the sine excitation (the reference itself moves 1.0-1.2 % between an f32 and an f64 phase accumulation) |
 | Orpheus 3B fine-tune (Llama decoder over SNAC codes) + SNAC 24 kHz decoder | supported, CPU and Vulkan | transformers (fp32, greedy chain of 140 tokens, teacher forced) and the `snac` package | prompt ids identical; 0 argmax disagreements over 140 positions, worst top-logit delta 0.003 (CPU and Vulkan); SNAC decoder waveform relative RMS 2.1e-6 (CPU) / 2.4e-6 (Vulkan) with the reference's noise |
+| Chatterbox (ResembleAI/chatterbox, English; T3 Llama 520M over S3 speech tokens, S3Gen flow matching, HiFT vocoder), built-in voice | supported, CPU and Vulkan | the `chatterbox-tts` package 0.1.7 on torch (CPU, float32; `tests/Sharplight.TextToSpeech.Tests/tools/make_chatterbox_reference.py`) | text tokens identical; conditioning rows 7e-7 (CPU) / 4e-7 (Vulkan) relative RMS; T3 guided greedy chain teacher forced: 0 argmax disagreements over 92 steps (reference margins down to 1.5e-3); flow mel for the reference tokens and noise 4.4e-7 / 5.9e-7; HiFT F0 7.4e-7 / 7.8e-7 and waveform 5.6e-6 / 7.0e-6 with the reference's source draws |
 | CSM-1B + Mimi, Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
@@ -1097,6 +1098,25 @@ on the CPU and with compensated summation on the device. The angle of a complex 
 not depend on the sign of that zero. `Sharplight.Import.PyTorch` reads a file written by `torch.save(tensor)` and has the shared weight-norm helpers (`TorchWeightNorm`).
 Not done: CSM (the depth decoder over 32 codebooks and the Mimi decoder), Dia (encoder-decoder with delay-pattern codebook heads and the DAC codec), qwen3tts and pockettts
 (no GGUFs were looked for), and OuteTTS 0.3.
+
+Chatterbox loading: the checkpoint folder (`Sharplight.Import.Chatterbox`, `ChatterboxImporter`, `services.AddChatterboxImporter()`): T3's Llama is
+mapped like a Hugging Face Llama checkpoint to the canonical decoder weights (the speech-token embedding is the `token_embedding`, the speech head
+the `lm_head`; the llama3 rope scaling becomes `rope.freq_factors`), the text embedding, the learned text and speech positions and the conditioning
+encoder keep their names under `t3.`, S3Gen under `s3gen.` (weight norms folded), the voice encoder under `ve.`; the text tokenizer (a character
+BPE behind tokenizers' `Whitespace` pre-tokenizer, which the Hugging Face tokenizer translator now converts generically to the byte-level form with
+the new `whitespace` pre-tokenizer preset) becomes canonical tokenizer metadata, and `conds.pt` the voice attachments `voices/default/*` (its
+`prompt_feat` is a transposed view: the PyTorch reader accepts dense permuted tensors with `TorchCheckpointOptions.AllowPermuted`).
+`ChatterboxAdapter` (canonical `chatterbox`) builds the decoder graphs through `DecoderAdapter` (`decoder.embedding_input` adds the multimodal graph:
+every T3 row is a host-computed embedding) and four graphs of generic ops: `t3_condition` (speaker projection, the perceiver resampler over the voice's
+150 prompt tokens, the emotion row), `s3gen_encode` (token embedding, pre-lookahead convolutions, six conformer layers with relative-position
+attention, nearest ×2 upsampling, four more layers, the projection to 80 mel bins, and the speaker condition), `s3gen_estimate` (the causal U-Net
+vector field: causal residual blocks with Mish and the time embedding, 56 transformer blocks) and `hift` (F0 predictor, nine-harmonic source with
+its random draws as inputs, the source STFT as a convolution, the upsampling generator with snake residual blocks, the inverse-DFT half).
+`ChatterboxSynthesizer` runs T3 twice side by side for classifier-free guidance (weight 0.5; the unconditional run has zero text embeddings), applies
+the repetition penalty (1.2) to the guided logits and samples (temperature 0.8, min-p 0.05 by default), encodes the voice's 157 flow prompt tokens
+plus the generated ones, runs ten Euler steps of the guided flow (cosine time schedule, guidance 0.7) from Gaussian noise, and vocodes the frames after
+the prompt with a 20 ms fade-in. Not done: voice cloning from a reference clip (the voice encoder, the S3 speech tokenizer and CAMPPlus as graphs), the
+multilingual and Turbo checkpoints, the watermark (the reference adds Perth's implicit watermark; Sharplight does not).
 
 ## 13. Speech to text (task kind `speech-recognition`)
 

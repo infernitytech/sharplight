@@ -40,6 +40,8 @@ internal static class SpeakApplication
             Voice = settings.Voice,
             Language = settings.Language,
             Speed = settings.Speed,
+            ReferenceAudio = settings.ReferencePath is { } reference ? WavFile.Read(reference) : null,
+            ReferenceText = settings.ReferenceText,
             Sampling = new SamplingOptions
             {
                 Temperature = settings.Greedy ? 0f : 0.4f,

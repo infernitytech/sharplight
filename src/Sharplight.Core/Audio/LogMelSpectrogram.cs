@@ -20,7 +20,8 @@ namespace Sharplight.Audio;
 /// (default) or <c>e</c>), <c>logFloor</c> (default 1e-10), <c>logGuard</c> (when positive, log(mel + guard) instead of the floor; default 0),
 /// <c>dynamicRange</c> (clamp to the recording's peak minus this many log units; 0 = none, the default), <c>logOffset</c> and <c>logScale</c>
 /// (result = (log + offset) · scale; defaults 0 and 1), <c>normalize</c> (<c>none</c> (default) or <c>per-channel</c>: each channel minus its
-/// mean over the frames, divided by its standard deviation (n − 1 denominator) plus <c>normalizeEpsilon</c>, default 1e-5). The filter bank is the
+/// mean over the frames, divided by its standard deviation (n − 1 denominator) plus <c>normalizeEpsilon</c>, default 1e-5), <c>magnitude</c>
+/// (default false: the power spectrum; true: its square root, torchaudio's <c>power=1</c>, as Vocos and F5-TTS use). The filter bank is the
 /// attachment <see cref="ModelComponentAttachments.MelFilters"/>: little-endian f32 [melBins, fftSize / 2 + 1].
 /// </remarks>
 internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
@@ -46,6 +47,7 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
     private readonly double[] _window;
     private readonly float[] _filters;
     private readonly FourierTransform _transform;
+    private readonly bool _magnitude;
 
     /// <summary>Creates the extractor from a feature-extractor component's configuration and filter bank.</summary>
     /// <param name="component">The component (configuration keys in the remarks).</param>
@@ -92,6 +94,7 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
             var other => throw new InvalidDataException($"log-mel feature extractor: unknown logBase '{other}'."),
         };
         _logFloor = component.ConfigValue("logFloor", 1e-10);
+        _magnitude = component.ConfigValue("magnitude", false);
         _logGuard = component.ConfigValue("logGuard", 0.0);
         _preemphasis = component.ConfigValue("preemphasis", 0.0);
         _normalizeChannels = component.ConfigValue("normalize", "none") switch
@@ -197,7 +200,8 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
         _transform.Forward(scratch.Frame, scratch.Real, scratch.Imaginary, scratch.Work);
         for (int k = 0; k < _bins; k++)
         {
-            scratch.Power[k] = (scratch.Real[k] * scratch.Real[k]) + (scratch.Imaginary[k] * scratch.Imaginary[k]);
+            double power = (scratch.Real[k] * scratch.Real[k]) + (scratch.Imaginary[k] * scratch.Imaginary[k]);
+            scratch.Power[k] = _magnitude ? Math.Sqrt(power) : power;
         }
 
         for (int m = 0; m < Channels; m++)
