@@ -178,7 +178,7 @@ internal sealed class OuteTtsSynthesizer : ISpeechSynthesizer
         }
 
         string prompt = OuteTtsPrompt.Build(words, options?.Voice is { } voice ? LoadVoice(voice) : null);
-        var sampling = options?.Sampling ?? new SamplingOptions { Temperature = 0.4f, TopK = 40, TopP = 0.9f, RepetitionPenalty = 1.1f };
+        var sampling = options.SamplingOr(new SamplingOptions { Temperature = 0.4f, TopK = 40, TopP = 0.9f, RepetitionPenalty = 1.1f });
         _session ??= await Task.Run(() => _llm.CreateSession(), cancellationToken).ConfigureAwait(false);
         _session.Reset();
         var generator = new Generator(_session, _llm.Tokenizer);

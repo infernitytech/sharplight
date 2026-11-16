@@ -15,7 +15,10 @@ public sealed record SpeechSynthesisOptions
     /// <summary>Speaking rate relative to the model's natural rate (1 = unchanged).</summary>
     public float Speed { get; init; } = 1f;
 
-    /// <summary>Token selection of models that generate codec or acoustic tokens autoregressively.</summary>
+    /// <summary>
+    /// Token selection of models that generate codec or acoustic tokens autoregressively. Left at its defaults (only <see cref="SamplingOptions.Seed"/>
+    /// set, or nothing), the model's own sampling settings apply with that seed.
+    /// </summary>
     public SamplingOptions Sampling { get; init; } = new();
 
     /// <summary>

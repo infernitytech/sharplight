@@ -58,6 +58,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddCompositeModelAdapter<F5Adapter>()
                 .AddAuxiliaryArchitecture("vocos", AuxiliaryRoles.Vocoder)
                 .AddTaskClientFactory<F5SynthesizerFactory>()
+                .AddModelAdapter<XttsAdapter>()
+                .AddTaskClientFactory<XttsSynthesizerFactory>()
                 .AddAuxiliaryArchitecture(SnacParameters.Architecture, AuxiliaryRoles.Vocoder)
                 .AddModelAdapter<LatentDiffusionAdapter>()
                 .AddModelAdapter<FluxAdapter>()

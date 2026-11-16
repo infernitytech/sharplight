@@ -42,14 +42,10 @@ internal static class SpeakApplication
             Speed = settings.Speed,
             ReferenceAudio = settings.ReferencePath is { } reference ? WavFile.Read(reference) : null,
             ReferenceText = settings.ReferenceText,
-            Sampling = new SamplingOptions
-            {
-                Temperature = settings.Greedy ? 0f : 0.4f,
-                TopK = settings.Greedy ? 1 : 40,
-                TopP = 0.9f,
-                RepetitionPenalty = settings.Greedy ? 1f : 1.1f,
-                Seed = settings.Seed,
-            },
+            // Without --greedy only the seed is set: each model then samples with its own settings.
+            Sampling = settings.Greedy
+                ? new SamplingOptions { Temperature = 0f, TopK = 1, TopP = 0.9f, RepetitionPenalty = 1f, Seed = settings.Seed }
+                : new SamplingOptions { Seed = settings.Seed },
         };
         stopwatch.Restart();
         AudioBuffer audio;
