@@ -100,8 +100,8 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
 
     /// <summary>
     /// The low-noise expert of a two-expert model given as a second transformer-only file: its transformer weights become the
-    /// <c>transformer_2.</c> ones, with Wan 2.2 A14B's switch at 0.875 of the timesteps and its guidance (4 / 3, 40 steps) unless the
-    /// primary already names them.
+    /// <c>transformer_2.</c> ones, with Wan 2.2 A14B's switch (T2V: 0.875 of the timesteps, guidance 4 / 3; I2V: 0.9, guidance 3.5) and
+    /// 40 steps unless the primary already names them.
     /// </summary>
     private static void AddSecondTransformer(ModelSource source, Dictionary<string, WeightInfo> weights, Dictionary<string, object> metadata)
     {
@@ -116,9 +116,12 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
             }
         }
 
-        metadata.TryAdd(Prefix + "boundary_ratio", 0.875);
-        metadata[Prefix + "default_guidance"] = metadata.ContainsKey(Prefix + "default_guidance_2") ? metadata[Prefix + "default_guidance"] : 4.0;
-        metadata.TryAdd(Prefix + "default_guidance_2", 3.0);
+        // Image-to-video by channel concatenation (I2V-A14B: 36 input channels) switches at 0.9 with guidance 3.5 for both experts,
+        // text-to-video (T2V-A14B) at 0.875 with 4 / 3.
+        bool imageToVideo = metadata.TryGetValue(Prefix + "transformer.in_channels", out var channels) && Convert.ToInt32(channels, CultureInfo.InvariantCulture) == 36;
+        metadata.TryAdd(Prefix + "boundary_ratio", imageToVideo ? 0.9 : 0.875);
+        metadata[Prefix + "default_guidance"] = metadata.ContainsKey(Prefix + "default_guidance_2") ? metadata[Prefix + "default_guidance"] : imageToVideo ? 3.5 : 4.0;
+        metadata.TryAdd(Prefix + "default_guidance_2", imageToVideo ? 3.5 : 3.0);
         metadata[Prefix + "default_steps"] = 40;
     }
 

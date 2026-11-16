@@ -546,7 +546,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         int frameValues = 3 * run.Width * run.Height;
         var pixels = _tileFrames > 0 && _tileStride > 0 && run.LatentFrames > _tileFrames
             ? DecodeTiled(run, latents)
-            : DecodeLatents(run, latents, run.LatentFrames, run.Dimensions);
+            : DecodeLatents(run, latents, run.Dimensions);
         int count = pixels.Length / frameValues;
         var frames = new List<ImageInput>(count);
         for (int f = 0; f < count; f++)
@@ -557,8 +557,8 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         return frames;
     }
 
-    /// <summary>Runs the whole-video decoder on a latent video [C, T, h, w] of <paramref name="latentFrames"/> frames; returns frames [F, 3, H, W].</summary>
-    private float[] DecodeLatents(VideoRun run, float[] latents, int latentFrames, IReadOnlyDictionary<string, long>? dimensions)
+    /// <summary>Runs the whole-video decoder built for <paramref name="dimensions"/> on a latent video [C, T, h, w]; returns frames [F, 3, H, W].</summary>
+    private float[] DecodeLatents(VideoRun run, float[] latents, IReadOnlyDictionary<string, long>? dimensions)
     {
         var decoder = Compiled(ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeDecode, dimensions);
         decoder.SetInput<float>(Input(decoder, VideoDiffusionGraphs.Latent), latents);
@@ -598,7 +598,7 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
                 [VideoDiffusionGraphs.Height] = run.Height,
                 [VideoDiffusionGraphs.Width] = run.Width,
             };
-            var decoded = DecodeLatents(run, tile, count, dimensions);
+            var decoded = DecodeLatents(run, tile, dimensions);
             tiles.Add(start > 0 ? decoded.AsSpan(frameValues).ToArray() : decoded);
         }
 
