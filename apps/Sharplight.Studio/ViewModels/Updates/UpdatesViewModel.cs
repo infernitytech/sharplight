@@ -66,7 +66,8 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
 
     /// <summary>The newer version found by the last check; null when none.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOffer), nameof(OfferTitle), nameof(ReleaseNotes), nameof(HasReleaseNotes))]
+    [NotifyPropertyChangedFor(nameof(HasOffer), nameof(OfferTitle), nameof(ReleaseNotes), nameof(HasReleaseNotes), nameof(CanDownload))]
+    [NotifyCanExecuteChangedFor(nameof(DownloadCommand))]
     public partial UpdateOffer? Offer { get; set; }
 
     /// <summary>The "update available" dialog is open.</summary>
@@ -86,7 +87,7 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
     /// <summary>The package is downloaded; restarting installs it.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanDownload))]
-    [NotifyCanExecuteChangedFor(nameof(RestartCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RestartCommand), nameof(DownloadCommand))]
     public partial bool IsReady { get; set; }
 
     /// <summary>The download failed or the install could not start.</summary>
