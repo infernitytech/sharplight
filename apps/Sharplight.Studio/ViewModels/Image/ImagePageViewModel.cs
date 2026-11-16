@@ -10,6 +10,8 @@ using Sharplight.Models;
 using Sharplight.Studio.Converters;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Gallery;
+using Sharplight.Studio.ViewModels.Gallery;
 using Sharplight.Studio.Services.Imaging;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Runtime;
@@ -64,6 +66,95 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         Source = new ImageInputViewModel(services.Platform, text => Notice = text, "Input image", "Optional: start from an image (image to image). Drop a file here or choose one.", OnSourceChanged);
         Mask = new ImageInputViewModel(services.Platform, text => Notice = text, "Mask", "Optional: with an input image, bright areas are regenerated, the rest stays (inpainting).", OnSourceChanged);
         OnSourceChanged();
+        _store = new ImageGalleryStore(services.Pages.GenerationsDirectory("images"));
+        Generations = new ImageGalleryViewModel(_store, services.Platform, services.Dispatcher, OpenStored, ReuseStored);
+    }
+
+    private readonly ImageGalleryStore _store;
+    private bool _galleryLoaded;
+
+    /// <summary>Every image ever generated (in the data folder of the storage mode), to browse, reuse and delete.</summary>
+    public ImageGalleryViewModel Generations { get; }
+
+    /// <summary>The gallery strip below the result is shown.</summary>
+    [ObservableProperty]
+    public partial bool ShowGallery { get; set; } = true;
+
+    /// <inheritdoc/>
+    public override Task ActivateAsync()
+    {
+        if (!_galleryLoaded)
+        {
+            _galleryLoaded = true;
+            _ = Generations.LoadAsync();
+        }
+
+        return base.ActivateAsync();
+    }
+
+    /// <summary>Shows a stored image large; the file is read and decoded on a worker thread.</summary>
+    private void OpenStored(GalleryItemViewModel item)
+    {
+        var entry = item.Entry;
+        _ = Task.Run(() =>
+        {
+            byte[] png;
+            ImageInput image;
+            try
+            {
+                png = _store.ReadPng(entry);
+                image = ImageFiles.Decode(png);
+                DecodedBitmaps.Prepare(png);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException)
+            {
+                Services.Dispatcher.Post(() => Notice = "The image file could not be read: " + error.Message);
+                return;
+            }
+
+            Services.Dispatcher.Post(() =>
+            {
+                if (!ReferenceEquals(Generations.SelectedItem, item))
+                {
+                    return;
+                }
+
+                Notice = "";
+                _last = ToParameters(entry);
+                Show([new GeneratedImageViewModel(1, png, image, entry.Seed)],
+                    $"{entry.Model} · size: {entry.Width} × {entry.Height} · steps: {entry.Steps} · seed: {entry.Seed} · {entry.Created.LocalDateTime:g}");
+            });
+        });
+    }
+
+    private static ImageParametersFile ToParameters(GalleryEntry entry) => new()
+    {
+        Model = entry.Model,
+        Prompt = entry.Prompt,
+        NegativePrompt = entry.NegativePrompt,
+        Seed = entry.Seed,
+        Steps = entry.Steps,
+        Guidance = entry.Guidance,
+        Sampler = entry.Sampler,
+        Width = entry.Width,
+        Height = entry.Height,
+        Count = 1,
+        Options = entry.Options,
+    };
+
+    /// <summary>Fills the prompt boxes, the seed and the parameter panel with a stored image's settings, and chooses its model when it is loaded.</summary>
+    private void ReuseStored(GalleryEntry entry)
+    {
+        var values = new Dictionary<string, string>(entry.Options) { ["seed"] = entry.Seed.ToString(CultureInfo.InvariantCulture) };
+        Panel.Apply(values);
+        Prompt = entry.Prompt;
+        NegativePrompt = entry.NegativePrompt;
+        if (Services.Runtime.LoadedModels.FirstOrDefault(model => model.Id == entry.Model && model.Kind == ModelKinds.ImageGeneration) is { } model)
+        {
+            SelectModel(model);
+        }
+
+        Notice = "";
     }
 
     /// <inheritdoc/>
@@ -392,6 +483,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         };
         var shown = new List<GeneratedImageViewModel>();
         var files = new Dictionary<string, byte[]>();
+        var stored = new List<GalleryEntry>();
         for (int i = 0; i < finished.Images.Count; i++)
         {
             var image = finished.Images[i];
@@ -401,6 +493,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
             var item = new GeneratedImageViewModel(i + 1, png, image, finished.Seed + i);
             shown.Add(item);
             files[item.FileName] = png;
+            stored.Add(StoreInGallery(file, plan, image, png, finished.Seed + i, seconds));
         }
 
         files[ParametersName] = JsonSerializer.SerializeToUtf8Bytes(file, StudioJsonContext.Default.ImageParametersFile);
@@ -435,8 +528,42 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         {
             _last = file;
             Show(shown, summary);
+            foreach (var entry in stored.Where(entry => entry.File.Length > 0))
+            {
+                Generations.Add(entry);
+            }
         });
         Archived(NewRecord(title, model, plan, outcome, seconds, null, file, [.. shown.Select(item => item.FileName), ParametersName], metadata), files);
+    }
+
+    /// <summary>Writes one image and its sidecar into the gallery folder (on the worker thread); a full disk must not lose the result.</summary>
+    private GalleryEntry StoreInGallery(ImageParametersFile file, GenerationPlan plan, ImageInput image, byte[] png, long seed, double seconds)
+    {
+        var entry = new GalleryEntry
+        {
+            Id = ImageGalleryStore.NewId(),
+            Model = file.Model,
+            Prompt = file.Prompt,
+            NegativePrompt = file.NegativePrompt,
+            Seed = seed,
+            Steps = file.Steps,
+            Guidance = file.Guidance,
+            Width = image.Width,
+            Height = image.Height,
+            Sampler = file.Sampler,
+            Loras = plan.Values.TryGetValue("loras", out string? loras) ? [.. loras.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)] : [],
+            Seconds = Math.Round(seconds, 2),
+            Options = new Dictionary<string, string>(file.Options) { ["seed"] = seed.ToString(CultureInfo.InvariantCulture) },
+        };
+        try
+        {
+            return _store.Add(entry, png);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Services.Dispatcher.Post(() => Notice = "The image could not be added to the gallery: " + error.Message);
+            return entry with { File = "" };
+        }
     }
 
     private RunRecord NewRecord(string title, ILoadedModel model, GenerationPlan plan, RunOutcome outcome, double seconds, string? error, ImageParametersFile? file,

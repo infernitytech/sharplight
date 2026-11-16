@@ -35,7 +35,7 @@ public class ChatterboxTests
         using var synthesizer = (ChatterboxSynthesizer)TtsModels.Synthesizer(model);
         Assert.Equal(Ints("text_tokens"), synthesizer.TextTokens(Info().GetProperty("text").GetString()!));
         var reference = Floats("cond");
-        var rows = synthesizer.ConditionRows("default", ChatterboxSynthesizer.DefaultExaggeration);
+        var rows = synthesizer.ConditionRows(synthesizer.LoadVoice("default"), ChatterboxSynthesizer.DefaultExaggeration);
         Assert.Equal(reference.Length, rows.Length);
         double error = RelativeError(reference, rows);
         ParityReport.Write($"Chatterbox conditioning {(gpu ? "vulkan" : "cpu")}: relative RMS error {error:E2}");
@@ -54,7 +54,7 @@ public class ChatterboxTests
         var reference = Ints("speech_tokens");
         var margins = Floats("margins");
         var chosen = new List<int>();
-        var condition = synthesizer.ConditionRows("default", ChatterboxSynthesizer.DefaultExaggeration);
+        var condition = synthesizer.ConditionRows(synthesizer.LoadVoice("default"), ChatterboxSynthesizer.DefaultExaggeration);
         var greedy = new SamplingOptions { Temperature = 0f, TopK = 0, TopP = 1f, RepetitionPenalty = 1.2f };
         synthesizer.SpeechTokens(Ints("text_tokens"), condition, greedy, TestContext.Current.CancellationToken, (token, _) => chosen.Add(token), reference);
         Assert.Equal(reference.Length, chosen.Count);
@@ -82,7 +82,7 @@ public class ChatterboxTests
         using var model = TtsModels.Load(TtsModels.Open(gpu), Model);
         using var synthesizer = (ChatterboxSynthesizer)TtsModels.Synthesizer(model);
         var noise = Transpose(Floats("flow_noise"), 80);
-        var mel = synthesizer.Mel(Ints("speech_tokens"), "default", noise);
+        var mel = synthesizer.Mel(Ints("speech_tokens"), synthesizer.LoadVoice("default"), noise);
         var reference = Transpose(Floats("mel"), 80);
         Assert.Equal(reference.Length, mel.Length);
         double error = RelativeError(reference, mel);

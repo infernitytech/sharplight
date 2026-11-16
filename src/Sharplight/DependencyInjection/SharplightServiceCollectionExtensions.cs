@@ -50,6 +50,7 @@ public static class SharplightServiceCollectionExtensions
                 .AddKokoroImporter()
                 .AddChatterboxImporter()
                 .AddF5TtsImporter()
+                .AddXttsImporter()
                 .AddSnacImporter()
                 .AddSileroVadImporter()
                 .AddDiffusersImporter()

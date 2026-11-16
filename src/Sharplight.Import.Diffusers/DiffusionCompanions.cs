@@ -6,7 +6,8 @@ namespace Sharplight.Import.Diffusers;
 
 /// <summary>
 /// Finds the companion files of a transformer-only diffusion checkpoint (FLUX: CLIP-L, the T5 encoder and the 16-channel VAE; SD3: CLIP-L,
-/// CLIP-G, the T5 encoder and the 16-channel VAE; the T5 encoder as GGUF or safetensors), looked for beside the file and in the sibling folders of the usual model directory layouts (ComfyUI's
+/// CLIP-G, the T5 encoder and the 16-channel VAE; the T5 encoder as GGUF or safetensors; Z-Image / Qwen-Image: their language model
+/// and VAE), looked for beside the file and in the sibling folders of the usual model directory layouts (ComfyUI's
 /// <c>clip</c>, <c>text_encoders</c> and <c>vae</c> next to <c>unet</c> / <c>diffusion_models</c>). Candidates are recognized by their
 /// tensors, not only their names; of several, GGUF T5 files come first (they carry their tokenizer), then by file name.
 /// </summary>
@@ -55,13 +56,19 @@ internal static class DiffusionCompanions
         foreach (string pipeline in pipelines)
         {
             string vae = Path.Combine(pipeline, "vae", "diffusion_pytorch_model.safetensors");
-            if (!found.ContainsKey(AuxiliaryRoles.Vae) && File.Exists(vae) && IsSixteenChannelVae(vae))
+            if (!found.ContainsKey(AuxiliaryRoles.Vae) && File.Exists(vae) && IsFamilyVae(vae, family))
             {
                 found[AuxiliaryRoles.Vae] = vae;
             }
 
             string textEncoder = Path.Combine(pipeline, "text_encoder");
-            if (family == CompanionFamily.ZImage && !found.ContainsKey(AuxiliaryRoles.TextEncoder) && IsQwen3Folder(textEncoder))
+            string? languageModel = family switch
+            {
+                CompanionFamily.ZImage => "qwen3",
+                CompanionFamily.QwenImage => "qwen2_5_vl",
+                _ => null,
+            };
+            if (languageModel is not null && !found.ContainsKey(AuxiliaryRoles.TextEncoder) && ModelType(textEncoder) == languageModel)
             {
                 found[AuxiliaryRoles.TextEncoder] = textEncoder;
             }
@@ -70,18 +77,24 @@ internal static class DiffusionCompanions
         return found;
     }
 
-    /// <summary>Whether a folder is a Hugging Face Qwen3 model (Z-Image's text encoder).</summary>
-    private static bool IsQwen3Folder(string folder)
+    /// <summary>The <c>model_type</c> of a Hugging Face model folder (Z-Image's text encoder: <c>qwen3</c>; Qwen-Image's: <c>qwen2_5_vl</c>), or null.</summary>
+    private static string? ModelType(string folder)
     {
         string config = Path.Combine(folder, "config.json");
         if (!File.Exists(config))
         {
-            return false;
+            return null;
         }
 
         using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(config));
-        return document.RootElement.TryGetProperty("model_type", out var type) && type.GetString() == "qwen3";
+        return document.RootElement.TryGetProperty("model_type", out var type) ? type.GetString() : null;
     }
+
+    /// <summary>Whether a VAE file is the family's: the causal 3-D VAE for Qwen-Image, a 16-channel KL autoencoder for the others.</summary>
+    private static bool IsFamilyVae(string file, CompanionFamily family)
+        => family == CompanionFamily.QwenImage
+            ? ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.WanAutoencoderArchitecture
+            : ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.AutoencoderArchitecture && IsSixteenChannelVae(file);
 
     /// <summary>The companion files of a family, in presentation order.</summary>
     /// <param name="family">The model family.</param>
@@ -93,6 +106,15 @@ internal static class DiffusionCompanions
         if (family == CompanionFamily.ZImage)
         {
             return [new CompanionFile(AuxiliaryRoles.TextEncoder, "Text encoder (Qwen3-4B)", "Qwen3-4B-Q8_0.gguf"), vae];
+        }
+
+        if (family == CompanionFamily.QwenImage)
+        {
+            return
+            [
+                new CompanionFile(AuxiliaryRoles.TextEncoder, "Text encoder (Qwen2.5-VL-7B)", "Qwen2.5-VL-7B-Instruct-Q8_0.gguf or the pipeline's text_encoder folder"),
+                new CompanionFile(AuxiliaryRoles.Vae, "VAE", "qwen_image_vae.safetensors"),
+            ];
         }
 
         if (family == CompanionFamily.Chroma)
@@ -122,14 +144,17 @@ internal static class DiffusionCompanions
         };
         if (file.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
         {
-            return family == CompanionFamily.ZImage ? (GgufArchitecture(file) == "qwen3" ? AuxiliaryRoles.TextEncoder : null)
-                : GgufArchitecture(file) is "t5encoder" or "t5" ? t5Role
-                : null;
+            return family switch
+            {
+                CompanionFamily.ZImage => GgufArchitecture(file) == "qwen3" ? AuxiliaryRoles.TextEncoder : null,
+                CompanionFamily.QwenImage => GgufArchitecture(file) == "qwen2vl" ? AuxiliaryRoles.TextEncoder : null,
+                _ => GgufArchitecture(file) is "t5encoder" or "t5" ? t5Role : null,
+            };
         }
 
-        if (family == CompanionFamily.ZImage)
+        if (family is CompanionFamily.ZImage or CompanionFamily.QwenImage)
         {
-            return ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.AutoencoderArchitecture && IsSixteenChannelVae(file) ? AuxiliaryRoles.Vae : null;
+            return IsFamilyVae(file, family) ? AuxiliaryRoles.Vae : null;
         }
 
         return ComponentCheckpoint.ClassifyFile(file) switch

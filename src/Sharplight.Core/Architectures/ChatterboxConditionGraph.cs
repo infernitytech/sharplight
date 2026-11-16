@@ -18,8 +18,14 @@ internal static class ChatterboxConditionGraph
     /// <summary>The speaker embedding [1, 256].</summary>
     public const string SpeakerInput = "speaker";
 
-    /// <summary>The prompt speech tokens [prompt].</summary>
+    /// <summary>The prompt speech tokens [prompt] (prompt symbolic: <see cref="PromptSymbol"/>).</summary>
     public const string PromptInput = "prompt_tokens";
+
+    /// <summary>The positions of the prompt speech tokens, i32 [prompt] (0, 1, ...).</summary>
+    public const string PromptPositionsInput = "prompt_positions";
+
+    /// <summary>The symbol of the prompt length.</summary>
+    public const string PromptSymbol = "prompt";
 
     /// <summary>The emotion exaggeration [1, 1].</summary>
     public const string EmotionInput = "emotion";
@@ -31,20 +37,18 @@ internal static class ChatterboxConditionGraph
 
     /// <summary>Builds the graph.</summary>
     /// <param name="weights">Looks up the weights.</param>
-    /// <param name="promptTokens">The number of prompt speech tokens.</param>
     /// <param name="queries">The perceiver's query rows.</param>
     /// <param name="heads">The perceiver's attention heads.</param>
     /// <param name="hidden">T3's width.</param>
-    public static ComputeGraph Build(Func<string, WeightInfo?> weights, int promptTokens, int queries, int heads, int hidden)
+    public static ComputeGraph Build(Func<string, WeightInfo?> weights, int queries, int heads, int hidden)
     {
         var b = new GraphBuilder(GraphName, weights);
         var speaker = b.Input(SpeakerInput, InputRole.Other, DataType.F32, new Shape(1, 256));
-        var tokens = b.Input(PromptInput, InputRole.TokenIds, DataType.I32, new Shape(promptTokens));
+        var tokens = b.Input(PromptInput, InputRole.TokenIds, DataType.I32, new Shape(Dim.Sym(PromptSymbol)));
+        var positionIds = b.Input(PromptPositionsInput, InputRole.Positions, DataType.I32, new Shape(Dim.Sym(PromptSymbol)));
         var emotion = b.Input(EmotionInput, InputRole.Other, DataType.F32, new Shape(1, 1));
 
         var speakerRow = b.Linear(speaker, P + "spkr_enc.weight", P + "spkr_enc.bias");
-        var positionIds = b.Constant("t3.prompt_positions", DataType.I32, new Shape(promptTokens),
-            System.Runtime.InteropServices.MemoryMarshal.AsBytes(Enumerable.Range(0, promptTokens).ToArray().AsSpan()).ToArray());
         var prompt = b.Add(b.Gather(b.Weight("token_embedding.weight"), tokens), b.Gather(b.Weight("t3.speech_pos_emb.emb.weight"), positionIds));
         var query = b.Reshape(b.Weight(P + "perceiver.pre_attention_query"), queries, hidden);
         var resampled = Attend(b, query, prompt, heads, hidden);
@@ -61,7 +65,7 @@ internal static class ChatterboxConditionGraph
         const string A = P + "perceiver.attn.";
         int headDim = hidden / heads;
         long queryRows = x1.Shape[0].Fixed;
-        long keyRows = x2.Shape[0].Fixed;
+        long keyRows = x2.Shape[0].IsSymbolic ? 0 : x2.Shape[0].Fixed;   // Reshape keeps a 0 dimension only when it is symbolic
         var n1 = Norm(b, x1, A + "norm");
         var n2 = Norm(b, x2, A + "norm");
         var q = b.Reshape(b.Linear(n1, A + "to_q.weight", A + "to_q.bias"), queryRows, heads, headDim);

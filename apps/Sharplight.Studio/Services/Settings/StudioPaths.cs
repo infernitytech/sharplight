@@ -26,6 +26,9 @@ internal sealed record StudioPaths(string ConfigDirectory, string DataDirectory)
     /// <summary>The pages' presets, history and outputs.</summary>
     public string PagesDirectory => Path.Combine(DataDirectory, "pages");
 
+    /// <summary>The generated images (and later other media), each in its dated folder with a JSON sidecar.</summary>
+    public string GenerationsDirectory => Path.Combine(DataDirectory, "generations");
+
     /// <summary>The app's folders in <paramref name="layout"/>, or <paramref name="home"/> for both when it is set.</summary>
     /// <param name="layout">The storage layout.</param>
     /// <param name="home">The value of <see cref="HomeVariable"/>, or null.</param>

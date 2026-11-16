@@ -7,7 +7,7 @@ namespace Sharplight.Import.Diffusers;
 /// <c>.safetensors</c> checkpoints, PyTorch <c>.ckpt</c> checkpoints read with the restricted unpickler, stable-diffusion.cpp GGUF files)
 /// translated into the canonical <c>latent_diffusion</c> source, and the diffusion transformers FLUX.1, SD3 / SD3.5 and Chroma (diffusers
 /// folders, original-name single files and transformer-only GGUF files) translated into the canonical <c>flux</c>, <c>sd3</c>,
-/// <c>chroma</c> and <c>zimage</c> sources; plus the stand-alone component files that come with transformer-only checkpoints (CLIP and T5 text encoders,
+/// <c>chroma</c>, <c>zimage</c> and <c>qwen_image</c> sources; plus the stand-alone component files that come with transformer-only checkpoints (CLIP and T5 text encoders,
 /// VAEs), which open as component sources and are found beside the transformer (<see cref="FindCompanions"/>). The
 /// <c>LatentDiffusionAdapter</c>, <c>FluxAdapter</c>, <c>Sd3Adapter</c> and <c>ChromaAdapter</c> of Sharplight.Core build the
 /// image-generation models.
@@ -51,11 +51,12 @@ public sealed class DiffusersImporter : IModelImporter
         string? family = DiffusionTransformerCheckpoint.FamilyOf(path);
         bool supported = (kind == FluxConfig.Architecture && family?.StartsWith("FLUX", StringComparison.Ordinal) == true)
             || (kind == Sd3Config.Architecture && family?.StartsWith("Stable Diffusion 3", StringComparison.Ordinal) == true)
-            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture || kind == WanConfig.Architecture;
+            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture || kind == WanConfig.Architecture
+            || kind == QwenImageConfig.Architecture;
         if (family is not null && !supported)
         {
             throw new NotSupportedException($"Not supported yet: {family}. Sharplight generates images with the Stable Diffusion UNet models "
-                + $"(SD 1.x, SD 2.x, SDXL), SD3 / SD3.5, FLUX.1, Chroma and Z-Image, and video with Wan; {Path.GetFileName(path)} is another diffusion-transformer model.");
+                + $"(SD 1.x, SD 2.x, SDXL), SD3 / SD3.5, FLUX.1, Chroma, Z-Image and Qwen-Image, and video with Wan; {Path.GetFileName(path)} is another diffusion-transformer model.");
         }
 
         return kind switch
@@ -63,8 +64,11 @@ public sealed class DiffusersImporter : IModelImporter
             FluxConfig.Architecture or ChromaConfig.Architecture => FluxCheckpoint.Open(path),
             Sd3Config.Architecture => Sd3Checkpoint.Open(path),
             ZImageConfig.Architecture => ZImageCheckpoint.Open(path),
+            QwenImageConfig.Architecture => QwenImageCheckpoint.Open(path),
+            LoraCheckpoint.Architecture => LoraCheckpoint.Open(path),
             WanConfig.Architecture => WanCheckpoint.Open(path),
-            ComponentCheckpoint.ClipArchitecture or ComponentCheckpoint.AutoencoderArchitecture or ComponentCheckpoint.T5Architecture => ComponentCheckpoint.Open(path),
+            ComponentCheckpoint.ClipArchitecture or ComponentCheckpoint.AutoencoderArchitecture or ComponentCheckpoint.T5Architecture
+                or ComponentCheckpoint.WanAutoencoderArchitecture => ComponentCheckpoint.Open(path),
             _ => SingleFileCheckpoint.Open(path),
         };
     }
@@ -79,6 +83,7 @@ public sealed class DiffusersImporter : IModelImporter
             FluxConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.Flux),
             ChromaConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.Chroma),
             ZImageConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.ZImage),
+            QwenImageConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.QwenImage),
             Sd3Config.Architecture => DiffusionCompanions.Describe(CompanionFamily.Sd3),
             _ => [],
         };
@@ -94,6 +99,7 @@ public sealed class DiffusersImporter : IModelImporter
             FluxConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Flux),
             ChromaConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Chroma),
             ZImageConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.ZImage),
+            QwenImageConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.QwenImage),
             Sd3Config.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Sd3),
             _ => new Dictionary<string, string>(),
         };
@@ -119,9 +125,10 @@ public sealed class DiffusersImporter : IModelImporter
             "StableDiffusionPipeline" or "StableDiffusionImg2ImgPipeline" or "StableDiffusionInpaintPipeline" or "StableDiffusionXLPipeline"
                 or "StableDiffusionXLImg2ImgPipeline" or "StableDiffusionXLInpaintPipeline" or "FluxPipeline" or "WanPipeline" or "WanImageToVideoPipeline" or "LTXPipeline"
                 or "StableDiffusion3Pipeline" or "StableDiffusion3Img2ImgPipeline" or "StableDiffusion3InpaintPipeline" or "ChromaPipeline"
-                or "ChromaImg2ImgPipeline" or "ZImagePipeline" or "ZImageImg2ImgPipeline"
+                or "ChromaImg2ImgPipeline" or "ZImagePipeline" or "ZImageImg2ImgPipeline" or "QwenImagePipeline" or "QwenImageImg2ImgPipeline"
+                or "QwenImageInpaintPipeline"
                 => components.Contains("unet") || components.Contains("transformer") ? new PipelineSupport(true) : new PipelineSupport(false, $"Not supported yet: {pipelineClass} has no UNet or transformer."),
-            _ => new PipelineSupport(false, $"Not supported yet: {Describe(pipelineClass)}. Sharplight loads the Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image, Wan 2.1 / 2.2 and LTX-Video pipelines."),
+            _ => new PipelineSupport(false, $"Not supported yet: {Describe(pipelineClass)}. Sharplight loads the Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image, Qwen-Image, Wan 2.1 / 2.2 and LTX-Video pipelines."),
         };
     }
 
