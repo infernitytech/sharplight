@@ -127,7 +127,7 @@ public sealed partial class GraphLowerer
                 ? OpSupport.Yes : OpSupport.No("WindowPool: the ring state must be f32 and the channels fixed"),
             "Attention" => SupportsAttention(node),
             "SequencePool" => SupportsSequencePool(node),
-            "Gather" => node.Inputs[0].Shape[-1] is { IsSymbolic: false } d && d.Fixed % 8 == 0 ? OpSupport.Yes : OpSupport.No("Gather: rows must be a multiple of 8 values"),
+            "Gather" => node.Inputs[0].Shape[-1] is { IsSymbolic: false } d && (d.Fixed % 8 == 0 || !node.Inputs[0].Type.IsQuantized) ? OpSupport.Yes : OpSupport.No("Gather: quantized rows must be a multiple of 8 values"),
             "MatMul" => SupportsMatMul(node),
             "Rope" => SupportsRope(node),
             _ when s_elementwise.Contains(op) => SupportsElementwise(node),

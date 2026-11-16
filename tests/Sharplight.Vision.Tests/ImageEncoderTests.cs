@@ -13,7 +13,7 @@ public class ImageEncoderTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    private static string Model(string name) => Path.Combine(Home, "models/vision", name);
+    private static string Model(string name) => Path.Combine(Home, Directory.Exists(Path.Combine(Home, "models/vision", name)) ? "models/vision" : "models/vision-sweep", name);
 
     private static bool Available(string name) => File.Exists(Path.Combine(Model(name), "sharplight-reference.json"));
 
@@ -33,20 +33,26 @@ public class ImageEncoderTests
         }
     }
 
-    [Fact]
-    public async Task VitClassifierMatchesTransformers()
+    [Theory]
+    [InlineData("vit-base-patch16-224")]
+    [InlineData("nsfw_image_detection")]
+    [InlineData("resnet50.a1_in1k")]
+    [InlineData("resnet18.a1_in1k")]
+    [InlineData("resnet34.a1_in1k")]
+    [InlineData("wide_resnet50_2.racm_in1k")]
+    public async Task VitClassifierMatchesTransformers(string name)
     {
-        if (!Available("vit-base-patch16-224"))
+        if (!Available(name))
         {
             return;
         }
 
-        var reference = Reference("vit-base-patch16-224");
+        var reference = Reference(name);
         var expected = Floats(reference.GetProperty("logits"));
-        var image = PngCodec.Read(Path.Combine(Model("vit-base-patch16-224"), "sharplight-sample.png"));
+        var image = PngCodec.Read(Path.Combine(Model(name), "sharplight-sample.png"));
         foreach (var (backend, slot) in Backends())
         {
-            using var model = Load("vit-base-patch16-224", slot);
+            using var model = Load(name, slot);
             Assert.Equal("image-classification", model.Description.Kind);
             using var classifier = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageClassifier>(model);
             var result = await classifier.ClassifyAsync(image, new ImageClassificationOptions { TopK = 0 });
@@ -62,20 +68,25 @@ public class ImageEncoderTests
         }
     }
 
-    [Fact]
-    public async Task Dinov2EmbeddingMatchesTransformers()
+    [Theory]
+    [InlineData("dinov2-small")]
+    [InlineData("dinov2-base")]
+    [InlineData("dinov2-with-registers-base")]
+    [InlineData("dino-vitb16")]
+    [InlineData("vit-base-patch16-224-in21k")]
+    public async Task Dinov2EmbeddingMatchesTransformers(string name)
     {
-        if (!Available("dinov2-small"))
+        if (!Available(name))
         {
             return;
         }
 
-        var reference = Reference("dinov2-small");
+        var reference = Reference(name);
         var expected = Floats(reference.GetProperty("pooled"));
-        var image = PngCodec.Read(Path.Combine(Model("dinov2-small"), "sharplight-sample.png"));
+        var image = PngCodec.Read(Path.Combine(Model(name), "sharplight-sample.png"));
         foreach (var (backend, slot) in Backends())
         {
-            using var model = Load("dinov2-small", slot);
+            using var model = Load(name, slot);
             Assert.Equal("image-embedding", model.Description.Kind);
             using var embedder = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageEmbedder>(model);
             var embedding = await embedder.EmbedImageAsync(image, new ImageEmbeddingOptions { Normalize = false });
@@ -88,6 +99,11 @@ public class ImageEncoderTests
     [Theory]
     [InlineData("clip-vit-base-patch32")]
     [InlineData("siglip-base-patch16-224")]
+    [InlineData("clip-vit-base-patch16")]
+    [InlineData("clip-vit-large-patch14")]
+    [InlineData("siglip2-base-patch16-224")]
+    [InlineData("CLIP-ViT-B-32-laion2B-s34B-b79K")]
+    [InlineData("siglip-so400m-patch14-384")]
     public async Task DualEncoderMatchesTransformers(string name)
     {
         if (!Available(name) || !Reference(name).TryGetProperty("text_embeddings", out var textRef))
@@ -110,7 +126,8 @@ public class ImageEncoderTests
             for (int i = 0; i < texts.Length; i++)
             {
                 var actual = tokenizer.Encode(texts[i]);
-                Assert.Equal(ids[i].Take(actual.Length), actual);
+                Assert.True(ids[i].Take(actual.Length).SequenceEqual(actual), $"{name}: ids [{string.Join(", ", actual)}] vs reference [{string.Join(", ", ids[i].Take(actual.Length + 2))}]");
+                Assert.True(ids[i].Skip(actual.Length).All(t => t == ids[i][^1]), $"{name}: ids [{string.Join(", ", actual)}] are followed by more than padding in [{string.Join(", ", ids[i].Take(actual.Length + 2))}]");
             }
 
             using var embedder = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageEmbedder>(model);

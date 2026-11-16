@@ -47,6 +47,12 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
         Description = "Vision projector file for GGUF models (Hugging Face checkpoints contain their vision tower).",
     };
 
+    private readonly Option<string?> _draft = new("--draft")
+    {
+        HelpName = "file",
+        Description = "Draft file for speculative decoding: an MTP draft file (mtp-*.gguf with only the NextN layers), an EAGLE-3 or DFlash drafter; use with --speculate-mtp.",
+    };
+
     private readonly Option<string[]> _images = new("--image")
     {
         HelpName = "file",
@@ -116,6 +122,7 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
         command.Options.Add(_split);
         command.Options.Add(_gpuMemory);
         command.Options.Add(_mmproj);
+        command.Options.Add(_draft);
         command.Options.Add(_images);
         command.Options.Add(_imageMinTokens);
         command.Options.Add(_imageMaxTokens);
@@ -146,7 +153,7 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
             result.AddError("--bench and --logits are mutually exclusive.");
         }
 
-        if (HasAny(result, _bench, _logits, _save, _mmproj, _images) && result.GetValue(_model) is null)
+        if (HasAny(result, _bench, _logits, _save, _mmproj, _draft, _images) && result.GetValue(_model) is null)
         {
             result.AddError("A model is required for this command.");
         }
@@ -181,6 +188,7 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
             splitWeights,
             gpuMemoryBytes,
             parseResult.GetValue(_mmproj),
+            parseResult.GetValue(_draft),
             parseResult.GetValue(_images) ?? [],
             imageTokens,
             parseResult.GetValue(_save),

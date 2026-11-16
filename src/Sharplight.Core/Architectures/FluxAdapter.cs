@@ -1,7 +1,5 @@
-using System.Text;
 using Sharplight.ImageGeneration;
 using Sharplight.Models;
-using Sharplight.Tensors;
 
 namespace Sharplight.Architectures;
 
@@ -38,7 +36,6 @@ public sealed class FluxAdapter : IModelAdapter
     private const string TransformerPrefix = "transformer.";
     private const string VaePrefix = "vae.";
     private const string SecondTokenizerMetadata = Prefix + "tokenizer_2.";
-    private const string SchedulerAttachment = "scheduler/source-config.json";
 
     /// <inheritdoc/>
     public string Name => "FLUX (MMDiT + VAE + CLIP + T5)";
@@ -78,11 +75,7 @@ public sealed class FluxAdapter : IModelAdapter
         };
 
         var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
-        if (src.Get<string?>(Prefix + "scheduler.source_config", null) is { } schedulerJson)
-        {
-            byte[] bytes = Encoding.UTF8.GetBytes(schedulerJson);
-            attachments[SchedulerAttachment] = WeightInfo.Derived(SchedulerAttachment, DataType.U8, new Shape(bytes.Length), () => bytes).Source;
-        }
+        bool schedulerAttachment = FlowSchedulerComponent.AddAttachment(src, Prefix, attachments);
 
         return new ModelDefinition
         {
@@ -93,7 +86,7 @@ public sealed class FluxAdapter : IModelAdapter
             SourceMetadata = src.Metadata,
             OwnedResources = src.OwnedResources,
             Attachments = attachments,
-            Description = Describe(src, transformer, vae, clip, t5, attachments.Count > 0),
+            Description = Describe(src, transformer, vae, clip, t5, schedulerAttachment),
         };
     }
 
@@ -126,17 +119,6 @@ public sealed class FluxAdapter : IModelAdapter
     private static ModelDescription Describe(ModelSource src, FluxHyperParameters transformer, AutoencoderHyperParameters vae, ClipTextHyperParameters clip,
         T5TextHyperParameters t5, bool hasSchedulerAttachment)
     {
-        string s = Prefix + "scheduler.";
-        var scheduler = new ComponentConfigBuilder()
-            .Add(DiffusionConfigKeys.TrainSteps, src.Get(s + "train_steps", 1000))
-            .Add(DiffusionConfigKeys.PredictionType, "flow")
-            .Add(DiffusionConfigKeys.Shift, src.Get(s + "shift", 1f))
-            .Add(DiffusionConfigKeys.DynamicShift, src.Get(s + "dynamic_shift", false))
-            .Add(DiffusionConfigKeys.BaseShift, src.Get(s + "base_shift", 0.5))
-            .Add(DiffusionConfigKeys.MaxShift, src.Get(s + "max_shift", 1.15))
-            .Add(DiffusionConfigKeys.BaseSequenceLength, src.Get(s + "base_sequence_length", 256))
-            .Add(DiffusionConfigKeys.MaxSequenceLength, src.Get(s + "max_sequence_length", 4096))
-            .Add(DiffusionConfigKeys.Sampler, src.Get(s + "sampler", Samplers.Euler));
         var vaeConfig = new ComponentConfigBuilder()
             .Add(DiffusionConfigKeys.LatentChannels, vae.LatentChannels)
             .Add(DiffusionConfigKeys.Downscale, vae.Downscale);
@@ -195,14 +177,7 @@ public sealed class FluxAdapter : IModelAdapter
                     Config = vaeConfig.Build(),
                     SymbolBounds = new Dictionary<string, long> { [DiffusionGraphs.BatchSymbol] = batch1 },
                 },
-                new ModelComponent
-                {
-                    Role = ModelComponentRoles.Scheduler,
-                    Config = scheduler.Build(),
-                    Attachments = hasSchedulerAttachment
-                        ? new Dictionary<string, string> { ["source-config"] = SchedulerAttachment }
-                        : new Dictionary<string, string>(),
-                },
+                FlowSchedulerComponent.Create(src, Prefix, hasSchedulerAttachment),
             ],
             Config = new ComponentConfigBuilder()
                 .Add(DiffusionConfigKeys.Width, transformer.SampleSize)

@@ -13,9 +13,31 @@ internal static class PromptTokenizer
     /// <param name="contextLength">The encoder's fixed prompt length.</param>
     /// <param name="prompt">The prompt.</param>
     /// <param name="count">Receives the number of prompt tokens before the padding.</param>
-    public static int[] Tokenize(ITokenizer tokenizer, int contextLength, string prompt, out int count)
+    /// <param name="template">
+    /// A template with <c>{prompt}</c> where the prompt goes (a language-model encoder's chat template, see
+    /// <see cref="DiffusionConfigKeys.PromptTemplate"/>), or null. Its special tokens are parsed, the prompt's are not, nothing else is
+    /// added; a templated prompt is cut at the context length.
+    /// </param>
+    public static int[] Tokenize(ITokenizer tokenizer, int contextLength, string prompt, out int count, string? template = null)
     {
-        var ids = tokenizer.Encode(prompt, addSpecial: true, parseSpecial: false).ToList();
+        List<int> ids;
+        if (template is not null && template.IndexOf("{prompt}", StringComparison.Ordinal) is int at and >= 0)
+        {
+            ids = [.. tokenizer.Encode(template[..at], addSpecial: false, parseSpecial: true),
+                .. tokenizer.Encode(prompt, addSpecial: false, parseSpecial: false),
+                .. tokenizer.Encode(template[(at + "{prompt}".Length)..], addSpecial: false, parseSpecial: true)];
+            ids = ids.Count > contextLength ? ids[..contextLength] : ids;
+            count = ids.Count;
+            int padding = tokenizer.PadId ?? tokenizer.EosId ?? 0;
+            while (ids.Count < contextLength)
+            {
+                ids.Add(padding);
+            }
+
+            return [.. ids];
+        }
+
+        ids = tokenizer.Encode(prompt, addSpecial: true, parseSpecial: false).ToList();
         int end = tokenizer.EosId ?? ids[^1];
         if (ids.Count > contextLength)
         {

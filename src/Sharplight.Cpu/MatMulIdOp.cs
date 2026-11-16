@@ -10,6 +10,12 @@ namespace Sharplight.Cpu;
 internal sealed unsafe class MatMulIdOp : CpuOp
 {
     private const int KB = 1024;
+
+    /// <summary>
+    /// Up to this many rows the fused dequantize-dot kernel runs once per row, so every row accumulates in the same order as a single row
+    /// does: a speculative verification step (2-4 rows) gives the logits of plain one-row decoding bit for bit.
+    /// </summary>
+    private const int FusedRowsMax = 4;
     private readonly TRef _x;
     private readonly TRef _w;
     private readonly TRef _ids;
@@ -158,12 +164,15 @@ internal sealed unsafe class MatMulIdOp : CpuOp
                 rows[r] = wbase + Math.Min(n0 + r, _n - 1) * _rowBytes;
             }
 
-            if (m == 1 && _fused)
+            if (m <= FusedRowsMax && _fused)
             {
-                Quant.DotRows4(_fmt, xr[0], rows, _k / bs, res);
-                for (int r = 0; r < nr; r++)
+                for (long t = 0; t < m; t++)
                 {
-                    yr[0][n0 + r] = res[r];
+                    Quant.DotRows4(_fmt, xr[t], rows, _k / bs, res);
+                    for (int r = 0; r < nr; r++)
+                    {
+                        yr[t][n0 + r] = res[r];
+                    }
                 }
 
                 continue;

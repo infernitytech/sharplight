@@ -20,7 +20,7 @@ internal sealed partial class RtDetrHfMapping : IHfArchitectureMapping
     public string Architecture => "rt_detr";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["rt_detr"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["rt_detr", "rt_detr_v2"];
 
     /// <inheritdoc/>
     public bool NeedsTokenizer => false;
@@ -31,6 +31,26 @@ internal sealed partial class RtDetrHfMapping : IHfArchitectureMapping
         if (c.Get("backbone_config") is not { ValueKind: JsonValueKind.Object } backbone || backbone.GetProperty("model_type").GetString() != "rt_detr_resnet")
         {
             yield return "rt_detr: only the RT-DETR ResNet backbone is supported.";
+        }
+
+        // RT-DETR v2 samples its deformable attention with per-level point counts, an offset scale and a sampling method; with one point count, scale 0.5 and
+        // bilinear sampling (the released v2 checkpoints) it is the v1 decoder.
+        if (c.ModelType == "rt_detr_v2")
+        {
+            if (c.Get("decoder_n_points") is { ValueKind: JsonValueKind.Array })
+            {
+                yield return "rt_detr_v2: per-level sampling point counts are not supported.";
+            }
+
+            if ((c.GetString("decoder_method") ?? "default") != "default")
+            {
+                yield return "rt_detr_v2: only the default (bilinear) sampling method is supported.";
+            }
+
+            if (Math.Abs((c.GetDouble("decoder_offset_scale") ?? 0.5) - 0.5) > 1e-6)
+            {
+                yield return "rt_detr_v2: only the decoder offset scale 0.5 is supported.";
+            }
         }
 
         if (c.GetBool("with_box_refine") == false)
@@ -63,6 +83,7 @@ internal sealed partial class RtDetrHfMapping : IHfArchitectureMapping
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [a + "hidden_size"] = c.Int("d_model"),
+            [a + "encoder.hidden_size"] = c.GetInt("encoder_hidden_dim") ?? c.Int("d_model"),
             [a + "attention.head_count"] = c.Int("decoder_attention_heads"),
             [a + "aifi.layer_count"] = c.Int("encoder_layers"),
             [a + "aifi.ffn_hidden_size"] = c.Int("encoder_ffn_dim"),
@@ -76,7 +97,9 @@ internal sealed partial class RtDetrHfMapping : IHfArchitectureMapping
             [a + "image_size"] = HfImageProcessorConfig.InputSize(processor, 640),
             [a + "level_count"] = c.GetInt("num_feature_levels") ?? 3,
             [a + "strides"] = string.Join(',', c.Get("feat_strides")!.Value.EnumerateArray().Select(v => v.GetInt32())),
-            [a + "backbone.depths"] = string.Join(',', backbone.GetProperty("depths").EnumerateArray().Select(v => v.GetInt32())),
+            [a + "backbone.depths"] = string.Join(',', Depths(backbone)),
+            [a + "backbone.bottleneck"] = (backbone.TryGetProperty("layer_type", out var layerType) ? layerType.GetString() : "bottleneck") == "bottleneck",
+            [a + "backbone.stride_in_first_conv"] = backbone.TryGetProperty("downsample_in_bottleneck", out var inBottleneck) && inBottleneck.ValueKind == JsonValueKind.True,
             [a + "norm_eps"] = (float)(c.GetDouble("layer_norm_eps") ?? 1e-5),
             [CanonicalKeys.ImageProcessor] = processor.ToJson().ToJsonString(),
         };
@@ -88,6 +111,10 @@ internal sealed partial class RtDetrHfMapping : IHfArchitectureMapping
         return md;
     }
 
+    // The backbone configuration omits the depths of ResNet-50 (the default of RTDetrResNetConfig).
+    private static IEnumerable<int> Depths(JsonElement backbone)
+        => backbone.TryGetProperty("depths", out var depths) ? depths.EnumerateArray().Select(v => v.GetInt32()) : [3, 4, 6, 3];
+
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
@@ -95,7 +122,8 @@ internal sealed partial class RtDetrHfMapping : IHfArchitectureMapping
         var collector = new HfWeightCollector();
         foreach (var (rawName, tensor) in tensors)
         {
-            if (rawName.EndsWith("num_batches_tracked", StringComparison.Ordinal) || rawName.Contains("denoising_class_embed", StringComparison.Ordinal) || IsBatchNorm(rawName))
+            // The v2 sampling-point scales are constants of the point count (1 / n_points per point).
+            if (rawName.EndsWith("num_batches_tracked", StringComparison.Ordinal) || rawName.EndsWith(".n_points_scale", StringComparison.Ordinal) || rawName.Contains("denoising_class_embed", StringComparison.Ordinal) || IsBatchNorm(rawName))
             {
                 continue;
             }

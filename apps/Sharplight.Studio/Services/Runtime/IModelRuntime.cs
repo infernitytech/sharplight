@@ -27,10 +27,14 @@ internal interface IModelRuntime : IDisposable
 
     /// <summary>
     /// The companion files a model file needs that the engine's importers find beside it, by auxiliary role (a transformer-only FLUX
-    /// file: the <c>text-encoder</c>, <c>text-encoder-2</c> and <c>vae</c> files); empty when it needs none or none were found.
+    /// file: the <c>text-encoder</c>, <c>text-encoder-2</c> and <c>vae</c> files; SD3 also <c>text-encoder-3</c>); empty when it needs none or none were found.
     /// </summary>
     /// <param name="path">The model file.</param>
     public IReadOnlyDictionary<string, string> FindCompanions(string path) => new Dictionary<string, string>();
+
+    /// <summary>The companion files a model file needs, in presentation order (role, label, typical names); empty when it needs none.</summary>
+    /// <param name="path">The model file.</param>
+    public IReadOnlyList<Sharplight.Models.CompanionFile> DescribeCompanions(string path) => [];
 
     /// <summary>Waits for running requests (at most a few seconds), frees the model's memory and removes it.</summary>
     public Task UnloadAsync(string id);
