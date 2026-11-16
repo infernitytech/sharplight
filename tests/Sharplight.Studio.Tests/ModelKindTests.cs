@@ -63,7 +63,7 @@ public sealed class ModelKindTests
         var library = CreateLibrary(services);
         await library.RefreshAsync();
 
-        Assert.Equal(["All kinds (4)", "Text generation (2)", "Speech to text (1)", "OCR (1)"], library.KindFilters.Select(filter => filter.Title));
+        Assert.Equal(["All kinds (4)", "Text generation (2)", "Speech to text (1)", "Time series (1)"], library.KindFilters.Select(filter => filter.Title));
         Assert.True(library.HasKindFilter);
         Assert.Equal(4, library.VisibleEntries.Count);
         Assert.Equal("Text generation", library.Entries[0].KindTitle);
@@ -112,7 +112,7 @@ public sealed class ModelKindTests
         library.LoadCommand.Execute(library.Entries[0]);
 
         Assert.Null(library.LoadPanel);
-        Assert.Contains("ocr model", library.Status, StringComparison.Ordinal);
+        Assert.Contains("time series model", library.Status, StringComparison.Ordinal);
         Assert.Contains("cannot run", library.Status, StringComparison.Ordinal);
     }
 
