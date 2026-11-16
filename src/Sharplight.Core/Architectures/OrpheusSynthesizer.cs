@@ -48,6 +48,7 @@ internal sealed class OrpheusSynthesizer : ISpeechSynthesizer
     private readonly bool _noise;
     private readonly long[] _strides;
     private readonly long[] _rates;
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private InferenceSession? _session;
     private CompiledModel? _codec;
     private bool _disposed;
@@ -103,17 +104,23 @@ internal sealed class OrpheusSynthesizer : ISpeechSynthesizer
     public async Task<SpeechSynthesisResult> SynthesizeAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
     {
         var codes = await GenerateCodesAsync(text, options, cancellationToken).ConfigureAwait(false);
-        var audio = await Task.Run(() => Decode(codes), cancellationToken).ConfigureAwait(false);
+        var audio = await BackgroundCompute.RunAsync(_gate, () => Decode(codes), cancellationToken).ConfigureAwait(false);
         return new SpeechSynthesisResult(audio, options?.Voice);
     }
 
     /// <inheritdoc/>
-    public async IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Returns at once: generation and decoding run on a background task (<see cref="BackgroundCompute"/>), one request at a time per client,
+    /// and the audio is queued for the caller without waiting for it to be consumed.
+    /// </remarks>
+    public IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
+        => BackgroundCompute.StreamAsync(token => SynthesizeCoreAsync(text, options, token), cancellationToken);
+
+    private async IAsyncEnumerable<AudioBuffer> SynthesizeCoreAsync(string text, SpeechSynthesisOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var codes = new List<int>();
         int decoded = 0;
-        await foreach (int code in GenerateCodeStreamAsync(text, options, cancellationToken).ConfigureAwait(false))
+        await foreach (int code in GenerateCodeStreamGatedAsync(text, options, cancellationToken).ConfigureAwait(false))
         {
             codes.Add(code);
             int frames = codes.Count / TokensPerFrame;
@@ -149,12 +156,29 @@ internal sealed class OrpheusSynthesizer : ISpeechSynthesizer
     public async Task<int[]> GenerateCodesAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
     {
         var codes = new List<int>();
-        await foreach (int code in GenerateCodeStreamAsync(text, options, cancellationToken).ConfigureAwait(false))
+        await foreach (int code in BackgroundCompute.StreamAsync(token => GenerateCodeStreamGatedAsync(text, options, token), cancellationToken).ConfigureAwait(false))
         {
             codes.Add(code);
         }
 
         return [.. codes];
+    }
+
+    /// <summary><see cref="GenerateCodeStreamAsync"/> holding the client's gate (one request at a time: the session is shared).</summary>
+    private async IAsyncEnumerable<int> GenerateCodeStreamGatedAsync(string text, SpeechSynthesisOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var item in GenerateCodeStreamAsync(text, options, cancellationToken).ConfigureAwait(false))
+            {
+                yield return item;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>Runs the codec decoder over <paramref name="codes"/> (seven per frame; a trailing partial frame and codes outside the codebook are dropped).</summary>
@@ -258,5 +282,6 @@ internal sealed class OrpheusSynthesizer : ISpeechSynthesizer
         _disposed = true;
         _session?.Dispose();
         _codec?.Dispose();
+        _gate.Dispose();
     }
 }
