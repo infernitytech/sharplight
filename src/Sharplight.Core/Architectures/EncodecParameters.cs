@@ -19,8 +19,9 @@ namespace Sharplight.Architectures;
 /// <param name="Codebooks">The number of codebooks in the checkpoint.</param>
 /// <param name="DefaultCodebooks">The number of codebooks used by default.</param>
 /// <param name="ConvShortcut">Whether the residual shortcut is a convolution.</param>
+/// <param name="Causal">Whether the convolutions are causal (padding on the left only); non-causal ones (the 32 kHz codec of MusicGen) pad both sides.</param>
 internal sealed record EncodecParameters(int SampleRate, int Hidden, int Filters, int KernelSize, int LastKernelSize, int ResidualKernelSize, int DilationGrowth, int ResidualLayers,
-    int Compress, int LstmLayers, long[] Ratios, int CodebookSize, int CodebookDim, int Codebooks, int DefaultCodebooks, bool ConvShortcut)
+    int Compress, int LstmLayers, long[] Ratios, int CodebookSize, int CodebookDim, int Codebooks, int DefaultCodebooks, bool ConvShortcut, bool Causal = true)
 {
     /// <summary>The canonical architecture id.</summary>
     public const string Architecture = "encodec";
@@ -34,5 +35,5 @@ internal sealed record EncodecParameters(int SampleRate, int Hidden, int Filters
         source.Arch<int>("sample_rate"), source.Arch<int>("hidden_size"), source.Arch<int>("num_filters"), source.Arch<int>("kernel_size"), source.Arch<int>("last_kernel_size"),
         source.Arch<int>("residual_kernel_size"), source.Arch<int>("dilation_growth_rate"), source.Arch<int>("residual_layers"), source.Arch<int>("compress"),
         source.Arch<int>("lstm_layers"), source.Arch<long[]>("upsampling_ratios"), source.Arch<int>("codebook_size"), source.Arch<int>("codebook_dim"),
-        source.Arch<int>("codebook_count"), source.Arch<int>("default_codebooks"), source.Arch("conv_shortcut", true));
+        source.Arch<int>("codebook_count"), source.Arch<int>("default_codebooks"), source.Arch("conv_shortcut", true), source.Arch("causal", true));
 }

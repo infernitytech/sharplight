@@ -20,7 +20,7 @@ internal static class EncodecGraph
         var b = new GraphBuilder(AudioCodecGraphs.EncodeGraph, weights);
         var x = b.Input(AudioCodecGraphs.AudioInput, InputRole.Media, DataType.F32, new Shape(Dim.Sym(WellKnown.TokenSymbol), 1));
         int layer = 0;
-        x = Conv(b, x, $"encoder.layers.{layer++}", p.KernelSize);
+        x = Conv(b, p, x, $"encoder.layers.{layer++}", p.KernelSize);
         long scale = 1;
         for (int i = p.Ratios.Length - 1; i >= 0; i--)
         {
@@ -30,13 +30,13 @@ internal static class EncodecGraph
             }
 
             long ratio = p.Ratios[i];
-            x = Conv(b, b.Unary("Elu", x), $"encoder.layers.{layer + 1}", (int)(2 * ratio), stride: ratio);
+            x = Conv(b, p, b.Unary("Elu", x), $"encoder.layers.{layer + 1}", (int)(2 * ratio), stride: ratio);
             layer += 2;
             scale *= 2;
         }
 
         x = Lstm(b, p, x, $"encoder.layers.{layer++}");
-        x = Conv(b, b.Unary("Elu", x), $"encoder.layers.{layer + 1}", p.LastKernelSize);
+        x = Conv(b, p, b.Unary("Elu", x), $"encoder.layers.{layer + 1}", p.LastKernelSize);
 
         var residual = x;
         for (int q = 0; q < p.Codebooks; q++)
@@ -75,13 +75,13 @@ internal static class EncodecGraph
         }
 
         int layer = 0;
-        var x = Conv(b, latent!, $"decoder.layers.{layer++}", p.KernelSize);
+        var x = Conv(b, p, latent!, $"decoder.layers.{layer++}", p.KernelSize);
         x = Lstm(b, p, x, $"decoder.layers.{layer++}");
         foreach (long ratio in p.Ratios)
         {
             x = b.Unary("Elu", x);
             x = b.Emit1("ConvTranspose1d", [x, b.Weight($"decoder.layers.{layer + 1}.weight"), b.Weight($"decoder.layers.{layer + 1}.bias")],
-                Attributes.From(("stride", ratio), ("crop_left", 0L), ("crop_right", ratio)));
+                Attributes.From(("stride", ratio), ("crop_left", p.Causal ? 0L : ratio - (ratio / 2)), ("crop_right", p.Causal ? ratio : ratio / 2)));
             layer += 2;
             for (int j = 0; j < p.ResidualLayers; j++)
             {
@@ -89,23 +89,24 @@ internal static class EncodecGraph
             }
         }
 
-        x = Conv(b, b.Unary("Elu", x), $"decoder.layers.{layer + 1}", p.LastKernelSize);
+        x = Conv(b, p, b.Unary("Elu", x), $"decoder.layers.{layer + 1}", p.LastKernelSize);
         b.Output(AudioCodecGraphs.AudioOutput, x);
         return b.Build();
     }
 
     private static Value Residual(GraphBuilder b, EncodecParameters p, Value x, string name, long[] dilations)
     {
-        var y = Conv(b, b.Unary("Elu", x), name + ".block.1", p.ResidualKernelSize, dilation: dilations[0]);
-        y = Conv(b, b.Unary("Elu", y), name + ".block.3", 1, dilation: dilations[1]);
-        return b.Add(p.ConvShortcut ? Conv(b, x, name + ".shortcut", 1) : x, y);
+        var y = Conv(b, p, b.Unary("Elu", x), name + ".block.1", p.ResidualKernelSize, dilation: dilations[0]);
+        y = Conv(b, p, b.Unary("Elu", y), name + ".block.3", 1, dilation: dilations[1]);
+        return b.Add(p.ConvShortcut ? Conv(b, p, x, name + ".shortcut", 1) : x, y);
     }
 
     // The causal convolution with reflect padding: padding_total = (kernel - 1) · dilation + 1 - stride on the left, none on the right.
-    private static Value Conv(GraphBuilder b, Value x, string name, int kernel, long stride = 1, long dilation = 1)
+    private static Value Conv(GraphBuilder b, EncodecParameters p, Value x, string name, int kernel, long stride = 1, long dilation = 1)
     {
         long total = (((kernel - 1) * dilation) + 1) - stride;
-        var attributes = Attributes.From(("stride", stride), ("dilation", dilation), ("pad_left", total), ("pad_right", 0L), ("pad_mode", total > 0 ? "reflect" : "zeros"));
+        long right = p.Causal ? 0 : total / 2;
+        var attributes = Attributes.From(("stride", stride), ("dilation", dilation), ("pad_left", total - right), ("pad_right", right), ("pad_mode", total > 0 ? "reflect" : "zeros"));
         return b.Emit1("Conv1d", [x, b.Weight(name + ".weight"), b.Weight(name + ".bias")], attributes);
     }
 
