@@ -148,21 +148,19 @@
           <ToggleSwitch Content="Offload to the CPU when it does not fit" IsChecked="{Binding CpuOffload}" IsEnabled="{Binding CanOffload}" />
         </StackPanel>
         <StackPanel Spacing="4" IsVisible="{Binding NeedsCompanions}">
-          <TextBlock Classes="label" Text="Text encoder (CLIP-L)" />
-          <DockPanel>
-            <Button DockPanel.Dock="Right" Classes="small" Content="Browse" Command="{Binding BrowseTextEncoderCommand}" Margin="8,0,0,0" />
-            <TextBox Text="{Binding TextEncoderPath}" PlaceholderText="clip_l.safetensors" />
-          </DockPanel>
-          <TextBlock Classes="label" Text="Text encoder 2 (T5-XXL)" />
-          <DockPanel>
-            <Button DockPanel.Dock="Right" Classes="small" Content="Browse" Command="{Binding BrowseSecondTextEncoderCommand}" Margin="8,0,0,0" />
-            <TextBox Text="{Binding SecondTextEncoderPath}" PlaceholderText="t5-v1_1-xxl-encoder-Q8_0.gguf or t5xxl_fp16.safetensors" />
-          </DockPanel>
-          <TextBlock Classes="label" Text="VAE" />
-          <DockPanel>
-            <Button DockPanel.Dock="Right" Classes="small" Content="Browse" Command="{Binding BrowseVaeCommand}" Margin="8,0,0,0" />
-            <TextBox Text="{Binding VaePath}" PlaceholderText="ae.safetensors" />
-          </DockPanel>
+          <ItemsControl ItemsSource="{Binding Companions}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="mvm:CompanionFileViewModel">
+                <StackPanel Spacing="4" Margin="0,0,0,4">
+                  <TextBlock Classes="label" Text="{Binding Label}" />
+                  <DockPanel>
+                    <Button DockPanel.Dock="Right" Classes="small" Content="Browse" Command="{Binding BrowseCommand}" Margin="8,0,0,0" />
+                    <TextBox Text="{Binding Path}" PlaceholderText="{Binding Example}" />
+                  </DockPanel>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
           <TextBlock Classes="caption" TextWrapping="Wrap" Text="This file holds only the diffusion transformer; the text encoders and the VAE come as separate files (those found next to it are filled in). A .slm package made with them needs none." />
         </StackPanel>
         <StackPanel Spacing="4" IsVisible="{Binding NeedsVocoder}">

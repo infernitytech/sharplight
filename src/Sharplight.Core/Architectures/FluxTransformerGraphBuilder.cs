@@ -38,6 +38,9 @@ internal sealed class FluxTransformerGraphBuilder
     private readonly long _latentWidth;
     private Value _positions = null!;
     private Value _frequencyFactors = null!;
+    private Value? _modulations;
+    private Value? _keyBias;
+    private Value _modulationInput = null!;
 
     private FluxTransformerGraphBuilder(Func<string, WeightInfo?> weights, FluxHyperParameters hp, long latentHeight, long latentWidth, int textRows)
     {
@@ -64,23 +67,36 @@ internal sealed class FluxTransformerGraphBuilder
         var latent = _b.Input(DiffusionGraphs.Latent, InputRole.Other, DataType.F32, new Shape(1, _hp.LatentChannels, _latentHeight, _latentWidth));
         var timestep = _b.Input(DiffusionGraphs.Timestep, InputRole.Other, DataType.F32, new Shape(1));
         var context = _b.Input(DiffusionGraphs.Context, InputRole.Other, DataType.F32, new Shape(1, _textRows, _hp.ContextDim));
-        var pooled = _b.Input(DiffusionGraphs.Pooled, InputRole.Other, DataType.F32, new Shape(1, _hp.PooledDim));
-        var guidance = _hp.GuidanceEmbed ? _b.Input(DiffusionGraphs.Guidance, InputRole.Other, DataType.F32, new Shape(1)) : null;
         DeclarePositions();
-
-        Value vector;
-        using (_b.Group("conditioning"))
+        if (_hp.MaskedText)
         {
-            vector = Mlp(Sinusoids(timestep, "time_frequencies"), P + "time_in");
-            if (guidance is not null)
-            {
-                vector = _b.Add(vector, Mlp(Sinusoids(_b.Scale(guidance, 1000f), "guidance_frequencies"), P + "guidance_in"));
-            }
-
-            vector = _b.Add(vector, Mlp(pooled, P + "vector_in"));
+            // Masked text keys get −1e9 (0 → −1e9, 1 → 0); the image keys none.
+            var mask = _b.Input(DiffusionGraphs.ContextMask, InputRole.Other, DataType.F32, new Shape(1, _textRows));
+            var zeros = _b.Constant("image_key_bias", DataType.F32, new Shape(_imageRows), new byte[_imageRows * sizeof(float)]);
+            _keyBias = _b.Concat(0, _b.Reshape(_b.Scale(mask, 1e9f, -1e9f), _textRows), zeros);
         }
 
-        var modulationInput = _b.Silu(vector);
+        using (_b.Group("conditioning"))
+        {
+            if (_hp.ApproximatorLayers > 0)
+            {
+                _modulations = Approximator(timestep);
+            }
+            else
+            {
+                var pooled = _b.Input(DiffusionGraphs.Pooled, InputRole.Other, DataType.F32, new Shape(1, _hp.PooledDim));
+                var guidance = _hp.GuidanceEmbed ? _b.Input(DiffusionGraphs.Guidance, InputRole.Other, DataType.F32, new Shape(1)) : null;
+                var vector = Mlp(Sinusoids(timestep, "time_frequencies", FrequencyChannels), P + "time_in");
+                if (guidance is not null)
+                {
+                    vector = _b.Add(vector, Mlp(Sinusoids(_b.Scale(guidance, 1000f), "guidance_frequencies", FrequencyChannels), P + "guidance_in"));
+                }
+
+                vector = _b.Add(vector, Mlp(pooled, P + "vector_in"));
+                _modulationInput = _b.Silu(vector);
+            }
+        }
+
         Value image;
         Value text;
         using (_b.Group("input"))
@@ -92,20 +108,20 @@ internal sealed class FluxTransformerGraphBuilder
         for (int i = 0; i < _hp.DoubleLayers; i++)
         {
             using var _ = _b.Group($"double.{i}");
-            (image, text) = DoubleBlock(image, text, modulationInput, $"{P}double.{i}.");
+            (image, text) = DoubleBlock(image, text, i, $"{P}double.{i}.");
         }
 
         var x = _b.Concat(0, text, image);
         for (int i = 0; i < _hp.SingleLayers; i++)
         {
             using var _ = _b.Group($"single.{i}");
-            x = SingleBlock(x, modulationInput, $"{P}single.{i}.");
+            x = SingleBlock(x, i, $"{P}single.{i}.");
         }
 
         using (_b.Group("output"))
         {
             image = _b.Slice(x, 0, _textRows, _imageRows);
-            var final = Linear(modulationInput, P + "final.mod");
+            var final = Modulation(P + "final.mod", 2, ModulationRows - 2);
             var normed = Modulate(image, Chunk(final, 0, d), Chunk(final, 1, d));
             _b.Output(DiffusionGraphs.Prediction, Unpatchify(Linear(normed, P + "final.linear")));
         }
@@ -134,11 +150,11 @@ internal sealed class FluxTransformerGraphBuilder
     }
 
     /// <summary>A dual-stream block: modulated pre-norm joint attention and modulated MLPs, each stream with its own weights.</summary>
-    private (Value Image, Value Text) DoubleBlock(Value image, Value text, Value modulationInput, string p)
+    private (Value Image, Value Text) DoubleBlock(Value image, Value text, int index, string p)
     {
         int d = _hp.HiddenSize;
-        var imageMod = Linear(modulationInput, p + "img_mod");
-        var textMod = Linear(modulationInput, p + "txt_mod");
+        var imageMod = Modulation(p + "img_mod", 6, 3 * _hp.SingleLayers + 6 * index);
+        var textMod = Modulation(p + "txt_mod", 6, 3 * _hp.SingleLayers + 6 * _hp.DoubleLayers + 6 * index);
         var (iq, ik, iv) = Projections(Modulate(image, Chunk(imageMod, 0, d), Chunk(imageMod, 1, d)), p + "img_attn", _imageRows);
         var (tq, tk, tv) = Projections(Modulate(text, Chunk(textMod, 0, d), Chunk(textMod, 1, d)), p + "txt_attn", _textRows);
         var attended = Attend(_b.Concat(0, tq, iq), _b.Concat(0, tk, ik), _b.Concat(0, tv, iv));
@@ -152,11 +168,11 @@ internal sealed class FluxTransformerGraphBuilder
     }
 
     /// <summary>A single-stream block: one projection to q, k, v and the MLP input, attention and MLP side by side, one output projection.</summary>
-    private Value SingleBlock(Value x, Value modulationInput, string p)
+    private Value SingleBlock(Value x, int index, string p)
     {
         int d = _hp.HiddenSize;
         int rows = _textRows + _imageRows;
-        var mod = Linear(modulationInput, p + "mod");
+        var mod = Modulation(p + "mod", 3, 3 * index);
         var projected = Linear(Modulate(x, Chunk(mod, 0, d), Chunk(mod, 1, d)), p + "linear1");
         long mlpWidth = projected.Shape[1].Fixed - 3 * d;
         var q = _b.RmsNorm(Heads(_b.Contiguous(_b.Slice(projected, 1, 0, d)), rows), _b.Weight(p + "norm_q.weight"), NormEps);
@@ -187,9 +203,65 @@ internal sealed class FluxTransformerGraphBuilder
         k = _b.Emit1("Rope", [k, _positions, _frequencyFactors], rope);
         // f16 products with f32 accumulation (tensor-core flash attention): FLUX is trained and run in bf16, and the exact f32
         // kernel for 128-wide heads is the scalar one (96 % of a 1024×1024 step).
-        var attended = _b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(_hp.HeadDim)), ("causal", false),
-            (StandardOps.F16ProductsAttribute, true)));
+        var attended = _b.Emit1("Attention", _keyBias is null ? [q, k, v] : [q, k, v, _keyBias], Attributes.From(("scale", 1f / MathF.Sqrt(_hp.HeadDim)),
+            ("causal", false), (StandardOps.F16ProductsAttribute, true)));
         return _b.Reshape(attended, rows, _hp.HiddenSize);
+    }
+
+    /// <summary>The modulation rows of Chroma's approximator, or of FLUX's projections of the conditioning vector.</summary>
+    private int ModulationRows => 3 * _hp.SingleLayers + 12 * _hp.DoubleLayers + 2;
+
+    /// <summary>
+    /// A modulation vector [1, chunks · D]: with the approximator its rows [first, first + chunks) (Chroma), else the projection
+    /// <paramref name="module"/> of the SiLU'd conditioning vector (FLUX).
+    /// </summary>
+    private Value Modulation(string module, int chunks, int first)
+        => _modulations is { } rows
+            ? _b.Reshape(_b.Contiguous(_b.Slice(rows, 0, first, chunks)), 1, (long)chunks * _hp.HiddenSize)
+            : Linear(_modulationInput, module);
+
+    /// <summary>
+    /// Chroma's modulation approximator: per modulation row the sinusoidal embeddings of the timestep (16 channels), of guidance 0
+    /// (16) and of the row index · 1000 (32), through an input projection, residual RMS-normed SiLU MLPs and an output projection,
+    /// giving [rows, D].
+    /// </summary>
+    private Value Approximator(Value timestep)
+    {
+        int rows = ModulationRows;
+        int quarter = _hp.ApproximatorChannels / 4;
+        var time = Sinusoids(timestep, "time_frequencies", quarter);
+        var ones = new float[rows];
+        Array.Fill(ones, 1f);
+        var broadcast = _b.Constant("approximator_rows", DataType.F32, new Shape(rows, 1), MemoryMarshal.AsBytes(ones.AsSpan()).ToArray());
+        var fixedPart = new float[rows * 3 * quarter];
+        int half = quarter / 2;
+        int indexHalf = quarter;
+        for (int row = 0; row < rows; row++)
+        {
+            int o = row * 3 * quarter;
+            // Guidance 0: cos 0 = 1, sin 0 = 0.
+            fixedPart.AsSpan(o, half).Fill(1f);
+            // The row index · 1000 in 2 · quarter channels, computed in f32 as diffusers' get_timestep_embedding does.
+            for (int i = 0; i < indexHalf; i++)
+            {
+                float exponent = (float)(-Math.Log(10000)) * i / indexHalf;
+                float argument = row * 1000f * (float)Math.Exp(exponent);
+                fixedPart[o + quarter + i] = (float)Math.Cos(argument);
+                fixedPart[o + quarter + indexHalf + i] = (float)Math.Sin(argument);
+            }
+        }
+
+        var constant = _b.Constant("approximator_fixed", DataType.F32, new Shape(rows, 3 * quarter), MemoryMarshal.AsBytes(fixedPart.AsSpan()).ToArray());
+        var x = Linear(_b.Concat(1, _b.Mul(broadcast, time), constant), P + "approximator.in_proj");
+        for (int layer = 0; layer < _hp.ApproximatorLayers; layer++)
+        {
+            string p = $"{P}approximator.layers.{layer}";
+            // torch.nn.RMSNorm without eps: the f32 machine epsilon.
+            var normed = _b.RmsNorm(x, _b.Weight($"{P}approximator.norms.{layer}.weight"), 1.1920929e-07f);
+            x = _b.Add(x, Mlp(normed, p));
+        }
+
+        return Linear(x, P + "approximator.out_proj");
     }
 
     private Value Heads(Value x, int rows) => _b.Reshape(x, rows, _hp.HeadCount, _hp.HeadDim);
@@ -212,12 +284,12 @@ internal sealed class FluxTransformerGraphBuilder
     private Value Linear(Value x, string module) => _b.Linear(x, module + ".weight", _b.HasWeight(module + ".bias") ? module + ".bias" : null);
 
     /// <summary>
-    /// The sinusoidal embedding of values [1] into 256 channels, cosines first, frequencies 10000^(−i / 128) (diffusers'
-    /// <c>Timesteps(256, flip_sin_to_cos=True, downscale_freq_shift=0)</c>).
+    /// The sinusoidal embedding of values [1] into <paramref name="channels"/> channels, cosines first, frequencies 10000^(−i / half)
+    /// (diffusers' <c>Timesteps(channels, flip_sin_to_cos=True, downscale_freq_shift=0)</c>).
     /// </summary>
-    private Value Sinusoids(Value values, string name)
+    private Value Sinusoids(Value values, string name, int channels)
     {
-        int half = FrequencyChannels / 2;
+        int half = channels / 2;
         var frequencies = new float[half];
         for (int i = 0; i < half; i++)
         {

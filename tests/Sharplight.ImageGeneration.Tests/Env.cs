@@ -48,6 +48,33 @@ internal static class Env
     /// <summary>The tiny random FLUX pipelines (tools/make-tiny-flux.py), one folder per variant ("dev", "schnell").</summary>
     public static readonly string TinyFlux = Path.Combine(Home, "models/flux/tiny-random-flux");
 
+    /// <summary>The tiny random SD3 pipelines (tools/make-tiny-sd3.py), one folder per variant ("sd3", "sd35").</summary>
+    public static readonly string TinySd3 = Path.Combine(Home, "models/sd3/tiny-random-sd3");
+
+    /// <summary>The SD3 model folder (diffusers folders, GGUF files with companions, references).</summary>
+    public static readonly string Sd3Root = Path.Combine(Home, "models/sd3");
+
+    /// <summary>Stable Diffusion 3.5 Medium as a diffusers folder (fp16 files; an ungated mirror of the official repository).</summary>
+    public static readonly string Sd35MediumDiffusers = Path.Combine(Sd3Root, "sd3.5-medium-diffusers");
+
+    /// <summary>Stable Diffusion 3.5 Medium as city96's transformer-only Q8_0 GGUF.</summary>
+    public static readonly string Sd35MediumGguf = Path.Combine(Sd3Root, "gguf", "sd3.5_medium-Q8_0.gguf");
+
+    /// <summary>city96's T5-XXL encoder Q8_0 GGUF (the T5 companion of FLUX, SD3 and Chroma).</summary>
+    public static readonly string T5XxlGguf = Path.Combine(FluxRoot, "gguf", "t5-v1_1-xxl-encoder-Q8_0.gguf");
+
+    /// <summary>The tiny random Chroma pipeline (tools/make-tiny-chroma.py).</summary>
+    public static readonly string TinyChroma = Path.Combine(Home, "models/chroma/tiny-random-chroma");
+
+    /// <summary>The tiny random Z-Image pipeline (tools/make-tiny-zimage.py).</summary>
+    public static readonly string TinyZImage = Path.Combine(Home, "models/zimage/tiny-random-zimage");
+
+    /// <summary>The Z-Image model folder (the Z-Image-Turbo diffusers folder, GGUF files, references).</summary>
+    public static readonly string ZImageRoot = Path.Combine(Home, "models/zimage");
+
+    /// <summary>The Chroma model folder (GGUF files, configurations, references).</summary>
+    public static readonly string ChromaRoot = Path.Combine(Home, "models/chroma");
+
     /// <summary>The tiny random Wan pipelines (tools/make-tiny-wan.py: t2v, ti2v).</summary>
     public static readonly string TinyWan = Path.Combine(Home, "models/video/tiny-random-wan");
 

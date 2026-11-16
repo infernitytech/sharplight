@@ -40,6 +40,12 @@ public static class DiffusionConfigKeys
     /// <summary>Text encoder and tokenizer: tokens per prompt, including the start and end tokens (77 for CLIP).</summary>
     public const string ContextLength = "contextLength";
 
+    /// <summary>
+    /// Tokenizer: a template the prompt is put into before tokenizing, with <c>{prompt}</c> where the prompt goes (a language-model text
+    /// encoder's chat template, Z-Image); special tokens in the template are parsed, in the prompt they are not.
+    /// </summary>
+    public const string PromptTemplate = "promptTemplate";
+
     /// <summary>Text encoder: the padding token id of the second encoder's prompts (SDXL's OpenCLIP tokenizer pads with <c>!</c>).</summary>
     public const string SecondPadId = "secondPadId";
 
@@ -48,6 +54,12 @@ public static class DiffusionConfigKeys
     /// encoding (diffusers' <c>force_zeros_for_empty_prompt</c>, SDXL).
     /// </summary>
     public const string ZeroEmptyNegative = "zeroEmptyNegative";
+
+    /// <summary>
+    /// Text encoder: the component's hidden states are appended to the other encoders' along the sequence (zero-padded to the wider
+    /// width) instead of being joined per token (SD3's T5 encoder; default false).
+    /// </summary>
+    public const string JoinSequence = "joinSequence";
 
     /// <summary>Scheduler: number of training timesteps (default 1000).</summary>
     public const string TrainSteps = "trainSteps";
@@ -99,6 +111,12 @@ public static class DiffusionConfigKeys
 
     /// <summary>Scheduler (flow): image tokens of <see cref="MaxShift"/> (default 4096).</summary>
     public const string MaxSequenceLength = "maxSequenceLength";
+
+    /// <summary>
+    /// Denoiser: the padding tokens after the prompt that stay visible in a <see cref="DiffusionGraphs.ContextMask"/> (Chroma: 1, the
+    /// first padding token; default 0).
+    /// </summary>
+    public const string ContextMaskPadding = "contextMaskPadding";
 
     /// <summary>
     /// Scheduler (flow): the noise level the shifted schedule is stretched to end at before the final 0 (diffusers'

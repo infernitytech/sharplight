@@ -122,14 +122,16 @@ public partial class SpeculativeDecodingTests
     }
 
     private static async Task Matches_NonSpeculativeDecoding(string modelPath, bool vulkan, string speculator, bool deviceSampling, SamplingParams sampling,
-        Action<LlmModel>? check = null, IReadOnlyDictionary<string, string>? auxiliary = null)
+        Action<LlmModel>? check = null, IReadOnlyDictionary<string, string>? auxiliary = null, bool cpuFallback = false)
     {
         Assert.SkipUnless(Path.Exists(modelPath), $"{modelPath} not present");
         using var device = OpenDevice(vulkan);
+        using var fallback = cpuFallback && vulkan ? OpenDevice(false) : null;
         using var model = LlmModel.Load(TestHost.Loader, modelPath, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = deviceSampling,
             Auxiliary = new Dictionary<string, string>(auxiliary ?? new Dictionary<string, string>()),
+            Fallback = fallback is null ? null : new DeviceSlot { Device = fallback },
         });
         Assert.True(model.HasDraftHead);
         check?.Invoke(model);

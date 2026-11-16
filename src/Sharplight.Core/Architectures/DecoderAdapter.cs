@@ -116,6 +116,9 @@ namespace Sharplight.Architectures;
 /// <see cref="WellKnown.VisionEncodeGraph"/> (and for a two-stage tower with tiles <see cref="SamParameters.TileGraph"/>) and
 /// <see cref="WellKnown.DecodeMultimodalGraph"/> graphs (DeepStack blocks of the tower are added after
 /// the first layers) and prompts are assembled by <see cref="Qwen35Multimodal"/>.
+/// Optional audio tower (<c>decoder.audio.*</c>, <see cref="AudioTowerParameters"/>): the definition gets the audio tower's graph, the multimodal graph and a
+/// speech-recognition description (<see cref="AudioLanguageModelDescription"/>). Optional <c>decoder.embedding_input</c> (bool): the multimodal graph is
+/// built for models fed with host-computed embedding rows.
 /// Semantics: RMS norm weights multiply directly (any "1 + w" convention is folded in by the importer); q/k rows are in
 /// rotate-half (neox) order per head, whatever <c>rope.style</c> says about the pairing the rope op uses on them is the
 /// importer's concern (a llama.cpp "normal"-rope checkpoint is un-permuted on import so canonical weights are format independent).
@@ -183,6 +186,38 @@ public sealed class DecoderAdapter : IModelAdapter
                 graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, visionSrc.Weight);
             }
             graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(vision.DeepstackLayers.Length);
+        }
+
+        // Audio tower (audio language models such as Qwen3-ASR): its rows replace the audio placeholders through the multimodal graph.
+        ModelDescription? audioDescription = null;
+        if (AudioTowerParameters.From(src) is { } audio)
+        {
+            var prompt = AudioPromptSettings.From(src)
+                ?? throw new NotSupportedException($"{src.Architecture}: an audio tower needs the audio prompt keys (audio.prompt.template).");
+            var merged = new Dictionary<string, WeightInfo>(weights, StringComparer.Ordinal);
+            bool whisper = audio.Tower == AudioTowerParameters.Whisper;
+            var derived = whisper ? WhisperAudioTowerGraph.DerivedWeights(audio, merged.GetValueOrDefault) : ChunkedAudioTowerGraph.DerivedWeights(audio, merged.GetValueOrDefault);
+            foreach (var w in derived.ToList())
+            {
+                merged[w.Name] = w;
+            }
+
+            weights = merged;
+            graphs[ChunkedAudioTowerGraph.AudioEncodeGraph] = whisper
+                ? WhisperAudioTowerGraph.Build(audio, merged.GetValueOrDefault)
+                : ChunkedAudioTowerGraph.Build(audio, merged.GetValueOrDefault);
+            if (!graphs.ContainsKey(WellKnown.DecodeMultimodalGraph))
+            {
+                graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(0);
+            }
+
+            audioDescription = AudioLanguageModelDescription.Build(src, audio, prompt, graphs, weights);
+        }
+
+        // Models whose every input row is an embedding the host computes (Chatterbox's T3: conditioning, text and speech rows with learned positions).
+        if (!graphs.ContainsKey(WellKnown.DecodeMultimodalGraph) && src.Arch("embedding_input", false))
+        {
+            graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(0);
         }
 
         var states = graphBuilder.States;
@@ -293,6 +328,8 @@ public sealed class DecoderAdapter : IModelAdapter
             SourceMetadata = src.Metadata,
             OwnedResources = owned,
             Properties = props,
+            Description = audioDescription,
+            Attachments = audioDescription is null ? new Dictionary<string, IWeightSource>() : src.Attachments,
         };
     }
 

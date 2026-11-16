@@ -13,12 +13,13 @@ public class TextRecognizerTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    private static string Model(string name) => Path.Combine(Home, "models/vision", name);
+    private static string Model(string name) => Path.Combine(Home, Directory.Exists(Path.Combine(Home, "models/vision", name)) ? "models/vision" : "models/vision-sweep", name);
 
     private static bool Available(string name) => File.Exists(Path.Combine(Model(name), "sharplight-reference.json"));
 
     [Theory]
     [InlineData("trocr-base-printed")]
+    [InlineData("trocr-base-handwritten")]
     public async Task RecognizerMatchesTransformers(string name)
     {
         if (!Available(name))

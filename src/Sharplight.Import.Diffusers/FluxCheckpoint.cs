@@ -3,10 +3,10 @@ using Sharplight.Models;
 namespace Sharplight.Import.Diffusers;
 
 /// <summary>
-/// A FLUX transformer in one file under the original (Black Forest Labs) names: the official single-file <c>.safetensors</c>
+/// A FLUX (or Chroma) transformer in one file under the original (Black Forest Labs) names: the official single-file <c>.safetensors</c>
 /// releases and the transformer-only GGUF files of city96 / stable-diffusion.cpp (matrices quantized), with or without the
 /// <c>model.diffusion_model.</c> prefix of ComfyUI checkpoints. Such files hold the transformer only; the text encoders and the VAE come
-/// as auxiliary sources (<see cref="FluxCompanions"/>).
+/// as auxiliary sources (<see cref="DiffusionCompanions"/>).
 /// </summary>
 internal static class FluxCheckpoint
 {
@@ -28,8 +28,13 @@ internal static class FluxCheckpoint
             string prefix = TransformerPrefix([.. tensors.Tensors.Keys]) ?? throw new NotSupportedException($"'{path}' is not a FLUX transformer.");
             var weights = new CanonicalWeights();
             FluxNames.AddOriginal(tensors.Tensors, prefix, weights);
-            var config = FluxConfig.FromWeights(weights.Weights);
             string format = CheckpointTensors.IsGguf(path) ? "gguf" : "safetensors";
+            if (ChromaConfig.IsChroma(weights.Weights))
+            {
+                return ChromaSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, ChromaConfig.FromWeights(weights.Weights), tensors.Resources);
+            }
+
+            var config = FluxConfig.FromWeights(weights.Weights);
             return FluxSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, config, tensors.Resources);
         }
         catch

@@ -35,6 +35,12 @@ public sealed record ImageProcessorConfig
     /// <summary>Height of the center crop after resizing, or 0 for none.</summary>
     public int CropHeight { get; init; }
 
+    /// <summary>
+    /// True when the center crop's offsets are rounded to the nearest integer, ties to even, as torchvision's <c>CenterCrop</c> does (timm models); false when they are truncated, as Hugging Face's
+    /// image processors do.
+    /// </summary>
+    public bool CropOffsetNearest { get; init; }
+
     /// <summary>Multiplier that maps 0..255 to the model's raw range (1/255 for models that expect 0..1).</summary>
     public float Rescale { get; init; } = 1f / 255f;
 
@@ -61,6 +67,7 @@ public sealed record ImageProcessorConfig
         ["filter"] = Filter.ToString().ToLowerInvariant(),
         ["cropWidth"] = CropWidth,
         ["cropHeight"] = CropHeight,
+        ["cropOffsetNearest"] = CropOffsetNearest,
         ["rescale"] = Rescale,
         ["mean"] = new JsonArray([.. Mean.Select(v => (JsonNode?)JsonValue.Create(v))]),
         ["std"] = new JsonArray([.. Std.Select(v => (JsonNode?)JsonValue.Create(v))]),
@@ -105,6 +112,7 @@ public sealed record ImageProcessorConfig
                 },
                 "cropWidth" => result with { CropWidth = v.GetInt32() },
                 "cropHeight" => result with { CropHeight = v.GetInt32() },
+                "cropOffsetNearest" => result with { CropOffsetNearest = v.GetBoolean() },
                 "rescale" => result with { Rescale = v.GetSingle() },
                 "mean" => result with { Mean = [.. v.EnumerateArray().Select(e => e.GetSingle())] },
                 "std" => result with { Std = [.. v.EnumerateArray().Select(e => e.GetSingle())] },

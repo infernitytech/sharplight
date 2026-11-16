@@ -13,7 +13,10 @@ public sealed class PipelineSupportTests
     [InlineData("WanPipeline", "transformer,transformer_2,vae", true)]
     [InlineData("WanImageToVideoPipeline", "transformer,transformer_2,vae", false)]
     [InlineData("WanImageToVideoPipeline", "transformer,image_encoder,vae", false)]
-    [InlineData("StableDiffusion3Pipeline", "transformer,vae", false)]
+    [InlineData("StableDiffusion3Pipeline", "transformer,vae", true)]
+    [InlineData("ChromaPipeline", "transformer,vae", true)]
+    [InlineData("ZImagePipeline", "transformer,vae", true)]
+    [InlineData("QwenImagePipeline", "transformer,vae", false)]
     [InlineData("LTXPipeline", "transformer,vae,text_encoder", true)]
     [InlineData("HunyuanVideoPipeline", "transformer,vae", false)]
     public void ClassifiesPipelines(string pipelineClass, string components, bool supported)

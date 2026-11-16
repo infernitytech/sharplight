@@ -35,6 +35,7 @@ internal static class HfArchitectureMappings
         Register(new EncoderHfMapping());
         Register(new VitHfMapping());
         Register(new ClipHfMapping());
+        Register(new TimmResNetHfMapping());
         Register(new DetrHfMapping());
         Register(new RtDetrHfMapping());
         Register(new DepthAnythingHfMapping());
@@ -53,6 +54,8 @@ internal static class HfArchitectureMappings
         Register(new ParakeetHfMapping());
         Register(new Wav2Vec2HfMapping());
         Register(new CanaryHfMapping());
+        Register(new Qwen3AsrHfMapping());
+        Register(new VoxtralHfMapping());
         foreach (var family in DecoderFamilies())
         {
             Register(family);

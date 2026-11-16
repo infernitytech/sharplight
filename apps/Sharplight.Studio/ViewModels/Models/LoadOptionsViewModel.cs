@@ -68,9 +68,8 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         if (NeedsCompanions)
         {
             var found = services.Runtime.FindCompanions(entry.Entry.Path);
-            TextEncoderPath = found.GetValueOrDefault(AuxiliaryRoles.TextEncoder, "");
-            SecondTextEncoderPath = found.GetValueOrDefault(AuxiliaryRoles.SecondTextEncoder, "");
-            VaePath = found.GetValueOrDefault(AuxiliaryRoles.Vae, "");
+            Companions = [.. services.Runtime.DescribeCompanions(entry.Entry.Path)
+                .Select(file => new CompanionFileViewModel(file.Role, file.Label, file.Example, found.GetValueOrDefault(file.Role, ""), PickCompanionAsync))];
         }
 
         int trained = entry.Entry.TrainedContextLength ?? int.MaxValue;
@@ -114,22 +113,13 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     public partial string VocoderPath { get; set; } = "";
 
     /// <summary>
-    /// An image model file that holds only the diffusion transformer (a FLUX GGUF) needs its text encoders and VAE as companion files;
+    /// An image model file that holds only the diffusion transformer (a FLUX or SD3 GGUF) needs its text encoders and VAE as companion files;
     /// the ones found beside it are filled in.
     /// </summary>
     public bool NeedsCompanions { get; }
 
-    /// <summary>The CLIP text encoder file of a transformer-only image model (<see cref="NeedsCompanions"/>).</summary>
-    [ObservableProperty]
-    public partial string TextEncoderPath { get; set; } = "";
-
-    /// <summary>The T5 text encoder file of a transformer-only image model (<see cref="NeedsCompanions"/>).</summary>
-    [ObservableProperty]
-    public partial string SecondTextEncoderPath { get; set; } = "";
-
-    /// <summary>The VAE file of a transformer-only image model (<see cref="NeedsCompanions"/>).</summary>
-    [ObservableProperty]
-    public partial string VaePath { get; set; } = "";
+    /// <summary>The companion files of a transformer-only image model (<see cref="NeedsCompanions"/>), in presentation order.</summary>
+    public IReadOnlyList<CompanionFileViewModel> Companions { get; } = [];
 
     /// <summary>Devices.</summary>
     public IReadOnlyList<ComputeDeviceOption> Devices { get; }
@@ -239,26 +229,14 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
 
         if (NeedsCompanions)
         {
-            foreach (var (role, path) in Companions())
+            foreach (var companion in Companions.Where(companion => companion.Path.Trim().Length > 0))
             {
-                auxiliary.Add((role, path));
+                auxiliary.Add((companion.Role, companion.Path.Trim()));
             }
         }
 
         return new ModelLoadRequest(ModelId.Trim(), Entry.Entry.Path, settings, _services.Settings.Current.DisabledFeatures,
             Capabilities: Entry.Entry.Capabilities, Kind: Entry.Entry.Kind, Auxiliary: auxiliary.Count > 0 ? auxiliary : null);
-    }
-
-    /// <summary>The companion files given, by auxiliary role.</summary>
-    private IEnumerable<(string Role, string Path)> Companions()
-    {
-        (string Role, string Path)[] all =
-        [
-            (AuxiliaryRoles.TextEncoder, TextEncoderPath.Trim()),
-            (AuxiliaryRoles.SecondTextEncoder, SecondTextEncoderPath.Trim()),
-            (AuxiliaryRoles.Vae, VaePath.Trim()),
-        ];
-        return all.Where(companion => companion.Path.Length > 0);
     }
 
     private bool CanLoad() => !IsLoading;
@@ -334,15 +312,6 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
-    private async Task BrowseTextEncoderAsync() => TextEncoderPath = await PickCompanionAsync("Choose the CLIP-L text encoder", TextEncoderPath);
-
-    [RelayCommand]
-    private async Task BrowseSecondTextEncoderAsync() => SecondTextEncoderPath = await PickCompanionAsync("Choose the T5-XXL text encoder", SecondTextEncoderPath);
-
-    [RelayCommand]
-    private async Task BrowseVaeAsync() => VaePath = await PickCompanionAsync("Choose the VAE", VaePath);
-
     private async Task<string> PickCompanionAsync(string title, string current)
     {
         var files = await _services.Platform.PickFilesAsync(title, [new FileFilter("Model files", ["*.safetensors", "*.gguf"])], allowMultiple: false);
@@ -350,11 +319,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     }
 
     /// <summary>The first companion that is not an existing file, as the user knows it, or null.</summary>
-    private string? MissingCompanion()
-        => !File.Exists(TextEncoderPath.Trim()) ? "CLIP-L text encoder"
-            : !File.Exists(SecondTextEncoderPath.Trim()) ? "T5-XXL text encoder"
-            : !File.Exists(VaePath.Trim()) ? "VAE"
-            : null;
+    private string? MissingCompanion() => Companions.FirstOrDefault(companion => !File.Exists(companion.Path.Trim()))?.Label;
 
     [RelayCommand]
     private void Close()
