@@ -6,7 +6,7 @@ namespace Sharplight.Import.HuggingFace;
 /// Translates a Hugging Face tokenizer (<c>tokenizer.json</c>, <c>tokenizer_config.json</c>, <c>config.json</c>,
 /// chat template files) into the canonical <c>tokenizer.*</c> metadata, following llama.cpp's
 /// <c>TextModel._set_vocab_gpt2</c> / <c>get_vocab_base</c> and gguf-py's <c>SpecialVocab</c>.
-/// Supported model types: byte-level BPE ("gpt2", also Kimi's tiktoken files), SentencePiece-style BPE with byte fallback, WordPiece and Unigram.
+/// Supported model types: byte-level BPE ("gpt2", also Kimi's tiktoken files and slow vocab.json + merges.txt tokenizers), SentencePiece-style BPE with byte fallback, WordPiece and Unigram.
 /// The per-model work lives in the partial files <c>.Bpe</c>, <c>.Tiktoken</c>, <c>.SentencePiece</c> and <c>.Vocabulary</c>; special tokens in
 /// <see cref="HfSpecialVocab"/>.
 /// </summary>
@@ -33,6 +33,12 @@ internal static partial class HfTokenizerTranslator
         if (!File.Exists(tokenizerPath) && IsKimiTiktoken(dir))
         {
             AddKimiTiktoken(md, dir, config);
+            return;
+        }
+
+        if (!File.Exists(tokenizerPath) && IsSlowByteLevelBpe(dir))
+        {
+            AddFromJson(md, ConvertSlowByteLevelBpe(dir), dir, config);
             return;
         }
 

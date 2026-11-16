@@ -132,6 +132,9 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
     /// <summary>Maps a layer tensor that needs more than a rename (fused projections, experts); false when it is not one.</summary>
     protected virtual bool TryMapSpecialLayerTensor(HfConfig c, string layerPrefix, string suffix, WeightInfo w, HfWeightCollector collector) => false;
 
+    /// <summary>Maps a tensor outside the layers that needs more than a rename (e.g. a sliced table); false leaves it to <see cref="GlobalTensors"/>.</summary>
+    protected virtual bool TryMapSpecialGlobalTensor(HfConfig c, string name, WeightInfo w, HfWeightCollector collector) => false;
+
     /// <summary>Called after every tensor was seen (e.g. to stack per-expert tensors).</summary>
     protected virtual void FinishWeights(HfConfig c, HfWeightCollector collector)
     {
@@ -223,6 +226,11 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
             }
 
             var w = tensor.ToWeightInfo();
+            if (TryMapSpecialGlobalTensor(c, name, w, collector))
+            {
+                continue;
+            }
+
             if (GlobalTensors.TryGetValue(name, out var globalName))
             {
                 if (!(tied && name == "lm_head.weight"))
