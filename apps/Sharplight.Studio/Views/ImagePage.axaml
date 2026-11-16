@@ -18,6 +18,15 @@
             <TextBox Text="{Binding Prompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="120" VerticalContentAlignment="Top"
                      PlaceholderText="Describe the picture, for example: a lighthouse at dusk, oil painting" />
             <TextBox Text="{Binding NegativePrompt}" TextWrapping="Wrap" PlaceholderText="Negative prompt: what the picture should not show (optional)" />
+            <Expander Header="LoRAs" IsVisible="{Binding HasModel}" HorizontalAlignment="Stretch">
+              <StackPanel Spacing="6">
+                <vw:LoraListView DataContext="{Binding Loras}" />
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding LorasPending}">
+                  <Button Classes="small" Content="Apply LoRAs" Command="{Binding ApplyLorasCommand}" ToolTip.Tip="Reloads the model with these LoRAs merged into its weights" />
+                  <TextBlock Classes="caption" VerticalAlignment="Center" Text="The model reloads to merge the LoRAs." />
+                </StackPanel>
+              </StackPanel>
+            </Expander>
             <Grid ColumnDefinitions="*,12,*">
               <iv:ImageInputView DataContext="{Binding Source}" />
               <Panel Grid.Column="2" IsVisible="{Binding UsesInputImage}">

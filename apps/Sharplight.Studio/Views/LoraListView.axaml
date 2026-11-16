@@ -1,0 +1,35 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:img="using:Sharplight.Studio.ViewModels.Image"
+             xmlns:lib="using:Sharplight.Studio.Services.Library"
+             x:Class="Sharplight.Studio.Views.LoraListView"
+             x:DataType="img:LoraListViewModel">
+  <StackPanel Spacing="6">
+    <ItemsControl ItemsSource="{Binding Slots}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="img:LoraSlotViewModel">
+          <StackPanel Margin="0,0,0,6">
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Classes="ghost icon" Command="{Binding RemoveCommand}" ToolTip.Tip="Remove this LoRA">
+                <Path Classes="icon" Data="{StaticResource IconClose}" />
+              </Button>
+              <TextBlock DockPanel.Dock="Right" Classes="caption mono" VerticalAlignment="Center" Text="{Binding ScaleText}" />
+              <TextBlock Classes="label" VerticalAlignment="Center" Text="{Binding Name}" ToolTip.Tip="{Binding Path}" TextTrimming="CharacterEllipsis" />
+            </DockPanel>
+            <Slider Minimum="-1" Maximum="2" SmallChange="0.05" LargeChange="0.25" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                    Value="{Binding Scale}" Margin="0,-4,0,-4" ToolTip.Tip="Strength: 1 is as trained" />
+          </StackPanel>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <ItemsControl ItemsSource="{Binding Available}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="lib:LibraryEntry">
+          <Button Classes="small" HorizontalAlignment="Left" Margin="0,0,0,2" Content="{Binding DisplayName, StringFormat='+ {0}'}"
+                  Command="{Binding $parent[ItemsControl].((img:LoraListViewModel)DataContext).AddLibraryCommand}" CommandParameter="{Binding}" />
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <Button Classes="small" HorizontalAlignment="Left" Content="Add a LoRA file" Command="{Binding AddFileCommand}" />
+  </StackPanel>
+</UserControl>

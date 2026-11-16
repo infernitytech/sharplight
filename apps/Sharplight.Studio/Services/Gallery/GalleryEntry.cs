@@ -37,7 +37,7 @@ internal sealed record GalleryEntry
     public string Sampler { get; init; } = "";
 
     /// <summary>The LoRA adapters merged into the model, if any.</summary>
-    public List<string> Loras { get; init; } = [];
+    public List<GalleryLora> Loras { get; init; } = [];
 
     /// <summary>Seconds the whole run took (all images of the run).</summary>
     public double Seconds { get; init; }

@@ -26,7 +26,9 @@ internal sealed partial class LibraryEntryViewModel : ObservableObject
     public string KindIcon => KindInfo.Icon;
 
     /// <summary>Tooltip of the kind badge: whether it is a guess and whether the engine runs it.</summary>
-    public string KindToolTip => KindInfo.Runnable
+    public string KindToolTip => KindInfo.Id == ModelKindCatalog.Lora
+        ? "LoRA adapter: choose it in the load panel of an image model"
+        : KindInfo.Runnable
         ? KindInfo.Title + (Entry.KindInferred ? " (guessed from the file type)" : "")
         : KindInfo.Title + ": Sharplight cannot run models of this kind yet" + (Entry.KindInferred ? " (guessed from the file type)" : "");
 
