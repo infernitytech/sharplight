@@ -1235,6 +1235,37 @@ FLUX.1 runs on the same pipeline as the UNet models (2026-11-15). Design:
   auxiliary sources (`text-encoder`: `clip_text_encoder`, `text-encoder-2`: any `encoder_decoder` T5, `vae`: `kl_autoencoder`) into
   the canonical source, keeping the family's VAE scaling. Studio's load panel shows the three companion fields for transformer-only
   files, filled with what was found; `sharplight-generate-image` takes `--text-encoder`, `--text-encoder-2` and `--vae`.
+Verification (tools/make-tiny-flux.py, tools/make-flux-references.py; tests `TinyFluxTests`, `FluxSchnellTests`, `FluxDevTests` in
+`tests/Sharplight.ImageGeneration.Tests`, `FluxImageTests` in `tests/Sharplight.Studio.Tests`; GPU 1 of the 3× RTX PRO 4500 machine,
+32 GB, dedicated):
+
+- Tiny random FLUX pipelines (`~/models/flux/tiny-random-flux/{dev,schnell}`: guidance embedding + dynamic shift / neither): CLIP
+  pooled embedding, T5 hidden states, transformer (64×96 image, non-square RoPE grid), VAE decode and encode within 1e-4 relative RMS
+  of diffusers / transformers on CPU and Vulkan, from the diffusers folder, the original-name single file and the Q8_0 GGUF with
+  companions (the GGUF transformer within 5e-3 of diffusers on the dequantized weights: both backends quantize the activations of
+  Q8_0 products); 4-step txt2img from the same latents above 40 dB PSNR in all 12 combinations; the tokenizers give transformers'
+  ids; bare companion files beside the GGUF (no configuration or tokenizer) are found, configured from their shapes (the T5 one with
+  the embedded vocabulary) and give the same image; a `.slm` converted from the transformer-only file holds the companions and
+  generates the same image after the source files are deleted.
+- FLUX.1-schnell, diffusers folder (bf16 files) on Vulkan against diffusers in f32 on the CPU: CLIP pooled 2.5–4.0e-4, T5 4–13e-6,
+  transformer 1.2e-4 (512×512), VAE decode 8.6e-6 relative RMS; 4-step txt2img from the same latents 32.5 dB (512×512) and 38.8 dB
+  (1024×1024) PSNR, visually identical (the attention's f16 products; without them the scalar f32 kernel makes 1024×1024 18× slower).
+- FLUX.1-schnell, city96's Q8_0 GGUF with `t5-v1_1-xxl-encoder-Q8_0.gguf`, `clip_l.safetensors` and `ae.safetensors` (found beside
+  it): the transformer is 1.3e-3 from the bf16 reference, the T5 GGUF 0.11–0.21 (relative RMS of the hidden states; transformers
+  running the dequantized GGUF weights gives the same 0.205, so it is the file's, not the implementation's), `clip_l.safetensors`
+  (f16) 3–6e-3. Images: 22.6 dB (512) / 28.9 dB (1024) from the bf16 diffusers pipeline, visually the same picture with different
+  fine texture; stable-diffusion.cpp (CUDA, same files, its flux scheduler with the shift disabled to match diffusers' schnell
+  schedule, `--rng cpu` = the same latents) is 21.7 / 26.3 dB from diffusers and 22.0 / 25.8 dB from Sharplight at 512 / 1024. SAMEWEIGHTS
+- FLUX.1-dev (city96 Q8_0 GGUF): the transformer with the guidance embedding is 3.3e-4 from diffusers running the dequantized GGUF;
+  20 steps at 512×512 DEVSAME.
+- Speed and memory (Vulkan, Q8_0 transformer and T5, warm runs with the conditioning reused): 512×512 0.26 s per step, decode
+  0.14 s, 4 steps 1.16 s; 1024×1024 1.04 s per step (attention 26 %, Q8_0 products 55 %), decode 1.05 s, 4 steps 5.2 s; FLUX.1-dev
+  1024×1024 1.15 s per step, 28 steps 33.2 s, peak 23.5 GB of device memory. stable-diffusion.cpp CUDA on the same files samples 4
+  steps in 2.24 s (512) / 4.51 s (1024). The bf16 diffusers folder (33.7 GB of weights) runs on the 32 GB GPU by alternating the
+  text encoders and the denoiser (4 steps at 1024×1024 5.7 s with the conditioning reused). Without a precompiled `.slm` the first
+  run compiles the kernels for 70–150 s.
+- Studio: the load panel recognizes the transformer-only GGUF, fills in the three companions found beside it and loads; the Image
+  page generates through the loaded model (tiny pipeline and FLUX.1-schnell GGUF at 512×512).
 - Later families: SD3 / SD3.5 are MMDiTs with joint attention as well (different block layout: separate q/k/v with optional
   RMS norms, 2D sin-cos position embedding instead of RoPE, three text encoders whose CLIP hidden states are padded and concatenated
   with T5's along the sequence, CFG): a second transformer builder, a sequence-joining mode for the text conditioning, the existing
