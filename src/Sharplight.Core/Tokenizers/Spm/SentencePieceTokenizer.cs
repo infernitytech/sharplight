@@ -55,19 +55,22 @@ internal sealed class SentencePieceTokenizer : ByteFallbackTokenizer
             output.Add(bos);
         }
 
-        bool previousWasSpecial = true;   // prefix with a space if first
+        bool previousWasSpecial = true;
+        bool atTextStart = true;   // prefix with a space if first
         foreach (var (fragment, id) in Specials.Split(text, parseSpecial))
         {
             if (id >= 0)
             {
                 output.Add(id);
                 previousWasSpecial = true;
+                atTextStart = false;
                 continue;
             }
 
-            string withPrefix = (AddSpacePrefix && previousWasSpecial ? " " : "") + fragment;
+            string withPrefix = WithSpacePrefix(fragment, atTextStart, previousWasSpecial);
             EncodeText(Encoding.UTF8.GetBytes(withPrefix.Replace(" ", "▁")), output);
             previousWasSpecial = false;
+            atTextStart = false;
         }
 
         if (addSpecial && AddEos && EosId is int eos)

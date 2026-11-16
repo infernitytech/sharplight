@@ -11,6 +11,8 @@ Variants (written to OUT/{variant}, default OUT ~/models/video/tiny-random-wan):
 Each holds:
 
   diffusers/           diffusers folder (model_index.json, transformer/, vae/, text_encoder/, tokenizer/, scheduler/)
+  single/wan.safetensors   the transformer under the original Wan tensor names (f32), as ComfyUI / the Wan repository store it
+  single/wan-F16.gguf      the same as a transformer-only GGUF (city96 layout, F16: the tiny widths are not Q8_0 block multiples)
   reference/*.f32      raw little-endian f32 reference tensors, described by reference/index.json
 
 The umT5 tokenizer comes from --tokenizer (a Wan diffusers folder's tokenizer/ directory) or google/umt5-xxl on the hub; the
@@ -78,6 +80,57 @@ def build_models(variant):
     return transformer.eval(), vae.eval(), text.eval()
 
 
+RENAMES = [
+    ("condition_embedder.time_embedder.linear_1.", "time_embedding.0."),
+    ("condition_embedder.time_embedder.linear_2.", "time_embedding.2."),
+    ("condition_embedder.time_proj.", "time_projection.1."),
+    ("condition_embedder.text_embedder.linear_1.", "text_embedding.0."),
+    ("condition_embedder.text_embedder.linear_2.", "text_embedding.2."),
+    ("proj_out.", "head.head."),
+    ("attn1.to_q.", "self_attn.q."), ("attn1.to_k.", "self_attn.k."), ("attn1.to_v.", "self_attn.v."), ("attn1.to_out.0.", "self_attn.o."),
+    ("attn1.norm_q.", "self_attn.norm_q."), ("attn1.norm_k.", "self_attn.norm_k."),
+    ("attn2.to_q.", "cross_attn.q."), ("attn2.to_k.", "cross_attn.k."), ("attn2.to_v.", "cross_attn.v."), ("attn2.to_out.0.", "cross_attn.o."),
+    ("attn2.norm_q.", "cross_attn.norm_q."), ("attn2.norm_k.", "cross_attn.norm_k."),
+    ("norm2.", "norm3."), ("ffn.net.0.proj.", "ffn.0."), ("ffn.net.2.", "ffn.2."),
+]
+
+
+def to_original(state):
+    """diffusers WanTransformer3DModel names → the original Wan names (what city96 GGUF and ComfyUI files use)."""
+    out = {}
+    for name, value in state.items():
+        if name == "scale_shift_table":
+            out["head.modulation"] = value
+            continue
+        if name.endswith(".scale_shift_table"):
+            out[name.replace(".scale_shift_table", ".modulation")] = value
+            continue
+        renamed = name
+        for diffusers, original in RENAMES:
+            if diffusers in renamed:
+                renamed = renamed.replace(diffusers, original)
+                break
+        out[renamed] = value
+    return {k: v.contiguous() for k, v in out.items()}
+
+
+def write_single(folder, transformer):
+    import gguf
+    from safetensors.torch import save_file
+
+    os.makedirs(folder, exist_ok=True)
+    original = to_original(transformer.state_dict())
+    save_file(original, os.path.join(folder, "wan.safetensors"))
+    writer = gguf.GGUFWriter(os.path.join(folder, "wan-F16.gguf"), "wan")
+    writer.add_quantization_version(gguf.GGML_QUANT_VERSION)
+    for name, value in original.items():
+        writer.add_tensor(name, value.to(torch.float16).numpy())
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+
+
 def schedulers():
     from diffusers import FlowMatchEulerDiscreteScheduler, UniPCMultistepScheduler
 
@@ -108,6 +161,7 @@ def make(variant, out, tokenizer_path):
     unipc, euler = schedulers()
     pipe = WanPipeline(tokenizer=tokenizer, text_encoder=text, vae=vae, scheduler=unipc, transformer=transformer, expand_timesteps=ti2v)
     pipe.save_pretrained(os.path.join(out, "diffusers"), safe_serialization=True)
+    write_single(os.path.join(out, "single"), transformer)
     ref = Reference(os.path.join(out, "reference"))
     extra = {"height": HEIGHT, "width": WIDTH, "frames": FRAMES, "steps": STEPS, "guidance_scale": GUIDANCE, "prompt": PROMPT,
              "negative_prompt": NEGATIVE, "max_sequence_length": MAX_SEQUENCE}

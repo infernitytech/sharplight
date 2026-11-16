@@ -11,8 +11,9 @@ namespace Sharplight.Studio.Services.Hub;
 /// <see cref="ModelFormat.WhisperCpp"/>, <see cref="ModelFormat.Slm"/>), or null.
 /// </param>
 /// <param name="Components">The parts of a multi-component repository (a Diffusers pipeline's folders, whisper.cpp's model files), shown as one model.</param>
+/// <param name="UnsupportedReason">Why a multi-component repository cannot be loaded (its pipeline kind is not supported), or empty.</param>
 internal sealed record RepositoryDetails(HubRepository Repository, ModelFormat? Format, IReadOnlyList<VariantInfo> Variants,
-    ModelFormat? Layout = null, IReadOnlyList<HubComponent>? Components = null)
+    ModelFormat? Layout = null, IReadOnlyList<HubComponent>? Components = null, string UnsupportedReason = "")
 {
     /// <summary>The parts of a multi-component repository (never null).</summary>
     public IReadOnlyList<HubComponent> Parts => Components ?? [];

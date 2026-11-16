@@ -42,6 +42,12 @@ public static class CanonicalKeys
     public const string TokenizerScores = "tokenizer.scores";
     /// <summary>Whether SentencePiece-style tokenizers prepend a space to the text (bool).</summary>
     public const string TokenizerAddSpacePrefix = "tokenizer.add_space_prefix";
+    /// <summary>
+    /// Where SentencePiece-style tokenizers put the space prefix (string): absent = before the text and after every special token, even
+    /// when the fragment already starts with a space (llama.cpp, legacy SentencePiece); "first" = only before a fragment at the start of
+    /// the text that does not start with a space; "always" = before every fragment that does not start with a space.
+    /// </summary>
+    public const string TokenizerSpacePrefixScheme = "tokenizer.space_prefix_scheme";
     /// <summary>Beginning-of-sequence token id (int).</summary>
     public const string TokenizerBosId = "tokenizer.bos_token_id";
     /// <summary>End-of-sequence token id (int).</summary>

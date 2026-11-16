@@ -53,7 +53,21 @@ internal sealed class FlowMatchEulerSampler : DiffusionSampler
             }
 
             _sigmas[i] = sigma;
-            _timesteps[i] = sigma * schedule.TrainSteps;
+        }
+
+        if (schedule.ShiftTerminal > 0)
+        {
+            // diffusers' stretch_shift_to_terminal: 1 − σ scaled so that the last level becomes the terminal one.
+            float scale = (1f - _sigmas[steps - 1]) / (1f - (float)schedule.ShiftTerminal);
+            for (int i = 0; i < steps; i++)
+            {
+                _sigmas[i] = 1f - (1f - _sigmas[i]) / scale;
+            }
+        }
+
+        for (int i = 0; i < steps; i++)
+        {
+            _timesteps[i] = _sigmas[i] * schedule.TrainSteps;
         }
     }
 

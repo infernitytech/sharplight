@@ -82,7 +82,8 @@ def run(model_dir, spec_path, out_path, opts):
             try:
                 with torch.no_grad():
                     # A fresh generation config: the checkpoint's own (repetition_penalty, top_k, ...) would alter the logits.
-                    config = GenerationConfig(max_new_tokens=gen, min_new_tokens=gen, do_sample=False, pad_token_id=tok.pad_token_id or 0)
+                    config = GenerationConfig(max_new_tokens=gen, min_new_tokens=gen, do_sample=False, pad_token_id=tok.pad_token_id or 0,
+                                              repetition_penalty=1.0, temperature=None, top_k=None, top_p=None, no_repeat_ngram_size=0)
                     res = model.generate(torch.tensor([ids], device=device), generation_config=config, output_logits=True, return_dict_in_generate=True)
                 new = res.sequences[0, len(ids):].tolist()
                 top = []

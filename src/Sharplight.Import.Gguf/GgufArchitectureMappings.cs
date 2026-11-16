@@ -23,6 +23,7 @@ internal static class GgufArchitectureMappings
         Register(new Eagle3GgufMapping());
         Register(new WavTokenizerGgufMapping());
         Register(new WhisperGgufMapping());
+        Register(new ParakeetGgufMapping());
         Register(new DflashGgufMapping());
         Register(new Gemma4AssistantGgufMapping());
         Register(new ClipGgufMapping());

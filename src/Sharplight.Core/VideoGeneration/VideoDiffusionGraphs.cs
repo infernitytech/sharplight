@@ -10,8 +10,9 @@ namespace Sharplight.VideoGeneration;
 /// Graphs and their values:
 /// <list type="bullet">
 /// <item><see cref="TextEncode"/> (component <c>text-encoder</c>): inputs <see cref="Tokens"/> i32 [L] (one prompt padded to the
-/// context length) and <see cref="TokenMask"/> f32 [L] (1 for the prompt's tokens, 0 for the padding, which no token attends to);
-/// output <see cref="Hidden"/> f32 [L, D]. The pipeline zeroes the padding rows (the conditioning of the Wan pipelines).</item>
+/// context length) and optionally <see cref="TokenMask"/> f32 [L] (1 for the prompt's tokens, 0 for the padding, which no token attends to);
+/// output <see cref="Hidden"/> f32 [L, D]. With the mask input the pipeline zeroes the padding rows (the conditioning of the Wan pipelines);
+/// without it the rows are kept and the denoiser takes <see cref="ContextMask"/> (LTX-Video).</item>
 /// <item><see cref="Denoise"/> (component <c>transformer</c>): inputs <see cref="Latent"/> f32 [C, T, h, w], <see cref="Timestep"/> f32
 /// [1] (σ · 1000), or [tokens] when the denoiser takes per-token timesteps (<see cref="VideoConfigKeys.TokenTimesteps"/>: the tokens of
 /// a conditioning first frame get 0), and <see cref="Context"/> f32 [L, D]; output <see cref="Prediction"/> f32 [C, T, h, w] (the
@@ -23,6 +24,8 @@ namespace Sharplight.VideoGeneration;
 /// the next graph takes them as inputs <c>cache_in.{name}</c> [2, Cᵢ, Hᵢ, Wᵢ] and both graphs return the new ones as outputs
 /// <c>cache_out.{name}</c> (the last one or two input frames); the pipeline keeps, per name, the last two frames it has seen
 /// (zeros before the first), so a cache the first graph does not return stays zero.</item>
+/// <item><see cref="VaeDecode"/> (component <c>vae</c>, instead of the streamed pair): the whole latent video [C, T, h, w] in model space to
+/// <see cref="Frames"/> f32 [F, 3, H, W] in [0, 1] (non-causal decoders).</item>
 /// <item><see cref="VaeEncode"/> (component <c>vae</c>, optional): the causal VAE encoder of one image, input <see cref="Image"/> f32
 /// [3, H, W] in [0, 1]; output <see cref="Latent"/> f32 [C, h, w] (the normalized mean of the first latent frame), for image-to-video.</item>
 /// </list>
@@ -42,6 +45,9 @@ public static class VideoDiffusionGraphs
 
     /// <summary>The VAE decoder graph of each further latent frame.</summary>
     public const string VaeDecodeNext = "vae_decode_next";
+
+    /// <summary>The VAE decoder graph of the whole latent video (non-causal decoders, LTX-Video), used instead of the streamed pair.</summary>
+    public const string VaeDecode = "vae_decode";
 
     /// <summary>The VAE encoder graph of one image (the first latent frame).</summary>
     public const string VaeEncode = "vae_encode";
@@ -63,6 +69,12 @@ public static class VideoDiffusionGraphs
 
     /// <summary>Input of <see cref="Denoise"/>: the text conditioning.</summary>
     public const string Context = "context";
+
+    /// <summary>
+    /// Optional input of <see cref="Denoise"/>: f32 [L], 1 for the prompt's tokens and 0 for the padding, which the cross-attention then
+    /// ignores (LTX-Video; its text encoder runs without a mask and the padding rows are kept).
+    /// </summary>
+    public const string ContextMask = "context_mask";
 
     /// <summary>Output of <see cref="Denoise"/>.</summary>
     public const string Prediction = "prediction";

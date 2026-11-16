@@ -99,6 +99,39 @@ StarCoder2 3B, InternLM2.5 1.8B chat, ERNIE-4.5 0.3B and 21B-A3B, EXAONE 3.5 2.4
 Nemotron-Mini 4B, Apertus 8B, AFM-4.5B, SmallThinker 4B-A0.6B, OpenELM 270M, Nanbeige 4.2 3B, BitNet b1.58 2B (TQ2_0), Hunyuan 0.5B, LFM2-VL 450M, Falcon-H1,
 Mamba and RWKV6 World 1.6B, Qwen3-VL 2B. Two of them generate degenerate text in llama.cpp itself (Hunyuan 0.5B, EXAONE 4.0 1.2B); Sharplight matches that output.
 
+### 1.1.1 Hub top-20 sweep (2026-11-16)
+
+The most downloaded text-generation models on the Hub plus popular larger ones, each checked as safetensors against transformers and as
+the most downloaded GGUF against llama.cpp b11177: tokenizer on seven multilingual texts, chat template with and without system prompt and
+with tool calls, 48 greedy tokens on three prompts (method and per-model notes in model-support.md section 17). "near-tie" = the first
+differing token is a near tie of the reference itself (llama.cpp's own CPU and Vulkan builds differ there too, or the logit gap is below 0.1).
+
+| Model | Hub repository | Format | Providers | Verification | Notes | Verified |
+|---|---|---|---|---|---|---|
+| GPT-2 | openai-community/gpt2, mradermacher/gpt2-GGUF | safetensors F32, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp per backend | | 2026-11-16 |
+| Qwen3 0.6B | Qwen/Qwen3-0.6B, Qwen/Qwen3-0.6B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids and templates (tools) identical to transformers; GGUF near-tie vs llama.cpp | also as .slm | 2026-11-16 |
+| Qwen3 1.7B / 4B / 8B | Qwen/Qwen3-1.7B, -4B, -8B; unsloth/Qwen3-1.7B-GGUF, Qwen/Qwen3-4B-GGUF, Qwen/Qwen3-8B-GGUF | safetensors, GGUF Q8_0 / Q4_K_M | CPU, Vulkan | ids identical to transformers; 4B / 8B GGUF identical to llama.cpp, 1.7B near-tie | | 2026-11-16 |
+| Qwen3 14B | Qwen/Qwen3-14B, Qwen/Qwen3-14B-GGUF | safetensors (29.5 GB), GGUF Q4_K_M | Vulkan | ids identical to transformers; GGUF identical to llama.cpp | safetensors on one whole 32 GB GPU | 2026-11-16 |
+| Qwen3 32B | Qwen/Qwen3-32B-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; near-tie vs llama.cpp | | 2026-11-16 |
+| Qwen2.5 0.5B / 1.5B / 3B / 7B Instruct | Qwen/Qwen2.5-*-Instruct, Qwen/Qwen2.5-*-Instruct-GGUF | safetensors, GGUF Q8_0 / Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF identical or near-tie vs llama.cpp | the official GGUFs embed an older tool-call template (literal `{{"name": ...}}`), rendered exactly as transformers renders it | 2026-11-16 |
+| Ornith 1.0 9B / 1.5 9B | ornith-ai/Ornith-1.0-9B, ornith-ai/Ornith-1.5-9B-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF near-tie vs llama.cpp | qwen3_5 hybrid | 2026-11-16 |
+| Qwen3.8 27B | Qwen/Qwen3.8-27B-FP8, lmstudio-community/Qwen3.8-27B-GGUF | safetensors FP8, GGUF Q8_0 | Vulkan (2 GPUs) | FP8: ids identical to transformers (bf16 checkpoint) on raw prompts, teacher-forced logit difference 0.16-0.19; Q8_0 identical to llama.cpp | | 2026-11-16 |
+| Qwen3.8-Flash-Next | unsloth/Qwen3.8-Flash-Next-GGUF | GGUF UD-IQ1_S (66 GB) | Vulkan (2 GPUs) + CPU | tokenizer, templates and greedy text identical to llama.cpp | its MTP draft file is refused (qwen4exp MTP head not imported yet) | 2026-11-16 |
+| gpt-oss 20B / 120B | openai/gpt-oss-20b, unsloth/gpt-oss-20b-GGUF, ggml-org/gpt-oss-120b-GGUF | safetensors MXFP4 (20B), GGUF Q4_K_M, MXFP4 (120B) | CPU, Vulkan (120B: 2 GPUs + CPU) | 20B ids identical to transformers; GGUF near-tie vs llama.cpp | | 2026-11-16 |
+| Llama 3.1 8B Instruct | unsloth/Llama-3.1-8B-Instruct, bartowski/Meta-Llama-3.1-8B-Instruct-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids and tool template identical to transformers; GGUF first token a 0.03 near-tie, identical to transformers on the same GGUF | | 2026-11-16 |
+| Llama 3.2 1B Instruct | unsloth/Llama-3.2-1B-Instruct, bartowski/Llama-3.2-1B-Instruct-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | also in Studio and as .slm | 2026-11-16 |
+| Llama 3.3 70B Instruct | bartowski/Llama-3.3-70B-Instruct-GGUF | GGUF Q4_K_M | Vulkan (2 GPUs) | identical to llama.cpp CUDA; llama.cpp Vulkan differs at a near-tie | | 2026-11-16 |
+| Mistral 7B Instruct v0.2 | mistralai/Mistral-7B-Instruct-v0.2, TheBloke/Mistral-7B-Instruct-v0.2-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | tokenizer, chat prompt ids and greedy ids identical to transformers; GGUF identical to transformers on the same GGUF | GGUF prompt ids follow llama.cpp's space-prefix placement | 2026-11-16 |
+| OPT 125M | facebook/opt-125m | PyTorch .bin | CPU, Vulkan | ids identical to transformers | no GGUF (llama.cpp has no OPT); post-norm OPT-350m not supported | 2026-11-16 |
+| Pythia 160M | EleutherAI/pythia-160m, mradermacher/pythia-160m-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF near-tie vs llama.cpp | | 2026-11-16 |
+| SmolLM2 135M | HuggingFaceTB/SmolLM2-135M, prithivMLmods/SmolLM2-135M-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | | 2026-11-16 |
+| Nemotron 3 Nano 4B | nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16, lmstudio-community/NVIDIA-Nemotron-3-Nano-4B-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | Mamba-2 hybrid; also as .slm | 2026-11-16 |
+| MiniCPM5 2B | openbmb/MiniCPM5-2B, bartowski/MiniCPM5-2B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | | 2026-11-16 |
+| LFM3 1.7B | LiquidAI/LFM3-1.7B, LiquidAI/LFM3-1.7B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF teacher-forced vs transformers (llama.cpp b11177 lacks lfm3) | also in Studio | 2026-11-16 |
+| Qwen3 30B-A3B (MoE) | Qwen/Qwen3-30B-A3B-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; greedy identical to llama.cpp (CPU build) | | 2026-11-16 |
+| Qwen3.6 35B-A3B (MoE) | unsloth/Qwen3.6-35B-A3B-GGUF | GGUF UD-Q4_K_M | Vulkan | tokenizer, templates and greedy text identical to llama.cpp | | 2026-11-16 |
+| GLM-4.7-Flash (MLA, MoE) | unsloth/GLM-4.7-Flash-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; greedy near-tie vs llama.cpp | | 2026-11-16 |
+
 ### 1.2 Language models that load (header check and import, output not compared)
 
 These real checkpoints, and every quantization file listed, were imported through the full load path (mapping, graph build, tokenizer, chat
@@ -167,6 +200,10 @@ Verified on CPU and Vulkan. Reference: transformers (token-exact greedy ids), wh
 | Parakeet CTC 0.6B | nvidia/parakeet-ctc-0.6b | HF (transformers format), `.slm` | ids identical to transformers | 1.1B maps the same way, not verified | 2026-11-16 |
 | Parakeet TDT 0.6B v3 | nvidia/parakeet-tdt-0.6b-v3 | HF, `.slm` | ids identical to transformers | | 2026-11-16 |
 | Canary 1B v2 | nvidia/canary-1b-v2 | HF, `.slm` | ids identical to transformers (English transcription with punctuation) | translation prompt works; no timestamps | 2026-11-16 |
+| Whisper large-v3 | openai/whisper-large-v3, handy-computer/whisper-large-v3-gguf | HF, whisper GGUF Q5_K_M | transcript identical to transformers greedy (English, LibriSpeech, German, Spanish, Japanese); the Q5_K_M file gives the same text | | 2026-11-16 |
+| wav2vec2 CTC (base-960h, XLSR-53 fine-tunes) | facebook/wav2vec2-base-960h, jonatasgrosman/wav2vec2-large-xlsr-53-japanese | HF (`.safetensors` and `pytorch_model.bin`) | base-960h: CTC ids and text identical to transformers on jfk and LibriSpeech, CPU and Vulkan (encoder test); XLSR-53 Japanese (layer-normed, pre-norm variant): text identical to transformers | the other `jonatasgrosman/wav2vec2-large-xlsr-53-*` language models share the layout, not run | 2026-11-16 |
+| Parakeet as GGUF (TDT 0.6B v3) | handy-computer/parakeet-tdt-0.6b-v3-gguf | transcribe.cpp GGUF F16, Q8_0 | F16: text identical to the Hugging Face checkpoint on 5 clips (English, LibriSpeech, German, Spanish, Japanese); Q8_0: same text except one capital letter in German and a few kana in Japanese | Q4_K_M, Q5_K_M, Q6_K map the same way, not run | 2026-11-16 |
+| Parakeet unified (RNN-T, English) | handy-computer/parakeet-unified-en-0.6b-gguf | transcribe.cpp GGUF Q8_0 | Partial: transcripts match the reference text on jfk and LibriSpeech, no NeMo reference at hand to compare tokens | streaming chunked-attention settings read, but run with full context | 2026-11-16 |
 | Parakeet RNN-T | nvidia/parakeet-rnnt-* | HF | Partial: maps, not verified | | |
 
 Long recordings are cut into 30 s windows (Whisper uses its own timestamp-driven loop). Not yet: temperature fallback, Whisper word timestamps.
@@ -258,6 +295,13 @@ Popular models tried that do not work today, with the reason. These are tracked;
 |---|---|---|
 | Inkling 2 Small | thinkingmachines/Inkling-2-Small, unsloth/Inkling-2-Small-GGUF | new `inkling2` blocks not implemented |
 | DeepSeek V4.1 Flash (HF) | deepseek-ai/DeepSeek-V4.1-Flash | Hugging Face tensor-name mapping missing (the GGUF files import) |
+| Qwen3-ASR 1.7B | Qwen/Qwen3-ASR-1.7B, handy-computer/Qwen3-ASR-1.7B-gguf | audio-LLM: chunked-window Whisper-style audio tower (conv2d stem, 24 layers) whose output rows are injected into a Qwen3 decoder; the audio-embedding path of the multimodal decoder and the ASR prompt are missing |
+| Voxtral Mini 4B Realtime | mistralai/Voxtral-Mini-4B-Realtime-2602 | audio tower plus the tekken tokenizer and a streaming (delayed-token) decoder |
+| Cohere Transcribe 03-2026 | handy-computer/cohere-transcribe-03-2026-gguf | `cohere_asr` (conformer encoder with an autoregressive decoder) not implemented |
+| Nemotron 3.5 ASR streaming | handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | cache-aware streaming FastConformer: causal convolutions with layer-norm, chunked-limited attention context; the file loads as `parakeet` and is rejected with that reason |
+| faster-whisper (CTranslate2) | Systran/faster-whisper-* | CTranslate2 `model.bin` format has no importer (the same models import from the OpenAI checkpoints or whisper.cpp / transcribe.cpp files) |
+| Whisper ONNX (Transformers.js layout) | Xenova/whisper-* | the encoder and decoder graphs run through the ONNX runner, but there is no speech-recognition task on top of ONNX graphs |
+| XTTS v2, Chatterbox, F5-TTS, OmniVoice, VoxCPM2, VibeVoice, Qwen3-TTS, CosyVoice 3, MeloTTS, SpeechT5, Indic Parler-TTS, KittenTTS (ONNX) | coqui/XTTS-v2, ResembleAI/chatterbox, SWivid/F5-TTS, k2-fsa/OmniVoice, openbmb/VoxCPM2, microsoft/VibeVoice-1.5B, Qwen/Qwen3-TTS-*, FunAudioLLM/Fun-CosyVoice3-0.5B-2512, myshell-ai/MeloTTS-English, microsoft/speecht5_tts, ai4bharat/indic-parler-tts, KittenML/kitten-tts-nano-0.8-fp32 | text-to-speech architectures without an adapter (autoregressive acoustic LMs with codec or flow-matching decoders, SpeechT5's encoder-decoder with HiFi-GAN, StyleTTS-style ONNX graphs); not downloaded, the Hub metadata names architectures the registry does not know |
 | SenseNova-Loop, LiquidAI d1 | sensenova/SenseNova-Loop-9B-Preview, LiquidAI/d1-2B | layer loops and hyper-connections; non-causal decision variant |
 | Unlimited-OCR-2, KLM-1.6, Raon-1-nano | baidu/Unlimited-OCR-2, MinimaLabs/KLM-1.6, KRAFTON/Raon-1-nano | new attention variants not implemented |
 | Dory 1.0, ERNIE-5.5-Flash-Base, LongCat-2.5 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16, baidu/ERNIE-5.5-Flash-Base, meituan-longcat/LongCat-2.5 | no modeling code published, cannot be verified |

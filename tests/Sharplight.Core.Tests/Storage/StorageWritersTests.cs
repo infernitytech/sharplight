@@ -17,6 +17,7 @@ public sealed partial class StorageWritersTests
         ["src/Sharplight.Core/Storage/StorageEnvironment.cs"] = "the one place that reads the process environment for the layout",
         ["src/Sharplight.Core/Storage/SystemStorageFolders.cs"] = "the platform conventions of the system folders",
         ["src/Sharplight.Audio/Native/NativeAudioLibrary.cs"] = "loads the native library shipped next to the app (read only)",
+        ["src/Sharplight.Video/Native/NativeVideoLibrary.cs"] = "loads the native video library shipped next to the app (read only)",
         ["src/Sharplight.Vulkan/VulkanLibrary.cs"] = "loads the Vulkan loader shipped next to the app (read only)",
         ["apps/Sharplight.Studio/Services/Server/KestrelApiServer.cs"] = "ASP.NET content root (read only, no static files)",
         ["samples/Sharplight.Server/HttpServer.cs"] = "ASP.NET content root (read only, no static files)",

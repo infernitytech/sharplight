@@ -119,6 +119,12 @@ public static class DiffusionConfigKeys
     public const string ContextMaskPadding = "contextMaskPadding";
 
     /// <summary>
+    /// Scheduler (flow): the noise level the shifted schedule is stretched to end at before the final 0 (diffusers'
+    /// <c>shift_terminal</c>, LTX-Video: 0.1; 0 or absent: no stretch).
+    /// </summary>
+    public const string ShiftTerminal = "shiftTerminal";
+
+    /// <summary>
     /// Denoiser: latent pixels per token along each axis (transformers that patchify the latents: FLUX 2; default 1). The image token
     /// count of a dynamic flow shift is the latent pixel count divided by its square.
     /// </summary>

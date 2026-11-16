@@ -43,6 +43,21 @@ internal interface IGgufArchitectureMapping
     /// </summary>
     public WeightInfo MapWeight(WeightInfo weight, GgufMetadataView gguf) => weight;
 
+    /// <summary>
+    /// Attachments that GGUF does not store but the metadata determines (e.g. the filter bank of a feature extractor, when the file only
+    /// names the filter parameters). Default: none.
+    /// </summary>
+    /// <param name="gguf">The file's metadata and tensors.</param>
+    public IReadOnlyDictionary<string, IWeightSource> SyntheticAttachments(GgufMetadataView gguf) => new Dictionary<string, IWeightSource>();
+
+    /// <summary>
+    /// Whether a GGUF tensor is left out of the import on purpose (a part of the file the architecture does not run, e.g. a voice-activity
+    /// head next to a speech recognizer, which has its own detector). Default: none.
+    /// </summary>
+    /// <param name="ggufName">The tensor name.</param>
+    /// <param name="gguf">The file's metadata and tensors.</param>
+    public bool IgnoresTensor(string ggufName, GgufMetadataView gguf) => false;
+
     /// <summary>Canonical weights that GGUF does not store but the metadata determines (e.g. computed rope frequency factors).</summary>
     public IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView gguf, IReadOnlyDictionary<string, WeightInfo> weights) => [];
 

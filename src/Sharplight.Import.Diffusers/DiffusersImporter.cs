@@ -51,11 +51,11 @@ public sealed class DiffusersImporter : IModelImporter
         string? family = DiffusionTransformerCheckpoint.FamilyOf(path);
         bool supported = (kind == FluxConfig.Architecture && family?.StartsWith("FLUX", StringComparison.Ordinal) == true)
             || (kind == Sd3Config.Architecture && family?.StartsWith("Stable Diffusion 3", StringComparison.Ordinal) == true)
-            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture;
+            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture || kind == WanConfig.Architecture;
         if (family is not null && !supported)
         {
             throw new NotSupportedException($"Not supported yet: {family}. Sharplight generates images with the Stable Diffusion UNet models "
-                + $"(SD 1.x, SD 2.x, SDXL), SD3 / SD3.5, FLUX.1, Chroma and Z-Image; {Path.GetFileName(path)} is another diffusion-transformer model.");
+                + $"(SD 1.x, SD 2.x, SDXL), SD3 / SD3.5, FLUX.1, Chroma and Z-Image, and video with Wan; {Path.GetFileName(path)} is another diffusion-transformer model.");
         }
 
         return kind switch
@@ -63,6 +63,7 @@ public sealed class DiffusersImporter : IModelImporter
             FluxConfig.Architecture or ChromaConfig.Architecture => FluxCheckpoint.Open(path),
             Sd3Config.Architecture => Sd3Checkpoint.Open(path),
             ZImageConfig.Architecture => ZImageCheckpoint.Open(path),
+            WanConfig.Architecture => WanCheckpoint.Open(path),
             ComponentCheckpoint.ClipArchitecture or ComponentCheckpoint.AutoencoderArchitecture or ComponentCheckpoint.T5Architecture => ComponentCheckpoint.Open(path),
             _ => SingleFileCheckpoint.Open(path),
         };
@@ -95,6 +96,47 @@ public sealed class DiffusersImporter : IModelImporter
             ZImageConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.ZImage),
             Sd3Config.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Sd3),
             _ => new Dictionary<string, string>(),
+        };
+    }
+
+    /// <inheritdoc/>
+    public PipelineSupport? ClassifyPipeline(string pipelineClass, IReadOnlyCollection<string> components)
+    {
+        ArgumentNullException.ThrowIfNull(pipelineClass);
+        ArgumentNullException.ThrowIfNull(components);
+        if (!pipelineClass.EndsWith("Pipeline", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        if (components.Contains("transformer_2") || (components.Contains("image_encoder") && pipelineClass.StartsWith("Wan", StringComparison.Ordinal)))
+        {
+            return new PipelineSupport(false, "Not supported yet: image-conditioned Wan (I2V, two-expert A14B) pipelines. Wan 2.1 T2V and Wan 2.2 TI2V are supported.");
+        }
+
+        return pipelineClass switch
+        {
+            "StableDiffusionPipeline" or "StableDiffusionImg2ImgPipeline" or "StableDiffusionInpaintPipeline" or "StableDiffusionXLPipeline"
+                or "StableDiffusionXLImg2ImgPipeline" or "StableDiffusionXLInpaintPipeline" or "FluxPipeline" or "WanPipeline" or "WanImageToVideoPipeline"
+                or "StableDiffusion3Pipeline" or "StableDiffusion3Img2ImgPipeline" or "StableDiffusion3InpaintPipeline" or "ChromaPipeline"
+                or "ChromaImg2ImgPipeline" or "ZImagePipeline" or "ZImageImg2ImgPipeline"
+                => components.Contains("unet") || components.Contains("transformer") ? new PipelineSupport(true) : new PipelineSupport(false, $"Not supported yet: {pipelineClass} has no UNet or transformer."),
+            _ => new PipelineSupport(false, $"Not supported yet: {Describe(pipelineClass)}. Sharplight loads the Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image and Wan 2.1 / 2.2 pipelines."),
+        };
+    }
+
+    private static string Describe(string pipelineClass)
+    {
+        string name = pipelineClass[..^"Pipeline".Length];
+        return name switch
+        {
+            "AuraFlow" => "AuraFlow",
+            "PixArtSigma" or "PixArtAlpha" => "PixArt",
+            "HunyuanVideo" => "HunyuanVideo",
+            "CogVideoX" => "CogVideoX",
+            "LTX" => "LTX-Video",
+            "Kandinsky" or "Kandinsky3" => "Kandinsky",
+            _ => $"the {pipelineClass} diffusers pipeline",
         };
     }
 }

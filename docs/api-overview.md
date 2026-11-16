@@ -303,8 +303,43 @@ AudioBuffer again = await codec.DecodeAsync(codes);
 per 512-sample frame (the frame with the 64 samples before it, and the recurrent state in and out). `IVoiceActivityDetector.ProbabilitiesAsync` returns the frame
 probabilities, `DetectAsync` the segments (`SpeechSegmentation.FromProbabilities` is the reference implementation's hysteresis, minimum durations, padding and splitting
 of overlong segments, usable with any detector). Long-form speech recognition can use a detector as pre-segmentation:
-`new SpeechRecognitionOptions { UseVoiceActivityDetection = true, VoiceActivityDetector = detector }` transcribes only the speech, in windows of at most 30 s that start
+`new SpeechRecognitionOptions { UseVoiceActivityDetection = true, VoiceActivityDetector = detector }` (or resolved from the container, see "Registration" below) transcribes only the speech, in windows of at most 30 s that start
 at speech, with segment and word times on the recording's timeline.
+
+`audio-embedding` models (CLAP, `laion/clap-htsat-unfused`; architecture `clap`) have an `encoder` component with the graph `audio_embed` (the log-mel features of a 10 s clip in, the projected
+embedding out), a `text-encoder` component with `text_embed`, a tokenizer and a log-mel feature extractor (`AudioEmbedderGraphs` documents the contract). `IAudioEmbedder` embeds audio and text
+into one space and scores audio against candidate texts (zero-shot tagging); audio shorter than a clip is repeated and padded, longer audio uses its first clip or the average of its clips
+(`LongAudioMode`).
+
+```csharp
+using var embedder = provider.GetRequiredService<TaskClientProvider>().Create<IAudioEmbedder>(model);
+var tags = await embedder.ClassifyZeroShotAsync(WavFile.Read("clip.wav"), ["a dog barking", "music", "speech"]);
+Console.WriteLine($"{tags.Top!.Label}: {tags.Top.Score:P0}");
+```
+
+`music-generation` models (MusicGen; architecture `musicgen`) have a `text-encoder` (graph `text_encode`), a tokenizer, a `decoder` with the cached one-step graphs `decode` and
+`decode_unconditional` (the two branches of classifier-free guidance; one code per codebook in, the logits of every codebook out) and a `vocoder` component with the codec's `audio_decode`
+graph (`MusicGenerationGraphs`). `IMusicGenerator.GenerateAsync` returns the audio, `GenerateCodesAsync` the codec codes (the delay pattern removed), and `GenerateStreamingAsync` pieces
+of audio while the codes are being generated (windowed codec decoding with context, so the pieces differ slightly from the one-shot audio at the borders).
+`MusicGenerationRequest { Greedy = true }` is deterministic; otherwise top-k / top-p sampling with an optional seed.
+
+```csharp
+using var generator = clients.Create<IMusicGenerator>(model);
+AudioBuffer music = await generator.GenerateAsync(new MusicGenerationRequest { Prompt = "calm piano with soft strings", Duration = TimeSpan.FromSeconds(10), Seed = 1 });
+```
+
+`audio-separation` models (Demucs `htdemucs`; architecture `demucs`) have one component whose graph `separate` runs one fixed-length segment (the host computes the spectrogram and the
+normalizations and rebuilds the audio, see `SeparationGraphs`). `IAudioSeparator.SeparateAsync` converts the mixture to the model's rate and channels, runs overlapping segments with a
+triangular cross-fade (`AudioSeparationOptions.Overlap`) and returns one `SeparatedStem` per source.
+
+```csharp
+using var separator = clients.Create<IAudioSeparator>(model);
+IReadOnlyList<SeparatedStem> stems = await separator.SeparateAsync(WavFile.Read("song.wav"), progress: new Progress<double>(Console.WriteLine));
+```
+
+Registration with dependency injection: `AddSharplightTasks()` registers the factories of all audio kinds; `services.AddTaskClient<IVoiceActivityDetector>(options => ..., key)` registers a detector
+once, and a speech recognizer resolves it from the container when a request sets `UseVoiceActivityDetection` (`SpeechRecognitionOptions.VoiceActivityDetectorKey` picks a keyed registration, otherwise
+the unkeyed one; `SpeechRecognitionOptions.VoiceActivityDetector` still takes an instance directly).
 
 ### Image generation
 
@@ -401,7 +436,9 @@ Video generators are models of kind `video-generation` with the client `IVideoGe
 folders (Wan 2.1 text-to-video, Wan 2.2 TI2V text- and image-to-video) into the canonical `wan` source, and `WanAdapter`
 (Sharplight.Architectures) builds the umT5 text encoder (with a key mask), the video diffusion transformer (3-D patches, RoPE over
 (frame, row, column), cross-attention to the text tokens, per-token timesteps for TI2V) and the causal 3-D VAE as graphs of generic
-Core ops (components `text-encoder`, `tokenizer`, `transformer`, `vae`, `scheduler`; graph contract `VideoDiffusionGraphs`). Core's
+Core ops (components `text-encoder`, `tokenizer`, `transformer`, `vae`, `scheduler`; graph contract `VideoDiffusionGraphs`). LTX-Video
+0.9.0 folders become the canonical `ltx` source (`LtxAdapter`: the unmasked T5 encoder, a transformer with key-masked
+cross-attention and fractional RoPE, the non-causal VAE decoder over the whole latent video). Core's
 built-in `VideoDiffusionGenerator` (registered by `AddSharplightTasks()`) runs every model that follows the contract.
 
 ```csharp
@@ -440,6 +477,9 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
 - Memory: when the weights take more than 40 % of the device memory (video activations are large), the text encoder is released
   after encoding and the transformer before decoding (compiled again from the cached kernels; the conditioning of the last prompts
   is reused, so the encoder only returns for new prompts).
+- Transformer-only checkpoints (Wan GGUF files from city96 / QuantStack, original-name `.safetensors`): give a Wan diffusers folder of
+  the same family as `Auxiliary[AuxiliaryRoles.TextEncoder]` and `Auxiliary[AuxiliaryRoles.Vae]` (`WanCompanionAdapter` merges its umT5
+  encoder, tokenizer and VAE).
 - `sharplight-generate-video` (samples/Sharplight.GenerateVideo) is a command-line front end.
 
 ## 1. Load a model (text generation)

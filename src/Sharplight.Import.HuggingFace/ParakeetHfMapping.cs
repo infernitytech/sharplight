@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Sharplight.Audio;
 using Sharplight.Models;
 
 namespace Sharplight.Import.HuggingFace;
@@ -282,7 +283,7 @@ internal sealed partial class ParakeetHfMapping : IHfArchitectureMapping
         return new Dictionary<string, IWeightSource>(StringComparer.Ordinal)
         {
             ["feature-extractor/mel-filters"] = new MemoryWeightSource(
-                () => MemoryMarshal.AsBytes(HfMelFilterBank.Create(audio.MelBins, audio.FftSize, audio.SampleRate).AsSpan()).ToArray()),
+                () => MemoryMarshal.AsBytes(SlaneyMelFilterBank.Create(audio.MelBins, audio.FftSize, audio.SampleRate).AsSpan()).ToArray()),
         };
     }
 

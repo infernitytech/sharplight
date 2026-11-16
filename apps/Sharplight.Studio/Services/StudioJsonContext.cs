@@ -13,4 +13,5 @@ namespace Sharplight.Studio.Services;
 [JsonSerializable(typeof(TranscriptFile))]
 [JsonSerializable(typeof(VisionResultFile))]
 [JsonSerializable(typeof(ImageParametersFile))]
+[JsonSerializable(typeof(VideoParametersFile))]
 internal sealed partial class StudioJsonContext : JsonSerializerContext;

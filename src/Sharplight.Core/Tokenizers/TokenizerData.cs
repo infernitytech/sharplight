@@ -35,6 +35,9 @@ public sealed record TokenizerData
     /// <summary>SentencePiece and unigram: prepend a space to the text (default depends on the tokenizer model).</summary>
     public bool? AddSpacePrefix { get; init; }
 
+    /// <summary>SentencePiece-style: where the space prefix goes (<see cref="CanonicalKeys.TokenizerSpacePrefixScheme"/>); null = llama.cpp's placement.</summary>
+    public string? SpacePrefixScheme { get; init; }
+
     /// <summary>WordPiece: lowercase the text (default true).</summary>
     public bool? Lowercase { get; init; }
 
@@ -135,6 +138,7 @@ public sealed record TokenizerData
             Merges = TokenizerMetadataReader.GetStringArray(md, KeyMerges),
             Scores = TokenizerMetadataReader.GetFloatArray(md, CanonicalKeys.TokenizerScores),
             AddSpacePrefix = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerAddSpacePrefix),
+            SpacePrefixScheme = TokenizerMetadataReader.GetString(md, CanonicalKeys.TokenizerSpacePrefixScheme),
             Lowercase = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerLowercase),
             StripChars = TokenizerMetadataReader.GetString(md, CanonicalKeys.TokenizerStripChars),
             StripAccents = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerStripAccents),

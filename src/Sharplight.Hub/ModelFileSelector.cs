@@ -28,6 +28,7 @@ public static class ModelFileSelector
     private const string WeightMapProperty = "weight_map";
     private static readonly string[] s_metadataExtensions = [".json", ".jinja"];
     private static readonly string[] s_metadataFiles = ["tokenizer.model"];
+    private static readonly string[] s_whisperPreference = ["base.en-q5_1", "base-q5_1", "small.en-q5_1", "small-q5_1", "base.en", "base", "small.en", "small", "tiny.en", "tiny"];
     private static readonly string[] s_projectorPreference = ["F16", "BF16", "F32", "Q8_0"];
 
     /// <summary>
@@ -52,18 +53,35 @@ public static class ModelFileSelector
             return ModelFormat.Safetensors;
         }
 
-        return OnnxCandidates(list).Any() ? ModelFormat.Onnx : null;
+        if (list.Contains(RepoLayouts.DiffusersIndex, StringComparer.Ordinal))
+        {
+            return ModelFormat.Diffusers;
+        }
+
+        if (OnnxCandidates(list).Any())
+        {
+            return ModelFormat.Onnx;
+        }
+
+        return list.Any(RepoLayouts.IsWhisperCpp) ? ModelFormat.WhisperCpp : null;
     }
 
     /// <summary>The tags a repository with these files offers, most recommended first; empty for a single variant.</summary>
     /// <param name="paths">Repository paths.</param>
-    public static IReadOnlyList<string> ListVariants(IEnumerable<string> paths)
+    public static IReadOnlyList<string> ListVariants(IEnumerable<string> paths) => ListVariants(paths, null);
+
+    /// <summary>The tags a repository with these files offers; <paramref name="indexJson"/> (the text of <see cref="IndexPath"/>) refines a Diffusers pipeline's components.</summary>
+    /// <param name="paths">Repository paths.</param>
+    /// <param name="indexJson">The text of the pipeline index, or null.</param>
+    public static IReadOnlyList<string> ListVariants(IEnumerable<string> paths, string? indexJson)
     {
         var list = paths.ToList();
         return DetectFormat(list) switch
         {
             ModelFormat.Gguf => [.. OrderByPreference(GgufVariants(list)).Select(variant => variant.Label)],
             ModelFormat.Onnx => [.. OnnxVariants(list).Select(variant => variant.Label).Where(label => label.Length > 0)],
+            ModelFormat.Diffusers => DiffusersSelection.Variants([.. list.Select(path => new HubFile(path, 0, null, null))], indexJson is null ? null : DiffusersPipeline.Parse(indexJson)),
+            ModelFormat.WhisperCpp => [.. WhisperTags(list)],
             _ => [],
         };
     }
@@ -75,6 +93,11 @@ public static class ModelFileSelector
     {
         var paths = repository.Files.Select(file => file.Path).ToList();
         bool safetensors = string.Equals(tag, SafetensorsTag, StringComparison.OrdinalIgnoreCase) || DetectFormat(paths) == ModelFormat.Safetensors;
+        if (!safetensors && DetectFormat(paths) == ModelFormat.Diffusers)
+        {
+            return RepoLayouts.DiffusersIndex;
+        }
+
         return safetensors ? paths.Where(IsRootFile).Where(path => path.EndsWith(IndexSuffix, StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).FirstOrDefault() : null;
     }
 
@@ -98,6 +121,8 @@ public static class ModelFileSelector
             ModelFormat.Gguf => SelectGguf(repository, tag),
             ModelFormat.Safetensors => SelectCheckpoint(repository, tag, indexJson),
             ModelFormat.Onnx => SelectOnnx(repository, tag),
+            ModelFormat.Diffusers => DiffusersSelection.Select(repository, tag, indexJson),
+            ModelFormat.WhisperCpp => SelectWhisper(repository, tag),
             _ => throw new HubException($"{repository.Id}: {format} repositories cannot be pulled yet."),
         };
     }
@@ -311,6 +336,26 @@ public static class ModelFileSelector
         var model = repository.Files.First(file => file.Path == chosen.Path);
         var externalData = repository.Files.Where(file => file.Directory == model.Directory && IsExternalData(model.Name, file.Name));
         return new ModelSelection(ModelFormat.Onnx, chosen.Label, [model, .. externalData], model.Path, null);
+    }
+
+    /// <summary>whisper.cpp model names (<c>small.en-q5_1</c>), the recommended one first, then by size.</summary>
+    private static IEnumerable<string> WhisperTags(IReadOnlyList<string> paths)
+    {
+        var names = paths.Where(RepoLayouts.IsWhisperCpp).Select(path => path["ggml-".Length..^".bin".Length]).Order(StringComparer.Ordinal).ToList();
+        var preferred = s_whisperPreference.FirstOrDefault(names.Contains);
+        return preferred is null ? names : names.Where(name => name == preferred).Concat(names.Where(name => name != preferred));
+    }
+
+    private static ModelSelection SelectWhisper(HubRepository repository, string? tag)
+    {
+        var models = RepoLayouts.WhisperModels(repository.Files);
+        var tags = WhisperTags([.. repository.Files.Select(file => file.Path)]).ToList();
+        string name = tag is null || string.Equals(tag, DefaultTag, StringComparison.OrdinalIgnoreCase)
+            ? tags[0]
+            : tags.FirstOrDefault(candidate => string.Equals(candidate, tag, StringComparison.OrdinalIgnoreCase))
+                ?? throw new HubException($"{repository.Id} has no whisper.cpp model '{tag}'. Available: {string.Join(", ", models.Select(model => model.Name))}.");
+        var file = repository.Files.First(candidate => candidate.Path == $"ggml-{name}.bin");
+        return new ModelSelection(ModelFormat.WhisperCpp, name, [file], file.Path, null);
     }
 
     private static bool IsExternalData(string modelName, string candidate)

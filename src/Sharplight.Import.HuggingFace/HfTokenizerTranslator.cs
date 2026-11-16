@@ -42,6 +42,12 @@ internal static partial class HfTokenizerTranslator
             return;
         }
 
+        if (!File.Exists(tokenizerPath) && IsCharacterCtc(dir, config))
+        {
+            AddFromJson(md, ConvertCharacterCtc(dir), dir, config);
+            return;
+        }
+
         if (!File.Exists(tokenizerPath))
         {
             throw new NotSupportedException($"{dir}: no tokenizer.json (SentencePiece-only tokenizers are not supported yet).");
