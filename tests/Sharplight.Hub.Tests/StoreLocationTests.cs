@@ -110,6 +110,25 @@ public sealed class StoreLocationTests : IDisposable
     }
 
     [Fact]
+    public void AppImageDirectory_IsNotUsedForModels()
+    {
+        var mounted = _directory.Combine("appimage-mount");
+        Assert.True(ModelStore.IsInstallLocation(Path.Combine(mounted, "usr", "bin", "data"), mounted, App));
+        Assert.False(ModelStore.IsInstallLocation(Path.Combine(User, "models"), mounted, App));
+    }
+
+    [Fact]
+    public void VelopackApplicationDirectory_IsNotUsedForModels()
+    {
+        var root = _directory.Combine("velopack");
+        var current = Path.Combine(root, "current");
+        Directory.CreateDirectory(current);
+        File.WriteAllBytes(Path.Combine(root, "Update.exe"), []);
+        Assert.True(ModelStore.IsInstallLocation(Path.Combine(current, "data"), null, current));
+        Assert.False(ModelStore.IsInstallLocation(Path.Combine(App, "data"), null, App));
+    }
+
+    [Fact]
     public void ApplicationRoot_IsTheDataFolderNextToTheExecutable()
     {
         Assert.Equal(Path.Combine(AppContext.BaseDirectory, "data"), ModelStore.ApplicationRoot);
