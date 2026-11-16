@@ -38,6 +38,8 @@ internal static class HfArchitectureMappings
         Register(new DetrHfMapping());
         Register(new RtDetrHfMapping());
         Register(new DepthAnythingHfMapping());
+        Register(new Sam2HfMapping());
+        Register(new TrOcrHfMapping());
         Register(new T5HfMapping());
         Register(new BartHfMapping());
         Register(new WhisperHfMapping());

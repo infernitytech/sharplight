@@ -33,6 +33,43 @@ public static class WellKnown
     public const string DepthGraph = "estimate_depth";
     /// <summary>Name of the depth map output of <see cref="DepthGraph"/>.</summary>
     public const string DepthOutput = "depth";
+    /// <summary>
+    /// Promptable segmentation, image stage: <c>pixels</c> f32 [1, 3, H, W] (the normalized image) in; the image embedding <see cref="SegmentEmbeddingOutput"/>
+    /// [h·w, C] (rows in raster order) and the two high-resolution feature maps <see cref="SegmentFeatures0Output"/> and <see cref="SegmentFeatures1Output"/> ([1, C, H, W]) out. Run once per image.
+    /// </summary>
+    public const string SegmentEncodeGraph = "segment_encode";
+    /// <summary>
+    /// Promptable segmentation, prompt stage: the three outputs of <see cref="SegmentEncodeGraph"/> (inputs of the same names), <c>point_coords</c> f32 [P, 2]
+    /// (x, y in pixels of the model input) and <c>point_kinds</c> i32 [P] (<c>Sharplight.Vision.SegmentPromptKinds</c>) in; <see cref="SegmentMasksOutput"/> f32 [M, h', w']
+    /// (mask logits at the model's mask resolution: row 0 the single-mask candidate, the others the multi-mask candidates), <see cref="SegmentScoresOutput"/> f32 [M]
+    /// (predicted IoU per candidate) and <see cref="SegmentObjectOutput"/> f32 [1] (object presence logit) out. P is the symbol <see cref="SegmentPointSymbol"/>.
+    /// </summary>
+    public const string SegmentDecodeGraph = "segment_decode";
+    /// <summary>Name of the image embedding output of <see cref="SegmentEncodeGraph"/>.</summary>
+    public const string SegmentEmbeddingOutput = "embedding";
+    /// <summary>Name of the highest-resolution feature output of <see cref="SegmentEncodeGraph"/>.</summary>
+    public const string SegmentFeatures0Output = "features_0";
+    /// <summary>Name of the second feature output of <see cref="SegmentEncodeGraph"/>.</summary>
+    public const string SegmentFeatures1Output = "features_1";
+    /// <summary>Name of the mask logits output of <see cref="SegmentDecodeGraph"/>.</summary>
+    public const string SegmentMasksOutput = "masks";
+    /// <summary>Name of the IoU score output of <see cref="SegmentDecodeGraph"/>.</summary>
+    public const string SegmentScoresOutput = "scores";
+    /// <summary>Name of the object presence output of <see cref="SegmentDecodeGraph"/>.</summary>
+    public const string SegmentObjectOutput = "object_score";
+    /// <summary>Symbol of the prompt point count of <see cref="SegmentDecodeGraph"/>.</summary>
+    public const string SegmentPointSymbol = "P";
+    /// <summary>
+    /// Image upscaling: <c>pixels</c> f32 [1, 3, H, W] (RGB in 0..1) in; <see cref="UpscaledOutput"/> f32 [1, 3, H · s, W · s] (RGB, about 0..1) out. The size is fixed
+    /// per graph (the <see cref="UpscaleHeightDimension"/> and <see cref="UpscaleWidthDimension"/> of <see cref="AdapterOptions.Dimensions"/> rebuild it for other sizes).
+    /// </summary>
+    public const string UpscaleGraph = "upscale";
+    /// <summary>Name of the image output of <see cref="UpscaleGraph"/>.</summary>
+    public const string UpscaledOutput = "upscaled";
+    /// <summary>Dimension name of the input height of <see cref="UpscaleGraph"/>.</summary>
+    public const string UpscaleHeightDimension = "height";
+    /// <summary>Dimension name of the input width of <see cref="UpscaleGraph"/>.</summary>
+    public const string UpscaleWidthDimension = "width";
     /// <summary>Name of the pooled embedding output of <see cref="ImageEncodeGraph"/>.</summary>
     public const string PooledOutput = "pooled";
     /// <summary>Decoder taking token ids, an embeddings input and a per-row mask (<see cref="InputRole.EmbeddingMask"/>): text mixed with media embeddings.</summary>
