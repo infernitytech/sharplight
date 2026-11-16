@@ -40,8 +40,17 @@ public sealed record SpeechRecognitionOptions
     /// </summary>
     public bool UseVoiceActivityDetection { get; init; }
 
-    /// <summary>The detector for <see cref="UseVoiceActivityDetection"/> (a client of kind <c>voice-activity</c>, e.g. Silero VAD); the caller owns it.</summary>
+    /// <summary>
+    /// The detector for <see cref="UseVoiceActivityDetection"/> (a client of kind <c>voice-activity</c>, e.g. Silero VAD); the caller owns it. When it is <see langword="null"/>
+    /// the recognizer resolves an <see cref="IVoiceActivityDetector"/> from the container (see <see cref="VoiceActivityDetectorKey"/>).
+    /// </summary>
     public IVoiceActivityDetector? VoiceActivityDetector { get; init; }
+
+    /// <summary>
+    /// The service key of the <see cref="IVoiceActivityDetector"/> to resolve from the container (registered with <c>AddTaskClient&lt;IVoiceActivityDetector&gt;(configure, key)</c>),
+    /// or <see langword="null"/> for the unkeyed one. Ignored when <see cref="VoiceActivityDetector"/> is set.
+    /// </summary>
+    public object? VoiceActivityDetectorKey { get; init; }
 
     /// <summary>How the detector's probabilities become speech segments for <see cref="UseVoiceActivityDetection"/>, or <see langword="null"/> for the defaults.</summary>
     public VoiceActivityOptions? VoiceActivity { get; init; }

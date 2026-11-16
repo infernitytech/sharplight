@@ -12,15 +12,16 @@ internal static class HfMelFilterBank
     private static readonly double s_logStep = Math.Log(6.4) / 27.0;
 
     /// <summary>Filters [melBins, fftSize / 2 + 1] row-major, from 0 Hz to the Nyquist frequency.</summary>
-    public static float[] Create(int melBins, int fftSize, int sampleRate)
+    public static float[] Create(int melBins, int fftSize, int sampleRate, double minFrequency = 0.0, double? maxFrequency = null)
     {
         int bins = (fftSize / 2) + 1;
         double nyquist = sampleRate / 2.0;
-        double melMax = HzToMel(nyquist);
+        double melMin = HzToMel(minFrequency);
+        double melMax = HzToMel(maxFrequency ?? nyquist);
         var edges = new double[melBins + 2];
         for (int i = 0; i < edges.Length; i++)
         {
-            edges[i] = MelToHz(melMax * i / (melBins + 1));
+            edges[i] = MelToHz(melMin + ((melMax - melMin) * i / (melBins + 1)));
         }
 
         var filters = new float[melBins * bins];

@@ -4,6 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
+    <InternalsVisibleTo Include="Sharplight.AudioModels.Tests" />
     <InternalsVisibleTo Include="Sharplight.Cpu" />
     <InternalsVisibleTo Include="Sharplight.Shaders" />
     <InternalsVisibleTo Include="Sharplight.Import.Gguf" />

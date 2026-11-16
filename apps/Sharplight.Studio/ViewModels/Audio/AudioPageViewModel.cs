@@ -16,24 +16,29 @@ namespace Sharplight.Studio.ViewModels.Audio;
 
 /// <summary>
 /// The Audio page, for the audio kinds that are not speech: an audio codec (<c>audio-codec</c>: the input is encoded to codes and decoded again, the
-/// reconstruction can be played and exported) and a voice activity detector (<c>voice-activity</c>: the speech segments of the input on a timeline).
+/// reconstruction can be played and exported), a voice activity detector (<c>voice-activity</c>: the speech segments of the input on a timeline), an audio-text
+/// embedding model (<c>audio-embedding</c>: zero-shot tagging of the input with candidate texts), a music generator (<c>music-generation</c>: music from a prompt,
+/// played and exported) and a source separator (<c>audio-separation</c>: the stems of the input, each played and exported on its own).
 /// The mode follows the kind of the chosen model. Built from the shared inference blocks; playback is the Speak page's (the system's player program).
 /// </summary>
 internal sealed partial class AudioPageViewModel : InferencePageViewModel
 {
     private const string AudioName = "reconstruction.wav";
     private const string SegmentsName = "segments.txt";
+    private const string MusicName = "music.wav";
+    private const string TagsName = "tags.txt";
     private static readonly FileFilter s_audioFiles = new("Audio files", ["*.wav", "*.flac", "*.mp3", "*.ogg", "*.oga", "*.opus"]);
     private static readonly FileFilter s_allFiles = new("All files", ["*"]);
 
     private AudioBuffer? _audio;
     private CancellationTokenSource? _playback;
     private string? _resultPath;
+    private string? _playingPath;
 
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
     public AudioPageViewModel(StudioServices services, INavigator navigator)
-        : base(services, navigator, [ModelKinds.AudioCodec, ModelKinds.VoiceActivity], "audio", CreateParameters(services))
+        : base(services, navigator, [ModelKinds.AudioCodec, ModelKinds.VoiceActivity, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioSeparation], "audio", CreateParameters(services))
     {
         ApplyMode();
     }
@@ -74,6 +79,32 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     /// <summary>The speech segments of the last voice activity run.</summary>
     public ObservableCollection<SpeechSegmentViewModel> Segments { get; } = [];
 
+    /// <summary>The prompt of the music generator.</summary>
+    [ObservableProperty]
+    public partial string Prompt { get; set; } = "";
+
+    /// <summary>The candidate texts of zero-shot tagging, one per line.</summary>
+    [ObservableProperty]
+    public partial string Labels { get; set; } = "speech\nmusic\nsinging\na dog barking\napplause\ntraffic noise";
+
+    /// <summary>The tagging result.</summary>
+    public ObservableCollection<TagScoreViewModel> Tags { get; } = [];
+
+    /// <summary>The stems of the last separation.</summary>
+    public ObservableCollection<StemViewModel> StemResults { get; } = [];
+
+    /// <summary>The page shows the tagging input and result.</summary>
+    public bool IsTagging => Mode == AudioMode.Tagging;
+
+    /// <summary>The page shows the prompt (music generation).</summary>
+    public bool IsMusic => Mode == AudioMode.Music;
+
+    /// <summary>The page shows the stems.</summary>
+    public bool IsSeparation => Mode == AudioMode.Separation;
+
+    /// <summary>The page takes an input audio file (every mode but music generation).</summary>
+    public bool NeedsAudio => Mode != AudioMode.Music;
+
     /// <summary>The page shows the codec result (the reconstruction).</summary>
     public bool IsCodec => Mode == AudioMode.Codec;
 
@@ -81,13 +112,24 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     public bool IsVoiceActivity => Mode == AudioMode.VoiceActivity;
 
     /// <summary>The text of the run button.</summary>
-    public string RunText => Mode switch { AudioMode.Codec => "Round trip", AudioMode.VoiceActivity => "Find speech", _ => "Run" };
+    public string RunText => Mode switch
+    {
+        AudioMode.Codec => "Round trip",
+        AudioMode.VoiceActivity => "Find speech",
+        AudioMode.Tagging => "Tag",
+        AudioMode.Music => "Generate",
+        AudioMode.Separation => "Separate",
+        _ => "Run",
+    };
 
     /// <summary>What the chosen mode does, for the hint above the input.</summary>
     public string ModeDescription => Mode switch
     {
         AudioMode.Codec => "The codec encodes the audio to discrete codes and decodes them again; play the reconstruction and compare.",
         AudioMode.VoiceActivity => "The detector marks the stretches of speech on a timeline.",
+        AudioMode.Tagging => "Score the audio against candidate texts (zero-shot tagging): the best match is what the model hears.",
+        AudioMode.Music => "Describe the music; the model generates it. Play it and save it as a WAV file.",
+        AudioMode.Separation => "Split the mixture into its stems; play and save each one.",
         _ => "Load an audio codec or a voice activity model to start.",
     };
 
@@ -109,10 +151,11 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     public string PlayText => IsPlaying ? "Stop" : "Play";
 
     /// <summary>A reconstruction is ready to play and export.</summary>
-    public bool HasReconstruction => HasResult && IsCodec;
+    public bool HasReconstruction => HasResult && (IsCodec || IsMusic);
 
     /// <summary>Why <see cref="RunCommand"/> cannot run, for the hint under the button; empty when it can.</summary>
-    public string RunHint => !HasModel ? "Load an audio codec or voice activity model first." : !HasAudio ? "Choose audio first." : "";
+    public string RunHint => !HasModel ? "Load an audio model first (codec, voice activity, CLAP, MusicGen or Demucs)." : IsMusic ? (Prompt.Trim().Length == 0 ? "Type a prompt first." : "")
+        : !HasAudio ? "Choose audio first." : IsTagging && TagCandidates().Count == 0 ? "Type at least one candidate text." : "";
 
     /// <summary>
     /// Takes <paramref name="path"/> as the input: decodes the file and shows its length. Unreadable or unsupported files are refused with a notice.
@@ -173,6 +216,20 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         {
             ShowReconstruction(audio, string.Join(" · ", record.Metadata.Select(pair => $"{pair.Key}: {pair.Value}")));
         }
+        else if (File.Exists(Archive.PathOf(record, MusicName)))
+        {
+            Prompt = record.Input.TryGetValue("prompt", out var prompt) ? prompt : Prompt;
+            ShowReconstruction(Archive.PathOf(record, MusicName), string.Join(" · ", record.Metadata.Select(pair => $"{pair.Key}: {pair.Value}")));
+        }
+        else if (File.Exists(Archive.PathOf(record, TagsName)))
+        {
+            ShowTags(ParseTags(File.ReadAllLines(Archive.PathOf(record, TagsName))), string.Join(" · ", record.Metadata.Select(pair => $"{pair.Key}: {pair.Value}")));
+        }
+        else if (record.Files.Any(file => file.StartsWith("stem-", StringComparison.Ordinal)))
+        {
+            ShowStems(record.Files.Where(file => file.StartsWith("stem-", StringComparison.Ordinal)).Select(file => (file[5..^4], Archive.PathOf(record, file))).ToList(),
+                string.Join(" · ", record.Metadata.Select(pair => $"{pair.Key}: {pair.Value}")));
+        }
         else if (File.Exists(segments))
         {
             double total = record.Metadata.TryGetValue("seconds", out var seconds) && double.TryParse(seconds, System.Globalization.CultureInfo.InvariantCulture, out double parsed) ? parsed : 1;
@@ -187,8 +244,23 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     private void ApplyMode()
     {
         var kind = SelectedModel?.Kind;
-        Mode = kind == ModelKinds.AudioCodec ? AudioMode.Codec : kind == ModelKinds.VoiceActivity ? AudioMode.VoiceActivity : AudioMode.None;
+        Mode = kind switch
+        {
+            ModelKinds.AudioCodec => AudioMode.Codec,
+            ModelKinds.VoiceActivity => AudioMode.VoiceActivity,
+            ModelKinds.AudioEmbedding => AudioMode.Tagging,
+            ModelKinds.MusicGeneration => AudioMode.Music,
+            ModelKinds.AudioSeparation => AudioMode.Separation,
+            _ => AudioMode.None,
+        };
         Panel.SetVisible("codebooks", Mode == AudioMode.Codec);
+        Panel.SetVisible("topk", Mode == AudioMode.Tagging);
+        Panel.SetVisible("overlap", Mode == AudioMode.Separation);
+        foreach (string key in (string[])["duration", "guidance", "greedy", "seed", "temperature", "musictopk"])
+        {
+            Panel.SetVisible(key, Mode == AudioMode.Music);
+        }
+
         foreach (string key in (string[])["threshold", "minspeech", "minsilence", "pad"])
         {
             Panel.SetVisible(key, Mode == AudioMode.VoiceActivity);
@@ -197,6 +269,10 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         OnPropertyChanged(nameof(Mode));
         OnPropertyChanged(nameof(IsCodec));
         OnPropertyChanged(nameof(IsVoiceActivity));
+        OnPropertyChanged(nameof(IsTagging));
+        OnPropertyChanged(nameof(IsMusic));
+        OnPropertyChanged(nameof(IsSeparation));
+        OnPropertyChanged(nameof(NeedsAudio));
         OnPropertyChanged(nameof(RunText));
         OnPropertyChanged(nameof(ModeDescription));
         OnPropertyChanged(nameof(RunHint));
@@ -214,13 +290,35 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     {
         StopPlayback();
         Segments.Clear();
+        Tags.Clear();
+        StemResults.Clear();
         HasResult = false;
         ResultSummary = "";
         _resultPath = null;
         OnPropertyChanged(nameof(HasReconstruction));
     }
 
-    private bool CanRun() => HasModel && HasAudio && Mode != AudioMode.None;
+    private bool CanRun() => HasModel && Mode switch
+    {
+        AudioMode.None => false,
+        AudioMode.Music => Prompt.Trim().Length > 0,
+        AudioMode.Tagging => HasAudio && TagCandidates().Count > 0,
+        _ => HasAudio,
+    };
+
+    partial void OnPromptChanged(string value)
+    {
+        OnPropertyChanged(nameof(RunHint));
+        RunCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnLabelsChanged(string value)
+    {
+        OnPropertyChanged(nameof(RunHint));
+        RunCommand.NotifyCanExecuteChanged();
+    }
+
+    private List<string> TagCandidates() => [.. Labels.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)];
 
     /// <summary>Opens the file picker for the input audio.</summary>
     [RelayCommand]
@@ -238,20 +336,23 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     private void Run()
     {
         var model = SelectedModel!;
-        var audio = _audio!;
+        var audio = _audio;
         var settings = Panel.Options;
         var mode = Mode;
         var values = Panel.Snapshot();
-        string name = Path.GetFileName(AudioPath);
+        string prompt = Prompt.Trim();
+        var candidates = TagCandidates();
+        string name = mode == AudioMode.Music ? (prompt.Length > 60 ? prompt[..60] + "..." : prompt) : Path.GetFileName(AudioPath);
         Panel.Persist();
         Notice = "";
         ClearResult();
-        Queue.Enqueue(name, model.Id, context => RunAsync(model, mode, audio, settings, values, name, context));
+        Queue.Enqueue(name, model.Id, context => RunAsync(model, mode, audio, settings, values, name, prompt, candidates, context));
         OnPropertyChanged(nameof(IsRunning));
         RunCommand.NotifyCanExecuteChanged();
     }
 
-    private async Task RunAsync(ILoadedModel model, AudioMode mode, AudioBuffer audio, AudioSettings settings, Dictionary<string, string> values, string name, RunContext context)
+    private async Task RunAsync(ILoadedModel model, AudioMode mode, AudioBuffer? audio, AudioSettings settings, Dictionary<string, string> values, string name, string prompt,
+        List<string> candidates, RunContext context)
     {
         var watch = Stopwatch.StartNew();
         RunOutcome outcome = RunOutcome.Completed;
@@ -259,20 +360,64 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         var metadata = new Dictionary<string, string>();
         Dictionary<string, byte[]>? files = null;
         List<SpeechSegment>? segments = null;
+        List<(string Label, double Score)>? tags = null;
+        List<(string Name, string File)>? stems = null;
+        string? musicFile = null;
         try
         {
             context.Report(null, "Loading the model");
-            if (mode == AudioMode.Codec)
+            if (mode == AudioMode.Music)
+            {
+                using var lease = await model.AcquireClientAsync<IMusicGenerator>(context.CancellationToken).ConfigureAwait(false);
+                context.Report(null, "Generating");
+                var music = await lease.Client.GenerateAsync(settings.Music with { Prompt = prompt }, context.CancellationToken).ConfigureAwait(false);
+                using var stored = new MemoryStream();
+                WavFile.Write(stored, music);
+                files = new Dictionary<string, byte[]> { [MusicName] = stored.ToArray() };
+                musicFile = MusicName;
+                metadata["length"] = $"{music.Duration.TotalSeconds:0.0} s at {music.SampleRate / 1000.0:0.#} kHz";
+            }
+            else if (mode == AudioMode.Tagging)
+            {
+                using var lease = await model.AcquireClientAsync<IAudioEmbedder>(context.CancellationToken).ConfigureAwait(false);
+                context.Report(null, "Listening");
+                var result = await lease.Client.ClassifyZeroShotAsync(audio!, candidates, settings.Tagging, context.CancellationToken).ConfigureAwait(false);
+                tags = [.. result.Predictions.Select(p => (p.Label, (double)p.Score))];
+                files = new Dictionary<string, byte[]>
+                {
+                    [TagsName] = System.Text.Encoding.UTF8.GetBytes(string.Concat(tags.Select(t => FormattableString.Invariant($"{t.Label}\t{t.Score:0.0000}\n")))),
+                };
+                metadata["best"] = tags.Count > 0 ? tags[0].Label : "";
+            }
+            else if (mode == AudioMode.Separation)
+            {
+                using var lease = await model.AcquireClientAsync<IAudioSeparator>(context.CancellationToken).ConfigureAwait(false);
+                var progress = new Progress<double>(fraction => context.Report(fraction, "Separating"));
+                var separated = await lease.Client.SeparateAsync(audio!, settings.Separation, progress, context.CancellationToken).ConfigureAwait(false);
+                files = new Dictionary<string, byte[]>();
+                stems = [];
+                foreach (var stem in separated)
+                {
+                    using var stored = new MemoryStream();
+                    WavFile.Write(stored, stem.Audio);
+                    string file = $"stem-{stem.Name}.wav";
+                    files[file] = stored.ToArray();
+                    stems.Add((stem.Name, file));
+                }
+
+                metadata["stems"] = string.Join(", ", separated.Select(s => s.Name));
+            }
+            else if (mode == AudioMode.Codec)
             {
                 using var lease = await model.AcquireClientAsync<IAudioCodec>(context.CancellationToken).ConfigureAwait(false);
                 context.Report(null, "Encoding");
-                var codes = await lease.Client.EncodeAsync(audio, settings.Codec, context.CancellationToken).ConfigureAwait(false);
+                var codes = await lease.Client.EncodeAsync(audio!, settings.Codec, context.CancellationToken).ConfigureAwait(false);
                 context.Report(null, "Decoding");
                 var decoded = await lease.Client.DecodeAsync(codes, context.CancellationToken).ConfigureAwait(false);
                 using var stored = new MemoryStream();
                 WavFile.Write(stored, decoded);
                 files = new Dictionary<string, byte[]> { [AudioName] = stored.ToArray() };
-                var input = audio.ToModelInput(lease.Client.SampleRate).Samples;
+                var input = audio!.ToModelInput(lease.Client.SampleRate).Samples;
                 double error2 = 0;
                 double energy = 0;
                 for (int i = 0; i < Math.Min(input.Length, decoded.Samples.Length); i++)
@@ -290,10 +435,10 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             {
                 using var lease = await model.AcquireClientAsync<IVoiceActivityDetector>(context.CancellationToken).ConfigureAwait(false);
                 context.Report(null, "Listening");
-                segments = [.. await lease.Client.DetectAsync(audio, settings.VoiceActivity, context.CancellationToken).ConfigureAwait(false)];
+                segments = [.. await lease.Client.DetectAsync(audio!, settings.VoiceActivity, context.CancellationToken).ConfigureAwait(false)];
                 double speech = segments.Sum(s => s.Duration.TotalSeconds);
                 metadata["segments"] = segments.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                metadata["speech"] = $"{speech:0.0} s of {audio.Duration.TotalSeconds:0.0} s";
+                metadata["speech"] = $"{speech:0.0} s of {audio!.Duration.TotalSeconds:0.0} s";
                 metadata["seconds"] = audio.Duration.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
                 files = new Dictionary<string, byte[]>
                 {
@@ -321,7 +466,7 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             Outcome = outcome,
             Seconds = elapsed,
             Error = error,
-            Input = new Dictionary<string, string> { ["file"] = name },
+            Input = mode == AudioMode.Music ? new Dictionary<string, string> { ["prompt"] = prompt } : new Dictionary<string, string> { ["file"] = name },
             Options = values,
             Metadata = metadata,
             Preview = string.Join(" · ", metadata.Select(pair => $"{pair.Key}: {pair.Value}")),
@@ -340,7 +485,19 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
                 string summary = string.Join(" · ", metadata.Select(pair => $"{pair.Key}: {pair.Value}"));
                 if (segments is not null)
                 {
-                    ShowSegments(segments.Select(s => (s.Start, s.End)).ToList(), audio.Duration, summary);
+                    ShowSegments(segments.Select(s => (s.Start, s.End)).ToList(), audio!.Duration, summary);
+                }
+                else if (tags is not null)
+                {
+                    ShowTags(tags, summary);
+                }
+                else if (stems is not null)
+                {
+                    ShowStems([.. stems.Select(stem => (stem.Name, Archive.PathOf(record, stem.File)))], summary);
+                }
+                else if (musicFile is not null)
+                {
+                    ShowReconstruction(Archive.PathOf(record, musicFile), summary);
                 }
                 else
                 {
@@ -376,6 +533,47 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         return result;
     }
 
+    private static List<(string Label, double Score)> ParseTags(IEnumerable<string> lines)
+    {
+        var result = new List<(string, double)>();
+        foreach (string line in lines)
+        {
+            var parts = line.Split('\t');
+            if (parts.Length == 2 && double.TryParse(parts[1], System.Globalization.CultureInfo.InvariantCulture, out double score))
+            {
+                result.Add((parts[0], score));
+            }
+        }
+
+        return result;
+    }
+
+    private void ShowTags(IReadOnlyList<(string Label, double Score)> tags, string summary)
+    {
+        Tags.Clear();
+        foreach (var (label, score) in tags)
+        {
+            Tags.Add(new TagScoreViewModel(label, score));
+        }
+
+        ResultSummary = summary;
+        HasResult = true;
+        OnPropertyChanged(nameof(HasReconstruction));
+    }
+
+    private void ShowStems(IReadOnlyList<(string Name, string Path)> stems, string summary)
+    {
+        StemResults.Clear();
+        foreach (var (stemName, path) in stems)
+        {
+            StemResults.Add(new StemViewModel(this, stemName, path));
+        }
+
+        ResultSummary = summary;
+        HasResult = true;
+        OnPropertyChanged(nameof(HasReconstruction));
+    }
+
     private void ShowSegments(IReadOnlyList<(TimeSpan Start, TimeSpan End)> segments, TimeSpan total, string summary)
     {
         Segments.Clear();
@@ -398,7 +596,7 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         OnPropertyChanged(nameof(HasReconstruction));
     }
 
-    private bool CanUseResult() => HasResult && IsCodec;
+    private bool CanUseResult() => HasResult && (IsCodec || IsMusic);
 
     /// <summary>Plays the reconstruction in the system's audio output, or stops it.</summary>
     [RelayCommand(CanExecute = nameof(CanUseResult))]
@@ -410,9 +608,24 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             return;
         }
 
-        if (_resultPath is not { } path)
+        if (_resultPath is { } path)
         {
-            return;
+            await PlayFileAsync(path);
+        }
+    }
+
+    /// <summary>Plays a stored WAV file in the system's audio output, or stops it when that file is playing.</summary>
+    /// <param name="path">The file.</param>
+    internal async Task PlayFileAsync(string path)
+    {
+        if (IsPlaying)
+        {
+            bool same = _playingPath == path;
+            StopPlayback();
+            if (same)
+            {
+                return;
+            }
         }
 
         if (!Services.Player.IsAvailable)
@@ -424,6 +637,7 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
 
         _playback = new CancellationTokenSource();
         var token = _playback.Token;
+        _playingPath = path;
         IsPlaying = true;
         try
         {
@@ -445,6 +659,7 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
 
     private void StopPlayback()
     {
+        _playingPath = null;
         _playback?.Cancel();
         _playback = null;
         IsPlaying = false;
@@ -454,9 +669,20 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     [RelayCommand(CanExecute = nameof(CanUseResult))]
     private async Task SaveAsync()
     {
-        if (_resultPath is { } path && File.Exists(path))
+        if (_resultPath is { } path)
         {
-            await Exporter.SaveAsync(Services.Platform, "Save audio", "reconstruction.wav", await File.ReadAllBytesAsync(path));
+            await SaveFileAsync(path, IsMusic ? MusicName : AudioName);
+        }
+    }
+
+    /// <summary>Saves a stored file where the user chooses.</summary>
+    /// <param name="path">The stored file.</param>
+    /// <param name="suggestedName">The file name offered.</param>
+    internal async Task SaveFileAsync(string path, string suggestedName)
+    {
+        if (File.Exists(path))
+        {
+            await Exporter.SaveAsync(Services.Platform, "Save audio", suggestedName, await File.ReadAllBytesAsync(path));
         }
     }
 
@@ -473,6 +699,14 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         ParameterViewModel[] parameters =
         [
             new NumberParameterViewModel("codebooks", "Codebooks", "How many residual quantizer stages to keep: more is a higher bit rate and a closer reconstruction.", 1, 32, 1, 8),
+            new NumberParameterViewModel("topk", "Top results", "How many of the candidates are listed (0 for all).", 0, 50, 1, 5),
+            new NumberParameterViewModel("overlap", "Overlap", "The share of a segment that the next one repeats; the overlaps are cross-faded.", 0, 0.9, 0.05, 0.25),
+            new NumberParameterViewModel("duration", "Duration (s)", "How long the music is (MusicGen: up to 30 s).", 1, 30, 1, 10),
+            new NumberParameterViewModel("guidance", "Guidance", "Classifier-free guidance: how strongly the prompt steers the music (1 turns it off).", 1, 10, 0.5, 3),
+            new BoolParameterViewModel("greedy", "Greedy", "Always take the most likely code: deterministic, but less varied music."),
+            new NumberParameterViewModel("seed", "Seed", "Makes sampling reproducible; -1 picks a new one every time.", -1, 2147483647, 1, -1),
+            new NumberParameterViewModel("temperature", "Temperature", "Higher values make the sampling more adventurous.", 0.1, 2, 0.05, 1),
+            new NumberParameterViewModel("musictopk", "Top-k", "Sampling keeps this many of the most likely codes (0 for all).", 0, 2048, 10, 250),
             new NumberParameterViewModel("threshold", "Threshold", "A frame is speech when its probability is at least this.", 0.05, 0.95, 0.05, 0.5),
             new NumberParameterViewModel("minspeech", "Minimum speech (ms)", "Shorter segments are dropped.", 0, 2000, 10, 250),
             new NumberParameterViewModel("minsilence", "Minimum silence (ms)", "Silence this long ends a segment.", 0, 2000, 10, 100),
@@ -492,6 +726,18 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
                 MinSpeechDuration = TimeSpan.FromMilliseconds(panel.GetNumber("minspeech")),
                 MinSilenceDuration = TimeSpan.FromMilliseconds(panel.GetNumber("minsilence")),
                 SpeechPad = TimeSpan.FromMilliseconds(panel.GetNumber("pad")),
+            },
+            new AudioClassificationOptions { TopK = panel.GetInt("topk") },
+            new AudioSeparationOptions { Overlap = (float)panel.GetNumber("overlap") },
+            new MusicGenerationRequest
+            {
+                Prompt = "",
+                Duration = TimeSpan.FromSeconds(panel.GetNumber("duration")),
+                GuidanceScale = (float)panel.GetNumber("guidance"),
+                Greedy = panel.GetBool("greedy"),
+                Seed = panel.GetInt("seed") < 0 ? null : panel.GetInt("seed"),
+                Temperature = (float)panel.GetNumber("temperature"),
+                TopK = panel.GetInt("musictopk"),
             }), presets);
     }
 }

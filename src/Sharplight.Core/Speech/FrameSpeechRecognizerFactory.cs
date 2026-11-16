@@ -10,6 +10,15 @@ namespace Sharplight.Speech;
 /// </summary>
 internal sealed class FrameSpeechRecognizerFactory : ITaskClientFactory
 {
+    private readonly IServiceProvider? _services;
+
+    /// <summary>Creates the factory.</summary>
+    /// <param name="services">The container the recognizers resolve a voice activity detector from, or <see langword="null"/> outside dependency injection.</param>
+    public FrameSpeechRecognizerFactory(IServiceProvider? services = null)
+    {
+        _services = services;
+    }
+
     public string Kind => ModelKinds.SpeechRecognition;
 
     public Type ClientType => typeof(ISpeechRecognizer);
@@ -23,5 +32,5 @@ internal sealed class FrameSpeechRecognizerFactory : ITaskClientFactory
             && description.TryGetComponent(ModelComponentRoles.Tokenizer, out _);
     }
 
-    public ITaskClient Create(TaskModel model) => new FrameSpeechRecognizer(model);
+    public ITaskClient Create(TaskModel model) => new FrameSpeechRecognizer(model, _services);
 }
