@@ -6,7 +6,8 @@ from_single_file (configuration from --sd15-config / --sdxl-config, diffusers fo
 from seeded latents. Writes OUT/<id>/reference/{noise,image}.f32 and index.json (file, family, size, steps, guidance, prompt, negative,
 timesteps); SweepTests loads the same file in Sharplight and compares the images (PSNR).
 
-Usage: make-sweep-references.py OUT ID=FILE[:family[:size[:steps[:guidance]]]] ... [--device cuda]
+Usage: make-sweep-references.py OUT ID=FILE[:family[:size[:steps[:guidance[:timestep spacing]]]]] ... [--device cuda]
+(the distilled checkpoints, e.g. SDXL-Lightning: ...:sdxl:1024:4:0:trailing, as their model cards run them)
 """
 
 import argparse
@@ -48,11 +49,12 @@ def main():
         size = int(parts[2]) if len(parts) > 2 and parts[2] else (1024 if xl else 512)
         steps = int(parts[3]) if len(parts) > 3 and parts[3] else 20
         guidance = float(parts[4]) if len(parts) > 4 and parts[4] else 7.0
+        spacing = parts[5] if len(parts) > 5 and parts[5] else None
         cls = StableDiffusionXLPipeline if xl else StableDiffusionPipeline
         pipe = cls.from_single_file(path, config=args.sdxl_config if xl else args.sd15_config, torch_dtype=torch.float32)
         if not xl:
             pipe.safety_checker = None
-        pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config, **({"timestep_spacing": spacing} if spacing else {}))
         pipe.set_progress_bar_config(disable=True)
         pipe.to(args.device)
         noise = torch.randn(1, 4, size // 8, size // 8, generator=torch.Generator().manual_seed(42))

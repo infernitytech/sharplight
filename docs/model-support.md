@@ -1720,7 +1720,8 @@ Verification (tools/make-tiny-qwen-image.py, tools/make-qwen-image-references.py
   guided 4-step txt2img above 40 dB in all 6 combinations.
 - Qwen-Image, city96's Q4_K_M GGUF with the pipeline's Qwen2.5-VL text encoder (bf16) and VAE as companions, on Vulkan against diffusers running
   the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 20 steps, true CFG 4, negative prompt " ", same latents: text
-  encoder 4.6–6.4e-4, transformer 8.4e-3 relative RMS; images 30.9 dB (512) / 29.8 dB (1024). Studio: the load panel shows the Qwen2.5-VL and
+  encoder 4.6–6.4e-4, transformer 8.4e-3 relative RMS; images 30.9 dB (512) / 29.8 dB (1024). Qwen-Image-2512 (unsloth's Q4_K_M, same
+  companions; its blocks 0, 52 and 58 exceed the f16 bound): 25.5 dB (1024), visually identical. Studio: the load panel shows the Qwen2.5-VL and
   VAE slots and fills them (with the Qwen2.5-VL-7B Q8_0 GGUF and ComfyUI's VAE beside the transformer), and the Image page generates.
 - Speed (Vulkan, Q4_K_M, warm, conditioning reused; the 13 GB transformer and the 16 GB bf16 text encoder alternate on the 32 GB GPU):
   512×512 20 guided steps 34 s, 1024×1024 131 s (3.3 s per step and both rows); diffusers (GGUF dequantized on the fly, CUDA f32) 8.2 s per
