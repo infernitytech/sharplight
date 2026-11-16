@@ -48,6 +48,12 @@ internal sealed record SchedulerSettings
     /// <summary>The sampler the model was published with (Sharplight sampler name, e.g. <c>pndm</c>, <c>euler</c>, <c>dpm++2m-karras</c>).</summary>
     public string Sampler { get; init; } = "pndm";
 
+    /// <summary>The default number of denoising steps (distilled models such as SDXL-Turbo need 1 to 4), or <see langword="null"/> for the generic default.</summary>
+    public int? DefaultSteps { get; init; }
+
+    /// <summary>The default classifier-free guidance scale (distilled models run unguided: 1 or less), or <see langword="null"/> for the generic default.</summary>
+    public float? DefaultGuidance { get; init; }
+
     /// <summary>The original configuration file's text, kept as an attachment, or <see langword="null"/>.</summary>
     public string? SourceJson { get; init; }
 
@@ -80,6 +86,15 @@ internal sealed record SchedulerSettings
         }
 
         metadata[p + "sampler"] = Sampler;
+        if (DefaultSteps is { } steps)
+        {
+            metadata[p + "default_steps"] = steps;
+        }
+
+        if (DefaultGuidance is { } guidance)
+        {
+            metadata[p + "default_guidance"] = guidance;
+        }
         if (SourceJson is not null)
         {
             metadata[p + "source_config"] = SourceJson;

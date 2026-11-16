@@ -68,6 +68,16 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var denoiser = description.Component(ModelComponentRoles.Denoiser);
         _patchSize = denoiser.ConfigValue(DiffusionConfigKeys.PatchSize, 1);
         _embeddedGuidance = model.ComponentGraph(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise).Inputs.Any(i => i.Name == DiffusionGraphs.Guidance);
+        if (_secondEncoderRole is null && model.Definition.Graphs.TryGetValue(DiffusionGraphs.Denoise, out var denoise)
+            && denoise.Inputs.Any(input => input.Name == DiffusionGraphs.Pooled)
+            && !model.ComponentGraph(ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode).Outputs.ContainsKey(DiffusionGraphs.Pooled))
+        {
+            // An SDXL-style denoiser without the encoder that produces its pooled embedding (e.g. a package converted from a file
+            // whose second text encoder was not recognized): fail on load, naming what is missing, instead of on the first image.
+            throw new NotSupportedException($"{model.Definition.Name}: the denoiser is conditioned on a pooled text embedding (SDXL), but the model "
+                + "has no second text encoder (OpenCLIP bigG with its text projection) to produce it. Import the original checkpoint again with this "
+                + "version (it recognizes the second encoder in stable-diffusion.cpp GGUF files), or use a checkpoint that contains both text encoders.");
+        }
         _secondPadId = textEncoder.ConfigValue(DiffusionConfigKeys.SecondPadId, -1);
         _zeroEmptyNegative = textEncoder.ConfigValue(DiffusionConfigKeys.ZeroEmptyNegative, false);
         var vae = description.Component(ModelComponentRoles.Vae);
@@ -93,9 +103,15 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     public TaskClientMetadata Metadata { get; }
 
     /// <inheritdoc/>
+    /// <remarks>Also answers <see cref="ImageGenerationDefaults"/> (the model's native size, steps, guidance and sampler).</remarks>
     public object? GetService(Type serviceType, object? serviceKey = null)
     {
         ArgumentNullException.ThrowIfNull(serviceType);
+        if (serviceKey is null && serviceType == typeof(ImageGenerationDefaults))
+        {
+            return new ImageGenerationDefaults(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler, _classifierFree && !_embeddedGuidance);
+        }
+
         return serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model
             : serviceKey is null && serviceType.IsInstanceOfType(this) ? this
             : null;

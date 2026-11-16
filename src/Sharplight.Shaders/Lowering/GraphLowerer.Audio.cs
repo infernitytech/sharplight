@@ -1,3 +1,4 @@
+using System.Text;
 using Sharplight.Graph;
 
 namespace Sharplight.Shaders.Lowering;
@@ -45,5 +46,150 @@ public sealed partial class GraphLowerer
         KernelArg tin = x.Symbol is null ? new UIntArg((uint)x.Shape[0]) : new SymbolArg(x.Symbol, 1);
         TensorRef[] inputs = bias is null ? [x, w] : [x, w, bias];
         EmitGen($"conv1d {n.Output.Name}", [n], y.Shape, y.Symbol, inputs, [y], body, scalars: [("tin", tin)]);
+    }
+
+    /// <summary>
+    /// SequenceConv2d (see <c>StandardOps.SequenceConv2d</c>) as a generated kernel: one thread per output (time step, channel, feature
+    /// position) sums the taps of its group's input channels with zero padding; the input length is read at run time.
+    /// </summary>
+    private void LowerSequenceConv2d(Node n)
+    {
+        var a = n.Attributes;
+        var x = AsDenseF32(Ref(n.Inputs[0]), "seqconv2d");
+        var w = EnsureDense(Ref(n.Inputs[1]), "seqconv2d-w");
+        var bias = n.Inputs.Length > 2 ? AsDenseF32(Ref(n.Inputs[2]), "seqconv2d-bias") : null;
+        var y = Produce(n.Output);
+        var strides = a.Get("strides", new long[] { 1, 1 });
+        var pads = a.Get("pads", new long[] { 0, 0, 0, 0 });
+        long groups = a.Get("groups", 1L);
+        long channels = x.Shape[1];
+        long width = x.Shape[2];
+        long outputs = w.Shape[0];
+        long perGroup = w.Shape[1];
+        long kt = w.Shape[2];
+        long kw = w.Shape[3];
+        long outPerGroup = outputs / groups;
+        string weight = ToFloat(w.Type, $"p.in1[((o * {perGroup}u + c) * {kt}u + i) * {kw}u + j]");
+        string biasInit = bias is null ? "0.0" : "p.in2[o]";
+        string body = $$"""
+              uint t = d0, o = d1, u = d2;
+              uint g = o / {{outPerGroup}}u;
+              float acc = {{biasInit}};
+              for (uint i = 0u; i < {{kt}}u; i++) {
+                int ti = int(t) * {{strides[0]}} - {{pads[0]}} + int(i);
+                if (ti < 0 || ti >= int(p.tin)) { continue; }
+                for (uint j = 0u; j < {{kw}}u; j++) {
+                  int wi = int(u) * {{strides[1]}} - {{pads[1]}} + int(j);
+                  if (wi < 0 || wi >= {{width}}) { continue; }
+                  for (uint c = 0u; c < {{perGroup}}u; c++) {
+                    acc += p.in0[(uint(ti) * {{channels}}u + g * {{perGroup}}u + c) * {{width}}u + uint(wi)] * {{weight}};
+                  }
+                }
+              }
+              p.out0[idx] = acc;
+            """;
+        KernelArg tin = x.Symbol is null ? new UIntArg((uint)x.Shape[0]) : new SymbolArg(x.Symbol, 1);
+        TensorRef[] inputs = bias is null ? [x, w] : [x, w, bias];
+        EmitGen($"seqconv2d {n.Output.Name}", [n], y.Shape, y.Symbol, inputs, [y], body, scalars: [("tin", tin)]);
+    }
+
+    /// <summary>
+    /// RelativeAttention (see <c>StandardOps.RelativeAttention</c>): one workgroup per (query row, head). The scores are computed twice
+    /// (once for the softmax maximum and sum, once per tile of keys whose weights the threads then apply to their output dimensions), so
+    /// nothing scales with the row count but the loop trip counts.
+    /// </summary>
+    private void LowerRelativeAttention(Node n)
+    {
+        const int Threads = 64;
+        var qc = AsDenseF32(Ref(n.Inputs[0]), "relattn-qc");
+        var qp = AsDenseF32(Ref(n.Inputs[1]), "relattn-qp");
+        var k = AsDenseF32(Ref(n.Inputs[2]), "relattn-k");
+        var v = AsDenseF32(Ref(n.Inputs[3]), "relattn-v");
+        var pos = AsDenseF32(Ref(n.Inputs[4]), "relattn-p");
+        var y = Produce(n.Output);
+        long heads = qc.Shape[1];
+        long dim = qc.Shape[2];
+        long valueDim = v.Shape[2];
+        long slots = (valueDim + Threads - 1) / Threads;
+        float scale = n.Attributes.Get("scale", 1f);
+        var sb = new StringBuilder();
+        sb.AppendLine("#include \"math_ext.slang\"");
+        sb.AppendLine("struct Params { float* in0; float* in1; float* in2; float* in3; float* in4; float* out0; uint rows; };");
+        sb.AppendLine($"groupshared float red[{Threads}];");
+        sb.AppendLine($"groupshared float red2[{Threads}];");
+        sb.AppendLine($"groupshared float tile[{Threads}];");
+        sb.AppendLine($$"""
+            float score(Params p, uint i, uint h, uint j) {
+              uint rows = p.rows;
+              uint q = (i * {{heads}}u + h) * {{dim}}u;
+              uint kb = (j * {{heads}}u + h) * {{dim}}u;
+              uint pb = ((rows - 1u - i + j) * {{heads}}u + h) * {{dim}}u;
+              float s = 0.0;
+              for (uint d = 0u; d < {{dim}}u; d++) {
+                s += p.in0[q + d] * p.in2[kb + d] + p.in1[q + d] * p.in4[pb + d];
+              }
+              return s * {{F(scale)}};
+            }
+            [shader("compute")] [numthreads({{Threads}}, 1, 1)]
+            void main(uint3 gid : SV_GroupID, uint3 lt : SV_GroupThreadID, uniform Params p) {
+              uint rows = p.rows;
+              uint i = gid.x / {{heads}}u;
+              uint h = gid.x % {{heads}}u;
+              if (i >= rows) return;
+              uint t = lt.x;
+              float m = -3.0e38;
+              float l = 0.0;
+              for (uint j = t; j < rows; j += {{Threads}}u) {
+                float s = score(p, i, h, j);
+                float mn = max(m, s);
+                l = l * exp(m - mn) + exp(s - mn);
+                m = mn;
+              }
+              red[t] = m;
+              red2[t] = l;
+              GroupMemoryBarrierWithGroupSync();
+              for (uint w = {{Threads / 2}}u; w > 0u; w >>= 1) {
+                if (t < w) {
+                  float ma = red[t], mb = red[t + w];
+                  float mn = max(ma, mb);
+                  red2[t] = red2[t] * exp(ma - mn) + red2[t + w] * exp(mb - mn);
+                  red[t] = mn;
+                }
+                GroupMemoryBarrierWithGroupSync();
+              }
+              float M = red[0];
+              float L = red2[0];
+              float acc[{{slots}}];
+              for (uint r = 0u; r < {{slots}}u; r++) { acc[r] = 0.0; }
+              for (uint j0 = 0u; j0 < rows; j0 += {{Threads}}u) {
+                uint j = j0 + t;
+                tile[t] = j < rows ? exp(score(p, i, h, j) - M) : 0.0;
+                GroupMemoryBarrierWithGroupSync();
+                uint count = min({{Threads}}u, rows - j0);
+                for (uint jj = 0u; jj < count; jj++) {
+                  float wgt = tile[jj];
+                  uint vb = ((j0 + jj) * {{heads}}u + h) * {{valueDim}}u;
+                  for (uint r = 0u; r < {{slots}}u; r++) {
+                    uint d = t + r * {{Threads}}u;
+                    if (d < {{valueDim}}u) { acc[r] += wgt * p.in3[vb + d]; }
+                  }
+                }
+                GroupMemoryBarrierWithGroupSync();
+              }
+              uint ob = (i * {{heads}}u + h) * {{valueDim}}u;
+              for (uint r = 0u; r < {{slots}}u; r++) {
+                uint d = t + r * {{Threads}}u;
+                if (d < {{valueDim}}u) { p.out0[ob + d] = acc[r] / L; }
+              }
+            }
+            """);
+        var kernel = _compiler.Compile("relattn.slang", sb.ToString(), "main", _opt.Target, Macros(), _opt.Cache);
+        KernelArg rows = qc.Symbol is null ? new UIntArg((uint)qc.Shape[0]) : new SymbolArg(qc.Symbol, 1);
+        string? symbol = qc.Symbol;
+        long fixedRows = qc.Shape[0];
+        Emit($"relattn {n.Output.Name}", [n],
+            [Always(kernel, b => new Grid((uint)((symbol is null ? fixedRows : b[symbol]) * heads)))],
+            [Pointer(qc), Pointer(qp), Pointer(k), Pointer(v), Pointer(pos), Pointer(y), rows],
+            [qc, qp, k, v, pos], [y]);
     }
 }

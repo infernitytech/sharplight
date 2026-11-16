@@ -41,4 +41,12 @@ public static class SpeechKeys
     public const string MaxInitialTimestampIndex = "speech.max_initial_timestamp_index";
     /// <summary>Longest text a window may hold, in tokens (int; Whisper: half the decoder context, 224).</summary>
     public const string MaxTextTokens = "speech.max_text_tokens";
+    /// <summary>
+    /// The decoder prompt of models whose prompt is a fixed template (Canary), as token ids (int[]): -1 stands for the source language's
+    /// token, -2 for the target language's (the source language, or English when translating). Without it the prompt is start, language,
+    /// task and no-timestamps tokens (Whisper).
+    /// </summary>
+    public const string PromptTemplateIds = "speech.prompt_template_ids";
+    /// <summary>The language (ISO 639-1) a multilingual model is prompted with when the request names none and the model cannot detect it (string).</summary>
+    public const string DefaultLanguage = "speech.default_language";
 }

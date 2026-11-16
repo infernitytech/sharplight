@@ -28,12 +28,17 @@ public sealed class DiffusersImporter : IModelImporter
 
 
     /// <inheritdoc/>
-    public bool CanOpen(string path) => DiffusersFolder.IsFolder(path) || SingleFileCheckpoint.Kind(path) is not null;
+    /// <remarks>
+    /// Also claims single-file checkpoints of the diffusion transformers that are not supported yet (SD3, Chroma, ...), which
+    /// <see cref="Open"/> rejects by name, instead of leaving them to an importer that would fail on an unknown architecture.
+    /// </remarks>
+    public bool CanOpen(string path)
+        => DiffusersFolder.IsFolder(path) || SingleFileCheckpoint.Kind(path) is not null || DiffusionTransformerCheckpoint.FamilyOf(path) is not null;
 
     /// <summary>Opens a diffusers folder, a single-file checkpoint, a transformer-only FLUX file or a stand-alone component file.</summary>
     /// <param name="path">The pipeline folder, or a <c>.safetensors</c> / <c>.ckpt</c> / <c>.gguf</c> checkpoint.</param>
     /// <returns>The canonical source; it owns the memory-mapped files.</returns>
-    /// <exception cref="NotSupportedException">The model is not a supported diffusion model.</exception>
+    /// <exception cref="NotSupportedException">The model is not a supported diffusion model (e.g. a diffusion transformer other than FLUX.1, not supported yet).</exception>
     public ModelSource Open(string path)
     {
         if (Directory.Exists(path))
@@ -41,7 +46,15 @@ public sealed class DiffusersImporter : IModelImporter
             return DiffusersFolder.Open(path);
         }
 
-        return SingleFileCheckpoint.Kind(path) switch
+        string? kind = SingleFileCheckpoint.Kind(path);
+        string? family = DiffusionTransformerCheckpoint.FamilyOf(path);
+        if (family is not null && !(kind == FluxConfig.Architecture && family.StartsWith("FLUX", StringComparison.Ordinal)))
+        {
+            throw new NotSupportedException($"Not supported yet: {family}. Sharplight generates images with the Stable Diffusion UNet models "
+                + $"(SD 1.x, SD 2.x, SDXL) and FLUX.1; {Path.GetFileName(path)} is another diffusion-transformer model.");
+        }
+
+        return kind switch
         {
             FluxConfig.Architecture => FluxCheckpoint.Open(path),
             ComponentCheckpoint.ClipArchitecture or ComponentCheckpoint.AutoencoderArchitecture or ComponentCheckpoint.T5Architecture => ComponentCheckpoint.Open(path),

@@ -53,9 +53,11 @@ internal static class ModelInspector
     }
 
     /// <summary>
-    /// The kind a model file that is not a package probably has: whisper.cpp <c>.bin</c> files (by their magic number) and Whisper
-    /// checkpoint folders recognize speech, a GGUF named like OuteTTS speaks, Stable Diffusion checkpoints and the vision checkpoints
-    /// are recognized by <see cref="ImageModelProbe"/>, other GGUF files and checkpoint folders are language models.
+    /// The kind a model file that is not a package probably has: whisper.cpp model files (by their ggml magic number, whatever their
+    /// extension: some repositories ship them as <c>.gguf</c>), GGUF files of the <c>whisper</c> architecture and checkpoint folders of
+    /// the speech-recognition families (<see cref="s_speechRecognitionModelTypes"/>) recognize speech, a GGUF named like OuteTTS speaks,
+    /// Stable Diffusion checkpoints and the vision checkpoints are recognized by <see cref="ImageModelProbe"/>, other GGUF files and
+    /// checkpoint folders are language models.
     /// </summary>
     private static string InferKind(string path)
     {
@@ -64,23 +66,48 @@ internal static class ModelInspector
             return imageKind;
         }
 
-        if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
-        {
-            return System.IO.Path.GetFileName(path).Contains("outetts", StringComparison.OrdinalIgnoreCase) ? ModelKinds.SpeechSynthesis : ModelKinds.TextGeneration;
-        }
-
-        if (path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) && HasGgmlMagic(path))
+        if (File.Exists(path) && HasGgmlMagic(path))
         {
             return ModelKinds.SpeechRecognition;
+        }
+
+        if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+        {
+            if (GgufArchitecture(path) is "whisper")
+            {
+                return ModelKinds.SpeechRecognition;
+            }
+
+            return System.IO.Path.GetFileName(path).Contains("outetts", StringComparison.OrdinalIgnoreCase) ? ModelKinds.SpeechSynthesis : ModelKinds.TextGeneration;
         }
 
         string config = System.IO.Path.Combine(path, "config.json");
         if (Directory.Exists(path) && File.Exists(config))
         {
-            return IsWhisperConfig(config) ? ModelKinds.SpeechRecognition : ModelKinds.TextGeneration;
+            return IsSpeechRecognitionConfig(config) ? ModelKinds.SpeechRecognition : ModelKinds.TextGeneration;
         }
 
         return ModelKindCatalog.Other;
+    }
+
+    /// <summary>The Hugging Face <c>model_type</c> values of the speech-recognition checkpoints Sharplight imports.</summary>
+    private static readonly HashSet<string> s_speechRecognitionModelTypes = new(StringComparer.Ordinal)
+    {
+        "whisper", "moonshine", "parakeet_ctc", "parakeet_tdt", "parakeet_rnnt", "canary", "voxtral",
+    };
+
+    /// <summary>The <c>general.architecture</c> of a GGUF file, or null when it has none or cannot be read.</summary>
+    private static string? GgufArchitecture(string path)
+    {
+        try
+        {
+            using var file = Sharplight.Import.Gguf.GgufFile.Open(path);
+            return file.Architecture;
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Whether the file starts with the ggml magic number of whisper.cpp model files.</summary>
@@ -98,12 +125,12 @@ internal static class ModelInspector
         }
     }
 
-    private static bool IsWhisperConfig(string config)
+    private static bool IsSpeechRecognitionConfig(string config)
     {
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(config));
-            return document.RootElement.TryGetProperty("model_type", out var type) && type.GetString() == "whisper";
+            return document.RootElement.TryGetProperty("model_type", out var type) && type.GetString() is { } name && s_speechRecognitionModelTypes.Contains(name);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {

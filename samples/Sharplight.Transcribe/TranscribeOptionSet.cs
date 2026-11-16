@@ -8,7 +8,7 @@ namespace Sharplight.Transcribe;
 public sealed class TranscribeOptionSet
 {
     /// <summary>The model argument.</summary>
-    public Argument<string> Model { get; } = new("model") { Description = "Speech-recognition model: .slm package, Hugging Face directory or whisper.cpp .bin file." };
+    public Argument<string> Model { get; } = new("model") { Description = "Speech-recognition model: .slm package, Hugging Face directory, whisper.cpp .bin file or Whisper GGUF (transcribe.cpp layout)." };
 
     /// <summary>The audio argument.</summary>
     public Argument<string> Audio { get; } = new("audio") { Description = "WAV file (any sample rate and channel count; resampled to the model's rate)." };
