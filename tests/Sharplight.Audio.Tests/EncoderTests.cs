@@ -31,15 +31,20 @@ public sealed class EncoderTests
         Assert.True(TestSignals.SnrDb(audio.Samples, decoded.Samples) >= minimumSnr);
     }
 
-    [Fact]
-    public void NativeWavMatchesTheManagedWriter()
+    [Theory]
+    [InlineData(AudioEncodingFormat.WavPcm16, WavSampleFormat.Pcm16)]
+    [InlineData(AudioEncodingFormat.WavPcm24, WavSampleFormat.Pcm24)]
+    [InlineData(AudioEncodingFormat.WavFloat32, WavSampleFormat.Float32)]
+    public void NativeWavIsByteIdenticalToTheManagedWriter(AudioEncodingFormat native, WavSampleFormat managedFormat)
     {
         Assert.SkipUnless(Native.NativeAudioLibrary.IsAvailable, "native library not built");
-        var audio = new AudioBuffer(TestSignals.Tone(16000, 2, 3000), 16000, 2);
+        float[] tone = TestSignals.Tone(16000, 2, 3000);
+        float[] edges = [1f, -1f, 1.5f, -1.5f, 0.99999f, -0.99999f, 0.5f / 32768f, 1.5f / 32768f, 2.5f / 32768f, -0.5f / 32768f, -1.5f / 32768f, 0f];
+        var audio = new AudioBuffer([.. tone, .. edges], 16000, 2);
         using var managed = new MemoryStream();
-        WavFile.Write(managed, audio, WavSampleFormat.Pcm16);
-        byte[] native = _encoder.Encode(audio);
-        Assert.Equal(managed.ToArray(), native);
+        WavFile.Write(managed, audio, managedFormat);
+        byte[] actual = _encoder.Encode(audio, new AudioEncodeOptions { Format = native });
+        Assert.Equal(managed.ToArray(), actual);
     }
 
     [Theory]
