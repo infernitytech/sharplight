@@ -34,6 +34,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly int _secondPadId;
     private readonly bool _zeroEmptyNegative;
     private readonly Dictionary<string, CompiledModel> _compiled = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _disposed;
 
     /// <summary>Creates the pipeline for a model (the model stays owned by the caller).</summary>
@@ -103,11 +104,36 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     }
 
     /// <inheritdoc/>
-    public async IAsyncEnumerable<ImageGenerationUpdate> GenerateStreamingAsync(ImageGenerationRequest request, ImageGenerationOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Returns at once: the pipeline runs on a background task (<see cref="BackgroundCompute"/>), one generation at a time per client, and
+    /// queues its updates for the caller without waiting for them to be consumed.
+    /// </remarks>
+    public IAsyncEnumerable<ImageGenerationUpdate> GenerateStreamingAsync(ImageGenerationRequest request, ImageGenerationOptions? options = null,
+        CancellationToken cancellationToken = default)
+        => BackgroundCompute.StreamAsync(token => GenerateGatedAsync(request, options, token), cancellationToken);
+
+    private async IAsyncEnumerable<ImageGenerationUpdate> GenerateGatedAsync(ImageGenerationRequest request, ImageGenerationOptions? options,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var update in GenerateCoreAsync(request, options, cancellationToken).ConfigureAwait(false))
+            {
+                yield return update;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async IAsyncEnumerable<ImageGenerationUpdate> GenerateCoreAsync(ImageGenerationRequest request, ImageGenerationOptions? options,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         var run = Plan(request, options ?? ImageGenerationOptions.Default);
         var context = await Task.Run(() => EncodePrompts(request, run.Guided), cancellationToken).ConfigureAwait(false);
         var reference = request.Image is null ? null : await Task.Run(() => EncodeImage(request.Image, run), cancellationToken).ConfigureAwait(false);
@@ -179,6 +205,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         }
 
         _compiled.Clear();
+        _gate.Dispose();
     }
 
     private DiffusionRun Plan(ImageGenerationRequest request, ImageGenerationOptions options)

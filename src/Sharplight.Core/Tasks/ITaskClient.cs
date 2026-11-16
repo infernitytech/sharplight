@@ -8,7 +8,15 @@ namespace Sharplight.Tasks;
 /// <para>
 /// Mirrors the client pattern of Microsoft.Extensions.AI (<c>IChatClient</c>, <c>ISpeechToTextClient</c>, <c>IImageGenerator</c>):
 /// metadata, <see cref="GetService"/> for the underlying objects, options per request. Sharplight.Extensions.AI adapts the clients
-/// to those interfaces. Clients are not thread-safe unless they say so: run one request at a time per client.
+/// to those interfaces.
+/// </para>
+/// <para>
+/// Threading contract: every <c>...Async</c> method returns to its caller before compiling or running a graph; the compute runs on a
+/// background thread, so calling a client from a UI thread never blocks it. Streaming methods produce on a background loop that does
+/// not wait for the consumer, observe the <see cref="CancellationToken"/> between steps (a denoising step, a decoded window, a token),
+/// and finish the step in progress before the enumeration ends, so the client is idle once it has. Continuations never capture the
+/// caller's synchronization context. The built-in clients run one request at a time (later ones wait); disposing a client while a
+/// request runs is not supported.
 /// </para>
 /// </summary>
 public interface ITaskClient : IDisposable

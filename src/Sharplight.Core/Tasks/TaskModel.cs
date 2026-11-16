@@ -99,13 +99,13 @@ public sealed class TaskModel : IDisposable
         return model;
     }
 
-    /// <summary>Loads the model on the thread pool (see <see cref="Load(ModelLoader, TaskLoadOptions, CancellationToken)"/>).</summary>
+    /// <summary>Loads the model on a background thread, returning at once (see <see cref="Load(ModelLoader, TaskLoadOptions, CancellationToken)"/>).</summary>
     /// <param name="loader">The model loader.</param>
     /// <param name="options">Model path, devices and compile settings.</param>
     /// <param name="cancellationToken">Cancels loading between stages.</param>
     /// <returns>The loaded model.</returns>
     public static Task<TaskModel> LoadAsync(ModelLoader loader, TaskLoadOptions options, CancellationToken cancellationToken = default)
-        => Task.Run(() => Load(loader, options, cancellationToken), cancellationToken);
+        => BackgroundCompute.RunAsync(() => Load(loader, options, cancellationToken), cancellationToken);
 
     /// <summary>
     /// The canonical metadata of a component (<see cref="ModelComponent.Metadata"/>), or of the whole model when <paramref name="role"/>

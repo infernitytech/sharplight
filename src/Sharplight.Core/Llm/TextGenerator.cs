@@ -6,8 +6,8 @@ namespace Sharplight.Llm;
 
 /// <summary>
 /// The <see cref="ITextGenerator"/> of an <see cref="LlmModel"/>: one session (or, for masked-diffusion models, one diffusion
-/// generator) compiled on first use, reset before every request, and the <see cref="Generator"/> sampling loop run on the thread
-/// pool so callers do not block.
+/// generator) compiled on first use, reset before every request, and the <see cref="Generator"/> sampling loop run on a background
+/// task (<see cref="BackgroundCompute"/>), one request at a time, so callers do not block.
 /// </summary>
 internal sealed class TextGenerator : ITextGenerator
 {
@@ -15,6 +15,7 @@ internal sealed class TextGenerator : ITextGenerator
     private readonly string _graph;
     private readonly bool _ownsModel;
     private InferenceSession? _session;
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private DiffusionGenerator? _diffusion;
     private bool _disposed;
 
@@ -48,7 +49,8 @@ internal sealed class TextGenerator : ITextGenerator
         var tokens = new List<GeneratedToken>();
         var text = new StringBuilder();
         GenerationStats? stats = null;
-        await foreach (var token in Stream(prompt, options ?? new GenerationOptions(), s => stats = s, cancellationToken).ConfigureAwait(false))
+        var stream = BackgroundCompute.StreamAsync(token => Stream(prompt, options ?? new GenerationOptions(), s => stats = s, token), cancellationToken);
+        await foreach (var token in stream.ConfigureAwait(false))
         {
             tokens.Add(token);
             text.Append(token.Text);
@@ -58,13 +60,31 @@ internal sealed class TextGenerator : ITextGenerator
     }
 
     public IAsyncEnumerable<GeneratedToken> GenerateStreamingAsync(string prompt, GenerationOptions? options = null, CancellationToken cancellationToken = default)
-        => Stream(prompt, options ?? new GenerationOptions(), _ => { }, cancellationToken);
+        => BackgroundCompute.StreamAsync(token => Stream(prompt, options ?? new GenerationOptions(), _ => { }, token), cancellationToken);
 
+    /// <summary>One request at a time: the session (or diffusion generator) is shared by the requests of the client.</summary>
     private async IAsyncEnumerable<GeneratedToken> Stream(string prompt, GenerationOptions options, Action<GenerationStats?> reportStats,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(prompt);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var token in StreamCore(prompt, options, reportStats, cancellationToken).ConfigureAwait(false))
+            {
+                yield return token;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async IAsyncEnumerable<GeneratedToken> StreamCore(string prompt, GenerationOptions options, Action<GenerationStats?> reportStats,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         if (_model.IsDiffusion)
         {
             _diffusion ??= await Task.Run(_model.CreateDiffusionGenerator, cancellationToken).ConfigureAwait(false);
@@ -101,6 +121,7 @@ internal sealed class TextGenerator : ITextGenerator
         _disposed = true;
         _session?.Dispose();
         _diffusion?.Dispose();
+        _gate.Dispose();
         if (_ownsModel)
         {
             _model.Dispose();
