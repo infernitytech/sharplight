@@ -23,9 +23,7 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         using var model = await TaskModel.LoadAsync(runtime.Loader, new TaskLoadOptions
         {
             ModelPath = settings.Model,
-            Auxiliary = settings.Companions is { } folder
-                ? new Dictionary<string, string> { [AuxiliaryRoles.TextEncoder] = folder, [AuxiliaryRoles.Vae] = folder }
-                : new Dictionary<string, string>(),
+            Auxiliary = Companions(),
             AllowReducedPrecision = settings.ReducedPrecision,
             Devices = [new DeviceSlot { Device = device }],
             Log = message => Console.Error.WriteLine(message.Split('\n')[0]),
@@ -35,6 +33,24 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         var result = await GenerateAsync(generator, cancellationToken);
         await WriteAsync(runtime.Services.GetRequiredService<VideoEncoderCatalog>(), result, cancellationToken);
         return ExitCodes.Success;
+    }
+
+    /// <summary>The auxiliary sources: a companion folder for the text encoder and VAE, a second (low-noise) expert file.</summary>
+    private Dictionary<string, string> Companions()
+    {
+        var companions = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (settings.Companions is { } folder)
+        {
+            companions[AuxiliaryRoles.TextEncoder] = folder;
+            companions[AuxiliaryRoles.Vae] = folder;
+        }
+
+        if (settings.SecondTransformer is { } second)
+        {
+            companions[AuxiliaryRoles.SecondTransformer] = second;
+        }
+
+        return companions;
     }
 
     /// <summary>One generation with progress and timings per phase.</summary>
@@ -73,6 +89,7 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
         FramesPerSecond = settings.FramesPerSecond,
         Steps = settings.Steps,
         GuidanceScale = settings.Guidance,
+        GuidanceScale2 = settings.Guidance2,
         Seed = settings.Seed,
         Scheduler = settings.Sampler,
         InitialNoise = settings.Noise is null ? null : ReadFloats(settings.Noise),

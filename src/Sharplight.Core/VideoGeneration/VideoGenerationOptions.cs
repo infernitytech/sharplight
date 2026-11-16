@@ -24,6 +24,12 @@ public sealed record VideoGenerationOptions
     /// <summary>Classifier-free guidance scale, or <see langword="null"/> for the model's default (1 or less: unguided, half the work).</summary>
     public float? GuidanceScale { get; init; }
 
+    /// <summary>
+    /// Guidance scale of the second (low-noise) expert of two-expert models (Wan 2.2 A14B), or <see langword="null"/> for the model's
+    /// default; other models ignore it.
+    /// </summary>
+    public float? GuidanceScale2 { get; init; }
+
     /// <summary>Seed of the initial noise; <see langword="null"/> picks one (reported in <see cref="VideoGenerationResult.Seed"/>).</summary>
     public long? Seed { get; init; }
 

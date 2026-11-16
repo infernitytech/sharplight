@@ -30,7 +30,8 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
     {
         ArgumentNullException.ThrowIfNull(sources);
         return sources.Primary.Architecture == WanAdapter.Architecture && sources.Auxiliary.Count > 0
-            && sources.Auxiliary.All(pair => pair.Key is AuxiliaryRoles.TextEncoder or AuxiliaryRoles.Vae && pair.Value.Architecture == WanAdapter.Architecture);
+            && sources.Auxiliary.All(pair => pair.Key is AuxiliaryRoles.TextEncoder or AuxiliaryRoles.Vae or AuxiliaryRoles.SecondTransformer
+                && pair.Value.Architecture == WanAdapter.Architecture);
     }
 
     /// <inheritdoc/>
@@ -43,6 +44,13 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
         var resources = new List<IDisposable>(primary.OwnedResources);
         foreach (var (role, source) in sources.Auxiliary)
         {
+            if (role == AuxiliaryRoles.SecondTransformer)
+            {
+                AddSecondTransformer(source, weights, metadata);
+                resources.AddRange(source.OwnedResources);
+                continue;
+            }
+
             if (role == AuxiliaryRoles.TextEncoder)
             {
                 Take(source, weights, metadata, "text_encoder.", [Prefix + "text_encoder.", TokenizerKeys]);
@@ -83,6 +91,30 @@ public sealed class WanCompanionAdapter : ICompositeModelAdapter
             CompilationCaches = primary.CompilationCaches,
         };
         return new WanAdapter().Build(new ModelSourceSet { Primary = merged }, options);
+    }
+
+    /// <summary>
+    /// The low-noise expert of a two-expert model given as a second transformer-only file: its transformer weights become the
+    /// <c>transformer_2.</c> ones, with Wan 2.2 A14B's switch at 0.875 of the timesteps and its guidance (4 / 3, 40 steps) unless the
+    /// primary already names them.
+    /// </summary>
+    private static void AddSecondTransformer(ModelSource source, Dictionary<string, WeightInfo> weights, Dictionary<string, object> metadata)
+    {
+        const string first = "transformer.";
+        const string second = "transformer_2.";
+        foreach (var (name, weight) in source.Weights)
+        {
+            if (name.StartsWith(first, StringComparison.Ordinal))
+            {
+                string canonical = second + name[first.Length..];
+                weights[canonical] = weight.As(canonical);
+            }
+        }
+
+        metadata.TryAdd(Prefix + "boundary_ratio", 0.875);
+        metadata[Prefix + "default_guidance"] = metadata.ContainsKey(Prefix + "default_guidance_2") ? metadata[Prefix + "default_guidance"] : 4.0;
+        metadata.TryAdd(Prefix + "default_guidance_2", 3.0);
+        metadata[Prefix + "default_steps"] = 40;
     }
 
     /// <summary>Replaces the weights under <paramref name="weightPrefix"/> and the metadata under <paramref name="metadataPrefixes"/> with the companion's.</summary>

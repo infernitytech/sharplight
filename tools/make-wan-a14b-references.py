@@ -69,6 +69,8 @@ def main():
     embeds, negative = pipe.encode_prompt(PROMPT, NEGATIVE, do_classifier_free_guidance=True, max_sequence_length=512)
     save(folder, index, "text_hidden", embeds[0])
     save(folder, index, "negative_hidden", negative[0])
+    pipe.maybe_free_model_hooks()  # the f32 umT5 leaves the GPU before the experts run
+    torch.cuda.empty_cache()
 
     latent_frames = (args.frames - 1) // 4 + 1
     generator = torch.Generator().manual_seed(args.seed)

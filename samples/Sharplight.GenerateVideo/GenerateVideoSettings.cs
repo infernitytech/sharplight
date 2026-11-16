@@ -7,6 +7,10 @@ internal sealed record GenerateVideoSettings
 
     public string? Companions { get; init; }
 
+    public string? SecondTransformer { get; init; }
+
+    public float? Guidance2 { get; init; }
+
     public required string Prompt { get; init; }
 
     public string? NegativePrompt { get; init; }
