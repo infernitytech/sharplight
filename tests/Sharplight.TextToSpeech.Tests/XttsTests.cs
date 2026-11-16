@@ -79,7 +79,7 @@ public class XttsTests
         var tokens = synthesizer.TextTokens(info.GetProperty("text").GetString()!);
         Assert.Equal(Ints("text_tokens"), tokens);
         var greedy = new SamplingOptions { Temperature = 0f, TopK = 0, TopP = 1f, RepetitionPenalty = 10f };
-        var (codes, latents) = synthesizer.Generate(tokens, info.GetProperty("speaker").GetString()!, greedy, TestContext.Current.CancellationToken);
+        var (codes, latents) = synthesizer.Generate(tokens, synthesizer.LoadVoice(info.GetProperty("speaker").GetString()!), greedy, TestContext.Current.CancellationToken);
         var reference = Ints("codes");
         var margins = Floats("margins");
         int prefix = 0;
@@ -107,7 +107,7 @@ public class XttsTests
         RequireAll();
         using var model = TtsModels.Load(TtsModels.Open(gpu), Model);
         using var synthesizer = (XttsSynthesizer)TtsModels.Synthesizer(model);
-        var samples = synthesizer.Decode(Floats("latents"), Info().GetProperty("speaker").GetString()!);
+        var samples = synthesizer.Decode(Floats("latents"), synthesizer.LoadVoice(Info().GetProperty("speaker").GetString()!));
         var reference = Floats("audio");
         Assert.Equal(reference.Length, samples.Length);
         double error = RelativeError(reference, samples);

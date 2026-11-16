@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Sharplight.Audio;
 using Sharplight.Import.HuggingFace;
 using Sharplight.Import.PyTorch;
 using Sharplight.Models;
@@ -114,6 +115,12 @@ public sealed partial class XttsImporter : IModelImporter
                     string canonical = "output_norm_2." + name[(name.LastIndexOf('.') + 1)..];
                     weights[canonical] = tensor.ToWeightInfo().As(canonical);
                 }
+                else if ((name.StartsWith("gpt.conditioning_encoder.", StringComparison.Ordinal) || name.StartsWith("gpt.conditioning_perceiver.", StringComparison.Ordinal)
+                    || name.StartsWith("hifigan_decoder.speaker_encoder.", StringComparison.Ordinal)) && !name.EndsWith(".num_batches_tracked", StringComparison.Ordinal))
+                {
+                    // The cloning encoders: the style encoder of the GPT and the decoder's speaker encoder.
+                    weights[name] = tensor.ToWeightInfo().As(name);
+                }
                 else if (name is "gpt.text_embedding.weight" or "gpt.text_pos_embedding.emb.weight" or "gpt.mel_pos_embedding.emb.weight")
                 {
                     weights[name] = tensor.ToWeightInfo().As(name);
@@ -158,6 +165,16 @@ public sealed partial class XttsImporter : IModelImporter
             }
 
             var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
+            string melStats = Path.Combine(path, "mel_stats.pth");
+            if (File.Exists(melStats) && weights.ContainsKey("gpt.conditioning_encoder.init.weight"))
+            {
+                // torch.save(tensor): a single entry named "tensor".
+                var stats = SafetensorsFile.OpenTorch(melStats, new TorchCheckpointOptions { StateDictKey = null });
+                owned.Add(stats);
+                weights["gpt.mel_stats"] = stats.Tensors["tensor"].ToWeightInfo().As("gpt.mel_stats");
+                AddCloningFilters(attachments);
+            }
+
             string speakers = Path.Combine(path, "speakers_xtts.pth");
             if (File.Exists(speakers))
             {
@@ -240,5 +257,15 @@ public sealed partial class XttsImporter : IModelImporter
 
             attachments[$"voices/{voice}/{part}"] = new MemoryWeightSource(bytes);
         }
+    }
+
+    // The mel filter banks of the cloning front ends (torchaudio's, HTK scale): the style encoder's 80 bins up to 8 kHz with Slaney's norm at
+    // 22.05 kHz (n_fft 2048), the speaker encoder's 64 bins without norm at 16 kHz (n_fft 512).
+    private static void AddCloningFilters(Dictionary<string, IWeightSource> attachments)
+    {
+        attachments["style-features/mel-filters"] = new MemoryWeightSource(
+            () => MemoryMarshal.AsBytes(HtkMelFilterBank.Create(80, 2048, 22050, 0.0, 8000.0, slaneyNorm: true).AsSpan()).ToArray());
+        attachments["speaker-features/mel-filters"] = new MemoryWeightSource(
+            () => MemoryMarshal.AsBytes(HtkMelFilterBank.Create(64, 512, 16000).AsSpan()).ToArray());
     }
 }
