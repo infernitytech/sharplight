@@ -36,6 +36,25 @@ def save(folder, index, name, tensor):
     index[name] = list(array.shape)
 
 
+def patch_single_file_conversion():
+    """diffusers' Wan single-file conversion leaves FLF2V's image position table (img_emb.emb_pos) unmapped: map it to pos_embed."""
+    import diffusers.loaders.single_file_model as single_file_model
+
+    for entry in single_file_model.SINGLE_FILE_LOADABLE_CLASSES.values():
+        original = entry.get("checkpoint_mapping_fn")
+        if original is None or original.__name__ != "convert_wan_transformer_to_diffusers":
+            continue
+
+        def mapped(checkpoint, _original=original, **kwargs):
+            converted = _original(checkpoint, **kwargs)
+            if "img_emb.emb_pos" in converted:
+                converted["condition_embedder.image_embedder.pos_embed"] = converted.pop("img_emb.emb_pos")
+            return converted
+
+        mapped.__name__ = original.__name__
+        entry["checkpoint_mapping_fn"] = mapped
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("mode", choices=["i2v", "flf2v", "a14b"])
@@ -62,7 +81,11 @@ def main():
     from transformers import AutoTokenizer, CLIPImageProcessor, CLIPVisionModel, UMT5EncoderModel
 
     i2v_module.prompt_clean = t2v_module.prompt_clean  # the I2V module calls ftfy without importing it
+    patch_single_file_conversion()
     torch.set_grad_enabled(False)
+    # Plain f32 on CUDA: TF32 convolutions alone move CLIP ViT-H's states by 1e-2 relative.
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
     folder = os.path.join(args.out, "reference")
     os.makedirs(folder, exist_ok=True)
     index = {}
