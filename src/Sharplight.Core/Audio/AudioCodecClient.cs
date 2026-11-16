@@ -21,6 +21,7 @@ internal sealed class AudioCodecClient : IAudioCodec
     private readonly Value? _decoderSpans;
     private readonly (int Numerator, int Denominator) _encoderRows;
     private readonly (int Numerator, int Denominator) _decoderRows;
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _disposed;
 
     public AudioCodecClient(TaskModel model)
@@ -101,8 +102,7 @@ internal sealed class AudioCodecClient : IAudioCodec
         ArgumentNullException.ThrowIfNull(audio);
         ObjectDisposedException.ThrowIf(_disposed, this);
         int codebooks = Math.Clamp(options?.Codebooks ?? DefaultCodebooks, 1, CodebookCount);
-        var samples = audio.ToModelInput(SampleRate).Samples;
-        return Task.Run(() => Encode(samples, codebooks, cancellationToken), cancellationToken);
+        return BackgroundCompute.RunAsync(_gate, () => Encode(audio.ToModelInput(SampleRate).Samples, codebooks, cancellationToken), cancellationToken);
     }
 
     public Task<AudioBuffer> DecodeAsync(CodecCodes codes, CancellationToken cancellationToken = default)
@@ -114,7 +114,7 @@ internal sealed class AudioCodecClient : IAudioCodec
             throw new ArgumentException($"The codec has {CodebookCount} codebooks; the codes have {codes.Codebooks}.", nameof(codes));
         }
 
-        return Task.Run(() => Decode(codes, cancellationToken), cancellationToken);
+        return BackgroundCompute.RunAsync(_gate, () => Decode(codes, cancellationToken), cancellationToken);
     }
 
     public void Dispose()
@@ -127,6 +127,7 @@ internal sealed class AudioCodecClient : IAudioCodec
         _disposed = true;
         _encoder.Dispose();
         _decoder.Dispose();
+        _gate.Dispose();
     }
 
     private CodecCodes Encode(float[] samples, int codebooks, CancellationToken cancellationToken)

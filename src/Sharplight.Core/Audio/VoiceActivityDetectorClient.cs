@@ -14,6 +14,7 @@ internal sealed class VoiceActivityDetectorClient : IVoiceActivityDetector
     private readonly Value _state;
     private readonly int _context;
     private readonly int _stateLength;
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _disposed;
 
     public VoiceActivityDetectorClient(TaskModel model)
@@ -43,8 +44,7 @@ internal sealed class VoiceActivityDetectorClient : IVoiceActivityDetector
     {
         ArgumentNullException.ThrowIfNull(audio);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var samples = audio.ToModelInput(SampleRate).Samples;
-        return Task.Run(() => Probabilities(samples, cancellationToken), cancellationToken);
+        return BackgroundCompute.RunAsync(_gate, () => Probabilities(audio.ToModelInput(SampleRate).Samples, cancellationToken), cancellationToken);
     }
 
     public async Task<IReadOnlyList<SpeechSegment>> DetectAsync(AudioBuffer audio, VoiceActivityOptions? options = null, CancellationToken cancellationToken = default)
@@ -71,6 +71,7 @@ internal sealed class VoiceActivityDetectorClient : IVoiceActivityDetector
 
         _disposed = true;
         _compiled.Dispose();
+        _gate.Dispose();
     }
 
     private float[] Probabilities(float[] samples, CancellationToken cancellationToken)
