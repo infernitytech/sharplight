@@ -452,6 +452,15 @@ DINOv2 as embedding models, SAM 2 as segmentation, a TrOCR vision-encoder-decode
 (`.pth` files and folders by name, safetensors by their tensor names). These kinds load through the same load panel, simplified to the device (no context, batching or KV
 cache), and the *Tasks* cards and the library's *Load* open the right page.
 
+**Video player.** The Video page plays a clip in `VideoView`, an ordinary Avalonia control (an `ImageViewer`: fit, zoom, pan), not a
+native media window, so it clips and scrolls with the page and stays below dialogs and flyouts (a native child window would always draw
+above the UI). Frames are held in memory (the generated frames, or a stored video decoded with the bundled FFmpeg on a worker thread
+when its gallery entry is opened) and converted to bitmaps on the thread pool into two alternating `WriteableBitmap`s; the UI thread only
+swaps the source, and a frame that arrives while another converts replaces it, so a slow machine drops frames instead of stalling.
+Pacing follows a wall clock, not the tick count: late frames are skipped and the video never slows down. Controls: play and pause, a
+seek slider, previous and next frame, loop and the time. A clip with an audio track plays it through the audio output of the Settings
+(restarted at the new position after a seek; the picture and the sound start from the same clock).
+
 Not supported yet: video models (the cards say so), a painting tool for masks (a mask is a file),
 and diffusers pipelines with a transformer instead of a UNet (Flux, SD3: the loader reports it).
 
