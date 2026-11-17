@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Sharplight.Audio;
 using Sharplight.Graph;
@@ -28,7 +27,17 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer, IVoiceCloner
     /// <summary>T3's classifier-free guidance weight.</summary>
     public const float GuidanceWeight = 0.5f;
 
-    private const int MinFirstClause = 24;
+    /// <summary>The speech tokens (25 per second of audio) before the first streamed chunk.</summary>
+    public const int FirstStreamTokens = 15;
+
+    /// <summary>The speech tokens per later streamed chunk.</summary>
+    public const int StreamHopTokens = 25;
+
+    /// <summary>The preceding tokens a chunk's flow sees as context (not emitted again).</summary>
+    public const int StreamContextTokens = 8;
+
+    /// <summary>The following tokens a chunk waits for and sees as context.</summary>
+    public const int StreamLookaheadTokens = 3;
 
     private const string SpaceToken = "[SPACE]";
 
@@ -134,11 +143,11 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer, IVoiceCloner
     }
 
     /// <inheritdoc/>
-    /// <remarks>One buffer per sentence; generation runs on a background task (<see cref="BackgroundCompute"/>).</remarks>
+    /// <remarks>Chunks of about a second within each sentence, cross-faded, emitted while T3 is still generating (the first after about 0.6 s of audio); generation runs on a dedicated thread (<see cref="BackgroundCompute"/>).</remarks>
     public IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(text);
-        return BackgroundCompute.StreamAsync(token => StreamCoreAsync(text, options, token), cancellationToken);
+        return StreamCoreAsync(text, options, cancellationToken);
     }
 
     /// <summary>The text tokens of a request: the normalized text with spaces as <c>[SPACE]</c>, between the start and stop tokens.</summary>
@@ -204,8 +213,9 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer, IVoiceCloner
     /// <param name="cancellationToken">Stops generation between tokens.</param>
     /// <param name="observe">Receives each step's best token and margin, or <see langword="null"/>.</param>
     /// <param name="forced">Feeds these tokens instead of the chosen ones (teacher forcing), or <see langword="null"/>.</param>
+    /// <param name="onToken">Called with the tokens so far after each new token (streaming), or <see langword="null"/>.</param>
     public int[] SpeechTokens(int[] textTokens, float[] condition, SamplingOptions sampling, CancellationToken cancellationToken, Action<int, float>? observe = null,
-        IReadOnlyList<int>? forced = null)
+        IReadOnlyList<int>? forced = null, Action<IReadOnlyList<int>>? onToken = null)
     {
         var tables = _tables.Value;
         var conditional = _conditional ??= _llm.CreateSession(WellKnown.DecodeMultimodalGraph);
@@ -269,6 +279,7 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer, IVoiceCloner
             }
 
             tokens.Add(token);
+            onToken?.Invoke(tokens);
             var row = SpeechRow(tables, token, i + 1);
             cond = Process(conditional, row, 1);
             uncond = Process(unconditional, row, 1);
@@ -522,42 +533,92 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer, IVoiceCloner
         return new AudioBuffer(Vocode(mel).Samples, SampleRate);
     }
 
-    private async IAsyncEnumerable<AudioBuffer> StreamCoreAsync(string text, SpeechSynthesisOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        foreach (string sentence in FirstClauseSplit(Sentences(options.NormalizedText(text))))
+    private IAsyncEnumerable<AudioBuffer> StreamCoreAsync(string text, SpeechSynthesisOptions? options, CancellationToken cancellationToken)
+        => BackgroundCompute.StreamBlocking<AudioBuffer>((emit, token) =>
         {
-            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            _gate.Wait(token);
             try
             {
-                yield return await Task.Run(() => Synthesize(sentence, options, cancellationToken), cancellationToken).ConfigureAwait(false);
+                foreach (string sentence in Sentences(options.NormalizedText(text)))
+                {
+                    token.ThrowIfCancellationRequested();
+                    StreamSentence(sentence, options, emit, token);
+                }
             }
             finally
             {
                 _gate.Release();
             }
-        }
-    }
+        }, cancellationToken);
 
-    // Low first-audio latency: the first sentence is cut at its first clause boundary (comma or semicolon) when both halves are long enough to stand alone,
-    // so the first chunk is a clause rather than a whole sentence.
-    private static IEnumerable<string> FirstClauseSplit(IEnumerable<string> sentences)
+    /// <summary>
+    /// One sentence as chunks of speech tokens: T3 generates, and every <see cref="StreamHopTokens"/> tokens (the first after <see cref="FirstStreamTokens"/>) the flow and the
+    /// vocoder turn the new tokens, with <see cref="StreamContextTokens"/> before them and <see cref="StreamLookaheadTokens"/> after them as context, into audio
+    /// that is cross-faded with the previous chunk's tail (the flow is not causal, so a chunk is a short utterance in the voice).
+    /// </summary>
+    private void StreamSentence(string sentence, SpeechSynthesisOptions? options, Action<AudioBuffer> emit, CancellationToken cancellationToken)
     {
-        bool first = true;
-        foreach (string sentence in sentences)
+        var voice = VoiceFor(options, cancellationToken);
+        var sampling = options.SamplingOr(new SamplingOptions { Temperature = 0.8f, TopK = 0, TopP = 1f, MinP = 0.05f, RepetitionPenalty = 1.2f });
+        var condition = ConditionRows(voice, DefaultExaggeration);
+        int emitted = 0;
+        int next = FirstStreamTokens;
+        float[]? tail = null;
+        int fade = _samplesPerFrame;
+
+        void Chunk(IReadOnlyList<int> all, bool final)
         {
-            if (first)
+            int end = final ? all.Count : next;
+            int start = Math.Max(0, emitted - StreamContextTokens);
+            int stop = final ? all.Count : Math.Min(all.Count, end + StreamLookaheadTokens);
+            if (end <= emitted)
             {
-                first = false;
-                int cut = sentence.IndexOfAny([',', ';'], MinFirstClause);
-                if (cut > 0 && sentence.Length - cut - 1 >= MinFirstClause)
+                return;
+            }
+
+            int[] window = [.. all.Skip(start).Take(stop - start)];
+            var audio = Vocode(Mel(window, voice)).Samples;
+            double perToken = audio.Length / (double)Math.Max(1, window.Length);
+            int from = (int)Math.Round((emitted - start) * perToken);
+            int to = (int)Math.Round((end - start) * perToken);
+            int stopSamples = final ? audio.Length : Math.Min(audio.Length, to + fade);
+            if (from >= stopSamples)
+            {
+                return;
+            }
+
+            var chunk = audio[from..stopSamples];
+            if (tail is not null)
+            {
+                int overlap = Math.Min(tail.Length, chunk.Length);
+                for (int i = 0; i < overlap; i++)
                 {
-                    yield return sentence[..(cut + 1)].Trim();
-                    yield return sentence[(cut + 1)..].Trim();
-                    continue;
+                    float w = (i + 1f) / (overlap + 1f);
+                    chunk[i] = (tail[i] * (1f - w)) + (chunk[i] * w);
                 }
             }
 
-            yield return sentence;
+            int emitCount = final ? chunk.Length : Math.Max(0, Math.Min(chunk.Length, to - from));
+            tail = final ? null : chunk[emitCount..];
+            emit(new AudioBuffer(chunk[..emitCount], SampleRate));
+            emitted = end;
+        }
+
+        var speech = SpeechTokens(TextTokens(sentence), condition, sampling, cancellationToken, onToken: all =>
+        {
+            if (all.Count >= next + StreamLookaheadTokens)
+            {
+                Chunk(all, final: false);
+                next += StreamHopTokens;
+            }
+        });
+        if (speech.Length > emitted)
+        {
+            Chunk(speech, final: true);
+        }
+        else if (tail is { Length: > 0 })
+        {
+            emit(new AudioBuffer(tail, SampleRate));
         }
     }
 

@@ -10841,7 +10841,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "built-in voice \u0060default\u0060, or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; voice encoder within 1.2e-6, S3 prompt and flow tokens identical, CAM\u002B\u002B x-vector within 8e-6 vs the package); multilingual and Turbo variants not run",
+      "notes": "built-in voice \u0060default\u0060, or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; voice encoder within 1.2e-6, S3 prompt and flow tokens identical, CAM\u002B\u002B x-vector within 8e-6 vs the package); streams in chunks of speech tokens cross-faded while T3 generates; a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); numbers, dates and currency spelled; multilingual and Turbo variants not run",
       "doc": [
         {
           "section": "3",
@@ -11029,7 +11029,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the 58 built-in speakers or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; style latents within 3.7e-6, speaker embedding within 2.8e-6 vs coqui-tts); English text cleaning (other languages lowercased only)",
+      "notes": "the 58 built-in speakers or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; style latents within 3.7e-6, speaker embedding within 2.8e-6 vs coqui-tts); streams within a sentence (first audio after 12 codes); a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); English text cleaning, plus numbers, dates and currency spelled for the request's language (EN, DE, FR, ES, IT, PT, ZH, JA)",
       "doc": [
         {
           "section": "3",
@@ -11165,7 +11165,7 @@
           "CosyVoiceTests"
         ]
       },
-      "notes": "the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, with \u0060ReferenceText\u0060 for zero-shot, \u0060Instructions\u0060 for instruct); no built-in voices in the release; non-streaming only",
+      "notes": "the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, with \u0060ReferenceText\u0060 for zero-shot, \u0060Instructions\u0060 for instruct); no built-in voices in the release; streams chunks of about a second while the language model generates (chunk-causal flow, as `stream=True` of the reference); a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); numbers, dates and currency are spelled for the request's language (EN, DE, FR, ES, IT, PT, ZH, JA)",
       "doc": [
         {
           "section": "3",
