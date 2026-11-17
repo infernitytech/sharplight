@@ -159,7 +159,11 @@ internal sealed class DiffusionLoraPatch : IWeightPatch
             }
         }
 
-        var type = target.Type == DataType.F32 ? DataType.F32 : DataType.F16;
+        // A quantized weight stays quantized (Q8_0) where its rows allow it: a LoRA on every linear of a Q8_0 Krea 2 would otherwise double
+        // the transformer to f16 (26 GB).
+        var type = target.Type == DataType.F32 ? DataType.F32
+            : target.Type.IsQuantized && columns % Q8Blocks.BlockSize == 0 ? DataType.Q8_0
+            : DataType.F16;
         return WeightInfo.Derived(target.Name, type, target.Shape, () =>
         {
             float[] w = Decode(target);
@@ -195,6 +199,11 @@ internal sealed class DiffusionLoraPatch : IWeightPatch
             if (type == DataType.F32)
             {
                 return MemoryMarshal.AsBytes(w.AsSpan()).ToArray();
+            }
+
+            if (type == DataType.Q8_0)
+            {
+                return Q8Blocks.Encode(w);
             }
 
             var halves = new Half[w.Length];

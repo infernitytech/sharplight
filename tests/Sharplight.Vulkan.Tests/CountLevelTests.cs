@@ -69,7 +69,7 @@ public sealed class CountLevelTests
     {
         using var model = CompiledModel.Compile(g, new PlacementOptions
         {
-            Devices = [new DeviceSlot { Device = Gpu.Vulkan! }],
+            Devices = [new DeviceSlot { Device = Gpu.Device! }],
             Compile = new CompileOptions { MaxTokens = 64 },
             ReservePerDevice = 0,
             GroupDataDependentCounts = group,

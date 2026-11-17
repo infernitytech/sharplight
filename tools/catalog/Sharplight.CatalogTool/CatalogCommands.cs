@@ -70,6 +70,12 @@ internal sealed class CatalogCommands
     private int Docs(ParseResult result)
     {
         var catalog = Load(result);
+        if (!Validate(catalog))
+        {
+            // An inconsistent catalog (e.g. an entry duplicated by a merge) would write duplicated rows.
+            return 1;
+        }
+
         var documentPath = result.GetValue(_document) ?? Path.Combine(CatalogPaths.FindRepositoryRoot(Environment.CurrentDirectory), CatalogPaths.Document);
         var current = File.ReadAllText(documentPath);
         var generated = CompatibleModelsDocument.Render(current, catalog);

@@ -1,6 +1,4 @@
-using Sharplight.Shaders.Lowering;
-
-namespace Sharplight.Vulkan;
+namespace Sharplight.Shaders.Lowering;
 
 /// <summary>
 /// Decides where a command buffer needs memory barriers: a launch needs one before it when it reads data written, or

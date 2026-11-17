@@ -1,9 +1,9 @@
 using Sharplight.Graph;
 using Sharplight.Runtime;
 
-namespace Sharplight.Vulkan;
+namespace Sharplight.Shaders.Lowering;
 
-/// <summary>A segment compiled for a device profile (<see cref="VulkanProfileDevice"/>): its kernels exist, nothing else; it cannot run.</summary>
+/// <summary>A segment compiled for a device profile (the compile-only devices of the GPU providers): its kernels exist, nothing else; it cannot run.</summary>
 internal sealed class CompileOnlySegment(GraphSegment segment, int launches) : ICompiledSegment
 {
     public GraphSegment Segment { get; } = segment;

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Metal execution provider for Sharplight (Apple GPUs on macOS): the Slang kernel library compiled to the Metal Shading Language, run through a thin Objective-C interop layer, with buffers in unified memory.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Shaders/Sharplight.Shaders.csproj" />
+    <InternalsVisibleTo Include="Sharplight.Metal.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Vulkan.Tests" />
+  </ItemGroup>
+</Project>

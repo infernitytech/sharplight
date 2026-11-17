@@ -5,6 +5,9 @@
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
     <PackageReference Include="SlangShaderSharp" />
+    <!-- Provider-neutral execution helpers (barrier placement, weight copies) shared by the GPU providers. -->
+    <InternalsVisibleTo Include="Sharplight.Vulkan" />
+    <InternalsVisibleTo Include="Sharplight.Metal" />
     <EmbeddedResource Include="Kernels/**/*.slang" LogicalName="Sharplight.Kernels.%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

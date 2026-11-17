@@ -5,7 +5,7 @@ namespace Sharplight.Samples;
 
 /// <summary>
 /// The device and sizing options shared by the LLM samples: <c>--cpu</c>, <c>--device</c>, <c>--ctx</c>, <c>--batch</c>,
-/// <c>--kv-type</c>, <c>--disable-features</c>, <c>--cpu-offload</c>, <c>--reduced-precision</c>.
+/// <c>--kv-type</c>, <c>--disable-features</c>, <c>--cpu-offload</c>, <c>--reduced-precision</c>, <c>--provider</c>.
 /// </summary>
 public sealed class RuntimeOptionSet
 {
@@ -17,6 +17,13 @@ public sealed class RuntimeOptionSet
 
     /// <summary><c>--cpu</c>.</summary>
     public Option<bool> Cpu { get; } = new("--cpu") { Description = "Run on the CPU provider instead of a GPU." };
+
+    /// <summary><c>--provider</c>.</summary>
+    public Option<string> Provider { get; } = new("--provider")
+    {
+        Description = "GPU provider to run on (metal, vulkan); default: the first available one (Metal on Apple silicon, else Vulkan).",
+        HelpName = "name",
+    };
 
     /// <summary><c>--device</c>.</summary>
     public Option<int> Device { get; } = OptionFactory.Integer("--device", "Index of the device to use (see the CLI's --devices).", 0, minimum: 0, helpName: "index");
@@ -53,6 +60,7 @@ public sealed class RuntimeOptionSet
     public void AddTo(Command command)
     {
         command.Options.Add(Cpu);
+        command.Options.Add(Provider);
         command.Options.Add(Device);
         command.Options.Add(Context);
         command.Options.Add(Batch);
@@ -73,7 +81,8 @@ public sealed class RuntimeOptionSet
             DataType.Get(parseResult.GetValue(KvType)!),
             parseResult.GetValue(DisableFeatures) ?? [],
             parseResult.GetValue(CpuOffload),
-            parseResult.GetValue(ReducedPrecision));
+            parseResult.GetValue(ReducedPrecision),
+            parseResult.GetValue(Provider));
     }
 
     private static Option<string> CreateKvType()

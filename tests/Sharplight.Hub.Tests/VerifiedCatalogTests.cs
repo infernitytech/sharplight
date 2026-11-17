@@ -66,7 +66,8 @@ public sealed class VerifiedCatalogTests
         var bad = CatalogSamples.Entry("bad", CatalogSamples.Variant(revision: "main", companions: "missing")) with { Kind = "nonsense" };
         var duplicate = CatalogSamples.Entry("dup");
         var noFiles = CatalogSamples.Entry("no-files", CatalogSamples.Variant() with { Files = [], Primary = "" });
-        var catalog = CatalogSamples.Catalog(bad, duplicate, duplicate, noFiles);
+        var sameLabel = CatalogSamples.Entry("same-label", CatalogSamples.Variant(), CatalogSamples.Variant() with { Id = "q4-k-m-gguf" });
+        var catalog = CatalogSamples.Catalog(bad, duplicate, duplicate, noFiles, sameLabel);
 
         var problems = CatalogValidator.Validate(catalog);
 
@@ -75,6 +76,7 @@ public sealed class VerifiedCatalogTests
         Assert.Contains(problems, problem => problem.Contains("unknown companion 'missing'", StringComparison.Ordinal));
         Assert.Contains(problems, problem => problem.Contains("dup is used twice", StringComparison.Ordinal));
         Assert.Contains(problems, problem => problem.StartsWith("no-files: variant q8-0-gguf: no files", StringComparison.Ordinal));
+        Assert.Contains(problems, problem => problem.StartsWith("same-label: variant q4-k-m-gguf: the label", StringComparison.Ordinal) && problem.Contains("used twice", StringComparison.Ordinal));
     }
 
     [Fact]

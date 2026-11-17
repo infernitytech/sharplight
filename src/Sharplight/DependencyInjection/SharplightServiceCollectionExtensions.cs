@@ -60,14 +60,15 @@ public static class SharplightServiceCollectionExtensions
         }
 
         /// <summary>
-        /// Adds the Vulkan and CPU execution providers, in that order (so <see cref="ExecutionProviderCatalog.Discover"/> lists the GPU
-        /// first). A provider whose driver is missing reports itself unavailable. Idempotent.
+        /// Adds the Metal, Vulkan and CPU execution providers, in that order (so <see cref="ExecutionProviderCatalog.Discover"/> lists the
+        /// GPUs first, and on Apple silicon the native Metal provider ahead of Vulkan through MoltenVK). A provider whose driver is missing
+        /// (Metal everywhere but macOS) reports itself unavailable. Idempotent.
         /// </summary>
         /// <returns>The service collection.</returns>
         public IServiceCollection AddSharplightProviders()
         {
             ArgumentNullException.ThrowIfNull(services);
-            return services.AddVulkanProvider().AddCpuProvider();
+            return services.AddMetalProvider().AddVulkanProvider().AddCpuProvider();
         }
     }
 }

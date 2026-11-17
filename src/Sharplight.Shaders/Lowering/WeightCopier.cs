@@ -1,8 +1,7 @@
 using System.Buffers;
 using Sharplight.Models;
-using Sharplight.Shaders.Lowering;
 
-namespace Sharplight.Vulkan;
+namespace Sharplight.Shaders.Lowering;
 
 /// <summary>Host-side copying of weight data into staging memory: parallel copies, row repacking and background materialization.</summary>
 internal static unsafe class WeightCopier
