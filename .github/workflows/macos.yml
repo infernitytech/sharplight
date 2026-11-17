@@ -151,6 +151,72 @@ jobs:
           path: ${{ runner.temp }}/*.xml
           if-no-files-found: ignore
 
+  # Metal against MoltenVK against llama.cpp's Metal backend (built here at a pinned release) on the models of docs/benchmarks.md:
+  # prefill of 512 tokens and decode (llama-bench pp512 / tg128). Runs in parallel with the metal job.
+  metal-bench:
+    name: macOS arm64 LLM benchmark (Metal, MoltenVK, llama.cpp)
+    if: ${{ startsWith(github.ref_name, 'macos/metal-') }}
+    runs-on: macos-15
+    timeout-minutes: 150
+    env:
+      LLAMA_CPP_TAG: b11177
+      SHARPLIGHT_COMPILATION_CACHE: ${{ github.workspace }}/.metal-kernel-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Build
+        run: dotnet build samples/Sharplight.Cli -c Release
+
+      - name: Restore the kernel cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.metal-kernel-cache
+          key: macos-metal-kernels-${{ hashFiles('src/Sharplight.Shaders/Kernels/**', 'Directory.Packages.props') }}
+          restore-keys: macos-metal-kernels-
+
+      - name: Build llama.cpp (Metal)
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --branch "$LLAMA_CPP_TAG" https://github.com/ggml-org/llama.cpp "$RUNNER_TEMP/llama.cpp"
+          cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama.cpp/build" -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF -DGGML_METAL=ON
+          cmake --build "$RUNNER_TEMP/llama.cpp/build" --target llama-bench -j 3
+
+      - name: Models
+        run: |
+          mkdir -p "$RUNNER_TEMP/models"
+          cd "$RUNNER_TEMP/models"
+          curl -fsSL --retry 3 -o qwen3-0.6b-q8_0.gguf https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf
+          curl -fsSL --retry 3 -o qwen3-0.6b-q4_k_m.gguf https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf
+          curl -fsSL --retry 3 -o qwen3-1.7b-q8_0.gguf https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf
+          curl -fsSL --retry 3 -o qwen3-1.7b-q4_k_m.gguf https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf
+          curl -fsSL --retry 3 -o llama-3.2-1b-q4_k_m.gguf https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf
+          curl -fsSL --retry 3 -o llama-3.2-1b-q8_0.gguf https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q8_0.gguf
+          ls -l
+
+      - name: Benchmark
+        continue-on-error: true
+        timeout-minutes: 120
+        run: |
+          cli=samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll
+          bench="$RUNNER_TEMP/llama.cpp/build/bin/llama-bench"
+          for model in "$RUNNER_TEMP"/models/*.gguf; do
+            name=$(basename "$model" .gguf)
+            for provider in metal vulkan; do
+              echo "=== $name sharplight $provider"
+              dotnet $cli "$model" --provider $provider --bench 512 2>&1 | grep -E 'prefill [0-9]+ tok' || echo "(failed)"
+            done
+            if [ -x "$bench" ]; then
+              echo "=== $name llama.cpp metal"
+              "$bench" -m "$model" -ngl 99 -fa 1 -p 512 -n 128 -r 3 -o md 2>&1 | grep -E 'pp512|tg128' || echo "(failed)"
+            fi
+          done
+
   macos-arm64:
     name: macOS arm64 (Cpu + Vulkan via MoltenVK)
     runs-on: macos-15
