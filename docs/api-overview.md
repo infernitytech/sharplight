@@ -16,10 +16,11 @@ call `services.AddSharplight()`.
 | `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
 | `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.WhisperCpp`, `.Diffusers`, `.PyTorch`, `.Kokoro`, `.Snac`, `.Chatterbox`, `.CosyVoice`, `.F5Tts`, `.Xtts`, `.SileroVad`, `.Ultralytics` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter`, `WhisperCppImporter`, `DiffusersImporter`, `services.AddXxxImporter()` |
 | `Sharplight.Video` | Video encoding and decoding through Sharplight's own LGPL FFmpeg build (shared libraries shipped with the package, bound with FFmpeg.AutoGen): MP4, WebM, MOV, Matroska, GIF, APNG; H.264, AV1, VP9, VP8, ProRes, FFV1 and the machine's hardware encoders; the core adds managed animated PNG and GIF as the fallback | `VideoEncoderCatalog`, `VideoDecoderCatalog`, `IVideoEncoder`, `IVideoDecoder`, `VideoClip`, `services.AddSharplightVideo()` |
-| `Sharplight.Cpu`, `Sharplight.Vulkan` (+ `Sharplight.Shaders`) | Execution providers | `CpuExecutionProvider`, `VulkanProvider` |
+| `Sharplight.Cpu`, `Sharplight.Vulkan`, `Sharplight.Metal` (+ `Sharplight.Shaders`) | Execution providers (Metal: Apple GPUs on macOS, the same Slang kernels compiled to MSL) | `CpuExecutionProvider`, `VulkanProvider`, `MetalProvider` |
 | `Sharplight.Vulkan.MoltenVK` | MoltenVK for the Vulkan provider on macOS (native library only; inactive elsewhere) | none (referenced by `Sharplight.Vulkan`) |
 | `Sharplight.Audio` | Native audio: decoders (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), encoders (WAV, Ogg Opus), playback and capture devices | `IAudioDecoder`, `IAudioEncoder`, `IAudioDeviceProvider`, `services.AddSharplightAudio()` |
 | `Sharplight` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
+| `Sharplight.Hosting` | Model hosting for servers and apps: a `ModelHost` from options or JSON (chat, embedding, reranker and task models on shared devices), placement, fit planning, status for health checks and cluster coordinators ([hosting.md](hosting.md)) | `IModelHostManager`, `ModelHostingOptions`, `HostedModelOptions`, `ModelHostingJson`, `HostStatus`, `FitPlanner`, `services.AddSharplightHosting()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplightServer`, `UseSharplightServer`, `MapSharplightServer`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
 | `Sharplight.Hub` | Search and pull Hugging Face models into a local store ([model-hub.md](model-hub.md)) | `HubClient`, `ModelPuller`, `ModelStore` |
 | `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `SharplightSpeechToTextClient`, `SharplightTextToSpeechClient`, `SharplightImageGenerator` |
@@ -48,14 +49,15 @@ they need no extra `using`):
 | `Sharplight.Import.Ultralytics` | `AddUltralyticsImporter()` | Ultralytics YOLO checkpoints and their graph adapter (AGPL-3.0 weights: see the model's license) |
 | `Sharplight.Import.PyTorch` | `AddPyTorchImporter(o => ...)` | the restricted-unpickler settings (`TorchCheckpointOptions`) for pickle checkpoints (`pytorch_model*.bin` shards of the Hugging Face importer) |
 | `Sharplight.Core` (`Sharplight.Package`) | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |
-| `Sharplight.Cpu`, `Sharplight.Vulkan` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order) |
+| `Sharplight.Cpu`, `Sharplight.Vulkan`, `Sharplight.Metal` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)`, `AddMetalProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order; `AddSharplightProviders()` registers Metal, Vulkan, CPU, so Apple silicon prefers Metal over MoltenVK) |
 | `Sharplight.Audio` | `AddSharplightAudio(o => ...)` | native audio (own C library over miniaudio, libopus, libogg, opusfile, libvorbis): `IAudioDecoder` (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), `IAudioEncoder` (WAV, Ogg Opus), `IAudioDeviceProvider` (playback and capture streams); replaces the WAV-only `AddWavAudio()` services of the core, which stay the fallback when the native library cannot be loaded |
 | `Sharplight.Core` | `AddVideoEncoders()` (also called by `AddSharplightTasks()`) | the `VideoEncoderCatalog` with the managed animated PNG and GIF encoders, and the (empty) `VideoDecoderCatalog` ([Video encoding](#video-encoding)) |
 | `Sharplight.Video` | `AddSharplightVideo(o => ...)` | one `FfmpegVideoEncoder` per format (MP4, WebM, MOV, Matroska, GIF, APNG; preferred over the managed encoders) and the `FfmpegVideoDecoder` (`SharplightVideoOptions.EnableHardwareEncoders`), plus everything of `AddVideoEncoders()` |
 | `Sharplight.Core` | `AddSharplightStorage()`, `AddSharplightStorage(layout)` | the `StorageLayout` (portable, system or custom location of configuration, data, models, caches and logs; [storage.md](storage.md)) |
 | `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightStorage()`, `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()`, `AddSharplightVideo()` |
 | `Sharplight.Extensions.AI` | `AddSharplightChatClient(o => ...)`, `AddSharplightEmbeddingGenerator(o => ...)`, `AddSharplightSpeechToTextClient()`, ... | Microsoft.Extensions.AI adapters |
-| `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
+| `Sharplight.Hosting` | `AddSharplightHosting(o => ...)`, `AddSharplightHosting("hosting.json")` | the `IModelHostManager` and its `ModelHost`, the `DeviceInventory`, the placement policy, the chat / embedding / reranker / task loader factories and the startup loader ([hosting.md](hosting.md)) |
+| `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightServer(o => ...)` (the container's `ModelHost`), `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
 
 ## Video encoding
 
@@ -177,6 +179,25 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 `SpeechSynthesisOptions` carries the voice: a built-in `Voice`, or a recording in `ReferenceAudio` (voice cloning) with its words in
 `ReferenceText` for models that align them (F5-TTS, CosyVoice 3 zero-shot), and `Instructions`, a natural-language instruction on how to speak
 for models that take one (CosyVoice 3: dialect, emotion, speed).
+
+**Streaming synthesis.** `SynthesizeStreamingAsync` yields audio chunks while the model is still generating, so playback can start early. CosyVoice 3 runs
+the flow with the chunk-causal attention of the reference's `stream=True` (a `cosyvoice_flow_estimator_chunked` graph next to the full-attention one; packages imported before
+it existed stream one buffer per utterance): every 25 speech tokens it decodes the mel so far and the vocoder over it, and emits the samples no later frame can change (the
+first chunk is about 0.85 s of audio). XTTS emits after 12 codes and then every 20 within a sentence (vocoder over the latents so far, four rows held back; the chunks add up to the
+one-shot audio). Chatterbox emits chunks of speech tokens (the first after 15, then 25), each decoded by the flow and the vocoder with context tokens around it and cross-faded
+with the previous chunk. The other models stream per sentence or word. Studio's Speak page plays the chunks back to back on one output stream and reports the time to the first audio.
+
+**Saved voices.** A cloning model (`IVoiceCloner`, taken with `GetService(typeof(IVoiceCloner))`: Chatterbox, XTTS v2, CosyVoice 3, F5-TTS) turns a recording into a `VoiceProfile`
+once (`CreateVoiceAsync(name, recording, referenceText)`): the conditioning tensors the model derived (speaker embeddings, prompt tokens and mel, style latents; F5-TTS keeps the
+recording itself with its words). `VoiceLibrary` stores them in the layout's `voices` data folder (`new VoiceLibrary(StorageLayout)`): one folder per voice with `voice.json` (name,
+architecture family, reference text, where each tensor lies) and `tensors.bin`. A request passes `SpeechSynthesisOptions.VoiceProfile` instead of the recording and gets the same
+audio, without running the encoders again; a voice of another model family is rejected. Studio's Speak page saves a voice from the reference recording (a file or the microphone),
+lists the saved voices of the chosen model and deletes them.
+
+**Text normalization.** `Sharplight.Speech.Normalization.TextNormalizers.For(language)` spells numbers, ordinals, dates, clock times, currency amounts, percentages and common
+abbreviations as words for EN, DE, FR, ES, IT, PT, ZH and JA (`ITextNormalizer`). CosyVoice 3, Chatterbox, XTTS, F5-TTS and Orpheus apply it by default to the request's
+`Language` (else the text's script); `SpeechSynthesisOptions.TextNormalizer` replaces it (for any model, Kokoro and OuteTTS included) and `NormalizeText = false` passes the
+text as written.
 
 Every client is an `ITaskClient`: `Metadata` (kind, model name, architecture), `GetService(Type)` for the objects behind it,
 `IDisposable` (it owns its compiled graphs, not the model), async calls with a `CancellationToken`. The shape mirrors
@@ -736,6 +757,12 @@ app.Run();
 
 `SharplightServerOptions` switches the APIs on and off, sets keys, CORS origins, request limits and timeouts, and decides
 whether an unknown `model` falls back to the default one. Existing OpenAI / Anthropic clients only change their base URL.
+
+With Sharplight.Hosting, `services.AddSharplightHosting(...)` plus `services.AddSharplightServer(o => ...)` serves the container's
+`ModelHost` (chat models, and embedding / reranker models of the host on `/v1/embeddings` and `/v1/rerank`); `GET /admin/status`
+returns the hosting status. Multi-tenant hosts map the APIs into route groups with their own authentication, per-request resolver
+(models and aliases, defaults, allowed tools, isolation scope), admission hooks and usage reporting: see
+[serving-multitenant.md](serving-multitenant.md).
 
 ## 5. Embeddings and reranking
 

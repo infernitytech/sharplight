@@ -15,10 +15,16 @@ namespace Sharplight.Vulkan.Tests;
 /// </summary>
 internal static class TestSwitches
 {
-    /// <summary>Index of the Vulkan device to test on, or null for the default.</summary>
+    /// <summary>Index of the GPU device to test on, or null for the default.</summary>
     public static int? DeviceIndex { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_DEVICE"), out int index) ? index : null;
 
     /// <summary>True when benchmarks were requested.</summary>
+    /// <summary>
+    /// The GPU provider under test (<c>SHARPLIGHT_TEST_PROVIDER</c>): <c>vulkan</c> (default) or <c>metal</c>. The suite's kernel tests are
+    /// provider-neutral (graphs against the CPU oracle), so the Metal provider runs them unchanged; tests of Vulkan internals skip.
+    /// </summary>
+    public static string Provider { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_PROVIDER") ?? "vulkan";
+
     public static bool BenchmarksEnabled { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1";
 
     /// <summary>Weight types the matmul benchmarks are limited to, or null for all.</summary>

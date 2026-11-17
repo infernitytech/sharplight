@@ -159,4 +159,10 @@ public static class DiffusionConfigKeys
     /// Qwen-Image pipelines: the norm over the token's channels and patch pixels; default false).
     /// </summary>
     public const string GuidanceRenormalization = "guidanceRenormalization";
+
+    /// <summary>
+    /// Denoiser: how many reference images an editing model takes (<see cref="DiffusionGraphs.ReferenceLatent"/>; FLUX.1 Kontext 1, FLUX.2
+    /// several); absent or 0: the model does not edit.
+    /// </summary>
+    public const string ReferenceImages = "referenceImages";
 }

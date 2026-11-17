@@ -51,7 +51,7 @@ public sealed class DiffusersImporter : IModelImporter
         string? family = DiffusionTransformerCheckpoint.FamilyOf(path);
         bool supported = (kind == FluxConfig.Architecture && family?.StartsWith("FLUX", StringComparison.Ordinal) == true)
             || (kind == Sd3Config.Architecture && family?.StartsWith("Stable Diffusion 3", StringComparison.Ordinal) == true)
-            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture || kind == WanConfig.Architecture || kind == HunyuanVideoFolder.Architecture
+            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture || kind == WanConfig.Architecture || kind == HunyuanVideoFolder.Architecture || kind == LtxFolder.Architecture
             || kind == QwenImageConfig.Architecture || kind == QwenImage21Config.Architecture || kind == Flux2Config.Architecture
             || kind == Krea2Config.Architecture;
         if (family is not null && !supported)
@@ -72,6 +72,7 @@ public sealed class DiffusersImporter : IModelImporter
             LoraCheckpoint.Architecture => LoraCheckpoint.Open(path),
             WanConfig.Architecture => WanCheckpoint.Open(path),
             HunyuanVideoFolder.Architecture => HunyuanVideoCheckpoint.Open(path),
+            LtxFolder.Architecture => LtxCheckpoint.Open(path),
             ComponentCheckpoint.ClipArchitecture or ComponentCheckpoint.AutoencoderArchitecture or ComponentCheckpoint.T5Architecture
                 or ComponentCheckpoint.WanAutoencoderArchitecture => ComponentCheckpoint.Open(path),
             _ => SingleFileCheckpoint.Open(path),
@@ -90,7 +91,7 @@ public sealed class DiffusersImporter : IModelImporter
             ZImageConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.ZImage),
             QwenImageConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.QwenImage),
             QwenImage21Config.Architecture => DiffusionCompanions.Describe(CompanionFamily.QwenImage21),
-            Flux2Config.Architecture => DiffusionCompanions.Describe(CompanionFamily.Flux2),
+            Flux2Config.Architecture => DiffusionCompanions.Describe(Flux2Checkpoint.IsDev(path) ? CompanionFamily.Flux2Dev : CompanionFamily.Flux2),
             Krea2Config.Architecture => DiffusionCompanions.Describe(CompanionFamily.Krea2),
             Sd3Config.Architecture => DiffusionCompanions.Describe(CompanionFamily.Sd3),
             _ => [],
@@ -109,7 +110,7 @@ public sealed class DiffusersImporter : IModelImporter
             ZImageConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.ZImage),
             QwenImageConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.QwenImage),
             QwenImage21Config.Architecture => DiffusionCompanions.Find(path, CompanionFamily.QwenImage21),
-            Flux2Config.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Flux2),
+            Flux2Config.Architecture => DiffusionCompanions.Find(path, Flux2Checkpoint.IsDev(path) ? CompanionFamily.Flux2Dev : CompanionFamily.Flux2),
             Krea2Config.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Krea2),
             Sd3Config.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Sd3),
             _ => new Dictionary<string, string>(),
@@ -131,7 +132,7 @@ public sealed class DiffusersImporter : IModelImporter
             "StableDiffusionPipeline" or "StableDiffusionImg2ImgPipeline" or "StableDiffusionInpaintPipeline" or "StableDiffusionXLPipeline"
                 or "StableDiffusionXLImg2ImgPipeline" or "StableDiffusionXLInpaintPipeline" or "FluxPipeline" or "WanPipeline" or "WanImageToVideoPipeline" or "LTXPipeline" or "HunyuanVideoPipeline"
                 or "StableDiffusion3Pipeline" or "StableDiffusion3Img2ImgPipeline" or "StableDiffusion3InpaintPipeline" or "ChromaPipeline"
-                or "ChromaImg2ImgPipeline" or "ZImagePipeline" or "ZImageImg2ImgPipeline" or "QwenImagePipeline" or "QwenImageImg2ImgPipeline" or "QwenImage21Pipeline" or "Flux2KleinPipeline"
+                or "ChromaImg2ImgPipeline" or "ZImagePipeline" or "ZImageImg2ImgPipeline" or "QwenImagePipeline" or "QwenImageImg2ImgPipeline" or "QwenImage21Pipeline" or "Flux2KleinPipeline" or "Flux2Pipeline" or "FluxKontextPipeline"
                 or "Krea2Pipeline"
                 or "QwenImageInpaintPipeline"
                 => components.Contains("unet") || components.Contains("transformer") ? new PipelineSupport(true) : new PipelineSupport(false, $"Not supported yet: {pipelineClass} has no UNet or transformer."),

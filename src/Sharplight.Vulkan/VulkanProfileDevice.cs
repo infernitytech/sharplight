@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Shaders;
+using Sharplight.Shaders.Lowering;
 
 namespace Sharplight.Vulkan;
 
@@ -60,7 +61,7 @@ internal sealed class VulkanProfileDevice : IComputeDevice
 
     public long AvailableMemory => Info.TotalMemory;
 
-    public OpSupport Supports(Node node) => Shaders.Lowering.GraphLowerer.Supports(node);
+    public OpSupport Supports(Node node) => GraphLowerer.Supports(node);
 
     /// <summary>Lowers the segment and waits for all its kernels; a kernel Slang rejects fails the compilation.</summary>
     /// <exception cref="KernelCompilationException">Slang rejected one of the kernels.</exception>

@@ -55,6 +55,11 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
             companions[AuxiliaryRoles.SecondTransformer] = second;
         }
 
+        if (settings.Vae is { } vae)
+        {
+            companions[AuxiliaryRoles.Vae] = vae;
+        }
+
         if (settings.ImageEncoder is { } imageEncoder)
         {
             companions[AuxiliaryRoles.ImageEncoder] = imageEncoder;

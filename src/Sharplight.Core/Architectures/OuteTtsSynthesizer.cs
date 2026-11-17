@@ -80,7 +80,7 @@ internal sealed class OuteTtsSynthesizer : ISpeechSynthesizer
     /// <remarks>Returns at once: synthesis runs on a background task (<see cref="BackgroundCompute"/>), one request at a time per client.</remarks>
     public async Task<SpeechSynthesisResult> SynthesizeAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var codes = await GenerateCodesAsync(text, options, cancellationToken).ConfigureAwait(false);
+        var codes = await GenerateCodesAsync(options.NormalizedText(text, byDefault: false), options, cancellationToken).ConfigureAwait(false);
         var audio = await BackgroundCompute.RunAsync(_gate, () => Decode(codes), cancellationToken).ConfigureAwait(false);
         return new SpeechSynthesisResult(audio, options?.Voice);
     }
@@ -91,7 +91,7 @@ internal sealed class OuteTtsSynthesizer : ISpeechSynthesizer
     /// each word's audio for the caller without waiting for it to be consumed.
     /// </remarks>
     public IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
-        => BackgroundCompute.StreamAsync(token => SynthesizeCoreAsync(text, options, token), cancellationToken);
+        => BackgroundCompute.StreamAsync(token => SynthesizeCoreAsync(options.NormalizedText(text, byDefault: false), options, token), cancellationToken);
 
     /// <summary>Generates the codec tokens of the utterance and returns them in one list (the language-model half of <see cref="SynthesizeAsync"/>).</summary>
     /// <param name="text">The text to speak.</param>

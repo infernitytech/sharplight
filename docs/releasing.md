@@ -14,7 +14,7 @@
 | Workflow | Trigger | Does |
 |---|---|---|
 | `ci.yml` | push to `develop`, `main`, `release/**`; pull requests | restore, build, run every test suite that works on a hosted runner (not the Vulkan and ONNX conformance suites) |
-| `packages.yml` | same | pack the NuGet libraries (artifact). **Publishes to nuget.org only on `release/**` pushes** (trusted publishing, environment `nuget`, variable `NUGET_USER`); never from `develop`, `main` or a pull request |
+| `packages.yml` | same | pack the NuGet libraries (artifact). **Publishes to nuget.org only on `release/**` pushes** (trusted publishing, environment `nuget`, variable `NUGET_USER`); never from `develop`, `main` or a pull request. `develop` pushes also publish the prerelease packages to the GitHub Packages feed once CI is green for that commit (see [Prerelease feed](#prerelease-feed)) |
 | `studio.yml` | same (not for documentation-only changes) | Studio packages for 5 runtimes on native runners. `develop` push: upload to R2, channels `<rid>-unstable`. `release/**` push: upload to R2, channels `<rid>-stable`, and attach the installers to the GitHub release `v<version>`. `main` and pull requests: build only. Job `catalog`: validates `catalog/verified-models.json` and, on `develop` pushes, uploads it to R2 as `catalog/verified-models.json` (docs/verified-catalog.md) |
 
 ## Release procedure
@@ -40,6 +40,67 @@
    conflict in favor of `develop`'s).
 
 Hotfixes: fix on `release/vX.Y`, push, merge back as in step 4.
+
+## Prerelease feed
+
+Every push to `develop` whose CI run (`ci.yml`) succeeds publishes all packable projects (the libraries under `src/`) to the
+GitHub Packages NuGet feed of the repository owner, with the Nerdbank.GitVersioning prerelease version of that commit
+(`0.2.3-alpha.g1a2b3c4`; the same version the package artifact has). Job `prerelease` in `packages.yml` waits for the CI run of the
+same commit, then pushes with the workflow's `GITHUB_TOKEN` (`packages: write`, `--skip-duplicate`). Forks, pull requests and other
+branches never publish; a CI run cancelled by a newer push publishes nothing (the newer push publishes its own build). nuget.org
+behaviour is unchanged: only `release/**` pushes go there.
+
+Feed URL: `https://nuget.pkg.github.com/infernitytech/index.json`. GitHub Packages requires authentication for every restore, also
+for packages of a public repository.
+
+**Consuming it from another project.** Add the feed next to nuget.org and map the `Sharplight*` packages to it, so nothing else is
+ever resolved from it:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+    <add key="sharplight-prerelease" value="https://nuget.pkg.github.com/infernitytech/index.json" />
+  </packageSources>
+  <packageSourceMapping>
+    <packageSource key="sharplight-prerelease">
+      <package pattern="Sharplight" />
+      <package pattern="Sharplight.*" />
+    </packageSource>
+    <packageSource key="nuget.org">
+      <package pattern="*" />
+    </packageSource>
+  </packageSourceMapping>
+</configuration>
+```
+
+Pin exact versions (`0.2.3-alpha.g1a2b3c4`) rather than floating ranges; the list of published versions is on the package pages of
+the organization (Packages tab) or `dotnet package search Sharplight --source sharplight-prerelease --prerelease`.
+
+- **GitHub Actions** (a repository of the same organization): give the consuming repository read access once, in each package's
+  settings under *Manage Actions access* (or set the packages' default access in the organization settings), add
+  `permissions: packages: read` to the workflow and pass the workflow token before restoring:
+  ```sh
+  dotnet nuget update source sharplight-prerelease --username "$GITHUB_ACTOR" --password "$GITHUB_TOKEN" --store-password-in-clear-text
+  ```
+- **Local development**: create a personal access token (classic) with only the `read:packages` scope (fine-grained tokens are not
+  supported by the NuGet registry), then store it in the user-level NuGet configuration, never in the repository:
+  ```sh
+  dotnet nuget update source sharplight-prerelease --username <github-user> --password <token> --configfile ~/.nuget/NuGet/NuGet.Config
+  ```
+  (use `dotnet nuget add source <feed url> --name sharplight-prerelease ...` if the source is not defined in that file yet).
+  Alternatively the consuming repository's `nuget.config` can read the credentials from environment variables, which works the
+  same locally and in CI:
+  ```xml
+  <packageSourceCredentials>
+    <sharplight-prerelease>
+      <add key="Username" value="%SHARPLIGHT_FEED_USER%" />
+      <add key="ClearTextPassword" value="%SHARPLIGHT_FEED_TOKEN%" />
+    </sharplight-prerelease>
+  </packageSourceCredentials>
+  ```
 
 ## Studio update channels and Cloudflare R2
 

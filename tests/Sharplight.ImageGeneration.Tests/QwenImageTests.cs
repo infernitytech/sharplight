@@ -71,6 +71,36 @@ public sealed class QwenImageTests
         Assert.True(transformerRms < 2e-2, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
     }
 
+    /// <summary>
+    /// The Qwen2.5-VL-7B Q8_0 GGUF as the text encoder companion against the pipeline's encoder (bf16, run in f32 by diffusers): its Q8_0 weights
+    /// cost accuracy, int8-quantized activations would cost more (the text graphs keep f32 activations).
+    /// </summary>
+    [Fact]
+    public void GgufTextEncoderMatchesDiffusers()
+    {
+        string textEncoder = Path.Combine(Root, "gguf", "Qwen2.5-VL-7B-Instruct-Q8_0.gguf");
+        var slot = Gpu();
+        Assert.SkipWhen(slot is null || !File.Exists(textEncoder), "Qwen-Image, the Qwen2.5-VL GGUF, its references or a Vulkan GPU missing");
+        var companions = Companions();
+        companions[AuxiliaryRoles.TextEncoder] = textEncoder;
+        using var model = Env.Load(Gguf, slot!, companions);
+        var index = Index();
+        int i = 0;
+        foreach (var prompt in index.GetProperty("tokens").EnumerateObject())
+        {
+            int[] tokens = [.. prompt.Value.EnumerateArray().Select(t => t.GetInt32())];
+            int drop = index.GetProperty("drop").GetInt32();
+            int length = index.GetProperty("lengths").GetProperty(prompt.Name).GetInt32() - drop;
+            var hidden = GraphRunner.Run(model, ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, DiffusionGraphs.Hidden, 0,
+                (DiffusionGraphs.Tokens, tokens));
+            int d = hidden.Length / tokens.Length;
+            var (maxAbs, rms) = Env.Compare(hidden.AsSpan(drop * d, length * d), Tensor($"text_hidden_{i}").AsSpan(0, length * d));
+            TestContext.Current.SendDiagnosticMessage($"{GetType().Name} GGUF text encoder {i}: relative RMS {rms:E2}");
+            Assert.True(rms < 3e-2, $"GGUF text encoder {i}: max {maxAbs}, relative RMS {rms}");
+            i++;
+        }
+    }
+
     /// <summary>The pipeline folder's tokenizer (only the slow tokenizer's vocab.json / merges.txt) gives transformers' ids.</summary>
     [Fact]
     public void PromptTokensMatchTransformers()

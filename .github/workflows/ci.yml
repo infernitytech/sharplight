@@ -60,6 +60,11 @@ jobs:
           dotnet run --project tools/catalog/Sharplight.CatalogTool -c Release --no-build -- docs --check
           dotnet run --project tools/catalog/Sharplight.CatalogTool -c Release --no-build -- schema --check
 
+      # Studio's resource dictionaries and accent palettes and the Sharplight.DesignTokens web assets are the ones generated from
+      # design/tokens.json and design/icons.json (docs/design-tokens.md).
+      - name: Design tokens
+        run: dotnet run --project tools/design-tokens/Sharplight.DesignTool -c Release -- generate --check
+
       - name: Restore
         run: dotnet restore Sharplight.slnx
 

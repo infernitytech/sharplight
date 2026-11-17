@@ -5,7 +5,7 @@ public sealed class SharplightVideoOptions
 {
     /// <summary>
     /// Whether the encoders offer the hardware codecs (NVENC, VideoToolbox, Media Foundation) that work on this machine. Each is tried once
-    /// per process with a small trial encode. Defaults to true.
+    /// per process with a small trial encode. Defaults to true; ignored on Windows, where only the software codecs are offered.
     /// </summary>
     public bool EnableHardwareEncoders { get; set; } = true;
 }

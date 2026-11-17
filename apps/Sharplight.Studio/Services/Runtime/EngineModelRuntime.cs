@@ -1,3 +1,6 @@
+using Sharplight.Hosting;
+using Sharplight.Hosting.Fit;
+using Sharplight.Hosting.Loaders;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
@@ -13,7 +16,7 @@ using Sharplight.Vision;
 namespace Sharplight.Studio.Services.Runtime;
 
 /// <summary>
-/// <see cref="IModelRuntime"/> on the Sharplight engine's <see cref="ModelHost"/>, the same hosting layer <c>sharplight-server</c>
+/// <see cref="IModelRuntime"/> on the Sharplight engine's <see cref="ModelHost"/>, the same hosting layer <c>sharplight serve</c>
 /// uses: several models stay resident at once within the device memory budget (least recently used idle ones are evicted when
 /// another does not fit, idle ones unload after a timeout and reload on demand), devices are opened once through a
 /// <see cref="DevicePool"/>, and the HTTP endpoints serve the same host, so app chats and API requests are batched together.
@@ -46,8 +49,10 @@ internal sealed class EngineModelRuntime : IModelRuntime
         _useCompilationCache = useCompilationCache ?? (() => true);
         var discovered = DeviceCatalog.Discover(engine.Providers);
         _physical = [.. discovered.Select(entry => entry.Option)];
+        // Only GPUs of the preferred provider are split over: on a Mac the Metal and the Vulkan (MoltenVK) device are the same GPU.
         var gpus = _physical.Where(device => device.IsGpu).ToList();
-        Devices = gpus.Count > 1 ? [.. gpus, ComputeDeviceOption.AllGpus(gpus), .. _physical.Where(device => !device.IsGpu)] : _physical;
+        var splittable = gpus.Where(device => device.Provider == gpus[0].Provider).ToList();
+        Devices = splittable.Count > 1 ? [.. gpus, ComputeDeviceOption.AllGpus(splittable), .. _physical.Where(device => !device.IsGpu)] : _physical;
         _devices = discovered.ToDictionary(entry => entry.Option.Id, entry => (entry.Provider, entry.Info));
         _residency = residency;
         _resolve = resolve;
@@ -341,7 +346,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
             Log = model.OnLoadMessage,
             Progress = new SynchronousProgress<LoadProgress>(model.OnLoadProgress),
         };
-        return new TaskModelLoader(request, options, [.. slots.Select(slot => new DeviceMemoryPool(slot.Device))], _engine.Services, model.Abandon.Token);
+        return new TaskModelLoader(request.Kind, options, [.. slots.Select(slot => new ComputeDeviceMemoryDomain(slot.Device))], _engine.Services, model.Abandon.Token);
     }
 
     private LlmChatModelLoader CreateLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineLoadedModel model)
@@ -380,7 +385,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
 
     /// <summary>
     /// Every GPU in pipeline order, each weighted by the memory it has free beyond the reserve (the share of the model it gets, as
-    /// <see cref="Fit.FitPlanner"/> assumes).
+    /// <see cref="FitPlanner"/> assumes).
     /// </summary>
     private List<DeviceSlot> SplitSlots(IReadOnlySet<string> disabled)
     {
@@ -388,7 +393,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
         return [.. _physical.Where(option => option.IsGpu).Select(option =>
         {
             var device = Open(option, disabled);
-            return new DeviceSlot { Device = device, Weight = Fit.FitPlanner.SplitWeight(device.GetMemoryInfo().Available, reserve) };
+            return new DeviceSlot { Device = device, Weight = FitPlanner.SplitWeight(device.GetMemoryInfo().Available, reserve) };
         })];
     }
 

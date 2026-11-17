@@ -142,14 +142,6 @@ public static partial class StandardOps
     public const string F16ProductsAttribute = "f16_products";
 
     /// <summary>
-    /// Attention attribute (bool, default false): the op keeps f32 products and does not run in the split-f16 tensor-core form, whose f16
-    /// parts overflow on queries or keys beyond f16's range (about 6.5e4). Set by adapters whose attention sees such magnitudes (XTTS's
-    /// Perceiver resampler, whose latents grow to 1e10 before its final norm). Ignored where <see cref="F16ProductsAttribute"/> or the
-    /// compile options allow reduced precision.
-    /// </summary>
-    public const string F32ProductsAttribute = "f32_products";
-
-    /// <summary>
     /// y = x · Wᵀ. x: [..., K] (f32), W: [N, K] (any float or quantized format) → [..., N].
     /// This is the "Linear" layout used by GGUF/PyTorch weights. Attribute: <see cref="F32ActivationsAttribute"/>.
     /// </summary>

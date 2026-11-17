@@ -113,7 +113,7 @@ public sealed class SampleTests
         x[vocab + vocab - 3] = 100;
         x.AsSpan(2 * vocab, vocab).Fill(-1.5f);
         x[3 * vocab + vocab - 1] = 1000;
-        using var gpu = new Sampler(Gpu.Vulkan!, vocab);
+        using var gpu = new Sampler(Gpu.Device!, vocab);
         var rows = Enumerable.Range(0, Rows).Select(i => (SamplingRow?)SamplingRow.Greedy(wantLogprob: i % 2 == 0)).ToList();
         rows[5] = null;
         var (tokens, logprobs) = gpu.Run(x, rows);
@@ -161,7 +161,7 @@ public sealed class SampleTests
             {
                 Temperature = temperature, TopK = topK, TopP = topP, MinP = minP, Seed = 1234, Counter = (uint)i, WantLogprob = i % 3 == 0,
             }).ToList();
-            using var gpu = new Sampler(Gpu.Vulkan!, vocab);
+            using var gpu = new Sampler(Gpu.Device!, vocab);
             using var cpu = new Sampler(Gpu.Cpu, vocab);
             var a = gpu.Run(x, rows);
             var b = cpu.Run(x, rows);
@@ -195,7 +195,7 @@ public sealed class SampleTests
             one.CopyTo(x, r * Vocab);
         }
 
-        using var gpu = new Sampler(Gpu.Vulkan!, Vocab);
+        using var gpu = new Sampler(Gpu.Device!, Vocab);
         var counts = new int[Vocab];
         for (int batch = 0; batch < Draws / MaxRows; batch++)
         {

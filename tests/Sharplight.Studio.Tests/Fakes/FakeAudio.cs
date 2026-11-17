@@ -27,6 +27,17 @@ internal sealed class FakeAudio : IAudioPlayer, IAudioRecorder
         }
     }
 
+    /// <summary>The buffers played through <see cref="PlayStreamAsync"/>, in order.</summary>
+    public List<Sharplight.Audio.AudioBuffer> Streamed { get; } = [];
+
+    public async Task PlayStreamAsync(IAsyncEnumerable<Sharplight.Audio.AudioBuffer> audio, CancellationToken cancellationToken)
+    {
+        await foreach (var buffer in audio.WithCancellation(cancellationToken))
+        {
+            Streamed.Add(buffer);
+        }
+    }
+
     public IRecording Start(string path) => new FakeRecording(() => OnRecorded?.Invoke(path));
 
     private sealed class FakeRecording(Action stopped) : IRecording

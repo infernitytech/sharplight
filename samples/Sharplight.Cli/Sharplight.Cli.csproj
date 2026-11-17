@@ -15,8 +15,12 @@
     <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
     <ProjectReference Include="../Sharplight.Samples.Hub/Sharplight.Samples.Hub.csproj" />
     <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Metal/Sharplight.Metal.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Hosting/Sharplight.Hosting.csproj" />
+    <ProjectReference Include="../../src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <Target Name="CopySharplightCommand" AfterTargets="Build" Condition="Exists('$(OutDir)$(AssemblyName)$(_NativeExecutableExtension)')">
     <Copy SourceFiles="$(OutDir)$(AssemblyName)$(_NativeExecutableExtension)" DestinationFiles="$(OutDir)sharplight$(_NativeExecutableExtension)" SkipUnchangedFiles="true" />

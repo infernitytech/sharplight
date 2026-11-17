@@ -13,7 +13,7 @@ internal static class CliModelLoader
     public static LoadedModel Load(SampleRuntime sampleRuntime, CliSettings settings, string modelPath, CancellationToken cancellationToken)
     {
         var runtime = settings.Runtime;
-        var provider = sampleRuntime.SelectProvider(runtime.UseCpu);
+        var provider = sampleRuntime.SelectProvider(runtime);
         var deviceInfo = SampleRuntime.GetDevice(provider, runtime.DeviceIndex);
 
         var deviceOptions = new DeviceOptions();

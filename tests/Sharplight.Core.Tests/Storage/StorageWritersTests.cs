@@ -20,7 +20,7 @@ public sealed partial class StorageWritersTests
         ["src/Sharplight.Video/Ffmpeg/FfmpegLoader.cs"] = "loads the bundled FFmpeg libraries shipped next to the app (read only)",
         ["src/Sharplight.Vulkan/VulkanLibrary.cs"] = "loads the Vulkan loader shipped next to the app (read only)",
         ["apps/Sharplight.Studio/Services/Server/KestrelApiServer.cs"] = "ASP.NET content root (read only, no static files)",
-        ["samples/Sharplight.Server/HttpServer.cs"] = "ASP.NET content root (read only, no static files)",
+        ["samples/Sharplight.Cli/HttpServer.cs"] = "ASP.NET content root (read only, no static files)",
     };
 
     [Fact]

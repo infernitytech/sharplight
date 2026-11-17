@@ -186,7 +186,10 @@ public sealed partial class GraphLowerer
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow;
         bool dualFp8 = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
             xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "gemm_fp8.slang"));
-        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && DualFp8Serves(rows(b), N, K));
+        var dualGemm2 = dualFp8 ? null : EmitDualGemm2($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
+            a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "matmul.slang"));
+        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && DualFp8Serves(rows(b), N, K))
+                                && !(dualGemm2?.Invoke(rows(b)) ?? false);
         LowerMatMul(a);
         LowerMatMul(bNode);
         LowerElementwise(group, [output]);
@@ -331,7 +334,7 @@ public sealed partial class GraphLowerer
             throw new NotSupportedException($"GEMM layout {string.Join(',', layout)} does not give {tileRows}-token tiles staged evenly by its threads.");
         }
 
-        return new(m)
+        var result = new Dictionary<string, string>(m)
         {
             ["WARPS_M"] = layout[0].ToString(CultureInfo.InvariantCulture),
             ["WARPS_N"] = layout[1].ToString(CultureInfo.InvariantCulture),
@@ -339,6 +342,39 @@ public sealed partial class GraphLowerer
             ["FRAG_N"] = layout[3].ToString(CultureInfo.InvariantCulture),
             ["GBK"] = blockK.ToString(CultureInfo.InvariantCulture),
         };
+        AddTileGroup(result);
+        foreach (var (name, value) in DiagnosticSwitches.GemmExtraMacros)
+        {
+            result[name] = value;
+        }
+
+        return result;
+    }
+
+    /// <summary>Smallest weight matrix (bytes) whose GEMM launches use the grouped tile order.</summary>
+    private const long TileGroupMinWeightBytes = 48L << 20;
+
+    /// <summary>
+    /// Token tiles per group of the grouped tile order (<c>grouped_tile</c> in common.slang) of gemm_cm2, the int8 GEMM and the
+    /// fp8 GEMM. Launched column tiles first, the workgroups running at once cover one or two token tiles and every weight tile,
+    /// so a weight matrix larger than the L2 cache is read from DRAM once per token tile. In groups of 16 token tiles (2048 rows)
+    /// they share a few weight tiles instead. RTX PRO 4500, f16 weights, 2048 rows: [4096 → 12288] 104 → 128 TFLOPS, [12288 →
+    /// 4096] 99 → 105; 8192 rows: [4096 → 12288] 98 → 125. Each output is computed exactly as before. Launches with K splits keep
+    /// the launch order (at 512 rows the grouped order lost 7 % on [12288 → 4096], whose grid is split), and so do matrices under
+    /// <see cref="TileGroupMinWeightBytes"/>, which stay in L2 anyway (bf16 [4096 → 4096], Q4_K / Q8_0 of the 8B: 2-4 % slower grouped).
+    /// </summary>
+    private static void AddTileGroup(Dictionary<string, string> macros)
+    {
+        if (DiagnosticSwitches.GemmTileGroup <= 0 || !macros.TryGetValue("ROW_BYTES", out var rowBytes) || !macros.TryGetValue("N", out var n))
+        {
+            return;
+        }
+
+        long weightBytes = long.Parse(rowBytes.TrimEnd('u', 'l'), CultureInfo.InvariantCulture) * long.Parse(n, CultureInfo.InvariantCulture);
+        if (weightBytes >= TileGroupMinWeightBytes)
+        {
+            macros["GEMM_GROUP"] = DiagnosticSwitches.GemmTileGroup.ToString(CultureInfo.InvariantCulture);
+        }
     }
 
     /// <summary>
@@ -674,7 +710,9 @@ public sealed partial class GraphLowerer
         // Workgroup-scope matrix GEMM (device-staged tiles, decode on load) for the formats it decodes.
         bool workgroupMatrix = coop && !splitHalf && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations && PreferWorkgroupMatrixGemm
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
-        Func<long, int> splitRows = workgroupMatrix
+        // Devices with only 8x8 subgroup matrices (Apple GPUs): the gemm_sg tile for the rows beyond the matvecs, without K splits.
+        bool smallMatrix = !coop && SmallMatrixGemmUsable(n, w.Type, K);
+        Func<long, int> splitRows = smallMatrix ? _ => 1 : workgroupMatrix
             ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK, GemmWaveTiles)
             : coop
                 ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0), Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)),
@@ -696,9 +734,19 @@ public sealed partial class GraphLowerer
             WeightParts = splitWeights?.Parts,
             WeightScales = splitWeights?.Scales,
             WorkgroupMatrix = workgroupMatrix,
+            SmallMatrix = smallMatrix,
             SplitRows = splitRows,
         };
     }
+
+    /// <summary>
+    /// True when matmul <paramref name="n"/> may run on the 8x8 subgroup-matrix GEMM (<c>gemm_sg</c>): the device has
+    /// <see cref="DeviceFeatures.MatrixF16Small"/> and f16 arithmetic, K in 32-value blocks, and f16 activations acceptable as for the
+    /// tensor-core GEMMs (f32 weights only with reduced precision). <c>SHARPLIGHT_GEMM_SG=0</c> disables it.
+    /// </summary>
+    private bool SmallMatrixGemmUsable(Node n, DataType type, long k)
+        => DiagnosticSwitches.SmallMatrixGemm && _opt.Has(DeviceFeatures.MatrixF16Small) && _opt.Has(DeviceFeatures.Float16) && k % 32 == 0
+           && (type != DataType.F32 || _opt.Compile.AllowReducedPrecision) && QuantizedActivationsAllowed(n);
 
     /// <summary>
     /// True when matmul <paramref name="n"/> with f32 weights may run on the split-f16 tensor-core GEMM (gemm_cm2 with GEMM_SPLIT):
@@ -757,8 +805,12 @@ public sealed partial class GraphLowerer
         var m = p.Macros;
         if (!p.Coop)
         {
+            List<KernelVariant> smallMatrix = p.SmallMatrix
+                ? [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows, Lib("matmul.slang", "gemm_sg", m),
+                    b => new Grid(Grid.Div(p.N, 128), Grid.Div(p.RowCount(b), 64)))]
+                : [];
             Emit(MatMulLabel(p), [p.Node],
-                [.. MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount), .. SimtGemmVariants(p)],
+                [.. MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount), .. smallMatrix, .. SimtGemmVariants(p)],
                 [Pointer(p.X), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
                 [p.X, p.W], [p.Y]);
             return;
@@ -814,7 +866,7 @@ public sealed partial class GraphLowerer
                 ["NV_BT"] = $"{NvTileTokens}",
                 ["NV_BN"] = $"{NvTileColumns}",
                 ["NV_BK"] = $"{NvTileK}",
-            }));
+            }.Concat(DiagnosticSwitches.GemmExtraMacros)));
         }
 
         List<KernelVariant> gemmVariants;

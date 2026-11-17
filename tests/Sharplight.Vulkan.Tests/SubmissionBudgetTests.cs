@@ -17,9 +17,9 @@ public sealed class SubmissionBudgetTests
     [InlineData("0")]       // budget off (single submission)
     public void ChunkedExecutionMatchesCpu(string budgetMs)
     {
-        Gpu.Require();
+        Gpu.RequireVulkan();
         var provider = new VulkanProvider();
-        var info = provider.GetDevices().First(d => d.Name == Gpu.Vulkan!.Info.Name);
+        var info = provider.GetDevices().First(d => d.Name == Gpu.Device!.Info.Name);
         var opts = new DeviceOptions();
         opts.Settings["submission_budget_ms"] = budgetMs;
         using var dev = provider.OpenDevice(info, opts);

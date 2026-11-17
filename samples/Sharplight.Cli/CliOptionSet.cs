@@ -116,12 +116,17 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
     public RootCommand BuildCommand(Func<CliSettings, CancellationToken, Task<int>> action)
     {
         var command = new RootCommand("Loads a model and generates text, describes images or benchmarks it on a CPU or Vulkan device; "
-            + "searches, pulls and lists Hugging Face models (pull, search, list, show, rm).");
+            + "serves models over the OpenAI and Anthropic HTTP APIs (serve), chats in the terminal (run), and searches, pulls and lists "
+            + "Hugging Face models (pull, search, list, show, rm).");
         command.Arguments.Add(_model);
         command.Options.Add(_devices);
         _runtime.AddTo(command);
         _pull.AddTo(command);
         HubCommands.AddTo(command, _store, sampleRuntime);
+        var serve = new Command("serve", "Serves one or several models over the OpenAI and/or Anthropic HTTP API; models that are not in the store are pulled first.");
+        new ServeOptionSet(_store, sampleRuntime).Configure(serve, (settings, cancellationToken) => ServeApplication.RunAsync(sampleRuntime, settings, cancellationToken));
+        command.Subcommands.Add(serve);
+        command.Subcommands.Add(new RunCommand(_store, sampleRuntime).Build());
         command.Options.Add(_split);
         command.Options.Add(_gpus);
         command.Options.Add(_gpuMemory);

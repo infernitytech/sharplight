@@ -9,6 +9,8 @@ internal sealed class EngineSlot(int index)
     public List<int> Tokens { get; } = [];
     /// <summary>Logical time of the last release (least recently used slots are evicted first).</summary>
     public long LastUsed { get; set; }
+    /// <summary>The <see cref="GenerationRequest.CachePartition"/> of the request whose context the slot holds.</summary>
+    public string? Partition { get; set; }
     /// <summary>The sequence running in the slot, or null when idle.</summary>
     public EngineSequence? Active { get; set; }
 }

@@ -45,6 +45,9 @@ internal sealed record DiffusionRun
     /// <summary>Graph dimensions for a non-native size, or <see langword="null"/>.</summary>
     public required IReadOnlyDictionary<string, long>? Dimensions { get; init; }
 
+    /// <summary>Reference images of an editing request (0: none).</summary>
+    public int References { get; init; }
+
     /// <summary>Values of one latent image.</summary>
     public int LatentSize => LatentChannels * LatentHeight * LatentWidth;
 }

@@ -1,0 +1,190 @@
+/* Generated from design/tokens.json by tools/design-tokens (docs/design-tokens.md); edit the tokens, not this file. */
+
+:root {
+  --sl-color-accent: #7C5CFF;
+  --sl-color-accent-secondary: #22C1EE;
+  --sl-color-success: #22C55E;
+  --sl-color-warning: #F59E0B;
+  --sl-color-danger: #EF4444;
+  --sl-color-info: #38BDF8;
+  --sl-color-success-text: #2DBE68;
+  --sl-color-warning-text: #F0A82A;
+  --sl-color-accent-light-1: #9479FF;
+  --sl-color-accent-light-2: #AD97FF;
+  --sl-color-accent-light-3: #C7B8FF;
+  --sl-color-accent-dark-1: #6646E6;
+  --sl-color-accent-dark-2: #5133C2;
+  --sl-color-accent-dark-3: #3D2499;
+  --sl-color-accent-soft: color-mix(in srgb, var(--sl-color-accent) 16%, transparent);
+  --sl-gradient-accent: linear-gradient(135deg, var(--sl-color-accent), var(--sl-color-accent-secondary));
+  --sl-font-sans: Inter, system-ui, sans-serif;
+  --sl-font-mono: "Cascadia Code", "JetBrains Mono", Consolas, "DejaVu Sans Mono", Menlo, monospace;
+  --sl-font-size-h1: 24px;
+  --sl-font-size-h2: 17px;
+  --sl-font-size-h3: 14px;
+  --sl-font-size-big: 26px;
+  --sl-font-size-body: 14px;
+  --sl-font-size-caption: 12px;
+  --sl-font-size-section: 11px;
+  --sl-font-size-mono: 12.5px;
+  --sl-font-weight-regular: 400;
+  --sl-font-weight-medium: 500;
+  --sl-font-weight-semibold: 600;
+  --sl-radius-tick: 3px;
+  --sl-radius-xs: 4px;
+  --sl-radius-tag: 5px;
+  --sl-radius-sm: 6px;
+  --sl-radius-segment: 7px;
+  --sl-radius-md: 8px;
+  --sl-radius-nav: 9px;
+  --sl-radius-lg: 10px;
+  --sl-radius-xl: 12px;
+  --sl-radius-avatar: 14px;
+  --sl-radius-2xl: 16px;
+  --sl-space-1: 4px;
+  --sl-space-2: 8px;
+  --sl-space-3: 12px;
+  --sl-space-4: 16px;
+  --sl-space-5: 20px;
+  --sl-space-6: 24px;
+  --sl-space-8: 32px;
+  --sl-shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.28);
+  --sl-shadow-dialog: 0 16px 48px rgba(0, 0, 0, 0.36);
+}
+
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+  --sl-color-app-background: #0E1015;
+  --sl-color-sidebar: #12141A;
+  --sl-color-surface: #171A21;
+  --sl-color-surface-alt: #1E222B;
+  --sl-color-surface-hover: #252A35;
+  --sl-color-border-subtle: #272C37;
+  --sl-color-text-primary: #E8EAF0;
+  --sl-color-text-secondary: #A1A8B8;
+  --sl-color-text-muted: #6B7385;
+  --sl-color-code-background: #0A0C10;
+  --sl-color-inline-code: #262B36;
+  --sl-color-user-bubble: #232838;
+  --sl-color-grid-line: #4A5263;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --sl-color-app-background: #F5F6FA;
+  --sl-color-sidebar: #ECEEF4;
+  --sl-color-surface: #FFFFFF;
+  --sl-color-surface-alt: #F1F3F8;
+  --sl-color-surface-hover: #E7EAF2;
+  --sl-color-border-subtle: #E0E3EB;
+  --sl-color-text-primary: #141720;
+  --sl-color-text-secondary: #4B5263;
+  --sl-color-text-muted: #8A91A1;
+  --sl-color-code-background: #F6F7FA;
+  --sl-color-inline-code: #ECEEF4;
+  --sl-color-user-bubble: #ECEAFE;
+  --sl-color-grid-line: #B4BAC8;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --sl-color-app-background: #F5F6FA;
+    --sl-color-sidebar: #ECEEF4;
+    --sl-color-surface: #FFFFFF;
+    --sl-color-surface-alt: #F1F3F8;
+    --sl-color-surface-hover: #E7EAF2;
+    --sl-color-border-subtle: #E0E3EB;
+    --sl-color-text-primary: #141720;
+    --sl-color-text-secondary: #4B5263;
+    --sl-color-text-muted: #8A91A1;
+    --sl-color-code-background: #F6F7FA;
+    --sl-color-inline-code: #ECEEF4;
+    --sl-color-user-bubble: #ECEAFE;
+    --sl-color-grid-line: #B4BAC8;
+  }
+}
+
+[data-accent="violet"] {
+  --sl-color-accent: #7C5CFF;
+  --sl-color-accent-secondary: #22C1EE;
+  --sl-color-accent-light-1: #9479FF;
+  --sl-color-accent-light-2: #AD97FF;
+  --sl-color-accent-light-3: #C7B8FF;
+  --sl-color-accent-dark-1: #6646E6;
+  --sl-color-accent-dark-2: #5133C2;
+  --sl-color-accent-dark-3: #3D2499;
+  --sl-color-accent-soft: color-mix(in srgb, var(--sl-color-accent) 16%, transparent);
+  --sl-gradient-accent: linear-gradient(135deg, var(--sl-color-accent), var(--sl-color-accent-secondary));
+}
+
+[data-accent="ocean"] {
+  --sl-color-accent: #2F80ED;
+  --sl-color-accent-secondary: #2DD4BF;
+  --sl-color-accent-light-1: #4F95F0;
+  --sl-color-accent-light-2: #76AEF4;
+  --sl-color-accent-light-3: #A2C8F8;
+  --sl-color-accent-dark-1: #1F6AD0;
+  --sl-color-accent-dark-2: #1754AA;
+  --sl-color-accent-dark-3: #103F82;
+  --sl-color-accent-soft: color-mix(in srgb, var(--sl-color-accent) 16%, transparent);
+  --sl-gradient-accent: linear-gradient(135deg, var(--sl-color-accent), var(--sl-color-accent-secondary));
+}
+
+[data-accent="emerald"] {
+  --sl-color-accent: #10B981;
+  --sl-color-accent-secondary: #3B82F6;
+  --sl-color-accent-light-1: #34C796;
+  --sl-color-accent-light-2: #5ED5AC;
+  --sl-color-accent-light-3: #8FE3C6;
+  --sl-color-accent-dark-1: #0C9A6B;
+  --sl-color-accent-dark-2: #097A55;
+  --sl-color-accent-dark-3: #065C40;
+  --sl-color-accent-soft: color-mix(in srgb, var(--sl-color-accent) 16%, transparent);
+  --sl-gradient-accent: linear-gradient(135deg, var(--sl-color-accent), var(--sl-color-accent-secondary));
+}
+
+[data-accent="amber"] {
+  --sl-color-accent: #F59E0B;
+  --sl-color-accent-secondary: #EF4444;
+  --sl-color-accent-light-1: #F7B036;
+  --sl-color-accent-light-2: #F9C465;
+  --sl-color-accent-light-3: #FBD898;
+  --sl-color-accent-dark-1: #D18406;
+  --sl-color-accent-dark-2: #A66904;
+  --sl-color-accent-dark-3: #7C4E03;
+  --sl-color-accent-soft: color-mix(in srgb, var(--sl-color-accent) 16%, transparent);
+  --sl-gradient-accent: linear-gradient(135deg, var(--sl-color-accent), var(--sl-color-accent-secondary));
+}
+
+[data-accent="rose"] {
+  --sl-color-accent: #F43F5E;
+  --sl-color-accent-secondary: #A855F7;
+  --sl-color-accent-light-1: #F6627C;
+  --sl-color-accent-light-2: #F8879B;
+  --sl-color-accent-light-3: #FBB0BE;
+  --sl-color-accent-dark-1: #D72A49;
+  --sl-color-accent-dark-2: #AE1F3A;
+  --sl-color-accent-dark-3: #83162B;
+  --sl-color-accent-soft: color-mix(in srgb, var(--sl-color-accent) 16%, transparent);
+  --sl-gradient-accent: linear-gradient(135deg, var(--sl-color-accent), var(--sl-color-accent-secondary));
+}
+
+/* Icons of sharplight-icons.svg: <svg class="sl-icon"><use href="_content/Sharplight.DesignTokens/sharplight-icons.svg#sl-icon-chat" /></svg> */
+.sl-icon {
+  width: 1em;
+  height: 1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sl-caption-icon {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+}

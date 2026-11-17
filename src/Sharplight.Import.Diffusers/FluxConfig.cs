@@ -83,6 +83,12 @@ internal sealed record FluxConfig
     /// <summary>The original scheduler configuration, or null.</summary>
     public string? SchedulerJson { get; init; }
 
+    /// <summary>
+    /// Whether the transformer is FLUX.1 Kontext (the FLUX.1-dev layout trained to edit a reference image whose tokens follow the image's at
+    /// the first position index 1; recognized by the pipeline class or the file name): 28 steps with the embedded guidance 2.5.
+    /// </summary>
+    public bool Kontext { get; init; }
+
     /// <summary>T5 prompt length.</summary>
     public int PromptLength => GuidanceEmbed ? 512 : 256;
 
@@ -163,6 +169,13 @@ internal sealed record FluxConfig
         metadata[t + "axes_dim"] = AxesDim;
         metadata[t + "rope_theta"] = 10000f;
         metadata[t + "sample_size"] = 1024;
+        if (Kontext)
+        {
+            metadata[t + "max_references"] = 1;
+            metadata[t + "reference_index_base"] = 1;
+            metadata[t + "reference_index_step"] = 0;
+        }
+
         string s = Prefix + "scheduler.";
         metadata[s + "train_steps"] = 1000;
         metadata[s + "shift"] = Shift;
@@ -182,6 +195,6 @@ internal sealed record FluxConfig
         metadata[Prefix + "vae.shift_factor"] = VaeShiftFactor;
         metadata[Prefix + "vae.latent_rgb_factors"] = RgbFactors;
         metadata[Prefix + "default_steps"] = GuidanceEmbed ? 28 : 4;
-        metadata[Prefix + "default_guidance"] = GuidanceEmbed ? 3.5 : 0.0;
+        metadata[Prefix + "default_guidance"] = Kontext ? 2.5 : GuidanceEmbed ? 3.5 : 0.0;
     }
 }

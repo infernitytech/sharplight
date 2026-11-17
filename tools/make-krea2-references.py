@@ -12,7 +12,9 @@ OUT/index.json:
                                         (Turbo: 8 steps without guidance; --guidance G uses diffusers' Krea convention, Sharplight's 1 + G)
 
 The text encoder runs first (on --text-device, f32), then is freed; the transformer and the VAE run on --device.
-Usage: make-krea2-references.py MODEL OUT [--transformer-gguf FILE] [--sizes 512 1024] [--steps 8] [--device cuda]
+With --lora FILE (a diffusers / PEFT LoRA, e.g. ComfyUI's Krea 2 style LoRAs) the transformer runs with it at --lora-scale (load_lora_weights);
+--skip-text / --skip-transformer leave those references out.
+Usage: make-krea2-references.py MODEL OUT [--transformer-gguf FILE] [--sizes 512 1024] [--steps 8] [--device cuda] [--lora FILE --lora-scale S]
 """
 
 import argparse
@@ -58,6 +60,10 @@ def main():
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--text-device", default="cpu")
     parser.add_argument("--threads", type=int, default=16)
+    parser.add_argument("--lora", default=None)
+    parser.add_argument("--lora-scale", type=float, default=1.0)
+    parser.add_argument("--skip-text", action="store_true")
+    parser.add_argument("--skip-transformer", action="store_true")
     args = parser.parse_args()
     torch.set_num_threads(args.threads)
     torch.set_grad_enabled(False)
@@ -80,7 +86,7 @@ def main():
     ref.save({"prompt": PROMPT, "guidance": 1 + args.guidance, "steps": args.steps, "length": LENGTH, "drop": skip})
 
     tokens, lengths = {}, {}
-    for i, prompt in enumerate(PROMPTS):
+    for i, prompt in enumerate([] if args.skip_text else PROMPTS):
         hidden, mask = pipe.get_text_hidden_states(prompt, LENGTH, device=args.text_device)
         text_ids = tokenizer([pipe.prompt_template_encode_prefix + prompt], truncation=True, padding="max_length",
                              max_length=LENGTH + skip - pipe.prompt_template_encode_num_suffix_tokens, return_tensors="pt")
@@ -121,30 +127,35 @@ def main():
     transformer.to(device)
     vae.to(device)
     pipe.transformer = transformer
+    if args.lora:
+        pipe.load_lora_weights(args.lora, adapter_name="lora")
+        pipe.set_adapters(["lora"], adapter_weights=[args.lora_scale])
+        ref.save({"lora": os.path.basename(args.lora), "lora_scale": args.lora_scale})
 
-    size = args.sizes[0]
-    lh = size // 8
-    g = torch.Generator().manual_seed(1)
-    layers = transformer.config.num_text_layers
-    width = transformer.config.text_hidden_dim
-    latent = torch.randn(1, 16, lh, lh, generator=g)
-    context = torch.randn(LENGTH, layers, width, generator=g)
-    valid = 23
-    mask = torch.arange(LENGTH) < valid
-    sigma = 0.75
-    packed = pipe._pack_latents(latent, 1, 16, lh, lh).to(device)
-    positions = Krea2Pipeline.prepare_position_ids(LENGTH, lh // 2, lh // 2, device)
-    out = transformer(hidden_states=packed, encoder_hidden_states=context[None].to(device), timestep=torch.tensor([sigma], device=device),
-                      position_ids=positions, encoder_attention_mask=mask[None].to(device), return_dict=False)[0]
-    out = out.view(1, lh // 2, lh // 2, 16, 2, 2).permute(0, 3, 1, 4, 2, 5).reshape(1, 16, lh, lh)
-    ref.add("transformer_latent", latent)
-    ref.add("transformer_context", context.reshape(1, LENGTH, -1))
-    ref.add("transformer_context_mask", mask.to(torch.float32)[None])
-    ref.add("transformer_timestep", torch.tensor([sigma * 1000]))
-    ref.add("transformer_out", out)
-    ref.save({"transformer_size": size})
-    del out
-    torch.cuda.empty_cache() if device.startswith("cuda") else None
+    if not args.skip_transformer:
+        size = args.sizes[0]
+        lh = size // 8
+        g = torch.Generator().manual_seed(1)
+        layers = transformer.config.num_text_layers
+        width = transformer.config.text_hidden_dim
+        latent = torch.randn(1, 16, lh, lh, generator=g)
+        context = torch.randn(LENGTH, layers, width, generator=g)
+        valid = 23
+        mask = torch.arange(LENGTH) < valid
+        sigma = 0.75
+        packed = pipe._pack_latents(latent, 1, 16, lh, lh).to(device)
+        positions = Krea2Pipeline.prepare_position_ids(LENGTH, lh // 2, lh // 2, device)
+        out = transformer(hidden_states=packed, encoder_hidden_states=context[None].to(device), timestep=torch.tensor([sigma], device=device),
+                          position_ids=positions, encoder_attention_mask=mask[None].to(device), return_dict=False)[0]
+        out = out.view(1, lh // 2, lh // 2, 16, 2, 2).permute(0, 3, 1, 4, 2, 5).reshape(1, 16, lh, lh)
+        ref.add("transformer_latent", latent)
+        ref.add("transformer_context", context.reshape(1, LENGTH, -1))
+        ref.add("transformer_context_mask", mask.to(torch.float32)[None])
+        ref.add("transformer_timestep", torch.tensor([sigma * 1000]))
+        ref.add("transformer_out", out)
+        ref.save({"transformer_size": size})
+        del out
+        torch.cuda.empty_cache() if device.startswith("cuda") else None
 
     for size in args.sizes:
         lh = size // 8

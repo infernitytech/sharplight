@@ -116,6 +116,7 @@ public static partial class CatalogValidator
         }
 
         var variantIds = new HashSet<string>(StringComparer.Ordinal);
+        var variantLabels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var companionIds = entry.Companions.Select(companion => companion.Id).ToHashSet(StringComparer.Ordinal);
         foreach (var variant in entry.Variants)
         {
@@ -132,6 +133,11 @@ public static partial class CatalogValidator
             if (string.IsNullOrWhiteSpace(variant.Label))
             {
                 Problem($"variant {variant.Id}: the label is empty");
+            }
+            else if (!variantLabels.Add(variant.Label))
+            {
+                // Studio lists the variants by label: two with one label cannot be told apart.
+                Problem($"variant {variant.Id}: the label '{variant.Label}' is used twice");
             }
 
             foreach (var id in variant.Companions.Where(id => !companionIds.Contains(id)))

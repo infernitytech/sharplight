@@ -114,6 +114,16 @@ public static class DiffusionGraphs
     /// <summary>The symbolic batch axis of the denoiser and VAE graphs.</summary>
     public const string BatchSymbol = "N";
 
+    /// <summary>
+    /// Optional input of <see cref="Denoise"/> for editing models (FLUX.1 Kontext, FLUX.2): f32 [R, C, h, w], the model latents of R reference
+    /// images (<see cref="ImageGenerationRequest.ReferenceImages"/>, resized to the output size and encoded by <see cref="VaeEncode"/>), whose
+    /// tokens the transformer attends to beside the image's. The denoiser is built for R with the <see cref="References"/> dimension.
+    /// </summary>
+    public const string ReferenceLatent = "reference_latent";
+
+    /// <summary>Dimension name (<c>AdapterOptions.Dimensions</c>): reference images of an editing denoiser (absent or 0: none).</summary>
+    public const string References = "references";
+
     /// <summary>Dimension name (<c>AdapterOptions.Dimensions</c>): image height in pixels.</summary>
     public const string Height = "height";
 

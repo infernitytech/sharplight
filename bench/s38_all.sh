@@ -16,7 +16,7 @@ MODELS=${MODELS:-"qwen3-0.6b:Qwen3-0.6B llama3.2-1b:Llama-3.2-1B-Instruct qwen3-
 PORT=${PORT:-18093}; PY=${VLLM_VENV:?set VLLM_VENV}/bin/python
 export VLLM_USE_FLASHINFER_SAMPLER=0
 CLI=$HERE/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight
-SRV=$HERE/../samples/Sharplight.Server/bin/Release/net11.0/sharplight-server
+SRV=$HERE/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight
 
 serve() {  # serve <engine label> <name> <server pid>
   local T0=$SECONDS
@@ -38,7 +38,7 @@ for m in $MODELS; do
       for N in 16 512 2048 8192; do for r in 1 2; do
         "$CLI" "$d" --bench $N --ctx $((N + 256)) $SL_ARGS 2>&1 | grep -E '^prefill|rror|Rows per' | sed "s/^/[N=$N run=$r] /" >> "$f"
       done; done
-      "$SRV" "$d" --slots 16 --ctx 4096 --listen "http://127.0.0.1:$PORT" --temp 0 $SL_ARGS $SRV_ARGS > "$OUT_DIR/serve_sl-${TAG}_$n.server.log" 2>&1 &
+      "$SRV" serve "$d" --slots 16 --ctx 4096 --listen "http://127.0.0.1:$PORT" --temp 0 $SL_ARGS $SRV_ARGS > "$OUT_DIR/serve_sl-${TAG}_$n.server.log" 2>&1 &
       serve "sl-$TAG" "$n" $! ;;
     vllm)
       "$PY" -I "$HERE/vllm_single.py" "$d" "$n" --gpu-util 0.85 --depth 8192 --max-len 8704 --out "$OUT_DIR/single_vllm_$n.json" \

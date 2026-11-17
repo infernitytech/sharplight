@@ -14,13 +14,13 @@ public sealed class BenchTests
 {
     private static void RequireBench()
     {
-        Gpu.Require();
+        Gpu.RequireVulkan();
         Assert.SkipUnless(TestSwitches.BenchmarksEnabled, "set SHARPLIGHT_BENCH=1 to run benchmarks");
     }
 
     private static CompiledModel Compile(ComputeGraph g, long maxTokens = 8) => CompiledModel.Compile(g, new PlacementOptions
     {
-        Devices = [new DeviceSlot { Device = Gpu.Vulkan! }],
+        Devices = [new DeviceSlot { Device = Gpu.Device! }],
         Compile = new CompileOptions { MaxTokens = maxTokens },
         ReservePerDevice = 0,
     });
@@ -67,6 +67,7 @@ public sealed class BenchTests
 
     [Theory]
     [InlineData("f16")]
+    [InlineData("bf16")]
     [InlineData("q8_0")]
     [InlineData("q4_k")]
     [InlineData("q5_k")]
@@ -211,7 +212,7 @@ public sealed class BenchTests
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [q, cache, cache], attrs));
         using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
         {
-            Devices = [new DeviceSlot { Device = Gpu.Vulkan! }],
+            Devices = [new DeviceSlot { Device = Gpu.Device! }],
             Compile = new CompileOptions { MaxTokens = 512, ContextLength = ctx },
             ReservePerDevice = 0,
         });

@@ -178,6 +178,9 @@ jobs:
           - { rid: linux-arm64, os: ubuntu-24.04-arm }
           - { rid: osx-arm64, os: macos-15 }
     runs-on: ${{ matrix.os }}
+    # A hung test once kept this job running for hours and, through the Studio workflow's per-branch concurrency, blocked every later
+    # Studio build; time limits make such a hang a failed job instead.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -202,11 +205,13 @@ jobs:
       # Decodes every fixture format against the analytic signal and runs the null-backend device tests on the real platform; ffmpeg is
       # not installed there, so the ffmpeg comparison skips itself.
       - name: Audio tests
+        timeout-minutes: 15
         shell: bash
         run: dotnet run --project tests/Sharplight.Audio.Tests -c Release
 
       # Encodes a clip with every software codec of the platform's FFmpeg build, decodes it again, writes and reads audio tracks, and
       # tries the hardware encoders the runner has; fails when the libraries are missing from the build output.
       - name: Video tests
+        timeout-minutes: 15
         shell: bash
         run: dotnet run --project tests/Sharplight.Video.Tests -c Release

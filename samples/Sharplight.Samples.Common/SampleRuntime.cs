@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Models;
 using Sharplight.Package;
 using Sharplight.Runtime;
+using Sharplight.Tasks;
 
 namespace Sharplight.Samples;
 
@@ -34,11 +35,44 @@ public sealed class SampleRuntime : IDisposable
     /// <summary>Converts models to <c>.slm</c> packages.</summary>
     public ModelConverter Converter => _services.GetRequiredService<ModelConverter>();
 
+    /// <summary>
+    /// Registers this runtime's model loader, execution providers and task client provider in another container (e.g. a web
+    /// application's), so both use the same opened providers. The runtime keeps ownership.
+    /// </summary>
+    /// <param name="services">The other container's services.</param>
+    public void AddSharedServices(IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddSingleton(Loader);
+        services.AddSingleton(Providers);
+        services.AddSingleton(_services.GetRequiredService<TaskClientProvider>());
+    }
+
     /// <summary>Returns the first available provider: the CPU provider when <paramref name="cpu"/> is set, otherwise a GPU provider.</summary>
     /// <param name="cpu">Select the CPU provider.</param>
     /// <returns>The provider; owned by the runtime.</returns>
     /// <exception cref="SampleException">No matching provider is available on this machine.</exception>
     public IExecutionProvider SelectProvider(bool cpu) => SelectProvider(Providers, cpu);
+
+    /// <summary>
+    /// Returns the provider for <paramref name="settings"/>: the CPU provider with <see cref="RuntimeSettings.UseCpu"/>, the named provider
+    /// with <see cref="RuntimeSettings.ProviderName"/>, otherwise the first available GPU provider.
+    /// </summary>
+    /// <param name="settings">The runtime settings.</param>
+    /// <returns>The provider; owned by the runtime.</returns>
+    /// <exception cref="SampleException">No matching provider is available on this machine.</exception>
+    public IExecutionProvider SelectProvider(RuntimeSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (settings.UseCpu || settings.ProviderName is null)
+        {
+            return SelectProvider(Providers, settings.UseCpu);
+        }
+
+        return Providers.TryFind(settings.ProviderName, out var provider)
+            ? provider
+            : throw new SampleException($"The provider '{settings.ProviderName}' is not available: " + string.Join("; ", Providers.Discover().Select(d => $"{d.Provider.Name}: {d.Availability.Reason}")));
+    }
 
     /// <summary>Returns the first available provider of <paramref name="providers"/>: the CPU provider when <paramref name="cpu"/> is set, otherwise a GPU provider.</summary>
     /// <param name="providers">The providers of a container.</param>

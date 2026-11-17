@@ -10,12 +10,12 @@ Baseline measured on 2026-11-13. Measurement only: nothing under `src/` or `test
 | GPU | NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB, sm_120, 300 W power limit, driver 610.57.04). Boost clock up to 3090 MHz, about 2340 MHz observed during runs |
 | CPU / RAM | Ryzen 9 9950X, 91 GB (typically 55-70 GB used by the desktop session, so little free RAM) |
 | OS | Fedora 44, Linux 7.1.8 |
-| Sharplight | working tree of 2026-11-13 (no git metadata available), `dotnet build -c Release`, .NET SDK 11.0.100, Vulkan provider with Slang kernels; benchmarked binaries: `samples/Sharplight.Cli` (`--bench`), `samples/Sharplight.Server` |
+| Sharplight | working tree of 2026-11-13 (no git metadata available), `dotnet build -c Release`, .NET SDK 11.0.100, Vulkan provider with Slang kernels; benchmarked binaries: `samples/Sharplight.Cli` (`--bench`), `samples/Sharplight.Server` (now `sharplight serve`) |
 | llama.cpp | b11177 (commit 1ab7e5ad2), builds `runtime.llama-b11177-cuda13` and `runtime.llama-b11177-vulkan` (Vulkan device 0 = the NVIDIA GPU; the RADV iGPU is ignored by default), `-ngl 99 -fa 1/on` |
 | vLLM | 0.33.0 in `~/.venvs/vllm` (uv, Python 3.12.13, torch 2.14.0+cu130, flash-attn backend, CUDA graphs on). `VLLM_USE_FLASHINFER_SAMPLER=0` because no CUDA toolkit matching the wheels is installed (FlashInfer JIT needs nvcc). Prefix caching off |
 
 **Shared GPU.** The GPU is shared with the user's desktop (kwin, VS Code, Chrome, Rider, a Python process) and three idle
-`sharplight-server` processes that were already running (about 10-13 GB of VRAM in use before every run, 0-2 % utilisation when idle).
+`sharplight serve` processes that were already running (about 10-13 GB of VRAM in use before every run, 0-2 % utilisation when idle).
 `nvidia-smi` was sampled before every measurement (`bench/results/*.gpu.txt`, and a line per run in `single_sharplight_*.txt`); no other
 heavy GPU user was seen, but samples taken right after the previous process exited show residual utilisation, and another agent
 was running tests in the same period, so a few outliers (marked by wide min..max ranges, mainly the small-model prefill rows) may come
@@ -314,7 +314,7 @@ With chunking the worst stall a running stream sees is one step (36 ms) instead 
 is the first compilation of the 4096-row graph during the run (the warm-up only used short prompts), which is itself an argument
 for a bounded step shape.
 
-**Prompt-lookup speculation** (`sharplight-server --speculate-ngram N`; an edit task whose answer copies the prompt, Llama-1B,
+**Prompt-lookup speculation** (`sharplight serve --speculate-ngram N`; an edit task whose answer copies the prompt, Llama-1B,
 c=1, temperature 0, 6 requests of 140 tokens; output identical to non-speculative decoding):
 
 | drafts | engine steps | GPU step time total | drafted | accepted | wall tok/s (noisy) |
@@ -367,7 +367,7 @@ bench/run_vllm_single_all.sh                           # (+ --max-len 4000 --dep
 
 # serving (one server per engine/model, concurrency 1 4 16 64):   bench/results/serve_<engine>_<model>_c<N>.json
 bench/run_serve_all.sh llama3.2-1b-q8                  # sharplight, llama-cuda13, llama-vulkan, vllm (VLLM_MODEL / VLLM_UTIL env)
-#   Sharplight:  sharplight-server MODEL --slots 64 --ctx 512 --listen http://127.0.0.1:18080 --temp 0
+#   Sharplight:  sharplight serve MODEL --slots 64 --ctx 512 --listen http://127.0.0.1:18080 --temp 0
 #   llama.cpp:   llama-server -m MODEL -ngl 99 -fa on -np 64 -c 32768 --port 18080 --no-webui [--cache-ram 0]
 #   vLLM:        vllm serve HF_DIR --served-model-name m --max-model-len 512 --max-num-seqs 64 --no-enable-prefix-caching --gpu-memory-utilization 0.3
 #   load:        python bench/loadgen.py --url http://127.0.0.1:18080 -c N --per-worker 3 [--ignore-eos]   # -c 1,4,16,64
@@ -380,7 +380,7 @@ SHARPLIGHT_VK_PROFILE=1 samples/Sharplight.Cli/bin/Release/net11.0/sharplight MO
 python3 bench/summarize_single.py; python3 bench/summarize_serve.py
 ```
 
-Sharplight serve/CLI binaries used: `samples/Sharplight.Cli/bin/Release/net11.0/sharplight`, `samples/Sharplight.Server/bin/Release/net11.0/sharplight-server`.
+Sharplight serve/CLI binaries used: `samples/Sharplight.Cli/bin/Release/net11.0/sharplight`, `samples/Sharplight.Server/bin/Release/net11.0/sharplight-server` (now `sharplight serve`).
 `vllm_single.py` options used beyond the defaults: `--gpu-util 0.5` (27B), `--gpu-util 0.35 --depth 3800 --max-len 4000` (OLMoE).
 
 ### Caveats and things that went wrong
@@ -510,7 +510,7 @@ Quantised KV caches (`--kv-type q8_0|q4_0`): memory, speed and accuracy are in [
 
 ## 10. Paged KV cache: concurrency per GiB and c = 64 throughput (2026-11-13)
 
-`sharplight-server MODEL --ctx 4096 --slots S [--kv-tokens N]`; `bench/loadgen.py -c 64 --per-worker 6 --ignore-eos` (251-token
+`sharplight serve MODEL --ctx 4096 --slots S [--kv-tokens N]`; `bench/loadgen.py -c 64 --per-worker 6 --ignore-eos` (251-token
 prompts, 128 output tokens, 384 requests). Fixed: every slot reserves 4096 tokens. Paged: one pool of N tokens in 16-token
 blocks, shared by 64 slots. VRAM = server process allocation; raw results in `bench/results/paged/`.
 
@@ -5214,3 +5214,149 @@ TAG=before SL_ARGS="--batch 512" SRV_ARGS="--prefill-chunk 512" bench/s38_all.sh
 bench/s38_all.sh sharplight after
 python3 bench/s38_summarize.py bench/results/s38 before,after
 ```
+
+## 39. LLM round 4 against vLLM: grouped GEMM tile order, dual bf16 gate / up GEMM, register softmax in prefill attention (2026-11-17)
+
+Base: `develop` at `31717994` ("before"), branch `perf/llm-r4` ("after"). Same method, checkpoints and vLLM 0.33.0 as section 38,
+on GPU 1 (`SHARPLIGHT_VK_DEVICES=1`, `CUDA_VISIBLE_DEVICES=1`); checkpoints copied to local disk. Raw results:
+[`bench/results/s39/`](../bench/results/s39) (`bench/s38_all.sh` with `OUT_DIR=bench/results/s39`, tables from
+`bench/s38_summarize.py`). Before and after ran back to back on the same GPU; no other process used it during the runs.
+
+### 39.1 What changed
+
+| change | effect (RTX PRO 4500) |
+|---|---|
+| **Grouped tile order** (`grouped_tile` in common.slang; gemm_cm2 and the int8 GEMM, launches without K splits, weight matrices of 48 MB or more): consecutive workgroups walk 16 token tiles of one column tile before the next. Launched column tiles first, the ~164 resident 128x128 workgroups covered one or two token tiles and every weight tile, so a weight matrix larger than L2 was streamed from DRAM once per token tile (bf16 [4096 → 12288] at 2048 rows: 16 x 100 MB, about 1.8 ms of DRAM time for a 1.9 ms GEMM). Same per-output arithmetic, bit-identical. `SHARPLIGHT_GEMM_GROUP=0` restores the launch order | bf16 [4096 → 12288] at 2048 rows 1.91 → 1.68 ms (108 → 123 TFLOPS), at 8192 rows 98 → 125 TFLOPS; [12288 → 4096] 97 → 100 |
+| **Dual gemm_cm2 for f16 / bf16 gate / up pairs** (`GraphLowerer.DualGemm.cs`): one launch reads the f16 activations once, alternates the 16-row fragments of both matrices in the B tile and stores `silu(gate) * up` (the fused elementwise group as `epi2`), for 128-token tiles where the separate GEMMs would not split K. Bit-identical to the separate launches (`DualGemmTests`). `SHARPLIGHT_GEMM2_DUAL=0` disables it | gate / up / SiLU·mul of Qwen3-8B at 2048 rows 3.70 → 3.27 ms per layer |
+| **Register softmax in the prefill / encoder attention kernel `fe`** (FE_REG, devices with the MMA fragment layout, verified by the kernel): the online softmax runs on the score accumulators (row maxima and sums over the four lanes of a row) and the probabilities become the A operands of P·V directly, so the key loop has no score / probability staging in shared memory and no subgroup barriers; 64-key tiles, 128 queries (8 subgroups) per workgroup, f16 K/V staged without the f32 round trip. `SHARPLIGHT_ATTN_FE_REG=0` restores the staged softmax | Qwen3-0.6B pp8192 attention 92.7 → 70.1 ms of 175 ms GPU time |
+| **Split-f16 flash attention safe for any magnitude** (`fa` and `fe` with FA_SPLIT, strict-precision f32 K/V): each query row, each key row of a tile and each V tile is scaled by a power of two into [2^14, 2^15) before the hi / lo split, and the scores and tile products are unscaled exactly; within f16's range the results are unchanged (power-of-two scaling commutes with the rounding). Queries / keys / values beyond f16's range used to give NaN. XTTS's Perceiver (latents of 1e10) drops its `f32_products` opt-out, which is removed (`FullAttentionTests.SplitHalfLargeMagnitudes`). Qwen-Image's / FLUX's per-block choice of f16 products (`F16Safe`, bound 50) stays: it guards the rounding of single f16 products (scores 2 % off in block 0), which no scaling fixes, and its fallback is this split kernel | strict-precision attention only |
+
+What did not help (measured, not kept): the workgroup-scope coopmat2 GEMM with grouped order (87-109 TFLOPS, below gemm_cm2), 32-value K
+blocks double buffered with two register prefetch sets (register spills, 55-69 TFLOPS), 8-warp 128x128 tiles (120 vs 128), double-buffered
+32-key tiles in `fe` (slower than single-buffered 64-key tiles). Diagnostic: with the global loads and stores removed, gemm_cm2 runs at
+about 196 TFLOPS, so the remaining gap is the single-buffered staging that the 48 KB of shared memory per workgroup forces on
+128x128x64 tiles.
+
+### 39.2 Single stream
+
+Tokens/s, higher is better (Sharplight: best of 2 process runs x 4 prefills; vLLM: median of 5).
+
+| model | metric | Sharplight before | Sharplight after | vLLM | SL/vLLM before | SL/vLLM after |
+|---|---|---:|---:|---:|---:|---:|
+| qwen3-0.6b | pp512 | 58880 | 58426 | 32688 | 1.80x | 1.79x |
+| qwen3-0.6b | pp2048 | 74358 | 82870 | 82156 | 0.91x | 1.01x |
+| qwen3-0.6b | pp8192 | 44476 | 53016 | 58706 | 0.76x | 0.90x |
+| qwen3-0.6b | tg@d16 | 459 | 460 | 461 | 0.99x | 1.00x |
+| qwen3-0.6b | tg@d8192 | 285 | 294 | 308 | 0.92x | 0.95x |
+| llama3.2-1b | pp512 | 39895 | 41995 | 44578 | 0.89x | 0.94x |
+| llama3.2-1b | pp2048 | 43700 | 48626 | 53097 | 0.82x | 0.92x |
+| llama3.2-1b | pp8192 | 34146 | 40151 | 47421 | 0.72x | 0.85x |
+| llama3.2-1b | tg@d16 | 293 | 294 | 286 | 1.03x | 1.03x |
+| llama3.2-1b | tg@d8192 | 258 | 259 | 267 | 0.96x | 0.97x |
+| qwen3-8b | pp512 | 6560 | 6619 | 8016 | 0.82x | 0.83x |
+| qwen3-8b | pp2048 | 6237 | 7101 | 8729 | 0.71x | 0.81x |
+| qwen3-8b | pp8192 | 5356 | 6228 | 7650 | 0.70x | 0.81x |
+| qwen3-8b | tg@d16 | 53 | 53 | 52 | 1.03x | 1.02x |
+| qwen3-8b | tg@d8192 | 49 | 49 | 48 | 1.02x | 1.02x |
+| qwen3-8b-fp8 | pp512 | 10448 | 10669 | 14277 | 0.73x | 0.75x |
+| qwen3-8b-fp8 | pp2048 | 10713 | 10958 | 14967 | 0.72x | 0.73x |
+| qwen3-8b-fp8 | pp8192 | 8435 | 9060 | 12333 | 0.68x | 0.73x |
+| qwen3-8b-fp8 | tg@d16 | 90 | 89 | 87 | 1.03x | 1.03x |
+| qwen3-8b-fp8 | tg@d8192 | 78 | 78 | 72 | 1.08x | 1.08x |
+
+* Prefill at 2048 tokens: Qwen3-0.6B 0.91x → 1.01x of vLLM, Llama-3.2-1B 0.82x → 0.92x, Qwen3-8B bf16 0.71x → 0.81x
+  (+14 %, grouped order and dual gate / up), Qwen3-8B-FP8 0.72x → 0.73x (its GEMMs already ran token tiles first).
+* At 8192 tokens the attention change adds to it: Qwen3-0.6B 0.76x → 0.90x (+19 %), Llama-1B 0.72x → 0.85x, Qwen3-8B
+  0.70x → 0.81x, FP8 0.68x → 0.73x.
+* Decode unchanged (0.95-1.08x of vLLM).
+* GEMM throughput of the 8B at 2048 rows (profile, `SHARPLIGHT_VK_PROFILE=1`): bf16 gate / up 126 TFLOPS, down 110, q / o
+  115 (was 104-108 / 106 / 115); FP8 gate / up 205, down 193, q / o 190. Targets of 135 / 220 TFLOPS are not reached: the
+  bf16 kernel is bound by its single-buffered staging (39.1), the FP8 kernel by its register count (222-250 registers for
+  the 8-subgroup 128x128 tile: one workgroup per SM).
+
+### 39.3 Serving: time to first token
+
+2000-token prompts, 16 output tokens; TTFT p50 in ms (lower is better), output tok/s (higher is better).
+
+| model | streams | TTFT p50 SL before | TTFT p50 SL after | TTFT p50 vLLM | tok/s SL before | tok/s SL after | tok/s vLLM |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| qwen3-0.6b | 1 | 32 | 31 | 33 | 225 | 220 | 233 |
+| qwen3-0.6b | 16 | 88 | 116 | 128 | 415 | 433 | 558 |
+| llama3.2-1b | 1 | 52 | 49 | 44 | 143 | 158 | 166 |
+| llama3.2-1b | 16 | 174 | 158 | 204 | 287 | 313 | 412 |
+| qwen3-8b | 1 | 342 | 300 | 239 | 25 | 27 | 30 |
+| qwen3-8b | 16 | 887 | 795 | 726 | 45 | 50 | 64 |
+| qwen3-8b-fp8 | 1 | 201 | 197 | 139 | 43 | 43 | 51 |
+| qwen3-8b-fp8 | 16 | 535 | 534 | 493 | 74 | 74 | 109 |
+
+* Single stream: Llama-1B 52 → 49 ms (vLLM 44), Qwen3-8B 342 → 300 ms (vLLM 239); FP8 unchanged (201 / 197, vLLM 139).
+* 16 streams: Llama-1B 174 → 158 ms (vLLM 204), Qwen3-8B 887 → 795 (vLLM 726); throughput +9-11 % on Llama-1B and Qwen3-8B.
+  Qwen3-0.6B's TTFT at 16 streams moved 88 → 116 ms with higher throughput (433 vs 415 tok/s); one pair of rounds, not
+  re-measured.
+
+### 39.4 Greedy output
+
+200-token greedy outputs of a short, a ~600-word and a ~1500-word prompt, before against after: byte-identical on
+Qwen3-0.6B, Llama-3.2-1B and Qwen3-8B (all three prompts). Qwen3-8B-FP8 differs on the short prompt (a different story title
+after ~70 words) and the ~600-word one ("including quantized formats" against "with quantized weights" after ~140 words), both
+coherent: `SHARPLIGHT_ATTN_FE_REG=0` restores both, so the register softmax's sums (64-key tiles, four-lane row sums instead
+of 32-key tiles and two-lane sums) flip these near-ties. The grouped order and the dual GEMM are bit-identical by
+construction (`DualGemmTests`).
+
+### 39.5 Tests
+
+Release, niced, GPU 1, after merging `develop` at `649cd0fd`: Vulkan 1533 passed / 23 skipped, Cpu 1313 / 36 skipped, Serving
+294 / 13 skipped, Families 1003 / 364 skipped (large models off), TextToSpeech (XTTS cloning without the opt-out) and
+ImageGeneration (tiny Qwen-Image / Qwen-Image 2.1) green. The first Families run caught an out-of-bounds store of the dual
+GEMM for output widths that are multiples of 16 but not of 64 (tiny GeGLU encoders: ModernBERT, T5 v1.1, N = 96); fixed and
+covered by `DualGemmTests` (N = 96 with GELU). The benchmark models' widths are multiples of 64, so 39.2-39.4 are unaffected.
+
+### 39.6 Next levers
+
+* bf16 GEMM staging: 48 KB of shared memory per workgroup leaves 128x128 tiles single buffered; compute alone runs at ~196
+  TFLOPS. Candidates: B fragments loaded from L1 without staging, smaller-padding layouts that fit two stages.
+* FP8 GEMM: fewer live accumulators (the per-block scaling keeps a second set of fragments live).
+* Down projection at 2048 rows: 512 tiles on 164 resident workgroups (3.1 waves); stream-K would remove the tail.
+* Attention: with the K/V staging removed `fe` runs ~25 % faster (53.8 vs 70.1 ms on Qwen3-0.6B pp8192).
+* Launch and barrier overhead is not where the small models lose: Llama-1B pp2048 runs 197 dispatches / 132 barriers per pass,
+  41.6 ms of GPU time against 42.1 ms of wall time per pass, and the GEMMs are 83 % of it (gate / up 124 TFLOPS, down 109
+  with 256 tiles on 164 resident workgroups). The down projection's f16 input copy (3 % of the pass) could come from the dual
+  GEMM's store instead of a conversion launch.
+* FP8 tile layouts tried: 4-subgroup 128x64 (two workgroups per SM) 163-177 TFLOPS, 8-subgroup 64x32 subtiles 145-156,
+  against 173-195 for the default.
+
+### 39.7 Reproduce
+
+```bash
+export SHARPLIGHT_VK_DEVICES=1 CUDA_VISIBLE_DEVICES=1 VLLM_VENV=<venv> HF_DIR=<checkpoints> OUT_DIR=bench/results/s39
+bench/s38_all.sh vllm
+bench/s38_all.sh sharplight before   # on the base build
+bench/s38_all.sh sharplight after
+python3 bench/s38_summarize.py bench/results/s39 before,after
+```
+
+## 41. Apple silicon: native Metal provider against MoltenVK and llama.cpp Metal (macOS CI, 2026-11-17)
+
+GitHub's `macos-15` runner (Apple M1 virtual machine, paravirtual Apple GPU: Mac2 family, argument buffers tier 2, 3 CPU cores,
+7 GB), branch `macos/metal-r1`, jobs `metal` and `metal-bench` of `.github/workflows/macos.yml`, run 44018997843. Numbers are
+indicative only (shared virtualized hardware, one run each). Sharplight: `sharplight MODEL --provider metal|vulkan --bench N`
+(best warm prefill of N tokens; decode: best of 64 steps). llama.cpp b11177 built in CI with `GGML_METAL=ON`:
+`llama-bench -ngl 99 -fa 1 -p 512 -n 128 -r 3` (mean).
+
+| Model | Metal pp512 | MoltenVK pp512 | llama.cpp Metal pp512 | Metal decode | MoltenVK decode | llama.cpp Metal tg128 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Qwen3-0.6B Q4_K_M | **811.9** | 430.0 | 218.7 | **62.9** | 46.3 | 7.5 |
+| Qwen3-0.6B Q8_0 | **855.4** | 427.6 | 329.2 | 62.1 | **65.7** | 6.6 |
+| Qwen3-1.7B Q4_K_M | **395.9** | 161.7 | 126.6 | **29.8** | 24.4 | 6.1 |
+| Qwen3-1.7B Q8_0 | **415.6** | 159.8 | 79.8 | 25.0 | **29.9** | 3.1 |
+| Llama-3.2-1B Q4_K_M | **559.7** | 225.9 | 144.9 | **40.1** | 33.0 | 9.6 |
+| Llama-3.2-1B Q8_0 | **589.1** | 221.6 | 243.0 | 36.7 | **39.5** | 10.8 |
+| Qwen2.5-0.5B Q4_K_M (pp128 / pp512) | **1561.4 / 1281.4** | 622.1 / 568.2 | — | **72.2** | 58.4 | — |
+
+Metal prefill is 2-2.6x MoltenVK: the prefill matmuls run on `simdgroup_matrix` (`gemm_sg`; MoltenVK exposes no cooperative
+matrices, so the Vulkan kernels take the SIMT GEMM), and launches are encoded without MoltenVK's translation layer. Decode is
+memory bound: Metal is 20-30 % faster for Q4_K_M, but 6-17 % slower than MoltenVK for Q8_0, where MoltenVK takes the
+integer-dot matvec (`int_dot`, emulated by MoltenVK) that the Metal provider does not enable yet. llama.cpp's numbers on this
+paravirtual GPU are far below its usual Apple silicon results (decode 3-11 tok/s); its Metal backend evidently runs a reduced
+path on this device (the VM's GPU does not report the Apple7+ family), so the comparison needs real Apple hardware before
+any conclusion.
