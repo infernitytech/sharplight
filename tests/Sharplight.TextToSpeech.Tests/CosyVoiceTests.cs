@@ -72,7 +72,13 @@ public class CosyVoiceTests
         var observed = new List<float[]>();
         synthesizer.SpeechTokens(Ints("text_tokens.i32"), Ints("prompt_text_tokens.i32"), Ints("tokens.i32"), SamplingOptions.Greedy,
             TestContext.Current.CancellationToken, logits => observed.Add((float[])logits.Clone()), greedy);
+        if (Environment.GetEnvironmentVariable("SL_COSYVOICE3_DUMP") is { Length: > 0 } dump)
+        {
+            File.WriteAllBytes(Path.Combine(dump, $"llm_{(gpu ? "vulkan" : "cpu")}.f32"), MemoryMarshal.AsBytes(observed.SelectMany(l => l).ToArray().AsSpan()).ToArray());
+        }
+
         int compared = Math.Min(observed.Count, steps);
+        Assert.True(observed.Count >= greedy.Length, $"{observed.Count} steps observed, {greedy.Length} expected");
         int disagreements = 0;
         double worst = 0;
         double minMargin = double.PositiveInfinity;
@@ -91,7 +97,6 @@ public class CosyVoiceTests
 
         ParityReport.Write($"CosyVoice 3 language model {(gpu ? "vulkan" : "cpu")}: teacher forced over {compared} steps, {disagreements} argmax "
             + $"disagreements, worst logit delta {worst:E2}");
-        Assert.True(compared >= greedy.Length, $"{compared} steps compared, {greedy.Length} expected");
         Assert.True(disagreements == 0 || minMargin < 0.05, $"{disagreements} argmax disagreements (reference margin {minMargin:E2})");
     }
 
@@ -120,12 +125,65 @@ public class CosyVoiceTests
         RequireFiles();
         using var model = TtsModels.Load(TtsModels.Open(gpu), Model);
         using var synthesizer = new CosyVoiceSynthesizer(model);
+        // The reference predicts F0 in float64: the source phase accumulates F0 · 2π · 480 per frame, so a float32 F0's rounding (1e-6) moves the
+        // harmonics' phase audibly little but by up to a radian. The generator is compared on the reference's F0, the chain on its own.
         var (samples, f0) = synthesizer.Vocode(Floats("flow_mel.f32"), Floats("hift_noise.f32"));
+        var (fed, _) = synthesizer.Vocode(Floats("flow_mel.f32"), Floats("hift_noise.f32"), Floats("hift_f0.f32"));
         double f0Error = RelativeError(Floats("hift_f0.f32"), f0);
         double error = RelativeError(Floats("wav.f32"), samples);
-        ParityReport.Write($"CosyVoice 3 causal HiFT {(gpu ? "vulkan" : "cpu")}: F0 relative RMS {f0Error:E2}, waveform {error:E2} ({samples.Length} samples)");
+        double fedError = RelativeError(Floats("wav.f32"), fed);
+        ParityReport.Write($"CosyVoice 3 causal HiFT {(gpu ? "vulkan" : "cpu")}: F0 relative RMS {f0Error:E2}; waveform {fedError:E2} on the reference's F0, "
+            + $"{error:E2} on its own ({samples.Length} samples)");
         Assert.True(f0Error < 1e-4, $"F0 relative RMS error {f0Error:E2}");
-        Assert.True(error < 1e-2, $"waveform relative RMS error {error:E2}");
+        Assert.True(fedError < 1e-3, $"waveform relative RMS error on the reference's F0 {fedError:E2}");
+        Assert.True(error < 2e-2, $"waveform relative RMS error {error:E2}");
+    }
+
+    /// <summary>
+    /// Zero-shot speech through the task client in the voice of jfk.wav (with its transcript): the length is plausible, CAM++ finds the output close to
+    /// the recording's speaker; the real-time factor in the report (the voice's encoders included in the first request only).
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Speaks_with_the_voice_of_a_recording(bool gpu)
+    {
+        string recordingPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(TtsModels.Kokoro)!)!, "audio", "jfk.wav");
+        TtsModels.Require(Path.Combine(Model, "llm.pt"), Path.Combine(Model, "campplus.onnx"), recordingPath);
+        using var model = TtsModels.Load(TtsModels.Open(gpu), Model);
+        using var synthesizer = TtsModels.Synthesizer(model);
+        using var encoders = new S3SpeechEncoders(model);
+        var recording = Sharplight.Audio.WavFile.Read(recordingPath);
+        const string Text = "The weather today is sunny with a light breeze, perfect for a walk in the park.";
+        var options = new Sharplight.Speech.SpeechSynthesisOptions
+        {
+            ReferenceAudio = recording,
+            ReferenceText = "And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+            Sampling = new SamplingOptions { Seed = 7 },
+        };
+        await synthesizer.SynthesizeAsync("Hello.", options, TestContext.Current.CancellationToken);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await synthesizer.SynthesizeAsync(Text, options, TestContext.Current.CancellationToken);
+        double elapsed = stopwatch.Elapsed.TotalSeconds;
+        double seconds = result.Audio.Samples.Length / (double)result.Audio.SampleRate;
+        if (Environment.GetEnvironmentVariable("SL_COSYVOICE3_OUT") is { Length: > 0 } folder)
+        {
+            Sharplight.Audio.WavFile.Write(Path.Combine(folder, $"cosyvoice3-{(gpu ? "vulkan" : "cpu")}.wav"), result.Audio);
+        }
+
+        float[] Embed(Sharplight.Audio.AudioBuffer audio)
+            => Normalized(encoders.XVector(Sharplight.Audio.AudioResampler.Resample(audio.ToMono().Samples, 1, audio.SampleRate, 16000)));
+        double similarity = Embed(recording).Zip(Embed(result.Audio), (a, b) => (double)a * b).Sum();
+        ParityReport.Write($"CosyVoice 3 end to end {(gpu ? "vulkan" : "cpu")}: {seconds:F2} s of audio in {elapsed:F2} s (real-time factor "
+            + $"{elapsed / seconds:F2}); CAM++ speaker similarity to the recording {similarity:F3}");
+        Assert.InRange(seconds, 2.5, 12);
+        Assert.True(similarity > 0.4, $"speaker similarity {similarity:F3}");
+    }
+
+    private static float[] Normalized(float[] values)
+    {
+        double norm = Math.Sqrt(values.Sum(v => (double)v * v));
+        return [.. values.Select(v => (float)(v / norm))];
     }
 
     private static int ArgMax(ReadOnlySpan<float> values)

@@ -58,6 +58,7 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
     private CompiledModel? _flowEncoder;
     private CompiledModel? _estimator;
     private CompiledModel? _vocoder;
+    private CompiledModel? _f0Predictor;
     private S3SpeechEncoders? _encoders;
     private (AudioBuffer Recording, CosyVoiceVoice Voice)? _lastClone;
     private bool _disposed;
@@ -235,6 +236,11 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
         for (int i = 0; i < maxLength; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (forced is not null && i >= forced.Count)
+            {
+                break;
+            }
+
             observe?.Invoke(logits);
             if (i < minLength)
             {
@@ -245,11 +251,6 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
             int token = sampling.Temperature <= 0f ? Sampler.ArgMax(logits) : sampler.Sample(logits, tokens);
             if (forced is not null)
             {
-                if (i >= forced.Count)
-                {
-                    break;
-                }
-
                 token = forced[i];
             }
 
@@ -364,19 +365,37 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
         return x[(promptFrames * _mels)..];
     }
 
+    /// <summary>The causal F0 predictor's F0 per frame of a mel spectrogram [frames, 80].</summary>
+    /// <param name="mel">The mel frames.</param>
+    public float[] F0(float[] mel)
+    {
+        int frames = mel.Length / _mels;
+        var predictor = _f0Predictor ??= _model.CompileComponent(CosyVoiceAdapter.VocoderRole, CosyVoiceVocoderGraph.F0GraphName);
+        predictor.SetInput<float>(Input(predictor, CosyVoiceVocoderGraph.MelInput), mel);
+        var run = new RunParameters();
+        run.Symbols[WellKnown.TokenSymbol] = frames;
+        predictor.Run(run);
+        var f0 = new float[frames];
+        predictor.GetOutput<float>(CosyVoiceVocoderGraph.F0Output, f0);
+        return f0;
+    }
+
     /// <summary>
-    /// The causal HiFT over a mel spectrogram [frames, 80]: the waveform (clamped to ±0.99) and the predicted F0 per frame. The source noise
-    /// [samples, harmonics] (uniform in [0, 1)) comes from the argument or the noise source.
+    /// The causal HiFT over a mel spectrogram [frames, 80]: the waveform (clamped to ±0.99) and the F0 per frame (predicted unless given). The source
+    /// noise [samples, harmonics] (uniform in [0, 1)) comes from the argument or the noise source.
     /// </summary>
     /// <param name="mel">The mel frames.</param>
     /// <param name="noise">The source noise, or <see langword="null"/>.</param>
-    public (float[] Samples, float[] F0) Vocode(float[] mel, float[]? noise = null)
+    /// <param name="f0">The F0 per frame, or <see langword="null"/> for the predictor's.</param>
+    public (float[] Samples, float[] F0) Vocode(float[] mel, float[]? noise = null, float[]? f0 = null)
     {
         int frames = mel.Length / _mels;
         int samples = frames * _samplesPerFrame;
-        var vocoder = _vocoder ??= _model.CompileComponent(CosyVoiceAdapter.VocoderRole);
+        f0 ??= F0(mel);
+        var vocoder = _vocoder ??= _model.CompileComponent(CosyVoiceAdapter.VocoderRole, CosyVoiceVocoderGraph.GraphName);
         noise ??= (SourceNoiseSource ?? (n => Uniform(n, 1)))(samples * _harmonics);
         vocoder.SetInput<float>(Input(vocoder, CosyVoiceVocoderGraph.MelInput), mel);
+        vocoder.SetInput<float>(Input(vocoder, CosyVoiceVocoderGraph.F0Input), f0);
         vocoder.SetInput<float>(Input(vocoder, CosyVoiceVocoderGraph.NoiseInput), noise);
         var run = new RunParameters();
         run.Symbols[WellKnown.TokenSymbol] = frames;
@@ -384,8 +403,6 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
         int stftFrames = (samples / _hop) + 1;
         var spectrum = new float[stftFrames * _fftSize];
         vocoder.GetOutput<float>(CosyVoiceVocoderGraph.FramesOutput, spectrum);
-        var f0 = new float[frames];
-        vocoder.GetOutput<float>(CosyVoiceVocoderGraph.F0Output, f0);
         var audio = OverlapAdd.Synthesize(spectrum, stftFrames, _fftSize, _hop, Window.Hann(_fftSize), _fftSize / 2);
         if (audio.Length > samples)
         {
@@ -443,6 +460,7 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
         _flowEncoder?.Dispose();
         _estimator?.Dispose();
         _vocoder?.Dispose();
+        _f0Predictor?.Dispose();
         _encoders?.Dispose();
         _gate.Dispose();
     }

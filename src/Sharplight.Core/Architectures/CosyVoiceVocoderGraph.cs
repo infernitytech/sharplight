@@ -6,9 +6,10 @@ using Sharplight.Tensors;
 namespace Sharplight.Architectures;
 
 /// <summary>
-/// CosyVoice 3's causal HiFT vocoder (<c>CausalHiFTGenerator</c>) as one graph over the mel frames <c>[T, 80]</c>, for a whole utterance (the
-/// reference's <c>finalize=True</c>): the causal convolutional F0 predictor (the first convolution sees three frames ahead, the others only the past);
-/// the causal neural source (the harmonics' phase is accumulated at the frame rate, scaled to the sample rate and held for each frame's samples, so the
+/// CosyVoice 3's causal HiFT vocoder (<c>CausalHiFTGenerator</c>) as two graphs over the mel frames <c>[T, 80]</c>, for a whole utterance (the
+/// reference's <c>finalize=True</c>): <see cref="F0GraphName"/>, the causal convolutional F0 predictor (the first convolution sees three frames ahead,
+/// the others only the past; the reference runs it in float64 because the source's phase accumulates its rounding, so a given F0 can be fed instead);
+/// and <see cref="GraphName"/> over the mel and the F0: the causal neural source (the harmonics' phase is accumulated at the frame rate, scaled to the sample rate and held for each frame's samples, so the
 /// sines are constant within a frame; gated by the voiced mask and mixed with uniform noise from the reference's fixed noise table, here an input);
 /// the source's STFT (a convolution with the windowed DFT basis); the generator with causal convolutions throughout (the input convolution sees four
 /// frames ahead; nearest upsampling followed by a left-padded convolution; strided causal downsampling of the source; causal snake residual blocks);
@@ -16,8 +17,11 @@ namespace Sharplight.Architectures;
 /// </summary>
 internal static class CosyVoiceVocoderGraph
 {
-    /// <summary>The graph name.</summary>
+    /// <summary>The generator graph's name.</summary>
     public const string GraphName = "cosyvoice_hift";
+
+    /// <summary>The F0 predictor graph's name.</summary>
+    public const string F0GraphName = "cosyvoice_hift_f0";
 
     /// <summary>The mel frames [<see cref="WellKnown.TokenSymbol"/>, 80].</summary>
     public const string MelInput = "mel";
@@ -28,15 +32,28 @@ internal static class CosyVoiceVocoderGraph
     /// <summary>The windowed inverse-DFT frames [samples / hop + 1, n_fft].</summary>
     public const string FramesOutput = "frames";
 
-    /// <summary>The predicted F0 per mel frame [T, 1].</summary>
+    /// <summary>The F0 per mel frame [T, 1] (output of the F0 graph, input of the generator).</summary>
     public const string F0Output = "f0";
+
+    /// <summary>The F0 per mel frame [T, 1] (generator input).</summary>
+    public const string F0Input = "f0";
 
     private const string P = "hift.";
     private const float SineAmplitude = 0.1f;
     private const float NoiseStd = 0.003f;
     private const float VoicedThreshold = 10f;
 
-    /// <summary>Builds the graph.</summary>
+    /// <summary>Builds the F0 predictor graph.</summary>
+    /// <param name="weights">Looks up the weights.</param>
+    public static ComputeGraph BuildF0(Func<string, WeightInfo?> weights)
+    {
+        var b = new GraphBuilder(F0GraphName, weights);
+        var mel = b.Input(MelInput, InputRole.Other, DataType.F32, new Shape(Dim.Sym(WellKnown.TokenSymbol), 80));
+        b.Output(F0Output, F0(b, mel));
+        return b.Build();
+    }
+
+    /// <summary>Builds the generator graph.</summary>
     /// <param name="weights">Looks up the weights.</param>
     /// <param name="rates">The upsampling rates (8, 5, 3).</param>
     /// <param name="kernels">The upsampling kernels (16, 11, 7).</param>
@@ -51,10 +68,8 @@ internal static class CosyVoiceVocoderGraph
         var frames = Dim.Sym(WellKnown.TokenSymbol);
         long up = ChatterboxVocoderGraph.SamplesPerFrame(rates, hop);
         var mel = b.Input(MelInput, InputRole.Other, DataType.F32, new Shape(frames, 80));
+        var f0 = b.Input(F0Input, InputRole.Other, DataType.F32, new Shape(frames, 1));
         var noise = b.Input(NoiseInput, InputRole.Other, DataType.F32, new Shape(frames * up, harmonics));
-
-        var f0 = F0(b, mel);
-        b.Output(F0Output, f0);
         var source = Source(b, f0, noise, up, harmonics, sampleRate);
 
         int bins = (nFft / 2) + 1;

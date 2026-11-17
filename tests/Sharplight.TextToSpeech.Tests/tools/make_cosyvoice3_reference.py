@@ -93,7 +93,8 @@ def main(repo: str, model_dir: str, out: str, wav_path: str, reference_text: str
     save(out, "prompt_text_tokens.i32", prompt_text_tokens)
     info["text"] = text
     info["prompt_text"] = prompt_text
-    llm, flow, hift = configs["llm"], configs["flow"], configs["hift"]
+    # transformers 5 builds the Qwen backbone in its checkpoint's bfloat16: make everything float32 before loading the release's weights.
+    llm, flow, hift = configs["llm"].float(), configs["flow"].float(), configs["hift"].float()
     llm.load_state_dict(torch.load(os.path.join(model_dir, "llm.pt"), map_location="cpu", weights_only=True), strict=True)
     flow.load_state_dict(torch.load(os.path.join(model_dir, "flow.pt"), map_location="cpu", weights_only=True), strict=True)
     hift_state = {k.replace("generator.", ""): v for k, v in torch.load(os.path.join(model_dir, "hift.pt"), map_location="cpu", weights_only=True).items()}
@@ -101,6 +102,14 @@ def main(repo: str, model_dir: str, out: str, wav_path: str, reference_text: str
     llm.eval()
     flow.eval()
     hift.eval()
+
+    # Qwen2Encoder.forward_one_step passes a one-element attention mask with the cache; transformers 4.51 (the release's pin) ignores it for a single
+    # query, transformers 5 does not and attends to the new row only. Drop the mask so every version attends to the whole cache.
+    def forward_one_step(xs, masks, cache=None):
+        outs = llm.llm.model(inputs_embeds=xs, output_hidden_states=True, return_dict=True, use_cache=True, past_key_values=cache)
+        return outs.hidden_states[-1], outs.past_key_values
+
+    llm.llm.forward_one_step = forward_one_step
 
     with torch.inference_mode():
         all_text = torch.tensor([prompt_text_tokens + text_tokens], dtype=torch.int32)
