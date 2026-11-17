@@ -13,4 +13,12 @@ internal interface IAudioPlayer
     /// <param name="path">An audio file (WAV, FLAC, MP3, Ogg Vorbis or Ogg Opus).</param>
     /// <param name="cancellationToken">Stops playback.</param>
     public Task PlayAsync(string path, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Plays buffers as they arrive on one output stream, back to back (speech streamed while it is generated), and completes when the sequence ended and
+    /// everything was played; cancelling stops it.
+    /// </summary>
+    /// <param name="audio">The buffers, in order (all at one sample rate).</param>
+    /// <param name="cancellationToken">Stops playback.</param>
+    public Task PlayStreamAsync(IAsyncEnumerable<Sharplight.Audio.AudioBuffer> audio, CancellationToken cancellationToken);
 }

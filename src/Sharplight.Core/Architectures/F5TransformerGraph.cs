@@ -163,7 +163,8 @@ internal static class F5TransformerGraph
     /// The heads that get the rotary embedding: all of them (the default), or fewer for code that applies it to the projection before the head split
     /// (only the first head's channels are rotated, as in CosyVoice's copy of the F5 attention).
     /// </param>
-    internal static Value Block(GraphBuilder b, int dim, int heads, Value x, Value timeAct, Value positions, string m, Func<Value, Value> norm, int? ropeHeads = null)
+    /// <param name="spans">The attention spans [N, 2] (first key row and count per query row, block-causal chunk attention), or <see langword="null"/> for full attention.</param>
+    internal static Value Block(GraphBuilder b, int dim, int heads, Value x, Value timeAct, Value positions, string m, Func<Value, Value> norm, int? ropeHeads = null, Value? spans = null)
     {
         using var _ = b.Group(m.TrimEnd('.'));
         var mod = b.Linear(timeAct, m + "attn_norm.linear.weight", m + "attn_norm.linear.bias");                                   // [1, 6 · dim]
@@ -185,7 +186,7 @@ internal static class F5TransformerGraph
         var q = Rotate(b.Reshape(b.Linear(normed, m + "attn.to_q.weight", m + "attn.to_q.bias"), 0, heads, headDim));
         var k = Rotate(b.Reshape(b.Linear(normed, m + "attn.to_k.weight", m + "attn.to_k.bias"), 0, heads, headDim));
         var v = b.Reshape(b.Linear(normed, m + "attn.to_v.weight", m + "attn.to_v.bias"), 0, heads, headDim);
-        var attention = b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(headDim)), ("causal", false)), m + "attn");
+        var attention = b.Emit1("Attention", spans is null ? [q, k, v] : [q, k, v, spans], Attributes.From(("scale", 1f / MathF.Sqrt(headDim)), ("causal", false)), m + "attn");
         var output = b.Linear(b.Reshape(attention, 0, dim), m + "attn.to_out.0.weight", m + "attn.to_out.0.bias");
         x = b.Add(x, b.Mul(Chunk(2), output));
         var ffIn = Modulate(b, norm(x), Chunk(4), Chunk(3));

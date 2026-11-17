@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading.Channels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Audio;
@@ -7,6 +8,7 @@ using Sharplight.Models;
 using Sharplight.Speech;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.ViewModels.Inference;
@@ -89,6 +91,8 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         RunCommand.NotifyCanExecuteChanged();
         _voicesReadFrom = model is { State: ResidentState.Ready or ResidentState.Busy } ? model : null;
         _ = RefreshVoicesAsync(model);
+        _ = RefreshSavedVoicesAsync(null);
+        SaveVoiceCommand.NotifyCanExecuteChanged();
     }
 
     /// <inheritdoc/>
@@ -99,6 +103,7 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         {
             _voicesReadFrom = model;
             _ = RefreshVoicesAsync(model);
+            _ = RefreshSavedVoicesAsync(null);
         }
     }
 
@@ -127,6 +132,165 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         {
             Notice = "The stored audio is gone.";
         }
+    }
+
+    /// <summary>The saved voices (the voice library in the storage layout's data folder).</summary>
+    public VoiceLibrary VoiceLibrary => new(Services.StorageLocation.Current);
+
+    /// <summary>The name a new saved voice gets.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SaveVoiceCommand))]
+    public partial string VoiceName { get; set; } = "";
+
+    /// <summary>A voice is being made from the reference recording.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SaveVoiceCommand))]
+    public partial bool IsSavingVoice { get; set; }
+
+    /// <summary>The microphone is recording the reference.</summary>
+    [ObservableProperty]
+    public partial bool IsRecordingReference { get; set; }
+
+    /// <summary>The voice library has a voice for the chosen model.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(DeleteVoiceCommand))]
+    public partial bool HasSavedVoices { get; set; }
+
+    /// <summary>The text of the record button.</summary>
+    public string RecordReferenceText => IsRecordingReference ? "Stop recording" : "Record a reference";
+
+    /// <summary>Audio can be recorded (a microphone was found).</summary>
+    public bool CanRecord => Services.Recorder.IsAvailable;
+
+    partial void OnIsRecordingReferenceChanged(bool value) => OnPropertyChanged(nameof(RecordReferenceText));
+
+    private IRecording? _referenceRecording;
+
+    private string ReferenceRecordingPath => Path.Combine(Services.Pages.DirectoryFor("speak"), "recordings", "reference.wav");
+
+    private ChoiceParameterViewModel SavedVoiceParameter => Panel.Parameters.OfType<ChoiceParameterViewModel>().First(candidate => candidate.Key == "savedvoice");
+
+    private bool CanSaveVoice() => HasModel && !IsSavingVoice && VoiceName.Trim().Length > 0;
+
+    /// <summary>Makes a reusable voice from the reference recording (and its words) with the chosen model, and saves it in the voice library.</summary>
+    [RelayCommand(CanExecute = nameof(CanSaveVoice))]
+    private async Task SaveVoiceAsync()
+    {
+        var model = SelectedModel!;
+        string name = VoiceName.Trim();
+        string path = Panel.GetText("reference").Trim();
+        string referenceText = Panel.GetText("referencetext").Trim();
+        if (path.Length == 0 || !File.Exists(path))
+        {
+            Notice = "Set the reference recording first (a WAV file, or record one).";
+            return;
+        }
+
+        Notice = "";
+        IsSavingVoice = true;
+        try
+        {
+            var recording = await Task.Run(() => WavFile.Read(path));
+            using var lease = await model.AcquireClientAsync<ISpeechSynthesizer>(CancellationToken.None);
+            if (lease.Client.GetService(typeof(IVoiceCloner)) is not IVoiceCloner cloner)
+            {
+                Notice = "This model cannot clone a voice.";
+                return;
+            }
+
+            var voice = await cloner.CreateVoiceAsync(name, recording, referenceText.Length > 0 ? referenceText : null);
+            await Task.Run(() => VoiceLibrary.Save(voice));
+            VoiceName = "";
+            await RefreshSavedVoicesAsync(name);
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException or NotSupportedException or ArgumentException or InvalidDataException)
+        {
+            Notice = $"The voice could not be saved: {error.Message}";
+        }
+        finally
+        {
+            IsSavingVoice = false;
+        }
+    }
+
+    private bool CanDeleteVoice() => HasSavedVoices;
+
+    /// <summary>Deletes the chosen saved voice.</summary>
+    [RelayCommand(CanExecute = nameof(CanDeleteVoice))]
+    private async Task DeleteVoiceAsync()
+    {
+        string name = SavedVoiceParameter.Value;
+        if (name.Length == 0)
+        {
+            return;
+        }
+
+        await Task.Run(() => VoiceLibrary.Delete(name));
+        await RefreshSavedVoicesAsync(null);
+    }
+
+    /// <summary>Starts recording the microphone as the reference, or stops and takes the recording as the reference file.</summary>
+    [RelayCommand]
+    private async Task ToggleReferenceRecordingAsync()
+    {
+        if (_referenceRecording is { } running)
+        {
+            await running.StopAsync();
+            running.Dispose();
+            _referenceRecording = null;
+            IsRecordingReference = false;
+            Panel.Parameters.OfType<TextParameterViewModel>().First(candidate => candidate.Key == "reference").Deserialize(ReferenceRecordingPath);
+            return;
+        }
+
+        if (!Services.Recorder.IsAvailable)
+        {
+            Notice = Services.Recorder.Description;
+            return;
+        }
+
+        Notice = "";
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(ReferenceRecordingPath)!);
+            _referenceRecording = Services.Recorder.Start(ReferenceRecordingPath);
+            IsRecordingReference = true;
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            Notice = $"The microphone could not be recorded: {error.Message}";
+        }
+    }
+
+    /// <summary>Lists the saved voices of the chosen model's family (all of them while no model is resident) and selects <paramref name="select"/> when given.</summary>
+    /// <param name="select">The voice to choose, or <see langword="null"/> to keep the choice.</param>
+    /// <returns>A task that completes when the choices are set.</returns>
+    internal async Task RefreshSavedVoicesAsync(string? select)
+    {
+        string? architecture = null;
+        if (SelectedModel is { State: ResidentState.Ready or ResidentState.Busy } model)
+        {
+            try
+            {
+                using var lease = await model.AcquireClientAsync<ISpeechSynthesizer>(CancellationToken.None);
+                architecture = lease.Client is IVoiceCloner cloner ? cloner.VoiceArchitecture : lease.Client.GetService(typeof(IVoiceCloner)) is IVoiceCloner other ? other.VoiceArchitecture : "";
+            }
+            catch (Exception error) when (error is NotSupportedException or InvalidOperationException)
+            {
+                architecture = null;
+            }
+        }
+
+        var names = architecture is { Length: 0 } ? [] : await Task.Run(() => VoiceLibrary.List(architecture));
+        var parameter = SavedVoiceParameter;
+        parameter.SetChoices([new ParameterChoice("", "None"), .. names.Select(name => new ParameterChoice(name, name))]);
+        if (select is not null)
+        {
+            parameter.Deserialize(select);
+        }
+
+        HasSavedVoices = names.Count > 0;
+        Panel.SetVisible("savedvoice", names.Count > 0);
     }
 
     /// <summary>Lists the voices of the model when it is resident (asking a sleeping model would load it), and hides the voice choice when it has none.</summary>
@@ -182,6 +346,7 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         RunOutcome outcome = RunOutcome.Completed;
         string title = text.Length > 60 ? text[..60] + "…" : text;
         Task playing = Task.CompletedTask;
+        double? firstAudio = null;
         try
         {
             context.Report(null, "Loading the model");
@@ -191,12 +356,26 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
             {
                 var samples = new List<float>();
                 int segments = 0;
-                await foreach (var segment in lease.Client.SynthesizeStreamingAsync(text, options, context.CancellationToken).ConfigureAwait(false))
+                var playback = Channel.CreateUnbounded<AudioBuffer>();
+                playing = StartStreamPlayback(playback.Reader);
+                try
                 {
-                    samples.AddRange(segment.Samples);
-                    segments++;
-                    context.Report(null, $"{segments} segments, {samples.Count / (double)lease.Client.SampleRate:0.0} s of audio");
-                    playing = PlaySegment(playing, segment, segments);
+                    await foreach (var segment in lease.Client.SynthesizeStreamingAsync(text, options, context.CancellationToken).ConfigureAwait(false))
+                    {
+                        if (segments == 0)
+                        {
+                            firstAudio = watch.Elapsed.TotalSeconds;
+                        }
+
+                        samples.AddRange(segment.Samples);
+                        segments++;
+                        context.Report(null, $"{segments} chunks, {samples.Count / (double)lease.Client.SampleRate:0.0} s of audio");
+                        playback.Writer.TryWrite(segment);
+                    }
+                }
+                finally
+                {
+                    playback.Writer.TryComplete();
                 }
 
                 audio = new AudioBuffer([.. samples], lease.Client.SampleRate);
@@ -218,6 +397,11 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
 
         double seconds = watch.Elapsed.TotalSeconds;
         var metadata = new Dictionary<string, string> { ["time"] = $"{seconds:0.0} s" };
+        if (firstAudio is { } first)
+        {
+            metadata["first audio"] = $"{first:0.00} s";
+        }
+
         Dictionary<string, byte[]>? files = null;
         if (outcome == RunOutcome.Completed && audio is not null)
         {
@@ -261,6 +445,7 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         }
 
         await playing.ConfigureAwait(false);
+        Services.Dispatcher.Post(() => IsPlaying = false);
         if (outcome == RunOutcome.Cancelled)
         {
             throw new OperationCanceledException(context.CancellationToken);
@@ -273,31 +458,32 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         }
     }
 
-    /// <summary>Plays a streamed segment after the ones before it, when the player exists.</summary>
-    private Task PlaySegment(Task previous, AudioBuffer segment, int index)
+    /// <summary>Plays the streamed chunks back to back on one output stream while they arrive, when the player exists.</summary>
+    private Task StartStreamPlayback(ChannelReader<AudioBuffer> chunks)
     {
         if (!Services.Player.IsAvailable)
         {
-            return previous;
+            return Task.CompletedTask;
         }
 
-        string path = Path.Combine(Services.Pages.DirectoryFor("speak"), "stream", $"segment-{index}.wav");
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        WavFile.Write(path, segment);
         _playback ??= new CancellationTokenSource();
         var token = _playback.Token;
         Services.Dispatcher.Post(() => IsPlaying = true);
-        return previous.ContinueWith(async _ =>
+        return Task.Run(async () =>
         {
             try
             {
-                await Services.Player.PlayAsync(path, token).ConfigureAwait(false);
+                await Services.Player.PlayStreamAsync(chunks.ReadAllAsync(token), token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 // Stopped by the user.
             }
-        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+            catch (Exception error) when (error is IOException or InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
+            {
+                Services.Dispatcher.Post(() => Notice = $"The audio could not be played: {error.Message}");
+            }
+        }, CancellationToken.None);
     }
 
     private void ShowResult(string path, string summary)
@@ -393,6 +579,7 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         ParameterViewModel[] parameters =
         [
             new ChoiceParameterViewModel("voice", "Voice", "The speakers the model offers.", [new("", "Model's own voice")]),
+            new ChoiceParameterViewModel("savedvoice", "Saved voice", "A voice made from a recording and saved in the voice library (cloning models); it replaces the voice and the reference recording.", [new("", "None")]),
             new NumberParameterViewModel("speed", "Speed", "Speaking rate, for models that support it.", 0.5, 2, 0.05, 1),
             new NumberParameterViewModel("temperature", "Temperature", "0 is greedy: the same text always sounds the same.", 0, 1.5, 0.05, 0.4),
             new NumberParameterViewModel("topk", "Top-k", "Sample from the k most likely audio tokens (0 = all).", 0, 100, 1, 40),
@@ -402,7 +589,7 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
             new TextParameterViewModel("reference", "Reference recording", "A WAV file of the voice to speak with (CosyVoice 3, F5-TTS, Chatterbox, XTTS).", "Path to a .wav file"),
             new TextParameterViewModel("referencetext", "Reference text", "The words spoken in the reference recording (CosyVoice 3 zero-shot, F5-TTS).", "Optional"),
             new TextParameterViewModel("instructions", "Instructions", "How to speak, e.g. \"Please speak as fast as possible.\" (CosyVoice 3).", "Optional"),
-            new BoolParameterViewModel("stream", "Play while generating", "Speak segment by segment as the model streams them (sounds slightly different from a whole-text pass)."),
+            new BoolParameterViewModel("stream", "Play while generating", "Speak chunk by chunk as the model generates them, for a short wait before the first sound (CosyVoice 3 and XTTS stream within a sentence, Chatterbox per clause)."),
         ];
         ParameterPreset[] presets =
         [
@@ -414,6 +601,8 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         {
             Voice = panel.GetChoice("voice") is { Length: > 0 } voice ? voice : null,
             Speed = (float)panel.GetNumber("speed"),
+            VoiceProfile = panel.GetChoice("savedvoice") is { Length: > 0 } saved && new VoiceLibrary(services.StorageLocation.Current).Contains(saved)
+                ? new VoiceLibrary(services.StorageLocation.Current).Load(saved) : null,
             ReferenceAudio = panel.GetText("reference").Trim() is { Length: > 0 } reference && File.Exists(reference) ? WavFile.Read(reference) : null,
             ReferenceText = panel.GetText("referencetext").Trim() is { Length: > 0 } referenceText ? referenceText : null,
             Instructions = panel.GetText("instructions").Trim() is { Length: > 0 } instructions ? instructions : null,

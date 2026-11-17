@@ -1217,6 +1217,25 @@ flow with the static 50-frame chunk mask and the cached HiFT), the ttsfrd / wete
 needs a transformers 5 fix: `Qwen2Encoder.forward_one_step` passes a one-element attention mask with the cache, which transformers 4.51 ignored
 and transformers 5 applies (attending to the new row only); the script drops it.
 
+### Streaming, saved voices and text normalization (speech round 4)
+
+Streaming. `CosyVoiceSynthesizer.MelChunked` is the flow of the reference's `streaming=True`: the estimator graph `cosyvoice_flow_estimator_chunked` takes row spans (key rows
+`[0, end of the query's 50-frame chunk)`, the `Attention` op's span input) so attention is block-causal over chunks of 25 tokens; the encoder sees its three look-ahead tokens
+(the last three tokens of a partial run only serve as look-ahead and produce no frames); the vocoder runs over the whole mel so far and the last eight frames are held back
+(`mel_cache_len`), so the chunks add up to the one-shot chunked output (bit-identical on the CPU, relative RMS 9e-2 on Vulkan where the growing prefixes run other kernel shapes and
+the harmonic source amplifies rounding). XTTS emits per sentence and, within it, from the vocoder over the GPT latents so far (after 12 codes, then every 20, four rows held back;
+identical to the one-shot audio). Chatterbox decodes chunks of speech tokens (15, then 25 per chunk, 8 tokens of context before and 3 after) and cross-fades them (the S3Gen flow
+is not causal, so this is an approximation of one-shot synthesis rather than an equivalent). Measured on Vulkan (RTX PRO 4500, a shared and busy machine): CosyVoice 3 first audio after 1.5 s for 9.2 s of speech (whole utterance 20.3 s), XTTS 0.19 s for 6.3 s (whole 5.2 s), Chatterbox 1.2 s for 7.4 s (whole 11.9 s).
+
+Saved voices (`IVoiceCloner`, `VoiceProfile`, `VoiceLibrary`). Tensors per family: XTTS `latents` [rows, 1024] and `speaker`; Chatterbox `speaker`, `prompt_tokens`, `flow_tokens`,
+`flow_mel`, `flow_speaker`; CosyVoice 3 `speech_tokens`, `prompt_mel`, `xvector` (and the reference text); F5-TTS `reference_audio` (24 kHz mono) and the reference text. Synthesizing
+with the saved voice gives exactly the samples of synthesizing with the recording (checked for XTTS, Chatterbox and CosyVoice 3 on Vulkan after a save and reload).
+
+Text normalization (`Sharplight.Speech.Normalization`): rule-based number, ordinal, date, clock time, currency, percent and abbreviation expansion for EN, DE, FR, ES, IT, PT, ZH and
+JA with the number words of each language (English without "and"; German compounds and "ein" before nouns; French soixante-dix/quatre-vingts/et un; Spanish apocope and
+"mil millones"; Italian elision and the accent of tré; Portuguese "e" rules and Brazilian scales; Chinese 零 and 两; Japanese kanji numerals with 万/億). Grammatical gender and case are not
+modelled (21 is always the masculine form), and these are the essentials of wetext and num2words, not their complete rule sets.
+
 ## 13. Speech to text (task kind `speech-recognition`)
 
 Speech-to-text models are the first non-LLM kind on the task layer (`ModelKinds.SpeechRecognition`, docs/api-overview.md "Tasks").

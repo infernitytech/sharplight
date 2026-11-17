@@ -16,7 +16,7 @@ namespace Sharplight.Architectures;
 /// (by UTF-8 bytes, divided by the speed); 32 Euler steps over sway-sampled times integrate the guided field
 /// <c>pred + 2 · (pred − pred without reference and text)</c> from Gaussian noise; the frames after the reference go through Vocos. One request runs at a time.
 /// </summary>
-internal sealed class F5Synthesizer : ISpeechSynthesizer
+internal sealed class F5Synthesizer : ISpeechSynthesizer, IVoiceCloner
 {
     private const float TargetRms = 0.1f;
 
@@ -108,14 +108,50 @@ internal sealed class F5Synthesizer : ISpeechSynthesizer
         yield return result.Audio;
     }
 
+    /// <inheritdoc/>
+    public string VoiceArchitecture => "f5-tts";
+
+    /// <inheritdoc/>
+    /// <remarks>F5-TTS conditions on the recording itself: the voice is the recording (mono, at the model's rate) with its words, which are required.</remarks>
+    public Task<VoiceProfile> CreateVoiceAsync(string name, AudioBuffer recording, string? referenceText = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recording);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (string.IsNullOrWhiteSpace(referenceText))
+        {
+            throw new ArgumentException("F5-TTS needs the words of the recording to make a voice.", nameof(referenceText));
+        }
+
+        return Task.FromResult(new VoiceProfile
+        {
+            Name = name,
+            Architecture = VoiceArchitecture,
+            ReferenceText = referenceText,
+            SampleRate = SampleRate,
+            Tensors = new Dictionary<string, VoiceTensor> { ["reference_audio"] = VoiceTensor.From(recording.ToModelInput(SampleRate).Samples.ToArray()) },
+        });
+    }
+
     /// <summary>The prepared request: text ids (one per frame, −1 after the text), the reference mel [reference frames, mels], the duration in frames, the frames before the generated part and the reference's RMS.</summary>
     /// <param name="text">The text to speak.</param>
     /// <param name="options">The request with the reference recording and its text.</param>
     public (int[] Text, float[] Cond, int Duration, int ReferenceFrames, float Rms) Prepare(string text, SpeechSynthesisOptions options)
     {
+        if (options.VoiceProfile is { } profile)
+        {
+            profile.RequireArchitecture(VoiceArchitecture);
+            options = options with
+            {
+                ReferenceAudio = new AudioBuffer(profile.Tensor("reference_audio").ToFloats(), SampleRate),
+                ReferenceText = options.ReferenceText ?? profile.ReferenceText,
+                VoiceProfile = null,
+            };
+        }
+
         var reference = options.ReferenceAudio ?? throw new NotSupportedException(
             "F5-TTS speaks with the voice of a reference recording: set SpeechSynthesisOptions.ReferenceAudio and ReferenceText.");
         string referenceText = options.ReferenceText ?? throw new NotSupportedException("F5-TTS needs the words of the reference recording (SpeechSynthesisOptions.ReferenceText).");
+        text = options.NormalizedText(text);
         var samples = reference.ToModelInput(SampleRate).Samples.ToArray();
         double energy = 0;
         foreach (float s in samples)

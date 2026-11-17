@@ -32,4 +32,37 @@ internal sealed class EngineAudioPlayer(IAudioDecoder decoder, IAudioDeviceProvi
         using IAudioOutput output = devices.OpenOutput(options);
         await output.PlayAsync(audio, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc/>
+    public async Task PlayStreamAsync(IAsyncEnumerable<AudioBuffer> audio, CancellationToken cancellationToken)
+    {
+        if (!IsAvailable)
+        {
+            throw new NotSupportedException(Description);
+        }
+
+        IAudioOutput? output = null;
+        try
+        {
+            await foreach (AudioBuffer buffer in audio.WithCancellation(cancellationToken).ConfigureAwait(false))
+            {
+                output ??= devices.OpenOutput(new AudioStreamOptions
+                {
+                    SampleRate = buffer.SampleRate,
+                    Channels = Math.Min(buffer.Channels, 2),
+                    DeviceName = AudioDeviceChoice.Resolve(devices, AudioDeviceKind.Playback, settings.Current.AudioOutputDevice),
+                });
+                await output.QueueAsync(buffer, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (output is not null)
+            {
+                await output.DrainAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            output?.Dispose();
+        }
+    }
 }
