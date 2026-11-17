@@ -1489,7 +1489,8 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
 | Qwen-Image (Qwen-Image and fine-tunes with the same layout, e.g. Qwen-Image-2512) | diffusers folder; transformer-only GGUF (city96 / QuantStack / unsloth, `qwen_image` architecture id, any ggml type) and ComfyUI single files plus companions: the Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a `qwen2vl` GGUF), the causal VAE (the pipeline's `vae` file or ComfyUI's `qwen_image_vae.safetensors` in the original Wan names) | **supported** (txt2img, img2img, inpainting; true CFG with diffusers' norm rescaling; 50 steps, guidance 4 by default) | [below](#qwen-image) |
 | Qwen-Image 2.1 (and its Turbo) | diffusers folder; transformer-only GGUF (unsloth: no metadata, ComfyUI names) and ComfyUI single files plus companions: the Qwen3-VL-8B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the pipeline's VAE file | **supported** (text-to-image; 40 steps without guidance by default; Turbo: its 8-step schedule from the pipeline's `sample_sigmas` or the file name) | [below](#qwen-image-21) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
+| FLUX.2 Klein (4B; 9B and the base models share the layout) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (the pipeline's `text_encoder` folder or a `qwen3` GGUF), the pipeline's VAE file | **supported** (txt2img; distilled: 4 steps without guidance; base: 50 steps, guidance 4) | [below](#flux-2) |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, FLUX.2 Dev (32B), Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
 | ControlNet, TAESD | - | missing | |
 
@@ -1814,6 +1815,34 @@ Verification (tools/make-tiny-qwen-image21.py, tools/make-qwen-image21-reference
   inputs); images 42.2 dB (512) / 37.4 dB (1024). Speed (Vulkan, warm): 1024×1024 20 steps 35.8 s (1.8 s per step), 512×512 10.6 s;
   diffusers (GGUF dequantized on the fly, CUDA f32) 2.8 s per step at 1024. Qwen-Image 2.1 Turbo (unsloth's Q8_0, its 8-step schedule from
   the file name): 34.5 dB (1024) against diffusers with the pipeline's `sample_sigmas`, 8 steps in 14.8 s.
+
+### FLUX.2
+
+<a id="flux-2"></a>
+FLUX.2 Klein (2026-11-17): FLUX.1's MMDiT with shared modulations, SwiGLU, 4-axis RoPE and a Qwen3 text encoder, on 128-channel latents.
+
+- Canonical source `flux2`: the FLUX transformer vocabulary (original names map 1:1; diffusers' q / k / v joined) plus `transformer.mod_img`,
+  `mod_txt`, `mod_single` (the shared `double_stream_modulation_img|txt` and `single_stream_modulation` projections); the Qwen3 text model kept
+  whole; the 32-channel KL VAE with `vae.bn.running_mean|running_var`. Family keys: the Qwen3 chat template with thinking disabled
+  (`<think>\n\n</think>\n\n` after the assistant turn), 512 prompt tokens, the hidden states entering layers 9, 18 and 27 concatenated per
+  token, FLUX.2's empirical flow shift (`DiffusionConfigKeys.EmpiricalShift`), distilled (`is_distilled` / file names without `base`): 4 steps
+  without guidance.
+- `Flux2Adapter`: `FluxTransformerGraphBuilder` with `SharedModulation`, `SwiGlu` and `TextPositionAxis` 3 (text j at (0, 0, 0, j), image
+  tokens at (0, row, column, 0), 4 × 32 dimensions, θ 2000; `AxialRope` takes four axes); the text graph reads every one of the 512 rows (the
+  pipeline passes no mask to the transformer) and gets transformers' padding mask as row spans from `DiffusionGraphs.TokenMask`, so the padding
+  rows attend to the prompt only; the VAE graphs unpatchify / patchify the latents 2×2 and apply the batch-norm statistics
+  (`AutoencoderHyperParameters.LatentPatch`).
+- Root-cause fix: Vulkan row reductions of a rank-1 tensor launched one row per element and wrote past the one-element output (the
+  mask sum above); a rank-1 input is now one row (regression test `RowOpTests.RowReduceOfAVector`).
+
+Verification (tools/make-tiny-flux2.py, tools/make-flux2-references.py; `TinyFlux2Tests`, `Flux2KleinTests`):
+
+- Tiny random FLUX.2 Klein (64×96): prompt tokens equal transformers'; text encoder (all 512 rows), transformer, VAE decode and encode within
+  1e-4 / 1e-3 (Vulkan) of diffusers from the diffusers folder, the original-name single file and a Q8_0 GGUF (5e-3 / 3e-2); 4-step txt2img
+  above 40 dB in all 6 combinations.
+- FLUX.2 Klein 4B, unsloth's Q8_0 GGUF with the pipeline's Qwen3-4B text encoder (bf16) and VAE as companions, on Vulkan against diffusers on
+  the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 4 steps, same latents: text encoder 4.5e-4 / 1.3e-3, transformer
+  1.6e-3; images 40.1 dB (512) / 41.3 dB (1024). Speed (Vulkan, warm): 1024×1024 4 steps in 3.4 s, 512×512 in 0.8 s.
 
 ### LoRA
 
