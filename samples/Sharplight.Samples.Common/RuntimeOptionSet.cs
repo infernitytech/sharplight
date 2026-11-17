@@ -15,6 +15,9 @@ public sealed class RuntimeOptionSet
     /// <summary>Forward-pass batch size used when <c>--batch</c> is not given: 0, chosen from the model and the free device memory.</summary>
     public const int DefaultBatchTokens = 0;
 
+    /// <summary>KV cache element type used when <c>--kv-type</c> is not given.</summary>
+    public const string DefaultKvCacheType = "f16";
+
     /// <summary><c>--cpu</c>.</summary>
     public Option<bool> Cpu { get; } = new("--cpu") { Description = "Run on the CPU provider instead of a GPU." };
 
@@ -82,7 +85,7 @@ public sealed class RuntimeOptionSet
         {
             Description = "KV cache element type: f16, f32, q8_0 (half the memory of f16) or q4_0 (a quarter, less accurate). "
                 + "Caches whose rows are not whole 32-value blocks stay f16.",
-            DefaultValueFactory = _ => "f16",
+            DefaultValueFactory = _ => DefaultKvCacheType,
             HelpName = "type",
         };
         option.AcceptOnlyFromAmong("f16", "f32", "q8_0", "q4_0");

@@ -12,6 +12,8 @@ sharplight pull Qwen/Qwen3-0.6B-GGUF:Q8_0
 sharplight qwen3-0.6b:q8_0 --chat -p "Say hi" -n 32       # stored name
 sharplight Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M -p "Hi"  # pulled when not stored; --no-pull fails instead
 sharplight list
+sharplight run qwen3-0.6b:q8_0                  # chat in the terminal (Ctrl+C stops an answer, /clear, /bye); -p "..." answers once
+sharplight serve qwen3-0.6b:q8_0 --listen http://127.0.0.1:8080
 ```
 
 ```bash
@@ -50,3 +52,70 @@ dotnet run -c Release --project samples/Sharplight.Cli -- $M --save qwen3-0.6b.s
 | `--models-dir DIR`, `--no-pull`, `--revision`, `--keep-source`, `--no-precompile` | Model store and how missing models are pulled. |
 
 Exit codes: `0` success, `1` invalid command line, `2` runtime error (message on stderr), `130` cancelled with Ctrl+C.
+
+## Serving
+
+```bash
+# One model (positional); any "model" name sent by clients is accepted
+dotnet run -c Release --project samples/Sharplight.Cli -- serve ~/models/gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf --listen http://127.0.0.1:8080
+
+# Several models, loaded on first request, keeping 4 GiB of VRAM free for other applications
+dotnet run -c Release --project samples/Sharplight.Cli -- serve \
+    --model qwen=~/models/gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf,slots=4 \
+    --model smol=~/models/gguf/SmolLM2-360M-Instruct/smollm2-360m-instruct-q8_0.gguf,ctx=2048 \
+    --vram-reserve 4G --lazy
+
+# Models and limits from a file
+dotnet run -c Release --project samples/Sharplight.Cli -- serve --config hosting.json
+```
+
+```bash
+curl localhost:8080/v1/chat/completions -H 'content-type: application/json' \
+     -d '{"model":"qwen","messages":[{"role":"user","content":"Say hi"}],"max_tokens":32}'
+curl -N localhost:8080/v1/chat/completions -H 'content-type: application/json' \
+     -d '{"model":"smol","stream":true,"messages":[{"role":"user","content":"Count to 5"}]}'
+curl localhost:8080/v1/messages -H 'content-type: application/json' -H 'x-api-key: KEY' -H 'anthropic-version: 2023-06-01' \
+     -d '{"model":"qwen","max_tokens":64,"messages":[{"role":"user","content":"Say hi"}]}'
+curl localhost:8080/admin/models
+curl -X POST localhost:8080/admin/models/smol/unload
+```
+
+Python: `openai.OpenAI(base_url="http://localhost:8080/v1", api_key="x")` or `anthropic.Anthropic(base_url="http://localhost:8080", api_key="x")`.
+
+### `serve` options
+
+| Option | Meaning |
+| --- | --- |
+| `<model>...`, `--model-name` | Models to serve: file paths, stored names or Hugging Face names (pulled if missing); `--model-name` sets the id the API reports for a single model (default: file name, or the name as given). |
+| `--model NAME=PATH[,key=value...]` | Another model; keys: `ctx`, `slots`, `batch`, `device` (`auto`, `cpu`, an index, a device id such as `vulkan:1`, several joined with `+` to split), `mmproj`, `template`, `lazy`, `pin`, `idle` (seconds), `offload`, `kind` (`chat`, `embedding`, `reranker`), `task` (a task kind). Repeatable. |
+| `--config FILE` | Hosting JSON ([docs/hosting.md](../../docs/hosting.md)). Command-line options win over file values. |
+| `--listen URL` (`--urls`), `--api openai\|anthropic\|both`, `--api-key K`, `--cors ORIGIN` | HTTP surface; keys also protect `/admin`. |
+| `--cpu`, `--device N`, `--ctx`, `--batch`, `--cpu-offload`, `--disable-features` | Defaults for models without their own setting. |
+| `--slots N`, `--max-queue N`, `--prefill-chunk N` | Concurrent sequences per model (4), waiting requests before HTTP 429 (64), prompt rows per step (512). |
+| `--kv-tokens N`, `--kv-type T` | Paged KV cache: one pool of N tokens (K/M suffixes) shared by all slots, each growing to `--ctx` as needed, so many short chats fit in the memory of a few long ones; requests are admitted by free cache blocks, the newest running sequences are preempted and recomputed when the pool runs out, and common prompt prefixes are shared between requests. Default: each slot reserves `--ctx` tokens. KV element type f16 (default), f32, q8_0 or q4_0. See [docs/kv-cache.md](../../docs/kv-cache.md). |
+| `--vram-reserve SIZE`, `--vram-budget SIZE`, `--max-loaded N` | Memory kept free (1G), total cap, resident model limit with LRU eviction. |
+| `--lazy`, `--idle-timeout SECONDS` | Load on first request; unload idle models (they reload on demand). |
+| `--on-demand` | Also serve every model of the model store by name (ollama-style): listed in `/v1/models`, loaded on its first request; combine with `--idle-timeout`, `--max-loaded` and `--vram-reserve` for TTL and LRU eviction. |
+| `--chat-template FILE`, `--temp T`, `--mmproj FILE` | Template override, default temperature (0.7), vision projector. |
+
+Models that do not fit in free device memory are refused with a clear error (or, with `--cpu-offload`, partly run on the CPU);
+idle models are evicted least-recently-used first to make room for the one requested.
+
+### Configuration file
+
+`--config` takes the JSON form of `Sharplight.Hosting`'s options (comments and trailing commas allowed), the same file a server reads
+with `services.AddSharplightHosting("hosting.json")`; see [docs/hosting.md](../../docs/hosting.md):
+
+```json
+{
+  "reserve": "2G",
+  "maxLoadedModels": 2,
+  "idleTimeoutSeconds": 600,
+  "lazy": true,
+  "defaults": { "device": "auto", "contextLength": 4096, "slots": 4 },
+  "models": [
+    { "name": "qwen", "path": "/models/Qwen3-0.6B-Q8_0.gguf", "device": 0, "lazy": false, "pinned": true, "cpuOffload": true },
+    { "name": "bge", "path": "/models/bge-small-en-v1.5.gguf", "kind": "embedding" }
+  ]
+}
+```

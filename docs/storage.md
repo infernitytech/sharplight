@@ -108,7 +108,7 @@ sharplight storage use system --fresh             # only switch, leave the files
 sharplight storage use portable --keep-models     # leave the model store where it is
 ```
 
-`storage` and `storage use` are part of every tool that has the store commands (`sharplight`, `sharplight-server`).
+`storage` and `storage use` are part of every tool that has the store commands (`sharplight`).
 
 ## API
 

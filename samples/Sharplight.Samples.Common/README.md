@@ -6,4 +6,4 @@ with validation, `ByteSize` parsing and the `CommandRunner` that maps failures t
 stretch of work (an answer) instead of the whole command.
 
 `samples/Sharplight.Samples.Hub` adds the model store commands (`pull`, `search`, `list`, `show`, `rm`), the pull options,
-console pull progress and model-argument resolution shared by `sharplight` and `sharplight-server`.
+console pull progress and model-argument resolution shared by `sharplight` and the other samples.

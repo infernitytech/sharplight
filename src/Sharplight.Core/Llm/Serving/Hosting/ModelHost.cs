@@ -199,7 +199,8 @@ public sealed class ModelHost : IDisposable
     }
 
     private ModelInfo Snapshot(Entry e) => new(e.Reg.Name, e.Reg.Kind, e.State, e.Reg.Pinned, e.Reg.LoadAtStartup,
-        e.Instance?.ResidentBytes is > 0 and var r ? r : 0, e.Estimated, e.Leases, e.LoadedAt, e.LastUsed, e.Error, e.Reg.Description);
+        e.Instance?.ResidentBytes is > 0 and var r ? r : 0, e.Estimated, e.Leases, e.LoadedAt, e.LastUsed, e.Error, e.Reg.Description,
+        [.. e.Requirements.Select(q => q.Domain.Id).Distinct(StringComparer.Ordinal)]);
 
     /// <summary>Current memory figures of every pool any registered model has used or declared (after at least one load attempt).</summary>
     public IReadOnlyList<(IMemoryDomain Domain, Sharplight.Runtime.DeviceMemoryInfo Info)> MemoryPools()

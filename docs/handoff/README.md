@@ -203,7 +203,7 @@ history, outputs gallery, export) so every type looks and behaves the same; chat
   Video (text-to-video and image-to-video: prompt, frames / fps / resolution, seed, scheduler, live frame preview,
   playback, export to frames and MP4/WebM), Search (embeddings / retrieval over local documents), Time series
   (CSV → forecast chart), 3D viewer.
-- S3: chat with voice in/out (STT + TTS) and image generation; the serving page and Sharplight.Server expose
+- S3: chat with voice in/out (STT + TTS) and image generation; the serving page and `sharplight serve` expose
   OpenAI-compatible endpoints for the new types (/v1/audio/transcriptions, /v1/audio/speech, /v1/images/generations,
   /v1/embeddings).
 - S4: screenshot tests per page, docs, then a Linux Studio release when the user says.
