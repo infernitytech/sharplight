@@ -18,8 +18,12 @@ internal interface IUpdateService
     /// <summary>The update feed in use (base URL); null when none is configured.</summary>
     public string? UpdateUrl { get; }
 
-    /// <summary>Asks the update feed of <see cref="Channel"/> for a newer version.</summary>
-    public Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken);
+    /// <summary>
+    /// Asks the update feed of <paramref name="channel"/> (null: <see cref="Channel"/>) for a different version. An offer older than
+    /// the running version has <see cref="UpdateOffer.IsDowngrade"/> set; a channel without releases answers
+    /// <see cref="UpdateCheckResult.NoReleaseYet"/>.
+    /// </summary>
+    public Task<UpdateCheckResult> CheckAsync(string? channel, CancellationToken cancellationToken);
 
     /// <summary>Downloads <paramref name="offer"/> (full or delta packages), reporting percent complete.</summary>
     public Task DownloadAsync(UpdateOffer offer, IProgress<int> progress, CancellationToken cancellationToken);

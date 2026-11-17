@@ -189,7 +189,7 @@ public sealed class UpdatesViewModelTests
         var page = new SettingsPageViewModel(services.Services);
 
         Assert.Equal("0.1.5", page.Updates.CurrentVersion);
-        Assert.Equal("linux-x64-stable", page.Updates.ChannelText);
+        Assert.Equal("Stable", page.Updates.InstalledChannelText);
     }
 
     [Fact]

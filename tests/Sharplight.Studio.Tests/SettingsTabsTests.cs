@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Media.Imaging;
@@ -77,6 +78,41 @@ public sealed class SettingsTabsTests
             {
                 Assert.True(seen.TryGetValue(card, out var tabs), card);
                 Assert.Equal([s_expected[card]], tabs);
+            }
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Theory]
+    [InlineData(1100, 900)]
+    [InlineData(520, 800)]
+    public Task ResetButton_AlignsWithTheCards(int width, int height) => HeadlessApp.RunAsync(async () =>
+    {
+        using var services = new TestServices();
+        var page = new SettingsPageViewModel(services.Services);
+        var window = new Window { Width = width, Height = height, Content = new SettingsPage { DataContext = page } };
+        window.Show();
+        try
+        {
+            foreach (var tab in new[] { SettingsTab.General, SettingsTab.Engine, SettingsTab.Updates })
+            {
+                page.ShowTab(tab);
+                await HeadlessApp.RenderAsync(window);
+                var reset = window.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "ResetButton");
+                var title = window.GetVisualDescendants().OfType<TextBlock>().First(block => block.Classes.Contains("h1"));
+                var card = window.GetVisualDescendants().OfType<Border>().First(border => border.Classes.Contains("card") && border.IsEffectivelyVisible);
+                var resetBounds = reset.TranslatePoint(new Avalonia.Point(reset.Bounds.Width, reset.Bounds.Height / 2), window)!.Value;
+                var cardBounds = card.TranslatePoint(new Avalonia.Point(card.Bounds.Width, 0), window)!.Value;
+                var cardLeft = card.TranslatePoint(default, window)!.Value;
+                var titleLeft = title.TranslatePoint(default, window)!.Value;
+                var titleCentre = title.TranslatePoint(new Avalonia.Point(0, title.Bounds.Height / 2), window)!.Value;
+                Assert.Equal(cardBounds.X, resetBounds.X, 1.0);
+                Assert.Equal(cardLeft.X, titleLeft.X, 1.0);
+                Assert.InRange(resetBounds.Y, titleLeft.Y, titleCentre.Y + title.Bounds.Height * 2);
+                Capture(window, $"studio-settings-{tab.ToString().ToLowerInvariant()}-{width}.png");
             }
         }
         finally

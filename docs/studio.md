@@ -327,6 +327,12 @@ compilation-cache options), *Engine* (load defaults, residency, device features)
 
 ![Settings: Engine tab](images/studio/studio-settings.png)
 
+The header's *Reset defaults* button shares the right edge of the cards below it (and the left edge of the title with the cards), also
+in a narrow window:
+
+![Settings: Updates tab with the channel selector](images/studio/studio-settings-updates.png)
+![Settings: narrow window](images/studio/studio-settings-narrow.png)
+
 ## Inference pages
 
 Every model kind gets a page built from the same blocks, so they look and behave alike: the **frame** (`InferenceFrame`) has the
@@ -493,13 +499,17 @@ the package yet, so the app runs on the CPU provider.
 
 **Channels.** Every build belongs to one of ten update channels, `<rid>-stable` (built from `release/*` branches) and `<rid>-unstable`
 (built from `develop`), for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64` and `osx-arm64`, for example `win-x64-stable` or
-`osx-arm64-unstable`. An installed app only checks the channel it was installed from; to switch from unstable to stable, install the
-stable package.
+`osx-arm64-unstable`. An installed app checks the channel it was installed from until you pick another one: *Settings > Updates > Update
+channel* switches between **Stable** and **Preview (unstable)**, is saved in the settings (`UpdateChannel`) and re-checks the
+chosen feed at once. The page shows the installed channel and the selected one. A channel that has no release yet shows "No stable
+release yet" instead of an error. When the chosen channel is behind the running version (preview to stable), Studio asks first:
+*Downgrade* downloads the older release like an update, *Stay on the current version* keeps the running one until the channel
+catches up. Portable and other builds that cannot update disable the selector.
 
 **Updates.** Studio checks for a new version at startup and every six hours (*Settings > Updates > Check for updates automatically*).
 When one is found, a dialog shows the version and its release notes (Markdown), then *Download and install* (with progress; Velopack
-downloads a delta package when it can) and *Restart to update*, or *Later*. The Settings section shows the current version and
-channel, the automatic check switch, *Check for updates now* and the time of the last check. Builds that were not installed with
+downloads a delta package when it can) and *Restart to update*, or *Later*. The Settings section shows the current version,
+the installed and the selected channel, the automatic check switch, *Check for updates now* and the time of the last check. Builds that were not installed with
 Velopack (`dotnet run`, a plain build) show "updates unavailable for this build" and never check.
 
 **Update feed.** The packages are served from a public URL (Cloudflare R2 on a custom domain, see `docs/releasing.md`). The URL is
