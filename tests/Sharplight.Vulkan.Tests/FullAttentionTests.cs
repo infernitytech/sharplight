@@ -30,6 +30,26 @@ public sealed class FullAttentionTests
             what: $"b={batch} rows={rows} H={heads} D={d} reduced={reduced}");
     }
 
+    /// <summary>
+    /// Queries, keys and values far outside f16's range (about 6.5e4) or far below it keep near-f32 accuracy in the split-f16 flash
+    /// kernels (fe, and fa for the windowed form): each query row, key row and V tile is brought into f16's range by a power of two
+    /// before the split (XTTS's Perceiver resampler attends over latents of 1e10).
+    /// </summary>
+    [Theory]
+    [InlineData(1e6f, 1e-6f, 1e6f, false)]
+    [InlineData(1e9f, 1e-8f, 1e10f, false)]
+    [InlineData(3e-6f, 2e5f, 1e-7f, false)]
+    [InlineData(1e6f, 1e-6f, 1e6f, true)]
+    [InlineData(2f, 2f, 1f, true)]
+    public void SplitHalfLargeMagnitudes(float qMagnitude, float kMagnitude, float vMagnitude, bool windowed)
+    {
+        int batch = windowed ? 1 : 2;
+        var (g, step) = Graph(batch, 97, 97, 4, 64, mask: 0, seed: 5, magnitude: qMagnitude, kMagnitude: kMagnitude, vMagnitude: vMagnitude,
+            window: windowed ? 40 : 0);
+        Diff.Check("Attention.full.magnitudes", g, step, atol: 5e-6 * vMagnitude, rtol: 5e-6, maxTokens: batch * 97,
+            what: $"q={qMagnitude} k={kMagnitude} v={vMagnitude} windowed={windowed}");
+    }
+
     /// <summary>Fast matrix precision runs f32 attention on the single-product f16 flash kernel, with f16-level error.</summary>
     [Theory]
     [InlineData(1, 197, 12, 64)]
@@ -90,13 +110,21 @@ public sealed class FullAttentionTests
     /// An Attention graph over <paramref name="batch"/> sequences of <paramref name="rows"/> queries and <paramref name="keys"/> keys;
     /// mask 1 = one bias per key row (every third key masked), 2 = a per-query [rows, keys] mask (batch 1).
     /// </summary>
-    private static (ComputeGraph Graph, Step Step) Graph(int batch, int rows, int keys, int heads, int d, int mask, int seed, float magnitude)
+    private static (ComputeGraph Graph, Step Step) Graph(int batch, int rows, int keys, int heads, int d, int mask, int seed, float magnitude,
+        float? kMagnitude = null, float vMagnitude = 1f, long window = 0)
     {
         var tg = new TG();
         var q = tg.InF("q", TG.T, heads, d);
-        var k = tg.InF("k", Dim.Of((long)batch * keys), heads, d);
-        var v = tg.InF("v", Dim.Of((long)batch * keys), heads, d);
+        // A window needs self-attention: keys share the queries' row symbol.
+        var keyRows = window > 0 ? TG.T : Dim.Of((long)batch * keys);
+        var k = tg.InF("k", keyRows, heads, d);
+        var v = tg.InF("v", keyRows, heads, d);
         var attributes = new List<(string, object)> { ("scale", 1f / MathF.Sqrt(d)) };
+        if (window > 0)
+        {
+            attributes.Add(("window", window));
+        }
+
         if (batch > 1 || keys != rows)
         {
             attributes.Add((BatchedAttention.RowsAttribute, (long)rows));
@@ -119,8 +147,8 @@ public sealed class FullAttentionTests
         tg.B.Output("o", tg.B.Emit1("Attention", operands, Attributes.From([.. attributes])));
         int t = batch * rows;
         int s = batch * keys;
-        var step = new Step(t, 0, (q, Rnd.F(t * heads * d, seed, magnitude)), (k, Rnd.F(s * heads * d, seed + 1, magnitude)),
-            (v, Rnd.F(s * heads * d, seed + 2)));
+        var step = new Step(t, 0, (q, Rnd.F(t * heads * d, seed, magnitude)), (k, Rnd.F(s * heads * d, seed + 1, kMagnitude ?? magnitude)),
+            (v, Rnd.F(s * heads * d, seed + 2, vMagnitude)));
         return (tg.B.Build(), step);
     }
 }

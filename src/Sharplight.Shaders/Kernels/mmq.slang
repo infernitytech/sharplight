@@ -244,6 +244,9 @@ void accumulate(inout float acc, int c, int ch, float2 x, float2 w)
 void mmq_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
 {
     uint sg = tid / 32;
+#if defined(GEMM_GROUP) && SPLITK == 1
+    gid.xy = grouped_tile(gid.xy, (N + MQ_BN - 1) / MQ_BN, (p.T + MQ_BM - 1) / MQ_BM, GEMM_GROUP);
+#endif
     uint n0 = gid.x * MQ_BN;
     uint t0 = gid.y * MQ_BM;
     uint wm = (sg / MQ_WN) * (MQ_FM * 16);

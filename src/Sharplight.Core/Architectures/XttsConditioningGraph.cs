@@ -59,9 +59,8 @@ internal static class XttsConditioningGraph
             var kv = b.Linear(context, n + "0.to_kv.weight");
             var k = b.Reshape(b.Slice(kv, 1, 0, inner), 0, perceiverHeads, perceiverHeadSize);
             var v = b.Reshape(b.Slice(kv, 1, inner, inner), 0, perceiverHeads, perceiverHeadSize);
-            // The latents reach 1e10 before the final norm: keep the attention's products in f32 (no split-f16 tensor-core form).
-            var attention = b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(perceiverHeadSize)), ("causal", false),
-                (StandardOps.F32ProductsAttribute, true)));
+            // The latents reach 1e10 before the final norm; the split-f16 flash kernels scale rows into f16's range before splitting.
+            var attention = b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(perceiverHeadSize)), ("causal", false)));
             latents = b.Add(latents, b.Linear(b.Reshape(attention, queries, inner), n + "0.to_out.weight"));
             var hidden = b.Linear(latents, n + "1.0.weight", n + "1.0.bias");
             long half = hidden.Shape[1].Fixed / 2;

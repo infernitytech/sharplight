@@ -487,8 +487,19 @@ public sealed partial class GraphLowerer
             macros["FE_CAUSAL"] = "1";
         }
 
+        if (encoder && RegisterSoftmax(plan))
+        {
+            macros["FE_REG"] = "1";
+            macros["FE_BR"] = FeBlockRows(plan).ToString(CultureInfo.InvariantCulture);
+        }
+
+        foreach (var (name, value) in encoder ? DiagnosticSwitches.AttentionExtraMacros : new Dictionary<string, string>())
+        {
+            macros[name] = value;
+        }
+
         var kernel = Lib("attention.slang", encoder ? "fe" : "fa", macros);
-        uint blockRows = encoder ? 64u : 32u;
+        uint blockRows = encoder ? (uint)FeBlockRows(plan) : 32u;
         if (plan.SequenceRows > 0)
         {
             long sequenceRows = plan.SequenceRows;
@@ -539,12 +550,34 @@ public sealed partial class GraphLowerer
         return DiagnosticSwitches.AttentionCausalFlash && plain && FlashTileFits(plan);
     }
 
+    /// <summary>
+    /// Whether <c>fe</c> runs its softmax on the score fragments in registers (FE_REG: 64-key tiles, no score / probability staging,
+    /// no subgroup barriers in the key loop): on devices whose fragments have the MMA element layout
+    /// (<see cref="DeviceFeatures.MatrixMmaLayout"/>, verified by the kernel), with single f16 products (not FA_SPLIT), unless
+    /// <c>SHARPLIGHT_ATTN_FE_REG=0</c>. Its row sums add the probabilities in another order than the staged softmax.
+    /// </summary>
+    private bool RegisterSoftmax(AttentionPlan plan)
+        => DiagnosticSwitches.AttentionRegisterSoftmax && _opt.Has(DeviceFeatures.MatrixMmaLayout) && !SplitFlash(plan);
+
+    /// <summary>
+    /// Queries per <c>fe</c> workgroup: <see cref="DiagnosticSwitches.AttentionRegisterSoftmaxRows"/> (default 128, 8 subgroups) with
+    /// the register softmax, whose subgroups need no shared memory of their own, so a K / V tile serves twice the queries; else 64.
+    /// </summary>
+    private int FeBlockRows(AttentionPlan plan) => RegisterSoftmax(plan) ? DiagnosticSwitches.AttentionRegisterSoftmaxRows : 64;
+
     /// <summary>K/V types, head sizes and shared memory of <c>fe</c> (f32 or f16 K/V, padded head sizes up to 128).</summary>
     private bool FlashTileFits(AttentionPlan plan)
     {
         bool kv = (plan.K.Type == DataType.F32 || plan.K.Type == DataType.F16) && plan.V.Type == plan.K.Type;
         long paddedD = (plan.D + 15) / 16 * 16;
         long paddedDV = (plan.DV + 15) / 16 * 16;
+        if (RegisterSoftmax(plan))
+        {
+            // 64-key K / V tiles (or the staged Q), nothing else.
+            long tileBytes = Math.Max(64 * (paddedD + 8) + 64 * (paddedDV + 8), FeBlockRows(plan) * (paddedD + 8)) * 2;
+            return kv && paddedD <= 128 && paddedDV <= 128 && tileBytes <= _opt.MaxSharedMemory;
+        }
+
         long parts = SplitFlash(plan) ? 2 : 1;
         long kvHalves = parts * (32 * (paddedD + 8) + 32 * (paddedDV + 8));
         long buffer = Math.Max(kvHalves, parts * 64 * (paddedD + 8)) * 2;
@@ -588,13 +621,12 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Whether flash attention over f32 K/V runs in the split-f16 form (FA_SPLIT: hi·hi + hi·lo + lo·hi products, near-f32
-    /// accuracy): under strict precision, unless disabled with <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c> or by the node
-    /// (<see cref="StandardOps.F32ProductsAttribute"/>). Reduced precision and fast
-    /// matrix precision use single f16 products.
+    /// accuracy): under strict precision, unless disabled with <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c>. Each query row, key row and V
+    /// tile is scaled by a power of two into f16's range before the split, so any magnitude keeps its accuracy. Reduced precision
+    /// and fast matrix precision use single f16 products.
     /// </summary>
     private bool SplitFlash(AttentionPlan plan)
-        => plan.K.Type == DataType.F32 && !ReducedPrecision(plan) && !FastMatrixProducts && DiagnosticSwitches.AttentionSplitHalf
-           && !plan.Node.Attributes.Get(StandardOps.F32ProductsAttribute, false);
+        => plan.K.Type == DataType.F32 && !ReducedPrecision(plan) && !FastMatrixProducts && DiagnosticSwitches.AttentionSplitHalf;
 
     /// <summary>Whether f16 products are allowed: by the compile options or by the node (<see cref="StandardOps.F16ProductsAttribute"/>).</summary>
     private bool ReducedPrecision(AttentionPlan plan)
@@ -617,7 +649,7 @@ public sealed partial class GraphLowerer
         long sequences = plan.SequenceRows > 0 ? Math.Max(1, maxRows / plan.SequenceRows) : 1;
         long rowsPerSequence = plan.SequenceRows > 0 ? plan.SequenceRows : maxRows;
         long keys = plan.SequenceRows > 0 ? BatchedAttention.SequenceKeys(plan.Node) : plan.K.Symbol is null ? plan.K.Shape[0] : Bound(Dim.Sym(plan.K.Symbol));
-        long blockRows = EncoderFlash(plan) || !CanUseFlashAttention(plan) ? 64 : 32;
+        long blockRows = EncoderFlash(plan) ? FeBlockRows(plan) : !CanUseFlashAttention(plan) ? 64 : 32;
         long workgroups = plan.HQ * ((rowsPerSequence + blockRows - 1) / blockRows) * sequences;
         long wanted = (FlashTargetWorkgroups + workgroups - 1) / workgroups;
         return (int)Math.Clamp(Math.Min(wanted, (keys + 31) / 32 / 2), 1, 8);
@@ -847,9 +879,15 @@ public sealed partial class GraphLowerer
             flashMacros["FA_SPLIT"] = SplitFlash(plan) ? "1" : "0";
             flashMacros["FA_KSPLIT"] = "1";
             flashMacros["FE_CAUSAL"] = "1";
+            if (RegisterSoftmax(plan))
+            {
+                flashMacros["FE_REG"] = "1";
+                flashMacros["FE_BR"] = FeBlockRows(plan).ToString(CultureInfo.InvariantCulture);
+            }
         }
+
         return (new KernelVariant(when, Lib("attention.slang", "decode", decodeMacros), b => new Grid((uint)decode.Groups, (uint)Rows(b, q), 1)),
-            new KernelVariant(when, Lib("attention.slang", causal ? "fe" : "fa", flashMacros), b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), causal ? 64 : 32), (uint)Rows(b, runs))));
+            new KernelVariant(when, Lib("attention.slang", causal ? "fe" : "fa", flashMacros), b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), causal ? FeBlockRows(plan) : 32), (uint)Rows(b, runs))));
     }
 
     /// <summary>Merges the partials of the rows that split-K decoding ran in more than one key range.</summary>
