@@ -167,7 +167,7 @@ Tests are xunit v3 / Microsoft.Testing.Platform executables: `dotnet run --proje
 The libraries under `src/` ship as NuGet packages (prerelease): `Sharplight.Core` (engine and task layer, including text
 generation, tokenizers, chat templates, the architecture adapters and the `.slm` package format), `Sharplight.Cpu`,
 `Sharplight.Vulkan`, `Sharplight.Shaders`, `Sharplight` (the entry package for most uses: `services.AddSharplight()` with
-everything wired up), `Sharplight.Hub`, `Sharplight.AspNetCore`, `Sharplight.Extensions.AI`, and one package per source
+everything wired up), `Sharplight.Hub`, `Sharplight.Hosting` (model hosting for servers and apps, [docs/hosting.md](docs/hosting.md)), `Sharplight.AspNetCore`, `Sharplight.Extensions.AI`, `Sharplight.DesignTokens` (CSS and icons of the Sharplight look for web UIs, [docs/design-tokens.md](docs/design-tokens.md)), and one package per source
 format: `Sharplight.Import.Gguf`, `Sharplight.Import.HuggingFace` and `Sharplight.Import.Onnx`.
 
 `Sharplight.Llm`, `Sharplight.Tokenizers` and `Sharplight.Templating` are no longer published: they are part of
@@ -180,14 +180,13 @@ format: `Sharplight.Import.Gguf`, `Sharplight.Import.HuggingFace` and `Sharpligh
 Pull a model from Hugging Face (downloaded, converted to `.slm` and precompiled) and chat with it or serve it:
 
 ```sh
-dotnet run -c Release --project samples/Sharplight.Server -- run Qwen/Qwen3-0.6B-GGUF:Q8_0
-dotnet run -c Release --project samples/Sharplight.Server -- serve qwen3-0.6b:q8_0 --listen http://127.0.0.1:8080
+dotnet run -c Release --project samples/Sharplight.Cli -- run Qwen/Qwen3-0.6B-GGUF:Q8_0
+dotnet run -c Release --project samples/Sharplight.Cli -- serve qwen3-0.6b:q8_0 --listen http://127.0.0.1:8080
 ```
 
 | Sample | Executable | What it does |
 |---|---|---|
-| `samples/Sharplight.Cli` | `sharplight` | Chat / generate / benchmark from the command line; pulls Hugging Face models like the server |
-| `samples/Sharplight.Server` | `sharplight-server` | Serve one or several models over HTTP; search, pull and run Hugging Face models ([docs/model-hub.md](docs/model-hub.md)) |
+| `samples/Sharplight.Cli` | `sharplight` | Generate / benchmark from the command line; `serve` one or several models over HTTP (on `Sharplight.Hosting` and `Sharplight.AspNetCore`), `run` a terminal chat; search, pull and list Hugging Face models ([docs/model-hub.md](docs/model-hub.md)) |
 | `samples/Sharplight.Convert` | `sharplight-convert` | Convert models to `.slm` packages, precompile, inspect |
 | `samples/Sharplight.OnnxRun` | `sharplight-onnxrun` | Run an ONNX model on the CPU or Vulkan provider |
 

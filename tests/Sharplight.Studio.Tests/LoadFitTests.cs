@@ -1,3 +1,4 @@
+using Sharplight.Hosting.Fit;
 using Sharplight.Hub;
 using Sharplight.Runtime;
 using Sharplight.Studio.Models;

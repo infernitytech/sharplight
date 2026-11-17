@@ -1,7 +1,7 @@
 # Sharplight Studio
 
 `apps/Sharplight.Studio` is a desktop app (Avalonia 12) for finding, downloading, running, chatting with and serving local models.
-It embeds the engine and the same hosting layer as `sharplight-server`, so everything the app loads is also reachable over the
+It embeds the engine and the same hosting layer as `sharplight serve`, so everything the app loads is also reachable over the
 OpenAI- and Anthropic-compatible API.
 
 ```sh

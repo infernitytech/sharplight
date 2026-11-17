@@ -12,7 +12,7 @@ using Sharplight.Studio.Models;
 namespace Sharplight.Studio.Services.Server;
 
 /// <summary>
-/// <see cref="IApiServer"/> on Kestrel with the endpoints of <c>Sharplight.AspNetCore</c> (the same ones <c>sharplight-server</c>
+/// <see cref="IApiServer"/> on Kestrel with the endpoints of <c>Sharplight.AspNetCore</c> (the same ones <c>sharplight serve</c>
 /// maps) over the app's <see cref="ModelHost"/>: requests route by their <c>model</c> field to any resident model (loading sleeping
 /// and, with on-demand loading, library models), chat and API requests share one engine per model, and stopping the server leaves
 /// the models loaded.

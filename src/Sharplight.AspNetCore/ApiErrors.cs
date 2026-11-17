@@ -7,7 +7,7 @@ namespace Sharplight.AspNetCore;
 internal static class ApiErrors
 {
     public static bool IsAnthropic(HttpContext http)
-        => (http.Request.Path.Value ?? "").StartsWith("/v1/messages", StringComparison.Ordinal) || http.Request.Headers.ContainsKey("anthropic-version");
+        => (http.Request.Path.Value ?? "").Contains("/v1/messages", StringComparison.Ordinal) || http.Request.Headers.ContainsKey("anthropic-version");
 
     public static Task WriteAsync(HttpContext http, EngineException ex)
     {
@@ -23,6 +23,9 @@ internal static class ApiErrors
             _ => WriteAsync(http, 400, "invalid_request_error", ex.Message, ex.Code),
         };
     }
+
+    public static Task WriteAsync(HttpContext http, ApiException ex)
+        => WriteAsync(http, ex.Status, ex.Type, ex.Message, ex.Code, ex.Param, ex.RetryAfterSeconds);
 
     public static JsonObject Body(bool anthropic, string type, string message, string? code = null, string? param = null)
         => anthropic

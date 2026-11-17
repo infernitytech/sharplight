@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sharplight.Hosting.Loaders;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Compatibility;

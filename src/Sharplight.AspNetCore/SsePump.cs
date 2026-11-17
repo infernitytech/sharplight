@@ -1,3 +1,5 @@
+using Sharplight.Llm.Serving.Chat;
+
 namespace Sharplight.AspNetCore;
 
 /// <summary>Streams an event source into an <see cref="SseWriter"/>, flushing only when no further event is ready.</summary>
@@ -12,6 +14,8 @@ internal static class SsePump
     /// <returns>False when <paramref name="write"/> stopped the stream.</returns>
     public static async Task<bool> PumpAsync<T>(IAsyncEnumerable<T> source, SseWriter sse, Func<T, bool> write, CancellationToken ct)
     {
+        var feature = SharplightRequestFeature.Of(sse.Http);
+        feature?.MarkStreaming();
         await using var items = source.GetAsyncEnumerator(ct);
         while (true)
         {
@@ -26,10 +30,29 @@ internal static class SsePump
                 return true;
             }
 
+            if (feature is not null && items.Current is ChatEvent chat)
+            {
+                Track(feature, chat);
+            }
+
             if (!write(items.Current))
             {
                 return false;
             }
+        }
+    }
+
+    /// <summary>Usage and time to first token of a streamed chat run, for the request's usage report.</summary>
+    private static void Track(SharplightRequestFeature feature, ChatEvent chat)
+    {
+        if (chat.Content is not null || chat.Reasoning is not null || chat.ToolCall is not null)
+        {
+            feature.MarkFirstToken();
+        }
+
+        if (chat.Finish is not null && chat.Usage is { } usage)
+        {
+            feature.AddUsage(usage);
         }
     }
 }

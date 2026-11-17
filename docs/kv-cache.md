@@ -89,7 +89,7 @@ Formats (per row of `head_dim` values, blocks of 32 along `head_dim`, the GGUF b
 | Q4_0 | 18 (f16 scale + 32 × 4 bit) | 0.28x | scale = value of largest magnitude / -8 (llama.cpp's reference quantiser) |
 
 Selecting it: `LlmLoadOptions.KvCacheType` (overrides `AdapterOptions.KvCacheType`), `--kv-type f16|f32|q8_0|q4_0` in the CLI
-and in `sharplight-server`. The adapters declare each KV state through `AdapterOptions.KvCacheTypeFor(row length)`: a cache whose
+and in `sharplight serve`. The adapters declare each KV state through `AdapterOptions.KvCacheTypeFor(row length)`: a cache whose
 rows per head are not whole 32-value blocks stays F16, and `LlmModel.Load` logs how many did. K and V share one type, and the
 MLA latent cache (one row holds keys and values) is quantised as a whole. `EstimateFootprint` and placement size states from
 their types, so the smaller cache shows up in the slot / layer budget.
@@ -134,7 +134,7 @@ last-token logits after a 2.8k-token prompt, KL divergence from the F16-cache ru
 What landed differs from 2.1-2.3 in a few places; this section describes the code.
 
 Selecting it: `LlmModel.CreateBatchDecoder(slots, ctx, kvCacheTokens: N)`, `ChatModelOptions.KvCacheTokens`, and
-`sharplight-server --kv-tokens N` (K / M suffixes, binary). Without it every slot reserves `ctx` rows, as before.
+`sharplight serve --kv-tokens N` (K / M suffixes, binary). Without it every slot reserves `ctx` rows, as before.
 
 Graph and kernels:
 
@@ -173,6 +173,9 @@ Host side:
     or idle) whose context shares the longest prefix with the prompt and maps its full blocks into the new slot's table
     (reference count + 1, no copy, no hashing: slot contexts are compared token by token). Blocks are never written after
     they are full, so sharing needs no copy-on-write. The per-slot reuse of section 1 still applies on top.
+  - isolation (`GenerationRequest.CachePartition`, set from the request's scope by `Sharplight.AspNetCore`): prefix reuse of a
+    slot's own context and block sharing only happen between requests of the same partition, so identical prompts of different
+    tenants never share cache entries (no cross-tenant timing side channel); null is one partition of its own, the default.
   - metrics: `sharplight_kv_preemptions_total`, `sharplight_kv_prefix_hit_tokens_total`.
 - Not done: block hashes (lookup is a linear scan of the slots' tokens, fine for tens of slots), an LRU of freed-but-valid
   blocks beyond idle slots, copy-on-write for `n > 1`, host swap, a separate per-device switch (paging needs no device
@@ -184,7 +187,7 @@ a pool smaller than slots × ctx against single-sequence sessions), `PagedEngine
 recompute, sequences capped by the pool, prompt prefixes shared across concurrent requests) and the existing serving tests
 on the block-accounting `FakeBatchDecoder`.
 
-Measured (2026-11-13, RTX PRO 6000 shared with other jobs; `sharplight-server MODEL --ctx 4096 --slots S [--kv-tokens N]`,
+Measured (2026-11-13, RTX PRO 6000 shared with other jobs; `sharplight serve MODEL --ctx 4096 --slots S [--kv-tokens N]`,
 `bench/loadgen.py -c 64 --per-worker 6 --ignore-eos`: 64 streams in a closed loop, 384 requests of ~251 prompt tokens and 128
 output tokens; VRAM is the server process's allocation from `nvidia-smi`, "at once" the peak of running sequences; raw
 results in `bench/results/paged/`):

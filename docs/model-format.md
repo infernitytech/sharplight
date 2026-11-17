@@ -299,7 +299,7 @@ kind, shown raw); `ArtifactEntryInfo.Offset` is an entry's absolute file offset;
   - `precompile <slm> (--all-devices | --device <provider:index> | --profile <file|name>) [--tier code|binary|all] [--disable-features] [--ctx]
     [--batch] [--slots] [--kv-tokens] [--bound SYMBOL=VALUE] [--use-kernel-cache]`: graphs are compiled the way their loaders
     compile them, into one shared recording: `LlmModel` (decode, decode_multimodal, vision_encode, and the serving batch decoder
-    for `--slots` sequences, default 4 like `sharplight-server`; `--slots 1` skips it), `EmbeddingModel` (embed) and `Reranker`
+    for `--slots` sequences, default 4 like `sharplight serve`; `--slots 1` skips it), `EmbeddingModel` (embed) and `Reranker`
     (classify) with their default batch limits; the graphs of every component of a described model with the component's bounds; other graphs (ONNX) as a `CompiledModel` with the CPU as fallback and the given
     bounds (the ONNX batch symbol defaults to 1). Not compiled: `decode_embeddings` (no loader compiles it; multimodal prompts use
     `decode_multimodal`) and the speculative-decoding variant of the batch decoder (its logits-row bound depends on the

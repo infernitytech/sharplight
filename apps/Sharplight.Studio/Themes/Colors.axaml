@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Generated from design/tokens.json by tools/design-tokens (docs/design-tokens.md); edit the tokens, not this file. -->
   <!-- Accent brushes are replaced at runtime by ThemeService (palette from the settings); these are the Violet defaults. -->
   <SolidColorBrush x:Key="AccentBrush" Color="#7C5CFF" />
   <SolidColorBrush x:Key="AccentSecondaryBrush" Color="#22C1EE" />
@@ -12,6 +13,8 @@
   <SolidColorBrush x:Key="WarningBrush" Color="#F59E0B" />
   <SolidColorBrush x:Key="DangerBrush" Color="#EF4444" />
   <SolidColorBrush x:Key="InfoBrush" Color="#38BDF8" />
+  <SolidColorBrush x:Key="SuccessTextBrush" Color="#2DBE68" />
+  <SolidColorBrush x:Key="WarningTextBrush" Color="#F0A82A" />
 
   <ResourceDictionary.ThemeDictionaries>
     <ResourceDictionary x:Key="Dark">

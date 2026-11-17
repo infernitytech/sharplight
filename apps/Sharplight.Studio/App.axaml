@@ -18,6 +18,7 @@
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
         <ResourceInclude Source="avares://sharplight-studio/Themes/Colors.axaml" />
+        <ResourceInclude Source="avares://sharplight-studio/Themes/Tokens.axaml" />
         <ResourceInclude Source="avares://sharplight-studio/Themes/Icons.axaml" />
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
