@@ -107,9 +107,8 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
     };
 
     /// <summary>
-    /// The output path, checked before the model loads: a known video format whose encoder is missing on this machine (WebM without the
-    /// native libsharplight_video library, MP4 without a system ffmpeg) falls back to another available format with a message; an unknown
-    /// extension is an error.
+    /// The output path, checked before the model loads: a format of the bundled FFmpeg (MP4, WebM, MOV, MKV) in a build without its
+    /// libraries falls back to another available format (the managed GIF / APNG encoders) with a message; an unknown extension is an error.
     /// </summary>
     private string ResolveOutput(VideoEncoderCatalog encoders)
     {
@@ -121,12 +120,10 @@ internal sealed class VideoGenerationRunner(GenerateVideoSettings settings)
 
         string extension = Path.GetExtension(output).ToLowerInvariant();
         string available = string.Join(", ", encoders.Available.SelectMany(e => e.FileExtensions));
-        string? reason = extension switch
-        {
-            ".webm" => "WebM needs Sharplight's native video library (libsharplight_video), which this build does not include (build it with native/sharplight_video/build.sh)",
-            ".mp4" or ".m4v" => "MP4 needs an ffmpeg executable on the PATH",
-            _ => null,
-        };
+        bool bundledFormat = FfmpegVideoEncoder.Formats.Any(format => new FfmpegVideoEncoder(format).FileExtensions.Contains(extension));
+        string? reason = bundledFormat && !BundledFfmpeg.IsAvailable
+            ? $"{extension} needs the bundled FFmpeg libraries, which this build does not include ({BundledFfmpeg.UnavailableReason}; build them with native/ffmpeg/build.sh)"
+            : null;
         string? fallback = s_fallbacks.FirstOrDefault(candidate => encoders.FindForPath("video" + candidate) is not null);
         if (reason is null || fallback is null)
         {

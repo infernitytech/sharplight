@@ -26,16 +26,29 @@ internal sealed class ZoomPanView : Control
     /// <summary>The zoom as text (<c>fit 38 %</c>, <c>100 %</c>) for a label.</summary>
     public static readonly DirectProperty<ZoomPanView, string> ZoomTextProperty = AvaloniaProperty.RegisterDirect<ZoomPanView, string>(nameof(ZoomText), view => view._zoomText);
 
+    /// <summary>A second picture shown right of <see cref="Divider"/>, over the same area (before/after comparison); null for none.</summary>
+    public static readonly StyledProperty<IImage?> CompareSourceProperty = AvaloniaProperty.Register<ZoomPanView, IImage?>(nameof(CompareSource));
+
+    /// <summary>Where the comparison divides the picture, from 0 (left edge) to 1 (right edge).</summary>
+    public static readonly StyledProperty<double> DividerProperty = AvaloniaProperty.Register<ZoomPanView, double>(nameof(Divider), 0.5);
+
+    /// <summary>
+    /// The primary pointer button places things on the picture (points, boxes) instead of dragging it: the picture then moves with the
+    /// middle button, the keys and the wheel zooms as before.
+    /// </summary>
+    public static readonly StyledProperty<bool> CapturesPrimaryProperty = AvaloniaProperty.Register<ZoomPanView, bool>(nameof(CapturesPrimary));
+
     private ViewTransform _transform = new(1, default);
     private bool _fitted = true;
     private string _zoomText = "";
     private bool _dragging;
+    private bool _placing;
     private Point _dragStart;
     private double _pinchScale = 1;
 
     static ZoomPanView()
     {
-        AffectsRender<ZoomPanView>(SourceProperty);
+        AffectsRender<ZoomPanView>(SourceProperty, CompareSourceProperty, DividerProperty);
         FocusableProperty.OverrideDefaultValue<ZoomPanView>(true);
         ClipToBoundsProperty.OverrideDefaultValue<ZoomPanView>(true);
     }
@@ -53,6 +66,41 @@ internal sealed class ZoomPanView : Control
     {
         get => GetValue(SourceProperty);
         set => SetValue(SourceProperty, value);
+    }
+
+    /// <summary>The second picture of a comparison.</summary>
+    public IImage? CompareSource
+    {
+        get => GetValue(CompareSourceProperty);
+        set => SetValue(CompareSourceProperty, value);
+    }
+
+    /// <summary>Where the comparison divides the picture (0 to 1).</summary>
+    public double Divider
+    {
+        get => GetValue(DividerProperty);
+        set => SetValue(DividerProperty, value);
+    }
+
+    /// <summary>The primary pointer button places things instead of dragging the picture.</summary>
+    public bool CapturesPrimary
+    {
+        get => GetValue(CapturesPrimaryProperty);
+        set => SetValue(CapturesPrimaryProperty, value);
+    }
+
+    /// <summary>Raised when the primary or secondary button is pressed on the picture while <see cref="CapturesPrimary"/>; the position is a fraction of the picture.</summary>
+    public event EventHandler<ImagePointerEventArgs>? ImagePressed;
+
+    /// <summary>Raised when a button is released after <see cref="ImagePressed"/>; the position is a fraction of the picture.</summary>
+    public event EventHandler<ImagePointerEventArgs>? ImageReleased;
+
+    /// <summary>A viewport position as a fraction of the picture (clamped to 0 to 1).</summary>
+    /// <param name="viewportPoint">The position in the control.</param>
+    public Point ToFraction(Point viewportPoint)
+    {
+        var image = _transform.ToImage(viewportPoint);
+        return new Point(Math.Clamp(image.X / Math.Max(1, ImageSize.Width), 0, 1), Math.Clamp(image.Y / Math.Max(1, ImageSize.Height), 0, 1));
     }
 
     /// <summary>The zoom, in screen pixels per image pixel.</summary>
@@ -166,6 +214,17 @@ internal sealed class ZoomPanView : Control
         using (context.PushRenderOptions(new RenderOptions { BitmapInterpolationMode = mode }))
         {
             context.DrawImage(source, new Rect(ImageSize), target);
+            if (CompareSource is { } compare && compare.Size.Width > 0)
+            {
+                double x = target.X + target.Width * Math.Clamp(Divider, 0, 1);
+                var right = new Rect(x, target.Y, target.Right - x, target.Height).Intersect(new Rect(Bounds.Size));
+                using (context.PushClip(right))
+                {
+                    context.DrawImage(compare, new Rect(compare.Size), target);
+                }
+
+                context.DrawLine(new Pen(Brushes.White, 1.5), new Point(x, target.Y), new Point(x, target.Bottom));
+            }
         }
     }
 
@@ -185,7 +244,15 @@ internal sealed class ZoomPanView : Control
     {
         base.OnPointerPressed(e);
         Focus();
-        if (e.ClickCount == 2 && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        var properties = e.GetCurrentPoint(this).Properties;
+        if (CapturesPrimary && (properties.IsLeftButtonPressed || properties.IsRightButtonPressed) && ImageSize.Width > 0)
+        {
+            _placing = true;
+            ImagePressed?.Invoke(this, new ImagePointerEventArgs(ToFraction(e.GetPosition(this)), properties.IsRightButtonPressed, e.KeyModifiers));
+            e.Pointer.Capture(this);
+            e.Handled = true;
+        }
+        else if (e.ClickCount == 2 && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
             ToggleFit();
             e.Handled = true;
@@ -217,6 +284,13 @@ internal sealed class ZoomPanView : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        if (_placing)
+        {
+            _placing = false;
+            e.Pointer.Capture(null);
+            ImageReleased?.Invoke(this, new ImagePointerEventArgs(ToFraction(e.GetPosition(this)), false, e.KeyModifiers));
+        }
+
         if (_dragging)
         {
             _dragging = false;

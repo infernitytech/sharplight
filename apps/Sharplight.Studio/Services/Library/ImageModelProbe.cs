@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Sharplight.Import.Gguf;
 using Sharplight.Models;
+using Sharplight.Studio.Models;
 
 namespace Sharplight.Studio.Services.Library;
 
@@ -56,6 +57,11 @@ internal static class ImageModelProbe
 
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
+            if (IsLora(path))
+            {
+                return ModelKindCatalog.Lora;
+            }
+
             if (SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor)
                 || SafetensorsHeaderContains(path, Sd3TransformerTensor) || SafetensorsHeaderContains(path, ZImageTransformerTensor)
                 || SafetensorsHeaderContains(path, QwenImageTransformerTensor) || SafetensorsHeaderContains(path, QwenImage21TransformerTensor))
@@ -87,6 +93,15 @@ internal static class ImageModelProbe
 
         return null;
     }
+
+    /// <summary>
+    /// Whether a <c>.safetensors</c> file is a LoRA adapter for an image model: kohya-ss (<c>.lora_down.weight</c> / <c>.lora_up.weight</c>) or
+    /// diffusers / PEFT (<c>.lora_A.weight</c> / <c>.lora_B.weight</c>, also <c>.lora.down.weight</c>) tensor names. A full checkpoint has none.
+    /// </summary>
+    /// <param name="path">A <c>.safetensors</c> file.</param>
+    public static bool IsLora(string path)
+        => SafetensorsHeaderContains(path, ".lora_down.weight") || SafetensorsHeaderContains(path, ".lora_A.weight")
+           || SafetensorsHeaderContains(path, ".lora_A.default.weight") || SafetensorsHeaderContains(path, ".lora.down.weight");
 
     /// <summary>
     /// Whether an image model file holds only a FLUX, Chroma, SD3, Z-Image or Qwen-Image transformer (original tensor names, as city96 / stable-diffusion.cpp GGUF files

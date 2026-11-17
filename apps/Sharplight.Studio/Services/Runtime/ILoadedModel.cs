@@ -27,6 +27,9 @@ internal interface ILoadedModel
     /// <summary>The settings it is loaded with.</summary>
     public LoadSettings Settings { get; }
 
+    /// <summary>The further files by role it was loaded with (companions, LoRA adapters, ...).</summary>
+    public IReadOnlyList<(string Role, string Path)> Auxiliary => [];
+
     /// <summary>What it can do (vision only when the engine runs its vision tower); refined once it loaded.</summary>
     public ModelCapabilities Capabilities { get; }
 

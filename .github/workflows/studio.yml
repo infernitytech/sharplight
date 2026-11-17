@@ -71,11 +71,12 @@ jobs:
           merge-multiple: true
           path: native/sharplight_audio/out
 
+      # Sharplight's own FFmpeg libraries (native.yml) that Sharplight.Video copies next to its output and packs.
       - uses: actions/download-artifact@v4
         with:
-          pattern: native-video-*
+          pattern: native-ffmpeg-*
           merge-multiple: true
-          path: native/sharplight_video/out
+          path: native/ffmpeg/out
 
       - name: Version
         id: nbgv
