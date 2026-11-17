@@ -59,7 +59,12 @@ def main():
              for k, v in load_file(args.clip_file).items()}
     missing = pipe.text_encoder.load_state_dict(state, strict=False)
     assert not [k for k in missing.missing_keys if "position_ids" not in k], missing.missing_keys
-    pipe.to(args.device)
+    # The text encoders run on the CPU (the f32 T5 alone takes 19 GB); the transformer and the VAE on --device.
+    embeds, pooled_embeds, _ = pipe.encode_prompt(prompt=PROMPT, prompt_2=None, device="cpu", max_sequence_length=512)
+    pipe.text_encoder = None
+    pipe.text_encoder_2 = None
+    pipe.transformer.to(args.device)
+    pipe.vae.to(args.device)
     device = args.device
     ref = flux_refs.Reference(args.out)
     size = args.size
@@ -99,7 +104,7 @@ def main():
 
     noise = torch.randn(1, 16, lh, lh, generator=torch.Generator().manual_seed(42))
     ref.add(f"noise_{size}", noise)
-    result = pipe(image=image, prompt=PROMPT, height=size, width=size, num_inference_steps=args.steps, guidance_scale=args.guidance,
+    result = pipe(image=image, prompt_embeds=embeds.to(device), pooled_prompt_embeds=pooled_embeds.to(device), height=size, width=size, num_inference_steps=args.steps, guidance_scale=args.guidance,
                   latents=FluxKontextPipeline._pack_latents(noise, 1, 16, lh, lh).to(device), max_sequence_length=512, output_type="pt").images
     ref.add(f"image_{size}", result[0])
     ref.save({"timesteps": [float(t) for t in pipe.scheduler.timesteps]})

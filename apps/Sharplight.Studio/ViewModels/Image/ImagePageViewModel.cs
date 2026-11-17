@@ -554,6 +554,12 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         var options = Panel.Options;
         var values = Panel.Snapshot();
         bool editing = IsEditing;
+        if (editing)
+        {
+            // An edit keeps the picture's size (rounded to what the model takes).
+            options = options with { Width = null, Height = null };
+        }
+
         var plan = new GenerationPlan(Prompt.Trim(), NegativePrompt.Trim(), options, seed, editing ? null : Source.Image,
             !editing && Source.Image is not null ? Mask.Image : null, (float)Panel.GetNumber("strength"), values, Panel.GetBool("preview"),
             editing ? EditImage.Image : null);
