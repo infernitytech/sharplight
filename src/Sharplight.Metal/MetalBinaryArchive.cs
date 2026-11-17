@@ -1,11 +1,12 @@
 using Sharplight.Metal.Interop;
+using Sharplight.Storage;
 
 namespace Sharplight.Metal;
 
 /// <summary>
 /// An <c>MTLBinaryArchive</c>: the GPU machine code of compute pipelines for one GPU family and OS build, the device stage of the Metal
 /// provider. Archives are created from and serialized to files, so stored bytes pass through a temporary file that lives as long as the
-/// archive (Metal may read it lazily). Not thread-safe for adding pipelines; pipeline creation may use it from any thread.
+/// archive (Metal may read it lazily), in the cache folder of the active storage mode (<see cref="StorageLayout"/>, <c>metal</c>). Not thread-safe for adding pipelines; pipeline creation may use it from any thread.
 /// </summary>
 internal sealed unsafe class MetalBinaryArchive : IDisposable
 {
@@ -102,7 +103,12 @@ internal sealed unsafe class MetalBinaryArchive : IDisposable
         }
     }
 
-    private static string TemporaryFile() => Path.Combine(Path.GetTempPath(), $"sharplight-metal-{Guid.NewGuid():N}.metallib");
+    private static string TemporaryFile()
+    {
+        string directory = Path.Combine(StorageLayout.Resolve(StorageEnvironment.Process).CacheDirectory, "metal");
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, $"archive-{Guid.NewGuid():N}.metallib");
+    }
 
     public void Dispose()
     {
