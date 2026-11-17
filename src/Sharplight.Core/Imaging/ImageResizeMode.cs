@@ -14,4 +14,10 @@ public enum ImageResizeMode
 
     /// <summary>Scale so the longer edge becomes <see cref="ImageProcessorConfig.LongestEdge"/>, keeping the aspect ratio.</summary>
     LongestEdge,
+
+    /// <summary>
+    /// Scale to the largest size that fits inside <see cref="ImageProcessorConfig.Width"/> × <see cref="ImageProcessorConfig.Height"/> with the aspect ratio kept (sizes rounded to the nearest
+    /// integer, ties to even); with the center crop set to the same size the rest is padded with <see cref="ImageProcessorConfig.PadColor"/> (letterboxing).
+    /// </summary>
+    Contain,
 }

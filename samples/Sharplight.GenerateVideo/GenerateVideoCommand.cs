@@ -11,6 +11,7 @@ internal sealed class GenerateVideoCommand
     private readonly Option<string?> _companions = new("--companions") { Description = "For a transformer-only checkpoint: a Wan diffusers folder of the same family that provides the text encoder, tokenizer and VAE." };
     private readonly Option<string?> _transformer2 = new("--transformer-2") { Description = "For a two-expert model given as transformer-only files (Wan 2.2 A14B GGUF): the low-noise expert; --model is the high-noise one." };
     private readonly Option<string?> _imageEncoder = new("--image-encoder") { Description = "For a transformer-only Wan 2.1 I2V / FLF2V checkpoint: a diffusers folder with its image_encoder/ and image_processor/ (the configuration folder suffices)." };
+    private readonly Option<string?> _vae = new("--vae") { Description = "For a transformer-only checkpoint: the VAE, as a file (LTX-Video's stand-alone VAE) or a folder; overrides the one of --companions." };
     private readonly Option<string> _prompt = new("--prompt", "-p") { Description = "What to generate.", Required = true };
     private readonly Option<string?> _negative = new("--negative-prompt", "-n") { Description = "What the video should not show (default: the model's)." };
     private readonly Option<string?> _image = new("--image", "-i") { Description = "PNG start frame for image-to-video (models that support it, e.g. Wan 2.2 TI2V)." };
@@ -33,7 +34,7 @@ internal sealed class GenerateVideoCommand
     public Command Build()
     {
         var command = new RootCommand("Generates videos with a Sharplight video-generation model (Wan) through the DI task API.");
-        foreach (var option in new Option[] { _model, _companions, _transformer2, _imageEncoder, _prompt, _negative, _image, _lastImage, _output, _width, _height, _frames, _fps, _steps, _guidance, _guidance2, _seed, _sampler, _noise, _cpu, _device, _reducedPrecision })
+        foreach (var option in new Option[] { _model, _companions, _transformer2, _imageEncoder, _vae, _prompt, _negative, _image, _lastImage, _output, _width, _height, _frames, _fps, _steps, _guidance, _guidance2, _seed, _sampler, _noise, _cpu, _device, _reducedPrecision })
         {
             command.Options.Add(option);
         }
@@ -48,6 +49,7 @@ internal sealed class GenerateVideoCommand
         Companions = result.GetValue(_companions),
         SecondTransformer = result.GetValue(_transformer2),
         ImageEncoder = result.GetValue(_imageEncoder),
+        Vae = result.GetValue(_vae),
         Guidance2 = result.GetValue(_guidance2),
         Prompt = result.GetValue(_prompt)!,
         NegativePrompt = result.GetValue(_negative),

@@ -1052,6 +1052,7 @@ codecs and vocoders are graphs of generic Core ops; the host runs only the token
 | Chatterbox (ResembleAI/chatterbox, English; T3 Llama 520M over S3 speech tokens, S3Gen flow matching, HiFT vocoder), built-in voice | supported, CPU and Vulkan | the `chatterbox-tts` package 0.1.7 on torch (CPU, float32; `tests/Sharplight.TextToSpeech.Tests/tools/make_chatterbox_reference.py`) | text tokens identical; conditioning rows 7e-7 (CPU) / 4e-7 (Vulkan) relative RMS; T3 guided greedy chain teacher forced: 0 argmax disagreements over 92 steps (reference margins down to 1.5e-3); flow mel for the reference tokens and noise 4.4e-7 / 5.9e-7; HiFT F0 7.4e-7 / 7.8e-7 and waveform 5.6e-6 / 7.0e-6 with the reference's source draws; voice cloning (`tools/make_chatterbox_clone_reference.py`, LibriSpeech 1272-128104-0004): voice encoder partials 9e-7 / 1.2e-6, S3 tokens 150 of 150 (T3 prompt) and 250 of 250 (flow prompt), CAM++ x-vector 3e-6 / 2e-6, flow prompt log-mel 1.9e-7; a cloned sentence transcribed word for word by Qwen3-ASR-1.7B, its speaker similarity to the recording 0.88 against 0.71 for the built-in voice |
 | F5-TTS v1 Base (SWivid; flow-matching diffusion transformer over characters) + Vocos mel 24 kHz, voice of a reference recording | supported, CPU and Vulkan | the `f5-tts` package 1.1.22 on torch (CPU, float32; `tools/make_f5tts_reference.py`, jfk.wav as the reference) | character ids and duration identical; sampled mel from the reference's log-mel and noise (32 guided Euler steps) 4.2e-6 (CPU) / 3.5e-5 (Vulkan) relative RMS; Vocos waveform 2.4e-5 / 1.8e-5; the reference log-mel within 5e-3 on a 24 kHz copy of the recording (from 16 kHz the resamplers differ in near-silent frames, which the log floor magnifies) |
 | XTTS v2 (Coqui; GPT-2 over audio codes + HiFi-GAN decoder), the 58 built-in speakers, English | supported, CPU and Vulkan | coqui-tts 0.28.0 on torch (CPU, float32; `tools/make_xtts_reference.py`, speaker "Claribel Dervla") | text ids identical (abbreviations, numbers as num2words spells them, symbols); greedy codes 90 of 90 identical (repetition penalty 10); latents 6.4e-5 (CPU) / 6.8e-5 (Vulkan) relative RMS; HiFi-GAN waveform of the reference latents 1.6e-4 / 1.8e-4; sampled with the model's settings, a four-sentence passage transcribed word for word by Qwen3-ASR-1.7B; Vulkan real-time factor 0.24 (4.2 s of audio in 1.0 s, RTX PRO 4500), CPU 1.2; voice cloning: style latents 3.7e-6 / 2.7e-6, speaker embedding 2.8e-6 / 1.3e-6 |
+| CosyVoice 3 (FunAudioLLM Fun-CosyVoice3-0.5B; Qwen2 0.5B over S3 speech tokens v3, DiT flow, causal HiFT), the voice of a recording (zero-shot, cross-lingual, instruct) | supported, CPU and Vulkan | FunAudioLLM's CosyVoice code (dd9105b) on torch (CPU, float32) and onnxruntime 1.32 (`tools/make_cosyvoice3_reference.py`, jfk.wav as the recording) | S3 tokenizer v3 275 of 275 tokens identical and CAM++ x-vector 3.0e-6 (CPU) / 1.8e-6 (Vulkan) vs onnxruntime; prompt log-mel 7.5e-6; text and prompt ids identical; language model teacher forced along the greedy chain: 0 argmax disagreements over 300 steps, worst logit delta 1.1e-2 / 1.2e-2; flow mel for the sampled tokens and the reference's noise 4.1e-5 / 3.3e-5; causal HiFT F0 1.5e-6 / 1.7e-6, waveform 2.2e-5 / 2.1e-5 on the reference's F0 and source noise (3.9e-3 / 1.0e-2 on its own F0, see below); a zero-shot sentence transcribed word for word by Qwen3-ASR-1.7B, CAM++ speaker similarity to the recording 0.85; Vulkan real-time factor 0.37 (9.2 s of audio in 3.4 s, RTX PRO 4500), CPU 2.8 |
 | CSM-1B + Mimi, Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
@@ -1183,6 +1184,38 @@ A cloned sentence is transcribed word for word by Qwen3-ASR-1.7B; its speaker si
 speaker. The Perceiver's latents grow to 1e10 before its norm, beyond f16's range; the split-f16 flash attention on Vulkan scales each query row,
 key row and V tile by a power of two into f16's range before splitting (docs/benchmarks.md section 39), so it runs on the tensor cores like
 the other attention.
+
+CosyVoice 3 loading: the release folder (`Sharplight.Import.CosyVoice`, `CosyVoiceImporter`, `services.AddCosyVoiceImporter()`:
+`cosyvoice3.yaml`, `llm.pt`, `flow.pt`, `hift.pt`, the Qwen tokenizer in `CosyVoice-BlankEN/`, `speech_tokenizer_v3.onnx`, `campplus.onnx`). The
+language model's Qwen2 backbone maps to canonical decoder weights with the speech embedding (6561 codes plus 200 control rows) as `token_embedding`
+and the speech head as `lm_head`; the text embedding (`cosyvoice3.text_embedding`) stays on the host, rows read per token. The flow keeps its names
+under `flow.`, HiFT under `hift.` (weight norms folded). The two ONNX models become weights of generic graphs: the exporter names folded and
+transposed tensors `onnx::MatMul_1234`, so the importer names them by the module path of the node that reads them (the new
+`OnnxImporter.NodeParameters`, `/blocks.0/attn/query/MatMul` → `blocks.0.attn.query.weight`, MatMul weights transposed); the S3 tokenizer v3 is
+the v2 graph (`S3TokenizerGraph`) with 12 blocks, CAM++ is `CamPlusGraph`, which now takes convolutions with an exporter-folded batch norm (a bias,
+no statistics). The tokenizer gets CosyVoice 3's 280 added special tokens (`<|endofprompt|>`, `[breath]`, `[laughter]`, ARPAbet and pinyin
+tokens) in the release's order. `CosyVoiceAdapter` (canonical `cosyvoice3`) builds the decoder graphs with `decoder.embedding_input`,
+`cosyvoice_flow_encode` (token embedding, the pre-lookahead convolutions, ×2 repetition, the speaker projection), `cosyvoice_flow_estimator` (the
+DiT: the F5-TTS blocks of `F5TransformerGraph` with a causal convolutional position embedding; CosyVoice applies the rotary embedding before the
+head split, which rotates only the first head's channels, `ropeHeads: 1`), `cosyvoice_hift_f0` (the causal F0 predictor) and `cosyvoice_hift` (the
+causal generator: left-padded convolutions, nearest upsampling plus convolution, strided causal downsampling of the source, the look-ahead input
+convolution). `CosyVoiceSynthesizer` follows `inference_zero_shot` (`ReferenceAudio` and `ReferenceText`: the system prompt, the reference text
+and `<|endofprompt|>` before the text, the recording's speech tokens after the task row), `inference_cross_lingual` (`ReferenceAudio` only) and
+`inference_instruct2` (the new `SpeechSynthesisOptions.Instructions`, e.g. "Please speak as fast as possible."); the voice is the recording's
+speech tokens, its 24 kHz Matcha log-mel (fmax at Nyquist) and its CAM++ x-vector (`S3SpeechEncoders`, now shared with Chatterbox's cloning).
+Tokens are drawn by repetition-aware sampling (`CosyVoiceRasSampler`: top-p 0.8 within the top 25, a token seen in the last 10 is redrawn from the
+whole distribution), the length between 2 and 20 times the text tokens (as the reference, only the first control row is masked below the
+minimum); ten Euler steps over the cosine schedule with guidance 0.7 (full attention, the non-streaming path); the causal HiFT with
+`finalize=True`. The text front end is the reference's without its optional normalizers: digits spelled as inflect spells them, the text split
+into utterances of up to 80 tokens; markup (`<|…|>`) passes through. Precision notes: the reference predicts F0 in float64 and accumulates the
+source phase to about 1e5 rad (`2π · 480 · Σ F0 · k / rate`), where a float32 F0 rounding of 1e-6 moves a harmonic's phase by up to a radian, so
+the waveform on Sharplight's own F0 differs by 4e-3 (CPU) to 1e-2 (Vulkan) relative RMS while it matches to 2e-5 on the reference's F0; the
+harmonics are computed on the host (`CosyVoiceVocoderGraph.Harmonics`, the running sum in double as torch's CPU cumsum) because a device's
+parallel scan and fast sine of such phases are a hundredth off. The release's random tables (the flow's starting noise, the source's uniform
+noise) are seeded draws here, inputs of the graphs. Not done: built-in voices (the release has no `spk2info.pt`), the streaming path (chunked
+flow with the static 50-frame chunk mask and the cached HiFT), the ttsfrd / wetext normalizers, Japanese kana conversion. The reference script
+needs a transformers 5 fix: `Qwen2Encoder.forward_one_step` passes a one-element attention mask with the cache, which transformers 4.51 ignored
+and transformers 5 applies (attending to the new row only); the script drops it.
 
 ## 13. Speech to text (task kind `speech-recognition`)
 
@@ -1384,7 +1417,9 @@ preprocessing is the neutral `ImageProcessorConfig` stored with the model. Refer
 | SegFormer (`nvidia/segformer-b0-finetuned-ade-512-512`, b5 ADE 640: mix-transformer encoder with spatial-reduction attention and depthwise Mix-FFN, all-MLP decoder with the batch norm folded into the fusion convolution) | HF `segformer` | image-segmentation-semantic | supported: `ISemanticSegmenter.SegmentAsync` (label map at the input size, class names, per-class masks, optional logits; a single-channel model returns an alpha matte) | b0: logits 5.1e-4, label map 99.81 % identical; b5: logits 1.5e-6 (CPU) / 5.3e-7 (Vulkan), label map 99.998 % / 100 % |
 | BiRefNet / RMBG-2.0 (`ZhengPeng7/BiRefNet`, `briaai/RMBG-2.0`: Swin encoder on the image and its half-size copy, deformable-ASPP decoder with the image's own patches injected per scale, gradient attention; batch norms folded) | HF remote-code class `BiRefNet` (`birefnet`) | image-segmentation-semantic (single-channel matte, alpha in `SemanticSegmentation.Alpha`) | supported: Studio's Semantic mode exports the alpha cut-out | matte logits 1.9e-6 (BiRefNet) / 2.3e-6 (RMBG-2.0) relative rms, CPU and Vulkan |
 | Florence-2 base (`florence-community/Florence-2-base`: DaViT tower with window and channel attention, 2-D position and temporal embeddings in the projector, image rows merged into the BART encoder input) | HF `florence2` (`encoder_decoder` with `encoder.input` "image_text") | ocr (`ITextRecognizer.RecognizeAsync` with `TextRecognitionOptions.Task` / `Input`; boxes from `<loc_N>` tokens in `Regions`) | supported: `<OCR>`, `<CAPTION>`, `<DETAILED_CAPTION>`, `<OD>` and the other prompt tasks as text | image features 6.3e-4, encoder 1.1e-3; greedy text and boxes identical to transformers (num_beams=1) |
-| Mask2Former, DPT (other heads), YOLO / YOLOS | - | - | not started (see the sweep below) | - |
+| Ultralytics YOLOv8 / YOLO11 / YOLOv10 detection and instance segmentation (`yolov8n`, `yolov8n-seg`, `yolov10n` ONNX exports: the exported graph runs as the detect graph; letterbox preprocessing, score threshold, class-aware NMS (IoU 0.7 by default) and instance masks from the prototypes in the task layer) | `UltralyticsImporter` (`Sharplight.Import.Ultralytics`, recognizes the export by its initializer names, class names from the `names` metadata, COCO names for 80-class exports without it) | object-detection (`DetectedObject.Mask` for segmentation models) | supported: `IObjectDetector.DetectAsync`; the `.pt` checkpoints pickle Ultralytics classes and are not read (export with `yolo export format=onnx`); Ultralytics weights are AGPL-3.0 licensed (enterprise license available), check the license of a checkpoint before shipping it | same detections as onnxruntime plus Ultralytics' decoding (classes, scores within 0.01, boxes within 2 px), masks IoU 0.994-1.000, CPU = Vulkan, also from an `.slm` package |
+| YOLOS (`hustvl/yolos-tiny`, `yolos-small`: ViT over class, patch and 100 detection tokens, DETR heads; the small/base models add per-layer mid position tables) | HF `yolos` (`YolosHfMapping`, `YolosAdapter`) | object-detection | supported on the fixed 640 px canvas (position tables resampled bicubically at import) | same detections as transformers (boxes within 2 px, scores within 0.02), CPU = Vulkan |
+| Mask2Former, DPT (other heads) | - | - | not started (see the sweep below) | - |
 
 ### Vision popularity sweep (2026-11-16)
 
@@ -1434,7 +1469,7 @@ Not covered, with what is missing:
   the scores bilinearly to the input size and takes the arg-max, as transformers' post-processing does; K = 1 is read as a matte with a sigmoid). SegFormer (`SegformerAdapter`, `SegformerHfMapping`) is the first architecture; Studio's
   Vision page has a `Semantic` mode (colored overlay with a legend of the classes by pixel share, PNG export; a matte model exports the cut-out as PNG with alpha, `PngCodec.EncodeRgba`). The graph runs on the processor's fixed square
   size (512 / 640 / 1024 px, no aspect ratio kept). Still missing: Mask2Former / OneFormer (universal: instance and panoptic), UperNet, CLIPSeg and (BiRefNet / RMBG-2.0 matting is done, see the table).
-- **Detection**: YOLOS, DETR checkpoints without the timm backbone, Ultralytics YOLO (`.pt`; their ONNX exports run through the ONNX importer), RT-DETR v2 variants listed above.
+- **Detection**: DETR checkpoints without the timm backbone, Ultralytics YOLO `.pt` files and the pose / oriented-box / classification heads (the detection and segmentation ONNX exports are done, see the table), RT-DETR v2 variants listed above. Studio's Detect mode draws the boxes; the instance masks of segmentation models are in the API result only.
 - **Classification**: timm / HF families other than ResNet (MobileNetV3, EfficientNet, ConvNeXt, RepVGG, EfficientViT, Swin / SwinV2, EVA02 `timm_wrapper`, `SiglipForImageClassification`
   such as prithivMLmods' classifiers), HF `resnet` (microsoft/resnet-50), and `open_clip`-only repositories (timm/ViT-B-16-SigLIP, Marqo fashion models).
 - **Depth / pose / features**: DPT-hybrid and DPT-large, DepthPro, Depth Anything 3, ZoeDepth, ViTPose, SuperPoint / LightGlue, DINOv3, SigLIP 2 NaFlex.
@@ -1490,7 +1525,9 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
 | Qwen-Image (Qwen-Image and fine-tunes with the same layout, e.g. Qwen-Image-2512) | diffusers folder; transformer-only GGUF (city96 / QuantStack / unsloth, `qwen_image` architecture id, any ggml type) and ComfyUI single files plus companions: the Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a `qwen2vl` GGUF), the causal VAE (the pipeline's `vae` file or ComfyUI's `qwen_image_vae.safetensors` in the original Wan names) | **supported** (txt2img, img2img, inpainting; true CFG with diffusers' norm rescaling; 50 steps, guidance 4 by default) | [below](#qwen-image) |
 | Qwen-Image 2.1 (and its Turbo) | diffusers folder; transformer-only GGUF (unsloth: no metadata, ComfyUI names) and ComfyUI single files plus companions: the Qwen3-VL-8B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the pipeline's VAE file | **supported** (text-to-image; 40 steps without guidance by default; Turbo: its 8-step schedule from the pipeline's `sample_sigmas` or the file name) | [below](#qwen-image-21) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
+| FLUX.2 Klein (4B; 9B and the base models share the layout) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (the pipeline's `text_encoder` folder or a `qwen3` GGUF), the pipeline's VAE file | **supported** (txt2img; distilled: 4 steps without guidance; base: 50 steps, guidance 4) | [below](#flux-2) |
+| Krea 2 (Turbo, Raw and fine-tunes) | diffusers folder; the release's original-name single files (`turbo.safetensors`, `raw.safetensors`, ComfyUI's bf16 files); transformer-only GGUF (realrebelai, vantagewithai, ...: architecture `krea2`, some labelled `qwen_image`) plus companions: the Qwen3-VL-4B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the Qwen-Image VAE (the pipeline's file or ComfyUI's `qwen_image_vae.safetensors`) | **supported** (text-to-image; Turbo: 8 steps without guidance; Raw (file names with `raw` / `base`): 28 steps, guidance 5.5) | [below](#krea-2) |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, FLUX.2 Dev (32B), Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
 | ControlNet, TAESD | - | missing | |
 
@@ -1813,7 +1850,76 @@ Verification (tools/make-tiny-qwen-image21.py, tools/make-qwen-image21-reference
   the same files (dequantized GGUF transformer on CUDA, f32 text encoder; diffusers keeps the GGUF's BF16 norm scales undecoded, so the
   reference script dequantizes them first), 20 steps without guidance, same latents: text encoder 7.3–9.6e-4, transformer 1.4e-2 (random
   inputs); images 42.2 dB (512) / 37.4 dB (1024). Speed (Vulkan, warm): 1024×1024 20 steps 35.8 s (1.8 s per step), 512×512 10.6 s;
-  diffusers (GGUF dequantized on the fly, CUDA f32) 2.8 s per step at 1024.
+  diffusers (GGUF dequantized on the fly, CUDA f32) 2.8 s per step at 1024. Qwen-Image 2.1 Turbo (unsloth's Q8_0, its 8-step schedule from
+  the file name): 34.5 dB (1024) against diffusers with the pipeline's `sample_sigmas`, 8 steps in 14.8 s.
+
+### FLUX.2
+
+<a id="flux-2"></a>
+FLUX.2 Klein (2026-11-17): FLUX.1's MMDiT with shared modulations, SwiGLU, 4-axis RoPE and a Qwen3 text encoder, on 128-channel latents.
+
+- Canonical source `flux2`: the FLUX transformer vocabulary (original names map 1:1; diffusers' q / k / v joined) plus `transformer.mod_img`,
+  `mod_txt`, `mod_single` (the shared `double_stream_modulation_img|txt` and `single_stream_modulation` projections); the Qwen3 text model kept
+  whole; the 32-channel KL VAE with `vae.bn.running_mean|running_var`. Family keys: the Qwen3 chat template with thinking disabled
+  (`<think>\n\n</think>\n\n` after the assistant turn), 512 prompt tokens, the hidden states entering layers 9, 18 and 27 concatenated per
+  token, FLUX.2's empirical flow shift (`DiffusionConfigKeys.EmpiricalShift`), distilled (`is_distilled` / file names without `base`): 4 steps
+  without guidance.
+- `Flux2Adapter`: `FluxTransformerGraphBuilder` with `SharedModulation`, `SwiGlu` and `TextPositionAxis` 3 (text j at (0, 0, 0, j), image
+  tokens at (0, row, column, 0), 4 × 32 dimensions, θ 2000; `AxialRope` takes four axes); the text graph reads every one of the 512 rows (the
+  pipeline passes no mask to the transformer) and gets transformers' padding mask as row spans from `DiffusionGraphs.TokenMask`, so the padding
+  rows attend to the prompt only; the VAE graphs unpatchify / patchify the latents 2×2 and apply the batch-norm statistics
+  (`AutoencoderHyperParameters.LatentPatch`).
+- Root-cause fix: Vulkan row reductions of a rank-1 tensor launched one row per element and wrote past the one-element output (the
+  mask sum above); a rank-1 input is now one row (regression test `RowOpTests.RowReduceOfAVector`).
+
+Verification (tools/make-tiny-flux2.py, tools/make-flux2-references.py; `TinyFlux2Tests`, `Flux2KleinTests`):
+
+- Tiny random FLUX.2 Klein (64×96): prompt tokens equal transformers'; text encoder (all 512 rows), transformer, VAE decode and encode within
+  1e-4 / 1e-3 (Vulkan) of diffusers from the diffusers folder, the original-name single file and a Q8_0 GGUF (5e-3 / 3e-2); 4-step txt2img
+  above 40 dB in all 6 combinations.
+- FLUX.2 Klein 4B, unsloth's Q8_0 GGUF with the pipeline's Qwen3-4B text encoder (bf16) and VAE as companions, on Vulkan against diffusers on
+  the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 4 steps, same latents: text encoder 4.5e-4 / 1.3e-3, transformer
+  1.6e-3; images 40.1 dB (512) / 41.3 dB (1024). Speed (Vulkan, warm): 1024×1024 4 steps in 3.4 s, 512×512 in 0.8 s.
+
+### Krea 2
+
+<a id="krea-2"></a>
+Krea 2 (2026-11-17, the most downloaded text-to-image release on the Hub at the time; Krea 2 Community License, open weights): a 13B
+single-stream DiT over [text, image] conditioned on twelve tapped layers of Qwen3-VL-4B, with the Qwen-Image (Wan 2.1) VAE.
+
+- Canonical source `krea2`: `transformer.{img_in, time_in.in_layer|out_layer, time_mod, txt_in.norm|in_layer|out_layer, text_fusion.{layerwise|refiner}.{i}.*,
+  text_fusion.projector, blocks.{i}.{mod [6, D], norm1, norm2, attn.q|k|v|gate|o|norm_q|norm_k, mlp.gate|up|down}, final.mod [2, D], final.norm, final.linear}`
+  from the original Krea names (`first`, `tmlp`, `tproj`, `txtmlp`, `txtfusion`, `blocks.{i}.attn.wq|...|qknorm`, `prenorm` / `postnorm`, `mod.lin`, `last.*`)
+  or diffusers' `Krea2Transformer2DModel` names; every norm scale is zero-centred and stored + 1. The Qwen3-VL text model kept whole (`Qwen3VLModel`'s bare
+  `language_model.` names are now mapped too). Family keys: the system-prompt template with its 34-token system turn skipped, 512 prompt tokens, the
+  pipeline's `text_encoder_select_layers` (2, 5, …, 35; transformer-only files: every (layers / 12)-th layer ending one before the last), the
+  exponential shift (μ from the image tokens between 0.5 at 256 and 1.15 at 6400; the distilled Turbo's fixed μ = 1.15 as a dynamic shift with equal
+  bounds), Turbo: 8 steps without guidance, Raw: 28 steps with guidance 5.5 (diffusers' Krea convention cond + 4.5 · (cond − uncond) is the usual
+  scale 1 + 4.5). vantagewithai's GGUF files carry two extra 6144 × 6144 tensors (`last.up` / `last.down`, an embedded picture described by `egg_*`
+  metadata) that no implementation reads; they are skipped.
+- `Krea2TransformerGraphBuilder`: the text fusion first (two blocks across the 12 tapped layers of each token as one batched `Attention` with
+  `sequence_rows` = `sequence_keys` = 12, the projector over the layer axis as a linear map, two refiner blocks across the tokens with the padding as a
+  key bias), then the zero-centred RMS norm and the tanh-GELU MLP into the model width; 28 blocks over [text, image] with RMS norms modulated by the shared
+  time modulation plus each block's table, grouped-query attention (48 query / 12 key-value heads) with q / k RMS norms, interleaved 3-axis RoPE (32 + 48 +
+  48 dims, θ 1000; text at the origin, image tokens at (0, row, column)) and a sigmoid output gate, SwiGLU; the final norm modulated by the time embedding
+  plus a table. Image tokens are 2×2 patches of the 16-channel latents. The text graph is the decoder graph's hidden states entering the 12 layers,
+  concatenated per token.
+- Prompt layout: the pipeline pads the system turn and the prompt and appends the assistant turn after the padding (its positions continue after the
+  prompt); Sharplight tokenizes the assistant turn right after the prompt and pads after it. The valid rows get the same hidden states, and the
+  transformer gives text rows no positions and masks the padding, so the result is the same; only prompts longer than 507 tokens differ (the
+  pipeline keeps the assistant turn, Sharplight cuts at 546 tokens).
+
+Verification (tools/make-tiny-krea2.py, tools/make-krea2-references.py; `TinyKrea2Tests`, `Krea2Tests`, `Krea2ImageTests` in Studio.Tests):
+
+- Tiny random Krea 2 (64×96, GQA in both the blocks and the text fusion, 6-layer Qwen3-VL tapped at 1, 3, 5): prompt tokens equal the pipeline's valid
+  tokens; text encoder, transformer (masked padding), VAE decode and encode within 1e-4 / 1e-3 (Vulkan) of diffusers from the diffusers folder, the
+  original-name single file and a Q8_0 GGUF (GGUF within 5e-3 / 3e-2); guided 4-step txt2img above 40 dB in all 6 combinations.
+- Krea 2 Turbo, realrebelai's Q8_0 GGUF (13.6 GB) with the Turbo pipeline's Qwen3-VL-4B text encoder (bf16) and VAE as companions, on Vulkan against
+  diffusers on the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 8 distilled steps, same latents: text encoder 3.3–3.8e-4,
+  transformer 5.7e-3 relative RMS (random inputs at 512); images 26.9 dB (512) / 34.1 dB (1024), visually identical. Speed (Vulkan, warm, conditioning
+  reused): 1024×1024 8 steps in 29.9 s (about 3.6 s per step), 512×512 in 8.6 s; diffusers (GGUF dequantized on the fly, CUDA f32) 5.7 s per step at
+  1024. Studio: the load panel shows the Qwen3-VL-4B and VAE slots, fills them from the pipeline folder beside the GGUF's folder, and the Image page
+  generates 1024×1024.
 
 ### LoRA
 
@@ -1844,11 +1950,14 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 |---|---|---|---|
 | Wan 2.1 T2V (1.3B, 14B) | diffusers folder; transformer-only GGUF (city96 / QuantStack, any ggml type) and original-name `.safetensors` (also ComfyUI's `model.diffusion_model.` prefix) with a Wan diffusers folder as companion for the umT5 encoder, tokenizer and VAE | **supported** (text-to-video, negative prompts, any size that is a multiple of 16, frames 1 + 4k, UniPC (default) and Euler) | tiny pipeline; 1.3B below |
 | Wan 2.2 TI2V-5B | diffusers folder; transformer-only GGUF / safetensors with companions as for Wan 2.1 | **supported** (text- and image-to-video: per-token timesteps, the residual VAE with 2×2 pixel patching, first-frame conditioning; multiples of 32) | tiny pipeline; 5B below |
-| Wan 2.2 T2V-A14B, I2V-A14B (two experts) | diffusers folder with transformer_2; high- and low-noise transformer GGUFs (QuantStack / city96) with `AuxiliaryRoles.SecondTransformer` and a Wan 2.1 folder as companion | **supported** (expert switch at the boundary timestep 0.875 · 1000, `GuidanceScale2`; I2V by concatenating a first-frame mask and the encoded start-image video, streamed causal VAE encoder) | tiny pipelines; T2V-A14B Q4_K_M below |
+| Wan 2.2 T2V-A14B, I2V-A14B (two experts) | diffusers folder with transformer_2; high- and low-noise transformer GGUFs (QuantStack / city96) with `AuxiliaryRoles.SecondTransformer` and a Wan 2.1 folder as companion | **supported** (expert switch at the boundary timestep (T2V 0.875, I2V 0.9) · 1000, `GuidanceScale2`; I2V by concatenating a first-frame mask and the encoded start-image video, streamed causal VAE encoder; optional last frame) | tiny pipelines; T2V-A14B and I2V-A14B Q4_K_M below |
 | Wan 2.1 I2V-14B, FLF2V-14B (CLIP image embedding) | diffusers folder (with `image_encoder/` and `image_processor/`); transformer-only GGUF (city96) with a Wan 2.1 folder for umT5 / VAE and the I2V / FLF2V configuration folder as `AuxiliaryRoles.ImageEncoder` | **supported** (CLIP ViT-H/14 penultimate states, the image embedding and the added image key/value cross-attention; FLF2V: `VideoGenerationRequest.LastImage`, the two images' states with the learned position table, the mask 1 on the last frame) | tiny pipelines; I2V and FLF2V Q4_K_M below |
 | Stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing | |
 | LTX-Video 0.9.0 (2B) | diffusers folder (the T5-XXL text encoder is the one of FLUX.1 / PixArt) | **supported** (text-to-video, multiples of 32, frames 1 + 8k, flow Euler with the resolution-dependent shift and the terminal stretch) | tiny pipeline; 2B below |
-| LTX-Video 0.9.1+ (causal / timestep-conditioned decoder), HunyuanVideo, CogVideoX, Mochi | - | missing (LTX 0.9.1+ rejected by name) | |
+| HunyuanVideo (13B, text-to-video) | diffusers folder (hunyuanvideo-community/HunyuanVideo); transformer-only GGUF (city96, any ggml type) / original-name safetensors with a HunyuanVideo folder as companion (`AuxiliaryRoles.TextEncoder` for the Llama and CLIP encoders, `AuxiliaryRoles.Vae`) | **supported** (LLaVA-Llama-3 states two layers before the last over the templated prompt, the template's 95 tokens cropped; CLIP-L pooled; guidance embedded (no classifier-free pass); flow Euler, shift 7; the causal 3-D VAE decoded in diffusers' temporal and spatial tiles; frames 1 + 4k, multiples of 16) | tiny pipeline; Q4_K_M below |
+| LTX-Video 0.9.5 and later (2B) | diffusers folder | **supported** (the timestep-conditioned decoder at decode timestep 0 (diffusers' default), residual upsamplers that halve the channels, static shift 1 without the terminal stretch) | tiny 0.9.5 pipeline; 0.9.5 below |
+| LTX-Video 13B (0.9.7 / 0.9.8, dev and distilled) as single files | transformer GGUF (QuantStack) or original-name safetensors, the stand-alone VAE file (`AuxiliaryRoles.Vae`), T5 from an LTX-Video diffusers folder (`AuxiliaryRoles.TextEncoder`) | **supported** (original names mapped as diffusers' single-file conversion; Lightricks' causal RoPE frame coordinates and masked T5, as diffusers' condition pipeline; distilled files (by name): the 8-step distilled schedule without guidance) | 0.9.8 distilled Q4_K_M below |
+| HunyuanVideo image-to-video, HunyuanVideo 1.5, LTX-Video 0.9.1 (noise-injecting decoder), LTX-Video image / video conditioning and the latent upsamplers, CogVideoX, Mochi | - | missing (LTX 0.9.1's decoder is rejected by name) | |
 
 Design notes:
 
@@ -1876,10 +1985,20 @@ Design notes:
   encodes the start image followed by blank frames with the streamed causal encoder (`vae_encode`, then `vae_encode_next` per
   temporal-compression frames, the temporal downsampling over the previous chunk's last frame) and concatenates a mask that is 1 on the
   first latent frame and the encoded latents to the noisy latents of every transformer input.
+- HunyuanVideo: the language model (LLaVA-Llama-3-8B) is an embedded decoder source (`hunyuan_video.text_encoder_source.*`, weights under
+  `text_encoder.`) whose `text_encode` graph returns the hidden states two layers before the last for the template plus 256 prompt tokens;
+  the pipeline drops the template's states (`VideoConfigKeys.PromptPrefixTokens`) and passes the key mask to the denoiser. CLIP-L
+  (`text_encode_2`, component `text-encoder-2`, tokenizer `tokenizer-2`) gives the pooled vector; the guidance scale is a denoiser input
+  (`VideoConfigKeys.EmbeddedGuidance`). The transformer keeps the original names (diffusers' split q/k/v are concatenated at import, so GGUF
+  files map 1:1). The VAE decoder groups frames inside its causal convolutions so only one group's stacked windows exist at a time, runs
+  its frame-causal mid attention frame by frame, and the pipeline decodes in diffusers' temporal tiles (5 latent frames, 3 apart, blended
+  over 4 frames) and spatial tiles (32 latent pixels, 24 apart, blended over 64 pixels; `VideoConfigKeys.DecodeTileFrames`,
+  `DecodeSpatialTile`), so decoding memory does not grow with the video size.
 - Tokenizer fix: Hugging Face templates that start with the sequence (T5 / umT5 `$A </s>`) no longer add a BOS token when the
   tokenizer configuration names one.
 
-Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyWanTests`, `Wan21Tests` in
+Verification (tools/make-tiny-wan.py, tools/make-wan-references.py, tools/make-tiny-hunyuan-video.py; tests `TinyWanTests`, `WanTests`,
+`WanImageToVideoTests`, `TinyHunyuanVideoTests`, `HunyuanVideoTests` in
 `tests/Sharplight.ImageGeneration.Tests`):
 
 - Tiny random Wan pipelines (`~/models/video/tiny-random-wan/{t2v,ti2v}`: Wan 2.1 layout; Wan 2.2 TI2V layout with the residual
@@ -1914,6 +2033,25 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
   832×480, 17 frames, 20 UniPC steps, guidance 5, a start image (and a zoomed crop of it as the last image)): CLIP states 3.5e-3 / 3.4e-3
   relative RMS against transformers on the CPU (one-level pixel differences of the bicubic resize; transformers' own CUDA run with TF32
   convolutions is 1e-2 away), transformer 3.9e-4 / 1.7e-4; image-to-video 30.6–48.1 dB per frame, first-and-last-frame 50.8–60.2 dB.
+- Wan 2.2 I2V-A14B (QuantStack's HighNoise and LowNoise Q4_K_M GGUFs, the Wan 2.1 folder as companion; same reference script, guidance
+  3.5 / 3.5, switch at 0.9): high- / low-noise transformer 3.0e-4 / 6.2e-4 relative RMS at each expert's first step, image-to-video
+  35.0–52.5 dB per frame.
+- HunyuanVideo (city96's hunyuan-video-t2v-720p-Q4_K_M.gguf, the HunyuanVideo folder as companion; tools/make-hunyuan-video-references.py:
+  diffusers on the same GGUF in f32 on CUDA without TF32, the Llama encoder and the VAE in f32 on the CPU with `enable_tiling()`, 832×480,
+  33 frames, 20 Euler steps, embedded guidance 6): Llama states 2.5e-4, CLIP pooled 3.4e-4 (f16 files), transformer 4.1e-3 relative RMS;
+  text-to-video 28.2–33.0 dB per frame, visually the same video (a ±1e-3 nudge of the initial noise gives 30–34 dB against the
+  reference). 5.7 s per step (one pass, guidance embedded) at 832×480×33 frames, decoding about 45 s (45 tiles), peak 23.4 GB, 163 s in all;
+  diffusers took 16.6 s per step.
+- LTX-Video 0.9.5 (Lightricks/LTX-Video-0.9.5, bf16 transformer, the T5-XXL of the 0.9.0 folder) on Vulkan against diffusers f32 on CUDA
+  (TF32 off), 704×480, 25 frames, 20 Euler steps, guidance 3: T5 states 1.4e-5, transformer 2.9e-4 relative RMS, text-to-video worst
+  frame 45.0 dB (8.2 s including the kernel compilation; diffusers 33.5 s). At 768×512×97 frames with 40 steps: 0.75 s per step (both
+  guidance passes), decode 8 s, peak 10.0 GB, 49 s in all.
+- LTX-Video 13B 0.9.8 distilled (QuantStack's Q4_K_M GGUF and its VAE file, T5 from the LTX-Video folder; tools/make-ltx-single-file-references.py:
+  diffusers' LTXConditionPipeline on the same files in f32 on CUDA, 704×480, 25 frames, timesteps 1000, 993, 987, 981, 975, 909, 725, 0.03,
+  no guidance): transformer 2.7e-3 relative RMS, text-to-video 43.1–46.7 dB per frame; the reference's final latents decoded by Sharplight's
+  VAE: 74–76 dB. At 768×512×121 frames: 2.4 s per step (one pass), decode 7 s, peak 12.3 GB, 34 s in all. diffusers' `LTXPipeline` runs T5
+  without a mask and uses frame coordinates f · 8; the diffusers folders keep that behaviour (0.9.0 / 0.9.5 verification), single files follow
+  Lightricks' inference.
 - Speed and memory on the 32 GB GPU (Vulkan, `sharplight-generate-video`, 832×480, 33 frames = 9 latent frames, 20 UniPC steps
   with guidance, each run a new process: the conditioning time includes loading and compiling the umT5 encoder from the kernel
   cache): Wan 2.1 1.3B (f32 transformer) 4.2 s per step (both guidance passes), decode 19 s, peak 16.3 GB; Wan 2.2 TI2V-5B (f32

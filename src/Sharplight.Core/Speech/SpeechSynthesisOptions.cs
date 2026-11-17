@@ -30,6 +30,11 @@ public sealed record SpeechSynthesisOptions
     /// <summary>The words spoken in <see cref="ReferenceAudio"/>, for models that align the reference with its text (F5-TTS).</summary>
     public string? ReferenceText { get; init; }
 
+    /// <summary>
+    /// A natural-language instruction on how to speak (dialect, emotion, speed), for models that take one (CosyVoice 3); <see langword="null"/> for none.
+    /// </summary>
+    public string? Instructions { get; init; }
+
     /// <summary>The defaults.</summary>
     public static SpeechSynthesisOptions Default { get; } = new();
 }

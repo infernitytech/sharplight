@@ -12,7 +12,7 @@ internal static class HubJson
         using var document = Parse(json);
         var root = document.RootElement;
         var commit = String(root, "sha") ?? throw new HubException("The Hub's answer has no commit sha.");
-        return new HubRevisionInfo(String(root, "id"), commit, IsGated(root), Architecture(root));
+        return new HubRevisionInfo(String(root, "id"), commit, IsGated(root), Architecture(root), CardLicense(root));
     }
 
     /// <summary>The model family the Hub derived from the files: <c>gguf.architecture</c>, else <c>config.model_type</c>.</summary>
@@ -28,6 +28,12 @@ internal static class HubJson
 
         return null;
     }
+
+    /// <summary>The license the model card declares (<c>cardData.license</c>), else that of the first <c>license:</c> tag; null when neither is there.</summary>
+    private static string? CardLicense(JsonElement root)
+        => root.TryGetProperty("cardData", out var card) && card.ValueKind == JsonValueKind.Object && String(card, "license") is { Length: > 0 } license
+            ? license
+            : License(root);
 
     public static IReadOnlyList<HubFile> ParseTree(string json)
     {

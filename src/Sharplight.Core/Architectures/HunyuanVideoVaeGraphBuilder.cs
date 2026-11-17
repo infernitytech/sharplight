@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Tensors;
@@ -23,6 +22,9 @@ internal sealed class HunyuanVideoVaeGraphBuilder
 {
     private const string P = "vae.";
     private const float Eps = 1e-6f;
+
+    /// <summary>The stacked convolution input of one frame group stays below this many bytes.</summary>
+    private const long ChunkBytes = 1L << 30;
 
     private readonly GraphBuilder _b;
     private readonly int _groups;
@@ -98,38 +100,71 @@ internal sealed class HunyuanVideoVaeGraphBuilder
 
     /// <summary>
     /// A causal 3-D convolution over frames [T, C, H, W]: the first frame replicated kt − 1 times in front, edge pixels replicated
-    /// spatially, the windows of kt frames stacked along the channels (time-tap-major) for the folded 2-D kernel.
+    /// spatially, the windows of kt frames stacked along the channels (time-tap-major) for the folded 2-D kernel. Large inputs are
+    /// convolved in groups of frames (each group with its kt − 1 preceding frames), so the stacked windows of only one group exist at a time.
     /// </summary>
     private Value Conv(Value x, string prefix, bool causal = true)
     {
         var weight = _b.Weight(prefix + ".weight");
         var bias = _b.TryWeight(prefix + ".bias");
+        long frames = x.Shape[0].Fixed;
         long channels = x.Shape[1].Fixed;
         long taps = weight.Shape[1].Fixed / channels;
         long half = weight.Shape[2].Fixed / 2;
-        var input = x;
+        var padded = x;
         if (causal && taps > 1)
         {
-            long frames = x.Shape[0].Fixed;
             var first = _b.Slice(x, 0, 0, 1);
-            var parts = Enumerable.Repeat(first, (int)(taps - 1)).Append(x).ToArray();
-            var padded = _b.Concat(0, parts);
-            var windows = new Value[taps];
-            for (int j = 0; j < taps; j++)
+            padded = _b.Concat(0, [.. Enumerable.Repeat(first, (int)(taps - 1)), x]);
+        }
+        else
+        {
+            taps = 1;
+        }
+
+        long frameBytes = taps * channels * (x.Shape[2].Fixed + 2 * half) * (x.Shape[3].Fixed + 2 * half) * sizeof(float);
+        long group = Math.Clamp(ChunkBytes / Math.Max(1, frameBytes), 1, frames);
+        var outputs = new List<Value>();
+        for (long start = 0; start < frames; start += group)
+        {
+            long count = Math.Min(group, frames - start);
+            Value input;
+            if (taps > 1)
             {
-                windows[j] = _b.Slice(padded, 0, j, frames);
+                var windows = new Value[taps];
+                for (int j = 0; j < taps; j++)
+                {
+                    windows[j] = _b.Slice(padded, 0, start + j, count);
+                }
+
+                input = _b.Concat(1, windows);
+            }
+            else
+            {
+                input = count == frames ? x : _b.Slice(x, 0, start, count);
             }
 
-            input = _b.Concat(1, windows);
+            if (half > 0)
+            {
+                input = ReplicatePad(input, half);
+            }
+
+            var attributes = Attributes.From(("strides", new[] { 1L, 1L }), ("pads", new[] { 0L, 0L, 0L, 0L }));
+            outputs.Add(_b.Emit1("Conv", bias is null ? [input, weight] : [input, weight, bias], attributes));
         }
 
-        if (half > 0)
+        return ConcatFrames(outputs);
+    }
+
+    /// <summary>Concatenates frame groups along the frames, in rounds of at most 64 inputs (the op's limit).</summary>
+    private Value ConcatFrames(List<Value> parts)
+    {
+        while (parts.Count > 1)
         {
-            input = ReplicatePad(input, half);
+            parts = [.. parts.Chunk(64).Select(chunk => chunk.Length == 1 ? chunk[0] : _b.Concat(0, chunk))];
         }
 
-        var attributes = Attributes.From(("strides", new[] { 1L, 1L }), ("pads", new[] { 0L, 0L, 0L, 0L }));
-        return _b.Emit1("Conv", bias is null ? [input, weight] : [input, weight, bias], attributes);
+        return parts[0];
     }
 
     /// <summary>Pads [N, C, H, W] by <paramref name="pad"/> edge-replicated pixels on every side.</summary>
@@ -182,14 +217,17 @@ internal sealed class HunyuanVideoVaeGraphBuilder
         var q = _b.Reshape(_b.Linear(tokens, prefix + ".to_q.weight", prefix + ".to_q.bias"), rows, 1, channels);
         var k = _b.Reshape(_b.Linear(tokens, prefix + ".to_k.weight", prefix + ".to_k.bias"), rows, 1, channels);
         var v = _b.Reshape(_b.Linear(tokens, prefix + ".to_v.weight", prefix + ".to_v.bias"), rows, 1, channels);
-        var spans = new int[rows * 2];
-        for (long t = 0; t < rows; t++)
+        // Frame by frame: the queries of frame f attend to the keys of frames 0 … f (no [rows, rows] mask or span table).
+        var outputs = new Value[frames];
+        for (long f = 0; f < frames; f++)
         {
-            spans[t * 2 + 1] = (int)((t / pixels + 1) * pixels);
+            var query = _b.Contiguous(_b.Slice(q, 0, f * pixels, pixels));
+            var key = _b.Contiguous(_b.Slice(k, 0, 0, (f + 1) * pixels));
+            var value = _b.Contiguous(_b.Slice(v, 0, 0, (f + 1) * pixels));
+            outputs[f] = _b.Emit1("Attention", [query, key, value], Attributes.From(("scale", 1f / MathF.Sqrt(channels)), ("causal", false)));
         }
 
-        var span = _b.Constant(prefix + ".frame_spans", DataType.I32, new Shape(rows, 2), MemoryMarshal.AsBytes(spans.AsSpan()).ToArray());
-        var attended = _b.Emit1("Attention", [q, k, v, span], Attributes.From(("scale", 1f / MathF.Sqrt(channels)), ("causal", false)));
+        var attended = ConcatFrames([.. outputs]);
         var projected = _b.Linear(_b.Reshape(attended, rows, channels), prefix + ".to_out.0.weight", prefix + ".to_out.0.bias");
         var back = _b.Reshape(_b.Contiguous(_b.Permute(_b.Reshape(projected, frames, pixels, channels), 0, 2, 1)), frames, channels, height, width);
         return _b.Add(x, back);

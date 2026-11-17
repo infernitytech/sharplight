@@ -8,18 +8,20 @@ namespace Sharplight.Import.Diffusers;
 /// <summary>
 /// Reads a diffusers LTX-Video pipeline folder (<c>transformer/</c> with an <c>LTXVideoTransformer3DModel</c>, <c>vae/</c> with an
 /// <c>AutoencoderKLLTXVideo</c> (non-causal decoder), <c>text_encoder/</c> (T5), <c>tokenizer/</c>, <c>scheduler/</c>) into the canonical
-/// <c>ltx</c> source.
+/// <c>ltx</c> source. A component folder without weights is left out (a folder that only holds the configurations and the T5 encoder
+/// serves as a companion of a transformer-only file).
 /// </summary>
 internal static class LtxFolder
 {
     /// <summary>The canonical architecture id (the <c>LtxAdapter</c>'s).</summary>
     public const string Architecture = "ltx";
 
-    private const string Prefix = Architecture + ".";
+    /// <summary>Metadata key prefix.</summary>
+    public const string Prefix = Architecture + ".";
     private const string TextEncoderPrefix = "text_encoder.";
 
     /// <summary>The prompt length of the LTX pipeline.</summary>
-    private const int PromptLength = 128;
+    public const int PromptLength = 128;
 
     /// <summary>Whether the folder holds an LTX-Video transformer.</summary>
     /// <param name="path">A directory.</param>
@@ -45,13 +47,24 @@ internal static class LtxFolder
         {
             var transformerConfig = ReadJson(Path.Combine(path, "transformer", "config.json"));
             var vaeConfig = ReadJson(Path.Combine(path, "vae", "config.json"));
-            if (vaeConfig.Bool("decoder_causal", false) || vaeConfig.Bool("timestep_conditioning", false))
+            if (vaeConfig.Bool("decoder_causal", false))
             {
-                throw new NotSupportedException("Not supported yet: LTX-Video VAEs with a causal or timestep-conditioned decoder (LTX-Video 0.9.1 and later); LTX-Video 0.9.0 is supported.");
+                throw new NotSupportedException("Not supported yet: LTX-Video VAEs with a causal decoder; the non-causal decoders of LTX-Video 0.9.0 and 0.9.5 and later are supported.");
             }
 
-            DiffusersFolder.AddComponent(tensors, path, "transformer");
-            DiffusersFolder.AddComponent(tensors, path, "vae");
+            if (vaeConfig.TryGetProperty("decoder_inject_noise", out var inject) && inject.ValueKind == JsonValueKind.Array && inject.EnumerateArray().Any(e => e.GetBoolean()))
+            {
+                throw new NotSupportedException("Not supported yet: LTX-Video VAEs whose decoder injects noise (LTX-Video 0.9.1).");
+            }
+
+            foreach (string component in (string[])["transformer", "vae"])
+            {
+                if (HasWeights(path, component))
+                {
+                    DiffusersFolder.AddComponent(tensors, path, component);
+                }
+            }
+
             var weights = new CanonicalWeights();
             foreach (var (name, weight) in tensors.Tensors)
             {
@@ -69,7 +82,9 @@ internal static class LtxFolder
             }
 
             resources.AddRange(tensors.Resources);
-            var t5 = FluxSource.AddT5Folder(Path.Combine(path, "text_encoder"), Path.Combine(path, "tokenizer"), weights, resources, TextEncoderPrefix);
+            var t5 = HasWeights(path, "text_encoder")
+                ? FluxSource.AddT5Folder(Path.Combine(path, "text_encoder"), Path.Combine(path, "tokenizer"), weights, resources, TextEncoderPrefix)
+                : new Dictionary<string, object>();
             int heads = transformerConfig.Int("num_attention_heads", 32);
             int[] scaling = vaeConfig.TryGetProperty("decoder_spatio_temporal_scaling", out var decoderScaling) && decoderScaling.ValueKind == JsonValueKind.Array
                 ? [.. decoderScaling.EnumerateArray().Select(e => e.GetBoolean() ? 1 : 0)]
@@ -90,6 +105,14 @@ internal static class LtxFolder
                 [Prefix + "vae.patch_size"] = patch,
                 [Prefix + "vae.spatial_downscale"] = patch << upsamplers,
                 [Prefix + "vae.temporal_downscale"] = 1 << upsamplers,
+                // The decoder's blocks run in reverse order of the configuration lists.
+                [Prefix + "vae.upsample_residual"] = vaeConfig.TryGetProperty("upsample_residual", out var residual) && residual.ValueKind == JsonValueKind.Array
+                    ? residual.EnumerateArray().Select(e => e.GetBoolean()).Reverse().ToArray()
+                    : Array.Empty<bool>(),
+                [Prefix + "vae.upsample_factor"] = vaeConfig.TryGetProperty("upsample_factor", out var factor) && factor.ValueKind == JsonValueKind.Array
+                    ? factor.EnumerateArray().Select(e => e.GetInt32()).Reverse().ToArray()
+                    : Array.Empty<int>(),
+                [Prefix + "vae.decode_timestep"] = 0f,
                 [Prefix + "text_encoder.prompt_length"] = PromptLength,
                 [Prefix + "default_width"] = 704,
                 [Prefix + "default_height"] = 480,
@@ -148,14 +171,21 @@ internal static class LtxFolder
         metadata[s + "max_shift"] = (double)(present ? config.Float("max_shift", 2.05f) : 2.05f);
         metadata[s + "base_sequence_length"] = present ? config.Int("base_image_seq_len", 1024) : 1024;
         metadata[s + "max_sequence_length"] = present ? config.Int("max_image_seq_len", 4096) : 4096;
-        metadata[s + "shift_terminal"] = present ? config.Float("shift_terminal", 0.1f) : 0.1f;
+        // LTX-Video 0.9.5 and later: a static shift and no terminal stretch (null in the configuration).
+        metadata[s + "shift"] = present ? config.Float("shift", 1f) : 1f;
+        metadata[s + "shift_terminal"] = !present ? 0.1f
+            : config.TryGetProperty("shift_terminal", out var terminal) ? (terminal.ValueKind == JsonValueKind.Number ? terminal.GetSingle() : 0f) : 0.1f;
         if (present)
         {
             metadata[s + "source_config"] = File.ReadAllText(file);
         }
     }
 
-    private static void AddTransformer(string name, WeightInfo stored, CanonicalWeights weights)
+    /// <summary>Adds a transformer tensor under its diffusers name (the modulation tables as f32 vectors).</summary>
+    /// <param name="name">The diffusers name without <c>transformer.</c>.</param>
+    /// <param name="stored">The stored tensor.</param>
+    /// <param name="weights">The canonical set.</param>
+    public static void AddTransformer(string name, WeightInfo stored, CanonicalWeights weights)
     {
         string canonical = "transformer." + name;
         if (name.EndsWith("scale_shift_table", StringComparison.Ordinal))
@@ -167,12 +197,17 @@ internal static class LtxFolder
         weights.Add(canonical, stored);
     }
 
-    private static void AddVae(string name, WeightInfo stored, CanonicalWeights weights)
+    /// <summary>Adds a VAE tensor under its diffusers name (3-D kernels with the time taps folded into the input channels).</summary>
+    /// <param name="name">The diffusers name without <c>vae.</c>.</param>
+    /// <param name="stored">The stored tensor.</param>
+    /// <param name="weights">The canonical set.</param>
+    public static void AddVae(string name, WeightInfo stored, CanonicalWeights weights)
     {
         string canonical = "vae." + name;
-        if (name.StartsWith("latents_", StringComparison.Ordinal))
+        if (name.StartsWith("latents_", StringComparison.Ordinal) || name.EndsWith("scale_shift_table", StringComparison.Ordinal)
+            || name.EndsWith("timestep_scale_multiplier", StringComparison.Ordinal))
         {
-            weights.AddF32(canonical, stored);
+            weights.AddF32(canonical, stored.Shape.Rank == 0 ? stored.As(canonical, new Shape(1)) : stored);
         }
         else if (stored.Shape.Rank == 5)
         {
@@ -183,6 +218,9 @@ internal static class LtxFolder
             weights.Add(canonical, stored);
         }
     }
+
+    private static bool HasWeights(string path, string component)
+        => Directory.Exists(Path.Combine(path, component)) && Directory.EnumerateFiles(Path.Combine(path, component), "*.safetensors").Any();
 
     private static JsonElement ReadJson(string file)
     {

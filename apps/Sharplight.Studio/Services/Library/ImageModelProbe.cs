@@ -21,11 +21,12 @@ internal static class ImageModelProbe
     private const string ZImageTransformerTensor = "noise_refiner.0.attention.qkv.weight";
     private const string QwenImageTransformerTensor = "transformer_blocks.0.img_mod.1.weight";
     private const string QwenImage21TransformerTensor = "txt_in.text_norm.weight";
+    private const string Krea2TransformerTensor = "txtfusion.projector.weight";
     private const long MaxSafetensorsHeader = 256L << 20;
 
     private static readonly HashSet<string> s_diffusionTransformerArchitectures = new(StringComparer.OrdinalIgnoreCase)
     {
-        "flux", "sd3", "aura", "auraflow", "chroma", "hidream", "lumina2", "qwen_image", "wan", "hyvid", "ltxv", "cosmos",
+        "flux", "sd3", "krea2", "aura", "auraflow", "chroma", "hidream", "lumina2", "qwen_image", "wan", "hyvid", "ltxv", "cosmos",
     };
 
     private static readonly string[] s_upscalerNameHints = ["esrgan", "swinir", "realesr", "upscal", "super-resolution", "superres"];
@@ -64,7 +65,8 @@ internal static class ImageModelProbe
 
             if (SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor)
                 || SafetensorsHeaderContains(path, Sd3TransformerTensor) || SafetensorsHeaderContains(path, ZImageTransformerTensor)
-                || SafetensorsHeaderContains(path, QwenImageTransformerTensor) || SafetensorsHeaderContains(path, QwenImage21TransformerTensor))
+                || SafetensorsHeaderContains(path, QwenImageTransformerTensor) || SafetensorsHeaderContains(path, QwenImage21TransformerTensor)
+                || SafetensorsHeaderContains(path, Krea2TransformerTensor))
             {
                 return ModelKinds.ImageGeneration;
             }
@@ -114,7 +116,7 @@ internal static class ImageModelProbe
         {
             return (SafetensorsHeaderContains(path, FluxTransformerTensor) || SafetensorsHeaderContains(path, Sd3TransformerTensor)
                     || SafetensorsHeaderContains(path, ZImageTransformerTensor) || SafetensorsHeaderContains(path, QwenImageTransformerTensor)
-                    || SafetensorsHeaderContains(path, QwenImage21TransformerTensor))
+                    || SafetensorsHeaderContains(path, QwenImage21TransformerTensor) || SafetensorsHeaderContains(path, Krea2TransformerTensor))
                 && !SafetensorsHeaderContains(path, "text_encoders.");
         }
 
@@ -128,7 +130,8 @@ internal static class ImageModelProbe
             using var file = GgufFile.Open(path);
             return file.Tensors.Any(tensor => tensor.Name.EndsWith(FluxTransformerTensor, StringComparison.Ordinal)
                 || tensor.Name.EndsWith(Sd3TransformerTensor, StringComparison.Ordinal) || tensor.Name.EndsWith(ZImageTransformerTensor, StringComparison.Ordinal)
-                || tensor.Name.EndsWith(QwenImageTransformerTensor, StringComparison.Ordinal) || tensor.Name.EndsWith(QwenImage21TransformerTensor, StringComparison.Ordinal));
+                || tensor.Name.EndsWith(QwenImageTransformerTensor, StringComparison.Ordinal) || tensor.Name.EndsWith(QwenImage21TransformerTensor, StringComparison.Ordinal)
+                || tensor.Name.EndsWith(Krea2TransformerTensor, StringComparison.Ordinal));
         }
         catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
         {
@@ -204,7 +207,8 @@ internal static class ImageModelProbe
             using var file = GgufFile.Open(path);
             return file.Architecture is { } architecture && s_diffusionTransformerArchitectures.Contains(architecture)
                 || file.Tensors.Any(tensor => tensor.Name.StartsWith(UNetPrefix, StringComparison.Ordinal)
-                    || tensor.Name.StartsWith("double_blocks.", StringComparison.Ordinal) || tensor.Name.StartsWith("joint_blocks.", StringComparison.Ordinal));
+                    || tensor.Name.StartsWith("double_blocks.", StringComparison.Ordinal) || tensor.Name.StartsWith("joint_blocks.", StringComparison.Ordinal)
+                    || tensor.Name.EndsWith(QwenImage21TransformerTensor, StringComparison.Ordinal) || tensor.Name.EndsWith(Krea2TransformerTensor, StringComparison.Ordinal));
         }
         catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
         {

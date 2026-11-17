@@ -17,8 +17,9 @@ internal static class DiffusersFolder
     /// <param name="path">A directory.</param>
     public static bool IsFolder(string path)
         => Directory.Exists(path) && File.Exists(Path.Combine(path, "vae", "config.json"))
-           && (File.Exists(Path.Combine(path, "unet", "config.json")) || FluxFolder.IsFolder(path) || WanFolder.IsFolder(path) || LtxFolder.IsFolder(path)
-               || Sd3Folder.IsFolder(path) || ChromaFolder.IsFolder(path) || ZImageFolder.IsFolder(path) || QwenImageFolder.IsFolder(path) || QwenImage21Folder.IsFolder(path));
+           && (File.Exists(Path.Combine(path, "unet", "config.json")) || FluxFolder.IsFolder(path) || WanFolder.IsFolder(path) || LtxFolder.IsFolder(path) || HunyuanVideoFolder.IsFolder(path)
+               || Sd3Folder.IsFolder(path) || ChromaFolder.IsFolder(path) || ZImageFolder.IsFolder(path) || QwenImageFolder.IsFolder(path) || QwenImage21Folder.IsFolder(path) || Flux2Folder.IsFolder(path)
+               || Krea2Folder.IsFolder(path));
 
     /// <summary>Opens the folder as a canonical source.</summary>
     /// <param name="path">The pipeline folder.</param>
@@ -55,6 +56,16 @@ internal static class DiffusersFolder
             return QwenImage21Folder.Open(path);
         }
 
+        if (Flux2Folder.IsFolder(path))
+        {
+            return Flux2Folder.Open(path);
+        }
+
+        if (Krea2Folder.IsFolder(path))
+        {
+            return Krea2Folder.Open(path);
+        }
+
         if (WanFolder.IsFolder(path))
         {
             return WanFolder.Open(path);
@@ -63,6 +74,11 @@ internal static class DiffusersFolder
         if (LtxFolder.IsFolder(path))
         {
             return LtxFolder.Open(path);
+        }
+
+        if (HunyuanVideoFolder.IsFolder(path))
+        {
+            return HunyuanVideoFolder.Open(path);
         }
 
         if (Directory.Exists(Path.Combine(path, "transformer")) || !Directory.Exists(Path.Combine(path, "text_encoder")))

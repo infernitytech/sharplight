@@ -6,6 +6,11 @@ This is the list of models that have been tried with Sharplight and work. It onl
 listed has not been tried yet, which does not mean it fails. Technical detail (architecture coverage, quantization formats, test
 methodology, numbers) is in [model-support.md](model-support.md), ONNX details in [onnx-support.md](onnx-support.md).
 
+The model tables are generated from the verified-model catalog, `catalog/verified-models.json` ([verified-catalog.md](verified-catalog.md)),
+which pins every verified model to the exact Hub revision and files that were checked; Sharplight Studio offers the same list in
+Discover ("Verified"), installable in one click. Sections 1.2, 7 and 9 (load-only sweeps, ONNX groups, unsupported models) are written by
+hand.
+
 ## What "compatible" means
 
 A model is listed when it **imports** (the file format is read, the architecture is recognized, tokenizer and chat template or feature
@@ -38,6 +43,7 @@ fail to import are reported with a reason; those reasons are collected in the la
 
 Greedy generation compared token by token. "llama.cpp" = llama.cpp, "transformers" = Hugging Face transformers (fp32 compute).
 
+<!-- verified-catalog:table 1.1 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Format | Providers | Verification | Notes | Verified |
 |---|---|---|---|---|---|---|
 | Qwen3 0.6B | Qwen/Qwen3-0.6B, Qwen/Qwen3-0.6B-GGUF, unsloth/Qwen3-0.6B-GGUF, bartowski/Qwen_Qwen3-0.6B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | HF and GGUF import to identical weights; greedy ids identical | bartowski IQ2_M: Vulkan identical to llama.cpp, CPU differs late (precision) | 2026-11-15 |
@@ -92,6 +98,7 @@ Greedy generation compared token by token. "llama.cpp" = llama.cpp, "transformer
 | GPT-2 | openai-community/gpt2 | safetensors, GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
 | Pythia 160M | EleutherAI/pythia-160m | safetensors, GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
 | Bonsai 1.7B, Ternary-Bonsai 1.7B / 2-2B | prism-ml (Bonsai GGUF) | GGUF Q1_0, Q2_0, PQ2_0, PTQ1_0 | CPU, Vulkan | HF vs GGUF parity | 1-2 bit formats | 2026-11-14 |
+<!-- verified-catalog:end -->
 
 More text models were verified against llama.cpp on GGUF files and are summarized by family in model-support.md section 8.1 (all Q4_K_M or
 Q8_0, text identical to llama.cpp on CPU and Vulkan): Granite 3.x dense and MoE (granite-3.1-1b-a400m, granite-3.3-2b), Command-R7B and Aya Expanse 8B,
@@ -106,32 +113,34 @@ the most downloaded GGUF against llama.cpp b11177: tokenizer on seven multilingu
 with tool calls, 48 greedy tokens on three prompts (method and per-model notes in model-support.md section 17). "near-tie" = the first
 differing token is a near tie of the reference itself (llama.cpp's own CPU and Vulkan builds differ there too, or the logit gap is below 0.1).
 
+<!-- verified-catalog:table 1.1.1 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Format | Providers | Verification | Notes | Verified |
 |---|---|---|---|---|---|---|
-| GPT-2 | openai-community/gpt2, mradermacher/gpt2-GGUF | safetensors F32, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp per backend | | 2026-11-16 |
 | Qwen3 0.6B | Qwen/Qwen3-0.6B, Qwen/Qwen3-0.6B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids and templates (tools) identical to transformers; GGUF near-tie vs llama.cpp | also as .slm | 2026-11-16 |
+| Qwen2.5 0.5B / 1.5B / 3B / 7B Instruct | Qwen/Qwen2.5-*-Instruct, Qwen/Qwen2.5-*-Instruct-GGUF | safetensors, GGUF Q8_0 / Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF identical or near-tie vs llama.cpp | the official GGUFs embed an older tool-call template (literal `{{"name": ...}}`), rendered exactly as transformers renders it | 2026-11-16 |
+| Qwen3.6 35B-A3B (MoE) | unsloth/Qwen3.6-35B-A3B-GGUF | GGUF UD-Q4_K_M | Vulkan | tokenizer, templates and greedy text identical to llama.cpp | | 2026-11-16 |
+| Qwen3.8-Flash-Next | unsloth/Qwen3.8-Flash-Next-GGUF | GGUF UD-IQ1_S (66 GB) | Vulkan (2 GPUs) + CPU | tokenizer, templates and greedy text identical to llama.cpp | its MTP draft file (`mtp-*-Q8_0.gguf`, CLI `--draft`) works as the draft head: acceptance 0.87 / 0.79 / 0.64 at k = 1 / 2 / 3 on one GPU + CPU | 2026-11-16 |
+| Llama 3.2 1B Instruct | unsloth/Llama-3.2-1B-Instruct, unsloth/Llama-3.2-1B-Instruct-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | also in Studio and as .slm | 2026-11-16 |
+| gpt-oss 20B / 120B | openai/gpt-oss-20b, unsloth/gpt-oss-20b-GGUF, ggml-org/gpt-oss-120b-GGUF | safetensors MXFP4 (20B), GGUF Q4_K_M, MXFP4 (120B) | CPU, Vulkan (120B: 2 GPUs + CPU) | 20B ids identical to transformers; GGUF near-tie vs llama.cpp | | 2026-11-16 |
+| GLM-4.7-Flash (MLA, MoE) | unsloth/GLM-4.7-Flash-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; greedy near-tie vs llama.cpp | | 2026-11-16 |
+| LFM3 1.7B | LiquidAI/LFM3-1.7B, LiquidAI/LFM3-1.7B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF teacher-forced vs transformers (llama.cpp b11177 lacks lfm3) | also in Studio | 2026-11-16 |
+| Nemotron 3 Nano 4B | nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16, lmstudio-community/NVIDIA-Nemotron-3-Nano-4B-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | Mamba-2 hybrid; also as .slm | 2026-11-16 |
+| GPT-2 | openai-community/gpt2, mradermacher/gpt2-GGUF | safetensors F32, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp per backend | | 2026-11-16 |
+| Pythia 160M | EleutherAI/pythia-160m, mradermacher/pythia-160m-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF near-tie vs llama.cpp | | 2026-11-16 |
 | Qwen3 1.7B / 4B / 8B | Qwen/Qwen3-1.7B, -4B, -8B; unsloth/Qwen3-1.7B-GGUF, Qwen/Qwen3-4B-GGUF, Qwen/Qwen3-8B-GGUF | safetensors, GGUF Q8_0 / Q4_K_M | CPU, Vulkan | ids identical to transformers; 4B / 8B GGUF identical to llama.cpp, 1.7B near-tie | | 2026-11-16 |
 | Qwen3 14B | Qwen/Qwen3-14B, Qwen/Qwen3-14B-GGUF | safetensors (29.5 GB), GGUF Q4_K_M | Vulkan | ids identical to transformers; GGUF identical to llama.cpp | safetensors on one whole 32 GB GPU | 2026-11-16 |
 | Qwen3 32B | Qwen/Qwen3-32B-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; near-tie vs llama.cpp | | 2026-11-16 |
-| Qwen2.5 0.5B / 1.5B / 3B / 7B Instruct | Qwen/Qwen2.5-*-Instruct, Qwen/Qwen2.5-*-Instruct-GGUF | safetensors, GGUF Q8_0 / Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF identical or near-tie vs llama.cpp | the official GGUFs embed an older tool-call template (literal `{{"name": ...}}`), rendered exactly as transformers renders it | 2026-11-16 |
 | Ornith 1.0 9B / 1.5 9B | ornith-ai/Ornith-1.0-9B, ornith-ai/Ornith-1.5-9B-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF near-tie vs llama.cpp | qwen3_5 hybrid | 2026-11-16 |
 | Qwen3.8 27B | Qwen/Qwen3.8-27B-FP8, lmstudio-community/Qwen3.8-27B-GGUF | safetensors FP8, GGUF Q8_0 | Vulkan (2 GPUs) | FP8: ids identical to transformers (bf16 checkpoint) on raw prompts, teacher-forced logit difference 0.16-0.19; Q8_0 identical to llama.cpp | | 2026-11-16 |
-| Qwen3.8-Flash-Next | unsloth/Qwen3.8-Flash-Next-GGUF | GGUF UD-IQ1_S (66 GB) | Vulkan (2 GPUs) + CPU | tokenizer, templates and greedy text identical to llama.cpp | its MTP draft file (`mtp-*-Q8_0.gguf`, CLI `--draft`) works as the draft head: acceptance 0.87 / 0.79 / 0.64 at k = 1 / 2 / 3 on one GPU + CPU | 2026-11-16 |
 | MiMo 7B RL | XiaomiMiMo/MiMo-7B-RL | safetensors BF16 | Vulkan | MTP speculative greedy output identical to plain decoding (k = 1-3); the trunk was not compared with a reference (remote code) | built-in MTP layer as draft head: k = 1 1.38x (56.0 → 77.4 tok/s), acceptance 0.70 | 2026-11-16 |
-| gpt-oss 20B / 120B | openai/gpt-oss-20b, unsloth/gpt-oss-20b-GGUF, ggml-org/gpt-oss-120b-GGUF | safetensors MXFP4 (20B), GGUF Q4_K_M, MXFP4 (120B) | CPU, Vulkan (120B: 2 GPUs + CPU) | 20B ids identical to transformers; GGUF near-tie vs llama.cpp | | 2026-11-16 |
 | Llama 3.1 8B Instruct | unsloth/Llama-3.1-8B-Instruct, bartowski/Meta-Llama-3.1-8B-Instruct-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids and tool template identical to transformers; GGUF first token a 0.03 near-tie, identical to transformers on the same GGUF | | 2026-11-16 |
-| Llama 3.2 1B Instruct | unsloth/Llama-3.2-1B-Instruct, bartowski/Llama-3.2-1B-Instruct-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | also in Studio and as .slm | 2026-11-16 |
 | Llama 3.3 70B Instruct | bartowski/Llama-3.3-70B-Instruct-GGUF | GGUF Q4_K_M | Vulkan (2 GPUs) | identical to llama.cpp CUDA; llama.cpp Vulkan differs at a near-tie | | 2026-11-16 |
 | Mistral 7B Instruct v0.2 | mistralai/Mistral-7B-Instruct-v0.2, TheBloke/Mistral-7B-Instruct-v0.2-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | tokenizer, chat prompt ids and greedy ids identical to transformers; GGUF identical to transformers on the same GGUF | GGUF prompt ids follow llama.cpp's space-prefix placement | 2026-11-16 |
 | OPT 125M | facebook/opt-125m | PyTorch .bin | CPU, Vulkan | ids identical to transformers | no GGUF (llama.cpp has no OPT); post-norm OPT-350m not supported | 2026-11-16 |
-| Pythia 160M | EleutherAI/pythia-160m, mradermacher/pythia-160m-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF near-tie vs llama.cpp | | 2026-11-16 |
 | SmolLM2 135M | HuggingFaceTB/SmolLM2-135M, prithivMLmods/SmolLM2-135M-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | | 2026-11-16 |
-| Nemotron 3 Nano 4B | nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16, lmstudio-community/NVIDIA-Nemotron-3-Nano-4B-GGUF | safetensors, GGUF Q4_K_M | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | Mamba-2 hybrid; also as .slm | 2026-11-16 |
 | MiniCPM5 2B | openbmb/MiniCPM5-2B, bartowski/MiniCPM5-2B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | | 2026-11-16 |
-| LFM3 1.7B | LiquidAI/LFM3-1.7B, LiquidAI/LFM3-1.7B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF teacher-forced vs transformers (llama.cpp b11177 lacks lfm3) | also in Studio | 2026-11-16 |
 | Qwen3 30B-A3B (MoE) | Qwen/Qwen3-30B-A3B-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; greedy identical to llama.cpp (CPU build) | | 2026-11-16 |
-| Qwen3.6 35B-A3B (MoE) | unsloth/Qwen3.6-35B-A3B-GGUF | GGUF UD-Q4_K_M | Vulkan | tokenizer, templates and greedy text identical to llama.cpp | | 2026-11-16 |
-| GLM-4.7-Flash (MLA, MoE) | unsloth/GLM-4.7-Flash-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; greedy near-tie vs llama.cpp | | 2026-11-16 |
+<!-- verified-catalog:end -->
 
 ### 1.2 Language models that load (header check and import, output not compared)
 
@@ -156,6 +165,7 @@ In all, 1,080 of 1,138 GGUF files across 88 repositories and 49 of 72 Hub checkp
 
 ### 1.3 Vision-language models
 
+<!-- verified-catalog:table 1.3 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Format | Providers | Verification | Notes | Verified |
 |---|---|---|---|---|---|---|
 | Qwen3-VL 2B Instruct | Qwen/Qwen3-VL-2B-Instruct | safetensors, GGUF + mmproj | CPU, Vulkan | greedy text identical to transformers / llama.cpp; mmproj vs llama.cpp | | 2026-11-14 |
@@ -163,17 +173,21 @@ In all, 1,080 of 1,138 GGUF files across 88 repositories and 49 of 72 Hub checkp
 | Qwen3.8 27B | Qwen/Qwen3.8-27B | GGUF mmproj (BF16) | CPU, Vulkan | projector output vs llama.cpp | | 2026-11-14 |
 | Ministral 3 3B, Gemma 3 4B, LFM2-VL 450M | mistralai / google / LiquidAI | GGUF + mmproj | CPU, Vulkan | text vs llama.cpp (see 1.1); projector files load | | 2026-11-14 |
 | PaddleOCR-VL 1.6, Unlimited-OCR | PaddlePaddle/PaddleOCR-VL-1.6, baidu/Unlimited-OCR | safetensors | CPU | Loads | | 2026-11-15 |
+<!-- verified-catalog:end -->
 
 ### 1.4 Diffusion language models
 
+<!-- verified-catalog:table 1.4 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Verification | Notes |
 |---|---|---|---|
 | Dream, LLaDA, RND1, LLaDA-MoE architectures | Dream-7B, LLaDA-8B (and tiny random checkpoints of each) | Verified (tiny): masked-diffusion unmasking loop against the reference implementations on CPU and Vulkan | No real checkpoint compared yet |
+<!-- verified-catalog:end -->
 
 ### 1.5 Embedding and reranking models
 
 Cosine similarity above 0.999 per embedding and identical token ids against the reference; rerankers within about 1e-3 of the reference logits.
 
+<!-- verified-catalog:table 1.5 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Format | Providers | Verification | Verified |
 |---|---|---|---|---|---|
 | bge-small-en-v1.5 | BAAI/bge-small-en-v1.5 | safetensors, GGUF f16, Q8_0 | CPU, Vulkan | cosine > 0.999 vs reference | 2026-11-14 |
@@ -184,6 +198,7 @@ Cosine similarity above 0.999 per embedding and identical token ids against the 
 | bge-reranker-base, bge-reranker-v2-m3 | BAAI/bge-reranker-base, BAAI/bge-reranker-v2-m3 | safetensors | CPU, Vulkan (v2-m3: Vulkan) | logits within ~1e-3 | 2026-11-14 |
 | EmbeddingGemma 300M and 2 | ggml-org/embeddinggemma-300M-GGUF, unsloth/embeddinggemma-2-GGUF | GGUF | CPU, Vulkan | Loads | 2026-11-15 |
 | bge-m3, mxbai-embed-large-v1 | ggml-org/bge-m3-Q8_0-GGUF, mixedbread-ai/mxbai-embed-large-v1 | GGUF | CPU, Vulkan | Loads | 2026-11-15 |
+<!-- verified-catalog:end -->
 
 ---
 
@@ -191,28 +206,31 @@ Cosine similarity above 0.999 per embedding and identical token ids against the 
 
 Verified on CPU and Vulkan. Reference: transformers (token-exact greedy ids), whisper.cpp (segments and text).
 
+<!-- verified-catalog:table 2 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Formats | Verification | Notes | Verified |
 |---|---|---|---|---|---|
 | Whisper tiny, tiny.en, base, base.en, small, small.en | openai/whisper-*, ggerganov/whisper.cpp | HF, whisper.cpp `.bin` (f16, q5_1), `.slm` | ids identical to transformers (with and without timestamps, 5-beam search, language detection); whisper.cpp f16 identical, q5_1 same words (3 of 24 runs differ in one punctuation mark) | | 2026-11-15 |
-| Whisper large-v3-turbo | openai/whisper-large-v3-turbo, oxide-lab/whisper-large-v3-turbo-GGUF | HF, whisper.cpp `.bin` f16 / q5_0 / q8_0, whisper GGUF Q8_0 / Q4_K_M | transcript identical to whisper.cpp | medium and large-v1/v2/v3 map the same way, not verified | 2026-11-15 |
 | Whisper as GGUF (tiny, base) | handy-computer/whisper-*-gguf | GGUF F32, F16, Q8_0, Q4_K_M | tiny F16 / F32 identical to whisper.cpp, quantized word for word | Candle-style whisper GGUF files are rejected with a message | 2026-11-15 |
+| Whisper large-v3-turbo | openai/whisper-large-v3-turbo, oxide-lab/whisper-large-v3-turbo-GGUF | HF, whisper.cpp `.bin` f16 / q5_0 / q8_0, whisper GGUF Q8_0 / Q4_K_M | transcript identical to whisper.cpp | medium and large-v1/v2/v3 map the same way, not verified | 2026-11-15 |
 | Distil-Whisper small.en, large-v3.5 | distil-whisper/distil-small.en, distil-whisper/distil-large-v3.5 | HF | ids identical to transformers, beam search identical | | 2026-11-15 |
 | Moonshine tiny, base | moonshine-ai/moonshine-tiny, moonshine-ai/moonshine-base | HF, `.slm` | ids identical to transformers | | 2026-11-16 |
 | Parakeet CTC 0.6B | nvidia/parakeet-ctc-0.6b | HF (transformers format), `.slm` | ids identical to transformers | 1.1B maps the same way, not verified | 2026-11-16 |
 | Parakeet TDT 0.6B v3 | nvidia/parakeet-tdt-0.6b-v3 | HF, `.slm` | ids identical to transformers | | 2026-11-16 |
+| Parakeet as GGUF (TDT 0.6B v3) | handy-computer/parakeet-tdt-0.6b-v3-gguf | transcribe.cpp GGUF F16, Q8_0 | F16: text identical to the Hugging Face checkpoint on 5 clips (English, LibriSpeech, German, Spanish, Japanese); Q8_0: same text except one capital letter in German and a few kana in Japanese | Q4_K_M, Q5_K_M, Q6_K map the same way, not run | 2026-11-16 |
 | Canary 1B v2 | nvidia/canary-1b-v2 | HF, `.slm` | ids identical to transformers (English transcription with punctuation) | translation prompt works; no timestamps | 2026-11-16 |
 | Whisper large-v3 | openai/whisper-large-v3, handy-computer/whisper-large-v3-gguf | HF, whisper GGUF Q5_K_M | transcript identical to transformers greedy (English, LibriSpeech, German, Spanish, Japanese); the Q5_K_M file gives the same text | | 2026-11-16 |
 | wav2vec2 CTC (base-960h, XLSR-53 fine-tunes) | facebook/wav2vec2-base-960h, jonatasgrosman/wav2vec2-large-xlsr-53-japanese | HF (`.safetensors` and `pytorch_model.bin`) | base-960h: CTC ids and text identical to transformers on jfk and LibriSpeech, CPU and Vulkan (encoder test); XLSR-53 Japanese (layer-normed, pre-norm variant): text identical to transformers | the other `jonatasgrosman/wav2vec2-large-xlsr-53-*` language models share the layout, not run | 2026-11-16 |
-| Parakeet as GGUF (TDT 0.6B v3) | handy-computer/parakeet-tdt-0.6b-v3-gguf | transcribe.cpp GGUF F16, Q8_0 | F16: text identical to the Hugging Face checkpoint on 5 clips (English, LibriSpeech, German, Spanish, Japanese); Q8_0: same text except one capital letter in German and a few kana in Japanese | Q4_K_M, Q5_K_M, Q6_K map the same way, not run | 2026-11-16 |
 | Parakeet unified (RNN-T, English) | handy-computer/parakeet-unified-en-0.6b-gguf | transcribe.cpp GGUF Q8_0 | Partial: transcripts match the reference text on jfk and LibriSpeech, no NeMo reference at hand to compare tokens | streaming chunked-attention settings read, but run with full context | 2026-11-16 |
 | Parakeet RNN-T | nvidia/parakeet-rnnt-* | HF | Partial: maps, not verified | | |
 | Qwen3-ASR 1.7B (audio language model) | Qwen/Qwen3-ASR-1.7B, Qwen/Qwen3-ASR-1.7B-hf, handy-computer/Qwen3-ASR-1.7B-gguf | HF (original and transformers layouts), transcribe.cpp GGUF | greedy ids identical to transformers on jfk and LibriSpeech, language detected and English forced, CPU and Vulkan; the `-hf` layout and the transcribe.cpp F16 GGUF give the same ids; the language the model names is returned | 30 languages; recordings in 30 s windows; Qwen3-ASR 0.6B maps the same way, not run | 2026-11-16 |
 | Voxtral Mini 3B (audio language model) | mistralai/Voxtral-Mini-3B-2507 | HF (transformers layout, `tekken.json` tokenizer) | greedy ids identical to transformers on jfk and LibriSpeech, without a language and with English given, CPU and Vulkan | 30 s per window (375 audio rows); Voxtral Small 24B maps the same way, not run; the realtime 4B (streaming decoder) is not supported | 2026-11-16 |
+<!-- verified-catalog:end -->
 
 Long recordings are cut into 30 s windows (Whisper uses its own timestamp-driven loop). Not yet: temperature fallback, Whisper word timestamps.
 
 ## 3. Text to speech
 
+<!-- verified-catalog:table 3 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Formats | Providers | Verification | Notes | Verified |
 |---|---|---|---|---|---|---|
 | Kokoro 82M v1.0 | hexgrad/Kokoro-82M | PyTorch folder, `.slm` | CPU, Vulkan | symbols, durations and F0 identical to the `kokoro` package; waveform within 1.3e-2 relative RMS (the reference's own noise floor) | all voice packs load; English front end only | 2026-11-15 |
@@ -221,12 +239,15 @@ Long recordings are cut into 30 s windows (Whisper uses its own timestamp-driven
 | Chatterbox (English) | ResembleAI/chatterbox | safetensors folder (`t3_cfg`, `s3gen`, `ve`, `tokenizer.json`, `conds.pt`) | CPU, Vulkan | vs the chatterbox-tts package: T3 conditioning within 7e-7, guided greedy chain teacher forced with 0 argmax disagreements over 92 tokens, S3Gen flow mel within 6e-7, HiFT waveform within 7e-6 (relative RMS, the reference's noise) | built-in voice `default`, or the voice of a recording (`SpeechSynthesisOptions.ReferenceAudio`; voice encoder within 1.2e-6, S3 prompt and flow tokens identical, CAM++ x-vector within 8e-6 vs the package); multilingual and Turbo variants not run | 2026-11-16 |
 | F5-TTS v1 Base + Vocos | SWivid/F5-TTS (F5TTS_v1_Base), charactr/vocos-mel-24khz | safetensors folder + Vocos folder (`vocoder` auxiliary) | CPU, Vulkan | vs the f5-tts package: sampled mel within 3.5e-5 and Vocos waveform within 2.4e-5 (relative RMS, the reference's noise); character ids and duration identical | speaks with the voice of a reference recording (`SpeechSynthesisOptions.ReferenceAudio` and `ReferenceText`); no Chinese pinyin conversion, no automatic transcription of the reference | 2026-11-16 |
 | XTTS v2 | coqui/XTTS-v2 | Coqui checkpoint folder (`model.pth`, `config.json`, `vocab.json`, `speakers_xtts.pth`) | CPU, Vulkan | vs coqui-tts: text ids and 90 of 90 greedy codes identical; latents within 6.8e-5, HiFi-GAN waveform within 1.8e-4 (relative RMS); Vulkan real-time factor 0.24 | the 58 built-in speakers or the voice of a recording (`SpeechSynthesisOptions.ReferenceAudio`; style latents within 3.7e-6, speaker embedding within 2.8e-6 vs coqui-tts); English text cleaning (other languages lowercased only) | 2026-11-16 |
+| CosyVoice 3 0.5B | FunAudioLLM/Fun-CosyVoice3-0.5B-2512 | release folder (`llm.pt`, `flow.pt`, `hift.pt`, `CosyVoice-BlankEN/`, `speech_tokenizer_v3.onnx`, `campplus.onnx`), `.slm` | CPU, Vulkan | vs FunAudioLLM's CosyVoice code and onnxruntime: S3 tokens 275 of 275 identical, CAM++ x-vector within 3e-6; language model teacher forced with 0 argmax disagreements over 300 steps; flow mel within 4.1e-5; causal HiFT waveform within 2.2e-5 on the reference's F0 (relative RMS); Qwen3-ASR transcribes zero-shot output word for word; Vulkan real-time factor 0.37 | the voice of a recording (`SpeechSynthesisOptions.ReferenceAudio`, with `ReferenceText` for zero-shot, `Instructions` for instruct); no built-in voices in the release; non-streaming only | 2026-11-17 |
+<!-- verified-catalog:end -->
 
 ## 4. Image generation
 
 Reference: diffusers (same initial noise) and stable-diffusion.cpp. PSNR values are image-vs-image on a fixed seed; above about 30 dB the
 images are visually identical. All run on CPU and Vulkan (Vulkan used for the real checkpoints). Supported: txt2img, img2img, inpainting by mask blend, `.slm`.
 
+<!-- verified-catalog:table 4 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Formats | Verification | Notes | Verified |
 |---|---|---|---|---|---|
 | Stable Diffusion 1.5 | SD 1.5 checkpoints (diffusers folder, original single file, GGUF) | diffusers folder, single file `.safetensors` / `.ckpt`, GGUF f16, Q8_0, Q4_0 | Euler 76.3 dB, DDIM 76.2 dB, DPM++ 2M Karras 73.8 dB, PNDM 58.8 dB vs diffusers fp32; GGUF f16 48.7 dB | Q4_0 file produces a degenerate image in every implementation | 2026-11-15 |
@@ -240,8 +261,12 @@ images are visually identical. All run on CPU and Vulkan (Vulkan used for the re
 | SD3.5 Medium | stabilityai/stable-diffusion-3.5-medium (ungated mirror adamo1139/stable-diffusion-3.5-medium-ungated), city96/stable-diffusion-3.5-medium-gguf | diffusers (fp16), GGUF Q8_0 + CLIP-L, CLIP-G, T5-XXL, VAE companions | fp16: 46.6 dB (512) / 38.8 dB (1024) vs diffusers f32; transformer 1.4e-4; Q8_0: 42.5 dB (512) / 29.4 dB (1024) vs diffusers on the same files | 28 steps, guidance 7; 1024x1024 in 12.6 s | 2026-11-16 |
 | Chroma1-HD | lodestones/Chroma1-HD, silveroxides/Chroma1-HD-GGUF | GGUF Q8_0 + T5-XXL, VAE companions | 46.3 dB (512) / 37.8 dB (1024) vs diffusers on the same files (boolean text mask, as the original Chroma) | 20 guided steps at 1024x1024 in 48 s | 2026-11-16 |
 | Qwen-Image | Qwen/Qwen-Image, city96/Qwen-Image-gguf, unsloth/Qwen2.5-VL-7B-Instruct-GGUF (text encoder) | GGUF Q4_K_M + Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a Qwen2.5-VL GGUF) and VAE (the pipeline's or ComfyUI's `qwen_image_vae.safetensors`) companions | Q4_K_M: 30.9 dB (512) / 29.8 dB (1024) vs diffusers on the same files (20 steps, true CFG 4); text encoder 4.6-6.4e-4, transformer 8.4e-3 | 1024x1024 20 guided steps in 131 s on a 32 GB GPU (13 GB transformer + 16 GB bf16 text encoder, alternating); Studio loads the GGUF with its companions; the diffusers folder loads (verified on the tiny pipeline; its 41 GB bf16 transformer was not run) | 2026-11-16 |
-| Qwen-Image 2.1 | Qwen/Qwen-Image-2.1, unsloth/Qwen-Image-2.1-GGUF | GGUF Q8_0 + Qwen3-VL-8B text encoder and VAE companions (the pipeline's folders) | 42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder ≤ 9.6e-4 | 1024x1024 20 steps in 36 s; text-to-image only (the editing path is not implemented) | 2026-11-16 |
 | Z-Image-Turbo | Tongyi-MAI/Z-Image-Turbo, unsloth/Z-Image-Turbo-GGUF | diffusers, GGUF Q8_0 + Qwen3-4B text encoder, VAE companions | 49.6 dB (512) / 46.4 dB (1024) vs diffusers on the same files; text encoder 1.4e-4, transformer 1.5e-3 | 9 steps, no guidance; 1024x1024 in 14.6 s; companions found in the pipeline folder beside the GGUF folder | 2026-11-16 |
+| FLUX.2 Klein 4B | black-forest-labs/FLUX.2-klein-4B, unsloth/FLUX.2-klein-4B-GGUF | GGUF Q8_0 + Qwen3-4B text encoder and VAE companions (the pipeline's folders) | 40.1 dB (512) / 41.3 dB (1024) vs diffusers on the same files (4 distilled steps); text encoder ≤ 1.3e-3, transformer 1.6e-3 | 1024x1024 in 3.4 s | 2026-11-17 |
+| Qwen-Image 2.1 Turbo | Qwen/Qwen-Image-2.1-Turbo, unsloth/Qwen-Image-2.1-Turbo-GGUF | GGUF Q8_0 + the Qwen-Image 2.1 companions | 34.5 dB (1024, its 8-step `sample_sigmas`) vs diffusers on the same files | 8 steps at 1024x1024 in 14.8 s; the schedule comes from `model_index.json` or the `turbo` file name | 2026-11-16 |
+| Qwen-Image 2.1 | Qwen/Qwen-Image-2.1, unsloth/Qwen-Image-2.1-GGUF | GGUF Q8_0 + Qwen3-VL-8B text encoder and VAE companions (the pipeline's folders) | 42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder ≤ 9.6e-4 | 1024x1024 20 steps in 36 s; text-to-image only (the editing path is not implemented) | 2026-11-16 |
+| Krea 2 Turbo | krea/Krea-2-Turbo (ungated mirror unsloth/Krea-2-Turbo), realrebelai/KREA-2_GGUFs | GGUF Q8_0 + Qwen3-VL-4B text encoder and Qwen-Image VAE companions (the pipeline's folders) | 26.9 dB (512) / 34.1 dB (1024) vs diffusers on the same files (8 distilled steps, visually identical); text encoder ≤ 3.8e-4, transformer 5.7e-3 | 1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (`raw` / `base` in the name) run 28 guided steps | 2026-11-17 |
+<!-- verified-catalog:end -->
 
 ### 4.1 Popularity sweep (2026-11-16)
 
@@ -250,6 +275,7 @@ The most downloaded text-to-image checkpoints on the Hub that use a supported ar
 Euler, 20 steps, guidance 7 with a negative prompt (SDXL-Lightning: 4 steps on trailing timesteps, no guidance, as its model card runs it).
 All images are visually the same picture; the lower values of the anime merges come from their high-frequency line work.
 
+<!-- verified-catalog:table 4.1 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | File | PSNR vs diffusers | Load + first image |
 |---|---|---|---|---|
 | Realistic Vision 5.1 (SD 1.5) | SG161222/Realistic_Vision_V5.1_noVAE | Realistic_Vision_V5.1_fp16-no-ema.safetensors | 46.1 dB (512) | 19 s |
@@ -263,6 +289,7 @@ All images are visually the same picture; the lower values of the anime merges c
 | NoobAI XL 1.1 | Laxhar/noobai-XL-1.1 | NoobAI-XL-v1.1.safetensors | 28.5 dB | 89 s |
 | SDXL-Lightning 4-step | ByteDance/SDXL-Lightning | sdxl_lightning_4step.safetensors | 45.9 dB | 92 s |
 | Qwen-Image-2512 | unsloth/Qwen-Image-2512-GGUF | qwen-image-2512-Q4_K_M.gguf + the Qwen-Image companions | 25.5 dB (1024, 20 steps, true CFG 4; vs diffusers on the same files; visually identical, three blocks run exact attention) | 150 s |
+<!-- verified-catalog:end -->
 
 Real LoRAs on SDXL base 1.0 (single file), `RealLoraTests` (diffusers `load_lora_weights`, Euler, same latents, no guidance): ByteDance's
 `sdxl_lightning_4step_lora.safetensors` (kohya, SGM names) 45.0 dB, nerijs/pixel-art-xl (kohya, strength 0.9) 64.8 dB; the unadapted
@@ -270,7 +297,7 @@ images are 21 / 29 dB away.
 
 The Diffusers repositories of these (RealVisXL, Juggernaut, Animagine, NoobAI, Illustrious: `StableDiffusionXLPipeline`) are offered for
 download in Studio (`ClassifyPipeline`), the single files load in Studio's library like the SDXL base file. Not covered, because their
-architectures are not implemented yet: FLUX.2 Klein / Dev, Krea-2, MiniMax-H3-Image (Qwen-Image 2.1: section 4).
+architectures are not implemented yet: FLUX.2 Dev, MiniMax-H3-Image (Qwen-Image 2.1, FLUX.2 Klein and Krea 2: section 4).
 
 LoRA (merged at load, role `lora@scale`; tools/make-tiny-lora.py, `TinyLoraTests`): random LoRAs on the tiny SD 1.5, SDXL and
 FLUX.1-dev pipelines against diffusers' `load_lora_weights` from the same noise, strength 0.8: SD 1.5 kohya and PEFT 82 dB (CPU) / 76 dB
@@ -281,6 +308,7 @@ the single blocks' MLP input as row blocks of the fused projections) 81-85 / 75 
 
 Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical unless stated). One sample image per model.
 
+<!-- verified-catalog:table 5 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Task | Verification | Notes | Verified |
 |---|---|---|---|---|---|
 | ViT base | google/vit-base-patch16-224 | classification | same top-1, logits 1.2e-3 | | 2026-11-15 |
@@ -307,17 +335,22 @@ Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical u
 | TrOCR base handwritten | microsoft/trocr-base-handwritten | OCR | text identical to transformers | greedy; TrOCR small (DeiT encoder, sinusoidal positions) and large (BEiT) not supported | 2026-11-16 |
 | BiRefNet, RMBG-2.0 (background removal) | ZhengPeng7/BiRefNet, briaai/RMBG-2.0 (CC BY-NC 4.0, gated: accept the terms) | image-segmentation-semantic (matte) | matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors' code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical | 1024 px square; the network's settings are read from the checkpoint's `birefnet.py` (never run): Swin t/s/b/l backbone, deformable-ASPP decoder; both code revisions' input-patch channel orders | 2026-11-16 |
 | Florence-2 base | florence-community/Florence-2-base | OCR / caption / detection (`ITextRecognizer` tasks `<OCR>`, `<CAPTION>`, `<DETAILED_CAPTION>`, `<OD>`, ...) | image features 6.3e-4 and encoder output 1.1e-3 vs transformers; greedy text and `<OD>` boxes identical on two images (CPU and Vulkan) | num_beams=1 with the checkpoint's no-repeat n-gram (3) and forced BOS; beam search, region-to-X polygon tasks not done | 2026-11-16 |
+| YOLOv8n, YOLOv8n-seg, YOLOv10n (Ultralytics ONNX exports; also YOLO11 and the larger sizes by the same graph) | `yolo export format=onnx` output (AGPL-3.0: check the license) | object-detection (instance masks for `-seg`) | same classes, scores within 0.01 and boxes within 2 px as onnxruntime with Ultralytics' decoding; mask IoU 0.994-1.000; CPU = Vulkan | detection and segmentation heads only (pose, obb and classification heads are not read); `.pt` checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export's fixed input size is used (letterboxed) | 2026-11-17 |
+| YOLOS tiny, small | hustvl/yolos-tiny, hustvl/yolos-small (revision 3d8f7130d3ce4907cb206fe1c8485dc8fe8703de) | object-detection | same detections as transformers, boxes within 2 px, scores within 0.02; CPU = Vulkan | fixed 640 px square canvas; small has the mid position tables | 2026-11-17 |
+<!-- verified-catalog:end -->
 
 ## 6. Audio
 
 Reference: transformers (EnCodec, DAC, Mimi), onnxruntime and the `silero-vad` package (VAD). CPU and Vulkan.
 
+<!-- verified-catalog:table 6 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Kind | Verification | Notes | Verified |
 |---|---|---|---|---|---|
 | EnCodec 24 kHz | facebook/encodec_24khz | codec | codes token-exact at 6 kbps; decoder < 1e-3 relative RMS | 48 kHz model rejected; at 24 kbps up to 0.1 % of codes differ (near ties) | 2026-11-16 |
 | DAC 44 kHz | descript/dac_44khz | codec | codes token-exact, decoded audio < 1e-3 | | 2026-11-16 |
 | Mimi | kyutai/mimi | codec | codes token-exact for 8 and 32 stages | | 2026-11-16 |
 | Silero VAD v5 | snakers4/silero-vad (16 kHz ONNX) | voice activity | probabilities within 1e-3 of onnxruntime, segments identical | 8 kHz branch not imported; also used to pre-segment long speech recognition | 2026-11-16 |
+<!-- verified-catalog:end -->
 
 ## 7. ONNX models
 
@@ -345,15 +378,21 @@ Reference: diffusers in f32 on CUDA (same initial latents), 832×480 (LTX: 704×
 frame. Vulkan on a 32 GB GPU. Supported: text-to-video, image-to-video where the model has it, streaming decode, export to WebM / GIF /
 APNG (MP4 with a system ffmpeg), `.slm`.
 
+<!-- verified-catalog:table 8 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Formats | Verification | Notes | Verified |
 |---|---|---|---|---|---|
 | Wan 2.1 T2V 1.3B | Wan-AI/Wan2.1-T2V-1.3B-Diffusers | diffusers folder; transformer-only GGUF / safetensors with the folder as companion | text-to-video 50.8 dB, transformer 2.4e-4, umT5 3e-6 relative RMS | 4.2 s per step at 832×480×33 frames (f32), 16.3 GB | 2026-11-16 |
 | Wan 2.2 TI2V 5B | Wan-AI/Wan2.2-TI2V-5B-Diffusers | diffusers folder | image-to-video 55.1 dB, transformer 2.8e-4 | text- and image-to-video; 3.5 s per step (f32), 30.7 GB | 2026-11-16 |
 | LTX-Video 0.9.0 (2B) | Lightricks/LTX-Video (diffusers folder; T5-XXL of FLUX.1 / PixArt) | diffusers folder | text-to-video 57.5 dB, transformer 1.8e-5, T5 1.4e-5 relative RMS (704×480, 25 frames) | LTX-Video 0.9.1+ (causal / timestep-conditioned VAE) not yet | 2026-11-16 |
+| LTX-Video 0.9.5 (2B) | Lightricks/LTX-Video-0.9.5 (diffusers folder; T5-XXL as in 0.9.0) | diffusers folder | text-to-video 45.0 dB, transformer 2.9e-4, T5 1.4e-5 relative RMS (704×480, 25 frames, 20 steps) | 0.75 s per step at 768×512×97 frames, 10.0 GB | 2026-11-17 |
+| LTX-Video 13B 0.9.8 distilled GGUF | QuantStack/LTXV-13B-0.9.8-distilled-GGUF (Q4_K_M + its VAE file) | transformer GGUF + stand-alone VAE file (`--vae`) + an LTX-Video folder for T5 (`--companions`) | against diffusers' LTXConditionPipeline on the same files (f32, CUDA): transformer 2.7e-3 relative RMS; text-to-video 43.1-46.7 dB per frame (704×480, 25 frames, the 8 distilled timesteps, no guidance) | 2.4 s per step at 768×512×121 frames, 12.3 GB | 2026-11-17 |
 | Wan 2.2 TI2V 5B GGUF | QuantStack/Wan2.2-TI2V-5B-GGUF (Q8_0) | GGUF + the Wan 2.2 diffusers folder as companion | image-to-video 51.1 dB vs the f32 reference, transformer 2.0e-3 | 1.6 s per step, 16.4 GB | 2026-11-16 |
 | Wan 2.2 T2V A14B GGUF (two experts) | QuantStack/Wan2.2-T2V-A14B-GGUF (HighNoise + LowNoise Q4_K_M) | the two GGUFs (`--transformer-2` / `AuxiliaryRoles.SecondTransformer`) + a Wan 2.1 diffusers folder as companion | against diffusers running the same GGUFs (f32 on CUDA): high- / low-noise transformer 3.4e-4 / 2.3e-4, umT5 3e-6 relative RMS; text-to-video 21-25 dB per frame (832×480, 17 frames, 20 steps), the same scene; a 1e-3 nudge of the initial noise moves Sharplight's own result as far | 14.6 s per step at 832×480×33 frames, 16.1 GB peak, 334 s total (diffusers: 23 s per step at 17 frames) | 2026-11-16 |
 | Wan 2.1 I2V 14B 480P GGUF | city96/Wan2.1-I2V-14B-480P-gguf (Q4_K_M) | GGUF + a Wan 2.1 diffusers folder (umT5, VAE) + Wan-AI/Wan2.1-I2V-14B-480P-Diffusers' `image_encoder/` and `image_processor/` (`--image-encoder`) | against diffusers on the same GGUF: transformer 3.9e-4, CLIP 3.5e-3 relative RMS; image-to-video 30.6-48.1 dB per frame (832×480, 17 frames, 20 steps) | image-to-video | 2026-11-16 |
 | Wan 2.1 FLF2V 14B 720P GGUF | city96/Wan2.1-FLF2V-14B-720P-gguf (Q4_K_M) | as I2V, with the FLF2V diffusers folder's image encoder | transformer 1.7e-4; first-and-last-frame video 50.8-60.2 dB per frame | `--image` and `--last-image` | 2026-11-16 |
+| Wan 2.2 I2V A14B GGUF (two experts) | QuantStack/Wan2.2-I2V-A14B-GGUF (HighNoise + LowNoise Q4_K_M) | the two GGUFs (`--transformer-2`) + a Wan 2.1 diffusers folder as companion | against diffusers on the same GGUFs: transformers 3.0e-4 / 6.2e-4; image-to-video 35.0-52.5 dB per frame (832×480, 17 frames, 20 steps) | image-to-video (and an optional last frame) | 2026-11-16 |
+| HunyuanVideo GGUF | city96/HunyuanVideo-gguf (hunyuan-video-t2v-720p-Q4_K_M) | GGUF + hunyuanvideo-community/HunyuanVideo (without its transformer) as companion (`--companions`) | against diffusers on the same GGUF: transformer 4.1e-3, Llama 2.5e-4, CLIP 3.4e-4 relative RMS; text-to-video 28.2-33.0 dB per frame (832×480, 33 frames, 20 steps), visually identical | 5.7 s per step, 23.4 GB peak (tiled decode) | 2026-11-17 |
+<!-- verified-catalog:end -->
 
 ## 9. Known unsupported or not working
 
@@ -368,7 +407,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | Nemotron 3.5 ASR streaming | handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | cache-aware streaming FastConformer: causal convolutions with layer-norm, chunked-limited attention context; the file loads as `parakeet` and is rejected with that reason |
 | faster-whisper (CTranslate2) | Systran/faster-whisper-* | CTranslate2 `model.bin` format has no importer (the same models import from the OpenAI checkpoints or whisper.cpp / transcribe.cpp files) |
 | Whisper ONNX (Transformers.js layout) | Xenova/whisper-* | the encoder and decoder graphs run through the ONNX runner, but there is no speech-recognition task on top of ONNX graphs |
-| OmniVoice, VoxCPM2, VibeVoice, Qwen3-TTS, CosyVoice 3, MeloTTS, SpeechT5, Indic Parler-TTS, KittenTTS (ONNX) | k2-fsa/OmniVoice, openbmb/VoxCPM2, microsoft/VibeVoice-1.5B, Qwen/Qwen3-TTS-*, FunAudioLLM/Fun-CosyVoice3-0.5B-2512, myshell-ai/MeloTTS-English, microsoft/speecht5_tts, ai4bharat/indic-parler-tts, KittenML/kitten-tts-nano-0.8-fp32 | text-to-speech architectures without an adapter (autoregressive acoustic LMs with codec or flow-matching decoders, SpeechT5's encoder-decoder with HiFi-GAN, StyleTTS-style ONNX graphs); not downloaded, the Hub metadata names architectures the registry does not know |
+| OmniVoice, VoxCPM2, VibeVoice, Qwen3-TTS, MeloTTS, SpeechT5, Indic Parler-TTS, KittenTTS (ONNX) | k2-fsa/OmniVoice, openbmb/VoxCPM2, microsoft/VibeVoice-1.5B, Qwen/Qwen3-TTS-*, myshell-ai/MeloTTS-English, microsoft/speecht5_tts, ai4bharat/indic-parler-tts, KittenML/kitten-tts-nano-0.8-fp32 | text-to-speech architectures without an adapter (autoregressive acoustic LMs with codec or flow-matching decoders, SpeechT5's encoder-decoder with HiFi-GAN, StyleTTS-style ONNX graphs); not downloaded, the Hub metadata names architectures the registry does not know |
 | SenseNova-Loop, LiquidAI d1 | sensenova/SenseNova-Loop-9B-Preview, LiquidAI/d1-2B | layer loops and hyper-connections; non-causal decision variant |
 | Unlimited-OCR-2, KLM-1.6, Raon-1-nano | baidu/Unlimited-OCR-2, MinimaLabs/KLM-1.6, KRAFTON/Raon-1-nano | new attention variants not implemented |
 | Dory 1.0, ERNIE-5.5-Flash-Base, LongCat-2.5 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16, baidu/ERNIE-5.5-Flash-Base, meituan-longcat/LongCat-2.5 | no modeling code published, cannot be verified |
@@ -377,10 +416,10 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | Nemotron 3.5 Super-VL and Bolt (ModelOpt NVFP4 / mixed-precision safetensors) | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4, nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB | ModelOpt mixed-precision layout not read (GGUF versions import) |
 | DFlash drafters with LiLiCorr head | Bolt and Super-VL drafters | correction head not implemented (reported as draft models) |
 | Gated repositories | meta-llama/Llama-3.1-8B-Instruct, google/medgemma-1.5-4b-it, nvidia/Cosmos-Reason2-2B | could not be downloaded without a token; not tested |
-| SD 1.5 inpainting UNet, SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1 editing, Lumina-Image-2.0, HiDream, AuraFlow, FLUX.2, Krea-2, MiniMax-H3 | various | not implemented yet (rejected with a clear message) |
+| SD 1.5 inpainting UNet, SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1 editing, Lumina-Image-2.0, HiDream, AuraFlow, FLUX.2 Dev, MiniMax-H3 | various | not implemented yet (rejected with a clear message) |
 | ControlNet, TAESD, LyCORIS / DoRA LoRAs | | not implemented (plain LoRAs: section 4) |
 | CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
-| Mask2Former, YOLO (native), Florence-2 (native), SegFormer | | vision models not implemented (Florence-2 ONNX parts work; SwinIR is native since 2026-11-16) |
+| Mask2Former | | vision model not implemented (Florence-2, SegFormer, BiRefNet, YOLO detection and segmentation are native task models, see model-support.md section 14) |
 | Demucs, CLAP, MusicGen | | audio models not implemented |
 | Mamba / RWKV real checkpoints beyond those above | | not covered by a model test |
 | Candle-format whisper GGUF | oxide-lab/whisper-large-v3-turbo-q4_0.gguf, xkeyC/model_q4_k.gguf | rejected on purpose; use the whisper.cpp or transcribe.cpp files |

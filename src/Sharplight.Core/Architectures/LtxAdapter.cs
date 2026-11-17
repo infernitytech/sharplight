@@ -40,6 +40,7 @@ public sealed class LtxAdapter : IModelAdapter
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(options);
         var src = sources.Primary;
+        RequireComponents(src);
         var transformer = LtxHyperParameters.Read(src, Prefix);
         var t5 = T5TextHyperParameters.Read(src, Prefix, "text_encoder");
         int latentChannels = src.Get<int>(Prefix + "vae.latent_channels");
@@ -60,10 +61,15 @@ public sealed class LtxAdapter : IModelAdapter
         long latentWidth = width / spatial;
         var graphs = new Dictionary<string, Graph.ComputeGraph>
         {
-            [VideoDiffusionGraphs.TextEncode] = T5TextGraphBuilder.Build(src.Weight, t5, TextEncoderPrefix, VideoDiffusionGraphs.TextEncode),
+            // diffusers' LTXPipeline runs T5 without a mask; Lightricks' inference (and diffusers' condition pipeline, which single files follow) masks the padding.
+            [VideoDiffusionGraphs.TextEncode] = src.Get(Prefix + "masked_text_encoder", false)
+                ? T5TextGraphBuilder.Build(src.Weight, t5, TextEncoderPrefix, VideoDiffusionGraphs.TextEncode, VideoDiffusionGraphs.TokenMask)
+                : T5TextGraphBuilder.Build(src.Weight, t5, TextEncoderPrefix, VideoDiffusionGraphs.TextEncode),
             [VideoDiffusionGraphs.Denoise] = LtxTransformerGraphBuilder.Build(src.Weight, transformer, latentFrames, latentHeight, latentWidth, t5.ContextLength,
                 fps, temporal, spatial),
-            [VideoDiffusionGraphs.VaeDecode] = LtxVaeGraphBuilder.BuildDecoder(src.Weight, latentChannels, patch, latentFrames, latentHeight, latentWidth),
+            [VideoDiffusionGraphs.VaeDecode] = LtxVaeGraphBuilder.BuildDecoder(src.Weight, latentChannels, patch, latentFrames, latentHeight, latentWidth,
+                src.Get(Prefix + "vae.decode_timestep", 0f), src.Get(Prefix + "vae.upsample_residual", Array.Empty<bool>()),
+                src.Get(Prefix + "vae.upsample_factor", Array.Empty<int>())),
         };
         var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
         if (src.Get<string?>(Prefix + "scheduler.source_config", null) is { } schedulerJson)
@@ -85,6 +91,27 @@ public sealed class LtxAdapter : IModelAdapter
         };
     }
 
+    /// <summary>Fails with the list of missing parts when a transformer-only source comes without its companions.</summary>
+    private static void RequireComponents(ModelSource src)
+    {
+        var missing = new List<string>();
+        if (!src.Has(Prefix + "text_encoder.hidden_size") || !src.Has("tokenizer.model"))
+        {
+            missing.Add("text-encoder (the T5-XXL encoder and tokenizer of an LTX-Video diffusers folder)");
+        }
+
+        if (!src.Has(Prefix + "vae.latent_channels"))
+        {
+            missing.Add("vae (an LTX-Video VAE file or folder)");
+        }
+
+        if (missing.Count > 0)
+        {
+            throw new NotSupportedException($"'{src.Path}' holds only part of an LTX-Video model; it needs its companions, given as auxiliary sources by role: "
+                + string.Join(", ", missing) + ".");
+        }
+    }
+
     private static ModelDescription Describe(ModelSource src, LtxHyperParameters transformer, T5TextHyperParameters t5, int latentChannels, int spatial,
         int temporal, bool hasSchedulerAttachment)
     {
@@ -93,12 +120,18 @@ public sealed class LtxAdapter : IModelAdapter
             .Add(DiffusionConfigKeys.TrainSteps, src.Get(s + "train_steps", 1000))
             .Add(DiffusionConfigKeys.PredictionType, "flow")
             .Add(DiffusionConfigKeys.DynamicShift, src.Get(s + "dynamic_shift", true))
+            .Add(DiffusionConfigKeys.Shift, src.Get(s + "shift", 1.0))
             .Add(DiffusionConfigKeys.BaseShift, src.Get(s + "base_shift", 0.95))
             .Add(DiffusionConfigKeys.MaxShift, src.Get(s + "max_shift", 2.05))
             .Add(DiffusionConfigKeys.BaseSequenceLength, src.Get(s + "base_sequence_length", 1024))
             .Add(DiffusionConfigKeys.MaxSequenceLength, src.Get(s + "max_sequence_length", 4096))
             .Add(DiffusionConfigKeys.ShiftTerminal, src.Get(s + "shift_terminal", 0.1))
             .Add(DiffusionConfigKeys.Sampler, src.Get(s + "sampler", Samplers.Euler));
+        if (src.Has(s + "sample_sigmas"))
+        {
+            scheduler.Add(DiffusionConfigKeys.SampleSigmas, src.Get<float[]>(s + "sample_sigmas"));
+        }
+
         return new ModelDescription
         {
             Kind = ModelKinds.VideoGeneration,

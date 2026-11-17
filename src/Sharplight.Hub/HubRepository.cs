@@ -10,4 +10,6 @@ namespace Sharplight.Hub;
 /// The model family the Hub reports (e.g. <c>qwen3</c>, from GGUF metadata or the checkpoint's <c>model_type</c>), or
 /// <see langword="null"/>.
 /// </param>
-public sealed record HubRepository(string Id, string Revision, string Commit, bool Gated, IReadOnlyList<HubFile> Files, string? Architecture = null);
+/// <param name="License">The license id the model card declares (e.g. <c>apache-2.0</c>), or <see langword="null"/>.</param>
+public sealed record HubRepository(string Id, string Revision, string Commit, bool Gated, IReadOnlyList<HubFile> Files, string? Architecture = null,
+    string? License = null);

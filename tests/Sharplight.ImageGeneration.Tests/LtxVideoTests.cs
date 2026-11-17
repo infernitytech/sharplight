@@ -7,28 +7,31 @@ using Sharplight.VideoGeneration;
 namespace Sharplight.ImageGeneration.Tests;
 
 /// <summary>
-/// LTX-Video 0.9.0 (diffusers folder, the T5-XXL encoder shared with FLUX.1) on Vulkan against diffusers references
+/// LTX-Video 0.9.0 and 0.9.5 (diffusers folders, the T5-XXL encoder shared with FLUX.1) on Vulkan against diffusers references
 /// (tools/make-ltx-references.py: f32 on CUDA, 25 frames at 704×480, 20 Euler steps, guidance 3, the same initial latents) in
-/// ~/models/video/ltx-reference: the T5 conditioning, one transformer evaluation and the whole text-to-video run. Skips when the model,
-/// the references or a GPU are missing.
+/// ~/models/video/ltx-reference and ltx095-reference: the T5 conditioning, one transformer evaluation and the whole text-to-video run.
+/// Skips when the model, the references or a GPU are missing.
 /// </summary>
 [Collection(LargeModelCollection.Name)]
 public sealed class LtxVideoTests
 {
-    private static readonly string ModelPath = Path.Combine(Env.VideoRoot, "LTX-Video");
+    /// <summary>"0.9.0" and "0.9.5".</summary>
+    public static TheoryData<string> Variants => ["0.9.0", "0.9.5"];
 
-    private static readonly string Reference = Path.Combine(Env.VideoRoot, "ltx-reference", "reference");
+    private static string ModelPath(string variant) => Path.Combine(Env.VideoRoot, variant == "0.9.0" ? "LTX-Video" : "LTX-Video-0.9.5");
 
-    private static float[] Tensor(string name) => Env.ReadFloats(Path.Combine(Reference, name + ".f32"));
+    private static string Reference(string variant) => Path.Combine(Env.VideoRoot, variant == "0.9.0" ? "ltx-reference" : "ltx095-reference", "reference");
 
-    private static JsonElement Index()
+    private static float[] Tensor(string variant, string name) => Env.ReadFloats(Path.Combine(Reference(variant), name + ".f32"));
+
+    private static JsonElement Index(string variant)
     {
-        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(Reference, "index.json")));
+        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(Reference(variant), "index.json")));
         return document.RootElement.Clone();
     }
 
-    private static Runtime.DeviceSlot? Gpu()
-        => Directory.Exists(ModelPath) && File.Exists(Path.Combine(Reference, "index.json")) ? Env.Vulkan() : null;
+    private static Runtime.DeviceSlot? Gpu(string variant)
+        => Directory.Exists(ModelPath(variant)) && File.Exists(Path.Combine(Reference(variant), "index.json")) ? Env.Vulkan() : null;
 
     private static Dictionary<string, long> Dimensions(JsonElement index) => new()
     {
@@ -37,13 +40,14 @@ public sealed class LtxVideoTests
         [VideoDiffusionGraphs.Width] = index.GetProperty("width").GetInt32(),
     };
 
-    [Fact]
-    public void GraphsMatchDiffusers()
+    [Theory]
+    [MemberData(nameof(Variants))]
+    public void GraphsMatchDiffusers(string variant)
     {
-        var slot = Gpu();
+        var slot = Gpu(variant);
         Assert.SkipWhen(slot is null, "LTX-Video, its references or a Vulkan GPU missing");
-        using var model = Env.Load(ModelPath, slot!);
-        var index = Index();
+        using var model = Env.Load(ModelPath(variant), slot!);
+        var index = Index(variant);
         var tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
         foreach (var (prompt, name) in new[] { (index.GetProperty("prompt").GetString()!, "text_hidden"), (index.GetProperty("negative_prompt").GetString()!, "negative_hidden") })
         {
@@ -52,29 +56,30 @@ public sealed class LtxVideoTests
             ids.CopyTo(tokens);
             var hidden = GraphRunner.Run(model, ModelComponentRoles.TextEncoder, VideoDiffusionGraphs.TextEncode, VideoDiffusionGraphs.Hidden, 0,
                 (VideoDiffusionGraphs.Tokens, tokens));
-            var (maxAbs, rms) = Env.Compare(hidden, Tensor(name));
-            TestContext.Current.SendDiagnosticMessage($"LTX T5 {name}: relative RMS {rms:E2}");
+            var (maxAbs, rms) = Env.Compare(hidden, Tensor(variant, name));
+            TestContext.Current.SendDiagnosticMessage($"LTX {variant} T5 {name}: relative RMS {rms:E2}");
             Assert.True(rms < 5e-3, $"T5 {name}: max {maxAbs}, relative RMS {rms}");
         }
 
         var prediction = GraphRunner.Run(model, ModelComponentRoles.Transformer, VideoDiffusionGraphs.Denoise, VideoDiffusionGraphs.Prediction, 0, Dimensions(index),
-            (VideoDiffusionGraphs.Latent, Tensor("noise")),
+            (VideoDiffusionGraphs.Latent, Tensor(variant, "noise")),
             (VideoDiffusionGraphs.Timestep, new[] { index.GetProperty("transformer_timestep").GetSingle() }),
-            (VideoDiffusionGraphs.Context, Tensor("text_hidden")),
-            (VideoDiffusionGraphs.ContextMask, Tensor("text_mask")));
-        var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor("transformer_out"));
-        TestContext.Current.SendDiagnosticMessage($"LTX transformer: relative RMS {transformerRms:E2}");
+            (VideoDiffusionGraphs.Context, Tensor(variant, "text_hidden")),
+            (VideoDiffusionGraphs.ContextMask, Tensor(variant, "text_mask")));
+        var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor(variant, "transformer_out"));
+        TestContext.Current.SendDiagnosticMessage($"LTX {variant} transformer: relative RMS {transformerRms:E2}");
         Assert.True(transformerRms < 5e-3, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
     }
 
-    [Fact]
-    public async Task TextToVideoMatchesDiffusers()
+    [Theory]
+    [MemberData(nameof(Variants))]
+    public async Task TextToVideoMatchesDiffusers(string variant)
     {
-        var slot = Gpu();
+        var slot = Gpu(variant);
         Assert.SkipWhen(slot is null, "LTX-Video, its references or a Vulkan GPU missing");
-        using var model = Env.Load(ModelPath, slot!);
+        using var model = Env.Load(ModelPath(variant), slot!);
         using var generator = Env.Clients.Create<IVideoGenerator>(model);
-        var index = Index();
+        var index = Index(variant);
         int width = index.GetProperty("width").GetInt32();
         int height = index.GetProperty("height").GetInt32();
         var request = new VideoGenerationRequest { Prompt = index.GetProperty("prompt").GetString()!, NegativePrompt = index.GetProperty("negative_prompt").GetString() };
@@ -85,12 +90,12 @@ public sealed class LtxVideoTests
             Frames = index.GetProperty("frames").GetInt32(),
             Steps = index.GetProperty("steps").GetInt32(),
             GuidanceScale = index.GetProperty("guidance_scale").GetSingle(),
-            InitialNoise = Tensor("noise"),
+            InitialNoise = Tensor(variant, "noise"),
         };
         var stopwatch = Stopwatch.StartNew();
         var result = await generator.GenerateAsync(request, options, TestContext.Current.CancellationToken);
         double seconds = stopwatch.Elapsed.TotalSeconds;
-        var expected = Tensor("video");
+        var expected = Tensor(variant, "video");
         int frameValues = 3 * width * height;
         double worst = double.MaxValue;
         for (int f = 0; f < result.Frames.Count; f++)
@@ -99,7 +104,7 @@ public sealed class LtxVideoTests
             worst = Math.Min(worst, Env.Psnr(result.Frames[f].Rgb, reference.Rgb));
         }
 
-        TestContext.Current.SendDiagnosticMessage($"LTX {width}x{height}x{result.Frames.Count}: {seconds:F1} s (incl. compilation), worst frame {worst:F1} dB");
+        TestContext.Current.SendDiagnosticMessage($"LTX {variant} {width}x{height}x{result.Frames.Count}: {seconds:F1} s (incl. compilation), worst frame {worst:F1} dB");
         Assert.True(worst > 25, $"LTX: worst frame PSNR {worst:F1} dB");
     }
 }

@@ -148,6 +148,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     [RelayCommand]
     public async Task CheckForUpdatesAsync()
     {
+        Settings.ShowTab(SettingsTab.Updates);
         await NavigateAsync(Settings);
         await Updates.CheckAsync(manual: true);
     }
@@ -166,6 +167,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     private Task OpenStorageSettingsAsync()
     {
         StorageNotice = null;
+        Settings.ShowTab(SettingsTab.Storage);
         return NavigateAsync(Settings);
     }
 

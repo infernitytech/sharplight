@@ -41,11 +41,11 @@ internal static class AxialRope
         return b.Constant(name, DataType.F32, new Shape(headDim / 2), MemoryMarshal.AsBytes(factors.AsSpan()).ToArray());
     }
 
-    /// <summary>The <c>Rope</c> attributes of interleaved (GPT-J style) rotation over three axes.</summary>
+    /// <summary>The <c>Rope</c> attributes of interleaved (GPT-J style) rotation over three or four axes (FLUX.2: four).</summary>
     /// <param name="headDim">Width per head.</param>
-    /// <param name="axesDim">Rotated dimensions of the three axes.</param>
+    /// <param name="axesDim">Rotated dimensions of the axes.</param>
     /// <param name="theta">The RoPE base.</param>
     public static Attributes Attributes(int headDim, IReadOnlyList<int> axesDim, float theta)
         => Graph.Attributes.From(("dims", headDim), ("base", theta), ("style", "gptj"),
-            ("sections", new[] { axesDim[0] / 2, axesDim[1] / 2, axesDim[2] / 2, 0 }));
+            ("sections", new[] { axesDim[0] / 2, axesDim[1] / 2, axesDim[2] / 2, axesDim.Count > 3 ? axesDim[3] / 2 : 0 }));
 }

@@ -51,8 +51,10 @@ public static class SharplightServiceCollectionExtensions
                 .AddChatterboxImporter()
                 .AddF5TtsImporter()
                 .AddXttsImporter()
+                .AddCosyVoiceImporter()
                 .AddSnacImporter()
                 .AddSileroVadImporter()
+                .AddUltralyticsImporter()
                 .AddDiffusersImporter()
                 .AddPackageImporter();
         }

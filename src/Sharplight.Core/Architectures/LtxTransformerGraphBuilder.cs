@@ -134,7 +134,9 @@ internal sealed class LtxTransformerGraphBuilder
             long frame = t / perFrame;
             long row = t % perFrame / _columns;
             long column = t % _columns;
-            coordinates[t * 3] = (float)(frame * (_temporalCompression / (double)_framesPerSecond) / _hp.RopeBase[0]);
+            // Causal frame coordinates (Lightricks' inference and diffusers' condition pipeline): the latent frame's last pixel frame.
+            double pixelFrame = _hp.CausalFrameCoordinates ? Math.Max(frame * _temporalCompression + 1 - _temporalCompression, 0) : frame * _temporalCompression;
+            coordinates[t * 3] = (float)(pixelFrame / _framesPerSecond / _hp.RopeBase[0]);
             coordinates[t * 3 + 1] = (float)(row * (double)_spatialCompression / _hp.RopeBase[1]);
             coordinates[t * 3 + 2] = (float)(column * (double)_spatialCompression / _hp.RopeBase[2]);
         }

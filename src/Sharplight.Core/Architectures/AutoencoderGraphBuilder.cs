@@ -23,8 +23,8 @@ internal static class AutoencoderGraphBuilder
     {
         var b = new GraphBuilder(DiffusionGraphs.VaeDecode, weights);
         var batch = Dim.Sym(DiffusionGraphs.BatchSymbol);
-        var latent = b.Input(DiffusionGraphs.Latent, InputRole.Media, DataType.F32, new Shape(batch, hp.LatentChannels, latentHeight, latentWidth));
-        var z = b.Scale(latent, 1f / hp.ScalingFactor, hp.ShiftFactor);
+        var latent = b.Input(DiffusionGraphs.Latent, InputRole.Media, DataType.F32, new Shape(batch, hp.ModelLatentChannels, latentHeight, latentWidth));
+        var z = hp.LatentPatch > 1 ? Unpatchify(b, Denormalize(b, latent, hp), hp, latentHeight, latentWidth) : b.Scale(latent, 1f / hp.ScalingFactor, hp.ShiftFactor);
         if (hp.QuantConvolutions)
         {
             z = DiffusionBlocks.Conv(b, z, "vae.post_quant_conv");
@@ -104,11 +104,56 @@ internal static class AutoencoderGraphBuilder
             }
 
             var mean = b.Contiguous(b.Slice(h, 1, 0, hp.LatentChannels));
-            h = b.Scale(mean, hp.ScalingFactor, -hp.ShiftFactor * hp.ScalingFactor);
+            h = hp.LatentPatch > 1 ? Normalize(b, Patchify(b, mean, hp), hp) : b.Scale(mean, hp.ScalingFactor, -hp.ShiftFactor * hp.ScalingFactor);
         }
 
         b.Output(DiffusionGraphs.Latent, h);
         return b.Build();
+    }
+
+    /// <summary>The batch-norm standard deviations √(var + eps) [1, C·p², 1, 1] and means of patchified latents (FLUX.2).</summary>
+    private static (Value Std, Value Mean) Statistics(GraphBuilder b, AutoencoderHyperParameters hp)
+    {
+        int channels = hp.ModelLatentChannels;
+        var mean = b.Reshape(b.Weight("vae.bn.running_mean"), 1, channels, 1, 1);
+        var std = b.Unary("Sqrt", b.Scale(b.Reshape(b.Weight("vae.bn.running_var"), 1, channels, 1, 1), 1f, hp.BatchNormEps));
+        return (std, mean);
+    }
+
+    /// <summary>Model latents → patchified VAE latents: x · std + mean.</summary>
+    private static Value Denormalize(GraphBuilder b, Value x, AutoencoderHyperParameters hp)
+    {
+        var (std, mean) = Statistics(b, hp);
+        return b.Add(b.Mul(x, std), mean);
+    }
+
+    /// <summary>Patchified VAE latents → model latents: (x − mean) / std.</summary>
+    private static Value Normalize(GraphBuilder b, Value x, AutoencoderHyperParameters hp)
+    {
+        var (std, mean) = Statistics(b, hp);
+        return b.Emit1("Div", [b.Sub(x, mean), std]);
+    }
+
+    /// <summary>[N, C·p², h, w] (channels ordered (c, row in patch, column in patch)) → [N, C, h·p, w·p].</summary>
+    private static Value Unpatchify(GraphBuilder b, Value x, AutoencoderHyperParameters hp, long height, long width)
+    {
+        int p = hp.LatentPatch;
+        int c = hp.LatentChannels;
+        var split = b.Emit1("Reshape", [x], Attributes.From(("shape", new long[] { 0, p, p, height, width }), ("outer_symbol", $"{c}*{DiffusionGraphs.BatchSymbol}")));
+        var ordered = b.Contiguous(b.Permute(split, 0, 3, 1, 4, 2));
+        return b.Emit1("Reshape", [ordered], Attributes.From(("shape", new long[] { 0, c, height * p, width * p }), ("outer_symbol", DiffusionGraphs.BatchSymbol)));
+    }
+
+    /// <summary>[N, C, H, W] → [N, C·p², H/p, W/p] (the inverse of <see cref="Unpatchify"/>).</summary>
+    private static Value Patchify(GraphBuilder b, Value x, AutoencoderHyperParameters hp)
+    {
+        int p = hp.LatentPatch;
+        int c = hp.LatentChannels;
+        long height = x.Shape[2].Fixed / p;
+        long width = x.Shape[3].Fixed / p;
+        var split = b.Emit1("Reshape", [x], Attributes.From(("shape", new long[] { 0, height, p, width, p }), ("outer_symbol", $"{c}*{DiffusionGraphs.BatchSymbol}")));
+        var ordered = b.Contiguous(b.Permute(split, 0, 2, 4, 1, 3));
+        return b.Emit1("Reshape", [ordered], Attributes.From(("shape", new long[] { 0, hp.ModelLatentChannels, height, width }), ("outer_symbol", DiffusionGraphs.BatchSymbol)));
     }
 
     /// <summary>The middle block: residual block, single-head self-attention over all pixels, residual block.</summary>

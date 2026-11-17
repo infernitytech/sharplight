@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Diffusers references of a real LTX-Video 0.9.0 pipeline for the video-generation tests.
+"""Diffusers references of a real LTX-Video pipeline (0.9.0, 0.9.5 and later diffusers folders) for the video-generation tests.
 
-Runs the diffusers LTXPipeline in f32 on CUDA with explicit initial latents (components moved to the GPU only while they run) and
+Runs the diffusers LTXPipeline in f32 on CUDA (TF32 off) with explicit initial latents (components moved to the GPU only while they run) and
 writes, to OUT/reference: text_hidden / negative_hidden (the unmasked T5 states) with their masks, noise [C, T, h, w],
 transformer_out (one conditional evaluation on the noise at the first timestep), video [F, 3, H, W] in [0, 1], index.json.
 
@@ -42,6 +42,8 @@ def main():
     from diffusers import LTXPipeline
 
     torch.set_grad_enabled(False)
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
     folder = os.path.join(args.out, "reference")
     os.makedirs(folder, exist_ok=True)
     index = {}

@@ -78,6 +78,18 @@ internal static class Env
     /// <summary>The tiny random Qwen-Image 2.1 pipeline (tools/make-tiny-qwen-image21.py).</summary>
     public static readonly string TinyQwenImage21 = Path.Combine(Home, "models/qwen-image21/tiny-random-qwen-image21");
 
+    /// <summary>The FLUX.2 model folder (the FLUX.2 Klein 4B diffusers folder, GGUF files, references).</summary>
+    public static readonly string Flux2Root = Path.Combine(Home, "models/flux2");
+
+    /// <summary>The tiny random FLUX.2 Klein pipeline (tools/make-tiny-flux2.py).</summary>
+    public static readonly string TinyFlux2 = Path.Combine(Home, "models/flux2/tiny-random-flux2");
+
+    /// <summary>The Krea 2 model folder (the Krea 2 Turbo diffusers folder, GGUF files, references).</summary>
+    public static readonly string Krea2Root = Path.Combine(Home, "models/krea2");
+
+    /// <summary>The tiny random Krea 2 pipeline (tools/make-tiny-krea2.py).</summary>
+    public static readonly string TinyKrea2 = Path.Combine(Home, "models/krea2/tiny-random-krea2");
+
     /// <summary>The Qwen-Image model folder (the Qwen-Image diffusers folder without the transformer weights, GGUF files, references).</summary>
     public static readonly string QwenImageRoot = Path.Combine(Home, "models/qwen-image");
 

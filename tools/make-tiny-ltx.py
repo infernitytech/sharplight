@@ -51,7 +51,7 @@ class Reference:
             json.dump({"tensors": self.index, **extra}, f, indent=1)
 
 
-def build_models():
+def build_models(variant):
     from diffusers import AutoencoderKLLTXVideo, LTXVideoTransformer3DModel
     from transformers import T5Config, T5EncoderModel
 
@@ -60,11 +60,21 @@ def build_models():
         in_channels=8, out_channels=8, patch_size=1, patch_size_t=1, num_attention_heads=2, attention_head_dim=12, cross_attention_dim=24,
         num_layers=2, caption_channels=32)
     generator = torch.Generator().manual_seed(6)
-    vae = AutoencoderKLLTXVideo(
-        in_channels=3, out_channels=3, latent_channels=8, block_out_channels=(8, 16, 32, 32), layers_per_block=(1, 1, 1, 1, 1),
-        decoder_block_out_channels=(8, 16, 32, 32), decoder_layers_per_block=(1, 1, 1, 1, 1), decoder_spatio_temporal_scaling=(True, True, True, False),
-        spatio_temporal_scaling=(True, True, True, False), patch_size=4, patch_size_t=1, decoder_causal=False, encoder_causal=True,
-        resnet_norm_eps=1e-6, scaling_factor=1.0)
+    if variant == "095":
+        # LTX-Video 0.9.5 layout: timestep-conditioned decoder, residual upsamplers that halve the channels.
+        vae = AutoencoderKLLTXVideo(
+            in_channels=3, out_channels=3, latent_channels=8, block_out_channels=(8, 16, 32, 64, 128), layers_per_block=(1, 1, 1, 1, 1),
+            down_block_types=("LTXVideo095DownBlock3D",) * 4, downsample_type=("spatial", "temporal", "spatiotemporal", "spatiotemporal"),
+            decoder_block_out_channels=(16, 32, 64), decoder_layers_per_block=(1, 1, 1, 1), decoder_spatio_temporal_scaling=(True, True, True),
+            decoder_inject_noise=(False, False, False, False), upsample_residual=(True, True, True), upsample_factor=(2, 2, 2),
+            spatio_temporal_scaling=(True, True, True, True), patch_size=4, patch_size_t=1, decoder_causal=False, encoder_causal=True,
+            timestep_conditioning=True, resnet_norm_eps=1e-6, scaling_factor=1.0, spatial_compression_ratio=32, temporal_compression_ratio=8)
+    else:
+        vae = AutoencoderKLLTXVideo(
+            in_channels=3, out_channels=3, latent_channels=8, block_out_channels=(8, 16, 32, 32), layers_per_block=(1, 1, 1, 1, 1),
+            decoder_block_out_channels=(8, 16, 32, 32), decoder_layers_per_block=(1, 1, 1, 1, 1), decoder_spatio_temporal_scaling=(True, True, True, False),
+            spatio_temporal_scaling=(True, True, True, False), patch_size=4, patch_size_t=1, decoder_causal=False, encoder_causal=True,
+            resnet_norm_eps=1e-6, scaling_factor=1.0)
     with torch.no_grad():
         vae.latents_mean.copy_(torch.randn(8, generator=generator) * 0.5)
         vae.latents_std.copy_(torch.rand(8, generator=generator) + 0.5)
@@ -82,17 +92,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", default=os.path.expanduser("~/models/video/tiny-random-ltx"))
     parser.add_argument("--tokenizer", default=os.path.expanduser("~/models/flux/FLUX.1-schnell/tokenizer_2"))
+    parser.add_argument("--variant", choices=["090", "095"], default="090",
+                        help="090: LTX-Video 0.9.0 layout (OUT); 095: the 0.9.5 layout (timestep-conditioned decoder, static shift 1, OUT/095)")
     args = parser.parse_args()
+    if args.variant == "095":
+        args.out = os.path.join(args.out, "095")
     torch.set_grad_enabled(False)
 
     from diffusers import FlowMatchEulerDiscreteScheduler, LTXPipeline
     from transformers import AutoTokenizer
 
-    transformer, vae, text = build_models()
+    transformer, vae, text = build_models(args.variant)
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer if os.path.isdir(args.tokenizer) else "google/t5-v1_1-xxl")
-    scheduler = FlowMatchEulerDiscreteScheduler(
-        base_image_seq_len=1024, base_shift=0.95, max_image_seq_len=4096, max_shift=2.05, num_train_timesteps=1000, shift=1.0,
-        shift_terminal=0.1, use_dynamic_shifting=True)
+    if args.variant == "095":
+        scheduler = FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000, shift=1.0, shift_terminal=None, use_dynamic_shifting=False)
+    else:
+        scheduler = FlowMatchEulerDiscreteScheduler(
+            base_image_seq_len=1024, base_shift=0.95, max_image_seq_len=4096, max_shift=2.05, num_train_timesteps=1000, shift=1.0,
+            shift_terminal=0.1, use_dynamic_shifting=True)
     pipe = LTXPipeline(scheduler=scheduler, vae=vae, text_encoder=text, tokenizer=tokenizer, transformer=transformer)
     pipe.save_pretrained(os.path.join(args.out, "diffusers"), safe_serialization=True)
     ref = Reference(os.path.join(args.out, "reference"))
@@ -127,7 +144,8 @@ def main():
     vae_latent = torch.randn(1, z, latent_frames, lh, lw, generator=g)
     ref.add("vae_latent", vae_latent[0])
     denormalized = pipe._denormalize_latents(vae_latent, vae.latents_mean, vae.latents_std, vae.config.scaling_factor)
-    ref.add("vae_decoded", vae.decode(denormalized, return_dict=False)[0][0])
+    vae_temb = torch.tensor([0.0]) if vae.config.timestep_conditioning else None
+    ref.add("vae_decoded", vae.decode(denormalized, temb=vae_temb, return_dict=False)[0][0])
 
     noise = torch.randn(1, z, latent_frames, lh, lw, generator=g)
     ref.add("noise", noise[0])

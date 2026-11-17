@@ -18,8 +18,10 @@
     <ProjectReference Include="../Sharplight.Import.Chatterbox/Sharplight.Import.Chatterbox.csproj" />
     <ProjectReference Include="../Sharplight.Import.F5Tts/Sharplight.Import.F5Tts.csproj" />
     <ProjectReference Include="../Sharplight.Import.Xtts/Sharplight.Import.Xtts.csproj" />
+    <ProjectReference Include="../Sharplight.Import.CosyVoice/Sharplight.Import.CosyVoice.csproj" />
     <ProjectReference Include="../Sharplight.Import.Snac/Sharplight.Import.Snac.csproj" />
     <ProjectReference Include="../Sharplight.Import.SileroVad/Sharplight.Import.SileroVad.csproj" />
+    <ProjectReference Include="../Sharplight.Import.Ultralytics/Sharplight.Import.Ultralytics.csproj" />
     <ProjectReference Include="../Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../Sharplight.Audio/Sharplight.Audio.csproj" />
