@@ -47,6 +47,21 @@ public sealed class SignatureTests
         }
     }
 
+    [Fact]
+    public void PemKeys_AreAccepted()
+    {
+        using var ecdsa = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP384);
+        using var key = FeedSigningKey.Parse(ecdsa.ExportPkcs8PrivateKeyPem());
+        var publicKey = FeedPublicKey.Parse(ecdsa.ExportSubjectPublicKeyInfoPem());
+        Assert.Equal(publicKey.KeyId, key.KeyId);
+        Assert.Equal(key.KeyId, FeedPublicKey.Parse(ecdsa.ExportECPrivateKeyPem()).KeyId);
+        var document = "{}"u8.ToArray();
+        DetachedSignature.Verify(document, key.SignDocument(document, "test"), kid => kid == publicKey.KeyId ? publicKey : null, "doc");
+        Assert.Throws<FeedFormatException>(() => FeedSigningKey.Parse(ecdsa.ExportSubjectPublicKeyInfoPem()));
+        using var p256 = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        Assert.Throws<FeedFormatException>(() => FeedSigningKey.Parse(p256.ExportPkcs8PrivateKeyPem()));
+    }
+
     [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
     private static bool FileModesWork(string folder)
     {

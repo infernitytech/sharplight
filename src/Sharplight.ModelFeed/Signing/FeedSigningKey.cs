@@ -33,33 +33,54 @@ public sealed class FeedSigningKey : IDisposable
     /// <returns>The key.</returns>
     public static FeedSigningKey Generate(string? comment = null) => new(ECDsa.Create(ECCurve.NamedCurves.nistP384), comment);
 
-    /// <summary>Loads a private key file (JSON, <see cref="FeedKeyFile"/>).</summary>
+    /// <summary>Loads a private key file: JSON (<see cref="FeedKeyFile"/>) or PEM (<c>PRIVATE KEY</c> / <c>EC PRIVATE KEY</c>).</summary>
     /// <param name="path">Key file path.</param>
     /// <returns>The key.</returns>
     /// <exception cref="FeedFormatException">The file has no private P-384 key.</exception>
-    public static FeedSigningKey Load(string path)
-    {
-        var file = FeedJson.Read(File.ReadAllBytes(path), FeedJsonContext.Default.FeedKeyFile, $"Key file {path}");
-        if (string.IsNullOrEmpty(file.PrivateKey))
-        {
-            throw new FeedFormatException($"{path} holds no private key (it is a public key file).");
-        }
+    public static FeedSigningKey Load(string path) => Parse(File.ReadAllText(path), path);
 
+    /// <summary>Reads a private key from the text of a JSON key file or a PEM block (for keys held in a secret store).</summary>
+    /// <param name="text">The key text.</param>
+    /// <param name="source">Where the text came from, for messages.</param>
+    /// <returns>The key.</returns>
+    /// <exception cref="FeedFormatException">The text holds no private P-384 key.</exception>
+    public static FeedSigningKey Parse(string text, string source = "The key")
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        var trimmed = text.Trim();
+        string? comment = null;
         var key = ECDsa.Create();
         try
         {
-            key.ImportPkcs8PrivateKey(Convert.FromBase64String(file.PrivateKey), out _);
-            if (key.KeySize != 384)
+            if (trimmed.StartsWith("-----", StringComparison.Ordinal))
             {
-                throw new FeedFormatException($"Feed keys are P-384; {path} has {key.KeySize} bits.");
+                key.ImportFromPem(trimmed);
+            }
+            else
+            {
+                var file = FeedJson.Read(Encoding.UTF8.GetBytes(trimmed), FeedJsonContext.Default.FeedKeyFile, $"Key file {source}");
+                if (string.IsNullOrEmpty(file.PrivateKey))
+                {
+                    throw new FeedFormatException($"{source} holds no private key (it is a public key file).");
+                }
+
+                key.ImportPkcs8PrivateKey(Convert.FromBase64String(file.PrivateKey), out _);
+                comment = file.Comment;
             }
 
-            return new FeedSigningKey(key, file.Comment);
+            if (key.KeySize != 384)
+            {
+                throw new FeedFormatException($"Feed keys are P-384; {source} has {key.KeySize} bits.");
+            }
+
+            // A PEM public key imports without a private part; signing would fail later.
+            _ = key.ExportPkcs8PrivateKey();
+            return new FeedSigningKey(key, comment);
         }
-        catch (Exception exception) when (exception is CryptographicException or FormatException)
+        catch (Exception exception) when (exception is CryptographicException or FormatException or ArgumentException)
         {
             key.Dispose();
-            throw new FeedFormatException($"{path} holds no valid private key: {exception.Message}", exception);
+            throw new FeedFormatException($"{source} holds no valid private key: {exception.Message}", exception);
         }
         catch
         {

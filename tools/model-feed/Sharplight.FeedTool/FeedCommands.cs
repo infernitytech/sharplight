@@ -16,9 +16,9 @@ internal sealed class FeedCommands
     private readonly Option<string> _feedFolder = new("--feed") { Description = "The feed folder.", Required = true };
     private readonly Option<string> _feedLocation = new("--feed") { Description = "The feed: an http(s) URL, a file:// URL or a folder.", Required = true };
     private readonly Option<string?> _buildFeed = new("--feed") { Description = "The feed folder used to choose versions (optional)." };
-    private readonly Option<string> _key = new("--key") { Description = "The feed signing key file (private; never in a repository).", Required = true };
-    private readonly Option<string> _rootKey = new("--root-key") { Description = "The root signing key file (offline).", Required = true };
-    private readonly Option<string[]> _roots = new("--root") { Description = "Trusted root public key file(s).", Required = true, AllowMultipleArgumentsPerToken = true };
+    private readonly Option<string> _key = new("--key") { Description = "The feed signing key file, PEM or JSON (private; never in a repository).", Required = true };
+    private readonly Option<string> _rootKey = new("--root-key") { Description = "The root signing key file, PEM or JSON (offline).", Required = true };
+    private readonly Option<string[]> _roots = new("--root") { Description = "Trusted root public key file(s), PEM or JSON (default: the official feed key, tools/model-feed/keys/sharplight-feed.pub.pem).", AllowMultipleArgumentsPerToken = true };
     private readonly Option<string[]> _feedKeys = new("--feed-key") { Description = "Public key file(s) of the feed keys to list.", Required = true, AllowMultipleArgumentsPerToken = true };
     private readonly Option<string[]> _revoke = new("--revoke") { Description = "Key ids to list as revoked.", AllowMultipleArgumentsPerToken = true };
     private readonly Option<int> _keySetVersion = new("--version") { Description = "Key set version (increase on every change).", DefaultValueFactory = _ => 1 };
@@ -267,10 +267,16 @@ internal sealed class FeedCommands
     {
         var options = new FeedClientOptions
         {
-            TrustedRoots = [.. (result.GetValue(_roots) ?? []).Select(FeedPublicKey.Load)],
+            TrustedRoots = [.. Roots(result).Select(FeedPublicKey.Load)],
             AllowExpiredIndex = result.GetValue(_allowExpired),
         };
         return new FeedClient(FeedTransports.Create(result.GetValue(_feedLocation)!, http), options);
+    }
+
+    private string[] Roots(ParseResult result)
+    {
+        var roots = result.GetValue(_roots);
+        return roots is { Length: > 0 } ? roots : [FeedToolPaths.InRepository(FeedToolPaths.OfficialFeedKey)];
     }
 
     private FeedPublishOptions PublishOptions(ParseResult result) => new()

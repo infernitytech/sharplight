@@ -9,6 +9,9 @@ internal static class FeedToolPaths
     /// <summary>The feed overlay, relative to the repository root.</summary>
     public const string Overlay = "tools/model-feed/feed-overlay.json";
 
+    /// <summary>The official feed's public key, relative to the repository root.</summary>
+    public const string OfficialFeedKey = "tools/model-feed/keys/sharplight-feed.pub.pem";
+
     /// <summary>A file below the repository that contains the working directory.</summary>
     /// <param name="relative">Path relative to the repository root.</param>
     /// <exception cref="DirectoryNotFoundException">The working directory is not inside a Sharplight repository.</exception>

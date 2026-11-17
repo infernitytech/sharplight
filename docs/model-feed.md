@@ -138,7 +138,8 @@ atomic from a reader's view: package objects first, package indexes and pages ne
 
   Hosts ship or configure the root public keys. A new feed key or a revocation is a new key set signed by a root; a manifest is
   checked against the feed keys valid at its publication time (revoked keys are never accepted).
-- Key files are JSON (`{ keyId, algorithm, publicKey, privateKey? }`, SPKI and PKCS#8 in base64). Private key files never belong in a
+- Key files are PEM (`PRIVATE KEY`, `EC PRIVATE KEY`, `PUBLIC KEY`) or JSON (`{ keyId, algorithm, publicKey, privateKey? }`, SPKI and
+  PKCS#8 in base64). Private key files never belong in a
   repository; tests generate their own keys.
 - Verification by a host: key set against a trusted root → index signature, expiry, sequence → catalog and page digests → package
   index digest → manifest digest and signature → `.slm` chunk hashes while downloading and the file's SHA-256 at the end (and again
@@ -182,8 +183,8 @@ feedtool build    --entry qwen3-0.6b [--variant q8-0-gguf] --out staging/ [--fee
 feedtool publish  staging/<id>-<version> ... --feed out/ --key keys/feed.key.json [--validity-days 30]
 feedtool yank|deprecate|unlist <id> <version> --feed out/ --key keys/feed.key.json --reason ...
 feedtool reindex  --feed out/ --key keys/feed.key.json                # new sequence and expiry, no content change
-feedtool verify   --feed <url|folder> --root keys/root.pub.json [--files]
-feedtool mirror   --feed <url|folder> --root keys/root.pub.json --out bundle/ [--filter <id prefix>]
+feedtool verify   --feed <url|folder> [--root keys/root.pub.json] [--files]       # default root: the official feed key
+feedtool mirror   --feed <url|folder> [--root keys/root.pub.json] --out bundle/ [--filter <id prefix>]
 ```
 
 (`dotnet run --project tools/model-feed/Sharplight.FeedTool -- <command>`.)
@@ -197,3 +198,49 @@ feedtool mirror   --feed <url|folder> --root keys/root.pub.json --out bundle/ [-
 - `publish` signs each manifest and the new index; published versions are immutable (publishing other content under an existing
   version fails). `keyset` needs the root key, nothing else does.
 - The output folder is uploaded as is (package objects before `index.json`).
+
+## Publishing the official feed
+
+The official feed lives in the Cloudflare R2 bucket of the Studio downloads under `models/`: https://download.sharplight.dev/models/
+(`index.json` there). It is published by `.github/workflows/model-feed.yml` (manual dispatch only, environment `studio-release`, the
+same R2 secrets as `studio.yml`):
+
+1. Fetches the published listings (no package files), writes a key set if the bucket has none.
+2. Builds the requested catalog entries (`entry` or `entry:variant`; default: the first feed: Qwen3 0.6B Q8_0, all-MiniLM-L6-v2,
+   ms-marco-MiniLM-L6-v2, Whisper tiny q5_1, Silero VAD v5); versions are chosen against the published feed, an identical package
+   is not built again.
+3. Publishes into the local copy, signs, and verifies it against the official public key.
+4. Uploads new package versions first (`Cache-Control: public, max-age=31536000, immutable`; an existing object is never replaced),
+   then package indexes, catalog pages, `catalog/index.json`, `index.json` and `index.sig` (`no-cache`). Nothing is ever deleted.
+
+Without the secret `MODEL_FEED_SIGNING_KEY` (or with incomplete R2 secrets) the workflow builds nothing and says so in a warning.
+An index expires after `validity_days` (default 30): run the workflow with no entries before that to re-sign it.
+
+### Publishing keys
+
+The official feed uses a single-key setup: one ECDSA P-384 key signs the key set (as root) and the index and manifests (as the
+only feed key). Its public key is committed as `tools/model-feed/keys/sharplight-feed.pub.pem`; hosts trust it by default and
+`feedtool verify` / `mirror` use it when no `--root` is given.
+
+Setting up a key (done once by the product owner; never by CI or an agent, and the private key is never committed):
+
+1. Generate the key pair on a trusted machine:
+   `openssl ecparam -name secp384r1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out feed.key.pem` and
+   `openssl pkey -in feed.key.pem -pubout -out feed.pub.pem` (or `feedtool keygen --out feed`, JSON key files).
+2. Store the private key as the secret `MODEL_FEED_SIGNING_KEY` of the GitHub environment `studio-release` (the whole PEM text),
+   then delete or lock away the local private key file.
+3. Commit the public key as `tools/model-feed/keys/sharplight-feed.pub.pem` and add it to the hosts' trusted keys (for a server:
+   the trusted root keys of its feed source configuration; Studio: its built-in feed trust).
+
+Rotation without downtime:
+
+1. Generate the new key pair; add the new public key to the hosts' trusted keys **beside** the old one (hosts accept a key set
+   signed by any trusted root) and ship that configuration.
+2. When the hosts have it, replace the secret with the new private key, delete `models/keys/keyset.json` and `keyset.sig` from the
+   bucket (the next run writes a key set signed by the new key) and run the workflow with no entries: the index is re-signed. Old
+   manifests stay valid as long as the key set lists their key: for a full re-sign of existing manifests, publish new versions.
+3. Remove the old public key from the hosts' trusted keys in a later release.
+
+A separate offline root (TUF-style) is supported by the format: write the key set with `feedtool keyset --root-key <offline root>
+--feed-key <feed public key>` and upload it to `models/keys/`; the workflow then only signs with the feed key, and hosts trust the
+root (set the repository variable `MODEL_FEED_ROOT_PUBLIC_KEY` to the root's public key PEM so the workflow verifies against it).
