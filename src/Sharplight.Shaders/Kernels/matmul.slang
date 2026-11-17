@@ -658,8 +658,12 @@ void gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 // GEMM on 8x8 subgroup matrices (DeviceFeatures.MatrixF16Small: Metal simdgroup_matrix, f16 x f16 + f32). The tile and staging of
 // gemm_cm: a workgroup of 8 subgroups computes 64 tokens x 128 rows, subgroup (sm, sn) owns a 32x32 block = 4x4 accumulators;
 // x (f32) and W (any WFMT, dequantized via load8) are staged into shared memory as f16 per K step of 32. Requires K % 32 == 0;
-// partial N / T tiles are handled (zero-filled loads, staged stores).
+// partial N / T tiles are handled (zero-filled loads, staged stores). GEMM_SPLITK > 1: workgroup z sums only its share of K into
+// partials [GEMM_SPLITK][T][N] (see splitk_reduce).
 using namespace linalg;
+#ifndef GEMM_SPLITK
+#define GEMM_SPLITK 1
+#endif
 #define SBM 64
 #define SBN 128
 #define SBK 32
@@ -688,7 +692,19 @@ void gemm_sg(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
     SgC acc[4][4];
     [ForceUnroll] for (int i = 0; i < 4; i++) [ForceUnroll] for (int j = 0; j < 4; j++) acc[i][j] = SgC(0.0);
 
-    for (uint k0 = 0; k0 < K; k0 += SBK)
+#if GEMM_SPLITK > 1
+    const uint kShare = ((K + SBK - 1) / SBK + GEMM_SPLITK - 1) / GEMM_SPLITK * SBK;
+    uint kBegin = gid.z * kShare;
+    uint kEnd = min(uint(K), kBegin + kShare);
+    float* yb = p.y + uint64_t(gid.z) * p.T * N;
+    const uint yStride = N;
+#else
+    uint kBegin = 0;
+    uint kEnd = K;
+    float* yb = p.y;
+    const uint yStride = Y_STRIDE;
+#endif
+    for (uint k0 = kBegin; k0 < kEnd; k0 += SBK)
     {
         // x tile: 64 tokens x 32 = 256 threads x 8 values.
         {
@@ -732,8 +748,8 @@ void gemm_sg(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 
     if (t0 + SBM <= p.T && (N % SBN == 0 || n0 + SBN <= N))
     {
-        float* y = p.y + uint64_t(t0 + wm) * Y_STRIDE + n0 + wn;
-        [ForceUnroll] for (int i = 0; i < 4; i++) [ForceUnroll] for (int j = 0; j < 4; j++) acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(y + uint64_t(i * 8) * Y_STRIDE + j * 8, 0u, Y_STRIDE);
+        float* y = yb + uint64_t(t0 + wm) * yStride + n0 + wn;
+        [ForceUnroll] for (int i = 0; i < 4; i++) [ForceUnroll] for (int j = 0; j < 4; j++) acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(y + uint64_t(i * 8) * yStride + j * 8, 0u, yStride);
         return;
     }
     // Partial tile: stage each accumulator through the subgroup's shared slice and store guarded (two values per lane).
@@ -751,7 +767,7 @@ void gemm_sg(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
                 uint idx = lane + e * 32;
                 uint t = t0 + wm + i * 8 + idx / 8;
                 uint n = n0 + wn + j * 8 + idx % 8;
-                if (t < p.T && n < N) p.y[uint64_t(t) * Y_STRIDE + n] = sgC[sg * 64 + idx];
+                if (t < p.T && n < N) yb[uint64_t(t) * yStride + n] = sgC[sg * 64 + idx];
             }
             GroupMemoryBarrierWithGroupSync();
         }

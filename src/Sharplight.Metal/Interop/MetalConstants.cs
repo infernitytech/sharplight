@@ -48,4 +48,7 @@ internal static class MetalConstants
 
     /// <summary><c>MTLGPUFamilyMetal4</c>.</summary>
     internal const nint FamilyMetal4 = 5002;
+
+    /// <summary><c>MTLPipelineOptionFailOnBinaryArchiveMiss</c>: pipeline creation fails instead of compiling when no archive has the pipeline.</summary>
+    internal const nuint FailOnBinaryArchiveMiss = 1 << 2;
 }

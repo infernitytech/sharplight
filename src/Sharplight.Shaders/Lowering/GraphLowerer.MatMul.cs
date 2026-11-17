@@ -710,9 +710,10 @@ public sealed partial class GraphLowerer
         // Workgroup-scope matrix GEMM (device-staged tiles, decode on load) for the formats it decodes.
         bool workgroupMatrix = coop && !splitHalf && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations && PreferWorkgroupMatrixGemm
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
-        // Devices with only 8x8 subgroup matrices (Apple GPUs): the gemm_sg tile for the rows beyond the matvecs, without K splits.
+        // Devices with only 8x8 subgroup matrices (Apple GPUs): the gemm_sg tile for the rows beyond the matvecs, split over K
+        // when its grid would leave the GPU idle.
         bool smallMatrix = !coop && SmallMatrixGemmUsable(n, w.Type, K);
-        Func<long, int> splitRows = smallMatrix ? _ => 1 : workgroupMatrix
+        Func<long, int> splitRows = smallMatrix ? rows => ChooseSmallMatrixSplit(N, K, rows) : workgroupMatrix
             ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK, GemmWaveTiles)
             : coop
                 ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0), Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)),
@@ -806,8 +807,7 @@ public sealed partial class GraphLowerer
         if (!p.Coop)
         {
             List<KernelVariant> smallMatrix = p.SmallMatrix
-                ? [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows, Lib("matmul.slang", "gemm_sg", m),
-                    b => new Grid(Grid.Div(p.N, 128), Grid.Div(p.RowCount(b), 64)))]
+                ? [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == 1, SmallMatrixKernel(p, 1), b => SmallMatrixGrid(p, b, 1))]
                 : [];
             Emit(MatMulLabel(p), [p.Node],
                 [.. MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount), .. smallMatrix, .. SimtGemmVariants(p)],

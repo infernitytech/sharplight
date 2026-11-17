@@ -79,6 +79,14 @@ internal static unsafe partial class ObjCRuntime
     [LibraryImport(Library, EntryPoint = "objc_msgSend")]
     internal static partial void SendVoid(nint receiver, nint selector, MTLSize first, MTLSize second);
 
+    /// <summary><c>BOOL f(id, SEL, id, NSError**)</c>.</summary>
+    [LibraryImport(Library, EntryPoint = "objc_msgSend")]
+    internal static partial byte SendBool(nint receiver, nint selector, nint argument, nint* error);
+
+    /// <summary><c>id f(id, SEL, id, NSUInteger, id*, NSError**)</c> (<c>newComputePipelineStateWithDescriptor:options:reflection:error:</c>).</summary>
+    [LibraryImport(Library, EntryPoint = "objc_msgSend")]
+    internal static partial nint Send(nint receiver, nint selector, nint argument, nuint options, nint* reflection, nint* error);
+
     /// <summary><c>BOOL f(id, SEL)</c>.</summary>
     [LibraryImport(Library, EntryPoint = "objc_msgSend")]
     internal static partial byte SendBool(nint receiver, nint selector);

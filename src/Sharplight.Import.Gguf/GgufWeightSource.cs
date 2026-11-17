@@ -26,4 +26,13 @@ internal sealed unsafe class GgufWeightSource(GgufFile file, long offset, long l
         file.ThrowIfDisposed();
         return (nint)(file.BasePointer + offset);
     }
+
+    /// <inheritdoc/>
+    public bool TryGetMapping(out nint mappingBase, out long mappingLength)
+    {
+        file.ThrowIfDisposed();
+        mappingBase = (nint)file.BasePointer;
+        mappingLength = file.FileLength;
+        return true;
+    }
 }

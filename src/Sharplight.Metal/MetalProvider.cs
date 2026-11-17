@@ -136,17 +136,21 @@ public sealed class MetalProvider(MetalProviderOptions? options = null) : IExecu
     }
 
     /// <inheritdoc />
-    /// <remarks>No device stage yet (Metal binary archives are planned): returns an empty set.</remarks>
+    /// <remarks>
+    /// Compiles the pipeline of every kernel into one <c>MTLBinaryArchive</c> (entry <c>metal/binary_archive</c>): GPU machine code for this
+    /// GPU and OS build, which later loads pass to pipeline creation so that Metal skips its backend compiler. Empty when
+    /// <see cref="DeviceFeatures.KernelBinaries"/> is disabled for the device.
+    /// </remarks>
     public Task<DeviceCodeSet> CompileDeviceSpecificAsync(IComputeDevice device, PortableCodeSet portable, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(portable);
-        if (device is not MetalDevice)
+        if (device is not MetalDevice metal)
         {
             throw new ArgumentException($"Device {device.Info} is not an opened Metal device.", nameof(device));
         }
 
-        return Task.FromResult(DeviceCodeSet.Empty(Name, device.Info.Name));
+        return Task.Run(() => metal.CompileDeviceCode(portable, cancellationToken), cancellationToken);
     }
 
     /// <inheritdoc />

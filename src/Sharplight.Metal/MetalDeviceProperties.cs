@@ -105,12 +105,14 @@ internal sealed class MetalDeviceProperties
 
     /// <summary>
     /// Device features with the neutral names of <see cref="DeviceFeatures"/>: half precision and SIMD-group operations exist on every
-    /// GPU the provider lists; <c>simdgroup_matrix</c> is <see cref="DeviceFeatures.MatrixF16Small"/> (8x8 fragments, so the kernels
+    /// GPU the provider lists, as is <see cref="DeviceFeatures.IntDot"/> (emulated); <c>simdgroup_matrix</c> is <see cref="DeviceFeatures.MatrixF16Small"/> (8x8 fragments, so the kernels
     /// written for the 16x16 fragments of <see cref="DeviceFeatures.MatrixF16"/> keep their SIMT fallbacks).
     /// </summary>
     public IReadOnlySet<string> Features()
     {
-        var features = new HashSet<string> { DeviceFeatures.Float16, DeviceFeatures.SubgroupOps };
+        // int_dot: Metal has no packed int8 dot instruction; the integer-dot matvecs compile to unpacked integer multiply-adds, which
+        // still beat the f32 matvecs for Q8_0 decode (fewer bytes of activations per weight byte).
+        var features = new HashSet<string> { DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.IntDot };
         if (AppleFamily >= 7 || Mac2)
         {
             // simdgroup_matrix (8x8 f16 / f32 fragments): Apple7 (A14, M1) and later, and the Mac2 family.

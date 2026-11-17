@@ -447,7 +447,7 @@ public sealed partial class GraphLowerer
         long sharedBytes = halfTiles * (SplitFlash(plan) ? 2 : 1) + 32 * 32 * 4 + 32 * 64 * 4;
         bool typeAllowed = plan.K.Type == DataType.F16 || IsQuantizedKv(plan.K.Type)
                            || (plan.K.Type == DataType.F32 && (ReducedPrecision(plan) || FastMatrixProducts || SplitFlash(plan)));
-        return DiagnosticSwitches.AttentionFlash && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16)
+        return DiagnosticSwitches.AttentionFlash && (_opt.Has(DeviceFeatures.MatrixF16) || SmallFlashFragments) && _opt.Has(DeviceFeatures.Float16)
                && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32 && typeAllowed
                && plan.D % 8 == 0 && plan.DV % 8 == 0 && paddedD <= 256 && paddedDV <= 256
                && plan.HQ % plan.HKV == 0 && sharedBytes <= _opt.MaxSharedMemory
@@ -480,6 +480,11 @@ public sealed partial class GraphLowerer
         var q = plan.Q;
         var runs = plan.Runs;
         var macros = new Dictionary<string, string>(plan.Macros) { ["FA_SPLIT"] = SplitFlash(plan) ? "1" : "0", ["FA_KSPLIT"] = keySplits.ToString(CultureInfo.InvariantCulture) };
+        if (SmallFlashFragments)
+        {
+            macros["FA_FRAG8"] = "1";
+        }
+
         bool causal = CausalFlash(plan);
         bool encoder = causal || EncoderFlash(plan);
         if (causal)
@@ -526,7 +531,7 @@ public sealed partial class GraphLowerer
         bool plain = plan.Full && plan.Spans is null && plan.Sinks is null && plan.Runs is null && plan.Selection is null
                      && a.Get("window", 0) == 0 && !a.Get("causal", false) && a.Get("softcap", 0f) <= 0
                      && a.Get<float[]?>("alibi_slopes", null) is null && a.Get<float[]?>("position_bias", null) is null;
-        return DiagnosticSwitches.AttentionEncoderFlash && plain && FlashTileFits(plan);
+        return DiagnosticSwitches.AttentionEncoderFlash && plain && FlashTileFits(plan) && !SmallFlashFragments;
     }
 
     /// <summary>
@@ -547,8 +552,14 @@ public sealed partial class GraphLowerer
                      && plan.Compressed is null && plan.RelativeBias is null && a.Get("causal", true) && a.Get("window", 0) == 0
                      && a.Get("chunk", 0) == 0 && a.Get("softcap", 0f) <= 0 && a.Get<float[]?>("alibi_slopes", null) is null
                      && a.Get<float[]?>("position_bias", null) is null;
-        return DiagnosticSwitches.AttentionCausalFlash && plain && FlashTileFits(plan);
+        return DiagnosticSwitches.AttentionCausalFlash && plain && FlashTileFits(plan) && !SmallFlashFragments;
     }
+
+    /// <summary>
+    /// True when flash attention runs on 8x8 fragments (<see cref="DeviceFeatures.MatrixF16Small"/> without
+    /// <see cref="DeviceFeatures.MatrixF16"/>: Metal): only <c>fa</c> has that form (FA_FRAG8), so <c>fe</c> is not used.
+    /// </summary>
+    private bool SmallFlashFragments => !_opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.MatrixF16Small);
 
     /// <summary>
     /// Whether <c>fe</c> runs its softmax on the score fragments in registers (FE_REG: 64-key tiles, no score / probability staging,
@@ -872,6 +883,11 @@ public sealed partial class GraphLowerer
             ["DEC_SPLIT_ROWS"] = decode.MaxRows.ToString(CultureInfo.InvariantCulture),
         };
         var flashMacros = new Dictionary<string, string>(plan.Macros) { ["MIX_RUN"] = MixedFlashMinRunRows.ToString(CultureInfo.InvariantCulture) };
+        if (SmallFlashFragments)
+        {
+            flashMacros["FA_FRAG8"] = "1";
+        }
+
         bool causal = CausalFlash(plan);
         if (causal)
         {

@@ -269,7 +269,7 @@ Distributing without these steps needs:
 `Sharplight.Metal` (`src/Sharplight.Metal`) runs the same provider-neutral kernel library and graph lowering as the Vulkan
 provider: `GraphLowerer` lowers each segment to a `KernelProgram`, Slang compiles its kernels to the Metal Shading Language
 (`ShaderTarget.Metal`), and the provider only allocates buffers, creates pipelines and encodes the launches. Round 1 is on
-branch `macos/metal-r1`; CI is the `metal` job of [`macos.yml`](../.github/workflows/macos.yml).
+branch `macos/metal-r1`, round 2 (split-K `gemm_sg`, 8x8 flash attention, `int_dot`, mapped weights) on `macos/metal-r2`; CI is the `metal` job of [`macos.yml`](../.github/workflows/macos.yml).
 
 - **Interop.** Plain `net11.0`, no Xamarin / macOS workload: `LibraryImport` of `objc_msgSend` (one typed import per call
   shape, as arm64 requires), `sel_registerName`, `objc_getClass`, the autorelease pool functions and `MTLCopyAllDevices`
@@ -285,7 +285,11 @@ branch `macos/metal-r1`; CI is the `metal` job of [`macos.yml`](../.github/workf
 - **Memory.** Unified memory: every buffer is an `MTLBuffer` in shared storage with hazard tracking off. There is no staging:
   `SetInput` writes into the input buffer, outputs are read from the output buffer, runtime scalars go straight into the
   runtime buffer, and weights are copied (and repacked) by the CPU directly into their buffers (`WeightCopier`, shared with the
-  Vulkan provider). Shared weights and per-graph states work as on Vulkan.
+  Vulkan provider). Shared weights and per-graph states work as on Vulkan. Weights stored as the kernels read them (no repack)
+  whose source is memory-mapped (GGUF, safetensors, `.slm`) can instead be wrapped with `newBufferWithBytesNoCopy` (the pages
+  around them), so the GPU reads the mapped file without a copy: `SHARPLIGHT_MTL_NO_COPY=1`. It is off by default because on the
+  CI's Apple GPU wrapping took 12.4 s for the 0.49 GB smoke model against 0.38 s for the parallel copy (run 44031312716; same
+  output); one wrap of the whole mapping, or residency sets, are the next things to try.
 - **Execution.** Each distinct binding of the symbols is recorded once (variant, pipeline, packed arguments, grid, barrier
   placement from the shared `HazardTracker`); an execution encodes the recording into a concurrent compute encoder with
   `memoryBarrierWithScope:buffers` where the hazard tracker places barriers, makes every buffer resident with one
@@ -294,8 +298,11 @@ branch `macos/metal-r1`; CI is the `metal` job of [`macos.yml`](../.github/workf
   (`DeviceFeatures.MatrixF16Small`) on Apple7 (M1) and later and the Mac2 family: `simdgroup_matrix` has only 8x8 fragments, so
   the kernels written for the 16x16 fragments of `matrix_f16` (Vulkan cooperative matrices) keep their SIMT fallbacks, and a
   dedicated 8x8 GEMM, `gemm_sg` (64 x 128 tiles, 4 x 4 accumulators per SIMD-group, f16 inputs staged in threadgroup memory, f32
-  accumulation), takes the prefill matmuls (`SHARPLIGHT_GEMM_SG=0` keeps the SIMT GEMM). No `int_dot` (Metal has no packed
-  int8 dot instruction), no `bf16` yet.
+  accumulation), takes the prefill matmuls, split over K when its grid would leave the GPU idle (`SHARPLIGHT_GEMM_SG=0` keeps
+  the SIMT GEMM). The flash attention kernel `fa` has an 8x8 form (`FA_FRAG8`: each 16x16 tile of S and P·V as 2 x 2 fragments;
+  `fe` is not used there). `int_dot` is reported too: Metal has no packed int8 dot instruction, so the integer-dot matvecs
+  compile to unpacked integer multiply-adds (as MoltenVK emulates it), which still read fewer activation bytes than the f32
+  matvecs. No `bf16` yet.
 - **Registration.** `services.AddMetalProvider(o => ...)`; `AddSharplightProviders()` registers Metal, Vulkan, CPU in that order,
   so discovery, the CLI and Studio prefer Metal on Apple silicon and keep MoltenVK as the fallback. Off macOS, or without a
   suitable GPU, the provider reports itself unavailable. Studio lists both devices of the same GPU but splits a model only over
@@ -310,6 +317,11 @@ branch `macos/metal-r1`; CI is the `metal` job of [`macos.yml`](../.github/workf
   barriers), `SHARPLIGHT_MTL_FAST_MATH=1`, `SHARPLIGHT_MTL_TRACE=1`, `SHARPLIGHT_MTL_PROFILE=1` (one command buffer per launch,
   per-kernel GPU times in `--bench`), `SHARPLIGHT_MTL_DUMP_SOURCE=dir`.
 
+**Round 2** (run 44031312716, branch `macos/metal-r2`): the GPU suite stays green on Metal (1486 pass, 0 fail, 40 skip) with
+split-K `gemm_sg`, the 8x8 flash attention and `int_dot`. Prefill of 512 tokens rises 20-64 % over round 1 (Qwen3-0.6B Q4_K_M
+811.9 -> 1331.5 tok/s, Qwen2.5-0.5B 1281 -> 1710); `int_dot` speeds up Q4_K_M decode by 5-25 % and leaves Q8_0 about equal
+(benchmarks.md section 41.1).
+
 **CI results** (run 44018997843, `macos-15`, paravirtual Apple GPU): the whole GPU kernel suite passes on the Metal device
 (1526 tests: 1486 pass, 40 skip: benchmarks, opt-in large tests and the Vulkan-internal tests), as do the Metal unit tests and
 the LLM smoke test. Benchmarks against MoltenVK and llama.cpp: [benchmarks.md section 41](benchmarks.md). Two Metal-specific
@@ -317,8 +329,8 @@ findings: the paravirtual GPU does not claim the Metal 3 family but has argument
 and Metal has no device-scope release / acquire within a dispatch, so the decode attention's fused "last workgroup merges the
 key splits" combine gave wrong results there and is off on Metal (`LoweringOptions.CrossWorkgroupFences`).
 
-Not done yet: the device stage (`MTLBinaryArchive`), no-copy weights (`newBufferWithBytesNoCopy` over the mapped file),
-8x8-fragment forms of the flash attention and convolution GEMMs, Metal 4 tensor operations (M5), residency sets.
+Not done yet: the device stage (`MTLBinaryArchive`), 8x8-fragment forms of the causal `fe` attention and the convolution and
+MoE GEMMs (their 16x16 fragments load from vector-typed shared arrays), Metal 4 tensor operations (M5), residency sets.
 
 ## Native Metal provider plan (original design notes)
 

@@ -6,6 +6,17 @@ namespace Sharplight.Metal.Interop;
 internal static unsafe class Foundation
 {
     private static readonly nint s_stringClass = ObjCRuntime.GetClass("NSString");
+    private static readonly nint s_urlClass = ObjCRuntime.GetClass("NSURL");
+    private static readonly nint s_arrayClass = ObjCRuntime.GetClass("NSArray");
+
+    /// <summary>An autoreleased file <c>NSURL</c> for <paramref name="path"/>.</summary>
+    public static nint FileUrl(string path) => ObjCRuntime.Send(s_urlClass, Selectors.FileUrlWithPath, String(path));
+
+    /// <summary>An autoreleased <c>NSArray</c> holding <paramref name="obj"/>.</summary>
+    public static nint ArrayOf(nint obj) => ObjCRuntime.Send(s_arrayClass, Selectors.ArrayWithObject, obj);
+
+    /// <summary>A new (retained) instance of the Objective-C class <paramref name="className"/> (<c>[[C alloc] init]</c>).</summary>
+    public static nint New(string className) => ObjCRuntime.Send(ObjCRuntime.Send(ObjCRuntime.GetClass(className), Selectors.Alloc), Selectors.Init);
 
     /// <summary>An autoreleased <c>NSString</c> with the text of <paramref name="value"/>.</summary>
     public static nint String(string value)

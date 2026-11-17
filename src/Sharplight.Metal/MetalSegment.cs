@@ -109,7 +109,7 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
         if (b.Kind == BufferKind.Weight && b.Weight is { } w && _options.SharedWeights is { } shared)
         {
             // Weights shared with the other compiled models of this source on the device (e.g. a draft head's LM head).
-            var lease = shared.Acquire(_dev, WeightBufferKey.For(w, LayoutName(b)), b.Bytes, () => _dev.Allocate(b.Bytes), _dev.Free);
+            var lease = shared.Acquire(_dev, WeightBufferKey.For(w, LayoutName(b)), b.Bytes, () => AllocateWeight(b), _dev.Free);
             _leases[b] = lease;
             _alloc[b] = lease.Buffer;
             return lease.MustFill ? b.Bytes : 0;
@@ -125,9 +125,30 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
             return 0;
         }
 
-        _alloc[b] = _dev.Allocate(b.Bytes);
+        _alloc[b] = b.Kind == BufferKind.Weight ? AllocateWeight(b) : _dev.Allocate(b.Bytes);
         sharedStates?.Add(b.State!, _alloc[b]);
-        return b.Bytes;
+        return _alloc[b].WrapsHostMemory ? 0 : b.Bytes;
+    }
+
+    /// <summary>
+    /// The buffer of a weight: the mapped file pages themselves when the weight is stored as the kernels read it (no repack) and its
+    /// source is memory-mapped, otherwise a new buffer the upload fills.
+    /// </summary>
+    private MetalBuffer AllocateWeight(BufferDecl b)
+    {
+        if (DiagnosticSwitches.NoCopyWeights && b.Repack == WeightRepack.None && b.InitialData is null && b.Weight is { } w
+            && w.ByteSize == b.Bytes && w.Source?.TryGetPointer() is { } pointer && pointer != 0)
+        {
+            var wrapped = w.Source.TryGetMapping(out nint mappingBase, out long mappingLength)
+                ? _dev.TryWrapMapping(pointer, b.Bytes, mappingBase, mappingLength)
+                : _dev.TryWrap(pointer, b.Bytes);
+            if (wrapped is not null)
+            {
+                return wrapped;
+            }
+        }
+
+        return _dev.Allocate(b.Bytes);
     }
 
     /// <summary>Device layout of a weight buffer in <see cref="WeightBufferKey"/>: empty for the bytes as stored, else the repack.</summary>
@@ -136,7 +157,8 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
     /// <summary>Copies the weights and constants into their buffers (unified memory: no staging, no GPU copy).</summary>
     private void UploadWeights()
     {
-        var weights = _program.Buffers.Where(b => b.Kind == BufferKind.Weight && (!_leases.TryGetValue(b, out var l) || l.MustFill)).ToList();
+        var weights = _program.Buffers.Where(b => b.Kind == BufferKind.Weight && !_alloc[b].WrapsHostMemory
+            && (!_leases.TryGetValue(b, out var l) || l.MustFill)).ToList();
         var ct = _options.CancellationToken;
         if (weights.Count > 0)
         {

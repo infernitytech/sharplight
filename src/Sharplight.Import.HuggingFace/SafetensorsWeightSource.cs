@@ -21,4 +21,12 @@ internal sealed unsafe class SafetensorsWeightSource(SafetensorsFile file, long 
 
     /// <inheritdoc/>
     public nint TryGetPointer() => (nint)(file.BasePointer + fileOffset);
+
+    /// <inheritdoc/>
+    public bool TryGetMapping(out nint mappingBase, out long mappingLength)
+    {
+        mappingBase = (nint)file.BasePointer;
+        mappingLength = file.MappedLength;
+        return true;
+    }
 }

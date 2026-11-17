@@ -122,6 +122,14 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
             file.ThrowIfDisposed();
             return (nint)(file._base + offset);
         }
+
+        public bool TryGetMapping(out nint mappingBase, out long mappingLength)
+        {
+            file.ThrowIfDisposed();
+            mappingBase = (nint)file._base;
+            mappingLength = file._length;
+            return true;
+        }
     }
 
     /// <summary>A stored set's entries, served from the mapping without copying.</summary>
