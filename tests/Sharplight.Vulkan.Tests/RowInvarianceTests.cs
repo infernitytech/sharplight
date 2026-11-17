@@ -52,8 +52,14 @@ public sealed class RowInvarianceTests
         Check(tg, x, k);
     }
 
-    /// <summary>Expert-indexed matmuls (MoE, two experts per row chosen by a router on the row), as the routed experts of a verification step run.</summary>
+    /// <summary>
+    /// Expert-indexed matmuls (MoE, 10 of 32 experts per row chosen by a router on the row, so a 4-row step has 40 items, past the
+    /// grouped-GEMM switch of the float formats), as the routed experts of a verification step run.
+    /// </summary>
     [Theory]
+    [InlineData("f32")]
+    [InlineData("bf16")]
+    [InlineData("f16")]
     [InlineData("q8_0")]
     [InlineData("q4_k")]
     [InlineData("iq1_s")]
@@ -62,11 +68,11 @@ public sealed class RowInvarianceTests
     {
         const int K = 512;
         const int N = 256;
-        const int Experts = 8;
+        const int Experts = 32;
         var tg = new TG();
         var x = tg.InF("x", TG.T, K);
         var router = tg.B.MatMul(x, tg.RandW("router", DataType.F32, 0.1f, Experts, K));
-        var ids = tg.B.Emit("TopK", [router], Attributes.From(("k", 2L)))[1];
+        var ids = tg.B.Emit("TopK", [router], Attributes.From(("k", 10L)))[1];
         tg.B.Output("y", tg.B.Emit1("MatMulId", [x, tg.RandW("experts", DataType.Get(fmt), 0.1f, Experts, N, K), ids]));
         Check(tg, x, K);
     }

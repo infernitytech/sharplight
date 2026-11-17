@@ -67,6 +67,12 @@ public static class DiffusionConfigKeys
     /// </summary>
     public const string PromptSkip = "promptSkip";
 
+    /// <summary>
+    /// Tokenizer: the text an empty prompt (or negative prompt) is replaced with before tokenizing (Qwen-Image 2.1: " ", its encoder has
+    /// no start token to read otherwise); absent: empty prompts stay empty.
+    /// </summary>
+    public const string EmptyPrompt = "emptyPrompt";
+
     /// <summary>Scheduler: number of training timesteps (default 1000).</summary>
     public const string TrainSteps = "trainSteps";
 
@@ -129,6 +135,12 @@ public static class DiffusionConfigKeys
     /// <c>shift_terminal</c>, LTX-Video: 0.1; 0 or absent: no stretch).
     /// </summary>
     public const string ShiftTerminal = "shiftTerminal";
+
+    /// <summary>
+    /// Scheduler (flow): the noise levels the pipeline passes for its default number of steps, before the shift (diffusers'
+    /// <c>sample_sigmas</c> pipeline setting, Qwen-Image 2.1 Turbo); absent: σ = linspace(1, 1 / n).
+    /// </summary>
+    public const string SampleSigmas = "sampleSigmas";
 
     /// <summary>
     /// Denoiser: latent pixels per token along each axis (transformers that patchify the latents: FLUX 2; default 1). The image token

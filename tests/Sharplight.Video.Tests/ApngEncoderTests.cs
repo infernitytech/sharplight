@@ -72,7 +72,7 @@ public sealed class ApngEncoderTests
 
             (string codec, int width, int height, int frames) = FfmpegReference.Probe(path);
             Assert.Equal(("apng", 32, 24, 5), (codec, width, height, frames));
-            List<byte[]> decoded = FfmpegReference.Decode(path, 32, 24);
+            List<byte[]> decoded = FfmpegReference.Decode(path);
             Assert.Equal(5, decoded.Count);
             Assert.True(decoded[4].AsSpan().SequenceEqual(clip.Frames[4].Rgb));
         }

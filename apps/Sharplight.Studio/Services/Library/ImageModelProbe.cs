@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Sharplight.Import.Gguf;
 using Sharplight.Models;
+using Sharplight.Studio.Models;
 
 namespace Sharplight.Studio.Services.Library;
 
@@ -19,6 +20,7 @@ internal static class ImageModelProbe
     private const string Sd3TransformerTensor = "joint_blocks.0.x_block.attn.qkv.weight";
     private const string ZImageTransformerTensor = "noise_refiner.0.attention.qkv.weight";
     private const string QwenImageTransformerTensor = "transformer_blocks.0.img_mod.1.weight";
+    private const string QwenImage21TransformerTensor = "txt_in.text_norm.weight";
     private const long MaxSafetensorsHeader = 256L << 20;
 
     private static readonly HashSet<string> s_diffusionTransformerArchitectures = new(StringComparer.OrdinalIgnoreCase)
@@ -55,9 +57,14 @@ internal static class ImageModelProbe
 
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
+            if (IsLora(path))
+            {
+                return ModelKindCatalog.Lora;
+            }
+
             if (SafetensorsHeaderContains(path, UNetPrefix) || SafetensorsHeaderContains(path, FluxTransformerTensor)
                 || SafetensorsHeaderContains(path, Sd3TransformerTensor) || SafetensorsHeaderContains(path, ZImageTransformerTensor)
-                || SafetensorsHeaderContains(path, QwenImageTransformerTensor))
+                || SafetensorsHeaderContains(path, QwenImageTransformerTensor) || SafetensorsHeaderContains(path, QwenImage21TransformerTensor))
             {
                 return ModelKinds.ImageGeneration;
             }
@@ -88,6 +95,15 @@ internal static class ImageModelProbe
     }
 
     /// <summary>
+    /// Whether a <c>.safetensors</c> file is a LoRA adapter for an image model: kohya-ss (<c>.lora_down.weight</c> / <c>.lora_up.weight</c>) or
+    /// diffusers / PEFT (<c>.lora_A.weight</c> / <c>.lora_B.weight</c>, also <c>.lora.down.weight</c>) tensor names. A full checkpoint has none.
+    /// </summary>
+    /// <param name="path">A <c>.safetensors</c> file.</param>
+    public static bool IsLora(string path)
+        => SafetensorsHeaderContains(path, ".lora_down.weight") || SafetensorsHeaderContains(path, ".lora_A.weight")
+           || SafetensorsHeaderContains(path, ".lora_A.default.weight") || SafetensorsHeaderContains(path, ".lora.down.weight");
+
+    /// <summary>
     /// Whether an image model file holds only a FLUX, Chroma, SD3, Z-Image or Qwen-Image transformer (original tensor names, as city96 / stable-diffusion.cpp GGUF files
     /// and the official single files are distributed), so its text encoders and VAE come as companion files.
     /// </summary>
@@ -97,7 +113,8 @@ internal static class ImageModelProbe
         if (path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
         {
             return (SafetensorsHeaderContains(path, FluxTransformerTensor) || SafetensorsHeaderContains(path, Sd3TransformerTensor)
-                    || SafetensorsHeaderContains(path, ZImageTransformerTensor) || SafetensorsHeaderContains(path, QwenImageTransformerTensor))
+                    || SafetensorsHeaderContains(path, ZImageTransformerTensor) || SafetensorsHeaderContains(path, QwenImageTransformerTensor)
+                    || SafetensorsHeaderContains(path, QwenImage21TransformerTensor))
                 && !SafetensorsHeaderContains(path, "text_encoders.");
         }
 
@@ -111,7 +128,7 @@ internal static class ImageModelProbe
             using var file = GgufFile.Open(path);
             return file.Tensors.Any(tensor => tensor.Name.EndsWith(FluxTransformerTensor, StringComparison.Ordinal)
                 || tensor.Name.EndsWith(Sd3TransformerTensor, StringComparison.Ordinal) || tensor.Name.EndsWith(ZImageTransformerTensor, StringComparison.Ordinal)
-                || tensor.Name.EndsWith(QwenImageTransformerTensor, StringComparison.Ordinal));
+                || tensor.Name.EndsWith(QwenImageTransformerTensor, StringComparison.Ordinal) || tensor.Name.EndsWith(QwenImage21TransformerTensor, StringComparison.Ordinal));
         }
         catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException)
         {

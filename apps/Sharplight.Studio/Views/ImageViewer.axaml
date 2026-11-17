@@ -1,0 +1,20 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="using:Sharplight.Studio.Controls"
+             x:Name="Root" x:Class="Sharplight.Studio.Views.ImageViewer">
+  <Grid>
+    <c:ZoomPanView x:Name="Zoom" Source="{Binding #Root.Source}" CompareSource="{Binding #Root.CompareSource}" Divider="{Binding #Root.Divider}"
+                   CapturesPrimary="{Binding #Root.CapturesPrimary}" />
+    <Slider VerticalAlignment="Bottom" Margin="24,0,24,6" Minimum="0" Maximum="1" Value="{Binding #Root.Divider, Mode=TwoWay}" IsVisible="{Binding #Root.IsComparing}"
+            ToolTip.Tip="Drag to compare: the first picture on the left, the second on the right" />
+    <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8" Padding="4" CornerRadius="6" Background="#99000000" IsVisible="{Binding #Root.HasImage}">
+      <StackPanel Orientation="Horizontal" Spacing="4">
+        <Button Classes="small" Content="−" Click="OnZoomOut" ToolTip.Tip="Zoom out (-)" />
+        <TextBlock x:Name="ZoomLabel" Classes="caption" MinWidth="56" TextAlignment="Center" VerticalAlignment="Center" />
+        <Button Classes="small" Content="+" Click="OnZoomIn" ToolTip.Tip="Zoom in (+). Mouse wheel and pinch zoom around the pointer; drag to move." />
+        <Button Classes="small" Content="Fit" Click="OnFit" ToolTip.Tip="Show the whole image (0). Double click toggles fit and 100 %." />
+        <Button Classes="small" Content="100 %" Click="OnActualSize" ToolTip.Tip="One screen pixel per image pixel (1)" />
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>

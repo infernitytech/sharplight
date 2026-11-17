@@ -37,7 +37,8 @@ internal sealed class FlowMatchEulerSampler : DiffusionSampler
         for (int i = 0; i < steps; i++)
         {
             // np.linspace in double.
-            double linear = steps == 1 ? 1.0 : 1.0 + (last - 1.0) * i / (steps - 1);
+            double linear = schedule.SampleSigmas.Count == steps && !schedulerSpacing ? schedule.SampleSigmas[i]
+                : steps == 1 ? 1.0 : 1.0 + (last - 1.0) * i / (steps - 1);
             float sigma;
             if (schedulerSpacing && !schedule.DynamicShift)
             {

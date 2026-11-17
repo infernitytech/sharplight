@@ -1051,7 +1051,7 @@ codecs and vocoders are graphs of generic Core ops; the host runs only the token
 | Orpheus 3B fine-tune (Llama decoder over SNAC codes) + SNAC 24 kHz decoder | supported, CPU and Vulkan | transformers (fp32, greedy chain of 140 tokens, teacher forced) and the `snac` package | prompt ids identical; 0 argmax disagreements over 140 positions, worst top-logit delta 0.003 (CPU and Vulkan); SNAC decoder waveform relative RMS 2.1e-6 (CPU) / 2.4e-6 (Vulkan) with the reference's noise |
 | Chatterbox (ResembleAI/chatterbox, English; T3 Llama 520M over S3 speech tokens, S3Gen flow matching, HiFT vocoder), built-in voice | supported, CPU and Vulkan | the `chatterbox-tts` package 0.1.7 on torch (CPU, float32; `tests/Sharplight.TextToSpeech.Tests/tools/make_chatterbox_reference.py`) | text tokens identical; conditioning rows 7e-7 (CPU) / 4e-7 (Vulkan) relative RMS; T3 guided greedy chain teacher forced: 0 argmax disagreements over 92 steps (reference margins down to 1.5e-3); flow mel for the reference tokens and noise 4.4e-7 / 5.9e-7; HiFT F0 7.4e-7 / 7.8e-7 and waveform 5.6e-6 / 7.0e-6 with the reference's source draws; voice cloning (`tools/make_chatterbox_clone_reference.py`, LibriSpeech 1272-128104-0004): voice encoder partials 9e-7 / 1.2e-6, S3 tokens 150 of 150 (T3 prompt) and 250 of 250 (flow prompt), CAM++ x-vector 3e-6 / 2e-6, flow prompt log-mel 1.9e-7; a cloned sentence transcribed word for word by Qwen3-ASR-1.7B, its speaker similarity to the recording 0.88 against 0.71 for the built-in voice |
 | F5-TTS v1 Base (SWivid; flow-matching diffusion transformer over characters) + Vocos mel 24 kHz, voice of a reference recording | supported, CPU and Vulkan | the `f5-tts` package 1.1.22 on torch (CPU, float32; `tools/make_f5tts_reference.py`, jfk.wav as the reference) | character ids and duration identical; sampled mel from the reference's log-mel and noise (32 guided Euler steps) 4.2e-6 (CPU) / 3.5e-5 (Vulkan) relative RMS; Vocos waveform 2.4e-5 / 1.8e-5; the reference log-mel within 5e-3 on a 24 kHz copy of the recording (from 16 kHz the resamplers differ in near-silent frames, which the log floor magnifies) |
-| XTTS v2 (Coqui; GPT-2 over audio codes + HiFi-GAN decoder), the 58 built-in speakers, English | supported, CPU and Vulkan | coqui-tts 0.28.0 on torch (CPU, float32; `tools/make_xtts_reference.py`, speaker "Claribel Dervla") | text ids identical (abbreviations, numbers as num2words spells them, symbols); greedy codes 90 of 90 identical (repetition penalty 10); latents 6.4e-5 (CPU) / 6.8e-5 (Vulkan) relative RMS; HiFi-GAN waveform of the reference latents 1.6e-4 / 1.8e-4; sampled with the model's settings, a four-sentence passage transcribed word for word by Qwen3-ASR-1.7B; Vulkan real-time factor 0.24 (4.2 s of audio in 1.0 s, RTX PRO 4500), CPU 1.2 |
+| XTTS v2 (Coqui; GPT-2 over audio codes + HiFi-GAN decoder), the 58 built-in speakers, English | supported, CPU and Vulkan | coqui-tts 0.28.0 on torch (CPU, float32; `tools/make_xtts_reference.py`, speaker "Claribel Dervla") | text ids identical (abbreviations, numbers as num2words spells them, symbols); greedy codes 90 of 90 identical (repetition penalty 10); latents 6.4e-5 (CPU) / 6.8e-5 (Vulkan) relative RMS; HiFi-GAN waveform of the reference latents 1.6e-4 / 1.8e-4; sampled with the model's settings, a four-sentence passage transcribed word for word by Qwen3-ASR-1.7B; Vulkan real-time factor 0.24 (4.2 s of audio in 1.0 s, RTX PRO 4500), CPU 1.2; voice cloning: style latents 3.7e-6 / 2.7e-6, speaker embedding 2.8e-6 / 1.3e-6 |
 | CSM-1B + Mimi, Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
@@ -1164,9 +1164,24 @@ and every code are the latents, linearly interpolated ×4 and ×24000/22050 (tor
 Text is spoken sentence by sentence (wrapped at 250 characters). Sampling: a request whose `SpeechSynthesisOptions.Sampling` is left at its defaults
 (only a seed set) now gets the model's own settings in all sampling synthesizers (XTTS, Chatterbox, Orpheus, OuteTTS); `samples/Sharplight.Speak`
 passes only the seed unless `--greedy` (with its former fixed settings XTTS ran to the 605-code limit on most seeds; coqui and Sharplight give
-4.5 to 6.2 s for the same sentence over six seeds). Not done: cloning a voice from a recording (the conditioning encoder: mel, Perceiver
-resampler, speaker encoder as graphs), the cleaners of the 16 other languages (they are lowercased only; Chinese, Japanese and Korean need their
+4.5 to 6.2 s for the same sentence over six seeds). Not done: the cleaners of the 16 other languages (they are lowercased only; Chinese, Japanese and Korean need their
 romanizers), decimal numbers, ordinals and currency amounts as num2words spells them, the speed option.
+
+XTTS v2 voice cloning: `SpeechSynthesisOptions.ReferenceAudio` (`--reference`) speaks with the voice of a recording, following
+`get_conditioning_latents` with the model's settings (at most 30 s at 22.05 kHz):
+- `xtts_conditioning`: the style encoder (the log-mel divided by `mel_stats.pth`, the conditioning encoder's group-normalized attention blocks,
+  the Perceiver resampler's 32 latents with GEGLU feed forwards and the RMS norm), averaged over 4 s chunks;
+- `xtts_speaker_encoder`: the decoder's speaker embedding (Coqui's ResNet with squeeze-and-excitation blocks and attentive statistics pooling) of
+  the 16 kHz resampling.
+Both run over `LogMelSpectrogram` front ends (new options: the Hamming `window` and the reflect `preemphasisEdge`; the torchaudio HTK filter banks
+come from the new `HtkMelFilterBank`, which F5-TTS now uses too). Parity vs coqui-tts (`tools/make_xtts_clone_reference.py`, LibriSpeech
+1272-128104-0004, with the real torchaudio's Python part, `SL_TORCHAUDIO_DIR`), CPU / Vulkan:
+- style latents: worst of 8 chunks 3.7e-6 / 2.7e-6
+- speaker embedding: 2.8e-6 / 1.3e-6
+- from the reference's signals: conditioning latents 1.9e-6, speaker embedding 3.1e-6
+A cloned sentence is transcribed word for word by Qwen3-ASR-1.7B; its speaker similarity to the recording is 0.62, against 0.19 for a built-in
+speaker. The Perceiver's latents grow to 1e10 before its norm, which overflows the split-f16 flash attention on Vulkan. Its attention therefore sets
+the new `StandardOps.F32ProductsAttribute`, which keeps the products on the f32 kernel.
 
 ## 13. Speech to text (task kind `speech-recognition`)
 
@@ -1473,7 +1488,8 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Chroma (Chroma1-HD / Base / Flash and fine-tunes) | diffusers folder; original single file (FLUX names plus `distilled_guidance_layer.*`); transformer-only GGUF (silveroxides, any ggml type) plus companions: T5-XXL, the FLUX VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance with negative prompts; masked T5 and text attention) | [below](#chroma) |
 | Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
 | Qwen-Image (Qwen-Image and fine-tunes with the same layout, e.g. Qwen-Image-2512) | diffusers folder; transformer-only GGUF (city96 / QuantStack / unsloth, `qwen_image` architecture id, any ggml type) and ComfyUI single files plus companions: the Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a `qwen2vl` GGUF), the causal VAE (the pipeline's `vae` file or ComfyUI's `qwen_image_vae.safetensors` in the original Wan names) | **supported** (txt2img, img2img, inpainting; true CFG with diffusers' norm rescaling; 50 steps, guidance 4 by default) | [below](#qwen-image) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1, Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
+| Qwen-Image 2.1 (and its Turbo) | diffusers folder; transformer-only GGUF (unsloth: no metadata, ComfyUI names) and ComfyUI single files plus companions: the Qwen3-VL-8B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the pipeline's VAE file | **supported** (text-to-image; 40 steps without guidance by default; Turbo: its 8-step schedule from the pipeline's `sample_sigmas` or the file name) | [below](#qwen-image-21) |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
 | ControlNet, TAESD | - | missing | |
 
@@ -1765,6 +1781,39 @@ Verification (tools/make-tiny-qwen-image.py, tools/make-qwen-image-references.py
   512×512 20 guided steps 34 s, 1024×1024 131 s (3.3 s per step and both rows); diffusers (GGUF dequantized on the fly, CUDA f32) 8.2 s per
   step at 1024.
 
+### Qwen-Image 2.1
+
+<a id="qwen-image-21"></a>
+Qwen-Image 2.1 (2026-11-16, the most downloaded text-to-image family on the Hub at the time): a 7B single-stream DiT over [text, image]
+conditioned on Qwen3-VL-8B, with a 64-channel 16× residual VAE that reads and writes RGBA. Design:
+
+- Canonical source `qwen_image21`: `transformer.{img_in, txt_in.norm (the zero-centred scale + 1), txt_in.in_layer|out_layer, time_in.*,
+  modulation, blocks.{i}.attn.q|k|v|o|norm_q|norm_k, blocks.{i}.mlp.gate|up|down, final.mod, final.linear}` (ComfyUI's / unsloth's fused
+  `img_mlp.gate_up` split into row blocks, gate first); the Qwen3-VL text model kept whole (`text_encoder.`, the tokenizer from the
+  pipeline's `processor/` folder); the VAE in the Wan names (`WanVaeConfig`, residual, 5 levels, separate decoder width). Family keys: the
+  system-prompt template with its 14-token system turn skipped, 512 prompt tokens, an empty prompt read as " ", the Qwen-Image flow schedule,
+  40 steps, no guidance; Turbo: the pipeline's `sample_sigmas` (8 steps; transformer-only files named `*turbo*`).
+- `QwenImage21TransformerGraphBuilder`: one token per latent pixel; the text through the RMS norm and a GELU MLP; blocks with LayerNorm ·
+  (1 + scale) and tanh gates from one shared modulation projection (text rows from t = 0, image rows from the step's t); block-causal
+  attention as two attention ops: text rows causal over the text (row spans), image rows over all visible text and the whole image (key
+  bias); SwiGLU with f32 activations in the down projection; the scale-only final norm. RoPE: text j at (j, j, j), image tokens at
+  (n, centred row, centred column) with n the visible text tokens, computed in the graph from the context mask. The text graph is the decoder
+  graph's last layer output before the final norm. The VAE graphs are the Wan image graphs, which now take and drop the alpha channel of
+  RGBA VAEs (opaque alpha in, colour channels out).
+- Core: `DiffusionConfigKeys.EmptyPrompt` (Qwen-Image 2.1: " "), `DiffusionConfigKeys.SampleSigmas` (pipeline noise levels before the shift
+  for the default step count).
+
+Verification (tools/make-tiny-qwen-image21.py, tools/make-qwen-image21-references.py; `TinyQwenImage21Tests`, `QwenImage21Tests`):
+
+- Tiny random Qwen-Image 2.1 (64×96, 5-level RGBA VAE): prompt tokens equal transformers'; text encoder, transformer, VAE decode and encode
+  within 1e-4 / 1e-3 (Vulkan) of diffusers from the diffusers folder, the ComfyUI single file and a Q8_0 GGUF without metadata (GGUF within
+  5e-3 / 3e-2); guided 4-step txt2img above 40 dB in all 6 combinations.
+- Qwen-Image 2.1, unsloth's Q8_0 GGUF with the pipeline's Qwen3-VL text encoder (bf16) and VAE as companions, on Vulkan against diffusers on
+  the same files (dequantized GGUF transformer on CUDA, f32 text encoder; diffusers keeps the GGUF's BF16 norm scales undecoded, so the
+  reference script dequantizes them first), 20 steps without guidance, same latents: text encoder 7.3–9.6e-4, transformer 1.4e-2 (random
+  inputs); images 42.2 dB (512) / 37.4 dB (1024). Speed (Vulkan, warm): 1024×1024 20 steps 35.8 s (1.8 s per step), 512×512 10.6 s;
+  diffusers (GGUF dequantized on the fly, CUDA f32) 2.8 s per step at 1024.
+
 ### LoRA
 
 <a id="lora"></a>
@@ -1980,12 +2029,14 @@ compared with llama.cpp b11177, which lacks `lfm3` (checked against transformers
 
 Open:
 
-1. **Vulkan row invariance for every op of qwen4exp.** Speculative verification (2-4 rows) must compute each row exactly as plain
-   one-row decoding does. `RowInvariantRows` guarantees that for matmuls and attention (`RowInvarianceTests`), but on
-   Qwen3.8-Flash-Next (UD-IQ1_S) the MTP runs leave plain greedy output at one near-tie (logit gap 0.06; benchmarks section 17.5.1).
-   Ruled out: matmuls and expert matmuls (`MatMulId`) of every format family incl. IQ1_S / IQ4_NL (`RowInvarianceTests`). Left: the
-   delta-rule record-and-replay, the QSA indexer, the n-gram convolution, the CPU layers' ops other than matmuls.
-   The CPU matmul side is fixed (up to 4 rows run the fused kernel row by row).
+1. **Row invariance of speculative verification on qwen4exp.** A verification step (2-4 rows) must compute each row exactly as a
+   one-row step does. Fixed: CPU matmuls (up to 4 rows run the single-row arithmetic), the Vulkan expert matmul (row-invariant
+   steps stay on the expert matvec). `SpeculativeRowInvarianceTests` pass on Vulkan for tiny Llama, Qwen3.5, Qwen3.8-MoE,
+   Qwen3-Next-MoE and Qwen3.8-Flash-Next. Open: (a) tiny Qwen3.8-Flash-Next on the CPU still differs in the last bits; it is not the
+   n-gram embedding, the QSA indexer, attention or the matmuls (bisected with config variants and a one-layer model; dense and MoE
+   Qwen pass), which leaves the hyper-connection mixers' CPU ops (Tile, the permuted ReduceSum) and the sigmoid-gated delta rule;
+   (b) the real Qwen3.8-Flash-Next (UD-IQ1_S, two GPUs, n-gram table on the CPU) still meets plain greedy output at one near-tie
+   with MTP (benchmarks section 17.5.2), so some op of the real model (or its CPU table gathers) is not row-invariant yet.
 2. **OPT variants.** Post-norm OPT (`do_layer_norm_before = false`, OPT-350m) and projected embeddings (`word_embed_proj_dim` other than the
    hidden size) are refused by the mapping; both are small additions to the decoder (a post-norm layer flag and in/out projections).
 3. **Larger safetensors.** bf16 checkpoints above ~30 GB were not run through the HF importer (only GGUF, and FP8 for Qwen3.8-27B), by

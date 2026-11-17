@@ -62,7 +62,7 @@ internal sealed class ChatterboxVoiceCloning : IDisposable
     public ChatterboxVoice Clone(AudioBuffer recording, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(recording);
-        var mono = recording.Channels == 1 ? recording.Samples : Mix(recording.Samples, recording.Channels);
+        var mono = recording.ToMono().Samples;
         var ref24 = AudioResampler.Resample(mono, 1, recording.SampleRate, Rate24);
         var ref16 = AudioResampler.Resample(ref24, 1, Rate24, Rate16);
         cancellationToken.ThrowIfCancellationRequested();
@@ -336,23 +336,6 @@ internal sealed class ChatterboxVoiceCloning : IDisposable
         }
 
         return result;
-    }
-
-    private static float[] Mix(float[] interleaved, int channels)
-    {
-        var mono = new float[interleaved.Length / channels];
-        for (int i = 0; i < mono.Length; i++)
-        {
-            float sum = 0;
-            for (int c = 0; c < channels; c++)
-            {
-                sum += interleaved[(i * channels) + c];
-            }
-
-            mono[i] = sum / channels;
-        }
-
-        return mono;
     }
 
     private static Value Input(CompiledModel compiled, string name) => compiled.Graph.Inputs.First(v => v.Input!.Name == name);
