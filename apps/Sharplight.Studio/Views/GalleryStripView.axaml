@@ -10,14 +10,14 @@
         <ComboBox DockPanel.Dock="Right" ItemsSource="{Binding Models}" SelectedItem="{Binding ModelFilter}" MinWidth="150" Margin="6,0,0,0" />
         <TextBox Text="{Binding TextFilter}" PlaceholderText="Filter by prompt" />
       </DockPanel>
-      <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0" IsVisible="{Binding HasSelection}">
+      <WrapPanel DockPanel.Dock="Bottom" Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,6,0,0" IsVisible="{Binding HasSelection}">
         <Button Classes="small" Content="Reuse settings" Command="{Binding ReuseSettingsCommand}" ToolTip.Tip="Fill the prompts, seed, size, steps and the other parameters from this image" />
         <Button Classes="small" Content="Copy prompt" Command="{Binding CopyPromptCommand}" />
         <Button Classes="small" Content="Open folder" Command="{Binding OpenFolderCommand}" />
         <Button Classes="small" Content="Save as…" Command="{Binding ExportCommand}" />
         <Button Classes="small danger" Content="{Binding DeleteText}" Command="{Binding DeleteCommand}" />
         <Button Classes="small" Content="Keep" Command="{Binding CancelDeleteCommand}" IsVisible="{Binding IsConfirmingDelete}" />
-      </StackPanel>
+      </WrapPanel>
       <TextBlock Classes="muted" Text="{Binding EmptyText}" IsVisible="{Binding IsEmpty}" />
       <ListBox ItemsSource="{Binding Visible}" SelectedItem="{Binding SelectedItem}" Height="104" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
         <ListBox.ItemsPanel>
