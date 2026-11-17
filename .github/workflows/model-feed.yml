@@ -1,6 +1,9 @@
 # Model feed (docs/model-feed.md): builds preconverted, signed .slm packages from verified-catalog entries and publishes them to the
 # Cloudflare R2 bucket under models/ (https://download.sharplight.dev/models/).
 #
+# - Push to develop that changes tools/model-feed/publish-request.json: builds the entries listed there and publishes them (no
+#   entries: only re-signs the index). This is the trigger until the workflow is on the default branch (dispatch and schedule only
+#   run from there) and the one the studio-release environment admits (develop, release/*).
 # - Manual dispatch: builds the given catalog entries and publishes them (or only re-signs the index when no entries are given).
 # - Weekly schedule: only re-signs the index (new sequence, expiry 30 days ahead), so the published index never expires while
 #   nobody publishes; it builds nothing and does nothing before the first publication.
@@ -14,6 +17,9 @@
 name: model-feed
 
 on:
+  push:
+    branches: [develop]
+    paths: [tools/model-feed/publish-request.json]
   schedule:
     - cron: '17 4 * * 1' # Mondays 04:17 UTC: re-sign only, well before the 30-day expiry
   workflow_dispatch:
@@ -73,6 +79,46 @@ jobs:
         with:
           fetch-depth: 0 # Nerdbank.GitVersioning needs the history to compute the engine version
 
+      - name: Read the publish request
+        id: request
+        if: steps.secrets.outputs.skip == 'false'
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_ENTRIES: ${{ inputs.entries }}
+          INPUT_VALIDITY: ${{ inputs.validity_days }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            push)
+              request=tools/model-feed/publish-request.json
+              entries=$(jq -r '(.entries // []) | join(" ")' "$request")
+              validity=$(jq -r '.validityDays // 30' "$request")
+              echo "Publish request: $(jq -r '.reason // "(no reason given)"' "$request")"
+              ;;
+            workflow_dispatch)
+              entries="$INPUT_ENTRIES"
+              validity="${INPUT_VALIDITY:-30}"
+              ;;
+            *)
+              # Scheduled: re-sign only.
+              entries=""
+              validity=30
+              ;;
+          esac
+          for spec in $entries; do
+            if ! [[ "$spec" =~ ^[a-z0-9][a-z0-9.-]*(:[a-z0-9][a-z0-9.-]*)?$ ]]; then
+              echo "::error::'$spec' is not an entry or entry:variant id."
+              exit 1
+            fi
+          done
+          if ! [[ "$validity" =~ ^[0-9]+$ ]] || [ "$validity" -lt 1 ] || [ "$validity" -gt 90 ]; then
+            echo "::error::validityDays must be a whole number of days from 1 to 90 (was '$validity')."
+            exit 1
+          fi
+          echo "entries=$entries" >> "$GITHUB_OUTPUT"
+          echo "validity=$validity" >> "$GITHUB_OUTPUT"
+          echo "Entries: ${entries:-(none: re-sign only)}; index valid for $validity days"
+
       - uses: actions/setup-dotnet@v4
         if: steps.secrets.outputs.skip == 'false'
         with:
@@ -101,10 +147,10 @@ jobs:
       - name: Fetch the published listings
         if: steps.secrets.outputs.skip == 'false'
         env:
-          SCHEDULED: ${{ github.event_name == 'schedule' }}
+          RESIGN_ONLY: ${{ steps.request.outputs.entries == '' }}
         run: |
-          if [ "$SCHEDULED" = "true" ] && ! aws s3api head-object --bucket "$R2_BUCKET" --key "$FEED_PREFIX/index.json" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
-            echo "::notice::No feed is published yet; the scheduled re-sign has nothing to do."
+          if [ "$RESIGN_ONLY" = "true" ] && ! aws s3api head-object --bucket "$R2_BUCKET" --key "$FEED_PREFIX/index.json" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
+            echo "::notice::No feed is published yet; a re-sign without entries has nothing to do."
             echo "NOTHING_PUBLISHED=true" >> "$GITHUB_ENV"
             exit 0
           fi
@@ -120,8 +166,7 @@ jobs:
       - name: Build packages
         if: steps.secrets.outputs.skip == 'false' && env.NOTHING_PUBLISHED != 'true'
         env:
-          # Scheduled runs have no inputs: no entries, so only the index is re-signed.
-          ENTRIES: ${{ github.event_name == 'workflow_dispatch' && inputs.entries || '' }}
+          ENTRIES: ${{ steps.request.outputs.entries }}
         run: |
           mkdir -p "$WORK/staging"
           for spec in $ENTRIES; do
@@ -140,7 +185,7 @@ jobs:
       - name: Publish locally and verify
         if: steps.secrets.outputs.skip == 'false' && env.NOTHING_PUBLISHED != 'true'
         env:
-          VALIDITY: ${{ inputs.validity_days || '30' }}
+          VALIDITY: ${{ steps.request.outputs.validity }}
         run: |
           tool=tools/model-feed/Sharplight.FeedTool/bin/Release/net11.0/feedtool.dll
           staged=$(find "$WORK/staging" -mindepth 1 -maxdepth 1 -type d | sort)

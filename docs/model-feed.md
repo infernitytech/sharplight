@@ -202,8 +202,19 @@ feedtool mirror   --feed <url|folder> [--root keys/root.pub.json] --out bundle/ 
 ## Publishing the official feed
 
 The official feed lives in the Cloudflare R2 bucket of the Studio downloads under `models/`: https://download.sharplight.dev/models/
-(`index.json` there). It is published by `.github/workflows/model-feed.yml` (manual dispatch, plus a weekly re-sign; environment `studio-release`, the
+(`index.json` there). It is published by `.github/workflows/model-feed.yml` (a push to develop that changes `tools/model-feed/publish-request.json`, manual dispatch, plus a weekly re-sign; environment `studio-release`, the
 same R2 secrets as `studio.yml`):
+
+**Publish requests.** Until the workflow is on the default branch, the trigger is a commit to develop that changes
+`tools/model-feed/publish-request.json`:
+
+```json
+{ "entries": ["qwen3-0.6b:q8-0-gguf", "silero-vad-v5:onnx"], "validityDays": 30, "reason": "why this publication" }
+```
+
+`entries` are `entry` or `entry:variant` ids of the verified catalog (default variant: the recommended one); an empty list only
+re-signs the index. Manual dispatch (inputs `entries` and `validity_days`) and the schedule work once the workflow is on the default
+branch. A run:
 
 1. Fetches the published listings (no package files), writes a key set if the bucket has none.
 2. Builds the requested catalog entries (`entry` or `entry:variant`; default: the first feed: Qwen3 0.6B Q8_0, all-MiniLM-L6-v2,
@@ -216,10 +227,12 @@ same R2 secrets as `studio.yml`):
 Without the secret `MODEL_FEED_SIGNING_KEY` (or with incomplete R2 secrets) the workflow builds nothing and says so in a warning.
 
 An index expires after `validity_days` (default 30) and hosts reject an expired index (freeze protection). A **weekly scheduled run**
-(Mondays 04:17 UTC) therefore only re-signs the index: no builds, a new sequence and a new expiry 30 days ahead; it does nothing before
-the first publication. A manual run with no entries does the same. Scheduled workflows run from the repository's default branch, so
-the schedule is active once the workflow file is on that branch and the `studio-release` environment's branch rule admits it; if the
-environment is limited to other branches, re-sign manually (or from a dispatch on develop) at least every three weeks.
+(Mondays 04:17 UTC) therefore only re-signs the index: no builds, a new sequence and a new expiry 30 days ahead. Any run without
+entries does the same, and does nothing before the first publication.
+
+**Until the next release** the weekly re-sign does not run: schedules (like dispatch) only run for workflows on the default branch
+(main), and the `studio-release` environment admits only develop and release/*. Until then, re-sign at least every three weeks by
+committing to develop a `publish-request.json` with an empty `entries` list (and a new `reason`, so the file changes).
 
 ### Publishing keys
 
