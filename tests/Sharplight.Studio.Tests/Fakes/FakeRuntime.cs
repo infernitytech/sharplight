@@ -46,7 +46,7 @@ internal sealed class FakeRuntime : IModelRuntime
     {
         Requests.Add(request);
         progress?.Report(new LoadStatus(0.5, "Compiling kernels 1 / 2"));
-        ILoadedModel model = Add(new FakeModel(request.Id) { Settings = request.Settings });
+        ILoadedModel model = Add(new FakeModel(request.Id) { Settings = request.Settings, Kind = request.Kind, Auxiliary = request.Auxiliary ?? [] });
         return Task.FromResult(model);
     }
 

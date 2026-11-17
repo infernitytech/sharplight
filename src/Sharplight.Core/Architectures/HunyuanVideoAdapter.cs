@@ -15,7 +15,7 @@ namespace Sharplight.Architectures;
 /// <remarks>
 /// Metadata: <c>hunyuan_video.transformer.*</c> (<see cref="HunyuanVideoHyperParameters"/>), <c>hunyuan_video.vae.*</c>
 /// (<c>latent_channels</c>, <c>scaling_factor</c>, <c>groups</c>, <c>temporal_compression</c>, <c>spatial_compression</c>,
-/// <c>tile_frames</c>, <c>tile_stride</c>), <c>hunyuan_video.text_encoder_source.*</c> (the language model as a canonical source of its own,
+/// <c>tile_frames</c>, <c>tile_stride</c>, <c>spatial_tile</c>, <c>spatial_tile_stride</c>), <c>hunyuan_video.text_encoder_source.*</c> (the language model as a canonical source of its own,
 /// weights under <c>text_encoder.</c>), <c>hunyuan_video.text_encoder.*</c> (<c>prompt_length</c>, <c>prompt_template</c>,
 /// <c>prompt_prefix</c> = the template tokens cropped from the states, <c>layer</c>), <c>hunyuan_video.text_encoder_2.*</c> (CLIP, weights
 /// under <c>text_encoder_2.</c>) with its tokenizer under <c>hunyuan_video.tokenizer_2.</c>, <c>hunyuan_video.scheduler.*</c> and the
@@ -192,6 +192,8 @@ public sealed class HunyuanVideoAdapter : IModelAdapter
                         .Add(VideoConfigKeys.TemporalDownscale, temporal)
                         .Add(VideoConfigKeys.DecodeTileFrames, src.Get(v + "tile_frames", 4))
                         .Add(VideoConfigKeys.DecodeTileStride, src.Get(v + "tile_stride", 3))
+                        .Add(VideoConfigKeys.DecodeSpatialTile, src.Get(v + "spatial_tile", 32))
+                        .Add(VideoConfigKeys.DecodeSpatialTileStride, src.Get(v + "spatial_tile_stride", 24))
                         .Build(),
                 },
                 FlowSchedulerComponent.Create(src, Prefix, schedulerAttachment, 7f),

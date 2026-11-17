@@ -25,7 +25,7 @@ internal sealed class FlowMatchEulerSampler : DiffusionSampler
     public FlowMatchEulerSampler(NoiseSchedule schedule, int steps, int imageTokens)
         : base(schedule)
     {
-        float shiftExp = (float)Math.Exp(Mu(schedule, imageTokens));
+        float shiftExp = (float)Math.Exp(schedule.EmpiricalShift ? EmpiricalMu(imageTokens, steps) : Mu(schedule, imageTokens));
         _sigmas = new float[steps + 1];
         _timesteps = new float[steps];
         // The FLUX pipelines pass σ = linspace(1, 1 / steps); pipelines that pass none (SD3, Wan) get the scheduler's own levels:
@@ -37,7 +37,8 @@ internal sealed class FlowMatchEulerSampler : DiffusionSampler
         for (int i = 0; i < steps; i++)
         {
             // np.linspace in double.
-            double linear = steps == 1 ? 1.0 : 1.0 + (last - 1.0) * i / (steps - 1);
+            double linear = schedule.SampleSigmas.Count == steps && !schedulerSpacing ? schedule.SampleSigmas[i]
+                : steps == 1 ? 1.0 : 1.0 + (last - 1.0) * i / (steps - 1);
             float sigma;
             if (schedulerSpacing && !schedule.DynamicShift)
             {
@@ -114,6 +115,25 @@ internal sealed class FlowMatchEulerSampler : DiffusionSampler
     {
         double init = Math.Min(steps * (double)strength, steps);
         return (int)Math.Max(steps - init, 0);
+    }
+
+    /// <summary>FLUX.2's μ: a fit over the image token count and the step count (diffusers' <c>compute_empirical_mu</c>).</summary>
+    private static double EmpiricalMu(int imageTokens, int steps)
+    {
+        const double a1 = 8.73809524e-05;
+        const double b1 = 1.89833333;
+        const double a2 = 0.00016927;
+        const double b2 = 0.45666666;
+        if (imageTokens > 4300)
+        {
+            return a2 * imageTokens + b2;
+        }
+
+        double m200 = a2 * imageTokens + b2;
+        double m10 = a1 * imageTokens + b1;
+        double a = (m200 - m10) / 190.0;
+        double b = m200 - 200.0 * a;
+        return a * steps + b;
     }
 
     /// <summary>The dynamic shift μ: linear in the image token count between the base and maximum sequence lengths.</summary>

@@ -35,6 +35,21 @@ internal sealed record AutoencoderHyperParameters
     /// <summary>Pixels per latent along each axis.</summary>
     public int Downscale => 1 << (BlockChannels.Length - 1);
 
+    /// <summary>
+    /// Latent pixels folded into the channels of the model's latents (FLUX.2: 2, the 32-channel latents patchified 2×2 to 128 channels and
+    /// normalized by the VAE's batch-norm statistics <c>vae.bn.running_mean|running_var</c>); 1 for the plain KL autoencoders.
+    /// </summary>
+    public int LatentPatch { get; init; } = 1;
+
+    /// <summary>The epsilon of the batch-norm statistics (FLUX.2: 1e-4).</summary>
+    public float BatchNormEps { get; init; } = 1e-4f;
+
+    /// <summary>Pixels per model latent pixel (<see cref="Downscale"/> · <see cref="LatentPatch"/>).</summary>
+    public int ModelDownscale => Downscale * LatentPatch;
+
+    /// <summary>Channels of the model latents (<see cref="LatentChannels"/> · <see cref="LatentPatch"/>²).</summary>
+    public int ModelLatentChannels => LatentChannels * LatentPatch * LatentPatch;
+
     /// <summary>Reads the keys under <c>{prefix}vae.</c>.</summary>
     /// <param name="source">The canonical source.</param>
     /// <param name="prefix">Architecture prefix (<c>latent_diffusion.</c>).</param>
@@ -52,6 +67,8 @@ internal sealed record AutoencoderHyperParameters
             ShiftFactor = source.Get(p + "shift_factor", 0f),
             QuantConvolutions = source.Get(p + "quant_convolutions", true),
             LatentRgbFactors = source.Get<float[]>(p + "latent_rgb_factors", []),
+            LatentPatch = source.Get(p + "latent_patch", 1),
+            BatchNormEps = source.Get(p + "batch_norm_eps", 1e-4f),
         };
     }
 }

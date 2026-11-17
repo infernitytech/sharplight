@@ -1,20 +1,22 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Sharplight.Video;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
-/// <summary>Registers the video encoders of Sharplight.Video.</summary>
+/// <summary>Registers the video encoders and the decoder of Sharplight.Video.</summary>
 public static class SharplightVideoServiceCollectionExtensions
 {
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds <see cref="WebMVideoEncoder"/> (VP8 / VP9 over the native libvpx; unavailable where the native library is missing) and
-        /// <see cref="FfmpegVideoEncoder"/> (MP4 through a system ffmpeg; unavailable without it) next to the managed APNG and GIF encoders
-        /// of <c>AddVideoEncoders()</c>, which this method also adds. Resolve <see cref="VideoEncoderCatalog"/> to pick by format or file
-        /// extension; <see cref="IVideoEncoder.IsAvailable"/> tells what works on this machine. Idempotent.
+        /// Adds the bundled FFmpeg encoders (<see cref="FfmpegVideoEncoder"/>: MP4, WebM, MOV, Matroska, GIF, APNG) and decoder
+        /// (<see cref="FfmpegVideoDecoder"/>) next to the managed APNG and GIF encoders of <c>AddVideoEncoders()</c>, which this method also
+        /// adds. The FFmpeg encoders take precedence; where the bundled libraries are missing they are unavailable and the catalog falls back
+        /// to the managed encoders. Resolve <see cref="VideoEncoderCatalog"/> / <see cref="VideoDecoderCatalog"/> to pick by format or file.
+        /// Idempotent.
         /// </summary>
-        /// <param name="configure">Optional settings (WebM codec, ffmpeg path).</param>
+        /// <param name="configure">Optional settings (hardware encoders).</param>
         /// <returns>The service collection.</returns>
         public IServiceCollection AddSharplightVideo(Action<SharplightVideoOptions>? configure = null)
         {
@@ -26,8 +28,17 @@ public static class SharplightVideoServiceCollectionExtensions
             }
 
             services.AddVideoEncoders();
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<IVideoEncoder, WebMVideoEncoder>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<IVideoEncoder, FfmpegVideoEncoder>());
+            if (services.Any(d => d.ImplementationType == typeof(FfmpegVideoDecoder)))
+            {
+                return services;
+            }
+
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IVideoDecoder, FfmpegVideoDecoder>());
+            foreach (string format in FfmpegVideoEncoder.Formats)
+            {
+                services.AddSingleton<IVideoEncoder>(provider => new FfmpegVideoEncoder(format, provider.GetService<IOptions<SharplightVideoOptions>>()));
+            }
+
             return services;
         }
     }

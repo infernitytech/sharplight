@@ -43,11 +43,12 @@ jobs:
           merge-multiple: true
           path: native/sharplight_audio/out
 
+      # Sharplight's own FFmpeg libraries (native.yml) that Sharplight.Video copies next to its output and packs.
       - uses: actions/download-artifact@v4
         with:
-          pattern: native-video-*
+          pattern: native-ffmpeg-*
           merge-multiple: true
-          path: native/sharplight_video/out
+          path: native/ffmpeg/out
 
       - name: Version
         id: nbgv
@@ -58,8 +59,9 @@ jobs:
       - name: Restore
         run: dotnet restore Sharplight.slnx
 
+      # SharplightRequireFfmpeg: the build fails instead of packing Sharplight.Video without the FFmpeg libraries of a platform.
       - name: Build
-        run: dotnet build Sharplight.slnx -c Release --no-restore
+        run: dotnet build Sharplight.slnx -c Release --no-restore -p:SharplightRequireFfmpeg=true
 
       - name: Pack
         run: dotnet pack Sharplight.slnx -c Release --no-build -o artifacts/packages

@@ -24,14 +24,18 @@ internal sealed partial class ImageGalleryViewModel : ObservableObject
     private readonly Action<GalleryEntry> _reuse;
     private readonly Action<GalleryItemViewModel> _open;
     private readonly List<GalleryItemViewModel> _all = [];
+    private readonly string _noun;
 
     /// <param name="store">The images on disk.</param>
     /// <param name="platform">Clipboard, file manager and save dialog.</param>
     /// <param name="dispatcher">Runs the results of worker threads on the UI thread.</param>
     /// <param name="open">Shows an image large.</param>
     /// <param name="reuse">Fills the page's form with an entry's settings.</param>
-    public ImageGalleryViewModel(ImageGalleryStore store, IPlatformServices platform, IUiDispatcher dispatcher, Action<GalleryItemViewModel> open, Action<GalleryEntry> reuse)
+    /// <param name="noun">What the gallery holds, in the plural ("images", "videos").</param>
+    public ImageGalleryViewModel(ImageGalleryStore store, IPlatformServices platform, IUiDispatcher dispatcher, Action<GalleryItemViewModel> open, Action<GalleryEntry> reuse,
+        string noun = "images")
     {
+        _noun = noun;
         _store = store;
         _platform = platform;
         _dispatcher = dispatcher;
@@ -83,7 +87,10 @@ internal sealed partial class ImageGalleryViewModel : ObservableObject
     public bool IsEmpty => _all.Count == 0 && !IsLoading;
 
     /// <summary>"12 of 340 images" under the filter.</summary>
-    public string CountText => Visible.Count == _all.Count ? $"{_all.Count} images" : $"{Visible.Count} of {_all.Count} images";
+    public string CountText => Visible.Count == _all.Count ? $"{_all.Count} {_noun}" : $"{Visible.Count} of {_all.Count} {_noun}";
+
+    /// <summary>What the strip says while it is empty.</summary>
+    public string EmptyText => $"No {_noun} yet: everything you generate is kept here.";
 
     /// <summary>Whether the folder of the images is shown (the user's disk location, for the tooltip of "open folder").</summary>
     public string Folder => _store.Folder;
@@ -195,8 +202,10 @@ internal sealed partial class ImageGalleryViewModel : ObservableObject
     {
         if ((item ?? SelectedItem) is { } target)
         {
-            byte[] png = await Task.Run(() => _store.ReadPng(target.Entry));
-            await Exporter.SaveAsync(_platform, "Save image", $"sharplight-{target.Entry.Seed}.png", png);
+            bool video = target.Entry.Video.Length > 0;
+            byte[] bytes = await Task.Run(() => video ? File.ReadAllBytes(_store.PathOfVideo(target.Entry)) : _store.ReadPng(target.Entry));
+            string extension = video ? Path.GetExtension(target.Entry.Video) : ".png";
+            await Exporter.SaveAsync(_platform, video ? "Save video" : "Save image", $"sharplight-{target.Entry.Seed}{extension}", bytes);
         }
     }
 

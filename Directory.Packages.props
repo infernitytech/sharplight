@@ -24,6 +24,8 @@
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="Markdig" Version="1.6.0" />
     <PackageVersion Include="Velopack" Version="1.2.161" />
+    <!-- Bindings for Sharplight's own FFmpeg build (native/ffmpeg): the version must match the FFmpeg release built there (9.0.x: avcodec 63, avformat 63, avutil 61). MIT. -->
+    <PackageVersion Include="FFmpeg.AutoGen" Version="9.0.1.1" />
     <PackageVersion Include="PdfPig" Version="0.1.16" />
     <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="11.0.0" />

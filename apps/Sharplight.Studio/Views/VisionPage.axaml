@@ -3,6 +3,7 @@
              xmlns:vi="using:Sharplight.Studio.ViewModels.Vision"
              xmlns:iv="using:Sharplight.Studio.Views.Inference"
              xmlns:conv="using:Sharplight.Studio.Converters"
+             xmlns:vw="using:Sharplight.Studio.Views"
              x:Class="Sharplight.Studio.Views.VisionPage"
              x:DataType="vi:VisionPageViewModel">
   <iv:InferenceFrame>
@@ -44,8 +45,8 @@
                 <TextBlock Classes="muted" Text="What the model sees appears here." HorizontalAlignment="Center" />
               </StackPanel>
               <Grid ColumnDefinitions="*,16,*" IsVisible="{Binding HasResult}">
-                <Border CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding !ShowAfter}">
-                  <Image x:Name="MainImage" Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+                <Border CornerRadius="8" ClipToBounds="True" MinHeight="320" IsVisible="{Binding !ShowAfter}">
+                  <vw:ImageViewer x:Name="MainViewer" Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" CapturesPrimary="{Binding CanPrompt}" />
                 </Border>
                 <!-- Classes and objects -->
                 <DockPanel Grid.Column="2" IsVisible="{Binding ShowRows}">
@@ -66,19 +67,14 @@
                   </ScrollViewer>
                 </DockPanel>
                 <!-- Depth map beside the image -->
-                <Border Grid.Column="2" CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding ShowDepth}">
-                  <Image Source="{Binding DepthPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+                <Border Grid.Column="2" CornerRadius="8" ClipToBounds="True" MinHeight="320" IsVisible="{Binding ShowDepth}">
+                  <vw:ImageViewer Source="{Binding DepthPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
                 </Border>
-                <!-- Before/after comparison: the slider moves the divider between the original (left) and the upscaled image (right) -->
-                <DockPanel Grid.ColumnSpan="3" IsVisible="{Binding ShowAfter}">
-                  <Slider x:Name="CompareSlider" DockPanel.Dock="Bottom" Minimum="0" Maximum="1" Value="0.5" Margin="0,8,0,0" ToolTip.Tip="Drag to compare: original on the left, upscaled on the right" />
-                  <Border CornerRadius="8" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <Panel>
-                      <Image Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
-                      <Image x:Name="AfterImage" Source="{Binding AfterPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
-                    </Panel>
-                  </Border>
-                </DockPanel>
+                <!-- Before/after comparison: the slider moves the divider between the original (left) and the upscaled image (right); zoom and pan apply to both -->
+                <Border Grid.ColumnSpan="3" CornerRadius="8" ClipToBounds="True" MinHeight="320" IsVisible="{Binding ShowAfter}">
+                  <vw:ImageViewer Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}"
+                                  CompareSource="{Binding AfterPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
+                </Border>
                 <!-- Recognized text -->
                 <SelectableTextBlock Grid.Column="2" Text="{Binding ResultText}" TextWrapping="Wrap" IsVisible="{Binding ShowText}" VerticalAlignment="Top" FontSize="18" />
                 <!-- Embedding -->

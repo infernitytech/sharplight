@@ -21,6 +21,9 @@ internal sealed class ImageGalleryStore
     /// <summary>The absolute path of an entry's PNG.</summary>
     public string PathOf(GalleryEntry entry) => Path.Combine(_folder, entry.File.Replace('/', Path.DirectorySeparatorChar));
 
+    /// <summary>The absolute path of an entry's video file (it need not exist: see <see cref="GalleryEntry.Video"/>).</summary>
+    public string PathOfVideo(GalleryEntry entry) => Path.Combine(Path.GetDirectoryName(PathOf(entry))!, entry.Video);
+
     /// <summary>The folder of an entry's PNG (what "open containing folder" shows).</summary>
     public string DirectoryOf(GalleryEntry entry) => Path.GetDirectoryName(PathOf(entry)) ?? _folder;
 
@@ -31,13 +34,19 @@ internal sealed class ImageGalleryStore
     /// <param name="entry">The metadata; its <see cref="GalleryEntry.Id"/> and <see cref="GalleryEntry.Created"/> name the files.</param>
     /// <param name="png">The PNG bytes.</param>
     /// <returns>The entry as stored (with <see cref="GalleryEntry.File"/>).</returns>
-    public GalleryEntry Add(GalleryEntry entry, byte[] png)
+    /// <param name="video">The encoded video stored next to the PNG, or null (<see cref="GalleryEntry.Video"/> then names it).</param>
+    public GalleryEntry Add(GalleryEntry entry, byte[] png, byte[]? video = null)
     {
         string day = entry.Created.LocalDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         string id = entry.Id.Length > 0 ? entry.Id : NewId();
-        var stored = entry with { Id = id, File = day + "/" + id + ".png" };
+        var stored = entry with { Id = id, File = day + "/" + id + ".png", Video = video is null ? "" : entry.Video };
         string path = PathOf(stored);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (video is not null)
+        {
+            File.WriteAllBytes(PathOfVideo(stored), video);
+        }
+
         File.WriteAllBytes(path, png);
         string sidecar = Path.ChangeExtension(path, ".json");
         File.WriteAllText(sidecar + ".tmp", JsonSerializer.Serialize(stored, GalleryJsonContext.Default.GalleryEntry));
@@ -96,6 +105,11 @@ internal sealed class ImageGalleryStore
             File.Delete(path);
             File.Delete(Path.ChangeExtension(path, ".json"));
             string directory = Path.GetDirectoryName(path)!;
+            if (entry.Video.Length > 0)
+            {
+                File.Delete(PathOfVideo(entry));
+            }
+
             if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
             {
                 Directory.Delete(directory);

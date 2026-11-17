@@ -51,8 +51,8 @@ public sealed class DiffusersImporter : IModelImporter
         string? family = DiffusionTransformerCheckpoint.FamilyOf(path);
         bool supported = (kind == FluxConfig.Architecture && family?.StartsWith("FLUX", StringComparison.Ordinal) == true)
             || (kind == Sd3Config.Architecture && family?.StartsWith("Stable Diffusion 3", StringComparison.Ordinal) == true)
-            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture || kind == WanConfig.Architecture
-            || kind == QwenImageConfig.Architecture;
+            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture || kind == WanConfig.Architecture || kind == HunyuanVideoFolder.Architecture
+            || kind == QwenImageConfig.Architecture || kind == QwenImage21Config.Architecture || kind == Flux2Config.Architecture;
         if (family is not null && !supported)
         {
             throw new NotSupportedException($"Not supported yet: {family}. Sharplight generates images with the Stable Diffusion UNet models "
@@ -65,8 +65,11 @@ public sealed class DiffusersImporter : IModelImporter
             Sd3Config.Architecture => Sd3Checkpoint.Open(path),
             ZImageConfig.Architecture => ZImageCheckpoint.Open(path),
             QwenImageConfig.Architecture => QwenImageCheckpoint.Open(path),
+            QwenImage21Config.Architecture => QwenImage21Checkpoint.Open(path),
+            Flux2Config.Architecture => Flux2Checkpoint.Open(path),
             LoraCheckpoint.Architecture => LoraCheckpoint.Open(path),
             WanConfig.Architecture => WanCheckpoint.Open(path),
+            HunyuanVideoFolder.Architecture => HunyuanVideoCheckpoint.Open(path),
             ComponentCheckpoint.ClipArchitecture or ComponentCheckpoint.AutoencoderArchitecture or ComponentCheckpoint.T5Architecture
                 or ComponentCheckpoint.WanAutoencoderArchitecture => ComponentCheckpoint.Open(path),
             _ => SingleFileCheckpoint.Open(path),
@@ -84,6 +87,8 @@ public sealed class DiffusersImporter : IModelImporter
             ChromaConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.Chroma),
             ZImageConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.ZImage),
             QwenImageConfig.Architecture => DiffusionCompanions.Describe(CompanionFamily.QwenImage),
+            QwenImage21Config.Architecture => DiffusionCompanions.Describe(CompanionFamily.QwenImage21),
+            Flux2Config.Architecture => DiffusionCompanions.Describe(CompanionFamily.Flux2),
             Sd3Config.Architecture => DiffusionCompanions.Describe(CompanionFamily.Sd3),
             _ => [],
         };
@@ -100,6 +105,8 @@ public sealed class DiffusersImporter : IModelImporter
             ChromaConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Chroma),
             ZImageConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.ZImage),
             QwenImageConfig.Architecture => DiffusionCompanions.Find(path, CompanionFamily.QwenImage),
+            QwenImage21Config.Architecture => DiffusionCompanions.Find(path, CompanionFamily.QwenImage21),
+            Flux2Config.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Flux2),
             Sd3Config.Architecture => DiffusionCompanions.Find(path, CompanionFamily.Sd3),
             _ => new Dictionary<string, string>(),
         };
@@ -118,12 +125,12 @@ public sealed class DiffusersImporter : IModelImporter
         return pipelineClass switch
         {
             "StableDiffusionPipeline" or "StableDiffusionImg2ImgPipeline" or "StableDiffusionInpaintPipeline" or "StableDiffusionXLPipeline"
-                or "StableDiffusionXLImg2ImgPipeline" or "StableDiffusionXLInpaintPipeline" or "FluxPipeline" or "WanPipeline" or "WanImageToVideoPipeline" or "LTXPipeline"
+                or "StableDiffusionXLImg2ImgPipeline" or "StableDiffusionXLInpaintPipeline" or "FluxPipeline" or "WanPipeline" or "WanImageToVideoPipeline" or "LTXPipeline" or "HunyuanVideoPipeline"
                 or "StableDiffusion3Pipeline" or "StableDiffusion3Img2ImgPipeline" or "StableDiffusion3InpaintPipeline" or "ChromaPipeline"
-                or "ChromaImg2ImgPipeline" or "ZImagePipeline" or "ZImageImg2ImgPipeline" or "QwenImagePipeline" or "QwenImageImg2ImgPipeline"
+                or "ChromaImg2ImgPipeline" or "ZImagePipeline" or "ZImageImg2ImgPipeline" or "QwenImagePipeline" or "QwenImageImg2ImgPipeline" or "QwenImage21Pipeline" or "Flux2KleinPipeline"
                 or "QwenImageInpaintPipeline"
                 => components.Contains("unet") || components.Contains("transformer") ? new PipelineSupport(true) : new PipelineSupport(false, $"Not supported yet: {pipelineClass} has no UNet or transformer."),
-            _ => new PipelineSupport(false, $"Not supported yet: {Describe(pipelineClass)}. Sharplight loads the Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image, Qwen-Image, Wan 2.1 / 2.2 and LTX-Video pipelines."),
+            _ => new PipelineSupport(false, $"Not supported yet: {Describe(pipelineClass)}. Sharplight loads the Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image, Qwen-Image, Qwen-Image 2.1, FLUX.2 Klein, Wan 2.1 / 2.2, LTX-Video and HunyuanVideo pipelines."),
         };
     }
 

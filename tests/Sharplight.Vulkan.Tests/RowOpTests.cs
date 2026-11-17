@@ -122,6 +122,22 @@ public sealed class RowOpTests
         Diff.Check(op, tg.B.Build(), new Step(5, 0, (x, Rnd.F(5 * 3 * 77, 3))), atol: 2e-4);
     }
 
+    /// <summary>
+    /// A rank-1 input is one row: its axis is the reduced one (the kernel used to launch one row per element and wrote past the
+    /// one-element output; FLUX.2's text encoder sums its prompt mask this way).
+    /// </summary>
+    [Theory]
+    [InlineData("ReduceSum")]
+    [InlineData("ReduceMax")]
+    public void RowReduceOfAVector(string op)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", Dim.Of(300));
+        tg.B.Output("y", tg.B.Emit1(op, [x], Attributes.Empty));
+        Diff.Check(op + ".vector", tg.B.Build(), new Step(1, 0, (x, Rnd.F(300, 5))), atol: 2e-4);
+    }
+
     /// <summary>Short rows (thread-per-row kernel) over a permuted view: [T, 40, 8] read from [T, 8, 40], and plain [T, 6].</summary>
     [Theory]
     [InlineData("ReduceSum")]

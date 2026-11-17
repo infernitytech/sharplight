@@ -241,6 +241,9 @@ images are visually identical. All run on CPU and Vulkan (Vulkan used for the re
 | SD3.5 Medium | stabilityai/stable-diffusion-3.5-medium (ungated mirror adamo1139/stable-diffusion-3.5-medium-ungated), city96/stable-diffusion-3.5-medium-gguf | diffusers (fp16), GGUF Q8_0 + CLIP-L, CLIP-G, T5-XXL, VAE companions | fp16: 46.6 dB (512) / 38.8 dB (1024) vs diffusers f32; transformer 1.4e-4; Q8_0: 42.5 dB (512) / 29.4 dB (1024) vs diffusers on the same files | 28 steps, guidance 7; 1024x1024 in 12.6 s | 2026-11-16 |
 | Chroma1-HD | lodestones/Chroma1-HD, silveroxides/Chroma1-HD-GGUF | GGUF Q8_0 + T5-XXL, VAE companions | 46.3 dB (512) / 37.8 dB (1024) vs diffusers on the same files (boolean text mask, as the original Chroma) | 20 guided steps at 1024x1024 in 48 s | 2026-11-16 |
 | Qwen-Image | Qwen/Qwen-Image, city96/Qwen-Image-gguf, unsloth/Qwen2.5-VL-7B-Instruct-GGUF (text encoder) | GGUF Q4_K_M + Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a Qwen2.5-VL GGUF) and VAE (the pipeline's or ComfyUI's `qwen_image_vae.safetensors`) companions | Q4_K_M: 30.9 dB (512) / 29.8 dB (1024) vs diffusers on the same files (20 steps, true CFG 4); text encoder 4.6-6.4e-4, transformer 8.4e-3 | 1024x1024 20 guided steps in 131 s on a 32 GB GPU (13 GB transformer + 16 GB bf16 text encoder, alternating); Studio loads the GGUF with its companions; the diffusers folder loads (verified on the tiny pipeline; its 41 GB bf16 transformer was not run) | 2026-11-16 |
+| FLUX.2 Klein 4B | black-forest-labs/FLUX.2-klein-4B, unsloth/FLUX.2-klein-4B-GGUF | GGUF Q8_0 + Qwen3-4B text encoder and VAE companions (the pipeline's folders) | 40.1 dB (512) / 41.3 dB (1024) vs diffusers on the same files (4 distilled steps); text encoder ≤ 1.3e-3, transformer 1.6e-3 | 1024x1024 in 3.4 s | 2026-11-17 |
+| Qwen-Image 2.1 Turbo | Qwen/Qwen-Image-2.1-Turbo, unsloth/Qwen-Image-2.1-Turbo-GGUF | GGUF Q8_0 + the Qwen-Image 2.1 companions | 34.5 dB (1024, its 8-step `sample_sigmas`) vs diffusers on the same files | 8 steps at 1024x1024 in 14.8 s; the schedule comes from `model_index.json` or the `turbo` file name | 2026-11-16 |
+| Qwen-Image 2.1 | Qwen/Qwen-Image-2.1, unsloth/Qwen-Image-2.1-GGUF | GGUF Q8_0 + Qwen3-VL-8B text encoder and VAE companions (the pipeline's folders) | 42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder ≤ 9.6e-4 | 1024x1024 20 steps in 36 s; text-to-image only (the editing path is not implemented) | 2026-11-16 |
 | Z-Image-Turbo | Tongyi-MAI/Z-Image-Turbo, unsloth/Z-Image-Turbo-GGUF | diffusers, GGUF Q8_0 + Qwen3-4B text encoder, VAE companions | 49.6 dB (512) / 46.4 dB (1024) vs diffusers on the same files; text encoder 1.4e-4, transformer 1.5e-3 | 9 steps, no guidance; 1024x1024 in 14.6 s; companions found in the pipeline folder beside the GGUF folder | 2026-11-16 |
 
 ### 4.1 Popularity sweep (2026-11-16)
@@ -270,7 +273,7 @@ images are 21 / 29 dB away.
 
 The Diffusers repositories of these (RealVisXL, Juggernaut, Animagine, NoobAI, Illustrious: `StableDiffusionXLPipeline`) are offered for
 download in Studio (`ClassifyPipeline`), the single files load in Studio's library like the SDXL base file. Not covered, because their
-architectures are not implemented yet: Qwen-Image 2.1 (the most downloaded family now), FLUX.2 Klein / Dev, Krea-2, MiniMax-H3-Image.
+architectures are not implemented yet: FLUX.2 Dev, Krea-2, MiniMax-H3-Image (Qwen-Image 2.1 and FLUX.2 Klein: section 4).
 
 LoRA (merged at load, role `lora@scale`; tools/make-tiny-lora.py, `TinyLoraTests`): random LoRAs on the tiny SD 1.5, SDXL and
 FLUX.1-dev pipelines against diffusers' `load_lora_weights` from the same noise, strength 0.8: SD 1.5 kohya and PEFT 82 dB (CPU) / 76 dB
@@ -354,6 +357,8 @@ APNG (MP4 with a system ffmpeg), `.slm`.
 | Wan 2.2 T2V A14B GGUF (two experts) | QuantStack/Wan2.2-T2V-A14B-GGUF (HighNoise + LowNoise Q4_K_M) | the two GGUFs (`--transformer-2` / `AuxiliaryRoles.SecondTransformer`) + a Wan 2.1 diffusers folder as companion | against diffusers running the same GGUFs (f32 on CUDA): high- / low-noise transformer 3.4e-4 / 2.3e-4, umT5 3e-6 relative RMS; text-to-video 21-25 dB per frame (832×480, 17 frames, 20 steps), the same scene; a 1e-3 nudge of the initial noise moves Sharplight's own result as far | 14.6 s per step at 832×480×33 frames, 16.1 GB peak, 334 s total (diffusers: 23 s per step at 17 frames) | 2026-11-16 |
 | Wan 2.1 I2V 14B 480P GGUF | city96/Wan2.1-I2V-14B-480P-gguf (Q4_K_M) | GGUF + a Wan 2.1 diffusers folder (umT5, VAE) + Wan-AI/Wan2.1-I2V-14B-480P-Diffusers' `image_encoder/` and `image_processor/` (`--image-encoder`) | against diffusers on the same GGUF: transformer 3.9e-4, CLIP 3.5e-3 relative RMS; image-to-video 30.6-48.1 dB per frame (832×480, 17 frames, 20 steps) | image-to-video | 2026-11-16 |
 | Wan 2.1 FLF2V 14B 720P GGUF | city96/Wan2.1-FLF2V-14B-720P-gguf (Q4_K_M) | as I2V, with the FLF2V diffusers folder's image encoder | transformer 1.7e-4; first-and-last-frame video 50.8-60.2 dB per frame | `--image` and `--last-image` | 2026-11-16 |
+| Wan 2.2 I2V A14B GGUF (two experts) | QuantStack/Wan2.2-I2V-A14B-GGUF (HighNoise + LowNoise Q4_K_M) | the two GGUFs (`--transformer-2`) + a Wan 2.1 diffusers folder as companion | against diffusers on the same GGUFs: transformers 3.0e-4 / 6.2e-4; image-to-video 35.0-52.5 dB per frame (832×480, 17 frames, 20 steps) | image-to-video (and an optional last frame) | 2026-11-16 |
+| HunyuanVideo GGUF | city96/HunyuanVideo-gguf (hunyuan-video-t2v-720p-Q4_K_M) | GGUF + hunyuanvideo-community/HunyuanVideo (without its transformer) as companion (`--companions`) | against diffusers on the same GGUF: transformer 4.1e-3, Llama 2.5e-4, CLIP 3.4e-4 relative RMS; text-to-video 28.2-33.0 dB per frame (832×480, 33 frames, 20 steps), visually identical | 5.7 s per step, 23.4 GB peak (tiled decode) | 2026-11-17 |
 
 ## 9. Known unsupported or not working
 
@@ -377,7 +382,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | Nemotron 3.5 Super-VL and Bolt (ModelOpt NVFP4 / mixed-precision safetensors) | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4, nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB | ModelOpt mixed-precision layout not read (GGUF versions import) |
 | DFlash drafters with LiLiCorr head | Bolt and Super-VL drafters | correction head not implemented (reported as draft models) |
 | Gated repositories | meta-llama/Llama-3.1-8B-Instruct, google/medgemma-1.5-4b-it, nvidia/Cosmos-Reason2-2B | could not be downloaded without a token; not tested |
-| SD 1.5 inpainting UNet, SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1, Lumina-Image-2.0, HiDream, AuraFlow, FLUX.2 | various | not implemented yet (rejected with a clear message) |
+| SD 1.5 inpainting UNet, SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1 editing, Lumina-Image-2.0, HiDream, AuraFlow, FLUX.2 Dev, Krea-2, MiniMax-H3 | various | not implemented yet (rejected with a clear message) |
 | ControlNet, TAESD, LyCORIS / DoRA LoRAs | | not implemented (plain LoRAs: section 4) |
 | CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
 | Mask2Former, YOLO (native), Florence-2 (native), SegFormer | | vision models not implemented (Florence-2 ONNX parts work; SwinIR is native since 2026-11-16) |

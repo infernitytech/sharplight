@@ -17,4 +17,10 @@ internal enum CompanionFamily
 
     /// <summary>Qwen-Image: a Qwen2.5-VL-7B language model (GGUF or Hugging Face folder), the causal 3-D (Wan 2.1-layout) VAE.</summary>
     QwenImage,
+
+    /// <summary>Qwen-Image 2.1: a Qwen3-VL-8B language model (GGUF or Hugging Face folder), the residual 16× VAE.</summary>
+    QwenImage21,
+
+    /// <summary>FLUX.2: a Qwen3 language model (GGUF or Hugging Face folder), the 32-channel KL VAE with batch-norm statistics.</summary>
+    Flux2,
 }

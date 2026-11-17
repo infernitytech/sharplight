@@ -765,7 +765,8 @@ public sealed partial class GraphLowerer
         var y = Produce(n.Output);
         var k = Lib("rows.slang", "rowreduce", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", s1), ("MODE", mode)));
         var tx = x;
-        Emit($"{n.Op.Name} {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 4)))],
+        // A rank-1 input is one row (its only axis is the reduced one, not a row count).
+        Emit($"{n.Op.Name} {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div((tx.Rank == 1 ? 1 : Rows(b, tx)) * r1, 4)))],
             [Pointer(x), Pointer(y), TokenArg(x)], [x], [y]);
     }
 }
