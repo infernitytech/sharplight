@@ -1,0 +1,176 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.VerifiedCatalogView"
+             x:DataType="mvm:VerifiedCatalogViewModel">
+  <Grid ColumnDefinitions="*,16,420" RowDefinitions="Auto,*">
+    <StackPanel Grid.ColumnSpan="3" Spacing="8" Margin="0,0,0,12">
+      <DockPanel>
+        <CheckBox DockPanel.Dock="Right" x:Name="OnlyFitting" Content="Fits this machine" IsChecked="{Binding OnlyFitting}" Margin="12,0,0,0"
+                  ToolTip.Tip="Hide models without a variant that fits the GPU or system memory (estimated)" />
+        <ComboBox DockPanel.Dock="Right" x:Name="KindFilter" ItemsSource="{Binding Kinds}" SelectedItem="{Binding SelectedKind}" MinWidth="220" Margin="8,0,0,0"
+                  ToolTip.Tip="Task">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="mvm:FilterOption">
+              <TextBlock Text="{Binding Name}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBox x:Name="CatalogQuery" Text="{Binding Query}" PlaceholderText="Filter verified models, e.g. qwen, whisper, flux, gguf">
+          <TextBox.InnerLeftContent>
+            <Path Classes="icon" Data="{StaticResource IconSearch}" Width="14" Height="14" Margin="10,0,0,0" />
+          </TextBox.InnerLeftContent>
+        </TextBox>
+      </DockPanel>
+      <TextBlock Classes="caption" TextWrapping="Wrap"
+                 Text="Every model here was run from download to output and compared with a reference implementation; installs use the exact files and revision that were verified, companions included." />
+    </StackPanel>
+
+    <Border Grid.Row="1" Classes="card" Padding="6">
+      <DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="8,4,8,6">
+          <ProgressBar DockPanel.Dock="Right" IsIndeterminate="True" Width="80" IsVisible="{Binding IsLoading}" VerticalAlignment="Center" />
+          <StackPanel Spacing="2">
+            <TextBlock Classes="section" Text="{Binding CatalogText}" />
+            <TextBlock Classes="caption" Text="{Binding Status}" TextWrapping="Wrap" IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+        </DockPanel>
+        <ListBox x:Name="CatalogEntries" Classes="plain" ItemsSource="{Binding Entries}" SelectedItem="{Binding SelectedEntry}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="mvm:CatalogEntryViewModel">
+              <StackPanel Margin="12,10" Spacing="3">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding SizeRange}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Border Classes="badge vision">
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Path Classes="icon" Data="{Binding KindIcon, Converter={x:Static conv:IconConverter.Instance}}" Width="11" Height="11" />
+                        <TextBlock Text="{Binding KindTitle}" />
+                      </StackPanel>
+                    </Border>
+                    <Border Classes="badge ok" IsVisible="{Binding !IsPartial}" ToolTip.Tip="{Binding VerifiedText}">
+                      <TextBlock Text="Verified" />
+                    </Border>
+                    <Border Classes="badge warn" IsVisible="{Binding IsPartial}" ToolTip.Tip="{Binding Notes}">
+                      <TextBlock Text="Partial" />
+                    </Border>
+                    <Border Classes="badge tools" IsVisible="{Binding IsInstalled}">
+                      <TextBlock Text="Installed" />
+                    </Border>
+                    <Border Classes="badge danger" IsVisible="{Binding Gated}" ToolTip.Tip="Gated: accept the terms on Hugging Face and set a token in Settings">
+                      <TextBlock Text="Gated" />
+                    </Border>
+                  </StackPanel>
+                </DockPanel>
+                <TextBlock Classes="caption" Text="{Binding Verification}" TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <Border Grid.Row="1" Grid.Column="2" Classes="card">
+      <Panel>
+        <StackPanel IsVisible="{Binding !HasSelection}" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+          <Path Classes="icon huge" Data="{StaticResource IconCheck}" HorizontalAlignment="Center" />
+          <TextBlock Classes="muted" Text="Select a model to see its variants." HorizontalAlignment="Center" />
+        </StackPanel>
+        <Panel IsVisible="{Binding HasSelection}">
+        <DockPanel DataContext="{Binding SelectedEntry}" x:DataType="mvm:CatalogEntryViewModel">
+          <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12">
+            <TextBlock Classes="h2" Text="{Binding Name}" TextWrapping="Wrap" />
+            <TextBlock Classes="caption" Text="{Binding VerifiedText}" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Verification}" TextWrapping="Wrap" FontSize="12.5" />
+            <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6">
+              <Border Classes="badge" IsVisible="{Binding HasLicense}">
+                <TextBlock Text="{Binding License}" />
+              </Border>
+              <Border Classes="badge" IsVisible="{Binding Family, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <TextBlock Text="{Binding Family}" />
+              </Border>
+              <ItemsControl ItemsSource="{Binding Tags}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="6" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <Border Classes="badge accent">
+                      <TextBlock Text="{Binding}" />
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </WrapPanel>
+            <Border Classes="callout warn" IsVisible="{Binding Gated}">
+              <TextBlock TextWrapping="Wrap" Text="Gated on Hugging Face: accept the model's terms there and set an access token in Settings before installing." />
+            </Border>
+            <Border Classes="callout" IsVisible="{Binding HasNotes}">
+              <TextBlock TextWrapping="Wrap" Text="{Binding Notes}" />
+            </Border>
+          </StackPanel>
+          <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,8,0,0"
+                      DataContext="{Binding $parent[UserControl].((mvm:VerifiedCatalogViewModel)DataContext)}" x:DataType="mvm:VerifiedCatalogViewModel">
+            <StackPanel Spacing="3" IsVisible="{Binding HasSelectedCompanions}">
+              <TextBlock Classes="section" Text="INSTALLED WITH" />
+              <ItemsControl ItemsSource="{Binding SelectedCompanions}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Classes="caption" Text="{Binding}" Margin="10,1" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+            <Button Classes="ghost small" Command="{Binding OpenOnHubCommand}" Padding="4,1" HorizontalAlignment="Left">
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="Open the pinned revision on Hugging Face" FontSize="12" />
+                <Path Classes="icon" Data="{StaticResource IconExternal}" Width="11" Height="11" />
+              </StackPanel>
+            </Button>
+            <Button x:Name="InstallButton" Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding InstallCommand}" Padding="0,9">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Path Classes="icon" Data="{StaticResource IconDownload}" />
+                <TextBlock Text="{Binding InstallText}" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
+          <TextBlock DockPanel.Dock="Top" Classes="section" Text="VARIANTS" Margin="0,0,0,6" />
+          <ListBox x:Name="CatalogVariants" Classes="plain" ItemsSource="{Binding Variants}"
+                   SelectedItem="{Binding $parent[UserControl].((mvm:VerifiedCatalogViewModel)DataContext).SelectedVariant}">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="mvm:CatalogVariantViewModel">
+                <DockPanel Margin="10,8">
+                  <TextBlock DockPanel.Dock="Right" Text="{Binding Size}" FontWeight="Medium" VerticalAlignment="Center" Margin="10,0,0,0" />
+                  <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <TextBlock Text="{Binding Label}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Border Classes="badge accent" IsVisible="{Binding Recommended}">
+                        <TextBlock Text="Recommended" />
+                      </Border>
+                      <Border Classes="badge tools" IsVisible="{Binding IsInstalled}">
+                        <TextBlock Text="Installed" />
+                      </Border>
+                    </StackPanel>
+                    <DockPanel>
+                      <Border DockPanel.Dock="Left" Margin="0,0,6,0" IsVisible="{Binding HasFit}" ToolTip.Tip="{Binding Memory}"
+                              Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}">
+                        <TextBlock Text="{Binding FitText}" />
+                      </Border>
+                      <TextBlock Classes="caption" Text="{Binding Details}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Classes="caption" Text="{Binding Notes}" TextWrapping="Wrap" IsVisible="{Binding HasNotes}" />
+                  </StackPanel>
+                </DockPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+        </Panel>
+      </Panel>
+    </Border>
+  </Grid>
+</UserControl>

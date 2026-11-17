@@ -1,0 +1,467 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sharplight verified-model catalog",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "schemaVersion": {
+      "type": "integer"
+    },
+    "updated": {
+      "type": "string",
+      "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$"
+    },
+    "docSections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "title"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "columns"
+        ]
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9.-]*$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "text-generation",
+              "speech-recognition",
+              "speech-synthesis",
+              "image-generation",
+              "video-generation",
+              "image-classification",
+              "image-embedding",
+              "object-detection",
+              "image-segmentation",
+              "image-segmentation-semantic",
+              "depth-estimation",
+              "ocr",
+              "image-upscaling",
+              "audio-codec",
+              "voice-activity",
+              "audio-separation",
+              "audio-embedding",
+              "music-generation",
+              "embeddings"
+            ]
+          },
+          "family": {
+            "type": "string"
+          },
+          "architecture": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "level": {
+            "enum": [
+              "verified",
+              "partial",
+              "loads",
+              "verified-tiny"
+            ]
+          },
+          "license": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gated": {
+            "type": "boolean"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9.-]*$"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string",
+                  "enum": [
+                    "gguf",
+                    "safetensors",
+                    "pytorch",
+                    "diffusers",
+                    "single-file",
+                    "whisper-cpp",
+                    "onnx",
+                    "slm"
+                  ]
+                },
+                "quantization": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recommended": {
+                  "type": "boolean"
+                },
+                "memoryBytes": {
+                  "type": "integer"
+                },
+                "companions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "repository": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "revision": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "tag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "include": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "primary": {
+                  "type": "string"
+                },
+                "files": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer"
+                      },
+                      "sha256": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "gitOid": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^[0-9a-f]{40}$"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                },
+                "totalBytes": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "format",
+                "repository"
+              ]
+            }
+          },
+          "companions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9.-]*$"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "mmproj",
+                    "draft",
+                    "vocoder",
+                    "text-encoder",
+                    "text-encoder-2",
+                    "text-encoder-3",
+                    "vae",
+                    "lora",
+                    "transformer-2",
+                    "image-encoder"
+                  ]
+                },
+                "additionalRoles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "allRoles": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "label": {
+                  "type": "string"
+                },
+                "repository": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "revision": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "tag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "include": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "primary": {
+                  "type": "string"
+                },
+                "files": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/properties/entries/items/properties/variants/items/properties/files/items"
+                  }
+                },
+                "totalBytes": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "role",
+                "label",
+                "repository"
+              ]
+            }
+          },
+          "verification": {
+            "type": "object",
+            "properties": {
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              },
+              "providers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "date": {
+                "type": "string",
+                "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$"
+              },
+              "tests": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "doc": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "section": {
+                  "type": "string"
+                },
+                "cells": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "section"
+              ]
+            }
+          },
+          "isInstallable": {
+            "type": "boolean"
+          },
+          "defaultVariant": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9.-]*$"
+              },
+              "label": {
+                "type": "string"
+              },
+              "format": {
+                "type": "string",
+                "enum": [
+                  "gguf",
+                  "safetensors",
+                  "pytorch",
+                  "diffusers",
+                  "single-file",
+                  "whisper-cpp",
+                  "onnx",
+                  "slm"
+                ]
+              },
+              "quantization": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recommended": {
+                "type": "boolean"
+              },
+              "memoryBytes": {
+                "type": "integer"
+              },
+              "companions": {
+                "$ref": "#/properties/entries/items/properties/variants/items/properties/companions"
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "repository": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "tag": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "include": {
+                "$ref": "#/properties/entries/items/properties/variants/items/properties/include"
+              },
+              "primary": {
+                "type": "string"
+              },
+              "files": {
+                "$ref": "#/properties/entries/items/properties/variants/items/properties/files"
+              },
+              "totalBytes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "format",
+              "repository"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ]
+      }
+    }
+  }
+}

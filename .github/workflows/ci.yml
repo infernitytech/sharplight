@@ -52,6 +52,14 @@ jobs:
           python3 tools/check-one-type-per-file.py
           python3 tools/check-single-line-scopes.py
 
+      # The verified-model catalog is consistent and docs/compatible-models.md's tables are the ones generated from it
+      # (docs/verified-catalog.md); the JSON schema matches the catalog types.
+      - name: Verified catalog
+        run: |
+          dotnet run --project tools/catalog/Sharplight.CatalogTool -c Release -- validate
+          dotnet run --project tools/catalog/Sharplight.CatalogTool -c Release --no-build -- docs --check
+          dotnet run --project tools/catalog/Sharplight.CatalogTool -c Release --no-build -- schema --check
+
       - name: Restore
         run: dotnet restore Sharplight.slnx
 

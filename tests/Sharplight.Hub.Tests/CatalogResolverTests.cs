@@ -1,0 +1,72 @@
+using Sharplight.CatalogTool;
+using Sharplight.Hub.Catalog;
+
+namespace Sharplight.Hub.Tests;
+
+public sealed class CatalogResolverTests : IDisposable
+{
+    private readonly FakeHub _hub = new();
+    private readonly HttpClient _http;
+
+    public CatalogResolverTests()
+    {
+        _hub.Add("owner/Model-GGUF").WithSize("Model-Q4_K_M.gguf", 20_000).WithSize("Model-Q8_0.gguf", 40_000).With("README.md", "readme");
+        _hub.Add("owner/Vae", commit: "fedcba9876543210fedcba9876543210fedcba98").WithSize("vae/diffusion_pytorch_model.safetensors", 3_000).With("vae/config.json", "{}")
+            .WithSize("unet/diffusion_pytorch_model.safetensors", 9_000);
+        _http = _hub.CreateClient();
+    }
+
+    public void Dispose()
+    {
+        _http.Dispose();
+        _hub.Dispose();
+    }
+
+    [Fact]
+    public async Task ResolvesTagsAndPatternsToPinnedFiles()
+    {
+        var variant = new CatalogVariant { Id = "q8-0-gguf", Label = "Q8_0 GGUF", Format = "gguf", Repository = "owner/Model-GGUF", Tag = "Q8_0", Companions = ["vae"] };
+        var companion = new CatalogCompanion { Id = "vae", Role = "vae", Label = "VAE", Repository = "owner/Vae", Include = ["vae/*"], Primary = "vae/diffusion_pytorch_model.safetensors" };
+        var catalog = CatalogSamples.Catalog(CatalogSamples.Entry("model", variant) with { Companions = [companion] });
+
+        var resolver = new CatalogResolver(new HubClient(_http, _hub.Options()), _ => { });
+        var resolved = await resolver.ResolveAsync(catalog, ResolveMode.Missing, null, TestContext.Current.CancellationToken);
+
+        var entry = Assert.Single(resolved.Entries);
+        var pinned = Assert.Single(entry.Variants);
+        Assert.Empty(resolver.Failures);
+        Assert.Equal("0123456789abcdef0123456789abcdef01234567", pinned.Revision);
+        Assert.Equal("Model-Q8_0.gguf", pinned.Primary);
+        Assert.Equal(40_000, Assert.Single(pinned.Files).Size);
+        Assert.Matches("^[0-9a-f]{64}$", pinned.Files[0].Sha256!);
+        Assert.Equal(["vae/config.json", "vae/diffusion_pytorch_model.safetensors"], entry.Companions[0].Files.Select(file => file.Path).Order(StringComparer.Ordinal));
+        Assert.Equal("fedcba9876543210fedcba9876543210fedcba98", entry.Companions[0].Revision);
+        Assert.True(pinned.MemoryBytes > 43_000);
+        Assert.Empty(CatalogValidator.Validate(resolved));
+    }
+
+    [Fact]
+    public async Task UnmatchedPatternIsReportedAndLeavesTheSetUnresolved()
+    {
+        var variant = new CatalogVariant { Id = "x", Label = "X", Format = "gguf", Repository = "owner/Model-GGUF", Include = ["*.missing"] };
+
+        var resolver = new CatalogResolver(new HubClient(_http, _hub.Options()), _ => { });
+        var resolved = await resolver.ResolveAsync(CatalogSamples.Catalog(CatalogSamples.Entry("model", variant)), ResolveMode.Missing, null, TestContext.Current.CancellationToken);
+
+        Assert.Contains("no file matches '*.missing'", Assert.Single(resolver.Failures), StringComparison.Ordinal);
+        Assert.Empty(Assert.Single(resolved.Entries).Variants[0].Files);
+    }
+
+    [Theory]
+    [InlineData("*.gguf", "a.gguf", true)]
+    [InlineData("*.gguf", "dir/a.gguf", false)]
+    [InlineData("**/*.gguf", "dir/sub/a.gguf", true)]
+    [InlineData("**/*.gguf", "a.gguf", true)]
+    [InlineData("vae/*", "vae/config.json", true)]
+    [InlineData("model-0000?-of-00002.safetensors", "model-00001-of-00002.safetensors", true)]
+    [InlineData("model.safetensors", "model.fp16.safetensors", false)]
+    public void GlobPatternsMatchRepositoryPaths(string pattern, string path, bool expected)
+    {
+        Assert.Equal(expected, GlobPattern.IsMatch(pattern, path));
+    }
+}

@@ -4,7 +4,8 @@ name: Studio
 # with Velopack (vpk) for the update channel `<rid>-stable` (release/* branches) or `<rid>-unstable` (develop; main and pull
 # requests are only built as a check).
 #
-#   push to develop     -> build, upload packages + delta packages to Cloudflare R2, channel <rid>-unstable
+#   push to develop     -> build, upload packages + delta packages to Cloudflare R2, channel <rid>-unstable; upload the verified
+#                          catalog to catalog/verified-models.json (job catalog)
 #   push to release/*   -> build, upload to R2, channel <rid>-stable, attach the installers to a GitHub release
 #   push to main, PRs   -> build only (workflow artifacts)
 #
@@ -156,6 +157,45 @@ jobs:
             keep=(--keepMaxReleases 10)
           fi
           vpk upload s3 --channel "${{ matrix.rid }}-$CHANNEL_KIND" --outputDir artifacts/studio ${keep[@]+"${keep[@]}"}
+
+  catalog:
+    # The verified-model catalog Studio refreshes from download.sharplight.dev/catalog/verified-models.json (docs/verified-catalog.md):
+    # validated on every run, uploaded to R2 from develop pushes only (the same studio-release environment and R2 secrets as the packages).
+    runs-on: ubuntu-latest
+    env:
+      UPLOAD: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
+    environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/develop') && 'studio-release' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Nerdbank.GitVersioning needs the history to compute the version height
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Validate the catalog
+        run: |
+          dotnet run --project tools/catalog/Sharplight.CatalogTool -c Release -- validate
+          dotnet run --project tools/catalog/Sharplight.CatalogTool -c Release --no-build -- docs --check
+
+      - name: Upload the catalog to Cloudflare R2
+        if: env.UPLOAD == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          CATALOG_KEY: ${{ vars.STUDIO_CATALOG_KEY || 'catalog/verified-models.json' }}
+        run: |
+          # Until every R2 secret of the studio-release environment is set, the catalog is only validated.
+          if [ -z "$R2_BUCKET" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::warning::R2 secrets of the studio-release environment are incomplete; skipping the catalog upload."
+            exit 0
+          fi
+          aws s3 cp catalog/verified-models.json "s3://$R2_BUCKET/$CATALOG_KEY" --endpoint-url "$R2_ENDPOINT" \
+            --content-type application/json --cache-control "public, max-age=3600"
 
   release:
     # Attach the installers to the GitHub release of the version, for release/* pushes only.
