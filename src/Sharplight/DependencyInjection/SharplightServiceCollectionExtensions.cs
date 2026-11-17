@@ -54,6 +54,7 @@ public static class SharplightServiceCollectionExtensions
                 .AddCosyVoiceImporter()
                 .AddSnacImporter()
                 .AddSileroVadImporter()
+                .AddUltralyticsImporter()
                 .AddDiffusersImporter()
                 .AddPackageImporter();
         }

@@ -36,6 +36,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<ImageTextAdapter>()
                 .AddModelAdapter<DetrAdapter>()
                 .AddModelAdapter<RtDetrAdapter>()
+                .AddModelAdapter<YolosAdapter>()
                 .AddModelAdapter<DepthEstimationAdapter>()
                 .AddModelAdapter<SegformerAdapter>()
                 .AddModelAdapter<BiRefNetAdapter>()

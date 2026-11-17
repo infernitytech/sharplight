@@ -17264,6 +17264,167 @@
       ]
     },
     {
+      "id": "ultralytics-yolo-onnx",
+      "name": "YOLOv8n, YOLOv8n-seg, YOLOv10n (Ultralytics ONNX exports)",
+      "kind": "object-detection",
+      "family": "YOLO",
+      "architecture": "yolo",
+      "level": "verified",
+      "gated": false,
+      "tags": [],
+      "variants": [],
+      "companions": [],
+      "verification": {
+        "reference": "onnxruntime \u002B Ultralytics decoding",
+        "summary": "same classes, scores within 0.01 and boxes within 2 px as onnxruntime with Ultralytics\u0027 decoding; mask IoU 0.994-1.000; CPU = Vulkan",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "YoloDetectorTests"
+        ]
+      },
+      "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); \u0060.pt\u0060 checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export\u0027s fixed input size is used (letterboxed). Not installable from the catalog: the ONNX files are exports users make themselves with \u0060yolo export format=onnx\u0060; Ultralytics weights are AGPL-3.0.",
+      "doc": [
+        {
+          "section": "5",
+          "cells": {
+            "model": "YOLOv8n, YOLOv8n-seg, YOLOv10n (Ultralytics ONNX exports; also YOLO11 and the larger sizes by the same graph)",
+            "repositories": "\u0060yolo export format=onnx\u0060 output (AGPL-3.0: check the license)",
+            "task": "object-detection (instance masks for \u0060-seg\u0060)",
+            "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); \u0060.pt\u0060 checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export\u0027s fixed input size is used (letterboxed)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "yolos-tiny",
+      "name": "YOLOS tiny",
+      "kind": "object-detection",
+      "family": "YOLOS",
+      "architecture": "yolos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 432528905,
+          "companions": [],
+          "repository": "hustvl/yolos-tiny",
+          "revision": "95a90f3c189fbfca3bcfc6d7315b9e84d95dc2de",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 4133,
+              "gitOid": "9b1dc5fbaca6c50cb8a92488448be33bf7a60260"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 291,
+              "gitOid": "79bb34ebb0f2c7ba7a8f0a3d99148a2cfb61019c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 25978888,
+              "sha256": "5a6a017a20cb522dd347271fa5bd670467e456176aaccd940090e50985ac6e74"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "same detections as transformers, boxes within 2 px, scores within 0.02; CPU = Vulkan",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "ObjectDetectorTests"
+        ]
+      },
+      "notes": "fixed 640 px square canvas; small has the mid position tables",
+      "doc": [
+        {
+          "section": "5",
+          "cells": {
+            "model": "YOLOS tiny, small",
+            "repositories": "hustvl/yolos-tiny, hustvl/yolos-small (revision 3d8f7130d3ce4907cb206fe1c8485dc8fe8703de)",
+            "task": "object-detection"
+          }
+        }
+      ]
+    },
+    {
+      "id": "yolos-small",
+      "name": "YOLOS small",
+      "kind": "object-detection",
+      "family": "YOLOS",
+      "architecture": "yolos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 543830949,
+          "companions": [],
+          "repository": "hustvl/yolos-small",
+          "revision": "3d8f7130d3ce4907cb206fe1c8485dc8fe8703de",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 4132,
+              "gitOid": "8726d727839a657c66b1cd1647c88e36351504da"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 292,
+              "gitOid": "6bee0f996e603419202878bf02d4a31ec4159ce1"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 122763274,
+              "sha256": "27823dd210017c83fb2abb5528b7344d8b73572b5764d20f9cda2c153727232c"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "same detections as transformers, boxes within 2 px, scores within 0.02; CPU = Vulkan",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "ObjectDetectorTests"
+        ]
+      },
+      "notes": "fixed 640 px square canvas; small has the mid position tables",
+      "doc": []
+    },
+    {
       "id": "encodec-24khz",
       "name": "EnCodec 24 kHz",
       "kind": "audio-codec",
