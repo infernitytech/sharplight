@@ -4,12 +4,14 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Sharplight.Hosting;
 using Sharplight.Llm.Serving.Hosting;
 
 namespace Sharplight.AspNetCore;
 
 /// <summary>
-/// Model management: <c>GET /admin/models</c> (state, memory per model and device), <c>POST /admin/models/{name}/load</c> and
+/// Model management: <c>GET /admin/models</c> (state, memory per model and device), <c>GET /admin/status</c> (the Sharplight.Hosting
+/// status: free memory per device, loaded models, queue depth, throughput), <c>POST /admin/models/{name}/load</c> and
 /// <c>POST /admin/models/{name}/unload[?force=true]</c>. Protected by the API keys when any are configured; without keys only
 /// loopback callers are let in (the API-key middleware has nothing to check).
 /// </summary>
@@ -36,6 +38,23 @@ internal static class AdminApi
                 }
 
                 await HttpJson.WriteAsync(http, Describe(host));
+            });
+            // The Sharplight.Hosting status (devices, models, load) for dashboards and cluster coordinators, when hosting is registered.
+            routes.MapGet("/admin/status", async http =>
+            {
+                if (!await Allowed(http, ctx))
+                {
+                    return;
+                }
+
+                if (http.RequestServices.GetService<IModelHostManager>() is not { } manager)
+                {
+                    await ApiErrors.WriteAsync(http, 404, "invalid_request_error", "Hosting status is not available (services.AddSharplightHosting() is not registered).");
+                    return;
+                }
+
+                http.Response.ContentType = "application/json";
+                await http.Response.WriteAsync(manager.GetStatus().ToJson());
             });
             routes.MapPost("/admin/models/{name}/load", async http =>
             {
