@@ -11,6 +11,13 @@ namespace Sharplight.Video.Ffmpeg;
 internal static unsafe class FfmpegCodecProbe
 {
     private const int TrialFrames = 3;
+
+    /// <summary>
+    /// How long a hardware trial encode may take. Some drivers (Media Foundation encoders on machines without a usable device) block in
+    /// open or drain instead of failing; such an encoder counts as unusable and its trial thread is abandoned.
+    /// </summary>
+    private static readonly TimeSpan s_trialTimeout = TimeSpan.FromSeconds(15);
+
     private static readonly ConcurrentDictionary<string, bool> s_usable = new(StringComparer.Ordinal);
 
     /// <summary>Whether the encoder of <paramref name="codec"/> can be used.</summary>
@@ -21,7 +28,10 @@ internal static unsafe class FfmpegCodecProbe
     /// <param name="includeHardware">Whether to probe and offer the hardware encoders.</param>
     public static IReadOnlyList<FfmpegCodec> Usable(FfmpegContainer container, bool includeHardware)
     {
-        IEnumerable<FfmpegCodec> candidates = includeHardware ? container.Codecs.Concat(container.Hardware) : container.Codecs;
+        // Hardware encoders are not offered on Windows: Media Foundation encoders can block instead of failing, and the software codecs
+        // cover what Sharplight needs there.
+        bool hardware = includeHardware && !OperatingSystem.IsWindows();
+        IEnumerable<FfmpegCodec> candidates = hardware ? container.Codecs.Concat(container.Hardware) : container.Codecs;
         return [.. candidates.Where(IsUsable)];
     }
 
@@ -38,6 +48,19 @@ internal static unsafe class FfmpegCodecProbe
             return true;
         }
 
+        bool usable = false;
+        var trial = new Thread(() => usable = TrialEncode(codec))
+        {
+            IsBackground = true,
+            Name = "Sharplight hardware encoder trial",
+        };
+        trial.Start();
+        return trial.Join(s_trialTimeout) && usable;
+    }
+
+    private static bool TrialEncode(FfmpegCodec codec)
+    {
+        AVCodec* encoder = ffmpeg.avcodec_find_encoder_by_name(codec.EncoderName);
         AVCodecContext* context = ffmpeg.avcodec_alloc_context3(encoder);
         AVFrame* frame = ffmpeg.av_frame_alloc();
         AVPacket* packet = ffmpeg.av_packet_alloc();
