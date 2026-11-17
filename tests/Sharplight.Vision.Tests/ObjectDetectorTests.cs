@@ -13,7 +13,9 @@ public class ObjectDetectorTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    private static string Model(string name) => Path.Combine(Home, Directory.Exists(Path.Combine(Home, "models/vision", name)) ? "models/vision" : Directory.Exists(Path.Combine(Home, "models/vision-sweep", name)) ? "models/vision-sweep" : "models/vision-r7", name);
+    private static readonly string[] Roots = ["models/vision", "models/vision-sweep", "models/vision-r7", "models/hot-b"];
+
+    private static string Model(string name) => Path.Combine(Home, Roots.FirstOrDefault(r => Directory.Exists(Path.Combine(Home, r, name))) ?? Roots[2], name);
 
     private static bool Available(string name) => File.Exists(Path.Combine(Model(name), "sharplight-reference.json"));
 
@@ -35,6 +37,7 @@ public class ObjectDetectorTests
     [InlineData("rtdetr_v2_r18vd")]
     [InlineData("rtdetr_r101vd_coco_o365")]
     [InlineData("table-transformer-detection")]
+    [InlineData("table-transformer-structure-recognition")]
     [InlineData("yolos-tiny")]
     [InlineData("yolos-small")]
     public async Task DetectorMatchesTransformers(string name)

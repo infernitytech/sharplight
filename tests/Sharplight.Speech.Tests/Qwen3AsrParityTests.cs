@@ -54,6 +54,27 @@ public sealed class Qwen3AsrParityTests
         return cases;
     }
 
+    /// <summary>The recordings, devices and request modes of the 0.6B model.</summary>
+    public static TheoryData<string, string, string> SmallModelCases()
+    {
+        var cases = new TheoryData<string, string, string>();
+        foreach (string clip in new[] { SpeechEnvironment.JfkName, SpeechEnvironment.LibriSpeechName })
+        {
+            foreach (string device in new[] { "cpu", "vulkan" })
+            {
+                if (clip == SpeechEnvironment.LibriSpeechName && device == "vulkan")
+                {
+                    continue;
+                }
+
+                cases.Add(clip, device, "auto");
+                cases.Add(clip, device, "en");
+            }
+        }
+
+        return cases;
+    }
+
     /// <summary>Other layouts of the same model on jfk.wav (Vulkan).</summary>
     public static TheoryData<string> Layouts() => ["hf", "gguf-f16"];
 
@@ -116,10 +137,24 @@ public sealed class Qwen3AsrParityTests
         await CheckTokensAsync(ModelPath(layout), SpeechEnvironment.JfkName, "vulkan", "auto");
     }
 
-    private static async Task CheckTokensAsync(string path, string clip, string device, string mode)
+    /// <summary>The 0.6B model (transformers' <c>-hf</c> conversion) gives the tokens of transformers' <c>generate</c> on the same recordings.</summary>
+    /// <remarks>
+    /// Vulkan on LibriSpeech is left out: after "a sort of" the reference's top two logits are 29.405 (",") and 29.402 ("up"), a 0.004 near-tie that
+    /// the f16 compute of the GPU path resolves the other way (the CPU path, which runs f32, gives the reference's comma).
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(SmallModelCases))]
+    public async Task SmallModelTokensMatchTransformers(string clip, string device, string mode)
+    {
+        await CheckTokensAsync(SpeechEnvironment.HotModel("Qwen3-ASR-0.6B-hf"), clip, device, mode, "qwen3-asr-0.6b.json");
+    }
+
+    private static Task CheckTokensAsync(string path, string clip, string device, string mode) => CheckTokensAsync(path, clip, device, mode, Fixture);
+
+    private static async Task CheckTokensAsync(string path, string clip, string device, string mode, string fixtureName)
     {
         Skip(path, clip, device);
-        using var fixture = SpeechEnvironment.Fixture(Fixture);
+        using var fixture = SpeechEnvironment.Fixture(fixtureName);
         var expected = fixture.RootElement.GetProperty(clip).GetProperty(mode);
         var services = new ServiceCollection().AddSharplight()
             .AddSpeechRecognizer(o =>
