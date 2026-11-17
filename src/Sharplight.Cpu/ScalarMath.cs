@@ -398,6 +398,15 @@ internal static unsafe class ScalarMath
                         Vector256.Min(Vector256.Max(Vector256.Load(x + i), lo), hi).Store(y + i);
                     }
                 }
+                else if (CpuIsa.UseNeon)
+                {
+                    var lo = Vector128.Create(scale);
+                    var hi = Vector128.Create(bias);
+                    for (; i + 4 <= n; i += 4)
+                    {
+                        Vector128.Min(Vector128.Max(Vector128.Load(x + i), lo), hi).Store(y + i);
+                    }
+                }
                 for (; i < n; i++)
                 {
                     y[i] = Math.Min(Math.Max(x[i], scale), bias);
@@ -465,6 +474,15 @@ internal static unsafe class ScalarMath
                         Vector256.FusedMultiplyAdd(Vector256.Load(x + i), sv, bv).Store(y + i);
                     }
                 }
+                else if (CpuIsa.UseNeon)
+                {
+                    var sv = Vector128.Create(scale);
+                    var bv = Vector128.Create(bias);
+                    for (; i + 4 <= n; i += 4)
+                    {
+                        Vector128.FusedMultiplyAdd(Vector128.Load(x + i), sv, bv).Store(y + i);
+                    }
+                }
                 for (; i < n; i++)
                 {
                     y[i] = x[i] * scale + bias;
@@ -484,6 +502,13 @@ internal static unsafe class ScalarMath
                     for (; i + 8 <= n; i += 8)
                     {
                         Vector256.Exp(Vector256.Load(x + i)).Store(y + i);
+                    }
+                }
+                else if (CpuIsa.UseNeon)
+                {
+                    for (; i + 4 <= n; i += 4)
+                    {
+                        Vector128.Exp(Vector128.Load(x + i)).Store(y + i);
                     }
                 }
 
@@ -508,6 +533,14 @@ internal static unsafe class ScalarMath
                     for (; i + 8 <= n; i += 8)
                     {
                         (one / (one + Vector256.Exp(-Vector256.Load(x + i)))).Store(y + i);
+                    }
+                }
+                else if (CpuIsa.UseNeon)
+                {
+                    var one = Vector128<float>.One;
+                    for (; i + 4 <= n; i += 4)
+                    {
+                        (one / (one + Vector128.Exp(-Vector128.Load(x + i)))).Store(y + i);
                     }
                 }
                 for (; i < n; i++)
@@ -535,6 +568,15 @@ internal static unsafe class ScalarMath
                         (v / (one + Vector256.Exp(-v))).Store(y + i);
                     }
                 }
+                else if (CpuIsa.UseNeon)
+                {
+                    var one = Vector128<float>.One;
+                    for (; i + 4 <= n; i += 4)
+                    {
+                        var v = Vector128.Load(x + i);
+                        (v / (one + Vector128.Exp(-v))).Store(y + i);
+                    }
+                }
                 for (; i < n; i++)
                 {
                     y[i] = x[i] / (1f + MathF.Exp(-x[i]));
@@ -560,6 +602,18 @@ internal static unsafe class ScalarMath
                         var v = Vector256.Load(x + i);
                         var u = c0 * Vector256.FusedMultiplyAdd(c1 * v, v * v, v);
                         (v / (one + Vector256.Exp(-u))).Store(y + i);
+                    }
+                }
+                else if (CpuIsa.UseNeon)
+                {
+                    var one = Vector128<float>.One;
+                    var c0 = Vector128.Create(0.7978845608028654f * 2f);
+                    var c1 = Vector128.Create(0.044715f);
+                    for (; i + 4 <= n; i += 4)
+                    {
+                        var v = Vector128.Load(x + i);
+                        var u = c0 * Vector128.FusedMultiplyAdd(c1 * v, v * v, v);
+                        (v / (one + Vector128.Exp(-u))).Store(y + i);
                     }
                 }
                 for (; i < n; i++)

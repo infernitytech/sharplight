@@ -2,8 +2,8 @@
 
 Status of macOS round 1 (merged into `develop`) and round 2 (branch `macos/round-2`: the MoltenVK prefill regression, see
 [below](#moltenvk-prefill-regression-round-2)). Sharplight runs on Apple Silicon Macs with the
-CPU provider (NEON kernels) and with the Vulkan provider through a bundled MoltenVK. A native Metal provider is planned
-(see [the plan](#native-metal-provider-plan)); it is not part of this round.
+CPU provider (NEON kernels), with the native Metal provider ([`Sharplight.Metal`](#native-metal-provider), branch
+`macos/metal-r1`) and with the Vulkan provider through a bundled MoltenVK.
 
 Nothing here changes Linux or Windows: the MoltenVK loading, the portability-subset handling and the Arm64 kernels are
 only active on macOS or Arm64 hosts. The x64 kernels, their greedy outputs and the x64 test suites are unchanged.
@@ -264,7 +264,56 @@ Distributing without these steps needs:
   `xcrun stapler staple "Sharplight Studio.app"` so the ticket works offline.
 - Optionally a `.dmg` (`hdiutil create`), signed and notarized the same way.
 
-## Native Metal provider plan
+## Native Metal provider
+
+`Sharplight.Metal` (`src/Sharplight.Metal`) runs the same provider-neutral kernel library and graph lowering as the Vulkan
+provider: `GraphLowerer` lowers each segment to a `KernelProgram`, Slang compiles its kernels to the Metal Shading Language
+(`ShaderTarget.Metal`), and the provider only allocates buffers, creates pipelines and encodes the launches. Round 1 is on
+branch `macos/metal-r1`; CI is the `metal` job of [`macos.yml`](../.github/workflows/macos.yml).
+
+- **Interop.** Plain `net11.0`, no Xamarin / macOS workload: `LibraryImport` of `objc_msgSend` (one typed import per call
+  shape, as arm64 requires), `sel_registerName`, `objc_getClass`, the autorelease pool functions and `MTLCopyAllDevices`
+  (`Interop/`). AOT-compatible, no runtime registrar. Every call that returns autoreleased objects runs in an
+  `AutoreleasePool` scope (thread-pool threads have none).
+- **Kernels.** The Slang kernels compile to MSL unchanged. MSL has no threadgroup-size attribute, so `SlangCompiler` writes the
+  entry point's `[numthreads]` (from Slang reflection) into a header line of the Metal code (`// sharplight-threads: x y z`),
+  which the dispatch passes. The kernels' `uniform` parameter struct becomes `constant Params* [[buffer(0)]]` with `device T*`
+  members: the provider packs it exactly like the Vulkan push constants (pointers first, then 32-bit scalars) and passes it with
+  `setBytes`. Pointers are buffer GPU addresses (`MTLBuffer.gpuAddress`, macOS 13), so a device needs argument buffers tier 2.
+  Kernels are compiled from source with `newLibraryWithSource` (fast math off, as on MoltenVK) and cached as MSL in the code
+  tier (`kernel/<content hash>`, the per-user artifact store and `.slm` packages).
+- **Memory.** Unified memory: every buffer is an `MTLBuffer` in shared storage with hazard tracking off. There is no staging:
+  `SetInput` writes into the input buffer, outputs are read from the output buffer, runtime scalars go straight into the
+  runtime buffer, and weights are copied (and repacked) by the CPU directly into their buffers (`WeightCopier`, shared with the
+  Vulkan provider). Shared weights and per-graph states work as on Vulkan.
+- **Execution.** Each distinct binding of the symbols is recorded once (variant, pipeline, packed arguments, grid, barrier
+  placement from the shared `HazardTracker`); an execution encodes the recording into a concurrent compute encoder with
+  `memoryBarrierWithScope:buffers` where the hazard tracker places barriers, makes every buffer resident with one
+  `useResources` call, commits and waits. Long steps are split into several command buffers.
+- **Device features** (neutral names): `fp16` and `subgroup_ops` on every listed GPU; `matrix_f16_8x8`
+  (`DeviceFeatures.MatrixF16Small`) on Apple7 (M1) and later and the Mac2 family: `simdgroup_matrix` has only 8x8 fragments, so
+  the kernels written for the 16x16 fragments of `matrix_f16` (Vulkan cooperative matrices) keep their SIMT fallbacks, and a
+  dedicated 8x8 GEMM, `gemm_sg` (64 x 128 tiles, 4 x 4 accumulators per SIMD-group, f16 inputs staged in threadgroup memory, f32
+  accumulation), takes the prefill matmuls (`SHARPLIGHT_GEMM_SG=0` keeps the SIMT GEMM). No `int_dot` (Metal has no packed
+  int8 dot instruction), no `bf16` yet.
+- **Registration.** `services.AddMetalProvider(o => ...)`; `AddSharplightProviders()` registers Metal, Vulkan, CPU in that order,
+  so discovery, the CLI and Studio prefer Metal on Apple silicon and keep MoltenVK as the fallback. Off macOS, or without a
+  suitable GPU, the provider reports itself unavailable. Studio lists both devices of the same GPU but splits a model only over
+  GPUs of one provider. The CLI's `--provider metal|vulkan` picks one explicitly.
+- **Offline compilation.** `MetalProvider.CompilePortableAsync` runs on any OS (a compile-only `MetalProfileDevice`), so MSL
+  for a Metal profile can be precompiled on Linux. The device stage (binary archives) is not implemented yet.
+- **Tests.** `Sharplight.Metal.Tests` checks MSL generation on any OS (every kernel of a transformer block compiles for a
+  Metal profile, with and without `matrix_f16_8x8`). The GPU kernel suite `Sharplight.Vulkan.Tests` is provider-neutral (graphs
+  against the CPU oracle) and runs on the Metal device with `SHARPLIGHT_TEST_PROVIDER=metal`; the tests of Vulkan internals
+  skip there.
+- **Diagnostics** (`DiagnosticSwitches`): `SHARPLIGHT_MTL_SERIAL=1` (serial dispatches instead of concurrent ones with
+  barriers), `SHARPLIGHT_MTL_FAST_MATH=1`, `SHARPLIGHT_MTL_TRACE=1`, `SHARPLIGHT_MTL_PROFILE=1` (one command buffer per launch,
+  per-kernel GPU times in `--bench`), `SHARPLIGHT_MTL_DUMP_SOURCE=dir`.
+
+Not done yet: the device stage (`MTLBinaryArchive`), no-copy weights (`newBufferWithBytesNoCopy` over the mapped file),
+8x8-fragment forms of the flash attention and convolution GEMMs, Metal 4 tensor operations (M5), residency sets.
+
+## Native Metal provider plan (original design notes)
 
 The next step for Macs is a `Sharplight.Metal` execution provider next to `Sharplight.Vulkan`, with the same graph lowering
 and kernel library. Planned design (not started):

@@ -674,7 +674,9 @@ public sealed partial class GraphLowerer
         // Workgroup-scope matrix GEMM (device-staged tiles, decode on load) for the formats it decodes.
         bool workgroupMatrix = coop && !splitHalf && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations && PreferWorkgroupMatrixGemm
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
-        Func<long, int> splitRows = workgroupMatrix
+        // Devices with only 8x8 subgroup matrices (Apple GPUs): the gemm_sg tile for the rows beyond the matvecs, without K splits.
+        bool smallMatrix = !coop && SmallMatrixGemmUsable(n, w.Type, K);
+        Func<long, int> splitRows = smallMatrix ? _ => 1 : workgroupMatrix
             ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK, GemmWaveTiles)
             : coop
                 ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0), Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)),
@@ -696,9 +698,19 @@ public sealed partial class GraphLowerer
             WeightParts = splitWeights?.Parts,
             WeightScales = splitWeights?.Scales,
             WorkgroupMatrix = workgroupMatrix,
+            SmallMatrix = smallMatrix,
             SplitRows = splitRows,
         };
     }
+
+    /// <summary>
+    /// True when matmul <paramref name="n"/> may run on the 8x8 subgroup-matrix GEMM (<c>gemm_sg</c>): the device has
+    /// <see cref="DeviceFeatures.MatrixF16Small"/> and f16 arithmetic, K in 32-value blocks, and f16 activations acceptable as for the
+    /// tensor-core GEMMs (f32 weights only with reduced precision). <c>SHARPLIGHT_GEMM_SG=0</c> disables it.
+    /// </summary>
+    private bool SmallMatrixGemmUsable(Node n, DataType type, long k)
+        => DiagnosticSwitches.SmallMatrixGemm && _opt.Has(DeviceFeatures.MatrixF16Small) && _opt.Has(DeviceFeatures.Float16) && k % 32 == 0
+           && (type != DataType.F32 || _opt.Compile.AllowReducedPrecision) && QuantizedActivationsAllowed(n);
 
     /// <summary>
     /// True when matmul <paramref name="n"/> with f32 weights may run on the split-f16 tensor-core GEMM (gemm_cm2 with GEMM_SPLIT):
@@ -757,8 +769,12 @@ public sealed partial class GraphLowerer
         var m = p.Macros;
         if (!p.Coop)
         {
+            List<KernelVariant> smallMatrix = p.SmallMatrix
+                ? [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows, Lib("matmul.slang", "gemm_sg", m),
+                    b => new Grid(Grid.Div(p.N, 128), Grid.Div(p.RowCount(b), 64)))]
+                : [];
             Emit(MatMulLabel(p), [p.Node],
-                [.. MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount), .. SimtGemmVariants(p)],
+                [.. MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount), .. smallMatrix, .. SimtGemmVariants(p)],
                 [Pointer(p.X), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
                 [p.X, p.W], [p.Y]);
             return;

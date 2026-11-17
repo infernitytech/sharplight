@@ -11,6 +11,8 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_COMPILE_THREADS=n</c>: number of kernels compiled with Slang at the same time (default: half the processor
 /// count, between 2 and 8; more threads make the weight upload that overlaps the compilation slower).</item>
 /// <item><c>SHARPLIGHT_NO_DUAL=1</c>: do not fuse gate/up matmul pairs into one dual matvec.</item>
+/// <item><c>SHARPLIGHT_GEMM_SG=0</c>: devices with only 8x8 subgroup matrices (Metal) run prefill matmuls on the SIMT GEMM instead of
+/// <c>gemm_sg</c>.</item>
 /// <item><c>SHARPLIGHT_NO_BIAS_FOLD=1</c>: do not add matmul biases in the single-row matvec's store.</item>
 /// <item><c>SHARPLIGHT_NO_CONV_EPILOGUE=1</c>: run the elementwise group consuming a convolution (activation, residual add) as its
 /// own launch instead of in the convolution's store.</item>
@@ -109,6 +111,9 @@ namespace Sharplight.Shaders;
 internal static class DiagnosticSwitches
 {
     /// <summary>Directory receiving every compiled kernel's source, or null.</summary>
+    /// <summary>False (<c>SHARPLIGHT_GEMM_SG=0</c>) when devices with 8x8 subgroup matrices keep the SIMT GEMM for prefill.</summary>
+    public static bool SmallMatrixGemm { get; } = Read("SHARPLIGHT_GEMM_SG") != "0";
+
     public static string? DumpKernelsDirectory { get; } = Read("SHARPLIGHT_DUMP_KERNELS");
 
     /// <summary>Degree of parallelism of kernel compilation.</summary>

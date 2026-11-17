@@ -32,11 +32,13 @@ public sealed class MetalCodeTests
         Assert.StartsWith("main", source.Function);
     }
 
-    [Fact]
-    public async Task ProfileDeviceCompilesEveryKernelOfATransformerBlock()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProfileDeviceCompilesEveryKernelOfATransformerBlock(bool simdgroupMatrix)
     {
         var provider = new MetalProvider();
-        var profile = Profile();
+        var profile = Profile(simdgroupMatrix);
         Assert.True(provider.CanCompileFor(profile));
 
         var portable = await provider.CompilePortableAsync(new PortableCompilationRequest(profile, Workload), TestContext.Current.CancellationToken);
@@ -46,7 +48,10 @@ public sealed class MetalCodeTests
         Assert.Equal("metal", portable.Provider);
         Assert.NotEmpty(portable.Entries);
         Assert.All(portable.Entries.Keys, key => Assert.StartsWith(SlangCompiler.KernelKeyPrefix, key));
-        Assert.All(portable.Entries.Values, code => Assert.StartsWith(SlangCompiler.MetalThreadsHeader, System.Text.Encoding.UTF8.GetString(code.Span)));
+        var sources = portable.Entries.Values.Select(code => System.Text.Encoding.UTF8.GetString(code.Span)).ToList();
+        Assert.All(sources, source => Assert.StartsWith(SlangCompiler.MetalThreadsHeader, source));
+        // The prefill matmuls take the 8x8 subgroup-matrix GEMM exactly when the profile has simdgroup matrices.
+        Assert.Equal(simdgroupMatrix, sources.Any(source => source.Contains("simdgroup_multiply_accumulate", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -74,7 +79,7 @@ public sealed class MetalCodeTests
     }
 
     /// <summary>The profile of an Apple GPU as the provider reports it.</summary>
-    private static DeviceProfile Profile() => new()
+    private static DeviceProfile Profile(bool simdgroupMatrix) => new()
     {
         Provider = "metal",
         Name = "Apple GPU (profile)",
@@ -83,7 +88,7 @@ public sealed class MetalCodeTests
         CodeTarget = "metal",
         SubgroupSize = 32,
         MaxSharedMemory = 32768,
-        Features = [DeviceFeatures.Float16, DeviceFeatures.SubgroupOps],
+        Features = simdgroupMatrix ? [DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.MatrixF16Small] : [DeviceFeatures.Float16, DeviceFeatures.SubgroupOps],
         ConcurrentWorkgroups = 64,
     };
 

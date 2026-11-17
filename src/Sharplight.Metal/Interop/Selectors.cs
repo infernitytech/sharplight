@@ -60,6 +60,9 @@ internal static class Selectors
     /// <summary><c>maxBufferLength</c>.</summary>
     internal static readonly nint MaxBufferLength = ObjCRuntime.RegisterSelector("maxBufferLength");
 
+    /// <summary><c>argumentBuffersSupport</c>.</summary>
+    internal static readonly nint ArgumentBuffersSupport = ObjCRuntime.RegisterSelector("argumentBuffersSupport");
+
     /// <summary><c>supportsFamily:</c>.</summary>
     internal static readonly nint SupportsFamily = ObjCRuntime.RegisterSelector("supportsFamily:");
 

@@ -40,7 +40,10 @@ internal static class MetalConstants
     /// <summary><c>MTLGPUFamilyMac2</c>.</summary>
     internal const nint FamilyMac2 = 2002;
 
-    /// <summary><c>MTLGPUFamilyMetal3</c>: GPU addresses of buffers (<c>gpuAddress</c>), which the kernels' pointer arguments need.</summary>
+    /// <summary><c>MTLArgumentBuffersTier2</c>: buffers may hold GPU addresses of other buffers (the kernels' pointer arguments).</summary>
+    internal const ulong ArgumentBuffersTier2 = 1;
+
+    /// <summary><c>MTLGPUFamilyMetal3</c>.</summary>
     internal const nint FamilyMetal3 = 5001;
 
     /// <summary><c>MTLGPUFamilyMetal4</c>.</summary>
