@@ -33,9 +33,11 @@
   <PropertyGroup Condition="($(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\')))">
     <IsPackable>true</IsPackable>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
   </PropertyGroup>
   <ItemGroup Condition="($(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\')))">
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)apps/Sharplight.Studio/Assets/Icons/sharplight-studio-128.png" Pack="true" PackagePath="/icon.png" Visible="false" />
   </ItemGroup>
   <!--
     Methods with loops (the CPU kernels) are compiled fully optimized on first use instead of starting as tier-0 code with

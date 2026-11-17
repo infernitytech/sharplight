@@ -419,7 +419,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | ControlNet, TAESD, LyCORIS / DoRA LoRAs | | not implemented (plain LoRAs: section 4) |
 | CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
 | Mask2Former | | vision model not implemented (Florence-2, SegFormer, BiRefNet, YOLO detection and segmentation are native task models, see model-support.md section 14) |
-| Demucs, CLAP, MusicGen | | audio models not implemented |
+| MusicGen medium/large/stereo, Demucs multi-band models and the original `.th` pickles, CLAP fusion variants | | not implemented (CLAP `laion/clap-htsat-unfused`, MusicGen small and `htdemucs` are supported: model-support.md section 16; not yet in the verified catalog) |
 | Mamba / RWKV real checkpoints beyond those above | | not covered by a model test |
 | Candle-format whisper GGUF | oxide-lab/whisper-large-v3-turbo-q4_0.gguf, xkeyC/model_q4_k.gguf | rejected on purpose; use the whisper.cpp or transcribe.cpp files |
 | Files without `general.architecture`, shards missing, `-noPLE` Gyro files | MiniMax-H3 pruned, some imatrix / patch files | malformed or incomplete at the source |
