@@ -53,6 +53,7 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
         _encoders = encoders ?? new ServiceCollection().AddSharplightVideo().BuildServiceProvider().GetRequiredService<VideoEncoderCatalog>();
         ExportFormats = CreateExportFormats(_encoders);
         Source = new ImageInputViewModel(services.Platform, text => Notice = text, "Start image", "Optional: the first frame of the video (image to video). Drop a file here or choose one.");
+        LastSource = new ImageInputViewModel(services.Platform, text => Notice = text, "Last image", "Optional: the last frame of the video (first and last frame). Drop a file here or choose one.");
         Player = new VideoPlayerViewModel();
         Player.PropertyChanged += (_, args) =>
         {
@@ -78,6 +79,9 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
     /// <summary>The start image of an image-to-video run (used when the model <see cref="SupportsImage"/>).</summary>
     public ImageInputViewModel Source { get; }
 
+    /// <summary>The last image of a first-and-last-frame run (used when the model <see cref="SupportsLastImage"/>).</summary>
+    public ImageInputViewModel LastSource { get; }
+
     /// <summary>The playback of the frames shown.</summary>
     public VideoPlayerViewModel Player { get; }
 
@@ -97,6 +101,10 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
     /// <summary>The chosen model takes a start image (image to video).</summary>
     [ObservableProperty]
     public partial bool SupportsImage { get; private set; }
+
+    /// <summary>The chosen model takes a last frame as well (first and last frame to video).</summary>
+    [ObservableProperty]
+    public partial bool SupportsLastImage { get; private set; }
 
     /// <summary>The phase and step the run is at, or empty.</summary>
     [ObservableProperty]
@@ -196,6 +204,12 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
                 Source.Clear();
             }
 
+            SupportsLastImage = defaults.SupportsLastImage;
+            if (!defaults.SupportsLastImage)
+            {
+                LastSource.Clear();
+            }
+
             if (!string.IsNullOrEmpty(defaults.NegativePrompt) && NegativePrompt.Length == 0)
             {
                 NegativePrompt = defaults.NegativePrompt;
@@ -262,7 +276,8 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
         values["height"] = options.Height!.Value.ToString(CultureInfo.InvariantCulture);
         values["frames"] = options.Frames!.Value.ToString(CultureInfo.InvariantCulture);
         var image = SupportsImage ? Source.Image : null;
-        var plan = new GenerationPlan(Prompt.Trim(), NegativePrompt.Trim(), options, seed, image, values, Panel.GetBool("preview"));
+        var lastImage = SupportsLastImage ? LastSource.Image : null;
+        var plan = new GenerationPlan(Prompt.Trim(), NegativePrompt.Trim(), options, seed, image, lastImage, values, Panel.GetBool("preview"));
         string title = plan.Prompt.Length > PromptTitleLength ? plan.Prompt[..PromptTitleLength] + "…" : plan.Prompt;
         Panel.Persist();
         Notice = "";
@@ -302,6 +317,7 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
                 Prompt = plan.Prompt,
                 NegativePrompt = plan.NegativePrompt.Length > 0 ? plan.NegativePrompt : null,
                 Image = plan.Image,
+                LastImage = plan.LastImage,
             };
             var options = plan.Options with { Seed = plan.Seed, PreviewInterval = plan.Preview ? Math.Max(1, (plan.Options.Steps ?? 20) / 5) : 0 };
             context.Report(0, "Starting");
@@ -609,6 +625,6 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
     }
 
     /// <summary>Everything one run needs, read from the page when it starts.</summary>
-    private sealed record GenerationPlan(string Prompt, string NegativePrompt, VideoGenerationOptions Options, long? Seed, ImageInput? Image,
+    private sealed record GenerationPlan(string Prompt, string NegativePrompt, VideoGenerationOptions Options, long? Seed, ImageInput? Image, ImageInput? LastImage,
         Dictionary<string, string> Values, bool Preview);
 }

@@ -18,6 +18,9 @@
             <Panel IsVisible="{Binding SupportsImage}">
               <iv:ImageInputView DataContext="{Binding Source}" />
             </Panel>
+            <Panel IsVisible="{Binding SupportsLastImage}">
+              <iv:ImageInputView DataContext="{Binding LastSource}" />
+            </Panel>
             <StackPanel Orientation="Horizontal" Spacing="10">
               <Button Classes="accent" Content="Generate" Command="{Binding RunCommand}" />
               <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsGenerating}" />

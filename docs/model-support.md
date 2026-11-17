@@ -1798,7 +1798,8 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 | Wan 2.1 I2V-14B, FLF2V-14B (CLIP image embedding) | diffusers folder (with `image_encoder/` and `image_processor/`); transformer-only GGUF (city96) with a Wan 2.1 folder for umT5 / VAE and the I2V / FLF2V configuration folder as `AuxiliaryRoles.ImageEncoder` | **supported** (CLIP ViT-H/14 penultimate states, the image embedding and the added image key/value cross-attention; FLF2V: `VideoGenerationRequest.LastImage`, the two images' states with the learned position table, the mask 1 on the last frame) | tiny pipelines; I2V and FLF2V Q4_K_M below |
 | Stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing | |
 | LTX-Video 0.9.0 (2B) | diffusers folder (the T5-XXL text encoder is the one of FLUX.1 / PixArt) | **supported** (text-to-video, multiples of 32, frames 1 + 8k, flow Euler with the resolution-dependent shift and the terminal stretch) | tiny pipeline; 2B below |
-| LTX-Video 0.9.1+ (causal / timestep-conditioned decoder), HunyuanVideo, CogVideoX, Mochi | - | missing (LTX 0.9.1+ rejected by name) | |
+| HunyuanVideo (13B, text-to-video) | diffusers folder (hunyuanvideo-community/HunyuanVideo); transformer-only GGUF (city96, any ggml type) / original-name safetensors with a HunyuanVideo folder as companion (`AuxiliaryRoles.TextEncoder` for the Llama and CLIP encoders, `AuxiliaryRoles.Vae`) | **supported** (LLaVA-Llama-3 states two layers before the last over the templated prompt, the template's 95 tokens cropped; CLIP-L pooled; guidance embedded (no classifier-free pass); flow Euler, shift 7; the causal 3-D VAE decoded in diffusers' temporal and spatial tiles; frames 1 + 4k, multiples of 16) | tiny pipeline; Q4_K_M below |
+| HunyuanVideo image-to-video, HunyuanVideo 1.5, LTX-Video 0.9.1+ (causal / timestep-conditioned decoder), CogVideoX, Mochi | - | missing (LTX 0.9.1+ rejected by name) | |
 
 Design notes:
 
@@ -1826,10 +1827,20 @@ Design notes:
   encodes the start image followed by blank frames with the streamed causal encoder (`vae_encode`, then `vae_encode_next` per
   temporal-compression frames, the temporal downsampling over the previous chunk's last frame) and concatenates a mask that is 1 on the
   first latent frame and the encoded latents to the noisy latents of every transformer input.
+- HunyuanVideo: the language model (LLaVA-Llama-3-8B) is an embedded decoder source (`hunyuan_video.text_encoder_source.*`, weights under
+  `text_encoder.`) whose `text_encode` graph returns the hidden states two layers before the last for the template plus 256 prompt tokens;
+  the pipeline drops the template's states (`VideoConfigKeys.PromptPrefixTokens`) and passes the key mask to the denoiser. CLIP-L
+  (`text_encode_2`, component `text-encoder-2`, tokenizer `tokenizer-2`) gives the pooled vector; the guidance scale is a denoiser input
+  (`VideoConfigKeys.EmbeddedGuidance`). The transformer keeps the original names (diffusers' split q/k/v are concatenated at import, so GGUF
+  files map 1:1). The VAE decoder groups frames inside its causal convolutions so only one group's stacked windows exist at a time, runs
+  its frame-causal mid attention frame by frame, and the pipeline decodes in diffusers' temporal tiles (5 latent frames, 3 apart, blended
+  over 4 frames) and spatial tiles (32 latent pixels, 24 apart, blended over 64 pixels; `VideoConfigKeys.DecodeTileFrames`,
+  `DecodeSpatialTile`), so decoding memory does not grow with the video size.
 - Tokenizer fix: Hugging Face templates that start with the sequence (T5 / umT5 `$A </s>`) no longer add a BOS token when the
   tokenizer configuration names one.
 
-Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyWanTests`, `Wan21Tests` in
+Verification (tools/make-tiny-wan.py, tools/make-wan-references.py, tools/make-tiny-hunyuan-video.py; tests `TinyWanTests`, `WanTests`,
+`WanImageToVideoTests`, `TinyHunyuanVideoTests`, `HunyuanVideoTests` in
 `tests/Sharplight.ImageGeneration.Tests`):
 
 - Tiny random Wan pipelines (`~/models/video/tiny-random-wan/{t2v,ti2v}`: Wan 2.1 layout; Wan 2.2 TI2V layout with the residual
@@ -1867,6 +1878,12 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py; tests `TinyW
 - Wan 2.2 I2V-A14B (QuantStack's HighNoise and LowNoise Q4_K_M GGUFs, the Wan 2.1 folder as companion; same reference script, guidance
   3.5 / 3.5, switch at 0.9): high- / low-noise transformer 3.0e-4 / 6.2e-4 relative RMS at each expert's first step, image-to-video
   35.0–52.5 dB per frame.
+- HunyuanVideo (city96's hunyuan-video-t2v-720p-Q4_K_M.gguf, the HunyuanVideo folder as companion; tools/make-hunyuan-video-references.py:
+  diffusers on the same GGUF in f32 on CUDA without TF32, the Llama encoder and the VAE in f32 on the CPU with `enable_tiling()`, 832×480,
+  33 frames, 20 Euler steps, embedded guidance 6): Llama states 2.5e-4, CLIP pooled 3.4e-4 (f16 files), transformer 4.1e-3 relative RMS;
+  text-to-video 28.2–33.0 dB per frame, visually the same video (a ±1e-3 nudge of the initial noise gives 30–34 dB against the
+  reference). 5.7 s per step (one pass, guidance embedded) at 832×480×33 frames, decoding about 45 s (45 tiles), peak 23.4 GB, 163 s in all;
+  diffusers took 16.6 s per step.
 - Speed and memory on the 32 GB GPU (Vulkan, `sharplight-generate-video`, 832×480, 33 frames = 9 latent frames, 20 UniPC steps
   with guidance, each run a new process: the conditioning time includes loading and compiling the umT5 encoder from the kernel
   cache): Wan 2.1 1.3B (f32 transformer) 4.2 s per step (both guidance passes), decode 19 s, peak 16.3 GB; Wan 2.2 TI2V-5B (f32
