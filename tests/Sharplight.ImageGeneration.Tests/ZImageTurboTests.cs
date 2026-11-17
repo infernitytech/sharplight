@@ -69,6 +69,35 @@ public sealed class ZImageTurboTests
     }
 
     /// <summary>The transformer on the CPU (diagnostics: runs only with <c>SHARPLIGHT_ZIMAGE_CPU=1</c>; minutes).</summary>
+    /// <summary>
+    /// unsloth's Qwen3-4B Q8_0 GGUF (Z-Image's text encoder is exactly Qwen/Qwen3-4B) as the companion against the pipeline's encoder (bf16,
+    /// run in f32 by diffusers): the Q8_0 weights cost accuracy; the text graphs keep f32 activations, which int8 quantization would lose.
+    /// </summary>
+    [Fact]
+    public void GgufTextEncoderMatchesDiffusers()
+    {
+        string textEncoder = Env.Qwen3FourBGguf;
+        var slot = Gpu();
+        Assert.SkipWhen(slot is null || !File.Exists(textEncoder), "Z-Image-Turbo, the Qwen3-4B GGUF, its references or a Vulkan GPU missing");
+        var companions = Companions();
+        companions[AuxiliaryRoles.TextEncoder] = textEncoder;
+        using var model = Env.Load(Gguf, slot!, companions);
+        var index = Index();
+        int i = 0;
+        foreach (var prompt in index.GetProperty("tokens").EnumerateObject())
+        {
+            int[] tokens = [.. prompt.Value.EnumerateArray().Select(t => t.GetInt32())];
+            int length = index.GetProperty("lengths").GetProperty(prompt.Name).GetInt32();
+            var hidden = GraphRunner.Run(model, ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, DiffusionGraphs.Hidden, 0,
+                (DiffusionGraphs.Tokens, tokens));
+            int d = hidden.Length / tokens.Length;
+            var (maxAbs, rms) = Env.Compare(hidden.AsSpan(0, length * d), Tensor($"text_hidden_{i}").AsSpan(0, length * d));
+            TestContext.Current.SendDiagnosticMessage($"{GetType().Name} GGUF text encoder {i}: relative RMS {rms:E2}");
+            Assert.True(rms < 3e-2, $"GGUF text encoder {i}: max {maxAbs}, relative RMS {rms}");
+            i++;
+        }
+    }
+
     [Fact]
     public void TransformerOnTheCpuMatchesDiffusers()
     {
