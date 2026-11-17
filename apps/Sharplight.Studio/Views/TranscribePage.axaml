@@ -6,6 +6,8 @@
              x:DataType="sp:TranscribePageViewModel">
   <iv:InferenceFrame>
     <iv:InferenceFrame.Workspace>
+      <!-- Scrolls when the window is too small for the input and the result, instead of laying the result out over the controls around it. -->
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <Grid RowDefinitions="Auto,*" RowSpacing="14">
         <!-- Input -->
         <Border x:Name="InputCard" Classes="card" DragDrop.AllowDrop="True">
@@ -40,24 +42,23 @@
           </StackPanel>
         </Border>
         <!-- Result -->
-        <Border Grid.Row="1" Classes="card">
-          <DockPanel>
-            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResult}">
-                <Button Classes="small" Content="Copy" Command="{Binding CopyCommand}" />
-                <Button Classes="small" Content=".txt" Command="{Binding ExportCommand}" CommandParameter="txt" ToolTip.Tip="Export the text" />
-                <Button Classes="small" Content=".srt" Command="{Binding ExportCommand}" CommandParameter="srt" ToolTip.Tip="Export SubRip subtitles" />
-                <Button Classes="small" Content=".vtt" Command="{Binding ExportCommand}" CommandParameter="vtt" ToolTip.Tip="Export WebVTT subtitles" />
-              </StackPanel>
+        <Border Grid.Row="1" Classes="card" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,*,Auto">
+            <Grid ColumnDefinitions="Auto,*" Margin="0,0,0,10">
               <StackPanel Orientation="Horizontal" Spacing="10">
-                <TextBlock Classes="h2" Text="Transcript" />
+                <TextBlock Classes="h2" Text="Transcript" VerticalAlignment="Center" />
                 <Border Classes="badge accent" IsVisible="{Binding ResultLanguage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                   <TextBlock Text="{Binding ResultLanguage}" />
                 </Border>
               </StackPanel>
-            </DockPanel>
-            <TextBlock DockPanel.Dock="Bottom" Classes="caption" Text="{Binding ResultSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
-            <Panel>
+              <WrapPanel Grid.Column="1" HorizontalAlignment="Right" Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="10,0,0,0" IsVisible="{Binding HasResult}">
+                <Button Classes="small" Content="Copy" Command="{Binding CopyCommand}" />
+                <Button Classes="small" Content=".txt" Command="{Binding ExportCommand}" CommandParameter="txt" ToolTip.Tip="Export the text" />
+                <Button Classes="small" Content=".srt" Command="{Binding ExportCommand}" CommandParameter="srt" ToolTip.Tip="Export SubRip subtitles" />
+                <Button Classes="small" Content=".vtt" Command="{Binding ExportCommand}" CommandParameter="vtt" ToolTip.Tip="Export WebVTT subtitles" />
+              </WrapPanel>
+            </Grid>
+            <Panel Grid.Row="1" MinHeight="200" ClipToBounds="True">
               <StackPanel IsVisible="{Binding !HasResult}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
                 <Path Classes="icon huge" Data="{StaticResource IconDocument}" HorizontalAlignment="Center" />
                 <TextBlock Classes="muted" Text="The transcript appears here, segment by segment." HorizontalAlignment="Center" />
@@ -75,9 +76,11 @@
                 </ItemsControl>
               </ScrollViewer>
             </Panel>
-          </DockPanel>
+            <TextBlock Grid.Row="2" Classes="caption" Text="{Binding ResultSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
+          </Grid>
         </Border>
       </Grid>
+      </ScrollViewer>
     </iv:InferenceFrame.Workspace>
   </iv:InferenceFrame>
 </UserControl>

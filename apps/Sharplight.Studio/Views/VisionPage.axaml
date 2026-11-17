@@ -8,6 +8,9 @@
              x:DataType="vi:VisionPageViewModel">
   <iv:InferenceFrame>
     <iv:InferenceFrame.Workspace>
+      <!-- Scrolls when the window is too small for the input and the result: the result stage has a minimum height, and without the scroll
+           view it would be laid out outside its card and overlap the controls around it. -->
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <Grid RowDefinitions="Auto,*" RowSpacing="14">
         <!-- Input -->
         <Border Classes="card">
@@ -27,25 +30,24 @@
           </StackPanel>
         </Border>
         <!-- Result -->
-        <Border Grid.Row="1" Classes="card">
-          <DockPanel>
-            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResult}">
+        <Border Grid.Row="1" Classes="card" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,*,Auto">
+            <Grid ColumnDefinitions="Auto,*" Margin="0,0,0,10">
+              <TextBlock Classes="h2" Text="Result" VerticalAlignment="Center" />
+              <WrapPanel Grid.Column="1" HorizontalAlignment="Right" Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="10,0,0,0" IsVisible="{Binding HasResult}">
                 <Button Classes="small" Content="Clear prompt" Command="{Binding ClearPromptCommand}" IsVisible="{Binding CanPrompt}" ToolTip.Tip="Forget the points and the box, and segment from the middle again" />
                 <Button Classes="small" Content="Copy" Command="{Binding CopyCommand}" IsVisible="{Binding !ShowDepth}" />
                 <Button Classes="small" Content="Export PNG" Command="{Binding ExportImageCommand}" IsVisible="{Binding CanExportImage}" ToolTip.Tip="Export the annotated image or the depth map" />
                 <Button Classes="small" Content="Export JSON" Command="{Binding ExportJsonCommand}" />
-              </StackPanel>
-              <TextBlock Classes="h2" Text="Result" VerticalAlignment="Center" />
-            </DockPanel>
-            <TextBlock DockPanel.Dock="Bottom" Classes="caption" Text="{Binding ResultSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
-            <Panel>
+              </WrapPanel>
+            </Grid>
+            <Panel Grid.Row="1" MinHeight="320" ClipToBounds="True">
               <StackPanel IsVisible="{Binding !HasResult}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
                 <Path Classes="icon huge" Data="{StaticResource IconScan}" HorizontalAlignment="Center" />
                 <TextBlock Classes="muted" Text="What the model sees appears here." HorizontalAlignment="Center" />
               </StackPanel>
               <Grid ColumnDefinitions="*,16,*" IsVisible="{Binding HasResult}">
-                <Border CornerRadius="8" ClipToBounds="True" MinHeight="320" IsVisible="{Binding !ShowAfter}">
+                <Border CornerRadius="8" ClipToBounds="True" IsVisible="{Binding !ShowAfter}">
                   <vw:ImageViewer x:Name="MainViewer" Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" CapturesPrimary="{Binding CanPrompt}" />
                 </Border>
                 <!-- Classes and objects -->
@@ -67,23 +69,29 @@
                   </ScrollViewer>
                 </DockPanel>
                 <!-- Depth map beside the image -->
-                <Border Grid.Column="2" CornerRadius="8" ClipToBounds="True" MinHeight="320" IsVisible="{Binding ShowDepth}">
+                <Border Grid.Column="2" CornerRadius="8" ClipToBounds="True" IsVisible="{Binding ShowDepth}">
                   <vw:ImageViewer Source="{Binding DepthPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
                 </Border>
                 <!-- Before/after comparison: the slider moves the divider between the original (left) and the upscaled image (right); zoom and pan apply to both -->
-                <Border Grid.ColumnSpan="3" CornerRadius="8" ClipToBounds="True" MinHeight="320" IsVisible="{Binding ShowAfter}">
+                <Border Grid.ColumnSpan="3" CornerRadius="8" ClipToBounds="True" IsVisible="{Binding ShowAfter}">
                   <vw:ImageViewer Source="{Binding MainPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}"
                                   CompareSource="{Binding AfterPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
                 </Border>
                 <!-- Recognized text -->
-                <SelectableTextBlock Grid.Column="2" Text="{Binding ResultText}" TextWrapping="Wrap" IsVisible="{Binding ShowText}" VerticalAlignment="Top" FontSize="18" />
+                <ScrollViewer Grid.Column="2" IsVisible="{Binding ShowText}" VerticalScrollBarVisibility="Auto">
+                  <SelectableTextBlock Text="{Binding ResultText}" TextWrapping="Wrap" VerticalAlignment="Top" FontSize="18" />
+                </ScrollViewer>
                 <!-- Embedding -->
-                <SelectableTextBlock Grid.Column="2" Text="{Binding EmbeddingText}" TextWrapping="Wrap" IsVisible="{Binding ShowEmbedding}" VerticalAlignment="Top" />
+                <ScrollViewer Grid.Column="2" IsVisible="{Binding ShowEmbedding}" VerticalScrollBarVisibility="Auto">
+                  <SelectableTextBlock Text="{Binding EmbeddingText}" TextWrapping="Wrap" VerticalAlignment="Top" />
+                </ScrollViewer>
               </Grid>
             </Panel>
-          </DockPanel>
+            <TextBlock Grid.Row="2" Classes="caption" Text="{Binding ResultSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
+          </Grid>
         </Border>
       </Grid>
+      </ScrollViewer>
     </iv:InferenceFrame.Workspace>
   </iv:InferenceFrame>
 </UserControl>

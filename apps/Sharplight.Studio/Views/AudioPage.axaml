@@ -6,6 +6,8 @@
              x:DataType="au:AudioPageViewModel">
   <iv:InferenceFrame>
     <iv:InferenceFrame.Workspace>
+      <!-- Scrolls when the window is too small for the input and the result, instead of laying the result out over the controls around it. -->
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <Grid RowDefinitions="Auto,*" RowSpacing="14">
         <!-- Input -->
         <Border x:Name="InputCard" Classes="card" DragDrop.AllowDrop="True">
@@ -32,14 +34,14 @@
           </StackPanel>
         </Border>
         <!-- Result -->
-        <Border Grid.Row="1" Classes="card">
+        <Border Grid.Row="1" Classes="card" ClipToBounds="True">
           <StackPanel Spacing="10">
             <TextBlock Classes="h2" Text="Result" />
             <TextBlock Classes="muted" Text="The result appears here once the run is done." IsVisible="{Binding !HasResult}" />
-            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasReconstruction}">
+            <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8" IsVisible="{Binding HasReconstruction}">
               <Button Classes="accent small" Command="{Binding PlayCommand}" Content="{Binding PlayText}" />
               <Button Classes="small" Content="Save as WAV" Command="{Binding SaveCommand}" />
-            </StackPanel>
+            </WrapPanel>
             <ItemsControl ItemsSource="{Binding Tags}" IsVisible="{Binding IsTagging}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="au:TagScoreViewModel">
@@ -56,15 +58,16 @@
             <ItemsControl ItemsSource="{Binding StemResults}" IsVisible="{Binding IsSeparation}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="au:StemViewModel">
-                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,3">
+                  <WrapPanel Orientation="Horizontal" ItemSpacing="8" Margin="0,3">
                     <TextBlock Text="{Binding Name}" Width="90" VerticalAlignment="Center" FontWeight="Medium" />
                     <Button Classes="small" Content="Play" Command="{Binding PlayCommand}" />
                     <Button Classes="small" Content="Save as WAV" Command="{Binding SaveCommand}" />
-                  </StackPanel>
+                  </WrapPanel>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <ItemsControl ItemsSource="{Binding Segments}" IsVisible="{Binding IsVoiceActivity}">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" IsVisible="{Binding IsVoiceActivity}">
+            <ItemsControl ItemsSource="{Binding Segments}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="au:SpeechSegmentViewModel">
                   <StackPanel Spacing="2" Margin="0,2">
@@ -76,10 +79,12 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
+            </ScrollViewer>
             <TextBlock Classes="caption" Text="{Binding ResultSummary}" IsVisible="{Binding HasResult}" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
       </Grid>
+      </ScrollViewer>
     </iv:InferenceFrame.Workspace>
   </iv:InferenceFrame>
 </UserControl>

@@ -44,22 +44,30 @@
           </StackPanel>
         </Border>
         <!-- Result -->
-        <Border Grid.Row="1" Classes="card" MinHeight="620">
-          <DockPanel>
-            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResult}">
+        <Border Grid.Row="1" Classes="card" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,*,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*" Margin="0,0,0,10">
+              <TextBlock Classes="h2" Text="Result" VerticalAlignment="Center" />
+              <WrapPanel Grid.Column="1" HorizontalAlignment="Right" Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="10,0,0,0" IsVisible="{Binding HasResult}">
                 <ToggleButton Classes="small" Content="Compare with input" IsChecked="{Binding CompareWithInput}" IsVisible="{Binding UsesInputImage}"
                               ToolTip.Tip="Drag the divider to compare the input image (left) with the result (right)" />
                 <Button Classes="small" Content="Save PNG" Command="{Binding SaveImageCommand}" ToolTip.Tip="Save the image; its prompt and parameters are in the file" />
                 <Button Classes="small" Content="Use as input" Command="{Binding UseAsInputCommand}" ToolTip.Tip="Start the next run from this image" />
                 <Button Classes="small" Content="Reuse seed" Command="{Binding ReuseSeedCommand}" ToolTip.Tip="Run again from the same noise" />
                 <Button Classes="small" Content="Reuse prompt" Command="{Binding ReusePromptCommand}" />
+              </WrapPanel>
+            </Grid>
+            <!-- The stage keeps a minimum height of its own row: the page scrolls instead of laying it out over the controls around it. -->
+            <Panel Grid.Row="1" MinHeight="420" ClipToBounds="True">
+              <StackPanel IsVisible="{Binding ShowPlaceholder}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                <Path Classes="icon huge" Data="{StaticResource IconImage}" HorizontalAlignment="Center" />
+                <TextBlock Classes="muted" Text="The picture appears here, taking shape step by step." HorizontalAlignment="Center" />
               </StackPanel>
-              <TextBlock Classes="h2" Text="Result" VerticalAlignment="Center" />
-            </DockPanel>
-            <!-- Gallery of every stored image -->
-            <vw:GalleryStripView DockPanel.Dock="Bottom" Margin="0,8,0,0" DataContext="{Binding Generations}" />
-            <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
+              <vw:ImageViewer IsVisible="{Binding ShowPreview}" Source="{Binding PreviewPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
+              <vw:ImageViewer IsVisible="{Binding !ShowPreview}" Source="{Binding SelectedPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}"
+                              CompareSource="{Binding ComparePng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
+            </Panel>
+            <StackPanel Grid.Row="2" Spacing="6" Margin="0,8,0,0">
               <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" IsVisible="{Binding HasSeveral}">
                 <ListBox ItemsSource="{Binding Images}" SelectedItem="{Binding SelectedImage}">
                   <ListBox.ItemsPanel>
@@ -79,16 +87,9 @@
               <TextBlock Classes="caption" Text="{Binding StepText}" IsVisible="{Binding IsGenerating}" />
               <TextBlock Classes="caption" Text="{Binding ResultSummary}" TextWrapping="Wrap" IsVisible="{Binding HasResult}" />
             </StackPanel>
-            <Panel>
-              <StackPanel IsVisible="{Binding ShowPlaceholder}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                <Path Classes="icon huge" Data="{StaticResource IconImage}" HorizontalAlignment="Center" />
-                <TextBlock Classes="muted" Text="The picture appears here, taking shape step by step." HorizontalAlignment="Center" />
-              </StackPanel>
-              <vw:ImageViewer IsVisible="{Binding ShowPreview}" Source="{Binding PreviewPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
-              <vw:ImageViewer IsVisible="{Binding !ShowPreview}" Source="{Binding SelectedPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}"
-                              CompareSource="{Binding ComparePng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
-            </Panel>
-          </DockPanel>
+            <!-- Gallery of every stored image -->
+            <vw:GalleryStripView Grid.Row="3" Margin="0,8,0,0" DataContext="{Binding Generations}" />
+          </Grid>
         </Border>
       </Grid>
       </ScrollViewer>
