@@ -24,6 +24,7 @@
     <Project Path="src/Sharplight.Audio/Sharplight.Audio.csproj" />
     <Project Path="src/Sharplight.Video/Sharplight.Video.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
+    <Project Path="src/Sharplight.ModelFeed/Sharplight.ModelFeed.csproj" />
     <Project Path="src/Sharplight.Hosting/Sharplight.Hosting.csproj" />
     <Project Path="src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <Project Path="src/Sharplight.DesignTokens/Sharplight.DesignTokens.csproj" />
@@ -63,6 +64,7 @@
     <Project Path="tests/Sharplight.Audio.Tests/Sharplight.Audio.Tests.csproj" />
     <Project Path="tests/Sharplight.Video.Tests/Sharplight.Video.Tests.csproj" />
     <Project Path="tests/Sharplight.Hub.Tests/Sharplight.Hub.Tests.csproj" />
+    <Project Path="tests/Sharplight.ModelFeed.Tests/Sharplight.ModelFeed.Tests.csproj" />
     <Project Path="tests/Sharplight.Import.Onnx.Tests/Sharplight.Import.Onnx.Tests.csproj" />
     <Project Path="tests/Sharplight.Import.Onnx.Conformance/Sharplight.Import.Onnx.Conformance.csproj" />
     <Project Path="tests/Sharplight.Import.PyTorch.Tests/Sharplight.Import.PyTorch.Tests.csproj" />
