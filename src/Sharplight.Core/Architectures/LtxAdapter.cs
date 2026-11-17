@@ -63,7 +63,9 @@ public sealed class LtxAdapter : IModelAdapter
             [VideoDiffusionGraphs.TextEncode] = T5TextGraphBuilder.Build(src.Weight, t5, TextEncoderPrefix, VideoDiffusionGraphs.TextEncode),
             [VideoDiffusionGraphs.Denoise] = LtxTransformerGraphBuilder.Build(src.Weight, transformer, latentFrames, latentHeight, latentWidth, t5.ContextLength,
                 fps, temporal, spatial),
-            [VideoDiffusionGraphs.VaeDecode] = LtxVaeGraphBuilder.BuildDecoder(src.Weight, latentChannels, patch, latentFrames, latentHeight, latentWidth),
+            [VideoDiffusionGraphs.VaeDecode] = LtxVaeGraphBuilder.BuildDecoder(src.Weight, latentChannels, patch, latentFrames, latentHeight, latentWidth,
+                src.Get(Prefix + "vae.decode_timestep", 0f), src.Get(Prefix + "vae.upsample_residual", Array.Empty<bool>()),
+                src.Get(Prefix + "vae.upsample_factor", Array.Empty<int>())),
         };
         var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
         if (src.Get<string?>(Prefix + "scheduler.source_config", null) is { } schedulerJson)
@@ -93,6 +95,7 @@ public sealed class LtxAdapter : IModelAdapter
             .Add(DiffusionConfigKeys.TrainSteps, src.Get(s + "train_steps", 1000))
             .Add(DiffusionConfigKeys.PredictionType, "flow")
             .Add(DiffusionConfigKeys.DynamicShift, src.Get(s + "dynamic_shift", true))
+            .Add(DiffusionConfigKeys.Shift, src.Get(s + "shift", 1.0))
             .Add(DiffusionConfigKeys.BaseShift, src.Get(s + "base_shift", 0.95))
             .Add(DiffusionConfigKeys.MaxShift, src.Get(s + "max_shift", 2.05))
             .Add(DiffusionConfigKeys.BaseSequenceLength, src.Get(s + "base_sequence_length", 1024))
