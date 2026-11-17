@@ -18169,6 +18169,176 @@
       ]
     },
     {
+      "id": "ltx-video-13b-0.9.8-distilled-gguf",
+      "name": "LTX-Video 13B 0.9.8 distilled GGUF",
+      "kind": "video-generation",
+      "family": "LTX-Video",
+      "architecture": "ltx",
+      "level": "verified",
+      "license": "other",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 35317999893,
+          "companions": [
+            "t5",
+            "vae"
+          ],
+          "repository": "QuantStack/LTXV-13B-0.9.8-distilled-GGUF",
+          "revision": "78b86e5a8fb04a3867296a35b83bf1d5c62927c4",
+          "include": [
+            "LTXV-13B-0.9.8-distilled-Q4_K_M.gguf"
+          ],
+          "primary": "LTXV-13B-0.9.8-distilled-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "LTXV-13B-0.9.8-distilled-Q4_K_M.gguf",
+              "size": 8818041856,
+              "sha256": "032c3f28735a11a3f706ed3a01b8d1af48ff4277e151a79fdc07961250c46dd5"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "vae",
+          "role": "vae",
+          "additionalRoles": [],
+          "label": "LTX-Video 0.9.8 VAE (stand-alone file)",
+          "repository": "QuantStack/LTXV-13B-0.9.8-distilled-GGUF",
+          "revision": "78b86e5a8fb04a3867296a35b83bf1d5c62927c4",
+          "include": [
+            "vae/LTXV-13B-0.9.8-distilled-VAE.safetensors"
+          ],
+          "primary": "vae/LTXV-13B-0.9.8-distilled-VAE.safetensors",
+          "files": [
+            {
+              "path": "vae/LTXV-13B-0.9.8-distilled-VAE.safetensors",
+              "size": 2493859452,
+              "sha256": "5bbe6f857ede5e9b262e4a294c26a1df5dc33a817f229a777cbf3adfab5ba61e"
+            }
+          ]
+        },
+        {
+          "id": "t5",
+          "role": "text-encoder",
+          "additionalRoles": [],
+          "label": "T5-XXL encoder and tokenizer (LTX-Video pipeline folder subset)",
+          "repository": "Lightricks/LTX-Video",
+          "revision": "8984fa25007f376c1a299016d0957a37a2f797bb",
+          "include": [
+            "model_index.json",
+            "scheduler/scheduler_config.json",
+            "text_encoder/*",
+            "tokenizer/*",
+            "transformer/config.json",
+            "vae/config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 412,
+              "gitOid": "d8ced17af6bd0c916329b02252c51671d8883b9a"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 418,
+              "gitOid": "5c4c25f47d1714f7ad68b73fbcecc2d7deb68c37"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 781,
+              "gitOid": "f275773219a8b09538cf72276cf7b3cd8c4b4675"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00004.safetensors",
+              "size": 4989319680,
+              "sha256": "7a68b2c8c080696a10109612a649bc69330991ecfea65930ccfdfbdb011f2686"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00004.safetensors",
+              "size": 4999830656,
+              "sha256": "b8ed6556d7507e38af5b428c605fb2a6f2bdb7e80bd481308b865f7a40c551ca"
+            },
+            {
+              "path": "text_encoder/model-00003-of-00004.safetensors",
+              "size": 4865612720,
+              "sha256": "c831635f83041f83faf0024b39c6ecb21b45d70dd38a63ea5bac6c7c6e5e558c"
+            },
+            {
+              "path": "text_encoder/model-00004-of-00004.safetensors",
+              "size": 4194506688,
+              "sha256": "02a5f2d69205be92ad48fe5d712d38c2ff55627969116aeffc58bd75a28da468"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 19886,
+              "gitOid": "0900b8ebd70052d4cccc2eacf6e07d75bb1f9cb8"
+            },
+            {
+              "path": "tokenizer/added_tokens.json",
+              "size": 2593,
+              "gitOid": "3f5132007c4fcf42b75b65c8b6aa49c7098bcdf4"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 2543,
+              "gitOid": "17ade346a1042cbe0c1436f5bedcbd85c099d582"
+            },
+            {
+              "path": "tokenizer/spiece.model",
+              "size": 791656,
+              "sha256": "d60acb128cf7b7f2536e8f38a5b18a05535c9e14c7a355904270e15b0945ea86"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 20618,
+              "gitOid": "1f869cb65e8c3d5f44997e57f4c9aaece8bf6bc0"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 500,
+              "gitOid": "77dfea2348d8865509d7665cc9bb8ef9ad206c4a"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 501,
+              "gitOid": "3a9d81963b21d0c4cfba102fff93676852b52588"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "against diffusers\u0027 LTXConditionPipeline on the same files (f32, CUDA): transformer 2.7e-3 relative RMS; text-to-video 43.1-46.7 dB per frame (704\u00D7480, 25 frames, the 8 distilled timesteps, no guidance)",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "LtxSingleFileTests"
+        ]
+      },
+      "notes": "2.4 s per step at 768\u00D7512\u00D7121 frames (8 steps, one pass), 12.3 GB peak, 34 s in all",
+      "doc": [
+        {
+          "section": "8",
+          "cells": {
+            "repositories": "QuantStack/LTXV-13B-0.9.8-distilled-GGUF (Q4_K_M \u002B its VAE file)",
+            "formats": "transformer GGUF \u002B stand-alone VAE file (\u0060--vae\u0060) \u002B an LTX-Video folder for T5 (\u0060--companions\u0060)",
+            "notes": "2.4 s per step at 768\u00D7512\u00D7121 frames, 12.3 GB"
+          }
+        }
+      ]
+    },
+    {
       "id": "wan-2.2-ti2v-5b-gguf",
       "name": "Wan 2.2 TI2V 5B GGUF",
       "kind": "video-generation",

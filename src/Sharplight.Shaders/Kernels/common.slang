@@ -765,3 +765,20 @@ uint4 split8_scaled(float v[8], float s, out uint4 lo)
     hi.w = split_h2(v[6] * s, v[7] * s, lo.w);
     return hi;
 }
+
+// Grouped tile order of a 2D GEMM grid launched as (column tiles, token tiles): workgroup (x, y) is remapped so that consecutive
+// workgroups walk `group` token tiles of one column tile before moving to the next column tile. The workgroups running at once then
+// share a few weight tiles (read from DRAM about once per group) and the group's activation rows (which stay in L2), instead of
+// all streaming every weight tile once per token tile. Returns (column tile, token tile); group 0 keeps the launch order.
+uint2 grouped_tile(uint2 gid, uint colTiles, uint tokTiles, uint group)
+{
+    if (group == 0)
+    {
+        return gid;
+    }
+    uint linear = gid.y * colTiles + gid.x;
+    uint per = group * colTiles;
+    uint g = linear / per, r = linear % per;
+    uint rows = min(group, tokTiles - g * group);
+    return uint2(r / rows, g * group + r % rows);
+}

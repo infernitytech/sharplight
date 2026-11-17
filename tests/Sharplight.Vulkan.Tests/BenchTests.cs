@@ -67,6 +67,7 @@ public sealed class BenchTests
 
     [Theory]
     [InlineData("f16")]
+    [InlineData("bf16")]
     [InlineData("q8_0")]
     [InlineData("q4_k")]
     [InlineData("q5_k")]

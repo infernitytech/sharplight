@@ -3,7 +3,9 @@
 #include "common.slang"
 
 // DUAL: two weight matrices of identical shape/format share x; the outputs are combined per element by
-// `float epi2(float a, float b)` (defined by the including generated source, e.g. silu(a) * b) — matvec paths only.
+// `float epi2(float a, float b)` (defined by the including generated source, e.g. silu(a) * b): the matvecs and gemm_cm2 (X_F16, no K
+// split, 16-value weight fetches). gemm_cm2's B tile alternates 16-row fragments of w and w2 (fragment 2i: rows of w, 2i + 1: the
+// same rows of w2), so a workgroup covers GBN / 2 outputs and each subgroup holds both products of its outputs.
 #ifndef DUAL
 #define DUAL 0
 #endif
@@ -717,6 +719,12 @@ using namespace linalg;
 #define GW_UNIT 16
 #endif
 #define GB_PER_T (GBN * GBK / GW_UNIT / GTHREADS)
+// Output columns per workgroup.
+#if DUAL
+#define GBN_OUT (GBN / 2)
+#else
+#define GBN_OUT GBN
+#endif
 typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
@@ -968,7 +976,14 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     GRID_BIND(p);
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
-    uint n0 = gid.x * GBN;
+    // GEMM_GROUP: grouped tile order (common.slang) for launches without K splits.
+#if DUAL && (MOE || GEMM_SPLIT || MM_EPI || defined(GW_RAW) || !X_F16 || FRAG_N % 2 != 0 || (defined(SPLITK) && SPLITK != 1))
+#error "the dual gemm_cm2 needs f16 activations, 16-value weight fetches, an even FRAG_N and no K split"
+#endif
+#if !MOE && defined(GEMM_GROUP) && (!defined(SPLITK) || SPLITK == 1)
+    gid.xy = grouped_tile(gid.xy, (N + GBN_OUT - 1) / GBN_OUT, (p.T + GBM - 1) / GBM, GEMM_GROUP);
+#endif
+    uint n0 = gid.x * GBN_OUT;
 #if MOE
     // The tile's expert and items; t indexes the tile's rows (0 .. rows - 1) instead of tokens.
     uint tile = gid.y;
@@ -1101,6 +1116,13 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             ws[set][it][0] = hp[0]; ws[set][it][1] = hp[1]; wsl[set][it][0] = lp[0]; wsl[set][it][1] = lp[1]; } }
     #define WSTAGE(set, it, ob, row)                                                                    \
         { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; gBl[ob] = wsl[set][it][0]; gBl[(ob) + 1] = wsl[set][it][1]; }
+#elif DUAL
+    // B tile row r: row n0 + (r / 32) * 16 + r % 16 of w (fragments 2i) or of w2 (fragments 2i + 1); `row` is the tile row.
+    #define WLOAD(set, it, row, g)                                                                      \
+        { uint tr = (row) - n0, wrow = n0 + (tr >> 5) * 16 + (tr & 15);                                 \
+          ws[set][it][0] = 0; ws[set][it][1] = 0;                                                       \
+          if (N % GBN_OUT == 0 || wrow < N) load16h(((tr >> 4) & 1) != 0 ? p.w2 : wbase, wrow, g, ws[set][it][0], ws[set][it][1]); }
+    #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
 #else
     #define WLOAD(set, it, row, g) { ws[set][it][0] = 0; ws[set][it][1] = 0; if (N % GBN == 0 || (row) < N) load16h(wbase, row, g, ws[set][it][0], ws[set][it][1]); }
     #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
@@ -1195,7 +1217,35 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     }
 #endif
 
-#if GPF == 2
+#if GPF == 2 && GNBUF == 2
+    // Double-buffered tiles with two register sets: entering step s, buffer s % 2 holds step s, register set (s + 1) % 2 the
+    // loads of step s + 1 and set s % 2 those of step s + 2. Step s multiplies its buffer, stages step s + 1 into the other one
+    // (last read by step s - 1, which every subgroup finished before the previous barrier), syncs once and issues the loads of
+    // step s + 3 into the set it just staged, so every load has two steps of MMAs to arrive. The loop is unrolled by two to keep
+    // the register sets static.
+    uint steps = (kEnd - kBeg) / GBK;
+    if (steps > 0)
+    {
+        FETCH(0, kBeg)
+        STAGE(0, 0u)
+    }
+    if (steps > 1) { FETCH(1, kBeg + GBK) }
+    if (steps > 2) { FETCH(0, kBeg + 2 * GBK) }
+    GroupMemoryBarrierWithGroupSync();
+    for (uint s = 0; s < steps; s += 2)
+    {
+        COMPUTE(0u)
+        if (s + 1 >= steps) break;
+        STAGE(1, 1u)
+        GroupMemoryBarrierWithGroupSync();
+        if (s + 3 < steps) { FETCH(1, kBeg + (s + 3) * GBK) }
+        COMPUTE(1u)
+        if (s + 2 >= steps) break;
+        STAGE(0, 0u)
+        GroupMemoryBarrierWithGroupSync();
+        if (s + 4 < steps) { FETCH(0, kBeg + (s + 4) * GBK) }
+    }
+#elif GPF == 2
     // Two register sets, the loop unrolled by two so that the sets stay static: entering step s, smem holds step s and set
     // (s + 1) % 2 the loads of step s + 1.
     uint steps = (kEnd - kBeg) / GBK;
@@ -1233,11 +1283,16 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     GroupMemoryBarrierWithGroupSync();
 
     uint cur = 0;
+#ifndef GEMM_EXP
+#define GEMM_EXP 0
+#endif
     for (uint k0 = kBeg; k0 < kEnd; k0 += GBK)
     {
-        bool more = k0 + GBK < kEnd;
+        bool more = k0 + GBK < kEnd && GEMM_EXP != 1;
         if (more) { FETCH(0, k0 + GBK) }
+#if GEMM_EXP != 2
         COMPUTE(cur)
+#endif
 #if GNBUF == 2
         if (more) { STAGE(0, cur ^ 1) }
         GroupMemoryBarrierWithGroupSync();
@@ -1289,6 +1344,41 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         }
     }
     #undef SPLIT_ROW_BYTES
+    return;
+#endif
+#if DUAL
+    // Fragments j and j + 1 hold the products of w and w2 for the same 16 outputs, columns n0 + (wn + j * 16) / 2.
+    [ForceUnroll]
+    for (int i = 0; i < FRAG_M; i++)
+    {
+        [ForceUnroll]
+        for (int j = 0; j < FRAG_N; j += 2)
+        {
+            Acc2 r = Acc2(0.0);
+            [ForceUnroll] for (uint e = 0; e < 8; e++) r[e] = epi2(acc[i][j][e], acc[i][j + 1][e]);
+            uint tRow = t0 + wm + i * 16, nCol = n0 + (wn + j * 16) / 2;
+            if (nCol >= N)
+            {
+                continue;   // a tile past the last output (N not a multiple of GBN_OUT)
+            }
+            if (tRow + 16 <= p.T && nCol + 16 <= N)
+            {
+                r.Store<CoopMatMatrixLayout.RowMajor>(yb + uint64_t(tRow) * Y_STRIDE + nCol, 0u, Y_STRIDE);
+                continue;
+            }
+            r.Store<CoopMatMatrixLayout.RowMajor>(gC, sg * 256, 16u);
+            GroupMemoryBarrierWithWaveSync();
+            [ForceUnroll]
+            for (uint e = 0; e < 8; e++)
+            {
+                uint w = lane + e * 32;
+                uint t = tRow + w / 16;
+                uint n = nCol + w % 16;
+                if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = gC[sg * 256 + w];
+            }
+            GroupMemoryBarrierWithWaveSync();
+        }
+    }
     return;
 #endif
     if (!MOE && t0 + GBM <= p.T && (N % GBN == 0 || n0 + GBN <= N))
@@ -1383,6 +1473,9 @@ half nv_decode(NvWBlock* b, uint32_t blockCoord[2], uint32_t c[2])
 [numthreads(256, 1, 1)]
 void gemm_nv2(uint3 gid : SV_GroupID, uniform Params p)
 {
+#ifdef GEMM_GROUP
+    gid.xy = grouped_tile(gid.xy, (N + NV_BN - 1) / NV_BN, (p.T + NV_BT - 1) / NV_BT, GEMM_GROUP);
+#endif
     uint n0 = gid.x * NV_BN, t0 = gid.y * NV_BT;
 #ifndef SPLITK
 #define SPLITK 1

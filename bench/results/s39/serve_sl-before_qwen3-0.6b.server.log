@@ -1,0 +1,13 @@
+Graph optimization (sharplight-ir/1): decode 676 -> 676 nodes, decode_embeddings 675 -> 675 nodes, embed 620 -> 620 nodes, classify 620 -> 620 nodes [124 ms]
+Loaded Qwen3-0.6B (decoder): 310 tensors, 1.19 GB, vocab 151936 [1357 ms]
+Rows per forward pass: 2048 (automatic, 28988 MiB available).
+Compiling 92 / 92, 92 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 1.19 / 1.19 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' for 16 sequences x 4096 tokens in 2560 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 30 groups, 8.11 GiB weights+state
+1 segment(s): [0@0: 677 nodes]
+Ready (decode)
+Model 'Qwen3-0' loaded in 4044 ms (estimated 8989 MiB, resident 8503 MiB).
+Serving 'Qwen3-0' (both API, VRAM reserve 1.00 GiB) on http://127.0.0.1:18093
+  Qwen3-0 [Chat] Loaded 8503 MiB
+  NVIDIA RTX PRO 4500 Blackwell: total 32623 MiB, budget 30013 MiB, used 8764 MiB (ours 8760 MiB), available 21249 MiB
