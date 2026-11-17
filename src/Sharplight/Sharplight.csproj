@@ -2,7 +2,7 @@
   <PropertyGroup>
     <!-- AddSharplight and SharplightDefaults live in the root namespace, visible from every Sharplight.* namespace without a using. -->
     <RootNamespace>Sharplight</RootNamespace>
-    <Description>Sharplight with its defaults: references the core, the built-in architecture adapters, the GGUF, Hugging Face, ONNX, whisper.cpp, diffusers and .slm importers and the CPU and Vulkan execution providers, and wires them up with services.AddSharplight() (the task layer included).</Description>
+    <Description>Sharplight with its defaults: references the core, the built-in architecture adapters, every model importer (GGUF, Hugging Face, ONNX, whisper.cpp, diffusers, the text-to-speech, voice activity and Ultralytics formats, .slm), the CPU and Vulkan execution providers and the native audio and video libraries, and wires them up with services.AddSharplight() (the task layer included).</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
