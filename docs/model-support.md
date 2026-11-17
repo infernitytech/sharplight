@@ -2438,14 +2438,14 @@ days, "trend" = Hub trendingScore at query time):
 | # | Model | Released | dl30 / likes / trend | Size and format tested | Publisher | Status |
 |---|---|---|---|---|---|---|
 | 1 | Qwen/Qwen3.8-27B (VL) | 2026-08-05 | 6.9 M / 20.4 k / 481 | Q8_0 and FP8 (section 17) | Alibaba Cloud (Qwen) | verified in section 17 |
-| 2 | google/gemma-4-31B-it (VL) | 2026-03-11 | 6.3 M / 4.4 k / 35 | unsloth Q4_K_M 18.3 GB + mmproj | Google | see 19.1.1 |
-| 3 | Qwen/Qwen3.5-9B (VL) | 2026-02-27 | 6.2 M / 2.4 k / 32 | unsloth Q4_K_M 5.7 GB + mmproj | Alibaba Cloud (Qwen) | see 19.1.1 |
-| 4 | Qwen/Qwen3.5-4B (VL) | 2026-02-27 | 4.8 M / 1.2 k / 26 | BF16 safetensors 9 GB; unsloth Q4_K_M + mmproj | Alibaba Cloud (Qwen) | see 19.1.1 |
+| 2 | google/gemma-4-31B-it (VL) | 2026-03-11 | 6.3 M / 4.4 k / 35 | unsloth Q4_K_M 18.3 GB + mmproj | Google | see 20.1.1 |
+| 3 | Qwen/Qwen3.5-9B (VL) | 2026-02-27 | 6.2 M / 2.4 k / 32 | unsloth Q4_K_M 5.7 GB + mmproj | Alibaba Cloud (Qwen) | see 20.1.1 |
+| 4 | Qwen/Qwen3.5-4B (VL) | 2026-02-27 | 4.8 M / 1.2 k / 26 | BF16 safetensors 9 GB; unsloth Q4_K_M + mmproj | Alibaba Cloud (Qwen) | see 20.1.1 |
 | 5 | Qwen/Qwen3.6-35B-A3B (VL) | 2026-04-15 | 3.9 M / 3.1 k / 30 | unsloth UD-Q4_K_M (section 17) | Alibaba Cloud (Qwen) | verified in section 17 |
 | 6 | Qwen/Qwen3.8-Flash-Next (VL, 180 GB) | 2026-08-24 | 3.0 M / 7.3 k / 64 | unsloth UD-IQ1_S, 2 GPUs + CPU (section 17) | Alibaba Cloud (Qwen) | verified in section 17 |
-| 7 | NousResearch/Arete-27B (VL) | 2026-11-06 | 10.7 k / 679 / 95 | bartowski Q4_K_M 17.2 GB + mmproj | Nous Research | see 19.1.1 |
-| 8 | Nanbeige/Nanbeige4.3-33B | 2026-10-24 | 23.8 k / 1.1 k / 18 | bartowski Q4_K_M 20.8 GB | Nanbeige | see 19.1.1 |
-| 9 | RecursiveSI/flint | 2026-10-21 | 59.3 k / 1.4 k / 28 | unsloth UD-Q4_K_XL 25 GB | RecursiveSI | see 19.1.1 |
+| 7 | NousResearch/Arete-27B (VL) | 2026-11-06 | 10.7 k / 679 / 95 | bartowski Q4_K_M 17.2 GB + mmproj | Nous Research | see 20.1.1 |
+| 8 | Nanbeige/Nanbeige4.3-33B | 2026-10-24 | 23.8 k / 1.1 k / 18 | bartowski Q4_K_M 20.8 GB | Nanbeige | see 20.1.1 |
+| 9 | RecursiveSI/flint | 2026-10-21 | 59.3 k / 1.4 k / 28 | unsloth UD-Q4_K_XL 25 GB | RecursiveSI | see 20.1.1 |
 | 10 | KRAFTON/Raon-1-nano | 2026-10-29 | 1.9 k / 148 / 49 | not run | KRAFTON | unsupported architecture (20.1.2) |
 | 11 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B | 2026-10-16 | 15.2 k / 265 / 18 | not run | NVIDIA | unsupported architecture (20.1.2) |
 | 12 | maxwell-model/Maxwell-V1-Flash | 2026-10-13 | 287 / 124 / 122 | not run (36.8 GB bf16, remote code) | Maxwell | unsupported architecture (20.1.2) |
