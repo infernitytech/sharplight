@@ -52,6 +52,10 @@
     <AvaloniaResource Include="Assets/Icons/*.png" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The verified-model catalog (docs/verified-catalog.md): Discover's "Verified" list works offline with this copy. -->
+    <EmbeddedResource Include="../../catalog/verified-models.json" LogicalName="Sharplight.Studio.verified-models.json" Link="Assets/verified-models.json" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Studio.Tests" />
   </ItemGroup>
 </Project>

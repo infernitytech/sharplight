@@ -1,4 +1,5 @@
 using Sharplight.Hub;
+using Sharplight.Hub.Catalog;
 using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Hub;
 
@@ -129,4 +130,23 @@ internal sealed class FakeHub : IHubService
     }
 
     public void DiscardPartial(ModelReference reference) => Discarded.Add(reference);
+
+    /// <summary>The catalog <see cref="GetCatalogAsync"/> returns; empty by default (Discover then starts in Hub search).</summary>
+    public VerifiedCatalog Catalog { get; set; } = new() { Updated = "2026-11-16" };
+
+    /// <summary>The catalog installs that were started, in order.</summary>
+    public List<CatalogInstallPlan> Installs { get; } = [];
+
+    public Task<VerifiedCatalog> GetCatalogAsync(CancellationToken cancellationToken) => Task.FromResult(Catalog);
+
+    public async Task<ModelManifest> InstallAsync(CatalogInstallPlan plan, IProgress<PullUpdate> progress, CancellationToken cancellationToken)
+    {
+        lock (Installs)
+        {
+            Installs.Add(plan);
+        }
+
+        var manifest = await PullAsync(plan.Reference, progress, cancellationToken);
+        return new ModelManifest { Repository = manifest.Repository, Tag = manifest.Tag, Alias = manifest.Alias, Commit = plan.Variant.Revision, Catalog = plan.Key };
+    }
 }

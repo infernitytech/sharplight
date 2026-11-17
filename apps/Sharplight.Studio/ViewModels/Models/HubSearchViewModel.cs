@@ -31,7 +31,11 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     private DiscoverFilterSettings _searched;
     private long? _capacity;
 
-    public HubSearchViewModel(StudioServices services, DownloadsViewModel downloads, Func<IReadOnlySet<string>> storedNames)
+    /// <summary>The user picked a mode; the mode no longer follows the model type.</summary>
+    private bool _modeChosen;
+
+    public HubSearchViewModel(StudioServices services, DownloadsViewModel downloads, Func<IReadOnlySet<string>> storedNames,
+        Func<IReadOnlyList<ModelManifest>>? storedModels = null)
     {
         _services = services;
         _downloads = downloads;
@@ -41,6 +45,44 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         _searched = Filters.Current;
         ShowOnlySupported = services.Settings.Current.ShowOnlySupported;
         Filters.FiltersChanged += (_, _) => _ = OnFiltersChangedAsync();
+        Verified = new VerifiedCatalogViewModel(services, downloads, storedModels ?? (() => []));
+        Verified.Loaded += (_, _) => ChooseMode();
+    }
+
+    /// <summary>The verified-model catalog, Discover's default list when it has models of the selected type.</summary>
+    public VerifiedCatalogViewModel Verified { get; }
+
+    /// <summary>Discover shows the verified catalog (otherwise the Hub search).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHubMode))]
+    public partial bool IsVerifiedMode { get; set; }
+
+    /// <summary>Discover shows the Hub search.</summary>
+    public bool IsHubMode => !IsVerifiedMode;
+
+    [RelayCommand]
+    private void ShowVerified()
+    {
+        _modeChosen = true;
+        IsVerifiedMode = true;
+    }
+
+    [RelayCommand]
+    private void ShowHubSearch()
+    {
+        _modeChosen = true;
+        IsVerifiedMode = false;
+    }
+
+    /// <summary>Follows the model type: the verified list when the catalog has models of it, else the Hub search (until a mode is picked).</summary>
+    private void ChooseMode()
+    {
+        var task = Filters.Current.Task;
+        Verified.SelectTask(task);
+        if (!_modeChosen)
+        {
+            IsVerifiedMode = Verified.HasEntriesFor(task);
+        }
     }
 
     /// <summary>The filters and sort order (model type, format, quantization, size, license, gated).</summary>
@@ -222,6 +264,11 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     private async Task OnFiltersChangedAsync()
     {
         var current = Filters.Current;
+        if (current.Task != _searched.Task)
+        {
+            ChooseMode();
+        }
+
         bool hubChanged = current.Task != _searched.Task || current.Format != _searched.Format || current.License != _searched.License || current.Sort != _searched.Sort;
         _searched = current;
         if (IsHighlightMode)
@@ -271,6 +318,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     /// </summary>
     public Task LoadHighlightsAsync()
     {
+        _ = Verified.LoadAsync();
         if (_highlightsLoad is null || _highlightsFailed || _highlightsTask != Filters.Current.Task)
         {
             _highlightsFailed = false;

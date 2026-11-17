@@ -1,4 +1,5 @@
 using Sharplight.Hub;
+using Sharplight.Hub.Catalog;
 
 namespace Sharplight.Studio.Services.Hub;
 
@@ -37,6 +38,19 @@ internal interface IHubService
     /// </summary>
     /// <returns>The stored model.</returns>
     public Task<ModelManifest> PullAsync(ModelReference reference, IProgress<PullUpdate> progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The verified-model catalog (<see cref="VerifiedCatalogSource"/>): the embedded copy or a newer published one; never throws for
+    /// network failures.
+    /// </summary>
+    public Task<VerifiedCatalog> GetCatalogAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Installs a catalog variant with its companions (<see cref="ModelPuller.InstallAsync"/>): the pinned files, one package. Cancelling keeps
+    /// the downloaded parts, like <see cref="PullAsync"/>; <see cref="DiscardPartial"/> with <see cref="CatalogInstallPlan.Reference"/> deletes them.
+    /// </summary>
+    /// <returns>The stored model.</returns>
+    public Task<ModelManifest> InstallAsync(CatalogInstallPlan plan, IProgress<PullUpdate> progress, CancellationToken cancellationToken);
 
     /// <summary>Deletes the files of an interrupted pull (nothing when the model is stored).</summary>
     public void DiscardPartial(ModelReference reference);

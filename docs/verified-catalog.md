@@ -73,6 +73,17 @@ that record existed were pinned to the repository's `main` at the time the catal
 their verification. Installs always download exactly the pinned commit, so a later change of the repository never changes what
 Studio installs; updating a pin (`resolve --update`) needs a new verification.
 
+### Install check
+
+Installing goes through `ModelPuller.InstallAsync` (Sharplight.Hub): exactly the pinned files of the variant and its companions are
+downloaded (checked against the catalog's sizes and sha256), then converted to one `.slm` package with each companion in its role and
+opened once before the model is registered (manifest field `catalog` = `entry/variant`). On 2026-11-17 the companion wiring was checked this
+way with the real converter on the verified files: FLUX.1-schnell Q8_0 (CLIP-L, T5 Q8_0, VAE), Chroma1-HD (FLUX T5 and VAE), SD3.5 Medium
+Q8_0 (CLIP-L, CLIP-G, T5, VAE from the pipeline), Z-Image-Turbo Q8_0 and Qwen-Image Q4_K_M (pipeline text encoder and VAE), Orpheus
+(SNAC), OuteTTS (WavTokenizer) and F5-TTS (Vocos), plus Kokoro, whisper.cpp, Silero VAD and a GGUF without companions; every one built a
+complete package. `RealCatalogInstallTests` installs whisper-tiny from the committed catalog against the real Hub
+(`SHARPLIGHT_HUB_NETWORK_TESTS=1`).
+
 ### Rules (CatalogValidator, run by the tests)
 
 - schema version 1, `updated` and verification dates are `yyyy-MM-dd`;
