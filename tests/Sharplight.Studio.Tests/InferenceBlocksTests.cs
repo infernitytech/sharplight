@@ -139,6 +139,41 @@ public sealed class InferenceBlocksTests
     }
 
     [Fact]
+    public async Task RunQueue_StartsTheRunsOfOneModelInQueueOrder()
+    {
+        // Each run used to start from its own pool task and race for the model, so a later run could start first (seen on a loaded
+        // machine). The queue order is decided when a run is queued.
+        using var services = new TestServices();
+        var queue = new RunQueueViewModel(services.Platform);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var order = new List<int>();
+        var runs = new List<RunItemViewModel>();
+        for (int i = 0; i < 64; i++)
+        {
+            int index = i;
+            runs.Add(queue.Enqueue($"run {index}", "model", async _ =>
+            {
+                if (index == 0)
+                {
+                    await gate.Task;
+                }
+
+                lock (order)
+                {
+                    order.Add(index);
+                }
+            }));
+        }
+
+        runs[10].CancelCommand.Execute(null);
+        gate.SetResult();
+        await Task.WhenAll(runs.Select(run => run.Completion)).WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(Enumerable.Range(0, 64).Where(index => index != 10), order);
+        Assert.Equal(RunStatus.Cancelled, runs[10].Status);
+        Assert.False(queue.IsBusy);
+    }
+
+    [Fact]
     public async Task RunQueue_CancelsQueuedAndRunningRuns_AndReportsFailures()
     {
         using var services = new TestServices();

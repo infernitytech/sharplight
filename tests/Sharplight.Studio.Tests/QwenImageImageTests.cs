@@ -17,6 +17,7 @@ namespace Sharplight.Studio.Tests;
 /// the diffusers pipeline folder beside the GGUF's folder (its Qwen2.5-VL <c>text_encoder</c> folder and its causal VAE), and the Image
 /// page generates.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class QwenImageImageTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

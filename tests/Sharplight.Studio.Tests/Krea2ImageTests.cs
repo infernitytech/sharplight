@@ -17,6 +17,7 @@ namespace Sharplight.Studio.Tests;
 /// pipeline folder beside the GGUF's folder (its Qwen3-VL <c>text_encoder</c> folder and the Qwen-Image VAE), and the Image page generates.
 /// The real model's root can be moved with <c>SHARPLIGHT_KREA2_ROOT</c>.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class Krea2ImageTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

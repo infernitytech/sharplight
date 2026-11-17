@@ -9,6 +9,7 @@ using Sharplight.Studio.ViewModels.Video;
 namespace Sharplight.Studio.Tests;
 
 /// <summary>The Video page on the tiny random Wan model through the real engine runtime on the CPU (skipped when the model is not on disk).</summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class VideoRealModelTests
 {
     private static readonly string s_tinyWan = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/video/tiny-random-wan/t2v/diffusers");

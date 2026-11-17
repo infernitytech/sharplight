@@ -14,6 +14,7 @@ namespace Sharplight.Studio.Tests;
 /// The Image and Vision pages on the real engine runtime and small real models (skipped when they are not on disk): the models are
 /// recognized by the library, load through the runtime's residency and run through the pages.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class ImageRealModelTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

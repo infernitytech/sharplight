@@ -1,0 +1,9 @@
+# Known conformance gaps, skipped with their reason (docs/onnx-support.md lists them as open). Format: <provider|*> <test or glob> <reason>
+* test_bernoulli* not reproducible: the expected output depends on the reference implementation's random number generator
+* test_training_dropout training-mode Dropout draws a random mask; not reproducible
+* test_training_dropout_default training-mode Dropout draws a random mask; not reproducible
+* test_training_dropout_default_mask training-mode Dropout draws a random mask; not reproducible
+* test_training_dropout_mask training-mode Dropout draws a random mask; not reproducible
+* test_bitcast_float64_to_int64 unsupported: 64-bit values travel as 32-bit values, so a 64-bit BitCast cannot be exact
+* test_bitcast_int64_to_float64 unsupported: 64-bit values travel as 32-bit values, so a 64-bit BitCast cannot be exact
+* test_image_decoder_* ImageDecoder (encoded image bytes to pixels) is not implemented

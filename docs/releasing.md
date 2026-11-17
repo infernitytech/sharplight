@@ -26,6 +26,9 @@
    ```
    (Install it with `dotnet tool install -g nbgv`.) With `firstUnstableTag: alpha` the release branch's version.json gets `0.1`
    (the `-alpha` suffix is removed); `develop` moves on.
+   Write the curated release notes as `docs/release-notes/vX.Y.md` on the release branch (and a line in `CHANGELOG.md`): for a
+   stable version, `packaging/release-notes.sh` hands them to Velopack and `studio.yml` uses them for the GitHub release
+   (otherwise both fall back to the commit subjects / GitHub's generated notes).
 2. **Stabilize.** Only fixes go onto `release/v0.1` (cherry-pick or merge from `develop`). Every push builds and tests,
    publishes the NuGet packages `0.1.N` (N = git height; `--skip-duplicate`) and the Studio packages on the `*-stable` channels.
    Installed stable Studio builds offer the update.

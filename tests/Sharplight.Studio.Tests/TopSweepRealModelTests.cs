@@ -11,6 +11,7 @@ namespace Sharplight.Studio.Tests;
 /// Face safetensors folder (Qwen2.5), a llama.cpp-converted GGUF (Llama 3.2) and a hybrid convolution model GGUF (LFM3). Each case skips
 /// when its files are not on disk.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class TopSweepRealModelTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
