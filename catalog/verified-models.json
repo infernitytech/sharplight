@@ -13056,6 +13056,99 @@
       ]
     },
     {
+      "id": "flux.2-klein-4b",
+      "name": "FLUX.2 Klein 4B",
+      "kind": "image-generation",
+      "family": "FLUX.2",
+      "level": "verified",
+      "gated": false,
+      "tags": [],
+      "variants": [],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "40.1 dB (512) / 41.3 dB (1024) vs diffusers on the same files (4 distilled steps); text encoder \u2264 1.3e-3, transformer 1.6e-3",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "1024x1024 in 3.4 s",
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "black-forest-labs/FLUX.2-klein-4B, unsloth/FLUX.2-klein-4B-GGUF",
+            "formats": "GGUF Q8_0 \u002B Qwen3-4B text encoder and VAE companions (the pipeline\u0027s folders)",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen-image-2.1-turbo",
+      "name": "Qwen-Image 2.1 Turbo",
+      "kind": "image-generation",
+      "family": "Qwen-Image",
+      "level": "verified",
+      "gated": false,
+      "tags": [],
+      "variants": [],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "34.5 dB (1024, its 8-step \u0060sample_sigmas\u0060) vs diffusers on the same files",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-16",
+        "tests": []
+      },
+      "notes": "8 steps at 1024x1024 in 14.8 s; the schedule comes from \u0060model_index.json\u0060 or the \u0060turbo\u0060 file name",
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "Qwen/Qwen-Image-2.1-Turbo, unsloth/Qwen-Image-2.1-Turbo-GGUF",
+            "formats": "GGUF Q8_0 \u002B the Qwen-Image 2.1 companions",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen-image-2.1",
+      "name": "Qwen-Image 2.1",
+      "kind": "image-generation",
+      "family": "Qwen-Image",
+      "level": "verified",
+      "gated": false,
+      "tags": [],
+      "variants": [],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder \u2264 9.6e-4",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-16",
+        "tests": []
+      },
+      "notes": "1024x1024 20 steps in 36 s; text-to-image only (the editing path is not implemented)",
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "Qwen/Qwen-Image-2.1, unsloth/Qwen-Image-2.1-GGUF",
+            "formats": "GGUF Q8_0 \u002B Qwen3-VL-8B text encoder and VAE companions (the pipeline\u0027s folders)",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
       "id": "realistic-vision-5.1",
       "name": "Realistic Vision 5.1",
       "kind": "image-generation",
@@ -17130,6 +17223,68 @@
           "cells": {
             "repositories": "city96/Wan2.1-FLF2V-14B-720P-gguf (Q4_K_M)",
             "formats": "as I2V, with the FLF2V diffusers folder\u0027s image encoder"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wan-2.2-i2v-a14b-gguf",
+      "name": "Wan 2.2 I2V A14B GGUF (two experts)",
+      "kind": "video-generation",
+      "family": "Wan",
+      "level": "verified",
+      "gated": false,
+      "tags": [],
+      "variants": [],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "against diffusers on the same GGUFs: transformers 3.0e-4 / 6.2e-4; image-to-video 35.0-52.5 dB per frame (832\u00D7480, 17 frames, 20 steps)",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-16",
+        "tests": []
+      },
+      "notes": "image-to-video (and an optional last frame)",
+      "doc": [
+        {
+          "section": "8",
+          "cells": {
+            "repositories": "QuantStack/Wan2.2-I2V-A14B-GGUF (HighNoise \u002B LowNoise Q4_K_M)",
+            "formats": "the two GGUFs (\u0060--transformer-2\u0060) \u002B a Wan 2.1 diffusers folder as companion",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "hunyuan-video-gguf",
+      "name": "HunyuanVideo GGUF",
+      "kind": "video-generation",
+      "family": "HunyuanVideo",
+      "level": "verified",
+      "gated": false,
+      "tags": [],
+      "variants": [],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "against diffusers on the same GGUF: transformer 4.1e-3, Llama 2.5e-4, CLIP 3.4e-4 relative RMS; text-to-video 28.2-33.0 dB per frame (832\u00D7480, 33 frames, 20 steps), visually identical",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "5.7 s per step, 23.4 GB peak (tiled decode)",
+      "doc": [
+        {
+          "section": "8",
+          "cells": {
+            "repositories": "city96/HunyuanVideo-gguf (hunyuan-video-t2v-720p-Q4_K_M)",
+            "formats": "GGUF \u002B hunyuanvideo-community/HunyuanVideo (without its transformer) as companion (\u0060--companions\u0060)",
+            "providers": ""
           }
         }
       ]

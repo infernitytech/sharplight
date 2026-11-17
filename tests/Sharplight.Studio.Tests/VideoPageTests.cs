@@ -93,7 +93,27 @@ public sealed class VideoPageTests
         }
 
         Assert.Equal("", page.Notice);
-        Assert.Contains(page.ExportFormats, format => format is { Format: "gif", IsAvailable: true });
+        Assert.Contains(page.Export.Formats, format => format is { Format: "gif", IsAvailable: true });
+        if (Sharplight.Video.BundledFfmpeg.IsAvailable)
+        {
+            // The export panel's choices reach the encoder, and the written video can be the start image of the next run.
+            page.Export.SelectedFormat = page.Export.Formats.Single(format => format.Format == "mp4");
+            await page.Export.CodecsLoaded;
+            page.Export.SelectedCodec = page.Export.Codecs.Single(codec => codec.Id == "av1");
+            page.Export.SelectedPreset = "fastest";
+            page.Export.Quality = 60;
+            Assert.True(page.ExportCommand.CanExecute(null));
+            string mp4 = Path.Combine(folder, "clip.mp4");
+            await page.ExportToAsync(mp4, page.Export.ToOptions());
+            Assert.Equal("", page.Notice);
+            var info = await new Sharplight.Video.FfmpegVideoDecoder().ProbeAsync(mp4, TestContext.Current.CancellationToken);
+            Assert.Equal(("av1", 48, 32), (info.VideoCodec, info.Width, info.Height));
+
+            await page.UseVideoFrameAsync(mp4, first: false);
+            Assert.True(page.Source.HasImage);
+            Assert.Equal((48, 32), (page.Source.Image!.Width, page.Source.Image.Height));
+            Assert.Contains("last frame", page.Source.Path, StringComparison.Ordinal);
+        }
         var output = Assert.Single(page.Gallery.Items);
         Assert.Contains("first-frame.png", output.Files.Select(file => file.Name));
     }
@@ -160,5 +180,55 @@ public sealed class VideoPageTests
     {
         Assert.True(Studio.Models.ModelKindCatalog.For(ModelKinds.VideoGeneration).Runnable);
         Assert.True(Studio.Services.Runtime.TaskKindClients.Handles(ModelKinds.VideoGeneration));
+    }
+
+    [Fact]
+    public async Task Generate_StoresTheVideoInTheGallery_WithFirstFrameAndSidecar_AndSurvivesARestart()
+    {
+        using var services = new TestServices();
+        Generator(services, out _);
+        var page = await OpenAsync(services);
+        await page.Generations.Loading;
+        Assert.True(page.Generations.IsEmpty);
+        page.Prompt = "a red fox";
+        page.NegativePrompt = "blurry";
+        Number(page, "frames").Value = 5;
+        Number(page, "steps").Value = 3;
+        page.RunCommand.Execute(null);
+        await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
+        await Task.Yield();
+
+        var entry = Assert.Single(page.Generations.Visible).Entry;
+        Assert.Equal(("wan-tiny", "a red fox", "blurry"), (entry.Model, entry.Prompt, entry.NegativePrompt));
+        Assert.Equal(5, entry.Frames);
+        var store = new Sharplight.Studio.Services.Gallery.ImageGalleryStore(services.Services.Pages.GenerationsDirectory("videos"));
+        Assert.Contains(Path.Combine("generations", "videos"), store.PathOf(entry), StringComparison.Ordinal);
+        Assert.True(File.Exists(store.PathOf(entry)));
+        Assert.True(File.Exists(Path.ChangeExtension(store.PathOf(entry), ".json")));
+        Assert.True(entry.Video.Length > 0, "no encoder produced a video file");
+        Assert.True(File.Exists(store.PathOfVideo(entry)));
+
+        // A new page lists it from disk, shows its first frame and reuses its settings.
+        var reopened = await OpenAsync(services);
+        await reopened.Generations.Loading;
+        Assert.Equal(entry.Id, Assert.Single(reopened.Generations.Visible).Entry.Id);
+        reopened.Prompt = "";
+        reopened.Generations.ReuseSettingsCommand.Execute(reopened.Generations.Visible[0]);
+        Assert.Equal("a red fox", reopened.Prompt);
+        Assert.Equal(5, Number(reopened, "frames").IntValue);
+        reopened.Generations.SelectedItem = reopened.Generations.Visible[0];
+        for (int i = 0; i < 100 && !reopened.Player.HasFrames; i++)
+        {
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(reopened.Player.HasFrames);
+
+        // Deleting removes the first frame, the sidecar and the video.
+        reopened.Generations.DeleteCommand.Execute(null);
+        reopened.Generations.DeleteCommand.Execute(null);
+        await reopened.Generations.Deleting;
+        Assert.False(File.Exists(store.PathOfVideo(entry)));
+        Assert.Empty(store.Load());
     }
 }

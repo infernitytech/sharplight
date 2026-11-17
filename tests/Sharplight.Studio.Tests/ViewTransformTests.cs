@@ -57,4 +57,20 @@ public sealed class ViewTransformTests
         var small = ViewTransform.Fit(s_image, s_viewport).Pan(new Vector(90, 90), s_image, s_viewport);
         Assert.Equal(new Point(0, 75), small.Offset);
     }
+
+    [Fact]
+    public Task ZoomPanView_ConvertsViewportPositionsToFractionsOfThePicture() => HeadlessApp.RunAsync(() =>
+    {
+        var bitmap = new Avalonia.Media.Imaging.WriteableBitmap(new PixelSize(200, 100), new Vector(96, 96), Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Opaque);
+        var view = new ZoomPanView { Source = bitmap };
+        view.Measure(new Size(400, 200));
+        view.Arrange(new Rect(0, 0, 400, 200));
+
+        // Fitted: 2 screen pixels per image pixel, no offset.
+        Assert.Equal(new Point(0.25, 0.25), view.ToFraction(new Point(100, 50)));
+        Assert.Equal(new Point(1, 1), view.ToFraction(new Point(900, 900)));
+        view.ZoomBy(2, new Point(0, 0));
+        Assert.Equal(new Point(0.125, 0.125), view.ToFraction(new Point(100, 50)));
+        return Task.CompletedTask;
+    });
 }

@@ -66,6 +66,8 @@ internal static class DiffusionCompanions
             {
                 CompanionFamily.ZImage => "qwen3",
                 CompanionFamily.QwenImage => "qwen2_5_vl",
+                CompanionFamily.QwenImage21 => "qwen3_vl",
+                CompanionFamily.Flux2 => "qwen3",
                 _ => null,
             };
             if (languageModel is not null && !found.ContainsKey(AuxiliaryRoles.TextEncoder) && ModelType(textEncoder) == languageModel)
@@ -92,9 +94,18 @@ internal static class DiffusionCompanions
 
     /// <summary>Whether a VAE file is the family's: the causal 3-D VAE for Qwen-Image, a 16-channel KL autoencoder for the others.</summary>
     private static bool IsFamilyVae(string file, CompanionFamily family)
-        => family == CompanionFamily.QwenImage
+        => family is CompanionFamily.QwenImage or CompanionFamily.QwenImage21
             ? ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.WanAutoencoderArchitecture
-            : ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.AutoencoderArchitecture && IsSixteenChannelVae(file);
+            : family == CompanionFamily.Flux2
+                ? ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.AutoencoderArchitecture && HasBatchNorm(file)
+                : ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.AutoencoderArchitecture && IsSixteenChannelVae(file);
+
+    /// <summary>Whether a VAE file carries FLUX.2's batch-norm statistics.</summary>
+    private static bool HasBatchNorm(string file)
+    {
+        using var safetensors = Sharplight.Import.HuggingFace.SafetensorsFile.Open(file);
+        return safetensors.Tensors.ContainsKey("bn.running_mean");
+    }
 
     /// <summary>The companion files of a family, in presentation order.</summary>
     /// <param name="family">The model family.</param>
@@ -106,6 +117,24 @@ internal static class DiffusionCompanions
         if (family == CompanionFamily.ZImage)
         {
             return [new CompanionFile(AuxiliaryRoles.TextEncoder, "Text encoder (Qwen3-4B)", "Qwen3-4B-Q8_0.gguf"), vae];
+        }
+
+        if (family == CompanionFamily.Flux2)
+        {
+            return
+            [
+                new CompanionFile(AuxiliaryRoles.TextEncoder, "Text encoder (Qwen3)", "Qwen3-4B-Q8_0.gguf (Klein 4B) or the pipeline's text_encoder folder"),
+                new CompanionFile(AuxiliaryRoles.Vae, "VAE", "flux2-vae.safetensors or the pipeline's vae file"),
+            ];
+        }
+
+        if (family == CompanionFamily.QwenImage21)
+        {
+            return
+            [
+                new CompanionFile(AuxiliaryRoles.TextEncoder, "Text encoder (Qwen3-VL-8B)", "Qwen3-VL-8B-Instruct-Q8_0.gguf or the pipeline's text_encoder folder"),
+                new CompanionFile(AuxiliaryRoles.Vae, "VAE", "the pipeline's vae/diffusion_pytorch_model.safetensors"),
+            ];
         }
 
         if (family == CompanionFamily.QwenImage)
@@ -148,11 +177,13 @@ internal static class DiffusionCompanions
             {
                 CompanionFamily.ZImage => GgufArchitecture(file) == "qwen3" ? AuxiliaryRoles.TextEncoder : null,
                 CompanionFamily.QwenImage => GgufArchitecture(file) == "qwen2vl" ? AuxiliaryRoles.TextEncoder : null,
+                CompanionFamily.QwenImage21 => GgufArchitecture(file) == "qwen3vl" ? AuxiliaryRoles.TextEncoder : null,
+                CompanionFamily.Flux2 => GgufArchitecture(file) == "qwen3" ? AuxiliaryRoles.TextEncoder : null,
                 _ => GgufArchitecture(file) is "t5encoder" or "t5" ? t5Role : null,
             };
         }
 
-        if (family is CompanionFamily.ZImage or CompanionFamily.QwenImage)
+        if (family is CompanionFamily.ZImage or CompanionFamily.QwenImage or CompanionFamily.QwenImage21 or CompanionFamily.Flux2)
         {
             return IsFamilyVae(file, family) ? AuxiliaryRoles.Vae : null;
         }

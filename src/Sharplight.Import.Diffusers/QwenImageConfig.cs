@@ -117,25 +117,42 @@ internal sealed record QwenImageConfig
         metadata[t + "f32_activations"] = true;
         metadata[t + "sample_size"] = 1024;
 
-        // The scheduler: the pipeline's σ = linspace(1, 1 / n), the exponential dynamic shift and the terminal stretch.
+        WriteScheduler(metadata, Prefix, SchedulerJson);
+        metadata[Prefix + "text_encoder.prompt_length"] = PromptLength;
+        metadata[Prefix + "text_encoder.prompt_skip"] = PromptSkip;
+        metadata[Prefix + "text_encoder.prompt_template"] = PromptTemplate;
+        metadata[Prefix + "default_steps"] = 50;
+        metadata[Prefix + "default_guidance"] = 4.0;
+    }
+
+    /// <summary>
+    /// Writes the flow scheduler keys of the Qwen-Image pipelines (σ = linspace(1, 1 / n), the exponential dynamic shift and the terminal
+    /// stretch; the configuration's values when given).
+    /// </summary>
+    /// <param name="metadata">The canonical metadata.</param>
+    /// <param name="prefix">The architecture prefix.</param>
+    /// <param name="schedulerJson">The <c>scheduler_config.json</c> text, or null.</param>
+    public static void WriteScheduler(IDictionary<string, object> metadata, string prefix, string? schedulerJson)
+    {
+        // Defaults of the released configurations.
         float baseShift = 0.5f;
         float maxShift = 0.9f;
         int baseLength = 256;
         int maxLength = 8192;
         float terminal = 0.02f;
-        if (SchedulerJson is not null)
+        if (schedulerJson is not null)
         {
-            using var document = JsonDocument.Parse(SchedulerJson);
+            using var document = JsonDocument.Parse(schedulerJson);
             var root = document.RootElement;
             baseShift = root.Float("base_shift", baseShift);
             maxShift = root.Float("max_shift", maxShift);
             baseLength = root.Int("base_image_seq_len", baseLength);
             maxLength = root.Int("max_image_seq_len", maxLength);
             terminal = root.TryGetProperty("shift_terminal", out var value) && value.ValueKind == JsonValueKind.Number ? value.GetSingle() : 0f;
-            metadata[Prefix + "scheduler.source_config"] = SchedulerJson;
+            metadata[prefix + "scheduler.source_config"] = schedulerJson;
         }
 
-        string s = Prefix + "scheduler.";
+        string s = prefix + "scheduler.";
         metadata[s + "train_steps"] = 1000;
         metadata[s + "shift"] = 1f;
         metadata[s + "dynamic_shift"] = true;
@@ -145,11 +162,5 @@ internal sealed record QwenImageConfig
         metadata[s + "max_sequence_length"] = maxLength;
         metadata[s + "shift_terminal"] = (double)terminal;
         metadata[s + "sampler"] = "euler";
-
-        metadata[Prefix + "text_encoder.prompt_length"] = PromptLength;
-        metadata[Prefix + "text_encoder.prompt_skip"] = PromptSkip;
-        metadata[Prefix + "text_encoder.prompt_template"] = PromptTemplate;
-        metadata[Prefix + "default_steps"] = 50;
-        metadata[Prefix + "default_guidance"] = 4.0;
     }
 }

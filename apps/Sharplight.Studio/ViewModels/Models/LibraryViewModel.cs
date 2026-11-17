@@ -175,6 +175,12 @@ internal sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
+        if (entry.Entry.Kind == ModelKindCatalog.Lora)
+        {
+            Status = $"{entry.Name} is a LoRA adapter: add it in the load panel of an image model.";
+            return;
+        }
+
         if (!entry.IsRunnable)
         {
             Status = $"{entry.Name} is a {entry.KindTitle.ToLowerInvariant()} model: Sharplight cannot run models of this kind yet.";

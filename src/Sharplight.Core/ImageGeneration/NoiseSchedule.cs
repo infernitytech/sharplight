@@ -75,6 +75,15 @@ public sealed record NoiseSchedule
     /// <summary>Flow schedules: the image token count of <see cref="MaxShift"/>.</summary>
     public int MaxSequenceLength { get; init; } = 4096;
 
+    /// <summary>
+    /// Flow schedules: the noise levels the pipeline passes for its default step count before the shift (Qwen-Image 2.1 Turbo's 8-step
+    /// schedule); empty: σ = linspace(1, 1 / n). Used only for that step count.
+    /// </summary>
+    public IReadOnlyList<double> SampleSigmas { get; init; } = [];
+
+    /// <summary>Flow schedules with a dynamic shift: μ from FLUX.2's empirical fit of image tokens and steps (see <see cref="DiffusionConfigKeys.EmpiricalShift"/>).</summary>
+    public bool EmpiricalShift { get; init; }
+
     /// <summary>Whether this is a rectified-flow schedule (<see cref="PredictionType"/> <c>flow</c>).</summary>
     public bool IsFlow => PredictionType == "flow";
 
@@ -104,6 +113,10 @@ public sealed record NoiseSchedule
             MaxShift = component.ConfigValue(DiffusionConfigKeys.MaxShift, defaults.MaxShift),
             BaseSequenceLength = component.ConfigValue(DiffusionConfigKeys.BaseSequenceLength, defaults.BaseSequenceLength),
             MaxSequenceLength = component.ConfigValue(DiffusionConfigKeys.MaxSequenceLength, defaults.MaxSequenceLength),
+            EmpiricalShift = component.ConfigValue(DiffusionConfigKeys.EmpiricalShift, false),
+            SampleSigmas = component.Config.TryGetValue(DiffusionConfigKeys.SampleSigmas, out var sigmas)
+                ? [.. sigmas.EnumerateArray().Select(s => s.GetDouble())]
+                : [],
         };
     }
 

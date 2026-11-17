@@ -41,6 +41,11 @@ internal static partial class SingleFileCheckpoint
         try
         {
             var names = TensorNames(path);
+            if (Flux2Checkpoint.TransformerPrefix(names) is not null)
+            {
+                return Flux2Config.Architecture;
+            }
+
             if (FluxCheckpoint.TransformerPrefix(names) is { } fluxPrefix)
             {
                 return names.Contains(fluxPrefix + "distilled_guidance_layer.in_proj.weight") ? ChromaConfig.Architecture : FluxConfig.Architecture;
@@ -61,9 +66,19 @@ internal static partial class SingleFileCheckpoint
                 return WanConfig.Architecture;
             }
 
+            if (HunyuanVideoCheckpoint.TransformerPrefix(names) is not null)
+            {
+                return HunyuanVideoFolder.Architecture;
+            }
+
             if (QwenImageCheckpoint.TransformerPrefix(names) is not null)
             {
                 return QwenImageConfig.Architecture;
+            }
+
+            if (QwenImage21Checkpoint.TransformerPrefix(names) is not null)
+            {
+                return QwenImage21Config.Architecture;
             }
 
             if (names.Any(n => n.StartsWith(UNetPrefix, StringComparison.Ordinal)))

@@ -47,6 +47,7 @@ internal sealed class FluxTransformerGraphBuilder
     private Value? _modulations;
     private Value? _keyBias;
     private Value _modulationInput = null!;
+    private readonly Dictionary<string, Value> _sharedModulations = new(StringComparer.Ordinal);
 
     private FluxTransformerGraphBuilder(Func<string, WeightInfo?> weights, FluxHyperParameters hp, long latentHeight, long latentWidth, int textRows)
     {
@@ -156,7 +157,8 @@ internal sealed class FluxTransformerGraphBuilder
     private void DeclarePositions()
     {
         int rows = _textRows + _imageRows;
-        var positions = new int[rows * 3];
+        int axes = _hp.AxesDim.Length;
+        var positions = new int[rows * axes];
         int gridRows = (int)(_latentHeight / _hp.PatchSize);
         int columns = (int)(_latentWidth / _hp.PatchSize);
         int rowOffset = _hp.CenteredPositions ? gridRows - gridRows / 2 : 0;
@@ -166,18 +168,25 @@ internal sealed class FluxTransformerGraphBuilder
             int start = Math.Max(gridRows / 2, columns / 2);
             for (int t = 0; t < _textRows; t++)
             {
-                positions[t * 3] = positions[t * 3 + 1] = positions[t * 3 + 2] = start + t;
+                positions[t * axes] = positions[t * axes + 1] = positions[t * axes + 2] = start + t;
+            }
+        }
+        else if (_hp.TextPositionAxis >= 0)
+        {
+            for (int t = 0; t < _textRows; t++)
+            {
+                positions[t * axes + _hp.TextPositionAxis] = t;
             }
         }
 
         for (int t = 0; t < _imageRows; t++)
         {
             int row = _textRows + t;
-            positions[row * 3 + 1] = t / columns - rowOffset;
-            positions[row * 3 + 2] = t % columns - columnOffset;
+            positions[row * axes + 1] = t / columns - rowOffset;
+            positions[row * axes + 2] = t % columns - columnOffset;
         }
 
-        _positions = _b.Constant("rope_positions", DataType.I32, new Shape(rows, 3), MemoryMarshal.AsBytes(positions.AsSpan()).ToArray());
+        _positions = _b.Constant("rope_positions", DataType.I32, new Shape(rows, axes), MemoryMarshal.AsBytes(positions.AsSpan()).ToArray());
         _frequencyFactors = AxialRope.FrequencyFactors(_b, "rope_frequency_factors", _hp.HeadDim, _hp.AxesDim, _hp.RopeTheta);
     }
 
@@ -210,7 +219,7 @@ internal sealed class FluxTransformerGraphBuilder
         var q = _b.RmsNorm(Heads(_b.Contiguous(_b.Slice(projected, 1, 0, d)), rows), _b.Weight(p + "norm_q.weight"), NormEps);
         var k = _b.RmsNorm(Heads(_b.Contiguous(_b.Slice(projected, 1, d, d)), rows), _b.Weight(p + "norm_k.weight"), NormEps);
         var v = Heads(_b.Contiguous(_b.Slice(projected, 1, 2 * d, d)), rows);
-        var mlp = _b.Unary("GeluTanh", _b.Slice(projected, 1, 3 * d, mlpWidth));
+        var mlp = _hp.SwiGlu ? SwiGlu(_b.Slice(projected, 1, 3 * d, mlpWidth)) : _b.Unary("GeluTanh", _b.Slice(projected, 1, 3 * d, mlpWidth));
         var joined = _b.Concat(1, Attend(q, k, v, F16Safe(p)), mlp);
         return _b.Add(x, _b.Mul(Chunk(mod, 2, d), Linear(joined, p + "linear2")));
     }
@@ -283,9 +292,26 @@ internal sealed class FluxTransformerGraphBuilder
     /// <paramref name="module"/> of the SiLU'd conditioning vector (FLUX).
     /// </summary>
     private Value Modulation(string module, int chunks, int first)
-        => _modulations is { } rows
-            ? _b.Reshape(_b.Contiguous(_b.Slice(rows, 0, first, chunks)), 1, (long)chunks * _hp.HiddenSize)
-            : Linear(_modulationInput, module);
+    {
+        if (_modulations is { } rows)
+        {
+            return _b.Reshape(_b.Contiguous(_b.Slice(rows, 0, first, chunks)), 1, (long)chunks * _hp.HiddenSize);
+        }
+
+        if (!_hp.SharedModulation || module.EndsWith("final.mod", StringComparison.Ordinal))
+        {
+            return Linear(_modulationInput, module);
+        }
+
+        // FLUX.2: one shared projection per stream kind, computed once.
+        string shared = P + (module.EndsWith("img_mod", StringComparison.Ordinal) ? "mod_img" : module.EndsWith("txt_mod", StringComparison.Ordinal) ? "mod_txt" : "mod_single");
+        if (!_sharedModulations.TryGetValue(shared, out var value))
+        {
+            _sharedModulations[shared] = value = Linear(_modulationInput, shared);
+        }
+
+        return value;
+    }
 
     /// <summary>
     /// Chroma's modulation approximator: per modulation row the sinusoidal embeddings of the timestep (16 channels), of guidance 0
@@ -349,7 +375,7 @@ internal sealed class FluxTransformerGraphBuilder
     /// </summary>
     private Value FeedForward(Value x, string p)
     {
-        var hidden = _b.Unary("GeluTanh", Linear(x, p + ".up"));
+        var hidden = _hp.SwiGlu ? SwiGlu(Linear(x, p + ".up")) : _b.Unary("GeluTanh", Linear(x, p + ".up"));
         if (!_hp.F32Activations)
         {
             return Linear(hidden, p + ".down");
@@ -357,6 +383,13 @@ internal sealed class FluxTransformerGraphBuilder
 
         var y = _b.Emit1("MatMul", [hidden, _b.Weight(p + ".down.weight")], Attributes.From((StandardOps.F32ActivationsAttribute, true)));
         return _b.TryWeight(p + ".down.bias") is { } bias ? _b.Add(y, bias) : y;
+    }
+
+    /// <summary>SwiGLU of a fused projection [rows, 2M]: silu(first half) · second half → [rows, M].</summary>
+    private Value SwiGlu(Value x)
+    {
+        long half = x.Shape[1].Fixed / 2;
+        return _b.Mul(_b.Silu(_b.Slice(x, 1, 0, half)), _b.Slice(x, 1, half, half));
     }
 
     /// <summary>Two linear layers with a SiLU between (the timestep, guidance and pooled-text embedders).</summary>

@@ -20,6 +20,8 @@ internal sealed class FakeModel(string id, ModelCapabilities capabilities = Mode
 
     public LoadSettings Settings { get; init; } = new();
 
+    public IReadOnlyList<(string Role, string Path)> Auxiliary { get; init; } = [];
+
     public ModelCapabilities Capabilities { get; } = capabilities;
 
     public int ContextLength => Settings.ContextLength;

@@ -63,6 +63,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         Devices = services.Runtime.Devices;
         SelectedDevice = Devices.FirstOrDefault(device => device.Id == defaults.DeviceId) ?? Devices.FirstOrDefault();
         ModelId = UniqueId(entry.Id);
+        Loras = new Image.LoraListViewModel(services.Platform, _library);
         NeedsCompanions = entry.Entry.Kind == Sharplight.Models.ModelKinds.ImageGeneration && File.Exists(entry.Entry.Path)
             && ImageModelProbe.NeedsCompanions(entry.Entry.Path);
         if (NeedsCompanions)
@@ -117,6 +118,12 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     /// the ones found beside it are filled in.
     /// </summary>
     public bool NeedsCompanions { get; }
+
+    /// <summary>LoRA adapters can be merged into this model (an image generation model).</summary>
+    public bool SupportsLoras => Entry.Entry.Kind == Sharplight.Models.ModelKinds.ImageGeneration;
+
+    /// <summary>The LoRAs to merge into the model at load (<see cref="SupportsLoras"/>).</summary>
+    public Image.LoraListViewModel Loras { get; }
 
     /// <summary>The companion files of a transformer-only image model (<see cref="NeedsCompanions"/>), in presentation order.</summary>
     public IReadOnlyList<CompanionFileViewModel> Companions { get; } = [];
@@ -233,6 +240,11 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             {
                 auxiliary.Add((companion.Role, companion.Path.Trim()));
             }
+        }
+
+        if (SupportsLoras)
+        {
+            auxiliary.AddRange(LoraRoles.ToAuxiliary(Loras.Adapters));
         }
 
         return new ModelLoadRequest(ModelId.Trim(), Entry.Entry.Path, settings, _services.Settings.Current.DisabledFeatures,
