@@ -263,8 +263,46 @@ public sealed class SpeechPageTests
         var (_, options, streaming) = Assert.Single(client.Requests);
         Assert.True(streaming);
         Assert.Equal("male_1", options!.Voice);
-        Assert.Equal(3, services.Audio.Played.Count);   // every streamed segment was played
+        Assert.Equal(3, services.Audio.Streamed.Count);   // every streamed segment went to the one output stream
+        Assert.Empty(services.Audio.Played);
+        Assert.Contains(page.Gallery.Items[0].Facts, fact => fact.StartsWith("first audio", StringComparison.Ordinal));
         Assert.Contains("voice: male_1", page.Gallery.Items[0].Facts);
+    }
+
+    [Fact]
+    public async Task Speak_SavesAVoiceFromTheReference_ListsItAndSpeaksWithIt()
+    {
+        using var services = new TestServices();
+        Synthesizer(services, out var client);
+        var page = new SpeakPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        string reference = Path.Combine(services.Directory, "reference.wav");
+        Sharplight.Audio.WavFile.Write(reference, client.Tone(1));
+        page.Panel.Parameters.OfType<Sharplight.Studio.ViewModels.Inference.Parameters.TextParameterViewModel>().First(parameter => parameter.Key == "reference").Deserialize(reference);
+        page.Panel.Parameters.OfType<Sharplight.Studio.ViewModels.Inference.Parameters.TextParameterViewModel>().First(parameter => parameter.Key == "referencetext").Deserialize("some words");
+
+        Assert.False(page.SaveVoiceCommand.CanExecute(null));
+        page.VoiceName = "Anna";
+        await WaitFor(() => page.SaveVoiceCommand.CanExecute(null));
+        await page.SaveVoiceCommand.ExecuteAsync(null);
+
+        Assert.Equal("Anna", Assert.Single(client.Cloned).Name);
+        Assert.Equal("some words", client.Cloned[0].ReferenceText);
+        Assert.Equal(["Anna"], page.VoiceLibrary.List("fake"));
+        Assert.True(page.HasSavedVoices);
+        var saved = page.Panel.Parameters.OfType<Sharplight.Studio.ViewModels.Inference.Parameters.ChoiceParameterViewModel>().First(parameter => parameter.Key == "savedvoice");
+        Assert.Equal("Anna", saved.Value);
+
+        page.InputText = "hello";
+        page.RunCommand.Execute(null);
+        await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
+        var (_, options, _) = Assert.Single(client.Requests);
+        Assert.Equal("Anna", options!.VoiceProfile!.Name);
+        Assert.Equal([1f, 2f, 3f], options.VoiceProfile.Tensors["speaker"].ToFloats());
+
+        await page.DeleteVoiceCommand.ExecuteAsync(null);
+        Assert.Empty(page.VoiceLibrary.List());
+        Assert.False(page.HasSavedVoices);
     }
 
     [Fact]

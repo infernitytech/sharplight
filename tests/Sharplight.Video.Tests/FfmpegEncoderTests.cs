@@ -236,7 +236,10 @@ public sealed class FfmpegEncoderTests
             string path = TestClips.TempPath(".mp4");
             try
             {
-                await new VideoEncoderCatalog([encoder]).SaveAsync(TestClips.MovingGradient(256, 192, 8), path, new VideoEncodeOptions { Codec = codec.Id }, TestContext.Current.CancellationToken);
+                Task save = new VideoEncoderCatalog([encoder]).SaveAsync(TestClips.MovingGradient(256, 192, 8), path, new VideoEncodeOptions { Codec = codec.Id }, TestContext.Current.CancellationToken);
+                Task finished = await Task.WhenAny(save, Task.Delay(TimeSpan.FromMinutes(2), TestContext.Current.CancellationToken));
+                Assert.True(ReferenceEquals(finished, save), $"Encoding with {codec.Id} did not finish within two minutes.");
+                await save;
                 List<byte[]> frames = FfmpegReference.Decode(path);
                 Assert.Equal(8, frames.Count);
             }
