@@ -1,16 +1,20 @@
 using Sharplight.Cpu;
+using Sharplight.Metal;
 using Sharplight.Runtime;
 
 namespace Sharplight.Vulkan.Tests;
 
-/// <summary>Device access; tests skip when no Vulkan device is available.</summary>
+/// <summary>
+/// Device access: the GPU under test is a Vulkan device, or a Metal device with <c>SHARPLIGHT_TEST_PROVIDER=metal</c>; tests skip when it
+/// is not available.
+/// </summary>
 internal static class Gpu
 {
-    private static readonly Lazy<(IComputeDevice? Dev, string Reason)> s_vk = new(() =>
+    private static readonly Lazy<(IComputeDevice? Dev, string Reason)> s_gpu = new(() =>
     {
         try
         {
-            var p = new VulkanProvider();
+            IExecutionProvider p = TestSwitches.Provider == MetalProvider.ProviderName ? new MetalProvider() : new VulkanProvider();
             var av = p.CheckAvailability();
             if (!av.IsAvailable)
             {
@@ -21,7 +25,7 @@ internal static class Gpu
                 : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault();
             if (dev is null)
             {
-                return (null, "no Vulkan device");
+                return (null, $"no {p.Name} device");
             }
 
             return (p.OpenDevice(dev), "");
@@ -39,6 +43,16 @@ internal static class Gpu
     });
 
     public static IComputeDevice Cpu => s_cpu.Value;
-    public static IComputeDevice? Vulkan => s_vk.Value.Dev;
-    public static void Require() => Assert.SkipUnless(Vulkan is not null, "No usable Vulkan device: " + s_vk.Value.Reason);
+
+    /// <summary>The GPU under test, or null when unavailable.</summary>
+    public static IComputeDevice? Device => s_gpu.Value.Dev;
+
+    public static void Require() => Assert.SkipUnless(Device is not null, $"No usable {TestSwitches.Provider} device: " + s_gpu.Value.Reason);
+
+    /// <summary>Requires the Vulkan provider under test (tests of Vulkan internals: pipeline caches, profile devices, segment statistics).</summary>
+    public static void RequireVulkan()
+    {
+        Assert.SkipUnless(TestSwitches.Provider == "vulkan", "Tests Vulkan internals; the provider under test is " + TestSwitches.Provider);
+        Require();
+    }
 }

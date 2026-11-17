@@ -85,7 +85,7 @@ internal static class Diff
         long rowInvariantRows = 0)
     {
         Gpu.Require();
-        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures, rowInvariantRows: rowInvariantRows);
+        using var vk = Compile(Gpu.Device!, g, maxTokens, ctx, disabledFeatures, rowInvariantRows: rowInvariantRows);
         var results = new List<float[]>();
         foreach (var s in steps)
         {
@@ -119,7 +119,7 @@ internal static class Diff
         MatrixPrecision precision = MatrixPrecision.Strict)
     {
         Gpu.Require();
-        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures, allowReducedPrecision, cpuFallback, precision: precision);
+        using var vk = Compile(Gpu.Device!, g, maxTokens, ctx, disabledFeatures, allowReducedPrecision, cpuFallback, precision: precision);
         inspect?.Invoke(vk);
         CompiledModel cpu;
         try

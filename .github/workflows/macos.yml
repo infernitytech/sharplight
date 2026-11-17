@@ -23,12 +23,139 @@ env:
   SHARPLIGHT_COMPILATION_CACHE: ${{ github.workspace }}/.kernel-cache
   VULKAN_QUANT: -class Sharplight.Vulkan.Tests.QuantFormatTests -class Sharplight.Vulkan.Tests.BonsaiQuantTests -class Sharplight.Vulkan.Tests.Iq4QuantTests -class Sharplight.Vulkan.Tests.Fp8GemmTests -class Sharplight.Vulkan.Tests.MoeTests -class Sharplight.Vulkan.Tests.TopKTests -class Sharplight.Vulkan.Tests.PadTests -class Sharplight.Vulkan.Tests.ResizeTests
   VULKAN_MMQ: -class Sharplight.Vulkan.Tests.MmqTests
+  METAL_ATTENTION: -class Sharplight.Vulkan.Tests.FullAttentionTests -class Sharplight.Vulkan.Tests.PagedAttentionTests -class Sharplight.Vulkan.Tests.SparseAttentionTests -class Sharplight.Vulkan.Tests.CompressedKvTests -class Sharplight.Vulkan.Tests.StateHandoffTests -class Sharplight.Vulkan.Tests.PackedSequenceTests
   VULKAN_CORE: -class Sharplight.Vulkan.Tests.ElementwiseTests -class Sharplight.Vulkan.Tests.NormTests -class Sharplight.Vulkan.Tests.RopeTests -class Sharplight.Vulkan.Tests.RowOpTests -class Sharplight.Vulkan.Tests.ReduceTests -class Sharplight.Vulkan.Tests.GatherTests -class Sharplight.Vulkan.Tests.ViewTests -class Sharplight.Vulkan.Tests.DataOpTests -class Sharplight.Vulkan.Tests.CastAndIntegerTests -class Sharplight.Vulkan.Tests.MatMulTests -class Sharplight.Vulkan.Tests.FusionTests -class Sharplight.Vulkan.Tests.SimtGemmTests -class Sharplight.Vulkan.Tests.SkinnyGemmTests -class Sharplight.Vulkan.Tests.SplitHalfGemmTests -class Sharplight.Vulkan.Tests.RowInvarianceTests -class Sharplight.Vulkan.Tests.StatefulTests
 
 jobs:
+  # The native Metal provider (docs/macos.md, src/Sharplight.Metal): unit tests, the GPU kernel suite of Sharplight.Vulkan.Tests run on the
+  # Metal device (SHARPLIGHT_TEST_PROVIDER=metal, every graph against the CPU oracle), the LLM smoke test and a Metal / MoltenVK benchmark.
+  metal:
+    name: macOS arm64 (Metal)
+    runs-on: macos-15
+    timeout-minutes: 240
+    env:
+      SHARPLIGHT_COMPILATION_CACHE: ${{ github.workspace }}/.metal-kernel-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Host
+        run: |
+          sw_vers
+          sysctl -n machdep.cpu.brand_string
+          sysctl hw.ncpu hw.memsize
+          system_profiler SPDisplaysDataType | grep -E 'Chipset|Metal|Cores|Vendor' || true
+
+      - name: Build
+        run: |
+          dotnet build tests/Sharplight.Metal.Tests -c Release
+          dotnet build tests/Sharplight.Vulkan.Tests -c Release
+          dotnet build samples/Sharplight.Cli -c Release
+
+      - name: Devices and features
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll --devices
+
+      - name: Metal unit tests
+        run: dotnet tests/Sharplight.Metal.Tests/bin/Release/net11.0/Sharplight.Metal.Tests.dll -result-xml "$RUNNER_TEMP/metal-unit-tests.xml"
+
+      - name: Restore the kernel cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.metal-kernel-cache
+          key: macos-metal-kernels-${{ hashFiles('src/Sharplight.Shaders/Kernels/**', 'Directory.Packages.props') }}
+          restore-keys: macos-metal-kernels-
+
+      - name: Smoke model
+        if: success() || failure()
+        id: model
+        run: |
+          mkdir -p "$RUNNER_TEMP/models"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/models/smoke.gguf" "$SMOKE_MODEL_URL"
+          echo "path=$RUNNER_TEMP/models/smoke.gguf" >> "$GITHUB_OUTPUT"
+
+      - name: LLM smoke test (Metal)
+        if: (success() || failure()) && steps.model.outcome == 'success'
+        timeout-minutes: 20
+        env:
+          SHARPLIGHT_LOAD_TIMING: 1
+        run: |
+          dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" --provider metal -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-metal.txt"
+          grep -q Paris "$RUNNER_TEMP/smoke-metal.txt"
+
+      - name: LLM benchmark (Metal against MoltenVK)
+        if: (success() || failure()) && steps.model.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          cli=samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll
+          for provider in metal vulkan; do
+            for tokens in 128 512; do
+              echo "=== $provider --bench $tokens"
+              dotnet $cli "${{ steps.model.outputs.path }}" --provider $provider --bench $tokens 2>&1 | grep -E 'dispatches|prefill [0-9]+ tok' || echo "(failed)"
+            done
+          done
+
+      - name: Metal kernel suite, core
+        if: success() || failure()
+        timeout-minutes: 60
+        env:
+          SHARPLIGHT_TEST_PROVIDER: metal
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -longRunning 300 -result-xml "$RUNNER_TEMP/metal-core-tests.xml" ${{ env.VULKAN_CORE }}
+
+      - name: Metal kernel suite, attention
+        if: success() || failure()
+        timeout-minutes: 30
+        env:
+          SHARPLIGHT_TEST_PROVIDER: metal
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -longRunning 300 -result-xml "$RUNNER_TEMP/metal-attention-tests.xml" ${{ env.METAL_ATTENTION }}
+
+      - name: Metal kernel suite, quantized formats and data kernels
+        if: success() || failure()
+        timeout-minutes: 45
+        env:
+          SHARPLIGHT_TEST_PROVIDER: metal
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -longRunning 300 -result-xml "$RUNNER_TEMP/metal-quant-tests.xml" ${{ env.VULKAN_QUANT }} ${{ env.VULKAN_MMQ }}
+
+      - name: Metal kernel suite, remaining classes
+        if: success() || failure()
+        timeout-minutes: 45
+        env:
+          SHARPLIGHT_TEST_PROVIDER: metal
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -longRunning 300 -result-xml "$RUNNER_TEMP/metal-other-tests.xml" $(echo "${{ env.VULKAN_CORE }} ${{ env.VULKAN_MMQ }} ${{ env.VULKAN_QUANT }} ${{ env.METAL_ATTENTION }}" | sed 's/-class /-class- /g')
+
+      - name: Failed tests
+        if: success() || failure()
+        run: |
+          for f in "$RUNNER_TEMP"/metal-*.xml; do
+            [ -f "$f" ] || continue
+            echo "=== $(basename "$f")"
+            python3 -c "import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); a=r.find('.//assembly'); print('total', a.get('total'), 'passed', a.get('passed'), 'failed', a.get('failed'), 'skipped', a.get('skipped')); [print('FAIL', t.get('name'), '|', (t.findtext('failure/message') or '')[:400].replace(chr(10),' ')) for t in r.iter('test') if t.get('result')=='Fail']" "$f" | head -80
+          done
+
+      - name: Save the kernel cache
+        if: success() || failure()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.metal-kernel-cache
+          key: macos-metal-kernels-${{ hashFiles('src/Sharplight.Shaders/Kernels/**', 'Directory.Packages.props') }}-${{ github.run_id }}
+
+      - uses: actions/upload-artifact@v4
+        if: success() || failure()
+        with:
+          name: macos-metal-test-results
+          path: ${{ runner.temp }}/*.xml
+          if-no-files-found: ignore
+
   macos-arm64:
     name: macOS arm64 (Cpu + Vulkan via MoltenVK)
     runs-on: macos-15
+    # macos/metal-* branches iterate on the Metal provider: only the metal job runs there (macOS minutes are limited).
+    if: ${{ !startsWith(github.ref_name, 'macos/metal-') }}
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
@@ -161,6 +288,8 @@ jobs:
   macos-bench:
     name: macOS arm64 LLM benchmark (MoltenVK)
     runs-on: macos-15
+    # macos/metal-* branches iterate on the Metal provider: only the metal job runs there (macOS minutes are limited).
+    if: ${{ !startsWith(github.ref_name, 'macos/metal-') }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -221,6 +350,8 @@ jobs:
   linux-arm64:
     name: Linux arm64 (Cpu)
     runs-on: ubuntu-24.04-arm
+    # macos/metal-* branches iterate on the Metal provider: only the metal job runs there (macOS minutes are limited).
+    if: ${{ !startsWith(github.ref_name, 'macos/metal-') }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -291,6 +422,8 @@ jobs:
   studio-app:
     name: Sharplight Studio.app (osx-arm64)
     runs-on: macos-15
+    # macos/metal-* branches iterate on the Metal provider: only the metal job runs there (macOS minutes are limited).
+    if: ${{ !startsWith(github.ref_name, 'macos/metal-') }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
