@@ -36,6 +36,7 @@ internal static class HfArchitectureMappings
         Register(new VitHfMapping());
         Register(new ClipHfMapping());
         Register(new TimmResNetHfMapping());
+        Register(new ResNetHfMapping());
         Register(new DetrHfMapping());
         Register(new RtDetrHfMapping());
         Register(new YolosHfMapping());
