@@ -286,10 +286,10 @@ branch `macos/metal-r1`, round 2 (split-K `gemm_sg`, 8x8 flash attention, `int_d
   `SetInput` writes into the input buffer, outputs are read from the output buffer, runtime scalars go straight into the
   runtime buffer, and weights are copied (and repacked) by the CPU directly into their buffers (`WeightCopier`, shared with the
   Vulkan provider). Shared weights and per-graph states work as on Vulkan. Weights stored as the kernels read them (no repack)
-  whose source is memory-mapped (GGUF, safetensors, `.slm`) can instead be wrapped with `newBufferWithBytesNoCopy` (the pages
-  around them), so the GPU reads the mapped file without a copy: `SHARPLIGHT_MTL_NO_COPY=1`. It is off by default because on the
-  CI's Apple GPU wrapping took 12.4 s for the 0.49 GB smoke model against 0.38 s for the parallel copy (run 44031312716; same
-  output); one wrap of the whole mapping, or residency sets, are the next things to try.
+  whose source is memory-mapped (GGUF, safetensors, `.slm`) are not copied: each mapped file is wrapped once with
+  `newBufferWithBytesNoCopy` (pages touched in parallel first) and every weight is addressed at its offset, so the GPU reads the
+  mapped file. CI (run 44063648291, warm page cache, 0.49 GB smoke model): 56 ms against 301 ms for the parallel copy; the first
+  version, one wrap per weight, took 12.4 s. `SHARPLIGHT_MTL_NO_COPY=0` copies instead.
 - **Execution.** Each distinct binding of the symbols is recorded once (variant, pipeline, packed arguments, grid, barrier
   placement from the shared `HazardTracker`); an execution encodes the recording into a concurrent compute encoder with
   `memoryBarrierWithScope:buffers` where the hazard tracker places barriers, makes every buffer resident with one
@@ -329,8 +329,66 @@ findings: the paravirtual GPU does not claim the Metal 3 family but has argument
 and Metal has no device-scope release / acquire within a dispatch, so the decode attention's fused "last workgroup merges the
 key splits" combine gave wrong results there and is off on Metal (`LoweringOptions.CrossWorkgroupFences`).
 
-Not done yet: the device stage (`MTLBinaryArchive`), 8x8-fragment forms of the causal `fe` attention and the convolution and
-MoE GEMMs (their 16x16 fragments load from vector-typed shared arrays), Metal 4 tensor operations (M5), residency sets.
+Round 3 (branch `macos/metal-r2`): the device stage (one `MTLBinaryArchive` per model and device, entry `metal/binary_archive`,
+binary tier matched on GPU name, OS build and kernel ABI; loads try it first with `FailOnBinaryArchiveMiss`, so hits are
+counted and a miss compiles from MSL; `kernel_binaries` turns it off), zero-copy weights wrapping each mapped file once
+(`IWeightSource.TryGetMapping`, pages pre-faulted in parallel; the default since it loads faster than the copy), and an 8x8 form with half-array staging of the convolution
+GEMM's single-product form (`CONV_FRAG8`, reduced precision; strict f32 convolutions keep the SIMT kernel on Metal). An 8x8
+form of the MoE GEMM (`moe_gemm_cm` with 2 x 2 fragments per 16x16 tile, up to 32 accumulators per SIMD-group) crashed Metal's
+backend compiler on the CI GPU ("Compilation failed" at pipeline creation, run 44063648291), after which every later pipeline
+of the process failed too; it was withdrawn, and expert matmuls keep the SIMT `moe_gemm` on Metal. Not done: Metal 4 tensor
+operations (M5), residency sets.
+
+### Slang: 8x8 fragment loads from `uint4` shared arrays on Metal
+
+The 16x16-fragment kernels `fe` (causal flash attention), `conv_cm` (convolution GEMMs) and the MoE GEMM stage their tiles in
+shared arrays of packed halves (`groupshared uint4 buf[]`, 8 halves per element) and load fragments from them with
+`CoopMat.Load(buf, offset / 8, stride / 8)`. Slang's Metal backend (SlangShaderSharp 2026.22.0) cannot emit such a load for
+`simdgroup_matrix`; loads from `half` / `float` shared arrays and device pointers work. Minimal repro (compile for target
+`metal`, profile `metal`):
+
+```slang
+using namespace linalg;
+typealias MatA = CoopMat<half, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixA>;
+typealias MatB = CoopMat<half, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixB>;
+typealias Acc = CoopMat<float, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixAccumulator>;
+groupshared uint4 buf[256];
+struct Params { uint4* a; float* c; };
+[shader("compute")]
+[numthreads(32, 1, 1)]
+void main(uint3 lt : SV_GroupThreadID, uniform Params p)
+{
+    buf[lt.x] = p.a[lt.x];
+    GroupMemoryBarrierWithGroupSync();
+    MatA a = MatA.Load<CoopMatMatrixLayout.RowMajor>(buf, 0, 2);
+    MatB b = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(buf, 16, 2);
+    Acc acc = coopMatMulAdd<float, false>(a, b, Acc(0.0));
+    acc.Store<CoopMatMatrixLayout.RowMajor>(p.c, 0, 8);
+}
+```
+
+Result: `internal error[E99999]: unimplemented feature in Slang compiler: unexpected IR opcode during code emit`. The same
+kernel with `groupshared half buf[2048]` (offsets and strides in halves) compiles to `simdgroup_load` from a `threadgroup half*`.
+The SPIR-V target compiles both. The Metal forms of these kernels therefore stage their tiles as `half` arrays (`*_FRAG8`).
+
+A second hazard of the same backend: an element-wise product of two fragments (`Acc a * Acc b`, which the SPIR-V target emits as
+a component-wise multiply) is emitted as `a * b` on two `simdgroup_matrix` values, and MSL defines `operator*` on
+`simdgroup_matrix` as the **matrix** product. The Metal forms therefore avoid element-wise fragment arithmetic: `fa`, `gemm_sg`
+and `conv_cm` (single-product form) only load, multiply-accumulate and store fragments. The causal `fe` kernel
+keeps its output accumulators in fragments and rescales them per row with exactly such a product (`o[i] * cm`) on every key
+tile; a diagonal-matrix product would need the accumulator as a B operand, which Slang's `CoopMat` cannot convert to, so `fe`
+has no Metal form and causal prefill runs `fa` (`FA_FRAG8`) there.
+
+Issue text for upstream (not posted):
+
+> **Metal: CoopMat.Load from a groupshared vector array fails with "unexpected IR opcode during code emit"**
+>
+> Loading a `CoopMat<half, MemoryScope.Subgroup, 8, 8, ...>` from a `groupshared uint4[]` array (element offset and stride in
+> units of the vector type, as the SPIR-V target accepts) aborts code generation for `-target metal` with E99999 "unimplemented
+> feature in Slang compiler: unexpected IR opcode during code emit". The same load from `groupshared half[]` works (emits
+> `simdgroup_load` from `threadgroup half*`), and the vector-array form compiles for SPIR-V. Expected: the Metal backend
+> reinterprets the vector array as its scalar element type (as for SPIR-V), or reports an unsupported-feature diagnostic.
+> Repro: (the kernel above). Slang 2026.22 (via SlangShaderSharp), `-target metal -profile metal`.
 
 ## Native Metal provider plan (original design notes)
 

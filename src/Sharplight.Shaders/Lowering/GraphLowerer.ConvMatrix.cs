@@ -75,12 +75,13 @@ public sealed partial class GraphLowerer
         }
 
         bool bf16 = _opt.Has(DeviceFeatures.MatrixBF16) && _opt.Has(DeviceFeatures.BFloat16);
-        bool f16 = _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16);
+        // 8x8 fragments (Metal) serve the single-product form only (CONV_FRAG8, PARTS 1, reduced precision).
+        bool f16 = (_opt.Has(DeviceFeatures.MatrixF16) || SmallFragments) && _opt.Has(DeviceFeatures.Float16);
         // Reduced precision: 128-pixel tiles, or 64 when the 128-pixel grid would not fill the device (small maps at batch 1).
         // Those convs are bound by staging the im2col tile, not by the products, so fewer, wider tiles are slower even with a
         // sixth of the products of the strict form.
         long reducedColumns = (columns * Math.Max(1, batchBound) + 127) / 128 * ((OG + 127) / 128) * groups < TargetWorkgroups ? 64 : 128;
-        bool splitHalf = splitWeights && f16 && weightFormat == 0 && _opt.Compile.SplitHalfMatMul && DiagnosticSwitches.ConvSplitHalf;
+        bool splitHalf = splitWeights && f16 && !SmallFragments && weightFormat == 0 && _opt.Compile.SplitHalfMatMul && DiagnosticSwitches.ConvSplitHalf;
         ConvMatrixForm? form = _opt.Compile.AllowReducedPrecision
             ? f16 ? new ConvMatrixForm(1, reducedColumns) : bf16 ? new ConvMatrixForm(2, reducedColumns) : null
             : splitHalf ? new ConvMatrixForm(4, reducedColumns) : bf16 ? new ConvMatrixForm(3, 64) : null;
@@ -156,6 +157,7 @@ public sealed partial class GraphLowerer
         var macros = common.Where(c => c.Item1 != "HAS_BIAS").ToList();
         macros.Add(("HAS_BIAS", bias is not null && !useWorkspace));
         macros.Add(("PARTS", form.Parts));
+        macros.Add(("CONV_FRAG8", SmallFragments));
         // Fast matrix precision: the split form with the hi parts only (the weights were split that way, see SplitWeights).
         bool hiOnly = form.Parts == 4 && FastMatrixProducts;
         macros.Add(("HI_ONLY", hiOnly));
