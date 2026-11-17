@@ -310,6 +310,13 @@ branch `macos/metal-r1`; CI is the `metal` job of [`macos.yml`](../.github/workf
   barriers), `SHARPLIGHT_MTL_FAST_MATH=1`, `SHARPLIGHT_MTL_TRACE=1`, `SHARPLIGHT_MTL_PROFILE=1` (one command buffer per launch,
   per-kernel GPU times in `--bench`), `SHARPLIGHT_MTL_DUMP_SOURCE=dir`.
 
+**CI results** (run 44018997843, `macos-15`, paravirtual Apple GPU): the whole GPU kernel suite passes on the Metal device
+(1526 tests: 1486 pass, 40 skip: benchmarks, opt-in large tests and the Vulkan-internal tests), as do the Metal unit tests and
+the LLM smoke test. Benchmarks against MoltenVK and llama.cpp: [benchmarks.md section 39](benchmarks.md). Two Metal-specific
+findings: the paravirtual GPU does not claim the Metal 3 family but has argument buffers tier 2 (the device check uses the tier);
+and Metal has no device-scope release / acquire within a dispatch, so the decode attention's fused "last workgroup merges the
+key splits" combine gave wrong results there and is off on Metal (`LoweringOptions.CrossWorkgroupFences`).
+
 Not done yet: the device stage (`MTLBinaryArchive`), no-copy weights (`newBufferWithBytesNoCopy` over the mapped file),
 8x8-fragment forms of the flash attention and convolution GEMMs, Metal 4 tensor operations (M5), residency sets.
 

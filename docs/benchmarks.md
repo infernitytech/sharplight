@@ -5215,19 +5215,28 @@ bench/s38_all.sh sharplight after
 python3 bench/s38_summarize.py bench/results/s38 before,after
 ```
 
-## 39. Apple silicon: native Metal provider against MoltenVK (macOS CI, 2026-11-17)
+## 39. Apple silicon: native Metal provider against MoltenVK and llama.cpp Metal (macOS CI, 2026-11-17)
 
 GitHub's `macos-15` runner (Apple M1 virtual machine, paravirtual Apple GPU: Mac2 family, argument buffers tier 2, 3 CPU cores,
-7 GB), branch `macos/metal-r1`, job `metal` of `.github/workflows/macos.yml`. Numbers are indicative only (shared virtualized
-hardware, one run each). Qwen2.5-0.5B-Instruct Q4_K_M, `sharplight MODEL --provider metal|vulkan --bench N` (best warm prefill of
-N tokens; decode: 64 steps, best / median):
+7 GB), branch `macos/metal-r1`, jobs `metal` and `metal-bench` of `.github/workflows/macos.yml`, run 44018997843. Numbers are
+indicative only (shared virtualized hardware, one run each). Sharplight: `sharplight MODEL --provider metal|vulkan --bench N`
+(best warm prefill of N tokens; decode: best of 64 steps). llama.cpp b11177 built in CI with `GGML_METAL=ON`:
+`llama-bench -ngl 99 -fa 1 -p 512 -n 128 -r 3` (mean).
 
-| Provider | prefill 128 | prefill 512 | decode (128-token prompt) best / median |
-| --- | --- | --- | --- |
-| Metal (`Sharplight.Metal`, `gemm_sg` on 8x8 simdgroup matrices) | **1488.7 tok/s** | **1270.4 tok/s** | **62.2 / 54.4 tok/s** |
-| Vulkan through MoltenVK (SIMT GEMM) | 608.0 tok/s | 545.7 tok/s | 52.7 / 49.5 tok/s |
+| Model | Metal pp512 | MoltenVK pp512 | llama.cpp Metal pp512 | Metal decode | MoltenVK decode | llama.cpp Metal tg128 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Qwen3-0.6B Q4_K_M | **811.9** | 430.0 | 218.7 | **62.9** | 46.3 | 7.5 |
+| Qwen3-0.6B Q8_0 | **855.4** | 427.6 | 329.2 | 62.1 | **65.7** | 6.6 |
+| Qwen3-1.7B Q4_K_M | **395.9** | 161.7 | 126.6 | **29.8** | 24.4 | 6.1 |
+| Qwen3-1.7B Q8_0 | **415.6** | 159.8 | 79.8 | 25.0 | **29.9** | 3.1 |
+| Llama-3.2-1B Q4_K_M | **559.7** | 225.9 | 144.9 | **40.1** | 33.0 | 9.6 |
+| Llama-3.2-1B Q8_0 | **589.1** | 221.6 | 243.0 | 36.7 | **39.5** | 10.8 |
+| Qwen2.5-0.5B Q4_K_M (pp128 / pp512) | **1561.4 / 1281.4** | 622.1 / 568.2 | — | **72.2** | 58.4 | — |
 
-Run 44012579617. Prefill is 2.3-2.4x faster: the prefill matmuls run on `simdgroup_matrix` (MoltenVK exposes no cooperative
+Metal prefill is 2-2.6x MoltenVK: the prefill matmuls run on `simdgroup_matrix` (`gemm_sg`; MoltenVK exposes no cooperative
 matrices, so the Vulkan kernels take the SIMT GEMM), and launches are encoded without MoltenVK's translation layer. Decode is
-memory bound and gains about 10-18 %. The benchmark job `metal-bench` adds Qwen3-0.6B / 1.7B and Llama-3.2-1B (Q8_0, Q4_K_M)
-against llama.cpp's Metal backend (b11177, `llama-bench -ngl 99 -fa 1 -p 512 -n 128`).
+memory bound: Metal is 20-30 % faster for Q4_K_M, but 6-17 % slower than MoltenVK for Q8_0, where MoltenVK takes the
+integer-dot matvec (`int_dot`, emulated by MoltenVK) that the Metal provider does not enable yet. llama.cpp's numbers on this
+paravirtual GPU are far below its usual Apple silicon results (decode 3-11 tok/s); its Metal backend evidently runs a reduced
+path on this device (the VM's GPU does not report the Apple7+ family), so the comparison needs real Apple hardware before
+any conclusion.
