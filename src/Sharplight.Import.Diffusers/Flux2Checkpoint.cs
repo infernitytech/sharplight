@@ -13,6 +13,14 @@ internal static class Flux2Checkpoint
     /// <param name="names">The tensor names.</param>
     public static string? TransformerPrefix(IReadOnlyCollection<string> names) => Flux2Names.OriginalPrefix(names);
 
+    /// <summary>Whether the file is FLUX.2 Dev (the guidance embedding; its text encoder is Mistral Small 3.2 24B).</summary>
+    /// <param name="path">The safetensors or GGUF file.</param>
+    public static bool IsDev(string path)
+    {
+        var names = SingleFileCheckpoint.TensorNames(path);
+        return TransformerPrefix(names) is { } prefix && names.Contains(prefix + "guidance_in.in_layer.weight");
+    }
+
     /// <summary>Opens the file as a (transformer-only) canonical source.</summary>
     /// <param name="path">The safetensors or GGUF file.</param>
     public static ModelSource Open(string path)
@@ -24,10 +32,8 @@ internal static class Flux2Checkpoint
             string prefix = TransformerPrefix([.. tensors.Tensors.Keys]) ?? throw new NotSupportedException($"'{path}' is not a FLUX.2 transformer.");
             var weights = new CanonicalWeights();
             Flux2Names.AddOriginal(tensors.Tensors, prefix, weights);
-            var config = Flux2Config.FromWeights(weights.Weights) with
-            {
-                Distilled = !Path.GetFileName(path).Contains("base", StringComparison.OrdinalIgnoreCase),
-            };
+            var config = Flux2Config.FromWeights(weights.Weights);
+            config = config with { Distilled = !config.Dev && !Path.GetFileName(path).Contains("base", StringComparison.OrdinalIgnoreCase) };
             string format = CheckpointTensors.IsGguf(path) ? "gguf" : "safetensors";
             return QwenImageSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, Flux2Config.Architecture, config.WriteTo, tensors.Resources);
         }

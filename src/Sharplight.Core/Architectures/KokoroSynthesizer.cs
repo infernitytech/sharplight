@@ -100,7 +100,7 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
     /// client, and each sentence's audio is queued for the caller without waiting for it to be consumed.
     /// </remarks>
     public IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
-        => BackgroundCompute.StreamAsync(token => SynthesizeGatedAsync(text, options, token), cancellationToken);
+        => BackgroundCompute.StreamAsync(token => SynthesizeGatedAsync(options.NormalizedText(text, byDefault: false), options, token), cancellationToken);
 
     private async IAsyncEnumerable<AudioBuffer> SynthesizeGatedAsync(string text, SpeechSynthesisOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
     {

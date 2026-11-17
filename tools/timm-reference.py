@@ -18,7 +18,8 @@ from PIL import Image
 def main() -> None:
     model_dir, image_path = sys.argv[1:3]
     config = json.load(open(os.path.join(model_dir, "config.json")))
-    model = timm.create_model(config["architecture"], pretrained=True, pretrained_cfg_overlay={"file": os.path.join(model_dir, "model.safetensors")}).eval()
+    tag = config.get("pretrained_cfg", {}).get("tag")
+    model = timm.create_model(config["architecture"] + ("." + tag if tag else ""), pretrained=True, pretrained_cfg_overlay={"file": os.path.join(model_dir, "model.safetensors")}).eval()
     transform = timm.data.create_transform(**timm.data.resolve_data_config({}, model=model))
     image = Image.open(image_path).convert("RGB")
     image.save(os.path.join(model_dir, "sharplight-sample.png"))

@@ -235,6 +235,13 @@ def main():
     kwargs = dict(height=HEIGHT, width=WIDTH, num_inference_steps=STEPS, guidance_scale=1.0, max_sequence_length=LENGTH, output_type="pt")
     ref.add("image", pipe(prompt=PROMPT, latents=noise.clone(), **kwargs).images[0])
     timesteps = [float(t) for t in pipe.scheduler.timesteps]
+    # Editing: one reference image (its tokens at the time coordinate 10) of the output's size, from the same noise.
+    import PIL.Image
+
+    pixels = (torch.rand(HEIGHT, WIDTH, 3, generator=torch.Generator().manual_seed(5)) * 255).round().to(torch.uint8)
+    ref.add("edit_input", pixels.permute(2, 0, 1).to(torch.float32) / 255)
+    reference = PIL.Image.fromarray(pixels.numpy())
+    ref.add("edit_image", pipe(prompt=PROMPT, image=[reference], latents=noise.clone(), **kwargs).images[0])
     pipe.transformer = quantized
     ref.add("q8_image", pipe(prompt=PROMPT, latents=noise.clone(), **kwargs).images[0])
     ref.save({"tokens": tokens, "lengths": lengths, "template": template, "prompt": PROMPT, "steps": STEPS, "height": HEIGHT, "width": WIDTH,

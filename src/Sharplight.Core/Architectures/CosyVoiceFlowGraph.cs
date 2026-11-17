@@ -54,6 +54,12 @@ internal static class CosyVoiceFlowGraph
     /// <summary>The velocity [frames, mels] (estimator output).</summary>
     public const string VelocityOutput = "velocity";
 
+    /// <summary>The chunked estimator graph's name: the estimator with block-causal attention (streaming).</summary>
+    public const string ChunkedEstimatorGraph = "cosyvoice_flow_estimator_chunked";
+
+    /// <summary>The attention spans [frames, 2] (chunked estimator): per frame the first key row (0) and the number of keys up to the end of its chunk.</summary>
+    public const string SpansInput = "spans";
+
     /// <summary>The symbol of the mel frames (estimator).</summary>
     public const string FrameSymbol = "frames";
 
@@ -87,9 +93,10 @@ internal static class CosyVoiceFlowGraph
     /// <param name="depth">The DiT blocks (22).</param>
     /// <param name="heads">The attention heads (16).</param>
     /// <param name="mels">The mel bins (80).</param>
-    public static ComputeGraph BuildEstimator(Func<string, WeightInfo?> weights, int depth, int heads, int mels)
+    /// <param name="chunked">Builds the streaming variant (<see cref="ChunkedEstimatorGraph"/>): attention restricted by the <see cref="SpansInput"/>.</param>
+    public static ComputeGraph BuildEstimator(Func<string, WeightInfo?> weights, int depth, int heads, int mels, bool chunked = false)
     {
-        var b = new GraphBuilder(EstimatorGraph, weights);
+        var b = new GraphBuilder(chunked ? ChunkedEstimatorGraph : EstimatorGraph, weights);
         var n = Dim.Sym(FrameSymbol);
         var x = b.Input(SampleInput, InputRole.Other, DataType.F32, new Shape(n, mels));
         var mu = b.Input(MuInput, InputRole.Other, DataType.F32, new Shape(n, mels));
@@ -97,6 +104,7 @@ internal static class CosyVoiceFlowGraph
         var spks = b.Input(SpeakerConditionInput, InputRole.Other, DataType.F32, new Shape(1, mels));
         var t = b.Input(TimeInput, InputRole.Other, DataType.F32, new Shape(1, 1));
         var positions = b.Input(PositionsInput, InputRole.Positions, DataType.I32, new Shape(n, 1));
+        var spans = chunked ? b.Input(SpansInput, InputRole.RowSpans, DataType.I32, new Shape(n, 2)) : null;
         int dim = (int)weights(E + "proj_out.weight")!.Shape[1].Fixed;
 
         var h = b.Linear(b.Concat(1, x, cond, mu, KokoroBlocks.StyleRows(b, spks, x)), E + "input_embed.proj.weight", E + "input_embed.proj.bias", "flow.input");
@@ -108,7 +116,7 @@ internal static class CosyVoiceFlowGraph
         var timeAct = b.Silu(F5TransformerGraph.TimeEmbedding(b, E, timeChannels, t));
         for (int i = 0; i < depth; i++)
         {
-            h = F5TransformerGraph.Block(b, dim, heads, h, timeAct, positions, $"{E}transformer_blocks.{i}.", Norm, ropeHeads: 1);
+            h = F5TransformerGraph.Block(b, dim, heads, h, timeAct, positions, $"{E}transformer_blocks.{i}.", Norm, ropeHeads: 1, spans: spans);
         }
 
         var final = b.Linear(timeAct, E + "norm_out.linear.weight", E + "norm_out.linear.bias");

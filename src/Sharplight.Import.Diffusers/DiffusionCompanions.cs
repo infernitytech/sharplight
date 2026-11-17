@@ -68,6 +68,7 @@ internal static class DiffusionCompanions
                 CompanionFamily.QwenImage => "qwen2_5_vl",
                 CompanionFamily.QwenImage21 => "qwen3_vl",
                 CompanionFamily.Flux2 => "qwen3",
+                CompanionFamily.Flux2Dev => "mistral3",
                 CompanionFamily.Krea2 => "qwen3_vl",
                 _ => null,
             };
@@ -97,7 +98,7 @@ internal static class DiffusionCompanions
     private static bool IsFamilyVae(string file, CompanionFamily family)
         => family is CompanionFamily.QwenImage or CompanionFamily.QwenImage21 or CompanionFamily.Krea2
             ? ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.WanAutoencoderArchitecture
-            : family == CompanionFamily.Flux2
+            : family is CompanionFamily.Flux2 or CompanionFamily.Flux2Dev
                 ? ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.AutoencoderArchitecture && HasBatchNorm(file)
                 : ComponentCheckpoint.ClassifyFile(file) == ComponentCheckpoint.AutoencoderArchitecture && IsSixteenChannelVae(file);
 
@@ -118,6 +119,15 @@ internal static class DiffusionCompanions
         if (family == CompanionFamily.ZImage)
         {
             return [new CompanionFile(AuxiliaryRoles.TextEncoder, "Text encoder (Qwen3-4B)", "Qwen3-4B-Q8_0.gguf"), vae];
+        }
+
+        if (family == CompanionFamily.Flux2Dev)
+        {
+            return
+            [
+                new CompanionFile(AuxiliaryRoles.TextEncoder, "Text encoder (Mistral Small 3.2 24B)", "Mistral-Small-3.2-24B-Instruct-2506-Q8_0.gguf or the pipeline's text_encoder folder"),
+                new CompanionFile(AuxiliaryRoles.Vae, "VAE", "flux2-vae.safetensors or the pipeline's vae file"),
+            ];
         }
 
         if (family == CompanionFamily.Flux2)
@@ -189,12 +199,13 @@ internal static class DiffusionCompanions
                 CompanionFamily.QwenImage => GgufArchitecture(file) == "qwen2vl" ? AuxiliaryRoles.TextEncoder : null,
                 CompanionFamily.QwenImage21 => GgufArchitecture(file) == "qwen3vl" ? AuxiliaryRoles.TextEncoder : null,
                 CompanionFamily.Flux2 => GgufArchitecture(file) == "qwen3" ? AuxiliaryRoles.TextEncoder : null,
+                CompanionFamily.Flux2Dev => GgufArchitecture(file) is "llama" or "mistral3" && GgufLayerWidth(file) == 5120 ? AuxiliaryRoles.TextEncoder : null,
                 CompanionFamily.Krea2 => GgufArchitecture(file) == "qwen3vl" ? AuxiliaryRoles.TextEncoder : null,
                 _ => GgufArchitecture(file) is "t5encoder" or "t5" ? t5Role : null,
             };
         }
 
-        if (family is CompanionFamily.ZImage or CompanionFamily.QwenImage or CompanionFamily.QwenImage21 or CompanionFamily.Flux2 or CompanionFamily.Krea2)
+        if (family is CompanionFamily.ZImage or CompanionFamily.QwenImage or CompanionFamily.QwenImage21 or CompanionFamily.Flux2 or CompanionFamily.Flux2Dev or CompanionFamily.Krea2)
         {
             return IsFamilyVae(file, family) ? AuxiliaryRoles.Vae : null;
         }
@@ -234,6 +245,27 @@ internal static class DiffusionCompanions
         catch (InvalidDataException)
         {
             return null;
+        }
+    }
+
+    /// <summary>The <c>{architecture}.embedding_length</c> of a GGUF language model (Mistral Small 3.2 24B: 5120), or 0.</summary>
+    private static long GgufLayerWidth(string file)
+    {
+        try
+        {
+            using var gguf = GgufFile.Open(file);
+            return gguf.Metadata.TryGetValue("general.architecture", out var architecture) && architecture is string name
+                && gguf.Metadata.TryGetValue(name + ".embedding_length", out var width)
+                ? Convert.ToInt64(width, System.Globalization.CultureInfo.InvariantCulture)
+                : 0;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+        catch (InvalidDataException)
+        {
+            return 0;
         }
     }
 

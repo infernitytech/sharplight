@@ -106,8 +106,15 @@ internal sealed class DiffusionLoraPatch : IWeightPatch
                 return (canonical is null ? null : "transformer." + canonical, 0, canonical?.StartsWith("final.mod.", StringComparison.Ordinal) == true);
             }
 
+            case Krea2Config.Architecture:
+            {
+                // diffusers / PEFT names (Krea's and ComfyUI's LoRAs) or the original Krea names.
+                string name = (module.Kohya ? KohyaNames.Dotted(module.Name) : module.Name) + ".weight";
+                return (Probe(weights => Krea2Names.Add(new Dictionary<string, WeightInfo> { [name] = s_probe }, "", weights)), 0, false);
+            }
+
             default:
-                throw new NotSupportedException($"Not supported yet: LoRAs for {arch} models (SD 1.x / 2.x / XL, FLUX, Chroma and Qwen-Image are supported).");
+                throw new NotSupportedException($"Not supported yet: LoRAs for {arch} models (SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image and Krea 2 are supported).");
         }
     }
 

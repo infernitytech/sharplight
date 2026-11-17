@@ -20,11 +20,20 @@ namespace Sharplight.Architectures;
 /// interpolated to the decoder's frame rate (×4, then ×24000/22050) and decoded by the HiFi-GAN with the speaker embedding. Long text is spoken sentence
 /// by sentence (<see cref="XttsTextSplitter"/>); the sampling defaults are the model's own. One request runs at a time.
 /// </summary>
-internal sealed class XttsSynthesizer : ISpeechSynthesizer
+internal sealed class XttsSynthesizer : ISpeechSynthesizer, IVoiceCloner
 {
     private const string SpaceToken = "[SPACE]";
 
     // The reference's text_split_length for English: longer text is spoken sentence by sentence.
+    /// <summary>The GPT codes before the first streamed chunk (about half a second of audio).</summary>
+    public const int FirstStreamCodes = 12;
+
+    /// <summary>The GPT codes per later streamed chunk.</summary>
+    public const int StreamCodes = 20;
+
+    /// <summary>The latest latent rows that stay unvocoded until more follow (the vocoder's and the interpolation's look-ahead).</summary>
+    public const int StreamHoldbackRows = 4;
+
     private const int MaxSentenceLength = 250;
 
     private readonly TaskModel _model;
@@ -113,18 +122,71 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
     {
         ArgumentNullException.ThrowIfNull(text);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        string name = options?.ReferenceAudio is not null ? "reference" : options?.Voice ?? DefaultVoice;
+        string name = options?.VoiceProfile is { } profile ? profile.Name : options?.ReferenceAudio is not null ? "reference" : options?.Voice ?? DefaultVoice;
         var audio = await BackgroundCompute.RunAsync(_gate, () => Synthesize(text, options, cancellationToken), cancellationToken).ConfigureAwait(false);
         return new SpeechSynthesisResult(audio, name);
     }
 
     /// <inheritdoc/>
-    /// <remarks>The whole utterance as one buffer.</remarks>
-    public async IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Per sentence, and within a sentence every <see cref="StreamCodes"/> codes (the first after <see cref="FirstStreamCodes"/>): the vocoder runs over the
+    /// latents so far and the samples that no later latent can change are emitted, while the GPT is still generating. Runs on a dedicated thread (<see cref="BackgroundCompute"/>).
+    /// </remarks>
+    public IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var result = await SynthesizeAsync(text, options, cancellationToken).ConfigureAwait(false);
-        yield return result.Audio;
+        ArgumentNullException.ThrowIfNull(text);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return BackgroundCompute.StreamBlocking<AudioBuffer>((emit, token) =>
+        {
+            _gate.Wait(token);
+            try
+            {
+                var voice = VoiceFor(options, token);
+                var sampling = options.SamplingOr(_defaultSampling);
+                foreach (string sentence in XttsTextSplitter.Split(options.NormalizedText(text), MaxSentenceLength))
+                {
+                    token.ThrowIfCancellationRequested();
+                    StreamSentence(sentence, voice, sampling, options?.Language, emit, token);
+                }
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }, cancellationToken);
+    }
+
+    private void StreamSentence(string sentence, XttsVoice voice, SamplingOptions sampling, string? language, Action<AudioBuffer> emit, CancellationToken cancellationToken)
+    {
+        int emitted = 0;
+        int target = FirstStreamCodes;
+
+        void Flush(IReadOnlyList<float[]> hidden, bool final)
+        {
+            var latents = new float[hidden.Count * _width];
+            for (int r = 0; r < hidden.Count; r++)
+            {
+                hidden[r].CopyTo(latents, r * _width);
+            }
+
+            var audio = Decode(latents, voice);
+            int upto = final ? audio.Length : Math.Min(audio.Length, (int)((hidden.Count - StreamHoldbackRows) * (audio.Length / (double)hidden.Count)));
+            if (upto > emitted)
+            {
+                emit(new AudioBuffer(audio[emitted..upto], SampleRate));
+                emitted = upto;
+            }
+        }
+
+        var (_, all) = Generate(TextTokens(sentence, language), voice, sampling, cancellationToken, hidden =>
+        {
+            if (hidden.Count - 1 >= target)
+            {
+                Flush(hidden, final: false);
+                target += StreamCodes;
+            }
+        });
+        Flush(Enumerable.Range(0, all.Length / _width).Select(r => all[(r * _width)..((r + 1) * _width)]).ToArray(), final: true);
     }
 
     /// <summary>The text tokens of a request: the cleaned text after the language token, spaces as <c>[SPACE]</c>, between the start and stop tokens.</summary>
@@ -147,7 +209,9 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
     /// <param name="voice">The voice name.</param>
     /// <param name="sampling">The sampling settings.</param>
     /// <param name="cancellationToken">Stops between codes.</param>
-    public (int[] Codes, float[] Latents) Generate(int[] textTokens, XttsVoice voice, SamplingOptions sampling, CancellationToken cancellationToken)
+    /// <param name="onStep">Called with the latent rows so far after each code (streaming), or <see langword="null"/>.</param>
+    public (int[] Codes, float[] Latents) Generate(int[] textTokens, XttsVoice voice, SamplingOptions sampling, CancellationToken cancellationToken,
+        Action<IReadOnlyList<float[]>>? onStep = null)
     {
         var tables = _tables.Value;
         var session = _session ??= _llm.CreateSession(WellKnown.DecodeMultimodalGraph);
@@ -186,6 +250,7 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
             codes.Add(code);
             logits = Process(session, AudioRow(tables, code, i + 1), 1);
             hidden.Add(session.LastHidden[^_width..].ToArray());
+            onStep?.Invoke(hidden);
         }
 
         var result = new float[hidden.Count * _width];
@@ -285,9 +350,38 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
         return cloning.Clone(recording, cancellationToken);
     }
 
+    /// <inheritdoc/>
+    public string VoiceArchitecture => XttsAdapter.Family;
+
+    /// <inheritdoc/>
+    public async Task<VoiceProfile> CreateVoiceAsync(string name, AudioBuffer recording, string? referenceText = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recording);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var voice = await BackgroundCompute.RunAsync(_gate, () => CloneVoice(recording, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return new VoiceProfile
+        {
+            Name = name,
+            Architecture = VoiceArchitecture,
+            ReferenceText = referenceText,
+            SampleRate = SampleRate,
+            Tensors = new Dictionary<string, VoiceTensor>
+            {
+                ["latents"] = VoiceTensor.From(voice.Latents, [voice.Latents.Length / _width, _width]),
+                ["speaker"] = VoiceTensor.From(voice.Speaker),
+            },
+        };
+    }
+
     // The recording's voice when the request has one (kept for the next request with the same recording), else the named speaker.
     private XttsVoice VoiceFor(SpeechSynthesisOptions? options, CancellationToken cancellationToken)
     {
+        if (options?.VoiceProfile is { } profile)
+        {
+            profile.RequireArchitecture(VoiceArchitecture);
+            return new XttsVoice(profile.Tensor("latents").ToFloats(), profile.Tensor("speaker").ToFloats());
+        }
+
         if (options?.ReferenceAudio is not { } recording)
         {
             return LoadVoice(options?.Voice ?? DefaultVoice);
@@ -307,6 +401,7 @@ internal sealed class XttsSynthesizer : ISpeechSynthesizer
 
     private AudioBuffer Synthesize(string text, SpeechSynthesisOptions? options, CancellationToken cancellationToken)
     {
+        text = options.NormalizedText(text);
         var voice = VoiceFor(options, cancellationToken);
         var sampling = options.SamplingOr(_defaultSampling);
         var samples = new List<float>();

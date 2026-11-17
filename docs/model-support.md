@@ -1217,6 +1217,25 @@ flow with the static 50-frame chunk mask and the cached HiFT), the ttsfrd / wete
 needs a transformers 5 fix: `Qwen2Encoder.forward_one_step` passes a one-element attention mask with the cache, which transformers 4.51 ignored
 and transformers 5 applies (attending to the new row only); the script drops it.
 
+### Streaming, saved voices and text normalization (speech round 4)
+
+Streaming. `CosyVoiceSynthesizer.MelChunked` is the flow of the reference's `streaming=True`: the estimator graph `cosyvoice_flow_estimator_chunked` takes row spans (key rows
+`[0, end of the query's 50-frame chunk)`, the `Attention` op's span input) so attention is block-causal over chunks of 25 tokens; the encoder sees its three look-ahead tokens
+(the last three tokens of a partial run only serve as look-ahead and produce no frames); the vocoder runs over the whole mel so far and the last eight frames are held back
+(`mel_cache_len`), so the chunks add up to the one-shot chunked output (bit-identical on the CPU, relative RMS 9e-2 on Vulkan where the growing prefixes run other kernel shapes and
+the harmonic source amplifies rounding). XTTS emits per sentence and, within it, from the vocoder over the GPT latents so far (after 12 codes, then every 20, four rows held back;
+identical to the one-shot audio). Chatterbox decodes chunks of speech tokens (15, then 25 per chunk, 8 tokens of context before and 3 after) and cross-fades them (the S3Gen flow
+is not causal, so this is an approximation of one-shot synthesis rather than an equivalent). Measured on Vulkan (RTX PRO 4500, a shared and busy machine): CosyVoice 3 first audio after 1.5 s for 9.2 s of speech (whole utterance 20.3 s), XTTS 0.19 s for 6.3 s (whole 5.2 s), Chatterbox 1.2 s for 7.4 s (whole 11.9 s).
+
+Saved voices (`IVoiceCloner`, `VoiceProfile`, `VoiceLibrary`). Tensors per family: XTTS `latents` [rows, 1024] and `speaker`; Chatterbox `speaker`, `prompt_tokens`, `flow_tokens`,
+`flow_mel`, `flow_speaker`; CosyVoice 3 `speech_tokens`, `prompt_mel`, `xvector` (and the reference text); F5-TTS `reference_audio` (24 kHz mono) and the reference text. Synthesizing
+with the saved voice gives exactly the samples of synthesizing with the recording (checked for XTTS, Chatterbox and CosyVoice 3 on Vulkan after a save and reload).
+
+Text normalization (`Sharplight.Speech.Normalization`): rule-based number, ordinal, date, clock time, currency, percent and abbreviation expansion for EN, DE, FR, ES, IT, PT, ZH and
+JA with the number words of each language (English without "and"; German compounds and "ein" before nouns; French soixante-dix/quatre-vingts/et un; Spanish apocope and
+"mil millones"; Italian elision and the accent of tré; Portuguese "e" rules and Brazilian scales; Chinese 零 and 两; Japanese kanji numerals with 万/億). Grammatical gender and case are not
+modelled (21 is always the masculine form), and these are the essentials of wetext and num2words, not their complete rule sets.
+
 ## 13. Speech to text (task kind `speech-recognition`)
 
 Speech-to-text models are the first non-LLM kind on the task layer (`ModelKinds.SpeechRecognition`, docs/api-overview.md "Tasks").
@@ -1419,6 +1438,8 @@ preprocessing is the neutral `ImageProcessorConfig` stored with the model. Refer
 | Florence-2 base (`florence-community/Florence-2-base`: DaViT tower with window and channel attention, 2-D position and temporal embeddings in the projector, image rows merged into the BART encoder input) | HF `florence2` (`encoder_decoder` with `encoder.input` "image_text") | ocr (`ITextRecognizer.RecognizeAsync` with `TextRecognitionOptions.Task` / `Input`; boxes from `<loc_N>` tokens in `Regions`) | supported: `<OCR>`, `<CAPTION>`, `<DETAILED_CAPTION>`, `<OD>` and the other prompt tasks as text | image features 6.3e-4, encoder 1.1e-3; greedy text and boxes identical to transformers (num_beams=1) |
 | Ultralytics YOLOv8 / YOLO11 / YOLOv10 detection and instance segmentation (`yolov8n`, `yolov8n-seg`, `yolov10n` ONNX exports: the exported graph runs as the detect graph; letterbox preprocessing, score threshold, class-aware NMS (IoU 0.7 by default) and instance masks from the prototypes in the task layer) | `UltralyticsImporter` (`Sharplight.Import.Ultralytics`, recognizes the export by its initializer names, class names from the `names` metadata, COCO names for 80-class exports without it) | object-detection (`DetectedObject.Mask` for segmentation models) | supported: `IObjectDetector.DetectAsync`; the `.pt` checkpoints pickle Ultralytics classes and are not read (export with `yolo export format=onnx`); Ultralytics weights are AGPL-3.0 licensed (enterprise license available), check the license of a checkpoint before shipping it | same detections as onnxruntime plus Ultralytics' decoding (classes, scores within 0.01, boxes within 2 px), masks IoU 0.994-1.000, CPU = Vulkan, also from an `.slm` package |
 | YOLOS (`hustvl/yolos-tiny`, `yolos-small`: ViT over class, patch and 100 detection tokens, DETR heads; the small/base models add per-layer mid position tables) | HF `yolos` (`YolosHfMapping`, `YolosAdapter`) | object-detection | supported on the fixed 640 px canvas (position tables resampled bicubically at import) | same detections as transformers (boxes within 2 px, scores within 0.02), CPU = Vulkan |
+| HF ResNet (`microsoft/resnet-50`, `resnet-18`: embedder, basic or bottleneck stages, ImageNet label names) | HF `resnet` (`ResNetHfMapping`, same canonical `resnet` adapter as timm) | image-classification | supported | logits within 2e-3 of transformers, same top-1 (CPU and Vulkan) |
+| ConvNeXt V1 (`timm/convnext_tiny.fb_in1k`, `facebook/convnext-tiny-224`: 4x4 stem, 7x7 depthwise blocks with layer scale, layer-norm downsamplers) | HF `convnext` and timm `convnext_*` (`ConvNextHfMapping`, `ConvNextClassifierAdapter`; atto to xlarge by name) | image-classification | supported (only tiny was run; other sizes share the code) | logits within 2e-3 of timm / transformers, same top-1 (CPU and Vulkan) |
 | Mask2Former, DPT (other heads) | - | - | not started (see the sweep below) | - |
 
 ### Vision popularity sweep (2026-11-16)
@@ -1470,8 +1491,8 @@ Not covered, with what is missing:
   Vision page has a `Semantic` mode (colored overlay with a legend of the classes by pixel share, PNG export; a matte model exports the cut-out as PNG with alpha, `PngCodec.EncodeRgba`). The graph runs on the processor's fixed square
   size (512 / 640 / 1024 px, no aspect ratio kept). Still missing: Mask2Former / OneFormer (universal: instance and panoptic), UperNet, CLIPSeg and (BiRefNet / RMBG-2.0 matting is done, see the table).
 - **Detection**: DETR checkpoints without the timm backbone, Ultralytics YOLO `.pt` files and the pose / oriented-box / classification heads (the detection and segmentation ONNX exports are done, see the table), RT-DETR v2 variants listed above. Studio's Detect mode draws the boxes; the instance masks of segmentation models are in the API result only.
-- **Classification**: timm / HF families other than ResNet (MobileNetV3, EfficientNet, ConvNeXt, RepVGG, EfficientViT, Swin / SwinV2, EVA02 `timm_wrapper`, `SiglipForImageClassification`
-  such as prithivMLmods' classifiers), HF `resnet` (microsoft/resnet-50), and `open_clip`-only repositories (timm/ViT-B-16-SigLIP, Marqo fashion models).
+- **Classification**: timm / HF families other than ResNet and ConvNeXt V1 (MobileNetV3, EfficientNet, ConvNeXt V2, RepVGG, EfficientViT, Swin / SwinV2, EVA02 `timm_wrapper`, `SiglipForImageClassification`
+  such as prithivMLmods' classifiers), and `open_clip`-only repositories (timm/ViT-B-16-SigLIP, Marqo fashion models).
 - **Depth / pose / features**: DPT-hybrid and DPT-large, DepthPro, Depth Anything 3, ZoeDepth, ViTPose, SuperPoint / LightGlue, DINOv3, SigLIP 2 NaFlex.
 
 The residual 1e-3 of the image towers is the resize (Pillow rounds to 8 bits per pass; the sample's pixel difference is not yet bit-exact), identical on both backends. Text towers match to float rounding.
@@ -1525,9 +1546,9 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
 | Qwen-Image (Qwen-Image and fine-tunes with the same layout, e.g. Qwen-Image-2512) | diffusers folder; transformer-only GGUF (city96 / QuantStack / unsloth, `qwen_image` architecture id, any ggml type) and ComfyUI single files plus companions: the Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a `qwen2vl` GGUF), the causal VAE (the pipeline's `vae` file or ComfyUI's `qwen_image_vae.safetensors` in the original Wan names) | **supported** (txt2img, img2img, inpainting; true CFG with diffusers' norm rescaling; 50 steps, guidance 4 by default) | [below](#qwen-image) |
 | Qwen-Image 2.1 (and its Turbo) | diffusers folder; transformer-only GGUF (unsloth: no metadata, ComfyUI names) and ComfyUI single files plus companions: the Qwen3-VL-8B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the pipeline's VAE file | **supported** (text-to-image; 40 steps without guidance by default; Turbo: its 8-step schedule from the pipeline's `sample_sigmas` or the file name) | [below](#qwen-image-21) |
-| FLUX.2 Klein (4B; 9B and the base models share the layout) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (the pipeline's `text_encoder` folder or a `qwen3` GGUF), the pipeline's VAE file | **supported** (txt2img; distilled: 4 steps without guidance; base: 50 steps, guidance 4) | [below](#flux-2) |
+| FLUX.2 Klein (4B; 9B and the base models share the layout), FLUX.2 Dev (32B) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (Klein; the pipeline's `text_encoder` folder or a `qwen3` GGUF) or Mistral Small 3.2 24B (Dev; a `llama` GGUF of Mistral-Small-3.2-24B-Instruct-2506 or the pipeline's folder), the pipeline's VAE file | **supported** (txt2img and editing with up to 10 reference images; Klein distilled: 4 steps without guidance; Klein base: 50 steps, guidance 4; Dev: 50 steps with the embedded guidance 4) | [below](#flux-2) |
 | Krea 2 (Turbo, Raw and fine-tunes) | diffusers folder; the release's original-name single files (`turbo.safetensors`, `raw.safetensors`, ComfyUI's bf16 files); transformer-only GGUF (realrebelai, vantagewithai, ...: architecture `krea2`, some labelled `qwen_image`) plus companions: the Qwen3-VL-4B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the Qwen-Image VAE (the pipeline's file or ComfyUI's `qwen_image_vae.safetensors`) | **supported** (text-to-image; Turbo: 8 steps without guidance; Raw (file names with `raw` / `base`): 28 steps, guidance 5.5) | [below](#krea-2) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, FLUX.2 Dev (32B), Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
 | ControlNet, TAESD | - | missing | |
 
@@ -1880,6 +1901,38 @@ Verification (tools/make-tiny-flux2.py, tools/make-flux2-references.py; `TinyFlu
 - FLUX.2 Klein 4B, unsloth's Q8_0 GGUF with the pipeline's Qwen3-4B text encoder (bf16) and VAE as companions, on Vulkan against diffusers on
   the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 4 steps, same latents: text encoder 4.5e-4 / 1.3e-3, transformer
   1.6e-3; images 40.1 dB (512) / 41.3 dB (1024). Speed (Vulkan, warm): 1024×1024 4 steps in 3.4 s, 512×512 in 0.8 s.
+
+FLUX.2 Dev (2026-11-17): the same transformer (8 dual- and 48 single-stream blocks, 6144 wide) with the guidance embedding of a
+guidance-distilled model, conditioned on Mistral Small 3.2 24B. FLUX.2 Dev's `text_encoder` folder holds exactly Mistral-Small-3.2-24B-Instruct-2506
+(the tensors hash the same; Mistral Small 3.1 differs), so any GGUF of that model serves as the companion.
+
+- Recognized by the guidance embedding (`transformer.guidance_in`; Klein has none): the Mistral template of the pipeline
+  (`<s>[SYSTEM_PROMPT]…[/SYSTEM_PROMPT][INST]{prompt}[/INST]`, its system message, right padding with `<pad>` to 512 tokens), the hidden states
+  entering layers 10, 20 and 30, 50 steps with the embedded guidance 4 and no classifier-free guidance; companions: a `llama` / `mistral3`
+  GGUF 5120 wide or a `mistral3` folder.
+- Mistral's hidden states carry outlier channels: with int8-quantized activations in the Q8_0 matrix products the text encoder was 5.7e-2 away
+  (the padding rows, which the transformer reads, 10× worse than the prompt's), and the 1024 image 21 dB. The diffusion text graph now keeps
+  f32 activations where the family asks for it (`GraphBuilder.F32MatMulActivations`, `flux2.text_encoder.f32_activations`): 4.8e-5.
+- Verification (tools/make-flux2-dev-references.py; `Flux2DevTests`): unsloth's FLUX.2-dev Q4_K_M GGUF (20 GB) with unsloth's
+  Mistral-Small-3.2-24B-Instruct-2506 Q8_0 GGUF and the pipeline's VAE as companions, on Vulkan against diffusers on the same files (the
+  dequantized GGUF transformer on CUDA, the text encoder dequantized to f32 by transformers on the CPU), 20 steps, guidance 4, same latents:
+  prompt tokens equal the pipeline's processor; text encoder 3.1–4.8e-5 (all 512 rows), transformer 1.1e-3; images 40.0 dB (512) / 49.7 dB
+  (1024). Speed (Vulkan, one 32 GB GPU; the 20 GB transformer and the 25 GB text encoder alternate): 1024×1024 20 steps in 73 s (3.6 s per step),
+  512×512 in 21 s; diffusers (GGUF dequantized on the fly, CUDA f32) 14 s per step at 1024.
+
+Editing (2026-11-17): FLUX.2 (Klein and Dev) and FLUX.1 Kontext take reference images (`ImageGenerationRequest.ReferenceImages`).
+
+- Core contract: the denoiser component's `DiffusionConfigKeys.ReferenceImages` (how many), the graph dimension `DiffusionGraphs.References`
+  and the input `DiffusionGraphs.ReferenceLatent` [R, C, h, w]; `LatentDiffusionGenerator` resizes each reference to the output size (the output
+  size defaults to the first reference's, rounded to the token size), encodes it with the VAE and passes the latents to every denoiser
+  evaluation (both rows of a guided step). `ImageGenerationDefaults.ReferenceImages` tells front ends that a model edits.
+- `FluxTransformerGraphBuilder`: the reference tokens follow the image's in the image stream (same `img_in`, no noise, the step's modulation),
+  at the first position axis `reference_index_base` + `reference_index_step` · i (FLUX.2: 10 + 10 i as `Flux2Pipeline._prepare_image_ids`;
+  Kontext: 1); only the image's tokens are projected out.
+- The pipelines resize references by their own rules (FLUX.2: to at most 1024² and multiples of 16; Kontext: to the preferred resolution of the
+  aspect ratio); Sharplight resizes them to the output size, which is the same when the reference has the output's size.
+- Verification: the tiny FLUX.2 Klein pipeline with one reference against `Flux2KleinPipeline(image=[…])` from the same noise above 40 dB on CPU
+  and Vulkan (`TinyFlux2Tests.EditMatchesDiffusers`).
 
 ### Krea 2
 

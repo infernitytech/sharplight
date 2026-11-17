@@ -6,7 +6,7 @@ using Sharplight.Tasks;
 namespace Sharplight.Studio.Tests.Fakes;
 
 /// <summary>A speech synthesizer that returns a sine tone and records what it was asked.</summary>
-internal sealed class FakeSynthesizer : ISpeechSynthesizer
+internal sealed class FakeSynthesizer : ISpeechSynthesizer, IVoiceCloner
 {
     public TaskClientMetadata Metadata { get; } = new(Sharplight.Models.ModelKinds.SpeechSynthesis, "fake-tts", "outetts");
 
@@ -42,7 +42,24 @@ internal sealed class FakeSynthesizer : ISpeechSynthesizer
         }
     }
 
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+    public string VoiceArchitecture => "fake";
+
+    /// <summary>The recordings voices were made from.</summary>
+    public List<(string Name, AudioBuffer Recording, string? ReferenceText)> Cloned { get; } = [];
+
+    public Task<VoiceProfile> CreateVoiceAsync(string name, AudioBuffer recording, string? referenceText = null, CancellationToken cancellationToken = default)
+    {
+        Cloned.Add((name, recording, referenceText));
+        return Task.FromResult(new VoiceProfile
+        {
+            Name = name,
+            Architecture = VoiceArchitecture,
+            ReferenceText = referenceText,
+            Tensors = new Dictionary<string, VoiceTensor> { ["speaker"] = VoiceTensor.From([1f, 2f, 3f]) },
+        });
+    }
+
+    public object? GetService(Type serviceType, object? serviceKey = null) => serviceType == typeof(IVoiceCloner) ? this : null;
 
     public void Dispose()
     {

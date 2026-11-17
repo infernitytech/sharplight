@@ -23,4 +23,11 @@ public sealed record ImageGenerationRequest
     /// <see cref="Image"/>.
     /// </summary>
     public ImageInput? Mask { get; init; }
+
+    /// <summary>
+    /// For editing models (the denoiser's <see cref="DiffusionConfigKeys.ReferenceImages"/>; FLUX.1 Kontext, FLUX.2): the images the prompt
+    /// describes changes to (the instruction), resized to the output size; the output size defaults to the first one's. <see langword="null"/>
+    /// or empty for text-to-image.
+    /// </summary>
+    public IReadOnlyList<ImageInput>? ReferenceImages { get; init; }
 }

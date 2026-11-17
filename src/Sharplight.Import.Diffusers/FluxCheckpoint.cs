@@ -34,7 +34,8 @@ internal static class FluxCheckpoint
                 return ChromaSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, ChromaConfig.FromWeights(weights.Weights), tensors.Resources);
             }
 
-            var config = FluxConfig.FromWeights(weights.Weights);
+            // FLUX.1 Kontext has FLUX.1-dev's layout: its files are recognized by name.
+            var config = FluxConfig.FromWeights(weights.Weights) with { Kontext = Path.GetFileName(path).Contains("kontext", StringComparison.OrdinalIgnoreCase) };
             return FluxSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, config, tensors.Resources);
         }
         catch
