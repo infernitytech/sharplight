@@ -8,14 +8,21 @@ namespace Sharplight.Metal;
 /// </summary>
 internal sealed unsafe class MetalBuffer
 {
-    internal MetalBuffer(nint handle, long bytes, long offset = 0, bool wrapsHostMemory = false)
+    internal MetalBuffer(nint handle, long bytes, long offset = 0, bool wrapsHostMemory = false, nint mapping = 0)
     {
         Handle = handle;
         Bytes = bytes;
         Contents = (byte*)ObjCRuntime.Send(handle, Selectors.Contents) + offset;
         GpuAddress = ObjCRuntime.SendUInt64(handle, Selectors.GpuAddress) + (ulong)offset;
         WrapsHostMemory = wrapsHostMemory;
+        Mapping = mapping;
     }
+
+    /// <summary>
+    /// For a weight addressed inside a wrapped file mapping (<see cref="MetalDevice.TryWrapMapping"/>): the start of that mapping, whose
+    /// one buffer this view shares (the device releases it with the last view); 0 otherwise.
+    /// </summary>
+    public nint Mapping { get; }
 
     /// <summary>
     /// True when the buffer wraps existing host memory without a copy (a weight in the mapped model file, see

@@ -78,6 +78,31 @@ public sealed class MetalCodeTests
         Assert.True(device.GetMemoryInfo().Total > 0);
     }
 
+    [Fact]
+    public async Task DeviceStageArchiveServesThePipelinesOfLaterLoads()
+    {
+        Assert.SkipUnless(OperatingSystem.IsMacOS(), "Needs macOS.");
+        var provider = new MetalProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No usable Metal device.");
+        var info = provider.GetDevices()[0];
+        PortableCodeSet portable;
+        DeviceCodeSet deviceCode;
+        using (var device = provider.OpenDevice(info))
+        {
+            portable = await provider.CompilePortableAsync(new PortableCompilationRequest(device.CreateProfile(), Workload), TestContext.Current.CancellationToken);
+            deviceCode = await provider.CompileDeviceSpecificAsync(device, portable, TestContext.Current.CancellationToken);
+        }
+
+        Assert.False(deviceCode.IsEmpty);
+        Assert.Equal(ArtifactTiers.Binary, ArtifactDescriptor.Get(deviceCode.Descriptor, ArtifactDescriptorKeys.Tier));
+        Assert.Equal([MetalDevice.BinaryArchiveKey], deviceCode.Entries.Keys);
+
+        using var loaded = (MetalDevice)provider.OpenDevice(info);
+        Workload(loaded, new CompilationArtifacts(new MemoryStore([portable.ToArtifactSet(), deviceCode.ToArtifactSet()])), TestContext.Current.CancellationToken);
+        Assert.Equal(0, loaded.RejectedDeviceCode);
+        Assert.True(loaded.PipelinesFromArchive > 0, $"{loaded.PipelinesFromArchive} of {loaded.PipelinesCreated} pipelines from the archive");
+    }
+
     /// <summary>The profile of an Apple GPU as the provider reports it.</summary>
     private static DeviceProfile Profile(bool simdgroupMatrix) => new()
     {

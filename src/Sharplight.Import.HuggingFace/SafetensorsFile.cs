@@ -38,10 +38,14 @@ internal sealed unsafe class SafetensorsFile : IDisposable
         }
     }
 
+    /// <summary>Bytes in the mapping (the whole file).</summary>
+    internal long MappedLength { get; }
+
     private SafetensorsFile(string path)
     {
         Path = path;
         long fileLength = FileLength(path);
+        MappedLength = fileLength;
         if (fileLength < HeaderLengthBytes)
         {
             throw new InvalidDataException($"{path}: too small to be a safetensors file.");

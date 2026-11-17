@@ -146,4 +146,31 @@ internal static class Selectors
 
     /// <summary><c>GPUEndTime</c>.</summary>
     internal static readonly nint GpuEndTime = ObjCRuntime.RegisterSelector("GPUEndTime");
+
+    /// <summary><c>setUrl:</c>.</summary>
+    internal static readonly nint SetUrl = ObjCRuntime.RegisterSelector("setUrl:");
+
+    /// <summary><c>newBinaryArchiveWithDescriptor:error:</c>.</summary>
+    internal static readonly nint NewBinaryArchiveWithDescriptor = ObjCRuntime.RegisterSelector("newBinaryArchiveWithDescriptor:error:");
+
+    /// <summary><c>setComputeFunction:</c>.</summary>
+    internal static readonly nint SetComputeFunction = ObjCRuntime.RegisterSelector("setComputeFunction:");
+
+    /// <summary><c>setBinaryArchives:</c>.</summary>
+    internal static readonly nint SetBinaryArchives = ObjCRuntime.RegisterSelector("setBinaryArchives:");
+
+    /// <summary><c>addComputePipelineFunctionsWithDescriptor:error:</c>.</summary>
+    internal static readonly nint AddComputePipelineFunctionsWithDescriptor = ObjCRuntime.RegisterSelector("addComputePipelineFunctionsWithDescriptor:error:");
+
+    /// <summary><c>serializeToURL:error:</c>.</summary>
+    internal static readonly nint SerializeToUrl = ObjCRuntime.RegisterSelector("serializeToURL:error:");
+
+    /// <summary><c>newComputePipelineStateWithDescriptor:options:reflection:error:</c>.</summary>
+    internal static readonly nint NewComputePipelineStateWithDescriptor = ObjCRuntime.RegisterSelector("newComputePipelineStateWithDescriptor:options:reflection:error:");
+
+    /// <summary><c>fileURLWithPath:</c>.</summary>
+    internal static readonly nint FileUrlWithPath = ObjCRuntime.RegisterSelector("fileURLWithPath:");
+
+    /// <summary><c>arrayWithObject:</c>.</summary>
+    internal static readonly nint ArrayWithObject = ObjCRuntime.RegisterSelector("arrayWithObject:");
 }

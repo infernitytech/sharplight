@@ -137,9 +137,15 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
     private MetalBuffer AllocateWeight(BufferDecl b)
     {
         if (DiagnosticSwitches.NoCopyWeights && b.Repack == WeightRepack.None && b.InitialData is null && b.Weight is { } w
-            && w.ByteSize == b.Bytes && w.Source?.TryGetPointer() is { } pointer && pointer != 0 && _dev.TryWrap(pointer, b.Bytes) is { } wrapped)
+            && w.ByteSize == b.Bytes && w.Source?.TryGetPointer() is { } pointer && pointer != 0)
         {
-            return wrapped;
+            var wrapped = w.Source.TryGetMapping(out nint mappingBase, out long mappingLength)
+                ? _dev.TryWrapMapping(pointer, b.Bytes, mappingBase, mappingLength)
+                : _dev.TryWrap(pointer, b.Bytes);
+            if (wrapped is not null)
+            {
+                return wrapped;
+            }
         }
 
         return _dev.Allocate(b.Bytes);
