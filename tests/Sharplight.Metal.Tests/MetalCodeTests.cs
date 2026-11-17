@@ -88,18 +88,37 @@ public sealed class MetalCodeTests
         CodeTarget = "metal",
         SubgroupSize = 32,
         MaxSharedMemory = 32768,
-        Features = simdgroupMatrix ? [DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.MatrixF16Small] : [DeviceFeatures.Float16, DeviceFeatures.SubgroupOps],
+        Features = simdgroupMatrix ? [DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.MatrixF16Small, DeviceFeatures.IntDot] : [DeviceFeatures.Float16, DeviceFeatures.SubgroupOps],
         ConcurrentWorkgroups = 64,
     };
 
     private static void Workload(IComputeDevice device, CompilationArtifacts artifacts, CancellationToken cancellationToken)
     {
-        using var model = CompiledModel.Compile(BuildBlock(), new PlacementOptions
+        foreach (var (graph, reduced) in new[] { (BuildBlock(), false), (BuildAttention(), true) })
         {
-            Devices = [new DeviceSlot { Device = device }],
-            Compile = new CompileOptions { MaxTokens = 64, ContextLength = 256, CacheFor = artifacts.For },
-            ReservePerDevice = 0,
-        });
+            using var model = CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                Compile = new CompileOptions { MaxTokens = 64, ContextLength = 256, CacheFor = artifacts.For, AllowReducedPrecision = reduced },
+                ReservePerDevice = 0,
+            });
+        }
+    }
+
+    /// <summary>
+    /// Bidirectional attention of the token rows over 64 keys, compiled with reduced precision allowed (f16 products): the flash
+    /// kernel <c>fa</c>, on 8x8 fragments with simdgroup matrices.
+    /// </summary>
+    private static ComputeGraph BuildAttention()
+    {
+        const int Heads = 4;
+        const int HeadSize = 64;
+        var tg = new TG("metal-attention");
+        var q = tg.InF("q", TG.T, Heads, HeadSize);
+        var k = tg.InF("k", Dim.Of(64), Heads, HeadSize);
+        var v = tg.InF("v", Dim.Of(64), Heads, HeadSize);
+        tg.B.Output("o", tg.B.Emit1("Attention", [q, k, v], Attributes.From(("scale", 0.125f))));
+        return tg.B.Build();
     }
 
     /// <summary>A pre-norm MLP block over f16, q8_0, q4_K and q6_K weights, with a softmax and a GELU.</summary>

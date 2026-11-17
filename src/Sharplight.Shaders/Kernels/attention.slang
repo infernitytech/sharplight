@@ -917,6 +917,16 @@ using namespace linalg;
 typealias FaA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias FaB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias FaC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+// FA_FRAG8 (DeviceFeatures.MatrixF16Small, Metal simdgroup_matrix): each 16x16 tile of S and of P·V is computed as 2 x 2 fragments of
+// 8x8 over K steps of 8, with the same shared-memory layout and stores.
+#ifndef FA_FRAG8
+#define FA_FRAG8 0
+#endif
+#if FA_FRAG8
+typealias Fa8A = CoopMat<half, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixA>;
+typealias Fa8B = CoopMat<half, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixB>;
+typealias Fa8C = CoopMat<float, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared half faQ[FA_BR * FA_QS];
 groupshared half faKV[FA_BC * FA_KS];
@@ -1094,6 +1104,35 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         GroupMemoryBarrierWithGroupSync();
 
         // S: subgroup sg computes rows (sg / 2) * 16, keys (sg % 2) * 16.
+#if FA_FRAG8
+        {
+            Fa8C s8[2][2];
+            [ForceUnroll] for (uint i = 0; i < 2; i++) [ForceUnroll] for (uint jj = 0; jj < 2; jj++) s8[i][jj] = Fa8C(0.0);
+            uint qa = (sg / 2) * 16 * FA_QS, kb = (sg % 2) * 16 * FA_KS;
+            [ForceUnroll]
+            for (uint k = 0; k < FA_DP; k += 8)
+            {
+                Fa8A a[2];
+                Fa8B b[2];
+                [ForceUnroll] for (uint i = 0; i < 2; i++) a[i] = Fa8A.Load<CoopMatMatrixLayout.RowMajor>(faQ, qa + i * 8 * FA_QS + k, FA_QS);
+                [ForceUnroll] for (uint jj = 0; jj < 2; jj++) b[jj] = Fa8B.Load<CoopMatMatrixLayout.ColumnMajor>(faKV, kb + jj * 8 * FA_KS + k, FA_KS);
+#if FA_SPLIT
+                Fa8A al[2];
+                Fa8B bl[2];
+                [ForceUnroll] for (uint i = 0; i < 2; i++) al[i] = Fa8A.Load<CoopMatMatrixLayout.RowMajor>(faQl, qa + i * 8 * FA_QS + k, FA_QS);
+                [ForceUnroll] for (uint jj = 0; jj < 2; jj++) bl[jj] = Fa8B.Load<CoopMatMatrixLayout.ColumnMajor>(faKVl, kb + jj * 8 * FA_KS + k, FA_KS);
+                [ForceUnroll] for (uint i = 0; i < 2; i++) [ForceUnroll] for (uint jj = 0; jj < 2; jj++)
+                {
+                    s8[i][jj] = coopMatMulAdd<float, false>(al[i], b[jj], s8[i][jj]);
+                    s8[i][jj] = coopMatMulAdd<float, false>(a[i], bl[jj], s8[i][jj]);
+                }
+#endif
+                [ForceUnroll] for (uint i = 0; i < 2; i++) [ForceUnroll] for (uint jj = 0; jj < 2; jj++) s8[i][jj] = coopMatMulAdd<float, false>(a[i], b[jj], s8[i][jj]);
+            }
+            [ForceUnroll] for (uint i = 0; i < 2; i++) [ForceUnroll] for (uint jj = 0; jj < 2; jj++)
+                s8[i][jj].Store<CoopMatMatrixLayout.RowMajor>(faS, ((sg / 2) * 16 + i * 8) * FA_SS + (sg % 2) * 16 + jj * 8, FA_SS);
+        }
+#else
         {
             FaC sacc = FaC(0.0);
             uint qa = (sg / 2) * 16 * FA_QS, kb = (sg % 2) * 16 * FA_KS;
@@ -1112,6 +1151,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
             }
             sacc.Store<CoopMatMatrixLayout.RowMajor>(faS, (sg / 2) * 16 * FA_SS + (sg % 2) * 16, FA_SS);
         }
+#endif
         GroupMemoryBarrierWithGroupSync();   // S visible; K no longer needed
 
         fa_load_kv(p.vc, kvRow, j0, L, hk, DV, VRS, FA_DVP, tid);
@@ -1171,6 +1211,32 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
             for (uint tt = 0; tt < 2; tt++)
             {
                 uint tile = sg * 2 + tt, rb = tile / 4, cb = tile % 4;
+#if FA_FRAG8
+                Fa8C acc8[2][2];
+                [ForceUnroll] for (uint i = 0; i < 2; i++) [ForceUnroll] for (uint jj = 0; jj < 2; jj++) acc8[i][jj] = Fa8C(0.0);
+                [ForceUnroll]
+                for (uint k = 0; k < FA_BC; k += 8)
+                {
+                    Fa8A a[2];
+                    Fa8B b[2];
+                    [ForceUnroll] for (uint i = 0; i < 2; i++) a[i] = Fa8A.Load<CoopMatMatrixLayout.RowMajor>(faP, (rb * 16 + i * 8) * FA_PS + k, FA_PS);
+                    [ForceUnroll] for (uint jj = 0; jj < 2; jj++) b[jj] = Fa8B.Load<CoopMatMatrixLayout.RowMajor>(faKV, k * FA_KS + c * FA_DC + cb * 16 + jj * 8, FA_KS);
+#if FA_SPLIT
+                    Fa8A al[2];
+                    Fa8B bl[2];
+                    [ForceUnroll] for (uint i = 0; i < 2; i++) al[i] = Fa8A.Load<CoopMatMatrixLayout.RowMajor>(faPl, (rb * 16 + i * 8) * FA_PS + k, FA_PS);
+                    [ForceUnroll] for (uint jj = 0; jj < 2; jj++) bl[jj] = Fa8B.Load<CoopMatMatrixLayout.RowMajor>(faKVl, k * FA_KS + c * FA_DC + cb * 16 + jj * 8, FA_KS);
+                    [ForceUnroll] for (uint i = 0; i < 2; i++) [ForceUnroll] for (uint jj = 0; jj < 2; jj++)
+                    {
+                        acc8[i][jj] = coopMatMulAdd<float, false>(al[i], b[jj], acc8[i][jj]);
+                        acc8[i][jj] = coopMatMulAdd<float, false>(a[i], bl[jj], acc8[i][jj]);
+                    }
+#endif
+                    [ForceUnroll] for (uint i = 0; i < 2; i++) [ForceUnroll] for (uint jj = 0; jj < 2; jj++) acc8[i][jj] = coopMatMulAdd<float, false>(a[i], b[jj], acc8[i][jj]);
+                }
+                [ForceUnroll] for (uint i = 0; i < 2; i++) [ForceUnroll] for (uint jj = 0; jj < 2; jj++)
+                    acc8[i][jj].Store<CoopMatMatrixLayout.RowMajor>(faO, (rb * 16 + i * 8) * FA_DC + cb * 16 + jj * 8, FA_DC);
+#else
                 FaC acc = FaC(0.0);
                 [ForceUnroll]
                 for (uint k = 0; k < FA_BC; k += 16)
@@ -1186,6 +1252,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
                     acc = coopMatMulAdd<float, false>(a, b, acc);
                 }
                 acc.Store<CoopMatMatrixLayout.RowMajor>(faO, rb * 16 * FA_DC + cb * 16, FA_DC);
+#endif
             }
             GroupMemoryBarrierWithGroupSync();
 #if FA_SPLIT

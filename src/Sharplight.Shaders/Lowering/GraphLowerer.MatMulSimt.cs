@@ -123,6 +123,12 @@ public sealed partial class GraphLowerer
     /// <summary>Split-K SIMT gemm: partial sums into a split-K scratch buffer, then <c>splitk_reduce</c>.</summary>
     private void EmitSimtSplitKMatMul(MatMulPlan p)
     {
+        if (p.SmallMatrix)
+        {
+            EmitSmallMatrixSplitKMatMul(p);
+            return;
+        }
+
         long N = p.N;
         long rowsMax = p.X.Shape[0] * p.RowsPerLead;
         long scratchBytes = 0;

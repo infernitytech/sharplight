@@ -86,6 +86,8 @@ jobs:
         run: |
           dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" --provider metal -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-metal.txt"
           grep -q Paris "$RUNNER_TEMP/smoke-metal.txt"
+          echo "=== weights copied (SHARPLIGHT_MTL_NO_COPY=0)"
+          SHARPLIGHT_MTL_NO_COPY=0 dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" --provider metal -p "$SMOKE_PROMPT" -n 32 2>&1 | grep -E 'upload|Paris' || true
 
       - name: LLM benchmark (Metal against MoltenVK)
         if: (success() || failure()) && steps.model.outcome == 'success'
@@ -221,6 +223,9 @@ jobs:
               echo "=== $name sharplight $provider"
               dotnet $cli "$model" --provider $provider --bench 512 2>&1 | grep -E 'prefill [0-9]+ tok' || echo "(failed)"
             done
+            # Metal with the f32 matvecs instead of the (emulated) integer-dot ones, and with weights copied instead of mapped.
+            echo "=== $name sharplight metal, int_dot off"
+            dotnet $cli "$model" --provider metal --disable-features int_dot --bench 512 2>&1 | grep -E 'prefill [0-9]+ tok' || echo "(failed)"
             if [ -x "$bench" ]; then
               echo "=== $name llama.cpp metal"
               "$bench" -m "$model" -ngl 99 -fa 1 -p 512 -n 128 -r 3 -o md 2>&1 | grep -E 'pp512|tg128' || echo "(failed)"

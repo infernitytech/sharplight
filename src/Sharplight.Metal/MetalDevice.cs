@@ -244,6 +244,21 @@ internal sealed unsafe class MetalDevice : IComputeDevice
         return new MetalBuffer(handle, size);
     }
 
+    /// <summary>
+    /// Wraps <paramref name="bytes"/> of host memory at <paramref name="pointer"/> (a weight in the memory-mapped model file) in a
+    /// buffer without copying: unified memory lets the GPU read the mapped pages directly, so loading maps the model instead of
+    /// copying it. The pages around the data are wrapped (Metal needs page-aligned memory); the caller keeps the memory alive and
+    /// unmodified while the buffer exists. Returns null when Metal refuses the memory (the caller copies instead).
+    /// </summary>
+    internal MetalBuffer? TryWrap(nint pointer, long bytes)
+    {
+        long page = Environment.SystemPageSize;
+        long start = pointer & ~(page - 1);
+        long end = (pointer + bytes + page - 1) & ~(page - 1);
+        nint handle = ObjCRuntime.Send(Properties.Handle, Selectors.NewBufferWithBytesNoCopy, (void*)start, (nuint)(end - start), MetalConstants.SharedUntracked, 0);
+        return handle == 0 ? null : new MetalBuffer(handle, bytes, pointer - start, wrapsHostMemory: true);
+    }
+
     internal void Free(MetalBuffer buffer)
     {
         if (buffer.Handle == 0)
@@ -251,7 +266,11 @@ internal sealed unsafe class MetalDevice : IComputeDevice
             return;
         }
 
-        Interlocked.Add(ref _used, -buffer.Bytes);
+        if (!buffer.WrapsHostMemory)
+        {
+            Interlocked.Add(ref _used, -buffer.Bytes);
+        }
+
         buffer.Release();
     }
 

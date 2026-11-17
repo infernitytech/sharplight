@@ -11,6 +11,7 @@ namespace Sharplight.Metal;
 /// row invariance, and assumes finite values, which masked softmax scores are not).</item>
 /// <item><c>SHARPLIGHT_MTL_TRACE=1</c>: prints recordings and pipeline creation.</item>
 /// <item><c>SHARPLIGHT_MTL_PROFILE=1</c>: runs every launch in its own command buffer and accumulates per-kernel GPU times.</item>
+/// <item><c>SHARPLIGHT_MTL_NO_COPY=0</c>: copy weights into Metal buffers instead of wrapping the mapped model file.</item>
 /// <item><c>SHARPLIGHT_MTL_DUMP_SOURCE=dir</c>: writes the MSL of every kernel a pipeline is created for into <c>dir</c>.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>, <c>SHARPLIGHT_SUBMISSION_BUDGET_MS</c>, <c>SHARPLIGHT_CONCURRENT_WORKGROUPS</c>,
 /// <c>SHARPLIGHT_DEVICE_FORWARDING=0</c>: as for the Vulkan provider.</item>
@@ -18,6 +19,8 @@ namespace Sharplight.Metal;
 /// </summary>
 internal static class DiagnosticSwitches
 {
+    public static bool NoCopyWeights { get; } = Read("SHARPLIGHT_MTL_NO_COPY") != "0";
+
     public static bool Serial { get; } = IsSet("SHARPLIGHT_MTL_SERIAL");
 
     public static bool FastMath { get; } = IsSet("SHARPLIGHT_MTL_FAST_MATH");
