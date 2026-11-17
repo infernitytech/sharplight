@@ -23,4 +23,7 @@ internal enum CompanionFamily
 
     /// <summary>FLUX.2: a Qwen3 language model (GGUF or Hugging Face folder), the 32-channel KL VAE with batch-norm statistics.</summary>
     Flux2,
+
+    /// <summary>Krea 2: a Qwen3-VL-4B language model (GGUF or Hugging Face folder), the Qwen-Image VAE.</summary>
+    Krea2,
 }
