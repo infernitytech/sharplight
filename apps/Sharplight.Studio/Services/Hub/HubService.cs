@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Hub;
+using Sharplight.Hub.Catalog;
 using Sharplight.Models;
 using Sharplight.Package;
 using Sharplight.Runtime;
@@ -23,17 +24,23 @@ internal sealed class HubService : IHubService, IDisposable
     private readonly EngineServices _engine;
     private readonly Dictionary<ModelTask, HighlightsCatalog> _taskHighlights = [];
     private readonly string? _highlightsFile;
+    private readonly VerifiedCatalogSource _catalog;
 
     /// <param name="settings">The settings (token, model store).</param>
     /// <param name="engine">The engine services (conversion, providers for precompilation).</param>
     /// <param name="highlightsFile">Where the highlighted models are cached, or null to keep them in memory only.</param>
-    public HubService(ISettingsService settings, EngineServices engine, string? highlightsFile = null)
+    /// <param name="catalogFile">Where the downloaded verified catalog is kept, or null to keep it in memory only.</param>
+    public HubService(ISettingsService settings, EngineServices engine, string? highlightsFile = null, string? catalogFile = null)
     {
         _settings = settings;
         _engine = engine;
         _highlightsFile = highlightsFile;
         _highlights = new HighlightsCatalog(SearchAsync, highlightsFile);
+        _catalog = VerifiedCatalogSource.Create(_http, catalogFile);
     }
+
+    /// <inheritdoc/>
+    public Task<VerifiedCatalog> GetCatalogAsync(CancellationToken cancellationToken) => _catalog.GetAsync(cancellationToken);
 
     /// <inheritdoc/>
     public Task<IReadOnlyList<HighlightSection>> GetHighlightsAsync(ModelTask? task, CancellationToken cancellationToken)
@@ -210,6 +217,16 @@ internal sealed class HubService : IHubService, IDisposable
     /// <inheritdoc/>
     public async Task<ModelManifest> PullAsync(ModelReference reference, IProgress<PullUpdate> progress, CancellationToken cancellationToken)
     {
+        var (puller, tracker, options) = CreatePuller(progress);
+        tracker.Report(PullPhase.Resolving, $"Resolving {reference}");
+        var result = await puller.PullAsync(reference, options, cancellationToken).ConfigureAwait(false);
+        tracker.Report(PullPhase.Completed, result.UpToDate ? $"{result.Manifest.Name} is up to date" : $"Stored {result.Manifest.ShortName}");
+        return result.Manifest;
+    }
+
+    /// <summary>A puller on the current settings (token, store, precompile and keep-source choices) reporting to <paramref name="progress"/>.</summary>
+    private (ModelPuller Puller, PullProgressTracker Tracker, PullOptions Options) CreatePuller(IProgress<PullUpdate> progress)
+    {
         var settings = _settings.Current;
         var clientOptions = ClientOptions();
         var client = new HubClient(_http, clientOptions);
@@ -223,10 +240,16 @@ internal sealed class HubService : IHubService, IDisposable
             Log = tracker.Log,
             Progress = tracker,
         };
+        return (puller, tracker, options);
+    }
 
-        tracker.Report(PullPhase.Resolving, $"Resolving {reference}");
-        var result = await puller.PullAsync(reference, options, cancellationToken).ConfigureAwait(false);
-        tracker.Report(PullPhase.Completed, result.UpToDate ? $"{result.Manifest.Name} is up to date" : $"Stored {result.Manifest.ShortName}");
+    /// <inheritdoc/>
+    public async Task<ModelManifest> InstallAsync(CatalogInstallPlan plan, IProgress<PullUpdate> progress, CancellationToken cancellationToken)
+    {
+        var (puller, tracker, options) = CreatePuller(progress);
+        tracker.Report(PullPhase.Resolving, $"Installing {plan.Entry.Name} ({plan.Variant.Label})");
+        var result = await puller.InstallAsync(plan, options, cancellationToken).ConfigureAwait(false);
+        tracker.Report(PullPhase.Completed, result.UpToDate ? $"{plan.Entry.Name} is installed" : $"Stored {result.Manifest.ShortName}");
         return result.Manifest;
     }
 

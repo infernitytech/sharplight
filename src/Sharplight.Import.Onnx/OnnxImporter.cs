@@ -251,6 +251,52 @@ public sealed class OnnxImporter : IModelImporter
         _ => null,
     };
 
+    /// <summary>
+    /// The nodes of the main graph of a source opened by <see cref="Open"/> with their constant inputs (initializers and <c>Constant</c> node
+    /// outputs), in graph order.
+    /// </summary>
+    /// <param name="source">A source created by <see cref="Open"/>.</param>
+    /// <exception cref="InvalidOperationException">The source carries no parsed ONNX model.</exception>
+    public static IReadOnlyList<OnnxNodeParameters> NodeParameters(ModelSource source)
+    {
+        var model = source.FormatData as OnnxModel ?? throw new InvalidOperationException("ModelSource has no parsed ONNX model (FormatData).");
+        var constants = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
+        foreach (var t in model.Graph.Initializers)
+        {
+            if (ToWeight(t) is { } w)
+            {
+                constants[t.Name] = w;
+            }
+        }
+
+        foreach (var node in model.Graph.Nodes)
+        {
+            if (node.OpType == "Constant" && node.Outputs.Count == 1 && node.Tensor("value") is { } value
+                && ToWeight(new OnnxTensor { Name = node.Outputs[0], ElemType = value.ElemType, Dims = value.Dims, Source = value.Source }) is { } w)
+            {
+                constants[node.Outputs[0]] = w;
+            }
+        }
+
+        var result = new List<OnnxNodeParameters>(model.Graph.Nodes.Count);
+        foreach (var node in model.Graph.Nodes)
+        {
+            if (node.OpType == "Constant")
+            {
+                continue;
+            }
+
+            result.Add(new OnnxNodeParameters
+            {
+                Name = node.Name,
+                OpType = node.OpType,
+                Inputs = [.. node.Inputs.Select(i => constants.GetValueOrDefault(i))],
+            });
+        }
+
+        return result;
+    }
+
     private static WeightInfo? ToWeight(OnnxTensor t)
     {
         if (t.Source is null || ToDataType(t.ElemType) is not { } dt)

@@ -60,11 +60,11 @@ internal static class F5TransformerGraph
         var ones = b.Constant("f5.norm_ones", DataType.F32, new Shape(p.Dim), KokoroBlocks.Bytes([.. Enumerable.Repeat(1f, p.Dim)]));
         var zeros = b.Constant("f5.norm_zeros", DataType.F32, new Shape(p.Dim), KokoroBlocks.Bytes(new float[p.Dim]));
         Value Norm(Value v) => b.Emit1("LayerNorm", [v, ones, zeros], Attributes.From(("eps", 1e-6f)));
-        var time = TimeEmbedding(b, p, t);
+        var time = TimeEmbedding(b, P, p.TimeChannels, t);
         var timeAct = b.Silu(time);
         for (int i = 0; i < p.Depth; i++)
         {
-            h = Block(b, p, h, timeAct, positions, $"{P}transformer_blocks.{i}.", Norm);
+            h = Block(b, p.Dim, p.Heads, h, timeAct, positions, $"{P}transformer_blocks.{i}.", Norm);
         }
 
         var final = b.Linear(timeAct, P + "norm_out.linear.weight", P + "norm_out.linear.bias");
@@ -126,10 +126,14 @@ internal static class F5TransformerGraph
         return b.Unary("Mish", b.Emit1("Conv1d", [y, b.Weight(M + "2.weight"), b.Weight(M + "2.bias")], attributes));
     }
 
-    // Sinusoid at scale 1000 (sines then cosines), linear, SiLU, linear: [1, dim].
-    private static Value TimeEmbedding(GraphBuilder b, F5Parameters p, Value t)
+    /// <summary>The DiT time embedding: the sinusoid at scale 1000 (sines then cosines), linear, SiLU, linear: [1, dim].</summary>
+    /// <param name="b">The graph builder.</param>
+    /// <param name="prefix">The prefix of the estimator's weights (<c>time_embed.time_mlp.*</c> under it).</param>
+    /// <param name="timeChannels">The sinusoid's channels.</param>
+    /// <param name="t">The time step [1, 1].</param>
+    internal static Value TimeEmbedding(GraphBuilder b, string prefix, int timeChannels, Value t)
     {
-        int half = p.TimeChannels / 2;
+        int half = timeChannels / 2;
         double step = Math.Log(10000) / (half - 1);
         var frequencies = new float[half];
         for (int i = 0; i < half; i++)
@@ -137,32 +141,62 @@ internal static class F5TransformerGraph
             frequencies[i] = (float)(1000.0 * Math.Exp(-step * i));
         }
 
-        var angles = b.Mul(t, b.Constant("f5.time_frequencies", DataType.F32, new Shape(1, half), KokoroBlocks.Bytes(frequencies)));
+        var angles = b.Mul(t, b.Constant(prefix + "time_frequencies", DataType.F32, new Shape(1, half), KokoroBlocks.Bytes(frequencies)));
         var embedding = b.Concat(1, b.Unary("Sin", angles), b.Unary("Cos", angles));
-        var hidden = b.Silu(b.Linear(embedding, P + "time_embed.time_mlp.0.weight", P + "time_embed.time_mlp.0.bias"));
-        return b.Linear(hidden, P + "time_embed.time_mlp.2.weight", P + "time_embed.time_mlp.2.bias");
+        var hidden = b.Silu(b.Linear(embedding, prefix + "time_embed.time_mlp.0.weight", prefix + "time_embed.time_mlp.0.bias"));
+        return b.Linear(hidden, prefix + "time_embed.time_mlp.2.weight", prefix + "time_embed.time_mlp.2.bias");
     }
 
-    // The norms are LayerNorms without affine parameters (unit weight, zero bias), eps 1e-6.
-    private static Value Block(GraphBuilder b, F5Parameters p, Value x, Value timeAct, Value positions, string m, Func<Value, Value> norm)
+    /// <summary>
+    /// One DiT block: adaptive LayerNorm modulation from the time embedding, rotary self-attention (interleaved pairs), the gated residual, the
+    /// modulated tanh-GELU feed-forward. The norms are LayerNorms without affine parameters (unit weight, zero bias), eps 1e-6.
+    /// </summary>
+    /// <param name="b">The graph builder.</param>
+    /// <param name="dim">The width.</param>
+    /// <param name="heads">The attention heads.</param>
+    /// <param name="x">The rows [N, dim].</param>
+    /// <param name="timeAct">SiLU of the time embedding [1, dim].</param>
+    /// <param name="positions">The row positions [N, 1].</param>
+    /// <param name="m">The block's weight prefix.</param>
+    /// <param name="norm">The affine-free LayerNorm.</param>
+    /// <param name="ropeHeads">
+    /// The heads that get the rotary embedding: all of them (the default), or fewer for code that applies it to the projection before the head split
+    /// (only the first head's channels are rotated, as in CosyVoice's copy of the F5 attention).
+    /// </param>
+    internal static Value Block(GraphBuilder b, int dim, int heads, Value x, Value timeAct, Value positions, string m, Func<Value, Value> norm, int? ropeHeads = null)
     {
         using var _ = b.Group(m.TrimEnd('.'));
         var mod = b.Linear(timeAct, m + "attn_norm.linear.weight", m + "attn_norm.linear.bias");                                   // [1, 6 · dim]
-        Value Chunk(int i) => b.Slice(mod, 1, (long)i * p.Dim, p.Dim);
+        Value Chunk(int i) => b.Slice(mod, 1, (long)i * dim, dim);
         var normed = Modulate(b, norm(x), Chunk(1), Chunk(0));
-        int headDim = p.Dim / p.Heads;
+        int headDim = dim / heads;
         var rope = Attributes.From(("dims", (long)headDim), ("base", 10000f), ("style", "gptj"));
-        var q = b.Emit1("Rope", [b.Reshape(b.Linear(normed, m + "attn.to_q.weight", m + "attn.to_q.bias"), 0, p.Heads, headDim), positions], rope);
-        var k = b.Emit1("Rope", [b.Reshape(b.Linear(normed, m + "attn.to_k.weight", m + "attn.to_k.bias"), 0, p.Heads, headDim), positions], rope);
-        var v = b.Reshape(b.Linear(normed, m + "attn.to_v.weight", m + "attn.to_v.bias"), 0, p.Heads, headDim);
+        int rotated = ropeHeads ?? heads;
+        Value Rotate(Value v)
+        {
+            if (rotated >= heads)
+            {
+                return b.Emit1("Rope", [v, positions], rope);
+            }
+
+            return b.Concat(1, b.Emit1("Rope", [b.Slice(v, 1, 0, rotated), positions], rope), b.Slice(v, 1, rotated, heads - rotated));
+        }
+
+        var q = Rotate(b.Reshape(b.Linear(normed, m + "attn.to_q.weight", m + "attn.to_q.bias"), 0, heads, headDim));
+        var k = Rotate(b.Reshape(b.Linear(normed, m + "attn.to_k.weight", m + "attn.to_k.bias"), 0, heads, headDim));
+        var v = b.Reshape(b.Linear(normed, m + "attn.to_v.weight", m + "attn.to_v.bias"), 0, heads, headDim);
         var attention = b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(headDim)), ("causal", false)), m + "attn");
-        var output = b.Linear(b.Reshape(attention, 0, p.Dim), m + "attn.to_out.0.weight", m + "attn.to_out.0.bias");
+        var output = b.Linear(b.Reshape(attention, 0, dim), m + "attn.to_out.0.weight", m + "attn.to_out.0.bias");
         x = b.Add(x, b.Mul(Chunk(2), output));
         var ffIn = Modulate(b, norm(x), Chunk(4), Chunk(3));
         var ff = b.Linear(b.Unary("GeluTanh", b.Linear(ffIn, m + "ff.ff.0.0.weight", m + "ff.ff.0.0.bias")), m + "ff.ff.2.weight", m + "ff.ff.2.bias");
         return b.Add(x, b.Mul(Chunk(5), ff), m + "out");
     }
 
-    // norm(x) · (1 + scale) + shift.
-    private static Value Modulate(GraphBuilder b, Value normed, Value scale, Value shift) => b.Add(b.Mul(normed, b.Scale(scale, 1f, 1f)), shift);
+    /// <summary>norm(x) · (1 + scale) + shift.</summary>
+    /// <param name="b">The graph builder.</param>
+    /// <param name="normed">The normalized rows.</param>
+    /// <param name="scale">The scale row.</param>
+    /// <param name="shift">The shift row.</param>
+    internal static Value Modulate(GraphBuilder b, Value normed, Value scale, Value shift) => b.Add(b.Mul(normed, b.Scale(scale, 1f, 1f)), shift);
 }

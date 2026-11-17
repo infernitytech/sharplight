@@ -47,4 +47,6 @@ docs/api-overview.md.
   `develop` directly.
 - Final report: architectures now supported (with test model, CPU/Vulkan parity result), new ops /
   building blocks, what is left, and anything the other agents need to know.
-- Every model bring-up or sweep adds its verified models to docs/compatible-models.md.
+- Every model bring-up or sweep adds its verified models to `catalog/verified-models.json` (with the pinned revision and exact files:
+  `tools/catalog resolve`), then regenerates the tables of docs/compatible-models.md from it (`tools/catalog docs`); the tables are
+  not edited by hand. See docs/verified-catalog.md.

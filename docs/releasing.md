@@ -15,7 +15,7 @@
 |---|---|---|
 | `ci.yml` | push to `develop`, `main`, `release/**`; pull requests | restore, build, run every test suite that works on a hosted runner (not the Vulkan and ONNX conformance suites) |
 | `packages.yml` | same | pack the NuGet libraries (artifact). **Publishes to nuget.org only on `release/**` pushes** (trusted publishing, environment `nuget`, variable `NUGET_USER`); never from `develop`, `main` or a pull request |
-| `studio.yml` | same (not for documentation-only changes) | Studio packages for 5 runtimes on native runners. `develop` push: upload to R2, channels `<rid>-unstable`. `release/**` push: upload to R2, channels `<rid>-stable`, and attach the installers to the GitHub release `v<version>`. `main` and pull requests: build only |
+| `studio.yml` | same (not for documentation-only changes) | Studio packages for 5 runtimes on native runners. `develop` push: upload to R2, channels `<rid>-unstable`. `release/**` push: upload to R2, channels `<rid>-stable`, and attach the installers to the GitHub release `v<version>`. `main` and pull requests: build only. Job `catalog`: validates `catalog/verified-models.json` and, on `develop` pushes, uploads it to R2 as `catalog/verified-models.json` (docs/verified-catalog.md) |
 
 ## Release procedure
 

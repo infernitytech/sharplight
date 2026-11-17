@@ -52,6 +52,9 @@ internal sealed record AppSettings
     /// </summary>
     public bool UseSystemTitleBar { get; init; }
 
+    /// <summary>The tab of the Settings page that was open last (a name of the settings tab enumeration).</summary>
+    public string? SettingsTab { get; init; }
+
     /// <summary>Name of the audio output device Studio plays through; null uses the system default (also when the device is gone).</summary>
     public string? AudioOutputDevice { get; init; }
 

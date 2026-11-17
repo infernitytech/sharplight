@@ -2,6 +2,7 @@ using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Hub;
+using Sharplight.Hub.Catalog;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Hub;
@@ -35,7 +36,13 @@ internal sealed partial class DownloadItemViewModel : ObservableObject
     public ModelReference Reference { get; }
 
     /// <summary><c>owner/name:tag</c>.</summary>
-    public string Name => Reference.ToString();
+    public string Name => DisplayName ?? Reference.ToString();
+
+    /// <summary>The name shown instead of the store reference (a catalog install's model and variant), or null.</summary>
+    public string? DisplayName { get; init; }
+
+    /// <summary>The verified-catalog variant this download installs with its companions (<c>entry/variant</c>), or null for a plain pull.</summary>
+    public string? CatalogKey { get; init; }
 
     /// <summary>The model kind, inferred from the Hub's pipeline tag (the model is not converted yet); null when not known.</summary>
     public string? Kind { get; set; }
@@ -183,7 +190,8 @@ internal sealed partial class DownloadItemViewModel : ObservableObject
         using var progress = new DispatchingProgress<PullUpdate>(_dispatcher, OnProgress, SameTransfer);
         try
         {
-            var manifest = await Task.Run(() => _hub.PullAsync(Reference, progress, cancellation.Token), CancellationToken.None);
+            var manifest = await Task.Run(() => CatalogKey is null ? _hub.PullAsync(Reference, progress, cancellation.Token) : InstallAsync(progress, cancellation.Token),
+                CancellationToken.None);
             progress.Flush();
             Phase = PullPhase.Completed;
             Message = $"Stored as {manifest.ShortName}";
@@ -215,6 +223,21 @@ internal sealed partial class DownloadItemViewModel : ObservableObject
             BytesPerSecond = 0;
         }
 
+    }
+
+    /// <summary>Installs <see cref="CatalogKey"/> from the current catalog (a restored download resolves it after a restart).</summary>
+    private async Task<ModelManifest> InstallAsync(IProgress<PullUpdate> progress, CancellationToken cancellationToken)
+    {
+        var catalog = await _hub.GetCatalogAsync(cancellationToken).ConfigureAwait(false);
+        var parts = CatalogKey!.Split('/', 2);
+        var entry = catalog.Find(parts[0]);
+        var variant = parts.Length == 2 ? entry?.Variants.FirstOrDefault(candidate => candidate.Id == parts[1]) : null;
+        if (entry is null || variant is null)
+        {
+            throw new HubException($"{CatalogKey} is no longer in the verified catalog.");
+        }
+
+        return await _hub.InstallAsync(CatalogInstallPlan.For(entry, variant), progress, cancellationToken).ConfigureAwait(false);
     }
 
     [RelayCommand(CanExecute = nameof(CanPause))]

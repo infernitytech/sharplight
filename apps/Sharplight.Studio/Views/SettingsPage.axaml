@@ -7,8 +7,8 @@
              xmlns:audio="using:Sharplight.Studio.Services.Audio"
              x:Class="Sharplight.Studio.Views.SettingsPage"
              x:DataType="setvm:SettingsPageViewModel">
-  <ScrollViewer>
-    <StackPanel Margin="28,22,28,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+  <DockPanel Margin="28,22,28,0">
+    <StackPanel DockPanel.Dock="Top" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
       <DockPanel>
         <Button DockPanel.Dock="Right" Classes="small" Content="Reset defaults" Command="{Binding ResetDefaultsCommand}" VerticalAlignment="Center" />
         <StackPanel Spacing="4">
@@ -19,389 +19,417 @@
       <Border Classes="hint" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
         <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
       </Border>
-
-      <!-- Appearance -->
-      <Border Classes="card">
-        <StackPanel Spacing="12">
-          <TextBlock Classes="h3" Text="Appearance" />
-          <Grid ColumnDefinitions="200,*">
-            <TextBlock Classes="label" Text="Theme" VerticalAlignment="Center" />
-            <ComboBox Grid.Column="1" ItemsSource="{Binding Themes}" SelectedItem="{Binding Theme}" MinWidth="160">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="setvm:ThemeChoice">
-                  <TextBlock Text="{Binding Name}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-          </Grid>
-          <Grid ColumnDefinitions="200,*">
-            <TextBlock Classes="label" Text="Accent" VerticalAlignment="Center" />
-            <ListBox Grid.Column="1" Classes="plain" ItemsSource="{Binding Accents}" SelectedItem="{Binding Accent}">
-              <ListBox.ItemsPanel>
-                <ItemsPanelTemplate>
-                  <StackPanel Orientation="Horizontal" Spacing="4" />
-                </ItemsPanelTemplate>
-              </ListBox.ItemsPanel>
-              <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="models:AccentPalette">
-                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,5">
-                    <Ellipse Width="16" Height="16" Fill="{Binding Accent}" />
-                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </DataTemplate>
-              </ListBox.ItemTemplate>
-            </ListBox>
-          </Grid>
-          <ToggleSwitch Content="Use the system title bar" IsChecked="{Binding UseSystemTitleBar}" />
-        </StackPanel>
-      </Border>
-
-      <!-- Audio -->
-      <Border Classes="card">
-        <StackPanel Spacing="12">
-          <TextBlock Classes="h3" Text="Audio" />
-          <StackPanel Spacing="6">
-            <TextBlock Classes="label" Text="Playback device" />
-            <ComboBox ItemsSource="{Binding OutputDevices}" SelectedItem="{Binding SelectedOutputDevice}" MinWidth="260">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="audio:AudioDeviceChoice">
-                  <TextBlock Text="{Binding Title}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-          </StackPanel>
-          <StackPanel Spacing="6">
-            <TextBlock Classes="label" Text="Microphone" />
-            <ComboBox ItemsSource="{Binding InputDevices}" SelectedItem="{Binding SelectedInputDevice}" MinWidth="260">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="audio:AudioDeviceChoice">
-                  <TextBlock Text="{Binding Title}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-          </StackPanel>
-          <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding AudioStatus}" />
-        </StackPanel>
-      </Border>
-
-      <!-- Storage -->
-      <Border Classes="card" DataContext="{Binding Storage}" x:DataType="setvm:StorageSettingsViewModel">
-        <StackPanel Spacing="12">
-          <TextBlock Classes="h3" Text="Storage" />
-          <TextBlock Classes="caption" TextWrapping="Wrap"
-                     Text="Where Studio and the engine keep everything they write: settings, history, models, compiled kernels, caches and logs. The command-line tools use the same location." />
-          <TextBlock Classes="caption" TextWrapping="Wrap">
-            <Run Text="In use:" />
-            <Run Text="{Binding CurrentDescription, Mode=OneWay}" FontWeight="Medium" />
-          </TextBlock>
-          <Border Classes="hint" IsVisible="{Binding Notice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-            <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" />
+    </StackPanel>
+    <TabControl Margin="0,12,0,0" SelectedIndex="{Binding SelectedTabIndex}">
+      <TabItem Header="General">
+        <ScrollViewer>
+          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <!-- Appearance -->
+          <Border Classes="card">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="h3" Text="Appearance" />
+              <Grid ColumnDefinitions="200,*">
+                <TextBlock Classes="label" Text="Theme" VerticalAlignment="Center" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding Themes}" SelectedItem="{Binding Theme}" MinWidth="160">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="setvm:ThemeChoice">
+                      <TextBlock Text="{Binding Name}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+              </Grid>
+              <Grid ColumnDefinitions="200,*">
+                <TextBlock Classes="label" Text="Accent" VerticalAlignment="Center" />
+                <ListBox Grid.Column="1" Classes="plain" ItemsSource="{Binding Accents}" SelectedItem="{Binding Accent}">
+                  <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Orientation="Horizontal" Spacing="4" />
+                    </ItemsPanelTemplate>
+                  </ListBox.ItemsPanel>
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:AccentPalette">
+                      <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,5">
+                        <Ellipse Width="16" Height="16" Fill="{Binding Accent}" />
+                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Grid>
+              <ToggleSwitch Content="Use the system title bar" IsChecked="{Binding UseSystemTitleBar}" />
+            </StackPanel>
           </Border>
-          <TextBlock Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsLocked}"
-                     Text="SHARPLIGHT_HOME sets the storage folder; unset it to choose another location here." />
-          <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding StudioHomeNote}"
-                     IsVisible="{Binding StudioHomeNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          <StackPanel Spacing="6" IsEnabled="{Binding !IsLocked}">
-            <TextBlock Classes="label" Text="Location" />
-            <ListBox Classes="plain" ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}">
-              <ListBox.ItemsPanel>
-                <ItemsPanelTemplate>
-                  <StackPanel Orientation="Horizontal" Spacing="4" />
-                </ItemsPanelTemplate>
-              </ListBox.ItemsPanel>
-              <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="setvm:StorageModeChoice">
-                  <TextBlock Text="{Binding Name}" Margin="10,5" />
-                </DataTemplate>
-              </ListBox.ItemTemplate>
-            </ListBox>
-            <TextBlock Classes="caption" Text="{Binding SelectedMode.Description}" TextWrapping="Wrap" />
-            <DockPanel IsVisible="{Binding IsCustom}">
-              <Button DockPanel.Dock="Right" Classes="small" Content="Browse…" Command="{Binding BrowseCommand}" Margin="6,0,0,0" />
-              <TextBox Text="{Binding CustomRoot}" PlaceholderText="Folder for everything Sharplight writes" />
-            </DockPanel>
-          </StackPanel>
-          <ItemsControl ItemsSource="{Binding Paths}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="setvm:StoragePathRow">
-                <Grid ColumnDefinitions="200,*" Margin="0,2">
-                  <TextBlock Classes="label" Text="{Binding Name}" />
-                  <StackPanel Grid.Column="1">
-                    <SelectableTextBlock Classes="caption" Text="{Binding Current}" TextWrapping="Wrap" />
-                    <SelectableTextBlock Classes="caption" Text="{Binding Next, StringFormat='→ {0}'}" TextWrapping="Wrap" FontWeight="Medium"
-                                         IsVisible="{Binding Changes}" />
-                  </StackPanel>
-                </Grid>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <StackPanel Spacing="8" IsVisible="{Binding HasChange}">
-            <ComboBox ItemsSource="{Binding Transfers}" SelectedItem="{Binding SelectedTransfer}" MinWidth="320" IsEnabled="{Binding !IsBusy}">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="setvm:StorageTransferChoice">
-                  <TextBlock Text="{Binding Name}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-            <CheckBox Content="Keep the models where they are (they are large; Studio keeps using that folder)" IsChecked="{Binding KeepModels}"
-                      IsVisible="{Binding CanKeepModels}" IsEnabled="{Binding !IsBusy}" />
-            <TextBlock Classes="caption" TextWrapping="Wrap"
-                       Text="Copies are verified before anything is deleted; moved originals are removed when Studio starts again. An interrupted change leaves the current location in use." />
-            <Border Classes="hint" IsVisible="{Binding Problem, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-              <TextBlock Text="{Binding Problem}" TextWrapping="Wrap" />
-            </Border>
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <Button Classes="accent" Content="Change location" Command="{Binding ApplyCommand}" />
-              <Button Classes="small" Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsBusy}" />
-            </StackPanel>
-          </StackPanel>
-          <StackPanel Spacing="4" IsVisible="{Binding IsBusy}">
-            <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" />
-            <TextBlock Classes="caption" Text="{Binding ProgressText}" TextTrimming="CharacterEllipsis" />
-          </StackPanel>
-          <Border Classes="hint" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-            <DockPanel>
-              <Button DockPanel.Dock="Right" Classes="small" Content="Restart now" Command="{Binding RestartCommand}" IsVisible="{Binding NeedsRestart}"
-                      VerticalAlignment="Center" Margin="8,0,0,0" />
-              <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
-            </DockPanel>
-          </Border>
-        </StackPanel>
-      </Border>
-
-      <!-- Models -->
-      <Border Classes="card">
-        <StackPanel Spacing="12">
-          <TextBlock Classes="h3" Text="Models" />
-          <StackPanel Spacing="6">
-            <TextBlock Classes="label" Text="Where downloaded and converted models are stored" />
-            <DockPanel>
-              <Button DockPanel.Dock="Right" Classes="small" Content="Open folder" Command="{Binding OpenModelsDirectoryCommand}" Margin="6,0,0,0" />
-              <Button DockPanel.Dock="Right" Classes="small" Content="Default" Command="{Binding ResetModelsDirectoryCommand}" Margin="6,0,0,0" />
-              <ComboBox ItemsSource="{Binding StoreLocations}" SelectedItem="{Binding StoreLocation}" MinWidth="200">
-                <ComboBox.ItemTemplate>
-                  <DataTemplate x:DataType="setvm:StoreLocationChoice">
-                    <TextBlock Text="{Binding Name}" />
-                  </DataTemplate>
-                </ComboBox.ItemTemplate>
-              </ComboBox>
-            </DockPanel>
-            <TextBlock Classes="caption" Text="{Binding StoreLocation.Description}" TextWrapping="Wrap" />
-            <DockPanel IsVisible="{Binding IsCustomStore}">
-              <Button DockPanel.Dock="Right" Classes="small" Content="Browse…" Command="{Binding BrowseModelsDirectoryCommand}" Margin="6,0,0,0" />
-              <TextBox Text="{Binding ModelsDirectory}" PlaceholderText="Folder for the model store" />
-            </DockPanel>
-            <TextBlock Classes="caption" TextWrapping="Wrap">
-              <Run Text="In use:" />
-              <Run Text="{Binding StoreRoot, Mode=OneWay}" FontWeight="Medium" />
-              <Run Text="{Binding StoreRootSource, Mode=OneWay, StringFormat='({0})'}" />
-            </TextBlock>
-            <TextBlock Classes="caption" TextWrapping="Wrap"
-                       Text="A folder given when Sharplight is started takes precedence over this setting." />
-          </StackPanel>
-          <StackPanel>
-            <TextBlock Classes="label" Text="Hugging Face token (for gated models and higher rate limits)" />
-            <TextBox Text="{Binding HuggingFaceToken}" PasswordChar="•" PlaceholderText="hf_… (falls back to HF_TOKEN)" />
-            <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,4,0,0"
-                       Text="Optional, for gated repositories (accept their terms on huggingface.co first). It is sent only to huggingface.co, never to other hosts. Studio does not use the operating system's keyring yet, so the token is kept in the settings file as plain text." />
-          </StackPanel>
-          <ToggleSwitch Content="Precompile after downloading for every GPU and execution provider on this machine (faster first load)" IsChecked="{Binding PrecompileAfterDownload}" />
-          <ToggleSwitch Content="Keep the downloaded source files after converting" IsChecked="{Binding KeepSourceFiles}" />
-          <ToggleSwitch Content="Keep compiled kernels in the compilation cache of the storage location (models that are not precompiled load faster the second time)"
-                        IsChecked="{Binding UseCompilationCache}" />
-        </StackPanel>
-      </Border>
-
-      <!-- Load defaults -->
-      <Border Classes="card">
-        <StackPanel Spacing="12">
-          <TextBlock Classes="h3" Text="Load defaults" />
-          <TextBlock Classes="caption" Text="Used when a model is loaded from the library, on demand by the server, or from chat." />
-          <Grid ColumnDefinitions="*,12,*,12,*" RowDefinitions="Auto,12,Auto">
-            <StackPanel>
-              <TextBlock Classes="label" Text="Device" />
-              <ComboBox ItemsSource="{Binding Devices}" SelectedItem="{Binding DefaultDevice}" HorizontalAlignment="Stretch">
-                <ComboBox.ItemTemplate>
-                  <DataTemplate x:DataType="models:ComputeDeviceOption">
-                    <TextBlock Text="{Binding Display}" />
-                  </DataTemplate>
-                </ComboBox.ItemTemplate>
-              </ComboBox>
-            </StackPanel>
-            <StackPanel Grid.Column="2">
-              <TextBlock Classes="label" Text="Context length" />
-              <NumericUpDown Value="{Binding ContextLength}" Minimum="256" Maximum="1048576" Increment="1024" FormatString="0" />
-            </StackPanel>
-            <StackPanel Grid.Column="4">
-              <TextBlock Classes="label" Text="KV cache" />
-              <ComboBox ItemsSource="{Binding KvCacheChoices}" SelectedItem="{Binding KvCache}" HorizontalAlignment="Stretch">
-                <ComboBox.ItemTemplate>
-                  <DataTemplate x:DataType="mvm:KvCacheChoice">
-                    <TextBlock Text="{Binding Name}" />
-                  </DataTemplate>
-                </ComboBox.ItemTemplate>
-              </ComboBox>
-            </StackPanel>
-            <StackPanel Grid.Row="2">
-              <TextBlock Classes="label" Text="Parallel slots" />
-              <NumericUpDown Value="{Binding Slots}" Minimum="1" Maximum="64" FormatString="0" />
-            </StackPanel>
-            <StackPanel Grid.Row="2" Grid.Column="2">
-              <TextBlock Classes="label" Text="Lookup draft tokens" />
-              <NumericUpDown Value="{Binding NgramDraftTokens}" Minimum="0" Maximum="16" FormatString="0" />
-            </StackPanel>
-            <StackPanel Grid.Row="2" Grid.Column="4">
-              <TextBlock Classes="label" Text="Draft head tokens (models that have one)" />
-              <NumericUpDown Value="{Binding MtpDraftTokens}" Minimum="0" Maximum="8" FormatString="0" />
-            </StackPanel>
-          </Grid>
-          <StackPanel>
-            <TextBlock Classes="label" Text="Prompt batch (tokens per prefill chunk)" />
-            <NumericUpDown Value="{Binding BatchTokens}" Minimum="16" Maximum="8192" Increment="128" FormatString="0" Width="200" HorizontalAlignment="Left" />
-          </StackPanel>
-          <ToggleSwitch Content="Offload to the CPU when a model does not fit" IsChecked="{Binding CpuOffload}" />
-        </StackPanel>
-      </Border>
-
-      <!-- Residency -->
-      <Border Classes="card">
-        <StackPanel Spacing="12">
-          <TextBlock Classes="h3" Text="Residency" />
-          <TextBlock Classes="caption" TextWrapping="Wrap" Text="Several models can stay loaded at once. Before a load the engine estimates the model's footprint; when it does not fit, idle models are evicted (least recently used first) or the load is refused." />
-          <Grid ColumnDefinitions="*,12,*,12,*">
-            <StackPanel>
-              <TextBlock Classes="label" Text="Keep free per device (MiB)" />
-              <NumericUpDown Value="{Binding ReserveMiB}" Minimum="0" Maximum="65536" Increment="256" FormatString="0" />
-            </StackPanel>
-            <StackPanel Grid.Column="2">
-              <TextBlock Classes="label" Text="Max resident models (0 = no limit)" />
-              <NumericUpDown Value="{Binding MaxLoadedModels}" Minimum="0" Maximum="64" FormatString="0" />
-            </StackPanel>
-            <StackPanel Grid.Column="4">
-              <TextBlock Classes="label" Text="Unload when idle (minutes, 0 = never)" />
-              <NumericUpDown Value="{Binding IdleUnloadMinutes}" Minimum="0" Maximum="10080" Increment="5" FormatString="0" />
-            </StackPanel>
-          </Grid>
-          <ToggleSwitch Content="Pin models loaded by hand (never evicted or unloaded for idleness)" IsChecked="{Binding PinManualLoads}" />
-          <ToggleSwitch Content="Load library models on demand for API requests" IsChecked="{Binding LoadOnDemand}" />
-        </StackPanel>
-      </Border>
-
-      <!-- Chat defaults -->
-      <Border Classes="card">
-        <StackPanel Spacing="12">
-          <TextBlock Classes="h3" Text="New chat defaults" />
-          <StackPanel>
-            <TextBlock Classes="label" Text="System prompt" />
-            <TextBox Text="{Binding DefaultSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-          </StackPanel>
-          <Grid ColumnDefinitions="*,12,*,12,*,12,*,12,*">
-            <StackPanel>
-              <TextBlock Classes="label" Text="Temperature" />
-              <NumericUpDown Value="{Binding Temperature}" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.00" />
-            </StackPanel>
-            <StackPanel Grid.Column="2">
-              <TextBlock Classes="label" Text="Top P" />
-              <NumericUpDown Value="{Binding TopP}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00" />
-            </StackPanel>
-            <StackPanel Grid.Column="4">
-              <TextBlock Classes="label" Text="Top K" />
-              <NumericUpDown Value="{Binding TopK}" Minimum="0" Maximum="1000" FormatString="0" />
-            </StackPanel>
-            <StackPanel Grid.Column="6">
-              <TextBlock Classes="label" Text="Min P" />
-              <NumericUpDown Value="{Binding MinP}" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
-            </StackPanel>
-            <StackPanel Grid.Column="8">
-              <TextBlock Classes="label" Text="Max tokens" />
-              <NumericUpDown Value="{Binding MaxTokens}" Minimum="16" Maximum="262144" Increment="256" FormatString="0" />
-            </StackPanel>
-          </Grid>
-          <ToggleSwitch Content="Thinking (reasoning models)" IsChecked="{Binding EnableThinking}" />
-        </StackPanel>
-      </Border>
-
-      <!-- Engine -->
-      <Border Classes="card">
-        <StackPanel Spacing="12">
-          <TextBlock Classes="h3" Text="Engine features" />
-          <TextBlock Classes="caption" TextWrapping="Wrap" Text="Switch a feature off if a model misbehaves: a slower path that works everywhere is used instead. Applies to models loaded afterwards." />
-          <Border Classes="panel" Padding="14,12">
-            <DockPanel>
-              <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding AllowReducedPrecision}" OnContent="On" OffContent="Off" VerticalAlignment="Center" />
-              <StackPanel Spacing="3">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                  <TextBlock Text="Reduced precision" FontWeight="SemiBold" />
-                  <Border Classes="badge accent">
-                    <TextBlock Text="Opt-in" />
-                  </Border>
-                </StackPanel>
-                <TextBlock Classes="caption" TextWrapping="Wrap" Text="Off by default. Uses faster, lower-precision math in some models. Answers may differ slightly." />
+          <!-- Audio -->
+          <Border Classes="card">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="h3" Text="Audio" />
+              <StackPanel Spacing="6">
+                <TextBlock Classes="label" Text="Playback device" />
+                <ComboBox ItemsSource="{Binding OutputDevices}" SelectedItem="{Binding SelectedOutputDevice}" MinWidth="260">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="audio:AudioDeviceChoice">
+                      <TextBlock Text="{Binding Title}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
               </StackPanel>
-            </DockPanel>
+              <StackPanel Spacing="6">
+                <TextBlock Classes="label" Text="Microphone" />
+                <ComboBox ItemsSource="{Binding InputDevices}" SelectedItem="{Binding SelectedInputDevice}" MinWidth="260">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="audio:AudioDeviceChoice">
+                      <TextBlock Text="{Binding Title}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+              </StackPanel>
+              <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding AudioStatus}" />
+            </StackPanel>
           </Border>
-          <ItemsControl ItemsSource="{Binding Features}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="setvm:FeatureToggleViewModel">
-                <DockPanel Margin="0,5">
-                  <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding IsEnabled}" OnContent="On" OffContent="Off" VerticalAlignment="Center" />
-                  <StackPanel Spacing="2">
-                    <TextBlock Classes="mono" Text="{Binding Name}" FontWeight="SemiBold" />
-                    <TextBlock Classes="caption" Text="{Binding Description}" TextWrapping="Wrap" />
+          <!-- Chat defaults -->
+          <Border Classes="card">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="h3" Text="New chat defaults" />
+              <StackPanel>
+                <TextBlock Classes="label" Text="System prompt" />
+                <TextBox Text="{Binding DefaultSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
+              </StackPanel>
+              <Grid ColumnDefinitions="*,12,*,12,*,12,*,12,*">
+                <StackPanel>
+                  <TextBlock Classes="label" Text="Temperature" />
+                  <NumericUpDown Value="{Binding Temperature}" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.00" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                  <TextBlock Classes="label" Text="Top P" />
+                  <NumericUpDown Value="{Binding TopP}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                  <TextBlock Classes="label" Text="Top K" />
+                  <NumericUpDown Value="{Binding TopK}" Minimum="0" Maximum="1000" FormatString="0" />
+                </StackPanel>
+                <StackPanel Grid.Column="6">
+                  <TextBlock Classes="label" Text="Min P" />
+                  <NumericUpDown Value="{Binding MinP}" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
+                </StackPanel>
+                <StackPanel Grid.Column="8">
+                  <TextBlock Classes="label" Text="Max tokens" />
+                  <NumericUpDown Value="{Binding MaxTokens}" Minimum="16" Maximum="262144" Increment="256" FormatString="0" />
+                </StackPanel>
+              </Grid>
+              <ToggleSwitch Content="Thinking (reasoning models)" IsChecked="{Binding EnableThinking}" />
+            </StackPanel>
+          </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="Storage">
+        <ScrollViewer>
+          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <!-- Storage -->
+          <Border Classes="card" DataContext="{Binding Storage}" x:DataType="setvm:StorageSettingsViewModel">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="h3" Text="Storage" />
+              <TextBlock Classes="caption" TextWrapping="Wrap"
+                         Text="Where Studio and the engine keep everything they write: settings, history, models, compiled kernels, caches and logs. The command-line tools use the same location." />
+              <TextBlock Classes="caption" TextWrapping="Wrap">
+                <Run Text="In use:" />
+                <Run Text="{Binding CurrentDescription, Mode=OneWay}" FontWeight="Medium" />
+              </TextBlock>
+              <Border Classes="hint" IsVisible="{Binding Notice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" />
+              </Border>
+              <TextBlock Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsLocked}"
+                         Text="SHARPLIGHT_HOME sets the storage folder; unset it to choose another location here." />
+              <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding StudioHomeNote}"
+                         IsVisible="{Binding StudioHomeNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <StackPanel Spacing="6" IsEnabled="{Binding !IsLocked}">
+                <TextBlock Classes="label" Text="Location" />
+                <ListBox Classes="plain" ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}">
+                  <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Orientation="Horizontal" Spacing="4" />
+                    </ItemsPanelTemplate>
+                  </ListBox.ItemsPanel>
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="setvm:StorageModeChoice">
+                      <TextBlock Text="{Binding Name}" Margin="10,5" />
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock Classes="caption" Text="{Binding SelectedMode.Description}" TextWrapping="Wrap" />
+                <DockPanel IsVisible="{Binding IsCustom}">
+                  <Button DockPanel.Dock="Right" Classes="small" Content="Browse…" Command="{Binding BrowseCommand}" Margin="6,0,0,0" />
+                  <TextBox Text="{Binding CustomRoot}" PlaceholderText="Folder for everything Sharplight writes" />
+                </DockPanel>
+              </StackPanel>
+              <ItemsControl ItemsSource="{Binding Paths}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="setvm:StoragePathRow">
+                    <Grid ColumnDefinitions="200,*" Margin="0,2">
+                      <TextBlock Classes="label" Text="{Binding Name}" />
+                      <StackPanel Grid.Column="1">
+                        <SelectableTextBlock Classes="caption" Text="{Binding Current}" TextWrapping="Wrap" />
+                        <SelectableTextBlock Classes="caption" Text="{Binding Next, StringFormat='→ {0}'}" TextWrapping="Wrap" FontWeight="Medium"
+                                             IsVisible="{Binding Changes}" />
+                      </StackPanel>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <StackPanel Spacing="8" IsVisible="{Binding HasChange}">
+                <ComboBox ItemsSource="{Binding Transfers}" SelectedItem="{Binding SelectedTransfer}" MinWidth="320" IsEnabled="{Binding !IsBusy}">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="setvm:StorageTransferChoice">
+                      <TextBlock Text="{Binding Name}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+                <CheckBox Content="Keep the models where they are (they are large; Studio keeps using that folder)" IsChecked="{Binding KeepModels}"
+                          IsVisible="{Binding CanKeepModels}" IsEnabled="{Binding !IsBusy}" />
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Text="Copies are verified before anything is deleted; moved originals are removed when Studio starts again. An interrupted change leaves the current location in use." />
+                <Border Classes="hint" IsVisible="{Binding Problem, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="{Binding Problem}" TextWrapping="Wrap" />
+                </Border>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Button Classes="accent" Content="Change location" Command="{Binding ApplyCommand}" />
+                  <Button Classes="small" Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsBusy}" />
+                </StackPanel>
+              </StackPanel>
+              <StackPanel Spacing="4" IsVisible="{Binding IsBusy}">
+                <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" />
+                <TextBlock Classes="caption" Text="{Binding ProgressText}" TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+              <Border Classes="hint" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Classes="small" Content="Restart now" Command="{Binding RestartCommand}" IsVisible="{Binding NeedsRestart}"
+                          VerticalAlignment="Center" Margin="8,0,0,0" />
+                  <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                </DockPanel>
+              </Border>
+            </StackPanel>
+          </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="Models">
+        <ScrollViewer>
+          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <!-- Models -->
+          <Border Classes="card">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="h3" Text="Models" />
+              <StackPanel Spacing="6">
+                <TextBlock Classes="label" Text="Where downloaded and converted models are stored" />
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Classes="small" Content="Open folder" Command="{Binding OpenModelsDirectoryCommand}" Margin="6,0,0,0" />
+                  <Button DockPanel.Dock="Right" Classes="small" Content="Default" Command="{Binding ResetModelsDirectoryCommand}" Margin="6,0,0,0" />
+                  <ComboBox ItemsSource="{Binding StoreLocations}" SelectedItem="{Binding StoreLocation}" MinWidth="200">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="setvm:StoreLocationChoice">
+                        <TextBlock Text="{Binding Name}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </DockPanel>
+                <TextBlock Classes="caption" Text="{Binding StoreLocation.Description}" TextWrapping="Wrap" />
+                <DockPanel IsVisible="{Binding IsCustomStore}">
+                  <Button DockPanel.Dock="Right" Classes="small" Content="Browse…" Command="{Binding BrowseModelsDirectoryCommand}" Margin="6,0,0,0" />
+                  <TextBox Text="{Binding ModelsDirectory}" PlaceholderText="Folder for the model store" />
+                </DockPanel>
+                <TextBlock Classes="caption" TextWrapping="Wrap">
+                  <Run Text="In use:" />
+                  <Run Text="{Binding StoreRoot, Mode=OneWay}" FontWeight="Medium" />
+                  <Run Text="{Binding StoreRootSource, Mode=OneWay, StringFormat='({0})'}" />
+                </TextBlock>
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Text="A folder given when Sharplight is started takes precedence over this setting." />
+              </StackPanel>
+              <StackPanel>
+                <TextBlock Classes="label" Text="Hugging Face token (for gated models and higher rate limits)" />
+                <TextBox Text="{Binding HuggingFaceToken}" PasswordChar="•" PlaceholderText="hf_… (falls back to HF_TOKEN)" />
+                <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="Optional, for gated repositories (accept their terms on huggingface.co first). It is sent only to huggingface.co, never to other hosts. Studio does not use the operating system's keyring yet, so the token is kept in the settings file as plain text." />
+              </StackPanel>
+              <ToggleSwitch Content="Precompile after downloading for every GPU and execution provider on this machine (faster first load)" IsChecked="{Binding PrecompileAfterDownload}" />
+              <ToggleSwitch Content="Keep the downloaded source files after converting" IsChecked="{Binding KeepSourceFiles}" />
+              <ToggleSwitch Content="Keep compiled kernels in the compilation cache of the storage location (models that are not precompiled load faster the second time)"
+                            IsChecked="{Binding UseCompilationCache}" />
+            </StackPanel>
+          </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="Engine">
+        <ScrollViewer>
+          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <!-- Load defaults -->
+          <Border Classes="card">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="h3" Text="Load defaults" />
+              <TextBlock Classes="caption" Text="Used when a model is loaded from the library, on demand by the server, or from chat." />
+              <Grid ColumnDefinitions="*,12,*,12,*" RowDefinitions="Auto,12,Auto">
+                <StackPanel>
+                  <TextBlock Classes="label" Text="Device" />
+                  <ComboBox ItemsSource="{Binding Devices}" SelectedItem="{Binding DefaultDevice}" HorizontalAlignment="Stretch">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:ComputeDeviceOption">
+                        <TextBlock Text="{Binding Display}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                  <TextBlock Classes="label" Text="Context length" />
+                  <NumericUpDown Value="{Binding ContextLength}" Minimum="256" Maximum="1048576" Increment="1024" FormatString="0" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                  <TextBlock Classes="label" Text="KV cache" />
+                  <ComboBox ItemsSource="{Binding KvCacheChoices}" SelectedItem="{Binding KvCache}" HorizontalAlignment="Stretch">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="mvm:KvCacheChoice">
+                        <TextBlock Text="{Binding Name}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Row="2">
+                  <TextBlock Classes="label" Text="Parallel slots" />
+                  <NumericUpDown Value="{Binding Slots}" Minimum="1" Maximum="64" FormatString="0" />
+                </StackPanel>
+                <StackPanel Grid.Row="2" Grid.Column="2">
+                  <TextBlock Classes="label" Text="Lookup draft tokens" />
+                  <NumericUpDown Value="{Binding NgramDraftTokens}" Minimum="0" Maximum="16" FormatString="0" />
+                </StackPanel>
+                <StackPanel Grid.Row="2" Grid.Column="4">
+                  <TextBlock Classes="label" Text="Draft head tokens (models that have one)" />
+                  <NumericUpDown Value="{Binding MtpDraftTokens}" Minimum="0" Maximum="8" FormatString="0" />
+                </StackPanel>
+              </Grid>
+              <StackPanel>
+                <TextBlock Classes="label" Text="Prompt batch (tokens per prefill chunk)" />
+                <NumericUpDown Value="{Binding BatchTokens}" Minimum="16" Maximum="8192" Increment="128" FormatString="0" Width="200" HorizontalAlignment="Left" />
+              </StackPanel>
+              <ToggleSwitch Content="Offload to the CPU when a model does not fit" IsChecked="{Binding CpuOffload}" />
+            </StackPanel>
+          </Border>
+          <!-- Residency -->
+          <Border Classes="card">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="h3" Text="Residency" />
+              <TextBlock Classes="caption" TextWrapping="Wrap" Text="Several models can stay loaded at once. Before a load the engine estimates the model's footprint; when it does not fit, idle models are evicted (least recently used first) or the load is refused." />
+              <Grid ColumnDefinitions="*,12,*,12,*">
+                <StackPanel>
+                  <TextBlock Classes="label" Text="Keep free per device (MiB)" />
+                  <NumericUpDown Value="{Binding ReserveMiB}" Minimum="0" Maximum="65536" Increment="256" FormatString="0" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                  <TextBlock Classes="label" Text="Max resident models (0 = no limit)" />
+                  <NumericUpDown Value="{Binding MaxLoadedModels}" Minimum="0" Maximum="64" FormatString="0" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                  <TextBlock Classes="label" Text="Unload when idle (minutes, 0 = never)" />
+                  <NumericUpDown Value="{Binding IdleUnloadMinutes}" Minimum="0" Maximum="10080" Increment="5" FormatString="0" />
+                </StackPanel>
+              </Grid>
+              <ToggleSwitch Content="Pin models loaded by hand (never evicted or unloaded for idleness)" IsChecked="{Binding PinManualLoads}" />
+              <ToggleSwitch Content="Load library models on demand for API requests" IsChecked="{Binding LoadOnDemand}" />
+            </StackPanel>
+          </Border>
+          <!-- Engine -->
+          <Border Classes="card">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="h3" Text="Engine features" />
+              <TextBlock Classes="caption" TextWrapping="Wrap" Text="Switch a feature off if a model misbehaves: a slower path that works everywhere is used instead. Applies to models loaded afterwards." />
+              <Border Classes="panel" Padding="14,12">
+                <DockPanel>
+                  <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding AllowReducedPrecision}" OnContent="On" OffContent="Off" VerticalAlignment="Center" />
+                  <StackPanel Spacing="3">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Text="Reduced precision" FontWeight="SemiBold" />
+                      <Border Classes="badge accent">
+                        <TextBlock Text="Opt-in" />
+                      </Border>
+                    </StackPanel>
+                    <TextBlock Classes="caption" TextWrapping="Wrap" Text="Off by default. Uses faster, lower-precision math in some models. Answers may differ slightly." />
                   </StackPanel>
                 </DockPanel>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <TextBlock Classes="caption" Text="{Binding EnvironmentDisabled}" IsVisible="{Binding EnvironmentDisabled, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-        </StackPanel>
-      </Border>
-
-      <!-- Updates -->
-      <Border Classes="card">
-        <StackPanel Spacing="10" x:DataType="upvm:UpdatesViewModel" DataContext="{Binding Updates}">
-          <TextBlock Classes="h3" Text="Updates" />
-          <Grid ColumnDefinitions="200,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
-            <TextBlock Classes="label" Text="Version" />
-            <TextBlock Grid.Column="1" Text="{Binding CurrentVersion}" />
-            <TextBlock Grid.Row="1" Classes="label" Text="Channel" />
-            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ChannelText}" />
-            <TextBlock Grid.Row="2" Classes="label" Text="Last checked" />
-            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding LastCheckedText}" />
-          </Grid>
-          <Border Classes="hint" IsVisible="{Binding !IsSupported}">
-            <TextBlock Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
+              </Border>
+              <ItemsControl ItemsSource="{Binding Features}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="setvm:FeatureToggleViewModel">
+                    <DockPanel Margin="0,5">
+                      <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding IsEnabled}" OnContent="On" OffContent="Off" VerticalAlignment="Center" />
+                      <StackPanel Spacing="2">
+                        <TextBlock Classes="mono" Text="{Binding Name}" FontWeight="SemiBold" />
+                        <TextBlock Classes="caption" Text="{Binding Description}" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </DockPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="caption" Text="{Binding EnvironmentDisabled}" IsVisible="{Binding EnvironmentDisabled, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
           </Border>
-          <ToggleSwitch Content="Check for updates automatically" IsChecked="{Binding AutoCheck}" IsEnabled="{Binding IsSupported}" />
-          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsSupported}">
-            <Button Classes="small" Content="Check for updates now" Command="{Binding CheckNowCommand}" />
-            <Button Classes="small" Content="Download update" Command="{Binding DownloadCommand}" IsVisible="{Binding CanDownload}" />
-            <Button Classes="small" Content="Restart to update" Command="{Binding RestartCommand}" IsVisible="{Binding IsReady}" />
           </StackPanel>
-          <TextBlock Classes="caption" Text="{Binding StatusText}" TextWrapping="Wrap"
-                     IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-        </StackPanel>
-      </Border>
-
-      <!-- Data / About -->
-      <Border Classes="card">
-        <StackPanel Spacing="10">
-          <TextBlock Classes="h3" Text="Data" />
-          <DockPanel>
-            <Button DockPanel.Dock="Right" Classes="small danger" Content="Clear statistics" Command="{Binding ClearStatisticsCommand}" />
-            <TextBlock Classes="caption" Text="Request history used by the statistics page. Conversations are kept." VerticalAlignment="Center" />
-          </DockPanel>
-          <Border Classes="divider" Margin="0,6" />
-          <TextBlock Classes="h3" Text="About" />
-          <TextBlock Classes="caption">
-            <Run Text="Sharplight Studio" FontWeight="SemiBold" />
-            <Run Text="{Binding Version, Mode=OneWay}" />
-            <Run Text="·" />
-            <Run Text="{Binding Runtime, Mode=OneWay}" />
-            <Run Text="· MIT licensed" />
-          </TextBlock>
-        </StackPanel>
-      </Border>
-    </StackPanel>
-  </ScrollViewer>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="Updates">
+        <ScrollViewer>
+          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <!-- Updates -->
+          <Border Classes="card">
+            <StackPanel Spacing="10" x:DataType="upvm:UpdatesViewModel" DataContext="{Binding Updates}">
+              <TextBlock Classes="h3" Text="Updates" />
+              <Grid ColumnDefinitions="200,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+                <TextBlock Classes="label" Text="Version" />
+                <TextBlock Grid.Column="1" Text="{Binding CurrentVersion}" />
+                <TextBlock Grid.Row="1" Classes="label" Text="Channel" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ChannelText}" />
+                <TextBlock Grid.Row="2" Classes="label" Text="Last checked" />
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding LastCheckedText}" />
+              </Grid>
+              <Border Classes="hint" IsVisible="{Binding !IsSupported}">
+                <TextBlock Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
+              </Border>
+              <ToggleSwitch Content="Check for updates automatically" IsChecked="{Binding AutoCheck}" IsEnabled="{Binding IsSupported}" />
+              <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsSupported}">
+                <Button Classes="small" Content="Check for updates now" Command="{Binding CheckNowCommand}" />
+                <Button Classes="small" Content="Download update" Command="{Binding DownloadCommand}" IsVisible="{Binding CanDownload}" />
+                <Button Classes="small" Content="Restart to update" Command="{Binding RestartCommand}" IsVisible="{Binding IsReady}" />
+              </StackPanel>
+              <TextBlock Classes="caption" Text="{Binding StatusText}" TextWrapping="Wrap"
+                         IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+          </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="Data and about">
+        <ScrollViewer>
+          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <!-- Data / About -->
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="h3" Text="Data" />
+              <DockPanel>
+                <Button DockPanel.Dock="Right" Classes="small danger" Content="Clear statistics" Command="{Binding ClearStatisticsCommand}" />
+                <TextBlock Classes="caption" Text="Request history used by the statistics page. Conversations are kept." VerticalAlignment="Center" />
+              </DockPanel>
+              <Border Classes="divider" Margin="0,6" />
+              <TextBlock Classes="h3" Text="About" />
+              <TextBlock Classes="caption">
+                <Run Text="Sharplight Studio" FontWeight="SemiBold" />
+                <Run Text="{Binding Version, Mode=OneWay}" />
+                <Run Text="·" />
+                <Run Text="{Binding Runtime, Mode=OneWay}" />
+                <Run Text="· MIT licensed" />
+              </TextBlock>
+            </StackPanel>
+          </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
 </UserControl>

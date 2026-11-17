@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Sharplight.Imaging;
 using Sharplight.ImageGeneration;
 using Sharplight.Models;
@@ -161,6 +160,12 @@ public sealed class WanAdapter : IModelAdapter
         }
     }
 
+    private static JsonElement ParseJson(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
+
     private static ModelDescription Describe(ModelSource src, WanHyperParameters transformer, WanVaeHyperParameters vae, T5TextHyperParameters t5,
         bool hasEncoder, bool firstFrame, bool hasSchedulerAttachment, bool twoExperts, ImageTowerOptions? imageTower, bool lastFrame)
     {
@@ -252,8 +257,8 @@ public sealed class WanAdapter : IModelAdapter
                             WeightPrefixes = [ImageEncoderPrefix],
                             Config = new Dictionary<string, JsonElement>
                             {
-                                [ImageProcessor.ComponentKey] = JsonSerializer.SerializeToElement(JsonNode.Parse(src.Get<string>(Prefix + "image_encoder.processor"))),
-                                [DiffusionConfigKeys.PatchSize] = JsonSerializer.SerializeToElement(imageTower.Patch),
+                                [ImageProcessor.ComponentKey] = ParseJson(src.Get<string>(Prefix + "image_encoder.processor")),
+                                [DiffusionConfigKeys.PatchSize] = ParseJson(imageTower.Patch.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                             },
                         },
                     ]

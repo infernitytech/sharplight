@@ -57,6 +57,23 @@ the engine gains a kind, its card opens a page of its own, built from the shared
 
 **Models.**
 
+- **Verified models.** Discover opens on the verified-model catalog ([verified-catalog.md](verified-catalog.md)) whenever it has models
+  of the selected model type; the *Verified models* / *Hub search* buttons above it switch modes (the choice then sticks for the session).
+  Every model in it was run from download to output and compared with a reference implementation, and installs use exactly the files and
+  commit that were verified, so they are sure to download and run. The list is grouped by task (with counts) and filtered by text and
+  *Fits this machine*; each model shows its verification (result, reference, date, providers), license, gated and partial badges and
+  notes, and its variants (quantization and format) with the download size, the files and repository, an estimated fit on this
+  machine's GPU and system memory and an *Installed* badge. The recommended variant is preselected unless it does not fit, then the first
+  that fits. *Download and install* queues the variant in *Downloads* with its companions (text encoders, VAE, vocoder, vision projector,
+  listed under *Installed with*): they are downloaded in the same install and built into the same package, so the Image, Video and
+  Speak pages load the model without choosing companion files. The catalog is built into Studio and replaced by a newer published copy
+  (`https://download.sharplight.dev/catalog/verified-models.json`, checked once a day, kept as `verified-models.json` next to
+  `studio.db`) when that is valid; offline the built-in or kept copy is used. `SHARPLIGHT_STUDIO_CATALOG_URL` changes the address (empty
+  turns the download off).
+
+  ![Verified models](images/studio/studio-discover-verified.png)
+  ![Verified image model with companions](images/studio/studio-discover-verified-companions.png)
+
 ![Discover](images/studio/studio-discover.png)
 
 - **Filters.** The filter bar above the results picks the model type, format, quantization, size, license, gating and sort order.
@@ -271,7 +288,10 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 
 ![Statistics](images/studio/studio-stats.png)
 
-**Settings.**
+**Settings.** The page is split into tabs, the last one used is remembered, and *Check for Updates…* and the "Storage settings"
+button open *Updates* and *Storage*:
+*General* (appearance, audio devices, new-chat defaults), *Storage*, *Models* (model store, Hugging Face token, download and
+compilation-cache options), *Engine* (load defaults, residency, device features), *Updates* and *Data and about*.
 - Theme (dark, light, system) and accent palette.
 - Storage: where Studio and the engine keep everything they write (settings, history and outputs, models, compiled kernels,
   caches, logs). **Portable** (a `data` folder next to the AppImage, the install folder or the app bundle), **System folders**
@@ -305,7 +325,7 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 - **Reduced precision** (off by default) opts in to faster f16 kernel paths where the default keeps near-f32 accuracy. Outputs may
   differ slightly.
 
-![Settings](images/studio/studio-settings.png)
+![Settings: Engine tab](images/studio/studio-settings.png)
 
 ## Inference pages
 
@@ -494,7 +514,7 @@ platform is in [storage.md](storage.md)). `<config>`, `<data>` and `<cache>` are
 | What | Where |
 |---|---|
 | Settings (`settings.json`), including the download queue | `<config>/studio` |
-| Conversations and statistics (`studio.db`), Discover's highlights (`discover-highlights.json`) | `<data>/studio` |
+| Conversations and statistics (`studio.db`), Discover's highlights (`discover-highlights.json`) and verified catalog (`verified-models.json`) | `<data>/studio` |
 | Inference pages: parameter presets, run history and output files (`pages/<page>/`) | `<data>/studio/pages` |
 | Models | The model store: `<data>/models` by default, else the folder chosen on the *Models* card; converted local models go to `converted/` in it by default |
 | Compiled kernels, extracted shader sources | `<cache>/artifacts`, `<cache>/shaders`, shared by every tool |

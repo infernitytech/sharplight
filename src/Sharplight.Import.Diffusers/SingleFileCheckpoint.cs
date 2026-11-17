@@ -41,6 +41,11 @@ internal static partial class SingleFileCheckpoint
         try
         {
             var names = TensorNames(path);
+            if (Krea2Checkpoint.TransformerPrefix(names) is not null)
+            {
+                return Krea2Config.Architecture;
+            }
+
             if (Flux2Checkpoint.TransformerPrefix(names) is not null)
             {
                 return Flux2Config.Architecture;
