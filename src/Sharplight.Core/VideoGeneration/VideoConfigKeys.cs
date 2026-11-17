@@ -64,6 +64,15 @@ public static class VideoConfigKeys
     /// <summary>VAE: latent frames between the starts of consecutive decode tiles (<see cref="DecodeTileFrames"/>).</summary>
     public const string DecodeTileStride = "decodeTileStride";
 
+    /// <summary>
+    /// VAE (whole-video decoder): the side of square spatial decode tiles in latent pixels; larger videos are decoded in overlapping tiles
+    /// <see cref="DecodeSpatialTileStride"/> latent pixels apart, blended over the overlap (diffusers' <c>enable_tiling</c>).
+    /// </summary>
+    public const string DecodeSpatialTile = "decodeSpatialTile";
+
+    /// <summary>VAE: latent pixels between the starts of consecutive spatial decode tiles (<see cref="DecodeSpatialTile"/>).</summary>
+    public const string DecodeSpatialTileStride = "decodeSpatialTileStride";
+
     /// <summary>Model (two experts): the default guidance scale of the second denoiser.</summary>
     public const string GuidanceScale2 = "guidanceScale2";
 }
