@@ -269,11 +269,36 @@ internal static class DiagnosticSwitches
     /// <summary>True when tensor-core GEMMs read an f16 copy of the activations.</summary>
     public static bool GemmHalfActivations { get; } = IsNotZero("SHARPLIGHT_GEMM_X16");
 
+    /// <summary>False runs f16 / bf16 matmul pairs (gate / up) at prefill as two gemm_cm2 launches and an elementwise launch.</summary>
+    public static bool DualGemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2_DUAL");
+
+    /// <summary>
+    /// Token tiles per group of the grouped tile order of the tensor-core GEMMs (<c>SHARPLIGHT_GEMM_GROUP=n</c>; 0 keeps the
+    /// launch order, column tiles first).
+    /// </summary>
+    public static int GemmTileGroup { get; } = int.Parse(Read("SHARPLIGHT_GEMM_GROUP") ?? "16", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Extra macros for the tensor-core GEMM kernels (<c>SHARPLIGHT_GEMM_MACROS=NAME=value,NAME=value</c>), for kernel experiments.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> GemmExtraMacros { get; } = (Read("SHARPLIGHT_GEMM_MACROS") ?? "")
+        .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(kv => kv.Split('=')).ToDictionary(kv => kv[0], kv => kv.Length > 1 ? kv[1] : "1");
+
     /// <summary>Default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</summary>
     public static bool WorkgroupMatrixGemm { get; } = IsSet("SHARPLIGHT_GEMM_NV2");
 
     /// <summary>Workgroup-matrix GEMM tile: token tile, column tile, K tile.</summary>
     public static int[] WorkgroupMatrixTile { get; } = (Read("SHARPLIGHT_GEMM_NV2_TILE") ?? "128,128,32").Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Extra macros for the <c>fe</c> attention kernel (<c>SHARPLIGHT_FE_MACROS=NAME=value,...</c>), for kernel experiments.</summary>
+    public static IReadOnlyDictionary<string, string> AttentionExtraMacros { get; } = (Read("SHARPLIGHT_FE_MACROS") ?? "")
+        .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(kv => kv.Split('=')).ToDictionary(kv => kv[0], kv => kv.Length > 1 ? kv[1] : "1");
+
+    /// <summary>Queries per <c>fe</c> workgroup with the register softmax (<c>SHARPLIGHT_ATTN_FE_ROWS</c>: 64 or 128).</summary>
+    public static int AttentionRegisterSoftmaxRows { get; } = int.Parse(Read("SHARPLIGHT_ATTN_FE_ROWS") ?? "128", CultureInfo.InvariantCulture);
+
+    /// <summary>False keeps the staged softmax of the <c>fe</c> attention kernel on devices with the MMA fragment layout.</summary>
+    public static bool AttentionRegisterSoftmax { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_REG");
 
     /// <summary>True when tensor-core flash attention may be used.</summary>
     public static bool AttentionFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FA");
