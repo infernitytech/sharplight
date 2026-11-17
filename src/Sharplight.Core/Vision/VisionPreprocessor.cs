@@ -29,6 +29,32 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         long maxPixels = limits?.MaxTokens is int xt ? xt * unit : p.MaxPixels;
         double h = height;
         double w = width;
+        if (p.ResizeMode == VisionParameters.FitBudgetResize)
+        {
+            // Gemma 4: the largest image within the pixel budget (also enlarging a small one), both sides rounded down to a multiple of the factor.
+            double scale = Math.Sqrt((double)maxPixels / (h * w));
+            int fh = (int)Math.Floor(scale * h / factor) * factor;
+            int fw = (int)Math.Floor(scale * w / factor) * factor;
+            int maxSide = (int)(maxPixels / unit) * factor;
+            if (fh == 0 && fw == 0)
+            {
+                throw new ArgumentException($"Image {width}x{height} is too small for the pixel budget {maxPixels}.");
+            }
+
+            if (fh == 0)
+            {
+                fh = factor;
+                fw = Math.Min((int)Math.Floor(w / h) * factor, maxSide);
+            }
+            else if (fw == 0)
+            {
+                fw = factor;
+                fh = Math.Min((int)Math.Floor(h / w) * factor, maxSide);
+            }
+
+            return (fw, fh);
+        }
+
         // Python round() semantics (half to even), as the reference processors.
         int hBar = Math.Max(factor, (int)Math.Round(h / factor, MidpointRounding.ToEven) * factor);
         int wBar = Math.Max(factor, (int)Math.Round(w / factor, MidpointRounding.ToEven) * factor);
@@ -262,6 +288,20 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         var weight = new float[n * taps];
         if (p.PositionEmbeddingCount == 0)
         {
+            return (index, weight);
+        }
+
+        if (p.AxialPositionEmbedding)
+        {
+            // Two tables of PositionEmbeddingCount rows, x (the column) first, then y (the row); the embeddings are summed.
+            for (int i = 0; i < n; i++)
+            {
+                index[i * 2] = positions[i * 2 + 1];
+                index[i * 2 + 1] = p.PositionEmbeddingCount + positions[i * 2];
+                weight[i * 2] = 1f;
+                weight[i * 2 + 1] = 1f;
+            }
+
             return (index, weight);
         }
 

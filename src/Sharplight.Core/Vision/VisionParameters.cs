@@ -48,6 +48,17 @@ namespace Sharplight.Vision;
 /// layer is merged like the final hidden states and projected by its own merger; the results are appended to the embedding row, which is
 /// then <see cref="EmbeddingWidth"/> = out_hidden_size·(1 + count) wide. The language model adds the k-th appended block to the hidden
 /// state after its k-th layer;</item>
+/// <item>Gemma 4 towers: <c>position_embedding.axial</c> (bool: <c>vision.position_embedding.weight</c> is [2·count, hidden], the x table (columns)
+/// followed by the y table (rows), summed per patch; <c>position_embedding_count</c> is the rows of one table), <c>rope.layout</c> (<c>paired</c>, the
+/// default, or <c>split</c>: the first half of every head rotates by the column, the second by the row, each half in rotate-half order),
+/// <c>attention.scale</c> (0, the default, = 1/√head_dim), <c>attention.qk_norm</c> (bool: RMS norms of every head's query and key,
+/// <c>attention.q_norm.weight</c> / <c>attention.k_norm.weight</c> [head_dim]), <c>attention.v_norm</c> (bool: an RMS norm without weight on the values),
+/// <c>norm.placement</c> <c>sandwich</c> (x + post_norm(attn(input_norm(x))), x + post_norm(mlp(pre_norm(x))): <c>input_norm</c>, <c>attention.post_norm</c>,
+/// <c>post_attention_norm</c> and <c>mlp.post_norm</c>), <c>merger.pool</c> (bool: the m×m patches of a merge unit are averaged instead of concatenated and the
+/// mean is scaled by √hidden), <c>standardize</c> (bool: <c>vision.std_bias</c> is subtracted from and <c>vision.std_scale</c> multiplies every pooled row),
+/// then an RMS norm without weight and <c>vision.merger.out</c> (no bias) project to the language model's width; <c>resize.mode</c> (<c>smart</c>, the default, or
+/// <c>fit_budget</c>: the image is scaled so that it just fits max_pixels, sides rounded down to a multiple of patch_size·merge_size, also enlarged),
+/// <c>image_begin_token</c> / <c>image_end_token</c> (texts of tokens that frame the image rows of the prompt);</item>
 /// <item>preprocessing: <c>image_mean</c>, <c>image_std</c> (float[in_channels]), <c>min_pixels</c>, <c>max_pixels</c>
 /// (long; 0 = unlimited; bounds of the resized image area).</item>
 /// </list>
@@ -106,6 +117,14 @@ public sealed record VisionParameters
     public const string MergedSymbol = "M";
     /// <summary>Symbol of the output row count R of a tower with a <see cref="LayoutInput"/>.</summary>
     public const string OutputSymbol = "R";
+    /// <summary>Rotation pairs (i, i + head_dim/2), the default <see cref="RopeLayout"/>.</summary>
+    public const string PairedRopeLayout = "paired";
+    /// <summary>One half of the head per axis, each rotated on its own (Gemma 4), see <see cref="RopeLayout"/>.</summary>
+    public const string SplitRopeLayout = "split";
+    /// <summary>The aspect-preserving resize within <c>min_pixels</c> / <c>max_pixels</c>, the default <see cref="ResizeMode"/>.</summary>
+    public const string SmartResize = "smart";
+    /// <summary>The largest image within <c>max_pixels</c> (Gemma 4), see <see cref="ResizeMode"/>.</summary>
+    public const string FitBudgetResize = "fit_budget";
     /// <summary>The Qwen-VL M-RoPE image positions, the default <see cref="ImagePositions"/>.</summary>
     public const string MropeImagePositions = "mrope";
     /// <summary>HunyuanVL's sequential image positions (see <see cref="ImagePositions"/>).</summary>
@@ -159,6 +178,26 @@ public sealed record VisionParameters
     public string PositionInterpolation { get; init; } = "bilinear";
     /// <summary>Base of the axial 2-D rotary position embedding, or 0 for none.</summary>
     public float RopeBase { get; init; }
+    /// <summary>Rotary layout: <see cref="PairedRopeLayout"/> (rotation pairs (i, i + head_dim/2)) or <see cref="SplitRopeLayout"/> (Gemma 4: one half per axis).</summary>
+    public string RopeLayout { get; init; } = PairedRopeLayout;
+    /// <summary>Whether the position embedding is two tables (x then y) summed per patch instead of a resampled grid (Gemma 4).</summary>
+    public bool AxialPositionEmbedding { get; init; }
+    /// <summary>Attention scale; 0 = 1/√head_dim.</summary>
+    public float AttentionScale { get; init; }
+    /// <summary>Whether every head's query and key are RMS-normed (<c>attention.q_norm</c>, <c>attention.k_norm</c>).</summary>
+    public bool QkNorm { get; init; }
+    /// <summary>Whether the values are RMS-normed without a weight.</summary>
+    public bool ValueNorm { get; init; }
+    /// <summary>Whether a merge unit is averaged (and scaled by √hidden) instead of concatenated.</summary>
+    public bool MergerPool { get; init; }
+    /// <summary>Whether the pooled rows are standardized with <c>vision.std_bias</c> / <c>vision.std_scale</c>.</summary>
+    public bool Standardize { get; init; }
+    /// <summary>How images are resized: <see cref="SmartResize"/> or <see cref="FitBudgetResize"/>.</summary>
+    public string ResizeMode { get; init; } = SmartResize;
+    /// <summary>Text of the token that precedes an image's rows in the prompt; empty for none.</summary>
+    public string ImageBeginToken { get; init; } = "";
+    /// <summary>Text of the token that follows an image's rows in the prompt; empty for none.</summary>
+    public string ImageEndToken { get; init; } = "";
     /// <summary>Width of the produced embeddings; equals the hidden size of the language model.</summary>
     public int OutHiddenSize { get; init; }
     /// <summary>Tower layers whose outputs feed DeepStack mergers (ascending); empty for none.</summary>
@@ -211,8 +250,8 @@ public sealed record VisionParameters
     public int OutputTokenCount(int mergedHeight, int mergedWidth)
         => mergedHeight * (mergedWidth + (RowSeparator ? 1 : 0)) + (ImageBoundary ? 2 : 0);
 
-    /// <summary>Taps per patch of the position-embedding resampling (<see cref="PositionInterpolation"/>): 4 or 16.</summary>
-    public int PositionTaps => PositionInterpolation == "bicubic" ? 16 : 4;
+    /// <summary>Taps per patch of the position-embedding resampling (<see cref="PositionInterpolation"/>): 4 or 16; 2 for axial tables.</summary>
+    public int PositionTaps => AxialPositionEmbedding ? 2 : PositionInterpolation == "bicubic" ? 16 : 4;
     /// <summary>Side of the learned position grid.</summary>
     public int PositionGridSide => (int)Math.Round(Math.Sqrt(PositionEmbeddingCount));
     /// <summary>Patches merged into one output token (m²).</summary>
@@ -248,6 +287,16 @@ public sealed record VisionParameters
             PositionEmbeddingCount = Get("position_embedding_count", 0),
             PositionInterpolation = Get("position_embedding.interpolation", "bilinear"),
             RopeBase = Get("rope.base", 0f),
+            RopeLayout = Get("rope.layout", PairedRopeLayout),
+            AxialPositionEmbedding = Get("position_embedding.axial", false),
+            AttentionScale = Get("attention.scale", 0f),
+            QkNorm = Get("attention.qk_norm", false),
+            ValueNorm = Get("attention.v_norm", false),
+            MergerPool = Get("merger.pool", false),
+            Standardize = Get("standardize", false),
+            ResizeMode = Get("resize.mode", SmartResize),
+            ImageBeginToken = Get("image_begin_token", ""),
+            ImageEndToken = Get("image_end_token", ""),
             OutHiddenSize = Get<int>("out_hidden_size", 0),
             MergerActivation = Get("merger.activation", "gelu"),
             MergerNormEps = md.ContainsKey(prefix + "merger.norm_eps") ? Get("merger.norm_eps", 0f) : null,
@@ -318,6 +367,56 @@ public sealed record VisionParameters
             Set("position_embedding.interpolation", PositionInterpolation);
         }
         Set("rope.base", RopeBase);
+        if (RopeLayout != PairedRopeLayout)
+        {
+            Set("rope.layout", RopeLayout);
+        }
+
+        if (AxialPositionEmbedding)
+        {
+            Set("position_embedding.axial", true);
+        }
+
+        if (AttentionScale != 0f)
+        {
+            Set("attention.scale", AttentionScale);
+        }
+
+        if (QkNorm)
+        {
+            Set("attention.qk_norm", true);
+        }
+
+        if (ValueNorm)
+        {
+            Set("attention.v_norm", true);
+        }
+
+        if (MergerPool)
+        {
+            Set("merger.pool", true);
+        }
+
+        if (Standardize)
+        {
+            Set("standardize", true);
+        }
+
+        if (ResizeMode != SmartResize)
+        {
+            Set("resize.mode", ResizeMode);
+        }
+
+        if (ImageBeginToken.Length > 0)
+        {
+            Set("image_begin_token", ImageBeginToken);
+        }
+
+        if (ImageEndToken.Length > 0)
+        {
+            Set("image_end_token", ImageEndToken);
+        }
+
         Set("out_hidden_size", OutHiddenSize);
         Set("merger.activation", MergerActivation);
         if (MergerNormEps is float mergerEps)
@@ -412,9 +511,14 @@ public sealed record VisionParameters
             throw new InvalidDataException($"vision: media_weight_rows '{MediaWeightRows}' is not supported ({AllMediaWeightRows}, {AllButLastMediaWeightRows}).");
         }
 
-        if (NormPlacement is not ("pre" or "post") || ImageSize < 0)
+        if (NormPlacement is not ("pre" or "post" or "sandwich") || ImageSize < 0)
         {
-            throw new InvalidDataException($"vision: norm.placement '{NormPlacement}' is not supported (pre, post) or image_size {ImageSize} is negative.");
+            throw new InvalidDataException($"vision: norm.placement '{NormPlacement}' is not supported (pre, post, sandwich) or image_size {ImageSize} is negative.");
+        }
+
+        if (RopeLayout is not (PairedRopeLayout or SplitRopeLayout) || ResizeMode is not (SmartResize or FitBudgetResize))
+        {
+            throw new InvalidDataException($"vision: rope.layout '{RopeLayout}' (paired, split) or resize.mode '{ResizeMode}' (smart, fit_budget) is not supported.");
         }
 
         if (ClassToken && (!HasLayout || WindowSize > 0 || RopeBase > 0))
@@ -437,7 +541,7 @@ public sealed record VisionParameters
             throw new InvalidDataException($"vision: position_embedding.interpolation '{PositionInterpolation}' is not supported (bilinear, bilinear_half_pixel, bicubic).");
         }
 
-        if (PositionEmbeddingCount > 0 && PositionGridSide * PositionGridSide != PositionEmbeddingCount)
+        if (PositionEmbeddingCount > 0 && !AxialPositionEmbedding && PositionGridSide * PositionGridSide != PositionEmbeddingCount)
         {
             throw new InvalidDataException("vision: position_embedding_count must be a square.");
         }
