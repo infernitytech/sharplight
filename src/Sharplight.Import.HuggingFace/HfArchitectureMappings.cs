@@ -50,6 +50,7 @@ internal static class HfArchitectureMappings
         Register(new DemucsHfMapping());
         Register(new DacHfMapping());
         Register(new MimiHfMapping());
+        Register(new Qwen3TtsTokenizerHfMapping());
         Register(new Sam2HfMapping());
         Register(new TrOcrHfMapping());
         Register(new Florence2HfMapping());

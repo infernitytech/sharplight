@@ -49,6 +49,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<EncodecAdapter>()
                 .AddModelAdapter<DacAdapter>()
                 .AddModelAdapter<MimiAdapter>()
+                .AddModelAdapter<Qwen3TtsCodecAdapter>()
                 .AddModelAdapter<SileroVadAdapter>()
                 .AddModelAdapter<ClapAdapter>()
                 .AddModelAdapter<MusicGenAdapter>()
