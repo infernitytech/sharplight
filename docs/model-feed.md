@@ -202,7 +202,7 @@ feedtool mirror   --feed <url|folder> [--root keys/root.pub.json] --out bundle/ 
 ## Publishing the official feed
 
 The official feed lives in the Cloudflare R2 bucket of the Studio downloads under `models/`: https://download.sharplight.dev/models/
-(`index.json` there). It is published by `.github/workflows/model-feed.yml` (manual dispatch only, environment `studio-release`, the
+(`index.json` there). It is published by `.github/workflows/model-feed.yml` (manual dispatch, plus a weekly re-sign; environment `studio-release`, the
 same R2 secrets as `studio.yml`):
 
 1. Fetches the published listings (no package files), writes a key set if the bucket has none.
@@ -214,7 +214,12 @@ same R2 secrets as `studio.yml`):
    then package indexes, catalog pages, `catalog/index.json`, `index.json` and `index.sig` (`no-cache`). Nothing is ever deleted.
 
 Without the secret `MODEL_FEED_SIGNING_KEY` (or with incomplete R2 secrets) the workflow builds nothing and says so in a warning.
-An index expires after `validity_days` (default 30): run the workflow with no entries before that to re-sign it.
+
+An index expires after `validity_days` (default 30) and hosts reject an expired index (freeze protection). A **weekly scheduled run**
+(Mondays 04:17 UTC) therefore only re-signs the index: no builds, a new sequence and a new expiry 30 days ahead; it does nothing before
+the first publication. A manual run with no entries does the same. Scheduled workflows run from the repository's default branch, so
+the schedule is active once the workflow file is on that branch and the `studio-release` environment's branch rule admits it; if the
+environment is limited to other branches, re-sign manually (or from a dispatch on develop) at least every three weeks.
 
 ### Publishing keys
 

@@ -1,5 +1,9 @@
 # Model feed (docs/model-feed.md): builds preconverted, signed .slm packages from verified-catalog entries and publishes them to the
-# Cloudflare R2 bucket under models/ (https://download.sharplight.dev/models/). Manual dispatch only.
+# Cloudflare R2 bucket under models/ (https://download.sharplight.dev/models/).
+#
+# - Manual dispatch: builds the given catalog entries and publishes them (or only re-signs the index when no entries are given).
+# - Weekly schedule: only re-signs the index (new sequence, expiry 30 days ahead), so the published index never expires while
+#   nobody publishes; it builds nothing and does nothing before the first publication.
 #
 # - Signing key: the secret MODEL_FEED_SIGNING_KEY of the `studio-release` environment: an ECDSA P-384 private key in PEM
 #   (a `feedtool keygen` JSON key file works too). Without it the workflow builds nothing and says so.
@@ -10,6 +14,8 @@
 name: model-feed
 
 on:
+  schedule:
+    - cron: '17 4 * * 1' # Mondays 04:17 UTC: re-sign only, well before the 30-day expiry
   workflow_dispatch:
     inputs:
       entries:
@@ -94,7 +100,14 @@ jobs:
 
       - name: Fetch the published listings
         if: steps.secrets.outputs.skip == 'false'
+        env:
+          SCHEDULED: ${{ github.event_name == 'schedule' }}
         run: |
+          if [ "$SCHEDULED" = "true" ] && ! aws s3api head-object --bucket "$R2_BUCKET" --key "$FEED_PREFIX/index.json" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
+            echo "::notice::No feed is published yet; the scheduled re-sign has nothing to do."
+            echo "NOTHING_PUBLISHED=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
           # Metadata only (no package files): versions are chosen against it and the new listings are written from it.
           aws s3 sync "s3://$R2_BUCKET/$FEED_PREFIX/" "$WORK/feed/" --endpoint-url "$R2_ENDPOINT" --exclude "*.slm" --only-show-errors
           if [ ! -f "$WORK/feed/keys/keyset.json" ]; then
@@ -105,9 +118,10 @@ jobs:
           fi
 
       - name: Build packages
-        if: steps.secrets.outputs.skip == 'false'
+        if: steps.secrets.outputs.skip == 'false' && env.NOTHING_PUBLISHED != 'true'
         env:
-          ENTRIES: ${{ inputs.entries }}
+          # Scheduled runs have no inputs: no entries, so only the index is re-signed.
+          ENTRIES: ${{ github.event_name == 'workflow_dispatch' && inputs.entries || '' }}
         run: |
           mkdir -p "$WORK/staging"
           for spec in $ENTRIES; do
@@ -124,9 +138,9 @@ jobs:
           ls -1 "$WORK/staging" | tee "$WORK/staged.txt"
 
       - name: Publish locally and verify
-        if: steps.secrets.outputs.skip == 'false'
+        if: steps.secrets.outputs.skip == 'false' && env.NOTHING_PUBLISHED != 'true'
         env:
-          VALIDITY: ${{ inputs.validity_days }}
+          VALIDITY: ${{ inputs.validity_days || '30' }}
         run: |
           tool=tools/model-feed/Sharplight.FeedTool/bin/Release/net11.0/feedtool.dll
           staged=$(find "$WORK/staging" -mindepth 1 -maxdepth 1 -type d | sort)
@@ -140,7 +154,7 @@ jobs:
           dotnet "$tool" verify --feed "$WORK/feed" --root "$RUNNER_TEMP/root.pub.pem"
 
       - name: Upload to Cloudflare R2
-        if: steps.secrets.outputs.skip == 'false'
+        if: steps.secrets.outputs.skip == 'false' && env.NOTHING_PUBLISHED != 'true'
         run: |
           set -euo pipefail
           s3() { aws s3 "$@" --endpoint-url "$R2_ENDPOINT" --only-show-errors; }
