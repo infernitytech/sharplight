@@ -92,7 +92,7 @@ public sealed class ZImageTurboTests
                 (DiffusionGraphs.Tokens, tokens));
             int d = hidden.Length / tokens.Length;
             var (maxAbs, rms) = Env.Compare(hidden.AsSpan(0, length * d), Tensor($"text_hidden_{i}").AsSpan(0, length * d));
-            TestContext.Current.SendDiagnosticMessage($"GGUF text encoder {i}: relative RMS {rms:E2}");
+            TestContext.Current.SendDiagnosticMessage($"{GetType().Name} GGUF text encoder {i}: relative RMS {rms:E2}");
             Assert.True(rms < 3e-2, $"GGUF text encoder {i}: max {maxAbs}, relative RMS {rms}");
             i++;
         }

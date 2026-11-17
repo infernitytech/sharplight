@@ -91,7 +91,7 @@ public sealed class Flux2KleinTests
             var hidden = GraphRunner.Run(model, ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, DiffusionGraphs.Hidden, 0,
                 (DiffusionGraphs.Tokens, tokens), (DiffusionGraphs.TokenMask, mask));
             var (maxAbs, rms) = Env.Compare(hidden, Tensor($"text_hidden_{i}"));
-            TestContext.Current.SendDiagnosticMessage($"GGUF text encoder {i}: relative RMS {rms:E2}");
+            TestContext.Current.SendDiagnosticMessage($"{GetType().Name} GGUF text encoder {i}: relative RMS {rms:E2}");
             Assert.True(rms < 3e-2, $"GGUF text encoder {i}: max {maxAbs}, relative RMS {rms}");
             i++;
         }

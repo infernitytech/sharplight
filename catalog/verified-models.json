@@ -12304,6 +12304,126 @@
       ]
     },
     {
+      "id": "flux.1-kontext-dev",
+      "name": "FLUX.1 Kontext dev",
+      "kind": "image-generation",
+      "family": "FLUX.1",
+      "architecture": "flux",
+      "level": "verified",
+      "license": "flux-dev-non-commercial-license",
+      "gated": true,
+      "tags": [],
+      "variants": [
+        {
+          "id": "q8-0-gguf",
+          "label": "Q8_0 GGUF",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": true,
+          "memoryBytes": 21513760773,
+          "companions": [
+            "clip-l",
+            "t5xxl",
+            "vae"
+          ],
+          "repository": "QuantStack/FLUX.1-Kontext-dev-GGUF",
+          "revision": "2d083027732f81e5548620b57ac47da22d30aa5a",
+          "include": [
+            "flux1-kontext-dev-Q8_0.gguf"
+          ],
+          "primary": "flux1-kontext-dev-Q8_0.gguf",
+          "files": [
+            {
+              "path": "flux1-kontext-dev-Q8_0.gguf",
+              "size": 12714452256,
+              "sha256": "ff2ff71c3755c8ab394398a412252c23382a83138b65190b16e736d457b80f73"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "clip-l",
+          "role": "text-encoder",
+          "additionalRoles": [],
+          "label": "CLIP-L text encoder",
+          "repository": "comfyanonymous/flux_text_encoders",
+          "revision": "6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5",
+          "include": [
+            "clip_l.safetensors"
+          ],
+          "primary": "clip_l.safetensors",
+          "files": [
+            {
+              "path": "clip_l.safetensors",
+              "size": 246144152,
+              "sha256": "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd"
+            }
+          ]
+        },
+        {
+          "id": "t5xxl",
+          "role": "text-encoder-2",
+          "additionalRoles": [],
+          "label": "T5-XXL encoder (Q8_0)",
+          "repository": "city96/t5-v1_1-xxl-encoder-gguf",
+          "revision": "005a6ea51a7d0b84d677b3e633bb52a8c85a83d9",
+          "include": [
+            "t5-v1_1-xxl-encoder-Q8_0.gguf"
+          ],
+          "primary": "t5-v1_1-xxl-encoder-Q8_0.gguf",
+          "files": [
+            {
+              "path": "t5-v1_1-xxl-encoder-Q8_0.gguf",
+              "size": 5061584064,
+              "sha256": "9ec60f6028534b7fe5af439fcb535d75a68592a9ca3fcdeb175ef89e3ee99825"
+            }
+          ]
+        },
+        {
+          "id": "vae",
+          "role": "vae",
+          "additionalRoles": [],
+          "label": "FLUX VAE (from FLUX.1-schnell)",
+          "repository": "black-forest-labs/FLUX.1-schnell",
+          "revision": "741f7c3ce8b383c54771c7003378a50191e9efe9",
+          "include": [
+            "ae.safetensors"
+          ],
+          "primary": "ae.safetensors",
+          "files": [
+            {
+              "path": "ae.safetensors",
+              "size": 335304388,
+              "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "image editing (one reference image): 23.9 dB at 1024 vs FluxKontextPipeline on the same files (20 steps, embedded guidance 2.5; the same edit, stripe edges drift); transformer with the reference 3.0e-4",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "FluxKontextTests"
+        ]
+      },
+      "notes": "recognized by the file name (kontext) or FluxKontextPipeline; the reference image is resized to the output size (default: its own size); Studio\u0027s Image page shows the edit input",
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "black-forest-labs/FLUX.1-Kontext-dev (gated), QuantStack/FLUX.1-Kontext-dev-GGUF",
+            "formats": "GGUF Q8_0 \u002B the FLUX.1 companions (CLIP-L, T5-XXL Q8_0, VAE)",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
       "id": "sd3.5-medium",
       "name": "SD3.5 Medium",
       "kind": "image-generation",
