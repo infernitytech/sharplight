@@ -42,7 +42,7 @@ internal static class Diff
                 MaxTokens = maxTokens,
                 ContextLength = ctx,
                 SymbolBounds = new Dictionary<string, long> { ["R"] = maxTokens, [Models.WellKnown.RunSymbol] = maxTokens },
-                DisabledFeatures = disabledFeatures ?? new HashSet<string>(),
+                DisabledFeatures = WithSmallMatrices(disabledFeatures),
                 AllowReducedPrecision = allowReducedPrecision,
                 MatrixPrecision = precision,
                 RowInvariantRows = rowInvariantRows,
@@ -50,7 +50,21 @@ internal static class Diff
             ReservePerDevice = 0,
         });
 
-    private static RunParameters Params(Step s)
+    /// <summary>
+    /// A test that turns the f16 matrix units off (to reach the SIMT or exact paths) turns off their 8x8 form too
+    /// (<see cref="DeviceFeatures.MatrixF16Small"/>, Metal), which would otherwise take the same matmuls with f16 operands.
+    /// </summary>
+    private static IReadOnlySet<string> WithSmallMatrices(IReadOnlySet<string>? disabledFeatures)
+    {
+        if (disabledFeatures is null || !disabledFeatures.Contains(DeviceFeatures.MatrixF16))
+        {
+            return disabledFeatures ?? new HashSet<string>();
+        }
+
+        return new HashSet<string>(disabledFeatures) { DeviceFeatures.MatrixF16Small };
+    }
+
+        private static RunParameters Params(Step s)
     {
         var p = new RunParameters();
         p.Symbols["T"] = s.T; p.Symbols["R"] = s.R ?? s.T;

@@ -160,7 +160,7 @@ public sealed partial class GraphLowerer
             : keySplits > 1 ? AttentionScratch(keySplits * maxRows * plan.HQ * (plan.DV + 2) * 4) : o;
         // Split-K decoding merges the partials in the last workgroup of each row instead of a combine launch, where that
         // workgroup's share (its heads one after another) stays small; see FusedDecodeCombineMaxWidth.
-        var arrivals = decode is not null && keySplits == 1 && !plan.Cross && DiagnosticSwitches.AttentionDecodeFusedCombine
+        var arrivals = decode is not null && keySplits == 1 && !plan.Cross && DiagnosticSwitches.AttentionDecodeFusedCombine && _opt.CrossWorkgroupFences
                        && long.Parse(decode.Macros["HPW"], CultureInfo.InvariantCulture) * plan.DV <= FusedDecodeCombineMaxWidth
             ? DecodeArrivals(Math.Min(maxRows, decode.MaxRows) * decode.Groups) : null;
         var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };

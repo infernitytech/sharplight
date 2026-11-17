@@ -5214,3 +5214,20 @@ TAG=before SL_ARGS="--batch 512" SRV_ARGS="--prefill-chunk 512" bench/s38_all.sh
 bench/s38_all.sh sharplight after
 python3 bench/s38_summarize.py bench/results/s38 before,after
 ```
+
+## 39. Apple silicon: native Metal provider against MoltenVK (macOS CI, 2026-11-17)
+
+GitHub's `macos-15` runner (Apple M1 virtual machine, paravirtual Apple GPU: Mac2 family, argument buffers tier 2, 3 CPU cores,
+7 GB), branch `macos/metal-r1`, job `metal` of `.github/workflows/macos.yml`. Numbers are indicative only (shared virtualized
+hardware, one run each). Qwen2.5-0.5B-Instruct Q4_K_M, `sharplight MODEL --provider metal|vulkan --bench N` (best warm prefill of
+N tokens; decode: 64 steps, best / median):
+
+| Provider | prefill 128 | prefill 512 | decode (128-token prompt) best / median |
+| --- | --- | --- | --- |
+| Metal (`Sharplight.Metal`, `gemm_sg` on 8x8 simdgroup matrices) | **1488.7 tok/s** | **1270.4 tok/s** | **62.2 / 54.4 tok/s** |
+| Vulkan through MoltenVK (SIMT GEMM) | 608.0 tok/s | 545.7 tok/s | 52.7 / 49.5 tok/s |
+
+Run 44012579617. Prefill is 2.3-2.4x faster: the prefill matmuls run on `simdgroup_matrix` (MoltenVK exposes no cooperative
+matrices, so the Vulkan kernels take the SIMT GEMM), and launches are encoded without MoltenVK's translation layer. Decode is
+memory bound and gains about 10-18 %. The benchmark job `metal-bench` adds Qwen3-0.6B / 1.7B and Llama-3.2-1B (Q8_0, Q4_K_M)
+against llama.cpp's Metal backend (b11177, `llama-bench -ngl 99 -fa 1 -p 512 -n 128`).

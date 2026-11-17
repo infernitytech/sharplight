@@ -79,6 +79,7 @@ internal sealed class MetalCodeGenerator
             SubmissionBudgetMs = SubmissionBudgetMs,
             ConcurrentWorkgroups = ConcurrentWorkgroups,
             ComputeUnits = ComputeUnits,
+            CrossWorkgroupFences = false,
             Cache = cache,
         });
         kernels = [.. program.Launches.Concat(program.ResetLaunches).SelectMany(l => l.Variants).Select(v => v.Kernel).DistinctBy(k => k.CacheKey)];

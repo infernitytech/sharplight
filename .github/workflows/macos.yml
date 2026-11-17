@@ -128,6 +128,16 @@ jobs:
           SHARPLIGHT_TEST_PROVIDER: metal
         run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -longRunning 300 -result-xml "$RUNNER_TEMP/metal-other-tests.xml" $(echo "${{ env.VULKAN_CORE }} ${{ env.VULKAN_MMQ }} ${{ env.VULKAN_QUANT }} ${{ env.METAL_ATTENTION }}" | sed 's/-class /-class- /g')
 
+      # Diagnostics: the stateful attention classes again with serial dispatches (no concurrency, no reliance on barrier placement).
+      - name: Metal stateful attention, serial dispatches (diagnostics)
+        if: success() || failure()
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          SHARPLIGHT_TEST_PROVIDER: metal
+          SHARPLIGHT_MTL_SERIAL: 1
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -class Sharplight.Vulkan.Tests.StatefulTests -class Sharplight.Vulkan.Tests.PagedAttentionTests 2>&1 | grep -E 'FAIL|Total:' | cut -c1-300
+
       - name: Failed tests
         if: success() || failure()
         run: |
