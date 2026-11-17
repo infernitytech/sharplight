@@ -19,6 +19,7 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private bool _initializing = true;
     private bool _started;
+    private string? _declinedDowngrade;
 
     public UpdatesViewModel(StudioServices services, TimeProvider? time = null, TimeSpan? interval = null)
     {
@@ -28,14 +29,57 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
         AutoCheck = services.Settings.Current.AutoCheckForUpdates;
         LastChecked = services.Settings.Current.LastUpdateCheck;
         StatusText = services.Updates.Support.IsSupported ? "" : services.Updates.Support.Reason ?? "";
+        InstalledKind = UpdateChannels.KindOf(services.Updates.Channel);
+        SelectedChannel = UpdateChannelChoice.For(UpdateChannels.Parse(services.Settings.Current.UpdateChannel) ?? InstalledKind);
         _initializing = false;
     }
 
     /// <summary>The running version.</summary>
     public string CurrentVersion => _services.Updates.CurrentVersion;
 
-    /// <summary>The update channel of this install, or a note that there is none.</summary>
-    public string ChannelText => _services.Updates.Channel ?? "none (not installed)";
+    /// <summary>The stream of the channel this install came from.</summary>
+    public UpdateChannelKind InstalledKind { get; }
+
+    /// <summary>The installed channel for display ("Stable", "Preview (unstable)", or a note when not installed).</summary>
+    public string InstalledChannelText => _services.Updates.Channel is null ? "none (not installed)" : UpdateChannelChoice.For(InstalledKind).Title;
+
+    /// <summary>The channels to pick from.</summary>
+    public IReadOnlyList<UpdateChannelChoice> Channels => UpdateChannelChoice.All;
+
+    /// <summary>The channel updates are checked against; saved in the settings (a choice equal to the installed one is kept explicitly).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedChannelName), nameof(NoReleaseText))]
+    public partial UpdateChannelChoice SelectedChannel { get; set; }
+
+    /// <summary>The feed name of the selected channel, e.g. <c>linux-x64-stable</c>; null when not installed.</summary>
+    public string? SelectedChannelName => UpdateChannels.Name(_services.Updates.Channel, SelectedChannel.Kind);
+
+    /// <summary>The channel can be switched (updates supported, nothing running).</summary>
+    public bool CanSwitchChannel => IsSupported && !IsChecking && !IsDownloading;
+
+    /// <summary>The selected channel has no release yet.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(NoReleaseText))]
+    public partial bool HasNoRelease { get; set; }
+
+    /// <summary>"No stable release yet" for the selected channel.</summary>
+    public string NoReleaseText => $"No {ChannelWord} release yet: nothing is published on this channel so far. Studio stays on the current version.";
+
+    private string ChannelWord => SelectedChannel.Kind == UpdateChannelKind.Preview ? "preview" : "stable";
+
+    /// <summary>The selected channel is behind the running version: its latest release, waiting for the user's decision; null when none.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDowngradeOffer), nameof(DowngradeText))]
+    public partial UpdateOffer? DowngradeOffer { get; set; }
+
+    /// <summary>Installing the channel's release would downgrade Studio.</summary>
+    public bool HasDowngradeOffer => DowngradeOffer is not null;
+
+    /// <summary>The question shown before a downgrade.</summary>
+    public string DowngradeText => DowngradeOffer is { } offer
+        ? $"The {SelectedChannel.Title} channel is at {offer.Version}, which is older than the {CurrentVersion} you are running. "
+            + "Installing it is a downgrade and may not read data written by the newer version. Downgrade, or stay on the current version until this channel catches up?"
+        : "";
 
     /// <summary>Updates can be checked for (installed, feed configured).</summary>
     public bool IsSupported => _services.Updates.Support.IsSupported;
@@ -61,6 +105,7 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
 
     /// <summary>A check is running.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSwitchChannel))]
     [NotifyCanExecuteChangedFor(nameof(CheckNowCommand))]
     public partial bool IsChecking { get; set; }
 
@@ -76,7 +121,7 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
 
     /// <summary>The package is downloading.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanDownload))]
+    [NotifyPropertyChangedFor(nameof(CanDownload), nameof(CanSwitchChannel))]
     [NotifyCanExecuteChangedFor(nameof(DownloadCommand), nameof(CheckNowCommand))]
     public partial bool IsDownloading { get; set; }
 
@@ -101,7 +146,8 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
     public bool CanDownload => HasOffer && !IsDownloading && !IsReady;
 
     /// <summary>Dialog title text: "Sharplight Studio 0.2.7 is available".</summary>
-    public string OfferTitle => Offer is { } offer ? $"Sharplight Studio {offer.Version} is available (you have {CurrentVersion})" : "";
+    public string OfferTitle => Offer is { IsDowngrade: true } older ? $"Sharplight Studio {older.Version} (downgrade from {CurrentVersion})"
+        : Offer is { } offer ? $"Sharplight Studio {offer.Version} is available (you have {CurrentVersion})" : "";
 
     /// <summary>The Markdown release notes of the offer, or a placeholder.</summary>
     public string ReleaseNotes => Offer?.ReleaseNotes is { Length: > 0 } notes ? notes : "_No release notes._";
@@ -143,7 +189,7 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
         Error = null;
         try
         {
-            var result = await _services.Updates.CheckAsync(_lifetime.Token);
+            var result = await _services.Updates.CheckAsync(SelectedChannelName, _lifetime.Token);
             Apply(result, manual);
         }
         catch (OperationCanceledException)
@@ -171,6 +217,25 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
         }
     }
 
+    partial void OnSelectedChannelChanged(UpdateChannelChoice value)
+    {
+        if (_initializing)
+        {
+            return;
+        }
+
+        _services.Settings.Update(settings => settings with { UpdateChannel = UpdateChannels.Key(value.Kind) });
+        Offer = null;
+        DowngradeOffer = null;
+        IsReady = false;
+        HasNoRelease = false;
+        _declinedDowngrade = null;
+        if (IsSupported)
+        {
+            _ = CheckAsync(manual: true);
+        }
+    }
+
     private void Apply(UpdateCheckResult result, bool manual)
     {
         LastChecked = _time.GetUtcNow();
@@ -181,6 +246,33 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
             return;
         }
 
+        HasNoRelease = result.NoRelease;
+        if (result.NoRelease)
+        {
+            Offer = null;
+            DowngradeOffer = null;
+            StatusText = $"No {ChannelWord} release yet. Studio {CurrentVersion} stays as it is.";
+            return;
+        }
+
+        if (result.Offer is { IsDowngrade: true } older)
+        {
+            Offer = null;
+            if (older.Version == _declinedDowngrade)
+            {
+                DowngradeOffer = null;
+                StatusText = $"Staying on {CurrentVersion} until the {SelectedChannel.Title} channel catches up (it is at {older.Version}).";
+            }
+            else
+            {
+                DowngradeOffer = older;
+                StatusText = $"The {SelectedChannel.Title} channel is at {older.Version}, older than {CurrentVersion}.";
+            }
+
+            return;
+        }
+
+        DowngradeOffer = null;
         if (result.Offer is { } offer)
         {
             bool isNew = Offer?.Version != offer.Version;
@@ -273,6 +365,36 @@ internal sealed partial class UpdatesViewModel : ObservableObject, IDisposable
         {
             Error = $"The update could not be installed: {error.Message}";
         }
+    }
+
+    /// <summary>Accepts the downgrade: the older release becomes the offer, which is then downloaded and installed like any update.</summary>
+    [RelayCommand]
+    private void ConfirmDowngrade()
+    {
+        if (DowngradeOffer is not { } older)
+        {
+            return;
+        }
+
+        _declinedDowngrade = null;
+        DowngradeOffer = null;
+        Offer = older;
+        IsReady = false;
+        StatusText = $"Version {older.Version} (a downgrade) is ready to download.";
+    }
+
+    /// <summary>Declines the downgrade and keeps the running version; the question is not asked again for that release.</summary>
+    [RelayCommand]
+    private void StayOnCurrent()
+    {
+        if (DowngradeOffer is not { } older)
+        {
+            return;
+        }
+
+        _declinedDowngrade = older.Version;
+        DowngradeOffer = null;
+        StatusText = $"Staying on {CurrentVersion} until the {SelectedChannel.Title} channel catches up (it is at {older.Version}).";
     }
 
     /// <summary>Closes the dialog; the offer stays visible in Settings.</summary>

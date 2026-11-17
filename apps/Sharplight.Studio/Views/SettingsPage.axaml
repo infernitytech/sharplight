@@ -8,22 +8,30 @@
              x:Class="Sharplight.Studio.Views.SettingsPage"
              x:DataType="setvm:SettingsPageViewModel">
   <DockPanel Margin="28,22,28,0">
-    <StackPanel DockPanel.Dock="Top" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
-      <DockPanel>
-        <Button DockPanel.Dock="Right" Classes="small" Content="Reset defaults" Command="{Binding ResetDefaultsCommand}" VerticalAlignment="Center" />
+    <Grid DockPanel.Dock="Top" Margin="12,0,12,0" RowDefinitions="Auto,Auto">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MaxWidth="980" />
+      </Grid.ColumnDefinitions>
+      <Grid ColumnDefinitions="*,Auto">
         <StackPanel Spacing="4">
           <TextBlock Classes="h1" Text="Settings" />
           <TextBlock Classes="muted" Text="Changes are saved immediately." />
         </StackPanel>
-      </DockPanel>
-      <Border Classes="hint" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+        <Button x:Name="ResetButton" Grid.Column="1" Classes="small" Content="Reset defaults" Command="{Binding ResetDefaultsCommand}"
+                VerticalAlignment="Center" Margin="12,0,0,0" />
+      </Grid>
+      <Border Grid.Row="1" Classes="hint" Margin="0,16,0,0" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
         <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
       </Border>
-    </StackPanel>
+    </Grid>
     <TabControl Margin="0,12,0,0" SelectedIndex="{Binding SelectedTabIndex}">
       <TabItem Header="General">
         <ScrollViewer>
-          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <Grid Margin="0,16,0,24">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MaxWidth="980" />
+          </Grid.ColumnDefinitions>
+          <StackPanel Spacing="16">
           <!-- Appearance -->
           <Border Classes="card">
             <StackPanel Spacing="12">
@@ -120,11 +128,16 @@
             </StackPanel>
           </Border>
           </StackPanel>
+          </Grid>
         </ScrollViewer>
       </TabItem>
       <TabItem Header="Storage">
         <ScrollViewer>
-          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <Grid Margin="0,16,0,24">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MaxWidth="980" />
+          </Grid.ColumnDefinitions>
+          <StackPanel Spacing="16">
           <!-- Storage -->
           <Border Classes="card" DataContext="{Binding Storage}" x:DataType="setvm:StorageSettingsViewModel">
             <StackPanel Spacing="12">
@@ -210,11 +223,16 @@
             </StackPanel>
           </Border>
           </StackPanel>
+          </Grid>
         </ScrollViewer>
       </TabItem>
       <TabItem Header="Models">
         <ScrollViewer>
-          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <Grid Margin="0,16,0,24">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MaxWidth="980" />
+          </Grid.ColumnDefinitions>
+          <StackPanel Spacing="16">
           <!-- Models -->
           <Border Classes="card">
             <StackPanel Spacing="12">
@@ -258,11 +276,16 @@
             </StackPanel>
           </Border>
           </StackPanel>
+          </Grid>
         </ScrollViewer>
       </TabItem>
       <TabItem Header="Engine">
         <ScrollViewer>
-          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <Grid Margin="0,16,0,24">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MaxWidth="980" />
+          </Grid.ColumnDefinitions>
+          <StackPanel Spacing="16">
           <!-- Load defaults -->
           <Border Classes="card">
             <StackPanel Spacing="12">
@@ -372,23 +395,51 @@
             </StackPanel>
           </Border>
           </StackPanel>
+          </Grid>
         </ScrollViewer>
       </TabItem>
       <TabItem Header="Updates">
         <ScrollViewer>
-          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <Grid Margin="0,16,0,24">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MaxWidth="980" />
+          </Grid.ColumnDefinitions>
+          <StackPanel Spacing="16">
           <!-- Updates -->
           <Border Classes="card">
             <StackPanel Spacing="10" x:DataType="upvm:UpdatesViewModel" DataContext="{Binding Updates}">
               <TextBlock Classes="h3" Text="Updates" />
-              <Grid ColumnDefinitions="200,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+              <Grid ColumnDefinitions="200,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
                 <TextBlock Classes="label" Text="Version" />
                 <TextBlock Grid.Column="1" Text="{Binding CurrentVersion}" />
-                <TextBlock Grid.Row="1" Classes="label" Text="Channel" />
-                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ChannelText}" />
-                <TextBlock Grid.Row="2" Classes="label" Text="Last checked" />
-                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding LastCheckedText}" />
+                <TextBlock Grid.Row="1" Classes="label" Text="Installed channel" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding InstalledChannelText}" />
+                <TextBlock Grid.Row="2" Classes="label" Text="Update channel" VerticalAlignment="Center" />
+                <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding Channels}" SelectedItem="{Binding SelectedChannel}"
+                          IsEnabled="{Binding CanSwitchChannel}" MinWidth="200" HorizontalAlignment="Left">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="upvm:UpdateChannelChoice">
+                      <TextBlock Text="{Binding Title}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Grid.Row="3" Classes="label" Text="Last checked" />
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding LastCheckedText}" />
               </Grid>
+              <TextBlock Classes="caption" TextWrapping="Wrap"
+                         Text="Preview builds come from the development branch and may be unstable. Switching channels checks that channel's feed right away." />
+              <Border Classes="hint" IsVisible="{Binding HasNoRelease}">
+                <TextBlock Text="{Binding NoReleaseText}" TextWrapping="Wrap" />
+              </Border>
+              <Border Classes="hint" IsVisible="{Binding HasDowngradeOffer}">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="{Binding DowngradeText}" TextWrapping="Wrap" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Classes="small danger" Content="Downgrade" Command="{Binding ConfirmDowngradeCommand}" />
+                    <Button Classes="small" Content="Stay on the current version" Command="{Binding StayOnCurrentCommand}" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
               <Border Classes="hint" IsVisible="{Binding !IsSupported}">
                 <TextBlock Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
               </Border>
@@ -403,11 +454,16 @@
             </StackPanel>
           </Border>
           </StackPanel>
+          </Grid>
         </ScrollViewer>
       </TabItem>
       <TabItem Header="Data and about">
         <ScrollViewer>
-          <StackPanel Margin="0,16,0,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+          <Grid Margin="0,16,0,24">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MaxWidth="980" />
+          </Grid.ColumnDefinitions>
+          <StackPanel Spacing="16">
           <!-- Data / About -->
           <Border Classes="card">
             <StackPanel Spacing="10">
@@ -428,6 +484,7 @@
             </StackPanel>
           </Border>
           </StackPanel>
+          </Grid>
         </ScrollViewer>
       </TabItem>
     </TabControl>

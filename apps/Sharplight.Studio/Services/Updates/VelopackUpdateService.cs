@@ -7,11 +7,13 @@ namespace Sharplight.Studio.Services.Updates;
 
 /// <summary>
 /// Update checks and installs through Velopack, against the feed at <see cref="UpdateEndpoint"/>. The channel is the one the
-/// installed package was built for (<c>vpk pack --channel</c>), so a stable install never sees unstable builds.
+/// installed package was built for (<c>vpk pack --channel</c>) unless the user picked another one, which is passed to Velopack as the
+/// explicit channel (moving to an older release is allowed; the view model asks before it installs one).
 /// </summary>
 internal sealed class VelopackUpdateService : IUpdateService
 {
-    private readonly UpdateManager? _manager;
+    private readonly IVelopackLocator? _locator;
+    private UpdateManager? _manager;
     private UpdateInfo? _pending;
 
     /// <summary>Creates the service; <paramref name="updateUrl"/> is the resolved feed URL (see <see cref="UpdateEndpoint.Resolve"/>).</summary>
@@ -36,7 +38,7 @@ internal sealed class VelopackUpdateService : IUpdateService
             }
             else
             {
-                _manager = new UpdateManager(new SimpleWebSource(updateUrl), null, locator);
+                _locator = locator;
                 Support = UpdateSupport.Supported;
             }
         }
@@ -55,17 +57,20 @@ internal sealed class VelopackUpdateService : IUpdateService
     public string? UpdateUrl { get; }
 
     /// <inheritdoc/>
-    public async Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken)
+    public async Task<UpdateCheckResult> CheckAsync(string? channel, CancellationToken cancellationToken)
     {
-        if (_manager is null)
+        if (_locator is null || UpdateUrl is null)
         {
             return UpdateCheckResult.Failed(Support.Reason ?? "Updates are unavailable.");
         }
 
         try
         {
-            var info = await _manager.CheckForUpdatesAsync().WaitAsync(cancellationToken);
-            if (info is null || info.IsDowngrade)
+            var options = new UpdateOptions { ExplicitChannel = channel ?? Channel, AllowVersionDowngrade = true };
+            var manager = new UpdateManager(new SimpleWebSource(UpdateUrl), options, _locator);
+            var info = await manager.CheckForUpdatesAsync().WaitAsync(cancellationToken);
+            _manager = manager;
+            if (info is null)
             {
                 _pending = null;
                 return UpdateCheckResult.UpToDate;
@@ -73,11 +78,12 @@ internal sealed class VelopackUpdateService : IUpdateService
 
             _pending = info;
             var release = info.TargetFullRelease;
-            return UpdateCheckResult.Found(new UpdateOffer(release.Version.ToString(), release.NotesMarkdown, release.Size));
+            return UpdateCheckResult.Found(new UpdateOffer(release.Version.ToString(), release.NotesMarkdown, release.Size, info.IsDowngrade));
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
-            return UpdateCheckResult.Failed(error.Message);
+            _pending = null;
+            return IsMissingFeed(error) ? UpdateCheckResult.NoReleaseYet : UpdateCheckResult.Failed(error.Message);
         }
     }
 
@@ -94,6 +100,21 @@ internal sealed class VelopackUpdateService : IUpdateService
     private UpdateInfo Pending(UpdateOffer offer) => _manager is not null && _pending is { } info && info.TargetFullRelease.Version.ToString() == offer.Version
         ? info
         : throw new InvalidOperationException($"Version {offer.Version} is not the update that was found; check for updates again.");
+
+    private static bool IsMissingFeed(Exception error)
+    {
+        for (var current = error; current is not null; current = current.InnerException)
+        {
+            if (current is HttpRequestException { StatusCode: System.Net.HttpStatusCode.NotFound }
+                || current.Message.Contains("404", StringComparison.Ordinal)
+                || current.Message.Contains("Not Found", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static IVelopackLocator? TryGetLocator()
     {
