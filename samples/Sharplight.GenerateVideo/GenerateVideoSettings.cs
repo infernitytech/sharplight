@@ -11,6 +11,8 @@ internal sealed record GenerateVideoSettings
 
     public string? ImageEncoder { get; init; }
 
+    public string? Vae { get; init; }
+
     public float? Guidance2 { get; init; }
 
     public required string Prompt { get; init; }

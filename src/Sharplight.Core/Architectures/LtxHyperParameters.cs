@@ -29,6 +29,12 @@ internal sealed record LtxHyperParameters
     /// <summary>RoPE grid normalization: frames, rows, columns of the base grid.</summary>
     public required float[] RopeBase { get; init; }
 
+    /// <summary>
+    /// Whether the RoPE frame coordinate of a latent frame is its last pixel frame, max(f · t + 1 − t, 0), as Lightricks' inference and
+    /// diffusers' condition pipeline compute it, instead of f · t (diffusers' <c>LTXPipeline</c>).
+    /// </summary>
+    public bool CausalFrameCoordinates { get; init; }
+
     /// <summary>Width per head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
 
@@ -48,6 +54,7 @@ internal sealed record LtxHyperParameters
             NormEps = source.Get(p + "norm_eps", 1e-6f),
             RopeTheta = source.Get(p + "rope_theta", 10000f),
             RopeBase = source.Get<float[]>(p + "rope_base", [20f, 2048f, 2048f]),
+            CausalFrameCoordinates = source.Get(p + "causal_frame_coordinates", false),
         };
     }
 }
