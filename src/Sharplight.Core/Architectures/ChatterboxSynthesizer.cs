@@ -20,13 +20,15 @@ namespace Sharplight.Architectures;
 /// tokens after the voice's flow prompt are encoded to <c>mu</c>, ten Euler steps of the guided flow-matching field turn noise into the mel (the
 /// prompt's mel as condition), and HiFT turns the mel into 24 kHz audio with a 20 ms fade-in. One request runs at a time.
 /// </summary>
-internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
+internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer, IVoiceCloner
 {
     /// <summary>The emotion exaggeration of the reference's default.</summary>
     public const float DefaultExaggeration = 0.5f;
 
     /// <summary>T3's classifier-free guidance weight.</summary>
     public const float GuidanceWeight = 0.5f;
+
+    private const int MinFirstClause = 24;
 
     private const string SpaceToken = "[SPACE]";
 
@@ -128,7 +130,7 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
         ArgumentNullException.ThrowIfNull(text);
         ObjectDisposedException.ThrowIf(_disposed, this);
         var audio = await BackgroundCompute.RunAsync(_gate, () => Synthesize(text, options, cancellationToken), cancellationToken).ConfigureAwait(false);
-        return new SpeechSynthesisResult(audio, options?.ReferenceAudio is not null ? "reference" : options?.Voice ?? DefaultVoice);
+        return new SpeechSynthesisResult(audio, options?.VoiceProfile is { } profile ? profile.Name : options?.ReferenceAudio is not null ? "reference" : options?.Voice ?? DefaultVoice);
     }
 
     /// <inheritdoc/>
@@ -450,10 +452,43 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
         return text;
     }
 
+    /// <inheritdoc/>
+    public string VoiceArchitecture => ChatterboxAdapter.Family;
+
+    /// <inheritdoc/>
+    public async Task<VoiceProfile> CreateVoiceAsync(string name, AudioBuffer recording, string? referenceText = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recording);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var voice = await BackgroundCompute.RunAsync(_gate, () => CloneVoice(recording, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return new VoiceProfile
+        {
+            Name = name,
+            Architecture = VoiceArchitecture,
+            ReferenceText = referenceText,
+            SampleRate = SampleRate,
+            Tensors = new Dictionary<string, VoiceTensor>
+            {
+                ["speaker"] = VoiceTensor.From(voice.Speaker),
+                ["prompt_tokens"] = VoiceTensor.From(voice.PromptTokens),
+                ["flow_tokens"] = VoiceTensor.From(voice.FlowTokens),
+                ["flow_mel"] = VoiceTensor.From(voice.FlowMel),
+                ["flow_speaker"] = VoiceTensor.From(voice.FlowSpeaker),
+            },
+        };
+    }
+
     // The recording's voice when the request has one (the last recording's voice is kept for the next request with the same recording), else the
     // named built-in voice.
     private ChatterboxVoice VoiceFor(SpeechSynthesisOptions? options, CancellationToken cancellationToken)
     {
+        if (options?.VoiceProfile is { } profile)
+        {
+            profile.RequireArchitecture(VoiceArchitecture);
+            return new ChatterboxVoice(profile.Tensor("speaker").ToFloats(), profile.Tensor("prompt_tokens").ToInts(), profile.Tensor("flow_tokens").ToInts(),
+                profile.Tensor("flow_mel").ToFloats(), profile.Tensor("flow_speaker").ToFloats());
+        }
+
         if (options?.ReferenceAudio is not { } recording)
         {
             return LoadVoice(options?.Voice ?? DefaultVoice);
@@ -473,6 +508,7 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
 
     private AudioBuffer Synthesize(string text, SpeechSynthesisOptions? options, CancellationToken cancellationToken)
     {
+        text = options.NormalizedText(text);
         var voice = VoiceFor(options, cancellationToken);
         var sampling = options.SamplingOr(new SamplingOptions { Temperature = 0.8f, TopK = 0, TopP = 1f, MinP = 0.05f, RepetitionPenalty = 1.2f });
         var condition = ConditionRows(voice, DefaultExaggeration);
@@ -488,7 +524,7 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
 
     private async IAsyncEnumerable<AudioBuffer> StreamCoreAsync(string text, SpeechSynthesisOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        foreach (string sentence in Sentences(text))
+        foreach (string sentence in FirstClauseSplit(Sentences(options.NormalizedText(text))))
         {
             await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -499,6 +535,29 @@ internal sealed class ChatterboxSynthesizer : ISpeechSynthesizer
             {
                 _gate.Release();
             }
+        }
+    }
+
+    // Low first-audio latency: the first sentence is cut at its first clause boundary (comma or semicolon) when both halves are long enough to stand alone,
+    // so the first chunk is a clause rather than a whole sentence.
+    private static IEnumerable<string> FirstClauseSplit(IEnumerable<string> sentences)
+    {
+        bool first = true;
+        foreach (string sentence in sentences)
+        {
+            if (first)
+            {
+                first = false;
+                int cut = sentence.IndexOfAny([',', ';'], MinFirstClause);
+                if (cut > 0 && sentence.Length - cut - 1 >= MinFirstClause)
+                {
+                    yield return sentence[..(cut + 1)].Trim();
+                    yield return sentence[(cut + 1)..].Trim();
+                    continue;
+                }
+            }
+
+            yield return sentence;
         }
     }
 
