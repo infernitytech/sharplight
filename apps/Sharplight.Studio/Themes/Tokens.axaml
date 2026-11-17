@@ -1,0 +1,25 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Generated from design/tokens.json by tools/design-tokens (docs/design-tokens.md); edit the tokens, not this file. -->
+  <!-- Typography and corner radii; Styles.axaml uses them as dynamic resources. The sans family is the embedded Inter (App.axaml). -->
+  <FontFamily x:Key="MonoFontFamily">Cascadia Code, JetBrains Mono, Consolas, DejaVu Sans Mono, Menlo, monospace</FontFamily>
+  <x:Double x:Key="FontSizeH1">24</x:Double>
+  <x:Double x:Key="FontSizeH2">17</x:Double>
+  <x:Double x:Key="FontSizeH3">14</x:Double>
+  <x:Double x:Key="FontSizeBig">26</x:Double>
+  <x:Double x:Key="FontSizeBody">14</x:Double>
+  <x:Double x:Key="FontSizeCaption">12</x:Double>
+  <x:Double x:Key="FontSizeSection">11</x:Double>
+  <x:Double x:Key="FontSizeMono">12.5</x:Double>
+  <CornerRadius x:Key="RadiusTick">3</CornerRadius>
+  <CornerRadius x:Key="RadiusXs">4</CornerRadius>
+  <CornerRadius x:Key="RadiusTag">5</CornerRadius>
+  <CornerRadius x:Key="RadiusSm">6</CornerRadius>
+  <CornerRadius x:Key="RadiusSegment">7</CornerRadius>
+  <CornerRadius x:Key="RadiusMd">8</CornerRadius>
+  <CornerRadius x:Key="RadiusNav">9</CornerRadius>
+  <CornerRadius x:Key="RadiusLg">10</CornerRadius>
+  <CornerRadius x:Key="RadiusXl">12</CornerRadius>
+  <CornerRadius x:Key="RadiusAvatar">14</CornerRadius>
+  <CornerRadius x:Key="Radius2xl">16</CornerRadius>
+</ResourceDictionary>

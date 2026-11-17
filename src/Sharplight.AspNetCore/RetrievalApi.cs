@@ -5,7 +5,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Sharplight.Hosting.Loaders;
 using Sharplight.Llm.Embeddings;
+using Sharplight.Llm.Serving.Hosting;
 
 namespace Sharplight.AspNetCore;
 
@@ -28,18 +30,21 @@ public static class RetrievalApi
 {
     extension(IEndpointRouteBuilder routes)
     {
-        /// <summary>Maps <c>/v1/embeddings</c> and the rerank routes for the registered models (nothing when none are registered).</summary>
+        /// <summary>
+        /// Maps <c>/v1/embeddings</c> and the rerank routes when embedding / rerank models are registered, either directly
+        /// (<c>AddSharplightEmbeddings</c>, <c>AddSharplightReranker</c>) or as models of kind <c>Embedding</c> / <c>Reranker</c> of the server's
+        /// <see cref="Llm.Serving.Hosting.ModelHost"/> (e.g. through Sharplight.Hosting); nothing when there are none.
+        /// </summary>
         public IEndpointRouteBuilder MapSharplightRetrieval()
         {
-            if (routes.ServiceProvider.GetService<RetrievalModels>() is not { } models)
-            {
-                return routes;
-            }
-            if (models.Embedders.Count > 0)
+            var models = routes.ServiceProvider.GetService<RetrievalModels>() ?? new RetrievalModels();
+            var host = routes.ServiceProvider.GetService<SharplightServerContext>()?.Host;
+            bool HostHas(ModelKind kind) => host?.List().Any(model => model.Kind == kind) ?? false;
+            if (models.Embedders.Count > 0 || HostHas(ModelKind.Embedding))
             {
                 routes.MapPost("/v1/embeddings", http => Handle(http, () => Embeddings(http, models)));
             }
-            if (models.Rerankers.Count > 0)
+            if (models.Rerankers.Count > 0 || HostHas(ModelKind.Reranker))
             {
                 foreach (var path in new[] { "/v1/rerank", "/v2/rerank", "/rerank" })
                 {
@@ -59,7 +64,7 @@ public static class RetrievalApi
         }
         catch (ApiException ex)
         {
-            await ApiErrors.WriteAsync(http, ex.Status, ex.Type, ex.Message, ex.Code, ex.Param);
+            await ApiErrors.WriteAsync(http, ex);
         }
         catch (ArgumentException ex)
         {
@@ -72,19 +77,73 @@ public static class RetrievalApi
         }
     }
 
-    private static T Pick<T>(Dictionary<string, T> all, string? requested, string? fallback, string kind)
+    /// <summary>
+    /// The model a retrieval request names: a directly registered one, else a model of the server's host (leased until the response is
+    /// written), within the request's aliases when its context has them. A single directly registered model answers to any name.
+    /// </summary>
+    private static async Task<(T Model, IDisposable? Lease, string Name)> PickAsync<T>(HttpContext http, Dictionary<string, T> all, string? requested,
+        string? fallback, string kind, ModelKind hostKind, Func<LoadedModel, T?> extract)
+        where T : class
     {
-        if (requested is not null && all.TryGetValue(requested, out var m))
+        var ctx = http.RequestServices.GetService<SharplightServerContext>();
+        bool anthropic = ApiErrors.IsAnthropic(http);
+        if (SharplightServerContext.Aliases(http, out var defaultModel) is { } aliases)
         {
-            return m;
-        }
-        // A single model answers to any name (clients often hard-code e.g. "text-embedding-3-small").
-        if (requested is null || all.Count == 1)
-        {
-            return all[fallback ?? all.Keys.First()];
+            string? alias = requested ?? defaultModel ?? aliases.FirstOrDefault(entry => all.ContainsKey(entry.Value) || ctx?.Host.Get(entry.Value)?.Kind == hostKind).Key;
+            if (alias is null || !aliases.TryGetValue(alias, out var target))
+            {
+                throw ApiException.ModelNotFound($"The {kind} model '{alias}' does not exist.", anthropic);
+            }
+
+            if (all.TryGetValue(target, out var registered))
+            {
+                await SharplightServerContext.AdmitAsync(http, alias);
+                return (registered, null, alias);
+            }
+
+            return await FromHostAsync(http, ctx, alias, hostKind, kind, extract);
         }
 
-        throw new ApiException(404, "invalid_request_error", $"The {kind} model '{requested}' does not exist (available: {string.Join(", ", all.Keys)}).", "model_not_found", "model");
+        if (requested is not null && all.TryGetValue(requested, out var named))
+        {
+            await SharplightServerContext.AdmitAsync(http, requested);
+            return (named, null, requested);
+        }
+
+        if (ctx is not null && (requested is null ? all.Count == 0 && ctx.DefaultName(hostKind) is not null : ctx.Host.Contains(requested) && ctx.IsServed(requested)))
+        {
+            return await FromHostAsync(http, ctx, requested, hostKind, kind, extract);
+        }
+
+        // A single model answers to any name (clients often hard-code e.g. "text-embedding-3-small").
+        if (all.Count > 0 && (requested is null || all.Count == 1))
+        {
+            var name = fallback ?? all.Keys.First();
+            await SharplightServerContext.AdmitAsync(http, requested ?? name);
+            return (all[name], null, requested ?? name);
+        }
+
+        throw ApiException.ModelNotFound($"The {kind} model '{requested}' does not exist.", anthropic);
+    }
+
+    private static async Task<(T Model, IDisposable? Lease, string Name)> FromHostAsync<T>(HttpContext http, SharplightServerContext? ctx, string? name,
+        ModelKind hostKind, string kind, Func<LoadedModel, T?> extract)
+        where T : class
+    {
+        if (ctx is null)
+        {
+            throw ApiException.ModelNotFound($"The {kind} model '{name}' does not exist.", ApiErrors.IsAnthropic(http));
+        }
+
+        var lease = await ctx.AcquireAsync(http, name, hostKind);
+        var model = extract(lease.As<LoadedModel>());
+        if (model is null)
+        {
+            lease.Dispose();
+            throw ApiException.ModelNotFound($"The model '{lease.Name}' is not a {kind} model.", ApiErrors.IsAnthropic(http));
+        }
+
+        return (model, lease, SharplightServerContext.ResponseName(http, lease));
     }
 
     // ---- /v1/embeddings -----------------------------------------------------------------------------------------------
@@ -94,7 +153,9 @@ public static class RetrievalApi
         using var doc = await HttpJson.ReadBodyAsync(http, models.MaxRequestBodyBytes);
         var b = doc.RootElement;
         string? requested = b.Str("model");
-        var model = Pick(models.Embedders, requested, models.DefaultEmbedder, "embedding");
+        var (model, lease, name) = await PickAsync(http, models.Embedders, requested, models.DefaultEmbedder, "embedding", ModelKind.Embedding,
+            loaded => (loaded as IEmbeddingModel)?.Embedder);
+        using var held = lease;
 
         string format = b.Str("encoding_format") ?? "float";
         if (format is not ("float" or "base64"))
@@ -113,13 +174,14 @@ public static class RetrievalApi
 
         var (texts, tokens) = ParseInput(b, models.MaxInputs);
         var result = await Task.Run(() => texts is not null ? model.Embed(texts, options) : model.EmbedTokens(tokens!, options), http.RequestAborted);
+        SharplightRequestFeature.Of(http)?.AddInput(result.TotalTokens);
 
         var data = EmbeddingData(result.Vectors, format == "base64");
         await HttpJson.WriteAsync(http, new JsonObject
         {
             ["object"] = "list",
             ["data"] = data,
-            ["model"] = requested ?? model.Name,
+            ["model"] = name,
             ["usage"] = new JsonObject { ["prompt_tokens"] = result.TotalTokens, ["total_tokens"] = result.TotalTokens },
         });
     }
@@ -258,7 +320,9 @@ public static class RetrievalApi
         using var doc = await HttpJson.ReadBodyAsync(http, models.MaxRequestBodyBytes);
         var b = doc.RootElement;
         string? requested = b.Str("model");
-        var model = Pick(models.Rerankers, requested, models.DefaultReranker, "rerank");
+        var (model, lease, name) = await PickAsync(http, models.Rerankers, requested, models.DefaultReranker, "rerank", ModelKind.Reranker,
+            loaded => (loaded as IRerankerModel)?.Reranker);
+        using var held = lease;
         string query = b.Str("query") ?? throw ApiException.BadRequest("'query' is required and must be a string.", "query");
         if (b.Get("documents") is not { ValueKind: JsonValueKind.Array } docsEl)
         {
@@ -280,11 +344,12 @@ public static class RetrievalApi
         var options = new RerankOptions { Instruction = b.Str("instruction"), Truncate = b.Bool("truncate") ?? true };
 
         var result = docs.Count == 0 ? new RerankResult([], [], []) : await Task.Run(() => model.Score(query, docs, options), http.RequestAborted);
+        SharplightRequestFeature.Of(http)?.AddInput(result.TotalTokens);
         var results = RankedResults(result.Scores, docs, topN, returnDocuments);
         await HttpJson.WriteAsync(http, new JsonObject
         {
             ["id"] = Guid.NewGuid().ToString(),
-            ["model"] = requested ?? model.Name,
+            ["model"] = name,
             ["results"] = results,
             ["usage"] = new JsonObject { ["prompt_tokens"] = result.TotalTokens, ["total_tokens"] = result.TotalTokens },
             ["meta"] = new JsonObject

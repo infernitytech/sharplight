@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Hosting for Sharplight models in servers and apps: a ModelHost built from options or a JSON file (chat, embedding, reranker and task models on shared devices, reserve and budget, idle unload, LRU eviction, on-demand models), device placement, fit planning, and a status API (free memory per device, loaded models, queue depth, throughput) for health checks and cluster coordinators. Register with services.AddSharplightHosting().</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.Hosting.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+  </ItemGroup>
+</Project>

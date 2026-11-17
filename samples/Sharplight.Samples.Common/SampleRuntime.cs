@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Models;
 using Sharplight.Package;
 using Sharplight.Runtime;
+using Sharplight.Tasks;
 
 namespace Sharplight.Samples;
 
@@ -33,6 +34,19 @@ public sealed class SampleRuntime : IDisposable
 
     /// <summary>Converts models to <c>.slm</c> packages.</summary>
     public ModelConverter Converter => _services.GetRequiredService<ModelConverter>();
+
+    /// <summary>
+    /// Registers this runtime's model loader, execution providers and task client provider in another container (e.g. a web
+    /// application's), so both use the same opened providers. The runtime keeps ownership.
+    /// </summary>
+    /// <param name="services">The other container's services.</param>
+    public void AddSharedServices(IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddSingleton(Loader);
+        services.AddSingleton(Providers);
+        services.AddSingleton(_services.GetRequiredService<TaskClientProvider>());
+    }
 
     /// <summary>Returns the first available provider: the CPU provider when <paramref name="cpu"/> is set, otherwise a GPU provider.</summary>
     /// <param name="cpu">Select the CPU provider.</param>

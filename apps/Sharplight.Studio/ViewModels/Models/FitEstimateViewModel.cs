@@ -1,5 +1,5 @@
+using Sharplight.Hosting.Fit;
 using Sharplight.Studio.Models;
-using Sharplight.Studio.Services.Fit;
 
 namespace Sharplight.Studio.ViewModels.Models;
 

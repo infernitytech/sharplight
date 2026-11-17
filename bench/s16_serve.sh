@@ -18,8 +18,8 @@ LOG=$OUT_DIR/serve_${ENG}_${NAME}.server.log
 export VLLM_USE_FLASHINFER_SAMPLER=0
 case $ENG in
   sharplight)
-    SRV=${SHARPLIGHT_SERVER:-$HERE/../samples/Sharplight.Server/bin/Release/net11.0/sharplight-server}
-    SHARPLIGHT_LOAD_TIMING=1 "$SRV" "$MP" --slots "$SLOTS" --ctx "$CTX" --listen "http://127.0.0.1:$PORT" --temp 0 "${EXTRA[@]}" > "$LOG" 2>&1 & ;;
+    SRV=${SHARPLIGHT_SERVER:-$HERE/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight}
+    SHARPLIGHT_LOAD_TIMING=1 "$SRV" serve "$MP" --slots "$SLOTS" --ctx "$CTX" --listen "http://127.0.0.1:$PORT" --temp 0 "${EXTRA[@]}" > "$LOG" 2>&1 & ;;
   llama-*)
     B=${ENG#llama-}; L=${LLAMA_DIR:?set LLAMA_DIR}/runtime.llama-${LLAMA_BUILD:-b11177}-$B
     LD_LIBRARY_PATH=$L "$L/llama-server" -m "$MP" -ngl 99 -fa on -np "$SLOTS" -c $((SLOTS * CTX)) --port "$PORT" --no-webui --metrics "${EXTRA[@]}" > "$LOG" 2>&1 & ;;

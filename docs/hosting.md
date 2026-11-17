@@ -1,0 +1,144 @@
+# Hosting models (`Sharplight.Hosting`)
+
+`Sharplight.Hosting` turns a list of models and a memory policy into a running `ModelHost` that servers and apps share: chat,
+embedding, reranker and task models (speech, image generation, vision, ...) on the same devices, loaded at startup or on the
+first request, unloaded when idle, and evicted least recently used first when another model needs the room. It adds device
+placement, fit planning and a status snapshot that health checks, dashboards and external cluster coordinators can read. The
+`sharplight serve` command (`samples/Sharplight.Cli`) and the HTTP endpoints of `Sharplight.AspNetCore` are built on it.
+
+## Registration
+
+```csharp
+builder.Services.AddSharplight();                       // formats, architectures, execution providers, task layer
+builder.Services.AddSharplightHosting(options =>
+{
+    options.Reserve = 2L << 30;                          // keep 2 GiB free on every device
+    options.MaxLoadedModels = 3;                         // LRU eviction beyond three resident models
+    options.IdleTimeoutSeconds = 600;
+    options.Models.Add(new HostedModelOptions { Name = "qwen3", Path = "/models/qwen3-4b.slm", Pinned = true });
+    options.Models.Add(new HostedModelOptions { Name = "bge", Path = "/models/bge-small.slm", Kind = ModelKind.Embedding, Lazy = true });
+    options.Models.Add(new HostedModelOptions { Name = "rerank", Path = "/models/bge-reranker.slm", Kind = ModelKind.Reranker, Lazy = true });
+});
+builder.Services.AddSharplightServer();                 // optional: the OpenAI / Anthropic endpoints over the same host
+```
+
+Or from a file: `services.AddSharplightHosting("hosting.json", options => options.Log = ...)`.
+
+| Service | What it is |
+|---|---|
+| `IModelHostManager` (`ModelHostManager`) | owns the `ModelHost`; `Register`, `LoadAsync`, `UnloadAsync`, `RemoveAsync`, `GetStatus`, `PlanFit` |
+| `ModelHost` | the host itself: `AcquireAsync(name, kind)` returns a lease that keeps the model loaded while a request uses it |
+| `DeviceInventory` | the devices of the available execution providers (GPUs first), each opened once with the host's budget and disabled features |
+| `IModelPlacementPolicy` (`DefaultModelPlacementPolicy`) | picks the devices of a model each time it loads; replace it for other placement rules |
+| `IHostedModelLoaderFactory` (chat, embedding, reranker, task) | creates the loader of a model by kind; register another one to add a kind or override a built-in one (the last registered is asked first) |
+| `IHostedModelResolver` (optional) | on-demand models (`OnDemand = true`): names that are not registered are looked up here, e.g. every model of a local store |
+| hosted service | loads the non-lazy models when the application starts (`LoadStartupModels`) |
+
+The manager is a singleton: the container disposes it (unloading every model) before the device inventory (closing the devices).
+
+## Using a model
+
+```csharp
+var host = services.GetRequiredService<ModelHost>();
+using (var lease = await host.AcquireAsync("qwen3", ModelKind.Chat, cancellationToken))     // loads it if needed
+{
+    var chat = ((IChatModel)lease.As<LoadedModel>()).Service;                              // ModelService
+}
+
+using (var lease = await host.AcquireAsync("bge", ModelKind.Embedding, cancellationToken))
+{
+    var embedder = ((IEmbeddingModel)lease.As<LoadedModel>()).Embedder;                    // ITextEmbedder
+}
+```
+
+Rerankers give an `IRerankerModel`, task models a `TaskModelInstance` with `GetClient<ISpeechRecognizer>()` and the like.
+
+## Options and the JSON form
+
+`ModelHostingOptions` binds from code or from JSON (`ModelHostingJson.Load/Parse/Serialize`: camelCase names, comments and
+trailing commas allowed, sizes as bytes or `"2G"`):
+
+```json
+{
+  "reserve": "2G",
+  "budget": null,
+  "maxLoadedModels": 3,
+  "idleTimeoutSeconds": 600,
+  "lazy": false,
+  "onDemand": false,
+  "disabledFeatures": [],
+  "defaults": {
+    "device": "auto",
+    "contextLength": 4096,
+    "batchTokens": 0,
+    "slots": 4,
+    "kvCacheTokens": null,
+    "kvCacheType": "f16",
+    "cpuOffload": false,
+    "maxQueue": 64
+  },
+  "models": [
+    { "name": "qwen3", "path": "/models/qwen3-4b.slm", "device": 0, "pinned": true },
+    { "name": "bge", "path": "/models/bge-small.slm", "kind": "embedding", "lazy": true },
+    { "name": "rerank", "path": "/models/bge-reranker.slm", "kind": "reranker", "device": "cpu", "lazy": true },
+    { "name": "whisper", "path": "/models/whisper-small.slm", "kind": "task", "task": "speech-recognition", "lazy": true }
+  ]
+}
+```
+
+| Host setting | Meaning |
+|---|---|
+| `reserve` | memory kept free on every device for other applications (default 1 GiB); a model loads only when it fits with this to spare |
+| `budget` | cap on what the host uses of each GPU (default: what the driver reports as available) |
+| `maxLoadedModels` | resident model limit (0 = none); loading another evicts the least recently used idle, unpinned model |
+| `idleTimeoutSeconds` | unload models idle this long (they reload on demand) |
+| `lazy` | models without their own `lazy` load on the first request instead of at startup |
+| `onDemand` | also serve the models of the registered `IHostedModelResolver` |
+| `disabledFeatures` | device features no model may use (fallback testing, broken drivers) |
+| `defaults` | per-model settings for models that do not set their own: device, context, batch rows, slots, paged KV cache (`kvCacheTokens`), KV type, CPU offload, reduced precision, queue limit, prefill chunk, step tokens, n-gram and MTP speculation, projector, chat template |
+
+Per model: `name`, `path`, `kind` (`chat` default, `embedding`, `reranker`, `task` with `task` = the task kind), `device`,
+`contextLength`, `batchTokens`, `slots`, `kvCacheTokens`, `kvCacheType`, `projector`, `chatTemplate`, `auxiliary` (files by role),
+`lazy`, `pinned`, `cpuOffload`, `idleTimeoutSeconds`, `description`. `HostedModelSettings.Resolve` merges a model with the defaults.
+
+Delegates that are not part of the JSON form: `Log` (load, unload and eviction messages; default the manager's `ILogger`),
+`ConfigureLoad` (adjust each model's load options: progress, logging, compilation artifacts) and `ConfigureChat` (adjust each chat
+model's options: request callbacks, speculators, service defaults).
+
+## Devices and placement
+
+| `device` | Placement |
+|---|---|
+| `auto` (default) | the GPU with the most free memory beyond the reserve, preferring one where a file-size estimate fits; the CPU when there is no GPU |
+| `cpu` | the CPU |
+| `0`, `1`, ... | the n-th device of the first available GPU provider |
+| `vulkan:1` | a device id (`provider:index`, as `DeviceInventory.Devices` lists them) |
+| `0,1` | the model is split over these devices in pipeline order, each weighted by its free memory beyond the reserve |
+
+The placement is decided each time a model loads, so `auto` follows the memory that is free at that moment. With `cpuOffload` a
+GPU placement gets the CPU as fallback for layers that do not fit. Chat models are sized exactly (`LlmModel.EstimateFootprint`);
+embedding, reranker and task models are sized from their files (weights plus a quarter plus 256 MiB).
+
+## Status for health checks and coordinators
+
+`IModelHostManager.GetStatus()` returns a `HostStatus` (serializable with `ToJson()` / `HostStatus.FromJson()`):
+
+- `devices`: per device (and per memory pool a model was charged against) the total, used, free and available (free minus the
+  reserve) bytes, the bytes held by this host's models, whether the figures are the driver's (`isExact`) and which models are on it;
+  devices not opened yet report their total memory as free;
+- `models`: per registered model the kind, state, devices, resident and estimated bytes, leases, and for chat models the queue
+  depth, active sequences, slots, recent tokens per second, requests and token counts;
+- totals: loaded models, queue depth, active sequences, tokens per second; the reserve and the resident model limit.
+
+`PlanFit(footprint, device, cpuOffload)` answers whether a model of a given footprint would load on the named devices now, as the
+host admits a load: fits, fits after unloading idle models (which ones), needs CPU offload (which share) or does not fit. It is the
+same `FitPlanner` Studio uses for its fit badges.
+
+## Extending
+
+- A new model kind: implement `IHostedModelLoaderFactory` (`CanLoad` by `HostedModelSettings.Kind` or path, `CreateLoader` returning an
+  `IHostedModelLoader`; wrap it in `PlacedModelLoader` to get per-load placement) and register it with
+  `services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedModelLoaderFactory, MyFactory>())`.
+- Other placement rules (labels, anti-affinity, a coordinator's decision): implement `IModelPlacementPolicy` and register it before
+  `AddSharplightHosting` (it uses `TryAdd`).
+- Models from a registry or store: implement `IHostedModelResolver`, set `OnDemand = true`.

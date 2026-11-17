@@ -571,9 +571,9 @@ public sealed class InferenceEngine : IDisposable
         return false;
     }
 
-    private int ReusableTokens(EngineSlot slot, int[] prompt)
+    private int ReusableTokens(EngineSlot slot, int[] prompt, string? partition)
     {
-        if (!_opt.PrefixCache || slot.Tokens.Count == 0 || !_decoder.ReusesPrefixes)
+        if (!_opt.PrefixCache || slot.Tokens.Count == 0 || !_decoder.ReusesPrefixes || slot.Partition != partition)
         {
             return 0;
         }
@@ -604,7 +604,7 @@ public sealed class InferenceEngine : IDisposable
                 continue;
             }
 
-            int reuse = ReusableTokens(s, seq.Prompt);
+            int reuse = ReusableTokens(s, seq.Prompt, seq.Request.CachePartition);
             // Equal reuse (typically none): take an empty slot first, then evict the least recently used one.
             static long Rank(EngineSlot x) => x.Tokens.Count == 0 ? long.MinValue : x.LastUsed;
             bool better = best is null || reuse > bestReuse || (reuse == bestReuse && Rank(s) < Rank(best));
@@ -617,6 +617,7 @@ public sealed class InferenceEngine : IDisposable
         var slot = best!;
         int keep = Math.Max(0, bestReuse);
         TruncateSlot(slot, keep);
+        slot.Partition = seq.Request.CachePartition;
         keep = slot.Tokens.Count;
         if (Paged && _opt.PrefixCache && _decoder.CanTruncate)
         {
@@ -649,7 +650,7 @@ public sealed class InferenceEngine : IDisposable
         int best = 0;
         foreach (var other in _slots)
         {
-            if (other == slot)
+            if (other == slot || other.Partition != slot.Partition)
             {
                 continue;
             }

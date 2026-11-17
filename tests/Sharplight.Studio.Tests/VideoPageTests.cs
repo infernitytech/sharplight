@@ -179,7 +179,7 @@ public sealed class VideoPageTests
     public void VideoKind_IsRunnable()
     {
         Assert.True(Studio.Models.ModelKindCatalog.For(ModelKinds.VideoGeneration).Runnable);
-        Assert.True(Studio.Services.Runtime.TaskKindClients.Handles(ModelKinds.VideoGeneration));
+        Assert.True(Sharplight.Hosting.Loaders.TaskKindClients.Handles(ModelKinds.VideoGeneration));
     }
 
     [Fact]

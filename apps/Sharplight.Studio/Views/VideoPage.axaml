@@ -9,6 +9,9 @@
              x:DataType="vm:VideoPageViewModel">
   <iv:InferenceFrame>
     <iv:InferenceFrame.Workspace>
+      <!-- Scrolls when the window is too small for the prompt and the player: the player has a minimum height, and without the scroll
+           view it would be laid out outside its card and overlap the controls around it. -->
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <Grid RowDefinitions="Auto,*" RowSpacing="14">
         <!-- Input -->
         <Border Classes="card">
@@ -37,26 +40,36 @@
           </StackPanel>
         </Border>
         <!-- Result -->
-        <Border Grid.Row="1" Classes="card">
-          <DockPanel>
-            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+        <Border Grid.Row="1" Classes="card" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,*,Auto,Auto">
+            <DockPanel Margin="0,0,0,10">
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResult}">
                 <Button Classes="small" Content="Reuse seed" Command="{Binding ReuseSeedCommand}" ToolTip.Tip="Run again from the same noise" />
                 <Button Classes="small" Content="Reuse prompt" Command="{Binding ReusePromptCommand}" />
               </StackPanel>
               <TextBlock Classes="h2" Text="Result" VerticalAlignment="Center" />
             </DockPanel>
-            <vw:GalleryStripView DockPanel.Dock="Bottom" Margin="0,8,0,0" DataContext="{Binding Generations}" />
-            <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,8,0,0">
+            <Grid Grid.Row="1" MinHeight="360" ClipToBounds="True">
+              <StackPanel IsVisible="{Binding ShowPlaceholder}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                <Path Classes="icon huge" Data="{StaticResource IconVideo}" HorizontalAlignment="Center" />
+                <TextBlock Classes="muted" Text="The video appears here, frame by frame." HorizontalAlignment="Center" />
+              </StackPanel>
+              <Border CornerRadius="8" ClipToBounds="True" IsVisible="{Binding Player.HasFrames}">
+                <vw:VideoView Frame="{Binding Player.CurrentFrame}" />
+              </Border>
+            </Grid>
+            <StackPanel Grid.Row="2" Spacing="8" Margin="0,8,0,0">
               <!-- Playback -->
               <Panel IsVisible="{Binding Player.CanPlay}">
-              <Grid ColumnDefinitions="Auto,*,Auto" DataContext="{Binding Player}" x:DataType="vm:VideoPlayerViewModel">
+              <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" DataContext="{Binding Player}" x:DataType="vm:VideoPlayerViewModel">
                 <Button Classes="small" Command="{Binding TogglePlayCommand}" ToolTip.Tip="{Binding PlayTip}" Width="34">
                   <Path Classes="icon" Data="{Binding PlayIcon, Converter={x:Static conv:IconConverter.Instance}}" />
                 </Button>
-                <Slider Grid.Column="1" Margin="10,0" Minimum="0" Maximum="{Binding LastPosition}" Value="{Binding Position}" SmallChange="1" LargeChange="4"
+                <Button Grid.Column="1" Classes="small" Content="‹" Command="{Binding StepBackwardCommand}" ToolTip.Tip="Previous frame" Margin="4,0,0,0" Width="30" />
+                <Button Grid.Column="2" Classes="small" Content="›" Command="{Binding StepForwardCommand}" ToolTip.Tip="Next frame" Margin="4,0,0,0" Width="30" />
+                <Slider Grid.Column="3" Margin="10,0" Minimum="0" Maximum="{Binding LastPosition}" Value="{Binding Position}" SmallChange="1" LargeChange="4"
                         TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" />
-                <ToggleButton Grid.Column="2" Classes="small" Content="Loop" IsChecked="{Binding Loop}" ToolTip.Tip="Start again after the last frame" />
+                <ToggleButton Grid.Column="4" Classes="small" Content="Loop" IsChecked="{Binding Loop}" ToolTip.Tip="Start again after the last frame" />
               </Grid>
               </Panel>
               <TextBlock Classes="caption" Text="{Binding Player.PositionText}" IsVisible="{Binding Player.HasFrames}" />
@@ -96,18 +109,11 @@
               <TextBlock Classes="caption" Text="{Binding StepText}" IsVisible="{Binding HasStepText}" />
               <TextBlock Classes="caption" Text="{Binding ResultSummary}" TextWrapping="Wrap" IsVisible="{Binding HasResult}" />
             </StackPanel>
-            <Panel>
-              <StackPanel IsVisible="{Binding ShowPlaceholder}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                <Path Classes="icon huge" Data="{StaticResource IconVideo}" HorizontalAlignment="Center" />
-                <TextBlock Classes="muted" Text="The video appears here, frame by frame." HorizontalAlignment="Center" />
-              </StackPanel>
-              <Border CornerRadius="8" ClipToBounds="True" IsVisible="{Binding Player.HasFrames}" MinHeight="320">
-                <vw:ImageViewer Source="{Binding Player.CurrentFrame, Converter={x:Static conv:FrameToBitmapConverter.Instance}}" />
-              </Border>
-            </Panel>
-          </DockPanel>
+            <vw:GalleryStripView Grid.Row="3" Margin="0,8,0,0" DataContext="{Binding Generations}" />
+          </Grid>
         </Border>
       </Grid>
+      </ScrollViewer>
     </iv:InferenceFrame.Workspace>
   </iv:InferenceFrame>
 </UserControl>

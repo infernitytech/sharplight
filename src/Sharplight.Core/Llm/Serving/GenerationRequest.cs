@@ -28,6 +28,13 @@ public sealed record GenerationRequest
     /// </summary>
     public string? Tenant { get; init; }
     /// <summary>
+    /// Isolation scope of the prefix cache: a request only reuses (or shares KV blocks of) contexts left by requests with the same
+    /// partition, so identical prompts of different scopes (tenants, spaces) never share cache entries, and a cache hit cannot
+    /// reveal across scopes that another scope sent the same prefix (timing side channel). Null is one partition of its own (the
+    /// default, single-scope behaviour).
+    /// </summary>
+    public string? CachePartition { get; init; }
+    /// <summary>
     /// Restricts the output to a grammar / regular expression / JSON schema (structured outputs). The engine masks the logits
     /// with the tokens the constraint allows before sampling; end-of-generation tokens are allowed only when the output is complete.
     /// </summary>

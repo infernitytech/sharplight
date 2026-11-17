@@ -53,27 +53,82 @@ public static class SharplightServerExtensions
         /// <summary>
         /// Maps everything the options enable: <c>/health</c>, <c>/metrics</c>, the admin endpoints, the OpenAI and the Anthropic
         /// API, plus the retrieval endpoints of <see cref="RetrievalApi"/> when embedding / rerank models are registered and the audio
-        /// endpoints of <see cref="AudioApi"/> when speech recognizers are registered.
+        /// endpoints of <see cref="AudioApi"/> when speech recognizers are registered. The API endpoints run through the Sharplight
+        /// request pipeline: authentication (<see cref="IApiKeyValidator"/>), per-request resolution (<see cref="IModelEndpointResolver"/>:
+        /// models, defaults, tools, isolation scope), admission (<see cref="IRequestAdmission"/>), usage reporting
+        /// (<see cref="ISharplightUsageObserver"/>, <see cref="SharplightServerMetrics"/>) and error mapping. Call it on a route group to
+        /// serve the APIs under a prefix, several times with different <paramref name="configure"/> hooks for several endpoints or tenants.
         /// </summary>
+        /// <param name="configure">Adjusts the <see cref="SharplightEndpointOptions"/> of this mapping, or <see langword="null"/>.</param>
+        /// <returns>The route builder.</returns>
         /// <exception cref="InvalidOperationException"><c>AddSharplightServer</c> was not called.</exception>
-        public IEndpointRouteBuilder MapSharplightServer()
+        /// <example>
+        /// <code>
+        /// app.MapSharplightServer();                                        // the single-host default at the root
+        /// app.MapGroup("/e/{endpoint}").MapSharplightServer(o =>            // per endpoint: own keys, models and defaults
+        /// {
+        ///     o.Operations = false;
+        ///     o.Admin = false;
+        ///     o.KeyValidator = endpointKeys;
+        ///     o.Resolver = endpointResolver;
+        /// });
+        /// </code>
+        /// </example>
+        public IEndpointRouteBuilder MapSharplightServer(Action<SharplightEndpointOptions>? configure = null)
         {
-            var o = routes.ServiceProvider.GetRequiredService<SharplightServerContext>().Options;
-            routes.MapOperations();
-            routes.MapAdmin();
-            if (o.OpenAi)
+            var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
+            var o = ctx.Options;
+            var endpoint = new SharplightEndpointOptions();
+            configure?.Invoke(endpoint);
+            if (endpoint.Operations)
             {
-                routes.MapOpenAi();
+                routes.MapOperations();
             }
 
-            if (o.Anthropic)
+            if (endpoint.Admin)
             {
-                routes.MapAnthropic();
+                routes.MapAdmin();
             }
 
-            routes.MapSharplightRetrieval();
-            routes.MapSharplightAudio();
-            routes.MapSharplightImages();
+            // Every API endpoint below goes through the request pipeline (wrapped after the handler is built).
+            var pipeline = new SharplightRequestPipeline(routes.ServiceProvider, endpoint);
+            var api = routes.MapGroup("");
+            api.WithMetadata(SharplightApiEndpointMetadata.Instance);
+            ((IEndpointConventionBuilder)api).Finally(builder =>
+            {
+                if (builder.RequestDelegate is { } inner)
+                {
+                    builder.RequestDelegate = pipeline.Wrap(inner);
+                }
+            });
+            bool openAi = endpoint.OpenAi ?? o.OpenAi;
+            bool anthropic = endpoint.Anthropic ?? o.Anthropic;
+            if (openAi || anthropic)
+            {
+                api.MapModels(ctx, anthropic);
+            }
+
+            if (openAi)
+            {
+                api.MapOpenAi();
+            }
+
+            if (anthropic)
+            {
+                api.MapAnthropic();
+            }
+
+            if (endpoint.Retrieval)
+            {
+                api.MapSharplightRetrieval();
+            }
+
+            if (endpoint.Media)
+            {
+                api.MapSharplightAudio();
+                api.MapSharplightImages();
+            }
+
             return routes;
         }
 
@@ -105,25 +160,19 @@ public static class SharplightServerExtensions
             return routes;
         }
 
-        /// <summary><c>GET /v1/models</c> and <c>/v1/models/{id}</c>, shared by the OpenAI and Anthropic APIs (mapped once).</summary>
-        internal void MapModels(SharplightServerContext ctx)
+        /// <summary><c>GET /v1/models</c> and <c>/v1/models/{id}</c>, shared by the OpenAI and Anthropic APIs, listing what the request may see.</summary>
+        internal void MapModels(SharplightServerContext ctx, bool anthropicApi)
         {
-            if (ctx.ModelsMapped)
-            {
-                return;
-            }
-
-            ctx.ModelsMapped = true;
             routes.MapGet("/v1/models", async http =>
             {
-                bool anthropic = ApiErrors.IsAnthropic(http) && ctx.Options.Anthropic;
-                await HttpJson.WriteAsync(http, anthropic ? AnthropicApi.ModelList(ctx) : OpenAiApi.ModelList(ctx));
+                bool anthropic = ApiErrors.IsAnthropic(http) && anthropicApi;
+                await HttpJson.WriteAsync(http, anthropic ? AnthropicApi.ModelList(ctx, http) : OpenAiApi.ModelList(ctx, http));
             });
             routes.MapGet("/v1/models/{id}", async http =>
             {
-                bool anthropic = ApiErrors.IsAnthropic(http) && ctx.Options.Anthropic;
+                bool anthropic = ApiErrors.IsAnthropic(http) && anthropicApi;
                 string id = (string)http.Request.RouteValues["id"]!;
-                if (!ctx.IsServed(id) || ctx.Host.Get(id) is not { } info)
+                if (ctx.FindModel(http, id) is not { } info)
                 {
                     await ApiErrors.WriteAsync(http, 404, anthropic ? "not_found_error" : "invalid_request_error", $"The model '{id}' does not exist.", code: "model_not_found");
                     return;
@@ -151,7 +200,9 @@ public static class SharplightServerExtensions
 
         var path = http.Request.Path.Value ?? "";
         bool open = path is "/health" or "/health/live" or "/health/ready" or "/metrics" || HttpMethods.IsOptions(http.Request.Method);
-        if (options.ApiKeys.Count > 0 && !open && !KeyIsValid(http, options.ApiKeys))
+        // The API endpoints authenticate in their own pipeline (with the hooks of their MapSharplightServer call).
+        bool pipeline = http.GetEndpoint()?.Metadata.GetMetadata<SharplightApiEndpointMetadata>() is not null;
+        if (options.ApiKeys.Count > 0 && !open && !pipeline && !KeyIsValid(http, options.ApiKeys))
         {
             await ApiErrors.WriteAsync(http, 401, "authentication_error", "Invalid or missing API key.", code: "invalid_api_key");
             return;
@@ -163,7 +214,7 @@ public static class SharplightServerExtensions
         }
         catch (ApiException ex)
         {
-            await ApiErrors.WriteAsync(http, ex.Status, ex.Type, ex.Message, ex.Code, ex.Param);
+            await ApiErrors.WriteAsync(http, ex);
         }
         catch (EngineException ex)
         {

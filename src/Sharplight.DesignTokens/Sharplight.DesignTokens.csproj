@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <Description>The Sharplight design tokens for web UIs: CSS custom properties (colours for dark and light themes, accent palettes, typography, spacing, radii, shadows) and the SVG icon sprite, as static web assets (_content/Sharplight.DesignTokens/sharplight-tokens.css, sharplight-icons.svg). Generated from the same token source as Sharplight Studio's look.</Description>
+    <PackageTags>design-tokens;css;icons;sharplight</PackageTags>
+    <!-- No code: only the static web assets of wwwroot. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <IncludeSymbols>false</IncludeSymbols>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+</Project>

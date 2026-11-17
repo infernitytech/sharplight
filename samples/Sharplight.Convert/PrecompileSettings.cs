@@ -11,8 +11,8 @@ namespace Sharplight.Convert;
 /// <param name="DisabledFeatures">Device features not to use, as when the model runs with <c>--disable-features</c>.</param>
 /// <param name="ContextLength">Context length to compile LLM graphs for; must match the runtime's for the stored code to be used.</param>
 /// <param name="BatchTokens">Rows per forward pass (LLMs) or token bound (other graphs); must match the runtime's.</param>
-/// <param name="Slots">Sequences of the serving batch decoder to compile (as <c>sharplight-server --slots</c>); 1 or less skips it.</param>
-/// <param name="KvCacheTokens">Paged KV cache of the serving batch decoder (as <c>sharplight-server --kv-tokens</c>), or null.</param>
+/// <param name="Slots">Sequences of the serving batch decoder to compile (as <c>sharplight serve --slots</c>); 1 or less skips it.</param>
+/// <param name="KvCacheTokens">Paged KV cache of the serving batch decoder (as <c>sharplight serve --kv-tokens</c>), or null.</param>
 /// <param name="DraftTokens">Draft tokens of speculative decoding to compile the verifying decoders and draft head for (0: none).</param>
 /// <param name="SymbolBounds">Bounds of further symbolic dimensions of non-LLM graphs (e.g. <c>batch</c>).</param>
 /// <param name="UseUserKernelCache">Compile with the per-user kernel and pipeline cache instead of a fresh temporary one.</param>

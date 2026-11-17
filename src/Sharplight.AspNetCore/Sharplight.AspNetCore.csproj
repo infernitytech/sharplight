@@ -8,6 +8,6 @@
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../Sharplight.Hosting/Sharplight.Hosting.csproj" />
   </ItemGroup>
 </Project>

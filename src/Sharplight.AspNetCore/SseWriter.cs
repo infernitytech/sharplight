@@ -23,6 +23,9 @@ internal sealed class SseWriter
     private readonly PipeWriter _pipe;
     private readonly Utf8JsonWriter _json;
 
+    /// <summary>The request the events answer.</summary>
+    public HttpContext Http => _http;
+
     public SseWriter(HttpContext http)
     {
         _http = http;
