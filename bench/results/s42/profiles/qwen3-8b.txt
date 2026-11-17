@@ -1,0 +1,35 @@
+--- prefill T=2048 profile, segment 0
+GPU time 260.56 ms
+   111.479 ms  42.8%     36x  min   2936.9 us  matmul2 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2 T=2048,1
+    66.684 ms  25.6%     36x  min   1751.2 us  matmul [12288→4096] bf16 gemm_cm2 T=2048,1
+    41.366 ms  15.9%     72x  min    546.6 us  matmul [4096→4096] bf16 gemm_cm2 T=2048,1
+    11.875 ms   4.6%     36x  min    315.4 us  attention fe T=2048,1
+    10.640 ms   4.1%     72x  min    136.8 us  matmul [4096→1024] bf16 gemm_cm2 T=2048,1
+     9.302 ms   3.6%     72x  min     78.7 us  fused[Add]+RmsNorm main T=2048,1
+     2.746 ms   1.1%     36x  min     73.5 us  rope+norm rope_row T=2048,1
+     2.085 ms   0.8%     72x  min     18.4 us  matmul [4096→4096] bf16 x→f16 to_f16 T=2048,1
+     1.479 ms   0.6%      1x  min   1479.5 us  matmul [4096→151936] bf16 matvec_sk T=2048,1
+     1.334 ms   0.5%     36x  min     34.6 us  matmul2 [4096→12288]x2 bf16 fused[Silu,Mul] x→f16 to_f16 T=2048,1
+     0.788 ms   0.3%     36x  min     20.4 us  rope+norm+cache_write rope_row T=2048,1
+     0.668 ms   0.3%     36x  min     18.3 us  cache_write cache_write T=2048,1
+     0.088 ms   0.0%      2x  min      4.0 us  gather gather T=2048,1
+     0.025 ms   0.0%      1x  min     24.6 us  RmsNorm main T=2048,1
+     0.002 ms   0.0%      1x  min      2.0 us  sample sample T=2048,1
+
+--- decode x64 profile, segment 0
+GPU time 1270.97 ms
+   544.416 ms  42.8%   2304x  min    235.3 us  matmul2 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk T=1,1
+   278.080 ms  21.9%   2304x  min    118.8 us  matmul [12288→4096] bf16 matvec_sk T=1,1
+   195.169 ms  15.4%   4608x  min     40.7 us  matmul [4096→4096] bf16 matvec_sk T=1,1
+    91.954 ms   7.2%     64x  min   1435.4 us  matmul [4096→151936] bf16 matvec_sk T=1,1
+    63.460 ms   5.0%   4608x  min     11.7 us  matmul [4096→1024] bf16 matvec_sk T=1,1
+    37.776 ms   3.0%   2304x  min     15.4 us  attention decode T=1,1
+    26.580 ms   2.1%   4608x  min      3.8 us  fused[Add]+RmsNorm main T=1,1
+     9.737 ms   0.8%   2304x  min      4.0 us  attention combine decode_combine T=1,1
+     9.435 ms   0.7%   2304x  min      3.1 us  rope+norm+cache_write rope_row T=1,1
+     8.574 ms   0.7%   2304x  min      2.7 us  rope+norm rope_row T=1,1
+     4.869 ms   0.4%   2304x  min      2.0 us  cache_write cache_write T=1,1
+     0.518 ms   0.0%    128x  min      2.5 us  gather gather T=1,1
+     0.262 ms   0.0%     64x  min      4.1 us  RmsNorm main T=1,1
+     0.136 ms   0.0%     64x  min      1.9 us  sample sample T=1,1
+

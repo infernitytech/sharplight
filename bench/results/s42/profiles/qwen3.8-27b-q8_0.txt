@@ -1,0 +1,60 @@
+--- prefill T=2048 profile, segment 0
+GPU time 1065.96 ms
+   421.735 ms  39.6%    512x  min    778.2 us  matmul [5120→17408] q8_0r mmq gemm_mmq T=512,1
+   199.432 ms  18.7%    256x  min    735.2 us  matmul [17408→5120] q8_0r mmq gemm_mmq T=512,1
+    91.471 ms   8.6%    192x  min    448.5 us  matmul [5120→10240] q8_0r mmq gemm_mmq T=512,1
+    66.829 ms   6.3%    256x  min    254.0 us  matmul [6144→5120] q8_0r mmq gemm_mmq T=512,1
+    59.015 ms   5.5%    192x  min    289.6 us  matmul [5120→6144] q8_0r mmq split-k gemm_mmq T=512,1
+    37.806 ms   3.5%     64x  min    558.1 us  matmul [5120→12288] q8_0r mmq gemm_mmq T=512,1
+    37.707 ms   3.5%     64x  min    171.0 us  attention fa T=512,1
+    37.383 ms   3.5%    192x  min    188.4 us  delta_chunk delta_chunk_state T=512,1
+    23.330 ms   2.2%    256x  min     89.6 us  fused[Silu,Mul] main T=512,1
+    16.462 ms   1.5%    192x  min     80.9 us  delta_chunk delta_chunk_prep T=512,1
+    12.080 ms   1.1%    512x  min     19.6 us  fused[Add]+RmsNorm main T=512,1
+     9.060 ms   0.8%    192x  min     47.0 us  RmsNorm+fused[Silu,Mul] main T=512,1
+     7.674 ms   0.7%    128x  min     56.9 us  matmul [5120→1024] q8_0r split-k gemm_cm2 T=512,1
+     6.931 ms   0.7%    192x  min     34.8 us  conv1d conv1d_tokens T=512,1
+     6.341 ms   0.6%      4x  min   1584.3 us  matmul [5120→248320] q8_0r matvec_sk T=512,1
+     5.843 ms   0.5%    384x  min     13.9 us  matmul [5120→48] q8_0r split-k gemm_cm2 T=512,1
+     4.999 ms   0.5%    256x  min     18.0 us  matmul [17408→5120] q8_0r x→q8 quantize_q8_1 T=512,1
+     3.333 ms   0.3%    192x  min     15.7 us  matmul [5120→48] q8_0r x→f16 to_f16 T=512,1
+     2.766 ms   0.3%    192x  min     12.2 us  matmul mmq split-k reduce splitk_reduce T=512,1
+     2.118 ms   0.2%    512x  min      2.0 us  matmul split-k reduce splitk_reduce T=512,1
+     1.998 ms   0.2%    256x  min      5.8 us  matmul [6144→5120] q8_0r x→q8 quantize_q8_1 T=512,1
+     1.853 ms   0.2%    256x  min      6.2 us  matmul [5120→17408] q8_0r x→q8 quantize_q8_1 T=512,1
+     1.610 ms   0.2%     64x  min     23.6 us  rope+norm rope_row T=512,1
+     1.590 ms   0.1%    192x  min      8.2 us  delta_chunk delta_chunk_qk T=512,1
+     1.405 ms   0.1%     64x  min     20.3 us  fused[Sigmoid,Mul] main T=512,1
+     1.377 ms   0.1%    192x  min      5.7 us  matmul [5120→10240] q8_0r x→q8 quantize_q8_1 T=512,1
+     1.073 ms   0.1%     64x  min     15.4 us  matmul [5120→1024] q8_0r x→f16 to_f16 T=512,1
+     0.501 ms   0.0%     64x  min      6.1 us  rope+norm+cache_write rope_row T=512,1
+     0.464 ms   0.0%     64x  min      5.7 us  matmul [5120→12288] q8_0r x→q8 quantize_q8_1 T=512,1
+     0.407 ms   0.0%    192x  min      2.0 us  conv1d conv1d_state T=512,1
+
+--- decode x64 profile, segment 0
+GPU time 2275.71 ms
+   926.103 ms  40.7%   4096x  min    222.8 us  matmul2 [5120→17408]x2 q8_0r fused[Silu,Mul] matvec_sk T=1,1
+   472.007 ms  20.7%   4096x  min    112.7 us  matmul [17408→5120] q8_0r matvec_sk T=1,1
+   210.577 ms   9.3%   3072x  min     66.5 us  matmul [5120→10240] q8_0r matvec_sk T=1,1
+   177.168 ms   7.8%   4096x  min     41.9 us  matmul [6144→5120] q8_0r matvec_sk T=1,1
+   131.286 ms   5.8%   3072x  min     41.8 us  matmul [5120→6144] q8_0r matvec_sk T=1,1
+    99.887 ms   4.4%     64x  min   1558.7 us  matmul [5120→248320] q8_0r matvec_sk T=1,1
+    82.839 ms   3.6%   1024x  min     79.8 us  matmul [5120→12288] q8_0r matvec_sk T=1,1
+    32.109 ms   1.4%   8192x  min      3.6 us  fused[Add]+RmsNorm main T=1,1
+    26.230 ms   1.2%   3072x  min      7.6 us  delta_rule delta_rule T=1,1
+    23.523 ms   1.0%   6144x  min      3.4 us  matmul [5120→48] q8_0r matvec_sk T=1,1
+    21.563 ms   0.9%   2048x  min      9.5 us  matmul [5120→1024] q8_0r matvec_sk T=1,1
+    21.014 ms   0.9%   1024x  min     20.4 us  attention decode T=1,1
+    12.575 ms   0.6%   3072x  min      3.1 us  conv1d conv1d T=1,1
+     6.963 ms   0.3%   3072x  min      2.0 us  RmsNorm+fused[Silu,Mul] main T=1,1
+     6.297 ms   0.3%   3072x  min      2.0 us  fused[Add,Softplus,Mul] main T=1,1
+     6.289 ms   0.3%   1024x  min      5.1 us  attention combine decode_combine T=1,1
+     5.163 ms   0.2%   3072x  min      1.6 us  fused[Sigmoid] main T=1,1
+     4.240 ms   0.2%   1024x  min      4.1 us  rope+norm+cache_write rope_row T=1,1
+     3.850 ms   0.2%   1024x  min      3.5 us  rope+norm rope_row T=1,1
+     2.912 ms   0.1%   1024x  min      2.0 us  cache_write cache_write T=1,1
+     2.100 ms   0.1%   1024x  min      2.0 us  fused[Sigmoid,Mul] main T=1,1
+     0.498 ms   0.0%    128x  min      2.0 us  gather gather T=1,1
+     0.262 ms   0.0%     64x  min      4.1 us  RmsNorm main T=1,1
+     0.255 ms   0.0%     64x  min      4.0 us  sample sample T=1,1
+
