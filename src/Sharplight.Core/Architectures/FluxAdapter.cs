@@ -69,7 +69,8 @@ public sealed class FluxAdapter : IModelAdapter
         {
             [DiffusionGraphs.TextEncode] = ClipTextGraphBuilder.Build(src.Weight, clip, TextEncoderPrefix, pooled: true, hidden: false),
             [DiffusionGraphs.TextEncode2] = T5TextGraphBuilder.Build(src.Weight, t5, SecondTextEncoderPrefix),
-            [DiffusionGraphs.Denoise] = FluxTransformerGraphBuilder.Build(src.Weight, transformer, latentHeight, latentWidth, t5.ContextLength),
+            [DiffusionGraphs.Denoise] = FluxTransformerGraphBuilder.Build(src.Weight, transformer, latentHeight, latentWidth, t5.ContextLength,
+                (int)options.Dimensions.GetValueOrDefault(DiffusionGraphs.References, 0)),
             [DiffusionGraphs.VaeDecode] = AutoencoderGraphBuilder.BuildDecoder(src.Weight, vae, latentHeight, latentWidth),
             [DiffusionGraphs.VaeEncode] = AutoencoderGraphBuilder.BuildEncoder(src.Weight, vae, height, width),
         };
@@ -166,6 +167,7 @@ public sealed class FluxAdapter : IModelAdapter
                     Config = new ComponentConfigBuilder()
                         .Add(DiffusionConfigKeys.LatentChannels, transformer.LatentChannels)
                         .Add(DiffusionConfigKeys.PatchSize, transformer.PatchSize)
+                        .Add(DiffusionConfigKeys.ReferenceImages, transformer.MaxReferences)
                         .Build(),
                     SymbolBounds = new Dictionary<string, long> { [DiffusionGraphs.BatchSymbol] = batch1 },
                 },

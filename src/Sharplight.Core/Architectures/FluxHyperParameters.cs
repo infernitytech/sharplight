@@ -85,6 +85,18 @@ internal sealed record FluxHyperParameters
     /// </summary>
     public int TextPositionAxis { get; init; } = -1;
 
+    /// <summary>
+    /// How many reference images an editing model takes (FLUX.1 Kontext: 1; FLUX.2: several), or 0. Reference tokens follow the image tokens
+    /// with the first position axis at <see cref="ReferenceIndexBase"/> + <see cref="ReferenceIndexStep"/> · i for reference i.
+    /// </summary>
+    public int MaxReferences { get; init; }
+
+    /// <summary>The first position axis of the first reference image's tokens (FLUX.1 Kontext: 1; FLUX.2: 10).</summary>
+    public int ReferenceIndexBase { get; init; } = 1;
+
+    /// <summary>The step of the first position axis between reference images (FLUX.2: 10).</summary>
+    public int ReferenceIndexStep { get; init; }
+
     /// <summary>Width per head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
 
@@ -116,6 +128,9 @@ internal sealed record FluxHyperParameters
             SharedModulation = source.Get(p + "shared_modulation", false),
             SwiGlu = source.Get(p + "swiglu", false),
             TextPositionAxis = source.Get(p + "text_position_axis", -1),
+            MaxReferences = source.Get(p + "max_references", 0),
+            ReferenceIndexBase = source.Get(p + "reference_index_base", 1),
+            ReferenceIndexStep = source.Get(p + "reference_index_step", 0),
         };
     }
 }

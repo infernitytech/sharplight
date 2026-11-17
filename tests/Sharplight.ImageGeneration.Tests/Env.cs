@@ -84,6 +84,9 @@ internal static class Env
     /// <summary>The tiny random FLUX.2 Klein pipeline (tools/make-tiny-flux2.py).</summary>
     public static readonly string TinyFlux2 = Path.Combine(Home, "models/flux2/tiny-random-flux2");
 
+    /// <summary>The FLUX.2 Dev model folder (the diffusers folder without its weights, the transformer and Mistral text encoder GGUF files, references).</summary>
+    public static readonly string Flux2DevRoot = Path.Combine(Home, "models/flux2-dev");
+
     /// <summary>The Krea 2 model folder (the Krea 2 Turbo diffusers folder, GGUF files, references).</summary>
     public static readonly string Krea2Root = Path.Combine(Home, "models/krea2");
 

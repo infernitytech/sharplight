@@ -60,7 +60,11 @@ internal static class FluxFolder
             var t5 = FluxSource.AddT5Folder(Path.Combine(path, "text_encoder_2"), Path.Combine(path, "tokenizer_2"), weights, resources);
             string schedulerPath = Path.Combine(path, "scheduler", "scheduler_config.json");
             var config = FluxConfig.FromWeights(weights.Weights)
-                .WithDiffusers(File.Exists(schedulerPath) ? File.ReadAllText(schedulerPath) : null, ReadJson(path, "transformer"));
+                .WithDiffusers(File.Exists(schedulerPath) ? File.ReadAllText(schedulerPath) : null, ReadJson(path, "transformer")) with
+                {
+                    Kontext = File.Exists(Path.Combine(path, "model_index.json"))
+                        && File.ReadAllText(Path.Combine(path, "model_index.json")).Contains("\"FluxKontext", StringComparison.Ordinal),
+                };
             var vae = VaeConfig.FromDiffusers(ReadJson(path, "vae"), FluxConfig.RgbFactors);
             var clip = ClipTextConfig.FromTransformers(ReadJson(path, "text_encoder"));
             var vocabulary = ClipVocabulary.FromFolder(Path.Combine(path, "tokenizer"));
