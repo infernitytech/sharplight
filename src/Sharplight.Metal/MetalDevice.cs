@@ -140,11 +140,9 @@ internal sealed unsafe class MetalDevice : IComputeDevice
         }
         catch (KernelCompilationException e) when (s_fallbackFeatures.Any(f => options.FeaturesFor(this).Contains(f)))
         {
-            Interlocked.Increment(ref PipelineFallbacks);
-            if (DiagnosticSwitches.Trace || DiagnosticSwitches.LoadTiming)
-            {
-                Console.Error.WriteLine($"[mtl] segment {segment.Index}: {e.Message.Split('\n')[0]}; compiling it again without {string.Join(", ", s_fallbackFeatures)}");
-            }
+            // Always reported: a fallback means a slower kernel and a kernel Metal rejects (CI logs show which).
+            int fallbacks = Interlocked.Increment(ref PipelineFallbacks);
+            Console.Error.WriteLine($"[mtl] fallback {fallbacks}, segment {segment.Index}: {e.Message.Split('\n')[0]}; compiling it again without {string.Join(", ", s_fallbackFeatures)}");
 
             return CompileProgram(segment, options.WithDisabledFeatures(s_fallbackFeatures));
         }
