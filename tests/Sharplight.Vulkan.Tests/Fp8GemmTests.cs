@@ -90,7 +90,7 @@ public sealed class Fp8GemmTests
 
             using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
             {
-                Devices = [new DeviceSlot { Device = Gpu.Vulkan! }],
+                Devices = [new DeviceSlot { Device = Gpu.Device! }],
                 Compile = new CompileOptions { MaxTokens = t },
                 ReservePerDevice = 0,
             });

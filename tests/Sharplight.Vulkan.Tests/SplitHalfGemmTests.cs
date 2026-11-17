@@ -105,7 +105,7 @@ public sealed class SplitHalfGemmTests
         tg.B.Output("y", tg.B.MatMul(xi, wi));
         using var model = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
         {
-            Devices = [new DeviceSlot { Device = Gpu.Vulkan! }],
+            Devices = [new DeviceSlot { Device = Gpu.Device! }],
             Compile = new CompileOptions { MaxTokens = rows, AllowReducedPrecision = reduced, SplitHalfMatMul = split, MatrixPrecision = precision },
             ReservePerDevice = 0,
         });

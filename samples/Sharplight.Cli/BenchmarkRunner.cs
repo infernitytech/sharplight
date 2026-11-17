@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Sharplight.Llm;
+using Sharplight.Metal;
 using Sharplight.Vulkan;
 
 namespace Sharplight.Cli;
@@ -30,6 +31,8 @@ internal sealed class BenchmarkRunner
     }
 
     private IEnumerable<VulkanSegment> VulkanSegments => _session.Compiled.Segments.OfType<VulkanSegment>();
+
+    private IEnumerable<MetalSegment> MetalSegments => _session.Compiled.Segments.OfType<MetalSegment>();
 
     /// <summary>Runs the benchmark and returns the one-line summary.</summary>
     public string Run(CancellationToken cancellationToken)
@@ -95,7 +98,7 @@ internal sealed class BenchmarkRunner
             cancellationToken.ThrowIfCancellationRequested();
             int token = _promptTokens[step % _promptTokens.Length];
             stepSeconds.Add(TimeSeconds(() => _session.Process([token])));
-            gpuMilliseconds.Add(VulkanSegments.Sum(segment => segment.LastGpuMs));
+            gpuMilliseconds.Add(VulkanSegments.Sum(segment => segment.LastGpuMs) + MetalSegments.Sum(segment => segment.LastGpuMs));
         }
 
         return new DecodeMeasurement(stepSeconds, gpuMilliseconds);
@@ -123,11 +126,22 @@ internal sealed class BenchmarkRunner
         {
             segment.ResetProfile();
         }
+
+        foreach (var segment in MetalSegments)
+        {
+            segment.ResetProfile();
+        }
     }
 
     private void PrintProfiles(string phase)
     {
         foreach (var segment in VulkanSegments.Where(segment => segment.Profile))
+        {
+            _log.WriteLine($"--- {phase} profile, segment {segment.Segment.Index}");
+            _log.WriteLine(segment.ProfileReport());
+        }
+
+        foreach (var segment in MetalSegments.Where(segment => segment.Profile))
         {
             _log.WriteLine($"--- {phase} profile, segment {segment.Segment.Index}");
             _log.WriteLine(segment.ProfileReport());
@@ -145,6 +159,12 @@ internal sealed class BenchmarkRunner
             {
                 PrintSchedule(segment);
             }
+        }
+
+        foreach (var segment in MetalSegments)
+        {
+            var (dispatches, barriers) = segment.Stats(1);
+            _log.WriteLine($"segment {segment.Segment.Index}: {dispatches} dispatches, {barriers} barriers per step (metal)");
         }
     }
 

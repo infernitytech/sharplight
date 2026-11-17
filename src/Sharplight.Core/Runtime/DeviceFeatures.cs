@@ -2,8 +2,8 @@ namespace Sharplight.Runtime;
 
 /// <summary>
 /// Provider-neutral names of optional device features. A provider maps its own mechanisms onto these
-/// (e.g. Vulkan VK_KHR_cooperative_matrix, CUDA tensor cores / mma.sync, Metal simdgroup_matrix all
-/// provide <see cref="MatrixF16"/>). Hosts can turn any of them off for a device or a single compilation.
+/// (e.g. Vulkan VK_KHR_cooperative_matrix and CUDA tensor cores / mma.sync provide <see cref="MatrixF16"/>, Metal
+/// simdgroup_matrix provides <see cref="MatrixF16Small"/>). Hosts can turn any of them off for a device or a single compilation.
 /// </summary>
 /// <remarks>
 /// Diagnostic environment switches of Sharplight.Core:
@@ -16,6 +16,12 @@ public static class DeviceFeatures
 {
     /// <summary>Subgroup/warp-level matrix multiply-accumulate on f16 inputs with f32 accumulation (tensor cores).</summary>
     public const string MatrixF16 = "matrix_f16";
+    /// <summary>
+    /// Subgroup-level matrix multiply-accumulate on 8x8 f16 fragments with f32 accumulation (Metal: simdgroup_matrix, Apple GPUs
+    /// from the A14 / M1). The 16x16 fragments the <see cref="MatrixF16"/> kernels are written for are not available, so only the
+    /// kernels written for 8x8 fragments use it (the prefill GEMM); the others take their SIMT fallbacks.
+    /// </summary>
+    public const string MatrixF16Small = "matrix_f16_8x8";
     /// <summary>Matrix multiply-accumulate on bf16 inputs with f32 accumulation.</summary>
     public const string MatrixBF16 = "matrix_bf16";
     /// <summary>Matrix multiply-accumulate on int8 inputs with int32 accumulation.</summary>
@@ -70,7 +76,7 @@ public static class DeviceFeatures
     public const string ChannelsLast = "channels_last";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, MatrixF16, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

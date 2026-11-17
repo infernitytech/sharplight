@@ -653,6 +653,112 @@ void gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 }
 #endif
 
+#ifdef KERNEL_GEMM_SG
+// ---------------------------------------------------------------------------------------------
+// GEMM on 8x8 subgroup matrices (DeviceFeatures.MatrixF16Small: Metal simdgroup_matrix, f16 x f16 + f32). The tile and staging of
+// gemm_cm: a workgroup of 8 subgroups computes 64 tokens x 128 rows, subgroup (sm, sn) owns a 32x32 block = 4x4 accumulators;
+// x (f32) and W (any WFMT, dequantized via load8) are staged into shared memory as f16 per K step of 32. Requires K % 32 == 0;
+// partial N / T tiles are handled (zero-filled loads, staged stores).
+using namespace linalg;
+#define SBM 64
+#define SBN 128
+#define SBK 32
+#define SGS (SBK + 8)
+typealias SgA = CoopMat<half, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixA>;
+typealias SgB = CoopMat<half, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixB>;
+typealias SgC = CoopMat<float, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixAccumulator>;
+
+groupshared half sgA[SBM * SGS];
+groupshared half sgB[SBN * SGS];
+groupshared float sgC[8 * 64];
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void gemm_sg(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
+{
+    GRID_BIND(p);
+    uint tid = ltid.x;
+    uint sg = tid / 32;
+    uint lane = tid % 32;
+    uint n0 = gid.x * SBN;
+    uint t0 = gid.y * SBM;
+    uint wm = (sg / 4) * 32;
+    uint wn = (sg % 4) * 32;
+
+    SgC acc[4][4];
+    [ForceUnroll] for (int i = 0; i < 4; i++) [ForceUnroll] for (int j = 0; j < 4; j++) acc[i][j] = SgC(0.0);
+
+    for (uint k0 = 0; k0 < K; k0 += SBK)
+    {
+        // x tile: 64 tokens x 32 = 256 threads x 8 values.
+        {
+            uint r = tid / 4, q = tid % 4;
+            uint t = t0 + r;
+            float4 a = 0, b = 0;
+            if (t < p.T)
+            {
+                float4* xp = (float4*)(p.x + uint64_t(t) * X_STRIDE + k0 + q * 8);
+                a = xp[0]; b = xp[1];
+            }
+            uint o = r * SGS + q * 8;
+            sgA[o + 0] = half(a.x); sgA[o + 1] = half(a.y); sgA[o + 2] = half(a.z); sgA[o + 3] = half(a.w);
+            sgA[o + 4] = half(b.x); sgA[o + 5] = half(b.y); sgA[o + 6] = half(b.z); sgA[o + 7] = half(b.w);
+        }
+        // W tile: 128 rows x 32 = 512 groups of 8, two per thread.
+        [ForceUnroll]
+        for (uint it = 0; it < 2; it++)
+        {
+            uint idx = tid + it * 256;
+            uint r = idx / 4, q = idx % 4;
+            float w[8];
+            if (N % SBN == 0 || n0 + r < N) load8(p.w, ROW_BYTES, n0 + r, k0 / 8 + q, w);
+            else { [ForceUnroll] for (int i = 0; i < 8; i++) w[i] = 0; }
+            uint o = r * SGS + q * 8;
+            [ForceUnroll] for (int i = 0; i < 8; i++) sgB[o + i] = half(w[i]);
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        [ForceUnroll]
+        for (uint kk = 0; kk < SBK; kk += 8)
+        {
+            SgA a[4];
+            SgB b[4];
+            [ForceUnroll] for (int i = 0; i < 4; i++) a[i] = SgA.Load<CoopMatMatrixLayout.RowMajor>(sgA, (wm + i * 8) * SGS + kk, SGS);
+            [ForceUnroll] for (int j = 0; j < 4; j++) b[j] = SgB.Load<CoopMatMatrixLayout.ColumnMajor>(sgB, (wn + j * 8) * SGS + kk, SGS);
+            [ForceUnroll] for (int i = 0; i < 4; i++) [ForceUnroll] for (int j = 0; j < 4; j++) acc[i][j] = coopMatMulAdd<float, false>(a[i], b[j], acc[i][j]);
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (t0 + SBM <= p.T && (N % SBN == 0 || n0 + SBN <= N))
+    {
+        float* y = p.y + uint64_t(t0 + wm) * Y_STRIDE + n0 + wn;
+        [ForceUnroll] for (int i = 0; i < 4; i++) [ForceUnroll] for (int j = 0; j < 4; j++) acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(y + uint64_t(i * 8) * Y_STRIDE + j * 8, 0u, Y_STRIDE);
+        return;
+    }
+    // Partial tile: stage each accumulator through the subgroup's shared slice and store guarded (two values per lane).
+    [ForceUnroll]
+    for (int i = 0; i < 4; i++)
+    {
+        [ForceUnroll]
+        for (int j = 0; j < 4; j++)
+        {
+            acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(sgC, sg * 64, 8u);
+            GroupMemoryBarrierWithGroupSync();
+            [ForceUnroll]
+            for (uint e = 0; e < 2; e++)
+            {
+                uint idx = lane + e * 32;
+                uint t = t0 + wm + i * 8 + idx / 8;
+                uint n = n0 + wn + j * 8 + idx % 8;
+                if (t < p.T && n < N) p.y[uint64_t(t) * Y_STRIDE + n] = sgC[sg * 64 + idx];
+            }
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
+}
+#endif
+
 #if defined(KERNEL_GEMM_CM2) || defined(KERNEL_GEMM_SK)
 // ---------------------------------------------------------------------------------------------
 // Large tensor-core GEMM. Workgroup = WARPS_M x WARPS_N subgroups, each owning FRAG_M x FRAG_N 16x16
