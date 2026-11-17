@@ -9,6 +9,7 @@ namespace Sharplight.Studio.Tests;
 /// Studio's engine runtime on real small models (skipped when they are not on disk): two resident models with load progress, chat on
 /// each, and the embedded server routing by the <c>model</c> field.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class RealModelTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

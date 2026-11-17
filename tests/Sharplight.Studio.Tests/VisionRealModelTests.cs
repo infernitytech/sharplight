@@ -12,6 +12,7 @@ namespace Sharplight.Studio.Tests;
 /// The segmentation, text recognition and upscaling modes of the Vision page on the real engine runtime and the small real models
 /// (skipped when they are not on disk): each is recognized by the library, loads through the runtime and runs through the page.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class VisionRealModelTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

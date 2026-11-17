@@ -49,8 +49,9 @@ public sealed class PrecompileTests
         Assert.True(entry.IsPrecompiling);
         Assert.False(entry.CanPrecompile);
 
-        // The service runs on a worker (never on the UI thread): wait until it started and reported.
-        for (int i = 0; i < 1000 && (!services.Precompiler.IsBusy(path) || entry.PrecompileRows.Count == 0); i++)
+        // The service runs on a worker (never on the UI thread): wait until it started and reported. The row is added before its
+        // progress is applied, so wait for the progress too (the check after the row alone flaked on a loaded machine).
+        for (int i = 0; i < 1000 && (!services.Precompiler.IsBusy(path) || entry.PrecompileRows.Count == 0 || entry.PrecompileRows[0].Progress == 0); i++)
         {
             await Task.Delay(10, TestContext.Current.CancellationToken);
         }

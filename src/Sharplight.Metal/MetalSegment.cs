@@ -131,18 +131,16 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
     }
 
     /// <summary>
-    /// The buffer of a weight: the mapped file pages themselves when the weight is stored as the kernels read it (no repack) and its
-    /// source is memory-mapped, otherwise a new buffer the upload fills.
+    /// The buffer of a weight: a view of its memory-mapped file (wrapped once per file, see <see cref="MetalDevice.TryWrapMapping"/>)
+    /// when the weight is stored as the kernels read it (no repack), otherwise a new buffer the upload fills.
     /// </summary>
     private MetalBuffer AllocateWeight(BufferDecl b)
     {
         if (DiagnosticSwitches.NoCopyWeights && b.Repack == WeightRepack.None && b.InitialData is null && b.Weight is { } w
             && w.ByteSize == b.Bytes && w.Source?.TryGetPointer() is { } pointer && pointer != 0)
         {
-            var wrapped = w.Source.TryGetMapping(out nint mappingBase, out long mappingLength)
-                ? _dev.TryWrapMapping(pointer, b.Bytes, mappingBase, mappingLength)
-                : _dev.TryWrap(pointer, b.Bytes);
-            if (wrapped is not null)
+            if (w.Source.TryGetMapping(out nint mappingBase, out long mappingLength)
+                && _dev.TryWrapMapping(pointer, b.Bytes, mappingBase, mappingLength) is { } wrapped)
             {
                 return wrapped;
             }

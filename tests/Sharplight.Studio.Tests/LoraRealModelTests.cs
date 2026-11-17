@@ -12,6 +12,7 @@ using Sharplight.Studio.ViewModels.Models;
 namespace Sharplight.Studio.Tests;
 
 /// <summary>A tiny Stable Diffusion pipeline and a tiny LoRA through the Image page and the load panel on the real runtime (skipped when not on disk).</summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class LoraRealModelTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

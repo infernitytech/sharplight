@@ -16,6 +16,7 @@ namespace Sharplight.Studio.Tests;
 /// recognizes the file as an image model that needs companions, the load panel shows the text encoder and VAE slots and fills them from
 /// the diffusers pipeline folder beside the GGUF's folder (its Qwen3 <c>text_encoder</c> folder and its VAE), and the Image page generates.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class ZImageImageTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

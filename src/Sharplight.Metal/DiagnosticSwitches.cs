@@ -11,8 +11,8 @@ namespace Sharplight.Metal;
 /// row invariance, and assumes finite values, which masked softmax scores are not).</item>
 /// <item><c>SHARPLIGHT_MTL_TRACE=1</c>: prints recordings and pipeline creation.</item>
 /// <item><c>SHARPLIGHT_MTL_PROFILE=1</c>: runs every launch in its own command buffer and accumulates per-kernel GPU times.</item>
-/// <item><c>SHARPLIGHT_MTL_NO_COPY=1</c>: wrap mapped weights with <c>newBufferWithBytesNoCopy</c> instead of copying them (off by
-/// default: on the CI's Apple GPU wrapping the mapped pages of a 0.5 GB model took 12.4 s against 0.38 s for the parallel copy).</item>
+/// <item><c>SHARPLIGHT_MTL_NO_COPY=0</c>: copy the weights into Metal buffers instead of wrapping each mapped model file once with
+/// <c>newBufferWithBytesNoCopy</c> (on the CI's Apple GPU, warm page cache: 56 ms against 301 ms for the 0.49 GB smoke model).</item>
 /// <item><c>SHARPLIGHT_MTL_DUMP_SOURCE=dir</c>: writes the MSL of every kernel a pipeline is created for into <c>dir</c>.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>, <c>SHARPLIGHT_SUBMISSION_BUDGET_MS</c>, <c>SHARPLIGHT_CONCURRENT_WORKGROUPS</c>,
 /// <c>SHARPLIGHT_DEVICE_FORWARDING=0</c>: as for the Vulkan provider.</item>
@@ -20,7 +20,7 @@ namespace Sharplight.Metal;
 /// </summary>
 internal static class DiagnosticSwitches
 {
-    public static bool NoCopyWeights { get; } = IsSet("SHARPLIGHT_MTL_NO_COPY");
+    public static bool NoCopyWeights { get; } = Read("SHARPLIGHT_MTL_NO_COPY") != "0";
 
     public static bool Serial { get; } = IsSet("SHARPLIGHT_MTL_SERIAL");
 

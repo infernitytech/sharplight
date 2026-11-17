@@ -233,6 +233,10 @@ jobs:
           prerelease=""
           if [[ "$TAG" == *-* ]]; then prerelease="--prerelease"; fi
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Sharplight Studio $TAG" --generate-notes $prerelease
+            # Curated notes of a stable version (docs/release-notes/v<version>.md), otherwise GitHub's generated notes.
+            notes=(--generate-notes)
+            curated="docs/release-notes/v$(jq -r .version version.json).md"
+            if [ -f "$curated" ]; then notes=(--notes-file "$curated"); fi
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Sharplight $TAG" "${notes[@]}" $prerelease
           fi
           gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber

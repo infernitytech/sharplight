@@ -7,14 +7,15 @@ using Sharplight.Studio.Services.Threading;
 namespace Sharplight.Studio.ViewModels.Inference;
 
 /// <summary>
-/// The run queue every inference page shares: runs are started one after the other per model (a second run on the same model waits
-/// for the first), can be cancelled while queued or running, and stay listed with their outcome until cleared. Work runs on a pool
+/// The run queue every inference page shares: runs are started one after the other per model, in the order they were queued (a second
+/// run on the same model waits for the first), can be cancelled while queued or running, and stay listed with their outcome until cleared. Work runs on a pool
 /// thread; progress and state changes reach the view models on the UI thread, progress throttled to about 15 updates a second.
 /// </summary>
 internal sealed partial class RunQueueViewModel : ObservableObject
 {
     private readonly IUiDispatcher _dispatcher;
-    private readonly Dictionary<string, SemaphoreSlim> _gates = new(StringComparer.Ordinal);
+    // Per model, the end of the last queued run: a new run waits for it, so runs of one model start in the order they were queued.
+    private readonly Dictionary<string, Task> _tails = new(StringComparer.Ordinal);
     private readonly Lock _lock = new();
 
     /// <param name="dispatcher">Runs UI updates on the UI thread.</param>
@@ -44,14 +45,18 @@ internal sealed partial class RunQueueViewModel : ObservableObject
     public RunItemViewModel Enqueue(string title, string modelId, Func<RunContext, Task> work)
     {
         var item = new RunItemViewModel(title, modelId) { Status = RunStatus.Queued };
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task previous;
         lock (_lock)
         {
             Items.Add(item);
             ActiveCount = CountActive();
+            previous = _tails.TryGetValue(modelId, out var tail) ? tail : Task.CompletedTask;
+            _tails[modelId] = done.Task;
         }
 
         OnPropertyChanged(nameof(HasItems));
-        item.Completion = Task.Run(() => RunAsync(item, work));
+        item.Completion = Task.Run(() => RunAsync(item, work, previous, done));
         return item;
     }
 
@@ -80,24 +85,29 @@ internal sealed partial class RunQueueViewModel : ObservableObject
         OnPropertyChanged(nameof(HasItems));
     }
 
-    private async Task RunAsync(RunItemViewModel item, Func<RunContext, Task> work)
+    /// <param name="item">The run.</param>
+    /// <param name="work">What it does.</param>
+    /// <param name="previous">Completes when the run queued before it on the same model has ended.</param>
+    /// <param name="done">Completed when this run has ended and the one before it too (the next run of the model waits for it).</param>
+    private async Task RunAsync(RunItemViewModel item, Func<RunContext, Task> work, Task previous, TaskCompletionSource done)
     {
-        SemaphoreSlim gate;
-        lock (_lock)
-        {
-            if (!_gates.TryGetValue(item.ModelId, out gate!))
-            {
-                _gates[item.ModelId] = gate = new SemaphoreSlim(1, 1);
-            }
-        }
-
         RunStatus outcome;
         string detail = "";
         var progress = new RunProgress();
         using var throttle = new UpdateThrottle(() => Update(() => progress.ApplyTo(item)));
         try
         {
-            await gate.WaitAsync(item.Token).ConfigureAwait(false);
+            try
+            {
+                await previous.WaitAsync(item.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // A run cancelled while queued never starts; the runs queued after it still wait for the ones before it.
+                _ = CompleteAfterAsync(previous, done);
+                throw;
+            }
+
             try
             {
                 item.Token.ThrowIfCancellationRequested();
@@ -114,7 +124,7 @@ internal sealed partial class RunQueueViewModel : ObservableObject
             finally
             {
                 throttle.Flush();
-                gate.Release();
+                done.TrySetResult();
             }
         }
         catch (OperationCanceledException)
@@ -140,6 +150,13 @@ internal sealed partial class RunQueueViewModel : ObservableObject
                 ActiveCount = CountActive();
             }
         });
+    }
+
+    /// <summary>Completes <paramref name="done"/> once <paramref name="previous"/> has completed.</summary>
+    private static async Task CompleteAfterAsync(Task previous, TaskCompletionSource done)
+    {
+        await previous.ConfigureAwait(false);
+        done.TrySetResult();
     }
 
     /// <summary>The runs still queued or running.</summary>

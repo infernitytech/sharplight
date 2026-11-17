@@ -12,6 +12,7 @@ namespace Sharplight.Studio.Tests;
 /// The Transcribe and Speak pages on the real engine runtime and real small models (skipped when they are not on disk): the speech
 /// models load through the runtime's residency like chat models, and the pages run them.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class SpeechRealModelTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

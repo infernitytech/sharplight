@@ -938,51 +938,13 @@ groupshared half faQl[FA_BR * FA_QS];   // lo parts (FA_SPLIT)
 groupshared half faKVl[FA_BC * FA_KS];
 groupshared half faPl[FA_BR * FA_PS];
 #define FA_P_SCALE 4096.0
-// Power-of-two scales (split_scale) of each query row, each key row of the K tile and the V tile as a whole, applied before the
-// f16 split so neither part over- or underflows (as fe's). One array of f32 bits (separate groupshared scalars here gave wrong
-// results): FA_BR query row scales, FA_BC key row maxima, FA_BC inverse key row scales, the V tile's maximum and inverse scale.
-groupshared uint faScales[FA_BR + 2 * FA_BC + 2];
-#define FA_QSCALE (0)
-#define FA_KMAX (FA_BR)
-#define FA_KINV (FA_BR + FA_BC)
-#define FA_VMAX (FA_BR + 2 * FA_BC)
-#define FA_VINV (FA_BR + 2 * FA_BC + 1)
 #endif
 
 // Rows j0.. of K or V (dim columns of rows rowStride wide, zero-padded to dimP) into faKV as f16 (FA_SPLIT: hi parts in faKV,
 // lo parts in faKVl); rows >= L are zero.
-void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint dim, uint rowStride, uint dimP, uint tid, bool values)
+void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint dim, uint rowStride, uint dimP, uint tid)
 {
     uint per = dimP / 8;
-#if FA_SPLIT
-    // FA_SPLIT: the maxima first (per key row, or over the V tile; cleared by the other operand's load), then the
-    // scaled parts.
-    float vmax = 0;
-    for (uint i = tid; i < FA_BC * per; i += FA_T)
-    {
-        uint r = i / per, c = (i % per) * 8;
-        uint j = j0 + r;
-        if (j < L && c < dim)
-        {
-            float v[8];
-            unpack_kv8(load_kv8(cache, (kv_row(kvRow, j) + hk) * rowStride + c), v);
-            float a = 0;
-            [ForceUnroll] for (uint e = 0; e < 8; e++) a = max(a, abs(v[e]));
-            if (values) vmax = max(vmax, a); else InterlockedMax(faScales[FA_KMAX + r], asuint(a));
-        }
-    }
-    if (values)
-    {
-        vmax = WaveActiveMax(vmax);
-        if (WaveIsFirstLane()) InterlockedMax(faScales[FA_VMAX], asuint(vmax));
-    }
-    GroupMemoryBarrierWithGroupSync();
-    float vScale = split_scale(asfloat(faScales[FA_VMAX]));
-    if (values && tid == 0) faScales[FA_VINV] = asuint(1.0 / vScale);
-    // Each operand's maxima were last read before the barrier ahead of this load.
-    if (values) { for (uint r = tid; r < FA_BC; r += FA_T) faScales[FA_KMAX + r] = 0; }
-    else if (tid == 0) faScales[FA_VMAX] = 0;
-#endif
     for (uint i = tid; i < FA_BC * per; i += FA_T)
     {
         uint r = i / per, c = (i % per) * 8;
@@ -992,15 +954,11 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
         {
             float v[8];
             unpack_kv8(load_kv8(cache, (kv_row(kvRow, j) + hk) * rowStride + c), v);
-#if FA_SPLIT
-            float scale = values ? vScale : split_scale(asfloat(faScales[FA_KMAX + r]));
-            if (!values && c == 0) faScales[FA_KINV + r] = asuint(1.0 / scale);
-#endif
             [ForceUnroll]
             for (uint e = 0; e < 8; e++)
             {
 #if FA_SPLIT
-                fa_split(v[e] * scale, faKV[o + e], faKVl[o + e]);
+                fa_split(v[e], faKV[o + e], faKVl[o + e]);
 #else
                 faKV[o + e] = half(v[e]);
 #endif
@@ -1056,24 +1014,12 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint nPast = p.rt[RT_N_PAST];
 #endif
 
-#if FA_SPLIT
-    for (uint r = tid; r < FA_BR; r += FA_T)
-    {
-        uint t = t0 + r;
-        float a = 0;
-        for (uint d = 0; d < D; d++) a = max(a, t < qT ? abs(p.q[uint64_t(qRow0 + t) * QS0 + uint64_t(h) * QS1 + d]) : 0.0);
-        faScales[FA_QSCALE + r] = asuint(split_scale(a));
-    }
-    for (uint r = tid; r < FA_BC; r += FA_T) faScales[FA_KMAX + r] = 0;
-    if (tid == 0) faScales[FA_VMAX] = 0;
-    GroupMemoryBarrierWithGroupSync();
-#endif
     for (uint i = tid; i < FA_BR * FA_DP; i += FA_T)
     {
         uint r = i / FA_DP, d = i % FA_DP, t = t0 + r;
 #if FA_SPLIT
-        // Times the row's power-of-two scale, without SCALE (applied to the f32 scores), so small entries keep their lo parts.
-        float x = t < qT && d < D ? p.q[uint64_t(qRow0 + t) * QS0 + uint64_t(h) * QS1 + d] * asfloat(faScales[FA_QSCALE + r]) : 0.0;
+        // Unscaled (SCALE is applied to the f32 scores), so small entries keep their lo parts.
+        float x = t < qT && d < D ? p.q[uint64_t(qRow0 + t) * QS0 + uint64_t(h) * QS1 + d] : 0.0;
         fa_split(x, faQ[r * FA_QS + d], faQl[r * FA_QS + d]);
 #else
         faQ[r * FA_QS + d] = half(t < qT && d < D ? p.q[uint64_t(qRow0 + t) * QS0 + uint64_t(h) * QS1 + d] * SCALE : 0.0);
@@ -1154,7 +1100,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 
     for (uint j0 = jStart; j0 < jStop; j0 += FA_BC)
     {
-        fa_load_kv(p.kc, kvRow, j0, L, hk, D, D, FA_DP, tid, false);
+        fa_load_kv(p.kc, kvRow, j0, L, hk, D, D, FA_DP, tid);
         GroupMemoryBarrierWithGroupSync();
 
         // S: subgroup sg computes rows (sg / 2) * 16, keys (sg % 2) * 16.
@@ -1208,7 +1154,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 #endif
         GroupMemoryBarrierWithGroupSync();   // S visible; K no longer needed
 
-        fa_load_kv(p.vc, kvRow, j0, L, hk, DV, VRS, FA_DVP, tid, true);
+        fa_load_kv(p.vc, kvRow, j0, L, hk, DV, VRS, FA_DVP, tid);
 
         // Online softmax of row `row`, columns sub * 8 .. + 8 (the row's 4 threads are adjacent lanes).
         float sv[8];
@@ -1219,7 +1165,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
             uint c = sub * 8 + e, j = j0 + c;
             float sc = faS[row * FA_SS + c];
 #if FA_SPLIT
-            sc = sc * (1.0 / asfloat(faScales[FA_QSCALE + row]) * asfloat(faScales[FA_KINV + c])) * SCALE;
+            sc *= SCALE;
 #endif
 #if HAS_SOFTCAP
             sc = SOFTCAP * tanh(sc / SOFTCAP);
@@ -1310,7 +1256,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
             }
             GroupMemoryBarrierWithGroupSync();
 #if FA_SPLIT
-            [ForceUnroll] for (uint e = 0; e < 16; e++) o[c * 16 + e] += faO[row * FA_DC + sub * 16 + e] * (asfloat(faScales[FA_VINV]) * (1.0 / FA_P_SCALE));
+            [ForceUnroll] for (uint e = 0; e < 16; e++) o[c * 16 + e] += faO[row * FA_DC + sub * 16 + e] * (1.0 / FA_P_SCALE);
 #else
             [ForceUnroll] for (uint e = 0; e < 16; e++) o[c * 16 + e] += faO[row * FA_DC + sub * 16 + e];
 #endif
@@ -1424,19 +1370,6 @@ groupshared half fePl[4 * 16 * FE_PS];        // (lo parts)
 #endif
 groupshared float feC[4 * 256];               // per-subgroup row factors as 16 x 16 matrices
 #endif
-#if FA_SPLIT
-// Power-of-two scales (split_scale) that bring each query row, each key row of the staged tile and the staged V tile as a
-// whole into [2^14, 2^15) before the f16 split, so neither part over- or underflows whatever the magnitudes; the scores and
-// the tile's P·V products are unscaled exactly. Maxima as f32 bits (non-negative floats order like their bits).
-// One array of f32 bits (separate groupshared scalars miscompiled in fa): FE_BR query row scales, FE_BC key row maxima of the
-// tile being staged, FE_BC inverse key row scales of the staged tile, the V tile's maximum and its inverse scale.
-groupshared uint feScales[FE_BR + 2 * FE_BC + 2];
-#define FE_QSCALE 0
-#define FE_KMAX FE_BR
-#define FE_KINV (FE_BR + FE_BC)
-#define FE_VMAX (FE_BR + 2 * FE_BC)
-#define FE_VINV (FE_BR + 2 * FE_BC + 1)
-#endif
 
 // 8 values into feBuf at half offset `index` (a multiple of 8) as one packed store (FA_SPLIT: hi parts there, lo parts at
 // loIndex).
@@ -1457,23 +1390,6 @@ void fe_put8(float v[8], uint index, uint loIndex)
 #endif
 }
 
-#if FA_SPLIT
-// fe_put8 of v times the power of two `scale`.
-void fe_put8_scaled(float v[8], float scale, uint index, uint loIndex)
-{
-    float w[8];
-    [ForceUnroll] for (uint e = 0; e < 8; e++) w[e] = v[e] * scale;
-    fe_put8(w, index, loIndex);
-}
-
-float max_abs8(float v[8])
-{
-    float a = 0;
-    [ForceUnroll] for (uint e = 0; e < 8; e++) a = max(a, abs(v[e]));
-    return a;
-}
-#endif
-
 // Loads of K and V rows j0 .. j0 + FE_BC into registers (rows >= jEnd and padding columns are zero).
 void fe_fetch(out Kv8 kb[FE_KPT], out Kv8 vb[FE_VPT], uint8_t* kc, uint8_t* vc, uint64_t kvRow, uint j0, uint jEnd, uint hk, uint tid)
 {
@@ -1493,76 +1409,9 @@ void fe_fetch(out Kv8 kb[FE_KPT], out Kv8 vb[FE_VPT], uint8_t* kc, uint8_t* vc, 
     }
 }
 
-// Fetched rows into feBuf as f16 parts: K hi at 0, K lo at FE_KT, V hi at FE_VO, V lo at FE_VO + FE_VT. FA_SPLIT: the maxima of
-// the key rows and the V tile first (feScales, zero on entry), then the scaled parts; the maxima are cleared after the caller's
-// next barrier.
+// Fetched rows into feBuf as f16 parts: K hi at 0, K lo at FE_KT, V hi at FE_VO, V lo at FE_VO + FE_VT.
 void fe_store(Kv8 kb[FE_KPT], Kv8 vb[FE_VPT], uint tid)
 {
-#if FA_SPLIT
-    float vmax = 0;
-    [ForceUnroll]
-    for (uint k = 0; k < FE_KPT; k++)
-    {
-        uint i = tid + k * FE_T;
-        if (i < FE_BC * FE_KC)
-        {
-            float v[8];
-            unpack_kv8(kb[k], v);
-            InterlockedMax(feScales[FE_KMAX + i / FE_KC], asuint(max_abs8(v)));
-        }
-    }
-    [ForceUnroll]
-    for (uint k = 0; k < FE_VPT; k++)
-    {
-        uint i = tid + k * FE_T;
-        if (i < FE_BC * FE_VC)
-        {
-            float v[8];
-            unpack_kv8(vb[k], v);
-            vmax = max(vmax, max_abs8(v));
-        }
-    }
-    vmax = WaveActiveMax(vmax);
-    if (WaveIsFirstLane())
-    {
-        InterlockedMax(feScales[FE_VMAX], asuint(vmax));
-    }
-    GroupMemoryBarrierWithGroupSync();
-    float vScale = split_scale(asfloat(feScales[FE_VMAX]));
-    [ForceUnroll]
-    for (uint k = 0; k < FE_KPT; k++)
-    {
-        uint i = tid + k * FE_T;
-        if (i < FE_BC * FE_KC)
-        {
-            float v[8];
-            unpack_kv8(kb[k], v);
-            float kScale = split_scale(asfloat(feScales[FE_KMAX + i / FE_KC]));
-            uint o = i / FE_KC * FE_KS + (i % FE_KC) * 8;
-            fe_put8_scaled(v, kScale, o, FE_KT + o);
-            if (i % FE_KC == 0)
-            {
-                feScales[FE_KINV + i / FE_KC] = asuint(1.0 / kScale);
-            }
-        }
-    }
-    [ForceUnroll]
-    for (uint k = 0; k < FE_VPT; k++)
-    {
-        uint i = tid + k * FE_T;
-        if (i < FE_BC * FE_VC)
-        {
-            float v[8];
-            unpack_kv8(vb[k], v);
-            uint o = FE_VO + i / FE_VC * FE_VS + (i % FE_VC) * 8;
-            fe_put8_scaled(v, vScale, o, FE_VT + o);
-        }
-    }
-    if (tid == 0)
-    {
-        feScales[FE_VINV] = asuint(1.0 / vScale);
-    }
-#else
     [ForceUnroll]
     for (uint k = 0; k < FE_KPT; k++)
     {
@@ -1595,7 +1444,6 @@ void fe_store(Kv8 kb[FE_KPT], Kv8 vb[FE_VPT], uint tid)
 #endif
         }
     }
-#endif
 }
 
 #if FE_REG
@@ -1747,32 +1595,14 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         GroupMemoryBarrierWithGroupSync();
     }
 #endif
-#if FA_SPLIT
-    // Query row scales (and cleared tile maxima for the first fe_store).
-    for (uint r = tid; r < FE_BR; r += FE_T)
-    {
-        uint t = t0 + r;
-        uint64_t qi = uint64_t(qRow0 + min(t, qT - 1)) * QS0 + uint64_t(h) * QS1;
-        float a = 0;
-        for (uint d = 0; d < D; d++) a = max(a, t < qT ? abs(p.q[qi + d]) : 0.0);
-        feScales[FE_QSCALE + r] = asuint(split_scale(a));
-    }
-    for (uint i = tid; i < FE_BC; i += FE_T) feScales[FE_KMAX + i] = 0;
-    if (tid == 0) feScales[FE_VMAX] = 0;
-    GroupMemoryBarrierWithGroupSync();
-#endif
-    // Q (unscaled; FA_SPLIT: times the row scale) through shared memory into register fragments.
+    // Q (unscaled) through shared memory into register fragments.
     for (uint i = tid; i < FE_BR * FE_KC; i += FE_T)
     {
         uint r = i / FE_KC, d0 = (i % FE_KC) * 8, t = t0 + r;
         uint64_t qi = uint64_t(qRow0 + min(t, qT - 1)) * QS0 + uint64_t(h) * QS1 + d0;
         float x[8];
         [ForceUnroll] for (uint e = 0; e < 8; e++) x[e] = t < qT && d0 + e < D ? p.q[qi + e] : 0.0;
-#if FA_SPLIT
-        fe_put8_scaled(x, asfloat(feScales[FE_QSCALE + r]), r * FE_QS + d0, FE_QT + r * FE_QS + d0);
-#else
         fe_put8(x, r * FE_QS + d0, FE_QT + r * FE_QS + d0);
-#endif
     }
     Kv8 kb[FE_KPT];
     Kv8 vb[FE_VPT];
@@ -1820,9 +1650,6 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 #endif
     float m = -1e30, l = 0;
     uint sBase = sg * 16 * FE_SS, pBase = sg * 16 * FE_PS, cBase = sg * 256;
-#if FA_SPLIT
-    float qInv = 1.0 / asfloat(feScales[FE_QSCALE + sg * 16 + row]);
-#endif
 #endif
 
     for (uint j0 = jStart; j0 < jStop; j0 += FE_BC)
@@ -1834,11 +1661,6 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         GroupMemoryBarrierWithGroupSync();   // the previous tile (or the staged Q) is no longer read
         fe_store(kb, vb, tid);
         GroupMemoryBarrierWithGroupSync();
-#if FA_SPLIT
-        // The maxima were read by fe_store before this barrier; the next tile's are gathered after the next one.
-        for (uint i = tid; i < FE_BC; i += FE_T) feScales[FE_KMAX + i] = 0;
-        if (tid == 0) feScales[FE_VMAX] = 0;
-#endif
         if (j0 + FE_BC < jStop)
         {
             fe_fetch(kb, vb, p.kc, p.vc, kvRow, j0 + FE_BC, jStop, hk, tid);   // in flight during this tile
@@ -1884,11 +1706,7 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         for (uint e = 0; e < 16; e++)
         {
             uint c = col0 + ((e + row) & 15), j = j0 + c;
-#if FA_SPLIT
-            float sc = feS[sBase + row * FE_SS + c] * (qInv * asfloat(feScales[FE_KINV + c])) * SCALE;
-#else
             float sc = feS[sBase + row * FE_SS + c] * SCALE;
-#endif
 #if FE_CAUSAL
             bool visible = rowValid && j <= nPast + tq;
 #else
@@ -1955,11 +1773,7 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 #endif
                 t = coopMatMulAdd<float, false>(pa[kh], v, t);
             }
-#if FA_SPLIT
-            o[i] = o[i] * cm + t * FeC(asfloat(feScales[FE_VINV]));
-#else
             o[i] = o[i] * cm + t;
-#endif
         }
         GroupMemoryBarrierWithWaveSync();   // corr and P read before the next tile rewrites them
     }

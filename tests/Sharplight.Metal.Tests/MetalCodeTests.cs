@@ -119,7 +119,7 @@ public sealed class MetalCodeTests
 
     private static void Workload(IComputeDevice device, CompilationArtifacts artifacts, CancellationToken cancellationToken)
     {
-        foreach (var (graph, reduced) in new[] { (BuildBlock(), false), (BuildAttention(), true) })
+        foreach (var (graph, reduced) in new[] { (BuildBlock(), false), (BuildAttention(), true), (BuildExperts(), false), (BuildConvolution(), true) })
         {
             using var model = CompiledModel.Compile(graph, new PlacementOptions
             {
@@ -128,6 +128,26 @@ public sealed class MetalCodeTests
                 ReservePerDevice = 0,
             });
         }
+    }
+
+    /// <summary>A 3x3 convolution of 64 to 128 channels on a 32 x 32 map, compiled with reduced precision (the implicit GEMM <c>conv_cm</c>).</summary>
+    private static ComputeGraph BuildConvolution()
+    {
+        var tg = new TG("metal-conv");
+        var x = tg.InF("x", Dim.Of(1), 64, 32, 32);
+        var attributes = Attributes.From(("strides", new long[] { 1, 1 }), ("pads", new long[] { 1, 1, 1, 1 }), ("dilations", new long[] { 1, 1 }), ("groups", 1L));
+        tg.B.Output("y", tg.B.Emit1("Conv", [x, tg.RandW("w", DataType.F16, 0.1f, 128, 64, 3, 3)], attributes));
+        return tg.B.Build();
+    }
+
+    /// <summary>An expert-indexed matmul over 8 Q4_K experts, 2 slots per token (the grouped GEMM above the matvec rows).</summary>
+    private static ComputeGraph BuildExperts()
+    {
+        var tg = new TG("metal-experts");
+        var x = tg.InF("x", TG.T, 256);
+        var ids = tg.In("ids", DataType.I32, TG.T, 2);
+        tg.B.Output("y", tg.B.Emit1("MatMulId", [x, tg.RandW("experts", DataType.Q4_K, 0.3f, 8, 128, 256), ids]));
+        return tg.B.Build();
     }
 
     /// <summary>

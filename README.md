@@ -22,6 +22,42 @@ generation, vision, ...), written in C# for .NET 11, with a Vulkan GPU backend
 Start with the [public API overview](docs/api-overview.md). Benchmarks against llama.cpp and vLLM are in
 [docs/benchmarks.md](docs/benchmarks.md).
 
+## Getting started
+
+Reference the entry package `Sharplight` (it brings the core, every model importer, the CPU and Vulkan providers and the native
+audio and video libraries) and register everything with `services.AddSharplight()`:
+
+```sh
+dotnet add package Sharplight
+```
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using Sharplight.Llm;
+using Sharplight.Runtime;
+
+var services = new ServiceCollection()
+    .AddSharplight()
+    .AddTextGenerator((o, sp) =>
+    {
+        // The first available provider: Vulkan when a GPU is present, otherwise the CPU.
+        var provider = sp.GetRequiredService<ExecutionProviderCatalog>().Discover().First(d => d.Availability.IsAvailable).Provider;
+        o.ModelPath = "Qwen3-0.6B-Q8_0.gguf";          // a GGUF file, a Hugging Face folder or a .slm package
+        o.Devices = [new DeviceSlot { Device = provider.OpenDevice(provider.GetDevices()[0]) }];
+    });
+await using var container = services.BuildServiceProvider();
+
+var generator = container.GetRequiredService<ITextGenerator>();
+var result = await generator.GenerateAsync("The capital of France is", new GenerationOptions { MaxNewTokens = 32 });
+Console.WriteLine(result.Text);
+```
+
+Every other model kind follows the same pattern: `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageGenerator`,
+`AddVideoGenerator`, `AddObjectDetector`, ... register an `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, ... for one
+configured model ([docs/api-overview.md](docs/api-overview.md#tasks-one-model-concept-one-client-pattern)). Models that are verified
+to work, with pinned files, are listed in [docs/compatible-models.md](docs/compatible-models.md); Sharplight Studio installs them
+with one click. The OpenAI-compatible server and the `sharplight` command line are under [Samples](#samples).
+
 ## Model compatibility
 
 | Source | CPU | Vulkan |
@@ -164,13 +200,18 @@ Tests are xunit v3 / Microsoft.Testing.Platform executables: `dotnet run --proje
 
 ## Packages
 
-The libraries under `src/` ship as NuGet packages (prerelease): `Sharplight.Core` (engine and task layer, including text
-generation, tokenizers, chat templates, the architecture adapters and the `.slm` package format), `Sharplight.Cpu`,
-`Sharplight.Vulkan`, `Sharplight.Shaders`, `Sharplight` (the entry package for most uses: `services.AddSharplight()` with
-everything wired up), `Sharplight.Hub`, `Sharplight.Hosting` (model hosting for servers and apps, [docs/hosting.md](docs/hosting.md)), `Sharplight.AspNetCore`, `Sharplight.Extensions.AI`, `Sharplight.DesignTokens` (CSS and icons of the Sharplight look for web UIs, [docs/design-tokens.md](docs/design-tokens.md)), and one package per source
-format: `Sharplight.Import.Gguf`, `Sharplight.Import.HuggingFace` and `Sharplight.Import.Onnx`.
+The libraries under `src/` ship as NuGet packages: `Sharplight` (the entry package for most uses: `services.AddSharplight()` with
+everything wired up), `Sharplight.Core` (engine and task layer, including text generation, tokenizers, chat templates, the
+architecture adapters and the `.slm` package format), `Sharplight.Cpu`, `Sharplight.Vulkan` (with `Sharplight.Shaders` and, for
+macOS, `Sharplight.Vulkan.MoltenVK`), `Sharplight.Metal` (Apple GPUs, preview), `Sharplight.Audio` (native audio I/O),
+`Sharplight.Video` (video encoding and decoding with an LGPL FFmpeg build), `Sharplight.Hub`, `Sharplight.Hosting` (model hosting
+for servers and apps, [docs/hosting.md](docs/hosting.md)), `Sharplight.AspNetCore`, `Sharplight.Extensions.AI`,
+`Sharplight.DesignTokens` (CSS and icons of the Sharplight look for web UIs, [docs/design-tokens.md](docs/design-tokens.md)), and
+one package per source format: `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.PyTorch`, `.WhisperCpp`, `.Diffusers`,
+`.Kokoro`, `.Snac`, `.Chatterbox`, `.CosyVoice`, `.F5Tts`, `.Xtts`, `.SileroVad` and `.Ultralytics`.
 
-`Sharplight.Llm`, `Sharplight.Tokenizers` and `Sharplight.Templating` are no longer published: they are part of
+`Sharplight.Defaults` was renamed to `Sharplight`, and `Sharplight.Architectures` and `Sharplight.Package` are part of
+`Sharplight.Core` now. `Sharplight.Llm`, `Sharplight.Tokenizers` and `Sharplight.Templating` are no longer published: they are part of
 `Sharplight.Core` (same namespaces). The format importers were published as `Sharplight.Gguf`, `Sharplight.HuggingFace` and
 `Sharplight.Onnx` before, and the conversion API as `Sharplight.Package.Import`. Their namespaces moved with them
 (`Sharplight.Import.Gguf`, ...; the conversion types are in `Sharplight.Package` now); there are no forwarding packages.

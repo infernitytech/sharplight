@@ -16,6 +16,7 @@ namespace Sharplight.Studio.Tests;
 /// the file as an image model that needs companions, the load panel fills in the text encoders and the VAE found beside it and
 /// passes them as auxiliary files, and the Image page generates through the loaded model.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class FluxImageTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
