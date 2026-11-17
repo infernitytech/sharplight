@@ -51,6 +51,23 @@ def i8(*shape):
     return RNG.integers(-128, 128, shape, dtype=np.int8)
 
 
+def ref_u8s8_matmul(a_q, a_zero, b_q, b_zero, scale, bias):
+    """(A - a_zero) @ (B - b_zero) in exact int32, then scaled and biased in float32: the arithmetic of MatMulIntegerToFloat and
+    DynamicQuantizeMatMul. onnxruntime's x86 u8s8 kernels without VNNI multiply-add byte pairs into saturating int16 (vpmaddubsw),
+    so its outputs differ wherever a pair sum exceeds 32767; these cases use this reference instead."""
+    acc = (a_q.astype(np.int32) - np.asarray(a_zero, np.int32)) @ (b_q.astype(np.int32) - np.asarray(b_zero, np.int32))
+    return (acc.astype(np.float32) * np.asarray(scale, np.float32) + bias).astype(np.float32)
+
+
+def ref_dynamic_quantize_u8(x):
+    """DynamicQuantizeLinear: per-tensor uint8 with the range widened to include 0, round half to even."""
+    lo, hi = np.float32(min(0.0, float(x.min()))), np.float32(max(0.0, float(x.max())))
+    scale = np.float32((hi - lo) / np.float32(255))
+    zero = np.clip(np.round(-lo / scale), 0, 255).astype(np.uint8)
+    q = np.clip(np.round(x / scale) + zero, 0, 255).astype(np.uint8)
+    return q, zero, scale
+
+
 def ref_fast_gelu(x):
     return 0.5 * x * (1 + np.tanh(0.7978845608028654 * (x + 0.044715 * x ** 3)))
 
@@ -89,13 +106,15 @@ def words(chars):
 
 
 class Case:
-    def __init__(self, name, op, inputs, outputs, attrs=None, inits=None, domain=MS, opset=21, extra_nodes=(), ref=None):
+    def __init__(self, name, op, inputs, outputs, attrs=None, inits=None, domain=MS, opset=21, extra_nodes=(), ref=None, exact=False):
         """inputs: list of (name, array or None for an absent optional input); inits: {name: array} (constant inputs); ref: a numpy
-        reference (inputs and constants by name -> outputs) for operators only onnxruntime's GPU providers implement."""
+        reference (inputs and constants by name -> outputs) for operators only onnxruntime's GPU providers implement; exact: use ref
+        even where onnxruntime runs the case, because its CPU kernel is not exact on every machine."""
         self.name, self.op, self.inputs, self.outputs = name, op, inputs, outputs
         self.attrs, self.inits, self.domain, self.opset = attrs or {}, inits or {}, domain, opset
         self.extra_nodes = extra_nodes
         self.ref = ref
+        self.exact = exact
 
     def model(self):
         inits = [numpy_helper.from_array(v, k) for k, v in self.inits.items()]
@@ -236,9 +255,12 @@ def cases():
         Case("ms_matmul_integer_to_float", "MatMulIntegerToFloat",
              [("a", a_q), ("b", None), ("as", None), ("bs", None), ("az", None), ("bz", None), ("bias", None)], ["y"],
              inits={"b": b_q, "as": np.array(0.02, np.float32), "bs": (np.abs(f32(6)) * 0.01).astype(np.float32), "az": np.array(128, np.uint8),
-                    "bz": np.zeros(6, np.int8), "bias": f32(6)}),
+                    "bz": np.zeros(6, np.int8), "bias": f32(6)},
+             ref=lambda v: [ref_u8s8_matmul(v["a"], v["az"], v["b"], v["bz"], v["as"] * v["bs"], v["bias"])], exact=True),
         Case("ms_dynamic_quantize_matmul", "DynamicQuantizeMatMul", [("a", f32(3, 16)), ("b", None), ("bs", None), ("bz", None), ("bias", None)], ["y"],
-             inits={"b": b_q, "bs": np.array(0.01, np.float32), "bz": np.array(0, np.int8), "bias": f32(6)}),
+             inits={"b": b_q, "bs": np.array(0.01, np.float32), "bz": np.array(0, np.int8), "bias": f32(6)},
+             ref=lambda v: (lambda q, z, s: [ref_u8s8_matmul(q, z, v["b"], v["bz"], s * v["bs"], v["bias"])])(*ref_dynamic_quantize_u8(v["a"])),
+             exact=True),
         Case("ms_qgemm", "QGemm", [("a", a_q), ("as", None), ("az", None), ("b", None), ("bs", None), ("bz", None), ("c", None)], ["y"],
              {"alpha": 1.0}, inits={"as": np.array(0.02, np.float32), "az": np.array(120, np.uint8), "b": b_q.astype(np.uint8),
                                     "bs": np.array(0.01, np.float32), "bz": np.array(128, np.uint8), "c": RNG.integers(-50, 50, (6,), dtype=np.int32)}),
@@ -428,13 +450,16 @@ def cases():
 
 def write(case, root):
     m = case.model()
-    try:
-        session = ort.InferenceSession(m.SerializeToString(), providers=["CPUExecutionProvider"])
-        results = session.run(None, case.feeds())
-    except Exception as e:  # noqa: BLE001 - every failure means "no CPU reference"
-        if case.ref is None:
-            return f"skipped ({str(e).splitlines()[0][:160]})"
+    if case.exact:
         results = [np.asarray(r, np.float32) for r in case.ref({**case.inits, **case.feeds()})]
+    else:
+        try:
+            session = ort.InferenceSession(m.SerializeToString(), providers=["CPUExecutionProvider"])
+            results = session.run(None, case.feeds())
+        except Exception as e:  # noqa: BLE001 - every failure means "no CPU reference"
+            if case.ref is None:
+                return f"skipped ({str(e).splitlines()[0][:160]})"
+            results = [np.asarray(r, np.float32) for r in case.ref({**case.inits, **case.feeds()})]
     fix_output_types(m, results)
     directory = os.path.join(root, case.name)
     if os.path.exists(directory):
@@ -454,10 +479,13 @@ def write(case, root):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--output", default=os.path.expanduser("~/models/onnx/sharplight-contrib-tests"))
+    parser.add_argument("--only", nargs="*", default=None, help="write only these cases (the inputs of all cases stay the same)")
     args = parser.parse_args()
     os.makedirs(args.output, exist_ok=True)
     written = 0
     for case in cases():
+        if args.only is not None and case.name not in args.only:
+            continue
         status = write(case, args.output)
         written += status == "ok"
         if status != "ok":

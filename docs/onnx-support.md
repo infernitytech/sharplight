@@ -451,10 +451,12 @@ Extra tests went from 170 to 171 of 172.
 | 6 × `test_string_split_*` | unsupported op | fixed: StringSplit (CPU kernel, at most `maxsplit + 1` or `OnnxImportOptions.StringSplitBound` parts) |
 | `ms_murmur_hash3` (extra) | unsupported op | fixed: com.microsoft MurmurHash3 (CPU kernel) |
 | `ms_word_conv_embedding` (extra) | test-harness issue | the op is implemented from existing IR ops and runs on Vulkan. onnxruntime never writes the output row of a word whose first id is 0, so the stored reference for that word is uninitialized memory. `tools/gen-onnx-contrib-tests.py` now avoids such words; the test passes once the contrib tests are regenerated |
+| `ms_matmul_integer_to_float`, `ms_dynamic_quantize_matmul` (extra) | test-harness issue | fixed (2026-11-17): onnxruntime's x86 u8s8 kernels on CPUs without VNNI add byte-pair products in saturating int16 (`vpmaddubsw`), so the stored references depended on the machine that generated them. `tools/gen-onnx-contrib-tests.py` computes these two cases with an exact int32 numpy reference (`exact=True`; `--only` regenerates single cases); Sharplight matched it all along |
 | 9 × `test_image_decoder_*` | unsupported op | open: needs image codecs |
 | 6 × `test_bernoulli*` | not reproducible | open: the reference depends on the reference implementation's RNG |
 | 4 × `test_training_dropout*` | not reproducible | open: random training masks |
 | 2 × `test_bitcast_*64*` | unsupported type | open: 64-bit values travel as 32-bit |
+| the four open rows above | | listed in `tests/Sharplight.Import.Onnx.Conformance/conformance-skips.txt`, so the suite reports them as skipped with their reason |
 
 A 0 in `OnnxImportOptions.InputShapes` now means an empty axis; only a negative value selects the batch axis. A declared
 `dim_value 0` in a model file still means an unknown dimension, as exporters write it.
