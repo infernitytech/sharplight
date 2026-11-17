@@ -2229,3 +2229,62 @@ Open:
    hidden size) are refused by the mapping; both are small additions to the decoder (a post-norm layer flag and in/out projections).
 3. **Larger safetensors.** bf16 checkpoints above ~30 GB were not run through the HF importer (only GGUF, and FP8 for Qwen3.8-27B), by
    the sweep's disk rule.
+
+## 19. Hot-model sweep 2026-11-17
+
+The sweep of section 17 ranked models by all-time downloads. This one takes the currently hot models: Hugging Face `trendingScore`,
+downloads of the last 30 days (`downloads` of the Hub API) and likes, released or updated in roughly the last six months, one entry per
+family and size. Only official checkpoints are tested: the developer's own repositories, and quantized variants only from the developer
+or trusted providers (unsloth, ggml-org, bartowski, lmstudio-community, RedHatAI / neuralmagic for FP8). A hot model that exists only as
+community conversions is listed with that note and not tested. Models that fit one 32 GB GPU run as the original checkpoint (up to
+about 30 GB) or GGUF Q4_K_M; larger ones as GGUF with the CPU as fallback device, otherwise they are listed with the reason.
+
+Sources (queried 2026-11-17, `limit=100`, with `expand[]=downloads,likes,trendingScore,createdAt,safetensors,gguf`):
+
+```
+GET https://huggingface.co/api/models?pipeline_tag=text-generation&sort=trendingScore
+GET https://huggingface.co/api/models?pipeline_tag=image-text-to-text&sort=trendingScore
+GET https://huggingface.co/api/models?pipeline_tag=feature-extraction&sort=trendingScore      (and sentence-similarity)
+GET https://huggingface.co/api/models?pipeline_tag=text-ranking&sort=trendingScore
+GET https://huggingface.co/api/models?filter=base_model:quantized:<repo>&sort=downloads        (the most used quantization of a model)
+```
+
+Method: `bench/ParitySweep` and `tools/parity/` as in section 17 (tokenizer: 7 texts; chat template: 4 conversations incl. tools; greedy
+48 tokens against transformers fp32 for safetensors, against llama.cpp b11177 on Vulkan and CPU for GGUF with the near-tie policy). Where
+a GGUF embeds a template that differs from the original repository's, transformers renders the GGUF's template. Image inputs: the CLI
+(`--image`, `--mmproj`) against `llama-mtmd-cli` b11177, greedy, one synthetic image (a red square, a blue circle, a green triangle and
+the text "HELLO 42") with the same prompt and the same thinking setting. Embeddings and rerankers: `Sharplight.Embeddings.Tests`
+`ReferenceTests` (cosine against sentence-transformers, rerank logits against the model's own transformers code).
+
+
+### 19.1 Hot-model sweep 2026-11-17: text generation
+
+Selection (trending rank within `pipeline_tag=text-generation` and, where marked VL, `image-text-to-text`; "dl30" = downloads in the last 30
+days, "trend" = Hub trendingScore at query time):
+
+| # | Model | Released | dl30 / likes / trend | Size and format tested | Publisher | Status |
+|---|---|---|---|---|---|---|
+| 1 | Qwen/Qwen3.8-27B (VL) | 2026-08-05 | 6.9 M / 20.4 k / 481 | Q8_0 and FP8 (section 17) | Alibaba Cloud (Qwen) | verified in section 17 |
+| 2 | google/gemma-4-31B-it (VL) | 2026-03-11 | 6.3 M / 4.4 k / 35 | unsloth Q4_K_M 18.3 GB + mmproj | Google | see 19.1.1 |
+| 3 | Qwen/Qwen3.5-9B (VL) | 2026-02-27 | 6.2 M / 2.4 k / 32 | unsloth Q4_K_M 5.7 GB + mmproj | Alibaba Cloud (Qwen) | see 19.1.1 |
+| 4 | Qwen/Qwen3.5-4B (VL) | 2026-02-27 | 4.8 M / 1.2 k / 26 | BF16 safetensors 9 GB; unsloth Q4_K_M + mmproj | Alibaba Cloud (Qwen) | see 19.1.1 |
+| 5 | Qwen/Qwen3.6-35B-A3B (VL) | 2026-04-15 | 3.9 M / 3.1 k / 30 | unsloth UD-Q4_K_M (section 17) | Alibaba Cloud (Qwen) | verified in section 17 |
+| 6 | Qwen/Qwen3.8-Flash-Next (VL, 180 GB) | 2026-08-24 | 3.0 M / 7.3 k / 64 | unsloth UD-IQ1_S, 2 GPUs + CPU (section 17) | Alibaba Cloud (Qwen) | verified in section 17 |
+| 7 | NousResearch/Arete-27B (VL) | 2026-11-06 | 10.7 k / 679 / 95 | bartowski Q4_K_M 17.2 GB + mmproj | Nous Research | see 19.1.1 |
+| 8 | Nanbeige/Nanbeige4.3-33B | 2026-10-24 | 23.8 k / 1.1 k / 18 | bartowski Q4_K_M 20.8 GB | Nanbeige | see 19.1.1 |
+| 9 | RecursiveSI/flint | 2026-10-21 | 59.3 k / 1.4 k / 28 | unsloth UD-Q4_K_XL 25 GB | RecursiveSI | see 19.1.1 |
+| 10 | KRAFTON/Raon-1-nano | 2026-10-29 | 1.9 k / 148 / 49 | not run | KRAFTON | unsupported architecture (19.1.2) |
+| 11 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B | 2026-10-16 | 15.2 k / 265 / 18 | not run | NVIDIA | unsupported architecture (19.1.2) |
+| 12 | maxwell-model/Maxwell-V1-Flash | 2026-10-13 | 287 / 124 / 122 | not run (36.8 GB bf16, remote code) | Maxwell | unsupported architecture (19.1.2) |
+| 13 | LiquidAI/LFM3-1.7B | 2026-10-23 | 110 k / 1.9 k / 49 | section 17 | Liquid AI | verified in section 17 |
+| 14 | nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B | 2026-10-05 | 158 k / 463 / 47 | catalog entry (unsloth GGUF) | NVIDIA | verified earlier (catalog) |
+| 15 | openai/gpt-oss-120b | 2025-08-04 | 2.4 M / 5.5 k / 22 | ggml-org MXFP4, 2 GPUs + CPU (section 17) | OpenAI | verified in section 17 |
+| 16 | meta-llama/Llama-3.1-8B-Instruct | 2024-07-18 | 4.2 M / 9.0 k / 57 | section 17 | Meta | verified in section 17 (older, still trending) |
+| 17 | ornith-ai/Ornith-1.5-35B-A3B | 2026-08-18 | 327 k / 800 / 17 | only community GGUF (mudler, peculiar-ragdoll) for the 36 GB checkpoint | Ornith | not tested: community conversions only; the architecture is qwen3_5_moe (Qwen3.6-35B-A3B passes) |
+| 18 | ibm-granite/granite-4.1-8b-llmon-preview, webAI-Official/TwIL-8B | 2026-10 | 0.7 k, 62 k / 20, 436 / 20, 28 | no trusted GGUF (mradermacher, liodon-ai only); granite arch (mapped) | IBM, webAI | not tested: community conversions only |
+| 19 | whittleOrg/Whittle-Next-27B-A3B | 2026-09-03 | 1.2 k / 64 / 34 | qwen4_exp; 137-file repository, only community GGUF | Whittle | not tested: community conversions only |
+| 20 | zai-org/GLM-5.3-Flash (321 GB), deepseek-ai/DeepSeek-V4.1-Flash(-1017) (763 GB), MiniMaxAI/MiniMax-M3.1-Flash (220 GB), thinkingmachines/Inkling-2-Small (594 GB), moonshotai/Kimi-K3(.1-Pro) (2.8 TB), Qwen/Qwen3.8-2.4T-A95B | 2026-06..11 | 0.07-6.4 M | | Z.ai, DeepSeek, MiniMax, Thinking Machines, Moonshot, Alibaba | too large: 220 GB to 2.8 TB of weights exceed one 32 GB GPU plus the machine's RAM for the original checkpoints, and no trusted GGUF below ~60 GB exists; their architectures (glm5_next, deepseek_v41, minimax_m3, inkling2, kimi_k3) are implemented and verified on tiny models (section 4) |
+
+Hub entries that are fine-tunes, abliterations, "uncensored" or quantization re-uploads of the same families (DavidAU, huihui-ai, HauhauCS,
+ISTA-DASLab GSQ-RCO, xtools-at, Jackrong, ...) were skipped by the one-per-family rule.
+
