@@ -5315,9 +5315,15 @@ covered by `DualGemmTests` (N = 96 with GELU). The benchmark models' widths are 
 
 * bf16 GEMM staging: 48 KB of shared memory per workgroup leaves 128x128 tiles single buffered; compute alone runs at ~196
   TFLOPS. Candidates: B fragments loaded from L1 without staging, smaller-padding layouts that fit two stages.
-* FP8 GEMM: a 4-subgroup 128x64 tile (two workgroups per SM) or fewer live accumulators.
+* FP8 GEMM: fewer live accumulators (the per-block scaling keeps a second set of fragments live).
 * Down projection at 2048 rows: 512 tiles on 164 resident workgroups (3.1 waves); stream-K would remove the tail.
 * Attention: with the K/V staging removed `fe` runs ~25 % faster (53.8 vs 70.1 ms on Qwen3-0.6B pp8192).
+* Launch and barrier overhead is not where the small models lose: Llama-1B pp2048 runs 197 dispatches / 132 barriers per pass,
+  41.6 ms of GPU time against 42.1 ms of wall time per pass, and the GEMMs are 83 % of it (gate / up 124 TFLOPS, down 109
+  with 256 tiles on 164 resident workgroups). The down projection's f16 input copy (3 % of the pass) could come from the dual
+  GEMM's store instead of a conversion launch.
+* FP8 tile layouts tried: 4-subgroup 128x64 (two workgroups per SM) 163-177 TFLOPS, 8-subgroup 64x32 subtiles 145-156,
+  against 173-195 for the default.
 
 ### 39.7 Reproduce
 
