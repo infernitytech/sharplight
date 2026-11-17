@@ -108,4 +108,10 @@ internal sealed record AppSettings
     /// environment variable still takes precedence.
     /// </summary>
     public string? UpdateUrl { get; init; }
+
+    /// <summary>
+    /// The update channel the user chose: <c>stable</c> or <c>unstable</c> (preview builds). Null follows the channel the installed
+    /// build came from.
+    /// </summary>
+    public string? UpdateChannel { get; init; }
 }
