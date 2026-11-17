@@ -66,6 +66,8 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     {
         Source = new ImageInputViewModel(services.Platform, text => Notice = text, "Input image", "Optional: start from an image (image to image). Drop a file here or choose one.", OnSourceChanged);
         Mask = new ImageInputViewModel(services.Platform, text => Notice = text, "Mask", "Optional: with an input image, bright areas are regenerated, the rest stays (inpainting).", OnSourceChanged);
+        EditImage = new ImageInputViewModel(services.Platform, text => Notice = text, "Image to edit",
+            "Edit mode: the prompt is the instruction (for example: make the sky stormy, keep everything else). Drop a picture here or choose one.", OnSourceChanged);
         OnSourceChanged();
         _store = new ImageGalleryStore(services.Pages.GenerationsDirectory("images"));
         Generations = new ImageGalleryViewModel(_store, services.Platform, services.Dispatcher, OpenStored, ReuseStored);
@@ -293,6 +295,20 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     /// <summary>The mask of an inpainting run (used with <see cref="Source"/>).</summary>
     public ImageInputViewModel Mask { get; }
 
+    /// <summary>The picture an editing model changes as the prompt instructs (FLUX.1 Kontext, FLUX.2: a reference image).</summary>
+    public ImageInputViewModel EditImage { get; }
+
+    /// <summary>The chosen model edits images (it takes reference images): the edit input is shown.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEditing), nameof(ShowImageToImage), nameof(ComparePng))]
+    public partial bool SupportsEditing { get; set; }
+
+    /// <summary>The run edits <see cref="EditImage"/> (edit mode): image to image and inpainting do not apply.</summary>
+    public bool IsEditing => SupportsEditing && EditImage.HasImage;
+
+    /// <summary>The image-to-image and inpainting inputs are shown (not in edit mode).</summary>
+    public bool ShowImageToImage => !IsEditing;
+
     /// <summary>What the image should show.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunCommand))]
@@ -309,7 +325,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     public partial bool CompareWithInput { get; set; }
 
     /// <summary>The picture the result is compared with, or null.</summary>
-    public byte[]? ComparePng => CompareWithInput && Source.HasImage ? Source.Preview : null;
+    public byte[]? ComparePng => !CompareWithInput ? null : IsEditing ? EditImage.Preview : Source.HasImage ? Source.Preview : null;
 
     /// <summary>The page is generating (a run is queued or running).</summary>
     public bool IsGenerating => Queue.IsBusy;
@@ -362,6 +378,12 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     /// <inheritdoc/>
     protected override void OnModelChanged(ILoadedModel? model)
     {
+        if (!ReferenceEquals(model, _defaultsReadFrom))
+        {
+            // Known once the model's defaults are read (it is resident).
+            SupportsEditing = false;
+        }
+
         OnPropertyChanged(nameof(RunHint));
         RunCommand.NotifyCanExecuteChanged();
         if (model is not null)
@@ -431,6 +453,9 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
             {
                 return;
             }
+
+            SupportsEditing = defaults.ReferenceImages > 0;
+            OnSourceChanged();
 
             if (distilled)
             {
@@ -506,8 +531,10 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
 
     private void OnSourceChanged()
     {
-        Panel.SetVisible("strength", Source.HasImage);
+        Panel.SetVisible("strength", Source.HasImage && !IsEditing);
         OnPropertyChanged(nameof(UsesInputImage));
+        OnPropertyChanged(nameof(IsEditing));
+        OnPropertyChanged(nameof(ShowImageToImage));
         OnPropertyChanged(nameof(ComparePng));
     }
 
@@ -526,8 +553,10 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         var model = SelectedModel!;
         var options = Panel.Options;
         var values = Panel.Snapshot();
-        var plan = new GenerationPlan(Prompt.Trim(), NegativePrompt.Trim(), options, seed, Source.Image, Source.Image is not null ? Mask.Image : null,
-            (float)Panel.GetNumber("strength"), values, Panel.GetBool("preview"));
+        bool editing = IsEditing;
+        var plan = new GenerationPlan(Prompt.Trim(), NegativePrompt.Trim(), options, seed, editing ? null : Source.Image,
+            !editing && Source.Image is not null ? Mask.Image : null, (float)Panel.GetNumber("strength"), values, Panel.GetBool("preview"),
+            editing ? EditImage.Image : null);
         string title = plan.Prompt.Length > PromptTitleLength ? plan.Prompt[..PromptTitleLength] + "…" : plan.Prompt;
         Panel.Persist();
         Notice = "";
@@ -556,6 +585,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
                 Image = plan.Image,
                 Strength = plan.Strength,
                 Mask = plan.Mask,
+                ReferenceImages = plan.Edit is null ? null : [plan.Edit],
             };
             var options = plan.Options with { Seed = plan.Seed, PreviewInterval = plan.Preview ? Math.Max(1, (plan.Options.Steps ?? 20) / 10) : 0 };
             context.Report(0, "Starting");
@@ -894,5 +924,5 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
 
     /// <summary>Everything one run needs, read from the page when it starts.</summary>
     private sealed record GenerationPlan(string Prompt, string NegativePrompt, ImageGenerationOptions Options, long? Seed, ImageInput? Image, ImageInput? Mask, float Strength,
-        Dictionary<string, string> Values, bool Preview);
+        Dictionary<string, string> Values, bool Preview, ImageInput? Edit = null);
 }

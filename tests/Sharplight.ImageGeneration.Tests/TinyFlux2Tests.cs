@@ -152,4 +152,32 @@ public sealed class TinyFlux2Tests
         double psnr = Env.Psnr(result.Images[0].Rgb, expected.Rgb);
         Assert.True(psnr > 40, $"FLUX.2 from {source} on {device}: PSNR {psnr:F1} dB");
     }
+
+    /// <summary>Editing: one reference image (tokens after the image's at the time coordinate 10) against Flux2KleinPipeline(image=[...]).</summary>
+    [Theory]
+    [InlineData("cpu")]
+    [InlineData("vulkan")]
+    public async Task EditMatchesDiffusers(string device)
+    {
+        Assert.SkipUnless(Present && File.Exists(Path.Combine(Root, "reference", "edit_image.f32")), "tiny-random-flux2 (with the edit reference) missing");
+        var slot = Env.Device(device);
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        using var model = Load("diffusers", slot!);
+        Assert.Equal(10, model.Description.Component(ModelComponentRoles.Denoiser).ConfigValue(DiffusionConfigKeys.ReferenceImages, 0));
+        using var generator = Env.Clients.Create<IImageGenerator>(model);
+        var index = Index();
+        int height = index.GetProperty("height").GetInt32();
+        int width = index.GetProperty("width").GetInt32();
+        var options = new ImageGenerationOptions { Steps = index.GetProperty("steps").GetInt32(), InitialNoise = Tensor("noise") };
+        var request = new ImageGenerationRequest
+        {
+            Prompt = index.GetProperty("prompt").GetString()!,
+            ReferenceImages = [PlanarImage.FromPlanar(Tensor("edit_input"), width, height, 0f, 1f)],
+        };
+        var result = await generator.GenerateAsync(request, options, TestContext.Current.CancellationToken);
+        Assert.Equal((width, height), (result.Images[0].Width, result.Images[0].Height));
+        double psnr = Env.Psnr(result.Images[0].Rgb, PlanarImage.FromPlanar(Tensor("edit_image"), width, height, 0f, 1f).Rgb);
+        double unedited = Env.Psnr(result.Images[0].Rgb, PlanarImage.FromPlanar(Tensor("image"), width, height, 0f, 1f).Rgb);
+        Assert.True(psnr > 40, $"FLUX.2 edit on {device}: PSNR {psnr:F1} dB (text-to-image {unedited:F1} dB)");
+    }
 }

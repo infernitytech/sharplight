@@ -1489,9 +1489,9 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
 | Qwen-Image (Qwen-Image and fine-tunes with the same layout, e.g. Qwen-Image-2512) | diffusers folder; transformer-only GGUF (city96 / QuantStack / unsloth, `qwen_image` architecture id, any ggml type) and ComfyUI single files plus companions: the Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a `qwen2vl` GGUF), the causal VAE (the pipeline's `vae` file or ComfyUI's `qwen_image_vae.safetensors` in the original Wan names) | **supported** (txt2img, img2img, inpainting; true CFG with diffusers' norm rescaling; 50 steps, guidance 4 by default) | [below](#qwen-image) |
 | Qwen-Image 2.1 (and its Turbo) | diffusers folder; transformer-only GGUF (unsloth: no metadata, ComfyUI names) and ComfyUI single files plus companions: the Qwen3-VL-8B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the pipeline's VAE file | **supported** (text-to-image; 40 steps without guidance by default; Turbo: its 8-step schedule from the pipeline's `sample_sigmas` or the file name) | [below](#qwen-image-21) |
-| FLUX.2 Klein (4B; 9B and the base models share the layout) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (the pipeline's `text_encoder` folder or a `qwen3` GGUF), the pipeline's VAE file | **supported** (txt2img; distilled: 4 steps without guidance; base: 50 steps, guidance 4) | [below](#flux-2) |
+| FLUX.2 Klein (4B; 9B and the base models share the layout), FLUX.2 Dev (32B) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (Klein; the pipeline's `text_encoder` folder or a `qwen3` GGUF) or Mistral Small 3.2 24B (Dev; a `llama` GGUF of Mistral-Small-3.2-24B-Instruct-2506 or the pipeline's folder), the pipeline's VAE file | **supported** (txt2img and editing with up to 10 reference images; Klein distilled: 4 steps without guidance; Klein base: 50 steps, guidance 4; Dev: 50 steps with the embedded guidance 4) | [below](#flux-2) |
 | Krea 2 (Turbo, Raw and fine-tunes) | diffusers folder; the release's original-name single files (`turbo.safetensors`, `raw.safetensors`, ComfyUI's bf16 files); transformer-only GGUF (realrebelai, vantagewithai, ...: architecture `krea2`, some labelled `qwen_image`) plus companions: the Qwen3-VL-4B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the Qwen-Image VAE (the pipeline's file or ComfyUI's `qwen_image_vae.safetensors`) | **supported** (text-to-image; Turbo: 8 steps without guidance; Raw (file names with `raw` / `base`): 28 steps, guidance 5.5) | [below](#krea-2) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, FLUX.2 Dev (32B), Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
 | ControlNet, TAESD | - | missing | |
 
@@ -1844,6 +1844,38 @@ Verification (tools/make-tiny-flux2.py, tools/make-flux2-references.py; `TinyFlu
 - FLUX.2 Klein 4B, unsloth's Q8_0 GGUF with the pipeline's Qwen3-4B text encoder (bf16) and VAE as companions, on Vulkan against diffusers on
   the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 4 steps, same latents: text encoder 4.5e-4 / 1.3e-3, transformer
   1.6e-3; images 40.1 dB (512) / 41.3 dB (1024). Speed (Vulkan, warm): 1024×1024 4 steps in 3.4 s, 512×512 in 0.8 s.
+
+FLUX.2 Dev (2026-11-17): the same transformer (8 dual- and 48 single-stream blocks, 6144 wide) with the guidance embedding of a
+guidance-distilled model, conditioned on Mistral Small 3.2 24B. FLUX.2 Dev's `text_encoder` folder holds exactly Mistral-Small-3.2-24B-Instruct-2506
+(the tensors hash the same; Mistral Small 3.1 differs), so any GGUF of that model serves as the companion.
+
+- Recognized by the guidance embedding (`transformer.guidance_in`; Klein has none): the Mistral template of the pipeline
+  (`<s>[SYSTEM_PROMPT]…[/SYSTEM_PROMPT][INST]{prompt}[/INST]`, its system message, right padding with `<pad>` to 512 tokens), the hidden states
+  entering layers 10, 20 and 30, 50 steps with the embedded guidance 4 and no classifier-free guidance; companions: a `llama` / `mistral3`
+  GGUF 5120 wide or a `mistral3` folder.
+- Mistral's hidden states carry outlier channels: with int8-quantized activations in the Q8_0 matrix products the text encoder was 5.7e-2 away
+  (the padding rows, which the transformer reads, 10× worse than the prompt's), and the 1024 image 21 dB. The diffusion text graph now keeps
+  f32 activations where the family asks for it (`GraphBuilder.F32MatMulActivations`, `flux2.text_encoder.f32_activations`): 4.8e-5.
+- Verification (tools/make-flux2-dev-references.py; `Flux2DevTests`): unsloth's FLUX.2-dev Q4_K_M GGUF (20 GB) with unsloth's
+  Mistral-Small-3.2-24B-Instruct-2506 Q8_0 GGUF and the pipeline's VAE as companions, on Vulkan against diffusers on the same files (the
+  dequantized GGUF transformer on CUDA, the text encoder dequantized to f32 by transformers on the CPU), 20 steps, guidance 4, same latents:
+  prompt tokens equal the pipeline's processor; text encoder 3.1–4.8e-5 (all 512 rows), transformer 1.1e-3; images 40.0 dB (512) / 49.7 dB
+  (1024). Speed (Vulkan, one 32 GB GPU; the 20 GB transformer and the 25 GB text encoder alternate): 1024×1024 20 steps in 73 s (3.6 s per step),
+  512×512 in 21 s; diffusers (GGUF dequantized on the fly, CUDA f32) 14 s per step at 1024.
+
+Editing (2026-11-17): FLUX.2 (Klein and Dev) and FLUX.1 Kontext take reference images (`ImageGenerationRequest.ReferenceImages`).
+
+- Core contract: the denoiser component's `DiffusionConfigKeys.ReferenceImages` (how many), the graph dimension `DiffusionGraphs.References`
+  and the input `DiffusionGraphs.ReferenceLatent` [R, C, h, w]; `LatentDiffusionGenerator` resizes each reference to the output size (the output
+  size defaults to the first reference's, rounded to the token size), encodes it with the VAE and passes the latents to every denoiser
+  evaluation (both rows of a guided step). `ImageGenerationDefaults.ReferenceImages` tells front ends that a model edits.
+- `FluxTransformerGraphBuilder`: the reference tokens follow the image's in the image stream (same `img_in`, no noise, the step's modulation),
+  at the first position axis `reference_index_base` + `reference_index_step` · i (FLUX.2: 10 + 10 i as `Flux2Pipeline._prepare_image_ids`;
+  Kontext: 1); only the image's tokens are projected out.
+- The pipelines resize references by their own rules (FLUX.2: to at most 1024² and multiples of 16; Kontext: to the preferred resolution of the
+  aspect ratio); Sharplight resizes them to the output size, which is the same when the reference has the output's size.
+- Verification: the tiny FLUX.2 Klein pipeline with one reference against `Flux2KleinPipeline(image=[…])` from the same noise above 40 dB on CPU
+  and Vulkan (`TinyFlux2Tests.EditMatchesDiffusers`).
 
 ### Krea 2
 

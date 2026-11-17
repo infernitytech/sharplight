@@ -67,13 +67,15 @@ public sealed class Flux2Adapter : IModelAdapter
         var decoder = DecoderHyperParameters.Read(textSource);
         int[] layers = src.Get<int[]>(Prefix + "text_encoder.layers", [9, 18, 27]);
         var textGraph = new DecoderGraphBuilder(textSource, new AdapterOptions { IncludeAuxiliaryGraphs = false }, decoder)
-            .BuildLayerHiddenStates(DiffusionGraphs.TextEncode, DiffusionGraphs.Tokens, DiffusionGraphs.Hidden, promptLength, layers, maskInput: DiffusionGraphs.TokenMask);
+            .BuildLayerHiddenStates(DiffusionGraphs.TextEncode, DiffusionGraphs.Tokens, DiffusionGraphs.Hidden, promptLength, layers, maskInput: DiffusionGraphs.TokenMask,
+                f32Activations: src.Get(Prefix + "text_encoder.f32_activations", false));
         long latentHeight = height / downscale;
         long latentWidth = width / downscale;
         var graphs = new Dictionary<string, Graph.ComputeGraph>
         {
             [DiffusionGraphs.TextEncode] = textGraph,
-            [DiffusionGraphs.Denoise] = FluxTransformerGraphBuilder.Build(src.Weight, transformer, latentHeight, latentWidth, promptLength),
+            [DiffusionGraphs.Denoise] = FluxTransformerGraphBuilder.Build(src.Weight, transformer, latentHeight, latentWidth, promptLength,
+                (int)options.Dimensions.GetValueOrDefault(DiffusionGraphs.References, 0)),
             [DiffusionGraphs.VaeDecode] = AutoencoderGraphBuilder.BuildDecoder(src.Weight, vae, latentHeight, latentWidth),
             [DiffusionGraphs.VaeEncode] = AutoencoderGraphBuilder.BuildEncoder(src.Weight, vae, height, width),
         };
@@ -99,7 +101,7 @@ public sealed class Flux2Adapter : IModelAdapter
         var missing = new List<string>();
         if (!src.Has(TextEncoderSourcePrefix + "architecture"))
         {
-            missing.Add("text-encoder (Qwen3)");
+            missing.Add("text-encoder (Qwen3, or Mistral Small 3.2 24B for FLUX.2 Dev)");
         }
 
         if (!src.Has(Prefix + "vae.block_channels"))
@@ -152,6 +154,7 @@ public sealed class Flux2Adapter : IModelAdapter
                     Config = new ComponentConfigBuilder()
                         .Add(DiffusionConfigKeys.LatentChannels, transformer.LatentChannels)
                         .Add(DiffusionConfigKeys.PatchSize, transformer.PatchSize)
+                        .Add(DiffusionConfigKeys.ReferenceImages, transformer.MaxReferences)
                         .Build(),
                     SymbolBounds = new Dictionary<string, long> { [DiffusionGraphs.BatchSymbol] = batch1 },
                 },

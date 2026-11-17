@@ -27,7 +27,10 @@
                 </StackPanel>
               </StackPanel>
             </Expander>
-            <Grid ColumnDefinitions="*,12,*">
+            <Panel IsVisible="{Binding SupportsEditing}">
+              <iv:ImageInputView DataContext="{Binding EditImage}" />
+            </Panel>
+            <Grid ColumnDefinitions="*,12,*" IsVisible="{Binding ShowImageToImage}">
               <iv:ImageInputView DataContext="{Binding Source}" />
               <Panel Grid.Column="2" IsVisible="{Binding UsesInputImage}">
                 <iv:ImageInputView DataContext="{Binding Mask}" />

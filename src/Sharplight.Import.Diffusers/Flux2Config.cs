@@ -6,8 +6,9 @@ namespace Sharplight.Import.Diffusers;
 /// <summary>
 /// The configuration of a FLUX.2 transformer and its pipeline defaults, written as the canonical <c>flux2.transformer.*</c> (the FLUX
 /// transformer keys with shared modulations, SwiGLU and 4-axis RoPE), <c>flux2.scheduler.*</c> (FLUX.2's empirical dynamic shift),
-/// text-encoder (Qwen3's hidden states entering layers 9, 18 and 27 over the chat-templated prompt of 512 tokens) and default keys
-/// (distilled Klein: 4 steps without guidance; base models: 50 steps, guidance 4).
+/// text-encoder (Klein: Qwen3's hidden states entering layers 9, 18 and 27 over the chat-templated prompt of 512 tokens; Dev: Mistral Small
+/// 3.2 24B's entering layers 10, 20 and 30 over the system-templated prompt) and default keys (distilled Klein: 4 steps without guidance;
+/// Klein base models: 50 steps, guidance 4; the guidance-distilled Dev: 50 steps with the embedded guidance 4, no classifier-free guidance).
 /// </summary>
 internal sealed record Flux2Config
 {
@@ -19,6 +20,13 @@ internal sealed record Flux2Config
 
     /// <summary>The Qwen3 chat template of one user turn with thinking disabled (an empty think block), as the pipeline applies it.</summary>
     public const string PromptTemplate = "<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
+
+    /// <summary>
+    /// FLUX.2 Dev's Mistral Small 3.2 template (the pipeline's system message, one user turn, no generation prompt), as
+    /// <c>apply_chat_template</c> renders it.
+    /// </summary>
+    public const string DevPromptTemplate = "<s>[SYSTEM_PROMPT]You are an AI that reasons about image descriptions. You give structured responses focusing on object "
+        + "relationships, object\nattribution and actions without speculation.[/SYSTEM_PROMPT][INST]{prompt}[/INST]";
 
     /// <summary>Prompt tokens of the pipeline.</summary>
     public const int PromptLength = 512;
@@ -43,6 +51,9 @@ internal sealed record Flux2Config
 
     /// <summary>Whether the guidance scale is embedded.</summary>
     public required bool GuidanceEmbed { get; init; }
+
+    /// <summary>Whether the model is guidance-distilled with a Mistral text encoder (FLUX.2 Dev: the guidance embedding).</summary>
+    public bool Dev => GuidanceEmbed;
 
     /// <summary>Whether the model is step-distilled (Klein: 4 steps, no guidance).</summary>
     public bool Distilled { get; init; } = true;
@@ -120,6 +131,10 @@ internal sealed record Flux2Config
         metadata[t + "shared_modulation"] = true;
         metadata[t + "swiglu"] = true;
         metadata[t + "text_position_axis"] = 3;
+        // Reference images (editing): the pipelines' time coordinate 10 + 10 · i (Flux2Pipeline._prepare_image_ids), up to ten images.
+        metadata[t + "max_references"] = 10;
+        metadata[t + "reference_index_base"] = 10;
+        metadata[t + "reference_index_step"] = 10;
         metadata[t + "sample_size"] = 1024;
         string s = Prefix + "scheduler.";
         metadata[s + "train_steps"] = 1000;
@@ -133,14 +148,19 @@ internal sealed record Flux2Config
         }
 
         metadata[Prefix + "text_encoder.prompt_length"] = PromptLength;
-        metadata[Prefix + "text_encoder.layers"] = new[] { 9, 18, 27 };
-        metadata[Prefix + "text_encoder.prompt_template"] = PromptTemplate;
+        metadata[Prefix + "text_encoder.layers"] = Dev ? new[] { 10, 20, 30 } : new[] { 9, 18, 27 };
+        metadata[Prefix + "text_encoder.prompt_template"] = Dev ? DevPromptTemplate : PromptTemplate;
+        // Mistral Small 3.2's hidden states carry outlier channels that int8-quantized activations lose (the padding rows, which the
+        // transformer reads, most): its matrix products keep f32 activations.
+        metadata[Prefix + "text_encoder.f32_activations"] = Dev;
         metadata[Prefix + "vae.latent_patch"] = 2;
         metadata[Prefix + "vae.batch_norm_eps"] = 1e-4f;
         metadata[Prefix + "vae.scaling_factor"] = 1f;
         metadata[Prefix + "vae.shift_factor"] = 0f;
-        metadata[Prefix + "default_steps"] = Distilled ? 4 : 50;
-        metadata[Prefix + "default_guidance"] = Distilled ? 1.0 : 4.0;
-        metadata[Prefix + "classifier_free_guidance"] = !Distilled;
+        bool stepDistilled = Distilled && !Dev;
+        metadata[Prefix + "default_steps"] = stepDistilled ? 4 : 50;
+        metadata[Prefix + "default_guidance"] = stepDistilled ? 1.0 : 4.0;
+        // Dev embeds the guidance scale instead of running classifier-free guidance.
+        metadata[Prefix + "classifier_free_guidance"] = !Distilled && !Dev;
     }
 }

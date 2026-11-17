@@ -13325,6 +13325,118 @@
       ]
     },
     {
+      "id": "flux.2-dev",
+      "name": "FLUX.2 Dev",
+      "kind": "image-generation",
+      "family": "FLUX.2",
+      "architecture": "flux2",
+      "level": "verified",
+      "license": "flux-dev-non-commercial-license",
+      "gated": true,
+      "tags": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 52556001851,
+          "companions": [
+            "text-encoder",
+            "vae"
+          ],
+          "repository": "unsloth/FLUX.2-dev-GGUF",
+          "revision": "d9105cfeb7c59853ba7b1857c7f53d1371e38ade",
+          "include": [
+            "flux2-dev-Q4_K_M.gguf"
+          ],
+          "primary": "flux2-dev-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "flux2-dev-Q4_K_M.gguf",
+              "size": 19959731168,
+              "sha256": "5f7ac6649e2f5e21a49a6f83931a67530bd887e2d34379c3da1d0f0406501de1"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "text-encoder",
+          "role": "text-encoder",
+          "additionalRoles": [],
+          "label": "Text encoder (Mistral Small 3.2 24B, Q8_0 GGUF)",
+          "repository": "unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF",
+          "revision": "b750ec2299225e492f1bd27cab88a0a595fa848f",
+          "include": [
+            "Mistral-Small-3.2-24B-Instruct-2506-Q8_0.gguf"
+          ],
+          "primary": "Mistral-Small-3.2-24B-Instruct-2506-Q8_0.gguf",
+          "files": [
+            {
+              "path": "Mistral-Small-3.2-24B-Instruct-2506-Q8_0.gguf",
+              "size": 25054793248,
+              "sha256": "b2a40e5ef4eab8837d0462c303e8147ec754e2963e41916b551107d2b0ca6527"
+            }
+          ]
+        },
+        {
+          "id": "vae",
+          "role": "vae",
+          "additionalRoles": [],
+          "label": "VAE",
+          "repository": "black-forest-labs/FLUX.2-dev",
+          "revision": "26afe3a78bb242c0a8bb181dcc8937bb16e5c66c",
+          "include": [
+            "model_index.json",
+            "vae/*"
+          ],
+          "primary": "vae/diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 431,
+              "gitOid": "0ef3934d54cbd07f6b97d09899bb600d6ff66797"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 770,
+              "gitOid": "183bd5fa89fc62dabcd40abfad5fca243407d6e5"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 336213556,
+              "sha256": "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "40.0 dB (512) / 49.7 dB (1024) vs diffusers on the same files (20 steps, embedded guidance 4); text encoder 4.8e-5, transformer 1.1e-3",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "Flux2DevTests",
+          "TinyFlux2Tests"
+        ]
+      },
+      "notes": "1024x1024 20 steps in 73 s on a 32 GB GPU (20 GB transformer and 25 GB text encoder alternate); the text encoder is exactly Mistral-Small-3.2-24B-Instruct-2506; editing with up to 10 reference images",
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "black-forest-labs/FLUX.2-dev (gated), unsloth/FLUX.2-dev-GGUF, unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF",
+            "formats": "GGUF Q4_K_M \u002B Mistral Small 3.2 24B Q8_0 GGUF text encoder and the pipeline\u0027s VAE",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
       "id": "flux.2-klein-4b",
       "name": "FLUX.2 Klein 4B",
       "kind": "image-generation",

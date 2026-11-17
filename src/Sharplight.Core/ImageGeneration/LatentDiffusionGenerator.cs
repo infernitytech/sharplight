@@ -37,6 +37,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly string? _promptTemplate;
     private readonly string? _emptyPrompt;
     private readonly bool _embeddedGuidance;
+    private readonly int _maxReferences;
     private readonly bool _classifierFree;
     private bool _releaseTextEncoders;
     private (string Prompt, string? Negative, bool Guided, PromptConditioning Conditioning)? _lastConditioning;
@@ -96,6 +97,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             _contextMaskPadding = denoiser.ConfigValue(DiffusionConfigKeys.ContextMaskPadding, 0);
         }
 
+        _maxReferences = denoiser.ConfigValue(DiffusionConfigKeys.ReferenceImages, 0);
         _embeddedGuidance = model.ComponentGraph(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise).Inputs.Any(i => i.Name == DiffusionGraphs.Guidance);
         if (_secondEncoderRole is null && model.Definition.Graphs.TryGetValue(DiffusionGraphs.Denoise, out var denoise)
             && denoise.Inputs.Any(input => input.Name == DiffusionGraphs.Pooled)
@@ -138,7 +140,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         ArgumentNullException.ThrowIfNull(serviceType);
         if (serviceKey is null && serviceType == typeof(ImageGenerationDefaults))
         {
-            return new ImageGenerationDefaults(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler, _classifierFree && !_embeddedGuidance);
+            return new ImageGenerationDefaults(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler, _classifierFree && !_embeddedGuidance, _maxReferences);
         }
 
         return serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model
@@ -194,6 +196,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var context = await Task.Run(() => Conditioning(request, run.Guided), cancellationToken).ConfigureAwait(false);
         var reference = request.Image is null ? null : await Task.Run(() => EncodeImage(request.Image, run), cancellationToken).ConfigureAwait(false);
         var mask = request.Mask is null ? null : LatentMask(request.Mask, run);
+        var references = run.References == 0 ? null : await Task.Run(() => EncodeReferences(request.ReferenceImages!, run), cancellationToken).ConfigureAwait(false);
         var images = new List<ImageInput>(run.Count);
         int evaluations = CreateSampler(run).Timesteps.Count;
         int start = reference is null ? 0 : CreateSampler(run).StartIndex(run.Steps, request.Strength);
@@ -226,7 +229,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 int step = index;
-                var prediction = await Task.Run(() => Denoise(run, context, sampler, step, latents), cancellationToken).ConfigureAwait(false);
+                var prediction = await Task.Run(() => Denoise(run, context, sampler, step, latents, references), cancellationToken).ConfigureAwait(false);
                 long imageSeed = seed;
                 long noiseStream = stream++;
                 sampler.Step(index, prediction, latents, () => LatentNoise.Draw(imageSeed, noiseStream, latents.Length));
@@ -266,12 +269,22 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
 
     private DiffusionRun Plan(ImageGenerationRequest request, ImageGenerationOptions options)
     {
-        int width = options.Width ?? request.Image?.Width ?? _nativeWidth;
-        int height = options.Height ?? request.Image?.Height ?? _nativeHeight;
-        if (options.Width is null && options.Height is null && request.Image is not null)
+        int references = request.ReferenceImages?.Count ?? 0;
+        if (references > _maxReferences)
         {
-            // An input image of any size is generated at the nearest size the network accepts.
-            int multiple = _downscale * 8;
+            throw new NotSupportedException(_maxReferences == 0
+                ? $"{_model.Definition.Name} does not edit images (no reference images); use Image for image-to-image."
+                : $"{_model.Definition.Name} takes at most {_maxReferences} reference image(s); {references} were given.");
+        }
+
+        var sizeSource = request.Image ?? (references > 0 ? request.ReferenceImages![0] : null);
+        int width = options.Width ?? sizeSource?.Width ?? _nativeWidth;
+        int height = options.Height ?? sizeSource?.Height ?? _nativeHeight;
+        if (options.Width is null && options.Height is null && sizeSource is not null)
+        {
+            // An input image of any size is generated at the nearest size the network accepts; editing models (transformers) take
+            // multiples of their token size, as their pipelines round reference images.
+            int multiple = request.Image is null ? _downscale * _patchSize : _downscale * 8;
             width = Math.Max(multiple, width / multiple * multiple);
             height = Math.Max(multiple, height / multiple * multiple);
         }
@@ -300,9 +313,12 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             Sampler = options.Scheduler ?? _schedule.Sampler,
             PreviewInterval = options.PreviewInterval,
             InitialNoise = options.InitialNoise,
-            Dimensions = width == _nativeWidth && height == _nativeHeight
+            References = references,
+            Dimensions = width == _nativeWidth && height == _nativeHeight && references == 0
                 ? null
-                : new Dictionary<string, long> { [DiffusionGraphs.Height] = height, [DiffusionGraphs.Width] = width },
+                : references == 0
+                    ? new Dictionary<string, long> { [DiffusionGraphs.Height] = height, [DiffusionGraphs.Width] = width }
+                    : new Dictionary<string, long> { [DiffusionGraphs.Height] = height, [DiffusionGraphs.Width] = width, [DiffusionGraphs.References] = references },
         };
         if (run.InitialNoise is not null && run.InitialNoise.Length < run.LatentSize * run.Count)
         {
@@ -506,7 +522,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         return (ids, count);
     }
 
-    private float[] Denoise(DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index, float[] latents)
+    private float[] Denoise(DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index, float[] latents, float[]? references)
     {
         var denoiser = Compiled(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, run.Dimensions);
         int rows = run.Guided ? 2 : 1;
@@ -515,14 +531,14 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var output = new float[run.LatentSize * rows];
         if (perRun >= rows)
         {
-            RunDenoiser(denoiser, run, conditioning, sampler, index, latents, 0, rows, output);
+            RunDenoiser(denoiser, run, conditioning, sampler, index, latents, references, 0, rows, output);
         }
         else
         {
             // A denoiser built for fewer rows (a fixed batch of one) runs once per row of a guided step.
             for (int row = 0; row < rows; row++)
             {
-                RunDenoiser(denoiser, run, conditioning, sampler, index, latents, row, 1, output.AsSpan(row * run.LatentSize, run.LatentSize));
+                RunDenoiser(denoiser, run, conditioning, sampler, index, latents, references, row, 1, output.AsSpan(row * run.LatentSize, run.LatentSize));
             }
         }
 
@@ -594,7 +610,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
 
     /// <summary>One denoiser run over <paramref name="rows"/> conditioning rows starting at <paramref name="firstRow"/>.</summary>
     private static void RunDenoiser(CompiledModel denoiser, DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index,
-        float[] latents, int firstRow, int rows, Span<float> output)
+        float[] latents, float[]? references, int firstRow, int rows, Span<float> output)
     {
         float scale = sampler.ModelInputScale(index);
         var input = new float[run.LatentSize * rows];
@@ -643,6 +659,12 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.Guidance), Enumerable.Repeat(run.Guidance, rows).ToArray());
         }
 
+        if (denoiser.Graph.Inputs.Any(i => i.Name == DiffusionGraphs.ReferenceLatent))
+        {
+            denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.ReferenceLatent),
+                references ?? throw new InvalidOperationException("The editing denoiser was built for reference images, but the request has none."));
+        }
+
         var parameters = new RunParameters();
         parameters.Symbols[DiffusionGraphs.BatchSymbol] = rows;
         denoiser.Run(parameters);
@@ -676,6 +698,18 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         encoder.Run(parameters);
         var latents = new float[run.LatentSize];
         encoder.GetOutput<float>(DiffusionGraphs.Latent, latents);
+        return latents;
+    }
+
+    /// <summary>The model latents of the reference images (each resized to the output size) for an editing denoiser, [R, C, h, w].</summary>
+    private float[] EncodeReferences(IReadOnlyList<ImageInput> images, DiffusionRun run)
+    {
+        var latents = new float[run.LatentSize * images.Count];
+        for (int i = 0; i < images.Count; i++)
+        {
+            EncodeImage(images[i], run).CopyTo(latents, i * run.LatentSize);
+        }
+
         return latents;
     }
 
@@ -733,7 +767,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
 
     private CompiledModel Compiled(string role, string graph, IReadOnlyDictionary<string, long>? dimensions)
     {
-        string key = dimensions is null ? graph : $"{graph}@{dimensions[DiffusionGraphs.Width]}x{dimensions[DiffusionGraphs.Height]}";
+        string key = dimensions is null ? graph
+            : $"{graph}@{dimensions[DiffusionGraphs.Width]}x{dimensions[DiffusionGraphs.Height]}+{dimensions.GetValueOrDefault(DiffusionGraphs.References)}";
         if (!_compiled.TryGetValue(key, out var compiled))
         {
             try
