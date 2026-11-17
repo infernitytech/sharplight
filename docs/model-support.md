@@ -2283,8 +2283,35 @@ days, "trend" = Hub trendingScore at query time):
 | 17 | ornith-ai/Ornith-1.5-35B-A3B | 2026-08-18 | 327 k / 800 / 17 | only community GGUF (mudler, peculiar-ragdoll) for the 36 GB checkpoint | Ornith | not tested: community conversions only; the architecture is qwen3_5_moe (Qwen3.6-35B-A3B passes) |
 | 18 | ibm-granite/granite-4.1-8b-llmon-preview, webAI-Official/TwIL-8B | 2026-10 | 0.7 k, 62 k / 20, 436 / 20, 28 | no trusted GGUF (mradermacher, liodon-ai only); granite arch (mapped) | IBM, webAI | not tested: community conversions only |
 | 19 | whittleOrg/Whittle-Next-27B-A3B | 2026-09-03 | 1.2 k / 64 / 34 | qwen4_exp; 137-file repository, only community GGUF | Whittle | not tested: community conversions only |
-| 20 | zai-org/GLM-5.3-Flash (321 GB), deepseek-ai/DeepSeek-V4.1-Flash(-1017) (763 GB), MiniMaxAI/MiniMax-M3.1-Flash (220 GB), thinkingmachines/Inkling-2-Small (594 GB), moonshotai/Kimi-K3(.1-Pro) (2.8 TB), Qwen/Qwen3.8-2.4T-A95B | 2026-06..11 | 0.07-6.4 M | | Z.ai, DeepSeek, MiniMax, Thinking Machines, Moonshot, Alibaba | too large: 220 GB to 2.8 TB of weights exceed one 32 GB GPU plus the machine's RAM for the original checkpoints, and no trusted GGUF below ~60 GB exists; their architectures (glm5_next, deepseek_v41, minimax_m3, inkling2, kimi_k3) are implemented and verified on tiny models (section 4) |
+| 20 | zai-org/GLM-5.3-Flash (321 GB), deepseek-ai/DeepSeek-V4.1-Flash(-1017) (763 GB), MiniMaxAI/MiniMax-M3.1-Flash (220 GB), thinkingmachines/Inkling-2-Small (594 GB), moonshotai/Kimi-K3(.1-Pro) (2.8 TB) | 2026-06..11 | 0.07-6.4 M | unsloth GGUF: GLM-5.3-Flash UD-IQ1_S 93 GB, MiniMax-M3.1-Flash UD-IQ1_M 129 GB, DeepSeek-V4.1-Flash-1017 UD-IQ1_S 233 GB (not downloaded yet) | Z.ai, DeepSeek, MiniMax, Thinking Machines, Moonshot | open: the original checkpoints are far beyond one 32 GB GPU; the unsloth IQ1 GGUFs of GLM-5.3-Flash and MiniMax-M3.1-Flash are feasible on GPU 0 plus CPU offload (251 GB RAM) but were not run in this increment (machine load, local disk 56 GB free); their architectures (glm5_next, minimax_m3, deepseek_v41) are verified on tiny models (section 4) |
 
 Hub entries that are fine-tunes, abliterations, "uncensored" or quantization re-uploads of the same families (DavidAU, huihui-ai, HauhauCS,
 ISTA-DASLab GSQ-RCO, xtools-at, Jackrong, ...) were skipped by the one-per-family rule.
 
+#### 19.1.1 Results (increment 1)
+
+Greedy "pass" for GGUF follows section 17's near-tie policy (ours on Vulkan or CPU equals one of llama.cpp's Vulkan / CPU outputs).
+
+| Model | Release | Popularity | Format | Result | Fix |
+|---|---|---|---|---|---|
+| Qwen/Qwen3.5-4B | 2026-02-27 | 4.8 M dl30 | BF16 safetensors (Qwen) | pass: 7 tokenizer texts, 4 chat templates (text and ids) and 3 x 48 greedy ids identical to transformers fp32 | none |
+| unsloth/Qwen3.5-4B-GGUF Q4_K_M | | 1.6 M | GGUF + mmproj F16 | pass: ours on the CPU identical to llama.cpp on the CPU; Vulkan differs from llama.cpp Vulkan only at a spacing near-tie (`n-1` / `n - 1`); image prompt: same description as llama-mtmd-cli (thinking trace identical for 35+ tokens, then a near-tie) | none |
+| Qwen/Qwen3.5-9B (unsloth GGUF Q4_K_M) | 2026-02-27 | 6.2 M | GGUF + mmproj F16 | pass: greedy identical to llama.cpp on both backends (both prompts, 4 device pairs); tokenizer identical; the GGUF's embedded template differs from the repository's (thinking off by default), compared with transformers rendering the GGUF's template | none |
+| NousResearch/Arete-27B (bartowski GGUF Q4_K_M 17.2 GB) | 2026-11-06 | 10.7 k dl30, trend 95 | GGUF + mmproj | pass: greedy identical to llama.cpp on all four device pairs; tokenizer and 4 templates identical to transformers (22 checks) | none |
+| google/gemma-4-31B-it (unsloth GGUF Q4_K_M 18.3 GB) | 2026-03-11 | 6.3 M | GGUF + mmproj | text pass: tokenizer and 4 templates identical to transformers; greedy identical to llama.cpp up to the end-of-turn token (llama.cpp's `--ignore-eos` masks `<turn|>`, ours emits it; the second prompt identical). Image input fails: see 19.1.2. Needs a free 19 GB on the GPU (a run beside other agents failed with a memory error before the shared GPU was free) | gemma4v projector missing (19.1.2) |
+| Nanbeige/Nanbeige4.3-33B (bartowski GGUF Q4_K_M 20.8 GB) | 2026-10-24 | 23.8 k | GGUF | partial: first prompt identical to llama.cpp; the code prompt differs at token 13, and llama.cpp's own backends give two different continuations there (Vulkan `if n <= 1`, CPU `a, b = 0, 1`), ours (Vulkan = CPU) a third, so a near-tie that cannot be settled by teacher forcing (33 B in fp32 does not fit); tokenizer differs from the repository's tokenizer.json only by llama.cpp's space-prefix placement (leading space, ids after BOS), as for Mistral in section 17 | none; not added to the catalog |
+
+#### 19.1.2 Unsupported or open
+
+| Model | Reason | What is missing |
+|---|---|---|
+| google/gemma-4-31B-it images (and every Gemma 4 mmproj / vision tower: 31B, 26B-A4B, 12B, E4B) | the mmproj has `clip.vision.projector_type = gemma4v` (the importer reads `clip.projector_type`, so it reports "missing"), and `gemma4_vision` is not implemented for Hugging Face either | a gemma4 vision tower on the shared tower graph: SigLIP-style 27 layers of 1152 with 16 heads, learned 2-D position table (10240), 2-D rope, `standardize`, clipped linears, 3x3 pooling (`pooling_kernel_size`, 280 default output tokens) and the `mm.input_projection` head, plus its preprocessing (variable resolution, mean 0, std 1); tiny model vs transformers, mmproj vs llama-mtmd-debug |
+| KRAFTON/Raon-1-nano (`raon1_nano`, remote code; GGUF `raon1nano` has no mapping, llama.cpp b11177 lacks it too) | new architecture: 18 recurrent-delta-attention (RDA) layers with a short conv and a full-rank gate lower bound, 6 MLA layers with output gate, 4-stream manifold hyper-connections (Helmert basis), per-layer input embeddings (dim 256), tied head, MTP head | RDA mixer, the mHC variant (`StreamHyperConnections` has the pieces but not this mixing), per-layer inputs (exist for Gemma 3n) |
+| nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B (`dory`, no transformers class; only community GGUF) | new architecture: looped transformer (16 input, 40 recurrent layers run twice with per-loop KV caches, 16 output layers), nGPT-style normalized weights (`ngpt_alpha_init`), attention output gate, sliding and full attention layers, MLP-only layers | `HierarchicalCycles` (hrm_text) covers looping with per-pass caches; the nGPT scaling and the layer pattern are new |
+| maxwell-model/Maxwell-V1-Flash (`maxwell_moe`, 36.8 GB bf16, 256 experts, remote code; one GGUF with 0 downloads, community) | new architecture and above one GPU in bf16 | mapping from `modeling_maxwell_moe.py`; not analysed further |
+| flint (RecursiveSI, `flint`, unsloth UD-Q4_K_XL 25 GB downloaded) | not run in this increment | |
+| Ornith-1.5-35B-A3B, granite-4.1-8b-llmon-preview, TwIL-8B, Whittle-Next-27B-A3B | only community GGUF conversions exist (policy: not tested) | |
+
+#### 19.1.3 Fixes
+
+None needed in this increment; the findings above are open items, not fixed here.
