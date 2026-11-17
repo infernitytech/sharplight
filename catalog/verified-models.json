@@ -20815,6 +20815,390 @@
       },
       "notes": "HF convnext format",
       "doc": []
+    },
+    {
+      "id": "qwen3.5-4b",
+      "name": "Qwen3.5 4B",
+      "kind": "text-generation",
+      "family": "Qwen3.5",
+      "architecture": "qwen3_5",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
+      "tags": [
+        "vision",
+        "reasoning"
+      ],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF \u002B mmproj",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 4328018913,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "unsloth/Qwen3.5-4B-GGUF",
+          "revision": "e87f176479d0855a907a41277aca2f8ee7a09523",
+          "include": [
+            "Qwen3.5-4B-Q4_K_M.gguf"
+          ],
+          "primary": "Qwen3.5-4B-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "Qwen3.5-4B-Q4_K_M.gguf",
+              "size": 2740937888,
+              "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
+            }
+          ]
+        },
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": false,
+          "memoryBytes": 11120455494,
+          "companions": [],
+          "repository": "Qwen/Qwen3.5-4B",
+          "revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "chat_template.jinja",
+              "size": 7756,
+              "gitOid": "a585dec894e63da457d9440ec6aa7caa16d20860"
+            },
+            {
+              "path": "config.json",
+              "size": 3161,
+              "gitOid": "557d961b205319c6a7da5f757f565b69b3967b7d"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 76196,
+              "gitOid": "fddda6039f7c1d17260c9e923b8a72fd025d9a86"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 390,
+              "gitOid": "2ea84a437d448ff71b08df68fdd949d5cc4ebb64"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 12807982,
+              "sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 16710,
+              "gitOid": "eda48d3e75a8e59a8479ee4ec8b37f76e711d9c1"
+            },
+            {
+              "path": "video_preprocessor_config.json",
+              "size": 385,
+              "gitOid": "3ba673a5ad7d4d13f54155ecd38b2a94a6dac8fe"
+            },
+            {
+              "path": "vocab.json",
+              "size": 6722759,
+              "gitOid": "0aa0ce0658d60ac4a5d609f4eadb0e8e43514176"
+            },
+            {
+              "path": "model.safetensors-00001-of-00002.safetensors",
+              "size": 5329398688,
+              "sha256": "26a93f066e1916adb13453dae5a0c707c0fbc71299ed98779571a907b8e74c61"
+            },
+            {
+              "path": "model.safetensors-00002-of-00002.safetensors",
+              "size": 3990429408,
+              "sha256": "cb544bd9bfae93dc59b0f22b292f5933573854a7f9b97835c67060d7d910e188"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "mmproj",
+          "role": "mmproj",
+          "additionalRoles": [],
+          "label": "Vision projector (F16)",
+          "repository": "unsloth/Qwen3.5-4B-GGUF",
+          "revision": "e87f176479d0855a907a41277aca2f8ee7a09523",
+          "include": [
+            "mmproj-F16.gguf"
+          ],
+          "primary": "mmproj-F16.gguf",
+          "files": [
+            {
+              "path": "mmproj-F16.gguf",
+              "size": 672423616,
+              "sha256": "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "transformers, llama.cpp",
+        "summary": "HF: tokenizer, 4 templates and 48 greedy ids identical to transformers (fp32); GGUF: greedy equals llama.cpp b11177 on CPU (Vulkan differs at one near-tie); image answer matches llama-mtmd-cli",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "hybrid (gated delta net) architecture; hot-model sweep 2026-11-17",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "Qwen/Qwen3.5-4B, unsloth/Qwen3.5-4B-GGUF",
+            "formats": "safetensors BF16, GGUF Q4_K_M \u002B mmproj"
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen3.5-9b",
+      "name": "Qwen3.5 9B",
+      "kind": "text-generation",
+      "family": "Qwen3.5",
+      "architecture": "qwen3_5",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
+      "tags": [
+        "vision",
+        "reasoning"
+      ],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF \u002B mmproj",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 7991145009,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "unsloth/Qwen3.5-9B-GGUF",
+          "revision": "3885219b6810b007914f3a7950a8d1b469d598a5",
+          "include": [
+            "Qwen3.5-9B-Q4_K_M.gguf"
+          ],
+          "primary": "Qwen3.5-9B-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "Qwen3.5-9B-Q4_K_M.gguf",
+              "size": 5680522464,
+              "sha256": "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "mmproj",
+          "role": "mmproj",
+          "additionalRoles": [],
+          "label": "Vision projector (F16)",
+          "repository": "unsloth/Qwen3.5-9B-GGUF",
+          "revision": "3885219b6810b007914f3a7950a8d1b469d598a5",
+          "include": [
+            "mmproj-F16.gguf"
+          ],
+          "primary": "mmproj-F16.gguf",
+          "files": [
+            {
+              "path": "mmproj-F16.gguf",
+              "size": 918166080,
+              "sha256": "f70dc3509053962b0d0d3ee8a7eacebf5d60aa560cad78254ae8698516ae029f"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "llama.cpp, transformers",
+        "summary": "GGUF: greedy identical to llama.cpp b11177 on Vulkan and CPU; tokenizer and chat templates (the GGUF\u0027s own) identical to transformers",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "hot-model sweep 2026-11-17",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "Qwen/Qwen3.5-9B, unsloth/Qwen3.5-9B-GGUF",
+            "formats": "GGUF Q4_K_M \u002B mmproj"
+          }
+        }
+      ]
+    },
+    {
+      "id": "arete-27b",
+      "name": "Arete 27B",
+      "kind": "text-generation",
+      "family": "Arete",
+      "architecture": "qwen3_5",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Nous Research",
+        "countryOfOrigin": "US",
+        "url": "https://nousresearch.com"
+      },
+      "tags": [
+        "vision",
+        "reasoning"
+      ],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF \u002B mmproj",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 21253329827,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "bartowski/NousResearch_Arete-27B-GGUF",
+          "revision": "9762c8502a79bd2b8634735d75f426b9febe092c",
+          "include": [
+            "NousResearch_Arete-27B-Q4_K_M.gguf"
+          ],
+          "primary": "NousResearch_Arete-27B-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "NousResearch_Arete-27B-Q4_K_M.gguf",
+              "size": 17203416064,
+              "sha256": "6f186a1fe0c4f741acb3a35b5df96bc2fc7279651f48500246e56079418f091b"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "mmproj",
+          "role": "mmproj",
+          "additionalRoles": [],
+          "label": "Vision projector (F16)",
+          "repository": "bartowski/NousResearch_Arete-27B-GGUF",
+          "revision": "9762c8502a79bd2b8634735d75f426b9febe092c",
+          "include": [
+            "mmproj-NousResearch_Arete-27B-f16.gguf"
+          ],
+          "primary": "mmproj-NousResearch_Arete-27B-f16.gguf",
+          "files": [
+            {
+              "path": "mmproj-NousResearch_Arete-27B-f16.gguf",
+              "size": 927607104,
+              "sha256": "0c9844f4193e2d25642dc62c5921aef23fd71855b8283cb2b2543a77934966f8"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "llama.cpp, transformers",
+        "summary": "GGUF: greedy identical to llama.cpp b11177 (Vulkan and CPU); tokenizer and 4 chat templates identical to transformers",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "Qwen3.5 architecture; hot-model sweep 2026-11-17",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "NousResearch/Arete-27B, bartowski/NousResearch_Arete-27B-GGUF",
+            "formats": "GGUF Q4_K_M \u002B mmproj"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemma-4-31b-it",
+      "name": "Gemma 4 31B-it",
+      "kind": "text-generation",
+      "family": "Gemma 4",
+      "architecture": "gemma4",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 21474946640,
+          "companions": [],
+          "repository": "unsloth/gemma-4-31B-it-GGUF",
+          "revision": "c1ac76e99d5513b141e8adde7288b85c3f9c32ec",
+          "include": [
+            "gemma-4-31B-it-Q4_K_M.gguf"
+          ],
+          "primary": "gemma-4-31B-it-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "gemma-4-31B-it-Q4_K_M.gguf",
+              "size": 18323733440,
+              "sha256": "38bd64c852c4b460434cc7162fa9bdcf242faf86502581a754cb72956bb17f84"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "llama.cpp, transformers",
+        "summary": "GGUF: tokenizer and 4 chat templates identical to transformers; greedy equals llama.cpp b11177 up to the end-of-turn token (llama.cpp\u0027s --ignore-eos masks it); text only: the gemma4v image tower is not supported",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "text only; image input (gemma4v projector) not supported yet",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "google/gemma-4-31B-it, unsloth/gemma-4-31B-it-GGUF",
+            "formats": "GGUF Q4_K_M"
+          }
+        }
+      ]
     }
   ]
 }
