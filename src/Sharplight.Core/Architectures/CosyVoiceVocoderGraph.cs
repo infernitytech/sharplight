@@ -9,8 +9,8 @@ namespace Sharplight.Architectures;
 /// CosyVoice 3's causal HiFT vocoder (<c>CausalHiFTGenerator</c>) as two graphs over the mel frames <c>[T, 80]</c>, for a whole utterance (the
 /// reference's <c>finalize=True</c>): <see cref="F0GraphName"/>, the causal convolutional F0 predictor (the first convolution sees three frames ahead,
 /// the others only the past; the reference runs it in float64 because the source's phase accumulates its rounding, so a given F0 can be fed instead);
-/// and <see cref="GraphName"/> over the mel and the F0: the causal neural source (the harmonics' phase is accumulated at the frame rate, scaled to the sample rate and held for each frame's samples, so the
-/// sines are constant within a frame; gated by the voiced mask and mixed with uniform noise from the reference's fixed noise table, here an input);
+/// and <see cref="GraphName"/> over the mel and the source harmonics: the causal neural source (the harmonics, which <see cref="Harmonics"/> computes
+/// on the host from the F0, held for each frame's samples, mixed with uniform noise from the reference's fixed noise table, here an input);
 /// the source's STFT (a convolution with the windowed DFT basis); the generator with causal convolutions throughout (the input convolution sees four
 /// frames ahead; nearest upsampling followed by a left-padded convolution; strided causal downsampling of the source; causal snake residual blocks);
 /// and the frequency-domain half of the inverse STFT (windowed frames <c>[samples / hop + 1, n_fft]</c>) that the host overlap-adds.
@@ -35,8 +35,13 @@ internal static class CosyVoiceVocoderGraph
     /// <summary>The F0 per mel frame [T, 1] (output of the F0 graph, input of the generator).</summary>
     public const string F0Output = "f0";
 
-    /// <summary>The F0 per mel frame [T, 1] (generator input).</summary>
-    public const string F0Input = "f0";
+    /// <summary>
+    /// The harmonics per mel frame [T, harmonics] (generator input): 0.1 · sin of the phase, zero where unvoiced (<see cref="Harmonics"/>).
+    /// </summary>
+    public const string SinesInput = "sines";
+
+    /// <summary>The voiced mask per mel frame [T, 1] (generator input): 1 where F0 exceeds 10 Hz.</summary>
+    public const string VoicedInput = "voiced";
 
     private const string P = "hift.";
     private const float SineAmplitude = 0.1f;
@@ -61,16 +66,16 @@ internal static class CosyVoiceVocoderGraph
     /// <param name="hop">The STFT hop (4).</param>
     /// <param name="harmonics">Harmonics including the fundamental (9).</param>
     /// <param name="lookRight">The frames the input convolution sees ahead (4).</param>
-    /// <param name="sampleRate">The sample rate (24000).</param>
-    public static ComputeGraph Build(Func<string, WeightInfo?> weights, long[] rates, long[] kernels, int nFft, int hop, int harmonics, int lookRight, int sampleRate)
+    public static ComputeGraph Build(Func<string, WeightInfo?> weights, long[] rates, long[] kernels, int nFft, int hop, int harmonics, int lookRight)
     {
         var b = new GraphBuilder(GraphName, weights);
         var frames = Dim.Sym(WellKnown.TokenSymbol);
         long up = ChatterboxVocoderGraph.SamplesPerFrame(rates, hop);
         var mel = b.Input(MelInput, InputRole.Other, DataType.F32, new Shape(frames, 80));
-        var f0 = b.Input(F0Input, InputRole.Other, DataType.F32, new Shape(frames, 1));
+        var sines = b.Input(SinesInput, InputRole.Other, DataType.F32, new Shape(frames, harmonics));
+        var voiced = b.Input(VoicedInput, InputRole.Other, DataType.F32, new Shape(frames, 1));
         var noise = b.Input(NoiseInput, InputRole.Other, DataType.F32, new Shape(frames * up, harmonics));
-        var source = Source(b, f0, noise, up, harmonics, sampleRate);
+        var source = Source(b, sines, voiced, noise, up);
 
         int bins = (nFft / 2) + 1;
         var basis = b.Constant("hift.stft_basis", DataType.F32, new Shape(2 * bins, 1, nFft), KokoroBlocks.Bytes(ChatterboxVocoderGraph.StftBasis(nFft)));
@@ -134,25 +139,50 @@ internal static class CosyVoiceVocoderGraph
         return b.Unary("Abs", b.Linear(x, P + "f0_predictor.classifier.weight", P + "f0_predictor.classifier.bias"), "hift.f0");
     }
 
-    // The causal SineGen2 + SourceModuleHnNSF: per frame the increments (F0 · k / rate) mod 1, their running sum · 2 · π · samples per frame held for
-    // the frame's samples, sin · 0.1 gated by the voiced mask, plus the noise amplitude (0.003 voiced, 0.1 / 3 unvoiced) times the uniform noise,
-    // merged by the linear layer and tanh: [samples, 1].
-    private static Value Source(GraphBuilder b, Value f0, Value noise, long up, int harmonics, int sampleRate)
+    // The causal SourceModuleHnNSF from the host's harmonics: the gated sines held for each frame's samples, plus the noise amplitude (0.003 voiced,
+    // 0.1 / 3 unvoiced) times the uniform noise, merged by the linear layer and tanh: [samples, 1].
+    private static Value Source(GraphBuilder b, Value sines, Value voiced, Value noise, long up)
     {
-        var numbers = b.Constant("hift.harmonic_numbers", DataType.F32, new Shape(harmonics), KokoroBlocks.Bytes([.. Enumerable.Range(1, harmonics).Select(i => (float)i)]));
-        var one = b.Constant("hift.one", DataType.F32, new Shape(1), KokoroBlocks.Bytes([1f]));
-        var rate = b.Constant("hift.sample_rate", DataType.F32, new Shape(1), KokoroBlocks.Bytes([sampleRate]));
-        var threshold = b.Constant("hift.voiced_threshold", DataType.F32, new Shape(1), KokoroBlocks.Bytes([VoicedThreshold]));
-        var increments = b.Binary("Mod", b.Binary("Div", b.Mul(f0, numbers), rate), one);                                   // [T, harmonics]
-        var phase = b.Scale(b.Scale(b.Scale(b.Emit1("CumSum", [increments], Attributes.From(("axis", 0L))), 2f), MathF.PI), up);
-        var voiced = b.Binary("Greater", f0, threshold);                                                                    // [T, 1]
-        var sines = b.Mul(b.Scale(b.Unary("Sin", phase), SineAmplitude), voiced);
         var hold = Attributes.From(("mode", "nearest"), ("up", up), ("down", 1L));
         var sineSamples = b.Emit1("Interpolate1d", [sines], hold);                                                          // [samples, harmonics]
         var voicedSamples = b.Emit1("Interpolate1d", [voiced], hold);                                                       // [samples, 1]
         var noiseAmplitude = b.Scale(voicedSamples, NoiseStd - (SineAmplitude / 3f), SineAmplitude / 3f);
         var waves = b.Add(sineSamples, b.Mul(noiseAmplitude, noise));
         return b.Unary("Tanh", b.Linear(waves, P + "m_source.l_linear.weight", P + "m_source.l_linear.bias"));
+    }
+
+    /// <summary>
+    /// The causal SineGen2's harmonics per frame, in the reference's float32 arithmetic: the increments <c>(F0 · k / rate) mod 1</c> for the
+    /// harmonics k = 1 … n, their running sum (accumulated in double and rounded, as torch's CPU cumsum does) times 2, π and the samples per frame,
+    /// <c>0.1 · sin</c> of that phase, zero where F0 is at most 10 Hz. The phase reaches 1e5 rad, where one float32 ulp of the running sum moves it by
+    /// a hundredth, so it is computed on the host rather than by a device's parallel scan and its fast sine. Returns the harmonics [frames, n] and
+    /// the voiced mask [frames].
+    /// </summary>
+    /// <param name="f0">The F0 per frame.</param>
+    /// <param name="harmonics">The harmonics including the fundamental (9).</param>
+    /// <param name="sampleRate">The sample rate (24000).</param>
+    /// <param name="samplesPerFrame">The samples per frame (480).</param>
+    public static (float[] Sines, float[] Voiced) Harmonics(ReadOnlySpan<float> f0, int harmonics, int sampleRate, int samplesPerFrame)
+    {
+        int frames = f0.Length;
+        var sines = new float[frames * harmonics];
+        var voiced = new float[frames];
+        var sums = new double[harmonics];
+        float pi = MathF.PI;
+        for (int t = 0; t < frames; t++)
+        {
+            voiced[t] = f0[t] > VoicedThreshold ? 1f : 0f;
+            for (int h = 0; h < harmonics; h++)
+            {
+                float increment = (f0[t] * (h + 1)) / sampleRate;
+                increment -= MathF.Floor(increment);
+                sums[h] += increment;
+                float phase = (float)sums[h] * 2f * pi * samplesPerFrame;
+                sines[(t * harmonics) + h] = (float)Math.Sin(phase) * SineAmplitude * voiced[t];
+            }
+        }
+
+        return (sines, voiced);
     }
 
     // HiFT's causal residual block: three rounds of snake, dilated causal convolution, snake, causal convolution, each added to its input.

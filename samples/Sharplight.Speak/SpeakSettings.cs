@@ -15,16 +15,18 @@ namespace Sharplight.Speak;
 /// <param name="Stream">Write the audio as it is decoded, one segment at a time, and report the time to the first segment.</param>
 /// <param name="ReferencePath">A WAV recording of the voice to speak with (F5-TTS), or <see langword="null"/>.</param>
 /// <param name="ReferenceText">The words of the reference recording, or <see langword="null"/>.</param>
+/// <param name="Instructions">An instruction on how to speak (CosyVoice 3), or <see langword="null"/>.</param>
 internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, string Text, string OutputPath, string? Voice, bool UseCpu, int DeviceIndex, int? Seed,
-    bool Greedy, string? Language, float Speed, bool Stream, string? ReferencePath = null, string? ReferenceText = null)
+    bool Greedy, string? Language, float Speed, bool Stream, string? ReferencePath = null, string? ReferenceText = null, string? Instructions = null)
 {
     /// <summary>The usage text.</summary>
     public const string Usage = """
-        usage: sharplight-speak --model <file> [--vocoder <file>] --text "<text>" [--out speech.wav] [--voice <name>] [--cpu] [--device <n>] [--seed <n>] [--greedy] [--language <code>] [--speed <x>] [--stream] [--reference <wav> --reference-text "<words>"]
+        usage: sharplight-speak --model <file> [--vocoder <file>] --text "<text>" [--out speech.wav] [--voice <name>] [--cpu] [--device <n>] [--seed <n>] [--greedy] [--language <code>] [--speed <x>] [--stream] [--reference <wav> --reference-text "<words>"] [--instructions "<how>"]
 
           --model     speech-synthesis model: an .slm package, a checkpoint folder, or the language-model GGUF of a codec language model (OuteTTS)
           --vocoder   the codec decoder (WavTokenizer GGUF, SNAC or Vocos folder) for a model distributed without it
-          --reference a recording of the voice to speak with (F5-TTS, Chatterbox, XTTS);  --reference-text  its words
+          --reference a recording of the voice to speak with (F5-TTS, Chatterbox, XTTS, CosyVoice 3);  --reference-text  its words
+          --instructions  how to speak, e.g. "Please speak as fast as possible." (CosyVoice 3)
           --text      the text to speak
           --out       output WAV file (default speech.wav)
           --voice     voice of the model (default: the model's own)
@@ -53,6 +55,7 @@ internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, stri
         int? seed = null;
         string? reference = null;
         string? referenceText = null;
+        string? instructions = null;
         for (int i = 0; i < args.Length; i++)
         {
             string value() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value.");
@@ -100,6 +103,9 @@ internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, stri
                 case "--reference-text":
                     referenceText = value();
                     break;
+                case "--instructions":
+                    instructions = value();
+                    break;
                 default:
                     throw new ArgumentException($"Unknown argument {args[i]}.");
             }
@@ -110,6 +116,6 @@ internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, stri
             return null;
         }
 
-        return new SpeakSettings(model, vocoder, text, output, voice, cpu, device, seed, greedy, language, speed, stream, reference, referenceText);
+        return new SpeakSettings(model, vocoder, text, output, voice, cpu, device, seed, greedy, language, speed, stream, reference, referenceText, instructions);
     }
 }

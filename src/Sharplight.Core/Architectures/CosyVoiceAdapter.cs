@@ -81,7 +81,7 @@ internal sealed class CosyVoiceAdapter : IModelAdapter
             [CosyVoiceFlowGraph.EncodeGraph] = CosyVoiceFlowGraph.BuildEncode(Lookup, src.Get<int>(a + "flow.pre_lookahead"), tokenMelRatio),
             [CosyVoiceFlowGraph.EstimatorGraph] = CosyVoiceFlowGraph.BuildEstimator(Lookup, src.Get<int>(a + "flow.depth"), src.Get<int>(a + "flow.heads"), mels),
             [CosyVoiceVocoderGraph.F0GraphName] = CosyVoiceVocoderGraph.BuildF0(Lookup),
-            [CosyVoiceVocoderGraph.GraphName] = CosyVoiceVocoderGraph.Build(Lookup, rates, kernels, nFft, hop, harmonics, src.Get<int>(a + "hift.look_right"), sampleRate),
+            [CosyVoiceVocoderGraph.GraphName] = CosyVoiceVocoderGraph.Build(Lookup, rates, kernels, nFft, hop, harmonics, src.Get<int>(a + "hift.look_right")),
         };
         bool cloning = weights.ContainsKey("speech_tokenizer.encoder.conv1.weight") && weights.ContainsKey("campplus.head.conv1.weight")
             && src.Attachments.ContainsKey(S3SpeechEncoders.SpeechTokenFeaturesRole + "/mel-filters");
@@ -135,7 +135,7 @@ internal sealed class CosyVoiceAdapter : IModelAdapter
                     Role = VocoderRole,
                     Graphs = [CosyVoiceVocoderGraph.GraphName, CosyVoiceVocoderGraph.F0GraphName],
                     WeightPrefixes = ["hift."],
-                    Config = ComponentConfig.Of(("samplesPerFrame", samplesPerFrame), ("fftSize", nFft), ("hop", hop), ("harmonics", harmonics)),
+                    Config = ComponentConfig.Of(("samplesPerFrame", samplesPerFrame), ("fftSize", nFft), ("hop", hop), ("harmonics", harmonics), ("sampleRate", sampleRate)),
                     SymbolBounds = new Dictionary<string, long> { [WellKnown.TokenSymbol] = (long)tokenMelRatio * MaxSpeechTokens },
                 },
                 new ModelComponent { Role = ModelComponentRoles.Tokenizer, MetadataPrefix = null },

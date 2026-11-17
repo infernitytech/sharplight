@@ -395,7 +395,9 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
         var vocoder = _vocoder ??= _model.CompileComponent(CosyVoiceAdapter.VocoderRole, CosyVoiceVocoderGraph.GraphName);
         noise ??= (SourceNoiseSource ?? (n => Uniform(n, 1)))(samples * _harmonics);
         vocoder.SetInput<float>(Input(vocoder, CosyVoiceVocoderGraph.MelInput), mel);
-        vocoder.SetInput<float>(Input(vocoder, CosyVoiceVocoderGraph.F0Input), f0);
+        var (sines, voiced) = CosyVoiceVocoderGraph.Harmonics(f0, _harmonics, SampleRate, _samplesPerFrame);
+        vocoder.SetInput<float>(Input(vocoder, CosyVoiceVocoderGraph.SinesInput), sines);
+        vocoder.SetInput<float>(Input(vocoder, CosyVoiceVocoderGraph.VoicedInput), voiced);
         vocoder.SetInput<float>(Input(vocoder, CosyVoiceVocoderGraph.NoiseInput), noise);
         var run = new RunParameters();
         run.Symbols[WellKnown.TokenSymbol] = frames;
