@@ -80,8 +80,11 @@ downloaded (checked against the catalog's sizes and sha256), then converted to o
 opened once before the model is registered (manifest field `catalog` = `entry/variant`). On 2026-11-17 the companion wiring was checked this
 way with the real converter on the verified files: FLUX.1-schnell Q8_0 (CLIP-L, T5 Q8_0, VAE), Chroma1-HD (FLUX T5 and VAE), SD3.5 Medium
 Q8_0 (CLIP-L, CLIP-G, T5, VAE from the pipeline), Z-Image-Turbo Q8_0 and Qwen-Image Q4_K_M (pipeline text encoder and VAE), Orpheus
-(SNAC), OuteTTS (WavTokenizer) and F5-TTS (Vocos), plus Kokoro, whisper.cpp, Silero VAD and a GGUF without companions; every one built a
-complete package. `RealCatalogInstallTests` installs whisper-tiny from the committed catalog against the real Hub
+(SNAC), OuteTTS (WavTokenizer) and F5-TTS (Vocos), plus Kokoro, whisper.cpp, Silero VAD and a GGUF without companions; on 2026-11-17 also
+FLUX.2 Klein 4B Q8_0 and Qwen-Image 2.1 / 2.1 Turbo Q8_0 (pipeline text encoder and VAE), Wan 2.2 TI2V 5B Q8_0 and HunyuanVideo Q4_K_M (the
+pipeline folder without its transformer weights, one download in the text-encoder and VAE roles). Every one built a complete package.
+The Wan 2.2 A14B and Wan 2.1 I2V / FLF2V installs use the same folder subset (Wan 2.1's) and the roles of their verification tests; their
+conversion was not run through the installer (the Wan 2.1 umT5 files were not available locally). `RealCatalogInstallTests` installs whisper-tiny from the committed catalog against the real Hub
 (`SHARPLIGHT_HUB_NETWORK_TESTS=1`).
 
 ### Rules (CatalogValidator, run by the tests)

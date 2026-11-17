@@ -150,7 +150,13 @@ public sealed class VerifiedCatalogTests
         int downloads = 0;
         string remote = VerifiedCatalogSerializer.Serialize(Sample("2026-11-20"));
 
-        var source = new VerifiedCatalogSource(_ => { downloads++; return Task.FromResult(remote); }, cache, Embedded, time);
+        Task<string> Download(CancellationToken cancellationToken)
+        {
+            downloads++;
+            return Task.FromResult(remote);
+        }
+
+        var source = new VerifiedCatalogSource(Download, cache, Embedded, time);
         Assert.Equal("2026-11-20", (await source.GetAsync(TestContext.Current.CancellationToken)).Updated);
         Assert.Equal("2026-11-20", (await source.GetAsync(TestContext.Current.CancellationToken)).Updated);
         Assert.Equal(1, downloads);
