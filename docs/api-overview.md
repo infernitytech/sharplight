@@ -15,7 +15,7 @@ call `services.AddSharplight()`.
 |---|---|---|
 | `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
 | `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.WhisperCpp`, `.Diffusers`, `.PyTorch` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter`, `WhisperCppImporter`, `DiffusersImporter`, `services.AddXxxImporter()` |
-| `Sharplight.Video` | Video encoding: WebM (VP8 / VP9 through a native libvpx build), MP4 (H.264 through an optional system ffmpeg); the core adds animated PNG and GIF | `VideoEncoderCatalog`, `IVideoEncoder`, `VideoClip`, `services.AddSharplightVideo()` |
+| `Sharplight.Video` | Video encoding and decoding through Sharplight's own LGPL FFmpeg build (shared libraries shipped with the package, bound with FFmpeg.AutoGen): MP4, WebM, MOV, Matroska, GIF, APNG; H.264, AV1, VP9, VP8, ProRes, FFV1 and the machine's hardware encoders; the core adds managed animated PNG and GIF as the fallback | `VideoEncoderCatalog`, `VideoDecoderCatalog`, `IVideoEncoder`, `IVideoDecoder`, `VideoClip`, `services.AddSharplightVideo()` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` (+ `Sharplight.Shaders`) | Execution providers | `CpuExecutionProvider`, `VulkanProvider` |
 | `Sharplight` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplightServer`, `UseSharplightServer`, `MapSharplightServer`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
@@ -45,8 +45,8 @@ they need no extra `using`):
 | `Sharplight.Core` (`Sharplight.Package`) | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order) |
 | `Sharplight.Audio` | `AddSharplightAudio(o => ...)` | native audio (own C library over miniaudio, libopus, libogg, opusfile, libvorbis): `IAudioDecoder` (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), `IAudioEncoder` (WAV, Ogg Opus), `IAudioDeviceProvider` (playback and capture streams); replaces the WAV-only `AddWavAudio()` services of the core, which stay the fallback when the native library cannot be loaded |
-| `Sharplight.Core` | `AddVideoEncoders()` (also called by `AddSharplightTasks()`) | the `VideoEncoderCatalog` and the managed animated PNG and GIF encoders ([Video encoding](#video-encoding)) |
-| `Sharplight.Video` | `AddSharplightVideo(o => ...)` | `WebMVideoEncoder` (VP9 or VP8 over the native libvpx; `SharplightVideoOptions.WebMCodec`) and `FfmpegVideoEncoder` (MP4 / H.264 through a system ffmpeg; `SharplightVideoOptions.FfmpegPath`), plus everything of `AddVideoEncoders()` |
+| `Sharplight.Core` | `AddVideoEncoders()` (also called by `AddSharplightTasks()`) | the `VideoEncoderCatalog` with the managed animated PNG and GIF encoders, and the (empty) `VideoDecoderCatalog` ([Video encoding](#video-encoding)) |
+| `Sharplight.Video` | `AddSharplightVideo(o => ...)` | one `FfmpegVideoEncoder` per format (MP4, WebM, MOV, Matroska, GIF, APNG; preferred over the managed encoders) and the `FfmpegVideoDecoder` (`SharplightVideoOptions.EnableHardwareEncoders`), plus everything of `AddVideoEncoders()` |
 | `Sharplight.Core` | `AddSharplightStorage()`, `AddSharplightStorage(layout)` | the `StorageLayout` (portable, system or custom location of configuration, data, models, caches and logs; [storage.md](storage.md)) |
 | `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightStorage()`, `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()`, `AddSharplightVideo()` |
 | `Sharplight.Extensions.AI` | `AddSharplightChatClient(o => ...)`, `AddSharplightEmbeddingGenerator(o => ...)`, `AddSharplightSpeechToTextClient()`, ... | Microsoft.Extensions.AI adapters |
@@ -54,27 +54,42 @@ they need no extra `using`):
 
 ## Video encoding
 
-`VideoClip` (frames as `ImageInput`, frames per second) is what video generation produces; `IVideoEncoder` writes it in one file format and
-`VideoEncoderCatalog` (resolved from the container) picks the encoder by format id or file extension:
+`VideoClip` (frames as `ImageInput`, frames per second, optional `Audio` track) is what video generation produces; `IVideoEncoder` writes it
+in one file format and `VideoEncoderCatalog` (resolved from the container) picks the encoder by format id or file extension: the available
+one with the highest `Priority`, so the bundled FFmpeg encoders win and the managed GIF / APNG encoders are the fallback when the FFmpeg
+libraries are missing.
 
-| format (`VideoFormats`) | extensions | encoder | available when |
+| format (`VideoFormats`) | extensions | codecs (`VideoCodecs`, default first) | audio |
 |---|---|---|---|
-| `webm` | `.webm` | `WebMVideoEncoder`: VP9 (default) or VP8 from libvpx (`native/sharplight_video`, BSD-3-Clause, built with zig for win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64), managed WebM muxer | the native library loads (always on the platforms above) |
-| `mp4` | `.mp4`, `.m4v` | `FfmpegVideoEncoder`: raw RGB piped to `ffmpeg` (`libx264`, yuv420p, fast start); H.264 is patent encumbered, so ffmpeg is never bundled | `ffmpeg` is on `PATH` or `SharplightVideoOptions.FfmpegPath` points to it |
-| `apng` | `.apng`, `.png` | `ApngVideoEncoder` (managed, lossless, changed-rectangle frames) | always |
-| `gif` | `.gif` | `GifVideoEncoder` (managed, GIF89a, per-frame palette, optional ordered dithering, loop extension) | always |
+| `mp4` | `.mp4`, `.m4v` | `h264` (OpenH264), `av1` (SVT-AV1), `vp9`; `h264-nvenc`, `hevc-nvenc`, `av1-nvenc`, `h264-videotoolbox`, `hevc-videotoolbox`, `h264-mf`, `hevc-mf` where they work | `aac`, `opus` |
+| `webm` | `.webm` | `vp9`, `av1`, `vp8`; `av1-nvenc` | `opus` |
+| `mov` | `.mov` | `prores` (proxy / lt / standard / hq as presets, 4:2:2 or 4:4:4 10-bit), `h264`, `ffv1`; VideoToolbox / NVENC | `aac`, `pcm` |
+| `matroska` | `.mkv` | `h264`, `av1`, `vp9`, `ffv1` (lossless), `prores`; hardware encoders | `opus`, `aac`, `flac` |
+| `gif` | `.gif` | FFmpeg `palettegen` / `paletteuse` (one optimized palette); managed `GifVideoEncoder` as the fallback | |
+| `apng` | `.apng`, `.png` | FFmpeg APNG (lossless); managed `ApngVideoEncoder` as the fallback | |
 
 ```csharp
 var services = new ServiceCollection().AddSharplight().BuildServiceProvider();   // or AddSharplightVideo() alone
 var videos = services.GetRequiredService<VideoEncoderCatalog>();
-var clip = new VideoClip(frames, framesPerSecond: 24);          // frames: IReadOnlyList<ImageInput>, all the same size
-await videos.SaveAsync(clip, "out.webm", new VideoEncodeOptions { Quality = 85 });   // format chosen by extension
-if (videos.TryFind(VideoFormats.Mp4, out var mp4)) { await mp4.EncodeAsync(clip, stream); }
+var clip = new VideoClip(frames, framesPerSecond: 24) { Audio = soundTrack };      // frames: IReadOnlyList<ImageInput>, all the same size
+await videos.SaveAsync(clip, "out.mp4", new VideoEncodeOptions { Codec = VideoCodecs.Av1, Preset = VideoPresets.Slow, Quality = 85 });
+IReadOnlyList<VideoCodecInfo> choices = videos.FindForPath("out.mp4")!.Codecs;      // codecs, presets, pixel formats of this machine
+
+var reader = services.GetRequiredService<VideoDecoderCatalog>();
+VideoClip input = await reader.ReadClipAsync("in.mov", new VideoDecodeOptions { Start = TimeSpan.FromSeconds(2), FramesPerSecond = 16 });
 ```
 
-`VideoEncodeOptions` is small and immutable: `Quality` (0 to 100, the quantizer of WebM / MP4, dithering of GIF), `BitrateKilobitsPerSecond`
-(WebM / MP4 target instead of constant quality), `Loop` (GIF / APNG) and `MaxThreads`. All encoders do their CPU work on the thread pool.
-`catalog.Available` lists what works on the machine. The libvpx build is generic C (no SIMD yet), so VP9 encoding favors small clips.
+`VideoEncodeOptions` is immutable: `Quality` (0 to 100, mapped to the codec's rate factor; dithering of GIF, effort of APNG),
+`ConstantRateFactor` (the codec's own scale), `BitrateKilobitsPerSecond`, `Codec`, `Preset` (`VideoPresets` or the codec's own, see
+`VideoCodecInfo.Presets`), `PixelFormat`, `FramesPerSecond` (retime), `KeyframeInterval`, `IncludeAudio` / `AudioCodec` /
+`AudioBitrateKilobitsPerSecond`, `Loop` (GIF / APNG) and `MaxThreads`. A non-seekable output stream gets a fragmented MP4 / MOV.
+`IVideoDecoder` (`FfmpegVideoDecoder`) probes files (`VideoInfo`), streams frames as RGB or I420 with timestamps (`VideoDecodeOptions`:
+range, frame limit, frame-rate resampling, scaling) and decodes the audio track to an `AudioBuffer`. All work runs on the thread pool.
+
+The FFmpeg libraries (avutil, swresample, swscale, avcodec, avformat, avfilter of FFmpeg 9.0) are built by `native/ffmpeg/build.sh` (LGPL
+only, see `src/Sharplight.Video/THIRD-PARTY-NOTICES.md`), shipped as `runtimes/<rid>/native/` assets for win-x64, win-arm64, linux-x64,
+linux-arm64 and osx-arm64, and loaded by full path (`BundledFfmpeg`; `SHARPLIGHT_FFMPEG_DIR` points at another build of the same major
+versions). A system FFmpeg is never used.
 
 All registrations are idempotent. Options are Microsoft.Extensions.Options with settable properties (`TaskLoadOptions`,
 `LlmLoadOptions`, `EmbeddingLoadOptions`, `VulkanProviderOptions`, `HuggingFaceImportOptions`, `TorchCheckpointOptions`, `SharplightServerOptions`, ...), so they

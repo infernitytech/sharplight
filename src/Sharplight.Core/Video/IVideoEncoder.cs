@@ -12,11 +12,21 @@ public interface IVideoEncoder
     /// <summary>Whether the encoder can work on this machine (its native library or external program is present).</summary>
     public bool IsAvailable { get; }
 
+    /// <summary>
+    /// Which encoder wins when several handle a format (<see cref="VideoEncoderCatalog"/> takes the available one with the highest value,
+    /// then the first registered). The managed encoders use 0, the bundled native encoders a higher value.
+    /// </summary>
+    public int Priority => 0;
+
+    /// <summary>The video codecs this encoder can write on this machine, the default first; empty for single-codec formats without choices.</summary>
+    public IReadOnlyList<VideoCodecInfo> Codecs => [];
+
     /// <summary>Encodes the clip. The CPU work runs on the thread pool.</summary>
     /// <param name="clip">The clip.</param>
-    /// <param name="output">The destination stream; written sequentially and not disposed.</param>
+    /// <param name="output">The destination stream; written sequentially (and seeked when it can seek) and not disposed.</param>
     /// <param name="options">Encode settings; <see langword="null"/> uses the defaults of <see cref="VideoEncodeOptions"/>.</param>
     /// <param name="cancellationToken">Cancels the encode.</param>
     /// <exception cref="PlatformNotSupportedException"><see cref="IsAvailable"/> is false.</exception>
+    /// <exception cref="ArgumentException">An option names a codec, preset or pixel format the encoder does not offer.</exception>
     public Task EncodeAsync(VideoClip clip, Stream output, VideoEncodeOptions? options = null, CancellationToken cancellationToken = default);
 }

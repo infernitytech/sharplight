@@ -66,7 +66,7 @@ public sealed class VideoRealModelTests
         Directory.CreateDirectory(folder);
         await page.ExportToAsync(Path.Combine(folder, "clip.gif"));
         Assert.True(new FileInfo(Path.Combine(folder, "clip.gif")).Length > 0);
-        if (page.ExportFormats.Single(format => format.Format == "webm").IsAvailable)
+        if (page.Export.Formats.Single(format => format.Format == "webm").IsAvailable)
         {
             await page.ExportToAsync(Path.Combine(folder, "clip.webm"));
             Assert.True(new FileInfo(Path.Combine(folder, "clip.webm")).Length > 0);

@@ -4,6 +4,7 @@
              xmlns:iv="using:Sharplight.Studio.Views.Inference"
              xmlns:conv="using:Sharplight.Studio.Converters"
              xmlns:vw="using:Sharplight.Studio.Views"
+             xmlns:video="using:Sharplight.Video"
              x:Class="Sharplight.Studio.Views.VideoPage"
              x:DataType="vm:VideoPageViewModel">
   <iv:InferenceFrame>
@@ -16,9 +17,15 @@
             <TextBox Text="{Binding Prompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="120" VerticalContentAlignment="Top"
                      PlaceholderText="Describe the video, for example: a red fox trotting through snow" />
             <TextBox Text="{Binding NegativePrompt}" TextWrapping="Wrap" PlaceholderText="Negative prompt: what the video should not show (optional)" />
-            <Panel IsVisible="{Binding SupportsImage}">
+            <StackPanel IsVisible="{Binding SupportsImage}" Spacing="6">
               <iv:ImageInputView DataContext="{Binding Source}" />
-            </Panel>
+              <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding CanUseVideoFrames}">
+                <Button Classes="small" Content="First frame of a video…" Command="{Binding PickStartFrameCommand}" CommandParameter="first"
+                        ToolTip.Tip="Start from the first frame of a video file" />
+                <Button Classes="small" Content="Last frame of a video…" Command="{Binding PickStartFrameCommand}" CommandParameter="last"
+                        ToolTip.Tip="Continue a video: start from its last frame" />
+              </StackPanel>
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="10">
               <Button Classes="accent" Content="Generate" Command="{Binding RunCommand}" />
               <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsGenerating}" />
@@ -50,19 +57,39 @@
               </Grid>
               </Panel>
               <TextBlock Classes="caption" Text="{Binding Player.PositionText}" IsVisible="{Binding Player.HasFrames}" />
-              <ItemsControl ItemsSource="{Binding ExportFormats}" IsVisible="{Binding HasResult}">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate>
-                    <StackPanel Orientation="Horizontal" Spacing="6" />
-                  </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:VideoExportFormatViewModel">
-                    <Button Classes="small" Content="{Binding Label, StringFormat='Export {0}'}" IsEnabled="{Binding IsAvailable}" ToolTip.Tip="{Binding Tip}"
-                            Command="{Binding $parent[ItemsControl].((vm:VideoPageViewModel)DataContext).ExportCommand}" CommandParameter="{Binding}" />
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
+              <!-- Export: format, then the codec choices of its encoder -->
+              <StackPanel Spacing="6" IsVisible="{Binding HasResult}">
+                <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6">
+                  <ComboBox ItemsSource="{Binding Export.Formats}" SelectedItem="{Binding Export.SelectedFormat}" MinWidth="110" ToolTip.Tip="File format">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:VideoExportFormatViewModel">
+                        <TextBlock Text="{Binding Display}" ToolTip.Tip="{Binding Tip}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <ComboBox ItemsSource="{Binding Export.Codecs}" SelectedItem="{Binding Export.SelectedCodec}" IsVisible="{Binding Export.HasCodecs}" MinWidth="140" ToolTip.Tip="Video codec">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="video:VideoCodecInfo">
+                        <TextBlock Text="{Binding DisplayName}" ToolTip.Tip="{Binding Description}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <ComboBox ItemsSource="{Binding Export.Presets}" SelectedItem="{Binding Export.SelectedPreset}" IsVisible="{Binding Export.HasPresets}" MinWidth="100"
+                            ToolTip.Tip="Speed preset: faster encodes make larger files (for ProRes: the profile)" />
+                  <ComboBox ItemsSource="{Binding Export.PixelFormats}" SelectedItem="{Binding Export.SelectedPixelFormat}" IsVisible="{Binding Export.HasPixelFormats}" MinWidth="110"
+                            ToolTip.Tip="Pixel format (chroma subsampling and bit depth)" />
+                  <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding Export.ShowQuality}" VerticalAlignment="Center">
+                    <TextBlock Classes="caption" Text="Quality" VerticalAlignment="Center" />
+                    <Slider Minimum="0" Maximum="100" Value="{Binding Export.Quality}" Width="110" SmallChange="1" LargeChange="10" VerticalAlignment="Center"
+                            ToolTip.Tip="0 = smallest file, 100 = best quality" />
+                    <TextBlock Classes="caption" Text="{Binding Export.Quality, StringFormat='{}{0:0}'}" VerticalAlignment="Center" MinWidth="22" />
+                  </StackPanel>
+                  <NumericUpDown Value="{Binding Export.BitrateKilobitsPerSecond}" Minimum="0" Maximum="200000" Increment="500" FormatString="0" Width="150"
+                                 IsVisible="{Binding Export.ShowQuality}" ToolTip.Tip="Target bitrate in kbit/s; 0 encodes at constant quality" />
+                  <Button Classes="small accent" Content="Export…" Command="{Binding ExportCommand}" VerticalAlignment="Center" />
+                </WrapPanel>
+                <TextBlock Classes="caption" Text="{Binding Export.CodecDescription}" TextWrapping="Wrap" />
+              </StackPanel>
               <TextBlock Classes="caption" Text="{Binding StepText}" IsVisible="{Binding HasStepText}" />
               <TextBlock Classes="caption" Text="{Binding ResultSummary}" TextWrapping="Wrap" IsVisible="{Binding HasResult}" />
             </StackPanel>
