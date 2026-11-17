@@ -12,7 +12,7 @@ namespace Sharplight.Cli;
 internal sealed class BenchmarkRunner
 {
     private const int DecodeSteps = 64;
-    private const int PrefillRepeats = 3;
+    private const int PrefillRepeats = 4;
     private const int RandomSeed = 1;
     private const int FirstSyntheticTokenId = 1000;
     private const int EndSyntheticTokenId = 50000;
@@ -45,11 +45,11 @@ internal sealed class BenchmarkRunner
         PrintProfiles($"prefill T={_promptTokens.Length}");
 
         ResetProfiles();
-        double bestPrefillSeconds = MeasureBestPrefill(firstPrefillSeconds, cancellationToken);
+        var prefillSeconds = MeasurePrefills(firstPrefillSeconds, cancellationToken);
 
         var decode = MeasureDecode(cancellationToken);
         PrintProfiles($"decode x{DecodeSteps}");
-        return FormatSummary(bestPrefillSeconds, decode);
+        return FormatSummary(prefillSeconds, decode);
     }
 
     private static int[] CreateSyntheticPrompt(int count)
@@ -72,17 +72,19 @@ internal sealed class BenchmarkRunner
         _session.Reset();
     }
 
-    private double MeasureBestPrefill(double firstSeconds, CancellationToken cancellationToken)
+    /// <summary>The timed prefills after the warm-up (the first one and <see cref="PrefillRepeats"/> more), sorted.</summary>
+    private List<double> MeasurePrefills(double firstSeconds, CancellationToken cancellationToken)
     {
-        double best = firstSeconds;
+        var seconds = new List<double>(PrefillRepeats + 1) { firstSeconds };
         for (int repeat = 0; repeat < PrefillRepeats; repeat++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             _session.Reset();
-            best = Math.Min(best, TimeSeconds(() => _session.Process(_promptTokens)));
+            seconds.Add(TimeSeconds(() => _session.Process(_promptTokens)));
         }
 
-        return best;
+        seconds.Sort();
+        return seconds;
     }
 
     private DecodeMeasurement MeasureDecode(CancellationToken cancellationToken)
@@ -104,15 +106,18 @@ internal sealed class BenchmarkRunner
         return new DecodeMeasurement(stepSeconds, gpuMilliseconds);
     }
 
-    private string FormatSummary(double bestPrefillSeconds, DecodeMeasurement decode)
+    private string FormatSummary(List<double> prefillSeconds, DecodeMeasurement decode)
     {
+        double bestPrefillSeconds = prefillSeconds[0];
+        double medianPrefillSeconds = Median(prefillSeconds);
         int promptTokens = _promptTokens.Length;
         var steps = decode.SortedStepSeconds;
         var gpu = decode.SortedGpuMilliseconds;
         double meanTokensPerSecond = DecodeSteps / decode.TotalSeconds;
         return $"prefill {promptTokens} tok: best {bestPrefillSeconds * 1000:F0} ms = {promptTokens / bestPrefillSeconds:F1} tok/s"
             + $" | decode: best {1 / steps[0]:F2}, median {1 / Median(steps):F2}, mean {meanTokensPerSecond:F2} tok/s"
-            + $" | GPU ms/step: best {gpu[0]:F2}, median {Median(gpu):F2}, wall best {steps[0] * 1000:F2}";
+            + $" | GPU ms/step: best {gpu[0]:F2}, median {Median(gpu):F2}, wall best {steps[0] * 1000:F2}"
+            + $" | prefill median of {prefillSeconds.Count}: {medianPrefillSeconds * 1000:F1} ms = {promptTokens / medianPrefillSeconds:F1} tok/s";
     }
 
     private static double Median(IReadOnlyList<double> sorted)

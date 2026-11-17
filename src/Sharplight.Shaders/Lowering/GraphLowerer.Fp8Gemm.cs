@@ -95,9 +95,15 @@ public sealed partial class GraphLowerer
             throw new NotSupportedException($"fp8 GEMM layout {string.Join(',', layout)} does not give {tileRows}-token tiles.");
         }
 
-        return Macros(("KERNEL_GEMM_FP8", 1), ("WBLOCK", type.BlockSize), ("K", k), ("N", n), ("Y_STRIDE", n), ("ROW_BYTES", type.ByteSize(k) + "ull"),
+        var macros = Macros(("KERNEL_GEMM_FP8", 1), ("WBLOCK", type.BlockSize), ("K", k), ("N", n), ("Y_STRIDE", n), ("ROW_BYTES", type.ByteSize(k) + "ull"),
             ("F8_WM", layout[0]), ("F8_WN", layout[1]), ("F8_FM", layout[2]), ("F8_FN", layout[3]), ("SPLITK", split),
             ("F8_GENERIC_LAYOUT", DiagnosticSwitches.MmqGenericLayout),
             ("F8_SPLIT", type == ShaderTypes.F8E4M3_B128R || type == ShaderTypes.F8E4M3_B32R ? 1 : 0));
+        foreach (var (name, value) in DiagnosticSwitches.GemmExtraMacros)
+        {
+            macros[name] = value;
+        }
+
+        return macros;
     }
 }
