@@ -75,7 +75,7 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
         };
         Source = new ImageInputViewModel(services.Platform, text => Notice = text, "Start image", "Optional: the first frame of the video (image to video). Drop a file here or choose one.");
         LastSource = new ImageInputViewModel(services.Platform, text => Notice = text, "Last image", "Optional: the last frame of the video (first and last frame). Drop a file here or choose one.");
-        Player = new VideoPlayerViewModel();
+        Player = new VideoPlayerViewModel(services.Player);
         Player.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(VideoPlayerViewModel.HasFrames))
@@ -105,11 +105,14 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
         return base.ActivateAsync();
     }
 
-    /// <summary>Shows a stored video's first frame (the file is read and decoded on a worker thread); the video file is exported from the gallery.</summary>
+    /// <summary>
+    /// Opens a stored video in the player: its first frame shows at once and the video file is decoded on a worker thread (frames and
+    /// sound track), replacing the still when it is ready.
+    /// </summary>
     private void OpenStored(GalleryItemViewModel item)
     {
         var entry = item.Entry;
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
             ImageInput frame;
             try
@@ -122,6 +125,8 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
                 return;
             }
 
+            string summary = $"{entry.Model} · size: {entry.Width} × {entry.Height} · frames: {entry.Frames} at {entry.FramesPerSecond.ToString("0.#", CultureInfo.InvariantCulture)} fps · seed: {entry.Seed} · {entry.Created.LocalDateTime:g}";
+            bool hasFile = entry.Video.Length > 0 && File.Exists(_store.PathOfVideo(entry));
             Services.Dispatcher.Post(() =>
             {
                 if (!ReferenceEquals(Generations.SelectedItem, item))
@@ -134,9 +139,41 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
                 OnPropertyChanged(nameof(HasResult));
                 ExportCommand.NotifyCanExecuteChanged();
                 Player.Load([frame], entry.FramesPerSecond);
+                StepText = hasFile ? "Loading the video…" : "";
+                ResultSummary = summary + (hasFile ? "" : " · no video file (the first frame only)");
+            });
+            if (!hasFile || !_decoders.IsAvailable)
+            {
+                return;
+            }
+
+            VideoClip clip;
+            try
+            {
+                clip = await _decoders.ReadClipAsync(_store.PathOfVideo(entry)).ConfigureAwait(false);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException or PlatformNotSupportedException)
+            {
+                Services.Dispatcher.Post(() =>
+                {
+                    if (ReferenceEquals(Generations.SelectedItem, item))
+                    {
+                        StepText = "";
+                        Notice = "The video could not be read: " + error.Message;
+                    }
+                });
+                return;
+            }
+
+            Services.Dispatcher.Post(() =>
+            {
+                if (!ReferenceEquals(Generations.SelectedItem, item))
+                {
+                    return;
+                }
+
                 StepText = "";
-                ResultSummary = $"{entry.Model} · size: {entry.Width} × {entry.Height} · frames: {entry.Frames} at {entry.FramesPerSecond.ToString("0.#", CultureInfo.InvariantCulture)} fps · seed: {entry.Seed} · {entry.Created.LocalDateTime:g}"
-                    + (entry.Video.Length > 0 ? "" : " · no video file (the first frame only)");
+                Player.Load(clip.Frames, clip.FramesPerSecond, clip.Audio);
             });
         });
     }
