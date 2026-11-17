@@ -76,9 +76,11 @@ internal sealed class SharplightRequestPipeline(IServiceProvider services, Sharp
 
     private void Report(HttpContext http, SharplightRequestFeature? feature, TimeSpan elapsed)
     {
+        var route = (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? http.Request.Path.Value ?? "";
         var usage = new SharplightUsage
         {
-            Api = (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? http.Request.Path.Value ?? "",
+            Api = SharplightApiNames.Of(route),
+            Route = route,
             Model = feature?.Model,
             Scope = feature?.Context.Scope,
             Principal = feature?.Context.Principal,

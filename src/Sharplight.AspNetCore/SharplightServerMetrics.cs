@@ -4,7 +4,7 @@ namespace Sharplight.AspNetCore;
 
 /// <summary>
 /// <c>System.Diagnostics.Metrics</c> instruments of the API layer (meter <see cref="MeterName"/>), for OpenTelemetry or
-/// <c>dotnet-counters</c>: requests, tokens and latency per API, model and scope. Tags: <c>sharplight.api</c> (the route),
+/// <c>dotnet-counters</c>: requests, tokens and latency per API, model and scope. Tags: <c>sharplight.api</c> (the operation, <see cref="SharplightApiNames"/>),
 /// <c>sharplight.model</c> (the alias), <c>sharplight.scope</c> (empty for the default scope), <c>http.response.status_code</c>
 /// (requests and duration) and <c>sharplight.token.type</c> (<c>input</c>, <c>cached_input</c>, <c>output</c>).
 /// </summary>

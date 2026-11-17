@@ -19,4 +19,19 @@ public sealed record SharplightRequestDefaults
 
     /// <summary>Total time budget per request (queue + generation).</summary>
     public TimeSpan? RequestTimeout { get; init; }
+
+    /// <summary>System prompt put first when the request's messages have no system message (chat APIs), or null.</summary>
+    public string? SystemPrompt { get; init; }
+
+    /// <summary>These defaults with every unset value taken from <paramref name="fallback"/>.</summary>
+    /// <param name="fallback">The defaults to fall back to, or null.</param>
+    /// <returns>The merged defaults.</returns>
+    public SharplightRequestDefaults Over(SharplightRequestDefaults? fallback) => fallback is null ? this : new SharplightRequestDefaults
+    {
+        Sampling = Sampling ?? fallback.Sampling,
+        MaxTokens = MaxTokens ?? fallback.MaxTokens,
+        MaxTokensLimit = MaxTokensLimit ?? fallback.MaxTokensLimit,
+        RequestTimeout = RequestTimeout ?? fallback.RequestTimeout,
+        SystemPrompt = SystemPrompt ?? fallback.SystemPrompt,
+    };
 }

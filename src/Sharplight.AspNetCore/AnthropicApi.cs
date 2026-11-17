@@ -210,7 +210,7 @@ internal static class AnthropicApi
         };
         return new ChatRequest
         {
-            Messages = turns, Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname, Sampling = sampling, MaxTokens = maxTokens,
+            Messages = SharplightServerContext.WithSystemPrompt(http, turns), Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname, Sampling = sampling, MaxTokens = maxTokens,
             StopStrings = [.. b.Arr("stop_sequences").Select(s => s.GetString() ?? "")], EnableThinking = thinking, Timeout = ctx.RequestTimeout(http),
             ResponseFormat = ParseOutputFormat(b), Tenant = SharplightServerContext.TenantOf(http, b.Obj("metadata")?.Str("user_id")),
             CachePartition = SharplightServerContext.CachePartition(http),
@@ -247,6 +247,7 @@ internal static class AnthropicApi
     private static async Task CountTokens(HttpContext http, SharplightServerContext ctx)
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
+        ctx.NoteModel(http, doc.RootElement.Str("model"));
         var req = ParseRequest(doc.RootElement, ctx, http, requireMaxTokens: false);
         using var lease = await ctx.AcquireAsync(http, doc.RootElement.Str("model"));
         await HttpJson.WriteAsync(http, new JsonObject { ["input_tokens"] = SharplightServerContext.ChatOf(lease).CountTokens(req) });
@@ -256,6 +257,7 @@ internal static class AnthropicApi
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var b = doc.RootElement;
+        ctx.NoteModel(http, b.Str("model"));
         var req = ParseRequest(b, ctx, http, requireMaxTokens: true);
         bool stream = b.Bool("stream") ?? false;
         using var lease = await ctx.AcquireAsync(http, b.Str("model"));   // held until the response is complete

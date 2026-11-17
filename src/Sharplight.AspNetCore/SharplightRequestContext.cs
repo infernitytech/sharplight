@@ -36,6 +36,12 @@ public sealed record SharplightRequestContext
     /// <summary>Defaults and limits of the request.</summary>
     public SharplightRequestDefaults? Defaults { get; init; }
 
+    /// <summary>
+    /// Defaults per model alias (the name clients send), applied over <see cref="Defaults"/> field by field once the request's model is
+    /// known; the resolver does not need to read the request body. Null = <see cref="Defaults"/> for every model.
+    /// </summary>
+    public IReadOnlyDictionary<string, SharplightRequestDefaults>? ModelDefaults { get; init; }
+
     /// <summary>Names of the tools a request may declare; null = any, empty = none. Other tools are refused with 400.</summary>
     public IReadOnlySet<string>? AllowedTools { get; init; }
 

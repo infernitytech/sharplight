@@ -310,7 +310,7 @@ internal static class OpenAiApi
         int top = b.Int("top_logprobs") ?? 0;
         return new ChatRequest
         {
-            Messages = msgs, Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname,
+            Messages = SharplightServerContext.WithSystemPrompt(http, msgs), Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname,
             Sampling = ParseSampling(b, ctx.DefaultSampling(http)),
             MaxTokens = SharplightServerContext.MaxTokens(http, b.Int("max_completion_tokens") ?? b.Int("max_tokens"), 0),
             IgnoreEos = b.Bool("ignore_eos") ?? false, MinTokens = ParseMinTokens(b),
@@ -371,6 +371,7 @@ internal static class OpenAiApi
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var b = doc.RootElement;
+        ctx.NoteModel(http, b.Str("model"));
         var req = ParseChat(b, ctx, http);
         bool stream = b.Bool("stream") ?? false;
         bool includeUsage = b.Obj("stream_options")?.Bool("include_usage") ?? false;
@@ -583,6 +584,7 @@ internal static class OpenAiApi
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var b = doc.RootElement;
+        ctx.NoteModel(http, b.Str("model"));
         var (prompt, tokens) = ParseCompletionPrompt(b);
         int? lpCount = b.Int("logprobs");
         var req = new CompletionRequest

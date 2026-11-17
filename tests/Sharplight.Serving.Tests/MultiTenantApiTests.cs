@@ -80,6 +80,21 @@ public sealed class MultiTenantApiTests : IAsyncLifetime
             o.KeyValidator = new ScopeKeyValidator("blocked", "key-3");
             o.Admission = _admission;
         });
+        _app.MapGroup("/t4").MapSharplightServer(o =>
+        {
+            o.Operations = false;
+            o.Admin = false;
+            o.KeyValidator = new ScopeKeyValidator("scope-4", "key-4");
+            o.Resolver = new ScopeResolver(new SharplightRequestContext
+            {
+                Models = new Dictionary<string, string> { ["short"] = "model-a", ["long"] = "model-a" },
+                Defaults = new SharplightRequestDefaults { MaxTokensLimit = 4 },
+                ModelDefaults = new Dictionary<string, SharplightRequestDefaults>
+                {
+                    ["short"] = new() { MaxTokensLimit = 2, SystemPrompt = "Answer in one word." },
+                },
+            });
+        });
         await _app.StartAsync(Ct);
         _client = _app.GetTestClient();
     }
@@ -188,7 +203,8 @@ public sealed class MultiTenantApiTests : IAsyncLifetime
         var one = Assert.Single(usages, usage => usage.Scope == "scope-1");
         Assert.Equal("chat", one.Model);
         Assert.Equal("user:key-1", one.Principal);
-        Assert.Equal("/t1/v1/chat/completions", one.Api);
+        Assert.Equal(SharplightApiNames.OpenAiChatCompletions, one.Api);
+        Assert.Equal("/t1/v1/chat/completions", one.Route);
         Assert.False(one.Streaming);
         Assert.True(one.InputTokens > 0);
         Assert.Equal(3, one.OutputTokens);
@@ -233,7 +249,7 @@ public sealed class MultiTenantApiTests : IAsyncLifetime
         Assert.Equal("embed", body.GetProperty("model").GetString());
         Assert.Equal(8, body.GetProperty("data")[0].GetProperty("embedding").GetArrayLength());
         Assert.Equal(HttpStatusCode.NotFound, (await Send(HttpMethod.Post, "/t1/v1/embeddings", """{"model":"embed-x","input":["hello"]}""", "key-1")).Status);
-        Assert.Contains(_usage.Usages, usage => usage.Api == "/t1/v1/embeddings" && usage.InputTokens == 5 && usage.Model == "embed");
+        Assert.Contains(_usage.Usages, usage => usage.Api == "openai.embeddings" && usage.Route == "/t1/v1/embeddings" && usage.InputTokens == 5 && usage.Model == "embed");
     }
 
     [Fact]
@@ -271,5 +287,23 @@ public sealed class MultiTenantApiTests : IAsyncLifetime
             Assert.Contains(tokens, entry => entry.Scope == "scope-1" && entry.Type == "output" && entry.Value == 3);
             Assert.Contains(tokens, entry => entry.Scope == "scope-1" && entry.Type == "input" && entry.Value > 0);
         }
+    }
+
+    [Fact]
+    public async Task PerModelDefaultsApplyByAlias()
+    {
+        var (_, longer, _) = await Send(HttpMethod.Post, "/t4/v1/chat/completions", Chat("long"), "key-4");
+        var (_, shorter, _) = await Send(HttpMethod.Post, "/t4/v1/chat/completions", Chat("short"), "key-4");
+        static int Usage(JsonElement body, string name) => body.GetProperty("usage").GetProperty(name).GetInt32();
+        Assert.Equal(4, Usage(longer, "completion_tokens"));
+        Assert.Equal(2, Usage(shorter, "completion_tokens"));
+        Assert.True(Usage(shorter, "prompt_tokens") > Usage(longer, "prompt_tokens"));   // the default system prompt
+
+        var (_, message, _) = await Send(HttpMethod.Post, "/t4/v1/messages",
+            """{"model":"short","max_tokens":50,"messages":[{"role":"user","content":"hi"}]}""", "key-4", ("anthropic-version", "2023-06-01"));
+        Assert.Equal(2, message.GetProperty("usage").GetProperty("output_tokens").GetInt32());
+        var (_, own, _) = await Send(HttpMethod.Post, "/t4/v1/chat/completions",
+            """{"model":"short","messages":[{"role":"system","content":"x"},{"role":"user","content":"hi"}],"temperature":0}""", "key-4");
+        Assert.True(Usage(own, "prompt_tokens") < Usage(shorter, "prompt_tokens"));   // a system message of its own wins
     }
 }

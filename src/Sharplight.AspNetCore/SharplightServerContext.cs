@@ -118,15 +118,57 @@ internal sealed class SharplightServerContext
     public static string ResponseName(HttpContext http, ModelLease lease) => SharplightRequestFeature.Of(http)?.Model ?? lease.Name;
 
     /// <summary>Sampling defaults of the request.</summary>
-    public SamplingParams DefaultSampling(HttpContext http) => Request(http)?.Defaults?.Sampling ?? Options.DefaultSampling;
+    public SamplingParams DefaultSampling(HttpContext http) => Defaults(http)?.Sampling ?? Options.DefaultSampling;
 
     /// <summary>The request's time budget.</summary>
-    public TimeSpan? RequestTimeout(HttpContext http) => Request(http)?.Defaults?.RequestTimeout ?? Options.RequestTimeout;
+    public TimeSpan? RequestTimeout(HttpContext http) => Defaults(http)?.RequestTimeout ?? Options.RequestTimeout;
+
+    /// <summary>
+    /// Notes the model the request names (or the default alias) so the per-model defaults of the request's context
+    /// (<see cref="SharplightRequestContext.ModelDefaults"/>) apply while the body is parsed.
+    /// </summary>
+    public void NoteModel(HttpContext http, string? requested)
+    {
+        if (SharplightRequestFeature.Of(http) is not { } feature)
+        {
+            return;
+        }
+
+        var context = feature.Context;
+        feature.RequestedModel = !string.IsNullOrEmpty(requested)
+            ? requested
+            : context.DefaultModel ?? context.Models?.FirstOrDefault(entry => (Host.Get(entry.Value)?.Kind ?? ModelKind.Chat) == ModelKind.Chat).Key ?? DefaultName();
+    }
+
+    /// <summary>The effective defaults of the request: the per-model defaults of its model over the context's defaults.</summary>
+    public static SharplightRequestDefaults? Defaults(HttpContext http)
+    {
+        if (SharplightRequestFeature.Of(http) is not { } feature)
+        {
+            return null;
+        }
+
+        var context = feature.Context;
+        return feature.RequestedModel is { } model && context.ModelDefaults?.TryGetValue(model, out var own) == true
+            ? own.Over(context.Defaults)
+            : context.Defaults;
+    }
+
+    /// <summary>The messages with the default system prompt first when they have no system message.</summary>
+    public static IReadOnlyList<ChatTurn> WithSystemPrompt(HttpContext http, IReadOnlyList<ChatTurn> messages)
+    {
+        if (Defaults(http)?.SystemPrompt is not { } system || messages.Any(message => message.Role == "system"))
+        {
+            return messages;
+        }
+
+        return [new ChatTurn("system", system), .. messages];
+    }
 
     /// <summary>The generated-token limit: the request's value, else the context's default, else <paramref name="fallback"/>; cut to the context's limit (0 = unlimited).</summary>
     public static int MaxTokens(HttpContext http, int? requested, int fallback)
     {
-        var defaults = Request(http)?.Defaults;
+        var defaults = Defaults(http);
         int value = requested ?? defaults?.MaxTokens ?? fallback;
         return defaults?.MaxTokensLimit is int limit && (value <= 0 || value > limit) ? limit : value;
     }

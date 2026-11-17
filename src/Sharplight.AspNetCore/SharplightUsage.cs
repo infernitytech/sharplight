@@ -3,8 +3,11 @@ namespace Sharplight.AspNetCore;
 /// <summary>What one API request used, reported to the <see cref="ISharplightUsageObserver"/>s after its response is complete.</summary>
 public sealed record SharplightUsage
 {
-    /// <summary>The route of the request (e.g. <c>/v1/chat/completions</c>, <c>/v1/messages</c>, <c>/v1/embeddings</c>).</summary>
+    /// <summary>The operation, a short stable name (<see cref="SharplightApiNames"/>: <c>openai.chat.completions</c>, <c>anthropic.messages</c>, <c>openai.embeddings</c>, ...).</summary>
     public required string Api { get; init; }
+
+    /// <summary>The route pattern of the endpoint, with its group prefix (e.g. <c>/e/{endpoint}/v1/chat/completions</c>).</summary>
+    public string Route { get; init; } = "";
 
     /// <summary>The model name the client used (the alias), or null when the request failed before a model was chosen.</summary>
     public string? Model { get; init; }

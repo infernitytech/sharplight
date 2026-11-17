@@ -15,6 +15,9 @@ internal sealed class SharplightRequestFeature(SharplightRequestContext context,
     public SharplightEndpointOptions Endpoint { get; } = endpoint;
     public IRequestAdmission? Admission { get; init; }
 
+    /// <summary>The model name the request asked for (or the default alias), noted before the body is parsed.</summary>
+    public string? RequestedModel { get; set; }
+
     /// <summary>The model name the client used, once known.</summary>
     public string? Model { get; set; }
 
