@@ -320,11 +320,11 @@ branch `macos/metal-r1`, round 2 (split-K `gemm_sg`, 8x8 flash attention, `int_d
 **Round 2** (run 44031312716, branch `macos/metal-r2`): the GPU suite stays green on Metal (1486 pass, 0 fail, 40 skip) with
 split-K `gemm_sg`, the 8x8 flash attention and `int_dot`. Prefill of 512 tokens rises 20-64 % over round 1 (Qwen3-0.6B Q4_K_M
 811.9 -> 1331.5 tok/s, Qwen2.5-0.5B 1281 -> 1710); `int_dot` speeds up Q4_K_M decode by 5-25 % and leaves Q8_0 about equal
-(benchmarks.md section 39).
+(benchmarks.md section 41.1).
 
 **CI results** (run 44018997843, `macos-15`, paravirtual Apple GPU): the whole GPU kernel suite passes on the Metal device
 (1526 tests: 1486 pass, 40 skip: benchmarks, opt-in large tests and the Vulkan-internal tests), as do the Metal unit tests and
-the LLM smoke test. Benchmarks against MoltenVK and llama.cpp: [benchmarks.md section 39](benchmarks.md). Two Metal-specific
+the LLM smoke test. Benchmarks against MoltenVK and llama.cpp: [benchmarks.md section 41](benchmarks.md). Two Metal-specific
 findings: the paravirtual GPU does not claim the Metal 3 family but has argument buffers tier 2 (the device check uses the tier);
 and Metal has no device-scope release / acquire within a dispatch, so the decode attention's fused "last workgroup merges the
 key splits" combine gave wrong results there and is off on Metal (`LoweringOptions.CrossWorkgroupFences`).

@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Sharplight.Audio;
 using Sharplight.Graph;
@@ -21,13 +20,25 @@ namespace Sharplight.Architectures;
 /// Per utterance of the text front end: the language model's speech tokens by repetition-aware sampling; the flow's mel after the recording's prompt
 /// (ten Euler steps of the guided DiT from noise); the causal HiFT's waveform. One request runs at a time.
 /// </summary>
-internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
+internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer, IVoiceCloner
 {
     /// <summary>The system prompt that CosyVoice 3 expects before <c>&lt;|endofprompt|&gt;</c>.</summary>
     public const string SystemPrompt = "You are a helpful assistant.";
 
     /// <summary>The end-of-prompt marker.</summary>
     public const string EndOfPrompt = "<|endofprompt|>";
+
+    /// <summary>The mel frames per attention chunk of the streaming flow (<c>chunk_size</c> 25 tokens times the token-to-mel ratio).</summary>
+    public const int StreamChunkFrames = 50;
+
+    /// <summary>The speech tokens per streamed chunk (<c>token_hop_len</c>).</summary>
+    public const int StreamHopTokens = 25;
+
+    /// <summary>The tokens the flow encoder looks ahead (<c>pre_lookahead_len</c>); a streamed chunk waits for them.</summary>
+    public const int LookaheadTokens = 3;
+
+    /// <summary>The mel frames at the end of the vocoded mel that are held back until more frames follow (the vocoder's look-ahead; <c>mel_cache_len</c>).</summary>
+    public const int VocoderHoldbackFrames = 8;
 
     private const float AudioLimit = 0.99f;
 
@@ -57,6 +68,7 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
     private InferenceSession? _session;
     private CompiledModel? _flowEncoder;
     private CompiledModel? _estimator;
+    private CompiledModel? _chunkedEstimator;
     private CompiledModel? _vocoder;
     private CompiledModel? _f0Predictor;
     private S3SpeechEncoders? _encoders;
@@ -144,11 +156,11 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
     }
 
     /// <inheritdoc/>
-    /// <remarks>One buffer per utterance of the text front end; generation runs on a background task (<see cref="BackgroundCompute"/>).</remarks>
+    /// <remarks>Chunks of about a second within each utterance of the text front end, emitted while the language model is still generating; generation runs on a dedicated thread (<see cref="BackgroundCompute"/>). Models imported before the chunked flow existed stream one buffer per utterance.</remarks>
     public IAsyncEnumerable<AudioBuffer> SynthesizeStreamingAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(text);
-        return BackgroundCompute.StreamAsync(token => StreamCoreAsync(text, options, token), cancellationToken);
+        return StreamCoreAsync(text, options, cancellationToken);
     }
 
     /// <summary>The tokens of a piece of text (special tokens such as <c>&lt;|endofprompt|&gt;</c> and <c>[breath]</c> recognized).</summary>
@@ -207,8 +219,9 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
     /// <param name="cancellationToken">Stops generation between tokens.</param>
     /// <param name="observe">Receives each step's logits (before sampling), or <see langword="null"/>.</param>
     /// <param name="forced">Feeds these tokens instead of the chosen ones (teacher forcing), or <see langword="null"/>.</param>
+    /// <param name="onToken">Called with the tokens so far after each new token (streaming), or <see langword="null"/>.</param>
     public int[] SpeechTokens(int[] textTokens, int[] promptTextTokens, int[] promptSpeech, SamplingOptions sampling, CancellationToken cancellationToken,
-        Action<float[]>? observe = null, IReadOnlyList<int>? forced = null)
+        Action<float[]>? observe = null, IReadOnlyList<int>? forced = null, Action<IReadOnlyList<int>>? onToken = null)
     {
         var tables = _tables.Value;
         var session = _session ??= _llm.CreateSession(WellKnown.DecodeMultimodalGraph);
@@ -260,6 +273,7 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
             }
 
             tokens.Add(token);
+            onToken?.Invoke(tokens);
             logits = Process(session, tables.SpeechEmbedding(token).ToArray(), 1);
         }
 
@@ -297,9 +311,12 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
     /// <param name="speaker">The speaker condition (zero for the unconditional evaluation).</param>
     /// <param name="cond">The prompt mel, zero after the prompt (zero for the unconditional evaluation).</param>
     /// <param name="t">The time step.</param>
-    public float[] Velocity(float[] x, float[] mu, float[] speaker, float[] cond, float t)
+    /// <param name="spans">The attention spans [frames, 2] of the chunked estimator, or <see langword="null"/> for full attention.</param>
+    public float[] Velocity(float[] x, float[] mu, float[] speaker, float[] cond, float t, int[]? spans = null)
     {
-        var estimator = _estimator ??= _model.CompileComponent(CosyVoiceAdapter.EstimatorRole);
+        var estimator = spans is null
+            ? _estimator ??= _model.CompileComponent(CosyVoiceAdapter.EstimatorRole, CosyVoiceFlowGraph.EstimatorGraph)
+            : _chunkedEstimator ??= _model.CompileComponent(CosyVoiceAdapter.EstimatorRole, CosyVoiceFlowGraph.ChunkedEstimatorGraph);
         int frames = x.Length / _mels;
         estimator.SetInput<float>(Input(estimator, CosyVoiceFlowGraph.SampleInput), x);
         estimator.SetInput<float>(Input(estimator, CosyVoiceFlowGraph.MuInput), mu);
@@ -307,6 +324,11 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
         estimator.SetInput<float>(Input(estimator, CosyVoiceFlowGraph.SpeakerConditionInput), speaker);
         estimator.SetInput<float>(Input(estimator, CosyVoiceFlowGraph.TimeInput), [t]);
         estimator.SetInput<int>(Input(estimator, CosyVoiceFlowGraph.PositionsInput), [.. Enumerable.Range(0, frames)]);
+        if (spans is not null)
+        {
+            estimator.SetInput<int>(Input(estimator, CosyVoiceFlowGraph.SpansInput), spans);
+        }
+
         var run = new RunParameters();
         run.Symbols[CosyVoiceFlowGraph.FrameSymbol] = frames;
         estimator.Run(run);
@@ -325,17 +347,52 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
     public float[] Mel(int[] speech, CosyVoiceVoice voice, float[]? noise = null)
     {
         var (mu, speaker) = EncodeFlow(speech, voice);
+        return Integrate(mu, speaker, voice, noise, chunked: false);
+    }
+
+    /// <summary>
+    /// The streaming flow (<c>flow.inference(..., streaming=True)</c>): the mel [frames, 80] after the voice's prompt for the speech tokens so far, with the
+    /// DiT's block-causal attention over chunks of <see cref="StreamChunkFrames"/> frames, so the frames of earlier chunks never change when more tokens follow.
+    /// Unless <paramref name="finalize"/>, the last <see cref="LookaheadTokens"/> tokens only serve as the encoder's look-ahead and produce no frames.
+    /// </summary>
+    /// <param name="speech">The speech tokens so far.</param>
+    /// <param name="voice">The voice.</param>
+    /// <param name="finalize">Whether these are all the tokens of the utterance.</param>
+    /// <param name="noise">The starting noise [prompt + frames, 80], or <see langword="null"/> for the noise source's.</param>
+    /// <exception cref="NotSupportedException">The model was imported without the chunked estimator graph.</exception>
+    public float[] MelChunked(int[] speech, CosyVoiceVoice voice, bool finalize, float[]? noise = null)
+    {
+        var (mu, speaker) = EncodeFlow(speech, voice);
+        if (!finalize)
+        {
+            int keep = Math.Max(0, speech.Length - LookaheadTokens) + voice.SpeechTokens.Length;
+            mu = mu[..(keep * _tokenMelRatio * _mels)];
+        }
+
+        return Integrate(mu, speaker, voice, noise, chunked: true);
+    }
+
+    /// <summary>Whether the model has the chunked estimator graph (<see cref="MelChunked"/>, streaming synthesis within an utterance).</summary>
+    public bool SupportsChunkedFlow => _model.Definition.Graphs.ContainsKey(CosyVoiceFlowGraph.ChunkedEstimatorGraph);
+
+    private float[] Integrate(float[] mu, float[] speaker, CosyVoiceVoice voice, float[]? noise, bool chunked)
+    {
         int frames = mu.Length / _mels;
         int promptFrames = voice.PromptMel.Length / _mels;
+        if (frames <= promptFrames)
+        {
+            return [];
+        }
+
         var cond = new float[frames * _mels];
         voice.PromptMel.AsSpan(0, Math.Min(voice.PromptMel.Length, cond.Length)).CopyTo(cond);
         var x = noise ?? (FlowNoiseSource ?? (n => SpeechNoise.Gaussian(n, 0)))(frames * _mels);
-        if (x.Length != frames * _mels)
+        if (x.Length < frames * _mels)
         {
             throw new ArgumentException($"The flow noise has {x.Length} values, {frames * _mels} are needed.", nameof(noise));
         }
 
-        x = (float[])x.Clone();
+        x = x[..(frames * _mels)].ToArray();
         var zeros = new float[frames * _mels];
         var noSpeaker = new float[_mels];
         var span = new float[_flowSteps + 1];
@@ -344,12 +401,23 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
             span[i] = 1f - MathF.Cos(i / (float)_flowSteps * 0.5f * MathF.PI);
         }
 
+        int[]? spans = null;
+        if (chunked)
+        {
+            spans = new int[frames * 2];
+            for (int f = 0; f < frames; f++)
+            {
+                spans[2 * f] = 0;
+                spans[(2 * f) + 1] = Math.Min(frames, ((f / StreamChunkFrames) + 1) * StreamChunkFrames);
+            }
+        }
+
         float t = span[0];
         float dt = span[1] - span[0];
         for (int step = 1; step <= _flowSteps; step++)
         {
-            var conditioned = Velocity(x, mu, speaker, cond, t);
-            var unconditioned = Velocity(x, zeros, noSpeaker, zeros, t);
+            var conditioned = Velocity(x, mu, speaker, cond, t, spans);
+            var unconditioned = Velocity(x, zeros, noSpeaker, zeros, t, spans);
             for (int i = 0; i < x.Length; i++)
             {
                 x[i] += dt * (((1f + _flowGuidance) * conditioned[i]) - (_flowGuidance * unconditioned[i]));
@@ -461,17 +529,48 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
         _session?.Dispose();
         _flowEncoder?.Dispose();
         _estimator?.Dispose();
+        _chunkedEstimator?.Dispose();
         _vocoder?.Dispose();
         _f0Predictor?.Dispose();
         _encoders?.Dispose();
         _gate.Dispose();
     }
 
+    /// <inheritdoc/>
+    public string VoiceArchitecture => CosyVoiceAdapter.Family;
+
+    /// <inheritdoc/>
+    public async Task<VoiceProfile> CreateVoiceAsync(string name, AudioBuffer recording, string? referenceText = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recording);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var voice = await BackgroundCompute.RunAsync(_gate, () => CloneVoice(recording, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return new VoiceProfile
+        {
+            Name = name,
+            Architecture = VoiceArchitecture,
+            ReferenceText = referenceText,
+            SampleRate = SampleRate,
+            Tensors = new Dictionary<string, VoiceTensor>
+            {
+                ["speech_tokens"] = VoiceTensor.From(voice.SpeechTokens),
+                ["prompt_mel"] = VoiceTensor.From(voice.PromptMel, [voice.PromptMel.Length / _mels, _mels]),
+                ["xvector"] = VoiceTensor.From(voice.XVector),
+            },
+        };
+    }
+
     private CosyVoiceVoice VoiceFor(SpeechSynthesisOptions? options, CancellationToken cancellationToken)
     {
+        if (options?.VoiceProfile is { } profile)
+        {
+            profile.RequireArchitecture(VoiceArchitecture);
+            return new CosyVoiceVoice(profile.Tensor("speech_tokens").ToInts(), profile.Tensor("prompt_mel").ToFloats(), profile.Tensor("xvector").ToFloats());
+        }
+
         if (options?.ReferenceAudio is not { } recording)
         {
-            throw new InvalidOperationException("CosyVoice 3 has no built-in voices: pass a recording of the voice in SpeechSynthesisOptions.ReferenceAudio.");
+            throw new InvalidOperationException("CosyVoice 3 has no built-in voices: pass a recording of the voice in SpeechSynthesisOptions.ReferenceAudio or a saved voice in VoiceProfile.");
         }
 
         if (_lastClone is { } last && ReferenceEquals(last.Recording, recording))
@@ -487,7 +586,7 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
     private AudioBuffer Synthesize(string text, SpeechSynthesisOptions? options, CancellationToken cancellationToken)
     {
         var parts = new List<float>();
-        foreach (string utterance in Utterances(text))
+        foreach (string utterance in Utterances(text, options))
         {
             parts.AddRange(SynthesizeUtterance(utterance, options, cancellationToken));
         }
@@ -496,6 +595,26 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
     }
 
     private float[] SynthesizeUtterance(string utterance, SpeechSynthesisOptions? options, CancellationToken cancellationToken)
+    {
+        var request = Prepare(utterance, options, cancellationToken);
+        var speech = SpeechTokens(request.TextTokens, request.PromptText, request.PromptSpeech, request.Sampling, cancellationToken);
+        if (speech.Length == 0)
+        {
+            return [];
+        }
+
+        var mel = Mel(speech, request.Voice);
+        float speed = options?.Speed ?? 1f;
+        if (speed > 0 && Math.Abs(speed - 1f) > 1e-6f)
+        {
+            mel = Stretch(mel, _mels, speed);
+        }
+
+        return Vocode(mel).Samples;
+    }
+
+    private (CosyVoiceVoice Voice, int[] TextTokens, int[] PromptText, int[] PromptSpeech, SamplingOptions Sampling) Prepare(string utterance, SpeechSynthesisOptions? options,
+        CancellationToken cancellationToken)
     {
         var voice = VoiceFor(options, cancellationToken);
         var sampling = options.SamplingOr(new SamplingOptions { Temperature = 1f, TopK = _topK, TopP = _topP });
@@ -507,7 +626,7 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
             promptText = TextTokens(WithEndOfPrompt($"{SystemPrompt} {instructions}"));
             promptSpeech = [];
         }
-        else if (options?.ReferenceText is { Length: > 0 } referenceText)
+        else if ((options?.ReferenceText ?? options?.VoiceProfile?.ReferenceText) is { Length: > 0 } referenceText)
         {
             promptText = TextTokens(WithEndOfPrompt(referenceText.Contains(EndOfPrompt, StringComparison.Ordinal) ? referenceText : SystemPrompt + EndOfPrompt + referenceText));
             promptSpeech = voice.SpeechTokens;
@@ -519,42 +638,86 @@ internal sealed class CosyVoiceSynthesizer : ISpeechSynthesizer
             spoken = utterance.Contains(EndOfPrompt, StringComparison.Ordinal) ? utterance : SystemPrompt + EndOfPrompt + utterance;
         }
 
-        var speech = SpeechTokens(TextTokens(spoken), promptText, promptSpeech, sampling, cancellationToken);
-        if (speech.Length == 0)
-        {
-            return [];
-        }
+        return (voice, TextTokens(spoken), promptText, promptSpeech, sampling);
+    }
 
-        var mel = Mel(speech, voice);
+    /// <summary>
+    /// One utterance as a stream (<c>stream=True</c> of the reference): every <see cref="StreamHopTokens"/> speech tokens (and their look-ahead) the flow runs
+    /// over the tokens so far with chunk-causal attention, the vocoder over the mel so far, and the samples that no later frame can change are emitted.
+    /// </summary>
+    private void StreamUtterance(string utterance, SpeechSynthesisOptions? options, Action<AudioBuffer> emit, CancellationToken cancellationToken)
+    {
         float speed = options?.Speed ?? 1f;
-        if (speed > 0 && Math.Abs(speed - 1f) > 1e-6f)
+        if (!SupportsChunkedFlow || (speed > 0 && Math.Abs(speed - 1f) > 1e-6f))
         {
-            mel = Stretch(mel, _mels, speed);
+            var samples = SynthesizeUtterance(utterance, options, cancellationToken);
+            if (samples.Length > 0)
+            {
+                emit(new AudioBuffer(samples, SampleRate));
+            }
+
+            return;
         }
 
-        return Vocode(mel).Samples;
+        var request = Prepare(utterance, options, cancellationToken);
+        int emitted = 0;
+        int target = StreamHopTokens + LookaheadTokens;
+
+        void Flush(int[] speech, bool final)
+        {
+            var mel = MelChunked(speech, request.Voice, final);
+            int frames = mel.Length / _mels;
+            int usable = final ? frames : frames - VocoderHoldbackFrames;
+            if (usable <= 0)
+            {
+                return;
+            }
+
+            var audio = Vocode(mel).Samples;
+            int upto = final ? audio.Length : Math.Min(audio.Length, usable * _samplesPerFrame);
+            if (upto > emitted)
+            {
+                emit(new AudioBuffer(audio[emitted..upto], SampleRate));
+                emitted = upto;
+            }
+        }
+
+        var speechTokens = SpeechTokens(request.TextTokens, request.PromptText, request.PromptSpeech, request.Sampling, cancellationToken, onToken: tokens =>
+        {
+            if (tokens.Count >= target)
+            {
+                Flush([.. tokens.Take(target)], final: false);
+                target += StreamHopTokens;
+            }
+        });
+        if (speechTokens.Length > 0)
+        {
+            Flush(speechTokens, final: true);
+        }
     }
 
     private static string WithEndOfPrompt(string text) => text.Contains(EndOfPrompt, StringComparison.Ordinal) ? text : text + EndOfPrompt;
 
-    private IReadOnlyList<string> Utterances(string text) => CosyVoiceTextFrontEnd.Split(text, piece => TextTokens(piece).Length);
+    private IReadOnlyList<string> Utterances(string text, SpeechSynthesisOptions? options)
+        => CosyVoiceTextFrontEnd.Split(text.Contains("<|", StringComparison.Ordinal) ? text : options.NormalizedText(text), piece => TextTokens(piece).Length);
 
-    private async IAsyncEnumerable<AudioBuffer> StreamCoreAsync(string text, SpeechSynthesisOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        foreach (string utterance in Utterances(text))
+    private IAsyncEnumerable<AudioBuffer> StreamCoreAsync(string text, SpeechSynthesisOptions? options, CancellationToken cancellationToken)
+        => BackgroundCompute.StreamBlocking<AudioBuffer>((emit, token) =>
         {
-            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            _gate.Wait(token);
             try
             {
-                var samples = await Task.Run(() => SynthesizeUtterance(utterance, options, cancellationToken), cancellationToken).ConfigureAwait(false);
-                yield return new AudioBuffer(samples, SampleRate);
+                foreach (string utterance in Utterances(text, options))
+                {
+                    token.ThrowIfCancellationRequested();
+                    StreamUtterance(utterance, options, emit, token);
+                }
             }
             finally
             {
                 _gate.Release();
             }
-        }
-    }
+        }, cancellationToken);
 
     private static float[] Uniform(int count, int seed)
     {

@@ -106,8 +106,15 @@ internal sealed class DiffusionLoraPatch : IWeightPatch
                 return (canonical is null ? null : "transformer." + canonical, 0, canonical?.StartsWith("final.mod.", StringComparison.Ordinal) == true);
             }
 
+            case Krea2Config.Architecture:
+            {
+                // diffusers / PEFT names (Krea's and ComfyUI's LoRAs) or the original Krea names.
+                string name = (module.Kohya ? KohyaNames.Dotted(module.Name) : module.Name) + ".weight";
+                return (Probe(weights => Krea2Names.Add(new Dictionary<string, WeightInfo> { [name] = s_probe }, "", weights)), 0, false);
+            }
+
             default:
-                throw new NotSupportedException($"Not supported yet: LoRAs for {arch} models (SD 1.x / 2.x / XL, FLUX, Chroma and Qwen-Image are supported).");
+                throw new NotSupportedException($"Not supported yet: LoRAs for {arch} models (SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image and Krea 2 are supported).");
         }
     }
 
@@ -152,7 +159,11 @@ internal sealed class DiffusionLoraPatch : IWeightPatch
             }
         }
 
-        var type = target.Type == DataType.F32 ? DataType.F32 : DataType.F16;
+        // A quantized weight stays quantized (Q8_0) where its rows allow it: a LoRA on every linear of a Q8_0 Krea 2 would otherwise double
+        // the transformer to f16 (26 GB).
+        var type = target.Type == DataType.F32 ? DataType.F32
+            : target.Type.IsQuantized && columns % Q8Blocks.BlockSize == 0 ? DataType.Q8_0
+            : DataType.F16;
         return WeightInfo.Derived(target.Name, type, target.Shape, () =>
         {
             float[] w = Decode(target);
@@ -188,6 +199,11 @@ internal sealed class DiffusionLoraPatch : IWeightPatch
             if (type == DataType.F32)
             {
                 return MemoryMarshal.AsBytes(w.AsSpan()).ToArray();
+            }
+
+            if (type == DataType.Q8_0)
+            {
+                return Q8Blocks.Encode(w);
             }
 
             var halves = new Half[w.Length];

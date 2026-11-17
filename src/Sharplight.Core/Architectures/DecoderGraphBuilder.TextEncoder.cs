@@ -22,9 +22,11 @@ internal sealed partial class DecoderGraphBuilder
     /// Whether the last layer's output goes through the final norm (transformers' <c>hidden_states[-1]</c>, Qwen-Image's conditioning);
     /// only with <paramref name="layer"/> = the layer count.
     /// </param>
+    /// <param name="f32Activations">Whether the matrix products keep f32 activations (<see cref="GraphBuilder.F32MatMulActivations"/>).</param>
     /// <exception cref="InvalidDataException">The decoder's layout has no single hidden state per layer.</exception>
-    public ComputeGraph BuildLayerHiddenStates(string name, string tokensInput, string hiddenOutput, int rows, int layer, bool finalNorm = false)
-        => BuildLayerHiddenStates(name, tokensInput, hiddenOutput, rows, [layer], finalNorm);
+    public ComputeGraph BuildLayerHiddenStates(string name, string tokensInput, string hiddenOutput, int rows, int layer, bool finalNorm = false,
+        bool f32Activations = false)
+        => BuildLayerHiddenStates(name, tokensInput, hiddenOutput, rows, [layer], finalNorm, f32Activations: f32Activations);
 
     /// <summary>
     /// The hidden states entering several layers, concatenated per token in the given order (FLUX.2: Qwen3's <c>hidden_states</c> 9, 18
@@ -41,16 +43,17 @@ internal sealed partial class DecoderGraphBuilder
     /// only to the prompt's tokens, as transformers' padding mask makes them (FLUX.2 reads every row, the padding's included); without
     /// it padding rows also see the padding before them (the prompt's rows are the same either way).
     /// </param>
+    /// <param name="f32Activations">Whether the matrix products keep f32 activations (<see cref="GraphBuilder.F32MatMulActivations"/>).</param>
     /// <exception cref="InvalidDataException">The decoder's layout has no single hidden state per layer.</exception>
     public ComputeGraph BuildLayerHiddenStates(string name, string tokensInput, string hiddenOutput, int rows, IReadOnlyList<int> layers, bool finalNorm = false,
-        string? maskInput = null)
+        string? maskInput = null, bool f32Activations = false)
     {
         if (layers.Count == 0 || layers.Any(l => l < 0 || l > _hp.LogicalLayers) || _hp.AltUpStreams > 0 || _hp.Cycles is not null)
         {
             throw new InvalidDataException($"decoder: cannot output the hidden states before layers {string.Join(", ", layers)}.");
         }
 
-        var b = new GraphBuilder(name, _src.Weight);
+        var b = new GraphBuilder(name, _src.Weight) { F32MatMulActivations = f32Activations };
         var tokens = b.Input(tokensInput, InputRole.TokenIds, DataType.I32, new Shape(rows));
         var positionValues = new int[rows * _hp.PositionAxes];
         var spanValues = new int[rows * 2];

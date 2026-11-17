@@ -49,8 +49,29 @@ internal static class BackgroundCompute
     /// <param name="source">Creates the producing sequence; its token is cancelled when the consumer cancels or stops early.</param>
     /// <param name="cancellationToken">Stops the consumer at once and the producer at its next step.</param>
     /// <returns>The items of <paramref name="source"/>, in order.</returns>
-    public static async IAsyncEnumerable<T> StreamAsync<T>(Func<CancellationToken, IAsyncEnumerable<T>> source,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+    public static IAsyncEnumerable<T> StreamAsync<T>(Func<CancellationToken, IAsyncEnumerable<T>> source, CancellationToken cancellationToken)
+        => Pump<T>(async (emit, token) =>
+        {
+            await foreach (var item in source(token).ConfigureAwait(false))
+            {
+                emit(item);
+            }
+        }, cancellationToken);
+
+    /// <summary>
+    /// Runs the blocking <paramref name="produce"/> on a dedicated thread and hands every item it emits to the caller as soon as it is emitted
+    /// (a producer that emits from inside its compute loop, such as audio chunks while the model is still generating). Exceptions surface at the
+    /// consumer after the items emitted before them.
+    /// </summary>
+    /// <typeparam name="T">The item type.</typeparam>
+    /// <param name="produce">The blocking compute; calls its first argument for each item, honors its token between steps.</param>
+    /// <param name="cancellationToken">Stops the consumer at once and the producer at its next step.</param>
+    /// <returns>The emitted items, in order.</returns>
+    public static IAsyncEnumerable<T> StreamBlocking<T>(Action<Action<T>, CancellationToken> produce, CancellationToken cancellationToken)
+        => Pump<T>((emit, token) => Task.Factory.StartNew(() => produce(emit, token), CancellationToken.None, TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default), cancellationToken);
+
+    private static async IAsyncEnumerable<T> Pump<T>(Func<Action<T>, CancellationToken, Task> produce, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var channel = Channel.CreateUnbounded<T>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
@@ -59,10 +80,7 @@ internal static class BackgroundCompute
         {
             try
             {
-                await foreach (var item in source(stop.Token).ConfigureAwait(false))
-                {
-                    channel.Writer.TryWrite(item);
-                }
+                await produce(item => channel.Writer.TryWrite(item), stop.Token).ConfigureAwait(false);
             }
             catch (Exception error)
             {

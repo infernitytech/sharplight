@@ -186,7 +186,10 @@ public sealed partial class GraphLowerer
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow;
         bool dualFp8 = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
             xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "gemm_fp8.slang"));
-        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && DualFp8Serves(rows(b), N, K));
+        var dualGemm2 = dualFp8 ? null : EmitDualGemm2($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
+            a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "matmul.slang"));
+        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && DualFp8Serves(rows(b), N, K))
+                                && !(dualGemm2?.Invoke(rows(b)) ?? false);
         LowerMatMul(a);
         LowerMatMul(bNode);
         LowerElementwise(group, [output]);
@@ -331,7 +334,7 @@ public sealed partial class GraphLowerer
             throw new NotSupportedException($"GEMM layout {string.Join(',', layout)} does not give {tileRows}-token tiles staged evenly by its threads.");
         }
 
-        return new(m)
+        var result = new Dictionary<string, string>(m)
         {
             ["WARPS_M"] = layout[0].ToString(CultureInfo.InvariantCulture),
             ["WARPS_N"] = layout[1].ToString(CultureInfo.InvariantCulture),
@@ -339,6 +342,39 @@ public sealed partial class GraphLowerer
             ["FRAG_N"] = layout[3].ToString(CultureInfo.InvariantCulture),
             ["GBK"] = blockK.ToString(CultureInfo.InvariantCulture),
         };
+        AddTileGroup(result);
+        foreach (var (name, value) in DiagnosticSwitches.GemmExtraMacros)
+        {
+            result[name] = value;
+        }
+
+        return result;
+    }
+
+    /// <summary>Smallest weight matrix (bytes) whose GEMM launches use the grouped tile order.</summary>
+    private const long TileGroupMinWeightBytes = 48L << 20;
+
+    /// <summary>
+    /// Token tiles per group of the grouped tile order (<c>grouped_tile</c> in common.slang) of gemm_cm2, the int8 GEMM and the
+    /// fp8 GEMM. Launched column tiles first, the workgroups running at once cover one or two token tiles and every weight tile,
+    /// so a weight matrix larger than the L2 cache is read from DRAM once per token tile. In groups of 16 token tiles (2048 rows)
+    /// they share a few weight tiles instead. RTX PRO 4500, f16 weights, 2048 rows: [4096 → 12288] 104 → 128 TFLOPS, [12288 →
+    /// 4096] 99 → 105; 8192 rows: [4096 → 12288] 98 → 125. Each output is computed exactly as before. Launches with K splits keep
+    /// the launch order (at 512 rows the grouped order lost 7 % on [12288 → 4096], whose grid is split), and so do matrices under
+    /// <see cref="TileGroupMinWeightBytes"/>, which stay in L2 anyway (bf16 [4096 → 4096], Q4_K / Q8_0 of the 8B: 2-4 % slower grouped).
+    /// </summary>
+    private static void AddTileGroup(Dictionary<string, string> macros)
+    {
+        if (DiagnosticSwitches.GemmTileGroup <= 0 || !macros.TryGetValue("ROW_BYTES", out var rowBytes) || !macros.TryGetValue("N", out var n))
+        {
+            return;
+        }
+
+        long weightBytes = long.Parse(rowBytes.TrimEnd('u', 'l'), CultureInfo.InvariantCulture) * long.Parse(n, CultureInfo.InvariantCulture);
+        if (weightBytes >= TileGroupMinWeightBytes)
+        {
+            macros["GEMM_GROUP"] = DiagnosticSwitches.GemmTileGroup.ToString(CultureInfo.InvariantCulture);
+        }
     }
 
     /// <summary>
@@ -830,7 +866,7 @@ public sealed partial class GraphLowerer
                 ["NV_BT"] = $"{NvTileTokens}",
                 ["NV_BN"] = $"{NvTileColumns}",
                 ["NV_BK"] = $"{NvTileK}",
-            }));
+            }.Concat(DiagnosticSwitches.GemmExtraMacros)));
         }
 
         List<KernelVariant> gemmVariants;

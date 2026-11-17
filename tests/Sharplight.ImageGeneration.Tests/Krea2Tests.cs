@@ -73,6 +73,36 @@ public sealed class Krea2Tests
         Assert.True(transformerRms < 2e-2, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
     }
 
+    /// <summary>
+    /// unsloth's Qwen3-VL-4B-Instruct Q8_0 GGUF (Krea 2's text encoder is exactly Qwen/Qwen3-VL-4B-Instruct) as the companion against the
+    /// pipeline's encoder (bf16, run in f32 by diffusers).
+    /// </summary>
+    [Fact]
+    public void GgufTextEncoderMatchesDiffusers()
+    {
+        var slot = Gpu();
+        Assert.SkipWhen(slot is null || !File.Exists(Env.Qwen3Vl4BGguf), "Krea 2, the Qwen3-VL-4B GGUF, its references or a Vulkan GPU missing");
+        var companions = Companions();
+        companions[AuxiliaryRoles.TextEncoder] = Env.Qwen3Vl4BGguf;
+        using var model = Env.Load(Gguf, slot!, companions);
+        var index = Index();
+        int i = 0;
+        foreach (var prompt in index.GetProperty("tokens").EnumerateObject())
+        {
+            int drop = index.GetProperty("drop").GetInt32();
+            int rows = drop + index.GetProperty("length").GetInt32();
+            int[] tokens = [.. prompt.Value.EnumerateArray().Select(t => t.GetInt32()), .. Enumerable.Repeat(151643, rows)];
+            tokens = tokens[..rows];
+            int length = index.GetProperty("lengths").GetProperty(prompt.Name).GetInt32() - drop;
+            var hidden = GraphRunner.Run(model, ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, DiffusionGraphs.Hidden, 0, (DiffusionGraphs.Tokens, tokens));
+            int d = hidden.Length / rows;
+            var (maxAbs, rms) = Env.Compare(hidden.AsSpan(drop * d, length * d), Tensor($"text_hidden_{i}").AsSpan(0, length * d));
+            TestContext.Current.SendDiagnosticMessage($"{GetType().Name} GGUF text encoder {i}: relative RMS {rms:E2}");
+            Assert.True(rms < 3e-2, $"GGUF text encoder {i}: max {maxAbs}, relative RMS {rms}");
+            i++;
+        }
+    }
+
     /// <summary>The pipeline folder's tokenizer gives the pipeline's system-templated ids.</summary>
     [Fact]
     public void PromptTokensMatchTransformers()
@@ -140,4 +170,50 @@ public sealed class Krea2Tests
         TestContext.Current.SendDiagnosticMessage($"{variant} {size}: PSNR {psnr:F1} dB; load {load:F1} s, first run (compiling) {first:F1} s, second run {second:F1} s");
         Assert.True(psnr > 25, $"{size}: PSNR {psnr:F1} dB");
     }
+
+    /// <summary>
+    /// A style LoRA (ComfyUI's <c>krea2_darkbrush.safetensors</c>, diffusers / PEFT names, rank 32, merged at load) against diffusers'
+    /// <c>load_lora_weights</c> on the same files (reference in <c>turbo-q8-lora-reference</c>: --lora, 1024², 8 steps).
+    /// </summary>
+    [Fact]
+    public async Task LoraMatchesDiffusers()
+    {
+        string reference = Path.Combine(Root, "turbo-q8-lora-reference");
+        var slot = Gpu();
+        Assert.SkipWhen(slot is null || !File.Exists(Path.Combine(reference, "index.json")), "Krea 2, its LoRA reference or a Vulkan GPU missing");
+        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(reference, "index.json")));
+        var index = document.RootElement;
+        string lora = Path.Combine(Root, "loras", index.GetProperty("lora").GetString()!);
+        Assert.SkipUnless(File.Exists(lora), "the LoRA file is missing");
+        var companions = Companions();
+        companions[$"{AuxiliaryRoles.Lora}@{index.GetProperty("lora_scale").GetSingle().ToString(System.Globalization.CultureInfo.InvariantCulture)}"] = lora;
+        using var model = Env.Load(Gguf, slot!, companions);
+        using var generator = Env.Clients.Create<IImageGenerator>(model);
+        int size = index.GetProperty("sizes")[0].GetInt32();
+        var options = new ImageGenerationOptions
+        {
+            Width = size,
+            Height = size,
+            Steps = index.GetProperty("steps").GetInt32(),
+            InitialNoise = Env.ReadFloats(Path.Combine(reference, $"noise_{size}.f32")),
+        };
+        var result = await generator.GenerateAsync(new ImageGenerationRequest { Prompt = index.GetProperty("prompt").GetString()! }, options,
+            TestContext.Current.CancellationToken);
+        var expected = PlanarImage.FromPlanar(Env.ReadFloats(Path.Combine(reference, $"image_{size}.f32")), size, size, 0f, 1f);
+        var plain = PlanarImage.FromPlanar(Tensor($"image_{size}"), size, size, 0f, 1f);
+        string output = Environment.GetEnvironmentVariable("SHARPLIGHT_SD_TEST_OUTPUT") ?? "";
+        if (output.Length > 0)
+        {
+            Directory.CreateDirectory(output);
+            File.WriteAllBytes(Path.Combine(output, $"krea2-lora-{size}-sharplight.png"), PngCodec.Encode(result.Images[0]));
+            File.WriteAllBytes(Path.Combine(output, $"krea2-lora-{size}-diffusers.png"), PngCodec.Encode(expected));
+        }
+
+        double psnr = Env.Psnr(result.Images[0].Rgb, expected.Rgb);
+        double unadapted = Env.Psnr(result.Images[0].Rgb, plain.Rgb);
+        TestContext.Current.SendDiagnosticMessage($"krea2 LoRA {size}: PSNR {psnr:F1} dB (the image without the LoRA {unadapted:F1} dB)");
+        // Visually the same picture; the brush style's fine texture keeps the PSNR near 23 dB (without the LoRA: 8 dB).
+        Assert.True(psnr > 21 && unadapted < 15, $"{size}: PSNR {psnr:F1} dB, {unadapted:F1} dB from the image without the LoRA");
+    }
 }
+

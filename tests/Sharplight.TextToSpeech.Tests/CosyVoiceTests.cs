@@ -180,6 +180,58 @@ public class CosyVoiceTests
         Assert.True(similarity > 0.4, $"speaker similarity {similarity:F3}");
     }
 
+    /// <summary>
+    /// Streaming zero-shot speech: the chunks emitted while the language model generates add up to the one-shot chunk-causal flow and vocoder output of the
+    /// same tokens (the frames of earlier chunks never change), and the first chunk arrives long before the whole utterance (time to first audio in the report).
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Streams_chunks_that_add_up_to_the_one_shot_chunked_flow(bool gpu)
+    {
+        string recordingPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(TtsModels.Kokoro)!)!, "audio", "jfk.wav");
+        TtsModels.Require(Path.Combine(Model, "llm.pt"), Path.Combine(Model, "campplus.onnx"), recordingPath);
+        using var model = TtsModels.Load(TtsModels.Open(gpu), Model);
+        using var synthesizer = new CosyVoiceSynthesizer(model);
+        var recording = Sharplight.Audio.WavFile.Read(recordingPath);
+        const string Text = "The weather today is sunny with a light breeze, perfect for a walk in the park.";
+        var options = new Sharplight.Speech.SpeechSynthesisOptions
+        {
+            ReferenceAudio = recording,
+            ReferenceText = "And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+            Sampling = new SamplingOptions { Seed = 7 },
+        };
+        var voice = synthesizer.CloneVoice(recording, TestContext.Current.CancellationToken);
+        var sampling = new SamplingOptions { Seed = 7, Temperature = 1f, TopK = 25, TopP = 0.8f };
+        var promptText = synthesizer.TextTokens(CosyVoiceSynthesizer.SystemPrompt + CosyVoiceSynthesizer.EndOfPrompt + options.ReferenceText);
+        var speech = synthesizer.SpeechTokens(synthesizer.TextTokens(Text), promptText, voice.SpeechTokens, sampling, TestContext.Current.CancellationToken);
+        var expected = synthesizer.Vocode(synthesizer.MelChunked(speech, voice, finalize: true)).Samples;
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var chunks = new List<float[]>();
+        double first = 0;
+        await foreach (var chunk in synthesizer.SynthesizeStreamingAsync(Text, options, TestContext.Current.CancellationToken))
+        {
+            if (chunks.Count == 0)
+            {
+                first = stopwatch.Elapsed.TotalSeconds;
+            }
+
+            chunks.Add(chunk.Samples);
+        }
+
+        double total = stopwatch.Elapsed.TotalSeconds;
+        var streamed = chunks.SelectMany(c => c).ToArray();
+        double seconds = streamed.Length / (double)synthesizer.SampleRate;
+        ParityReport.Write($"CosyVoice 3 streaming {(gpu ? "vulkan" : "cpu")}: {chunks.Count} chunks, {seconds:F2} s of audio, time to first audio {first:F2} s, "
+            + $"whole utterance {total:F2} s, difference to the one-shot chunked flow {(streamed.Length == expected.Length ? RelativeError(expected, streamed) : double.NaN):E2}");
+        Assert.True(chunks.Count >= 2, $"{chunks.Count} chunks");
+        Assert.Equal(expected.Length, streamed.Length);
+        // On the CPU the chunks are bit-identical; on the GPU the growing prefixes run other kernel shapes, and the vocoder's harmonic source amplifies the rounding.
+        Assert.True(RelativeError(expected, streamed) < (gpu ? 0.3 : 1e-3), $"relative RMS {RelativeError(expected, streamed):E2}");
+        Assert.True(first < total * 0.75, $"first audio after {first:F2} s of {total:F2} s");
+    }
+
     private static float[] Normalized(float[] values)
     {
         double norm = Math.Sqrt(values.Sum(v => (double)v * v));

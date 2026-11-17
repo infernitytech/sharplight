@@ -69,6 +69,34 @@ public sealed class Flux2KleinTests
         Assert.True(transformerRms < 2e-2, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
     }
 
+    /// <summary>
+    /// unsloth's Qwen3-4B Q8_0 GGUF (Klein 4B's text encoder is exactly Qwen/Qwen3-4B) as the companion against the pipeline's encoder (bf16,
+    /// run in f32 by transformers), over all 512 rows.
+    /// </summary>
+    [Fact]
+    public void GgufTextEncoderMatchesTransformers()
+    {
+        var slot = Gpu();
+        Assert.SkipWhen(slot is null || !File.Exists(Env.Qwen3FourBGguf), "FLUX.2 Klein, the Qwen3-4B GGUF, its references or a Vulkan GPU missing");
+        var companions = Companions();
+        companions[AuxiliaryRoles.TextEncoder] = Env.Qwen3FourBGguf;
+        using var model = Env.Load(Gguf, slot!, companions);
+        var index = Index();
+        int i = 0;
+        foreach (var prompt in index.GetProperty("tokens").EnumerateObject())
+        {
+            int[] tokens = [.. prompt.Value.EnumerateArray().Select(t => t.GetInt32())];
+            int length = index.GetProperty("lengths").GetProperty(prompt.Name).GetInt32();
+            float[] mask = [.. Enumerable.Range(0, tokens.Length).Select(t => t < length ? 1f : 0f)];
+            var hidden = GraphRunner.Run(model, ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, DiffusionGraphs.Hidden, 0,
+                (DiffusionGraphs.Tokens, tokens), (DiffusionGraphs.TokenMask, mask));
+            var (maxAbs, rms) = Env.Compare(hidden, Tensor($"text_hidden_{i}"));
+            TestContext.Current.SendDiagnosticMessage($"{GetType().Name} GGUF text encoder {i}: relative RMS {rms:E2}");
+            Assert.True(rms < 3e-2, $"GGUF text encoder {i}: max {maxAbs}, relative RMS {rms}");
+            i++;
+        }
+    }
+
     /// <summary>The pipeline folder's tokenizer gives transformers' chat-templated ids (thinking disabled).</summary>
     [Fact]
     public void PromptTokensMatchTransformers()

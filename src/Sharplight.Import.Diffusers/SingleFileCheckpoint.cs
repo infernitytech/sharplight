@@ -320,7 +320,7 @@ internal static partial class SingleFileCheckpoint
     }
 
     /// <summary>The tensor names of a safetensors, GGUF or PyTorch checkpoint file (header / pickle only).</summary>
-    private static IReadOnlyCollection<string> TensorNames(string path)
+    internal static IReadOnlyCollection<string> TensorNames(string path)
     {
         if (CheckpointTensors.IsGguf(path))
         {

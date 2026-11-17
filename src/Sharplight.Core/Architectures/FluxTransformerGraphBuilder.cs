@@ -40,6 +40,8 @@ internal sealed class FluxTransformerGraphBuilder
     private readonly FluxHyperParameters _hp;
     private readonly int _textRows;
     private readonly int _imageRows;
+    private readonly int _outputRows;
+    private readonly int _references;
     private readonly long _latentHeight;
     private readonly long _latentWidth;
     private Value _positions = null!;
@@ -49,7 +51,7 @@ internal sealed class FluxTransformerGraphBuilder
     private Value _modulationInput = null!;
     private readonly Dictionary<string, Value> _sharedModulations = new(StringComparer.Ordinal);
 
-    private FluxTransformerGraphBuilder(Func<string, WeightInfo?> weights, FluxHyperParameters hp, long latentHeight, long latentWidth, int textRows)
+    private FluxTransformerGraphBuilder(Func<string, WeightInfo?> weights, FluxHyperParameters hp, long latentHeight, long latentWidth, int textRows, int references)
     {
         _b = new GraphBuilder(DiffusionGraphs.Denoise, weights);
         _weights = weights;
@@ -57,7 +59,10 @@ internal sealed class FluxTransformerGraphBuilder
         _textRows = textRows;
         _latentHeight = latentHeight;
         _latentWidth = latentWidth;
-        _imageRows = (int)(latentHeight / hp.PatchSize * (latentWidth / hp.PatchSize));
+        _outputRows = (int)(latentHeight / hp.PatchSize * (latentWidth / hp.PatchSize));
+        _references = references;
+        // The image stream holds the image's tokens followed by those of the reference images (editing).
+        _imageRows = _outputRows * (1 + references);
     }
 
     /// <summary>Builds the graph.</summary>
@@ -66,8 +71,18 @@ internal sealed class FluxTransformerGraphBuilder
     /// <param name="latentHeight">Latent height (a multiple of the patch size).</param>
     /// <param name="latentWidth">Latent width (a multiple of the patch size).</param>
     /// <param name="textRows">Tokens of the text conditioning.</param>
-    public static ComputeGraph Build(Func<string, WeightInfo?> weights, FluxHyperParameters hp, long latentHeight, long latentWidth, int textRows)
-        => new FluxTransformerGraphBuilder(weights, hp, latentHeight, latentWidth, textRows).Build();
+    /// <param name="references">
+    /// Reference images of an editing model (input <see cref="DiffusionGraphs.ReferenceLatent"/> [R, C, h, w], latents of the output's size), or 0.
+    /// </param>
+    public static ComputeGraph Build(Func<string, WeightInfo?> weights, FluxHyperParameters hp, long latentHeight, long latentWidth, int textRows, int references = 0)
+    {
+        if (references > hp.MaxReferences)
+        {
+            throw new ArgumentOutOfRangeException(nameof(references), $"The transformer takes at most {hp.MaxReferences} reference image(s).");
+        }
+
+        return new FluxTransformerGraphBuilder(weights, hp, latentHeight, latentWidth, textRows, references).Build();
+    }
 
     private ComputeGraph Build()
     {
@@ -114,6 +129,18 @@ internal sealed class FluxTransformerGraphBuilder
         using (_b.Group("input"))
         {
             image = Linear(Patchify(latent), P + "img_in");
+            if (_references > 0)
+            {
+                var referenceLatents = _b.Input(DiffusionGraphs.ReferenceLatent, InputRole.Other, DataType.F32,
+                    new Shape(_references, _hp.LatentChannels, _latentHeight, _latentWidth));
+                var parts = new List<Value> { image };
+                for (int r = 0; r < _references; r++)
+                {
+                    parts.Add(Linear(Patchify(_b.Contiguous(_b.Slice(referenceLatents, 0, r, 1))), P + "img_in"));
+                }
+
+                image = _b.Concat(0, [.. parts]);
+            }
             text = _b.Reshape(context, _textRows, _hp.ContextDim);
             if (_b.HasWeight(P + "txt_norm.weight"))
             {
@@ -139,7 +166,7 @@ internal sealed class FluxTransformerGraphBuilder
 
         using (_b.Group("output"))
         {
-            image = _b.Slice(x, 0, _textRows, _imageRows);
+            image = _b.Slice(x, 0, _textRows, _outputRows);
             var final = Modulation(P + "final.mod", 2, ModulationRows - 2);
             var normed = Modulate(image, Chunk(final, 0, d), Chunk(final, 1, d));
             _b.Output(DiffusionGraphs.Prediction, Unpatchify(Linear(normed, P + "final.linear")));
@@ -182,8 +209,11 @@ internal sealed class FluxTransformerGraphBuilder
         for (int t = 0; t < _imageRows; t++)
         {
             int row = _textRows + t;
-            positions[row * axes + 1] = t / columns - rowOffset;
-            positions[row * axes + 2] = t % columns - columnOffset;
+            int reference = t / _outputRows;
+            int cell = t % _outputRows;
+            positions[row * axes] = reference == 0 ? 0 : _hp.ReferenceIndexBase + _hp.ReferenceIndexStep * (reference - 1);
+            positions[row * axes + 1] = cell / columns - rowOffset;
+            positions[row * axes + 2] = cell % columns - columnOffset;
         }
 
         _positions = _b.Constant("rope_positions", DataType.I32, new Shape(rows, axes), MemoryMarshal.AsBytes(positions.AsSpan()).ToArray());

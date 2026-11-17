@@ -173,6 +173,25 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 `ReferenceText` for models that align them (F5-TTS, CosyVoice 3 zero-shot), and `Instructions`, a natural-language instruction on how to speak
 for models that take one (CosyVoice 3: dialect, emotion, speed).
 
+**Streaming synthesis.** `SynthesizeStreamingAsync` yields audio chunks while the model is still generating, so playback can start early. CosyVoice 3 runs
+the flow with the chunk-causal attention of the reference's `stream=True` (a `cosyvoice_flow_estimator_chunked` graph next to the full-attention one; packages imported before
+it existed stream one buffer per utterance): every 25 speech tokens it decodes the mel so far and the vocoder over it, and emits the samples no later frame can change (the
+first chunk is about 0.85 s of audio). XTTS emits after 12 codes and then every 20 within a sentence (vocoder over the latents so far, four rows held back; the chunks add up to the
+one-shot audio). Chatterbox emits chunks of speech tokens (the first after 15, then 25), each decoded by the flow and the vocoder with context tokens around it and cross-faded
+with the previous chunk. The other models stream per sentence or word. Studio's Speak page plays the chunks back to back on one output stream and reports the time to the first audio.
+
+**Saved voices.** A cloning model (`IVoiceCloner`, taken with `GetService(typeof(IVoiceCloner))`: Chatterbox, XTTS v2, CosyVoice 3, F5-TTS) turns a recording into a `VoiceProfile`
+once (`CreateVoiceAsync(name, recording, referenceText)`): the conditioning tensors the model derived (speaker embeddings, prompt tokens and mel, style latents; F5-TTS keeps the
+recording itself with its words). `VoiceLibrary` stores them in the layout's `voices` data folder (`new VoiceLibrary(StorageLayout)`): one folder per voice with `voice.json` (name,
+architecture family, reference text, where each tensor lies) and `tensors.bin`. A request passes `SpeechSynthesisOptions.VoiceProfile` instead of the recording and gets the same
+audio, without running the encoders again; a voice of another model family is rejected. Studio's Speak page saves a voice from the reference recording (a file or the microphone),
+lists the saved voices of the chosen model and deletes them.
+
+**Text normalization.** `Sharplight.Speech.Normalization.TextNormalizers.For(language)` spells numbers, ordinals, dates, clock times, currency amounts, percentages and common
+abbreviations as words for EN, DE, FR, ES, IT, PT, ZH and JA (`ITextNormalizer`). CosyVoice 3, Chatterbox, XTTS, F5-TTS and Orpheus apply it by default to the request's
+`Language` (else the text's script); `SpeechSynthesisOptions.TextNormalizer` replaces it (for any model, Kokoro and OuteTTS included) and `NormalizeText = false` passes the
+text as written.
+
 Every client is an `ITaskClient`: `Metadata` (kind, model name, architecture), `GetService(Type)` for the objects behind it,
 `IDisposable` (it owns its compiled graphs, not the model), async calls with a `CancellationToken`. The shape mirrors
 Microsoft.Extensions.AI (`IChatClient`, `ISpeechToTextClient`, `ITextToSpeechClient`, `IImageGenerator`), and

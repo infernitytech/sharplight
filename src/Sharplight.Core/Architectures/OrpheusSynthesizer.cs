@@ -103,7 +103,7 @@ internal sealed class OrpheusSynthesizer : ISpeechSynthesizer
     /// <inheritdoc/>
     public async Task<SpeechSynthesisResult> SynthesizeAsync(string text, SpeechSynthesisOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var codes = await GenerateCodesAsync(text, options, cancellationToken).ConfigureAwait(false);
+        var codes = await GenerateCodesAsync(options.NormalizedText(text), options, cancellationToken).ConfigureAwait(false);
         var audio = await BackgroundCompute.RunAsync(_gate, () => Decode(codes), cancellationToken).ConfigureAwait(false);
         return new SpeechSynthesisResult(audio, options?.Voice);
     }
@@ -120,7 +120,7 @@ internal sealed class OrpheusSynthesizer : ISpeechSynthesizer
     {
         var codes = new List<int>();
         int decoded = 0;
-        await foreach (int code in GenerateCodeStreamGatedAsync(text, options, cancellationToken).ConfigureAwait(false))
+        await foreach (int code in GenerateCodeStreamGatedAsync(options.NormalizedText(text), options, cancellationToken).ConfigureAwait(false))
         {
             codes.Add(code);
             int frames = codes.Count / TokensPerFrame;

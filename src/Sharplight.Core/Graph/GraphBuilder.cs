@@ -193,6 +193,11 @@ public sealed class GraphBuilder
     public IReadOnlyList<Value> Emit(OpSchema op, IReadOnlyList<Value> inputs, Attributes? attrs = null, string? name = null, IReadOnlyList<Value>? writes = null)
     {
         attrs ??= Attributes.Empty;
+        if (F32MatMulActivations && op.Name == "MatMul" && !attrs.ContainsKey(StandardOps.F32ActivationsAttribute))
+        {
+            attrs = attrs.With(StandardOps.F32ActivationsAttribute, true);
+        }
+
         var types = op.Infer(inputs, attrs);
         var node = new Node(_nextNodeId++, op, [.. inputs], attrs, CurrentGroup) { Writes = writes is null ? [] : [.. writes] };
         var outs = ImmutableArray.CreateBuilder<Value>(types.Count);
@@ -220,6 +225,13 @@ public sealed class GraphBuilder
     /// <param name="name">Name of the output value, or <see langword="null"/> for a generated name.</param>
     public Value Emit1(string op, IReadOnlyList<Value> inputs, Attributes? attrs = null, string? name = null)
         => Emit(op, inputs, attrs, name)[0];
+
+    /// <summary>
+    /// Whether every <c>MatMul</c> emitted from now on keeps f32 activations (<see cref="StandardOps.F32ActivationsAttribute"/>): quantized
+    /// weights are not multiplied with int8-quantized activations. Text encoders of image generators whose hidden states carry outlier
+    /// channels (Mistral Small 3.2 under FLUX.2 Dev) set it.
+    /// </summary>
+    public bool F32MatMulActivations { get; set; }
 
     // ---- typed helpers ------------------------------------------------------------------------
     /// <summary>Emits a one-operand op such as <c>Silu</c>.</summary>

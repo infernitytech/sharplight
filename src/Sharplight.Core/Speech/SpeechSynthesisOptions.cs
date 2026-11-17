@@ -27,6 +27,12 @@ public sealed record SpeechSynthesisOptions
     /// </summary>
     public AudioBuffer? ReferenceAudio { get; init; }
 
+    /// <summary>
+    /// A saved voice (<see cref="IVoiceCloner.CreateVoiceAsync"/>, <see cref="VoiceLibrary"/>) to speak with instead of <see cref="Voice"/> and
+    /// <see cref="ReferenceAudio"/>; its model family must be the model's. Its words serve as <see cref="ReferenceText"/> when that is not set.
+    /// </summary>
+    public VoiceProfile? VoiceProfile { get; init; }
+
     /// <summary>The words spoken in <see cref="ReferenceAudio"/>, for models that align the reference with its text (F5-TTS).</summary>
     public string? ReferenceText { get; init; }
 
@@ -34,6 +40,18 @@ public sealed record SpeechSynthesisOptions
     /// A natural-language instruction on how to speak (dialect, emotion, speed), for models that take one (CosyVoice 3); <see langword="null"/> for none.
     /// </summary>
     public string? Instructions { get; init; }
+
+    /// <summary>
+    /// Spells numbers, dates, times, currency amounts, percentages and abbreviations as words before the text reaches the model (<see cref="Normalization.TextNormalizers"/>
+    /// for EN, DE, FR, ES, IT, PT, ZH and JA), for the models that benefit from it; <see langword="false"/> passes the text as written.
+    /// </summary>
+    public bool NormalizeText { get; init; } = true;
+
+    /// <summary>
+    /// The normalizer to use instead of the built-in one of the request's <see cref="Language"/> (or of the text's script when none is set), for every model
+    /// that normalizes; <see langword="null"/> for the default.
+    /// </summary>
+    public Normalization.ITextNormalizer? TextNormalizer { get; init; }
 
     /// <summary>The defaults.</summary>
     public static SpeechSynthesisOptions Default { get; } = new();

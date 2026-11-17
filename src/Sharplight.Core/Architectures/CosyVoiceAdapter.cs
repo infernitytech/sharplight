@@ -80,6 +80,7 @@ internal sealed class CosyVoiceAdapter : IModelAdapter
         {
             [CosyVoiceFlowGraph.EncodeGraph] = CosyVoiceFlowGraph.BuildEncode(Lookup, src.Get<int>(a + "flow.pre_lookahead"), tokenMelRatio),
             [CosyVoiceFlowGraph.EstimatorGraph] = CosyVoiceFlowGraph.BuildEstimator(Lookup, src.Get<int>(a + "flow.depth"), src.Get<int>(a + "flow.heads"), mels),
+            [CosyVoiceFlowGraph.ChunkedEstimatorGraph] = CosyVoiceFlowGraph.BuildEstimator(Lookup, src.Get<int>(a + "flow.depth"), src.Get<int>(a + "flow.heads"), mels, chunked: true),
             [CosyVoiceVocoderGraph.F0GraphName] = CosyVoiceVocoderGraph.BuildF0(Lookup),
             [CosyVoiceVocoderGraph.GraphName] = CosyVoiceVocoderGraph.Build(Lookup, rates, kernels, nFft, hop, harmonics, src.Get<int>(a + "hift.look_right")),
         };
@@ -125,7 +126,7 @@ internal sealed class CosyVoiceAdapter : IModelAdapter
                 new ModelComponent
                 {
                     Role = EstimatorRole,
-                    Graphs = [CosyVoiceFlowGraph.EstimatorGraph],
+                    Graphs = [CosyVoiceFlowGraph.EstimatorGraph, CosyVoiceFlowGraph.ChunkedEstimatorGraph],
                     WeightPrefixes = ["flow.decoder."],
                     Config = ComponentConfig.Of(("steps", src.Get<int>(a + "flow.steps")), ("guidance", src.Get<double>(a + "flow.guidance"))),
                     SymbolBounds = new Dictionary<string, long> { [CosyVoiceFlowGraph.FrameSymbol] = (long)tokenMelRatio * MaxFlowTokens },
