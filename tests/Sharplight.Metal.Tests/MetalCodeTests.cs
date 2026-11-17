@@ -103,6 +103,58 @@ public sealed class MetalCodeTests
         Assert.True(loaded.PipelinesFromArchive > 0, $"{loaded.PipelinesFromArchive} of {loaded.PipelinesCreated} pipelines from the archive");
     }
 
+    [Fact]
+    public void FailingPipelineFallsBackToThePortableKernels()
+    {
+        Assert.SkipUnless(OperatingSystem.IsMacOS(), "Needs macOS.");
+        var provider = new MetalProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No usable Metal device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.MatrixF16Small), "The device has no simdgroup matrices (no gemm_sg).");
+
+        var expected = RunBlock((MetalDevice)provider.OpenDevice(info), null, out _);
+        // Every gemm_sg pipeline gets invalid MSL: Metal rejects it twice, and the segment is compiled again with the SIMT kernels.
+        var actual = RunBlock((MetalDevice)provider.OpenDevice(info), kernel => kernel.EntryPoint == "gemm_sg", out int fallbacks);
+
+        Assert.Equal(1, fallbacks);
+        Assert.Equal(expected.Length, actual.Length);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.True(Math.Abs(expected[i] - actual[i]) <= 2e-2 + 2e-2 * Math.Abs(expected[i]), $"y[{i}]: {actual[i]} vs {expected[i]}");
+        }
+    }
+
+    /// <summary>Runs the MLP block on 16 rows and returns its softmax output and the device's pipeline fallbacks.</summary>
+    private static float[] RunBlock(MetalDevice device, Func<CompiledKernel, bool>? invalidSource, out int fallbacks)
+    {
+        using (device)
+        {
+            device.InvalidSourceFor = invalidSource;
+            var graph = BuildBlock();
+            using var model = CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                Compile = new CompileOptions { MaxTokens = 64, ContextLength = 256 },
+                ReservePerDevice = 0,
+            });
+            const int Rows = 16;
+            var input = new float[Rows * 256];
+            for (int i = 0; i < input.Length; i++)
+            {
+                input[i] = MathF.Sin(i * 0.37f);
+            }
+
+            model.SetInput(graph.Inputs.Single(), System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
+            var parameters = new RunParameters();
+            parameters.Symbols["T"] = Rows;
+            model.Run(parameters);
+            var output = new float[Rows * 256];
+            model.GetOutput<float>("y", output);
+            fallbacks = device.PipelineFallbacks;
+            return output;
+        }
+    }
+
     /// <summary>The profile of an Apple GPU as the provider reports it.</summary>
     private static DeviceProfile Profile(bool simdgroupMatrix) => new()
     {

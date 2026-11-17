@@ -33,6 +33,10 @@ internal sealed partial class MetalKernelSource
 
     public uint Threads => ThreadsX * ThreadsY * ThreadsZ;
 
+    /// <summary>The same kernel (function name, threadgroup size) with other source text (tests of compiler errors).</summary>
+    /// <param name="source">The replacement source.</param>
+    public MetalKernelSource WithSource(string source) => new(source, Function, ThreadsX, ThreadsY, ThreadsZ);
+
     /// <summary>Parses the code of a kernel compiled for <see cref="ShaderTarget.Metal"/>.</summary>
     /// <exception cref="InvalidOperationException">The code has no threads header or no kernel function.</exception>
     public static MetalKernelSource Parse(CompiledKernel kernel)

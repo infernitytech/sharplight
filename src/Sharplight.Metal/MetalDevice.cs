@@ -120,7 +120,44 @@ internal sealed unsafe class MetalDevice : IComputeDevice
     internal long PipelineTicks;
     internal int PipelinesCreated;
 
+    /// <summary>
+    /// Device features whose kernels are compiled again without them when Metal rejects one of their pipelines (see
+    /// <see cref="Compile"/>): the 8x8 matrix kernels and the integer-dot matvecs, which have portable SIMT fallbacks.
+    /// </summary>
+    private static readonly string[] s_fallbackFeatures = [DeviceFeatures.MatrixF16Small, DeviceFeatures.IntDot];
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// When Metal fails to create a pipeline (after one retry, see <see cref="CreatePipeline"/>) and the segment used one of the
+    /// optional matrix or integer-dot features, the segment is lowered again without them, so the portable SIMT kernels replace the
+    /// failing ones (counted in <see cref="PipelineFallbacks"/>) instead of failing the model.
+    /// </remarks>
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
+    {
+        try
+        {
+            return CompileProgram(segment, options);
+        }
+        catch (KernelCompilationException e) when (s_fallbackFeatures.Any(f => options.FeaturesFor(this).Contains(f)))
+        {
+            // Always reported: a fallback means a slower kernel and a kernel Metal rejects (CI logs show which).
+            int fallbacks = Interlocked.Increment(ref PipelineFallbacks);
+            Console.Error.WriteLine($"[mtl] fallback {fallbacks}, segment {segment.Index}: {e.Message.Split('\n')[0]}; compiling it again without {string.Join(", ", s_fallbackFeatures)}");
+
+            return CompileProgram(segment, options.WithDisabledFeatures(s_fallbackFeatures));
+        }
+    }
+
+    /// <summary>Segments compiled again without the optional features after a pipeline failure (diagnostics, tests).</summary>
+    internal int PipelineFallbacks;
+
+    /// <summary>
+    /// Test hook: kernels for which pipeline creation gets deliberately invalid MSL, to exercise the retry and the fallback of
+    /// <see cref="Compile"/> on a real Metal compiler error.
+    /// </summary>
+    internal Func<CompiledKernel, bool>? InvalidSourceFor { get; set; }
+
+    private ICompiledSegment CompileProgram(GraphSegment segment, CompileOptions options)
     {
         var cache = options.CacheFor?.Invoke(this) ?? _ownArtifacts.For(this);
         EnsureArchive(cache);
@@ -204,7 +241,41 @@ internal sealed unsafe class MetalDevice : IComputeDevice
             File.WriteAllText(Path.Combine(dump, $"{Path.GetFileNameWithoutExtension(kernel.Name)}_{kernel.EntryPoint}_{kernel.CacheKey[..12]}.metal"), source.Source);
         }
 
+        if (InvalidSourceFor?.Invoke(kernel) == true)
+        {
+            source = source.WithSource("kernel void broken( {");
+        }
+
         using var pool = AutoreleasePool.Push();
+        // Metal's compiler runs in a service process; after it crashes on one kernel, the next requests of the process can fail
+        // until it has restarted, so a failed kernel is tried once more before the error counts.
+        KernelCompilationException? failure = null;
+        for (int attempt = 0; attempt < PipelineAttempts; attempt++)
+        {
+            if (attempt > 0)
+            {
+                Thread.Sleep(PipelineRetryDelayMs);
+            }
+
+            try
+            {
+                return CreatePipelineOnce(kernel, source, start);
+            }
+            catch (KernelCompilationException e)
+            {
+                failure = e;
+            }
+        }
+
+        throw failure!;
+    }
+
+    /// <summary>Attempts at creating one pipeline, and the pause before the second.</summary>
+    private const int PipelineAttempts = 2;
+    private const int PipelineRetryDelayMs = 250;
+
+    private MetalPipeline CreatePipelineOnce(CompiledKernel kernel, MetalKernelSource source, long start)
+    {
         var (library, function) = CompileFunction(source, $"{kernel.Name}:{kernel.EntryPoint} ({kernel.CacheKey})");
         try
         {
