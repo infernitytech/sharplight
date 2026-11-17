@@ -938,8 +938,8 @@ groupshared half faQl[FA_BR * FA_QS];   // lo parts (FA_SPLIT)
 groupshared half faKVl[FA_BC * FA_KS];
 groupshared half faPl[FA_BR * FA_PS];
 #define FA_P_SCALE 4096.0
-// Power-of-two scales (split_scale) of each query row, each key row of the K tile and the V tile as a whole, applied before the
-// f16 split so neither part over- or underflows (as fe's). One array of f32 bits (separate groupshared scalars here gave wrong
+// Power-of-two scales (split_scale_outside) of each query row, each key row of the K tile and the V tile as a whole whose largest
+// magnitude is outside [2^-6, 2^15), applied before the f16 split so neither part over- or underflows (as fe's). One array of f32 bits (separate groupshared scalars here gave wrong
 // results): FA_BR query row scales, FA_BC key row maxima, FA_BC inverse key row scales, the V tile's maximum and inverse scale.
 groupshared uint faScales[FA_BR + 2 * FA_BC + 2];
 #define FA_QSCALE (0)
@@ -977,7 +977,7 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
         if (WaveIsFirstLane()) InterlockedMax(faScales[FA_VMAX], asuint(vmax));
     }
     GroupMemoryBarrierWithGroupSync();
-    float vScale = split_scale(asfloat(faScales[FA_VMAX]));
+    float vScale = split_scale_outside(asfloat(faScales[FA_VMAX]));
     if (values && tid == 0) faScales[FA_VINV] = asuint(1.0 / vScale);
     // Each operand's maxima were last read before the barrier ahead of this load.
     if (values) { for (uint r = tid; r < FA_BC; r += FA_T) faScales[FA_KMAX + r] = 0; }
@@ -993,7 +993,7 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
             float v[8];
             unpack_kv8(load_kv8(cache, (kv_row(kvRow, j) + hk) * rowStride + c), v);
 #if FA_SPLIT
-            float scale = values ? vScale : split_scale(asfloat(faScales[FA_KMAX + r]));
+            float scale = values ? vScale : split_scale_outside(asfloat(faScales[FA_KMAX + r]));
             if (!values && c == 0) faScales[FA_KINV + r] = asuint(1.0 / scale);
 #endif
             [ForceUnroll]
@@ -1062,7 +1062,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         uint t = t0 + r;
         float a = 0;
         for (uint d = 0; d < D; d++) a = max(a, t < qT ? abs(p.q[uint64_t(qRow0 + t) * QS0 + uint64_t(h) * QS1 + d]) : 0.0);
-        faScales[FA_QSCALE + r] = asuint(split_scale(a));
+        faScales[FA_QSCALE + r] = asuint(split_scale_outside(a));
     }
     for (uint r = tid; r < FA_BC; r += FA_T) faScales[FA_KMAX + r] = 0;
     if (tid == 0) faScales[FA_VMAX] = 0;
@@ -1425,8 +1425,9 @@ groupshared half fePl[4 * 16 * FE_PS];        // (lo parts)
 groupshared float feC[4 * 256];               // per-subgroup row factors as 16 x 16 matrices
 #endif
 #if FA_SPLIT
-// Power-of-two scales (split_scale) that bring each query row, each key row of the staged tile and the staged V tile as a
-// whole into [2^14, 2^15) before the f16 split, so neither part over- or underflows whatever the magnitudes; the scores and
+// Power-of-two scales (split_scale_outside) that bring each query row, each key row of the staged tile and the staged V tile as
+// a whole whose largest magnitude is outside [2^-6, 2^15) into [2^14, 2^15) before the f16 split, so neither part over- or
+// underflows whatever the magnitudes (in range: scale 1, the unscaled rounding); the scores and
 // the tile's P·V products are unscaled exactly. Maxima as f32 bits (non-negative floats order like their bits).
 // One array of f32 bits (separate groupshared scalars miscompiled in fa): FE_BR query row scales, FE_BC key row maxima of the
 // tile being staged, FE_BC inverse key row scales of the staged tile, the V tile's maximum and its inverse scale.
@@ -1528,7 +1529,7 @@ void fe_store(Kv8 kb[FE_KPT], Kv8 vb[FE_VPT], uint tid)
         InterlockedMax(feScales[FE_VMAX], asuint(vmax));
     }
     GroupMemoryBarrierWithGroupSync();
-    float vScale = split_scale(asfloat(feScales[FE_VMAX]));
+    float vScale = split_scale_outside(asfloat(feScales[FE_VMAX]));
     [ForceUnroll]
     for (uint k = 0; k < FE_KPT; k++)
     {
@@ -1537,7 +1538,7 @@ void fe_store(Kv8 kb[FE_KPT], Kv8 vb[FE_VPT], uint tid)
         {
             float v[8];
             unpack_kv8(kb[k], v);
-            float kScale = split_scale(asfloat(feScales[FE_KMAX + i / FE_KC]));
+            float kScale = split_scale_outside(asfloat(feScales[FE_KMAX + i / FE_KC]));
             uint o = i / FE_KC * FE_KS + (i % FE_KC) * 8;
             fe_put8_scaled(v, kScale, o, FE_KT + o);
             if (i % FE_KC == 0)
@@ -1755,7 +1756,7 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         uint64_t qi = uint64_t(qRow0 + min(t, qT - 1)) * QS0 + uint64_t(h) * QS1;
         float a = 0;
         for (uint d = 0; d < D; d++) a = max(a, t < qT ? abs(p.q[qi + d]) : 0.0);
-        feScales[FE_QSCALE + r] = asuint(split_scale(a));
+        feScales[FE_QSCALE + r] = asuint(split_scale_outside(a));
     }
     for (uint i = tid; i < FE_BC; i += FE_T) feScales[FE_KMAX + i] = 0;
     if (tid == 0) feScales[FE_VMAX] = 0;

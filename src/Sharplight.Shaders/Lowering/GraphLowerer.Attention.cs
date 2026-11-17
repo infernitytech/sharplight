@@ -634,7 +634,8 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Whether flash attention over f32 K/V runs in the split-f16 form (FA_SPLIT: hi·hi + hi·lo + lo·hi products, near-f32
     /// accuracy): under strict precision, unless disabled with <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c>. Each query row, key row and V
-    /// tile is scaled by a power of two into f16's range before the split, so any magnitude keeps its accuracy. Reduced precision
+    /// tile whose largest magnitude is outside [2^-6, 2^15) is scaled by a power of two into f16's range before the split, so any
+    /// magnitude keeps its accuracy (in range they are split unscaled, as validated). Reduced precision
     /// and fast matrix precision use single f16 products.
     /// </summary>
     private bool SplitFlash(AttentionPlan plan)
