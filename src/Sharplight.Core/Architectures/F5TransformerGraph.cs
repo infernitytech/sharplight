@@ -159,7 +159,11 @@ internal static class F5TransformerGraph
     /// <param name="positions">The row positions [N, 1].</param>
     /// <param name="m">The block's weight prefix.</param>
     /// <param name="norm">The affine-free LayerNorm.</param>
-    internal static Value Block(GraphBuilder b, int dim, int heads, Value x, Value timeAct, Value positions, string m, Func<Value, Value> norm)
+    /// <param name="ropeHeads">
+    /// The heads that get the rotary embedding: all of them (the default), or fewer for code that applies it to the projection before the head split
+    /// (only the first head's channels are rotated, as in CosyVoice's copy of the F5 attention).
+    /// </param>
+    internal static Value Block(GraphBuilder b, int dim, int heads, Value x, Value timeAct, Value positions, string m, Func<Value, Value> norm, int? ropeHeads = null)
     {
         using var _ = b.Group(m.TrimEnd('.'));
         var mod = b.Linear(timeAct, m + "attn_norm.linear.weight", m + "attn_norm.linear.bias");                                   // [1, 6 · dim]
@@ -167,8 +171,19 @@ internal static class F5TransformerGraph
         var normed = Modulate(b, norm(x), Chunk(1), Chunk(0));
         int headDim = dim / heads;
         var rope = Attributes.From(("dims", (long)headDim), ("base", 10000f), ("style", "gptj"));
-        var q = b.Emit1("Rope", [b.Reshape(b.Linear(normed, m + "attn.to_q.weight", m + "attn.to_q.bias"), 0, heads, headDim), positions], rope);
-        var k = b.Emit1("Rope", [b.Reshape(b.Linear(normed, m + "attn.to_k.weight", m + "attn.to_k.bias"), 0, heads, headDim), positions], rope);
+        int rotated = ropeHeads ?? heads;
+        Value Rotate(Value v)
+        {
+            if (rotated >= heads)
+            {
+                return b.Emit1("Rope", [v, positions], rope);
+            }
+
+            return b.Concat(1, b.Emit1("Rope", [b.Slice(v, 1, 0, rotated), positions], rope), b.Slice(v, 1, rotated, heads - rotated));
+        }
+
+        var q = Rotate(b.Reshape(b.Linear(normed, m + "attn.to_q.weight", m + "attn.to_q.bias"), 0, heads, headDim));
+        var k = Rotate(b.Reshape(b.Linear(normed, m + "attn.to_k.weight", m + "attn.to_k.bias"), 0, heads, headDim));
         var v = b.Reshape(b.Linear(normed, m + "attn.to_v.weight", m + "attn.to_v.bias"), 0, heads, headDim);
         var attention = b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(headDim)), ("causal", false)), m + "attn");
         var output = b.Linear(b.Reshape(attention, 0, dim), m + "attn.to_out.0.weight", m + "attn.to_out.0.bias");

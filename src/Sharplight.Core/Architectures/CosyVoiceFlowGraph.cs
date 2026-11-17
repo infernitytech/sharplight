@@ -10,8 +10,8 @@ namespace Sharplight.Architectures;
 /// that sees three tokens ahead, leaky ReLU, a causal convolution, the residual) and the repetition of every row for the two mel frames of a token;
 /// and projects the normalized x-vector to the speaker condition. <see cref="EstimatorGraph"/> is one evaluation of the DiT vector field: the
 /// noisy mel, the prompt condition, <c>mu</c> and the speaker condition projected together plus a causal convolutional position embedding (two
-/// grouped convolutions with Mish, padded on the left), the time embedding, the DiT blocks (shared with F5-TTS, <see cref="F5TransformerGraph"/>)
-/// with full attention, the final adaptive norm and the projection to the mel bins. The host runs the Euler steps with classifier-free guidance.
+/// grouped convolutions with Mish, padded on the left), the time embedding, the DiT blocks (shared with F5-TTS, <see cref="F5TransformerGraph"/>;
+/// CosyVoice applies the rotary embedding to the projections before the head split, which rotates only the first head's channels) with full attention, the final adaptive norm and the projection to the mel bins. The host runs the Euler steps with classifier-free guidance.
 /// </summary>
 internal static class CosyVoiceFlowGraph
 {
@@ -108,7 +108,7 @@ internal static class CosyVoiceFlowGraph
         var timeAct = b.Silu(F5TransformerGraph.TimeEmbedding(b, E, timeChannels, t));
         for (int i = 0; i < depth; i++)
         {
-            h = F5TransformerGraph.Block(b, dim, heads, h, timeAct, positions, $"{E}transformer_blocks.{i}.", Norm);
+            h = F5TransformerGraph.Block(b, dim, heads, h, timeAct, positions, $"{E}transformer_blocks.{i}.", Norm, ropeHeads: 1);
         }
 
         var final = b.Linear(timeAct, E + "norm_out.linear.weight", E + "norm_out.linear.bias");
