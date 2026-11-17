@@ -29,4 +29,16 @@ public static class CatalogFormats
 
     /// <summary>Every known format.</summary>
     public static IReadOnlyList<string> All { get; } = [Gguf, Safetensors, PyTorch, Diffusers, SingleFile, WhisperCpp, Onnx, Slm];
+
+    /// <summary>The store format of a catalog format (what <see cref="ModelManifest.Format"/> records).</summary>
+    /// <param name="format">One of <see cref="All"/>.</param>
+    public static ModelFormat ToModelFormat(string format) => format switch
+    {
+        Gguf => ModelFormat.Gguf,
+        Diffusers or SingleFile => ModelFormat.Diffusers,
+        WhisperCpp => ModelFormat.WhisperCpp,
+        Onnx => ModelFormat.Onnx,
+        Slm => ModelFormat.Slm,
+        _ => ModelFormat.Safetensors,
+    };
 }

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Sharplight.Hub.Catalog;
 using Sharplight.Package;
 using Sharplight.Vision;
 
@@ -16,6 +17,9 @@ public sealed class ModelPuller
 {
     private const long SpaceMargin = 256L << 20;
     private const double PackageSizeFactor = 1.05;
+
+    /// <summary>The folder under <c>source/</c> that holds a catalog install's companions.</summary>
+    private const string CompanionDirectoryName = "companions";
 
     private readonly HubClient _hub;
     private readonly FileDownloader _downloader;
@@ -38,6 +42,7 @@ public sealed class ModelPuller
         _store = store;
         _converter = converter;
         Converter = ConvertAndVerify;
+        CompositeConverter = ConvertWithCompanions;
     }
 
     /// <summary>Free bytes on the volume of a directory (replaceable for tests).</summary>
@@ -45,6 +50,9 @@ public sealed class ModelPuller
 
     /// <summary>Builds and verifies the package: primary source, vision projector (or null), destination, log (replaceable for tests).</summary>
     internal Func<string, string?, string, Action<string>?, ConversionResult> Converter { get; init; }
+
+    /// <summary>Builds and verifies a catalog install's package: primary source, companions by role, destination, log (replaceable for tests).</summary>
+    internal Func<string, IReadOnlyList<KeyValuePair<string, string>>, string, Action<string>?, ConversionResult> CompositeConverter { get; init; }
 
     /// <summary>Pulls <paramref name="reference"/> unless it is already stored at the resolved commit.</summary>
     /// <param name="reference">The repository and optional variant tag.</param>
@@ -81,10 +89,11 @@ public sealed class ModelPuller
 
         // Files go into a directory named like the repository: importers name checkpoint models after their directory.
         var filesDirectory = Path.Combine(sourceDirectory, RepoPath.Name(repository.Id));
-        EnsureFreeSpace(directory, filesDirectory, selection);
+        var planned = selection.Files.Select(file => new PlannedFile(repository, file, RepoPath.ToLocal(filesDirectory, file.Path))).ToList();
+        EnsureFreeSpace(directory, planned);
 
         var stopwatch = Stopwatch.StartNew();
-        long transferred = await DownloadAsync(repository, selection, filesDirectory, options, cancellationToken).ConfigureAwait(false);
+        long transferred = await DownloadAsync(planned, options, cancellationToken).ConfigureAwait(false);
         var downloadTime = stopwatch.Elapsed;
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -113,6 +122,111 @@ public sealed class ModelPuller
         return new PullResult(manifest, false, transferred, downloadTime, convertTime, precompileTime);
     }
 
+    /// <summary>
+    /// Installs a verified-catalog variant: downloads exactly its pinned files and those of its companions (no Hub request is needed to
+    /// choose them), converts them to one package with each companion in its auxiliary role, optionally precompiles it and registers it
+    /// under <see cref="CatalogInstallPlan.Reference"/>. A model already installed from the same variant at the same commit is kept.
+    /// </summary>
+    /// <param name="plan">The variant and its companions (<see cref="CatalogInstallPlan.For"/>).</param>
+    /// <param name="options">Precompile device, logging, progress (the revision is the catalog's); or <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancels downloads (they resume on the next install) and the steps between them.</param>
+    /// <returns>The stored model and timings.</returns>
+    /// <exception cref="HubException">A repository is gated without a token, a download failed or did not match its checksum, the disk is too full, or the model cannot be converted.</exception>
+    public async Task<PullResult> InstallAsync(CatalogInstallPlan plan, PullOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        options ??= new PullOptions();
+        var log = options.Log;
+        var variant = plan.Variant;
+        var name = plan.Reference.ToString();
+        var directory = _store.GetModelDirectory(variant.Repository, plan.StoreTag);
+
+        using var pullLock = ModelStore.Lock(directory, name);
+        var existing = ModelStore.ReadManifest(directory);
+        if (existing is not null && plan.IsInstalledAs(existing) && !options.Force && File.Exists(existing.PackagePath))
+        {
+            log?.Invoke($"{plan.Entry.Name} ({variant.Label}) is installed (commit {Short(variant.Revision)}).");
+            return new PullResult(existing, true, 0, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero);
+        }
+
+        if (plan.Entry.Gated && _hub.Options.Token is null)
+        {
+            throw new HubException($"{plan.Entry.Name} needs a gated repository. Accept its terms on {new Uri(_hub.Options.Endpoint, variant.Repository)}, "
+                + $"create an access token and set {HubClientOptions.TokenVariable}.");
+        }
+
+        log?.Invoke($"Installing {plan.Entry.Name} ({variant.Label}) at commit {Short(variant.Revision)}: {plan.FileCount} file(s), {ByteCount.Format(plan.TotalBytes)}");
+        var sourceDirectory = PrepareDirectories(directory, variant.Revision);
+        var filesDirectory = Path.Combine(sourceDirectory, RepoPath.Name(variant.Repository));
+        var planned = Plan(variant, filesDirectory).ToList();
+        var auxiliary = new List<KeyValuePair<string, string>>();
+        foreach (var companion in plan.Companions)
+        {
+            var companionDirectory = Path.Combine(sourceDirectory, CompanionDirectoryName, companion.Id, RepoPath.Name(companion.Repository));
+            planned.AddRange(Plan(companion, companionDirectory));
+            auxiliary.Add(new(companion.Role, PrimaryPath(companionDirectory, companion)));
+        }
+
+        EnsureFreeSpace(directory, planned);
+        var stopwatch = Stopwatch.StartNew();
+        long transferred = await DownloadAsync(planned, options, cancellationToken).ConfigureAwait(false);
+        var downloadTime = stopwatch.Elapsed;
+
+        cancellationToken.ThrowIfCancellationRequested();
+        stopwatch.Restart();
+        var pending = Path.Combine(directory, ModelStore.PendingPackageFileName);
+        log?.Invoke($"Converting to {ModelStore.PackageFileName}" + (auxiliary.Count == 0 ? "" : $" with {string.Join(", ", auxiliary.Select(pair => pair.Key))}"));
+        var conversion = await Task.Run(() => CompositeConverter(PrimaryPath(filesDirectory, variant), auxiliary, pending, log), cancellationToken).ConfigureAwait(false);
+        var convertTime = stopwatch.Elapsed;
+
+        cancellationToken.ThrowIfCancellationRequested();
+        stopwatch.Restart();
+        var precompiled = options.Precompile is { } target ? await PrecompileAsync(pending, target, log, cancellationToken).ConfigureAwait(false) : [];
+        var precompileTime = options.Precompile is null ? TimeSpan.Zero : stopwatch.Elapsed;
+
+        var sourceFiles = planned.Select(file => new ManifestFile
+        {
+            Path = Path.GetRelativePath(sourceDirectory, file.LocalPath).Replace(Path.DirectorySeparatorChar, '/'),
+            Size = file.File.Size,
+            Sha256 = file.File.Sha256,
+        });
+        var manifest = Register(directory, pending, packageBytes => new ModelManifest
+        {
+            PackageBytes = packageBytes,
+            Repository = variant.Repository,
+            Tag = plan.StoreTag,
+            Alias = ModelManifest.AliasFor(variant.Repository),
+            Revision = variant.Revision,
+            Commit = variant.Revision,
+            Format = CatalogFormats.ToModelFormat(variant.Format),
+            ModelName = conversion.ModelName,
+            Architecture = conversion.SourceArchitecture ?? plan.Entry.Architecture ?? conversion.Architecture,
+            SourceFiles = [.. sourceFiles],
+            SourceKept = options.KeepSource,
+            Precompiled = precompiled,
+            PulledAt = DateTimeOffset.UtcNow,
+            Directory = directory,
+            Catalog = plan.Key,
+        });
+        if (!options.KeepSource)
+        {
+            Directory.Delete(sourceDirectory, recursive: true);
+        }
+
+        log?.Invoke($"Stored {manifest.Name} as {manifest.ShortName} ({ByteCount.Format(manifest.PackageBytes)})");
+        return new PullResult(manifest, false, transferred, downloadTime, convertTime, precompileTime);
+    }
+
+    /// <summary>The downloads of a catalog file set: its pinned files, checked against the catalog's sizes and checksums.</summary>
+    private static IEnumerable<PlannedFile> Plan(CatalogFileSet set, string directory)
+    {
+        var repository = new HubRepository(set.Repository, set.Revision, set.Revision, false,
+            [.. set.Files.Select(file => new HubFile(file.Path, file.Size, file.Sha256, file.GitOid))]);
+        return repository.Files.Select(file => new PlannedFile(repository, file, RepoPath.ToLocal(directory, file.Path)));
+    }
+
+    private static string PrimaryPath(string directory, CatalogFileSet set) => set.Primary.Length == 0 ? directory : RepoPath.ToLocal(directory, set.Primary);
+
     private async Task<ModelSelection> SelectAsync(HubRepository repository, string? tag, CancellationToken cancellationToken)
     {
         var indexPath = ModelFileSelector.IndexPath(repository, tag);
@@ -140,19 +254,18 @@ public sealed class ModelPuller
     }
 
     /// <summary>Checks that the remaining downloads plus the package (written next to the sources) fit on the volume.</summary>
-    private void EnsureFreeSpace(string directory, string sourceDirectory, ModelSelection selection)
+    private void EnsureFreeSpace(string directory, IReadOnlyList<PlannedFile> files)
     {
         long remaining = 0;
-        foreach (var file in selection.Files)
+        foreach (var (_, file, local) in files)
         {
-            var local = RepoPath.ToLocal(sourceDirectory, file.Path);
             long onDisk = File.Exists(local) ? new FileInfo(local).Length
                 : File.Exists(local + DownloadRequest.PartialExtension) ? new FileInfo(local + DownloadRequest.PartialExtension).Length
                 : 0;
             remaining += Math.Max(0, file.Size - onDisk);
         }
 
-        long package = (long)(selection.TotalBytes * PackageSizeFactor);
+        long package = (long)(files.Sum(planned => planned.File.Size) * PackageSizeFactor);
         long needed = remaining + package + SpaceMargin;
         long free = FreeSpace(directory);
         if (free < needed)
@@ -162,13 +275,12 @@ public sealed class ModelPuller
         }
     }
 
-    private async Task<long> DownloadAsync(HubRepository repository, ModelSelection selection, string sourceDirectory, PullOptions options,
-        CancellationToken cancellationToken)
+    private async Task<long> DownloadAsync(IReadOnlyList<PlannedFile> files, PullOptions options, CancellationToken cancellationToken)
     {
-        var progress = new AggregateProgress(options.Progress, selection.TotalBytes);
-        foreach (var file in selection.Files)
+        var progress = new AggregateProgress(options.Progress, files.Sum(planned => planned.File.Size));
+        foreach (var (repository, file, local) in files)
         {
-            var request = DownloadRequest.For(_hub, repository, file, RepoPath.ToLocal(sourceDirectory, file.Path));
+            var request = DownloadRequest.For(_hub, repository, file, local);
             await _downloader.DownloadAsync(request, progress, options.Log, cancellationToken).ConfigureAwait(false);
             progress.CompleteFile(file.Size);
         }
@@ -205,11 +317,9 @@ public sealed class ModelPuller
     private static ModelManifest Register(string directory, string pending, HubRepository repository, ModelSelection selection,
         ConversionResult conversion, IReadOnlyList<string> precompiled, PullOptions options)
     {
-        var packagePath = Path.Combine(directory, ModelStore.PackageFileName);
-        File.Delete(Path.Combine(directory, ModelStore.ManifestFileName));
-        File.Move(pending, packagePath, overwrite: true);
-        var manifest = new ModelManifest
+        return Register(directory, pending, packageBytes => new ModelManifest
         {
+            PackageBytes = packageBytes,
             Repository = repository.Id,
             Tag = selection.Tag,
             Alias = ModelManifest.AliasFor(repository.Id),
@@ -218,15 +328,23 @@ public sealed class ModelPuller
             Format = selection.Format,
             ModelName = conversion.ModelName,
             Architecture = repository.Architecture ?? conversion.SourceArchitecture ?? conversion.Architecture,
-            PackageBytes = new FileInfo(packagePath).Length,
             SourceFiles = [.. selection.Files.Select(file => new ManifestFile { Path = file.Path, Size = file.Size, Sha256 = file.Sha256 })],
             SourceKept = options.KeepSource,
             Precompiled = precompiled,
             PulledAt = DateTimeOffset.UtcNow,
             Directory = directory,
-        };
-        ModelStore.WriteManifest(manifest);
-        return manifest;
+        });
+    }
+
+    /// <summary>Moves the pending package into place and writes the manifest last (the model counts as stored only then).</summary>
+    private static ModelManifest Register(string directory, string pending, Func<long, ModelManifest> manifest)
+    {
+        var packagePath = Path.Combine(directory, ModelStore.PackageFileName);
+        File.Delete(Path.Combine(directory, ModelStore.ManifestFileName));
+        File.Move(pending, packagePath, overwrite: true);
+        var stored = manifest(new FileInfo(packagePath).Length);
+        ModelStore.WriteManifest(stored);
+        return stored;
     }
 
     private ConversionResult ConvertAndVerify(string primary, string? projector, string destination, Action<string>? log)
@@ -238,6 +356,22 @@ public sealed class ModelPuller
             result = projector is null
                 ? _converter.Convert(primary, destination, options)
                 : ConvertWithProjector(primary, projector, destination, options, log);
+        }
+        catch (NotSupportedException error)
+        {
+            throw new HubException($"Cannot convert the model: {error.Message}", inner: error);
+        }
+
+        Verify(destination);
+        return result;
+    }
+
+    private ConversionResult ConvertWithCompanions(string primary, IReadOnlyList<KeyValuePair<string, string>> auxiliary, string destination, Action<string>? log)
+    {
+        ConversionResult result;
+        try
+        {
+            result = _converter.Convert(primary, destination, new ConversionOptions { Log = log }, auxiliary.Count == 0 ? null : auxiliary);
         }
         catch (NotSupportedException error)
         {

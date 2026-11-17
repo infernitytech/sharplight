@@ -57,6 +57,12 @@ public sealed class ModelManifest
     /// <summary>When the model was pulled.</summary>
     public DateTimeOffset PulledAt { get; init; }
 
+    /// <summary>
+    /// The verified-catalog entry and variant the model was installed from (<c>entry/variant</c>, see
+    /// <see cref="Catalog.CatalogInstallPlan.Key"/>), or <see langword="null"/> for a plain pull.
+    /// </summary>
+    public string? Catalog { get; init; }
+
     /// <summary>The model's directory in the store (set when the manifest is read; not stored).</summary>
     [JsonIgnore]
     public string Directory { get; set; } = "";

@@ -16650,29 +16650,28 @@
       "family": "Silero VAD",
       "architecture": "silero_vad",
       "level": "verified",
-      "license": "mit",
       "gated": false,
       "tags": [],
       "variants": [
         {
           "id": "onnx",
-          "label": "ONNX (16 kHz)",
+          "label": "ONNX (16 kHz, opset 15)",
           "format": "onnx",
           "quantization": "F32",
           "recommended": true,
           "memoryBytes": 405232659,
           "companions": [],
-          "repository": "onnx-community/silero-vad",
-          "revision": "e71cae966052b992a7eca6b17738916ce0eca4ec",
+          "repository": "luvox-ai/silero-vad",
+          "revision": "331e6d93913be53a4f25b4ef35434b8a08ed7ae6",
           "include": [
-            "onnx/model.onnx"
+            "silero_vad_16k_op15.onnx"
           ],
-          "primary": "onnx/model.onnx",
+          "primary": "silero_vad_16k_op15.onnx",
           "files": [
             {
-              "path": "onnx/model.onnx",
-              "size": 2243022,
-              "sha256": "a4a068cd6cf1ea8355b84327595838ca748ec29a25bc91fc82e6c299ccdc5808"
+              "path": "silero_vad_16k_op15.onnx",
+              "size": 1289603,
+              "sha256": "7ed98ddbad84ccac4cd0aeb3099049280713df825c610a8ed34543318f1b2c49"
             }
           ]
         }
