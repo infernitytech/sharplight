@@ -8,13 +8,15 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 
 ## In progress
 
-- **Prefill against vLLM on identical weights** (§38, §39, same HF bf16 / FP8 checkpoints on both sides): prompts prefill in
+- **Prefill against vLLM on identical weights** (§38-§40, same HF bf16 / FP8 checkpoints on both sides): prompts prefill in
   passes of up to 2048 rows and the server prefills a prompt in whole passes; round 4 (§39) added a grouped tile order for
-  large-weight GEMMs, a dual bf16 gate / up GEMM and a register softmax in the prefill attention. pp2048 is now at 1.01x
-  (Qwen3-0.6B), 0.92x (Llama-1B), 0.81x (Qwen3-8B bf16) and 0.73x (FP8) of vLLM; pp8192 at 0.90x / 0.85x / 0.81x / 0.73x.
-  Decode is level (0.95-1.08x). Next: the bf16 GEMM's single-buffered staging (compute alone ~196 TFLOPS against ~115-126
-  reached), the FP8 GEMM's register count (one 8-subgroup workgroup per SM), stream-K for the down projection's 3.1 waves,
-  the K/V staging of the attention kernel.
+  large-weight GEMMs, a dual bf16 gate / up GEMM and a register softmax in the prefill attention; round 5 (§40) converts bf16
+  weights after the MMAs instead of at the fetch (bf16 GEMMs +10-14 %) and lets the dual GEMM store the down projection's f16
+  input. pp2048 is now at 1.02x (Qwen3-0.6B), 1.02x (Llama-1B), 0.90x (Qwen3-8B bf16) and 0.74x (FP8) of
+  vLLM; pp8192 at 0.91x / 0.93x / 0.89x / 0.74x. Decode is level. Next: the bf16 and FP8 GEMMs'
+  fetch (the down projection's fetch alone takes as long as its MMAs, 2.1 TB/s from L2; the FP8 GEMM runs one workgroup per
+  SM, so loads and MMAs overlap only partly), stream-K without a reduction launch for grids of 1-3 waves, norms writing the
+  f16 / E4M3 activations directly at prefill sizes, the K/V staging of the attention kernel.
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs

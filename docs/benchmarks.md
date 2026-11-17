@@ -5360,3 +5360,139 @@ integer-dot matvec (`int_dot`, emulated by MoltenVK) that the Metal provider doe
 paravirtual GPU are far below its usual Apple silicon results (decode 3-11 tok/s); its Metal backend evidently runs a reduced
 path on this device (the VM's GPU does not report the Apple7+ family), so the comparison needs real Apple hardware before
 any conclusion.
+
+## 40. LLM round 5 against vLLM: bf16 weights converted after the MMAs, dual GEMM storing the down projection's f16 input (2026-11-17)
+
+Base: `develop` at `af8f2608` ("before"), branch `perf/llm-r5` merged with it ("after"). Same method, checkpoints and GPU as
+section 39 (GPU 1, checkpoints on local disk); before and after ran back to back. The vLLM figures are section 39's (vLLM
+0.33.0, same GPU, measured the same day), copied into [`bench/results/s40/`](../bench/results/s40) with the Sharplight results.
+
+### 40.1 What changed
+
+| change | effect (RTX PRO 4500; GEMM figures from `BenchTests.MatMulPrefill`, which includes the activations' f16 conversion) |
+|---|---|
+| **bf16 weights converted when staged** (gemm_cm2, f16 / bf16 weights): the 16 fetched bf16 values stay raw in the prefetch registers (as many as the converted halves) and are converted to f16 when they are written to shared memory, after the step's MMAs. Converted at the fetch, the conversion made each warp wait for its global loads before it started the MMAs, so loads and MMAs did not overlap. Same conversion, bit-identical | bf16 [4096 → 12288] at 2048 rows 123 → 136 TFLOPS, [12288 → 4096] 100 → 108, [4096 → 4096] 112 → 122; at 512 and 8192 rows +10-14 % alike |
+| **Dual gate / up GEMM: one weight base address per thread** (DUAL with 128 threads and 64-value K blocks): every item of a thread reads the same matrix (gate or up) and rows 16 apart, so the per-item pointer selection and row address arithmetic (the kernel was at 254 registers) became one base address plus constant offsets | dual bf16 [4096 → 12288] x2 at 2048 rows 126 → 143 TFLOPS (with the change above, which alone gives 130) |
+| **The dual GEMM stores the f16 copy its consumer reads** (`DUAL_Y16`): the down projection reads the f16 copy of SiLU(gate)·up; the dual GEMM now stores it next to the f32 output (one f16 accumulator store per fragment, round to nearest even like the conversion kernel) for the row counts it serves, and the conversion launch only runs for the others (the norm-written copies of section 28 with a per-row-count condition). Bit-identical (`DownProjectionOfDualMatchesSeparateBitwise`); `SHARPLIGHT_NORM_HALF_COPY=0` turns it off with the norm copies | Qwen3-8B bf16 at 2048 rows: GPU time per pass 264.1 → 260.5 ms (conversion 5.6 ms gone, dual GEMM +1.3 ms) |
+| **FP8 GEMM: block products per output row fragment** (pair layout): each weight block's partial products are accumulated for one row fragment at a time (A fragments loaded once, B fragments per row fragment) instead of one column fragment at a time. Same products and scaling order per element, bit-identical | FP8 [4096 → 12288] at 2048 rows 194 → 197 TFLOPS, dual gate / up 201 → 203 |
+
+### 40.2 Single stream
+
+Tokens/s, higher is better (Sharplight: best of 2 process runs x 4 prefills; vLLM: median of 5, section 39).
+
+| model | metric | Sharplight before | Sharplight after | vLLM | SL/vLLM before | SL/vLLM after |
+|---|---|---:|---:|---:|---:|---:|
+| qwen3-0.6b | pp512 | 58896 | 60769 | 32688 | 1.80x | 1.86x |
+| qwen3-0.6b | pp2048 | 83119 | 83480 | 82156 | 1.01x | 1.02x |
+| qwen3-0.6b | pp8192 | 53287 | 53660 | 58706 | 0.91x | 0.91x |
+| qwen3-0.6b | tg@d16 | 460 | 462 | 461 | 1.00x | 1.00x |
+| qwen3-0.6b | tg@d8192 | 288 | 286 | 308 | 0.94x | 0.93x |
+| llama3.2-1b | pp512 | 42121 | 45502 | 44578 | 0.94x | 1.02x |
+| llama3.2-1b | pp2048 | 48710 | 53989 | 53097 | 0.92x | 1.02x |
+| llama3.2-1b | pp8192 | 40215 | 43865 | 47421 | 0.85x | 0.93x |
+| llama3.2-1b | tg@d16 | 296 | 295 | 286 | 1.03x | 1.03x |
+| llama3.2-1b | tg@d8192 | 259 | 257 | 267 | 0.97x | 0.96x |
+| qwen3-8b | pp512 | 6836 | 7653 | 8016 | 0.85x | 0.95x |
+| qwen3-8b | pp2048 | 7114 | 7832 | 8729 | 0.81x | 0.90x |
+| qwen3-8b | pp8192 | 6240 | 6784 | 7650 | 0.82x | 0.89x |
+| qwen3-8b | tg@d16 | 53 | 53 | 52 | 1.03x | 1.03x |
+| qwen3-8b | tg@d8192 | 49 | 49 | 48 | 1.01x | 1.02x |
+| qwen3-8b-fp8 | pp512 | 10518 | 10738 | 14277 | 0.74x | 0.75x |
+| qwen3-8b-fp8 | pp2048 | 10974 | 11053 | 14967 | 0.73x | 0.74x |
+| qwen3-8b-fp8 | pp8192 | 9067 | 9147 | 12333 | 0.74x | 0.74x |
+| qwen3-8b-fp8 | tg@d16 | 89 | 90 | 87 | 1.03x | 1.03x |
+| qwen3-8b-fp8 | tg@d8192 | 78 | 78 | 72 | 1.07x | 1.07x |
+
+* Prefill of the bf16 models: Qwen3-8B +10-12 % (pp2048 0.81x → 0.90x of vLLM, pp512 0.95x, pp8192 0.89x), Llama-3.2-1B
+  +8-11 % (pp2048 0.92x → 1.02x, pp512 1.02x, pp8192 0.93x). Qwen3-0.6B gains 0.5-3 %: its GEMMs (K = 1024, 16 K steps per
+  tile) and its attention, not the weight fetch, set its pass time. An interleaved repetition (base and new alternating per
+  model and length, 2 runs each) gave the same figures within 1.5 %.
+* Qwen3-8B-FP8 +1 % (the FP8 GEMM change); it stays at 0.74x of vLLM, the largest remaining gap (40.4).
+* Decode unchanged (0.93-1.07x of vLLM).
+* GEMM throughput of Qwen3-8B at 2048 rows (profile, `SHARPLIGHT_VK_PROFILE=1`): bf16 gate / up 140 TFLOPS (section 39: 126),
+  down 117 (110), q / o 125 (115), k / v 124; FP8 gate / up 205, down 195, q / o 192 (205 / 193 / 190). The bf16 target of 135
+  is reached by the gate / up GEMM only (the down projection's 512 tiles take 3.1 waves); FP8 stays below 220 (40.7).
+
+### 40.3 Serving: time to first token
+
+2000-token prompts, 16 output tokens; TTFT p50 in ms (lower is better), output tok/s (higher is better).
+
+| model | streams | TTFT p50 SL before | TTFT p50 SL after | TTFT p50 vLLM | tok/s SL before | tok/s SL after | tok/s vLLM |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| qwen3-0.6b | 1 | 29 | 29 | 33 | 220 | 241 | 233 |
+| qwen3-0.6b | 16 | 83 | 84 | 128 | 445 | 443 | 558 |
+| llama3.2-1b | 1 | 46 | 42 | 44 | 151 | 166 | 166 |
+| llama3.2-1b | 16 | 239 | 133 | 204 | 312 | 339 | 412 |
+| qwen3-8b | 1 | 300 | 272 | 239 | 27 | 29 | 30 |
+| qwen3-8b | 16 | 792 | 725 | 726 | 50 | 54 | 64 |
+| qwen3-8b-fp8 | 1 | 196 | 195 | 139 | 43 | 44 | 51 |
+| qwen3-8b-fp8 | 16 | 428 | 528 | 493 | 73 | 75 | 109 |
+
+* Single stream: Qwen3-8B 300 → 272 ms (vLLM 239), Llama-1B 46 → 42 ms (vLLM 44).
+* 16 streams: Qwen3-8B 792 → 725 ms, level with vLLM's 726; throughput +8 % (Qwen3-8B, Llama-1B). The p50 TTFT at 16 streams
+  depends on where the 16 prompts fall in the steps and moves by up to ±30 % between rounds: a repetition of Llama-1B and
+  Qwen3-8B-FP8 (both builds again) gave Llama-1B 184 → 154 ms and FP8 530 → 524 ms with the same throughputs (341 / 75 tok/s
+  after), so FP8's 428 before is a lucky round, not a regression.
+
+### 40.4 Tried and not kept
+
+| tried | result |
+|---|---|
+| bf16: 32-value K blocks, double-buffered shared tiles (the existing GBK 32 path) | 88 / 72 TFLOPS ([4096 → 12288] / [12288 → 4096] at 2048 rows) against 123 / 100 single-buffered 64-value blocks (94 / 77 with the deferred conversion) |
+| bf16 down projection: two K splits (forced through `SHARPLIGHT_GEMM_WAVE`) for the 3.1 waves of 512 tiles | 1.94 ms against 1.91 (the reduction costs what the fuller last wave saves); [8192 → 2048] (1.6 waves) 0.70 against 0.66 ms |
+| bf16 down projection: grouped tile order with 4 / 8 / 32 token tiles per group instead of 16, or none | 1-4 % slower at 2048 and 8192 rows |
+| FP8: 64-value K steps in two shared buffers (one barrier per step), 128-value weight blocks scaled per half | 146 TFLOPS against 195: twice the steps and block scalings |
+| FP8: a second register set of prefetched operands (loads issued two steps ahead) | 128-146 TFLOPS: register spills (the kernel already uses 222-250 registers) |
+| FP8: 16 subgroups per workgroup (4x4 x 32x32, 1 workgroup with 16 warps per SM), 2x8 x 64x16, 4x1 x 32x64, 4-subgroup 128x64 tiles with the row-fragment loop | 165 / 182 / 154 / 172 TFLOPS against 197 |
+| FP8: compile only the pair-layout tile loop (no generic fallback in the same shader) | no change (the driver gives the kernel the same registers) |
+| FP8: one weight base address per thread (as for the dual bf16 GEMM) | +0.5-1 %, within the spread of the end-to-end runs; not kept |
+| dual GEMM's f16 copy staged through shared memory with 16-byte stores per lane | the dual GEMM 6.4 ms slower per pass (more than the conversion it saves); the direct f16 accumulator store costs 1.3 ms |
+
+Diagnostics (with `SHARPLIGHT_GEMM_MACROS`): bf16 [4096 → 12288] at 2048 rows runs 1.04 ms with the global loads removed after the
+first step (`GEMM_EXP=1`, 199 TFLOPS) and 1.06 ms with the MMAs removed (`GEMM_EXP=2`), against 1.52 ms with both; for
+[12288 → 4096] 1.26 / 1.49 / 1.91 ms. The fetch alone of the down projection moves 3.2 GB from L2 in 1.49 ms (2.1 TB/s), so
+it is now about as expensive as the MMAs, and the two overlap only partly at two workgroups per SM. The FP8 GEMM's figures (an experiment
+build, 1 workgroup per SM): 0.73 ms without loads (284 TFLOPS), 0.67 ms without MMAs, 1.06 ms with both.
+
+### 40.5 Greedy output
+
+200-token greedy outputs of a short, a ~1100-token and a ~4500-token prompt, before against after on the same `develop` base:
+byte-identical on Qwen3-0.6B, Llama-3.2-1B, Qwen3-8B and Qwen3-8B-FP8 (all 12). The long prompt runs with `--ctx 8192`: the
+round-4 script gave it `--ctx 4096`, which it exceeds, so section 39.4's long-prompt comparison compared two empty outputs
+(the short and mid ones are valid). Every change keeps each output's arithmetic:
+the bf16 conversion is the same operation at another point of the loop, the dual GEMM's f16 copy rounds like the conversion
+kernel (`DownProjectionOfDualMatchesSeparateBitwise`), the FP8 row-fragment loop computes the same products in the same order.
+
+### 40.6 Tests
+
+Release, niced, GPU 1, after merging `develop` at `af8f2608` (the Metal provider merge): Vulkan 1540 passed / 23 skipped,
+Cpu 1313 / 36 skipped, Serving 294 / 13 skipped, Families 1003 / 364 skipped (large models off), Metal code generation
+(`Sharplight.Metal.Tests`: the shared kernels of a transformer block compiled to MSL, with and without 8x8 simdgroup matrices)
+4 / 1 skipped. The Metal merge left `DualGemmTests` on the removed `Gpu.Vulkan`, so `develop`'s Vulkan tests did not compile;
+fixed here (`Gpu.Device`). New: `DualGemmTests.DownProjectionOfDualMatchesSeparateBitwise` (bf16 / f16, partial row and column
+tiles).
+
+### 40.7 Next levers
+
+* FP8 GEMM (Qwen3-8B-FP8 pp2048 0.74x of vLLM, GEMMs 195-205 TFLOPS against ~235 for vLLM): one workgroup per SM (222-250
+  registers for the 8-subgroup 128x128 tile; the 48 KB of shared memory per workgroup forbid a second stage), so the
+  fetch and the MMAs overlap only partly (0.67 + 0.73 ms alone, 1.06 ms together for [4096 → 12288]). A 2-workgroup layout
+  needs ≤ 128 registers per thread, which the driver does not give the 128x64 4-subgroup tile either (229-255).
+* bf16 GEMM fetch: the down projection's fetch alone takes about as long as its MMAs (1.49 against 1.26 ms, 2.1 TB/s from L2).
+* Stream-K without a reduction launch (tiles split across workgroups, partial sums in a fixed order) for grids of 1-3 waves:
+  the two-way K split's reduction costs what the fuller last wave saves.
+* Norms writing the f16 / E4M3 activations at prefill sizes instead of f32 plus a conversion (bf16: 3.3 ms of 260 on Qwen3-8B
+  in the [4096 → 4096] / gate-up conversions; FP8: 7.4 ms of 189 in the activation quantization).
+* Attention K/V staging for long context (Qwen3-0.6B pp8192 0.91x; section 39.6).
+
+### 40.8 Reproduce
+
+```bash
+export SHARPLIGHT_VK_DEVICES=1 CUDA_VISIBLE_DEVICES=1 VLLM_VENV=<venv> HF_DIR=<checkpoints> OUT_DIR=bench/results/s40
+bench/s38_all.sh sharplight before   # on the base build
+bench/s38_all.sh sharplight after
+python3 bench/s38_summarize.py bench/results/s40 before,after   # vLLM files copied from bench/results/s39
+# GEMM micro-benchmarks (bf16 / FP8, Qwen3-8B shapes at 2048 rows; SHARPLIGHT_BENCH_DUAL=1 for gate / up pairs):
+SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_ROWS=2048 SHARPLIGHT_BENCH_TYPES=bf16 SHARPLIGHT_BENCH_SHAPES="4096,12288;12288,4096;4096,4096" \
+  dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -method "*MatMulPrefill"
+```
