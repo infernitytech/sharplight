@@ -1470,13 +1470,39 @@
       "id": "mistral-7b-instruct-v0.3",
       "name": "Mistral 7B Instruct v0.3",
       "kind": "text-generation",
-      "family": "",
+      "family": "Mistral",
+      "architecture": "llama",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
-      "variants": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 5431386984,
+          "companions": [],
+          "repository": "bartowski/Mistral-7B-Instruct-v0.3-GGUF",
+          "revision": "61fd4167fff3ab01ee1cfe0da183fa27a944db48",
+          "include": [
+            "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
+          ],
+          "primary": "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+              "size": 4372812000,
+              "sha256": "1270d22c0fbb3d092fb725d4d96c457b7b687a5f5a715abe1e818da303e562b6"
+            }
+          ]
+        }
+      ],
       "companions": [],
       "verification": {
+        "reference": "llama.cpp",
         "summary": "text identical to llama.cpp",
         "providers": [
           "CPU",
@@ -1978,6 +2004,7 @@
         {
           "id": "mmproj",
           "role": "mmproj",
+          "additionalRoles": [],
           "label": "Vision projector (F16)",
           "repository": "ggml-org/gemma-3-4b-it-GGUF",
           "revision": "d0976223747697cb51e056d85c532013931fe52e",
@@ -3503,13 +3530,96 @@
       "id": "mage-vl-cowork",
       "name": "Mage-VL-Cowork",
       "kind": "text-generation",
-      "family": "",
+      "family": "Mage-VL",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
-      "variants": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 11308871540,
+          "companions": [],
+          "repository": "microsoft/Mage-VL-Cowork",
+          "revision": "6fbe7f91da477c1c73790dbb1f08d001b8626be1",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "added_tokens.json",
+              "size": 706,
+              "gitOid": "86f15c4d151abb9277362a9dd5a9c89a802b97e9"
+            },
+            {
+              "path": "chat_template.jinja",
+              "size": 5365,
+              "gitOid": "22df6e49aae2e5ef16d6c3316f76fb5ace4e7ce9"
+            },
+            {
+              "path": "config.json",
+              "size": 2730,
+              "gitOid": "7133342548cb4935eb720de73c2f7f9d7235a7a8"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 121,
+              "gitOid": "a811a763dedb8d7dfd07cd05e3f177c1a1473beb"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 58017,
+              "gitOid": "5bb7170eef26c3a5635aa5f685bef55e66909f44"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 827,
+              "gitOid": "e0d9867de15d3a5675e26495969daf0cd37a4fd0"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 384,
+              "gitOid": "799fd9f1151d246b5c605fb92a13c3bb2c162e23"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 11422654,
+              "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 10957,
+              "gitOid": "c186cc500eda1f65da5b2add871bbce2ea35045c"
+            },
+            {
+              "path": "video_preprocessor_config.json",
+              "size": 911,
+              "gitOid": "91a1fed79814ff965c6cc505fba882feaf13e152"
+            },
+            {
+              "path": "vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "model-00001-of-00002.safetensors",
+              "size": 4563695792,
+              "sha256": "86424086d1a35e416ae6475248856b517933aaf87b8e2418b63e74ac0f920241"
+            },
+            {
+              "path": "model-00002-of-00002.safetensors",
+              "size": 4919972344,
+              "sha256": "3ec6ed805a4664b0e39f57615f02e81989fbe08ae95ac96e3be6af309115e048"
+            }
+          ]
+        }
+      ],
       "companions": [],
       "verification": {
+        "reference": "transformers",
         "summary": "16 greedy ids identical to transformers",
         "providers": [
           "CPU",
@@ -10515,6 +10625,7 @@
         {
           "id": "snac",
           "role": "vocoder",
+          "additionalRoles": [],
           "label": "SNAC 24 kHz codec",
           "repository": "hubertsiuzdak/snac_24khz",
           "revision": "d73ad176a12188fcf4f360ba3bf2c2fbbe8f58ec",
@@ -10622,6 +10733,7 @@
         {
           "id": "wavtokenizer",
           "role": "vocoder",
+          "additionalRoles": [],
           "label": "WavTokenizer-Large-75 (F16)",
           "repository": "ggml-org/WavTokenizer",
           "revision": "0c97fdc098158ec9bf4e703cd5f81a5aa20520e6",
@@ -10786,6 +10898,7 @@
         {
           "id": "vocos",
           "role": "vocoder",
+          "additionalRoles": [],
           "label": "Vocos mel 24 kHz",
           "repository": "charactr/vocos-mel-24khz",
           "revision": "0feb3fdd929bcd6649e0e7c5a688cf7dd012ef21",
@@ -11859,6 +11972,7 @@
         {
           "id": "clip-l",
           "role": "text-encoder",
+          "additionalRoles": [],
           "label": "CLIP-L text encoder",
           "repository": "comfyanonymous/flux_text_encoders",
           "revision": "6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5",
@@ -11877,6 +11991,7 @@
         {
           "id": "t5xxl",
           "role": "text-encoder-2",
+          "additionalRoles": [],
           "label": "T5-XXL encoder (Q8_0)",
           "repository": "city96/t5-v1_1-xxl-encoder-gguf",
           "revision": "005a6ea51a7d0b84d677b3e633bb52a8c85a83d9",
@@ -11895,6 +12010,7 @@
         {
           "id": "vae",
           "role": "vae",
+          "additionalRoles": [],
           "label": "FLUX VAE",
           "repository": "black-forest-labs/FLUX.1-schnell",
           "revision": "741f7c3ce8b383c54771c7003378a50191e9efe9",
@@ -11974,6 +12090,7 @@
         {
           "id": "clip-l",
           "role": "text-encoder",
+          "additionalRoles": [],
           "label": "CLIP-L text encoder",
           "repository": "comfyanonymous/flux_text_encoders",
           "revision": "6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5",
@@ -11992,6 +12109,7 @@
         {
           "id": "t5xxl",
           "role": "text-encoder-2",
+          "additionalRoles": [],
           "label": "T5-XXL encoder (Q8_0)",
           "repository": "city96/t5-v1_1-xxl-encoder-gguf",
           "revision": "005a6ea51a7d0b84d677b3e633bb52a8c85a83d9",
@@ -12010,6 +12128,7 @@
         {
           "id": "vae",
           "role": "vae",
+          "additionalRoles": [],
           "label": "FLUX VAE (from FLUX.1-schnell)",
           "repository": "black-forest-labs/FLUX.1-schnell",
           "revision": "741f7c3ce8b383c54771c7003378a50191e9efe9",
@@ -12251,6 +12370,7 @@
         {
           "id": "clip-l",
           "role": "text-encoder",
+          "additionalRoles": [],
           "label": "CLIP-L text encoder",
           "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
           "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
@@ -12302,6 +12422,7 @@
         {
           "id": "clip-g",
           "role": "text-encoder-2",
+          "additionalRoles": [],
           "label": "CLIP-G text encoder",
           "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
           "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
@@ -12353,6 +12474,7 @@
         {
           "id": "t5xxl",
           "role": "text-encoder-3",
+          "additionalRoles": [],
           "label": "T5-XXL encoder",
           "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
           "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
@@ -12415,6 +12537,7 @@
         {
           "id": "vae",
           "role": "vae",
+          "additionalRoles": [],
           "label": "SD3 VAE",
           "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
           "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
@@ -12504,6 +12627,7 @@
         {
           "id": "t5xxl",
           "role": "text-encoder",
+          "additionalRoles": [],
           "label": "T5-XXL encoder (from FLUX.1-schnell)",
           "repository": "black-forest-labs/FLUX.1-schnell",
           "revision": "741f7c3ce8b383c54771c7003378a50191e9efe9",
@@ -12564,6 +12688,7 @@
         {
           "id": "vae",
           "role": "vae",
+          "additionalRoles": [],
           "label": "FLUX VAE",
           "repository": "black-forest-labs/FLUX.1-schnell",
           "revision": "741f7c3ce8b383c54771c7003378a50191e9efe9",
@@ -12653,6 +12778,7 @@
         {
           "id": "text-encoder",
           "role": "text-encoder",
+          "additionalRoles": [],
           "label": "Qwen2.5-VL-7B text encoder (BF16)",
           "repository": "Qwen/Qwen-Image",
           "revision": "75e0b4be04f60ec59a75f475837eced720f823b6",
@@ -12738,6 +12864,7 @@
         {
           "id": "vae",
           "role": "vae",
+          "additionalRoles": [],
           "label": "Qwen-Image VAE",
           "repository": "Qwen/Qwen-Image",
           "revision": "75e0b4be04f60ec59a75f475837eced720f823b6",
@@ -12937,6 +13064,7 @@
         {
           "id": "text-encoder",
           "role": "text-encoder",
+          "additionalRoles": [],
           "label": "Qwen3-4B text encoder (BF16)",
           "repository": "Tongyi-MAI/Z-Image-Turbo",
           "revision": "f332072aa78be7aecdf3ee76d5c247082da564a6",
@@ -13007,6 +13135,7 @@
         {
           "id": "vae",
           "role": "vae",
+          "additionalRoles": [],
           "label": "FLUX VAE",
           "repository": "Tongyi-MAI/Z-Image-Turbo",
           "revision": "f332072aa78be7aecdf3ee76d5c247082da564a6",
@@ -13060,11 +13189,151 @@
       "name": "FLUX.2 Klein 4B",
       "kind": "image-generation",
       "family": "FLUX.2",
+      "architecture": "flux",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
-      "variants": [],
-      "companions": [],
+      "variants": [
+        {
+          "id": "q8-0-gguf",
+          "label": "Q8_0 GGUF",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": true,
+          "memoryBytes": 14793463151,
+          "companions": [
+            "text-encoder",
+            "vae"
+          ],
+          "repository": "unsloth/FLUX.2-klein-4B-GGUF",
+          "revision": "a09d5bb51ac4000ccd9643d10e9db3ed14200508",
+          "include": [
+            "flux-2-klein-4b-Q8_0.gguf"
+          ],
+          "primary": "flux-2-klein-4b-Q8_0.gguf",
+          "files": [
+            {
+              "path": "flux-2-klein-4b-Q8_0.gguf",
+              "size": 4300644928,
+              "sha256": "24a812e8f9b640e21c784164ea48571d8017ca22873696f4badeeabb006d509c"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "text-encoder",
+          "role": "text-encoder",
+          "additionalRoles": [],
+          "label": "Text encoder (pipeline folder, BF16)",
+          "repository": "black-forest-labs/FLUX.2-klein-4B",
+          "revision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
+          "include": [
+            "model_index.json",
+            "text_encoder/*",
+            "tokenizer/*"
+          ],
+          "primary": "text_encoder",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 446,
+              "gitOid": "554a39bf1019138dd0b28809b745df8ef33657c8"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 1536,
+              "gitOid": "86f951d170cfd1fdc1c8a57a041e05c27b7b789b"
+            },
+            {
+              "path": "text_encoder/generation_config.json",
+              "size": 214,
+              "gitOid": "f5af93d0c7764fa38e3b1cd3aaba1b6307246d3b"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00002.safetensors",
+              "size": 4967215360,
+              "sha256": "8c0506e7f4936fa7e26183a4fd8da4e2bdbc5990ba64ae441f965d51228f36ea"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00002.safetensors",
+              "size": 3077766632,
+              "sha256": "82f2bd839378541b0557bfabaf37c7d3d637071fdcb73302dedd7cf61162ce07"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 32855,
+              "gitOid": "b65d8063815c8679d85bb919337b36fae8de75cf"
+            },
+            {
+              "path": "tokenizer/added_tokens.json",
+              "size": 707,
+              "gitOid": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+            },
+            {
+              "path": "tokenizer/chat_template.jinja",
+              "size": 4168,
+              "gitOid": "01be9b307daa2d425f7c168c9fb145a286e0afb4"
+            },
+            {
+              "path": "tokenizer/merges.txt",
+              "size": 1671853,
+              "gitOid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 613,
+              "gitOid": "ac23c0aaa2434523c494330aeb79c58395378103"
+            },
+            {
+              "path": "tokenizer/tokenizer.json",
+              "size": 11422654,
+              "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 5404,
+              "gitOid": "ddaf69808214a44fdd26d3785b66c1367c78277a"
+            },
+            {
+              "path": "tokenizer/vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            }
+          ]
+        },
+        {
+          "id": "vae",
+          "role": "vae",
+          "additionalRoles": [],
+          "label": "VAE",
+          "repository": "black-forest-labs/FLUX.2-klein-4B",
+          "revision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
+          "include": [
+            "model_index.json",
+            "vae/*"
+          ],
+          "primary": "vae/diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 446,
+              "gitOid": "554a39bf1019138dd0b28809b745df8ef33657c8"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 821,
+              "gitOid": "c3f38eb4c188a96a462519159356bd0fcc28cd14"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 168120878,
+              "sha256": "ca70d2202afe6415bdbcb8793ba8cd99fd159cfe6192381504d6c4d3036e0f04"
+            }
+          ]
+        }
+      ],
       "verification": {
         "reference": "diffusers",
         "summary": "40.1 dB (512) / 41.3 dB (1024) vs diffusers on the same files (4 distilled steps); text encoder \u2264 1.3e-3, transformer 1.6e-3",
@@ -13091,11 +13360,171 @@
       "name": "Qwen-Image 2.1 Turbo",
       "kind": "image-generation",
       "family": "Qwen-Image",
+      "architecture": "qwen_image",
       "level": "verified",
+      "license": "other",
       "gated": false,
       "tags": [],
-      "variants": [],
-      "companions": [],
+      "variants": [
+        {
+          "id": "q8-0-gguf",
+          "label": "Q8_0 GGUF",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": true,
+          "memoryBytes": 30907771085,
+          "companions": [
+            "text-encoder",
+            "vae"
+          ],
+          "repository": "unsloth/Qwen-Image-2.1-Turbo-GGUF",
+          "revision": "bd53e520a64472adaff780da0b2f2d7eb1605e30",
+          "include": [
+            "qwen-image-2.1-turbo-Q8_0.gguf"
+          ],
+          "primary": "qwen-image-2.1-turbo-Q8_0.gguf",
+          "files": [
+            {
+              "path": "qwen-image-2.1-turbo-Q8_0.gguf",
+              "size": 7640860480,
+              "sha256": "399d2ddc3636f36456e2f5bfa57187da4e38721bc046430317f42a9eab5b1712"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "text-encoder",
+          "role": "text-encoder",
+          "additionalRoles": [],
+          "label": "Text encoder (pipeline folder, BF16)",
+          "repository": "Qwen/Qwen-Image-2.1",
+          "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
+          "include": [
+            "model_index.json",
+            "text_encoder/*",
+            "processor/*"
+          ],
+          "primary": "text_encoder",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 447,
+              "gitOid": "85d02d05f150cbe24a8fd3542062b565767bbe7b"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 1517,
+              "gitOid": "581ce4655dde5272e577065dd08b1fda7e97d6e8"
+            },
+            {
+              "path": "text_encoder/generation_config.json",
+              "size": 213,
+              "gitOid": "bdb4e0372b04220c80df250f2b3354d1c81c97cb"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00004.safetensors",
+              "size": 4998056552,
+              "sha256": "dde00291b5f7fb92013895310a3da0ddba78674df9f10d505d375243dc01fc6f"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00004.safetensors",
+              "size": 4915962464,
+              "sha256": "9047faccc0a6d98496a52d55f27be1c94a9c259d1e283fbea0128d054a948d42"
+            },
+            {
+              "path": "text_encoder/model-00003-of-00004.safetensors",
+              "size": 4915962496,
+              "sha256": "8c54187654c0176b73ae73785bf791dc9a14c9df7fb4310083a09d42048cb57e"
+            },
+            {
+              "path": "text_encoder/model-00004-of-00004.safetensors",
+              "size": 2704357976,
+              "sha256": "5311532aaaeae3259eb6a7b2c600636be1159adf7ded35f53579f7d0e7d43cdd"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 67795,
+              "gitOid": "6d4d74c934b05b8addb0744305eef3674650cd8b"
+            },
+            {
+              "path": "processor/added_tokens.json",
+              "size": 707,
+              "gitOid": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+            },
+            {
+              "path": "processor/chat_template.jinja",
+              "size": 5292,
+              "gitOid": "124386803f142761528f710e77ae483f5f8c4fc4"
+            },
+            {
+              "path": "processor/merges.txt",
+              "size": 1671853,
+              "gitOid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+            },
+            {
+              "path": "processor/preprocessor_config.json",
+              "size": 782,
+              "gitOid": "2fa6553554f69b4e3a6b742a75264ff9dff90ad0"
+            },
+            {
+              "path": "processor/special_tokens_map.json",
+              "size": 613,
+              "gitOid": "ac23c0aaa2434523c494330aeb79c58395378103"
+            },
+            {
+              "path": "processor/tokenizer.json",
+              "size": 11422654,
+              "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+            },
+            {
+              "path": "processor/tokenizer_config.json",
+              "size": 5445,
+              "gitOid": "fec7f182135c384a08ea2fc9635566ca79c45afc"
+            },
+            {
+              "path": "processor/video_preprocessor_config.json",
+              "size": 817,
+              "gitOid": "e32b1d90356f74457edbfca27aa1e121dab7cdc7"
+            },
+            {
+              "path": "processor/vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            }
+          ]
+        },
+        {
+          "id": "vae",
+          "role": "vae",
+          "additionalRoles": [],
+          "label": "VAE",
+          "repository": "Qwen/Qwen-Image-2.1",
+          "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
+          "include": [
+            "model_index.json",
+            "vae/*"
+          ],
+          "primary": "vae/diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 447,
+              "gitOid": "85d02d05f150cbe24a8fd3542062b565767bbe7b"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 2079,
+              "gitOid": "ac6fe795d898a5eff16e4527256c2d039f5b0d4b"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 1350989512,
+              "sha256": "a07a1b7c4ee2966a1b3bdc37de9b4f983d56937e46619f709a80b6e490675417"
+            }
+          ]
+        }
+      ],
       "verification": {
         "reference": "diffusers",
         "summary": "34.5 dB (1024, its 8-step \u0060sample_sigmas\u0060) vs diffusers on the same files",
@@ -13122,11 +13551,171 @@
       "name": "Qwen-Image 2.1",
       "kind": "image-generation",
       "family": "Qwen-Image",
+      "architecture": "qwen_image",
       "level": "verified",
+      "license": "other",
       "gated": false,
       "tags": [],
-      "variants": [],
-      "companions": [],
+      "variants": [
+        {
+          "id": "q8-0-gguf",
+          "label": "Q8_0 GGUF",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": true,
+          "memoryBytes": 30907770975,
+          "companions": [
+            "text-encoder",
+            "vae"
+          ],
+          "repository": "unsloth/Qwen-Image-2.1-GGUF",
+          "revision": "2c31ccd392b367a6637841a143813320a02dff55",
+          "include": [
+            "qwen-image-2.1-Q8_0.gguf"
+          ],
+          "primary": "qwen-image-2.1-Q8_0.gguf",
+          "files": [
+            {
+              "path": "qwen-image-2.1-Q8_0.gguf",
+              "size": 7640860384,
+              "sha256": "c0ed4b2ffd56cbe9c3df1e4a4098045256484ebe94ba5a7e4338d35ec046baa5"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "text-encoder",
+          "role": "text-encoder",
+          "additionalRoles": [],
+          "label": "Text encoder (pipeline folder, BF16)",
+          "repository": "Qwen/Qwen-Image-2.1",
+          "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
+          "include": [
+            "model_index.json",
+            "text_encoder/*",
+            "processor/*"
+          ],
+          "primary": "text_encoder",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 447,
+              "gitOid": "85d02d05f150cbe24a8fd3542062b565767bbe7b"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 1517,
+              "gitOid": "581ce4655dde5272e577065dd08b1fda7e97d6e8"
+            },
+            {
+              "path": "text_encoder/generation_config.json",
+              "size": 213,
+              "gitOid": "bdb4e0372b04220c80df250f2b3354d1c81c97cb"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00004.safetensors",
+              "size": 4998056552,
+              "sha256": "dde00291b5f7fb92013895310a3da0ddba78674df9f10d505d375243dc01fc6f"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00004.safetensors",
+              "size": 4915962464,
+              "sha256": "9047faccc0a6d98496a52d55f27be1c94a9c259d1e283fbea0128d054a948d42"
+            },
+            {
+              "path": "text_encoder/model-00003-of-00004.safetensors",
+              "size": 4915962496,
+              "sha256": "8c54187654c0176b73ae73785bf791dc9a14c9df7fb4310083a09d42048cb57e"
+            },
+            {
+              "path": "text_encoder/model-00004-of-00004.safetensors",
+              "size": 2704357976,
+              "sha256": "5311532aaaeae3259eb6a7b2c600636be1159adf7ded35f53579f7d0e7d43cdd"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 67795,
+              "gitOid": "6d4d74c934b05b8addb0744305eef3674650cd8b"
+            },
+            {
+              "path": "processor/added_tokens.json",
+              "size": 707,
+              "gitOid": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+            },
+            {
+              "path": "processor/chat_template.jinja",
+              "size": 5292,
+              "gitOid": "124386803f142761528f710e77ae483f5f8c4fc4"
+            },
+            {
+              "path": "processor/merges.txt",
+              "size": 1671853,
+              "gitOid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+            },
+            {
+              "path": "processor/preprocessor_config.json",
+              "size": 782,
+              "gitOid": "2fa6553554f69b4e3a6b742a75264ff9dff90ad0"
+            },
+            {
+              "path": "processor/special_tokens_map.json",
+              "size": 613,
+              "gitOid": "ac23c0aaa2434523c494330aeb79c58395378103"
+            },
+            {
+              "path": "processor/tokenizer.json",
+              "size": 11422654,
+              "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+            },
+            {
+              "path": "processor/tokenizer_config.json",
+              "size": 5445,
+              "gitOid": "fec7f182135c384a08ea2fc9635566ca79c45afc"
+            },
+            {
+              "path": "processor/video_preprocessor_config.json",
+              "size": 817,
+              "gitOid": "e32b1d90356f74457edbfca27aa1e121dab7cdc7"
+            },
+            {
+              "path": "processor/vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            }
+          ]
+        },
+        {
+          "id": "vae",
+          "role": "vae",
+          "additionalRoles": [],
+          "label": "VAE",
+          "repository": "Qwen/Qwen-Image-2.1",
+          "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
+          "include": [
+            "model_index.json",
+            "vae/*"
+          ],
+          "primary": "vae/diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 447,
+              "gitOid": "85d02d05f150cbe24a8fd3542062b565767bbe7b"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 2079,
+              "gitOid": "ac6fe795d898a5eff16e4527256c2d039f5b0d4b"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 1350989512,
+              "sha256": "a07a1b7c4ee2966a1b3bdc37de9b4f983d56937e46619f709a80b6e490675417"
+            }
+          ]
+        }
+      ],
       "verification": {
         "reference": "diffusers",
         "summary": "42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder \u2264 9.6e-4",
@@ -13751,6 +14340,7 @@
         {
           "id": "text-encoder",
           "role": "text-encoder",
+          "additionalRoles": [],
           "label": "Qwen2.5-VL-7B text encoder (BF16)",
           "repository": "Qwen/Qwen-Image",
           "revision": "75e0b4be04f60ec59a75f475837eced720f823b6",
@@ -13836,6 +14426,7 @@
         {
           "id": "vae",
           "role": "vae",
+          "additionalRoles": [],
           "label": "Qwen-Image VAE",
           "repository": "Qwen/Qwen-Image",
           "revision": "75e0b4be04f60ec59a75f475837eced720f823b6",
@@ -17115,12 +17706,131 @@
       "id": "wan-2.2-ti2v-5b-gguf",
       "name": "Wan 2.2 TI2V 5B GGUF",
       "kind": "video-generation",
-      "family": "",
+      "family": "Wan",
+      "architecture": "wan",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
-      "variants": [],
-      "companions": [],
+      "variants": [
+        {
+          "id": "q8-0-gguf",
+          "label": "Q8_0 GGUF",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": true,
+          "memoryBytes": 22920582448,
+          "companions": [
+            "wan22-folder"
+          ],
+          "repository": "QuantStack/Wan2.2-TI2V-5B-GGUF",
+          "revision": "57437632ddd08bdcbd1508c866aa22e126ed51d2",
+          "include": [
+            "Wan2.2-TI2V-5B-Q8_0.gguf"
+          ],
+          "primary": "Wan2.2-TI2V-5B-Q8_0.gguf",
+          "files": [
+            {
+              "path": "Wan2.2-TI2V-5B-Q8_0.gguf",
+              "size": 5400179040,
+              "sha256": "57bece983817ab2f957546683bb670f13be7d99022d45674840cd999a050ea8f"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "wan22-folder",
+          "role": "text-encoder",
+          "additionalRoles": [
+            "vae"
+          ],
+          "label": "Wan 2.2 umT5 text encoder and VAE (pipeline folder)",
+          "repository": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
+          "revision": "b8fff7315c768468a5333511427288870b2e9635",
+          "include": [
+            "model_index.json",
+            "scheduler/*",
+            "text_encoder/*",
+            "tokenizer/*",
+            "vae/*",
+            "transformer/config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 499,
+              "gitOid": "fe52bfbdc8e5bbc8a6a607dd301f6e1ab0889cd1"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 820,
+              "gitOid": "950d26faea717c8902ee197982026cb9c1b6463e"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 855,
+              "gitOid": "ab4a73bce055c6e32e66133032dcb3adfb26ee8d"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00003.safetensors",
+              "size": 4935812536,
+              "sha256": "a8e861969c7433e707cc5a74065d795d36cca07ec96eb6763eb4083df7248f58"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00003.safetensors",
+              "size": 4983103192,
+              "sha256": "d57d948ece4837d850b7a859a4415121d57cacf8b9ee1d4db200c67f592902d7"
+            },
+            {
+              "path": "text_encoder/model-00003-of-00003.safetensors",
+              "size": 1442935480,
+              "sha256": "0da9ee284e21d1406df708788db1d502d95d75f69faa25cd26151bf8829b7c5f"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 22476,
+              "gitOid": "f3d3d4da90eb33e14c92d88ea346370fa3c0b5b2"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 7079,
+              "gitOid": "2ed25bf989a28d20b5d4b5822fbc24666d12a6f7"
+            },
+            {
+              "path": "tokenizer/spiece.model",
+              "size": 4548313,
+              "sha256": "e3909a67b780650b35cf529ac782ad2b6b26e6d1f849d3fbb6a872905f452458"
+            },
+            {
+              "path": "tokenizer/tokenizer.json",
+              "size": 16837459,
+              "sha256": "20a46ac256746594ed7e1e3ef733b83fbc5a6f0922aa7480eda961743de080ef"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 61758,
+              "gitOid": "09d434f9457238f697f4c208aab47f58caa15bfe"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 1701,
+              "gitOid": "29f65bc63e9daadb95e4c1a8344d162be4b7d533"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 2818777808,
+              "sha256": "62cd18f19438e35b32ac63020e2852f566e9b02f46b6cdbd87972a356e3c6f4b"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 495,
+              "gitOid": "8180887e8ed86e4fd842824fb15fcabf43d19512"
+            }
+          ]
+        }
+      ],
       "verification": {
         "summary": "image-to-video 51.1 dB vs the f32 reference, transformer 2.0e-3",
         "providers": [
@@ -17144,12 +17854,161 @@
       "id": "wan-2.2-t2v-a14b-gguf-two-experts",
       "name": "Wan 2.2 T2V A14B GGUF (two experts)",
       "kind": "video-generation",
-      "family": "",
+      "family": "Wan",
+      "architecture": "wan",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
-      "variants": [],
-      "companions": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF (two experts)",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 49313814506,
+          "companions": [
+            "low-noise",
+            "wan21-folder"
+          ],
+          "repository": "QuantStack/Wan2.2-T2V-A14B-GGUF",
+          "revision": "73eafba53a1a8f29254e4c77f92e74ea27d7cd6f",
+          "include": [
+            "HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf"
+          ],
+          "primary": "HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf",
+              "size": 9650090496,
+              "sha256": "e0c490c6e316fd91ff52034e4ca66b825717e33ff11624585c0ccfcb5d410c59"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "low-noise",
+          "role": "transformer-2",
+          "additionalRoles": [],
+          "label": "Low-noise expert (Q4_K_M)",
+          "repository": "QuantStack/Wan2.2-T2V-A14B-GGUF",
+          "revision": "73eafba53a1a8f29254e4c77f92e74ea27d7cd6f",
+          "include": [
+            "LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf"
+          ],
+          "primary": "LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf",
+              "size": 9650090496,
+              "sha256": "091a5bae02e14aa016bc9b10a7892efda4c629346b81c5dcebbe30ea2ac8923a"
+            }
+          ]
+        },
+        {
+          "id": "wan21-folder",
+          "role": "text-encoder",
+          "additionalRoles": [
+            "vae"
+          ],
+          "label": "Wan 2.1 umT5 text encoder and VAE (pipeline folder)",
+          "repository": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
+          "revision": "0fad780a534b6463e45facd96134c9f345acfa5b",
+          "include": [
+            "model_index.json",
+            "scheduler/*",
+            "text_encoder/*",
+            "tokenizer/*",
+            "vae/*",
+            "transformer/config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 400,
+              "gitOid": "5939d0bf16bfab26f95f149dc29abf898ed5056c"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 751,
+              "gitOid": "7c6d4f1916fe490af29216f633d38cfa3028fd66"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 854,
+              "gitOid": "2fd01c57dddd8ae386d518c69c087c8ba8c73804"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00005.safetensors",
+              "size": 4972389712,
+              "sha256": "c0ef3a140898e228a3520c9adec60743d2e8e5b3d229651bb37f1a3921919f99"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00005.safetensors",
+              "size": 4899225672,
+              "sha256": "481c7b2b39771c44df6dd8d13ee12ed072d731b4a650bd092885d4d52db229ad"
+            },
+            {
+              "path": "text_encoder/model-00003-of-00005.safetensors",
+              "size": 4966309504,
+              "sha256": "f93148bcc04052a169e1e49bfcf6125df6cf9bf243cb9c627da75266cf8e35c3"
+            },
+            {
+              "path": "text_encoder/model-00004-of-00005.safetensors",
+              "size": 4999880704,
+              "sha256": "a451792c739c05bca4606190cc2dd16731411bac03b4cf6aacc5767321f857c9"
+            },
+            {
+              "path": "text_encoder/model-00005-of-00005.safetensors",
+              "size": 2885866152,
+              "sha256": "7e76e18d224531b8197a46231cb53daf7f2f6ca707130252becf933026ac4eea"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 22476,
+              "gitOid": "60ece61b46ecb3e6a5b705ea304bc97535317c2a"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 7079,
+              "gitOid": "2ed25bf989a28d20b5d4b5822fbc24666d12a6f7"
+            },
+            {
+              "path": "tokenizer/spiece.model",
+              "size": 4548313,
+              "sha256": "e3909a67b780650b35cf529ac782ad2b6b26e6d1f849d3fbb6a872905f452458"
+            },
+            {
+              "path": "tokenizer/tokenizer.json",
+              "size": 16837459,
+              "sha256": "20a46ac256746594ed7e1e3ef733b83fbc5a6f0922aa7480eda961743de080ef"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 61758,
+              "gitOid": "09d434f9457238f697f4c208aab47f58caa15bfe"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 724,
+              "gitOid": "fe988ee53511225fb2fd0a01004d6e19524df75f"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 507591892,
+              "sha256": "d6e524b3fffede1787a74e81b30976dce5400c4439ba64222168e607ed19e793"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 465,
+              "gitOid": "2e681186e90383b3aed964707f753a16f567cd9c"
+            }
+          ]
+        }
+      ],
       "verification": {
         "summary": "against diffusers running the same GGUFs (f32 on CUDA): high- / low-noise transformer 3.4e-4 / 2.3e-4, umT5 3e-6 relative RMS; text-to-video 21-25 dB per frame (832\u00D7480, 17 frames, 20 steps), the same scene; a 1e-3 nudge of the initial noise moves Sharplight\u0027s own result as far",
         "providers": [
@@ -17173,12 +18032,203 @@
       "id": "wan-2.1-i2v-14b-480p-gguf",
       "name": "Wan 2.1 I2V 14B 480P GGUF",
       "kind": "video-generation",
-      "family": "",
+      "family": "Wan",
+      "architecture": "wan",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
-      "variants": [],
-      "companions": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 41614818831,
+          "companions": [
+            "wan21-folder",
+            "image-encoder"
+          ],
+          "repository": "city96/Wan2.1-I2V-14B-480P-gguf",
+          "revision": "b4b6b3b3f0f64975fb33b1d5d1a46ca24e065f03",
+          "include": [
+            "wan2.1-i2v-14b-480p-Q4_K_M.gguf"
+          ],
+          "primary": "wan2.1-i2v-14b-480p-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "wan2.1-i2v-14b-480p-Q4_K_M.gguf",
+              "size": 11341184384,
+              "sha256": "d91f7139acadb42ea05cdf97b311e5099f714f11fbe4d90916500e2f53cbba82"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "wan21-folder",
+          "role": "text-encoder",
+          "additionalRoles": [
+            "vae"
+          ],
+          "label": "Wan 2.1 umT5 text encoder and VAE (pipeline folder)",
+          "repository": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
+          "revision": "0fad780a534b6463e45facd96134c9f345acfa5b",
+          "include": [
+            "model_index.json",
+            "scheduler/*",
+            "text_encoder/*",
+            "tokenizer/*",
+            "vae/*",
+            "transformer/config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 400,
+              "gitOid": "5939d0bf16bfab26f95f149dc29abf898ed5056c"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 751,
+              "gitOid": "7c6d4f1916fe490af29216f633d38cfa3028fd66"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 854,
+              "gitOid": "2fd01c57dddd8ae386d518c69c087c8ba8c73804"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00005.safetensors",
+              "size": 4972389712,
+              "sha256": "c0ef3a140898e228a3520c9adec60743d2e8e5b3d229651bb37f1a3921919f99"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00005.safetensors",
+              "size": 4899225672,
+              "sha256": "481c7b2b39771c44df6dd8d13ee12ed072d731b4a650bd092885d4d52db229ad"
+            },
+            {
+              "path": "text_encoder/model-00003-of-00005.safetensors",
+              "size": 4966309504,
+              "sha256": "f93148bcc04052a169e1e49bfcf6125df6cf9bf243cb9c627da75266cf8e35c3"
+            },
+            {
+              "path": "text_encoder/model-00004-of-00005.safetensors",
+              "size": 4999880704,
+              "sha256": "a451792c739c05bca4606190cc2dd16731411bac03b4cf6aacc5767321f857c9"
+            },
+            {
+              "path": "text_encoder/model-00005-of-00005.safetensors",
+              "size": 2885866152,
+              "sha256": "7e76e18d224531b8197a46231cb53daf7f2f6ca707130252becf933026ac4eea"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 22476,
+              "gitOid": "60ece61b46ecb3e6a5b705ea304bc97535317c2a"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 7079,
+              "gitOid": "2ed25bf989a28d20b5d4b5822fbc24666d12a6f7"
+            },
+            {
+              "path": "tokenizer/spiece.model",
+              "size": 4548313,
+              "sha256": "e3909a67b780650b35cf529ac782ad2b6b26e6d1f849d3fbb6a872905f452458"
+            },
+            {
+              "path": "tokenizer/tokenizer.json",
+              "size": 16837459,
+              "sha256": "20a46ac256746594ed7e1e3ef733b83fbc5a6f0922aa7480eda961743de080ef"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 61758,
+              "gitOid": "09d434f9457238f697f4c208aab47f58caa15bfe"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 724,
+              "gitOid": "fe988ee53511225fb2fd0a01004d6e19524df75f"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 507591892,
+              "sha256": "d6e524b3fffede1787a74e81b30976dce5400c4439ba64222168e607ed19e793"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 465,
+              "gitOid": "2e681186e90383b3aed964707f753a16f567cd9c"
+            }
+          ]
+        },
+        {
+          "id": "image-encoder",
+          "role": "image-encoder",
+          "additionalRoles": [],
+          "label": "CLIP-H image encoder (pipeline folder)",
+          "repository": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
+          "revision": "b184e23a8a16b20f108f727c902e769e873ffc73",
+          "include": [
+            "image_encoder/config.json",
+            "image_encoder/model.safetensors",
+            "image_processor/preprocessor_config.json",
+            "model_index.json",
+            "scheduler/scheduler_config.json",
+            "transformer/config.json",
+            "transformer/diffusion_pytorch_model.safetensors.index.json",
+            "vae/config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "image_encoder/config.json",
+              "size": 582,
+              "gitOid": "3be9aa15022880cec03c998d71d0b48ffeff18e2"
+            },
+            {
+              "path": "image_encoder/model.safetensors",
+              "size": 1264217760,
+              "sha256": "f5c0bbf4f43f319a80335387d371742333807589c5bb4130a1a2a5d4abf6bf72"
+            },
+            {
+              "path": "image_processor/preprocessor_config.json",
+              "size": 478,
+              "gitOid": "ae07b4c27c8e8d50505ee232210ef38d1e1cb2a2"
+            },
+            {
+              "path": "model_index.json",
+              "size": 567,
+              "gitOid": "56c0b6eb5ff8f2e8b8624b2690146ba54342ba64"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 751,
+              "gitOid": "7c6d4f1916fe490af29216f633d38cfa3028fd66"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 466,
+              "gitOid": "998a7ae19a6151f25b78801bfde3ac1c2372d086"
+            },
+            {
+              "path": "transformer/diffusion_pytorch_model.safetensors.index.json",
+              "size": 120925,
+              "gitOid": "8c634524e998b6be92d5ce1983030bd37e87718d"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 724,
+              "gitOid": "fe988ee53511225fb2fd0a01004d6e19524df75f"
+            }
+          ]
+        }
+      ],
       "verification": {
         "summary": "against diffusers on the same GGUF: transformer 3.9e-4, CLIP 3.5e-3 relative RMS; image-to-video 30.6-48.1 dB per frame (832\u00D7480, 17 frames, 20 steps)",
         "providers": [
@@ -17202,12 +18252,233 @@
       "id": "wan-2.1-flf2v-14b-720p-gguf",
       "name": "Wan 2.1 FLF2V 14B 720P GGUF",
       "kind": "video-generation",
-      "family": "",
+      "family": "Wan",
+      "architecture": "wan",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
-      "variants": [],
-      "companions": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 41617845336,
+          "companions": [
+            "wan21-folder",
+            "image-encoder"
+          ],
+          "repository": "city96/Wan2.1-FLF2V-14B-720P-gguf",
+          "revision": "0fef557a0a13cbe66000526d2161436e693de93a",
+          "include": [
+            "wan2.1-flf2v-14b-720p-Q4_K_M.gguf"
+          ],
+          "primary": "wan2.1-flf2v-14b-720p-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "wan2.1-flf2v-14b-720p-Q4_K_M.gguf",
+              "size": 11343816128,
+              "sha256": "7652d7d8b0795009ff21ed83d806af762aae8a8faa8640dd07b3a67e4dfab445"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "wan21-folder",
+          "role": "text-encoder",
+          "additionalRoles": [
+            "vae"
+          ],
+          "label": "Wan 2.1 umT5 text encoder and VAE (pipeline folder)",
+          "repository": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
+          "revision": "0fad780a534b6463e45facd96134c9f345acfa5b",
+          "include": [
+            "model_index.json",
+            "scheduler/*",
+            "text_encoder/*",
+            "tokenizer/*",
+            "vae/*",
+            "transformer/config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 400,
+              "gitOid": "5939d0bf16bfab26f95f149dc29abf898ed5056c"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 751,
+              "gitOid": "7c6d4f1916fe490af29216f633d38cfa3028fd66"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 854,
+              "gitOid": "2fd01c57dddd8ae386d518c69c087c8ba8c73804"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00005.safetensors",
+              "size": 4972389712,
+              "sha256": "c0ef3a140898e228a3520c9adec60743d2e8e5b3d229651bb37f1a3921919f99"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00005.safetensors",
+              "size": 4899225672,
+              "sha256": "481c7b2b39771c44df6dd8d13ee12ed072d731b4a650bd092885d4d52db229ad"
+            },
+            {
+              "path": "text_encoder/model-00003-of-00005.safetensors",
+              "size": 4966309504,
+              "sha256": "f93148bcc04052a169e1e49bfcf6125df6cf9bf243cb9c627da75266cf8e35c3"
+            },
+            {
+              "path": "text_encoder/model-00004-of-00005.safetensors",
+              "size": 4999880704,
+              "sha256": "a451792c739c05bca4606190cc2dd16731411bac03b4cf6aacc5767321f857c9"
+            },
+            {
+              "path": "text_encoder/model-00005-of-00005.safetensors",
+              "size": 2885866152,
+              "sha256": "7e76e18d224531b8197a46231cb53daf7f2f6ca707130252becf933026ac4eea"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 22476,
+              "gitOid": "60ece61b46ecb3e6a5b705ea304bc97535317c2a"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 7079,
+              "gitOid": "2ed25bf989a28d20b5d4b5822fbc24666d12a6f7"
+            },
+            {
+              "path": "tokenizer/spiece.model",
+              "size": 4548313,
+              "sha256": "e3909a67b780650b35cf529ac782ad2b6b26e6d1f849d3fbb6a872905f452458"
+            },
+            {
+              "path": "tokenizer/tokenizer.json",
+              "size": 16837459,
+              "sha256": "20a46ac256746594ed7e1e3ef733b83fbc5a6f0922aa7480eda961743de080ef"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 61758,
+              "gitOid": "09d434f9457238f697f4c208aab47f58caa15bfe"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 724,
+              "gitOid": "fe988ee53511225fb2fd0a01004d6e19524df75f"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 507591892,
+              "sha256": "d6e524b3fffede1787a74e81b30976dce5400c4439ba64222168e607ed19e793"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 465,
+              "gitOid": "2e681186e90383b3aed964707f753a16f567cd9c"
+            }
+          ]
+        },
+        {
+          "id": "image-encoder",
+          "role": "image-encoder",
+          "additionalRoles": [],
+          "label": "CLIP-H image encoder (pipeline folder)",
+          "repository": "Wan-AI/Wan2.1-FLF2V-14B-720P-diffusers",
+          "revision": "17c30769b1e0b5dcaa1799b117bf20a9c31f59d7",
+          "include": [
+            "image_encoder/config.json",
+            "image_encoder/model.safetensors",
+            "image_processor/merges.txt",
+            "image_processor/preprocessor_config.json",
+            "image_processor/special_tokens_map.json",
+            "image_processor/tokenizer.json",
+            "image_processor/tokenizer_config.json",
+            "image_processor/vocab.json",
+            "model_index.json",
+            "scheduler/scheduler_config.json",
+            "transformer/config.json",
+            "transformer/diffusion_pytorch_model.safetensors.index.json",
+            "vae/config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "image_encoder/config.json",
+              "size": 583,
+              "gitOid": "3f766f0db627d36d8de98752a2abc2c7d121da3c"
+            },
+            {
+              "path": "image_encoder/model.safetensors",
+              "size": 1264217760,
+              "sha256": "f5c0bbf4f43f319a80335387d371742333807589c5bb4130a1a2a5d4abf6bf72"
+            },
+            {
+              "path": "image_processor/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "image_processor/preprocessor_config.json",
+              "size": 504,
+              "gitOid": "6b87f9bc7511073f32189607eaf7d534529b025d"
+            },
+            {
+              "path": "image_processor/special_tokens_map.json",
+              "size": 588,
+              "gitOid": "cf0682d6de72c1547f41b4f6d7c59f62deffef94"
+            },
+            {
+              "path": "image_processor/tokenizer.json",
+              "size": 3642073,
+              "gitOid": "bd1e367764006ad6a2249b1dcc0b20879c7c211f"
+            },
+            {
+              "path": "image_processor/tokenizer_config.json",
+              "size": 774,
+              "gitOid": "bf15baa6c38888ed20f3d2f0ea2a6383bea620fd"
+            },
+            {
+              "path": "image_processor/vocab.json",
+              "size": 862328,
+              "gitOid": "182766ce89b439768edadda342519f33802f5364"
+            },
+            {
+              "path": "model_index.json",
+              "size": 562,
+              "gitOid": "7c249d1dccacec2a5f2809accfa2e2120494096f"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 752,
+              "gitOid": "48820d3c6b5863cab30fe550510b3484a23b526b"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 494,
+              "gitOid": "2a3bb016824249f19cb18bd50ac12a50724a0407"
+            },
+            {
+              "path": "transformer/diffusion_pytorch_model.safetensors.index.json",
+              "size": 117160,
+              "gitOid": "d6509891a7e5d816b02b66eba893d28591008b60"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 724,
+              "gitOid": "a5be94e360479a8b513ced12e5d5032bcbd9e60d"
+            }
+          ]
+        }
+      ],
       "verification": {
         "summary": "transformer 1.7e-4; first-and-last-frame video 50.8-60.2 dB per frame",
         "providers": [
@@ -17232,11 +18503,160 @@
       "name": "Wan 2.2 I2V A14B GGUF (two experts)",
       "kind": "video-generation",
       "family": "Wan",
+      "architecture": "wan",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
-      "variants": [],
-      "companions": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF (two experts)",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 49317582826,
+          "companions": [
+            "low-noise",
+            "wan21-folder"
+          ],
+          "repository": "QuantStack/Wan2.2-I2V-A14B-GGUF",
+          "revision": "6c6717459277b9cd1f72579d78a0fd62a79e57dc",
+          "include": [
+            "HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf"
+          ],
+          "primary": "HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf",
+              "size": 9651728896,
+              "sha256": "836250abfaa3411694e2c9cf3a0cc18265329d5156d81aa116d5366b0f8f02e7"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "low-noise",
+          "role": "transformer-2",
+          "additionalRoles": [],
+          "label": "Low-noise expert (Q4_K_M)",
+          "repository": "QuantStack/Wan2.2-I2V-A14B-GGUF",
+          "revision": "6c6717459277b9cd1f72579d78a0fd62a79e57dc",
+          "include": [
+            "LowNoise/Wan2.2-I2V-A14B-LowNoise-Q4_K_M.gguf"
+          ],
+          "primary": "LowNoise/Wan2.2-I2V-A14B-LowNoise-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "LowNoise/Wan2.2-I2V-A14B-LowNoise-Q4_K_M.gguf",
+              "size": 9651728896,
+              "sha256": "e2f98d834af009d035c6b0918268f2eba0aa8a63025ce942277e2384d40b0866"
+            }
+          ]
+        },
+        {
+          "id": "wan21-folder",
+          "role": "text-encoder",
+          "additionalRoles": [
+            "vae"
+          ],
+          "label": "Wan 2.1 umT5 text encoder and VAE (pipeline folder)",
+          "repository": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
+          "revision": "0fad780a534b6463e45facd96134c9f345acfa5b",
+          "include": [
+            "model_index.json",
+            "scheduler/*",
+            "text_encoder/*",
+            "tokenizer/*",
+            "vae/*",
+            "transformer/config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 400,
+              "gitOid": "5939d0bf16bfab26f95f149dc29abf898ed5056c"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 751,
+              "gitOid": "7c6d4f1916fe490af29216f633d38cfa3028fd66"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 854,
+              "gitOid": "2fd01c57dddd8ae386d518c69c087c8ba8c73804"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00005.safetensors",
+              "size": 4972389712,
+              "sha256": "c0ef3a140898e228a3520c9adec60743d2e8e5b3d229651bb37f1a3921919f99"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00005.safetensors",
+              "size": 4899225672,
+              "sha256": "481c7b2b39771c44df6dd8d13ee12ed072d731b4a650bd092885d4d52db229ad"
+            },
+            {
+              "path": "text_encoder/model-00003-of-00005.safetensors",
+              "size": 4966309504,
+              "sha256": "f93148bcc04052a169e1e49bfcf6125df6cf9bf243cb9c627da75266cf8e35c3"
+            },
+            {
+              "path": "text_encoder/model-00004-of-00005.safetensors",
+              "size": 4999880704,
+              "sha256": "a451792c739c05bca4606190cc2dd16731411bac03b4cf6aacc5767321f857c9"
+            },
+            {
+              "path": "text_encoder/model-00005-of-00005.safetensors",
+              "size": 2885866152,
+              "sha256": "7e76e18d224531b8197a46231cb53daf7f2f6ca707130252becf933026ac4eea"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 22476,
+              "gitOid": "60ece61b46ecb3e6a5b705ea304bc97535317c2a"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 7079,
+              "gitOid": "2ed25bf989a28d20b5d4b5822fbc24666d12a6f7"
+            },
+            {
+              "path": "tokenizer/spiece.model",
+              "size": 4548313,
+              "sha256": "e3909a67b780650b35cf529ac782ad2b6b26e6d1f849d3fbb6a872905f452458"
+            },
+            {
+              "path": "tokenizer/tokenizer.json",
+              "size": 16837459,
+              "sha256": "20a46ac256746594ed7e1e3ef733b83fbc5a6f0922aa7480eda961743de080ef"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 61758,
+              "gitOid": "09d434f9457238f697f4c208aab47f58caa15bfe"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 724,
+              "gitOid": "fe988ee53511225fb2fd0a01004d6e19524df75f"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 507591892,
+              "sha256": "d6e524b3fffede1787a74e81b30976dce5400c4439ba64222168e607ed19e793"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 465,
+              "gitOid": "2e681186e90383b3aed964707f753a16f567cd9c"
+            }
+          ]
+        }
+      ],
       "verification": {
         "reference": "diffusers",
         "summary": "against diffusers on the same GGUFs: transformers 3.0e-4 / 6.2e-4; image-to-video 35.0-52.5 dB per frame (832\u00D7480, 17 frames, 20 steps)",
@@ -17263,11 +18683,180 @@
       "name": "HunyuanVideo GGUF",
       "kind": "video-generation",
       "family": "HunyuanVideo",
+      "architecture": "hunyuan_video",
       "level": "verified",
+      "license": "other",
       "gated": false,
       "tags": [],
-      "variants": [],
-      "companions": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 28147753178,
+          "companions": [
+            "folder"
+          ],
+          "repository": "city96/HunyuanVideo-gguf",
+          "revision": "6869e07d25cffdff09f7c10a79887ac24217b67b",
+          "include": [
+            "hunyuan-video-t2v-720p-Q4_K_M.gguf"
+          ],
+          "primary": "hunyuan-video-t2v-720p-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "hunyuan-video-t2v-720p-Q4_K_M.gguf",
+              "size": 7883680512,
+              "sha256": "ef5c2bb989fce20ab39341db98adfbb3d072d9dc709b02391603755d433c1446"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "folder",
+          "role": "text-encoder",
+          "additionalRoles": [
+            "vae"
+          ],
+          "label": "Llama and CLIP text encoders and VAE (pipeline folder without its transformer)",
+          "repository": "hunyuanvideo-community/HunyuanVideo",
+          "revision": "e8c2aaa66fe3742a32c11a6766aecbf07c56e773",
+          "include": [
+            "config.json",
+            "model_index.json",
+            "scheduler/scheduler_config.json",
+            "text_encoder/config.json",
+            "text_encoder/model-00001-of-00004.safetensors",
+            "text_encoder/model-00002-of-00004.safetensors",
+            "text_encoder/model-00003-of-00004.safetensors",
+            "text_encoder/model-00004-of-00004.safetensors",
+            "text_encoder/model.safetensors.index.json",
+            "text_encoder_2/config.json",
+            "text_encoder_2/model.safetensors",
+            "tokenizer/special_tokens_map.json",
+            "tokenizer/tokenizer.json",
+            "tokenizer/tokenizer_config.json",
+            "tokenizer_2/merges.txt",
+            "tokenizer_2/special_tokens_map.json",
+            "tokenizer_2/tokenizer_config.json",
+            "tokenizer_2/vocab.json",
+            "transformer/config.json",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 39,
+              "gitOid": "30b44608b74f674e692d3242a2153e667ddb816f"
+            },
+            {
+              "path": "model_index.json",
+              "size": 563,
+              "gitOid": "5768221ed7a58f10f0ebeb15bc228c04871be8dc"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 419,
+              "gitOid": "c96fcec5480a80e8f3e5cbb8df29ab261098a838"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 766,
+              "gitOid": "f5f2205251eb0b863c5b0f9a60cd9fad069c5872"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00004.safetensors",
+              "size": 4977222384,
+              "sha256": "f5ad57d3eda300a3195bc9c0bb36ab76ebe88831f128e9851e63440aff4a6741"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00004.safetensors",
+              "size": 4999801992,
+              "sha256": "54accb98811931fca7598da4f7239b03b912eaa2bd5fe639f2da00923374f4a0"
+            },
+            {
+              "path": "text_encoder/model-00003-of-00004.safetensors",
+              "size": 4915915480,
+              "sha256": "d67c77f57cab4c9bf7f4420c256aed684c8ac7b49c6ab72cff9924e9513db9f1"
+            },
+            {
+              "path": "text_encoder/model-00004-of-00004.safetensors",
+              "size": 117465520,
+              "sha256": "c93f133c65ab1aeaa9ed1e998901a306636375b2f57fa53cd279241147a9a0e9"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 22152,
+              "gitOid": "b6e7a9e010002205834fd4f2808ca042bad4a246"
+            },
+            {
+              "path": "text_encoder_2/config.json",
+              "size": 646,
+              "gitOid": "715167338723844a8b46281e6dedaf9e2000f771"
+            },
+            {
+              "path": "text_encoder_2/model.safetensors",
+              "size": 246144152,
+              "sha256": "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 577,
+              "gitOid": "7c6fa7065265909bd500cafb38cc939b81b1b018"
+            },
+            {
+              "path": "tokenizer/tokenizer.json",
+              "size": 17210098,
+              "sha256": "d2c593db4aa75b17a42c1f74d7cc38e257eaeed222e6a52674c65544165dcbaa"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 51729,
+              "gitOid": "747d2159aaebc628e8105b91c2ab77d50a289f17"
+            },
+            {
+              "path": "tokenizer_2/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer_2/special_tokens_map.json",
+              "size": 588,
+              "gitOid": "cf0682d6de72c1547f41b4f6d7c59f62deffef94"
+            },
+            {
+              "path": "tokenizer_2/tokenizer_config.json",
+              "size": 736,
+              "gitOid": "22f91ac3aeb401be0a10d294e00bb1d6293bc4c5"
+            },
+            {
+              "path": "tokenizer_2/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 510,
+              "gitOid": "ff3c1ca5008ba81d9244359d247cf16c5ae779e1"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 718,
+              "gitOid": "b70acd51d20aeee27af7a81cea7d68f5288b8f4b"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 985943868,
+              "sha256": "7c68a6295f9034a88225fbafb1f3258291a08d57a1fdb938233fa57b1b8f4883"
+            }
+          ]
+        }
+      ],
       "verification": {
         "reference": "diffusers",
         "summary": "against diffusers on the same GGUF: transformer 4.1e-3, Llama 2.5e-4, CLIP 3.4e-4 relative RMS; text-to-video 28.2-33.0 dB per frame (832\u00D7480, 33 frames, 20 steps), visually identical",

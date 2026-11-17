@@ -104,6 +104,12 @@ public static partial class CatalogValidator
             Problem("more than one variant is recommended");
         }
 
+        var roles = entry.Variants.Select(variant => variant.Companions.SelectMany(id => entry.Companions.Where(companion => companion.Id == id)).SelectMany(companion => companion.AllRoles).ToList());
+        if (roles.Any(list => list.Count != list.Distinct().Count()))
+        {
+            Problem("a variant fills a companion role twice");
+        }
+
         foreach (var row in entry.Doc.Where(row => !sections.Contains(row.Section)))
         {
             Problem($"doc row names the unknown section {row.Section}");
@@ -143,9 +149,9 @@ public static partial class CatalogValidator
 
         foreach (var companion in entry.Companions)
         {
-            if (!Roles.Contains(companion.Role))
+            foreach (var role in companion.AllRoles.Where(role => !Roles.Contains(role)))
             {
-                Problem($"companion {companion.Id}: unknown role '{companion.Role}'");
+                Problem($"companion {companion.Id}: unknown role '{role}'");
             }
 
             if (!entry.Variants.Any(variant => variant.Companions.Contains(companion.Id)))

@@ -164,7 +164,7 @@ public sealed class ModelPuller
         {
             var companionDirectory = Path.Combine(sourceDirectory, CompanionDirectoryName, companion.Id, RepoPath.Name(companion.Repository));
             planned.AddRange(Plan(companion, companionDirectory));
-            auxiliary.Add(new(companion.Role, PrimaryPath(companionDirectory, companion)));
+            auxiliary.AddRange(companion.AllRoles.Select(role => new KeyValuePair<string, string>(role, PrimaryPath(companionDirectory, companion))));
         }
 
         EnsureFreeSpace(directory, planned);

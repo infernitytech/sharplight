@@ -123,5 +123,8 @@ chosen by the set's `include` patterns (`*` within a path segment, `**` across s
 Studio embeds the catalog at build time and, when online, fetches `https://download.sharplight.dev/catalog/verified-models.json`
 (at most once a day), uses it when its schema version is supported, it validates and its `updated` date is newer than the embedded
 copy's, and caches it in Studio's data directory; offline, or when the download is not valid, the cached or embedded copy is used.
-Publishing the file to that path (R2, next to the Studio release feed) is a manual step for now; adding it to the Studio release workflow
-is planned.
+The `catalog` job of `.github/workflows/studio.yml` validates the catalog (and that compatible-models.md matches it) on every run and,
+on pushes to develop, uploads it to R2 as `catalog/verified-models.json` (bucket and credentials of the `studio-release` environment, the
+same as the Studio packages; `STUDIO_CATALOG_KEY` overrides the key), so Studio installs pick up newly verified models without a
+release. CI (`ci.yml`, step "Verified catalog") runs `validate`, `docs --check` and `schema --check`, so the catalog and the document
+cannot drift apart.

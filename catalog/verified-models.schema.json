@@ -256,6 +256,21 @@
                     "image-encoder"
                   ]
                 },
+                "additionalRoles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "allRoles": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "label": {
                   "type": "string"
                 },

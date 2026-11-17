@@ -94,6 +94,21 @@ public sealed class CatalogInstallTests : IDisposable
     }
 
     [Fact]
+    public async Task CompanionWithSeveralRolesIsDownloadedOnceAndPassedInEach()
+    {
+        var entry = await EntryAsync();
+        entry = entry with { Companions = [entry.Companions[0] with { Role = "text-encoder", AdditionalRoles = ["vae"] }] };
+
+        var result = await CreatePuller().InstallAsync(CatalogInstallPlan.For(entry, entry.Variants[0]), cancellationToken: TestContext.Current.CancellationToken);
+
+        var (_, auxiliary) = Assert.Single(_conversions);
+        Assert.Equal(["text-encoder", "vae"], auxiliary.Select(pair => pair.Key));
+        Assert.Single(auxiliary.Select(pair => pair.Value).Distinct());
+        Assert.Equal(2, result.Manifest.SourceFiles.Count(file => file.Path.StartsWith("companions/", StringComparison.Ordinal)));
+        Assert.Empty(CatalogValidator.Validate(CatalogSamples.Catalog(entry)));
+    }
+
+    [Fact]
     public void StoreTagFollowsThePullNaming()
     {
         var gguf = CatalogSamples.Variant() with { Quantization = "Q8_0" };
