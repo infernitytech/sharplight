@@ -50,6 +50,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/catalog/Sharplight.CatalogTool/Sharplight.CatalogTool.csproj" />
+    <Project Path="tools/model-feed/Sharplight.FeedTool/Sharplight.FeedTool.csproj" />
     <Project Path="tools/design-tokens/Sharplight.DesignTool/Sharplight.DesignTool.csproj" />
   </Folder>
   <Folder Name="/tests/">

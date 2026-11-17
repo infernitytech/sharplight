@@ -111,6 +111,32 @@
           "gated": {
             "type": "boolean"
           },
+          "publisher": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "countryOfOrigin": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
           "tags": {
             "type": "array",
             "items": {

@@ -15,5 +15,6 @@
     <ProjectReference Include="../../src/Sharplight.Hub/Sharplight.Hub.csproj" />
     <ProjectReference Include="../../src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
     <ProjectReference Include="../../tools/catalog/Sharplight.CatalogTool/Sharplight.CatalogTool.csproj" />
+    <ProjectReference Include="../../tools/model-feed/Sharplight.FeedTool/Sharplight.FeedTool.csproj" />
   </ItemGroup>
 </Project>
