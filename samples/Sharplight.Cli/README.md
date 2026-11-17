@@ -4,8 +4,8 @@ Loads a model (GGUF file, `.slm` package, Hugging Face checkpoint directory, a s
 that is pulled first) and generates text, describes images, dumps logits or benchmarks it on a Vulkan GPU or the CPU. Run
 `--help` for every option.
 
-It shares the model store resolution and the `pull`, `search`, `list`, `show`, `rm` and `store` commands with `sharplight-server` (see
-[docs/model-hub.md](../../docs/model-hub.md)):
+It also serves models over HTTP (`serve`, see [Serving](#serving)), chats in the terminal (`run`) and manages the model store
+(`pull`, `search`, `list`, `show`, `rm`, `store`, `storage`; see [docs/model-hub.md](../../docs/model-hub.md)):
 
 ```bash
 sharplight pull Qwen/Qwen3-0.6B-GGUF:Q8_0
