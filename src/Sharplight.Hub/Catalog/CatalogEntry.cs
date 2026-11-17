@@ -27,6 +27,9 @@ public sealed record CatalogEntry
     /// <summary>A repository of the entry is gated: its terms must be accepted on the Hub and a token set.</summary>
     public bool Gated { get; init; }
 
+    /// <summary>Who made the model (not who repackaged it) and the publisher's country of origin; used by the model feed, or <see langword="null"/> when not recorded.</summary>
+    public CatalogPublisher? Publisher { get; init; }
+
     /// <summary>Capability tags (<c>vision</c>, <c>tools</c>, <c>moe</c>, <c>reasoning</c>, ...).</summary>
     public IReadOnlyList<string> Tags { get; init; } = [];
 

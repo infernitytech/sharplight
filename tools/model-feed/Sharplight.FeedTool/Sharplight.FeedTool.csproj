@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Sharplight.FeedTool</RootNamespace>
+    <AssemblyName>feedtool</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/Sharplight/Sharplight.csproj" />
+    <ProjectReference Include="../../../src/Sharplight.Hub/Sharplight.Hub.csproj" />
+    <ProjectReference Include="../../../src/Sharplight.ModelFeed/Sharplight.ModelFeed.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.Hub.Tests" />
+  </ItemGroup>
+</Project>

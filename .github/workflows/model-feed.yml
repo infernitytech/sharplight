@@ -1,0 +1,186 @@
+# Model feed (docs/model-feed.md): builds preconverted, signed .slm packages from verified-catalog entries and publishes them to the
+# Cloudflare R2 bucket under models/ (https://download.sharplight.dev/models/). Manual dispatch only.
+#
+# - Signing key: the secret MODEL_FEED_SIGNING_KEY of the `studio-release` environment: an ECDSA P-384 private key in PEM
+#   (a `feedtool keygen` JSON key file works too). Without it the workflow builds nothing and says so.
+# - Trust: keys/keyset.json in the bucket lists the feed keys, signed by a root key. When the bucket has none, the signing key is
+#   its own root (single-key setup); hosts trust tools/model-feed/keys/sharplight-feed.pub.pem (docs/model-feed.md, "Publishing keys").
+# - Published versions are immutable: existing package objects are never overwritten or deleted; only the listings (package indexes,
+#   catalog pages, index.json and its signature) are rewritten, after the package objects.
+name: model-feed
+
+on:
+  workflow_dispatch:
+    inputs:
+      entries:
+        description: 'Catalog entries to build, space separated: entry or entry:variant (default variant: the recommended one). Empty: only re-sign the index.'
+        required: false
+        default: 'qwen3-0.6b:q8-0-gguf all-minilm-l6-v2:f32-safetensors ms-marco-minilm-l6-v2:f32-safetensors whisper-tiny:q5-1-whispercpp silero-vad-v5:onnx'
+      validity_days:
+        description: 'Days until the published index expires (republish before; hosts reject an expired index).'
+        required: false
+        default: '30'
+
+# One publication at a time, never cancelled halfway (listings must stay consistent with the package objects).
+concurrency:
+  group: model-feed
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: studio-release
+    env:
+      FEED_PREFIX: ${{ vars.MODEL_FEED_PREFIX || 'models' }}
+      FEED_URL: ${{ vars.MODEL_FEED_URL || 'https://download.sharplight.dev/models' }}
+      FEED_NAME: Sharplight verified models
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      WORK: ${{ github.workspace }}/../feed-work
+    steps:
+      - name: Check secrets
+        id: secrets
+        env:
+          SIGNING_KEY: ${{ secrets.MODEL_FEED_SIGNING_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::warning::The secret MODEL_FEED_SIGNING_KEY is not set in the studio-release environment; nothing is built or published (docs/model-feed.md, 'Publishing keys')."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$R2_BUCKET" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::warning::R2 secrets of the studio-release environment are incomplete; nothing is built or published."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.secrets.outputs.skip == 'false'
+        with:
+          fetch-depth: 0 # Nerdbank.GitVersioning needs the history to compute the engine version
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.secrets.outputs.skip == 'false'
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Build the feed tool
+        if: steps.secrets.outputs.skip == 'false'
+        run: dotnet build tools/model-feed/Sharplight.FeedTool -c Release
+
+      - name: Write the signing key
+        if: steps.secrets.outputs.skip == 'false'
+        env:
+          SIGNING_KEY: ${{ secrets.MODEL_FEED_SIGNING_KEY }}
+          ROOT_PUBLIC_KEY: ${{ vars.MODEL_FEED_ROOT_PUBLIC_KEY }}
+        run: |
+          mkdir -p "$WORK"
+          umask 077
+          printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/feed.key.pem"
+          # The root the published key set must verify against: the committed official key unless a variable overrides it.
+          if [ -n "$ROOT_PUBLIC_KEY" ]; then
+            printf '%s\n' "$ROOT_PUBLIC_KEY" > "$RUNNER_TEMP/root.pub.pem"
+          else
+            cp tools/model-feed/keys/sharplight-feed.pub.pem "$RUNNER_TEMP/root.pub.pem"
+          fi
+
+      - name: Fetch the published listings
+        if: steps.secrets.outputs.skip == 'false'
+        run: |
+          # Metadata only (no package files): versions are chosen against it and the new listings are written from it.
+          aws s3 sync "s3://$R2_BUCKET/$FEED_PREFIX/" "$WORK/feed/" --endpoint-url "$R2_ENDPOINT" --exclude "*.slm" --only-show-errors
+          if [ ! -f "$WORK/feed/keys/keyset.json" ]; then
+            echo "::notice::The bucket has no key set; writing one with the signing key as its own root (single-key setup)."
+            dotnet tools/model-feed/Sharplight.FeedTool/bin/Release/net11.0/feedtool.dll keyset --feed "$WORK/feed" \
+              --root-key "$RUNNER_TEMP/feed.key.pem" --feed-key "$RUNNER_TEMP/feed.key.pem"
+            echo "NEW_KEYSET=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build packages
+        if: steps.secrets.outputs.skip == 'false'
+        env:
+          ENTRIES: ${{ inputs.entries }}
+        run: |
+          mkdir -p "$WORK/staging"
+          for spec in $ENTRIES; do
+            entry="${spec%%:*}"
+            args=(--entry "$entry")
+            if [ "$spec" != "$entry" ]; then
+              args+=(--variant "${spec#*:}")
+            fi
+            dotnet tools/model-feed/Sharplight.FeedTool/bin/Release/net11.0/feedtool.dll build "${args[@]}" \
+              --out "$WORK/staging" --store "$WORK/store" --feed "$WORK/feed" --feed-url "$FEED_URL"
+            # Downloads and conversion inputs are not needed after the build; keep the runner's disk free.
+            rm -rf "$WORK/store"
+          done
+          ls -1 "$WORK/staging" | tee "$WORK/staged.txt"
+
+      - name: Publish locally and verify
+        if: steps.secrets.outputs.skip == 'false'
+        env:
+          VALIDITY: ${{ inputs.validity_days }}
+        run: |
+          tool=tools/model-feed/Sharplight.FeedTool/bin/Release/net11.0/feedtool.dll
+          staged=$(find "$WORK/staging" -mindepth 1 -maxdepth 1 -type d | sort)
+          if [ -n "$staged" ]; then
+            dotnet "$tool" publish $staged --feed "$WORK/feed" --key "$RUNNER_TEMP/feed.key.pem" --name "$FEED_NAME" --validity-days "$VALIDITY"
+          else
+            echo "No new packages; re-signing the index (new sequence and expiry)."
+            dotnet "$tool" reindex --feed "$WORK/feed" --key "$RUNNER_TEMP/feed.key.pem" --name "$FEED_NAME" --validity-days "$VALIDITY"
+          fi
+          # Listings, signatures and digests as a host checks them (package files of earlier versions are not downloaded here).
+          dotnet "$tool" verify --feed "$WORK/feed" --root "$RUNNER_TEMP/root.pub.pem"
+
+      - name: Upload to Cloudflare R2
+        if: steps.secrets.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          s3() { aws s3 "$@" --endpoint-url "$R2_ENDPOINT" --only-show-errors; }
+          type_of() {
+            case "$1" in
+              *.json) echo application/json ;;
+              *.sig) echo application/jose ;;
+              *) echo application/octet-stream ;;
+            esac
+          }
+          upload() { # file, key, cache-control
+            s3 cp "$WORK/feed/$1" "s3://$R2_BUCKET/$FEED_PREFIX/$1" --content-type "$(type_of "$1")" --cache-control "$2"
+          }
+          # 1. New package versions (immutable): never overwrite an object that exists.
+          for folder in $(cat "$WORK/staged.txt"); do
+            version_dir=$(ls -d "$WORK"/feed/packages/*/* | while read -r dir; do
+              id=$(basename "$(dirname "$dir")"); version=$(basename "$dir")
+              [ "$id-$version" = "$folder" ] && echo "packages/$id/$version"; done)
+            for file in "$WORK/feed/$version_dir"/*; do
+              key="$version_dir/$(basename "$file")"
+              if aws s3api head-object --bucket "$R2_BUCKET" --key "$FEED_PREFIX/$key" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
+                echo "::warning::$key exists already; published objects are never replaced."
+                continue
+              fi
+              upload "$key" "public, max-age=31536000, immutable"
+            done
+          done
+          # 2. Key set (only when written by this run), package indexes, catalog pages, then the index and its signature last.
+          if [ "${NEW_KEYSET:-false}" = "true" ]; then
+            upload keys/keyset.json "no-cache"
+            upload keys/keyset.sig "no-cache"
+          fi
+          for file in $(cd "$WORK/feed" && ls packages/*/index.json catalog/page/*.json); do
+            upload "$file" "no-cache"
+          done
+          upload catalog/index.json "no-cache"
+          upload index.json "no-cache"
+          upload index.sig "no-cache"
+          echo "Published: $FEED_URL/index.json"
+
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/feed.key.pem" "$RUNNER_TEMP/root.pub.pem"

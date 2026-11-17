@@ -366,6 +366,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "reasoning",
         "tools"
@@ -498,6 +503,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "tools"
       ],
@@ -611,6 +621,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "vision"
       ],
@@ -716,6 +731,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -770,6 +790,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "vision"
       ],
@@ -874,6 +899,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "moe",
         "reasoning",
@@ -944,6 +974,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "moe",
         "tools"
@@ -1002,6 +1037,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "moe",
         "reasoning",
@@ -1120,6 +1160,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -1176,6 +1221,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "moe"
       ],
@@ -1233,6 +1283,11 @@
       "level": "verified",
       "license": "llama3.2",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [
         "tools"
       ],
@@ -1380,6 +1435,11 @@
       "level": "verified",
       "license": "llama3.2",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [
         "tools"
       ],
@@ -1475,6 +1535,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Mistral AI",
+        "countryOfOrigin": "FR",
+        "url": "https://mistral.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -1529,6 +1594,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Mistral AI",
+        "countryOfOrigin": "FR",
+        "url": "https://mistral.ai"
+      },
       "tags": [
         "reasoning"
       ],
@@ -1587,6 +1657,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [],
       "variants": [
         {
@@ -1670,6 +1745,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [],
       "variants": [
         {
@@ -1725,6 +1805,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [
         "moe"
       ],
@@ -1783,6 +1868,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [],
       "variants": [
         {
@@ -1866,6 +1956,11 @@
       "level": "verified",
       "license": "gemma",
       "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [],
       "variants": [
         {
@@ -1971,6 +2066,11 @@
       "level": "verified",
       "license": "gemma",
       "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [
         "vision"
       ],
@@ -2043,6 +2143,11 @@
       "level": "verified",
       "license": "gemma",
       "gated": true,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [],
       "variants": [
         {
@@ -2164,6 +2269,11 @@
       "architecture": "phi3",
       "level": "verified",
       "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com/research"
+      },
       "tags": [],
       "variants": [
         {
@@ -2239,6 +2349,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com/research"
+      },
       "tags": [],
       "variants": [
         {
@@ -2366,6 +2481,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Hugging Face",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co"
+      },
       "tags": [],
       "variants": [
         {
@@ -2469,6 +2589,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Hugging Face",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co"
+      },
       "tags": [],
       "variants": [
         {
@@ -2524,6 +2649,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Allen Institute for AI",
+        "countryOfOrigin": "US",
+        "url": "https://allenai.org"
+      },
       "tags": [
         "moe"
       ],
@@ -2665,6 +2795,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [
         "moe",
         "reasoning",
@@ -2851,6 +2986,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Zhipu AI",
+        "countryOfOrigin": "CN",
+        "url": "https://www.zhipuai.cn"
+      },
       "tags": [
         "moe",
         "reasoning",
@@ -2971,6 +3111,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "DeepSeek",
+        "countryOfOrigin": "CN",
+        "url": "https://www.deepseek.com"
+      },
       "tags": [
         "moe"
       ],
@@ -3082,6 +3227,11 @@
       "family": "MiMo",
       "level": "verified",
       "gated": false,
+      "publisher": {
+        "name": "Xiaomi",
+        "countryOfOrigin": "CN",
+        "url": "https://www.mi.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -3136,6 +3286,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Liquid AI",
+        "countryOfOrigin": "US",
+        "url": "https://www.liquid.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -3241,6 +3396,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Liquid AI",
+        "countryOfOrigin": "US",
+        "url": "https://www.liquid.ai"
+      },
       "tags": [
         "moe"
       ],
@@ -3299,6 +3459,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Liquid AI",
+        "countryOfOrigin": "US",
+        "url": "https://www.liquid.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -3648,6 +3813,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "NVIDIA",
+        "countryOfOrigin": "US",
+        "url": "https://www.nvidia.com"
+      },
       "tags": [
         "reasoning",
         "tools"
@@ -3851,6 +4021,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Technology Innovation Institute",
+        "countryOfOrigin": "AE",
+        "url": "https://www.tii.ae"
+      },
       "tags": [],
       "variants": [
         {
@@ -3934,6 +4109,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "IBM",
+        "countryOfOrigin": "US",
+        "url": "https://www.ibm.com/granite"
+      },
       "tags": [],
       "variants": [
         {
@@ -4050,6 +4230,11 @@
       "architecture": "mamba",
       "level": "verified",
       "gated": false,
+      "publisher": {
+        "name": "Cartesia / state-spaces",
+        "countryOfOrigin": "US",
+        "url": "https://github.com/state-spaces"
+      },
       "tags": [],
       "variants": [
         {
@@ -4124,6 +4309,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Cartesia / state-spaces",
+        "countryOfOrigin": "US",
+        "url": "https://github.com/state-spaces"
+      },
       "tags": [],
       "variants": [
         {
@@ -4218,6 +4408,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -4346,6 +4541,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "EleutherAI",
+        "countryOfOrigin": "US",
+        "url": "https://www.eleuther.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -4486,6 +4686,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "reasoning",
         "tools"
@@ -4608,6 +4813,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "reasoning",
         "tools"
@@ -4717,6 +4927,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "reasoning",
         "tools"
@@ -4860,6 +5075,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "reasoning",
         "tools"
@@ -5003,6 +5223,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "reasoning",
         "tools"
@@ -5060,6 +5285,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "tools"
       ],
@@ -5168,6 +5398,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "tools"
       ],
@@ -5273,6 +5508,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "tools"
       ],
@@ -5560,6 +5800,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "reasoning",
         "tools"
@@ -6018,6 +6263,11 @@
       "level": "partial",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Xiaomi",
+        "countryOfOrigin": "CN",
+        "url": "https://www.mi.com"
+      },
       "tags": [
         "reasoning"
       ],
@@ -6147,6 +6397,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [
         "moe",
         "reasoning",
@@ -6198,6 +6453,11 @@
       "level": "verified",
       "license": "llama3.1",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [
         "tools"
       ],
@@ -6325,6 +6585,11 @@
       "level": "verified",
       "license": "llama3.3",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [
         "tools"
       ],
@@ -6382,6 +6647,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Mistral AI",
+        "countryOfOrigin": "FR",
+        "url": "https://mistral.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -6508,6 +6778,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -6600,6 +6875,11 @@
       "level": "verified",
       "license": "creativeml-openrail-m",
       "gated": false,
+      "publisher": {
+        "name": "Hugging Face",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co"
+      },
       "tags": [],
       "variants": [
         {
@@ -6718,6 +6998,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "OpenBMB",
+        "countryOfOrigin": "CN",
+        "url": "https://www.openbmb.cn"
+      },
       "tags": [],
       "variants": [
         {
@@ -6828,6 +7113,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [
         "moe",
         "reasoning",
@@ -6974,6 +7264,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Beijing Academy of Artificial Intelligence",
+        "countryOfOrigin": "CN",
+        "url": "https://www.baai.ac.cn"
+      },
       "tags": [],
       "variants": [
         {
@@ -7067,6 +7362,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Sentence Transformers (UKP Lab)",
+        "countryOfOrigin": "DE",
+        "url": "https://www.sbert.net"
+      },
       "tags": [],
       "variants": [
         {
@@ -7165,6 +7465,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Microsoft (intfloat)",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co/intfloat"
+      },
       "tags": [],
       "variants": [
         {
@@ -7254,6 +7559,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Microsoft (intfloat)",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co/intfloat"
+      },
       "tags": [],
       "variants": [
         {
@@ -7334,6 +7644,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Nomic AI",
+        "countryOfOrigin": "US",
+        "url": "https://www.nomic.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -7427,6 +7742,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Sentence Transformers (UKP Lab)",
+        "countryOfOrigin": "DE",
+        "url": "https://www.sbert.net"
+      },
       "tags": [
         "reranker"
       ],
@@ -7502,6 +7822,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Beijing Academy of Artificial Intelligence",
+        "countryOfOrigin": "CN",
+        "url": "https://www.baai.ac.cn"
+      },
       "tags": [
         "reranker"
       ],
@@ -7579,6 +7904,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Beijing Academy of Artificial Intelligence",
+        "countryOfOrigin": "CN",
+        "url": "https://www.baai.ac.cn"
+      },
       "tags": [
         "reranker"
       ],
@@ -7704,6 +8034,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -7916,6 +8251,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -8067,6 +8407,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -8260,6 +8605,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -8394,6 +8744,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -8545,6 +8900,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -8679,6 +9039,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -8844,6 +9209,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Hugging Face",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co"
+      },
       "tags": [],
       "variants": [
         {
@@ -8960,6 +9330,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Hugging Face",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co"
+      },
       "tags": [],
       "variants": [
         {
@@ -9061,6 +9436,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Useful Sensors (Moonshine AI)",
+        "countryOfOrigin": "US",
+        "url": "https://moonshine.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -9141,6 +9521,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Useful Sensors (Moonshine AI)",
+        "countryOfOrigin": "US",
+        "url": "https://moonshine.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -9212,6 +9597,11 @@
       "level": "verified",
       "license": "cc-by-4.0",
       "gated": false,
+      "publisher": {
+        "name": "NVIDIA",
+        "countryOfOrigin": "US",
+        "url": "https://www.nvidia.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -9298,6 +9688,11 @@
       "level": "verified",
       "license": "cc-by-4.0",
       "gated": false,
+      "publisher": {
+        "name": "NVIDIA",
+        "countryOfOrigin": "US",
+        "url": "https://www.nvidia.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -9437,6 +9832,11 @@
       "level": "verified",
       "license": "cc-by-4.0",
       "gated": false,
+      "publisher": {
+        "name": "NVIDIA",
+        "countryOfOrigin": "US",
+        "url": "https://www.nvidia.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -9529,6 +9929,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -9678,6 +10083,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -9771,6 +10181,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -9843,6 +10258,11 @@
       "level": "partial",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "NVIDIA",
+        "countryOfOrigin": "US",
+        "url": "https://www.nvidia.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -9929,6 +10349,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -10120,6 +10545,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Mistral AI",
+        "countryOfOrigin": "FR",
+        "url": "https://mistral.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -10219,6 +10649,10 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "hexgrad",
+        "url": "https://huggingface.co/hexgrad"
+      },
       "tags": [],
       "variants": [
         {
@@ -10552,6 +10986,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Canopy Labs",
+        "countryOfOrigin": "US",
+        "url": "https://canopylabs.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -10678,6 +11117,10 @@
       "level": "verified",
       "license": "cc-by-nc-4.0",
       "gated": false,
+      "publisher": {
+        "name": "OuteAI",
+        "url": "https://www.outeai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -10781,6 +11224,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Resemble AI",
+        "countryOfOrigin": "US",
+        "url": "https://www.resemble.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -10841,7 +11289,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "built-in voice \u0060default\u0060, or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; voice encoder within 1.2e-6, S3 prompt and flow tokens identical, CAM\u002B\u002B x-vector within 8e-6 vs the package); streams in chunks of speech tokens cross-faded while T3 generates; a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); numbers, dates and currency spelled; multilingual and Turbo variants not run",
+      "notes": "built-in voice \u0060default\u0060, or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; voice encoder within 1.2e-6, S3 prompt and flow tokens identical, CAM\u002B\u002B x-vector within 8e-6 vs the package); streams in chunks of speech tokens cross-faded while T3 generates; a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060); numbers, dates and currency spelled; multilingual and Turbo variants not run",
       "doc": [
         {
           "section": "3",
@@ -10861,6 +11309,11 @@
       "level": "verified",
       "license": "cc-by-nc-4.0",
       "gated": false,
+      "publisher": {
+        "name": "SWivid (Shanghai Jiao Tong University)",
+        "countryOfOrigin": "CN",
+        "url": "https://github.com/SWivid/F5-TTS"
+      },
       "tags": [],
       "variants": [
         {
@@ -10951,6 +11404,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Coqui",
+        "countryOfOrigin": "DE",
+        "url": "https://coqui.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -11029,7 +11487,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the 58 built-in speakers or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; style latents within 3.7e-6, speaker embedding within 2.8e-6 vs coqui-tts); streams within a sentence (first audio after 12 codes); a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); English text cleaning, plus numbers, dates and currency spelled for the request's language (EN, DE, FR, ES, IT, PT, ZH, JA)",
+      "notes": "the 58 built-in speakers or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; style latents within 3.7e-6, speaker embedding within 2.8e-6 vs coqui-tts); streams within a sentence (first audio after 12 codes); a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060); English text cleaning, plus numbers, dates and currency spelled for the request\u0027s language (EN, DE, FR, ES, IT, PT, ZH, JA)",
       "doc": [
         {
           "section": "3",
@@ -11049,6 +11507,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Tongyi Lab (FunAudioLLM)",
+        "countryOfOrigin": "CN",
+        "url": "https://funaudiollm.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -11165,7 +11628,7 @@
           "CosyVoiceTests"
         ]
       },
-      "notes": "the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, with \u0060ReferenceText\u0060 for zero-shot, \u0060Instructions\u0060 for instruct); no built-in voices in the release; streams chunks of about a second while the language model generates (chunk-causal flow, as `stream=True` of the reference); a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); numbers, dates and currency are spelled for the request's language (EN, DE, FR, ES, IT, PT, ZH, JA)",
+      "notes": "the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, with \u0060ReferenceText\u0060 for zero-shot, \u0060Instructions\u0060 for instruct); no built-in voices in the release; streams chunks of about a second while the language model generates (chunk-causal flow, as \u0060stream=True\u0060 of the reference); a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060); numbers, dates and currency are spelled for the request\u0027s language (EN, DE, FR, ES, IT, PT, ZH, JA)",
       "doc": [
         {
           "section": "3",
@@ -11185,6 +11648,11 @@
       "level": "verified",
       "license": "creativeml-openrail-m",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -11326,6 +11794,11 @@
       "level": "verified",
       "license": "openrail\u002B\u002B",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -11476,6 +11949,11 @@
       "level": "verified",
       "license": "openrail\u002B\u002B",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -11696,6 +12174,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -11915,6 +12398,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": true,
+      "publisher": {
+        "name": "Black Forest Labs",
+        "countryOfOrigin": "DE",
+        "url": "https://bfl.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -12193,6 +12681,11 @@
       "level": "verified",
       "license": "other",
       "gated": true,
+      "publisher": {
+        "name": "Black Forest Labs",
+        "countryOfOrigin": "DE",
+        "url": "https://bfl.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -12312,6 +12805,11 @@
       "level": "verified",
       "license": "flux-dev-non-commercial-license",
       "gated": true,
+      "publisher": {
+        "name": "Black Forest Labs",
+        "countryOfOrigin": "DE",
+        "url": "https://bfl.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -12432,6 +12930,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -12851,6 +13354,10 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": true,
+      "publisher": {
+        "name": "Lodestone Rock (Chroma)",
+        "url": "https://huggingface.co/lodestones"
+      },
       "tags": [],
       "variants": [
         {
@@ -13002,6 +13509,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -13178,6 +13690,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Tongyi Lab",
+        "countryOfOrigin": "CN",
+        "url": "https://tongyi.aliyun.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -13449,6 +13966,11 @@
       "level": "verified",
       "license": "flux-dev-non-commercial-license",
       "gated": true,
+      "publisher": {
+        "name": "Black Forest Labs",
+        "countryOfOrigin": "DE",
+        "url": "https://bfl.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -13561,6 +14083,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Black Forest Labs",
+        "countryOfOrigin": "DE",
+        "url": "https://bfl.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -13732,6 +14259,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -13923,6 +14455,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -14114,6 +14651,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Krea",
+        "countryOfOrigin": "US",
+        "url": "https://www.krea.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -14478,6 +15020,11 @@
       "level": "verified",
       "license": "openrail\u002B\u002B",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -14534,6 +15081,11 @@
       "level": "verified",
       "license": "cdla-permissive-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -14590,6 +15142,11 @@
       "level": "verified",
       "license": "cdla-permissive-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -14646,6 +15203,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -14702,6 +15264,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -14758,6 +15325,11 @@
       "level": "verified",
       "license": "openrail\u002B\u002B",
       "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -14814,6 +15386,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -14990,6 +15567,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [],
       "variants": [
         {
@@ -15057,6 +15639,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -15124,6 +15711,11 @@
       "architecture": "clip",
       "level": "verified",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -15221,6 +15813,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [],
       "variants": [
         {
@@ -15312,6 +15909,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -15380,6 +15982,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Baidu (PaddlePaddle)",
+        "countryOfOrigin": "CN",
+        "url": "https://www.paddlepaddle.org.cn"
+      },
       "tags": [],
       "variants": [
         {
@@ -15448,6 +16055,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Depth Anything (TikTok / HKU)",
+        "countryOfOrigin": "CN",
+        "url": "https://depth-anything.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -15516,6 +16128,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -15601,6 +16218,11 @@
       "architecture": "trocr",
       "level": "verified",
       "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com/research"
+      },
       "tags": [],
       "variants": [
         {
@@ -15760,6 +16382,10 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
       "tags": [],
       "variants": [
         {
@@ -15823,6 +16449,10 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
       "tags": [],
       "variants": [
         {
@@ -15877,6 +16507,10 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
       "tags": [],
       "variants": [
         {
@@ -15931,6 +16565,10 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
       "tags": [],
       "variants": [
         {
@@ -16057,6 +16695,11 @@
       "architecture": "clip",
       "level": "verified",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -16155,6 +16798,11 @@
       "architecture": "clip",
       "level": "verified",
       "gated": false,
+      "publisher": {
+        "name": "OpenAI",
+        "countryOfOrigin": "US",
+        "url": "https://openai.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -16245,6 +16893,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "LAION",
+        "countryOfOrigin": "DE",
+        "url": "https://laion.ai"
+      },
       "tags": [],
       "variants": [
         {
@@ -16349,6 +17002,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [],
       "variants": [
         {
@@ -16442,6 +17100,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
       "tags": [],
       "variants": [
         {
@@ -16526,6 +17189,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -16594,6 +17262,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -16653,6 +17326,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -16712,6 +17390,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Baidu (PaddlePaddle)",
+        "countryOfOrigin": "CN",
+        "url": "https://www.paddlepaddle.org.cn"
+      },
       "tags": [],
       "variants": [
         {
@@ -16781,6 +17464,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Baidu (PaddlePaddle)",
+        "countryOfOrigin": "CN",
+        "url": "https://www.paddlepaddle.org.cn"
+      },
       "tags": [],
       "variants": [
         {
@@ -16841,6 +17529,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Baidu (PaddlePaddle)",
+        "countryOfOrigin": "CN",
+        "url": "https://www.paddlepaddle.org.cn"
+      },
       "tags": [],
       "variants": [
         {
@@ -16901,6 +17594,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com/research"
+      },
       "tags": [],
       "variants": [
         {
@@ -16969,6 +17667,11 @@
       "level": "verified",
       "license": "cc-by-nc-4.0",
       "gated": false,
+      "publisher": {
+        "name": "Depth Anything (TikTok / HKU)",
+        "countryOfOrigin": "CN",
+        "url": "https://depth-anything.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -17038,6 +17741,11 @@
       "level": "verified",
       "license": "cc-by-nc-4.0",
       "gated": false,
+      "publisher": {
+        "name": "Depth Anything (TikTok / HKU)",
+        "countryOfOrigin": "CN",
+        "url": "https://depth-anything.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -17098,6 +17806,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Depth Anything (TikTok / HKU)",
+        "countryOfOrigin": "CN",
+        "url": "https://depth-anything.github.io"
+      },
       "tags": [],
       "variants": [
         {
@@ -17158,6 +17871,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "NVIDIA Research (SegFormer)",
+        "countryOfOrigin": "US",
+        "url": "https://github.com/NVlabs/SegFormer"
+      },
       "tags": [],
       "variants": [
         {
@@ -17227,6 +17945,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "NVIDIA Research (SegFormer)",
+        "countryOfOrigin": "US",
+        "url": "https://github.com/NVlabs/SegFormer"
+      },
       "tags": [],
       "variants": [
         {
@@ -17287,6 +18010,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com/research"
+      },
       "tags": [],
       "variants": [
         {
@@ -17385,6 +18113,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "ZhengPeng7 (BiRefNet)",
+        "countryOfOrigin": "CN",
+        "url": "https://github.com/ZhengPeng7/BiRefNet"
+      },
       "tags": [],
       "variants": [
         {
@@ -17460,6 +18193,11 @@
       "level": "verified",
       "license": "other",
       "gated": true,
+      "publisher": {
+        "name": "ZhengPeng7 (BiRefNet)",
+        "countryOfOrigin": "CN",
+        "url": "https://github.com/ZhengPeng7/BiRefNet"
+      },
       "tags": [],
       "variants": [
         {
@@ -17526,6 +18264,11 @@
       "level": "verified",
       "license": "mit",
       "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com/research"
+      },
       "tags": [],
       "variants": [
         {
@@ -17678,6 +18421,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Huazhong University of Science and Technology (hustvl)",
+        "countryOfOrigin": "CN",
+        "url": "https://github.com/hustvl"
+      },
       "tags": [],
       "variants": [
         {
@@ -17745,6 +18493,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Huazhong University of Science and Technology (hustvl)",
+        "countryOfOrigin": "CN",
+        "url": "https://github.com/hustvl"
+      },
       "tags": [],
       "variants": [
         {
@@ -17802,6 +18555,11 @@
       "architecture": "encodec",
       "level": "verified",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -17869,6 +18627,11 @@
       "architecture": "dac",
       "level": "verified",
       "gated": false,
+      "publisher": {
+        "name": "Descript",
+        "countryOfOrigin": "US",
+        "url": "https://www.descript.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -17936,6 +18699,11 @@
       "level": "verified",
       "license": "cc-by-4.0",
       "gated": false,
+      "publisher": {
+        "name": "Kyutai",
+        "countryOfOrigin": "FR",
+        "url": "https://kyutai.org"
+      },
       "tags": [],
       "variants": [
         {
@@ -18002,6 +18770,10 @@
       "architecture": "silero_vad",
       "level": "verified",
       "gated": false,
+      "publisher": {
+        "name": "Silero",
+        "url": "https://github.com/snakers4/silero-vad"
+      },
       "tags": [],
       "variants": [
         {
@@ -18058,6 +18830,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Tongyi Lab (Wan)",
+        "countryOfOrigin": "CN",
+        "url": "https://wan.video"
+      },
       "tags": [],
       "variants": [
         {
@@ -18201,6 +18978,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Tongyi Lab (Wan)",
+        "countryOfOrigin": "CN",
+        "url": "https://wan.video"
+      },
       "tags": [],
       "variants": [
         {
@@ -18409,6 +19191,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Lightricks",
+        "countryOfOrigin": "IL",
+        "url": "https://www.lightricks.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -18579,6 +19366,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Tongyi Lab (Wan)",
+        "countryOfOrigin": "CN",
+        "url": "https://wan.video"
+      },
       "tags": [],
       "variants": [
         {
@@ -18727,6 +19519,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Tongyi Lab (Wan)",
+        "countryOfOrigin": "CN",
+        "url": "https://wan.video"
+      },
       "tags": [],
       "variants": [
         {
@@ -18905,6 +19702,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Tongyi Lab (Wan)",
+        "countryOfOrigin": "CN",
+        "url": "https://wan.video"
+      },
       "tags": [],
       "variants": [
         {
@@ -19125,6 +19927,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Tongyi Lab (Wan)",
+        "countryOfOrigin": "CN",
+        "url": "https://wan.video"
+      },
       "tags": [],
       "variants": [
         {
@@ -19375,6 +20182,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Alibaba Tongyi Lab (Wan)",
+        "countryOfOrigin": "CN",
+        "url": "https://wan.video"
+      },
       "tags": [],
       "variants": [
         {
@@ -19555,6 +20367,11 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "Tencent",
+        "countryOfOrigin": "CN",
+        "url": "https://hunyuan.tencent.com"
+      },
       "tags": [],
       "variants": [
         {
@@ -19755,6 +20572,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com/research"
+      },
       "tags": [],
       "variants": [
         {
@@ -19815,6 +20637,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com/research"
+      },
       "tags": [],
       "variants": [
         {
@@ -19875,6 +20702,10 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
       "tags": [],
       "variants": [
         {
@@ -19929,6 +20760,11 @@
       "level": "verified",
       "license": "apache-2.0",
       "gated": false,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
       "tags": [],
       "variants": [
         {
