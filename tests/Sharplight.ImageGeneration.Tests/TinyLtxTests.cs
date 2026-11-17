@@ -8,23 +8,34 @@ namespace Sharplight.ImageGeneration.Tests;
 /// <summary>
 /// The tiny random LTX-Video pipeline (tools/make-tiny-ltx.py): the unmasked T5 conditioning, the transformer with its key-masked
 /// cross-attention and fractional RoPE, the whole-video non-causal VAE decoder and a whole text-to-video run (flow-matching Euler with
-/// the resolution-dependent shift and the terminal stretch) against diffusers, on the CPU and on Vulkan.
+/// the resolution-dependent shift and the terminal stretch) against diffusers, on the CPU and on Vulkan; variant "095" is the
+/// LTX-Video 0.9.5 layout (timestep-conditioned decoder, residual upsamplers that halve the channels, static shift).
 /// </summary>
 public sealed class TinyLtxTests
 {
-    private static readonly string Root = Path.Combine(Env.VideoRoot, "tiny-random-ltx");
+    private static string Root(string variant) => Path.Combine(Env.VideoRoot, "tiny-random-ltx", variant);
 
-    private static float[] Tensor(string name) => Env.ReadFloats(Path.Combine(Root, "reference", name + ".f32"));
+    private static float[] Tensor(string variant, string name) => Env.ReadFloats(Path.Combine(Root(variant), "reference", name + ".f32"));
 
-    private static JsonElement Index()
+    private static JsonElement Index(string variant)
     {
-        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(Root, "reference", "index.json")));
+        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(Root(variant), "reference", "index.json")));
         return document.RootElement.Clone();
     }
 
-    private static bool Present => File.Exists(Path.Combine(Root, "reference", "index.json"));
+    private static bool Present(string variant) => File.Exists(Path.Combine(Root(variant), "reference", "index.json"));
 
-    public static TheoryData<string> Devices => ["cpu", "vulkan"];
+    public static TheoryData<string, string> Cases()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (string device in new[] { "cpu", "vulkan" })
+        {
+            data.Add(device, "");
+            data.Add(device, "095");
+        }
+
+        return data;
+    }
 
     private static Dictionary<string, long> Dimensions(JsonElement index) => new()
     {
@@ -34,14 +45,14 @@ public sealed class TinyLtxTests
     };
 
     [Theory]
-    [MemberData(nameof(Devices))]
-    public void GraphsMatchDiffusers(string device)
+    [MemberData(nameof(Cases))]
+    public void GraphsMatchDiffusers(string device, string variant)
     {
-        Assert.SkipUnless(Present, "tiny-random-ltx missing");
+        Assert.SkipUnless(Present(variant), $"tiny-random-ltx {variant} missing");
         var slot = Env.Device(device);
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        using var model = Env.Load(Path.Combine(Root, "diffusers"), slot!);
-        var index = Index();
+        using var model = Env.Load(Path.Combine(Root(variant), "diffusers"), slot!);
+        var index = Index(variant);
         var dims = Dimensions(index);
         var tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
         int length = index.GetProperty("max_sequence_length").GetInt32();
@@ -54,37 +65,37 @@ public sealed class TinyLtxTests
             expected.CopyTo(tokens, 0);
             var hidden = GraphRunner.Run(model, ModelComponentRoles.TextEncoder, VideoDiffusionGraphs.TextEncode, VideoDiffusionGraphs.Hidden, 0,
                 (VideoDiffusionGraphs.Tokens, tokens));
-            var (maxAbs, rms) = Env.Compare(hidden, Tensor($"text_hidden_{i}"));
+            var (maxAbs, rms) = Env.Compare(hidden, Tensor(variant, $"text_hidden_{i}"));
             Assert.True(rms < 1e-4, $"T5 {i}: max {maxAbs}, relative RMS {rms}");
             i++;
         }
 
         var prediction = GraphRunner.Run(model, ModelComponentRoles.Transformer, VideoDiffusionGraphs.Denoise, VideoDiffusionGraphs.Prediction, 0, dims,
-            (VideoDiffusionGraphs.Latent, Tensor("transformer_latent")),
-            (VideoDiffusionGraphs.Timestep, Tensor("transformer_timestep")),
-            (VideoDiffusionGraphs.Context, Tensor("transformer_context")),
-            (VideoDiffusionGraphs.ContextMask, Tensor("transformer_context_mask")));
-        var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor("transformer_out"));
+            (VideoDiffusionGraphs.Latent, Tensor(variant, "transformer_latent")),
+            (VideoDiffusionGraphs.Timestep, Tensor(variant, "transformer_timestep")),
+            (VideoDiffusionGraphs.Context, Tensor(variant, "transformer_context")),
+            (VideoDiffusionGraphs.ContextMask, Tensor(variant, "transformer_context_mask")));
+        var (transformerMax, transformerRms) = Env.Compare(prediction, Tensor(variant, "transformer_out"));
         Assert.True(transformerRms < 1e-4, $"transformer: max {transformerMax}, relative RMS {transformerRms}");
 
         var decoded = GraphRunner.Run(model, ModelComponentRoles.Vae, VideoDiffusionGraphs.VaeDecode, VideoDiffusionGraphs.Frames, 0, dims,
-            (VideoDiffusionGraphs.Latent, Tensor("vae_latent")));
+            (VideoDiffusionGraphs.Latent, Tensor(variant, "vae_latent")));
         int frames = index.GetProperty("frames").GetInt32();
-        var expectedVideo = FramesFirst(Tensor("vae_decoded").Select(v => Math.Clamp(v / 2 + 0.5f, 0f, 1f)).ToArray(), 3, frames);
+        var expectedVideo = FramesFirst(Tensor(variant, "vae_decoded").Select(v => Math.Clamp(v / 2 + 0.5f, 0f, 1f)).ToArray(), 3, frames);
         var (vaeMax, vaeRms) = Env.Compare(decoded, expectedVideo);
         Assert.True(vaeRms < 1e-4, $"vae decode: max {vaeMax}, relative RMS {vaeRms}");
     }
 
     [Theory]
-    [MemberData(nameof(Devices))]
-    public async Task TextToVideoMatchesDiffusers(string device)
+    [MemberData(nameof(Cases))]
+    public async Task TextToVideoMatchesDiffusers(string device, string variant)
     {
-        Assert.SkipUnless(Present, "tiny-random-ltx missing");
+        Assert.SkipUnless(Present(variant), $"tiny-random-ltx {variant} missing");
         var slot = Env.Device(device);
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        using var model = Env.Load(Path.Combine(Root, "diffusers"), slot!);
+        using var model = Env.Load(Path.Combine(Root(variant), "diffusers"), slot!);
         using var generator = Env.Clients.Create<IVideoGenerator>(model);
-        var index = Index();
+        var index = Index(variant);
         int width = index.GetProperty("width").GetInt32();
         int height = index.GetProperty("height").GetInt32();
         int frames = index.GetProperty("frames").GetInt32();
@@ -96,11 +107,11 @@ public sealed class TinyLtxTests
             Frames = frames,
             Steps = index.GetProperty("steps").GetInt32(),
             GuidanceScale = index.GetProperty("guidance_scale").GetSingle(),
-            InitialNoise = Tensor("noise"),
+            InitialNoise = Tensor(variant, "noise"),
         };
         var result = await generator.GenerateAsync(request, options, TestContext.Current.CancellationToken);
         Assert.Equal(frames, result.Frames.Count);
-        var expected = Tensor("video");
+        var expected = Tensor(variant, "video");
         int frameValues = 3 * width * height;
         for (int f = 0; f < frames; f++)
         {
