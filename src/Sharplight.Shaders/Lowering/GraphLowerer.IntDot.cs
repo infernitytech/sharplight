@@ -137,8 +137,16 @@ public sealed partial class GraphLowerer
 
         if (code == ActivationCode.F16 && shareable && NormHalfCopy(root, x, xStride, k, minRows) is { } normCopy)
         {
-            // The norm writes the copy for small steps only; larger steps convert into the same buffer.
-            if (maxRows > normCopy.MaxRows)
+            // The producer writes the copy for some steps only; the others convert into the same buffer.
+            if (normCopy.Written is { } written)
+            {
+                var conversionKey = (root, x.ByteOffset, xStride, k, minRows, maxRows, code, (object?)_launchCondition);
+                if (_quantizedActivations.TryAdd(conversionKey, normCopy.Copy))
+                {
+                    EmitActivationConversion(label, nodes, x, xStride, rowsPerLead, k, minRows, maxRows, code, normCopy.Copy, written);
+                }
+            }
+            else if (maxRows > normCopy.MaxRows)
             {
                 long from = Math.Max(minRows, normCopy.MaxRows + 1);
                 var extensionKey = (root, x.ByteOffset, xStride, k, from, maxRows, code, (object?)_launchCondition);
@@ -176,9 +184,12 @@ public sealed partial class GraphLowerer
         return quantized;
     }
 
-    /// <summary>The launch converting x into <paramref name="quantized"/> while x has <paramref name="minRows"/> to <paramref name="maxRows"/> rows.</summary>
+    /// <summary>
+    /// The launch converting x into <paramref name="quantized"/> while x has <paramref name="minRows"/> to <paramref name="maxRows"/> rows,
+    /// except for the row counts where <paramref name="written"/> holds (the producer of x wrote the copy).
+    /// </summary>
     private void EmitActivationConversion(string label, Node[] nodes, TensorRef x, long xStride, long rowsPerLead, long k, long minRows, long maxRows,
-        ActivationCode code, TensorRef quantized)
+        ActivationCode code, TensorRef quantized, Func<long, bool>? written = null)
     {
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
         var kernel = code switch
@@ -195,7 +206,7 @@ public sealed partial class GraphLowerer
             : b => new Grid(Grid.Div(rows(b) * (k / valuesPerThread), 256));
         string what = code switch { ActivationCode.Fp8 => "fp8", ActivationCode.F16 => "f16", ActivationCode.SplitF16 => "split f16", ActivationCode.ScaledF16 => "scaled f16", _ => "q8" };
         Emit($"{label} x→{what}", nodes,
-            [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows, kernel, grid)],
+            [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows && !(written?.Invoke(rows(b)) ?? false), kernel, grid)],
             [Pointer(x), Pointer(quantized), TokenArg(x, rowsPerLead)],
             [x], [quantized]);
     }

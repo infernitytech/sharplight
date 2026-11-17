@@ -28,6 +28,11 @@
 #ifndef X_SORTED
 #define X_SORTED 0
 #endif
+// DUAL_Y16 (dual gemm_cm2): also stores y rounded to f16 into y16, the f16 copy the next GEMM reads (the to_f16 conversion,
+// round to nearest even, so the copy is identical to a separate conversion).
+#ifndef DUAL_Y16
+#define DUAL_Y16 0
+#endif
 
 struct Params
 {
@@ -43,6 +48,9 @@ struct Params
     uint* scratch;
 #endif
     float* y;
+#if DUAL_Y16
+    uint8_t* y16;   // the f16 copy of y (dense rows of N halves)
+#endif
 #if GEMM_SPLIT
     float* ws;   // per weight row: the power-of-two scale applied before splitting (split_scale)
 #endif
@@ -1047,6 +1055,15 @@ uint4 load8h(uint8_t* w, uint row, uint g)
                  f32tof16(v[4]) | (f32tof16(v[5]) << 16), f32tof16(v[6]) | (f32tof16(v[7]) << 16));
 #endif
 }
+// 8 bf16 values (packed pairs) as packed halves, the conversion of load8h.
+uint4 bf16x8_h(uint4 u)
+{
+    return uint4(f32tof16(asfloat(u.x << 16)) | (f32tof16(asfloat(u.x & 0xFFFF0000u)) << 16),
+                 f32tof16(asfloat(u.y << 16)) | (f32tof16(asfloat(u.y & 0xFFFF0000u)) << 16),
+                 f32tof16(asfloat(u.z << 16)) | (f32tof16(asfloat(u.z & 0xFFFF0000u)) << 16),
+                 f32tof16(asfloat(u.w << 16)) | (f32tof16(asfloat(u.w & 0xFFFF0000u)) << 16));
+}
+
 // Raw weight fetches of gemm_cm2. FETCH only issues the loads of a unit (GW_UNIT weights of one row) into GW_RAW registers;
 // the unit is decoded to packed halves when it is staged, after the MMAs of the current step, so the loads stay in flight
 // during the MMAs instead of stalling the warp at the decode. The row's base addresses are computed once (WRow). The decode
@@ -1238,6 +1255,41 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             ws[set][it][0] = hp[0]; ws[set][it][1] = hp[1]; wsl[set][it][0] = lp[0]; wsl[set][it][1] = lp[1]; } }
     #define WSTAGE(set, it, ob, row)                                                                    \
         { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; gBl[ob] = wsl[set][it][0]; gBl[(ob) + 1] = wsl[set][it][1]; }
+#elif WFMT == FMT_BF16 || WFMT == FMT_F16
+    // 16-bit weights: the 16 raw values stay in the prefetch registers (as many as the decoded halves) and bf16 is converted
+    // to halves when staged, after the MMAs, so the loads stay in flight during them (converted at the fetch, the warp waited
+    // for its loads before the MMAs: bf16 [4096 → 12288] at 2048 rows 123 → 136 TFLOPS). Same conversion as load16h.
+#if DUAL && (GTHREADS / (GBK / 16)) % 32 == 0
+    // Item it of a thread reads tile row tid / (GBK / 16) + it * 32k: the same matrix (w or w2) for every item and weight rows
+    // 16k apart, so one base address serves all items (dual bf16 [4096 → 12288] x2 at 2048 rows 130 → 143 TFLOPS with the above).
+    uint dualTr0 = tid / (GBK / 16);
+    uint dualRow0 = n0 + (dualTr0 >> 5) * 16 + (dualTr0 & 15);
+    uint64_t dualBase = uint64_t(rowStart(((dualTr0 >> 4) & 1) != 0 ? p.w2 : wbase, ROW_BYTES, min(dualRow0, uint(N) - 1)));
+    #define WLOAD(set, it, row, g)                                                                      \
+        { uint wrow = dualRow0 + it * (GTHREADS / (GBK / 16)) / 2;                                      \
+          ws[set][it][0] = 0; ws[set][it][1] = 0;                                                       \
+          if (N % GBN_OUT == 0 || wrow < N)                                                             \
+          { uint4* hp = (uint4*)(dualBase + uint64_t(it * (GTHREADS / (GBK / 16)) / 2) * ROW_BYTES + uint64_t(g) * 32); \
+            ws[set][it][0] = hp[0]; ws[set][it][1] = hp[1]; } }
+#elif DUAL
+    #define WLOAD(set, it, row, g)                                                                      \
+        { uint tr = (row) - n0, wrow = n0 + (tr >> 5) * 16 + (tr & 15);                                 \
+          ws[set][it][0] = 0; ws[set][it][1] = 0;                                                       \
+          if (N % GBN_OUT == 0 || wrow < N)                                                             \
+          { uint4* hp = (uint4*)(rowStart(((tr >> 4) & 1) != 0 ? p.w2 : wbase, ROW_BYTES, wrow) + uint64_t(g) * 32); \
+            ws[set][it][0] = hp[0]; ws[set][it][1] = hp[1]; } }
+#else
+    #define WLOAD(set, it, row, g)                                                                      \
+        { ws[set][it][0] = 0; ws[set][it][1] = 0;                                                       \
+          if (N % GBN == 0 || (row) < N)                                                                \
+          { uint4* hp = (uint4*)(rowStart(wbase, ROW_BYTES, row) + uint64_t(g) * 32);                   \
+            ws[set][it][0] = hp[0]; ws[set][it][1] = hp[1]; } }
+#endif
+#if WFMT == FMT_BF16
+    #define WSTAGE(set, it, ob, row) { gB[ob] = bf16x8_h(ws[set][it][0]); gB[(ob) + 1] = bf16x8_h(ws[set][it][1]); }
+#else
+    #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
+#endif
 #elif DUAL
     // B tile row r: row n0 + (r / 32) * 16 + r % 16 of w (fragments 2i) or of w2 (fragments 2i + 1); `row` is the tile row.
     #define WLOAD(set, it, row, g)                                                                      \
@@ -1483,6 +1535,25 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             {
                 continue;   // a tile past the last output (N not a multiple of GBN_OUT)
             }
+#if DUAL_Y16
+            if (tRow + 16 <= p.T && nCol + 16 <= N)
+            {
+                CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator> h = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>(r);
+                h.Store<CoopMatMatrixLayout.RowMajor>((half*)p.y16 + uint64_t(tRow) * N + nCol, 0u, N);
+            }
+            else
+            {
+                r.Store<CoopMatMatrixLayout.RowMajor>(gC, sg * 256, 16u);
+                GroupMemoryBarrierWithWaveSync();
+                [ForceUnroll]
+                for (uint e = 0; e < 8; e++)
+                {
+                    uint w = lane + e * 32, t = tRow + w / 16, n = nCol + w % 16;
+                    if (t < p.T && n < N) *(uint16_t*)(p.y16 + (uint64_t(t) * N + n) * 2) = uint16_t(f32tof16(gC[sg * 256 + w]));
+                }
+                GroupMemoryBarrierWithWaveSync();
+            }
+#endif
             if (tRow + 16 <= p.T && nCol + 16 <= N)
             {
                 r.Store<CoopMatMatrixLayout.RowMajor>(yb + uint64_t(tRow) * Y_STRIDE + nCol, 0u, Y_STRIDE);

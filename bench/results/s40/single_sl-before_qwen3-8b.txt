@@ -1,0 +1,16 @@
+[N=16 run=1] Rows per forward pass: 512 (automatic, 28988 MiB available).
+[N=16 run=1] prefill 16 tok: best 20 ms = 781.9 tok/s | decode: best 53.51, median 53.14, mean 53.15 tok/s | GPU ms/step: best 18.54, median 18.63, wall best 18.69
+[N=16 run=2] Rows per forward pass: 512 (automatic, 28988 MiB available).
+[N=16 run=2] prefill 16 tok: best 20 ms = 783.5 tok/s | decode: best 53.61, median 53.17, mean 53.17 tok/s | GPU ms/step: best 18.54, median 18.64, wall best 18.65
+[N=512 run=1] Rows per forward pass: 768 (automatic, 28988 MiB available).
+[N=512 run=1] prefill 512 tok: best 75 ms = 6836.2 tok/s | decode: best 52.60, median 52.35, mean 52.34 tok/s | GPU ms/step: best 18.90, median 18.93, wall best 19.01
+[N=512 run=2] Rows per forward pass: 768 (automatic, 28988 MiB available).
+[N=512 run=2] prefill 512 tok: best 75 ms = 6833.9 tok/s | decode: best 52.63, median 52.43, mean 52.40 tok/s | GPU ms/step: best 18.89, median 18.91, wall best 19.00
+[N=2048 run=1] Rows per forward pass: 2048 (automatic, 28988 MiB available).
+[N=2048 run=1] prefill 2048 tok: best 288 ms = 7113.5 tok/s | decode: best 52.12, median 51.91, mean 51.86 tok/s | GPU ms/step: best 19.07, median 19.11, wall best 19.18
+[N=2048 run=2] Rows per forward pass: 2048 (automatic, 28988 MiB available).
+[N=2048 run=2] prefill 2048 tok: best 289 ms = 7088.3 tok/s | decode: best 52.11, median 51.77, mean 51.76 tok/s | GPU ms/step: best 19.07, median 19.11, wall best 19.19
+[N=8192 run=1] Rows per forward pass: 2048 (automatic, 28988 MiB available).
+[N=8192 run=1] prefill 8192 tok: best 1313 ms = 6240.5 tok/s | decode: best 49.01, median 48.80, mean 48.79 tok/s | GPU ms/step: best 20.27, median 20.30, wall best 20.40
+[N=8192 run=2] Rows per forward pass: 2048 (automatic, 28988 MiB available).
+[N=8192 run=2] prefill 8192 tok: best 1318 ms = 6213.9 tok/s | decode: best 49.03, median 48.83, mean 48.82 tok/s | GPU ms/step: best 20.26, median 20.31, wall best 20.40

@@ -158,6 +158,95 @@ groupshared uint sB[F8_BN * F8_RS];
 groupshared float sAS[F8_BM];
 groupshared float sBS[F8_WBLOCKS * F8_BN];
 
+// The MMAs and block scaling of the staged K step (see fp8_tile).
+void fp8_step<let PAIR : bool>(inout float acc[F8_FM][F8_FN][8], uint wm, uint wn, uint r0, uint c0, int index[8])
+{
+    float xr[F8_FM][2];
+    if (PAIR)
+    {
+        [ForceUnroll]
+        for (int i = 0; i < F8_FM; i++)
+        {
+            xr[i][0] = sAS[wm + i * 16 + r0];
+            xr[i][1] = sAS[wm + i * 16 + r0 + 8];
+        }
+    }
+
+    // The block products are added with an explicit fused multiply-add, so the dual kernel (DUAL) and the single one round
+    // alike whatever the compiler would contract in each. The block accumulator holds one row or column of fragments rather
+    // than F8_FM x F8_FN, which frees registers (10-13 % faster from 256 rows) at the cost of reloading B or A fragments.
+    [MaxIters(F8_WBLOCKS)] [loop]
+    for (uint wb = 0; wb < F8_WBLOCKS; wb++)
+    {
+        uint bs = wb * F8_BN;
+        if (PAIR)
+        {
+            // Pair layout: one output row fragment at a time (the A fragments are loaded once, the B fragments per row fragment;
+            // [4096 → 12288] at 2048 rows 194 → 197 TFLOPS against column fragments). Generic layout: one column fragment at a time.
+            float ws[F8_FN][4];
+            [ForceUnroll]
+            for (int j = 0; j < F8_FN; j++)
+            {
+                uint base = bs + wn + j * 16 + c0;
+                ws[j][0] = sBS[base]; ws[j][1] = sBS[base + 1]; ws[j][2] = sBS[base + 8]; ws[j][3] = sBS[base + 9];
+            }
+            [ForceUnroll]
+            for (int i = 0; i < F8_FM; i++)
+            {
+                AccF c[F8_FN];
+                [ForceUnroll] for (int j = 0; j < F8_FN; j++) c[j] = AccF(0.0);
+                [ForceUnroll]
+                for (uint m = 0; m < F8_MMAS; m++)
+                {
+                    uint kw = (wb * WBLOCK + m * 32) / 4;
+                    MatA8 a = MatA8.Load<CoopMatMatrixLayout.RowMajor>(sA, (wm + i * 16) * F8_RS + kw, F8_RS);
+                    [ForceUnroll]
+                    for (int j = 0; j < F8_FN; j++)
+                    {
+                        MatB8 b = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + kw, F8_RS);
+                        c[j] = coopMatMulAdd<float, false>(a, b, c[j]);
+                    }
+                }
+                [ForceUnroll]
+                for (int j = 0; j < F8_FN; j++)
+                    [ForceUnroll]
+                    for (uint e = 0; e < 8; e++)
+                        acc[i][j][e] = fma(c[j][e], xr[i][e >> 2] * ws[j][e & 3], acc[i][j][e]);
+            }
+            continue;
+        }
+        [ForceUnroll]
+        for (int j = 0; j < F8_FN; j++)
+        {
+            AccF c[F8_FM];
+            [ForceUnroll] for (int i = 0; i < F8_FM; i++) c[i] = AccF(0.0);
+            [ForceUnroll]
+            for (uint m = 0; m < F8_MMAS; m++)
+            {
+                uint kw = (wb * WBLOCK + m * 32) / 4;
+                MatB8 b = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + kw, F8_RS);
+                [ForceUnroll]
+                for (int i = 0; i < F8_FM; i++)
+                {
+                    MatA8 a = MatA8.Load<CoopMatMatrixLayout.RowMajor>(sA, (wm + i * 16) * F8_RS + kw, F8_RS);
+                    c[i] = coopMatMulAdd<float, false>(a, b, c[i]);
+                }
+            }
+
+            [ForceUnroll]
+            for (int i = 0; i < F8_FM; i++)
+            {
+                [ForceUnroll]
+                for (uint e = 0; e < 8; e++)
+                {
+                    uint r = uint(index[e]) >> 4, col = uint(index[e]) & 15;
+                    acc[i][j][e] = fma(c[i][e], sAS[wm + i * 16 + r] * sBS[bs + wn + j * 16 + col], acc[i][j][e]);
+                }
+            }
+        }
+    }
+}
+
 // The tile loop and the stores. PAIR: the accumulator layout is the pair layout (element e is row r0 + 8 * (e >> 2),
 // column c0 + (e & 1) + 8 * ((e >> 1) & 1)); otherwise every element's row and column come from `index` (row * 16 + column).
 void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
@@ -278,68 +367,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
         {
             FETCH(kBeg + (s + 1) * F8_BK)
         }
-
-        float xr[F8_FM][2];
-        if (PAIR)
-        {
-            [ForceUnroll]
-            for (int i = 0; i < F8_FM; i++)
-            {
-                xr[i][0] = sAS[wm + i * 16 + r0];
-                xr[i][1] = sAS[wm + i * 16 + r0 + 8];
-            }
-        }
-
-        // The block products are added with an explicit fused multiply-add, so the dual kernel (DUAL) and the single one round
-        // alike whatever the compiler would contract in each. One output column fragment at a time: the block accumulator
-        // holds F8_FM fragments rather than F8_FM x F8_FN, which frees registers (10-13 % faster from 256 rows) at the cost of reloading the A fragments per column fragment.
-        [MaxIters(F8_WBLOCKS)] [loop]
-        for (uint wb = 0; wb < F8_WBLOCKS; wb++)
-        {
-            uint bs = wb * F8_BN;
-            [ForceUnroll]
-            for (int j = 0; j < F8_FN; j++)
-            {
-                AccF c[F8_FM];
-                [ForceUnroll] for (int i = 0; i < F8_FM; i++) c[i] = AccF(0.0);
-                [ForceUnroll]
-                for (uint m = 0; m < F8_MMAS; m++)
-                {
-                    uint kw = (wb * WBLOCK + m * 32) / 4;
-                    MatB8 b = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + kw, F8_RS);
-                    [ForceUnroll]
-                    for (int i = 0; i < F8_FM; i++)
-                    {
-                        MatA8 a = MatA8.Load<CoopMatMatrixLayout.RowMajor>(sA, (wm + i * 16) * F8_RS + kw, F8_RS);
-                        c[i] = coopMatMulAdd<float, false>(a, b, c[i]);
-                    }
-                }
-
-                float ws[4];
-                if (PAIR)
-                {
-                    uint base = bs + wn + j * 16 + c0;
-                    ws[0] = sBS[base]; ws[1] = sBS[base + 1]; ws[2] = sBS[base + 8]; ws[3] = sBS[base + 9];
-                }
-                [ForceUnroll]
-                for (int i = 0; i < F8_FM; i++)
-                {
-                    [ForceUnroll]
-                    for (uint e = 0; e < 8; e++)
-                    {
-                        if (PAIR)
-                        {
-                            acc[i][j][e] = fma(c[i][e], xr[i][e >> 2] * ws[e & 3], acc[i][j][e]);
-                        }
-                        else
-                        {
-                            uint r = uint(index[e]) >> 4, col = uint(index[e]) & 15;
-                            acc[i][j][e] = fma(c[i][e], sAS[wm + i * 16 + r] * sBS[bs + wn + j * 16 + col], acc[i][j][e]);
-                        }
-                    }
-                }
-            }
-        }
+        fp8_step<PAIR>(acc, wm, wn, r0, c0, index);
         GroupMemoryBarrierWithGroupSync();
         if (more)
         {
