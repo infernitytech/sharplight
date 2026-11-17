@@ -286,8 +286,10 @@ branch `macos/metal-r1`, round 2 (split-K `gemm_sg`, 8x8 flash attention, `int_d
   `SetInput` writes into the input buffer, outputs are read from the output buffer, runtime scalars go straight into the
   runtime buffer, and weights are copied (and repacked) by the CPU directly into their buffers (`WeightCopier`, shared with the
   Vulkan provider). Shared weights and per-graph states work as on Vulkan. Weights stored as the kernels read them (no repack)
-  whose source is memory-mapped (GGUF, safetensors, `.slm`) are not copied at all: the pages around them are wrapped with
-  `newBufferWithBytesNoCopy`, so the GPU reads the mapped file (`SHARPLIGHT_MTL_NO_COPY=0` copies them instead).
+  whose source is memory-mapped (GGUF, safetensors, `.slm`) can instead be wrapped with `newBufferWithBytesNoCopy` (the pages
+  around them), so the GPU reads the mapped file without a copy: `SHARPLIGHT_MTL_NO_COPY=1`. It is off by default because on the
+  CI's Apple GPU wrapping took 12.4 s for the 0.49 GB smoke model against 0.38 s for the parallel copy (run 44031312716; same
+  output); one wrap of the whole mapping, or residency sets, are the next things to try.
 - **Execution.** Each distinct binding of the symbols is recorded once (variant, pipeline, packed arguments, grid, barrier
   placement from the shared `HazardTracker`); an execution encodes the recording into a concurrent compute encoder with
   `memoryBarrierWithScope:buffers` where the hazard tracker places barriers, makes every buffer resident with one
@@ -314,6 +316,11 @@ branch `macos/metal-r1`, round 2 (split-K `gemm_sg`, 8x8 flash attention, `int_d
 - **Diagnostics** (`DiagnosticSwitches`): `SHARPLIGHT_MTL_SERIAL=1` (serial dispatches instead of concurrent ones with
   barriers), `SHARPLIGHT_MTL_FAST_MATH=1`, `SHARPLIGHT_MTL_TRACE=1`, `SHARPLIGHT_MTL_PROFILE=1` (one command buffer per launch,
   per-kernel GPU times in `--bench`), `SHARPLIGHT_MTL_DUMP_SOURCE=dir`.
+
+**Round 2** (run 44031312716, branch `macos/metal-r2`): the GPU suite stays green on Metal (1486 pass, 0 fail, 40 skip) with
+split-K `gemm_sg`, the 8x8 flash attention and `int_dot`. Prefill of 512 tokens rises 20-64 % over round 1 (Qwen3-0.6B Q4_K_M
+811.9 -> 1331.5 tok/s, Qwen2.5-0.5B 1281 -> 1710); `int_dot` speeds up Q4_K_M decode by 5-25 % and leaves Q8_0 about equal
+(benchmarks.md section 39).
 
 **CI results** (run 44018997843, `macos-15`, paravirtual Apple GPU): the whole GPU kernel suite passes on the Metal device
 (1526 tests: 1486 pass, 40 skip: benchmarks, opt-in large tests and the Vulkan-internal tests), as do the Metal unit tests and

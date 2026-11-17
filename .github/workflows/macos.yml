@@ -86,8 +86,8 @@ jobs:
         run: |
           dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" --provider metal -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-metal.txt"
           grep -q Paris "$RUNNER_TEMP/smoke-metal.txt"
-          echo "=== weights copied (SHARPLIGHT_MTL_NO_COPY=0)"
-          SHARPLIGHT_MTL_NO_COPY=0 dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" --provider metal -p "$SMOKE_PROMPT" -n 32 2>&1 | grep -E 'upload|Paris' || true
+          echo "=== weights mapped (SHARPLIGHT_MTL_NO_COPY=1)"
+          SHARPLIGHT_MTL_NO_COPY=1 dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll "${{ steps.model.outputs.path }}" --provider metal -p "$SMOKE_PROMPT" -n 32 2>&1 | grep -E 'upload|Paris' || true
 
       - name: LLM benchmark (Metal against MoltenVK)
         if: (success() || failure()) && steps.model.outcome == 'success'

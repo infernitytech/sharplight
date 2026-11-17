@@ -5240,3 +5240,21 @@ integer-dot matvec (`int_dot`, emulated by MoltenVK) that the Metal provider doe
 paravirtual GPU are far below its usual Apple silicon results (decode 3-11 tok/s); its Metal backend evidently runs a reduced
 path on this device (the VM's GPU does not report the Apple7+ family), so the comparison needs real Apple hardware before
 any conclusion.
+
+### 39.1 Round 2 (split-K `gemm_sg`, 8x8 flash attention, `int_dot` on Metal; run 44031312716)
+
+Same runner and commands; "Metal, int_dot off" runs `--disable-features int_dot`.
+
+| Model | Metal pp512 | MoltenVK pp512 | llama.cpp Metal pp512 | Metal decode | Metal decode, int_dot off | MoltenVK decode | llama.cpp tg128 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Qwen3-0.6B Q4_K_M | **1331.5** | 431.6 | 341.4 | **65.8** | 62.6 | 46.2 | 10.3 |
+| Qwen3-0.6B Q8_0 | **1455.1** | 428.5 | 335.6 | 64.8 | **66.0** | 62.7 | 6.8 |
+| Qwen3-1.7B Q4_K_M | **483.1** | 163.2 | 108.6 | **36.5** | 30.6 | 24.3 | 5.7 |
+| Qwen3-1.7B Q8_0 | **522.5** | 155.3 | 165.2 | **28.8** | 28.6 | 28.2 | 5.3 |
+| Llama-3.2-1B Q4_K_M | **698.6** | 226.0 | 133.1 | **48.2** | 38.5 | 32.5 | 8.0 |
+| Llama-3.2-1B Q8_0 | 691.0 | 210.0 | 196.4 | **37.4** | 34.8 | 36.0 | 8.3 |
+| Qwen2.5-0.5B Q4_K_M (pp128 / pp512) | **1581.9 / 1709.9** | 618.2 / 553.7 | — | 64.1 | — | 58.2 | — |
+
+Split-K raises prefill by 20-64 % over round 1 (the 64 x 128 tile left most of the GPU idle at 512 rows of these narrow models);
+Metal prefill is now 3-3.4x MoltenVK. `int_dot` stays on: +5 to +25 % decode for Q4_K_M, Q8_0 within the runner's noise. The
+llama.cpp numbers keep the caveat above (reduced path on this paravirtual GPU).
