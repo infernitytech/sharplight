@@ -51,7 +51,7 @@ public sealed class DiffusersImporter : IModelImporter
         string? family = DiffusionTransformerCheckpoint.FamilyOf(path);
         bool supported = (kind == FluxConfig.Architecture && family?.StartsWith("FLUX", StringComparison.Ordinal) == true)
             || (kind == Sd3Config.Architecture && family?.StartsWith("Stable Diffusion 3", StringComparison.Ordinal) == true)
-            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture || kind == WanConfig.Architecture || kind == HunyuanVideoFolder.Architecture
+            || kind == ChromaConfig.Architecture || kind == ZImageConfig.Architecture || kind == WanConfig.Architecture || kind == HunyuanVideoFolder.Architecture || kind == LtxFolder.Architecture
             || kind == QwenImageConfig.Architecture || kind == QwenImage21Config.Architecture || kind == Flux2Config.Architecture;
         if (family is not null && !supported)
         {
@@ -70,6 +70,7 @@ public sealed class DiffusersImporter : IModelImporter
             LoraCheckpoint.Architecture => LoraCheckpoint.Open(path),
             WanConfig.Architecture => WanCheckpoint.Open(path),
             HunyuanVideoFolder.Architecture => HunyuanVideoCheckpoint.Open(path),
+            LtxFolder.Architecture => LtxCheckpoint.Open(path),
             ComponentCheckpoint.ClipArchitecture or ComponentCheckpoint.AutoencoderArchitecture or ComponentCheckpoint.T5Architecture
                 or ComponentCheckpoint.WanAutoencoderArchitecture => ComponentCheckpoint.Open(path),
             _ => SingleFileCheckpoint.Open(path),
