@@ -17,6 +17,7 @@ namespace Sharplight.Studio.Tests;
 /// paths: library recognition (<see cref="ModelInspector"/>), loading on the engine runtime and a run on the Image / Transcribe pages.
 /// Each test skips when its file is not on disk. Diffusion transformers other than FLUX (SD3, ...) are recognized and named as not supported yet.
 /// </summary>
+[Collection(LargeModelCollection.Name)]
 public sealed class GgufRealModelTests
 {
     private static readonly string s_home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
