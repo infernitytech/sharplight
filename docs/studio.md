@@ -271,7 +271,10 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 
 ![Statistics](images/studio/studio-stats.png)
 
-**Settings.**
+**Settings.** The page is split into tabs, the last one used is remembered, and *Check for Updates…* and the "Storage settings"
+button open *Updates* and *Storage*:
+*General* (appearance, audio devices, new-chat defaults), *Storage*, *Models* (model store, Hugging Face token, download and
+compilation-cache options), *Engine* (load defaults, residency, device features), *Updates* and *Data and about*.
 - Theme (dark, light, system) and accent palette.
 - Storage: where Studio and the engine keep everything they write (settings, history and outputs, models, compiled kernels,
   caches, logs). **Portable** (a `data` folder next to the AppImage, the install folder or the app bundle), **System folders**
@@ -305,7 +308,7 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 - **Reduced precision** (off by default) opts in to faster f16 kernel paths where the default keeps near-f32 accuracy. Outputs may
   differ slightly.
 
-![Settings](images/studio/studio-settings.png)
+![Settings: Engine tab](images/studio/studio-settings.png)
 
 ## Inference pages
 
