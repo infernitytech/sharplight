@@ -110,6 +110,11 @@ internal sealed class StorageLocationService : IStorageLocationService
         }
 
         Pending = target;
+        if (!IsStudioHomeOverridden)
+        {
+            _settings.RelocateTo(StudioPaths.From(target, null).SettingsFile);
+        }
+
         return result;
     }
 
