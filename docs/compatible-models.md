@@ -309,6 +309,7 @@ Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical u
 | TrOCR base handwritten | microsoft/trocr-base-handwritten | OCR | text identical to transformers | greedy; TrOCR small (DeiT encoder, sinusoidal positions) and large (BEiT) not supported | 2026-11-16 |
 | BiRefNet, RMBG-2.0 (background removal) | ZhengPeng7/BiRefNet, briaai/RMBG-2.0 (CC BY-NC 4.0, gated: accept the terms) | image-segmentation-semantic (matte) | matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors' code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical | 1024 px square; the network's settings are read from the checkpoint's `birefnet.py` (never run): Swin t/s/b/l backbone, deformable-ASPP decoder; both code revisions' input-patch channel orders | 2026-11-16 |
 | Florence-2 base | florence-community/Florence-2-base | OCR / caption / detection (`ITextRecognizer` tasks `<OCR>`, `<CAPTION>`, `<DETAILED_CAPTION>`, `<OD>`, ...) | image features 6.3e-4 and encoder output 1.1e-3 vs transformers; greedy text and `<OD>` boxes identical on two images (CPU and Vulkan) | num_beams=1 with the checkpoint's no-repeat n-gram (3) and forced BOS; beam search, region-to-X polygon tasks not done | 2026-11-16 |
+| YOLOv8n, YOLOv8n-seg, YOLOv10n (Ultralytics ONNX exports; also YOLO11 and the larger sizes by the same graph) | `yolo export format=onnx` output (AGPL-3.0: check the license) | object-detection (instance masks for `-seg`) | same classes, scores within 0.01 and boxes within 2 px as onnxruntime with Ultralytics' decoding; mask IoU 0.994-1.000; CPU = Vulkan | detection and segmentation heads only (pose, obb and classification heads are not read); `.pt` checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export's fixed input size is used (letterboxed) | 2026-11-17 |
 
 ## 6. Audio
 
@@ -382,7 +383,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | SD 1.5 inpainting UNet, SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1 editing, Lumina-Image-2.0, HiDream, AuraFlow, FLUX.2 Dev, Krea-2, MiniMax-H3 | various | not implemented yet (rejected with a clear message) |
 | ControlNet, TAESD, LyCORIS / DoRA LoRAs | | not implemented (plain LoRAs: section 4) |
 | CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
-| Mask2Former, YOLO (native), Florence-2 (native), SegFormer | | vision models not implemented (Florence-2 ONNX parts work; SwinIR is native since 2026-11-16) |
+| Mask2Former | | vision model not implemented (Florence-2, SegFormer, BiRefNet, YOLO detection and segmentation are native task models, see model-support.md section 14) |
 | Demucs, CLAP, MusicGen | | audio models not implemented |
 | Mamba / RWKV real checkpoints beyond those above | | not covered by a model test |
 | Candle-format whisper GGUF | oxide-lab/whisper-large-v3-turbo-q4_0.gguf, xkeyC/model_q4_k.gguf | rejected on purpose; use the whisper.cpp or transcribe.cpp files |

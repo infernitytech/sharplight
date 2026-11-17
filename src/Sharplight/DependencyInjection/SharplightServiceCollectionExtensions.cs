@@ -53,6 +53,7 @@ public static class SharplightServiceCollectionExtensions
                 .AddXttsImporter()
                 .AddSnacImporter()
                 .AddSileroVadImporter()
+                .AddUltralyticsImporter()
                 .AddDiffusersImporter()
                 .AddPackageImporter();
         }

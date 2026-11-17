@@ -18,6 +18,7 @@
     <Project Path="src/Sharplight.Import.Xtts/Sharplight.Import.Xtts.csproj" />
     <Project Path="src/Sharplight.Import.Snac/Sharplight.Import.Snac.csproj" />
     <Project Path="src/Sharplight.Import.SileroVad/Sharplight.Import.SileroVad.csproj" />
+    <Project Path="src/Sharplight.Import.Ultralytics/Sharplight.Import.Ultralytics.csproj" />
     <Project Path="src/Sharplight.Audio/Sharplight.Audio.csproj" />
     <Project Path="src/Sharplight.Video/Sharplight.Video.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
