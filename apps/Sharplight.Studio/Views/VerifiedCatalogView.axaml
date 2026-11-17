@@ -79,8 +79,8 @@
           <TextBlock Classes="muted" Text="Select a model to see its variants." HorizontalAlignment="Center" />
         </StackPanel>
         <Panel IsVisible="{Binding HasSelection}">
-        <DockPanel DataContext="{Binding SelectedEntry}" x:DataType="mvm:CatalogEntryViewModel">
-          <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12" DataContext="{Binding SelectedEntry}" x:DataType="mvm:CatalogEntryViewModel">
             <TextBlock Classes="h2" Text="{Binding Name}" TextWrapping="Wrap" />
             <TextBlock Classes="caption" Text="{Binding VerifiedText}" TextWrapping="Wrap" />
             <TextBlock Text="{Binding Verification}" TextWrapping="Wrap" FontSize="12.5" />
@@ -113,8 +113,7 @@
               <TextBlock TextWrapping="Wrap" Text="{Binding Notes}" />
             </Border>
           </StackPanel>
-          <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,8,0,0"
-                      DataContext="{Binding $parent[UserControl].((mvm:VerifiedCatalogViewModel)DataContext)}" x:DataType="mvm:VerifiedCatalogViewModel">
+          <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,8,0,0">
             <StackPanel Spacing="3" IsVisible="{Binding HasSelectedCompanions}">
               <TextBlock Classes="section" Text="INSTALLED WITH" />
               <ItemsControl ItemsSource="{Binding SelectedCompanions}">
@@ -139,8 +138,7 @@
             </Button>
           </StackPanel>
           <TextBlock DockPanel.Dock="Top" Classes="section" Text="VARIANTS" Margin="0,0,0,6" />
-          <ListBox x:Name="CatalogVariants" Classes="plain" ItemsSource="{Binding Variants}"
-                   SelectedItem="{Binding $parent[UserControl].((mvm:VerifiedCatalogViewModel)DataContext).SelectedVariant}">
+          <ListBox x:Name="CatalogVariants" Classes="plain" ItemsSource="{Binding SelectedVariants}" SelectedItem="{Binding SelectedVariant}">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="mvm:CatalogVariantViewModel">
                 <DockPanel Margin="10,8">

@@ -5214,3 +5214,123 @@ TAG=before SL_ARGS="--batch 512" SRV_ARGS="--prefill-chunk 512" bench/s38_all.sh
 bench/s38_all.sh sharplight after
 python3 bench/s38_summarize.py bench/results/s38 before,after
 ```
+
+## 39. LLM round 4 against vLLM: grouped GEMM tile order, dual bf16 gate / up GEMM, register softmax in prefill attention (2026-11-17)
+
+Base: `develop` at `31717994` ("before"), branch `perf/llm-r4` ("after"). Same method, checkpoints and vLLM 0.33.0 as section 38,
+on GPU 1 (`SHARPLIGHT_VK_DEVICES=1`, `CUDA_VISIBLE_DEVICES=1`); checkpoints copied to local disk. Raw results:
+[`bench/results/s39/`](../bench/results/s39) (`bench/s38_all.sh` with `OUT_DIR=bench/results/s39`, tables from
+`bench/s38_summarize.py`). Before and after ran back to back on the same GPU; no other process used it during the runs.
+
+### 39.1 What changed
+
+| change | effect (RTX PRO 4500) |
+|---|---|
+| **Grouped tile order** (`grouped_tile` in common.slang; gemm_cm2 and the int8 GEMM, launches without K splits, weight matrices of 48 MB or more): consecutive workgroups walk 16 token tiles of one column tile before the next. Launched column tiles first, the ~164 resident 128x128 workgroups covered one or two token tiles and every weight tile, so a weight matrix larger than L2 was streamed from DRAM once per token tile (bf16 [4096 → 12288] at 2048 rows: 16 x 100 MB, about 1.8 ms of DRAM time for a 1.9 ms GEMM). Same per-output arithmetic, bit-identical. `SHARPLIGHT_GEMM_GROUP=0` restores the launch order | bf16 [4096 → 12288] at 2048 rows 1.91 → 1.68 ms (108 → 123 TFLOPS), at 8192 rows 98 → 125 TFLOPS; [12288 → 4096] 97 → 100 |
+| **Dual gemm_cm2 for f16 / bf16 gate / up pairs** (`GraphLowerer.DualGemm.cs`): one launch reads the f16 activations once, alternates the 16-row fragments of both matrices in the B tile and stores `silu(gate) * up` (the fused elementwise group as `epi2`), for 128-token tiles where the separate GEMMs would not split K. Bit-identical to the separate launches (`DualGemmTests`). `SHARPLIGHT_GEMM2_DUAL=0` disables it | gate / up / SiLU·mul of Qwen3-8B at 2048 rows 3.70 → 3.27 ms per layer |
+| **Register softmax in the prefill / encoder attention kernel `fe`** (FE_REG, devices with the MMA fragment layout, verified by the kernel): the online softmax runs on the score accumulators (row maxima and sums over the four lanes of a row) and the probabilities become the A operands of P·V directly, so the key loop has no score / probability staging in shared memory and no subgroup barriers; 64-key tiles, 128 queries (8 subgroups) per workgroup, f16 K/V staged without the f32 round trip. `SHARPLIGHT_ATTN_FE_REG=0` restores the staged softmax | Qwen3-0.6B pp8192 attention 92.7 → 70.1 ms of 175 ms GPU time |
+| **Split-f16 flash attention safe for any magnitude** (`fa` and `fe` with FA_SPLIT, strict-precision f32 K/V): each query row, each key row of a tile and each V tile is scaled by a power of two into [2^14, 2^15) before the hi / lo split, and the scores and tile products are unscaled exactly; within f16's range the results are unchanged (power-of-two scaling commutes with the rounding). Queries / keys / values beyond f16's range used to give NaN. XTTS's Perceiver (latents of 1e10) drops its `f32_products` opt-out, which is removed (`FullAttentionTests.SplitHalfLargeMagnitudes`). Qwen-Image's / FLUX's per-block choice of f16 products (`F16Safe`, bound 50) stays: it guards the rounding of single f16 products (scores 2 % off in block 0), which no scaling fixes, and its fallback is this split kernel | strict-precision attention only |
+
+What did not help (measured, not kept): the workgroup-scope coopmat2 GEMM with grouped order (87-109 TFLOPS, below gemm_cm2), 32-value K
+blocks double buffered with two register prefetch sets (register spills, 55-69 TFLOPS), 8-warp 128x128 tiles (120 vs 128), double-buffered
+32-key tiles in `fe` (slower than single-buffered 64-key tiles). Diagnostic: with the global loads and stores removed, gemm_cm2 runs at
+about 196 TFLOPS, so the remaining gap is the single-buffered staging that the 48 KB of shared memory per workgroup forces on
+128x128x64 tiles.
+
+### 39.2 Single stream
+
+Tokens/s, higher is better (Sharplight: best of 2 process runs x 4 prefills; vLLM: median of 5).
+
+| model | metric | Sharplight before | Sharplight after | vLLM | SL/vLLM before | SL/vLLM after |
+|---|---|---:|---:|---:|---:|---:|
+| qwen3-0.6b | pp512 | 58880 | 58426 | 32688 | 1.80x | 1.79x |
+| qwen3-0.6b | pp2048 | 74358 | 82870 | 82156 | 0.91x | 1.01x |
+| qwen3-0.6b | pp8192 | 44476 | 53016 | 58706 | 0.76x | 0.90x |
+| qwen3-0.6b | tg@d16 | 459 | 460 | 461 | 0.99x | 1.00x |
+| qwen3-0.6b | tg@d8192 | 285 | 294 | 308 | 0.92x | 0.95x |
+| llama3.2-1b | pp512 | 39895 | 41995 | 44578 | 0.89x | 0.94x |
+| llama3.2-1b | pp2048 | 43700 | 48626 | 53097 | 0.82x | 0.92x |
+| llama3.2-1b | pp8192 | 34146 | 40151 | 47421 | 0.72x | 0.85x |
+| llama3.2-1b | tg@d16 | 293 | 294 | 286 | 1.03x | 1.03x |
+| llama3.2-1b | tg@d8192 | 258 | 259 | 267 | 0.96x | 0.97x |
+| qwen3-8b | pp512 | 6560 | 6619 | 8016 | 0.82x | 0.83x |
+| qwen3-8b | pp2048 | 6237 | 7101 | 8729 | 0.71x | 0.81x |
+| qwen3-8b | pp8192 | 5356 | 6228 | 7650 | 0.70x | 0.81x |
+| qwen3-8b | tg@d16 | 53 | 53 | 52 | 1.03x | 1.02x |
+| qwen3-8b | tg@d8192 | 49 | 49 | 48 | 1.02x | 1.02x |
+| qwen3-8b-fp8 | pp512 | 10448 | 10669 | 14277 | 0.73x | 0.75x |
+| qwen3-8b-fp8 | pp2048 | 10713 | 10958 | 14967 | 0.72x | 0.73x |
+| qwen3-8b-fp8 | pp8192 | 8435 | 9060 | 12333 | 0.68x | 0.73x |
+| qwen3-8b-fp8 | tg@d16 | 90 | 89 | 87 | 1.03x | 1.03x |
+| qwen3-8b-fp8 | tg@d8192 | 78 | 78 | 72 | 1.08x | 1.08x |
+
+* Prefill at 2048 tokens: Qwen3-0.6B 0.91x → 1.01x of vLLM, Llama-3.2-1B 0.82x → 0.92x, Qwen3-8B bf16 0.71x → 0.81x
+  (+14 %, grouped order and dual gate / up), Qwen3-8B-FP8 0.72x → 0.73x (its GEMMs already ran token tiles first).
+* At 8192 tokens the attention change adds to it: Qwen3-0.6B 0.76x → 0.90x (+19 %), Llama-1B 0.72x → 0.85x, Qwen3-8B
+  0.70x → 0.81x, FP8 0.68x → 0.73x.
+* Decode unchanged (0.95-1.08x of vLLM).
+* GEMM throughput of the 8B at 2048 rows (profile, `SHARPLIGHT_VK_PROFILE=1`): bf16 gate / up 126 TFLOPS, down 110, q / o
+  115 (was 104-108 / 106 / 115); FP8 gate / up 205, down 193, q / o 190. Targets of 135 / 220 TFLOPS are not reached: the
+  bf16 kernel is bound by its single-buffered staging (39.1), the FP8 kernel by its register count (222-250 registers for
+  the 8-subgroup 128x128 tile: one workgroup per SM).
+
+### 39.3 Serving: time to first token
+
+2000-token prompts, 16 output tokens; TTFT p50 in ms (lower is better), output tok/s (higher is better).
+
+| model | streams | TTFT p50 SL before | TTFT p50 SL after | TTFT p50 vLLM | tok/s SL before | tok/s SL after | tok/s vLLM |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| qwen3-0.6b | 1 | 32 | 31 | 33 | 225 | 220 | 233 |
+| qwen3-0.6b | 16 | 88 | 116 | 128 | 415 | 433 | 558 |
+| llama3.2-1b | 1 | 52 | 49 | 44 | 143 | 158 | 166 |
+| llama3.2-1b | 16 | 174 | 158 | 204 | 287 | 313 | 412 |
+| qwen3-8b | 1 | 342 | 300 | 239 | 25 | 27 | 30 |
+| qwen3-8b | 16 | 887 | 795 | 726 | 45 | 50 | 64 |
+| qwen3-8b-fp8 | 1 | 201 | 197 | 139 | 43 | 43 | 51 |
+| qwen3-8b-fp8 | 16 | 535 | 534 | 493 | 74 | 74 | 109 |
+
+* Single stream: Llama-1B 52 → 49 ms (vLLM 44), Qwen3-8B 342 → 300 ms (vLLM 239); FP8 unchanged (201 / 197, vLLM 139).
+* 16 streams: Llama-1B 174 → 158 ms (vLLM 204), Qwen3-8B 887 → 795 (vLLM 726); throughput +9-11 % on Llama-1B and Qwen3-8B.
+  Qwen3-0.6B's TTFT at 16 streams moved 88 → 116 ms with higher throughput (433 vs 415 tok/s); one pair of rounds, not
+  re-measured.
+
+### 39.4 Greedy output
+
+200-token greedy outputs of a short, a ~600-word and a ~1500-word prompt, before against after: byte-identical on
+Qwen3-0.6B, Llama-3.2-1B and Qwen3-8B (all three prompts). Qwen3-8B-FP8 differs on the short prompt (a different story title
+after ~70 words) and the ~600-word one ("including quantized formats" against "with quantized weights" after ~140 words), both
+coherent: `SHARPLIGHT_ATTN_FE_REG=0` restores both, so the register softmax's sums (64-key tiles, four-lane row sums instead
+of 32-key tiles and two-lane sums) flip these near-ties. The grouped order and the dual GEMM are bit-identical by
+construction (`DualGemmTests`).
+
+### 39.5 Tests
+
+Release, niced, GPU 1, after merging `develop` at `649cd0fd`: Vulkan 1533 passed / 23 skipped, Cpu 1313 / 36 skipped, Serving
+294 / 13 skipped, Families 1003 / 364 skipped (large models off), TextToSpeech (XTTS cloning without the opt-out) and
+ImageGeneration (tiny Qwen-Image / Qwen-Image 2.1) green. The first Families run caught an out-of-bounds store of the dual
+GEMM for output widths that are multiples of 16 but not of 64 (tiny GeGLU encoders: ModernBERT, T5 v1.1, N = 96); fixed and
+covered by `DualGemmTests` (N = 96 with GELU). The benchmark models' widths are multiples of 64, so 39.2-39.4 are unaffected.
+
+### 39.6 Next levers
+
+* bf16 GEMM staging: 48 KB of shared memory per workgroup leaves 128x128 tiles single buffered; compute alone runs at ~196
+  TFLOPS. Candidates: B fragments loaded from L1 without staging, smaller-padding layouts that fit two stages.
+* FP8 GEMM: fewer live accumulators (the per-block scaling keeps a second set of fragments live).
+* Down projection at 2048 rows: 512 tiles on 164 resident workgroups (3.1 waves); stream-K would remove the tail.
+* Attention: with the K/V staging removed `fe` runs ~25 % faster (53.8 vs 70.1 ms on Qwen3-0.6B pp8192).
+* Launch and barrier overhead is not where the small models lose: Llama-1B pp2048 runs 197 dispatches / 132 barriers per pass,
+  41.6 ms of GPU time against 42.1 ms of wall time per pass, and the GEMMs are 83 % of it (gate / up 124 TFLOPS, down 109
+  with 256 tiles on 164 resident workgroups). The down projection's f16 input copy (3 % of the pass) could come from the dual
+  GEMM's store instead of a conversion launch.
+* FP8 tile layouts tried: 4-subgroup 128x64 (two workgroups per SM) 163-177 TFLOPS, 8-subgroup 64x32 subtiles 145-156,
+  against 173-195 for the default.
+
+### 39.7 Reproduce
+
+```bash
+export SHARPLIGHT_VK_DEVICES=1 CUDA_VISIBLE_DEVICES=1 VLLM_VENV=<venv> HF_DIR=<checkpoints> OUT_DIR=bench/results/s39
+bench/s38_all.sh vllm
+bench/s38_all.sh sharplight before   # on the base build
+bench/s38_all.sh sharplight after
+python3 bench/s38_summarize.py bench/results/s39 before,after
+```

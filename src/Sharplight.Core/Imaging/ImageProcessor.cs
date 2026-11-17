@@ -46,6 +46,7 @@ public sealed class ImageProcessor(ImageProcessorConfig config)
             float std = Config.Std.Count == 3 ? Config.Std[c] : 1f;
             float scale = Config.Rescale / std;
             float bias = -mean / std;
+            float pad = Config.PadColor * scale + bias;
             for (int y = 0; y < ch; y++)
             {
                 int sy = y + top;
@@ -53,7 +54,7 @@ public sealed class ImageProcessor(ImageProcessorConfig config)
                 {
                     int sx = x + left;
                     bool inside = sy >= 0 && sy < rh && sx >= 0 && sx < rw;
-                    planes[c * plane + y * cw + x] = inside ? rgb[(sy * rw + sx) * 3 + c] * scale + bias : bias;
+                    planes[c * plane + y * cw + x] = inside ? rgb[(sy * rw + sx) * 3 + c] * scale + bias : pad;
                 }
             }
         }
@@ -83,6 +84,12 @@ public sealed class ImageProcessor(ImageProcessorConfig config)
                 return width >= height
                     ? (Config.LongestEdge, Math.Max(1, (int)(Config.LongestEdge * (long)height / longest)))
                     : (Math.Max(1, (int)(Config.LongestEdge * (long)width / longest)), Config.LongestEdge);
+            }
+
+            case ImageResizeMode.Contain:
+            {
+                double ratio = Math.Min((double)Config.Width / width, (double)Config.Height / height);
+                return (Math.Max(1, (int)Math.Round(width * ratio, MidpointRounding.ToEven)), Math.Max(1, (int)Math.Round(height * ratio, MidpointRounding.ToEven)));
             }
 
             default:

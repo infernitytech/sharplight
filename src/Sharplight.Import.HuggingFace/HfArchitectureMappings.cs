@@ -38,6 +38,7 @@ internal static class HfArchitectureMappings
         Register(new TimmResNetHfMapping());
         Register(new DetrHfMapping());
         Register(new RtDetrHfMapping());
+        Register(new YolosHfMapping());
         Register(new DepthAnythingHfMapping());
         Register(new SegformerHfMapping());
         Register(new BiRefNetHfMapping());

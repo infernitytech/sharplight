@@ -73,8 +73,9 @@
     </Button>
   </StackPanel>
   <Panel>
-  <views:VerifiedCatalogView x:Name="VerifiedCatalog" DataContext="{Binding Verified}" Margin="0,0,0,16"
-                             IsVisible="{Binding $parent[UserControl].((mvm:HubSearchViewModel)DataContext).IsVerifiedMode}" />
+  <Panel IsVisible="{Binding IsVerifiedMode}">
+    <views:VerifiedCatalogView x:Name="VerifiedCatalog" DataContext="{Binding Verified}" Margin="0,0,0,16" />
+  </Panel>
   <Grid ColumnDefinitions="*,16,420" RowDefinitions="Auto,*" Margin="0,0,0,16" IsVisible="{Binding IsHubMode}">
     <StackPanel Grid.ColumnSpan="3" Spacing="8" Margin="0,0,0,12">
       <DockPanel>

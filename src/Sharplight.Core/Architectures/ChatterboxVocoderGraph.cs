@@ -156,14 +156,14 @@ internal static class ChatterboxVocoderGraph
         return x;
     }
 
-    private static Value ReflectPadLeft(GraphBuilder b, Value x, long channels)
+    internal static Value ReflectPadLeft(GraphBuilder b, Value x, long channels)
     {
         var ones = b.Constant($"hift.identity_{channels}", DataType.F32, new Shape(channels, 1, 1), KokoroBlocks.Bytes([.. Enumerable.Repeat(1f, (int)channels)]));
         return b.Emit1("Conv1d", [x, ones], Attributes.From(("pad_left", 1L), ("groups", channels), ("pad_mode", "reflect")));
     }
 
     // torch.stft's windowed DFT as convolution weights: cosines then negated sines, [2 · bins, 1, n_fft].
-    private static float[] StftBasis(int nFft)
+    internal static float[] StftBasis(int nFft)
     {
         int bins = (nFft / 2) + 1;
         var window = Window.Hann(nFft);

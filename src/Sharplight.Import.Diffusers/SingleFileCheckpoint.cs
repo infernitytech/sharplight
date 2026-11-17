@@ -76,6 +76,11 @@ internal static partial class SingleFileCheckpoint
                 return HunyuanVideoFolder.Architecture;
             }
 
+            if (LtxCheckpoint.TransformerPrefix(names) is not null || LtxCheckpoint.IsVae(names))
+            {
+                return LtxFolder.Architecture;
+            }
+
             if (QwenImageCheckpoint.TransformerPrefix(names) is not null)
             {
                 return QwenImageConfig.Architecture;

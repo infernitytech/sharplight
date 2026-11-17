@@ -42,6 +42,7 @@ internal static class SpeakApplication
             Speed = settings.Speed,
             ReferenceAudio = settings.ReferencePath is { } reference ? WavFile.Read(reference) : null,
             ReferenceText = settings.ReferenceText,
+            Instructions = settings.Instructions,
             // Without --greedy only the seed is set: each model then samples with its own settings.
             Sampling = settings.Greedy
                 ? new SamplingOptions { Temperature = 0f, TopK = 1, TopP = 0.9f, RepetitionPenalty = 1f, Seed = settings.Seed }

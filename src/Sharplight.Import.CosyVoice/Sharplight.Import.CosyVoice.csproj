@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>CosyVoice importer for Sharplight: reads FunAudioLLM's Fun-CosyVoice3 text-to-speech release (Qwen2 speech-token language model, DiT flow, causal HiFT vocoder, the ONNX S3 tokenizer v3 and CAM++ speaker encoder) into Sharplight speech-synthesis models.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../Sharplight.Import.PyTorch/Sharplight.Import.PyTorch.csproj" />
+    <ProjectReference Include="../Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
+    <ProjectReference Include="../Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.TextToSpeech.Tests" />
+  </ItemGroup>
+</Project>
