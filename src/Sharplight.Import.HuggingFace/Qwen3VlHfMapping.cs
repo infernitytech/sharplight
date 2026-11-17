@@ -13,6 +13,7 @@ namespace Sharplight.Import.HuggingFace;
 internal sealed partial class Qwen3VlHfMapping : IHfArchitectureMapping
 {
     private const string LanguageModelPrefix = "model.language_model.";
+    private const string BareLanguageModelPrefix = "language_model.";
     private readonly DecoderHfMapping _text = new();
 
     /// <inheritdoc/>
@@ -65,11 +66,13 @@ internal sealed partial class Qwen3VlHfMapping : IHfArchitectureMapping
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
-        // model.language_model.X → model.X, the layout of the plain text model; the tower is mapped separately.
+        // model.language_model.X (Qwen3VLForConditionalGeneration) or language_model.X (Qwen3VLModel, e.g. Krea 2's text encoder) → model.X,
+        // the layout of the plain text model; the tower is mapped separately.
         var text = tensors
             .Where(t => !QwenVisionHfMapping.IsVisionTensor(t.Key) && !(ExpertCount(config) is not null && FusedExperts().IsMatch(t.Key)))
             .ToDictionary(
-                t => t.Key.StartsWith(LanguageModelPrefix, StringComparison.Ordinal) ? "model." + t.Key[LanguageModelPrefix.Length..] : t.Key,
+                t => t.Key.StartsWith(LanguageModelPrefix, StringComparison.Ordinal) ? "model." + t.Key[LanguageModelPrefix.Length..]
+                    : t.Key.StartsWith(BareLanguageModelPrefix, StringComparison.Ordinal) ? "model." + t.Key[BareLanguageModelPrefix.Length..] : t.Key,
                 t => t.Value,
                 StringComparer.Ordinal);
         var weights = new Dictionary<string, WeightInfo>(_text.MapWeights(config, text, options), StringComparer.Ordinal);

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Ultralytics YOLO importer for Sharplight: reads the ONNX exports of YOLOv8, YOLO11 and YOLOv10 detection and segmentation models into object detection models with the task layer's own pre- and post-processing.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
+    <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
+  </ItemGroup>
+</Project>

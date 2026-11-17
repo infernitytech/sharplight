@@ -11041,6 +11041,142 @@
       ]
     },
     {
+      "id": "cosyvoice3-0.5b",
+      "name": "CosyVoice 3 0.5B",
+      "kind": "speech-synthesis",
+      "family": "CosyVoice",
+      "architecture": "cosyvoice3",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "release-folder",
+          "label": "Release folder (PyTorch \u002B ONNX)",
+          "format": "pytorch",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 6638920378,
+          "companions": [],
+          "repository": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+          "revision": "29e01c4e8d000f4bcd70751be16fa94bf3d85a18",
+          "include": [
+            "CosyVoice-BlankEN/config.json",
+            "CosyVoice-BlankEN/generation_config.json",
+            "CosyVoice-BlankEN/merges.txt",
+            "CosyVoice-BlankEN/model.safetensors",
+            "CosyVoice-BlankEN/tokenizer_config.json",
+            "CosyVoice-BlankEN/vocab.json",
+            "campplus.onnx",
+            "config.json",
+            "configuration.json",
+            "cosyvoice3.yaml",
+            "flow.pt",
+            "hift.pt",
+            "llm.pt",
+            "speech_tokenizer_v3.onnx"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "CosyVoice-BlankEN/config.json",
+              "size": 659,
+              "gitOid": "463b055262b6c66c4629a74a4b300bfe2ed31d3c"
+            },
+            {
+              "path": "CosyVoice-BlankEN/generation_config.json",
+              "size": 242,
+              "gitOid": "dfc11073787daf1b0f9c0f1499487ab5f4c93738"
+            },
+            {
+              "path": "CosyVoice-BlankEN/merges.txt",
+              "size": 1402109,
+              "gitOid": "90d3d82d027eadcc6a5e77c38eb82d43fc51b53b"
+            },
+            {
+              "path": "CosyVoice-BlankEN/model.safetensors",
+              "size": 988097824,
+              "sha256": "130282af0dfa9fe5840737cc49a0d339d06075f83c5a315c3372c9a0740d0b96"
+            },
+            {
+              "path": "CosyVoice-BlankEN/tokenizer_config.json",
+              "size": 1287,
+              "gitOid": "ff55d7b9eb1384e5d4d7e75dc0f564c1a8833d6e"
+            },
+            {
+              "path": "CosyVoice-BlankEN/vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "campplus.onnx",
+              "size": 28303423,
+              "sha256": "a6ac6a63997761ae2997373e2ee1c47040854b4b759ea41ec48e4e42df0f4d73"
+            },
+            {
+              "path": "config.json",
+              "size": 2,
+              "gitOid": "9e26dfeeb6e641a33dae4961196235bdb965b21b"
+            },
+            {
+              "path": "configuration.json",
+              "size": 47,
+              "gitOid": "5e812fae901c12933ac69ebf3eb79d0eb49bbab4"
+            },
+            {
+              "path": "cosyvoice3.yaml",
+              "size": 6934,
+              "gitOid": "2eda7e5007d99f6b17fbe7bd751cf54e3cde29ea"
+            },
+            {
+              "path": "flow.pt",
+              "size": 1329116148,
+              "sha256": "a6fab32a7825e5b0bc855ddd948f8db9370b0a786fbc249caa4595e95b608e4b"
+            },
+            {
+              "path": "hift.pt",
+              "size": 83202622,
+              "sha256": "b279d7641eb97ae55b3b540cfba4f953c26492a2df758328a89a4d007ab87a65"
+            },
+            {
+              "path": "llm.pt",
+              "size": 2024669519,
+              "sha256": "69f43bd545131c30e98947fb360ea8b4dc9916d8e83dded7757c7ea4f5a24970"
+            },
+            {
+              "path": "speech_tokenizer_v3.onnx",
+              "size": 969451503,
+              "sha256": "23236a74175dbdda47afc66dbadd5bcb41303c467a57c261cb8539ad9db9208d"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "CosyVoice (FunAudioLLM), onnxruntime",
+        "summary": "vs FunAudioLLM\u0027s CosyVoice code and onnxruntime: S3 tokens 275 of 275 identical, CAM\u002B\u002B x-vector within 3e-6; language model teacher forced with 0 argmax disagreements over 300 steps; flow mel within 4.1e-5; causal HiFT waveform within 2.2e-5 on the reference\u0027s F0 (relative RMS); Qwen3-ASR transcribes zero-shot output word for word; Vulkan real-time factor 0.37",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "CosyVoiceTests"
+        ]
+      },
+      "notes": "the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, with \u0060ReferenceText\u0060 for zero-shot, \u0060Instructions\u0060 for instruct); no built-in voices in the release; non-streaming only",
+      "doc": [
+        {
+          "section": "3",
+          "cells": {
+            "repositories": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+            "formats": "release folder (\u0060llm.pt\u0060, \u0060flow.pt\u0060, \u0060hift.pt\u0060, \u0060CosyVoice-BlankEN/\u0060, \u0060speech_tokenizer_v3.onnx\u0060, \u0060campplus.onnx\u0060), \u0060.slm\u0060"
+          }
+        }
+      ]
+    },
+    {
       "id": "stable-diffusion-1.5",
       "name": "Stable Diffusion 1.5",
       "kind": "image-generation",
@@ -13733,6 +13869,144 @@
             "repositories": "Qwen/Qwen-Image-2.1, unsloth/Qwen-Image-2.1-GGUF",
             "formats": "GGUF Q8_0 \u002B Qwen3-VL-8B text encoder and VAE companions (the pipeline\u0027s folders)",
             "providers": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "krea-2-turbo",
+      "name": "Krea 2 Turbo",
+      "kind": "image-generation",
+      "family": "Krea 2",
+      "architecture": "krea2",
+      "level": "verified",
+      "license": "other",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "q8-0-gguf",
+          "label": "Q8_0 GGUF",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": true,
+          "memoryBytes": 26863031800,
+          "companions": [
+            "text-encoder",
+            "vae"
+          ],
+          "repository": "realrebelai/KREA-2_GGUFs",
+          "revision": "9721c3ec932c43dff6dbb5793a816d9ad105277f",
+          "include": [
+            "TURBO/Krea-2-Turbo-Q8_0.gguf"
+          ],
+          "primary": "TURBO/Krea-2-Turbo-Q8_0.gguf",
+          "files": [
+            {
+              "path": "TURBO/Krea-2-Turbo-Q8_0.gguf",
+              "size": 13625717856,
+              "sha256": "b98b339068e1e26a9bd01f987d9dcae3f4a4913b8c0d571f5ddb068194e8e500"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "text-encoder",
+          "role": "text-encoder",
+          "additionalRoles": [],
+          "label": "Qwen3-VL-4B text encoder (pipeline folder)",
+          "repository": "unsloth/Krea-2-Turbo",
+          "revision": "2489d0f4cb200616c0b5410f96f64d8fdc611b06",
+          "include": [
+            "model_index.json",
+            "text_encoder/*",
+            "tokenizer/*"
+          ],
+          "primary": "text_encoder",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 586,
+              "gitOid": "889dbf53a26b78303ec0d9782c9bd3a1a13e2483"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 1559,
+              "gitOid": "259091957835d33e698926946f7a86189240ae30"
+            },
+            {
+              "path": "text_encoder/model.safetensors",
+              "size": 8875715136,
+              "sha256": "8434db05292f95e0041589a7c82abeb39385be59c85b54ae11caa7b45e9f4f13"
+            },
+            {
+              "path": "tokenizer/chat_template.jinja",
+              "size": 5292,
+              "gitOid": "124386803f142761528f710e77ae483f5f8c4fc4"
+            },
+            {
+              "path": "tokenizer/tokenizer.json",
+              "size": 11422650,
+              "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 664,
+              "gitOid": "f23dc7a19faf556b079ef8110de34a186f5c7dbe"
+            }
+          ]
+        },
+        {
+          "id": "vae",
+          "role": "vae",
+          "additionalRoles": [],
+          "label": "Qwen-Image VAE",
+          "repository": "unsloth/Krea-2-Turbo",
+          "revision": "2489d0f4cb200616c0b5410f96f64d8fdc611b06",
+          "include": [
+            "model_index.json",
+            "vae/*"
+          ],
+          "primary": "vae/diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 586,
+              "gitOid": "889dbf53a26b78303ec0d9782c9bd3a1a13e2483"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 791,
+              "gitOid": "9dd30f0ac610d69cca7d1ececb454ffe5918f27d"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 507591892,
+              "sha256": "ab1b61103959913d6c7e628cf793dbb2ca4726a40a3b3ae206c52b8e75bf6f08"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "26.9 dB (512) / 34.1 dB (1024) vs diffusers on the same files (8 distilled steps, visually identical); text encoder \u2264 3.8e-4, transformer 5.7e-3",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "Krea2Tests"
+        ]
+      },
+      "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (\u0060raw\u0060 / \u0060base\u0060 in the name) run 28 guided steps",
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "krea/Krea-2-Turbo (ungated mirror unsloth/Krea-2-Turbo), realrebelai/KREA-2_GGUFs",
+            "formats": "GGUF Q8_0 \u002B Qwen3-VL-4B text encoder and Qwen-Image VAE companions (the pipeline\u0027s folders)",
+            "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (\u0060raw\u0060 / \u0060base\u0060 in the name) run 28 guided steps"
           }
         }
       ]
@@ -17128,6 +17402,167 @@
       ]
     },
     {
+      "id": "ultralytics-yolo-onnx",
+      "name": "YOLOv8n, YOLOv8n-seg, YOLOv10n (Ultralytics ONNX exports)",
+      "kind": "object-detection",
+      "family": "YOLO",
+      "architecture": "yolo",
+      "level": "verified",
+      "gated": false,
+      "tags": [],
+      "variants": [],
+      "companions": [],
+      "verification": {
+        "reference": "onnxruntime \u002B Ultralytics decoding",
+        "summary": "same classes, scores within 0.01 and boxes within 2 px as onnxruntime with Ultralytics\u0027 decoding; mask IoU 0.994-1.000; CPU = Vulkan",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "YoloDetectorTests"
+        ]
+      },
+      "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); \u0060.pt\u0060 checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export\u0027s fixed input size is used (letterboxed). Not installable from the catalog: the ONNX files are exports users make themselves with \u0060yolo export format=onnx\u0060; Ultralytics weights are AGPL-3.0.",
+      "doc": [
+        {
+          "section": "5",
+          "cells": {
+            "model": "YOLOv8n, YOLOv8n-seg, YOLOv10n (Ultralytics ONNX exports; also YOLO11 and the larger sizes by the same graph)",
+            "repositories": "\u0060yolo export format=onnx\u0060 output (AGPL-3.0: check the license)",
+            "task": "object-detection (instance masks for \u0060-seg\u0060)",
+            "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); \u0060.pt\u0060 checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export\u0027s fixed input size is used (letterboxed)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "yolos-tiny",
+      "name": "YOLOS tiny",
+      "kind": "object-detection",
+      "family": "YOLOS",
+      "architecture": "yolos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 432528905,
+          "companions": [],
+          "repository": "hustvl/yolos-tiny",
+          "revision": "95a90f3c189fbfca3bcfc6d7315b9e84d95dc2de",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 4133,
+              "gitOid": "9b1dc5fbaca6c50cb8a92488448be33bf7a60260"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 291,
+              "gitOid": "79bb34ebb0f2c7ba7a8f0a3d99148a2cfb61019c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 25978888,
+              "sha256": "5a6a017a20cb522dd347271fa5bd670467e456176aaccd940090e50985ac6e74"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "same detections as transformers, boxes within 2 px, scores within 0.02; CPU = Vulkan",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "ObjectDetectorTests"
+        ]
+      },
+      "notes": "fixed 640 px square canvas; small has the mid position tables",
+      "doc": [
+        {
+          "section": "5",
+          "cells": {
+            "model": "YOLOS tiny, small",
+            "repositories": "hustvl/yolos-tiny, hustvl/yolos-small (revision 3d8f7130d3ce4907cb206fe1c8485dc8fe8703de)",
+            "task": "object-detection"
+          }
+        }
+      ]
+    },
+    {
+      "id": "yolos-small",
+      "name": "YOLOS small",
+      "kind": "object-detection",
+      "family": "YOLOS",
+      "architecture": "yolos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 543830949,
+          "companions": [],
+          "repository": "hustvl/yolos-small",
+          "revision": "3d8f7130d3ce4907cb206fe1c8485dc8fe8703de",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 4132,
+              "gitOid": "8726d727839a657c66b1cd1647c88e36351504da"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 292,
+              "gitOid": "6bee0f996e603419202878bf02d4a31ec4159ce1"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 122763274,
+              "sha256": "27823dd210017c83fb2abb5528b7344d8b73572b5764d20f9cda2c153727232c"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "same detections as transformers, boxes within 2 px, scores within 0.02; CPU = Vulkan",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "ObjectDetectorTests"
+        ]
+      },
+      "notes": "fixed 640 px square canvas; small has the mid position tables",
+      "doc": []
+    },
+    {
       "id": "encodec-24khz",
       "name": "EnCodec 24 kHz",
       "kind": "audio-codec",
@@ -17698,6 +18133,37 @@
           "cells": {
             "repositories": "Lightricks/LTX-Video (diffusers folder; T5-XXL of FLUX.1 / PixArt)",
             "formats": "diffusers folder"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ltx-video-0.9.5-2b",
+      "name": "LTX-Video 0.9.5 (2B)",
+      "kind": "video-generation",
+      "family": "LTX-Video",
+      "level": "verified",
+      "gated": false,
+      "tags": [],
+      "variants": [],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "text-to-video 45.0 dB, transformer 2.9e-4, T5 1.4e-5 relative RMS (704\u00D7480, 25 frames, 20 steps)",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "0.75 s per step at 768\u00D7512\u00D797 frames, 10.0 GB",
+      "doc": [
+        {
+          "section": "8",
+          "cells": {
+            "repositories": "Lightricks/LTX-Video-0.9.5 (diffusers folder; T5-XXL as in 0.9.0)",
+            "formats": "diffusers folder",
+            "notes": "0.75 s per step at 768\u00D7512\u00D797 frames, 10.0 GB"
           }
         }
       ]

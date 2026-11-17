@@ -7,3 +7,5 @@ compliance.kaldi.fbank (make_chatterbox_clone_reference.py) delegates to torchau
 wheel and named by the environment variable SL_TORCHAUDIO_KALDI.
 make_xtts_clone_reference.py needs the real torchaudio (MelSpectrogram with the Slaney norm, functional.resample): it puts the unpacked
 torchaudio wheel named by SL_TORCHAUDIO_DIR ahead of these stand-ins.
+make_cosyvoice3_reference.py appends this folder to sys.path (installed packages win) for lightning (Matcha-TTS's logger helper) and pyworld
+(CosyVoice's training-time F0 extraction), which loading the release's cosyvoice3.yaml imports but inference does not use.

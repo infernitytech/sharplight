@@ -49,10 +49,11 @@ internal static class TowerBlocks
     /// <param name="causal">Whether attention is causal.</param>
     /// <param name="taps">Receives the output of every layer listed in <paramref name="tapAfter"/> (1-based layer counts), in order; or <see langword="null"/>.</param>
     /// <param name="tapAfter">The layer counts whose outputs are tapped (intermediate features for dense-prediction necks), or <see langword="null"/>.</param>
-    public static Value Layers(GraphBuilder b, Value x, TowerOptions t, int rows, bool causal, List<Value>? taps = null, IReadOnlyCollection<int>? tapAfter = null)
+    /// <param name="layerOffset">The index of the first layer, to build a few layers of the stack at a time.</param>
+    public static Value Layers(GraphBuilder b, Value x, TowerOptions t, int rows, bool causal, List<Value>? taps = null, IReadOnlyCollection<int>? tapAfter = null, int layerOffset = 0)
     {
         Value? mask = causal ? CausalMask(b, rows) : null;
-        for (int il = 0; il < t.Layers; il++)
+        for (int il = layerOffset; il < layerOffset + t.Layers; il++)
         {
             using var _ = b.Group($"{t.Prefix}layers.{il}");
             string p = $"{t.Prefix}layers.{il}.";

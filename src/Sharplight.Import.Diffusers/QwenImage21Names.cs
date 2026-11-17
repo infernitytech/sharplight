@@ -101,7 +101,7 @@ internal static partial class QwenImage21Names
     }
 
     /// <summary>The stored zero-centred scale plus one, as f32.</summary>
-    private static WeightInfo PlusOne(string name, WeightInfo stored) => WeightInfo.Derived(name, DataType.F32, new Shape(stored.Shape.Elements()), () =>
+    internal static WeightInfo PlusOne(string name, WeightInfo stored) => WeightInfo.Derived(name, DataType.F32, new Shape(stored.Shape.Elements()), () =>
     {
         var probe = new CanonicalWeights();
         probe.AddF32(name, stored);

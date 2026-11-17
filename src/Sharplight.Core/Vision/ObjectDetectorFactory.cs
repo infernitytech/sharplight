@@ -14,5 +14,6 @@ internal sealed class ObjectDetectorFactory : ITaskClientFactory
         => model.Description.Components.Any(c => c.Role == ModelComponentRoles.VisionEncoder && c.Graphs.Contains(WellKnown.DetectGraph))
             && model.Description.Components.Any(c => c.Role == ModelComponentRoles.FeatureExtractor);
 
-    public ITaskClient Create(TaskModel model) => new ObjectDetectorClient(model);
+    public ITaskClient Create(TaskModel model)
+        => model.Description.Component(ModelComponentRoles.VisionEncoder).Config.ContainsKey(DenseDetectorClient.HeadKey) ? new DenseDetectorClient(model) : new ObjectDetectorClient(model);
 }
