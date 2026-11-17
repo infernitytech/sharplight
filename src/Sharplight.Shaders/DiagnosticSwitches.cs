@@ -419,6 +419,24 @@ internal static class DiagnosticSwitches
     /// <summary>(token, slot) items up to which the per-item int-dot expert matvec beats grouping by expert.</summary>
     public static int MoeIntDotMaxItems { get; } = int.Parse(Read("SHARPLIGHT_MOE_MMVQ_MAX") ?? "128", CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// Items per expert tile of the grouped int-dot expert matvec (items routed to one expert share its weight loads), 0 to turn
+    /// the grouped matvec off.
+    /// </summary>
+    public static int MoeGroupedColumns { get; } = int.Parse(Read("SHARPLIGHT_MOE_GROUPED_COLS") ?? "8", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Average (token, slot) items per expert up to which the grouped int-dot expert matvec serves a step above the per-item
+    /// matvec's range (more items per expert go to the grouped GEMM).
+    /// </summary>
+    public static int MoeGroupedMaxPerExpert { get; } = int.Parse(Read("SHARPLIGHT_MOE_GROUPED_MAX") ?? "8", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// (token, slot) items above which the grouped int-dot expert matvec takes over from the per-item one (at most
+    /// <see cref="MoeIntDotMaxItems"/>; only for expert counts whose grouped range reaches that bound).
+    /// </summary>
+    public static int MoeGroupedMinItems { get; } = int.Parse(Read("SHARPLIGHT_MOE_GROUPED_MIN") ?? "128", CultureInfo.InvariantCulture);
+
     /// <summary>Forced expert-matmul token tile, or 0 for the heuristic.</summary>
     public static int MoeTile { get; } = int.Parse(Read("SHARPLIGHT_MOE_TILE") ?? "0", CultureInfo.InvariantCulture);
 
