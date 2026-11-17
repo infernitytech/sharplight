@@ -5378,7 +5378,8 @@ section 39 (GPU 1, checkpoints on local disk); before and after ran back to back
 
 ### 40.2 Single stream
 
-Tokens/s, higher is better (Sharplight: best of 2 process runs x 4 prefills; vLLM: median of 5, section 39).
+Tokens/s, higher is better (Sharplight: best of 2 process runs x 4 prefills; vLLM: median of 5, section 39). For the same
+statistic on both sides see 40.9.
 
 | model | metric | Sharplight before | Sharplight after | vLLM | SL/vLLM before | SL/vLLM after |
 |---|---|---:|---:|---:|---:|---:|
@@ -5496,3 +5497,47 @@ python3 bench/s38_summarize.py bench/results/s40 before,after   # vLLM files cop
 SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_ROWS=2048 SHARPLIGHT_BENCH_TYPES=bf16 SHARPLIGHT_BENCH_SHAPES="4096,12288;12288,4096;4096,4096" \
   dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -method "*MatMulPrefill"
 ```
+
+### 40.9 Prefill with an identical procedure (Sharplight, vLLM, llama.cpp)
+
+For charts that compare engines, this table uses one procedure and one statistic on every side, measured back to back in one
+session on GPU 1 with no other process on it (2026-11-17, after all of the above; `bench/s40_identical.sh`, table from
+`bench/s40_identical_summarize.py`, raw output in [`bench/results/s40/identical/`](../bench/results/s40/identical)):
+
+* the same weights on both sides: the Hugging Face bf16 / FP8 checkpoints for Sharplight and vLLM 0.33.0, the same GGUF files
+  for Sharplight and llama.cpp (b11177, CUDA build, `llama-bench -ngl 99 -fa 1`, its default batch sizes);
+* the same prompts: 512, 2048 and 8192 random token ids, no prefix caching;
+* the same repetitions and statistic: one process run per engine and model (Sharplight: one per prompt length), per length one
+  warm-up prefill and 5 timed prefills, reported as the **median of the 5** (Sharplight `--bench`'s "prefill median of 5";
+  vLLM `bench/vllm_single.py --points pp --reps 5`, a generate call with one output token; llama-bench `-r 5`, the median of
+  its `samples_ns`).
+
+Tokens/s of prompt processing, higher is better.
+
+| model | weights | prompt | Sharplight | other engine | other | Sharplight / other |
+|---|---|---:|---:|---|---:|---:|
+| qwen3-0.6b | HF bf16 | 512 | 61062 | vLLM | 30203 | 2.02x |
+| qwen3-0.6b | HF bf16 | 2048 | 84458 | vLLM | 80743 | 1.05x |
+| qwen3-0.6b | HF bf16 | 8192 | 51887 | vLLM | 59802 | 0.87x |
+| llama3.2-1b | HF bf16 | 512 | 45544 | vLLM | 44107 | 1.03x |
+| llama3.2-1b | HF bf16 | 2048 | 53369 | vLLM | 54322 | 0.98x |
+| llama3.2-1b | HF bf16 | 8192 | 42176 | vLLM | 48653 | 0.87x |
+| qwen3-8b | HF bf16 | 512 | 7285 | vLLM | 8114 | 0.90x |
+| qwen3-8b | HF bf16 | 2048 | 7583 | vLLM | 8755 | 0.87x |
+| qwen3-8b | HF bf16 | 8192 | 6716 | vLLM | 7653 | 0.88x |
+| qwen3-8b-fp8 | HF FP8 | 512 | 10309 | vLLM | 14770 | 0.70x |
+| qwen3-8b-fp8 | HF FP8 | 2048 | 10722 | vLLM | 14956 | 0.72x |
+| qwen3-8b-fp8 | HF FP8 | 8192 | 9057 | vLLM | 12317 | 0.74x |
+| qwen3-0.6b | GGUF Q8_0 | 512 | 60628 | llama.cpp | 50393 | 1.20x |
+| qwen3-0.6b | GGUF Q8_0 | 2048 | 78302 | llama.cpp | 47411 | 1.65x |
+| qwen3-0.6b | GGUF Q8_0 | 8192 | 49540 | llama.cpp | 36731 | 1.35x |
+| llama3.2-1b | GGUF Q8_0 | 512 | 35905 | llama.cpp | 42839 | 0.84x |
+| llama3.2-1b | GGUF Q8_0 | 2048 | 43077 | llama.cpp | 42196 | 1.02x |
+| llama3.2-1b | GGUF Q8_0 | 8192 | 35972 | llama.cpp | 36735 | 0.98x |
+| qwen3-8b | GGUF Q4_K_M | 512 | 6645 | llama.cpp | 7007 | 0.95x |
+| qwen3-8b | GGUF Q4_K_M | 2048 | 6378 | llama.cpp | 6874 | 0.93x |
+| qwen3-8b | GGUF Q4_K_M | 8192 | 5768 | llama.cpp | 6233 | 0.93x |
+
+Against the best-of figures of 40.2 the medians are 0-3 % lower on Sharplight (Qwen3-8B pp2048 7583 against 7832) and within
+the run-to-run spread on vLLM (section 39's medians: 8729 against 8755 here). Decode (median of 64 steps against vLLM's median of
+5 128-token runs) and TTFT (median of the loadgen rounds on both sides) in 40.2 / 40.3 already use the same statistic.

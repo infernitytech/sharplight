@@ -13,7 +13,8 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   large-weight GEMMs, a dual bf16 gate / up GEMM and a register softmax in the prefill attention; round 5 (§40) converts bf16
   weights after the MMAs instead of at the fetch (bf16 GEMMs +10-14 %) and lets the dual GEMM store the down projection's f16
   input. pp2048 is now at 1.02x (Qwen3-0.6B), 1.02x (Llama-1B), 0.90x (Qwen3-8B bf16) and 0.74x (FP8) of
-  vLLM; pp8192 at 0.91x / 0.93x / 0.89x / 0.74x. Decode is level. Next: the bf16 and FP8 GEMMs'
+  vLLM; pp8192 at 0.91x / 0.93x / 0.89x / 0.74x (same statistic on both sides, median of 5: pp2048 1.05x / 0.98x / 0.87x /
+  0.72x; GGUF against llama.cpp 1.65x / 1.02x / 0.93x for Qwen3-0.6B Q8_0 / Llama-1B Q8_0 / Qwen3-8B Q4_K_M, §40.9). Decode is level. Next: the bf16 and FP8 GEMMs'
   fetch (the down projection's fetch alone takes as long as its MMAs, 2.1 TB/s from L2; the FP8 GEMM runs one workgroup per
   SM, so loads and MMAs overlap only partly), stream-K without a reduction launch for grids of 1-3 waves, norms writing the
   f16 / E4M3 activations directly at prefill sizes, the K/V staging of the attention kernel.
