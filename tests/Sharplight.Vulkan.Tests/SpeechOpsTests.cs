@@ -92,7 +92,8 @@ public sealed class SpeechOpsTests
         tg.B.Output("a", tg.B.Binary("Atan2", y, x));
         float[] ys = [0f, -0f, 0f, -0f];
         float[] xs = [-1f, -1f, 1f, 1f];
-        Diff.Check("Atan2", tg.B.Build(), [new Step(1, 0, (y, ys), (x, xs))], 0, 0, maxTokens: 4, what: "signed zeros");
+        // Signs and quadrants exactly; the magnitude of +-pi within one ulp (Metal's atan2 rounds pi to nearest).
+        Diff.Check("Atan2", tg.B.Build(), [new Step(1, 0, (y, ys), (x, xs))], 0, 1.5e-7, maxTokens: 4, what: "signed zeros");
     }
 
     [Fact]

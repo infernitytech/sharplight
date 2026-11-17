@@ -17,8 +17,8 @@ public sealed class DeviceProfileTests
     [Fact]
     public void ProfileRoundTripsThroughJson()
     {
-        Gpu.Require();
-        var profile = Gpu.Vulkan!.CreateProfile()!;
+        Gpu.RequireVulkan();
+        var profile = Gpu.Device!.CreateProfile()!;
         var copy = DeviceProfile.FromJson(profile.ToJson());
         Assert.Equal(profile.ToJson(), copy.ToJson());
         Assert.Equal(profile.Features, copy.Features);
@@ -34,8 +34,8 @@ public sealed class DeviceProfileTests
     [Fact]
     public void ProfileDeviceCannotRunAndProducesOnlyTheCodeTier()
     {
-        Gpu.Require();
-        using var offline = new VulkanProfileDevice(Gpu.Vulkan!.CreateProfile()!, new DeviceOptions());
+        Gpu.RequireVulkan();
+        using var offline = new VulkanProfileDevice(Gpu.Device!.CreateProfile()!, new DeviceOptions());
         Assert.Equal([ArtifactTiers.Code], offline.ArtifactTargets.Select(t => t.Tier));
         using var compiled = Compile(BuildGraph(), offline, new CompilationArtifacts());
         Assert.Throws<NotSupportedException>(() => compiled.Run(Parameters()));
@@ -43,9 +43,9 @@ public sealed class DeviceProfileTests
 
     private static void AssertSameKernels(string[] disabled)
     {
-        Gpu.Require();
+        Gpu.RequireVulkan();
         var provider = new VulkanProvider();
-        var info = provider.GetDevices().First(d => d.Name == Gpu.Vulkan!.Info.Name);
+        var info = provider.GetDevices().First(d => d.Name == Gpu.Device!.Info.Name);
         var options = new DeviceOptions();
         foreach (var feature in disabled)
         {
@@ -54,7 +54,7 @@ public sealed class DeviceProfileTests
 
         using var live = provider.OpenDevice(info, options);
         // The reduced profile comes from the full one, as a shipped "no matrix units" profile would.
-        var profile = DeviceProfile.FromJson(Gpu.Vulkan!.CreateProfile()!.WithoutFeatures(disabled).ToJson());
+        var profile = DeviceProfile.FromJson(Gpu.Device!.CreateProfile()!.WithoutFeatures(disabled).ToJson());
         using var offline = new VulkanProfileDevice(profile, new DeviceOptions());
 
         var graph = BuildGraph();

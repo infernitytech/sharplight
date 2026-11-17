@@ -21,9 +21,9 @@ public sealed class TwoStagePrecompilationTests
     [Fact]
     public async Task PortableStageGeneratesSpirvForTheProfileWithoutTheDriver()
     {
-        Gpu.Require();
+        Gpu.RequireVulkan();
         var provider = new VulkanProvider();
-        var portable = await provider.CompilePortableAsync(new PortableCompilationRequest(Gpu.Vulkan!.CreateProfile(), Workload), TestContext.Current.CancellationToken);
+        var portable = await provider.CompilePortableAsync(new PortableCompilationRequest(Gpu.Device!.CreateProfile(), Workload), TestContext.Current.CancellationToken);
 
         Assert.Equal("spirv_1_6", provider.PortableCodeFormat);
         Assert.Equal(provider.PortableCodeFormat, portable.Format);
@@ -38,7 +38,7 @@ public sealed class TwoStagePrecompilationTests
     [Fact]
     public async Task DeviceStageProducesKernelBinariesThatLoadsUseWithoutCompiling()
     {
-        Gpu.Require();
+        Gpu.RequireVulkan();
         var (provider, info) = Device();
         var portable = await PortableAsync(provider);
         using var device = provider.OpenDevice(info);
@@ -62,7 +62,7 @@ public sealed class TwoStagePrecompilationTests
     [Fact]
     public async Task DamagedForeignOrStaleKernelBinariesAreIgnored()
     {
-        Gpu.Require();
+        Gpu.RequireVulkan();
         var (provider, info) = Device();
         var portable = await PortableAsync(provider);
         DeviceCodeSet deviceCode;
@@ -108,7 +108,7 @@ public sealed class TwoStagePrecompilationTests
     [Fact]
     public async Task WithoutKernelBinariesTheDeviceCodeIsAValidatedPipelineCache()
     {
-        Gpu.Require();
+        Gpu.RequireVulkan();
         var (provider, info) = Device();
         var portable = await PortableAsync(provider);
         var options = new DeviceOptions();
@@ -131,7 +131,7 @@ public sealed class TwoStagePrecompilationTests
     [Fact]
     public async Task DeviceStageRejectsPortableCodeOfAnotherProfile()
     {
-        Gpu.Require();
+        Gpu.RequireVulkan();
         var (provider, info) = Device();
         var own = await PortableAsync(provider);
         // The same code labelled for a device with another subgroup size.
@@ -145,7 +145,7 @@ public sealed class TwoStagePrecompilationTests
     [Fact]
     public void AWarmArtifactStoreServesAModelWithoutAPackageWithoutCompiling()
     {
-        Gpu.Require();
+        Gpu.RequireVulkan();
         var (provider, info) = Device();
         var directory = Directory.CreateTempSubdirectory("sharplight-store-vulkan-").FullName;
         try
@@ -176,11 +176,11 @@ public sealed class TwoStagePrecompilationTests
     private static (VulkanProvider Provider, DeviceInfo Info) Device()
     {
         var provider = new VulkanProvider();
-        return (provider, provider.GetDevices().First(d => d.Name == Gpu.Vulkan!.Info.Name));
+        return (provider, provider.GetDevices().First(d => d.Name == Gpu.Device!.Info.Name));
     }
 
     private static Task<PortableCodeSet> PortableAsync(VulkanProvider provider)
-        => provider.CompilePortableAsync(new PortableCompilationRequest(Gpu.Vulkan!.CreateProfile(), Workload), TestContext.Current.CancellationToken);
+        => provider.CompilePortableAsync(new PortableCompilationRequest(Gpu.Device!.CreateProfile(), Workload), TestContext.Current.CancellationToken);
 
     private static void Workload(IComputeDevice device, CompilationArtifacts artifacts, CancellationToken cancellationToken)
     {

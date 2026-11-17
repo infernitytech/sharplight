@@ -473,6 +473,15 @@ internal sealed unsafe class ReduceOp : CpuOp
                 (k == ReduceKind.Max ? Vector256.Max(a, b) : k == ReduceKind.Min ? Vector256.Min(a, b) : a + b).Store(o + i);
             }
         }
+        else if (CpuIsa.UseNeon)
+        {
+            for (; i + 4 <= n; i += 4)
+            {
+                var a = Vector128.Load(o + i);
+                var b = Vector128.Load(s + i);
+                (k == ReduceKind.Max ? Vector128.Max(a, b) : k == ReduceKind.Min ? Vector128.Min(a, b) : a + b).Store(o + i);
+            }
+        }
         for (; i < n; i++)
         {
             o[i] = Comb(k, o[i], s[i]);

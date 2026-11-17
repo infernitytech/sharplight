@@ -84,6 +84,12 @@ internal static class Env
     /// <summary>The tiny random FLUX.2 Klein pipeline (tools/make-tiny-flux2.py).</summary>
     public static readonly string TinyFlux2 = Path.Combine(Home, "models/flux2/tiny-random-flux2");
 
+    /// <summary>unsloth's Qwen3-4B Q8_0 GGUF (the text encoder of Z-Image and FLUX.2 Klein 4B is exactly Qwen/Qwen3-4B).</summary>
+    public static readonly string Qwen3FourBGguf = Path.Combine(Home, "models/gguf/Qwen3-4B/Qwen3-4B-Q8_0.gguf");
+
+    /// <summary>unsloth's Qwen3-VL-4B-Instruct Q8_0 GGUF (Krea 2's text encoder is exactly Qwen/Qwen3-VL-4B-Instruct).</summary>
+    public static readonly string Qwen3Vl4BGguf = Path.Combine(Home, "models/gguf/Qwen3-VL-4B/Qwen3-VL-4B-Instruct-Q8_0.gguf");
+
     /// <summary>The FLUX.2 Dev model folder (the diffusers folder without its weights, the transformer and Mistral text encoder GGUF files, references).</summary>
     public static readonly string Flux2DevRoot = Path.Combine(Home, "models/flux2-dev");
 

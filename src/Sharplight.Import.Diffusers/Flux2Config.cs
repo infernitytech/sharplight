@@ -151,7 +151,8 @@ internal sealed record Flux2Config
         metadata[Prefix + "text_encoder.layers"] = Dev ? new[] { 10, 20, 30 } : new[] { 9, 18, 27 };
         metadata[Prefix + "text_encoder.prompt_template"] = Dev ? DevPromptTemplate : PromptTemplate;
         // Mistral Small 3.2's hidden states carry outlier channels that int8-quantized activations lose (the padding rows, which the
-        // transformer reads, most): its matrix products keep f32 activations.
+        // transformer reads, most): its matrix products keep f32 activations. Qwen3 (Klein, Z-Image), Qwen2.5-VL and Qwen3-VL GGUF encoders
+        // measured the same either way.
         metadata[Prefix + "text_encoder.f32_activations"] = Dev;
         metadata[Prefix + "vae.latent_patch"] = 2;
         metadata[Prefix + "vae.batch_norm_eps"] = 1e-4f;

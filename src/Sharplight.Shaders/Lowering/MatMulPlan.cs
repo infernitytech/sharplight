@@ -51,6 +51,12 @@ internal sealed class MatMulPlan
     /// <summary>The per-row power-of-two scales of <see cref="W"/> for the split-f16 GEMM (f32 [N]), else null.</summary>
     public TensorRef? WeightScales { get; init; }
 
+    /// <summary>
+    /// True when the 8x8 subgroup-matrix GEMM (<c>gemm_sg</c>, <see cref="Runtime.DeviceFeatures.MatrixF16Small"/>) serves the rows
+    /// beyond the matvecs instead of the SIMT GEMM (no K split).
+    /// </summary>
+    public bool SmallMatrix { get; init; }
+
     /// <summary>True when the workgroup-matrix GEMM replaces gemm_cm2 for prefill.</summary>
     public required bool WorkgroupMatrix { get; init; }
 

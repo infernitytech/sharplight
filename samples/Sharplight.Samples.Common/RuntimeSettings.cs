@@ -11,6 +11,7 @@ namespace Sharplight.Samples;
 /// <param name="DisabledFeatures">Device features that must not be used (see <c>DeviceFeatures</c>).</param>
 /// <param name="CpuOffload">Let layers that do not fit on the device and unsupported ops run on the CPU.</param>
 /// <param name="ReducedPrecision">Opt-in: allow faster kernels with reduced (f16) precision where the default keeps near-f32 accuracy.</param>
+/// <param name="ProviderName">The GPU provider to use (e.g. <c>metal</c>, <c>vulkan</c>), or <see langword="null"/> for the first available one.</param>
 public sealed record RuntimeSettings(
     bool UseCpu,
     int DeviceIndex,
@@ -19,4 +20,5 @@ public sealed record RuntimeSettings(
     DataType KvCacheType,
     IReadOnlyList<string> DisabledFeatures,
     bool CpuOffload,
-    bool ReducedPrecision = false);
+    bool ReducedPrecision = false,
+    string? ProviderName = null);
