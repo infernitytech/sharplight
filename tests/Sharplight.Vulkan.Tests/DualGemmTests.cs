@@ -15,17 +15,19 @@ public sealed class DualGemmTests
     [InlineData("bf16", 512, 8192)]
     [InlineData("bf16", 636, 4104)]
     [InlineData("f16", 1100, 8192)]
-    public void DualMatchesSeparateBitwise(string fmt, int t, int n)
+    [InlineData("f16", 100, 96, 64, "Gelu")]
+    [InlineData("f16", 77, 128, 64, "GeluTanh")]
+    public void DualMatchesSeparateBitwise(string fmt, int t, int n, int k = 1024, string activation = "Silu")
     {
         Gpu.Require();
-        const int K = 1024;
+        int K = k;
         float[] Run(bool exposeGate)
         {
             var tg = new TG();
             var x = tg.InF("x", TG.T, K);
             var g = tg.B.MatMul(x, tg.RandW("wg", DataType.Get(fmt), 0.05f, n, K));
             var u = tg.B.MatMul(x, tg.RandW("wu", DataType.Get(fmt), 0.05f, n, K));
-            tg.B.Output("y", tg.B.Mul(tg.B.Silu(g), u));
+            tg.B.Output("y", tg.B.Mul(activation == "Silu" ? tg.B.Silu(g) : tg.B.Unary(activation, g), u));
             if (exposeGate)
             {
                 tg.B.Output("g", g);

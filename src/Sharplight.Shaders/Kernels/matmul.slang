@@ -1357,7 +1357,11 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             Acc2 r = Acc2(0.0);
             [ForceUnroll] for (uint e = 0; e < 8; e++) r[e] = epi2(acc[i][j][e], acc[i][j + 1][e]);
             uint tRow = t0 + wm + i * 16, nCol = n0 + (wn + j * 16) / 2;
-            if (tRow + 16 <= p.T && (N % 16 == 0 || nCol + 16 <= N))
+            if (nCol >= N)
+            {
+                continue;   // a tile past the last output (N not a multiple of GBN_OUT)
+            }
+            if (tRow + 16 <= p.T && nCol + 16 <= N)
             {
                 r.Store<CoopMatMatrixLayout.RowMajor>(yb + uint64_t(tRow) * Y_STRIDE + nCol, 0u, Y_STRIDE);
                 continue;
