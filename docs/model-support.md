@@ -1525,7 +1525,8 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Qwen-Image (Qwen-Image and fine-tunes with the same layout, e.g. Qwen-Image-2512) | diffusers folder; transformer-only GGUF (city96 / QuantStack / unsloth, `qwen_image` architecture id, any ggml type) and ComfyUI single files plus companions: the Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a `qwen2vl` GGUF), the causal VAE (the pipeline's `vae` file or ComfyUI's `qwen_image_vae.safetensors` in the original Wan names) | **supported** (txt2img, img2img, inpainting; true CFG with diffusers' norm rescaling; 50 steps, guidance 4 by default) | [below](#qwen-image) |
 | Qwen-Image 2.1 (and its Turbo) | diffusers folder; transformer-only GGUF (unsloth: no metadata, ComfyUI names) and ComfyUI single files plus companions: the Qwen3-VL-8B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the pipeline's VAE file | **supported** (text-to-image; 40 steps without guidance by default; Turbo: its 8-step schedule from the pipeline's `sample_sigmas` or the file name) | [below](#qwen-image-21) |
 | FLUX.2 Klein (4B; 9B and the base models share the layout) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (the pipeline's `text_encoder` folder or a `qwen3` GGUF), the pipeline's VAE file | **supported** (txt2img; distilled: 4 steps without guidance; base: 50 steps, guidance 4) | [below](#flux-2) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, FLUX.2 Dev (32B), Lumina-Image-2.0, HiDream, AuraFlow | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
+| Krea 2 (Turbo, Raw and fine-tunes) | diffusers folder; the release's original-name single files (`turbo.safetensors`, `raw.safetensors`, ComfyUI's bf16 files); transformer-only GGUF (realrebelai, vantagewithai, ...: architecture `krea2`, some labelled `qwen_image`) plus companions: the Qwen3-VL-4B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the Qwen-Image VAE (the pipeline's file or ComfyUI's `qwen_image_vae.safetensors`) | **supported** (text-to-image; Turbo: 8 steps without guidance; Raw (file names with `raw` / `base`): 28 steps, guidance 5.5) | [below](#krea-2) |
+| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, FLUX.2 Dev (32B), Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
 | ControlNet, TAESD | - | missing | |
 
@@ -1878,6 +1879,46 @@ Verification (tools/make-tiny-flux2.py, tools/make-flux2-references.py; `TinyFlu
 - FLUX.2 Klein 4B, unsloth's Q8_0 GGUF with the pipeline's Qwen3-4B text encoder (bf16) and VAE as companions, on Vulkan against diffusers on
   the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 4 steps, same latents: text encoder 4.5e-4 / 1.3e-3, transformer
   1.6e-3; images 40.1 dB (512) / 41.3 dB (1024). Speed (Vulkan, warm): 1024×1024 4 steps in 3.4 s, 512×512 in 0.8 s.
+
+### Krea 2
+
+<a id="krea-2"></a>
+Krea 2 (2026-11-17, the most downloaded text-to-image release on the Hub at the time; Krea 2 Community License, open weights): a 13B
+single-stream DiT over [text, image] conditioned on twelve tapped layers of Qwen3-VL-4B, with the Qwen-Image (Wan 2.1) VAE.
+
+- Canonical source `krea2`: `transformer.{img_in, time_in.in_layer|out_layer, time_mod, txt_in.norm|in_layer|out_layer, text_fusion.{layerwise|refiner}.{i}.*,
+  text_fusion.projector, blocks.{i}.{mod [6, D], norm1, norm2, attn.q|k|v|gate|o|norm_q|norm_k, mlp.gate|up|down}, final.mod [2, D], final.norm, final.linear}`
+  from the original Krea names (`first`, `tmlp`, `tproj`, `txtmlp`, `txtfusion`, `blocks.{i}.attn.wq|...|qknorm`, `prenorm` / `postnorm`, `mod.lin`, `last.*`)
+  or diffusers' `Krea2Transformer2DModel` names; every norm scale is zero-centred and stored + 1. The Qwen3-VL text model kept whole (`Qwen3VLModel`'s bare
+  `language_model.` names are now mapped too). Family keys: the system-prompt template with its 34-token system turn skipped, 512 prompt tokens, the
+  pipeline's `text_encoder_select_layers` (2, 5, …, 35; transformer-only files: every (layers / 12)-th layer ending one before the last), the
+  exponential shift (μ from the image tokens between 0.5 at 256 and 1.15 at 6400; the distilled Turbo's fixed μ = 1.15 as a dynamic shift with equal
+  bounds), Turbo: 8 steps without guidance, Raw: 28 steps with guidance 5.5 (diffusers' Krea convention cond + 4.5 · (cond − uncond) is the usual
+  scale 1 + 4.5). vantagewithai's GGUF files carry two extra 6144 × 6144 tensors (`last.up` / `last.down`, an embedded picture described by `egg_*`
+  metadata) that no implementation reads; they are skipped.
+- `Krea2TransformerGraphBuilder`: the text fusion first (two blocks across the 12 tapped layers of each token as one batched `Attention` with
+  `sequence_rows` = `sequence_keys` = 12, the projector over the layer axis as a linear map, two refiner blocks across the tokens with the padding as a
+  key bias), then the zero-centred RMS norm and the tanh-GELU MLP into the model width; 28 blocks over [text, image] with RMS norms modulated by the shared
+  time modulation plus each block's table, grouped-query attention (48 query / 12 key-value heads) with q / k RMS norms, interleaved 3-axis RoPE (32 + 48 +
+  48 dims, θ 1000; text at the origin, image tokens at (0, row, column)) and a sigmoid output gate, SwiGLU; the final norm modulated by the time embedding
+  plus a table. Image tokens are 2×2 patches of the 16-channel latents. The text graph is the decoder graph's hidden states entering the 12 layers,
+  concatenated per token.
+- Prompt layout: the pipeline pads the system turn and the prompt and appends the assistant turn after the padding (its positions continue after the
+  prompt); Sharplight tokenizes the assistant turn right after the prompt and pads after it. The valid rows get the same hidden states, and the
+  transformer gives text rows no positions and masks the padding, so the result is the same; only prompts longer than 507 tokens differ (the
+  pipeline keeps the assistant turn, Sharplight cuts at 546 tokens).
+
+Verification (tools/make-tiny-krea2.py, tools/make-krea2-references.py; `TinyKrea2Tests`, `Krea2Tests`, `Krea2ImageTests` in Studio.Tests):
+
+- Tiny random Krea 2 (64×96, GQA in both the blocks and the text fusion, 6-layer Qwen3-VL tapped at 1, 3, 5): prompt tokens equal the pipeline's valid
+  tokens; text encoder, transformer (masked padding), VAE decode and encode within 1e-4 / 1e-3 (Vulkan) of diffusers from the diffusers folder, the
+  original-name single file and a Q8_0 GGUF (GGUF within 5e-3 / 3e-2); guided 4-step txt2img above 40 dB in all 6 combinations.
+- Krea 2 Turbo, realrebelai's Q8_0 GGUF (13.6 GB) with the Turbo pipeline's Qwen3-VL-4B text encoder (bf16) and VAE as companions, on Vulkan against
+  diffusers on the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 8 distilled steps, same latents: text encoder 3.3–3.8e-4,
+  transformer 5.7e-3 relative RMS (random inputs at 512); images 26.9 dB (512) / 34.1 dB (1024), visually identical. Speed (Vulkan, warm, conditioning
+  reused): 1024×1024 8 steps in 29.9 s (about 3.6 s per step), 512×512 in 8.6 s; diffusers (GGUF dequantized on the fly, CUDA f32) 5.7 s per step at
+  1024. Studio: the load panel shows the Qwen3-VL-4B and VAE slots, fills them from the pipeline folder beside the GGUF's folder, and the Image page
+  generates 1024×1024.
 
 ### LoRA
 

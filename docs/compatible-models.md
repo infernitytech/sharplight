@@ -265,6 +265,7 @@ images are visually identical. All run on CPU and Vulkan (Vulkan used for the re
 | FLUX.2 Klein 4B | black-forest-labs/FLUX.2-klein-4B, unsloth/FLUX.2-klein-4B-GGUF | GGUF Q8_0 + Qwen3-4B text encoder and VAE companions (the pipeline's folders) | 40.1 dB (512) / 41.3 dB (1024) vs diffusers on the same files (4 distilled steps); text encoder ≤ 1.3e-3, transformer 1.6e-3 | 1024x1024 in 3.4 s | 2026-11-17 |
 | Qwen-Image 2.1 Turbo | Qwen/Qwen-Image-2.1-Turbo, unsloth/Qwen-Image-2.1-Turbo-GGUF | GGUF Q8_0 + the Qwen-Image 2.1 companions | 34.5 dB (1024, its 8-step `sample_sigmas`) vs diffusers on the same files | 8 steps at 1024x1024 in 14.8 s; the schedule comes from `model_index.json` or the `turbo` file name | 2026-11-16 |
 | Qwen-Image 2.1 | Qwen/Qwen-Image-2.1, unsloth/Qwen-Image-2.1-GGUF | GGUF Q8_0 + Qwen3-VL-8B text encoder and VAE companions (the pipeline's folders) | 42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder ≤ 9.6e-4 | 1024x1024 20 steps in 36 s; text-to-image only (the editing path is not implemented) | 2026-11-16 |
+| Krea 2 Turbo | krea/Krea-2-Turbo (ungated mirror unsloth/Krea-2-Turbo), realrebelai/KREA-2_GGUFs | GGUF Q8_0 + Qwen3-VL-4B text encoder and Qwen-Image VAE companions (the pipeline's folders) | 26.9 dB (512) / 34.1 dB (1024) vs diffusers on the same files (8 distilled steps, visually identical); text encoder ≤ 3.8e-4, transformer 5.7e-3 | 1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (`raw` / `base` in the name) run 28 guided steps | 2026-11-17 |
 <!-- verified-catalog:end -->
 
 ### 4.1 Popularity sweep (2026-11-16)
@@ -296,7 +297,7 @@ images are 21 / 29 dB away.
 
 The Diffusers repositories of these (RealVisXL, Juggernaut, Animagine, NoobAI, Illustrious: `StableDiffusionXLPipeline`) are offered for
 download in Studio (`ClassifyPipeline`), the single files load in Studio's library like the SDXL base file. Not covered, because their
-architectures are not implemented yet: FLUX.2 Dev, Krea-2, MiniMax-H3-Image (Qwen-Image 2.1 and FLUX.2 Klein: section 4).
+architectures are not implemented yet: FLUX.2 Dev, MiniMax-H3-Image (Qwen-Image 2.1, FLUX.2 Klein and Krea 2: section 4).
 
 LoRA (merged at load, role `lora@scale`; tools/make-tiny-lora.py, `TinyLoraTests`): random LoRAs on the tiny SD 1.5, SDXL and
 FLUX.1-dev pipelines against diffusers' `load_lora_weights` from the same noise, strength 0.8: SD 1.5 kohya and PEFT 82 dB (CPU) / 76 dB
@@ -383,6 +384,7 @@ APNG (MP4 with a system ffmpeg), `.slm`.
 | Wan 2.1 T2V 1.3B | Wan-AI/Wan2.1-T2V-1.3B-Diffusers | diffusers folder; transformer-only GGUF / safetensors with the folder as companion | text-to-video 50.8 dB, transformer 2.4e-4, umT5 3e-6 relative RMS | 4.2 s per step at 832×480×33 frames (f32), 16.3 GB | 2026-11-16 |
 | Wan 2.2 TI2V 5B | Wan-AI/Wan2.2-TI2V-5B-Diffusers | diffusers folder | image-to-video 55.1 dB, transformer 2.8e-4 | text- and image-to-video; 3.5 s per step (f32), 30.7 GB | 2026-11-16 |
 | LTX-Video 0.9.0 (2B) | Lightricks/LTX-Video (diffusers folder; T5-XXL of FLUX.1 / PixArt) | diffusers folder | text-to-video 57.5 dB, transformer 1.8e-5, T5 1.4e-5 relative RMS (704×480, 25 frames) | LTX-Video 0.9.1+ (causal / timestep-conditioned VAE) not yet | 2026-11-16 |
+| LTX-Video 0.9.5 (2B) | Lightricks/LTX-Video-0.9.5 (diffusers folder; T5-XXL as in 0.9.0) | diffusers folder | text-to-video 45.0 dB, transformer 2.9e-4, T5 1.4e-5 relative RMS (704×480, 25 frames, 20 steps) | 0.75 s per step at 768×512×97 frames, 10.0 GB | 2026-11-17 |
 | Wan 2.2 TI2V 5B GGUF | QuantStack/Wan2.2-TI2V-5B-GGUF (Q8_0) | GGUF + the Wan 2.2 diffusers folder as companion | image-to-video 51.1 dB vs the f32 reference, transformer 2.0e-3 | 1.6 s per step, 16.4 GB | 2026-11-16 |
 | Wan 2.2 T2V A14B GGUF (two experts) | QuantStack/Wan2.2-T2V-A14B-GGUF (HighNoise + LowNoise Q4_K_M) | the two GGUFs (`--transformer-2` / `AuxiliaryRoles.SecondTransformer`) + a Wan 2.1 diffusers folder as companion | against diffusers running the same GGUFs (f32 on CUDA): high- / low-noise transformer 3.4e-4 / 2.3e-4, umT5 3e-6 relative RMS; text-to-video 21-25 dB per frame (832×480, 17 frames, 20 steps), the same scene; a 1e-3 nudge of the initial noise moves Sharplight's own result as far | 14.6 s per step at 832×480×33 frames, 16.1 GB peak, 334 s total (diffusers: 23 s per step at 17 frames) | 2026-11-16 |
 | Wan 2.1 I2V 14B 480P GGUF | city96/Wan2.1-I2V-14B-480P-gguf (Q4_K_M) | GGUF + a Wan 2.1 diffusers folder (umT5, VAE) + Wan-AI/Wan2.1-I2V-14B-480P-Diffusers' `image_encoder/` and `image_processor/` (`--image-encoder`) | against diffusers on the same GGUF: transformer 3.9e-4, CLIP 3.5e-3 relative RMS; image-to-video 30.6-48.1 dB per frame (832×480, 17 frames, 20 steps) | image-to-video | 2026-11-16 |
@@ -413,7 +415,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | Nemotron 3.5 Super-VL and Bolt (ModelOpt NVFP4 / mixed-precision safetensors) | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4, nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB | ModelOpt mixed-precision layout not read (GGUF versions import) |
 | DFlash drafters with LiLiCorr head | Bolt and Super-VL drafters | correction head not implemented (reported as draft models) |
 | Gated repositories | meta-llama/Llama-3.1-8B-Instruct, google/medgemma-1.5-4b-it, nvidia/Cosmos-Reason2-2B | could not be downloaded without a token; not tested |
-| SD 1.5 inpainting UNet, SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1 editing, Lumina-Image-2.0, HiDream, AuraFlow, FLUX.2 Dev, Krea-2, MiniMax-H3 | various | not implemented yet (rejected with a clear message) |
+| SD 1.5 inpainting UNet, SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1 editing, Lumina-Image-2.0, HiDream, AuraFlow, FLUX.2 Dev, MiniMax-H3 | various | not implemented yet (rejected with a clear message) |
 | ControlNet, TAESD, LyCORIS / DoRA LoRAs | | not implemented (plain LoRAs: section 4) |
 | CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
 | Mask2Former | | vision model not implemented (Florence-2, SegFormer, BiRefNet, YOLO detection and segmentation are native task models, see model-support.md section 14) |
