@@ -130,6 +130,10 @@ GPU (Vulkan):
   the two split-tile launches no longer wait on a barrier (pp512 +10 %, §28.2).
   Left: the expert GEMM's weight fetch (64-row tiles still about 65 % full before the split launch), and the
   dual gate/up and slot-sum fusions for the batched expert GEMM (they cover the int-dot matvec only).
+  Serving (§43): 16-64 sequences now take the grouped GEMM from half the expert count of items (16 streams +48-79 %); against
+  vLLM on gpt-oss-20b HF Sharplight leads at 1 stream and is at 0.62-0.76x from 4 streams on. Next: MoE steps that mix
+  prefill chunks with decode rows (29 ms per 171-row step against 18.5 ms for 64 decode rows), a dual gate / up expert GEMM
+  with the activation epilogue, and Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of
   prefill (§18).
