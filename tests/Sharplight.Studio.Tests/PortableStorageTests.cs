@@ -50,7 +50,9 @@ public sealed class PortableStorageTests
         var viewModel = new StorageSettingsViewModel(host.Services with { Settings = first.Settings, StorageLocation = first.Storage });
         viewModel.SelectedMode = StorageModeChoice.Get(StorageMode.Portable);
         Assert.Null(viewModel.Problem);
+        viewModel.AskCommand.Execute(null);
         await viewModel.ApplyCommand.ExecuteAsync(null);
+        Assert.Equal(1, host.Platform.Restarts);
         Assert.True(viewModel.NeedsRestart, viewModel.Message);
 
         // The choice sits next to the AppImage; nothing was put into the mounted image.

@@ -64,6 +64,13 @@ internal sealed class StorageLocationService : IStorageLocationService
 
         if (request.Mode == StorageMode.Portable && !CanUsePortable)
         {
+            if (_environment.GetVariable("APPDIR") is { Length: > 0 } && _environment.GetVariable("APPIMAGE") is not { Length: > 0 })
+            {
+                return "Studio runs from an AppImage's mounted image, but the AppImage runtime did not tell it where the .AppImage file is "
+                    + "($APPIMAGE is not set), so there is no folder next to the package. Start Studio by running the .AppImage file itself "
+                    + "(not the extracted AppRun) to use the portable mode.";
+            }
+
             return $"{Current.PortableRoot} cannot be written (a read-only or system-wide installation), so the portable mode is not available.";
         }
 
