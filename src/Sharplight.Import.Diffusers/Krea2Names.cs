@@ -123,6 +123,10 @@ internal static partial class Krea2Names
             case "last.norm.scale" or "final_layer.norm.weight":
                 AddNorm(Canonical + "final.norm.weight", weight, weights);
                 return;
+            case "txtfusion.projector.weight" or "text_fusion.projector.weight":
+                // [1, layers]; GGUF readers may drop the leading unit dimension.
+                weights.Add(Canonical + "text_fusion.projector.weight", weight.As(Canonical + "text_fusion.projector.weight", new Shape(1, weight.Shape.Elements())));
+                return;
             case "last.modulation.lin" or "final_layer.scale_shift_table":
                 weights.AddF32(Canonical + "final.mod", weight.As(Canonical + "final.mod", new Shape(2, weight.Shape.Elements() / 2)));
                 return;
