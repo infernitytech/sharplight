@@ -52,7 +52,7 @@ public static class AudioApi
         }
         catch (ApiException ex)
         {
-            await ApiErrors.WriteAsync(http, ex.Status, ex.Type, ex.Message, ex.Code, ex.Param);
+            await ApiErrors.WriteAsync(http, ex);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or InvalidDataException)
         {

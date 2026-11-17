@@ -18,6 +18,7 @@ call `services.AddSharplight()`.
 | `Sharplight.Video` | Video encoding and decoding through Sharplight's own LGPL FFmpeg build (shared libraries shipped with the package, bound with FFmpeg.AutoGen): MP4, WebM, MOV, Matroska, GIF, APNG; H.264, AV1, VP9, VP8, ProRes, FFV1 and the machine's hardware encoders; the core adds managed animated PNG and GIF as the fallback | `VideoEncoderCatalog`, `VideoDecoderCatalog`, `IVideoEncoder`, `IVideoDecoder`, `VideoClip`, `services.AddSharplightVideo()` |
 | `Sharplight.Cpu`, `Sharplight.Vulkan`, `Sharplight.Metal` (+ `Sharplight.Shaders`) | Execution providers (Metal: Apple GPUs on macOS, the same Slang kernels compiled to MSL) | `CpuExecutionProvider`, `VulkanProvider`, `MetalProvider` |
 | `Sharplight` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
+| `Sharplight.Hosting` | Model hosting for servers and apps: a `ModelHost` from options or JSON (chat, embedding, reranker and task models on shared devices), placement, fit planning, status for health checks and cluster coordinators ([hosting.md](hosting.md)) | `IModelHostManager`, `ModelHostingOptions`, `HostedModelOptions`, `ModelHostingJson`, `HostStatus`, `FitPlanner`, `services.AddSharplightHosting()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplightServer`, `UseSharplightServer`, `MapSharplightServer`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
 | `Sharplight.Hub` | Search and pull Hugging Face models into a local store ([model-hub.md](model-hub.md)) | `HubClient`, `ModelPuller`, `ModelStore` |
 | `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `SharplightSpeechToTextClient`, `SharplightTextToSpeechClient`, `SharplightImageGenerator` |
@@ -50,7 +51,8 @@ they need no extra `using`):
 | `Sharplight.Core` | `AddSharplightStorage()`, `AddSharplightStorage(layout)` | the `StorageLayout` (portable, system or custom location of configuration, data, models, caches and logs; [storage.md](storage.md)) |
 | `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightStorage()`, `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()`, `AddSharplightVideo()` |
 | `Sharplight.Extensions.AI` | `AddSharplightChatClient(o => ...)`, `AddSharplightEmbeddingGenerator(o => ...)`, `AddSharplightSpeechToTextClient()`, ... | Microsoft.Extensions.AI adapters |
-| `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
+| `Sharplight.Hosting` | `AddSharplightHosting(o => ...)`, `AddSharplightHosting("hosting.json")` | the `IModelHostManager` and its `ModelHost`, the `DeviceInventory`, the placement policy, the chat / embedding / reranker / task loader factories and the startup loader ([hosting.md](hosting.md)) |
+| `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightServer(o => ...)` (the container's `ModelHost`), `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
 
 ## Video encoding
 
@@ -750,6 +752,12 @@ app.Run();
 
 `SharplightServerOptions` switches the APIs on and off, sets keys, CORS origins, request limits and timeouts, and decides
 whether an unknown `model` falls back to the default one. Existing OpenAI / Anthropic clients only change their base URL.
+
+With Sharplight.Hosting, `services.AddSharplightHosting(...)` plus `services.AddSharplightServer(o => ...)` serves the container's
+`ModelHost` (chat models, and embedding / reranker models of the host on `/v1/embeddings` and `/v1/rerank`); `GET /admin/status`
+returns the hosting status. Multi-tenant hosts map the APIs into route groups with their own authentication, per-request resolver
+(models and aliases, defaults, allowed tools, isolation scope), admission hooks and usage reporting: see
+[serving-multitenant.md](serving-multitenant.md).
 
 ## 5. Embeddings and reranking
 

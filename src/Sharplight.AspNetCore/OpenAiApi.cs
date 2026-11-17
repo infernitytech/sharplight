@@ -23,7 +23,6 @@ internal static class OpenAiApi
         public IEndpointRouteBuilder MapOpenAi()
         {
             var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
-            routes.MapModels(ctx);
             routes.MapPost("/v1/chat/completions", http => ChatCompletions(http, ctx));
             routes.MapPost("/v1/completions", http => Completions(http, ctx));
             return routes;
@@ -37,8 +36,8 @@ internal static class OpenAiApi
         ["sharplight"] = new JsonObject { ["kind"] = m.Kind.ToString().ToLowerInvariant(), ["state"] = m.State.ToString().ToLowerInvariant(), ["resident_bytes"] = m.ResidentBytes },
     };
 
-    internal static JsonNode ModelList(SharplightServerContext ctx)
-        => new JsonObject { ["object"] = "list", ["data"] = new JsonArray(ctx.ListModels().Select(m => ModelObject(m)).ToArray()) };
+    internal static JsonNode ModelList(SharplightServerContext ctx, HttpContext http)
+        => new JsonObject { ["object"] = "list", ["data"] = new JsonArray(ctx.ListModels(http).Select(m => ModelObject(m)).ToArray()) };
 
     // ---- request parsing --------------------------------------------------------------------------------------------
 
@@ -278,6 +277,7 @@ internal static class OpenAiApi
         }
 
         var tools = b.Arr("tools").Select(ParseTool).ToList();
+        SharplightServerContext.CheckTools(http, tools.Select(tool => tool.Name));
         var mode = ToolChoiceMode.Auto;
         string? fname = null;
         if (b.Get("tool_choice") is { } tc)
@@ -310,13 +310,14 @@ internal static class OpenAiApi
         int top = b.Int("top_logprobs") ?? 0;
         return new ChatRequest
         {
-            Messages = msgs, Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname,
-            Sampling = ParseSampling(b, ctx.Options.DefaultSampling),
-            MaxTokens = b.Int("max_completion_tokens") ?? b.Int("max_tokens") ?? 0,
+            Messages = SharplightServerContext.WithSystemPrompt(http, msgs), Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname,
+            Sampling = ParseSampling(b, ctx.DefaultSampling(http)),
+            MaxTokens = SharplightServerContext.MaxTokens(http, b.Int("max_completion_tokens") ?? b.Int("max_tokens"), 0),
             IgnoreEos = b.Bool("ignore_eos") ?? false, MinTokens = ParseMinTokens(b),
             StopStrings = ParseStop(b), N = ParseN(b, ctx.Options),
-            Priority = b.Int("priority") ?? 0, Timeout = ctx.Options.RequestTimeout,
-            EnableThinking = thinking, ResponseFormat = ParseOutputFormat(b), Tenant = Tenants.Of(http, b.Str("user")),
+            Priority = b.Int("priority") ?? 0, Timeout = ctx.RequestTimeout(http),
+            EnableThinking = thinking, ResponseFormat = ParseOutputFormat(b), Tenant = SharplightServerContext.TenantOf(http, b.Str("user")),
+            CachePartition = SharplightServerContext.CachePartition(http),
             Logprobs = b.Bool("logprobs") ?? false, TopLogprobs = Math.Clamp(top, 0, 20),
             TemplateContext = kwargs,
         };
@@ -370,6 +371,7 @@ internal static class OpenAiApi
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var b = doc.RootElement;
+        ctx.NoteModel(http, b.Str("model"));
         var req = ParseChat(b, ctx, http);
         bool stream = b.Bool("stream") ?? false;
         bool includeUsage = b.Obj("stream_options")?.Bool("include_usage") ?? false;
@@ -381,12 +383,13 @@ internal static class OpenAiApi
         if (stream)
         {
             var sse = new SseWriter(http);
-            var chunks = new OpenAiChunkWriter(sse, id, "chat.completion.chunk", created, lease.Name, includeUsage);
+            var chunks = new OpenAiChunkWriter(sse, id, "chat.completion.chunk", created, SharplightServerContext.ResponseName(http, lease), includeUsage);
             await StreamChat(http, run, req, sse, chunks, includeUsage);
             return;
         }
 
         var res = await run.CompleteAsync(http.RequestAborted);
+        SharplightRequestFeature.Of(http)?.AddUsage(res.Usage);
         if (FailureOf(res.Choices) is { } fail)
         {
             await ApiErrors.WriteAsync(http, fail.Status, fail.Type, fail.Message);
@@ -398,7 +401,7 @@ internal static class OpenAiApi
             ["id"] = id,
             ["object"] = "chat.completion",
             ["created"] = created,
-            ["model"] = lease.Name,
+            ["model"] = SharplightServerContext.ResponseName(http, lease),
             ["choices"] = ChatChoicesJson(res.Choices, req.Logprobs),
             ["usage"] = UsageJson(res.Usage),
         });
@@ -581,16 +584,17 @@ internal static class OpenAiApi
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var b = doc.RootElement;
+        ctx.NoteModel(http, b.Str("model"));
         var (prompt, tokens) = ParseCompletionPrompt(b);
         int? lpCount = b.Int("logprobs");
         var req = new CompletionRequest
         {
-            Prompt = prompt, PromptTokens = tokens, Sampling = ParseSampling(b, ctx.Options.DefaultSampling),
-            MaxTokens = b.Int("max_tokens") ?? 16, StopStrings = ParseStop(b), N = ParseN(b, ctx.Options),
+            Prompt = prompt, PromptTokens = tokens, Sampling = ParseSampling(b, ctx.DefaultSampling(http)),
+            MaxTokens = SharplightServerContext.MaxTokens(http, b.Int("max_tokens"), 16), StopStrings = ParseStop(b), N = ParseN(b, ctx.Options),
             IgnoreEos = b.Bool("ignore_eos") ?? false, MinTokens = ParseMinTokens(b),
-            Priority = b.Int("priority") ?? 0, Timeout = ctx.Options.RequestTimeout,
+            Priority = b.Int("priority") ?? 0, Timeout = ctx.RequestTimeout(http),
             Logprobs = lpCount is > 0, TopLogprobs = Math.Clamp(lpCount ?? 0, 0, 20), ResponseFormat = ParseOutputFormat(b),
-            Tenant = Tenants.Of(http, b.Str("user")),
+            Tenant = SharplightServerContext.TenantOf(http, b.Str("user")), CachePartition = SharplightServerContext.CachePartition(http),
         };
         bool stream = b.Bool("stream") ?? false;
         bool echo = (b.Bool("echo") ?? false) && prompt is not null;
@@ -599,11 +603,12 @@ internal static class OpenAiApi
         var run = SharplightServerContext.ChatOf(lease).StartCompletion(req, http.RequestAborted);
         string id = "cmpl-" + Guid.NewGuid().ToString("N")[..24];
         long created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        string model = lease.Name;
+        string model = SharplightServerContext.ResponseName(http, lease);
 
         if (!stream)
         {
             var res = await run.CompleteAsync(http.RequestAborted);
+            SharplightRequestFeature.Of(http)?.AddUsage(res.Usage);
             if (FailureOf(res.Choices) is { } fail)
             {
                 await ApiErrors.WriteAsync(http, fail.Status, fail.Type, fail.Message);

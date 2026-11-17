@@ -9,7 +9,7 @@ namespace Sharplight.Samples.Hub;
 /// </summary>
 public static class PrecompileTargets
 {
-    /// <summary>The <c>sharplight-server --slots</c> default; pulled packages hold the kernels of a batch decoder with this many slots.</summary>
+    /// <summary>The <c>sharplight serve --slots</c> default; pulled packages hold the kernels of a batch decoder with this many slots.</summary>
     public const int ServeSlots = 4;
 
     /// <summary>The target, or null when nothing is precompiled (CPU runs, <c>--no-precompile</c>, no GPU).</summary>

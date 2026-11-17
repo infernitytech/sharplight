@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.Input;
+using Sharplight.Hosting.Fit;
 using Sharplight.Studio.Services.Fit;
 
 namespace Sharplight.Studio.ViewModels.Models;

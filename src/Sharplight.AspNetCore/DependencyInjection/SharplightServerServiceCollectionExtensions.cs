@@ -1,3 +1,5 @@
+using System.Diagnostics.Metrics;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Sharplight.AspNetCore;
 using Sharplight.Llm.Embeddings;
@@ -26,7 +28,7 @@ public static class SharplightServerServiceCollectionExtensions
         public IServiceCollection AddSharplightServer(ModelService model, Action<SharplightServerOptions>? configure = null)
         {
             ArgumentNullException.ThrowIfNull(model);
-            return services.AddServerContext(options => new SharplightServerContext(model, options), configure);
+            return services.AddServerContext((_, options) => new SharplightServerContext(model, options), configure);
         }
 
         /// <summary>
@@ -39,7 +41,18 @@ public static class SharplightServerServiceCollectionExtensions
         public IServiceCollection AddSharplightServer(ModelHost host, Action<SharplightServerOptions>? configure = null)
         {
             ArgumentNullException.ThrowIfNull(host);
-            return services.AddServerContext(options => new SharplightServerContext(host, options), configure);
+            return services.AddServerContext((_, options) => new SharplightServerContext(host, options), configure);
+        }
+
+        /// <summary>
+        /// Registers the server options for the <see cref="ModelHost"/> of the container, e.g. the one of
+        /// <c>services.AddSharplightHosting(...)</c> (Sharplight.Hosting), which owns and disposes it.
+        /// </summary>
+        /// <param name="configure">Adjusts the <see cref="SharplightServerOptions"/>, or <see langword="null"/>.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddSharplightServer(Action<SharplightServerOptions>? configure = null)
+        {
+            return services.AddServerContext((provider, options) => new SharplightServerContext(provider.GetRequiredService<ModelHost>(), options), configure);
         }
 
         /// <summary>Serves <paramref name="embedder"/> on <c>/v1/embeddings</c> under <paramref name="name"/> (default: its own name).</summary>
@@ -130,7 +143,7 @@ public static class SharplightServerServiceCollectionExtensions
             return models;
         }
 
-        private IServiceCollection AddServerContext(Func<SharplightServerOptions, SharplightServerContext> create, Action<SharplightServerOptions>? configure)
+        private IServiceCollection AddServerContext(Func<IServiceProvider, SharplightServerOptions, SharplightServerContext> create, Action<SharplightServerOptions>? configure)
         {
             ArgumentNullException.ThrowIfNull(services);
             var options = services.AddOptions<SharplightServerOptions>();
@@ -139,7 +152,8 @@ public static class SharplightServerServiceCollectionExtensions
                 options.Configure(configure);
             }
 
-            services.AddSingleton(provider => create(provider.GetRequiredService<IOptions<SharplightServerOptions>>().Value));
+            services.AddSingleton(provider => create(provider, provider.GetRequiredService<IOptions<SharplightServerOptions>>().Value));
+            services.TryAddSingleton(provider => new SharplightServerMetrics(provider.GetService<IMeterFactory>()));
             services.AddHostedService(provider => new EngineLifetime(provider.GetRequiredService<SharplightServerContext>()));
             return services;
         }

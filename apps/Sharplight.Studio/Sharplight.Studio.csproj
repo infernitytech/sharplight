@@ -39,6 +39,7 @@
     <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
     <ProjectReference Include="../../src/Sharplight.Hub/Sharplight.Hub.csproj" />
     <ProjectReference Include="../../src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Hosting/Sharplight.Hosting.csproj" />
     <ProjectReference Include="../../src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
     <!-- Composition root: the providers and importers the app registers at startup. -->
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />

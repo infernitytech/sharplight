@@ -16,7 +16,7 @@ internal sealed class PrecompileCommand
 
     private const string AllTiers = "all";
     private const char BoundSeparator = '=';
-    /// <summary>The <c>sharplight-server --slots</c> default, so a served model finds its batch decoder's kernels.</summary>
+    /// <summary>The <c>sharplight serve --slots</c> default, so a served model finds its batch decoder's kernels.</summary>
     private const int DefaultServeSlots = 4;
 
     private readonly Argument<string> _package = PackageArgument.Create();
@@ -55,10 +55,10 @@ internal sealed class PrecompileCommand
         RuntimeOptionSet.DefaultBatchTokens, minimum: 0, helpName: "rows");
 
     private readonly Option<int> _slots = OptionFactory.Integer("--slots",
-        "Sequences of the serving batch decoder to compile, as sharplight-server --slots (1 skips it).", DefaultServeSlots, helpName: "count");
+        "Sequences of the serving batch decoder to compile, as sharplight serve --slots (1 skips it).", DefaultServeSlots, helpName: "count");
 
     private readonly Option<long?> _kvTokens = OptionFactory.Size("--kv-tokens",
-        "Paged KV cache of the serving batch decoder in tokens, as sharplight-server --kv-tokens (K/M suffixes).", helpName: "tokens");
+        "Paged KV cache of the serving batch decoder in tokens, as sharplight serve --kv-tokens (K/M suffixes).", helpName: "tokens");
 
     private readonly Option<int> _drafts = OptionFactory.Integer("--drafts",
         "Speculative decoding: also compile the draft-verifying decoders and the MTP head for this many draft tokens, as --speculate-mtp / --speculate-ngram (0 = no).",

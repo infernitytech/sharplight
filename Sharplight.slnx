@@ -24,7 +24,9 @@
     <Project Path="src/Sharplight.Audio/Sharplight.Audio.csproj" />
     <Project Path="src/Sharplight.Video/Sharplight.Video.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
+    <Project Path="src/Sharplight.Hosting/Sharplight.Hosting.csproj" />
     <Project Path="src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
+    <Project Path="src/Sharplight.DesignTokens/Sharplight.DesignTokens.csproj" />
     <Project Path="src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
   </Folder>
   <Folder Name="/apps/">
@@ -38,7 +40,6 @@
     <Project Path="samples/Sharplight.Inspect/Sharplight.Inspect.csproj" />
     <Project Path="samples/Sharplight.GgufDump/Sharplight.GgufDump.csproj" />
     <Project Path="samples/Sharplight.OnnxRun/Sharplight.OnnxRun.csproj" />
-    <Project Path="samples/Sharplight.Server/Sharplight.Server.csproj" />
     <Project Path="samples/Sharplight.AgentHost/Sharplight.AgentHost.csproj" />
     <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
     <Project Path="samples/Sharplight.GenerateImage/Sharplight.GenerateImage.csproj" />
@@ -48,6 +49,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/catalog/Sharplight.CatalogTool/Sharplight.CatalogTool.csproj" />
+    <Project Path="tools/design-tokens/Sharplight.DesignTool/Sharplight.DesignTool.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sharplight.Core.Tests/Sharplight.Core.Tests.csproj" />
@@ -66,6 +68,7 @@
     <Project Path="tests/Sharplight.Import.PyTorch.Tests/Sharplight.Import.PyTorch.Tests.csproj" />
     <Project Path="tests/Sharplight.Package.Tests/Sharplight.Package.Tests.csproj" />
     <Project Path="tests/Sharplight.Serving.Tests/Sharplight.Serving.Tests.csproj" />
+    <Project Path="tests/Sharplight.Hosting.Tests/Sharplight.Hosting.Tests.csproj" />
     <Project Path="tests/Sharplight.Studio.Tests/Sharplight.Studio.Tests.csproj" />
     <Project Path="tests/Sharplight.TextToSpeech.Tests/Sharplight.TextToSpeech.Tests.csproj" />
     <Project Path="tests/Sharplight.AudioModels.Tests/Sharplight.AudioModels.Tests.csproj" />

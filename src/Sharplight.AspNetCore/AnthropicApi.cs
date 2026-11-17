@@ -20,7 +20,6 @@ internal static class AnthropicApi
         public IEndpointRouteBuilder MapAnthropic()
         {
             var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
-            routes.MapModels(ctx);
             routes.MapPost("/v1/messages", http => Messages(http, ctx));
             routes.MapPost("/v1/messages/count_tokens", http => CountTokens(http, ctx));
             return routes;
@@ -30,9 +29,9 @@ internal static class AnthropicApi
     internal static JsonNode ModelObject(ModelInfo m)
         => new JsonObject { ["type"] = "model", ["id"] = m.Name, ["display_name"] = m.Name, ["created_at"] = "2025-01-01T00:00:00Z" };
 
-    internal static JsonNode ModelList(SharplightServerContext ctx)
+    internal static JsonNode ModelList(SharplightServerContext ctx, HttpContext http)
     {
-        var l = ctx.ListModels();
+        var l = ctx.ListModels(http);
         return new JsonObject { ["data"] = new JsonArray(l.Select(m => ModelObject(m)).ToArray()), ["has_more"] = false, ["first_id"] = l.FirstOrDefault()?.Name, ["last_id"] = l.LastOrDefault()?.Name };
     }
 
@@ -148,7 +147,7 @@ internal static class AnthropicApi
 
     private static ChatRequest ParseRequest(JsonElement b, SharplightServerContext ctx, HttpContext http, bool requireMaxTokens)
     {
-        int maxTokens = b.Int("max_tokens") ?? 0;
+        int maxTokens = SharplightServerContext.MaxTokens(http, b.Int("max_tokens"), 0);
         if (requireMaxTokens)
         {
             if (b.Get("max_tokens") is null)
@@ -181,6 +180,7 @@ internal static class AnthropicApi
 
         var tools = b.Arr("tools").Where(t => t.Str("type") is null or "custom")
             .Select(t => new ToolSpec(t.Str("name") ?? throw ApiException.BadRequest("tools.name: Field required"), t.Str("description"), t.Obj("input_schema")?.GetRawText(), t.Bool("strict") ?? false)).ToList();
+        SharplightServerContext.CheckTools(http, tools.Select(tool => tool.Name));
         var mode = ToolChoiceMode.Auto;
         string? fname = null;
         if (b.Obj("tool_choice") is { } tc)
@@ -201,17 +201,19 @@ internal static class AnthropicApi
         }
 
         bool? thinking = b.Obj("thinking")?.Str("type") switch { "enabled" => true, "disabled" => false, _ => null };
-        var sampling = ctx.Options.DefaultSampling with
+        var defaults = ctx.DefaultSampling(http);
+        var sampling = defaults with
         {
-            Temperature = b.Float("temperature") ?? ctx.Options.DefaultSampling.Temperature,
-            TopP = b.Float("top_p") ?? ctx.Options.DefaultSampling.TopP,
-            TopK = b.Int("top_k") ?? ctx.Options.DefaultSampling.TopK,
+            Temperature = b.Float("temperature") ?? defaults.Temperature,
+            TopP = b.Float("top_p") ?? defaults.TopP,
+            TopK = b.Int("top_k") ?? defaults.TopK,
         };
         return new ChatRequest
         {
-            Messages = turns, Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname, Sampling = sampling, MaxTokens = maxTokens,
-            StopStrings = [.. b.Arr("stop_sequences").Select(s => s.GetString() ?? "")], EnableThinking = thinking, Timeout = ctx.Options.RequestTimeout,
-            ResponseFormat = ParseOutputFormat(b), Tenant = Tenants.Of(http, b.Obj("metadata")?.Str("user_id")),
+            Messages = SharplightServerContext.WithSystemPrompt(http, turns), Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname, Sampling = sampling, MaxTokens = maxTokens,
+            StopStrings = [.. b.Arr("stop_sequences").Select(s => s.GetString() ?? "")], EnableThinking = thinking, Timeout = ctx.RequestTimeout(http),
+            ResponseFormat = ParseOutputFormat(b), Tenant = SharplightServerContext.TenantOf(http, b.Obj("metadata")?.Str("user_id")),
+            CachePartition = SharplightServerContext.CachePartition(http),
         };
     }
 
@@ -245,6 +247,7 @@ internal static class AnthropicApi
     private static async Task CountTokens(HttpContext http, SharplightServerContext ctx)
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
+        ctx.NoteModel(http, doc.RootElement.Str("model"));
         var req = ParseRequest(doc.RootElement, ctx, http, requireMaxTokens: false);
         using var lease = await ctx.AcquireAsync(http, doc.RootElement.Str("model"));
         await HttpJson.WriteAsync(http, new JsonObject { ["input_tokens"] = SharplightServerContext.ChatOf(lease).CountTokens(req) });
@@ -254,6 +257,7 @@ internal static class AnthropicApi
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var b = doc.RootElement;
+        ctx.NoteModel(http, b.Str("model"));
         var req = ParseRequest(b, ctx, http, requireMaxTokens: true);
         bool stream = b.Bool("stream") ?? false;
         using var lease = await ctx.AcquireAsync(http, b.Str("model"));   // held until the response is complete
@@ -262,11 +266,12 @@ internal static class AnthropicApi
 
         if (stream)
         {
-            await StreamMessage(http, run, id, lease.Name);
+            await StreamMessage(http, run, id, SharplightServerContext.ResponseName(http, lease));
             return;
         }
 
         var res = await run.CompleteAsync(http.RequestAborted);
+        SharplightRequestFeature.Of(http)?.AddUsage(res.Usage);
         var choice = res.Choices[0];
         if (FailureOf(choice) is { } failure)
         {
@@ -279,7 +284,7 @@ internal static class AnthropicApi
             ["id"] = id,
             ["type"] = "message",
             ["role"] = "assistant",
-            ["model"] = lease.Name,
+            ["model"] = SharplightServerContext.ResponseName(http, lease),
             ["content"] = ContentBlocks(choice),
             ["stop_reason"] = StopReason(choice.Finish, choice.StopSequence),
             ["stop_sequence"] = choice.StopSequence,

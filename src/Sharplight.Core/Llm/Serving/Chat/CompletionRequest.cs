@@ -29,6 +29,8 @@ public sealed class CompletionRequest
     public int Priority { get; init; }
     /// <summary>Who the request is charged to for fair queuing among equal priorities (see <see cref="GenerationRequest.Tenant"/>).</summary>
     public string? Tenant { get; init; }
+    /// <summary>Isolation scope of the prefix cache (see <see cref="GenerationRequest.CachePartition"/>); null = the default partition.</summary>
+    public string? CachePartition { get; init; }
     /// <summary>Total time budget (queue plus generation); null uses the engine default.</summary>
     public TimeSpan? Timeout { get; init; }
     /// <summary>Report the log-probability of every sampled token.</summary>

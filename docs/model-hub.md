@@ -1,12 +1,12 @@
 # Pulling models from Hugging Face
 
-`sharplight-server` and `sharplight` can search the Hugging Face Hub, download a model, convert it to a `.slm` package and
+`sharplight` (the CLI sample, `samples/Sharplight.Cli`) can search the Hugging Face Hub, download a model, convert it to a `.slm` package and
 run or serve it, in the style of `ollama pull` / `ollama run`. Both resolve the model store the same way (see [Store](#store)),
 so with a shared store a model pulled with one is available to the other. The reusable parts live in two libraries:
 
 | Assembly | Role | Main entry points |
 |---|---|---|
-| `Sharplight.Package` | Read and write `.slm` packages; convert a source model (any registered importer) to a `.slm` package and precompile kernels into it, on a device or for a device profile; shared by `sharplight-convert`, `sharplight-server` and `sharplight` | `ModelConverter`, `ConversionOptions`, `PackagePrecompiler`, `PrecompileOptions` |
+| `Sharplight.Package` | Read and write `.slm` packages; convert a source model (any registered importer) to a `.slm` package and precompile kernels into it, on a device or for a device profile; shared by `sharplight-convert` and `sharplight` | `ModelConverter`, `ConversionOptions`, `PackagePrecompiler`, `PrecompileOptions` |
 | `Sharplight.Hub` | Hugging Face client, resumable verified downloads, file selection, local model store, pull pipeline | `HubClient`, `FileDownloader`, `ModelFileSelector`, `ModelStore`, `ModelPuller`, `ModelReference` |
 
 Neither references a format importer: `Sharplight.Hub` only looks at file names (to pick a GGUF quantization or the
@@ -17,21 +17,21 @@ formats and architectures registered with the host's container (`services.AddSha
 The command-line side is shared too: `samples/Sharplight.Samples.Hub` holds the `pull`, `search`, `list`, `show`, `rm` and `store`
 commands, the `--models-dir` and pull options, the console progress display and `ModelResolver`, which turns a model
 argument (a file, a stored name or a Hugging Face name, pulled when missing) into a package path. `HubCommands.AddTo` adds
-the commands to an executable's root command; `sharplight-server` and `sharplight` both do.
+the commands to an executable's root command; `sharplight` does.
 
 ## Commands
 
 ```bash
-sharplight-server search qwen3 --format gguf --limit 10
-sharplight-server pull Qwen/Qwen3-0.6B-GGUF:Q8_0        # GGUF quantization by tag
-sharplight-server pull unsloth/Qwen3-4B-GGUF             # default Q4_K_M, else Q8_0, else the next listed fallback
-sharplight-server pull Qwen/Qwen3-0.6B                   # safetensors checkpoint
-sharplight-server list                                   # alias: ls
-sharplight-server show qwen3-0.6b:q8_0
-sharplight-server run qwen3-0.6b:q8_0                    # interactive chat; pulls first if needed
-sharplight-server run Qwen/Qwen3-0.6B-GGUF:Q8_0 -p "Capital of France?"
-sharplight-server serve qwen3-0.6b:q8_0 Qwen/Qwen3-0.6B  # pulls missing models, then serves them
-sharplight-server rm qwen3-0.6b:q8_0
+sharplight search qwen3 --format gguf --limit 10
+sharplight pull Qwen/Qwen3-0.6B-GGUF:Q8_0        # GGUF quantization by tag
+sharplight pull unsloth/Qwen3-4B-GGUF             # default Q4_K_M, else Q8_0, else the next listed fallback
+sharplight pull Qwen/Qwen3-0.6B                   # safetensors checkpoint
+sharplight list                                   # alias: ls
+sharplight show qwen3-0.6b:q8_0
+sharplight run qwen3-0.6b:q8_0                    # interactive chat; pulls first if needed
+sharplight run Qwen/Qwen3-0.6B-GGUF:Q8_0 -p "Capital of France?"
+sharplight serve qwen3-0.6b:q8_0 Qwen/Qwen3-0.6B  # pulls missing models, then serves them
+sharplight rm qwen3-0.6b:q8_0
 
 sharplight list                                          # the same store and commands in the CLI
 sharplight qwen3-0.6b:q8_0 --chat -p "Say hi" -n 32       # stored name
