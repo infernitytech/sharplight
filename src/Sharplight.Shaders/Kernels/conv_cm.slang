@@ -98,9 +98,30 @@ struct ConvParams
     uint N;
 };
 
+// CONV_FRAG8 (DeviceFeatures.MatrixF16Small, Metal simdgroup_matrix; single-product form only): each 16x16 accumulator is 2 x 2
+// fragments of 8x8 over K steps of 8, and the tiles are staged as half arrays (Slang's Metal target cannot load fragments from
+// packed uint4 arrays).
+#ifndef CONV_FRAG8
+#define CONV_FRAG8 0
+#endif
+#if CONV_FRAG8 && PARTS != 1
+#error "CONV_FRAG8 takes the single-product form (PARTS 1)"
+#endif
+#if CONV_FRAG8
+typealias Mat8A = CoopMat<half, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixA>;
+typealias Mat8B = CoopMat<half, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixB>;
+typealias Acc8 = CoopMat<float, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixAccumulator>;
+groupshared half sAh[TBM * SAS];
+groupshared half sBh[TBN * SAS];
+// 8 packed halves at half index `index`.
+#define PUT8H(arr, index, v) \
+    { uint4 pv = (v); uint pw[4] = { pv.x, pv.y, pv.z, pv.w }; \
+      [ForceUnroll] for (uint pe = 0; pe < 4; pe++) { arr[(index) + 2 * pe] = half(f16tof32(pw[pe] & 0xFFFFu)); arr[(index) + 2 * pe + 1] = half(f16tof32(pw[pe] >> 16)); } }
+#else
 // A: weights [o][k] (row-major), B: im2col [pix][k] (column-major B); 8 packed operands per uint4, one tile per part.
 groupshared uint4 sAh[TBM * SAS / 8];
 groupshared uint4 sBh[TBN * SAS / 8];
+#endif
 #if HAS_LO
 groupshared uint4 sAl[TBM * SAS / 8];
 groupshared uint4 sBl[TBN * SAS / 8];
@@ -437,6 +458,11 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     const int iw0 = int(bow) * SW - PW;
     float* xb = p.x + uint64_t(bn) * XS_N + uint64_t(g * CG) * XS_C;
 
+#if CONV_FRAG8
+    Acc8 acc8[2 * FRAG_M][2 * FRAG_N];
+    [ForceUnroll] for (int i = 0; i < 2 * FRAG_M; i++) [ForceUnroll] for (int j = 0; j < 2 * FRAG_N; j++) acc8[i][j] = Acc8(0.0);
+#endif
+#if !CONV_FRAG8
     Acc acc[FRAG_M][FRAG_N];
 #if PARTS > 1 && PARTS < 4
     // Correction terms accumulate separately by magnitude (independent dependency chains for the matrix units, and the
@@ -462,6 +488,7 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
 #endif
         }
     }
+#endif
 
     uint4 ah[A_ITEMS];
     uint4 am[A_ITEMS];
@@ -482,7 +509,11 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         {
             uint idx = tid + it * NT;
             uint o = (idx / KG) * (SAS / 8) + idx % KG;
+#if CONV_FRAG8
+            PUT8H(sAh, o * 8, ah[it])
+#else
             sAh[o] = ah[it];
+#endif
 #if HAS_LO
             sAl[o] = al[it];
 #endif
@@ -494,7 +525,11 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         for (uint it = 0; it < B_ITEMS; it++)
         {
             uint o = bcol * (SAS / 8) + bq0 + it * B_STRIDE;
+#if CONV_FRAG8
+            PUT8H(sBh, o * 8, bh[it])
+#else
             sBh[o] = bh[it];
+#endif
 #if HAS_LO
             sBl[o] = bl[it];
 #endif
@@ -594,6 +629,19 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
             float r = sScB[(wn + j * 16) / 16];
             [ForceUnroll] for (int i = 0; i < FRAG_M; i++) { acc[i][j] = acc[i][j] + t[i][j] * r; }
         }
+#elif CONV_FRAG8
+        [ForceUnroll]
+        for (uint kk = 0; kk < TBK; kk += 8)
+        {
+            Mat8B b[2 * FRAG_N];
+            [ForceUnroll] for (int j = 0; j < 2 * FRAG_N; j++) b[j] = Mat8B.Load<CoopMatMatrixLayout.ColumnMajor>(sBh, (wn + j * 8) * SAS + kk, SAS);
+            [ForceUnroll]
+            for (int i = 0; i < 2 * FRAG_M; i++)
+            {
+                Mat8A a = Mat8A.Load<CoopMatMatrixLayout.RowMajor>(sAh, (wm + i * 8) * SAS + kk, SAS);
+                [ForceUnroll] for (int j = 0; j < 2 * FRAG_N; j++) acc8[i][j] = coopMatMulAdd<float, false>(a, b[j], acc8[i][j]);
+            }
+        }
 #else
         [ForceUnroll]
         for (uint kk = 0; kk < TBK; kk += 16)
@@ -664,10 +712,15 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
             Acc c = acc[i][j] + (cor[i][j] + cor2[i][j]);
 #elif PARTS == 2
             Acc c = acc[i][j] + cor[i][j];
+#elif CONV_FRAG8
+            [ForceUnroll] for (int ii = 0; ii < 2; ii++) [ForceUnroll] for (int jj = 0; jj < 2; jj++)
+                acc8[2 * i + ii][2 * j + jj].Store<CoopMatMatrixLayout.RowMajor>(sC, sg * 256 + ii * 8 * 16 + jj * 8, 16u);
 #else
             Acc c = acc[i][j];
 #endif
+#if !CONV_FRAG8
             c.Store<CoopMatMatrixLayout.RowMajor>(sC, sg * 256, 16u);
+#endif
             GroupMemoryBarrierWithGroupSync();
             [ForceUnroll]
             for (uint e = 0; e < 8; e++)

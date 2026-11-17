@@ -290,7 +290,7 @@ public sealed partial class GraphLowerer
         var tx = x;
         long maxItems = ids.Shape[0] * S;
         Func<Bindings, long> items = b => Rows(b, tids) * S;
-        bool coop = !DiagnosticSwitches.MoeNoCoop && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
+        bool coop = !DiagnosticSwitches.MoeNoCoop && (_opt.Has(DeviceFeatures.MatrixF16) || SmallFragments) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
                     && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
         // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much
         // later, the int-dot matvec only from about 16 items per expert).
@@ -320,7 +320,7 @@ public sealed partial class GraphLowerer
 
         // Tile rows per expert: small tiles when experts see few rows on average (less wasted MMA work). The grouped gemm_cm2
         // also has 128-row tiles for experts that see many rows.
-        bool gemm2 = coop && DiagnosticSwitches.MoeGemm2;
+        bool gemm2 = coop && DiagnosticSwitches.MoeGemm2 && !SmallFragments;
         int[] coopTiles = gemm2 ? [32, 64, 128] : [32, 64];
         Func<Bindings, int> tile = b => !coop ? 64
             : DiagnosticSwitches.MoeTile != 0 ? DiagnosticSwitches.MoeTile
@@ -389,6 +389,7 @@ public sealed partial class GraphLowerer
                     Lib("moe.slang", "moe_gemm_cm", new Dictionary<string, string>(gm)
                     {
                         ["WARPS_M"] = "2", ["WARPS_N"] = "2", ["FRAG_M"] = (t / 32).ToString(CultureInfo.InvariantCulture), ["FRAG_N"] = "4",
+                        ["MOE_FRAG8"] = SmallFragments ? "1" : "0",
                     }),
                     b => new Grid(Grid.Div(N, 128), tiles(b))))],
                 gargs, [x, w, scratch], [y]);
