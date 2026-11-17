@@ -56,4 +56,51 @@ public sealed class DualGemmTests
                 $"T={t}: element {i} differs ({dual[i]:R} vs {separate[i]:R})");
         }
     }
+
+    /// <summary>
+    /// A down projection reading the dual GEMM's output takes the f16 copy the dual GEMM stores next to it (no conversion launch);
+    /// its result must equal that of the separate launches, which convert the elementwise output.
+    /// </summary>
+    [Theory]
+    [InlineData("bf16", 512, 4096, 1024)]
+    [InlineData("bf16", 600, 4160, 1024)]
+    [InlineData("f16", 1100, 2048, 1024)]
+    public void DownProjectionOfDualMatchesSeparateBitwise(string fmt, int t, int n, int k)
+    {
+        Gpu.Require();
+        float[] Run(bool exposeGate)
+        {
+            var tg = new TG();
+            var x = tg.InF("x", TG.T, k);
+            var g = tg.B.MatMul(x, tg.RandW("wg", DataType.Get(fmt), 0.05f, n, k));
+            var u = tg.B.MatMul(x, tg.RandW("wu", DataType.Get(fmt), 0.05f, n, k));
+            tg.B.Output("z", tg.B.MatMul(tg.B.Mul(tg.B.Silu(g), u), tg.RandW("wd", DataType.Get(fmt), 0.05f, k, n)));
+            if (exposeGate)
+            {
+                tg.B.Output("g", g);
+            }
+
+            using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = Gpu.Vulkan! }],
+                Compile = new CompileOptions { MaxTokens = t },
+                ReservePerDevice = 0,
+            });
+            m.SetInput(x, MemoryMarshal.AsBytes(Rnd.F((long)t * k, 9).AsSpan()));
+            var p = new RunParameters();
+            p.Symbols["T"] = t;
+            m.Run(p);
+            var z = new float[(long)t * k];
+            m.GetOutput<float>("z", z);
+            return z;
+        }
+
+        var dual = Run(exposeGate: false);
+        var separate = Run(exposeGate: true);
+        for (int i = 0; i < dual.Length; i++)
+        {
+            Assert.True(BitConverter.SingleToInt32Bits(dual[i]) == BitConverter.SingleToInt32Bits(separate[i]),
+                $"T={t}: element {i} differs ({dual[i]:R} vs {separate[i]:R})");
+        }
+    }
 }

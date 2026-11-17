@@ -28,6 +28,11 @@
 #ifndef X_SORTED
 #define X_SORTED 0
 #endif
+// DUAL_Y16 (dual gemm_cm2): also stores y rounded to f16 into y16, the f16 copy the next GEMM reads (the to_f16 conversion,
+// round to nearest even, so the copy is identical to a separate conversion).
+#ifndef DUAL_Y16
+#define DUAL_Y16 0
+#endif
 
 struct Params
 {
@@ -43,6 +48,9 @@ struct Params
     uint* scratch;
 #endif
     float* y;
+#if DUAL_Y16
+    uint8_t* y16;   // the f16 copy of y (dense rows of N halves)
+#endif
 #if GEMM_SPLIT
     float* ws;   // per weight row: the power-of-two scale applied before splitting (split_scale)
 #endif
@@ -1405,6 +1413,25 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             {
                 continue;   // a tile past the last output (N not a multiple of GBN_OUT)
             }
+#if DUAL_Y16
+            if (tRow + 16 <= p.T && nCol + 16 <= N)
+            {
+                CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator> h = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>(r);
+                h.Store<CoopMatMatrixLayout.RowMajor>((half*)p.y16 + uint64_t(tRow) * N + nCol, 0u, N);
+            }
+            else
+            {
+                r.Store<CoopMatMatrixLayout.RowMajor>(gC, sg * 256, 16u);
+                GroupMemoryBarrierWithWaveSync();
+                [ForceUnroll]
+                for (uint e = 0; e < 8; e++)
+                {
+                    uint w = lane + e * 32, t = tRow + w / 16, n = nCol + w % 16;
+                    if (t < p.T && n < N) *(uint16_t*)(p.y16 + (uint64_t(t) * N + n) * 2) = uint16_t(f32tof16(gC[sg * 256 + w]));
+                }
+                GroupMemoryBarrierWithWaveSync();
+            }
+#endif
             if (tRow + 16 <= p.T && nCol + 16 <= N)
             {
                 r.Store<CoopMatMatrixLayout.RowMajor>(yb + uint64_t(tRow) * Y_STRIDE + nCol, 0u, Y_STRIDE);

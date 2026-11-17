@@ -16,7 +16,7 @@ public sealed partial class GraphLowerer
     /// not apply.
     /// </summary>
     private Func<long, bool>? EmitDualGemm2(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef weightA,
-        TensorRef weightB, TensorRef y, long n, long k, string epilogueSource)
+        TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, Value? output = null)
     {
         long rowsMax = x.Shape[0] * rowsPerLead;
         var layout = Gemm2Layout(Gemm2TileRows, splitHalf: false);
@@ -39,13 +39,23 @@ public sealed partial class GraphLowerer
             macros["GEMM_GROUP"] = DiagnosticSwitches.GemmTileGroup.ToString(CultureInfo.InvariantCulture);
         }
 
+        // The f16 copy of y that a following tensor-core matmul reads (e.g. the down projection after gate / up), stored next
+        // to y instead of a conversion launch reading y back (Qwen3-8B bf16 at 2048 rows: -0.15 ms per layer).
+        var half = output is null ? null : ProducerHalfCopy(output, y, Serves);
+        if (half is not null)
+        {
+            macros["DUAL_Y16"] = "1";
+        }
+
         var kernel = _compiler.Compile("matmul_dual.slang", epilogueSource, "gemm_cm2", _opt.Target, macros, _opt.Cache);
         int outputs = Gemm2TileColumns / 2;
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
         Emit($"{label} gemm2", nodes,
             [new KernelVariant(b => Serves(rows(b)), kernel, b => new Grid(Grid.Div(n, outputs), Grid.Div(rows(b), Gemm2TileRows)))],
-            [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
-            [quantized, weightA, weightB], [y]);
+            half is null
+                ? [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)]
+                : [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(y), Pointer(half), TokenArg(x, rowsPerLead)],
+            [quantized, weightA, weightB], half is null ? [y] : [y, half]);
         return Serves;
     }
 

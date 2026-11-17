@@ -7,11 +7,12 @@ namespace Sharplight.Shaders.Lowering;
 public sealed partial class GraphLowerer
 {
     /// <summary>
-    /// f16 copies of root values written by the row norm that produced them, with the step row counts for which the norm
-    /// writes the copy; <see cref="QuantizedActivations"/> hands them to the tensor-core GEMMs instead of launching a
-    /// conversion (and converts into the same buffer for larger steps).
+    /// f16 copies of root values written by the launch that produced them (a row norm, the dual gemm_cm2), with the step row
+    /// counts for which it writes the copy (from MinRows, up to MaxRows where Written is null, else where Written holds);
+    /// <see cref="QuantizedActivations"/> hands them to the tensor-core GEMMs instead of launching a conversion (and converts
+    /// into the same buffer for the other steps).
     /// </summary>
-    private readonly Dictionary<Value, (TensorRef Half, long MinRows, long MaxRows)> _halfCopies = [];
+    private readonly Dictionary<Value, (TensorRef Half, long MinRows, long MaxRows, Func<long, bool>? Written)> _halfCopies = [];
 
     /// <summary>Root values read as x by a matmul over non-f32 weights (built on first use).</summary>
     private HashSet<Value>? _halfMatMulRoots;
@@ -66,7 +67,7 @@ public sealed partial class GraphLowerer
             }
 
             list.Add(allocation);
-            _halfCopies[value] = (half, minRows, maxRows);
+            _halfCopies[value] = (half, minRows, maxRows, null);
             rowRanges[pass2Outputs.Count] = (minRows, maxRows);
             pass2Outputs.Add((half, pass2Outputs[i].Expr));
         }
@@ -77,9 +78,9 @@ public sealed partial class GraphLowerer
     /// the norm writes it for, when it serves a conversion of x (the root's own dense rows) for steps from
     /// <paramref name="minRows"/> rows; else null.
     /// </summary>
-    private (TensorRef Copy, long MaxRows)? NormHalfCopy(Value root, TensorRef x, long xStride, long k, long minRows)
+    private (TensorRef Copy, long MaxRows, Func<long, bool>? Written)? NormHalfCopy(Value root, TensorRef x, long xStride, long k, long minRows)
     {
-        if (!_halfCopies.TryGetValue(root, out var copy) || minRows < copy.MinRows || xStride != k || copy.Half.Shape[^1] != k
+        if (!_halfCopies.TryGetValue(root, out var copy) || (copy.Written is null && minRows < copy.MinRows) || xStride != k || copy.Half.Shape[^1] != k
             || x.ByteOffset != Ref(root).ByteOffset)
         {
             return null;
@@ -87,7 +88,35 @@ public sealed partial class GraphLowerer
 
         long rows = copy.Half.Shape.Aggregate(1L, (a, d) => a * d) / k;
         long[] shape = [rows, 2 * k];
-        return (new TensorRef(_arena, copy.Half.ByteOffset, DataType.U8, shape, TensorRef.DenseStrides(shape), copy.Half.Symbol), copy.MaxRows);
+        return (new TensorRef(_arena, copy.Half.ByteOffset, DataType.U8, shape, TensorRef.DenseStrides(shape), copy.Half.Symbol), copy.MaxRows, copy.Written);
+    }
+
+    /// <summary>
+    /// An f16 copy of <paramref name="value"/> (the output <paramref name="y"/> of a launch about to be emitted) for that launch to
+    /// write for the step row counts where <paramref name="written"/> holds (other steps convert into it); null unless a
+    /// tensor-core matmul over non-f32 weights reads the value as x (see <see cref="AddHalfCopyOutputs"/>).
+    /// </summary>
+    private TensorRef? ProducerHalfCopy(Value value, TensorRef y, Func<long, bool> written)
+    {
+        long k = y.Shape.Length == 0 ? 0 : y.Shape[^1];
+        if (!DiagnosticSwitches.NormHalfCopy || value.Type != DataType.F32 || y.Type != DataType.F32 || !y.IsDense || y.Buffer != _arena
+            || k % 8 != 0 || RootOf(value) != value || _halfCopies.ContainsKey(value) || !HalfMatMulRoots().Contains(value))
+        {
+            return null;
+        }
+
+        var allocation = new object();
+        long elements = y.Shape.Aggregate(1L, (a, d) => a * d);
+        long offset = _alloc.Allocate(allocation, DataType.F16.ByteSize(elements));
+        var half = new TensorRef(_arena, offset, DataType.F16, y.Shape, TensorRef.DenseStrides(y.Shape), y.Symbol);
+        if (!_rootScratch.TryGetValue(value, out var list))
+        {
+            _rootScratch[value] = list = [];
+        }
+
+        list.Add(allocation);
+        _halfCopies[value] = (half, 0, long.MaxValue, written);
+        return half;
     }
 
     private HashSet<Value> HalfMatMulRoots()
