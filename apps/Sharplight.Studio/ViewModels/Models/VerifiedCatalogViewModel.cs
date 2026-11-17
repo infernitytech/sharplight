@@ -54,8 +54,11 @@ internal sealed partial class VerifiedCatalogViewModel : ObservableObject
     public ObservableCollection<CatalogEntryViewModel> Entries { get; } = [];
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasSelection))]
+    [NotifyPropertyChangedFor(nameof(HasSelection), nameof(SelectedVariants))]
     public partial CatalogEntryViewModel? SelectedEntry { get; set; }
+
+    /// <summary>The variants of the selected entry (empty without a selection).</summary>
+    public IReadOnlyList<CatalogVariantViewModel> SelectedVariants => SelectedEntry?.Variants ?? [];
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(InstallCommand))]
