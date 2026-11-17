@@ -14,7 +14,10 @@ namespace Sharplight.Studio.ViewModels.Inference;
 internal sealed partial class ModelPickerViewModel : ObservableObject
 {
     private readonly StudioServices _services;
+    private readonly object _refreshLock = new();
     private ResidentState? _selectedState;
+    private bool _refreshing;
+    private bool _refreshAgain;
 
     /// <param name="services">The runtime that lists the resident models.</param>
     /// <param name="kind">The model kind the picker offers (<see cref="Sharplight.Models.ModelKinds"/>).</param>
@@ -60,6 +63,37 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     /// treat it as a new choice on every lease, and any page that reads the model on a new choice would trigger the next refresh.
     /// </summary>
     public void Refresh()
+    {
+        // Serialized: the runtime raises ModelsChanged from engine threads (after a load, unload or lease), and a dispatcher that
+        // runs inline off the UI thread would then edit the collection while another refresh enumerates it. A refresh requested from
+        // inside a refresh (a handler of the collection or of the choice reaching the runtime) runs after the current one, because
+        // editing the collection while its change notifications are being delivered is what throws "Collection was modified".
+        lock (_refreshLock)
+        {
+            if (_refreshing)
+            {
+                _refreshAgain = true;
+                return;
+            }
+
+            _refreshing = true;
+            try
+            {
+                do
+                {
+                    _refreshAgain = false;
+                    RefreshCore();
+                }
+                while (_refreshAgain);
+            }
+            finally
+            {
+                _refreshing = false;
+            }
+        }
+    }
+
+    private void RefreshCore()
     {
         var current = _services.Runtime.LoadedModels.Where(model => Kinds.Contains(model.Kind, StringComparer.OrdinalIgnoreCase)).ToList();
         if (!Models.Select(option => option.Model).SequenceEqual(current))

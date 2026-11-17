@@ -85,7 +85,7 @@ public sealed class GifEncoderTests
 
             (string codec, int width, int height, int frames) = FfmpegReference.Probe(path);
             Assert.Equal(("gif", 40, 30, 8), (codec, width, height, frames));
-            List<byte[]> decoded = FfmpegReference.Decode(path, 40, 30);
+            List<byte[]> decoded = FfmpegReference.Decode(path);
             Assert.Equal(8, decoded.Count);
             Assert.True(decoded[7].AsSpan().SequenceEqual(clip.Frames[7].Rgb));
         }

@@ -44,6 +44,12 @@ internal sealed record WanHyperParameters
     /// <summary>Whether the timestep is an input per token (Wan 2.2 TI2V).</summary>
     public required bool TokenTimesteps { get; init; }
 
+    /// <summary>Width of the image conditioning (the CLIP vision encoder's hidden size; Wan 2.1 I2V / FLF2V), or 0 without one.</summary>
+    public int ImageDim { get; init; }
+
+    /// <summary>Rows of the image conditioning (257 per image for CLIP ViT-H/14; FLF2V: two images), or 0 without one.</summary>
+    public int ImageTokens { get; init; }
+
     /// <summary>Width per head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
 
@@ -79,6 +85,8 @@ internal sealed record WanHyperParameters
             CrossAttentionNorm = source.Get(p + "cross_attn_norm", true),
             RopeTheta = source.Get(p + "rope_theta", 10000f),
             TokenTimesteps = source.Get(p + "token_timesteps", false),
+            ImageDim = source.Get(p + "image_dim", 0),
+            ImageTokens = source.Get(p + "image_tokens", 0),
         };
     }
 }

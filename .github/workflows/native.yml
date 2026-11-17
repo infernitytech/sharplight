@@ -11,9 +11,14 @@ name: Native libraries
 #   native tests                                 C tests with ASan + UBSan (round-trips, null-backend devices, decoder fuzzing) on linux-x64
 #   smoke                                        the managed audio tests on the other native runners (decode fixtures, null-backend devices)
 #
-# Video (native/sharplight_video: libvpx VP8/VP9 encoders from third_party/, generic C, no platform SDK needed) is cross-compiled with zig
-# for all five platforms on ubuntu (artifacts `native-video-*`; the osx-arm64 binary is exercised by the smoke job on macOS), verified,
-# tested with ASan + UBSan on linux-x64, and smoke-tested through the managed Sharplight.Video tests.
+# Video: Sharplight's own LGPL FFmpeg (native/ffmpeg/build.sh: FFmpeg + libvpx, dav1d, SVT-AV1, OpenH264, libopus, zlib; sources pinned
+# in third_party/sources.json) as shared libraries, artifacts `native-ffmpeg-<rid>` unpacked into native/ffmpeg/out/ by the consumers.
+#
+#   linux-x64, linux-arm64       zig cc on ubuntu (glibc 2.28 baseline)
+#   win-x64, win-arm64           llvm-mingw on ubuntu
+#   osx-arm64                    the system clang on macOS (VideoToolbox / AudioToolbox)
+#   verify                       file types, LGPL configuration, dependencies (system libraries only), glibc baseline
+#   smoke                        the managed Sharplight.Video tests (encode every codec, decode, audio tracks) on every platform
 #
 # Triggered by the workflows that need the binaries; run it by hand to check a change to native/ or third_party/ in isolation.
 
@@ -49,49 +54,75 @@ jobs:
           path: native-out/*/
           if-no-files-found: error
 
-  video-cross:
-    name: "video: all platforms (zig)"
+  ffmpeg-cross:
+    name: "ffmpeg: ${{ matrix.rid }}"
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [linux-x64, linux-arm64, win-x64, win-arm64]
     steps:
       - uses: actions/checkout@v4
 
+      # meson itself is installed by build.sh into a venv at the pinned version (with its hash).
+      - name: Install build tools
+        run: sudo apt-get install -y --no-install-recommends ninja-build pkgconf python3-venv
+
       - name: Install zig
+        if: startsWith(matrix.rid, 'linux-')
         run: echo "ZIG=$(native/sharplight_audio/install-zig.sh "$RUNNER_TEMP/zig" | tail -1)" >> "$GITHUB_ENV"
+
+      # The pinned archives (FFmpeg, codec libraries, nasm, llvm-mingw); the hashes in sources.json are checked after every restore.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/slf-cache/downloads
+          key: ffmpeg-sources-${{ hashFiles('third_party/sources.json') }}
 
       - name: Build
         env:
-          SLV_OUT: ${{ github.workspace }}/native-video-out
-          SLV_BUILD: ${{ runner.temp }}/slv-obj
-        run: native/sharplight_video/build.sh all --jobs "$(nproc)"
+          SLF_CACHE: ${{ runner.temp }}/slf-cache
+          SLF_BUILD: ${{ runner.temp }}/slf-build
+          SLF_OUT: ${{ github.workspace }}/native-ffmpeg-out
+        run: native/ffmpeg/build.sh "${{ matrix.rid }}" --jobs "$(nproc)"
 
       - name: Verify
-        run: native/sharplight_video/verify.sh native-video-out
+        run: native/ffmpeg/verify.sh native-ffmpeg-out "${{ matrix.rid }}"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: native-video-zig
-          path: native-video-out/*/
+          name: native-ffmpeg-${{ matrix.rid }}
+          path: native-ffmpeg-out/*/
           if-no-files-found: error
 
-  video-native-tests:
-    name: "video: native tests (linux-x64, ASan + UBSan)"
-    runs-on: ubuntu-24.04
+  ffmpeg-macos:
+    name: "ffmpeg: osx-arm64"
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install zig
-        run: echo "ZIG=$(native/sharplight_audio/install-zig.sh "$RUNNER_TEMP/zig" | tail -1)" >> "$GITHUB_ENV"
+      - name: Install build tools
+        run: brew install --quiet ninja pkgconf
 
-      - name: Build the sanitizer variant
-        env:
-          SLV_OUT: ${{ runner.temp }}/slv-asan
-          SLV_BUILD: ${{ runner.temp }}/slv-asan-obj
-        run: native/sharplight_video/build.sh host-sanitize --jobs "$(nproc)"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/slf-cache/downloads
+          key: ffmpeg-sources-${{ hashFiles('third_party/sources.json') }}
 
-      - name: Run
+      - name: Build
         env:
-          SLV_OUT: ${{ runner.temp }}/slv-asan
-        run: native/sharplight_video/tests/run.sh "$SLV_OUT/linux-x64-asan"
+          SLF_CACHE: ${{ runner.temp }}/slf-cache
+          SLF_BUILD: ${{ runner.temp }}/slf-build
+          SLF_OUT: ${{ github.workspace }}/native-ffmpeg-out
+        run: native/ffmpeg/build.sh osx-arm64 --jobs "$(sysctl -n hw.ncpu)"
+
+      - name: Verify
+        run: native/ffmpeg/verify.sh native-ffmpeg-out osx-arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-ffmpeg-osx-arm64
+          path: native-ffmpeg-out/*/
+          if-no-files-found: error
 
   native-tests:
     name: native tests (linux-x64, ASan + UBSan)
@@ -136,11 +167,12 @@ jobs:
 
   smoke:
     name: smoke (${{ matrix.rid }})
-    needs: [cross, macos, video-cross]
+    needs: [cross, macos, ffmpeg-cross, ffmpeg-macos]
     strategy:
       fail-fast: false
       matrix:
         include:
+          - { rid: linux-x64, os: ubuntu-24.04 }
           - { rid: win-x64, os: windows-latest }
           - { rid: win-arm64, os: windows-11-arm }
           - { rid: linux-arm64, os: ubuntu-24.04-arm }
@@ -163,9 +195,9 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: native-video-*
+          pattern: native-ffmpeg-*
           merge-multiple: true
-          path: native/sharplight_video/out
+          path: native/ffmpeg/out
 
       # Decodes every fixture format against the analytic signal and runs the null-backend device tests on the real platform; ffmpeg is
       # not installed there, so the ffmpeg comparison skips itself.
@@ -173,7 +205,8 @@ jobs:
         shell: bash
         run: dotnet run --project tests/Sharplight.Audio.Tests -c Release
 
-      # Encodes a clip to WebM with the platform's libvpx build and checks the file (decoded with ffmpeg where it is installed).
+      # Encodes a clip with every software codec of the platform's FFmpeg build, decodes it again, writes and reads audio tracks, and
+      # tries the hardware encoders the runner has; fails when the libraries are missing from the build output.
       - name: Video tests
         shell: bash
         run: dotnet run --project tests/Sharplight.Video.Tests -c Release

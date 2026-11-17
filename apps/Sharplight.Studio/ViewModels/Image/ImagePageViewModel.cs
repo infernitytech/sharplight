@@ -10,7 +10,10 @@ using Sharplight.Models;
 using Sharplight.Studio.Converters;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Gallery;
+using Sharplight.Studio.ViewModels.Gallery;
 using Sharplight.Studio.Services.Imaging;
+using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.ViewModels.Inference;
@@ -64,6 +67,212 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         Source = new ImageInputViewModel(services.Platform, text => Notice = text, "Input image", "Optional: start from an image (image to image). Drop a file here or choose one.", OnSourceChanged);
         Mask = new ImageInputViewModel(services.Platform, text => Notice = text, "Mask", "Optional: with an input image, bright areas are regenerated, the rest stays (inpainting).", OnSourceChanged);
         OnSourceChanged();
+        _store = new ImageGalleryStore(services.Pages.GenerationsDirectory("images"));
+        Generations = new ImageGalleryViewModel(_store, services.Platform, services.Dispatcher, OpenStored, ReuseStored);
+        Loras = new LoraListViewModel(services.Platform, () => _library);
+        Loras.Changed += (_, _) => OnLorasEdited();
+    }
+
+    private IReadOnlyList<LibraryEntry> _library = [];
+    private bool _settingLoras;
+
+    /// <summary>The LoRAs of the chosen model: edit them, then apply (the model reloads, the engine merges LoRAs at load).</summary>
+    public LoraListViewModel Loras { get; }
+
+    /// <summary>The slots differ from the LoRAs the chosen model is loaded with.</summary>
+    public bool LorasPending => SelectedModel is { } model && Loras.Differs(LoraRoles.Adapters(model.Auxiliary));
+
+    /// <summary>The model is being reloaded with other LoRAs.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplyLorasCommand))]
+    public partial bool IsReloading { get; set; }
+
+    private void OnLorasEdited()
+    {
+        if (_settingLoras)
+        {
+            return;
+        }
+
+        OnPropertyChanged(nameof(LorasPending));
+        ApplyLorasCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanApplyLoras() => LorasPending && !IsReloading && !Queue.IsBusy;
+
+    /// <summary>Reloads the chosen model with the LoRAs of the slots.</summary>
+    [RelayCommand(CanExecute = nameof(CanApplyLoras))]
+    private async Task ApplyLorasAsync()
+    {
+        if (SelectedModel is not { } model)
+        {
+            return;
+        }
+
+        var request = new ModelLoadRequest(model.Id, model.Path, model.Settings, Services.Settings.Current.DisabledFeatures,
+            Capabilities: model.Capabilities, Kind: model.Kind,
+            Auxiliary: [.. LoraRoles.WithoutAdapters(model.Auxiliary), .. LoraRoles.ToAuxiliary(Loras.Adapters)]);
+        IsReloading = true;
+        Notice = "Reloading the model with the LoRAs";
+        try
+        {
+            await Services.Runtime.UnloadAsync(model.Id).ConfigureAwait(false);
+            await Services.Runtime.LoadAsync(request, null, CancellationToken.None).ConfigureAwait(false);
+            Services.Dispatcher.Post(() => Notice = "");
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            string message = error.GetBaseException().Message;
+            Services.Dispatcher.Post(() => Notice = "The model could not be loaded with these LoRAs: " + message);
+        }
+        finally
+        {
+            Services.Dispatcher.Post(() =>
+            {
+                IsReloading = false;
+                OnPropertyChanged(nameof(LorasPending));
+            });
+        }
+    }
+
+    private readonly ImageGalleryStore _store;
+    private bool _galleryLoaded;
+
+    /// <summary>Every image ever generated (in the data folder of the storage mode), to browse, reuse and delete.</summary>
+    public ImageGalleryViewModel Generations { get; }
+
+    /// <summary>The gallery strip below the result is shown.</summary>
+    [ObservableProperty]
+    public partial bool ShowGallery { get; set; } = true;
+
+    /// <inheritdoc/>
+    public override Task ActivateAsync()
+    {
+        if (!_galleryLoaded)
+        {
+            _galleryLoaded = true;
+            _ = Generations.LoadAsync();
+        }
+
+        _ = LoadLibraryAsync();
+        return base.ActivateAsync();
+    }
+
+    /// <summary>Reads the library on a worker thread for the LoRA files it offers.</summary>
+    private async Task LoadLibraryAsync()
+    {
+        try
+        {
+            var entries = await Services.Library.ListAsync(CancellationToken.None).ConfigureAwait(false);
+            Services.Dispatcher.Post(() =>
+            {
+                _library = entries;
+                Loras.RefreshAvailable();
+            });
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // The library cannot be read: LoRA files are added by file instead.
+        }
+    }
+
+    /// <summary>Shows a stored image large; the file is read and decoded on a worker thread.</summary>
+    private void OpenStored(GalleryItemViewModel item)
+    {
+        var entry = item.Entry;
+        _ = Task.Run(() =>
+        {
+            byte[] png;
+            ImageInput image;
+            try
+            {
+                png = _store.ReadPng(entry);
+                image = ImageFiles.Decode(png);
+                DecodedBitmaps.Prepare(png);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException)
+            {
+                Services.Dispatcher.Post(() => Notice = "The image file could not be read: " + error.Message);
+                return;
+            }
+
+            Services.Dispatcher.Post(() =>
+            {
+                if (!ReferenceEquals(Generations.SelectedItem, item))
+                {
+                    return;
+                }
+
+                Notice = "";
+                _last = ToParameters(entry);
+                Show([new GeneratedImageViewModel(1, png, image, entry.Seed)],
+                    $"{entry.Model} · size: {entry.Width} × {entry.Height} · steps: {entry.Steps} · seed: {entry.Seed} · {entry.Created.LocalDateTime:g}");
+            });
+        });
+    }
+
+    private static ImageParametersFile ToParameters(GalleryEntry entry) => new()
+    {
+        Model = entry.Model,
+        Prompt = entry.Prompt,
+        NegativePrompt = entry.NegativePrompt,
+        Seed = entry.Seed,
+        Steps = entry.Steps,
+        Guidance = entry.Guidance,
+        Sampler = entry.Sampler,
+        Width = entry.Width,
+        Height = entry.Height,
+        Count = 1,
+        Options = entry.Options,
+    };
+
+    /// <summary>Fills the prompt boxes, the seed and the parameter panel with a stored image's settings, and chooses its model when it is loaded.</summary>
+    private void ReuseStored(GalleryEntry entry)
+    {
+        var values = new Dictionary<string, string>(entry.Options) { ["seed"] = entry.Seed.ToString(CultureInfo.InvariantCulture) };
+        Panel.Apply(values);
+        Prompt = entry.Prompt;
+        NegativePrompt = entry.NegativePrompt;
+        if (Services.Runtime.LoadedModels.FirstOrDefault(model => model.Id == entry.Model && model.Kind == ModelKinds.ImageGeneration) is { } model)
+        {
+            SelectModel(model);
+        }
+
+        Notice = "";
+        ReuseLoras(entry);
+    }
+
+    /// <summary>Shows a stored image's LoRAs in the slots; when the chosen model has other ones, they apply after the reload (<see cref="ApplyLorasCommand"/>).</summary>
+    private void ReuseLoras(GalleryEntry entry)
+    {
+        var wanted = new List<ModelLora>();
+        var missing = new List<string>();
+        foreach (var lora in entry.Loras)
+        {
+            if (lora.Path.Length > 0 && File.Exists(lora.Path))
+            {
+                wanted.Add(new ModelLora(lora.Path, lora.Scale));
+            }
+            else
+            {
+                missing.Add(lora.Name);
+            }
+        }
+
+        if (entry.Loras.Count == 0 && Loras.Slots.Count == 0)
+        {
+            return;
+        }
+
+        Loras.Set(wanted);
+        if (missing.Count > 0)
+        {
+            Notice = "LoRA file not found: " + string.Join(", ", missing);
+        }
+        else if (LorasPending)
+        {
+            Notice = "This image used other LoRAs: press Apply LoRAs to reload the model with them.";
+        }
     }
 
     /// <inheritdoc/>
@@ -93,6 +302,14 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     /// <summary>What the image should not show.</summary>
     [ObservableProperty]
     public partial string NegativePrompt { get; set; } = "";
+
+    /// <summary>Shows the input image beside the result with a divider (image to image and inpainting).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ComparePng))]
+    public partial bool CompareWithInput { get; set; }
+
+    /// <summary>The picture the result is compared with, or null.</summary>
+    public byte[]? ComparePng => CompareWithInput && Source.HasImage ? Source.Preview : null;
 
     /// <summary>The page is generating (a run is queued or running).</summary>
     public bool IsGenerating => Queue.IsBusy;
@@ -147,6 +364,22 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     {
         OnPropertyChanged(nameof(RunHint));
         RunCommand.NotifyCanExecuteChanged();
+        if (model is not null)
+        {
+            _settingLoras = true;
+            try
+            {
+                Loras.Set(LoraRoles.Adapters(model.Auxiliary));
+            }
+            finally
+            {
+                _settingLoras = false;
+            }
+
+            OnPropertyChanged(nameof(LorasPending));
+            ApplyLorasCommand.NotifyCanExecuteChanged();
+        }
+
         _defaultsReadFrom = null;
         ReadModelDefaults(model);
     }
@@ -232,6 +465,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         OnPropertyChanged(nameof(ShowPreview));
         OnPropertyChanged(nameof(ShowPlaceholder));
         RunCommand.NotifyCanExecuteChanged();
+        ApplyLorasCommand.NotifyCanExecuteChanged();
     }
 
     /// <inheritdoc/>
@@ -274,6 +508,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     {
         Panel.SetVisible("strength", Source.HasImage);
         OnPropertyChanged(nameof(UsesInputImage));
+        OnPropertyChanged(nameof(ComparePng));
     }
 
     private bool CanRun() => HasModel && Prompt.Trim().Length > 0;
@@ -392,6 +627,8 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         };
         var shown = new List<GeneratedImageViewModel>();
         var files = new Dictionary<string, byte[]>();
+        var stored = new List<GalleryEntry>();
+        var loras = LoraRoles.Adapters(model.Auxiliary);
         for (int i = 0; i < finished.Images.Count; i++)
         {
             var image = finished.Images[i];
@@ -401,6 +638,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
             var item = new GeneratedImageViewModel(i + 1, png, image, finished.Seed + i);
             shown.Add(item);
             files[item.FileName] = png;
+            stored.Add(StoreInGallery(file, image, png, finished.Seed + i, seconds, loras));
         }
 
         files[ParametersName] = JsonSerializer.SerializeToUtf8Bytes(file, StudioJsonContext.Default.ImageParametersFile);
@@ -414,6 +652,11 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         if (file.Sampler.Length > 0)
         {
             metadata["sampler"] = file.Sampler;
+        }
+
+        if (loras.Count > 0)
+        {
+            metadata["loras"] = string.Join(", ", loras.Select(lora => $"{lora.Name} @ {lora.Scale.ToString("0.##", CultureInfo.InvariantCulture)}"));
         }
 
         if (file.Inpainting)
@@ -435,8 +678,43 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         {
             _last = file;
             Show(shown, summary);
+            foreach (var entry in stored.Where(entry => entry.File.Length > 0))
+            {
+                Generations.Add(entry);
+            }
         });
         Archived(NewRecord(title, model, plan, outcome, seconds, null, file, [.. shown.Select(item => item.FileName), ParametersName], metadata), files);
+    }
+
+    /// <summary>Writes one image and its sidecar into the gallery folder (on the worker thread); a full disk must not lose the result.</summary>
+    private GalleryEntry StoreInGallery(ImageParametersFile file, ImageInput image, byte[] png, long seed, double seconds,
+        IReadOnlyList<ModelLora> loras)
+    {
+        var entry = new GalleryEntry
+        {
+            Id = ImageGalleryStore.NewId(),
+            Model = file.Model,
+            Prompt = file.Prompt,
+            NegativePrompt = file.NegativePrompt,
+            Seed = seed,
+            Steps = file.Steps,
+            Guidance = file.Guidance,
+            Width = image.Width,
+            Height = image.Height,
+            Sampler = file.Sampler,
+            Loras = [.. loras.Select(lora => new GalleryLora { Name = lora.Name, Scale = lora.Scale, Path = lora.Path })],
+            Seconds = Math.Round(seconds, 2),
+            Options = new Dictionary<string, string>(file.Options) { ["seed"] = seed.ToString(CultureInfo.InvariantCulture) },
+        };
+        try
+        {
+            return _store.Add(entry, png);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Services.Dispatcher.Post(() => Notice = "The image could not be added to the gallery: " + error.Message);
+            return entry with { File = "" };
+        }
     }
 
     private RunRecord NewRecord(string title, ILoadedModel model, GenerationPlan plan, RunOutcome outcome, double seconds, string? error, ImageParametersFile? file,

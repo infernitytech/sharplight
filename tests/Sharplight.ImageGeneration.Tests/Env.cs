@@ -75,6 +75,9 @@ internal static class Env
     /// <summary>The tiny random Qwen-Image pipeline (tools/make-tiny-qwen-image.py).</summary>
     public static readonly string TinyQwenImage = Path.Combine(Home, "models/qwen-image/tiny-random-qwen-image");
 
+    /// <summary>The tiny random Qwen-Image 2.1 pipeline (tools/make-tiny-qwen-image21.py).</summary>
+    public static readonly string TinyQwenImage21 = Path.Combine(Home, "models/qwen-image21/tiny-random-qwen-image21");
+
     /// <summary>The Qwen-Image model folder (the Qwen-Image diffusers folder without the transformer weights, GGUF files, references).</summary>
     public static readonly string QwenImageRoot = Path.Combine(Home, "models/qwen-image");
 

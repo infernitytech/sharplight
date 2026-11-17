@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:inf="using:Sharplight.Studio.ViewModels.Inference"
              xmlns:conv="using:Sharplight.Studio.Converters"
+             xmlns:vw="using:Sharplight.Studio.Views"
              x:Class="Sharplight.Studio.Views.Inference.ImageInputView"
              x:DataType="inf:ImageInputViewModel">
   <!-- The image input of the inference pages: a preview with name and size, or a hint to choose or drop a file. -->
@@ -11,9 +12,18 @@
         <Button Classes="small" Content="Choose file" Command="{Binding ChooseCommand}" />
         <Button Classes="small" Content="Remove" Command="{Binding ClearCommand}" IsVisible="{Binding HasImage}" />
       </StackPanel>
-      <Border DockPanel.Dock="Left" Width="88" Height="88" CornerRadius="6" ClipToBounds="True" Margin="0,0,12,0" IsVisible="{Binding HasImage}">
-        <Image Source="{Binding Preview, Converter={x:Static conv:BytesToBitmapConverter.Instance}, ConverterParameter=180}" Stretch="UniformToFill" />
-      </Border>
+      <Button DockPanel.Dock="Left" Classes="ghost" Padding="0" Margin="0,0,12,0" IsVisible="{Binding HasImage}" ToolTip.Tip="Click to view the image large (zoom and pan)">
+        <Button.Flyout>
+          <Flyout Placement="Bottom">
+            <Border Width="720" Height="520">
+              <vw:ImageViewer Source="{Binding Preview, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" />
+            </Border>
+          </Flyout>
+        </Button.Flyout>
+        <Border Width="88" Height="88" CornerRadius="6" ClipToBounds="True">
+          <Image Source="{Binding Preview, Converter={x:Static conv:BytesToBitmapConverter.Instance}, ConverterParameter=180}" Stretch="UniformToFill" />
+        </Border>
+      </Button>
       <StackPanel Spacing="2" VerticalAlignment="Center">
         <TextBlock Text="{Binding Title}" FontWeight="Medium" />
         <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" IsVisible="{Binding HasImage}" ToolTip.Tip="{Binding Path}" />

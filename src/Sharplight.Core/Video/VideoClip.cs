@@ -1,3 +1,4 @@
+using Sharplight.Audio;
 using Sharplight.Vision;
 
 namespace Sharplight.Video;
@@ -45,6 +46,12 @@ public sealed record VideoClip
 
     /// <summary>The playback rate in frames per second.</summary>
     public double FramesPerSecond { get; }
+
+    /// <summary>
+    /// The sound track, or <see langword="null"/> for a silent clip. Encoders that write audio (<see cref="VideoEncodeOptions.IncludeAudio"/>)
+    /// cut or pad it with silence to <see cref="Duration"/>.
+    /// </summary>
+    public AudioBuffer? Audio { get; init; }
 
     /// <summary>Frame width in pixels (that of the first frame).</summary>
     public int Width => Frames[0].Width;

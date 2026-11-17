@@ -1,0 +1,15 @@
+<Project>
+  <!--
+    Native libraries of the repository's own projects (Sharplight.Audio, Sharplight.Video) reach applications that reference them as
+    project references as content under runtimes/<rid>/native/ for every platform, because the RuntimeIdentifier of the application does
+    not flow to the referenced libraries. A RID-specific publish (the Studio packages) keeps only its own platform's files; NuGet consumers
+    get the same selection from NuGet's runtime asset resolution.
+  -->
+  <Target Name="SharplightKeepOwnRuntimeNatives" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(RuntimeIdentifier)' != ''">
+    <ItemGroup>
+      <_SharplightForeignNative Include="@(ResolvedFileToPublish)"
+                                Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\','/').StartsWith('runtimes/')) And !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\','/').StartsWith('runtimes/$(RuntimeIdentifier)/'))" />
+      <ResolvedFileToPublish Remove="@(_SharplightForeignNative)" />
+    </ItemGroup>
+  </Target>
+</Project>
