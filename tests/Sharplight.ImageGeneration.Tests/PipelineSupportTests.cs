@@ -20,6 +20,8 @@ public sealed class PipelineSupportTests
     [InlineData("QwenImagePipeline", "transformer,vae", true)]
     [InlineData("QwenImageEditPipeline", "transformer,vae", false)]
     [InlineData("QwenImage21Pipeline", "transformer,vae", true)]
+    [InlineData("Flux2KleinPipeline", "transformer,vae", true)]
+    [InlineData("Flux2Pipeline", "transformer,vae", false)]
     [InlineData("LTXPipeline", "transformer,vae,text_encoder", true)]
     [InlineData("CogVideoXPipeline", "transformer,vae", false)]
     public void ClassifiesPipelines(string pipelineClass, string components, bool supported)
