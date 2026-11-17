@@ -116,9 +116,24 @@ internal sealed partial class HfConfig : IDisposable
     /// <summary>The model type of timm ResNet checkpoints (<c>timm/resnet50.a1_in1k</c>: an <c>architecture</c> name and a <c>pretrained_cfg</c> instead of a <c>model_type</c>).</summary>
     public const string TimmResNetModelType = "timm_resnet";
 
+    /// <summary>The model type of timm ConvNeXt checkpoints (<c>timm/convnext_tiny.fb_in1k</c>).</summary>
+    public const string TimmConvNextModelType = "timm_convnext";
+
     private string? TimmModelType()
-        => Root.ValueKind == JsonValueKind.Object && Root.TryGetProperty("pretrained_cfg", out _) && Root.TryGetProperty("architecture", out var a) && a.ValueKind == JsonValueKind.String
-            && (a.GetString()!.StartsWith("resnet", StringComparison.Ordinal) || a.GetString()!.StartsWith("wide_resnet", StringComparison.Ordinal)) ? TimmResNetModelType : null;
+    {
+        if (Root.ValueKind != JsonValueKind.Object || !Root.TryGetProperty("pretrained_cfg", out _) || !Root.TryGetProperty("architecture", out var a) || a.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        string name = a.GetString()!;
+        if (name.StartsWith("resnet", StringComparison.Ordinal) || name.StartsWith("wide_resnet", StringComparison.Ordinal))
+        {
+            return TimmResNetModelType;
+        }
+
+        return name.StartsWith("convnext_", StringComparison.Ordinal) ? TimmConvNextModelType : null;
+    }
 
     private HfConfig(HfConfig config, string modelType)
     {

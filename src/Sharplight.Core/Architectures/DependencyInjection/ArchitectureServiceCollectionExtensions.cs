@@ -44,6 +44,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<RrdbNetAdapter>()
                 .AddModelAdapter<SwinIrAdapter>()
                 .AddModelAdapter<ResNetClassifierAdapter>()
+                .AddModelAdapter<ConvNextClassifierAdapter>()
                 .AddModelAdapter<KokoroAdapter>()
                 .AddModelAdapter<EncodecAdapter>()
                 .AddModelAdapter<DacAdapter>()

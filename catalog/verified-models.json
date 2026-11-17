@@ -19463,6 +19463,120 @@
       },
       "notes": "basic-block ResNet",
       "doc": []
+    },
+    {
+      "id": "convnext-tiny-timm",
+      "name": "ConvNeXt Tiny (timm)",
+      "kind": "image-classification",
+      "family": "ConvNeXt",
+      "architecture": "convnext",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 534183596,
+          "companions": [],
+          "repository": "timm/convnext_tiny.fb_in1k",
+          "revision": "b43a6303c9fcf176d2d707478a128c2c91e93528",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 657,
+              "gitOid": "00b9a5c47465c42b381268fab08bb218ecb630ae"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 114374272,
+              "sha256": "08b9dc9c3a3a29421de7996761e176501896d1ae7fc3085cf56a643772329276"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits \u003C 2e-3 vs timm, same top-1 (no label names in timm repositories)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "ConvNeXt V1; other timm sizes map by the same code but were not run",
+      "doc": []
+    },
+    {
+      "id": "convnext-tiny-224",
+      "name": "ConvNeXt Tiny 224 (Facebook)",
+      "kind": "image-classification",
+      "family": "ConvNeXt",
+      "architecture": "convnext",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-pytorch",
+          "label": "F32 PyTorch",
+          "format": "pytorch",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 534239851,
+          "companions": [],
+          "repository": "facebook/convnext-tiny-224",
+          "revision": "6166b7613034066690a621d8bf25ffdf181a34f0",
+          "include": [
+            "config.json",
+            "pytorch_model.bin",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 69640,
+              "gitOid": "67c1cd1b4a631348c9832b598647796857a49dac"
+            },
+            {
+              "path": "pytorch_model.bin",
+              "size": 114423189,
+              "sha256": "1fe15b2eba9e355de14c4e244e6365bf61ffef84da7d3442c0afbb2d8564f477"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 266,
+              "gitOid": "9a46cca81138ce49069d63f688ae5750882df07e"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits \u003C 2e-3 vs transformers, same top-1, ImageNet label names",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "HF convnext format",
+      "doc": []
     }
   ]
 }
