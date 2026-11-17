@@ -34,7 +34,7 @@ public sealed class UpdateEndpointTests
         Assert.False(service.Support.IsSupported);
         Assert.Contains("unavailable for this build", service.Support.Reason);
         Assert.Null(service.Channel);
-        var result = await service.CheckAsync(CancellationToken.None);
+        var result = await service.CheckAsync(null, CancellationToken.None);
         Assert.NotNull(result.Error);
     }
 }

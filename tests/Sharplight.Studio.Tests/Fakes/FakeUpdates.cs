@@ -29,10 +29,17 @@ internal sealed class FakeUpdates : IUpdateService
 
     public UpdateOffer? Applied { get; private set; }
 
-    public Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken)
+    /// <summary>What the check of a channel returns, by channel name; <see cref="Result"/> for the others.</summary>
+    public Dictionary<string, UpdateCheckResult> ResultsByChannel { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>The channel of every check (null: the installed one).</summary>
+    public List<string?> CheckedChannels { get; } = [];
+
+    public Task<UpdateCheckResult> CheckAsync(string? channel, CancellationToken cancellationToken)
     {
         Checks++;
-        return Task.FromResult(Result);
+        CheckedChannels.Add(channel);
+        return Task.FromResult(channel is not null && ResultsByChannel.TryGetValue(channel, out var result) ? result : Result);
     }
 
     public async Task DownloadAsync(UpdateOffer offer, IProgress<int> progress, CancellationToken cancellationToken)
