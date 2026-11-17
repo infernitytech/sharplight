@@ -52,6 +52,18 @@ internal static partial class DiffusersNames
     /// <exception cref="InvalidDataException">The name is not part of a supported VAE.</exception>
     public static void AddVae(string name, WeightInfo weight, CanonicalWeights weights)
     {
+        // FLUX.2's batch-norm statistics of the patchified latents (the step counter is not needed).
+        if (name is "bn.running_mean" or "bn.running_var")
+        {
+            weights.AddF32("vae." + name, weight);
+            return;
+        }
+
+        if (name == "bn.num_batches_tracked")
+        {
+            return;
+        }
+
         string s = name.Replace("coder.conv_in.", "coder.input_conv.", StringComparison.Ordinal)
             .Replace("coder.conv_norm_out.", "coder.output_norm.", StringComparison.Ordinal)
             .Replace("coder.conv_out.", "coder.output_conv.", StringComparison.Ordinal);

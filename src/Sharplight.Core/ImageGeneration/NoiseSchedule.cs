@@ -81,6 +81,9 @@ public sealed record NoiseSchedule
     /// </summary>
     public IReadOnlyList<double> SampleSigmas { get; init; } = [];
 
+    /// <summary>Flow schedules with a dynamic shift: μ from FLUX.2's empirical fit of image tokens and steps (see <see cref="DiffusionConfigKeys.EmpiricalShift"/>).</summary>
+    public bool EmpiricalShift { get; init; }
+
     /// <summary>Whether this is a rectified-flow schedule (<see cref="PredictionType"/> <c>flow</c>).</summary>
     public bool IsFlow => PredictionType == "flow";
 
@@ -110,6 +113,7 @@ public sealed record NoiseSchedule
             MaxShift = component.ConfigValue(DiffusionConfigKeys.MaxShift, defaults.MaxShift),
             BaseSequenceLength = component.ConfigValue(DiffusionConfigKeys.BaseSequenceLength, defaults.BaseSequenceLength),
             MaxSequenceLength = component.ConfigValue(DiffusionConfigKeys.MaxSequenceLength, defaults.MaxSequenceLength),
+            EmpiricalShift = component.ConfigValue(DiffusionConfigKeys.EmpiricalShift, false),
             SampleSigmas = component.Config.TryGetValue(DiffusionConfigKeys.SampleSigmas, out var sigmas)
                 ? [.. sigmas.EnumerateArray().Select(s => s.GetDouble())]
                 : [],

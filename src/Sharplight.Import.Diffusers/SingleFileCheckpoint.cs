@@ -41,6 +41,11 @@ internal static partial class SingleFileCheckpoint
         try
         {
             var names = TensorNames(path);
+            if (Flux2Checkpoint.TransformerPrefix(names) is not null)
+            {
+                return Flux2Config.Architecture;
+            }
+
             if (FluxCheckpoint.TransformerPrefix(names) is { } fluxPrefix)
             {
                 return names.Contains(fluxPrefix + "distilled_guidance_layer.in_proj.weight") ? ChromaConfig.Architecture : FluxConfig.Architecture;
