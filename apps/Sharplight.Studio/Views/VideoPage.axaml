@@ -26,6 +26,9 @@
                         ToolTip.Tip="Continue a video: start from its last frame" />
               </StackPanel>
             </StackPanel>
+            <Panel IsVisible="{Binding SupportsLastImage}">
+              <iv:ImageInputView DataContext="{Binding LastSource}" />
+            </Panel>
             <StackPanel Orientation="Horizontal" Spacing="10">
               <Button Classes="accent" Content="Generate" Command="{Binding RunCommand}" />
               <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsGenerating}" />

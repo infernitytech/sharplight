@@ -7,6 +7,8 @@ Writes OUT (default ~/models/video/tiny-random-hunyuan-video):
                        guidance embedding), a 4-layer LlamaModel text encoder with the real Llama-3 tokenizer (prompt template and
                        crop as the pipeline), a 2-layer CLIPTextModel (pooled) with the real CLIP tokenizer, AutoencoderKLHunyuanVideo
                        (causal 3-D VAE, 8× spatial and 4× temporal compression), FlowMatchEulerDiscreteScheduler (shift 7)
+  single/hunyuan-video.safetensors   the transformer under the original HunyuanVideo names (fused q/k/v, the single blocks' fused
+                       linear1, the final modulation as (shift, scale)), as GGUF and ComfyUI files store it
   reference/*.f32      raw little-endian f32 reference tensors, described by reference/index.json
 
 The tokenizers come from --tokenizers (a HunyuanVideo diffusers folder with tokenizer/ and tokenizer_2/), so the token ids are real.
@@ -48,6 +50,66 @@ def perturb(model, scale=0.05):
     return model.eval()
 
 
+PLAIN = [
+    ("time_text_embed.timestep_embedder.linear_1.", "time_in.mlp.0."), ("time_text_embed.timestep_embedder.linear_2.", "time_in.mlp.2."),
+    ("time_text_embed.guidance_embedder.linear_1.", "guidance_in.mlp.0."), ("time_text_embed.guidance_embedder.linear_2.", "guidance_in.mlp.2."),
+    ("time_text_embed.text_embedder.linear_1.", "vector_in.in_layer."), ("time_text_embed.text_embedder.linear_2.", "vector_in.out_layer."),
+    ("context_embedder.time_text_embed.timestep_embedder.linear_1.", "txt_in.t_embedder.mlp.0."),
+    ("context_embedder.time_text_embed.timestep_embedder.linear_2.", "txt_in.t_embedder.mlp.2."),
+    ("context_embedder.time_text_embed.text_embedder.linear_1.", "txt_in.c_embedder.linear_1."),
+    ("context_embedder.time_text_embed.text_embedder.linear_2.", "txt_in.c_embedder.linear_2."),
+    ("context_embedder.proj_in.", "txt_in.input_embedder."), ("x_embedder.proj.", "img_in.proj."), ("proj_out.", "final_layer.linear."),
+]
+REFINER = {"norm1": "norm1", "norm2": "norm2", "attn.to_out.0": "self_attn_proj", "ff.net.0.proj": "mlp.fc1", "ff.net.2": "mlp.fc2",
+           "norm_out.linear": "adaLN_modulation.1"}
+DOUBLE = {"norm1.linear": "img_mod.linear", "norm1_context.linear": "txt_mod.linear", "attn.norm_q": "img_attn_q_norm", "attn.norm_k": "img_attn_k_norm",
+          "attn.norm_added_q": "txt_attn_q_norm", "attn.norm_added_k": "txt_attn_k_norm", "attn.to_out.0": "img_attn_proj", "attn.to_add_out": "txt_attn_proj",
+          "ff.net.0.proj": "img_mlp.fc1", "ff.net.2": "img_mlp.fc2", "ff_context.net.0.proj": "txt_mlp.fc1", "ff_context.net.2": "txt_mlp.fc2"}
+SINGLE = {"norm.linear": "modulation.linear", "attn.norm_q": "q_norm", "attn.norm_k": "k_norm", "proj_out": "linear2"}
+
+
+def to_original(state):
+    """diffusers HunyuanVideoTransformer3DModel names → the original names (fused projections, (shift, scale) final modulation)."""
+    out = {}
+    for kind in ("weight", "bias"):
+        half = state[f"norm_out.linear.{kind}"].shape[0] // 2
+        out[f"final_layer.adaLN_modulation.1.{kind}"] = torch.cat([state[f"norm_out.linear.{kind}"][half:], state[f"norm_out.linear.{kind}"][:half]])
+    for name, value in state.items():
+        if name.startswith("norm_out.linear."):
+            continue
+        for diffusers, original in PLAIN:
+            if name.startswith(diffusers) and name.count(".") == diffusers.count("."):
+                out[original + name[len(diffusers):]] = value
+                break
+    layers = {}
+    for name in state:
+        parts = name.split(".")
+        if name.startswith("context_embedder.token_refiner.refiner_blocks."):
+            layers[("refiner", int(parts[3]))] = True
+        elif name.startswith("transformer_blocks."):
+            layers[("double", int(parts[1]))] = True
+        elif name.startswith("single_transformer_blocks."):
+            layers[("single", int(parts[1]))] = True
+    for (kind, i) in layers:
+        if kind == "refiner":
+            src, dst, table = f"context_embedder.token_refiner.refiner_blocks.{i}.", f"txt_in.individual_token_refiner.blocks.{i}.", REFINER
+            fused = {"self_attn_qkv": ["attn.to_q", "attn.to_k", "attn.to_v"]}
+        elif kind == "double":
+            src, dst, table = f"transformer_blocks.{i}.", f"double_blocks.{i}.", DOUBLE
+            fused = {"img_attn_qkv": ["attn.to_q", "attn.to_k", "attn.to_v"], "txt_attn_qkv": ["attn.add_q_proj", "attn.add_k_proj", "attn.add_v_proj"]}
+        else:
+            src, dst, table = f"single_transformer_blocks.{i}.", f"single_blocks.{i}.", SINGLE
+            fused = {"linear1": ["attn.to_q", "attn.to_k", "attn.to_v", "proj_mlp"]}
+        for module, original in table.items():
+            for kind_ in ("weight", "bias"):
+                if src + module + "." + kind_ in state:
+                    out[dst + original + "." + kind_] = state[src + module + "." + kind_]
+        for original, modules in fused.items():
+            for kind_ in ("weight", "bias"):
+                out[dst + original + "." + kind_] = torch.cat([state[src + m + "." + kind_] for m in modules])
+    return {k: v.contiguous() for k, v in out.items()}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", default=os.path.expanduser("~/models/video/tiny-random-hunyuan-video"))
@@ -79,6 +141,9 @@ def main():
                                 text_encoder_2=clip, tokenizer_2=tokenizer_2)
     shutil.rmtree(os.path.join(args.out, "diffusers"), ignore_errors=True)
     pipe.save_pretrained(os.path.join(args.out, "diffusers"), safe_serialization=True)
+    from safetensors.torch import save_file
+    os.makedirs(os.path.join(args.out, "single"), exist_ok=True)
+    save_file(to_original(transformer.state_dict()), os.path.join(args.out, "single", "hunyuan-video.safetensors"))
     ref = Reference(os.path.join(args.out, "reference"))
     extra = {"height": HEIGHT, "width": WIDTH, "frames": FRAMES, "steps": STEPS, "guidance_scale": GUIDANCE, "prompt": PROMPT}
 
