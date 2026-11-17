@@ -1,0 +1,31 @@
+{
+  // Feed-only data by package id (docs/model-feed.md "Building a feed"): dependencies between packages, summaries, minimum server
+  // versions, languages and listing state. Everything else comes from catalog/verified-models.json.
+  "schemaVersion": 1,
+  "packages": {
+    "qwen3-0.6b.q8-0-gguf": {
+      "summary": "Small multilingual chat model with thinking and non-thinking modes and tool calls.",
+      "languages": ["en", "zh", "de", "fr", "es", "it", "pt", "ja", "ko", "ru"]
+    },
+    "all-minilm-l6-v2.f32-safetensors": {
+      "summary": "Compact English sentence embedding model (384 dimensions) for semantic search and clustering.",
+      "languages": ["en"],
+      "dependencies": [
+        { "id": "ms-marco-minilm-l6-v2.f32-safetensors", "range": "[1.0.0,2.0.0)", "kind": "optional", "role": "pairing" }
+      ]
+    },
+    "ms-marco-minilm-l6-v2.f32-safetensors": {
+      "summary": "English cross-encoder reranker trained on MS MARCO passage ranking.",
+      "languages": ["en"]
+    },
+    "whisper-tiny.q5-1-whispercpp": {
+      "summary": "Smallest multilingual Whisper speech recognition model (whisper.cpp q5_1); long recordings are pre-segmented with the voice activity detector.",
+      "dependencies": [
+        { "id": "silero-vad-v5.onnx", "range": "[1.0.0,2.0.0)", "kind": "required", "role": "voice-activity" }
+      ]
+    },
+    "silero-vad-v5.onnx": {
+      "summary": "Voice activity detector (16 kHz) used to segment speech before recognition."
+    }
+  }
+}

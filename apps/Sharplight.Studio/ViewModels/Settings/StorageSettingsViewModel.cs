@@ -12,7 +12,7 @@ namespace Sharplight.Studio.ViewModels.Settings;
 /// <summary>
 /// The storage card of the settings page: portable, system or custom location for everything Studio and the engine write, the
 /// folders per kind of file (now and with the selected location), and changing the location with the existing files (move, copy or
-/// start fresh, optionally leaving the models where they are), with progress. The new location is used after a restart.
+/// start fresh, optionally leaving the models where they are), with progress. The new location is used after the restart that follows the change.
 /// </summary>
 internal sealed partial class StorageSettingsViewModel : ObservableObject
 {
@@ -70,7 +70,7 @@ internal sealed partial class StorageSettingsViewModel : ObservableObject
 
     /// <summary>The selected location differs from the one in use (or the one waiting for the restart).</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyCommand), nameof(AskCommand))]
     public partial bool HasChange { get; set; }
 
     /// <summary>The models follow the location, so they can be left behind on their own.</summary>
@@ -79,12 +79,12 @@ internal sealed partial class StorageSettingsViewModel : ObservableObject
 
     /// <summary>Why the selected change cannot be made, or null.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyCommand), nameof(AskCommand))]
     public partial string? Problem { get; set; }
 
     /// <summary>Files are being transferred.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ApplyCommand), nameof(CancelCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyCommand), nameof(AskCommand), nameof(CancelCommand))]
     public partial bool IsBusy { get; set; }
 
     /// <summary>Progress of the transfer, 0 to 1.</summary>
@@ -99,6 +99,11 @@ internal sealed partial class StorageSettingsViewModel : ObservableObject
     [ObservableProperty]
     public partial string? Message { get; set; }
 
+    /// <summary>The change was asked for and waits for the confirmation (Studio restarts when it is done).</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AskCommand))]
+    public partial bool IsConfirming { get; set; }
+
     /// <summary>A new location was recorded: it is used after a restart.</summary>
     [ObservableProperty]
     public partial bool NeedsRestart { get; set; }
@@ -112,7 +117,11 @@ internal sealed partial class StorageSettingsViewModel : ObservableObject
         Refresh();
     }
 
-    partial void OnSelectedModeChanged(StorageModeChoice value) => Refresh();
+    partial void OnSelectedModeChanged(StorageModeChoice value)
+    {
+        IsConfirming = false;
+        Refresh();
+    }
 
     partial void OnCustomRootChanged(string value) => Refresh();
 
@@ -133,10 +142,20 @@ internal sealed partial class StorageSettingsViewModel : ObservableObject
 
     private bool CanApply() => HasChange && Problem is null && !IsBusy && !IsLocked;
 
+    private bool CanAsk() => CanApply() && !IsConfirming;
+
+    /// <summary>First step of a change: asks to confirm, because Studio restarts once the files are in place.</summary>
+    [RelayCommand(CanExecute = nameof(CanAsk))]
+    private void Ask() => IsConfirming = true;
+
+    [RelayCommand]
+    private void Back() => IsConfirming = false;
+
     [RelayCommand(CanExecute = nameof(CanApply))]
     private async Task ApplyAsync()
     {
         var request = Request();
+        IsConfirming = false;
         IsBusy = true;
         Message = null;
         Progress = 0;
@@ -151,8 +170,10 @@ internal sealed partial class StorageSettingsViewModel : ObservableObject
                 ? "The existing files were left where they are."
                 : $"{result.FilesCopied} file(s) {verb} and verified" + (result.RenamedCategories.Count > 0 ? ", the models moved in one step." : ".");
             var cleanup = request.Transfer == StorageTransferKind.Move ? " The originals are deleted when Studio starts again." : "";
-            Message = $"The new location is recorded. {transferred}{cleanup} Restart Studio to use it.";
+            Message = $"The new location is recorded. {transferred}{cleanup}";
             NeedsRestart = true;
+            Message += " Restarting Studio to use it…";
+            _services.Platform.Restart();
         }
         catch (OperationCanceledException)
         {

@@ -124,18 +124,31 @@ public sealed class CompileOptions
         return Copy(merged, Progress);
     }
 
+    /// <summary>
+    /// A copy that additionally disables <paramref name="features"/> (<see cref="DeviceFeatures"/> names): what a provider compiles a
+    /// segment with again when the kernels of an optional feature fail on the device, so that their portable fallbacks run instead.
+    /// </summary>
+    /// <param name="features">The features to disable as well.</param>
+    /// <returns>The copy.</returns>
+    public CompileOptions WithDisabledFeatures(IEnumerable<string> features)
+    {
+        ArgumentNullException.ThrowIfNull(features);
+        return Copy(SymbolBounds, Progress, disabledFeatures: new HashSet<string>(DisabledFeatures.Concat(features)));
+    }
+
     /// <summary>A copy reporting to <paramref name="progress"/>.</summary>
     internal CompileOptions WithProgress(IProgress<LoadProgress>? progress) => Copy(SymbolBounds, progress);
 
     /// <summary>A copy with the state scope <paramref name="scope"/>.</summary>
     internal CompileOptions WithStateScope(object scope) => Copy(SymbolBounds, Progress, scope);
 
-    private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress, object? stateScope = null) => new()
+    private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress, object? stateScope = null,
+        IReadOnlySet<string>? disabledFeatures = null) => new()
     {
         MaxTokens = MaxTokens,
         ContextLength = ContextLength,
         SymbolBounds = symbolBounds,
-        DisabledFeatures = DisabledFeatures,
+        DisabledFeatures = disabledFeatures ?? DisabledFeatures,
         AllowReducedPrecision = AllowReducedPrecision,
         SplitHalfMatMul = SplitHalfMatMul,
         MatrixPrecision = MatrixPrecision,

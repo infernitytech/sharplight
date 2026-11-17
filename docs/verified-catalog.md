@@ -31,6 +31,8 @@ JSON, schema version 1. The JSON schema is `catalog/verified-models.schema.json`
       "level": "verified",            // verified | partial | loads | verified-tiny (only verified and partial are installable)
       "license": "apache-2.0",        // from the model card of the variant's repository
       "gated": true,                  // a repository needs its terms accepted and a token
+      "publisher": { "name": "Black Forest Labs", "countryOfOrigin": "DE", "url": "https://bfl.ai" },
+                                      // who made the model (not who repackaged it); ISO 3166-1 alpha-2; used by the model feed
       "tags": ["vision", "moe", "tools", "reasoning", "reranker"],
       "variants": [
         {
@@ -122,6 +124,9 @@ chosen by the set's `include` patterns (`*` within a path segment, `**` across s
 3. `resolve`, then `docs`, and run the catalog tests (`sl-test Sharplight.Hub.Tests -class "*VerifiedCatalogTests"`).
 
 ## Distribution
+
+The catalog is also the source of the model feed (docs/model-feed.md): `tools/model-feed` builds one signed, preconverted package per
+installable variant at its pinned revision, with license, publisher and verification taken from the entry.
 
 Studio embeds the catalog at build time and, when online, fetches `https://download.sharplight.dev/catalog/verified-models.json`
 (at most once a day), uses it when its schema version is supported, it validates and its `updated` date is newer than the embedded

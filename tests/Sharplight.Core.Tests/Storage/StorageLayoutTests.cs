@@ -168,6 +168,62 @@ public sealed class StorageLayoutTests : IDisposable
     }
 
     [Fact]
+    public void Selecting_Portable_RecordsTheMarkerNextToThePackage_OnEveryPackaging()
+    {
+        // AppImage: next to the file, never in the mounted image.
+        var applications = _test.Combine("Applications");
+        var mount = _test.Combine("tmp", ".mount_SharplABC");
+        Directory.CreateDirectory(applications);
+        _test.Application = Path.Combine(mount, "usr", "bin");
+        Directory.CreateDirectory(_test.Application);
+        _test.Variables["APPIMAGE"] = Path.Combine(applications, "Sharplight_Studio.AppImage");
+        _test.Variables["APPDIR"] = mount;
+        AssertPortableNext(applications, _test.Application);
+
+        // macOS bundle: next to the .app, never inside Contents/MacOS.
+        _test.Variables.Clear();
+        _test.Platform = StoragePlatform.MacOS;
+        var bundle = _test.Combine("Users", "me", "Apps");
+        _test.Application = Path.Combine(bundle, "Sharplight Studio.app", "Contents", "MacOS");
+        Directory.CreateDirectory(_test.Application);
+        AssertPortableNext(bundle, _test.Application);
+
+        // Velopack on Windows: next to Update.exe, not in the current folder (which updates replace).
+        _test.Platform = StoragePlatform.Windows;
+        var installRoot = _test.Combine("LocalAppData", "SharplightStudio");
+        _test.Application = Path.Combine(installRoot, "current");
+        Directory.CreateDirectory(_test.Application);
+        File.WriteAllBytes(Path.Combine(installRoot, "Update.exe"), []);
+        AssertPortableNext(installRoot, _test.Application);
+    }
+
+    [Fact]
+    public void AppImage_RelativeOrMissingImagePath_StillResolvesNextToTheFile()
+    {
+        var applications = _test.Combine("Applications");
+        Directory.CreateDirectory(applications);
+        _test.Variables["APPIMAGE"] = Path.Combine(applications, "..", "Applications", "Studio.AppImage");
+
+        Assert.Equal(applications, _test.Resolve().PackageDirectory);
+    }
+
+    private void AssertPortableNext(string package, string application)
+    {
+        var current = _test.Resolve();
+        Assert.Equal(package, current.PackageDirectory);
+        Assert.True(StorageLayout.CanUsePortable(_test.Environment));
+        StorageSelection.Apply(current, StorageMode.Portable, null);
+
+        var layout = _test.Resolve();
+        Assert.Equal((StorageMode.Portable, Path.Combine(package, "data")), (layout.Mode, layout.Root));
+        Assert.True(File.Exists(Path.Combine(package, StorageLayout.PortableMarkerFileName)));
+        Assert.False(Directory.Exists(Path.Combine(application, "data")));
+        Assert.False(File.Exists(Path.Combine(application, StorageLayout.PortableMarkerFileName)));
+        File.Delete(Path.Combine(package, StorageLayout.PortableMarkerFileName));
+        Directory.Delete(Path.Combine(package, "data"), true);
+    }
+
+    [Fact]
     public void PortableFolderNotWritable_FallsBackToTheSystemFolders_AndSaysSo()
     {
         File.WriteAllText(Path.Combine(_test.Application, StorageLayout.PortableMarkerFileName), "");

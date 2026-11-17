@@ -334,10 +334,34 @@ binary tier matched on GPU name, OS build and kernel ABI; loads try it first wit
 counted and a miss compiles from MSL; `kernel_binaries` turns it off), zero-copy weights wrapping each mapped file once
 (`IWeightSource.TryGetMapping`, pages pre-faulted in parallel; the default since it loads faster than the copy), and an 8x8 form with half-array staging of the convolution
 GEMM's single-product form (`CONV_FRAG8`, reduced precision; strict f32 convolutions keep the SIMT kernel on Metal). An 8x8
-form of the MoE GEMM (`moe_gemm_cm` with 2 x 2 fragments per 16x16 tile, up to 32 accumulators per SIMD-group) crashed Metal's
-backend compiler on the CI GPU ("Compilation failed" at pipeline creation, run 44063648291), after which every later pipeline
-of the process failed too; it was withdrawn, and expert matmuls keep the SIMT `moe_gemm` on Metal. Not done: Metal 4 tensor
-operations (M5), residency sets.
+form of the MoE GEMM (`moe_gemm_cm` with 2 x 2 fragments per 16x16 tile) crashed Metal's backend compiler on the CI GPU with
+its 64-row tile (32 accumulators per SIMD-group; "Compilation failed" at pipeline creation, run 44063648291), after which every
+later pipeline of the process failed too.
+
+Round 4 (branch `macos/metal-r4`):
+- **Compile guard.** A pipeline Metal fails to create is tried once more after 250 ms (the compiler service may be restarting
+  after a crash); when it fails again and the segment uses `matrix_f16_8x8` or `int_dot`, the segment is lowered again without
+  those features, so the portable SIMT kernels replace the failing ones instead of failing the model
+  (`CompileOptions.WithDisabledFeatures`, `MetalDevice.PipelineFallbacks`). `FailingPipelineFallsBackToThePortableKernels`
+  checks it on the CI GPU with deliberately invalid MSL for `gemm_sg`. Every fallback is written to stderr
+  (`[mtl] fallback n, segment s: ...`), so CI logs show which kernels did not take their Metal form.
+- **MoE GEMM on 8x8 fragments** again, on 32-row tiles only (16 accumulators per SIMD-group, as `gemm_sg`), behind the guard.
+- Not done, and why (see the open items below): a strict-precision (split-f16) convolution form for Metal needs per-block rescaling of the accumulators
+  (`acc + t * r`), element-wise fragment arithmetic that the MSL hazard above turns into matrix products, so strict f32
+  convolutions keep the SIMT kernel; Metal 4 tensor operations (`MTLTensor`, `mpp::tensor_ops`) need macOS 26, an M5-class GPU
+  and MSL 4, which neither Slang nor the CI runners have. A Metal row in the website benchmark data needs the identical
+  procedure against llama.cpp Metal on a real Mac (the CI VM's llama.cpp numbers are not representative).
+
+**Open items of the Metal track** (paused after round 4):
+- Strict-precision convolutions on simdgroup matrices: stage the per-block partial products through threadgroup memory and
+  rescale / accumulate them in SIMT code (no element-wise fragment arithmetic, see the MSL hazard above), as `fa` does for P·V.
+- Metal 4 tensor operations (`MTLTensor`, `mpp::tensor_ops::matmul2d`) on M5-class GPUs, once Slang emits MSL 4 and a runner (or a
+  real Mac) with macOS 26 is available; detected per device, with the simdgroup kernels as the fallback.
+- A benchmark on a real Mac against llama.cpp's Metal backend with an identical procedure (same GGUF files, `llama-bench -ngl 99
+  -fa 1 -p 512 -n 128 -r 5` against `sharplight --bench 512`, idle machine), before a Metal row goes into the website benchmark data.
+- Smaller: an 8x8 form of the causal `fe` kernel would need accumulator rescaling without element-wise fragment products (or a
+  Slang fix); the decode attention's fused combine needs device-scope fences Metal lacks within a dispatch; residency sets
+  (`MTLResidencySet`) for large models.
 
 ### Slang: 8x8 fragment loads from `uint4` shared arrays on Metal
 

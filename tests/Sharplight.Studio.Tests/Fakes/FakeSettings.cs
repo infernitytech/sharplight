@@ -33,6 +33,10 @@ internal sealed class FakeSettings(AppSettings? initial = null, string storeRoot
 
     public string? FindPreviousStore() => PreviousStore;
 
+    public string? RelocatedTo { get; private set; }
+
+    public void RelocateTo(string settingsFile) => RelocatedTo = settingsFile;
+
     public void Update(Func<AppSettings, AppSettings> change)
     {
         Current = change(Current);
