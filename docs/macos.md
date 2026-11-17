@@ -286,10 +286,10 @@ branch `macos/metal-r1`, round 2 (split-K `gemm_sg`, 8x8 flash attention, `int_d
   `SetInput` writes into the input buffer, outputs are read from the output buffer, runtime scalars go straight into the
   runtime buffer, and weights are copied (and repacked) by the CPU directly into their buffers (`WeightCopier`, shared with the
   Vulkan provider). Shared weights and per-graph states work as on Vulkan. Weights stored as the kernels read them (no repack)
-  whose source is memory-mapped (GGUF, safetensors, `.slm`) can instead be wrapped with `newBufferWithBytesNoCopy` (the pages
-  around them), so the GPU reads the mapped file without a copy: `SHARPLIGHT_MTL_NO_COPY=1`. It is off by default because on the
-  CI's Apple GPU wrapping took 12.4 s for the 0.49 GB smoke model against 0.38 s for the parallel copy (run 44031312716; same
-  output); one wrap of the whole mapping, or residency sets, are the next things to try.
+  whose source is memory-mapped (GGUF, safetensors, `.slm`) are not copied: each mapped file is wrapped once with
+  `newBufferWithBytesNoCopy` (pages touched in parallel first) and every weight is addressed at its offset, so the GPU reads the
+  mapped file. CI (run 44063648291, warm page cache, 0.49 GB smoke model): 56 ms against 301 ms for the parallel copy; the first
+  version, one wrap per weight, took 12.4 s. `SHARPLIGHT_MTL_NO_COPY=0` copies instead.
 - **Execution.** Each distinct binding of the symbols is recorded once (variant, pipeline, packed arguments, grid, barrier
   placement from the shared `HazardTracker`); an execution encodes the recording into a concurrent compute encoder with
   `memoryBarrierWithScope:buffers` where the hazard tracker places barriers, makes every buffer resident with one
@@ -332,9 +332,12 @@ key splits" combine gave wrong results there and is off on Metal (`LoweringOptio
 Round 3 (branch `macos/metal-r2`): the device stage (one `MTLBinaryArchive` per model and device, entry `metal/binary_archive`,
 binary tier matched on GPU name, OS build and kernel ABI; loads try it first with `FailOnBinaryArchiveMiss`, so hits are
 counted and a miss compiles from MSL; `kernel_binaries` turns it off), zero-copy weights wrapping each mapped file once
-(`IWeightSource.TryGetMapping`, pages pre-faulted in parallel; still opt-in until it loads faster than the copy), and 8x8 forms
-with half-array staging of the MoE GEMM (`MOE_FRAG8`) and the convolution GEMM's single-product form (`CONV_FRAG8`, reduced
-precision; strict f32 convolutions keep the SIMT kernel on Metal). Not done: Metal 4 tensor operations (M5), residency sets.
+(`IWeightSource.TryGetMapping`, pages pre-faulted in parallel; the default since it loads faster than the copy), and an 8x8 form with half-array staging of the convolution
+GEMM's single-product form (`CONV_FRAG8`, reduced precision; strict f32 convolutions keep the SIMT kernel on Metal). An 8x8
+form of the MoE GEMM (`moe_gemm_cm` with 2 x 2 fragments per 16x16 tile, up to 32 accumulators per SIMD-group) crashed Metal's
+backend compiler on the CI GPU ("Compilation failed" at pipeline creation, run 44063648291), after which every later pipeline
+of the process failed too; it was withdrawn, and expert matmuls keep the SIMT `moe_gemm` on Metal. Not done: Metal 4 tensor
+operations (M5), residency sets.
 
 ### Slang: 8x8 fragment loads from `uint4` shared arrays on Metal
 
@@ -370,8 +373,8 @@ The SPIR-V target compiles both. The Metal forms of these kernels therefore stag
 
 A second hazard of the same backend: an element-wise product of two fragments (`Acc a * Acc b`, which the SPIR-V target emits as
 a component-wise multiply) is emitted as `a * b` on two `simdgroup_matrix` values, and MSL defines `operator*` on
-`simdgroup_matrix` as the **matrix** product. The Metal forms therefore avoid element-wise fragment arithmetic: `fa`, `gemm_sg`,
-`moe_gemm_cm` and `conv_cm` (single-product form) only load, multiply-accumulate and store fragments. The causal `fe` kernel
+`simdgroup_matrix` as the **matrix** product. The Metal forms therefore avoid element-wise fragment arithmetic: `fa`, `gemm_sg`
+and `conv_cm` (single-product form) only load, multiply-accumulate and store fragments. The causal `fe` kernel
 keeps its output accumulators in fragments and rescales them per row with exactly such a product (`o[i] * cm`) on every key
 tile; a diagonal-matrix product would need the accumulator as a B operand, which Slang's `CoopMat` cannot convert to, so `fe`
 has no Metal form and causal prefill runs `fa` (`FA_FRAG8`) there.

@@ -557,8 +557,8 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// True when the matrix kernels run on 8x8 fragments (<see cref="DeviceFeatures.MatrixF16Small"/> without
-    /// <see cref="DeviceFeatures.MatrixF16"/>: Metal): the kernels with such a form (<c>fa</c> FA_FRAG8, <c>moe_gemm_cm</c> MOE_FRAG8,
-    /// <c>gemm_sg</c>) take it; <c>fe</c> and <c>gemm_cm2</c> are not used.
+    /// <see cref="DeviceFeatures.MatrixF16"/>: Metal): the kernels with such a form (<c>fa</c> FA_FRAG8, <c>conv_cm</c> CONV_FRAG8,
+    /// <c>gemm_sg</c>) take it; <c>fe</c>, <c>gemm_cm2</c> and the expert GEMMs on matrix units are not used.
     /// </summary>
     private bool SmallFragments => !_opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.MatrixF16Small);
 

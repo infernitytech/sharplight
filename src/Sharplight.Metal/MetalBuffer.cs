@@ -26,7 +26,7 @@ internal sealed unsafe class MetalBuffer
 
     /// <summary>
     /// True when the buffer wraps existing host memory without a copy (a weight in the mapped model file, see
-    /// <see cref="MetalDevice.TryWrap"/>): its bytes are already in place and the memory belongs to the weight source.
+    /// <see cref="MetalDevice.TryWrapMapping"/>): its bytes are already in place and the memory belongs to the weight source.
     /// </summary>
     public bool WrapsHostMemory { get; }
 

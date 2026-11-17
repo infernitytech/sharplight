@@ -276,25 +276,9 @@ using namespace linalg;
 typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
-// MOE_FRAG8 (DeviceFeatures.MatrixF16Small, Metal simdgroup_matrix): each 16x16 accumulator is 2 x 2 fragments of 8x8 over K steps
-// of 8, and the tiles are staged as half arrays (Slang's Metal target cannot load fragments from packed uint4 arrays).
-#ifndef MOE_FRAG8
-#define MOE_FRAG8 0
-#endif
-#if MOE_FRAG8
-typealias Mat8A = CoopMat<half, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixA>;
-typealias Mat8B = CoopMat<half, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixB>;
-typealias Acc8 = CoopMat<float, MemoryScope.Subgroup, 8, 8, CoopMatMatrixUse.MatrixAccumulator>;
-groupshared half gA[2 * GBM * GAS];
-groupshared half gB[2 * GBN * GAS];
-// 8 packed halves into a half array at `index`.
-#define PUT8H(arr, index, v) \
-    { uint4 pv = (v); uint pw[4] = { pv.x, pv.y, pv.z, pv.w }; \
-      [ForceUnroll] for (uint pe = 0; pe < 4; pe++) { arr[(index) + 2 * pe] = half(f16tof32(pw[pe] & 0xFFFFu)); arr[(index) + 2 * pe + 1] = half(f16tof32(pw[pe] >> 16)); } }
-#else
+
 groupshared uint4 gA[2 * GBM * GAS / 8];
 groupshared uint4 gB[2 * GBN * GAS / 8];
-#endif
 groupshared float gC[WARPS_M * WARPS_N * 256];
 groupshared uint sItem[GBM];
 
@@ -329,13 +313,8 @@ void moe_gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform 
     for (uint r = tid; r < GBM; r += GTHREADS) sItem[r] = r < nrows ? p.scratch[ROW_BASE + rowOff + r] : 0xFFFFFFFFu;
     GroupMemoryBarrierWithGroupSync();
 
-#if MOE_FRAG8
-    Acc8 acc[2 * FRAG_M][2 * FRAG_N];
-    [ForceUnroll] for (int i = 0; i < 2 * FRAG_M; i++) [ForceUnroll] for (int j = 0; j < 2 * FRAG_N; j++) acc[i][j] = Acc8(0.0);
-#else
     Acc2 acc[FRAG_M][FRAG_N];
     [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = Acc2(0.0);
-#endif
 
     uint4 xs[GA_PER_T];
     uint4 ws[GB_PER_T];
@@ -360,19 +339,6 @@ void moe_gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform 
         ws[it] = 0;                                                                                     \
         if (N % GBN == 0 || n0 + r < N) ws[it] = load8h(wbase, n0 + r, (k0) / 8 + q);                   \
     }
-#if MOE_FRAG8
-    #define STAGE(buf)                                                                                  \
-    [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
-    {                                                                                                   \
-        uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                     \
-        PUT8H(gA, (buf) * GBM * GAS + r * GAS + q * 8, xs[it])                                          \
-    }                                                                                                   \
-    [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
-    {                                                                                                   \
-        uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                     \
-        PUT8H(gB, (buf) * GBN * GAS + r * GAS + q * 8, ws[it])                                          \
-    }
-#else
     #define STAGE(buf)                                                                                  \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
     {                                                                                                   \
@@ -384,7 +350,6 @@ void moe_gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform 
         uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                     \
         gB[((buf) * GBN * GAS + r * GAS + q * 8) / 8] = ws[it];                                         \
     }
-#endif
 
     FETCH(0u)
     STAGE(0u)
@@ -396,20 +361,6 @@ void moe_gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform 
         bool more = k0 + GBK < K;
         if (more) { FETCH(k0 + GBK) }
         uint ba = cur * GBM * GAS, bb = cur * GBN * GAS;
-#if MOE_FRAG8
-        [ForceUnroll]
-        for (uint kk = 0; kk < GBK; kk += 8)
-        {
-            Mat8B b[2 * FRAG_N];
-            [ForceUnroll] for (int j = 0; j < 2 * FRAG_N; j++) b[j] = Mat8B.Load<CoopMatMatrixLayout.ColumnMajor>(gB, bb + (wn + j * 8) * GAS + kk, GAS);
-            [ForceUnroll]
-            for (int i = 0; i < 2 * FRAG_M; i++)
-            {
-                Mat8A a = Mat8A.Load<CoopMatMatrixLayout.RowMajor>(gA, ba + (wm + i * 8) * GAS + kk, GAS);
-                [ForceUnroll] for (int j = 0; j < 2 * FRAG_N; j++) acc[i][j] = coopMatMulAdd<float, false>(a, b[j], acc[i][j]);
-            }
-        }
-#else
         [ForceUnroll]
         for (uint kk = 0; kk < GBK; kk += 16)
         {
@@ -422,7 +373,6 @@ void moe_gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform 
                 [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = coopMatMulAdd<float, false>(a, b[j], acc[i][j]);
             }
         }
-#endif
         if (more) { STAGE(cur ^ 1) }
         GroupMemoryBarrierWithGroupSync();
         cur ^= 1;
@@ -437,12 +387,7 @@ void moe_gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform 
         [ForceUnroll]
         for (int j = 0; j < FRAG_N; j++)
         {
-#if MOE_FRAG8
-            [ForceUnroll] for (int ii = 0; ii < 2; ii++) [ForceUnroll] for (int jj = 0; jj < 2; jj++)
-                acc[2 * i + ii][2 * j + jj].Store<CoopMatMatrixLayout.RowMajor>(gC, sg * 256 + ii * 8 * 16 + jj * 8, 16u);
-#else
             acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(gC, sg * 256, 16u);
-#endif
             GroupMemoryBarrierWithGroupSync();
             [ForceUnroll]
             for (uint q = 0; q < 8; q++)
