@@ -78,6 +78,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddCompositeModelAdapter<QwenImageCompanionAdapter>()
                 .AddModelAdapter<QwenImage21Adapter>()
                 .AddCompositeModelAdapter<QwenImage21CompanionAdapter>()
+                .AddModelAdapter<Flux2Adapter>()
+                .AddCompositeModelAdapter<Flux2CompanionAdapter>()
                 .AddAuxiliaryArchitecture(DiffusionCompanionAdapter.ClipTextArchitecture, AuxiliaryRoles.TextEncoder)
                 .AddAuxiliaryArchitecture(DiffusionCompanionAdapter.AutoencoderArchitecture, AuxiliaryRoles.Vae)
                 .AddCompositeModelAdapter<OuteTtsAdapter>()

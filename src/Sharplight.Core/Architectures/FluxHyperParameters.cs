@@ -69,6 +69,22 @@ internal sealed record FluxHyperParameters
     /// </summary>
     public bool F32Activations { get; init; }
 
+    /// <summary>
+    /// Whether the modulations are shared by all blocks (FLUX.2: one projection of the conditioning for the image streams, one for the
+    /// text streams and one for the single-stream blocks: <c>transformer.mod_img</c> [6D, D], <c>mod_txt</c> [6D, D], <c>mod_single</c>
+    /// [3D, D]) instead of one per block.
+    /// </summary>
+    public bool SharedModulation { get; init; }
+
+    /// <summary>Whether the feed-forwards are SwiGLU with a fused gate / up input (FLUX.2: silu(first half) · second half) instead of GELU.</summary>
+    public bool SwiGlu { get; init; }
+
+    /// <summary>
+    /// The position axis on which text tokens count up (FLUX.2's fourth axis: text j at (0, 0, 0, j), image tokens at (0, row, column, 0)),
+    /// or −1 (FLUX: text at the origin).
+    /// </summary>
+    public int TextPositionAxis { get; init; } = -1;
+
     /// <summary>Width per head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
 
@@ -97,6 +113,9 @@ internal sealed record FluxHyperParameters
             MaskedText = source.Get(p + "masked_text", false),
             CenteredPositions = source.Get(p + "centered_positions", false),
             F32Activations = source.Get(p + "f32_activations", false),
+            SharedModulation = source.Get(p + "shared_modulation", false),
+            SwiGlu = source.Get(p + "swiglu", false),
+            TextPositionAxis = source.Get(p + "text_position_axis", -1),
         };
     }
 }

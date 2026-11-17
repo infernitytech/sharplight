@@ -143,6 +143,12 @@ public static class DiffusionConfigKeys
     public const string SampleSigmas = "sampleSigmas";
 
     /// <summary>
+    /// Scheduler (flow, dynamic shift): μ from FLUX.2's empirical fit over the image token count and the step count (diffusers'
+    /// <c>compute_empirical_mu</c>) instead of the linear interpolation between the base and maximum sequence lengths (default false).
+    /// </summary>
+    public const string EmpiricalShift = "empiricalShift";
+
+    /// <summary>
     /// Denoiser: latent pixels per token along each axis (transformers that patchify the latents: FLUX 2; default 1). The image token
     /// count of a dynamic flow shift is the latent pixel count divided by its square.
     /// </summary>
