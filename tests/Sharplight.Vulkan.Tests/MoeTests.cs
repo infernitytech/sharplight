@@ -11,15 +11,15 @@ public sealed class MoeTests
     private static double Atol(int items) => items > 16 ? 2.5e-1 : 2e-3;
     private static double Rtol(int items) => items > 16 ? 1e-2 : 1e-3;
 
-    // Up to 128 items (the per-item form) or 8 items per expert on average (the grouped form), q8_0 and K-quant experts with
-    // K % 256 == 0 may run on the integer-dot matvec, which quantizes the activations to 8 bits per 32-value block: an absolute
-    // error proportional to the (large) norms of these random weight rows. IntDotExactActivations checks its arithmetic tightly.
-    private static bool IntDot(string fmt, int items, int k, int e)
-        => items <= Math.Max(128, 8 * e) && (k % 256 == 0 && fmt is "q4_k" or "q5_k" or "q6_k" || k % 32 == 0 && fmt is "q8_0" or "q4_0" or "q5_0" or "iq4_nl" or "mxfp4");
+    // Up to 128 items, q8_0 and K-quant experts with K % 256 == 0 may run on the integer-dot matvec, which quantizes the
+    // activations to 8 bits per 32-value block: an absolute error proportional to the (large) norms of these random
+    // weight rows. IntDotExactActivations checks its arithmetic tightly.
+    private static bool IntDot(string fmt, int items, int k)
+        => items <= 128 && (k % 256 == 0 && fmt is "q4_k" or "q5_k" or "q6_k" || k % 32 == 0 && fmt is "q8_0" or "q4_0" or "q5_0" or "iq4_nl" or "mxfp4");
 
-    private static double Atol(string fmt, int items, int k, int e) => IntDot(fmt, items, k, e) ? 3.0 : Atol(items);
+    private static double Atol(string fmt, int items, int k) => IntDot(fmt, items, k) ? 3.0 : Atol(items);
 
-    private static double Rtol(string fmt, int items, int k, int e) => IntDot(fmt, items, k, e) ? 1e-2 : Rtol(items);
+    private static double Rtol(string fmt, int items, int k) => IntDot(fmt, items, k) ? 1e-2 : Rtol(items);
 
     /// <summary>ids pattern: "random" (all experts), "few" (only experts 1 and 5 get tokens), "one" (a single expert).</summary>
     private static int[] Ids(string pattern, int t, int s, int e)
@@ -44,8 +44,8 @@ public sealed class MoeTests
         int items = t * s;
         long xElements = (long)(perSlot ? items : t) * K;
         var xData = exactInt8 ? Rnd.ExactInt8(xElements, 3) : Rnd.F(xElements, 3);
-        double atol = exactInt8 ? Atol(items) : Atol(fmt, items, K, E);
-        double rtol = exactInt8 ? Rtol(items) : Rtol(fmt, items, K, E);
+        double atol = exactInt8 ? Atol(items) : Atol(fmt, items, K);
+        double rtol = exactInt8 ? Rtol(items) : Rtol(fmt, items, K);
         Diff.Check("MatMulId." + fmt, tg.B.Build(), new Step(t, 0, (x, xData), (ids, Ids(pattern, t, s, E))),
             atol: atol, rtol: rtol, maxTokens: 128, what: $"T={t} S={s} perSlot={perSlot} ids={pattern}");
     }
@@ -110,6 +110,18 @@ public sealed class MoeTests
     [InlineData(32, 33, 512)]
     [InlineData(4, 200, 288)]
     public void ShapeVariants(int E, int N, int K) => Run(K % 256 == 0 ? "q4_k" : "q8_0", 70, 3, false, "random", E, N, K);
+
+    /// <summary>
+    /// With the tensor-core grouped GEMM the per-item matvec serves up to half the expert count of items: 128 experts x 8 slots on
+    /// both sides of that bound (40 items on the matvec, 96 and 136 on the GEMM), and 32 experts x 4 slots (16 / 20 items).
+    /// </summary>
+    [Theory]
+    [InlineData(128, 8, 5)]
+    [InlineData(128, 8, 12)]
+    [InlineData(128, 8, 17)]
+    [InlineData(32, 4, 4)]
+    [InlineData(32, 4, 5)]
+    public void MatvecRangeFollowsExpertCount(int E, int s, int t) => Run("q4_k", t, s, false, "random", E, 96, 512);
 
     /// <summary>
     /// Multi-head latent attention's absorbed projections: one "expert" per head, every head selected once per row (ids = head index),
@@ -253,8 +265,6 @@ public sealed class MoeTests
     [InlineData("mxfp4", 9, 160, 45, "few")]
     [InlineData("f16", 3, 80, 130, "one")]
     [InlineData("q8_0", 11, 96, 200, "random")]
-    [InlineData("q4_k", 64, 256, 60, "random")]
-    [InlineData("mxfp4", 64, 96, 60, "few")]
     public void GatedBlockSortedActivations(string fmt, int E, int N, int t, string pattern)
     {
         Gpu.Require();
@@ -348,70 +358,5 @@ public sealed class MoeTests
         Diff.Check("MatMulId.routed." + fmt, tg.B.Build(),
             new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (ids, Ids("random", t, s, E)), (weights, Rnd.F((long)t * s, 5))),
             atol: 2.0, rtol: 5e-2, maxTokens: 128, what: $"S={s} T={t}");
-    }
-
-    /// <summary>
-    /// The grouped integer-dot expert matvec (above the per-item matvec's 128 items, up to 8 items per expert on average): 64 experts,
-    /// 8 slots, tiles of up to 8 items per expert, experts with several tiles ("few") and without items, x per token and per slot.
-    /// </summary>
-    [Theory]
-    [InlineData("q4_k", 40, false, "random")]
-    [InlineData("q6_k", 24, false, "random")]
-    [InlineData("q8_0", 40, true, "random")]
-    [InlineData("mxfp4", 33, false, "random")]
-    [InlineData("q4_k", 40, false, "few")]
-    [InlineData("q5_k", 17, true, "few")]
-    public void GroupedIntDotMatvec(string fmt, int t, bool perSlot, string pattern)
-    {
-        Gpu.Require();
-        const int E = 64;
-        const int S = 8;
-        const int K = 512;
-        var tg = new TG();
-        var x = perSlot ? tg.InF("x", TG.T, S, K) : tg.InF("x", TG.T, K);
-        var ids = tg.In("ids", DataType.I32, TG.T, S);
-        tg.B.Output("y", tg.B.Emit1("MatMulId", [x, tg.RandW("w", DataType.Get(fmt), 1f, E, 96, K), ids]));
-        Diff.Check("MatMulId.grouped." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)(perSlot ? t * S : t) * K, 3)), (ids, Ids(pattern, t, S, E))),
-            atol: 3.0, rtol: 1e-2, maxTokens: 128, what: $"T={t} perSlot={perSlot} ids={pattern}");
-    }
-
-    /// <summary>
-    /// A step on the grouped integer-dot expert matvec (24 tokens x 8 slots) gives every row bit for bit what single-row steps (the
-    /// per-item matvec) give: each item's sum runs over the same lanes and chunks in the same order.
-    /// </summary>
-    [Theory]
-    [InlineData("q4_k")]
-    [InlineData("mxfp4")]
-    public void GroupedIntDotMatvecMatchesPerItemBitwise(string fmt)
-    {
-        Gpu.Require();
-        const int E = 64;
-        const int S = 8;
-        const int K = 512;
-        const int N = 96;
-        const int T = 24;
-        var tg = new TG();
-        var x = tg.InF("x", TG.T, K);
-        var ids = tg.In("ids", DataType.I32, TG.T, S);
-        tg.B.Output("y", tg.B.Emit1("MatMulId", [x, tg.RandW("w", DataType.Get(fmt), 1f, E, N, K), ids]));
-        var xData = Rnd.F((long)T * K, 3);
-        var idData = Ids("random", T, S, E);
-        var steps = new List<Step>();
-        for (int r = 0; r < T; r++)
-        {
-            steps.Add(new Step(1, 0, (x, xData[(r * K)..((r + 1) * K)]), (ids, idData[(r * S)..((r + 1) * S)])));
-        }
-
-        steps.Add(new Step(T, 0, (x, xData), (ids, idData)));
-        var outputs = Diff.RunVulkan(tg.B.Build(), steps, maxTokens: 32);
-        var batched = outputs[T];
-        for (int r = 0; r < T; r++)
-        {
-            for (int i = 0; i < S * N; i++)
-            {
-                Assert.True(BitConverter.SingleToInt32Bits(outputs[r][i]) == BitConverter.SingleToInt32Bits(batched[r * S * N + i]),
-                    $"row {r} element {i}: single {outputs[r][i]} batched {batched[r * S * N + i]}");
-            }
-        }
     }
 }

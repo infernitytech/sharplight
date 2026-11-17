@@ -66,7 +66,7 @@ public sealed partial class GraphLowerer
     // without int-dot only 16, and reusing the gate's routing left the down GEMM without one for 17-128 items) under the same
     // launch condition.
     private BufferDecl? _moeScratch;
-    private (Value Ids, long E, long MaxTiles, bool Coop, long MatvecMaxItems, long GroupedMaxItems, object? Condition)? _moeRouted;
+    private (Value Ids, long E, long MaxTiles, bool Coop, long MatvecMaxItems, object? Condition)? _moeRouted;
 
     // Expert-sorted f16 copy of the activations of the grouped GEMMs, shared by the MatMulIds that read the same x with the same
     // routing (gate and up of an expert block).
@@ -108,13 +108,20 @@ public sealed partial class GraphLowerer
     private long InvariantMatvecItems(long items, long slots) => Math.Max(items, InvariantRows * slots);
 
     /// <summary>
-    /// Items up to which the per-item int-dot expert matvec serves a step: <see cref="DiagnosticSwitches.MoeIntDotMaxItems"/>, or
-    /// the grouped matvec's lower bound when the grouped matvec covers at least that range for <paramref name="experts"/> experts
-    /// (it computes every item in the per-item order, so only the launch count changes).
+    /// Items up to which the per-item int-dot expert matvec serves a step: <see cref="DiagnosticSwitches.MoeIntDotMaxItems"/> when
+    /// set, else half the expert count (16-128) when the tensor-core grouped GEMM takes the larger steps. The per-item matvec reads
+    /// an expert's weights once per item routed to it, the grouped GEMM once per expert tile, so the GEMM wins from about one item
+    /// per two experts (RTX PRO 4500: Qwen3-30B-A3B, 128 experts, 16 sequences 21.0 → 15.5 ms per step; gpt-oss-20b, 32 experts,
+    /// 16 sequences 20.6 → 10.7 ms); without tensor cores the scalar GEMM only wins much later.
     /// </summary>
-    private long IntDotPerItemMaxItems(long experts, long slots)
-        => InvariantMatvecItems(DiagnosticSwitches.MoeGroupedColumns > 0 && DiagnosticSwitches.MoeGroupedMaxPerExpert * experts >= DiagnosticSwitches.MoeIntDotMaxItems
-            ? Math.Min(DiagnosticSwitches.MoeIntDotMaxItems, DiagnosticSwitches.MoeGroupedMinItems) : DiagnosticSwitches.MoeIntDotMaxItems, slots);
+    private long IntDotPerItemMaxItems(long experts, long slots, bool tensorCoreGemm)
+        => InvariantMatvecItems(DiagnosticSwitches.MoeIntDotMaxItems > 0 ? DiagnosticSwitches.MoeIntDotMaxItems
+            : tensorCoreGemm ? Math.Clamp(experts / 2, 16, 128) : 128, slots);
+
+    /// <summary>Whether the expert products of <paramref name="w"/> (inner size <paramref name="k"/>) run the tensor-core grouped GEMM.</summary>
+    private bool MoeTensorCoreGemm(TensorRef w, long k)
+        => !DiagnosticSwitches.MoeNoCoop && (_opt.Has(DeviceFeatures.MatrixF16) || SmallFragments) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32
+           && k % 32 == 0 && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
 
     /// <summary>
     /// Two expert products of the same activations and routing (gate / up) whose outputs only feed one elementwise group, which
@@ -142,59 +149,19 @@ public sealed partial class GraphLowerer
             var m = Macros(("WFMT", WeightFormat(w.Type)!.Value), ("K", K), ("N", N), ("E", w.Shape[0]), ("S", S), ("PER_SLOT", x.Rank == 3),
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
             string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N);
-            long mv = IntDotPerItemMaxItems(w.Shape[0], S);
+            long mv = IntDotPerItemMaxItems(w.Shape[0], S, MoeTensorCoreGemm(w, K));
             var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id2 {output.Name} [{w.Shape[0]}x{K}→{N}]x2 {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]",
                 [.. gathers, a, bNode, .. group], a, x, xs, rowsPerLead, [w, Ref(bNode.Inputs[1])], ids, y, m, mv, S,
                 [.. gathers.Select(g => Ref(g.Inputs[0]))],
                 macros => _compiler.Compile("mmvq_moe_dual.slang", source, "moe_mmvq", _opt.Target, macros, _opt.Cache));
             _launchCondition = b => (outer?.Invoke(b) ?? true) && Rows(b, tids) * S > mv;
-
-            // Above the per-item range, the grouped form of the same fused launch while experts see few items each.
-            long E = w.Shape[0];
-            long maxItems = ids.Shape[0] * S;
-            int gc = DiagnosticSwitches.MoeGroupedColumns;
-            long gv = gc > 0 ? Math.Max(mv, Math.Min(maxItems, (long)DiagnosticSwitches.MoeGroupedMaxPerExpert * E)) : mv;
-            if (gv > mv)
-            {
-                var (scratch, maxTiles, tiles) = EmitGroupedRouting(a, ids, E, S, gc, mv, gv);
-                EmitGroupedIntDotExpertMatvec($"matmul-id2 {output.Name} [{E}x{K}→{N}]x2 {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]",
-                    [.. gathers, a, bNode, .. group], a, x, xs, rowsPerLead, [w, Ref(bNode.Inputs[1])], ids, scratch, y, m, mv, gv, S, gc, maxTiles, tiles,
-                    [.. gathers.Select(g => Ref(g.Inputs[0]))],
-                    macros => _compiler.Compile("mmvq_moe_dual.slang", source, "moe_mmvq", _opt.Target, macros, _opt.Cache));
-                _launchCondition = b => (outer?.Invoke(b) ?? true) && Rows(b, tids) * S > gv;
-            }
         }
 
         LowerMatMulId(a);
         LowerMatMulId(bNode);
         LowerElementwise(group, [output]);
         _launchCondition = outer;
-    }
-
-    /// <summary>
-    /// Emits a routing of <paramref name="ids"/> into tiles of up to <paramref name="columns"/> items per expert for the steps with more
-    /// than <paramref name="minItems"/> and at most <paramref name="maxItems"/> items (the grouped int-dot expert matvec), in the
-    /// shared routing scratch. Returns the scratch, its tile capacity and the launch rows of a step.
-    /// </summary>
-    private (TensorRef Scratch, long MaxTiles, Func<Bindings, uint> Tiles) EmitGroupedRouting(Node n, TensorRef ids, long E, long S, int columns,
-        long minItems, long maxItems)
-    {
-        long capacity = ids.Shape[0] * S;
-        long maxTiles = Math.Min(capacity, maxItems / columns + E);
-        long scratchWords = 1 + 3 * maxTiles + capacity;
-        _moeScratch ??= NewBuffer(BufferKind.Activations, "moe-routing", 0);
-        _moeScratch.Bytes = Math.Max(_moeScratch.Bytes, Math.Max(16, scratchWords * 4));
-        var scratch = new TensorRef(_moeScratch, 0, DataType.U32, [scratchWords], [1], null);
-        Func<Bindings, long> items = b => Rows(b, ids) * S;
-        Emit($"moe-route {n.Inputs[2].Name} [{E} experts] grouped", [n],
-            [new KernelVariant(b => items(b) > minItems && items(b) <= maxItems,
-                Lib("moe.slang", "moe_route", new Dictionary<string, string>(Macros(("E", E), ("S", S), ("TILE_M", columns), ("MAXTILES", maxTiles)))),
-                _ => new Grid(1))],
-            [Pointer(ids), new PointerArg(_moeScratch, 0), TokenArg(ids)],
-            [ids], [scratch]);
-        _moeRouted = null;
-        return (scratch, maxTiles, b => (uint)Math.Max(1, Math.Min(items(b), items(b) / columns + E)));
     }
 
     /// <summary>
@@ -231,7 +198,7 @@ public sealed partial class GraphLowerer
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
             string source = ExpertSumEpilogueSource(product, gathers, [.. group.SelectMany(g => g.Inputs).Where(v => v != product.Output && !inGroup.Contains(v)
                 && !gathered.Contains(v)).Distinct()], scalars, group, summed, N);
-            long mv = IntDotPerItemMaxItems(w.Shape[0], S);
+            long mv = IntDotPerItemMaxItems(w.Shape[0], S, MoeTensorCoreGemm(w, K));
             var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id-sum {reduce.Output.Name} [{w.Shape[0]}x{K}→{N}] {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]+slot-sum",
                 [.. gathers, product, .. group, permute, reduce], product, x, xs, rowsPerLead, [w], ids, y, m, mv, S,
@@ -339,17 +306,11 @@ public sealed partial class GraphLowerer
         var tx = x;
         long maxItems = ids.Shape[0] * S;
         Func<Bindings, long> items = b => Rows(b, tids) * S;
-        bool coop = !DiagnosticSwitches.MoeNoCoop && (_opt.Has(DeviceFeatures.MatrixF16) || SmallFragments) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
-                    && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
+        bool coop = MoeTensorCoreGemm(w, K);
         // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much
         // later, the int-dot matvec only from about 16 items per expert).
         bool intDot = UseIntDotMatvec(n, w.Type, K);
-        long mv = intDot ? IntDotPerItemMaxItems(E, S) : InvariantMatvecItems(coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E), S);
-        // Items up to which the grouped int-dot matvec (one launch row per expert tile of up to gc items) serves the steps above
-        // the per-item range: with few items per expert it reads each expert's weights once, as the GEMM does, without the GEMM's
-        // conversion to f16 and its mostly empty 32-row tiles.
-        int gc = intDot ? DiagnosticSwitches.MoeGroupedColumns : 0;
-        long gv = gc > 0 ? Math.Max(mv, Math.Min(maxItems, (long)DiagnosticSwitches.MoeGroupedMaxPerExpert * E)) : mv;
+        long mv = intDot ? IntDotPerItemMaxItems(E, S, coop) : InvariantMatvecItems(coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E), S);
         string label = $"matmul-id {n.Output.Name} [{E}x{K}→{N}] {w.Type}";
 
         // Decode / few rows: one matvec per (token, slot), with int8 dot products when the format allows.
@@ -365,7 +326,7 @@ public sealed partial class GraphLowerer
             [x, w, ids], [y]);
 
         // Many rows: group by expert, then a GEMM per expert tile.
-        long maxTiles = Math.Min(maxItems, Math.Max(maxItems / MoeMinTile + E, gc > 0 ? gv / gc + E : 0));
+        long maxTiles = Math.Min(maxItems, maxItems / MoeMinTile + E);
         long scratchWords = 1 + 3 * maxTiles + maxItems;
         _moeScratch ??= NewBuffer(BufferKind.Activations, "moe-routing", 0);
         _moeScratch.Bytes = Math.Max(_moeScratch.Bytes, Math.Max(16, scratchWords * 4));
@@ -377,8 +338,7 @@ public sealed partial class GraphLowerer
         // 8x8 fragments (Metal) keep to the 32-row tile: 16 accumulators per SIMD-group, as gemm_sg (the 64-row tile's 32 crashed
         // Metal's backend compiler on the CI GPU).
         int[] coopTiles = gemm2 ? [32, 64, 128] : SmallFragments ? [32] : [32, 64];
-        Func<Bindings, int> tile = b => items(b) <= gv && gc > 0 ? gc
-            : !coop ? 64
+        Func<Bindings, int> tile = b => !coop ? 64
             : SmallFragments ? 32
             : DiagnosticSwitches.MoeTile != 0 ? DiagnosticSwitches.MoeTile
             : items(b) <= 24 * E ? 32
@@ -387,21 +347,16 @@ public sealed partial class GraphLowerer
         var scratchArg = new PointerArg(_moeScratch, 0);
 
         if (_moeRouted is not { } r || r.Ids != n.Inputs[2] || r.E != E || r.MaxTiles != maxTiles || r.Coop != coop || r.MatvecMaxItems != mv
-            || r.GroupedMaxItems != gv || !ReferenceEquals(r.Condition, _launchCondition))
+            || !ReferenceEquals(r.Condition, _launchCondition))
         {
-            int[] tiling = [.. coop ? coopTiles : [64], .. gc > 0 ? [gc] : Array.Empty<int>()];
+            int[] tiling = coop ? coopTiles : [64];
             Emit($"moe-route {n.Inputs[2].Name} [{E} experts]", [n],
                 [.. tiling.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
                     Lib("moe.slang", "moe_route", new Dictionary<string, string>(Macros(("E", E), ("S", S), ("TILE_M", t), ("MAXTILES", maxTiles)))),
                     _ => new Grid(1)))],
                 [Pointer(ids), scratchArg, TokenArg(ids)],
                 [ids], [scratch]);
-            _moeRouted = (n.Inputs[2], E, maxTiles, coop, mv, gv, _launchCondition);
-        }
-
-        if (gc > 0)
-        {
-            EmitGroupedIntDotExpertMatvec(label, n, x, xs, rowsPerLead, w, ids, scratch, y, m, mv, gv, S, gc, maxTiles, tiles);
+            _moeRouted = (n.Inputs[2], E, maxTiles, coop, mv, _launchCondition);
         }
 
         var gm = new Dictionary<string, string>(m) { ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture) };
@@ -413,7 +368,7 @@ public sealed partial class GraphLowerer
             var gemmX = x;
             if (DiagnosticSwitches.MoeSortedHalfActivations)
             {
-                gemmX = EmitSortedHalfActivations(n, x, xs, perSlot, S, maxItems, maxTiles, K, coopTiles, gv, items, tile, tiles, scratch, scratchArg, ids);
+                gemmX = EmitSortedHalfActivations(n, x, xs, perSlot, S, maxItems, maxTiles, K, coopTiles, mv, items, tile, tiles, scratch, scratchArg, ids);
                 gargs = [Pointer(gemmX), Pointer(w), scratchArg, Pointer(y), TokenArg(ids)];
                 groupedMacros["X_F16"] = "1";
                 groupedMacros["X_SORTED"] = "1";
@@ -429,14 +384,14 @@ public sealed partial class GraphLowerer
             Dictionary<string, string> Rows(int t, string limit, int rows)
                 => new(Gemm2Macros(groupedMacros, t)) { [limit] = rows.ToString(CultureInfo.InvariantCulture) };
             Emit(label + " gemm-cm2", [n],
-                [.. coopTiles.Select(t => new KernelVariant(b => items(b) > gv && tile(b) == t,
+                [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
                     Lib("matmul.slang", "gemm_cm2", split && t > 32 ? Rows(t, "MOE_MIN_ROWS", t / 2 + 1) : Gemm2Macros(groupedMacros, t)),
                     b => new Grid(Grid.Div(N, Gemm2Columns(t)), tiles(b))))],
                 gargs, [gemmX, w, scratch], [y]);
             if (split)
             {
                 Emit(label + " gemm-cm2 half tiles", [n],
-                    [.. coopTiles.Where(t => t > 32).Select(t => new KernelVariant(b => items(b) > gv && tile(b) == t,
+                    [.. coopTiles.Where(t => t > 32).Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
                         Lib("matmul.slang", "gemm_cm2", Rows(t / 2, "MOE_MAX_ROWS", t / 2)),
                         b => new Grid(Grid.Div(N, Gemm2Columns(t / 2)), tiles(b))))],
                     gargs, [gemmX, w, scratch], [y]);
@@ -447,7 +402,7 @@ public sealed partial class GraphLowerer
         else if (coop)
         {
             Emit(label + " gemm-cm", [n],
-                [.. coopTiles.Select(t => new KernelVariant(b => items(b) > gv && tile(b) == t,
+                [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
                     Lib("moe.slang", "moe_gemm_cm", new Dictionary<string, string>(gm)
                     {
                         ["WARPS_M"] = "2", ["WARPS_N"] = "2", ["FRAG_M"] = (t / 32).ToString(CultureInfo.InvariantCulture), ["FRAG_N"] = "4",
@@ -459,7 +414,7 @@ public sealed partial class GraphLowerer
         else
         {
             Emit(label + " gemm", [n],
-                [new KernelVariant(b => items(b) > gv, Lib("moe.slang", "moe_gemm", gm), b => new Grid(Grid.Div(N, 64), tiles(b)))],
+                [new KernelVariant(b => items(b) > mv, Lib("moe.slang", "moe_gemm", gm), b => new Grid(Grid.Div(N, 64), tiles(b)))],
                 gargs, [x, w, scratch], [y]);
         }
     }

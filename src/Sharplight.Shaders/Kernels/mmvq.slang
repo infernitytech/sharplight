@@ -602,17 +602,8 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 // goes through MOE_EPI1(m, e, n, t, s) (defined by the including generated source) and the workgroup stores the sum in slot
 // order: y[t, n] = (((0 + v0) + v1) + ...), the order of the narrow ReduceSum. The values pass through shared memory, so
 // no multiply of the group is contracted into the sum.
-// GROUPED: ids is the routing scratch of moe_route (moe.slang) built with TILE_M == MQ_COLS and MAXTILES; one workgroup row
-// per expert tile computes the tile's (up to MQ_COLS) items, reading each weight chunk once for all of them (16-64 sequences,
-// where the per-item form re-reads an expert's weights for every item routed to it). Grid: (N / MOE_GROUP_ROWS, MAXTILES).
 #ifndef SLOT_SUM
 #define SLOT_SUM 0
-#endif
-#ifndef GROUPED
-#define GROUPED 0
-#endif
-#if GROUPED
-#define MOE_ROW_BASE (1 + 3 * MAXTILES)
 #endif
 #define MOE_GROUP_ROWS (MQ_THREADS / MQ_LPR * MQ_ROWS)
 #if SLOT_SUM
@@ -681,77 +672,6 @@ void moe_mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Moe
             float total = 0;
             [ForceUnroll] for (uint i = 0; i < S; i++) total += slotPart[i][tid];
             p.y[uint64_t(t) * N + gid.x * SLOT_ROWS + tid] = total;
-        }
-        return;
-    }
-#endif
-#if GROUPED
-    {
-        // ids is the routing scratch of moe_route (TILE_M == MQ_COLS): one workgroup row per expert tile, whose items share
-        // every weight chunk load. Each item's sum runs over the same lanes and chunks in the same order as the per-item form.
-        uint tile = gid.y;
-        if (tile >= p.ids[0]) return;
-        uint e = p.ids[1 + 3 * tile];
-        uint first = p.ids[2 + 3 * tile];
-        uint count = p.ids[3 + 3 * tile];
-        uint row0 = gid.x * MOE_GROUP_ROWS + (tid / MQ_LPR) * MQ_ROWS;
-        uint8_t* wb = rowStart(p.w, EXPERT_BYTES, e);
-#if DUAL
-        uint8_t* wb2 = rowStart(p.w2, EXPERT_BYTES, e);
-#endif
-        uint items[MQ_COLS];
-        [ForceUnroll]
-        for (int c = 0; c < MQ_COLS; c++)
-        {
-            items[c] = p.ids[MOE_ROW_BASE + first + min(uint(c), count - 1)];
-        }
-        float acc[MQ_OUT];
-        [ForceUnroll] for (int i = 0; i < MQ_OUT; i++) acc[i] = 0;
-#if DUAL
-        float acc2[MQ_OUT];
-        [ForceUnroll] for (int i = 0; i < MQ_OUT; i++) acc2[i] = 0;
-#endif
-        [unroll(MQ_UNROLL)]
-        for (uint ch = lane % MQ_LPR; ch < CHUNKS; ch += MQ_LPR)
-        {
-            WChunk wc[MQ_ROWS];
-#if DUAL
-            WChunk wc2[MQ_ROWS];
-#endif
-            [ForceUnroll]
-            for (int r = 0; r < MQ_ROWS; r++)
-            {
-                wc[r] = load_chunk(wb, min(row0 + r, uint(N - 1)), ch);
-#if DUAL
-                wc2[r] = load_chunk(wb2, min(row0 + r, uint(N - 1)), ch);
-#endif
-            }
-            // Columns past the tile's count recompute its last item: unconditional loads can all be in flight at once.
-            [ForceUnroll]
-            for (int c = 0; c < MQ_COLS; c++)
-            {
-                XChunk xc = load_xchunk(p.xq + uint64_t(PER_SLOT ? items[c] : items[c] / S) * QROW, ch);
-                [ForceUnroll]
-                for (int r = 0; r < MQ_ROWS; r++)
-                {
-                    acc[r * MQ_COLS + c] += dot_chunk(wc[r], xc, ch);
-#if DUAL
-                    acc2[r * MQ_COLS + c] += dot_chunk(wc2[r], xc, ch);
-#endif
-                }
-            }
-        }
-        [ForceUnroll]
-        for (int i = 0; i < MQ_OUT; i++)
-        {
-            uint r = i / MQ_COLS;
-            uint c = i % MQ_COLS;
-            float s = row_group_sum(acc[i], lane);
-#if DUAL
-            float s2 = row_group_sum(acc2[i], lane);
-            if (lane % MQ_LPR == 0 && row0 + r < N) s = MOE_EPI(s, s2, e, row0 + r);
-#endif
-            if (lane % MQ_LPR == 0 && c < count && row0 + r < N) p.y[uint64_t(items[c]) * N + row0 + r] = s;
         }
         return;
     }

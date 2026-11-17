@@ -260,56 +260,6 @@ public sealed partial class GraphLowerer
             [quantized, .. weights, ids, .. tables], [y]);
     }
 
-    /// <summary>
-    /// Emits the grouped int-dot expert matvec of a MatMulId for the steps with more than <paramref name="minItems"/> and at most
-    /// <paramref name="maxItems"/> (token, slot) items: <c>moe_mmvq</c> with <c>GROUPED</c>, one launch row per expert tile of the
-    /// routing in <paramref name="scratch"/> (built with <paramref name="columns"/> items per tile), whose items share the
-    /// weight loads. Each item's sum has the per-item matvec's order (same lanes, chunks and reduction), so results match it bitwise.
-    /// </summary>
-    private void EmitGroupedIntDotExpertMatvec(string label, Node n, TensorRef x, long xStride, long rowsPerLead, TensorRef w, TensorRef ids,
-        TensorRef scratch, TensorRef y, Dictionary<string, string> macros, long minItems, long maxItems, long slots, int columns, long maxTiles,
-        Func<Bindings, uint> tiles)
-        => EmitGroupedIntDotExpertMatvec(label, [n], n, x, xStride, rowsPerLead, [w], ids, scratch, y, macros, minItems, maxItems, slots, columns, maxTiles,
-            tiles, [], m => Lib("mmvq.slang", "moe_mmvq", m));
-
-    /// <summary>
-    /// The grouped int-dot expert matvec over one or two expert matrices (<paramref name="weights"/>; with two, the source that
-    /// <paramref name="compile"/> builds defines the epilogue <c>MOE_EPI</c>, which may read the per-expert <paramref name="tables"/>).
-    /// </summary>
-    private void EmitGroupedIntDotExpertMatvec(string label, Node[] nodes, Node n, TensorRef x, long xStride, long rowsPerLead, TensorRef[] weights,
-        TensorRef ids, TensorRef scratch, TensorRef y, Dictionary<string, string> macros, long minItems, long maxItems, long slots, int columns,
-        long maxTiles, Func<Bindings, uint> tiles, TensorRef[] tables, Func<Dictionary<string, string>, CompiledKernel> compile)
-    {
-        var w = weights[0];
-        long N = w.Shape[1];
-        long K = w.Shape[2];
-        long minRows = rowsPerLead == 1 ? minItems / slots + 1 : minItems + 1;
-        long maxRows = Math.Max(1, rowsPerLead == 1 ? maxItems / slots : maxItems);
-        var quantized = QuantizedActivations(label, nodes, n.Inputs[0], x, xStride, rowsPerLead, K, minRows, maxRows);
-        Func<Bindings, long> items = b => Rows(b, ids) * slots;
-        int lanesPerRow = Math.Min(_opt.SubgroupSize, DiagnosticSwitches.IntDotLayout is { Length: > 2 } forced ? forced[2] : _opt.SubgroupSize);
-        int rowsPerGroup = DiagnosticSwitches.IntDotLayout is { } layout ? layout[0] : 1;
-        int subgroups = DiagnosticSwitches.IntDotLayout is { } layout2 ? layout2[1] : 4;
-        long rowsPerWorkgroup = subgroups * (_opt.SubgroupSize / lanesPerRow) * rowsPerGroup;
-        var m = new Dictionary<string, string>(macros)
-        {
-            ["MQ_COLS"] = columns.ToString(CultureInfo.InvariantCulture),
-            ["MQ_ROWS"] = rowsPerGroup.ToString(CultureInfo.InvariantCulture),
-            ["MQ_SG"] = subgroups.ToString(CultureInfo.InvariantCulture),
-            ["MQ_LPR"] = lanesPerRow.ToString(CultureInfo.InvariantCulture),
-            ["KERNEL_MOE_MMVQ"] = "1",
-            ["DUAL"] = (weights.Length - 1).ToString(CultureInfo.InvariantCulture),
-            ["SLOT_SUM"] = "0",
-            ["GROUPED"] = "1",
-            ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture),
-        };
-        Emit(label + " int-dot grouped", nodes,
-            [new KernelVariant(b => items(b) > minItems && items(b) <= maxItems, compile(m),
-                b => new Grid(Grid.Div(N, rowsPerWorkgroup), tiles(b)))],
-            [Pointer(quantized), .. weights.Select(Pointer), Pointer(scratch), Pointer(y), .. tables.Select(Pointer), TokenArg(ids)],
-            [quantized, .. weights, scratch, .. tables], [y]);
-    }
-
     /// <summary>Frees the arena allocations tied to <paramref name="root"/> and forgets the q8 copies made of it.</summary>
     private void ReleaseRootScratch(Value root)
     {
