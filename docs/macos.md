@@ -334,10 +334,22 @@ binary tier matched on GPU name, OS build and kernel ABI; loads try it first wit
 counted and a miss compiles from MSL; `kernel_binaries` turns it off), zero-copy weights wrapping each mapped file once
 (`IWeightSource.TryGetMapping`, pages pre-faulted in parallel; the default since it loads faster than the copy), and an 8x8 form with half-array staging of the convolution
 GEMM's single-product form (`CONV_FRAG8`, reduced precision; strict f32 convolutions keep the SIMT kernel on Metal). An 8x8
-form of the MoE GEMM (`moe_gemm_cm` with 2 x 2 fragments per 16x16 tile, up to 32 accumulators per SIMD-group) crashed Metal's
-backend compiler on the CI GPU ("Compilation failed" at pipeline creation, run 44063648291), after which every later pipeline
-of the process failed too; it was withdrawn, and expert matmuls keep the SIMT `moe_gemm` on Metal. Not done: Metal 4 tensor
-operations (M5), residency sets.
+form of the MoE GEMM (`moe_gemm_cm` with 2 x 2 fragments per 16x16 tile) crashed Metal's backend compiler on the CI GPU with
+its 64-row tile (32 accumulators per SIMD-group; "Compilation failed" at pipeline creation, run 44063648291), after which every
+later pipeline of the process failed too.
+
+Round 4 (branch `macos/metal-r4`):
+- **Compile guard.** A pipeline Metal fails to create is tried once more after 250 ms (the compiler service may be restarting
+  after a crash); when it fails again and the segment uses `matrix_f16_8x8` or `int_dot`, the segment is lowered again without
+  those features, so the portable SIMT kernels replace the failing ones instead of failing the model
+  (`CompileOptions.WithDisabledFeatures`, `MetalDevice.PipelineFallbacks`). `FailingPipelineFallsBackToThePortableKernels`
+  checks it on the CI GPU with deliberately invalid MSL for `gemm_sg`.
+- **MoE GEMM on 8x8 fragments** again, on 32-row tiles only (16 accumulators per SIMD-group, as `gemm_sg`), behind the guard.
+- Not done, and why: a strict-precision (split-f16) convolution form for Metal needs per-block rescaling of the accumulators
+  (`acc + t * r`), element-wise fragment arithmetic that the MSL hazard above turns into matrix products, so strict f32
+  convolutions keep the SIMT kernel; Metal 4 tensor operations (`MTLTensor`, `mpp::tensor_ops`) need macOS 26, an M5-class GPU
+  and MSL 4, which neither Slang nor the CI runners have. A Metal row in the website benchmark data needs the identical
+  procedure against llama.cpp Metal on a real Mac (the CI VM's llama.cpp numbers are not representative).
 
 ### Slang: 8x8 fragment loads from `uint4` shared arrays on Metal
 
