@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
              xmlns:conv="using:Sharplight.Studio.Converters"
+             xmlns:views="using:Sharplight.Studio.Views"
              x:Class="Sharplight.Studio.Views.DiscoverView"
              x:DataType="mvm:HubSearchViewModel">
   <UserControl.Resources>
@@ -53,7 +54,28 @@
       </StackPanel>
     </DataTemplate>
   </UserControl.Resources>
-  <Grid ColumnDefinitions="*,16,420" RowDefinitions="Auto,*" Margin="0,0,0,16">
+  <DockPanel>
+  <!-- Verified catalog (models checked from download to execution) or a free Hub search -->
+  <StackPanel DockPanel.Dock="Top" x:Name="ModeSwitch" Orientation="Horizontal" Spacing="6" Margin="0,0,0,12">
+    <Button x:Name="VerifiedMode" Classes="small" Classes.accent="{Binding IsVerifiedMode}" Classes.ghost="{Binding IsHubMode}" Command="{Binding ShowVerifiedCommand}"
+            ToolTip.Tip="Models verified from download to execution, with the exact files and revision that work">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <Path Classes="icon" Data="{StaticResource IconCheck}" Width="12" Height="12" />
+        <TextBlock Text="Verified models" />
+      </StackPanel>
+    </Button>
+    <Button x:Name="HubMode" Classes="small" Classes.accent="{Binding IsHubMode}" Classes.ghost="{Binding IsVerifiedMode}" Command="{Binding ShowHubSearchCommand}"
+            ToolTip.Tip="Search every model on Hugging Face (compatibility is estimated, not verified)">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <Path Classes="icon" Data="{StaticResource IconSearch}" Width="12" Height="12" />
+        <TextBlock Text="Hub search" />
+      </StackPanel>
+    </Button>
+  </StackPanel>
+  <Panel>
+  <views:VerifiedCatalogView x:Name="VerifiedCatalog" DataContext="{Binding Verified}" Margin="0,0,0,16"
+                             IsVisible="{Binding $parent[UserControl].((mvm:HubSearchViewModel)DataContext).IsVerifiedMode}" />
+  <Grid ColumnDefinitions="*,16,420" RowDefinitions="Auto,*" Margin="0,0,0,16" IsVisible="{Binding IsHubMode}">
     <StackPanel Grid.ColumnSpan="3" Spacing="8" Margin="0,0,0,12">
       <DockPanel>
         <Button DockPanel.Dock="Right" Classes="accent" Command="{Binding SearchCommand}" Margin="8,0,0,0" Padding="16,7">
@@ -315,4 +337,6 @@
       </Panel>
     </Border>
   </Grid>
+  </Panel>
+  </DockPanel>
 </UserControl>

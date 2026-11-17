@@ -61,7 +61,7 @@ internal sealed class StudioHost : IDisposable
         var precompiler = new PrecompileService(settings, engine);
         var runtime = new EngineModelRuntime(engine, () => settings.Current.Residency, name => ResolveOnDemand(settings, name, precompiler.IsBusy),
             () => settings.Current.UseCompilationCache);
-        var hub = new HubService(settings, engine, paths.HighlightsFile);
+        var hub = new HubService(settings, engine, paths.HighlightsFile, paths.CatalogFile);
         var database = new StudioDatabase(paths.DatabaseFile);
         var stats = new SqliteStatsStore(database);
         var server = new KestrelApiServer(runtime.Host);

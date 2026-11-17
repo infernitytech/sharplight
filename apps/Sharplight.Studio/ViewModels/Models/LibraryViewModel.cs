@@ -84,6 +84,9 @@ internal sealed partial class LibraryViewModel : ObservableObject
     public bool IsEmpty => Entries.Count == 0;
 
 
+    /// <summary>The manifests of the stored (pulled or installed) models.</summary>
+    public IReadOnlyList<Sharplight.Hub.ModelManifest> StoredManifests => [.. Entries.Select(entry => entry.Entry.Manifest).OfType<Sharplight.Hub.ModelManifest>()];
+
     /// <summary>Names (<c>owner/name:tag</c>) of the stored models.</summary>
     public IReadOnlySet<string> StoredNames => Entries.Where(entry => entry.Entry.Manifest is not null)
         .Select(entry => entry.Entry.Manifest!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);

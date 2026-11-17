@@ -35,7 +35,7 @@ internal sealed partial class DownloadsViewModel : ObservableObject
                 continue;
             }
 
-            var item = Create(reference, pending.ExpectedBytes);
+            var item = Create(reference, pending.ExpectedBytes, pending.Catalog);
             item.Kind = pending.Kind;
             Items.Add(item);
             if (pending.Paused)
@@ -72,7 +72,9 @@ internal sealed partial class DownloadsViewModel : ObservableObject
     /// <param name="reference">What to pull.</param>
     /// <param name="expectedBytes">The download size, for the progress bar before the pull reports.</param>
     /// <param name="kind">The model kind inferred from the Hub's pipeline tag, shown until the converted package's description names it.</param>
-    public DownloadItemViewModel Enqueue(ModelReference reference, long expectedBytes, string? kind = null)
+    /// <param name="catalogKey">The verified-catalog variant to install with its companions (<c>entry/variant</c>), or null for a plain pull.</param>
+    /// <param name="displayName">The name to show instead of the reference, or null.</param>
+    public DownloadItemViewModel Enqueue(ModelReference reference, long expectedBytes, string? kind = null, string? catalogKey = null, string? displayName = null)
     {
         var existing = Items.FirstOrDefault(item => item.Reference == reference && !item.IsFinished);
         if (existing is not null)
@@ -85,7 +87,7 @@ internal sealed partial class DownloadsViewModel : ObservableObject
             return existing;
         }
 
-        var download = Create(reference, expectedBytes);
+        var download = Create(reference, expectedBytes, catalogKey, displayName);
         download.Kind = kind;
         Items.Insert(0, download);
         OnPropertyChanged(nameof(IsEmpty));
@@ -120,9 +122,9 @@ internal sealed partial class DownloadsViewModel : ObservableObject
 
     private static Task Run(DownloadItemViewModel item) => item.StartAsync();
 
-    private DownloadItemViewModel Create(ModelReference reference, long expectedBytes)
+    private DownloadItemViewModel Create(ModelReference reference, long expectedBytes, string? catalogKey = null, string? displayName = null)
     {
-        var download = new DownloadItemViewModel(reference, expectedBytes, _services.Hub, _services.Dispatcher, OnCompleted);
+        var download = new DownloadItemViewModel(reference, expectedBytes, _services.Hub, _services.Dispatcher, OnCompleted) { CatalogKey = catalogKey, DisplayName = displayName };
         download.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(DownloadItemViewModel.Phase))
@@ -156,7 +158,7 @@ internal sealed partial class DownloadsViewModel : ObservableObject
     private void Persist()
     {
         var pending = Items.Where(item => !item.IsFinished)
-            .Select(item => new PendingDownload(item.Reference.ToString(), item.TotalBytes, item.IsPaused, item.Kind))
+            .Select(item => new PendingDownload(item.Reference.ToString(), item.TotalBytes, item.IsPaused, item.Kind, item.CatalogKey))
             .ToList();
         if (pending.SequenceEqual(_services.Settings.Current.Downloads))
         {

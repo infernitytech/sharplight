@@ -25,8 +25,12 @@ internal sealed partial class ModelsPageViewModel : PageViewModel
         Downloads = new DownloadsViewModel(services);
         Library = new LibraryViewModel(services, navigator);
         Resident = new ResidentModelsViewModel(services, navigator);
-        Discover = new HubSearchViewModel(services, Downloads, () => Library.StoredNames);
-        Downloads.ModelStored += (_, _) => _ = Library.RefreshAsync();
+        Discover = new HubSearchViewModel(services, Downloads, () => Library.StoredNames, () => Library.StoredManifests);
+        Downloads.ModelStored += async (_, _) =>
+        {
+            await Library.RefreshAsync();
+            Discover.Verified.RefreshInstalled();
+        };
         Downloads.Enqueued += (_, _) => SelectedTab = DownloadsTab;
         Downloads.PropertyChanged += (_, args) =>
         {

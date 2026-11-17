@@ -1919,7 +1919,8 @@ host, decoding latent frame by latent frame with the causal caches carried betwe
 | Stand-alone umT5 / Wan VAE files (ComfyUI layout) as companions | - | missing | |
 | LTX-Video 0.9.0 (2B) | diffusers folder (the T5-XXL text encoder is the one of FLUX.1 / PixArt) | **supported** (text-to-video, multiples of 32, frames 1 + 8k, flow Euler with the resolution-dependent shift and the terminal stretch) | tiny pipeline; 2B below |
 | HunyuanVideo (13B, text-to-video) | diffusers folder (hunyuanvideo-community/HunyuanVideo); transformer-only GGUF (city96, any ggml type) / original-name safetensors with a HunyuanVideo folder as companion (`AuxiliaryRoles.TextEncoder` for the Llama and CLIP encoders, `AuxiliaryRoles.Vae`) | **supported** (LLaVA-Llama-3 states two layers before the last over the templated prompt, the template's 95 tokens cropped; CLIP-L pooled; guidance embedded (no classifier-free pass); flow Euler, shift 7; the causal 3-D VAE decoded in diffusers' temporal and spatial tiles; frames 1 + 4k, multiples of 16) | tiny pipeline; Q4_K_M below |
-| HunyuanVideo image-to-video, HunyuanVideo 1.5, LTX-Video 0.9.1+ (causal / timestep-conditioned decoder), CogVideoX, Mochi | - | missing (LTX 0.9.1+ rejected by name) | |
+| LTX-Video 0.9.5 and later (2B) | diffusers folder | **supported** (the timestep-conditioned decoder at decode timestep 0 (diffusers' default), residual upsamplers that halve the channels, static shift 1 without the terminal stretch) | tiny 0.9.5 pipeline; 0.9.5 below |
+| HunyuanVideo image-to-video, HunyuanVideo 1.5, LTX-Video 0.9.1 (noise-injecting decoder), LTX-Video 13B, CogVideoX, Mochi | - | missing (LTX 0.9.1's decoder is rejected by name) | |
 
 Design notes:
 
@@ -2004,6 +2005,10 @@ Verification (tools/make-tiny-wan.py, tools/make-wan-references.py, tools/make-t
   text-to-video 28.2–33.0 dB per frame, visually the same video (a ±1e-3 nudge of the initial noise gives 30–34 dB against the
   reference). 5.7 s per step (one pass, guidance embedded) at 832×480×33 frames, decoding about 45 s (45 tiles), peak 23.4 GB, 163 s in all;
   diffusers took 16.6 s per step.
+- LTX-Video 0.9.5 (Lightricks/LTX-Video-0.9.5, bf16 transformer, the T5-XXL of the 0.9.0 folder) on Vulkan against diffusers f32 on CUDA
+  (TF32 off), 704×480, 25 frames, 20 Euler steps, guidance 3: T5 states 1.4e-5, transformer 2.9e-4 relative RMS, text-to-video worst
+  frame 45.0 dB (8.2 s including the kernel compilation; diffusers 33.5 s). At 768×512×97 frames with 40 steps: 0.75 s per step (both
+  guidance passes), decode 8 s, peak 10.0 GB, 49 s in all.
 - Speed and memory on the 32 GB GPU (Vulkan, `sharplight-generate-video`, 832×480, 33 frames = 9 latent frames, 20 UniPC steps
   with guidance, each run a new process: the conditioning time includes loading and compiling the umT5 encoder from the kernel
   cache): Wan 2.1 1.3B (f32 transformer) 4.2 s per step (both guidance passes), decode 19 s, peak 16.3 GB; Wan 2.2 TI2V-5B (f32

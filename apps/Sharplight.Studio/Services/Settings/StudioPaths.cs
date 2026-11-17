@@ -20,6 +20,9 @@ internal sealed record StudioPaths(string ConfigDirectory, string DataDirectory)
     /// <summary>The Hub's highlighted models, cached for Discover.</summary>
     public string HighlightsFile => Path.Combine(DataDirectory, "discover-highlights.json");
 
+    /// <summary>The verified-model catalog last downloaded (see <see cref="Hub.VerifiedCatalogSource"/>).</summary>
+    public string CatalogFile => Path.Combine(DataDirectory, "verified-models.json");
+
     /// <summary>The conversation and statistics database.</summary>
     public string DatabaseFile => Path.Combine(DataDirectory, "studio.db");
 

@@ -41,6 +41,27 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         Updates = new UpdatesViewModel(services);
         Storage = new StorageSettingsViewModel(services);
         Load();
+        _initializing = true;
+        SelectedTabIndex = Enum.TryParse<SettingsTab>(services.Settings.Current.SettingsTab, out var tab) ? (int)tab : 0;
+        _initializing = false;
+    }
+
+    /// <summary>Index of the selected tab (see <see cref="SettingsTab"/>); remembered across restarts.</summary>
+    [ObservableProperty]
+    public partial int SelectedTabIndex { get; set; }
+
+    /// <summary>The selected tab.</summary>
+    public SettingsTab SelectedTab => (SettingsTab)SelectedTabIndex;
+
+    /// <summary>Opens a tab (deep links such as Check for Updates and the storage notice).</summary>
+    public void ShowTab(SettingsTab tab) => SelectedTabIndex = (int)tab;
+
+    partial void OnSelectedTabIndexChanged(int value)
+    {
+        if (!_initializing)
+        {
+            _services.Settings.Update(current => current with { SettingsTab = ((SettingsTab)value).ToString() });
+        }
     }
 
     /// <summary>Update checks: version, channel, automatic check and the pending update (shared with the update dialog).</summary>

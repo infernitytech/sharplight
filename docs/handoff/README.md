@@ -233,7 +233,7 @@ merges into; develop merges into main once everything is green; releases come fr
 
 **Per round:** privacy scan of the diff (no personal email, no home paths), merge to develop, build, all suites in parallel
 across the GPUs, remove the worktree, the machine cleanup (prune worktrees, old temp files), start the next item. Keep
-docs/model-support.md, docs/onnx-support.md and this file current. Every model bring-up or sweep adds its verified models to docs/compatible-models.md. Push to GitHub only when the user says so; never push
+docs/model-support.md, docs/onnx-support.md and this file current. Every model bring-up or sweep adds its verified models to catalog/verified-models.json (with pinned revision; docs/verified-catalog.md); docs/compatible-models.md tables are generated from it. Push to GitHub only when the user says so; never push
 a `v*` tag; `macos/round-1` stays separate.
 
 Agent briefs: docs/bringup-brief.md (architecture rules; note it still says `master` — the branch is `main`, and the
