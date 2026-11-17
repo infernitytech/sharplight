@@ -19343,6 +19343,126 @@
           }
         }
       ]
+    },
+    {
+      "id": "resnet-50-hf",
+      "name": "ResNet 50 (Microsoft)",
+      "kind": "image-classification",
+      "family": "ResNet (Hugging Face)",
+      "architecture": "resnet",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 520508466,
+          "companions": [],
+          "repository": "microsoft/resnet-50",
+          "revision": "34c2154c194f829b11125337b98c8f5f9965ff19",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 69556,
+              "gitOid": "30289c9792e668d73c991829c8842977e2b90539"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 102482854,
+              "sha256": "9c6061af1f450bb0847e529fd742aa5066017be379c71bbf5546b198e5b13a1e"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 266,
+              "gitOid": "9a46cca81138ce49069d63f688ae5750882df07e"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits \u003C 2e-3 vs transformers, same top-1, ImageNet label names",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "HF resnet format (the timm ResNets are separate entries)",
+      "doc": []
+    },
+    {
+      "id": "resnet-18-hf",
+      "name": "ResNet 18 (Microsoft)",
+      "kind": "image-classification",
+      "family": "ResNet (Hugging Face)",
+      "architecture": "resnet",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 456487356,
+          "companions": [],
+          "repository": "microsoft/resnet-18",
+          "revision": "65a5785d9156231087c481e0c7dd33a5ff6f7e3e",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 69548,
+              "gitOid": "be9ec1cb232f596559a0c780dedcf3d42fe11613"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 46812324,
+              "sha256": "1cf00ee468998c23d084361b02cffadabacb5074105564c596b8079f77ecb126"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 266,
+              "gitOid": "9a46cca81138ce49069d63f688ae5750882df07e"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits \u003C 2e-3 vs transformers, same top-1, ImageNet label names",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "basic-block ResNet",
+      "doc": []
     }
   ]
 }
