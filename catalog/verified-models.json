@@ -11041,6 +11041,142 @@
       ]
     },
     {
+      "id": "cosyvoice3-0.5b",
+      "name": "CosyVoice 3 0.5B",
+      "kind": "speech-synthesis",
+      "family": "CosyVoice",
+      "architecture": "cosyvoice3",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "tags": [],
+      "variants": [
+        {
+          "id": "release-folder",
+          "label": "Release folder (PyTorch \u002B ONNX)",
+          "format": "pytorch",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 6638920378,
+          "companions": [],
+          "repository": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+          "revision": "29e01c4e8d000f4bcd70751be16fa94bf3d85a18",
+          "include": [
+            "CosyVoice-BlankEN/config.json",
+            "CosyVoice-BlankEN/generation_config.json",
+            "CosyVoice-BlankEN/merges.txt",
+            "CosyVoice-BlankEN/model.safetensors",
+            "CosyVoice-BlankEN/tokenizer_config.json",
+            "CosyVoice-BlankEN/vocab.json",
+            "campplus.onnx",
+            "config.json",
+            "configuration.json",
+            "cosyvoice3.yaml",
+            "flow.pt",
+            "hift.pt",
+            "llm.pt",
+            "speech_tokenizer_v3.onnx"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "CosyVoice-BlankEN/config.json",
+              "size": 659,
+              "gitOid": "463b055262b6c66c4629a74a4b300bfe2ed31d3c"
+            },
+            {
+              "path": "CosyVoice-BlankEN/generation_config.json",
+              "size": 242,
+              "gitOid": "dfc11073787daf1b0f9c0f1499487ab5f4c93738"
+            },
+            {
+              "path": "CosyVoice-BlankEN/merges.txt",
+              "size": 1402109,
+              "gitOid": "90d3d82d027eadcc6a5e77c38eb82d43fc51b53b"
+            },
+            {
+              "path": "CosyVoice-BlankEN/model.safetensors",
+              "size": 988097824,
+              "sha256": "130282af0dfa9fe5840737cc49a0d339d06075f83c5a315c3372c9a0740d0b96"
+            },
+            {
+              "path": "CosyVoice-BlankEN/tokenizer_config.json",
+              "size": 1287,
+              "gitOid": "ff55d7b9eb1384e5d4d7e75dc0f564c1a8833d6e"
+            },
+            {
+              "path": "CosyVoice-BlankEN/vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "campplus.onnx",
+              "size": 28303423,
+              "sha256": "a6ac6a63997761ae2997373e2ee1c47040854b4b759ea41ec48e4e42df0f4d73"
+            },
+            {
+              "path": "config.json",
+              "size": 2,
+              "gitOid": "9e26dfeeb6e641a33dae4961196235bdb965b21b"
+            },
+            {
+              "path": "configuration.json",
+              "size": 47,
+              "gitOid": "5e812fae901c12933ac69ebf3eb79d0eb49bbab4"
+            },
+            {
+              "path": "cosyvoice3.yaml",
+              "size": 6934,
+              "gitOid": "2eda7e5007d99f6b17fbe7bd751cf54e3cde29ea"
+            },
+            {
+              "path": "flow.pt",
+              "size": 1329116148,
+              "sha256": "a6fab32a7825e5b0bc855ddd948f8db9370b0a786fbc249caa4595e95b608e4b"
+            },
+            {
+              "path": "hift.pt",
+              "size": 83202622,
+              "sha256": "b279d7641eb97ae55b3b540cfba4f953c26492a2df758328a89a4d007ab87a65"
+            },
+            {
+              "path": "llm.pt",
+              "size": 2024669519,
+              "sha256": "69f43bd545131c30e98947fb360ea8b4dc9916d8e83dded7757c7ea4f5a24970"
+            },
+            {
+              "path": "speech_tokenizer_v3.onnx",
+              "size": 969451503,
+              "sha256": "23236a74175dbdda47afc66dbadd5bcb41303c467a57c261cb8539ad9db9208d"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "CosyVoice (FunAudioLLM), onnxruntime",
+        "summary": "vs FunAudioLLM\u0027s CosyVoice code and onnxruntime: S3 tokens 275 of 275 identical, CAM\u002B\u002B x-vector within 3e-6; language model teacher forced with 0 argmax disagreements over 300 steps; flow mel within 4.1e-5; causal HiFT waveform within 2.2e-5 on the reference\u0027s F0 (relative RMS); Qwen3-ASR transcribes zero-shot output word for word; Vulkan real-time factor 0.37",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "CosyVoiceTests"
+        ]
+      },
+      "notes": "the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, with \u0060ReferenceText\u0060 for zero-shot, \u0060Instructions\u0060 for instruct); no built-in voices in the release; non-streaming only",
+      "doc": [
+        {
+          "section": "3",
+          "cells": {
+            "repositories": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+            "formats": "release folder (\u0060llm.pt\u0060, \u0060flow.pt\u0060, \u0060hift.pt\u0060, \u0060CosyVoice-BlankEN/\u0060, \u0060speech_tokenizer_v3.onnx\u0060, \u0060campplus.onnx\u0060), \u0060.slm\u0060"
+          }
+        }
+      ]
+    },
+    {
       "id": "stable-diffusion-1.5",
       "name": "Stable Diffusion 1.5",
       "kind": "image-generation",

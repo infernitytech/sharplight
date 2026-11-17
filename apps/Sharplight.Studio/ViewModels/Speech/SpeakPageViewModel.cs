@@ -399,6 +399,9 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
             new NumberParameterViewModel("topp", "Top-p", "Sample from the smallest set of tokens with this probability.", 0.1, 1, 0.05, 0.9),
             new NumberParameterViewModel("repetition", "Repetition penalty", "Above 1 discourages repeating audio tokens.", 1, 1.5, 0.05, 1.1),
             new TextParameterViewModel("seed", "Seed", "A whole number for repeatable output; empty is random.", "Random"),
+            new TextParameterViewModel("reference", "Reference recording", "A WAV file of the voice to speak with (CosyVoice 3, F5-TTS, Chatterbox, XTTS).", "Path to a .wav file"),
+            new TextParameterViewModel("referencetext", "Reference text", "The words spoken in the reference recording (CosyVoice 3 zero-shot, F5-TTS).", "Optional"),
+            new TextParameterViewModel("instructions", "Instructions", "How to speak, e.g. \"Please speak as fast as possible.\" (CosyVoice 3).", "Optional"),
             new BoolParameterViewModel("stream", "Play while generating", "Speak segment by segment as the model streams them (sounds slightly different from a whole-text pass)."),
         ];
         ParameterPreset[] presets =
@@ -411,6 +414,9 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         {
             Voice = panel.GetChoice("voice") is { Length: > 0 } voice ? voice : null,
             Speed = (float)panel.GetNumber("speed"),
+            ReferenceAudio = panel.GetText("reference").Trim() is { Length: > 0 } reference && File.Exists(reference) ? WavFile.Read(reference) : null,
+            ReferenceText = panel.GetText("referencetext").Trim() is { Length: > 0 } referenceText ? referenceText : null,
+            Instructions = panel.GetText("instructions").Trim() is { Length: > 0 } instructions ? instructions : null,
             Sampling = new SamplingOptions
             {
                 Temperature = (float)panel.GetNumber("temperature"),

@@ -1052,6 +1052,7 @@ codecs and vocoders are graphs of generic Core ops; the host runs only the token
 | Chatterbox (ResembleAI/chatterbox, English; T3 Llama 520M over S3 speech tokens, S3Gen flow matching, HiFT vocoder), built-in voice | supported, CPU and Vulkan | the `chatterbox-tts` package 0.1.7 on torch (CPU, float32; `tests/Sharplight.TextToSpeech.Tests/tools/make_chatterbox_reference.py`) | text tokens identical; conditioning rows 7e-7 (CPU) / 4e-7 (Vulkan) relative RMS; T3 guided greedy chain teacher forced: 0 argmax disagreements over 92 steps (reference margins down to 1.5e-3); flow mel for the reference tokens and noise 4.4e-7 / 5.9e-7; HiFT F0 7.4e-7 / 7.8e-7 and waveform 5.6e-6 / 7.0e-6 with the reference's source draws; voice cloning (`tools/make_chatterbox_clone_reference.py`, LibriSpeech 1272-128104-0004): voice encoder partials 9e-7 / 1.2e-6, S3 tokens 150 of 150 (T3 prompt) and 250 of 250 (flow prompt), CAM++ x-vector 3e-6 / 2e-6, flow prompt log-mel 1.9e-7; a cloned sentence transcribed word for word by Qwen3-ASR-1.7B, its speaker similarity to the recording 0.88 against 0.71 for the built-in voice |
 | F5-TTS v1 Base (SWivid; flow-matching diffusion transformer over characters) + Vocos mel 24 kHz, voice of a reference recording | supported, CPU and Vulkan | the `f5-tts` package 1.1.22 on torch (CPU, float32; `tools/make_f5tts_reference.py`, jfk.wav as the reference) | character ids and duration identical; sampled mel from the reference's log-mel and noise (32 guided Euler steps) 4.2e-6 (CPU) / 3.5e-5 (Vulkan) relative RMS; Vocos waveform 2.4e-5 / 1.8e-5; the reference log-mel within 5e-3 on a 24 kHz copy of the recording (from 16 kHz the resamplers differ in near-silent frames, which the log floor magnifies) |
 | XTTS v2 (Coqui; GPT-2 over audio codes + HiFi-GAN decoder), the 58 built-in speakers, English | supported, CPU and Vulkan | coqui-tts 0.28.0 on torch (CPU, float32; `tools/make_xtts_reference.py`, speaker "Claribel Dervla") | text ids identical (abbreviations, numbers as num2words spells them, symbols); greedy codes 90 of 90 identical (repetition penalty 10); latents 6.4e-5 (CPU) / 6.8e-5 (Vulkan) relative RMS; HiFi-GAN waveform of the reference latents 1.6e-4 / 1.8e-4; sampled with the model's settings, a four-sentence passage transcribed word for word by Qwen3-ASR-1.7B; Vulkan real-time factor 0.24 (4.2 s of audio in 1.0 s, RTX PRO 4500), CPU 1.2; voice cloning: style latents 3.7e-6 / 2.7e-6, speaker embedding 2.8e-6 / 1.3e-6 |
+| CosyVoice 3 (FunAudioLLM Fun-CosyVoice3-0.5B; Qwen2 0.5B over S3 speech tokens v3, DiT flow, causal HiFT), the voice of a recording (zero-shot, cross-lingual, instruct) | supported, CPU and Vulkan | FunAudioLLM's CosyVoice code (dd9105b) on torch (CPU, float32) and onnxruntime 1.32 (`tools/make_cosyvoice3_reference.py`, jfk.wav as the recording) | S3 tokenizer v3 275 of 275 tokens identical and CAM++ x-vector 3.0e-6 (CPU) / 1.8e-6 (Vulkan) vs onnxruntime; prompt log-mel 7.5e-6; text and prompt ids identical; language model teacher forced along the greedy chain: 0 argmax disagreements over 300 steps, worst logit delta 1.1e-2 / 1.2e-2; flow mel for the sampled tokens and the reference's noise 4.1e-5 / 3.3e-5; causal HiFT F0 1.5e-6 / 1.7e-6, waveform 2.2e-5 / 2.1e-5 on the reference's F0 and source noise (3.9e-3 / 1.0e-2 on its own F0, see below); a zero-shot sentence transcribed word for word by Qwen3-ASR-1.7B, CAM++ speaker similarity to the recording 0.85; Vulkan real-time factor 0.37 (9.2 s of audio in 3.4 s, RTX PRO 4500), CPU 2.8 |
 | CSM-1B + Mimi, Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
@@ -1182,6 +1183,38 @@ come from the new `HtkMelFilterBank`, which F5-TTS now uses too). Parity vs coqu
 A cloned sentence is transcribed word for word by Qwen3-ASR-1.7B; its speaker similarity to the recording is 0.62, against 0.19 for a built-in
 speaker. The Perceiver's latents grow to 1e10 before its norm, which overflows the split-f16 flash attention on Vulkan. Its attention therefore sets
 the new `StandardOps.F32ProductsAttribute`, which keeps the products on the f32 kernel.
+
+CosyVoice 3 loading: the release folder (`Sharplight.Import.CosyVoice`, `CosyVoiceImporter`, `services.AddCosyVoiceImporter()`:
+`cosyvoice3.yaml`, `llm.pt`, `flow.pt`, `hift.pt`, the Qwen tokenizer in `CosyVoice-BlankEN/`, `speech_tokenizer_v3.onnx`, `campplus.onnx`). The
+language model's Qwen2 backbone maps to canonical decoder weights with the speech embedding (6561 codes plus 200 control rows) as `token_embedding`
+and the speech head as `lm_head`; the text embedding (`cosyvoice3.text_embedding`) stays on the host, rows read per token. The flow keeps its names
+under `flow.`, HiFT under `hift.` (weight norms folded). The two ONNX models become weights of generic graphs: the exporter names folded and
+transposed tensors `onnx::MatMul_1234`, so the importer names them by the module path of the node that reads them (the new
+`OnnxImporter.NodeParameters`, `/blocks.0/attn/query/MatMul` → `blocks.0.attn.query.weight`, MatMul weights transposed); the S3 tokenizer v3 is
+the v2 graph (`S3TokenizerGraph`) with 12 blocks, CAM++ is `CamPlusGraph`, which now takes convolutions with an exporter-folded batch norm (a bias,
+no statistics). The tokenizer gets CosyVoice 3's 280 added special tokens (`<|endofprompt|>`, `[breath]`, `[laughter]`, ARPAbet and pinyin
+tokens) in the release's order. `CosyVoiceAdapter` (canonical `cosyvoice3`) builds the decoder graphs with `decoder.embedding_input`,
+`cosyvoice_flow_encode` (token embedding, the pre-lookahead convolutions, ×2 repetition, the speaker projection), `cosyvoice_flow_estimator` (the
+DiT: the F5-TTS blocks of `F5TransformerGraph` with a causal convolutional position embedding; CosyVoice applies the rotary embedding before the
+head split, which rotates only the first head's channels, `ropeHeads: 1`), `cosyvoice_hift_f0` (the causal F0 predictor) and `cosyvoice_hift` (the
+causal generator: left-padded convolutions, nearest upsampling plus convolution, strided causal downsampling of the source, the look-ahead input
+convolution). `CosyVoiceSynthesizer` follows `inference_zero_shot` (`ReferenceAudio` and `ReferenceText`: the system prompt, the reference text
+and `<|endofprompt|>` before the text, the recording's speech tokens after the task row), `inference_cross_lingual` (`ReferenceAudio` only) and
+`inference_instruct2` (the new `SpeechSynthesisOptions.Instructions`, e.g. "Please speak as fast as possible."); the voice is the recording's
+speech tokens, its 24 kHz Matcha log-mel (fmax at Nyquist) and its CAM++ x-vector (`S3SpeechEncoders`, now shared with Chatterbox's cloning).
+Tokens are drawn by repetition-aware sampling (`CosyVoiceRasSampler`: top-p 0.8 within the top 25, a token seen in the last 10 is redrawn from the
+whole distribution), the length between 2 and 20 times the text tokens (as the reference, only the first control row is masked below the
+minimum); ten Euler steps over the cosine schedule with guidance 0.7 (full attention, the non-streaming path); the causal HiFT with
+`finalize=True`. The text front end is the reference's without its optional normalizers: digits spelled as inflect spells them, the text split
+into utterances of up to 80 tokens; markup (`<|…|>`) passes through. Precision notes: the reference predicts F0 in float64 and accumulates the
+source phase to about 1e5 rad (`2π · 480 · Σ F0 · k / rate`), where a float32 F0 rounding of 1e-6 moves a harmonic's phase by up to a radian, so
+the waveform on Sharplight's own F0 differs by 4e-3 (CPU) to 1e-2 (Vulkan) relative RMS while it matches to 2e-5 on the reference's F0; the
+harmonics are computed on the host (`CosyVoiceVocoderGraph.Harmonics`, the running sum in double as torch's CPU cumsum) because a device's
+parallel scan and fast sine of such phases are a hundredth off. The release's random tables (the flow's starting noise, the source's uniform
+noise) are seeded draws here, inputs of the graphs. Not done: built-in voices (the release has no `spk2info.pt`), the streaming path (chunked
+flow with the static 50-frame chunk mask and the cached HiFT), the ttsfrd / wetext normalizers, Japanese kana conversion. The reference script
+needs a transformers 5 fix: `Qwen2Encoder.forward_one_step` passes a one-element attention mask with the cache, which transformers 4.51 ignored
+and transformers 5 applies (attending to the new row only); the script drops it.
 
 ## 13. Speech to text (task kind `speech-recognition`)
 
