@@ -45,19 +45,24 @@ public sealed class StorageSettingsViewModelTests
         Assert.Equal(Path.Combine(portableRoot, "config", "studio"), storage.Paths[0].Next);
         Assert.Equal(Path.Combine(portableRoot, "studio"), storage.Paths[1].Next);
         Assert.True(storage.CanKeepModels);
-        Assert.True(storage.ApplyCommand.CanExecute(null));
+        Assert.True(storage.AskCommand.CanExecute(null));
+        storage.AskCommand.Execute(null);
+        Assert.True(storage.IsConfirming);
+        Assert.Equal(0, services.Platform.Restarts);   // nothing happens before the confirmation
 
         await storage.ApplyCommand.ExecuteAsync(null);
 
         Assert.True(storage.NeedsRestart);
-        Assert.Contains("Restart Studio", storage.Message, StringComparison.Ordinal);
+        Assert.False(storage.IsConfirming);
+        Assert.Contains("Restarting Studio", storage.Message, StringComparison.Ordinal);
+        Assert.Equal(1, services.Platform.Restarts);   // restarted by itself after the files were moved
         Assert.Equal("{}", File.ReadAllText(Path.Combine(portableRoot, "config", "studio", "settings.json")));
         Assert.True(File.Exists(Path.Combine(services.Directory, "app", StorageLayout.PortableMarkerFileName)));
         Assert.False(storage.HasChange);   // the selection is what the next start uses
         Assert.Equal(StorageMode.Portable, services.Services.StorageLocation.Pending?.Mode);
 
-        storage.RestartCommand.Execute(null);
-        Assert.Equal(1, services.Platform.Restarts);
+        storage.RestartCommand.Execute(null);   // still available when the automatic restart did not happen
+        Assert.Equal(2, services.Platform.Restarts);
     }
 
     [Fact]
@@ -150,7 +155,24 @@ public sealed class StorageSettingsViewModelTests
 
         storage.SelectedMode = StorageModeChoice.Get(StorageMode.Portable);
 
-        Assert.Contains("portable mode is not available", storage.Problem, StringComparison.Ordinal);
+        Assert.False(string.IsNullOrEmpty(storage.Problem));
+    }
+
+    [Fact]
+    public void Portable_WithAppDirButNoAppImage_ExplainsWhy()
+    {
+        using var services = new TestServices();
+        var application = Path.Combine(services.Directory, "image", "usr", "bin");
+        var variables = new Dictionary<string, string> { ["APPDIR"] = Path.Combine(services.Directory, "image") };
+        var installed = services.Services with
+        {
+            StorageLocation = TestServices.CreateStorage(services.Settings, application, Path.Combine(services.Directory, "home"), variables),
+        };
+        var storage = new StorageSettingsViewModel(installed);
+
+        storage.SelectedMode = StorageModeChoice.Get(StorageMode.Portable);
+
+        Assert.Contains("$APPIMAGE is not set", storage.Problem, StringComparison.Ordinal);
     }
 
     [Fact]

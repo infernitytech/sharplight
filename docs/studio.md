@@ -544,6 +544,16 @@ in the system configuration folder selects a custom folder. `SHARPLIGHT_HOME` ov
 Studio's own settings and data into one directory (tests, side-by-side profiles). `SHARPLIGHT_MODELS` and `--models-dir` move only
 the models, and `SHARPLIGHT_COMPILATION_CACHE` only the compiled kernels.
 
+"Next to the package" means the file or folder the user sees, never the place the app runs from: for the AppImage the folder of the
+`.AppImage` file (`$APPIMAGE`; the read-only image mounted at `$APPDIR` is never used), for the macOS app the folder that contains the
+`.app` bundle (not `Contents/MacOS`), for a Velopack install (Windows, portable zip) the install root next to `Update.exe` (not its
+`current` folder, which every update replaces), else the folder of the executable (tar.gz). The choice is recorded by the
+`sharplight.portable` file in that folder, written when the change is applied, so the next start finds it before reading anything
+else. Until Studio restarts, the settings are already saved to the new location (never again to the old one); everything else moves
+at the restart. A portable folder that cannot be written (read-only or system-wide installation, a folder that is not writable) is
+refused with the reason when it is chosen; if it becomes unwritable later, Studio falls back to the system folders and the Storage
+card says so.
+
 When the model store in effect is empty while another store has models, Studio offers once to keep using that store or to move or
 copy the models into the new one. The other store can be the system store, or the `data` folder next to the app where earlier
 versions kept them.

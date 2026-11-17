@@ -205,9 +205,13 @@
                   <TextBlock Text="{Binding Problem}" TextWrapping="Wrap" />
                 </Border>
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                  <Button Classes="accent" Content="Change location" Command="{Binding ApplyCommand}" />
+                  <Button Classes="accent" Content="Change location" Command="{Binding AskCommand}" IsVisible="{Binding !IsConfirming}" />
+                  <Button Classes="accent" Content="Change location and restart Studio" Command="{Binding ApplyCommand}" IsVisible="{Binding IsConfirming}" />
+                  <Button Classes="small" Content="Back" Command="{Binding BackCommand}" IsVisible="{Binding IsConfirming}" />
                   <Button Classes="small" Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsBusy}" />
                 </StackPanel>
+                <TextBlock Classes="caption" Text="The files are copied and verified first, then Studio restarts to use the new location." TextWrapping="Wrap"
+                           IsVisible="{Binding IsConfirming}" />
               </StackPanel>
               <StackPanel Spacing="4" IsVisible="{Binding IsBusy}">
                 <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" />

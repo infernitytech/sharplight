@@ -29,4 +29,11 @@ internal interface ISettingsService
 
     /// <summary>Applies <paramref name="change"/> and saves.</summary>
     public void Update(Func<AppSettings, AppSettings> change);
+
+    /// <summary>
+    /// Saves to <paramref name="settingsFile"/> from now on: a new storage location was committed for the next start, and settings
+    /// changed before it must not be written into the location being left (where a move would find them changed and keep them).
+    /// </summary>
+    /// <param name="settingsFile">The settings file of the new location.</param>
+    public void RelocateTo(string settingsFile);
 }
