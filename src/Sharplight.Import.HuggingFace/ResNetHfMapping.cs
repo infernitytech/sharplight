@@ -84,7 +84,7 @@ internal sealed partial class ResNetHfMapping : IHfArchitectureMapping
 
             if (rawName is "classifier.1.weight" or "classifier.1.bias")
             {
-                collector.Add(HfTransforms.ToF32(tensor.ToWeightInfo(), "classifier." + rawName[^4..]));
+                collector.Add(HfTransforms.ToF32(tensor.ToWeightInfo(), "classifier." + rawName[(rawName.LastIndexOf('.') + 1)..]));
                 continue;
             }
 

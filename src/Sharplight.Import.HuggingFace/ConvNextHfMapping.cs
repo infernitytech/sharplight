@@ -131,7 +131,7 @@ internal sealed partial class ConvNextHfMapping : IHfArchitectureMapping
 
         if (n.StartsWith("convnext.layernorm.", StringComparison.Ordinal))
         {
-            return "head.norm." + n[^4..].TrimStart('.');
+            return "head.norm." + n[(n.LastIndexOf('.') + 1)..];
         }
 
         if (n.StartsWith("convnext.embeddings.patch_embeddings.", StringComparison.Ordinal))
@@ -169,7 +169,7 @@ internal sealed partial class ConvNextHfMapping : IHfArchitectureMapping
     {
         if (n is "head.fc.weight" or "head.fc.bias")
         {
-            return "classifier." + n[^4..].TrimStart('.');
+            return "classifier." + n[(n.LastIndexOf('.') + 1)..];
         }
 
         if (n.StartsWith("head.norm.", StringComparison.Ordinal))
