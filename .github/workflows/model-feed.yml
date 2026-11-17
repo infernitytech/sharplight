@@ -1,8 +1,11 @@
 # Model feed (docs/model-feed.md): builds preconverted, signed .slm packages from verified-catalog entries and publishes them to the
 # Cloudflare R2 bucket under models/ (https://download.sharplight.dev/models/).
 #
-# - Push to develop that changes tools/model-feed/publish-request.json: builds the entries listed there and publishes them (no
-#   entries: only re-signs the index). This is the trigger until the workflow is on the default branch (dispatch and schedule only
+# - Channels: package versions are stored once (models/packages/<id>/<version>/, shared); models/unstable/ and models/stable/ each
+#   have their own signed index. New builds go to unstable; `promote` lists already published versions in stable (no re-upload).
+#   Every run re-signs both channels' indexes.
+# - Push to develop that changes tools/model-feed/publish-request.json: builds the entries listed there into unstable and promotes
+#   the listed versions (no entries and no promotions: only re-signs). This is the trigger until the workflow is on the default branch (dispatch and schedule only
 #   run from there) and the one the studio-release environment admits (develop, release/*).
 # - Manual dispatch: builds the given catalog entries and publishes them (or only re-signs the index when no entries are given).
 # - Weekly schedule: only re-signs the index (new sequence, expiry 30 days ahead), so the published index never expires while
@@ -25,9 +28,13 @@ on:
   workflow_dispatch:
     inputs:
       entries:
-        description: 'Catalog entries to build, space separated: entry or entry:variant (default variant: the recommended one). Empty: only re-sign the index.'
+        description: 'Catalog entries to build into unstable, space separated: entry or entry:variant (default variant: the recommended one).'
         required: false
-        default: 'qwen3-0.6b:q8-0-gguf all-minilm-l6-v2:f32-safetensors ms-marco-minilm-l6-v2:f32-safetensors whisper-tiny:q5-1-whispercpp silero-vad-v5:onnx'
+        default: ''
+      promote:
+        description: 'Package versions to promote from unstable to stable, space separated: id@version, or id for its latest unstable version.'
+        required: false
+        default: ''
       validity_days:
         description: 'Days until the published index expires (republish before; hosts reject an expired index).'
         required: false
@@ -85,6 +92,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           INPUT_ENTRIES: ${{ inputs.entries }}
+          INPUT_PROMOTE: ${{ inputs.promote }}
           INPUT_VALIDITY: ${{ inputs.validity_days }}
         run: |
           set -euo pipefail
@@ -92,16 +100,22 @@ jobs:
             push)
               request=tools/model-feed/publish-request.json
               entries=$(jq -r '(.entries // []) | join(" ")' "$request")
+              promote=$(jq -r '(.promote // []) | join(" ")' "$request")
+              channel=$(jq -r '.channel // "stable"' "$request")
               validity=$(jq -r '.validityDays // 30' "$request")
               echo "Publish request: $(jq -r '.reason // "(no reason given)"' "$request")"
               ;;
             workflow_dispatch)
               entries="$INPUT_ENTRIES"
+              promote="$INPUT_PROMOTE"
+              channel=stable
               validity="${INPUT_VALIDITY:-30}"
               ;;
             *)
               # Scheduled: re-sign only.
               entries=""
+              promote=""
+              channel=stable
               validity=30
               ;;
           esac
@@ -111,13 +125,24 @@ jobs:
               exit 1
             fi
           done
+          for spec in $promote; do
+            if ! [[ "$spec" =~ ^[a-z0-9][a-z0-9.-]*(@[0-9A-Za-z.+-]+)?$ ]]; then
+              echo "::error::'$spec' is not a package id or id@version."
+              exit 1
+            fi
+          done
+          if [ "$channel" != "stable" ] && [ -n "$promote" ]; then
+            echo "::error::Promotions go to the stable channel (channel was '$channel'); new builds always go to unstable."
+            exit 1
+          fi
           if ! [[ "$validity" =~ ^[0-9]+$ ]] || [ "$validity" -lt 1 ] || [ "$validity" -gt 90 ]; then
             echo "::error::validityDays must be a whole number of days from 1 to 90 (was '$validity')."
             exit 1
           fi
           echo "entries=$entries" >> "$GITHUB_OUTPUT"
+          echo "promote=$promote" >> "$GITHUB_OUTPUT"
           echo "validity=$validity" >> "$GITHUB_OUTPUT"
-          echo "Entries: ${entries:-(none: re-sign only)}; index valid for $validity days"
+          echo "Build into unstable: ${entries:-(none)}; promote to stable: ${promote:-(none)}; indexes valid for $validity days"
 
       - uses: actions/setup-dotnet@v4
         if: steps.secrets.outputs.skip == 'false'
@@ -147,10 +172,10 @@ jobs:
       - name: Fetch the published listings
         if: steps.secrets.outputs.skip == 'false'
         env:
-          RESIGN_ONLY: ${{ steps.request.outputs.entries == '' }}
+          RESIGN_ONLY: ${{ steps.request.outputs.entries == '' && steps.request.outputs.promote == '' }}
         run: |
-          if [ "$RESIGN_ONLY" = "true" ] && ! aws s3api head-object --bucket "$R2_BUCKET" --key "$FEED_PREFIX/index.json" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
-            echo "::notice::No feed is published yet; a re-sign without entries has nothing to do."
+          if [ "$RESIGN_ONLY" = "true" ] && ! aws s3api head-object --bucket "$R2_BUCKET" --key "$FEED_PREFIX/unstable/index.json" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
+            echo "::notice::No feed is published yet; a re-sign without entries or promotions has nothing to do."
             echo "NOTHING_PUBLISHED=true" >> "$GITHUB_ENV"
             exit 0
           fi
@@ -186,17 +211,26 @@ jobs:
         if: steps.secrets.outputs.skip == 'false' && env.NOTHING_PUBLISHED != 'true'
         env:
           VALIDITY: ${{ steps.request.outputs.validity }}
+          PROMOTE: ${{ steps.request.outputs.promote }}
         run: |
+          set -euo pipefail
           tool=tools/model-feed/Sharplight.FeedTool/bin/Release/net11.0/feedtool.dll
+          common=(--feed "$WORK/feed" --key "$RUNNER_TEMP/feed.key.pem" --name "$FEED_NAME" --validity-days "$VALIDITY")
           staged=$(find "$WORK/staging" -mindepth 1 -maxdepth 1 -type d | sort)
           if [ -n "$staged" ]; then
-            dotnet "$tool" publish $staged --feed "$WORK/feed" --key "$RUNNER_TEMP/feed.key.pem" --name "$FEED_NAME" --validity-days "$VALIDITY"
+            dotnet "$tool" publish $staged --channel unstable "${common[@]}"
           else
-            echo "No new packages; re-signing the index (new sequence and expiry)."
-            dotnet "$tool" reindex --feed "$WORK/feed" --key "$RUNNER_TEMP/feed.key.pem" --name "$FEED_NAME" --validity-days "$VALIDITY"
+            dotnet "$tool" reindex --channel unstable "${common[@]}"
           fi
-          # Listings, signatures and digests as a host checks them (package files of earlier versions are not downloaded here).
-          dotnet "$tool" verify --feed "$WORK/feed" --root "$RUNNER_TEMP/root.pub.pem"
+          if [ -n "$PROMOTE" ]; then
+            dotnet "$tool" promote $PROMOTE --to stable --from unstable "${common[@]}"
+          else
+            dotnet "$tool" reindex --channel stable "${common[@]}"
+          fi
+          # Listings, signatures and digests of both channels as a host checks them (earlier package files are not downloaded here).
+          for channel in unstable stable; do
+            dotnet "$tool" verify --feed "$WORK/feed" --channel "$channel" --root "$RUNNER_TEMP/root.pub.pem"
+          done
 
       - name: Upload to Cloudflare R2
         if: steps.secrets.outputs.skip == 'false' && env.NOTHING_PUBLISHED != 'true'
@@ -215,9 +249,9 @@ jobs:
           }
           # 1. New package versions (immutable): never overwrite an object that exists.
           for folder in $(cat "$WORK/staged.txt"); do
-            version_dir=$(ls -d "$WORK"/feed/packages/*/* | while read -r dir; do
-              id=$(basename "$(dirname "$dir")"); version=$(basename "$dir")
-              [ "$id-$version" = "$folder" ] && echo "packages/$id/$version"; done)
+            id=$(jq -r .id "$WORK/staging/$folder/manifest.json")
+            version=$(jq -r .version "$WORK/staging/$folder/manifest.json")
+            version_dir="packages/$id/$version"
             for file in "$WORK/feed/$version_dir"/*; do
               key="$version_dir/$(basename "$file")"
               if aws s3api head-object --bucket "$R2_BUCKET" --key "$FEED_PREFIX/$key" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
@@ -227,18 +261,21 @@ jobs:
               upload "$key" "public, max-age=31536000, immutable"
             done
           done
-          # 2. Key set (only when written by this run), package indexes, catalog pages, then the index and its signature last.
+          # 2. Key set (only when written by this run); then per channel its package indexes, catalog pages, and the index and its
+          #    signature last.
           if [ "${NEW_KEYSET:-false}" = "true" ]; then
             upload keys/keyset.json "no-cache"
             upload keys/keyset.sig "no-cache"
           fi
-          for file in $(cd "$WORK/feed" && ls packages/*/index.json catalog/page/*.json); do
-            upload "$file" "no-cache"
+          for channel in unstable stable; do
+            for file in $(cd "$WORK/feed" && ls "$channel"/packages/*/index.json "$channel"/catalog/page/*.json 2>/dev/null); do
+              upload "$file" "no-cache"
+            done
+            upload "$channel/catalog/index.json" "no-cache"
+            upload "$channel/index.json" "no-cache"
+            upload "$channel/index.sig" "no-cache"
+            echo "Published: $FEED_URL/$channel/index.json"
           done
-          upload catalog/index.json "no-cache"
-          upload index.json "no-cache"
-          upload index.sig "no-cache"
-          echo "Published: $FEED_URL/index.json"
 
       - name: Remove the signing key
         if: always()
