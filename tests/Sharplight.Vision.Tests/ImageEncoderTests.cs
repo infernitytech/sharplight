@@ -13,7 +13,7 @@ public class ImageEncoderTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    private static string Model(string name) => Path.Combine(Home, Directory.Exists(Path.Combine(Home, "models/vision", name)) ? "models/vision" : "models/vision-sweep", name);
+    private static string Model(string name) => Path.Combine(Home, Directory.Exists(Path.Combine(Home, "models/vision", name)) ? "models/vision" : Directory.Exists(Path.Combine(Home, "models/vision-r8", name)) ? "models/vision-r8" : "models/vision-sweep", name);
 
     private static bool Available(string name) => File.Exists(Path.Combine(Model(name), "sharplight-reference.json"));
 
@@ -40,6 +40,10 @@ public class ImageEncoderTests
     [InlineData("resnet18.a1_in1k")]
     [InlineData("resnet34.a1_in1k")]
     [InlineData("wide_resnet50_2.racm_in1k")]
+    [InlineData("resnet-50")]
+    [InlineData("resnet-18")]
+    [InlineData("convnext-tiny-224")]
+    [InlineData("convnext_tiny.fb_in1k")]
     public async Task VitClassifierMatchesTransformers(string name)
     {
         if (!Available(name))
