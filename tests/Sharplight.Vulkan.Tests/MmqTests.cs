@@ -12,6 +12,12 @@ namespace Sharplight.Vulkan.Tests;
 [Collection("Mmq")]
 public sealed class MmqTests
 {
+    /// <summary>
+    /// Devices without int8 matrices run these batches on a GEMM with f16 operands, which the exact-activation tolerances do not
+    /// allow; only the 8x8 form (Metal) is turned off, so devices with int8 matrices still run the int8 GEMM under test.
+    /// </summary>
+    private static readonly HashSet<string> s_noHalfOperands = [DeviceFeatures.MatrixF16Small];
+
     private static readonly string[] s_formats = ["q8_0", "q4_k", "q5_k", "q6_k", "iq4_nl", "iq4_xs"];
 
     public static IEnumerable<object[]> Cases()
@@ -68,7 +74,7 @@ public sealed class MmqTests
     public void ExactActivations(string fmt, int t, int n)
     {
         const int K = 1024;
-        Run(fmt, t, n, K, Rnd.ExactInt8((long)t * K, 5), atol: 2e-3, rtol: 1e-3);
+        Run(fmt, t, n, K, Rnd.ExactInt8((long)t * K, 5), atol: 2e-3, rtol: 1e-3, disabled: s_noHalfOperands);
     }
 
     /// <summary>A grid large enough to run without split-K (and the 128-token tile with partial row and column tiles).</summary>
@@ -78,7 +84,7 @@ public sealed class MmqTests
     {
         const int K = 256;
         const int T = 1000;
-        Run(fmt, T, 3000, K, Rnd.ExactInt8((long)T * K, 7), atol: 2e-3, rtol: 1e-3);
+        Run(fmt, T, 3000, K, Rnd.ExactInt8((long)T * K, 7), atol: 2e-3, rtol: 1e-3, disabled: s_noHalfOperands);
     }
 
     /// <summary>With <c>matrix_int8</c> disabled the same batches run on the f16 tensor-core GEMM.</summary>

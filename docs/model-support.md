@@ -1540,7 +1540,7 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Stable Diffusion 2.x (2.1 768-v, 2.1 base) | diffusers folder, original single-file `.safetensors` / `.ckpt` (OpenCLIP ViT-H tower; 768 files default to v-prediction at 768×768, files named like the 512 / base releases to epsilon at 512×512) | **supported** (as SD 1.x) | below |
 | SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection), stable-diffusion.cpp GGUF in both naming schemes (sd.cpp's own `cond_stage_model.1.transformer.*`, e.g. gpustack/stable-diffusion-xl-base-1.0-GGUF Q8_0 / Q4_0; the SGM names, e.g. kostakoff/stable-diffusion-xl-base-1.0-GGUF Q4_K) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
 | SDXL-Turbo, SDXL-Lightning (distilled SDXL) | the SDXL formats; stable-diffusion.cpp GGUF (OlegSkutte/sdxl-turbo-GGUF, mzwing/SDXL-Lightning-GGUF) | **supported** (single files are recognized by their published names: Turbo 512×512, Euler ancestral on trailing timesteps, 4 steps, no guidance; Lightning 1024×1024, Euler trailing, the file's step count, no guidance, the 1-step "x0" file predicts the sample) | Turbo below; Lightning maps the same way, not verified |
-| FLUX.1-schnell, FLUX.1-dev (and fine-tunes with the same layout) | diffusers folder; original single-file `.safetensors` (Black Forest Labs names, also with ComfyUI's `model.diffusion_model.` prefix); transformer-only GGUF (city96 / stable-diffusion.cpp: any ggml type) plus companion files: CLIP-L (`clip_l.safetensors`), T5-XXL (encoder GGUF with its tokenizer, or `t5xxl_*.safetensors` with the embedded T5 vocabulary), VAE (`ae.safetensors`), given as auxiliary sources or found beside the transformer | **supported** (txt2img, img2img, inpainting; flow-matching Euler with FLUX's static / resolution-dependent shift; dev's guidance embedding; any size that is a multiple of 16; `.slm`) | [below](#flux) |
+| FLUX.1-schnell, FLUX.1-dev, FLUX.1 Kontext dev (and fine-tunes with the same layout) | diffusers folder; original single-file `.safetensors` (Black Forest Labs names, also with ComfyUI's `model.diffusion_model.` prefix); transformer-only GGUF (city96 / stable-diffusion.cpp: any ggml type) plus companion files: CLIP-L (`clip_l.safetensors`), T5-XXL (encoder GGUF with its tokenizer, or `t5xxl_*.safetensors` with the embedded T5 vocabulary), VAE (`ae.safetensors`), given as auxiliary sources or found beside the transformer | **supported** (txt2img, img2img, inpainting; Kontext: editing with one reference image, recognized by `FluxKontextPipeline` or "kontext" in the file name; flow-matching Euler with FLUX's static / resolution-dependent shift; dev's guidance embedding; any size that is a multiple of 16; `.slm`) | [below](#flux) |
 | SD3 / SD3.5 (SD3 Medium, SD3.5 Medium / Large and fine-tunes) | diffusers folder; Stability's single file (`model.diffusion_model.*`, the VAE under `first_stage_model.*`); transformer-only GGUF (city96 / stable-diffusion.cpp `sd3`, any ggml type) plus companions: CLIP-L, CLIP-G (`clip_g.safetensors`), T5-XXL (encoder GGUF, `t5xxl_*.safetensors` or a sharded `text_encoder_3` folder named by a shard), the 16-channel VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance; three text encoders; any size that is a multiple of 16 up to the position grid; `.slm`) | [below](#sd3) |
 | Chroma (Chroma1-HD / Base / Flash and fine-tunes) | diffusers folder; original single file (FLUX names plus `distilled_guidance_layer.*`); transformer-only GGUF (silveroxides, any ggml type) plus companions: T5-XXL, the FLUX VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance with negative prompts; masked T5 and text attention) | [below](#chroma) |
 | Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
@@ -1549,7 +1549,7 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | FLUX.2 Klein (4B; 9B and the base models share the layout), FLUX.2 Dev (32B) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (Klein; the pipeline's `text_encoder` folder or a `qwen3` GGUF) or Mistral Small 3.2 24B (Dev; a `llama` GGUF of Mistral-Small-3.2-24B-Instruct-2506 or the pipeline's folder), the pipeline's VAE file | **supported** (txt2img and editing with up to 10 reference images; Klein distilled: 4 steps without guidance; Klein base: 50 steps, guidance 4; Dev: 50 steps with the embedded guidance 4) | [below](#flux-2) |
 | Krea 2 (Turbo, Raw and fine-tunes) | diffusers folder; the release's original-name single files (`turbo.safetensors`, `raw.safetensors`, ComfyUI's bf16 files); transformer-only GGUF (realrebelai, vantagewithai, ...: architecture `krea2`, some labelled `qwen_image`) plus companions: the Qwen3-VL-4B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the Qwen-Image VAE (the pipeline's file or ComfyUI's `qwen_image_vae.safetensors`) | **supported** (text-to-image; Turbo: 8 steps without guidance; Raw (file names with `raw` / `base`): 28 steps, guidance 5.5) | [below](#krea-2) |
 | SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
-| LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
+| LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image, Krea 2 (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
 | ControlNet, TAESD | - | missing | |
 
 Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
@@ -1932,7 +1932,17 @@ Editing (2026-11-17): FLUX.2 (Klein and Dev) and FLUX.1 Kontext take reference i
 - The pipelines resize references by their own rules (FLUX.2: to at most 1024² and multiples of 16; Kontext: to the preferred resolution of the
   aspect ratio); Sharplight resizes them to the output size, which is the same when the reference has the output's size.
 - Verification: the tiny FLUX.2 Klein pipeline with one reference against `Flux2KleinPipeline(image=[…])` from the same noise above 40 dB on CPU
-  and Vulkan (`TinyFlux2Tests.EditMatchesDiffusers`).
+  and Vulkan (`TinyFlux2Tests.EditMatchesDiffusers`). FLUX.1 Kontext dev (QuantStack's Q8_0 GGUF, recognized by its name, with the FLUX.1
+  companions CLIP-L, T5-XXL Q8_0 and the VAE; tools/make-flux-kontext-references.py, `FluxKontextTests`): the transformer with a reference
+  3.0e-4 relative RMS from diffusers; an edit at 1024 ("turn the horse into a zebra", 20 steps, embedded guidance 2.5, same latents) 23.9 dB
+  from `FluxKontextPipeline` on the same files, the same picture (the zebra's stripe edges drift apart; 14 dB from the input), 45 s warm.
+- Studio: the Image page shows an "Image to edit" input when the loaded model edits (`ImageGenerationDefaults.ReferenceImages`), hides image to
+  image and inpainting while a picture is set, and keeps the picture's size (`ImageEditModeTests` with the tiny FLUX.2 pipeline).
+- GGUF text encoders (2026-11-17): the encoders of Z-Image and FLUX.2 Klein 4B are exactly Qwen/Qwen3-4B, Krea 2's exactly
+  Qwen/Qwen3-VL-4B-Instruct (tensor hashes), so unsloth's Q8_0 GGUFs serve as companions: against the pipelines' encoders 5.7e-3 (Z-Image),
+  1.2e-2 / 2.0e-2 (Klein, all 512 rows), 1.3e-2 (Krea 2), Qwen-Image with Qwen2.5-VL-7B Q8_0 1.3e-2 (`GgufTextEncoderMatches*`). Keeping f32
+  activations changed none of these materially (it does for Mistral Small 3.2 under FLUX.2 Dev, above), so only FLUX.2 Dev keeps them;
+  FLUX's T5 graph always did.
 
 ### Krea 2
 
@@ -1979,7 +1989,7 @@ Verification (tools/make-tiny-krea2.py, tools/make-krea2-references.py; `TinyKre
 <a id="lora"></a>
 LoRAs are merged at load (2026-11-16): a LoRA file is an auxiliary source (role `lora`, `lora:2`, ...; `lora@0.8` for strength 0.8) whose
 `FormatData` is an `IWeightPatch`; `WeightPatches.Merge` (Core, before any adapter) replaces the targeted canonical weights with
-W + s · α / r · up · down, computed when the weight is read (quantized weights are decoded and become f16). `DiffusionLoraPatch`
+W + s · α / r · up · down, computed when the weight is read (quantized weights are decoded and re-encoded as Q8_0 where the rows are multiples of 32, f16 otherwise). `DiffusionLoraPatch`
 (Import.Diffusers) maps modules through the importer's own name mappings: kohya names are re-dotted by known multi-word names
 (`KohyaNames`), SDXL's SGM UNet names mapped as diffusers' `_maybe_map_sgm_blocks_to_diffusers`; diffusers / PEFT names go through
 `DiffusersNames` (UNet, CLIP), `FluxNames` (q / k / v and the single blocks' MLP input as row blocks of the fused projections) or
@@ -1989,6 +1999,13 @@ Verification (tools/make-tiny-lora.py, `TinyLoraTests`): random rank-4 LoRAs (α
 pipelines against diffusers' `load_lora_weights` from the same noise: SD 1.5 kohya and PEFT (UNet attention / MLP, text encoder) 82 dB
 (CPU) / 76 dB (Vulkan); SDXL kohya (SGM names, both text encoders) and PEFT 44 / 41 dB; FLUX kohya (original names, fused q/k/v) and PEFT
 81–85 / 75 dB; the unadapted image is 11–14 dB away.
+
+Krea 2 LoRAs (2026-11-17): diffusers / PEFT names (`transformer.transformer_blocks.{i}.attn.to_q`, `text_fusion.*`, as ComfyUI's Krea 2 style
+LoRAs) and the original Krea names map through `Krea2Names`. A LoRA on every linear of a quantized transformer used to turn the merged weights
+into f16 (Krea 2 Q8_0: 26 GB, more than the GPU); merged quantized weights are now re-encoded as Q8_0 (`Q8Blocks`) where the rows are
+multiples of 32. ComfyUI's `krea2_darkbrush.safetensors` (rank 32, every linear incl. the text fusion) on realrebelai's Q8_0 GGUF at 1024, 8 steps,
+against diffusers' `load_lora_weights` on the same files: 23.3 dB, the same picture (the brush texture keeps the PSNR low); 7.8 dB from the
+image without the LoRA (`Krea2Tests.LoraMatchesDiffusers`).
 
 ## 18. Video generation (2026-11-16)
 

@@ -259,11 +259,32 @@ internal sealed unsafe class BinaryOp : CpuOp
                 }
             }
         }
+        // Arm64: the same exact element-wise ops on 128-bit NEON vectors (Vector256 is not accelerated there).
+        if (CpuIsa.UseNeon && (sa == 1 || sa == 0) && (sb == 1 || sb == 0) && (sa | sb) != 0)
+        {
+            var av = Vector128.Create(*a);
+            var bv = Vector128.Create(*b);
+            for (; i + 4 <= n; i += 4)
+            {
+                Op(k, sa == 1 ? Vector128.Load(a + i) : av, sb == 1 ? Vector128.Load(b + i) : bv).Store(y + i);
+            }
+        }
+
         for (; i < n; i++)
         {
             y[i] = OpS(k, a[i * sa], b[i * sb]);
         }
     }
+
+    private static Vector128<float> Op(BinaryKind k, Vector128<float> a, Vector128<float> b) => k switch
+    {
+        BinaryKind.Add => a + b,
+        BinaryKind.Sub => a - b,
+        BinaryKind.Mul => a * b,
+        BinaryKind.Div => a / b,
+        BinaryKind.Max => Vector128.Max(a, b),
+        _ => Vector128.Min(a, b),
+    };
 
     private static Vector256<float> Op(BinaryKind k, Vector256<float> a, Vector256<float> b) => k switch
     {

@@ -27,6 +27,12 @@ public sealed class LoweringOptions
     /// fewer units fills its waves with fewer tiles, and a split it does not need only adds partial sums and a reduction.
     /// </summary>
     public int ComputeUnits { get; init; }
+    /// <summary>
+    /// True (default) when workgroups of one dispatch can hand results to each other through device-scope fences and atomics (a
+    /// workgroup publishes partial results, the last one to arrive acquires and merges them). False on Metal, whose memory model
+    /// only has relaxed atomics and threadgroup-scope barriers within a dispatch: kernels then merge in a separate launch.
+    /// </summary>
+    public bool CrossWorkgroupFences { get; init; } = true;
     /// <summary>Model-level compile options (symbol bounds, context length, precision policy).</summary>
     public required CompileOptions Compile { get; init; }
     /// <summary>Model-level compilation cache for this device (see <see cref="CompileOptions.CacheFor"/>).</summary>

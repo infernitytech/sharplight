@@ -49,8 +49,10 @@ internal sealed class EngineModelRuntime : IModelRuntime
         _useCompilationCache = useCompilationCache ?? (() => true);
         var discovered = DeviceCatalog.Discover(engine.Providers);
         _physical = [.. discovered.Select(entry => entry.Option)];
+        // Only GPUs of the preferred provider are split over: on a Mac the Metal and the Vulkan (MoltenVK) device are the same GPU.
         var gpus = _physical.Where(device => device.IsGpu).ToList();
-        Devices = gpus.Count > 1 ? [.. gpus, ComputeDeviceOption.AllGpus(gpus), .. _physical.Where(device => !device.IsGpu)] : _physical;
+        var splittable = gpus.Where(device => device.Provider == gpus[0].Provider).ToList();
+        Devices = splittable.Count > 1 ? [.. gpus, ComputeDeviceOption.AllGpus(splittable), .. _physical.Where(device => !device.IsGpu)] : _physical;
         _devices = discovered.ToDictionary(entry => entry.Option.Id, entry => (entry.Provider, entry.Info));
         _residency = residency;
         _resolve = resolve;

@@ -41,6 +41,12 @@ public sealed class SlangCompiler : IDisposable
     /// </summary>
     public static string CompilerId => "slang-" + Version;
 
+    /// <summary>
+    /// Start of the first line of every kernel compiled for <see cref="ShaderTarget.Metal"/>, followed by the threadgroup size of the
+    /// entry point (<c>// sharplight-threads: 256 1 1</c>): Metal takes it at dispatch, the MSL source does not state it.
+    /// </summary>
+    public const string MetalThreadsHeader = "// sharplight-threads: ";
+
     /// <summary>Prefix of the model-level cache keys of compiled kernels (<c>kernel/&lt;content hash&gt;</c>).</summary>
     public const string KernelKeyPrefix = "kernel/";
 
@@ -150,7 +156,16 @@ public sealed class SlangCompiler : IDisposable
         Check(session.CreateCompositeComponentType([module, ep], out var composite, out diag), "compose", diag);
         Check(composite.Link(out var linked, out diag), "link", diag);
         Check(linked.GetEntryPointCode(0, 0, out var code, out diag), $"codegen {name}:{entryPoint}", diag);
-        return code.Buffer.ToArray();
+        if (target != ShaderTarget.Metal)
+        {
+            return code.Buffer.ToArray();
+        }
+
+        // MSL has no threadgroup-size attribute: the dispatch passes it, so the code carries the entry point's [numthreads] in a header line.
+        Span<nuint> threads = stackalloc nuint[3];
+        linked.GetLayout(0, out diag).GetEntryPointByIndex(0).GetComputeThreadGroupSize(threads);
+        var header = Encoding.UTF8.GetBytes($"{MetalThreadsHeader}{threads[0]} {threads[1]} {threads[2]}\n");
+        return [.. header, .. code.Buffer];
 
         void Check(SlangResult r, string what, ISlangBlob? d)
         {

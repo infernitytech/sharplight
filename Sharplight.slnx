@@ -6,6 +6,7 @@
     <Project Path="src/Sharplight.Import.PyTorch/Sharplight.Import.PyTorch.csproj" />
     <Project Path="src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
+    <Project Path="src/Sharplight.Metal/Sharplight.Metal.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <Project Path="src/Sharplight.Vulkan.MoltenVK/Sharplight.Vulkan.MoltenVK.csproj" />
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
@@ -71,6 +72,7 @@
     <Project Path="tests/Sharplight.Studio.Tests/Sharplight.Studio.Tests.csproj" />
     <Project Path="tests/Sharplight.TextToSpeech.Tests/Sharplight.TextToSpeech.Tests.csproj" />
     <Project Path="tests/Sharplight.AudioModels.Tests/Sharplight.AudioModels.Tests.csproj" />
+    <Project Path="tests/Sharplight.Metal.Tests/Sharplight.Metal.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
     <Project Path="tests/Sharplight.Vision.Tests/Sharplight.Vision.Tests.csproj" />
     <Project Path="tests/Sharplight.ImageGeneration.Tests/Sharplight.ImageGeneration.Tests.csproj" />

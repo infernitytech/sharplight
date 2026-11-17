@@ -54,6 +54,26 @@ public sealed class SampleRuntime : IDisposable
     /// <exception cref="SampleException">No matching provider is available on this machine.</exception>
     public IExecutionProvider SelectProvider(bool cpu) => SelectProvider(Providers, cpu);
 
+    /// <summary>
+    /// Returns the provider for <paramref name="settings"/>: the CPU provider with <see cref="RuntimeSettings.UseCpu"/>, the named provider
+    /// with <see cref="RuntimeSettings.ProviderName"/>, otherwise the first available GPU provider.
+    /// </summary>
+    /// <param name="settings">The runtime settings.</param>
+    /// <returns>The provider; owned by the runtime.</returns>
+    /// <exception cref="SampleException">No matching provider is available on this machine.</exception>
+    public IExecutionProvider SelectProvider(RuntimeSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (settings.UseCpu || settings.ProviderName is null)
+        {
+            return SelectProvider(Providers, settings.UseCpu);
+        }
+
+        return Providers.TryFind(settings.ProviderName, out var provider)
+            ? provider
+            : throw new SampleException($"The provider '{settings.ProviderName}' is not available: " + string.Join("; ", Providers.Discover().Select(d => $"{d.Provider.Name}: {d.Availability.Reason}")));
+    }
+
     /// <summary>Returns the first available provider of <paramref name="providers"/>: the CPU provider when <paramref name="cpu"/> is set, otherwise a GPU provider.</summary>
     /// <param name="providers">The providers of a container.</param>
     /// <param name="cpu">Select the CPU provider.</param>

@@ -15,7 +15,7 @@ public sealed class WorkgroupMatrixGemmTests
     public void MatchesCpu(string fmt, int K, int N)
     {
         Gpu.Require();
-        Assert.SkipUnless(Gpu.Vulkan!.EnabledFeatures.Contains(Runtime.DeviceFeatures.MatrixWorkgroup), "device has no workgroup-scope matrices");
+        Assert.SkipUnless(Gpu.Device!.EnabledFeatures.Contains(Runtime.DeviceFeatures.MatrixWorkgroup), "device has no workgroup-scope matrices");
         bool old = Shaders.Lowering.GraphLowerer.PreferWorkgroupMatrixGemm;
         Shaders.Lowering.GraphLowerer.PreferWorkgroupMatrixGemm = true;
         try

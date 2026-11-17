@@ -3,7 +3,10 @@ using Sharplight.Studio.Models;
 
 namespace Sharplight.Studio.Services.Runtime;
 
-/// <summary>Lists the devices of the available execution providers, GPUs first.</summary>
+/// <summary>
+/// Lists the devices of the available execution providers, GPUs first and otherwise in the catalog's preference order (on Apple silicon
+/// the Metal device ahead of the same GPU through Vulkan / MoltenVK), so the first entry is the default device.
+/// </summary>
 internal static class DeviceCatalog
 {
     /// <summary>Every device of every available provider; providers that fail to enumerate are skipped.</summary>
@@ -37,6 +40,7 @@ internal static class DeviceCatalog
             }
         }
 
-        return [.. found.OrderBy(entry => entry.Item1.IsGpu ? 0 : 1).ThenBy(entry => entry.Item1.Id, StringComparer.Ordinal)];
+        // OrderBy is stable: within GPUs and CPUs the providers keep their registration (preference) order.
+        return [.. found.OrderBy(entry => entry.Item1.IsGpu ? 0 : 1)];
     }
 }
