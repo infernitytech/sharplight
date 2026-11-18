@@ -86,6 +86,10 @@ internal static class MappedFamilyCases
         // Gemma 3n language model: four AltUp streams, LAuReL, per-layer embeddings, activation sparsity in the first two layers, KV sharing
         // (tools/mk_tiny_gemma3n.py, float32 with wider weights than the published bfloat16 tiny model).
         new("tiny-random-gemma-3n-wide HF (gemma3n_text, transformers)", "hf/tiny-random-gemma-3n-wide", Prompt, "ids", Gemma3nIds, ""),
+        // Gemma 3's vision-language checkpoint layout (Gemma3ForConditionalGeneration, model_type gemma3): its text decoder only
+        // (language_model.* weights, the vision tower and projector skipped); transformers' greedy ids of the full model.
+        new("tiny-random-gemma-3 HF (gemma3, Gemma3ForConditionalGeneration text decoder, transformers)", "hf/tiny-random-gemma-3", Prompt, "ids",
+            [.. Enumerable.Repeat(220173, 24)], ""),
         // The same checkpoint converted with convert_hf_to_gguf.py (gemma3n: stacked AltUp projections, sparsity as Φ⁻¹ cutoffs). llama.cpp cannot load
         // it (it fixes the per-layer input width at 256 and the LAuReL rank at 64), so the GGUF is checked against the transformers ids and the real
         // E2B checkpoint below against llama.cpp b11177.
