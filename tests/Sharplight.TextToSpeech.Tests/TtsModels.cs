@@ -58,8 +58,22 @@ internal static class TtsModels
         }
     }
 
-    /// <summary>Opens the CPU device or the first GPU device (skipping the test when there is none).</summary>
+    private static readonly Lazy<DeviceSlot?> s_cpu = new(() => OpenFirst(gpu: false));
+    private static readonly Lazy<DeviceSlot?> s_gpu = new(() => OpenFirst(gpu: true));
+
+    /// <summary>
+    /// The CPU device or the first GPU device, opened once and shared by every test of the assembly (skipping the test when there is
+    /// none). Models do not own their devices: a device per test would stay alive until the process exits, and the GPU driver refuses
+    /// new devices after a few dozen live ones (<c>ErrorInitializationFailed</c>).
+    /// </summary>
     public static DeviceSlot Open(bool gpu)
+    {
+        var slot = (gpu ? s_gpu : s_cpu).Value;
+        Assert.SkipWhen(slot is null, gpu ? "No GPU provider is available" : "The CPU provider is not available");
+        return slot!;
+    }
+
+    private static DeviceSlot? OpenFirst(bool gpu)
     {
         foreach (var (provider, availability) in Services.GetRequiredService<ExecutionProviderCatalog>().Discover())
         {
@@ -69,8 +83,7 @@ internal static class TtsModels
             }
         }
 
-        Assert.Skip(gpu ? "No GPU provider is available" : "The CPU provider is not available");
-        return null!;
+        return null;
     }
 
     /// <summary>Loads the OuteTTS pair as a task model.</summary>

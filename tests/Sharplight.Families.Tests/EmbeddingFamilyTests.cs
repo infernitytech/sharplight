@@ -86,9 +86,12 @@ public class EmbeddingFamilyTests
         var expected = root.GetProperty("embeddings").EnumerateArray().Select(a => a.EnumerateArray().Select(e => (float)e.GetDouble()).ToArray()).ToList();
         string pooling = root.GetProperty("pooling").GetString()!;
 
+        // The test owns the device (models do not): disposed after the embedder, so no device outlives the test.
+        var slot = Device(vulkan);
+        using var device = slot.Device;
         using var embedder = EmbeddingModel.Load(TestHost.Loader, path, new EmbeddingLoadOptions
         {
-            Devices = [Device(vulkan)], Pooling = pooling, Normalize = false, MaxBatchTokens = 256, MaxBatchSequences = 8,
+            Devices = [slot], Pooling = pooling, Normalize = false, MaxBatchTokens = 256, MaxBatchSequences = 8,
         });
         var result = embedder.EmbedTokens(inputs);
         for (int i = 0; i < inputs.Count; i++)
