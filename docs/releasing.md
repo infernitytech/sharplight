@@ -16,6 +16,7 @@
 | `ci.yml` | push to `develop`, `main`, `release/**`; pull requests | restore, build, run every test suite that works on a hosted runner (not the Vulkan and ONNX conformance suites) |
 | `packages.yml` | same | pack the NuGet libraries (artifact). **Publishes to nuget.org only on `release/**` pushes** (trusted publishing, environment `nuget`, variable `NUGET_USER`); never from `develop`, `main` or a pull request. `develop` pushes also publish the prerelease packages to the GitHub Packages feed once CI is green for that commit (see [Prerelease feed](#prerelease-feed)) |
 | `studio.yml` | same (not for documentation-only changes) | Studio packages for 5 runtimes on native runners. `develop` push: upload to R2, channels `<rid>-unstable`. `release/**` push: upload to R2, channels `<rid>-stable`, and attach the installers to the GitHub release `v<version>`. `main` and pull requests: build only. Job `catalog`: validates `catalog/verified-models.json` and, on `develop` pushes, uploads it to R2 as `catalog/verified-models.json` (docs/verified-catalog.md) |
+| `studio-published-smoke.yml` | after every successful `Studio` run on `develop`, nightly, manual | Tests the packages users get ([Published-build smoke test](#published-build-smoke-test)): downloads the newest unstable package of Linux x64, Windows x64 and macOS ARM64 from the update feed, starts it headless and runs `--smoke` |
 
 ## Release procedure
 
@@ -101,6 +102,31 @@ the organization (Packages tab) or `dotnet package search Sharplight --source sh
     </sharplight-prerelease>
   </packageSourceCredentials>
   ```
+
+## Published-build smoke test
+
+Rule: test the builds users get, not the builds CI made. `studio-published-smoke.yml` runs after every successful `Studio` workflow
+on `develop` (so the packages are on R2), nightly, and on demand (*Run workflow*, with a channel choice). On `ubuntu-24.04`,
+`windows-latest` and `macos-15` it runs `packaging/smoke/studio-published-smoke.sh <rid> <out>`:
+
+1. reads the Velopack feed `releases.<rid>-unstable.json` at `download.sharplight.dev/studio` and takes the newest full release,
+   as the in-app updater does;
+2. after a `Studio` run, checks that the version is built from the commit that just published (`...-alpha.g<commit>`), or from a
+   newer commit on top of it; a different version fails the job;
+3. downloads the installer of the OS (Linux: the AppImage; Windows: the portable zip, and the `Setup.exe` is checked to exist;
+   macOS: the portable zip with the `.app`, and the `.pkg` is checked to exist);
+4. starts it headless: Linux under Xvfb with `libegl1` and the Mesa software Vulkan driver (lavapipe) installed, Windows and macOS
+   plainly (the macOS bundle gets an ad-hoc signature when it has none, as Apple Silicon requires). Storage is portable in a
+   temporary folder (the `sharplight.portable` marker next to the AppImage or `Update.exe`; on macOS `SHARPLIGHT_HOME` in the
+   temporary folder, so the bundle stays untouched); `--print-storage` must say *Portable* where the marker is used;
+5. runs `sharplight-studio --smoke --smoke-report report.json` (see [studio.md](studio.md#smoke-mode)) and checks that the
+   report passed and states the version of the feed.
+
+The job uploads the artifact `studio-smoke-<rid>`: `report.json`, `storage.txt`, `run.txt` and `logs/` (the Studio log folder). The
+repository does not use issues for CI, so a failure only fails the run (and the step summary lists the steps). Run the script
+locally (`packaging/smoke/studio-published-smoke.sh linux-x64 out`, needs `xvfb-run` and `jq`) to reproduce a Linux failure.
+`workflow_run` and `schedule` triggers run the workflow file of the default branch: the nightly and after-publish runs start once
+the file is on `main`; manual runs work from any branch.
 
 ## Studio update channels and Cloudflare R2
 
