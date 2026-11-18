@@ -88,7 +88,8 @@ public sealed class InferenceEngine : IDisposable
     // blocks wait for them instead of computing them twice) and, for models with recurrent state, the block boundaries whose state
     // should be snapshotted (shared prefixes seen at admission and the ends of prompts).
     private readonly Dictionary<UInt128, EngineSequence> _computing = [];
-    private readonly HashSet<UInt128> _wantSnapshot = [];
+    private readonly HashSet<UInt128> _wantSnapshot = [];     // ends of prefixes shared with other contexts
+    private readonly HashSet<UInt128> _wantPromptEnd = [];    // ends of prompts (a conversation's next turn)
 
     // Scratch of the scheduler thread, reused every step.
     private readonly List<SequenceInput> _inputs = [];
@@ -133,6 +134,11 @@ public sealed class InferenceEngine : IDisposable
     /// of a slot's share of the pool, so that a small pool still runs several sequences.
     /// </summary>
     private const int KvGrowthReserve = 64;
+    /// <summary>
+    /// Recurrent-state snapshot boundaries of one prompt closer than this many tokens (at most half the snapshot interval) are merged into
+    /// one: each costs the prompt a pass.
+    /// </summary>
+    private const int SnapshotMinGap = 256;
     /// <summary>Vocabulary size of the served model (length of a logits row; the domain of token masks).</summary>
     public int VocabSize => _decoder.VocabSize;
     /// <summary>True once <see cref="DrainAsync"/> or <see cref="Dispose"/> began: new requests are rejected.</summary>
@@ -797,9 +803,10 @@ public sealed class InferenceEngine : IDisposable
     {
         var hashes = seq.PromptHashes!;
         int bs = _decoder.KvBlockSize;
-        if (_wantSnapshot.Count > 4 * _slots.Length + 64)
+        if (_wantSnapshot.Count + _wantPromptEnd.Count > 4 * _slots.Length + 64)
         {
             _wantSnapshot.Clear();   // boundaries of requests that ended before reaching them
+            _wantPromptEnd.Clear();
         }
 
         if (shared * bs > pos)
@@ -813,7 +820,7 @@ public sealed class InferenceEngine : IDisposable
         int end = (seq.Prompt.Length - 1 - bs) / bs;
         if (end > 0 && end * bs > pos && end <= hashes.Count)
         {
-            _wantSnapshot.Add(hashes[end - 1]);
+            _wantPromptEnd.Add(hashes[end - 1]);
         }
     }
 
@@ -871,10 +878,11 @@ public sealed class InferenceEngine : IDisposable
         }
 
         var last = slot.BlockHashes[^1];
-        if (SnapshotsState && slot.Tokens.Count == slot.BlockHashes.Count * _decoder.KvBlockSize && _wantSnapshot.Contains(last)
+        if (SnapshotsState && slot.Tokens.Count == slot.BlockHashes.Count * _decoder.KvBlockSize && (_wantSnapshot.Contains(last) || _wantPromptEnd.Contains(last))
             && _decoder.SaveKvStateSnapshot(slot.Index, last))
         {
             _wantSnapshot.Remove(last);
+            _wantPromptEnd.Remove(last);
             Metrics.StateSnapshot();
         }
     }
@@ -906,28 +914,44 @@ public sealed class InferenceEngine : IDisposable
             }
         }
 
-        if (SnapshotsState && _opt.StateSnapshotInterval >= bs)
+        if (SnapshotsState)
         {
-            // Periodic snapshot boundaries (like vLLM's block-aligned Mamba states): the chunk ends at the next one inside the prompt's
-            // full blocks.
-            int interval = _opt.StateSnapshotInterval / bs * bs;
-            int next = (pos / interval + 1) * interval;
-            if (next < end && next / bs <= hashes.Count)
-            {
-                end = next;
-                _wantSnapshot.Add(hashes[next / bs - 1]);
-            }
-        }
-
-        if (SnapshotsState && _wantSnapshot.Count > 0)
-        {
+            // Snapshot boundaries: ends of prefixes shared with other contexts, and the cheaper-to-lose periodic ones (every
+            // StateSnapshotInterval tokens, like vLLM's block-aligned Mamba states) and prompt ends. Each costs this prompt one more pass, so
+            // boundaries closer than SnapshotMinGap are merged: a shared-prefix end wins, else the last of them.
+            int interval = _opt.StateSnapshotInterval >= bs ? _opt.StateSnapshotInterval / bs * bs : 0;
+            int gap = interval > 0 ? Math.Min(SnapshotMinGap, interval / 2) : SnapshotMinGap;
+            int first = -1, soft = -1, shared = -1;
             for (int j = pos / bs; j < hashes.Count && (j + 1) * bs < end; j++)
             {
-                if ((j + 1) * bs > pos && _wantSnapshot.Contains(hashes[j]))
+                int b = (j + 1) * bs;
+                bool isShared = _wantSnapshot.Contains(hashes[j]);
+                if (b <= pos || !(isShared || (interval > 0 && b % interval == 0) || _wantPromptEnd.Contains(hashes[j])))
                 {
-                    end = (j + 1) * bs;
+                    continue;
+                }
+
+                if (first >= 0 && b - first > gap)
+                {
                     break;
                 }
+
+                first = first < 0 ? b : first;
+                if (isShared)
+                {
+                    shared = shared < 0 ? b : shared;
+                }
+                else
+                {
+                    soft = b;
+                }
+            }
+
+            int clip = shared > 0 ? shared : soft;
+            if (clip > 0)
+            {
+                end = clip;
+                _wantPromptEnd.Add(hashes[clip / bs - 1]);
             }
         }
 
