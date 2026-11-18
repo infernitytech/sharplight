@@ -1,0 +1,3 @@
+[N=512] prefill 512 tok: best 49 ms = 10468.4 tok/s | decode: best 87.86, median 87.45, mean 87.39 tok/s | GPU ms/step: best 11.25, median 11.30, wall best 11.38 | prefill median of 5: 49.9 ms = 10260.5 tok/s
+[N=2048] prefill 2048 tok: best 185 ms = 11090.3 tok/s | decode: best 86.42, median 85.78, mean 85.63 tok/s | GPU ms/step: best 11.44, median 11.47, wall best 11.57 | prefill median of 5: 191.9 ms = 10672.7 tok/s
+[N=8192] prefill 8192 tok: best 894 ms = 9158.4 tok/s | decode: best 78.18, median 77.46, mean 77.52 tok/s | GPU ms/step: best 12.68, median 12.72, wall best 12.79 | prefill median of 5: 901.6 ms = 9086.1 tok/s

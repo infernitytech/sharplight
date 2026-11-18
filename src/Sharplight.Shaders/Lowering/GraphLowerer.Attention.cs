@@ -633,13 +633,13 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Whether flash attention over f32 K/V runs in the split-f16 form (FA_SPLIT: hi·hi + hi·lo + lo·hi products, near-f32
-    /// accuracy): under strict precision, unless disabled with <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c> or by the node
-    /// (<see cref="StandardOps.F32ProductsAttribute"/>). Reduced precision and fast
-    /// matrix precision use single f16 products.
+    /// accuracy): under strict precision, unless disabled with <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c>. Each query row, key row and V
+    /// tile whose largest magnitude is outside [2^-6, 2^15) is scaled by a power of two into f16's range before the split, so any
+    /// magnitude keeps its accuracy (in range they are split unscaled, as validated). Reduced precision
+    /// and fast matrix precision use single f16 products.
     /// </summary>
     private bool SplitFlash(AttentionPlan plan)
-        => plan.K.Type == DataType.F32 && !ReducedPrecision(plan) && !FastMatrixProducts && DiagnosticSwitches.AttentionSplitHalf
-           && !plan.Node.Attributes.Get(StandardOps.F32ProductsAttribute, false);
+        => plan.K.Type == DataType.F32 && !ReducedPrecision(plan) && !FastMatrixProducts && DiagnosticSwitches.AttentionSplitHalf;
 
     /// <summary>Whether f16 products are allowed: by the compile options or by the node (<see cref="StandardOps.F16ProductsAttribute"/>).</summary>
     private bool ReducedPrecision(AttentionPlan plan)

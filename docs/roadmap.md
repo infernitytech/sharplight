@@ -14,10 +14,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   weights after the MMAs instead of at the fetch (bf16 GEMMs +10-14 %) and lets the dual GEMM store the down projection's f16
   input. pp2048 is now at 1.02x (Qwen3-0.6B), 1.02x (Llama-1B), 0.90x (Qwen3-8B bf16) and 0.74x (FP8) of
   vLLM; pp8192 at 0.91x / 0.93x / 0.89x / 0.74x (same statistic on both sides, median of 5: pp2048 1.05x / 0.98x / 0.87x /
-  0.72x; GGUF against llama.cpp 1.65x / 1.02x / 0.93x for Qwen3-0.6B Q8_0 / Llama-1B Q8_0 / Qwen3-8B Q4_K_M, §40.9). Decode is level. Next: the bf16 and FP8 GEMMs'
-  fetch (the down projection's fetch alone takes as long as its MMAs, 2.1 TB/s from L2; the FP8 GEMM runs one workgroup per
-  SM, so loads and MMAs overlap only partly), stream-K without a reduction launch for grids of 1-3 waves, norms writing the
-  f16 / E4M3 activations directly at prefill sizes, the K/V staging of the attention kernel.
+  0.72x; GGUF against llama.cpp 1.65x / 1.02x / 0.93x for Qwen3-0.6B Q8_0 / Llama-1B Q8_0 / Qwen3-8B Q4_K_M, §40.9). Decode is level.
+  Round 6 (§42): per-model gap table with the identical procedure (Qwen3-8B bf16 0.87-0.89x, Llama-3.1-8B bf16 0.86-0.89x,
+  Qwen3-8B-FP8 0.71-0.74x of vLLM; Llama-3.1-8B Q4_K_M 0.91x → 0.97x and Qwen3.8-27B Q8_0 0.94-1.00x of llama.cpp; decode
+  1.00-1.05x); the dual gate / up GEMM now serves quantized weights; stream-K in one launch was built and measured (no gain
+  end to end, not kept); the FP8 GEMM is bound by L2 fetch bandwidth against MMAs at ~335 TFLOPS (§42.3). Next: the FP8 and
+  bf16 GEMM fetch (bigger tiles with less L2 traffic per FLOP), norms writing the f16 / E4M3 activations at prefill sizes,
+  the K/V staging of the attention kernel, Gemma-3 from Hugging Face.
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs
