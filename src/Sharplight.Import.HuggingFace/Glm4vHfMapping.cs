@@ -1,9 +1,10 @@
+using System.Text.Json;
 using Sharplight.Models;
 
 namespace Sharplight.Import.HuggingFace;
 
 /// <summary>
-/// GLM-4.1V (HF <c>glm4v</c>, <c>glm4v_text</c>) → canonical <c>decoder</c>: the GLM-4 language model of <see cref="Glm4HfMapping"/> (q/k/v
+/// GLM-4.1V and GLM-OCR (HF <c>glm4v</c>, <c>glm4v_text</c>, <c>glm_ocr</c>, <c>glm_ocr_text</c>; the OCR model's multi-token-prediction layer is not read) → canonical <c>decoder</c>: the GLM-4 language model of <see cref="Glm4HfMapping"/> (q/k/v
 /// biases, sandwich norms, rotary on interleaved pairs of the first <c>partial_rotary_factor</c> of each head) with sectioned, non-interleaved
 /// M-RoPE (<c>rope.sections</c> from <c>mrope_section</c>), plus the vision tower (<see cref="Glm4vVisionHfMapping"/>) when the checkpoint has a
 /// <c>vision_config</c>. Image prompts follow the Qwen-VL layout (<c>Qwen35Multimodal</c>) with <c>&lt;|image|&gt;</c> as the placeholder.
@@ -17,7 +18,7 @@ internal sealed class Glm4vHfMapping : IHfArchitectureMapping
     public string Architecture => _text.Architecture;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["glm4v", "glm4v_text"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["glm4v", "glm4v_text", "glm_ocr", "glm_ocr_text"];
 
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HuggingFaceImportOptions options)
@@ -36,7 +37,23 @@ internal sealed class Glm4vHfMapping : IHfArchitectureMapping
         }
 
         Glm4vVisionHfMapping.AddVisionHyperParameters(config, md, Architecture);
+        AddEndOfTurn(config, md);
         return md;
+    }
+
+    // GLM-OCR stops at <|endoftext|> and at <|user|> (eos_token_id lists both); the tokenizer's eos is <|endoftext|>, the other id ends the turn.
+    private static void AddEndOfTurn(HfConfig config, Dictionary<string, object> md)
+    {
+        if (config.Get("eos_token_id") is not { ValueKind: JsonValueKind.Array } ids)
+        {
+            return;
+        }
+
+        var all = ids.EnumerateArray().Select(e => e.GetInt32()).ToArray();
+        if (all.Length > 1)
+        {
+            md[CanonicalKeys.TokenizerEotId] = all[^1];
+        }
     }
 
     /// <inheritdoc/>

@@ -32,6 +32,9 @@ internal sealed class FakeRuntime : IModelRuntime
 
     public List<ModelLoadRequest> Requests { get; } = [];
 
+    /// <summary>Called with every model a load creates, before it is registered (to give it task clients).</summary>
+    public Action<FakeModel>? Customize { get; set; }
+
     public event EventHandler? ModelsChanged;
 
     public event EventHandler<RequestRecord>? RequestCompleted;
@@ -47,7 +50,9 @@ internal sealed class FakeRuntime : IModelRuntime
     {
         Requests.Add(request);
         progress?.Report(new LoadStatus(0.5, "Compiling kernels 1 / 2"));
-        ILoadedModel model = Add(new FakeModel(request.Id) { Settings = request.Settings, Kind = request.Kind, Auxiliary = request.Auxiliary ?? [] });
+        var created = new FakeModel(request.Id) { Settings = request.Settings, Kind = request.Kind, Auxiliary = request.Auxiliary ?? [] };
+        Customize?.Invoke(created);
+        ILoadedModel model = Add(created);
         return Task.FromResult(model);
     }
 

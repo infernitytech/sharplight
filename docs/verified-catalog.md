@@ -25,7 +25,7 @@ JSON, schema version 1. The JSON schema is `catalog/verified-models.schema.json`
     {
       "id": "flux.1-schnell",         // unique; lower case, digits, '.' and '-'
       "name": "FLUX.1-schnell",
-      "kind": "image-generation",     // Sharplight.Models.ModelKinds, or "embeddings"
+      "kind": "image-generation",     // Sharplight.Models.ModelKinds, "embeddings" or "reranker"
       "family": "FLUX.1",
       "architecture": "flux",
       "level": "verified",            // verified | partial | loads | verified-tiny (only verified and partial are installable)

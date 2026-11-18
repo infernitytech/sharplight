@@ -15,6 +15,8 @@ internal static class HfArchitectureMappings
         Register(new PaddleOcrVlHfMapping());
         Register(new DeepseekOcrHfMapping());
         Register(new Glm4vHfMapping());
+        Register(new Da3HfMapping());
+        Register(new RfDetrHfMapping());
         Register(new HunyuanVlHfMapping());
         Register(new CogVlmHfMapping());
         Register(new NemotronHHfMapping());
@@ -53,6 +55,7 @@ internal static class HfArchitectureMappings
         Register(new MimiHfMapping());
         Register(new Qwen3TtsTokenizerHfMapping());
         Register(new Qwen3TtsHfMapping());
+        Register(new CsmHfMapping());
         Register(new Sam2HfMapping());
         Register(new TrOcrHfMapping());
         Register(new Florence2HfMapping());

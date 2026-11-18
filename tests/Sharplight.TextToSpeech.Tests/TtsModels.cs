@@ -46,6 +46,12 @@ internal static class TtsModels
     /// <summary>Reference prompt, codes and logits of the official qwen_tts package (raw arrays, see <c>Qwen3TtsTests</c>).</summary>
     public static string Qwen3TtsReference => Path.Combine(s_root, "qwen3-tts-ref");
 
+    /// <summary>CSM-1B (the transformers checkpoint directory, with the Mimi codec bundled).</summary>
+    public static string Csm => Path.Combine(s_root, "csm-1b");
+
+    /// <summary>Reference ids, frames and logits of transformers' CSM (raw arrays, see <c>CsmTests</c>).</summary>
+    public static string CsmReference => Path.Combine(s_root, "csm-ref");
+
     /// <summary>A fixture file next to the test assembly.</summary>
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
@@ -58,8 +64,22 @@ internal static class TtsModels
         }
     }
 
-    /// <summary>Opens the CPU device or the first GPU device (skipping the test when there is none).</summary>
+    private static readonly Lazy<DeviceSlot?> s_cpu = new(() => OpenFirst(gpu: false));
+    private static readonly Lazy<DeviceSlot?> s_gpu = new(() => OpenFirst(gpu: true));
+
+    /// <summary>
+    /// The CPU device or the first GPU device, opened once and shared by every test of the assembly (skipping the test when there is
+    /// none). Models do not own their devices: a device per test would stay alive until the process exits, and the GPU driver refuses
+    /// new devices after a few dozen live ones (<c>ErrorInitializationFailed</c>).
+    /// </summary>
     public static DeviceSlot Open(bool gpu)
+    {
+        var slot = (gpu ? s_gpu : s_cpu).Value;
+        Assert.SkipWhen(slot is null, gpu ? "No GPU provider is available" : "The CPU provider is not available");
+        return slot!;
+    }
+
+    private static DeviceSlot? OpenFirst(bool gpu)
     {
         foreach (var (provider, availability) in Services.GetRequiredService<ExecutionProviderCatalog>().Discover())
         {
@@ -69,8 +89,7 @@ internal static class TtsModels
             }
         }
 
-        Assert.Skip(gpu ? "No GPU provider is available" : "The CPU provider is not available");
-        return null!;
+        return null;
     }
 
     /// <summary>Loads the OuteTTS pair as a task model.</summary>

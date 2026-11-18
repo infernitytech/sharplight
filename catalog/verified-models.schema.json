@@ -82,7 +82,8 @@
               "audio-separation",
               "audio-embedding",
               "music-generation",
-              "embeddings"
+              "embeddings",
+              "reranker"
             ]
           },
           "family": {

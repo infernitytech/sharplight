@@ -63,8 +63,9 @@ is chosen when it loads).
   the answer makes a new version with another seed, and editing the request generates again. The request and the picture are not
   sent to the language model in later turns. The Image page stays the place for sizes, steps, samplers, image-to-image and LoRAs.
 
-**Search.** Embeddings over a local folder of documents (see *Inference pages* below): choose a folder, *Index* it with a
-resident text embedding model, then ask questions and get the closest passages with their documents.
+**Search.** Embeddings over a local folder of documents (see *Inference pages* below): choose a folder, *Index* it once with a
+resident text embedding model (the index is stored and updated incrementally), then search by meaning, keywords or both, and *Ask* a
+chat model to answer from the passages with citations. Reads PDF, Word, PowerPoint, Excel, Markdown, HTML, text and source files.
 
 **Tasks.** One card per model kind (text generation, speech to text, text to speech, image generation, video generation, image
 classification, object detection, segmentation, depth estimation, OCR, upscaling, audio, embeddings, time series, 3D, bio,
@@ -516,18 +517,63 @@ of the side panel keep working as before (the last 200 runs).
 
 ![Image gallery](images/studio/studio-image-gallery.png)
 
-**Search** (text embeddings). The input is a folder; *Index* reads every supported document in it (PDF, DOCX, HTML, Markdown, text and
-source files, up to 5,000), cuts the text into overlapping passages (*Passage length* and *Overlap* in characters, cut at paragraph,
-sentence or word ends where possible), embeds them in batches with the chosen model and keeps the normalized vectors in memory
-(the index is for that model: switching models asks to index again). A question is embedded with the model's `query` prompt when it
-has one, and the *Results* closest passages (cosine similarity, shown as a score and a bar) are listed with their document, which
-*Open* shows in the system's program and *Copy* puts on the clipboard. Indexing and searching are runs of the queue (progress per
-document, cancel, history), the history restores a past search with its parameters, and every search keeps `results.json` in the
-outputs. Presets *Precise*, *Balanced* and *Context*. The index itself is not saved: it is rebuilt after a restart.
+**Search** (text embeddings). The input is a folder; *Index* reads every supported document in it (up to 5,000; `.git`, `.hg`, `.svn`
+and `node_modules` folders are skipped), cuts the text into overlapping passages (*Passage length* and *Overlap* in characters, cut at
+paragraph, sentence or word ends where possible, and **never across a structural boundary**), embeds them in batches with the chosen
+model and stores the result.
+
+- *Formats.* Markdown (sections under `#` headings; fenced code is never a heading), HTML (text only: scripts, styles, comments and tags
+  are dropped; sections under `<h1>`..`<h6>`), PDF (one section per page), DOCX (sections under Title and Heading paragraphs, tables as
+  `| cell | cell |` rows), PPTX (one section per slide, with the speaker notes), XLSX (one section per sheet, one line per row) and plain
+  text and source code (`.cs`, `.py`, `.js`, `.rs`, `.go`, `.sql`, ... and files such as `Dockerfile`). A passage keeps its page, slide or
+  sheet number, its line in the file (Markdown, text and source) and the heading it stands under, and the heading is embedded with the
+  passage. Libraries, all permissive: PdfPig 0.1.16 (Apache-2.0) for PDF, DocumentFormat.OpenXml 3.5.1 (MIT) for DOCX, PPTX and XLSX;
+  Markdown, HTML, text and source use no library. There is no copyleft code in the path (no GPL or AGPL, no MuPDF or similar).
+- *Limits.* A file above its limit is skipped and listed as unreadable with the reason (it is tried again when it changes): 16 MB for
+  text, Markdown, HTML and source, 128 MB for PDF and Office files, 3,000 PDF pages, slides or sheets per file, 20 million characters,
+  500,000 cells per sheet and at most 4,000 passages per file. Office files are zip packages: before a part is read the package is
+  refused when it has more than 10,000 parts, unpacks to more than 512 MB in total, or has a part above 8 MB compressed more than
+  200 to 1 (zip bombs); a damaged file is reported, not fatal.
+- *Stored index.* Each folder's index is one compact binary file, `indexes/<hash of the folder>.slsx`, in the Search page's folder of
+  the storage mode's data folder (`pages/search`; see *Storage modes*): the model's id, the passage settings, every file's
+  fingerprint (relative path, size, modification time, SHA-256), and every passage with its position and text and its embedding as
+  16-bit floats (about 2 bytes per dimension). It is written to a temporary file and moved into place, so an interrupted write never
+  damages the last index; a damaged or unknown file is ignored and the folder is indexed again. Choosing the folder (or restoring a
+  search from the history) loads its index in the background; a search then needs no indexing, also after a restart.
+- *Incremental updates.* *Index* on an indexed folder only works on what changed: a file whose size and modification time match is
+  kept; one with another time is hashed and re-embedded only when its content changed (a touched file keeps its passages); new files are
+  embedded; files that are gone are dropped. The run's history entry lists how many were added, changed and removed. The index belongs to
+  one embedding model and one passage setting: choosing another model (the hint says to index again) or changing *Passage length* or
+  *Overlap* embeds everything again.
+- *Progress, cancel and resume.* Indexing is a run of the queue (never on the UI thread): progress per document, *Cancel*, and
+  history. The index is stored every 25 files and when a run is cancelled, so the next *Index* resumes after the files already done
+  (they are unchanged).
+- *Watch.* With *Keep the index up to date while this page is open* on, the folder is watched; two seconds after the last change an
+  incremental update runs (when nothing else is running and an index of the chosen model exists; else it waits for the queue to be
+  idle). Leaving the page stops the watcher; coming back checks the folder once.
+- *Search modes.* *Semantic* ranks by cosine similarity of the embeddings (the question is embedded with the model's `query` prompt when
+  it has one). *Keyword* ranks by BM25 (k1 1.2, b 0.75, lower-cased letter and digit words) and does not use the model. *Hybrid* takes
+  the top 50 of each ranking and combines them by reciprocal rank fusion (`sum 1 / (60 + rank)`), which finds paraphrases and exact
+  names, numbers and error codes together. The score shown is the cosine similarity (semantic), the share of the best BM25 score
+  (keyword) or of the best possible fused score (hybrid); the reranker's own score when reranked.
+- *Results.* Each result shows its rank (`[1]`), score, file (relative to the folder), its place (`page 3`, `slide 2 · Results`,
+  `line 41 · Install`, `sheet 1 · Prices`) and the passage with the words of the question highlighted. *Open* opens the document in
+  the system's default program; where a program that takes a position is installed it opens at the place: VS Code (`code --goto
+  file:line`) for text, Markdown and source lines, Okular or Evince for PDF pages. Other viewers (and Word, PowerPoint, Excel) open at the
+  start. *Copy* puts the passage on the clipboard.
+- *Ask.* With a chat model resident (the *Chat model* picker appears), *Ask* runs the search as above, then the chat model answers from
+  the top *Results* passages: they are numbered `[1]`, `[2]`, ... in the prompt with their file and place, as many as fit the model's
+  context, and the model is told to use only them and to cite them. The answer streams into the *Answer* card (a run of the queue like
+  any other, so the page stays responsive and *Cancel* stops it); the `[n]` it cites become buttons under the answer that mark the
+  passage in the list. The answer and its mode are kept with the run, so the history shows it again.
+  Reasoning is off for the answer; the sampling is fixed (temperature 0.2, at most 700 tokens).
+
+Indexing and searching are runs of the queue (progress per document, cancel, history), the history restores a past search with its
+parameters, and every search keeps `results.json` in the outputs. Presets *Precise*, *Balanced* and *Context*.
 With a reranking model resident (kind *Reranker*, e.g. ms-marco-MiniLM-L6-v2, bge-reranker or Qwen3-Reranker), the *Rerank results*
-switch appears: a search then takes the nearest 4x *Results* passages (at least 20) from the index, scores each against the question
-with the reranker (a cross-encoder reads both together) and lists the best of them by the reranker's score; the run records the
-reranker in its metadata. The same model answers `/v1/rerank` (also `/v2/rerank`, `/rerank`) of the embedded server.
+switch appears: a search then takes the nearest 4x *Results* passages (at least 20) from the index (from the chosen mode), scores each
+against the question with the reranker (a cross-encoder reads both together) and lists the best of them by the reranker's score; the
+run records the reranker in its metadata. The same model answers `/v1/rerank` (also `/v2/rerank`, `/rerank`) of the embedded server.
 
 **Vision** (one page for `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`, `image-segmentation`, `ocr` and `image-upscaling`; the mode follows the
 kind of the chosen model, and the parameters that do not apply are hidden). Choose or drop an image (PNG through the engine's codec,
@@ -639,6 +685,23 @@ taken from, in this order:
 Without a URL the update checks are disabled, and the Settings section says so. All channels share that one folder; each has its
 own `releases.<channel>.json` feed.
 
+## Smoke mode
+
+`sharplight-studio --smoke [--smoke-report FILE]` starts the real services without a window (settings, storage, the log file, the update
+and feed services, the engine with every provider and format), then runs `Services/Smoke/SmokeRunner`:
+
+1. lists the devices (a CPU device must exist);
+2. lists the Sharplight model feed (verified, not from the cache) and finds `whisper-tiny`;
+3. installs it with its Silero VAD companion into the model store of the storage in effect;
+4. writes a short synthetic WAV and decodes it with the native audio library;
+5. loads the package on the CPU;
+6. transcribes the WAV once (the text is not checked, the whole path must run), then unloads.
+
+The first failing step ends the run. The JSON report (`Version`, `Os`, `Storage`, `Devices`, `Package`, `Steps`, `Passed`, `Error`)
+goes to the file, to standard output and, by default, to `smoke-report.json` in the log folder; the steps are in `studio.log`. Exit code 0
+means passed, 1 failed; a run is limited to ten minutes. CI runs it against the published packages of every OS
+([releasing.md](releasing.md#published-build-smoke-test)); `SmokeRunnerTests` runs the runner over fakes.
+
 ## Where things are kept
 
 Everything follows the storage location chosen in *Settings > Storage* (portable, system or custom; the full table per mode and
@@ -718,6 +781,7 @@ versions kept them.
   architecture, an mmproj projector, real quantized tensor tables read from a prefix, synthetic `Q8_K` and
   unknown type ids, quantized checkpoints, ONNX opsets read behind the graph), the result order, the per-quantization badges and the
   library's import errors;
+- the `--smoke` runner over a fake feed and runtime (steps, the first failing step, no CPU device, the JSON report);
 - update checks and the update dialog: auto and manual checks, up-to-date and failure messages, *Later*, download progress and
   restart (against a fake update service), the feed URL precedence, and a headless render of the dialog;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
@@ -725,12 +789,15 @@ versions kept them.
   speech, image and embedding models (every endpoint, models loaded after the start, the served switch, a model of another kind);
 - chat with voice and pictures over fake task clients (dictation into the prompt, read aloud with streaming playback and without
   markup, the `/image` command stored with the conversation and kept from the language model, regeneration, remembered model
-  choices) and the Search page (indexing, ranking, restoring a past search, a model switch, a failing embedder, the chunker);
+  choices) and the Search page (indexing, ranking, restoring a past search, a model switch, a failing embedder, the chunker, the stored
+  index and its incremental updates, BM25 and rank fusion, hybrid mode, highlighting and places, Ask with citations, watching), the
+  document parsers (one test per format over generated fixtures, size limits and zip bombs) and, over the real all-MiniLM-L6-v2, a
+  generated corpus in seven formats;
 - the shared inference blocks (presets saved as JSON and restored, the run queue's one-run-per-model order and cancellation, history and
   gallery persistence with open, export and delete) and the Transcribe and Speak pages over fake task clients (streamed segments, `.txt` /
   `.srt` / `.vtt` export, cancel and failure, microphone, voices, streaming playback, no-player fallback);
 - a headless render of every page that fails on binding errors;
-- `PageScreenshotTests`: one screenshot test per page, per Models tab and Discover source (Verified, Sharplight feed, Hub search) and per
+- `PageScreenshotTests`: one screenshot test per page (and the Search page after a hybrid Ask, with highlighted passages and cited answer), per Models tab and Discover source (Verified, Sharplight feed, Hub search) and per
   Settings tab, in the light and the dark theme at 1440 and 900 px wide, over demo data and a local test feed. Each fails on binding
   errors and on controls that are clipped or painted over their neighbours (`LayoutChecker`) and saves
   `studio-page-<page>-<theme>-<width>.png` to `SHARPLIGHT_STUDIO_SCREENSHOTS` (default `page-screenshots` next to the test binaries).
@@ -757,7 +824,21 @@ vocoder (speaks on the Speak page) through the real runtime, when the files are 
 (the microphone path with a fake device delivering `jfk.wav`, whisper-tiny dictation, a Qwen3-0.6B answer, Kokoro reading it aloud), the
 voice choice of Qwen3-TTS CustomVoice, `/image` with tiny-random-SD (PNG stored, kept out of the next turn), Search over text files with
 all-MiniLM-L6-v2 and reranking with ms-marco-MiniLM-L6-v2, and the embedded server answering transcriptions, speech, image generations,
-embeddings and rerank over HTTP. `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
+embeddings and rerank over HTTP. `StudioSpeechPagesRealTests`, `StudioVisionAudioRealTests`, `StudioImageVideoPagesRealTests` and `StudioModelsPageRealTests` do the same for the other inference pages
+(all skipped when a model is missing, driven through the view models on the real runtime and the fake audio device, with `jfk.wav` and the COCO picture of two cats and
+two remote controls as inputs):
+- Transcribe: whisper-tiny.en, Qwen3-ASR-0.6B and Parakeet; segment timestamps are ordered and inside the recording, and the saved `.srt` / `.vtt` files and the
+  gallery copy carry the same cues as the page.
+- Speak: Kokoro and Qwen3-TTS CustomVoice; the voice list, playing while generating through the fake speaker, and the WAV export.
+- Vision: ViT ranks cat labels first; DETR and RT-DETR find both cats (one left, one right) and a remote, the overlay differs from the input and a higher threshold
+  hides objects without a new run; Depth Anything V2 gives a colored map with a real range; SAM2 gives masks of object size; TrOCR reads the printed line.
+- Audio: EnCodec and Mimi round trip `jfk.wav` (more codebooks reconstruct better), Silero VAD finds the speech, MusicGen-small makes a short clip.
+- Image: seed reuse reproduces a picture, the gallery outlives the page, an input picture makes image to image and a mask makes inpainting. Video: tiny Wan and
+  tiny LTX give frames; the MP4 export is checked when the native video layer is installed (skipped otherwise).
+- Models: installs the five feed packages (chat, embedding, reranker, speech, voice activity) from the live feed, checks the library kind of each (a chat
+  package is never a reranker; a cross-encoder declared `embeddings` by an older package is refined to a reranker because it has a classify graph and no decode
+  graph), the kind filter, load and unload through the load panel, and the residency list; a theory checks the inspector's kind for 20 real model folders.
+`RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
 calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here. With
 `SHARPLIGHT_INSPECTOR_PACKAGES` (a list of `.slm` paths, separated like `PATH`), the inspector renders every tab of those
 packages in both themes.
@@ -779,7 +860,8 @@ packages in both themes.
   (see *Microphone and playback*); the real device backends were only tested through the null backend. Speech runs are not counted in the statistics page.
 - **Voice, pictures and search.** Dictation transcribes after the recording stops (it does not stream while you speak), the voice
   of read-aloud is the model's default (no voice choice in the chat), pictures in the chat use the model's default size and steps,
-  and the Search index lives in memory only. Studio loads text embedding models but not reranking models yet, so `/v1/rerank` is
+  and Search has no OCR (a scanned PDF without a text layer has no passages), reads no legacy formats (`.doc`, `.ppt`, `.xls`, `.odt`)
+  and opens a document at its page or line only through VS Code, Okular or Evince. Studio loads text embedding models but not reranking models yet, so `/v1/rerank` is
   mapped but answers only for a reranker on a host that has one. `/v1/audio/speech` answers `wav` and `pcm`, not `mp3`.
 - **Title bar.** Studio's own title bar is used on Linux only, where the window manager moves and resizes windows on request.
 - **GPU utilisation.** The "Engine busy" chart is the share of time the engines spend stepping, not GPU utilisation read from the

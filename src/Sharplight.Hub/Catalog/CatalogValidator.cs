@@ -14,7 +14,7 @@ public static partial class CatalogValidator
         ModelKinds.TextGeneration, ModelKinds.SpeechRecognition, ModelKinds.SpeechSynthesis, ModelKinds.ImageGeneration, ModelKinds.VideoGeneration,
         ModelKinds.ImageClassification, ModelKinds.ImageEmbedding, ModelKinds.ObjectDetection, ModelKinds.ImageSegmentation,
         ModelKinds.SemanticSegmentation, ModelKinds.DepthEstimation, ModelKinds.Ocr, ModelKinds.ImageUpscaling, ModelKinds.AudioCodec,
-        ModelKinds.VoiceActivity, ModelKinds.AudioSeparation, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, EmbeddingsKind,
+        ModelKinds.VoiceActivity, ModelKinds.AudioSeparation, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, EmbeddingsKind, RerankerKind,
     ];
 
     /// <summary>The companion roles.</summary>
@@ -24,8 +24,11 @@ public static partial class CatalogValidator
         AuxiliaryRoles.ThirdTextEncoder, AuxiliaryRoles.Vae, AuxiliaryRoles.Lora, AuxiliaryRoles.SecondTransformer, AuxiliaryRoles.ImageEncoder,
     ];
 
-    /// <summary>The kind of text embedding and reranking models (not a <see cref="ModelKinds"/> value).</summary>
+    /// <summary>The kind of text embedding models (not a <see cref="ModelKinds"/> value).</summary>
     public const string EmbeddingsKind = "embeddings";
+
+    /// <summary>The kind of reranking models, cross-encoders and decoder rerankers (not a <see cref="ModelKinds"/> value).</summary>
+    public const string RerankerKind = "reranker";
 
     /// <summary>Every problem found; empty when the catalog is consistent.</summary>
     /// <param name="catalog">The catalog to check.</param>
