@@ -18763,6 +18763,78 @@
       ]
     },
     {
+      "id": "qwen3-tts-tokenizer-12hz",
+      "name": "Qwen3-TTS Tokenizer 12Hz",
+      "kind": "audio-codec",
+      "family": "Qwen3-TTS",
+      "architecture": "qwen3_tts_codec",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 1187290239,
+          "companions": [],
+          "repository": "Qwen/Qwen3-TTS-Tokenizer-12Hz",
+          "revision": "7dd38ad4e9bad454aae9cd937d0cd577604fe229",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 2336,
+              "gitOid": "06cc8dc4c5ec8a1929086b71b98c313020d9268b"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 682293092,
+              "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 234,
+              "gitOid": "ba40914f4f49ab98a8ca545d4892ef7291a39592"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "qwen_tts",
+        "summary": "16-codebook codes token-exact (2000 of 2000), decoded audio relative RMS 6e-6",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "doc": [
+        {
+          "section": "6",
+          "cells": {
+            "repositories": "Qwen/Qwen3-TTS-Tokenizer-12Hz",
+            "kind": "codec"
+          }
+        }
+      ]
+    },
+    {
       "id": "silero-vad-v5",
       "name": "Silero VAD v5",
       "kind": "voice-activity",

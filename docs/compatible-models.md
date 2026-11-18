@@ -353,6 +353,7 @@ Reference: transformers (EnCodec, DAC, Mimi), onnxruntime and the `silero-vad` p
 | EnCodec 24 kHz | facebook/encodec_24khz | codec | codes token-exact at 6 kbps; decoder < 1e-3 relative RMS | 48 kHz model rejected; at 24 kbps up to 0.1 % of codes differ (near ties) | 2026-11-16 |
 | DAC 44 kHz | descript/dac_44khz | codec | codes token-exact, decoded audio < 1e-3 | | 2026-11-16 |
 | Mimi | kyutai/mimi | codec | codes token-exact for 8 and 32 stages | | 2026-11-16 |
+| Qwen3-TTS Tokenizer 12Hz | Qwen/Qwen3-TTS-Tokenizer-12Hz | codec | 16-codebook codes token-exact (2000 of 2000), decoded audio relative RMS 6e-6 | | 2026-11-18 |
 | Silero VAD v5 | snakers4/silero-vad (16 kHz ONNX) | voice activity | probabilities within 1e-3 of onnxruntime, segments identical | 8 kHz branch not imported; also used to pre-segment long speech recognition | 2026-11-16 |
 <!-- verified-catalog:end -->
 
