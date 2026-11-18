@@ -15,6 +15,7 @@ internal sealed unsafe class MemoryAllocator : IDisposable
     private readonly VulkanDevice _dev;
     private readonly List<MemoryBlock> _blocks = [];
     private readonly Lock _lock = new();
+    private bool _disposed;
     private readonly VkPhysicalDeviceMemoryProperties _props;
 
     public MemoryAllocator(VulkanDevice dev)
@@ -63,6 +64,12 @@ internal sealed unsafe class MemoryAllocator : IDisposable
     {
         lock (_lock)
         {
+            // Disposing the allocator released every block; a model disposed after its device has nothing left to free.
+            if (_disposed)
+            {
+                return;
+            }
+
             var b = a.Block!;
             if (b.Dedicated)
             {
@@ -255,6 +262,7 @@ internal sealed unsafe class MemoryAllocator : IDisposable
     {
         lock (_lock)
         {
+            _disposed = true;
             foreach (var b in _blocks)
             {
                 Destroy(b);

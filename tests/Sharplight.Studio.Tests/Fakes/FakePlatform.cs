@@ -37,6 +37,15 @@ internal sealed class FakePlatform : IPlatformServices, IUiDispatcher, IThemeSer
 
     public void Open(string pathOrUrl) => Opened.Add(pathOrUrl);
 
+    /// <summary>The documents opened at a page or line (they also count in <see cref="Opened"/>).</summary>
+    public List<(string Path, int Page, int Line)> OpenedAt { get; } = [];
+
+    public void OpenAt(string path, int page, int line)
+    {
+        OpenedAt.Add((path, page, line));
+        Opened.Add(path);
+    }
+
     /// <summary>How often <see cref="Restart"/> was called.</summary>
     public int Restarts { get; private set; }
 

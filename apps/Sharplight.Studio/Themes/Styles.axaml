@@ -102,6 +102,10 @@
     <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
     <Setter Property="Padding" Value="12" />
   </Style>
+  <Style Selector="Border.inset.focused">
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
   <Style Selector="Border.divider">
     <Setter Property="Height" Value="1" />
     <Setter Property="Background" Value="{DynamicResource BorderSubtleBrush}" />

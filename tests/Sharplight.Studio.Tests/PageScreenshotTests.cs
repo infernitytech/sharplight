@@ -141,6 +141,84 @@ public sealed class PageScreenshotTests
         Assert.True(sink.Messages.Count == 0, string.Join("\n", sink.Messages.Distinct()));
     });
 
+    public static TheoryData<string, int> SearchCases
+    {
+        get
+        {
+            var data = new TheoryData<string, int>();
+            foreach (string theme in new[] { "light", "dark" })
+            {
+                foreach (var (width, _) in s_sizes)
+                {
+                    data.Add(theme, (int)width);
+                }
+            }
+
+            return data;
+        }
+    }
+
+    /// <summary>The Search page after a hybrid Ask: highlighted passages with their places, the answer with its citations, the watch switch and the chat model picker.</summary>
+    [Theory]
+    [MemberData(nameof(SearchCases))]
+    public Task SearchPage_WithResultsAndAnAnswer_RendersWithoutBindingErrorsOrClippedControls(string theme, int width) => HeadlessApp.RunAsync(async () =>
+    {
+        double height = s_sizes.Single(size => (int)size.Width == width).Height;
+        var sink = new BindingErrorSink();
+        Logger.Sink = sink;
+        using var rig = new FeedCatalogTests.Rig();
+        await DemoData.FillAsync(rig.Services);
+        rig.Services.Runtime.Add(new Fakes.FakeModel("fake-embed") { Kind = ModelKindCatalog.Embeddings, Embedder = new Fakes.FakeTextEmbedder() });
+        var chat = rig.Services.Runtime.LoadedModels.First(model => model.Id == "qwen3-0.6b");
+        string folder = Path.Combine(rig.Services.Directory, "docs");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "harbour.md"), "# Harbour\nThe ship engine roared as the ship left the harbour. The cat watched the ship from the quay.\n");
+        DocumentFixtures.Pdf(Path.Combine(folder, "manual.pdf"), "Page one is about taxes.", "Engine maintenance: check the ship engine every week.");
+        File.WriteAllText(Path.Combine(folder, "pets.txt"), "The dog barks. The cat sleeps.\n");
+
+        new ThemeService(Application.Current!).Apply(theme == "dark" ? AppTheme.Dark : AppTheme.Light, "Violet");
+        var viewModel = new MainWindowViewModel(rig.All with { Dispatcher = new AvaloniaDispatcher() });
+        var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
+        window.Show();
+        try
+        {
+            await viewModel.NavigateAsync(viewModel.Search);
+            var page = viewModel.Search;
+            await HeadlessApp.WaitForAsync(window, () => page.HasModel && page.CanAskModel);
+            page.SetFolder(folder);
+            page.WatchFolder = true;
+            page.IndexCommand.Execute(null);
+            await page.Queue.Items.Last().Completion.WaitAsync(TimeSpan.FromSeconds(30));
+            await HeadlessApp.WaitForAsync(window, () => page.HasIndex);
+            page.Panel.Apply(new Dictionary<string, string> { ["mode"] = "hybrid", ["topk"] = "3" });
+            page.Query = "how do I look after the ship engine";
+            await HeadlessApp.WaitForAsync(window, () => page.AskCommand.CanExecute(null));
+            ((Fakes.FakeModel)chat).Script.Clear();
+            ((Fakes.FakeModel)chat).Script.AddRange([Services.Runtime.ChatStreamUpdate.Content("Check the ship engine every week [1], and watch it when the ship leaves the harbour [2]."),
+                Services.Runtime.ChatStreamUpdate.Finished(new MessageStats())]);
+            page.AskCommand.Execute(null);
+            await page.Queue.Items.Last().Completion.WaitAsync(TimeSpan.FromSeconds(30));
+            await HeadlessApp.WaitForAsync(window, () => page.HasResults && page.HasAnswer);
+            Assert.NotEmpty(page.AnswerCitations);
+            page.FocusResultCommand.Execute(page.Results[0]);
+            await HeadlessApp.RenderAsync(window);
+            await HeadlessApp.RenderAsync(window);
+
+            var problems = LayoutChecker.Find(window, IsChecked).Distinct().Take(8).ToList();
+            Save(window, $"search-results-{theme}-{width}");
+            Assert.True(problems.Count == 0, $"search results ({theme}, {width} px):\n" + string.Join("\n", problems));
+            page.WatchFolder = false;
+        }
+        finally
+        {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            Logger.Sink = null;
+        }
+
+        Assert.True(sink.Messages.Count == 0, string.Join("\n", sink.Messages.Distinct()));
+    });
+
     /// <summary>Everything except sliders (their template overlaps the row's caption by design) and bare text (its line boxes overlap by a pixel or two).</summary>
     private static bool IsChecked(Avalonia.Visual visual) => visual is not (Avalonia.Controls.Slider or Avalonia.Controls.TextBlock);
 

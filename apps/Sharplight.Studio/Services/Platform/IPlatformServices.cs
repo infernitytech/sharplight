@@ -18,6 +18,12 @@ internal interface IPlatformServices
     /// <summary>Opens a folder in the file manager or a URL in the browser.</summary>
     public void Open(string pathOrUrl);
 
+    /// <summary>Opens a document at a page or line where a program that takes a position is installed, else in the system's default program.</summary>
+    /// <param name="path">The document.</param>
+    /// <param name="page">The page, or 0.</param>
+    /// <param name="line">The line, or 0.</param>
+    public void OpenAt(string path, int page, int line) => Open(path);
+
     /// <summary>Starts the app again (the AppImage, or the same executable with the same arguments) and closes this instance.</summary>
     public void Restart();
 }
