@@ -5,7 +5,13 @@ namespace Sharplight.ModelFeed.Client;
 /// <summary>Trust and limits of a <see cref="FeedClient"/>.</summary>
 public sealed class FeedClientOptions
 {
-    /// <summary>Trusted root keys; the feed's key set must be signed by one of them.</summary>
+    /// <summary>
+    /// The channel to read (<see cref="FeedChannels.Stable"/>, <see cref="FeedChannels.Unstable"/>), or <see langword="null"/> for a feed
+    /// without channels. Rollback state is kept per feed and channel.
+    /// </summary>
+    public string? Channel { get; set; }
+
+    /// <summary>Trusted root keys; the feed's key set must be signed by any one of them (list several to rotate keys).</summary>
     public IList<FeedPublicKey> TrustedRoots { get; set; } = [];
 
     /// <summary>

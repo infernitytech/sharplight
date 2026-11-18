@@ -8,9 +8,10 @@ public sealed class FeedSnapshot
 {
     private readonly Dictionary<string, FeedPackageSummary> _byId;
 
-    internal FeedSnapshot(string location, FeedServiceIndex index, string indexDigest, FeedKeySet? keySet, bool verified, IReadOnlyList<FeedPackageSummary> packages, IReadOnlyList<string> warnings)
+    internal FeedSnapshot(string location, string? channel, FeedServiceIndex index, string indexDigest, FeedKeySet? keySet, bool verified, IReadOnlyList<FeedPackageSummary> packages, IReadOnlyList<string> warnings)
     {
         Location = location;
+        Channel = channel;
         Index = index;
         IndexDigest = indexDigest;
         KeySet = keySet;
@@ -22,6 +23,9 @@ public sealed class FeedSnapshot
 
     /// <summary>The feed location.</summary>
     public string Location { get; }
+
+    /// <summary>The channel, or <see langword="null"/> for a feed without channels.</summary>
+    public string? Channel { get; }
 
     /// <summary>The service index.</summary>
     public FeedServiceIndex Index { get; }
