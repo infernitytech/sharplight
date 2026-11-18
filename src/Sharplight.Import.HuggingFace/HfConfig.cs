@@ -136,7 +136,8 @@ internal sealed partial class HfConfig : IDisposable
             : Architectures.Select(a => s_remoteCodeOverrides.GetValueOrDefault(a)).FirstOrDefault(t => t is not null) is { } overridden ? overridden
             : Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString()
             : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null)
-                ?? (Root.TryGetProperty("sources", out _) && Root.TryGetProperty("t_layers", out _) ? "htdemucs" : TimmModelType()));
+                ?? (Root.TryGetProperty("sources", out _) && Root.TryGetProperty("t_layers", out _) ? "htdemucs"
+                    : Root.TryGetProperty("model_name", out _) && Root.TryGetProperty("config", out var inner) && inner.ValueKind == JsonValueKind.Object && inner.TryGetProperty("cam_enc", out _) ? Da3HfMapping.ModelType : TimmModelType()));
 
     /// <summary>The model type of timm ResNet checkpoints (<c>timm/resnet50.a1_in1k</c>: an <c>architecture</c> name and a <c>pretrained_cfg</c> instead of a <c>model_type</c>).</summary>
     public const string TimmResNetModelType = "timm_resnet";
