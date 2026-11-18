@@ -40,6 +40,7 @@ public class ObjectDetectorTests
     [InlineData("table-transformer-structure-recognition")]
     [InlineData("yolos-tiny")]
     [InlineData("yolos-small")]
+    [InlineData("rf-detr-large")]
     public async Task DetectorMatchesTransformers(string name)
     {
         if (!Available(name))
@@ -61,6 +62,8 @@ public class ObjectDetectorTests
         {
             using var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = Model(name), Devices = [slot] });
             Assert.Equal("object-detection", model.Description.Kind);
+            double maxBox = 0;
+            double maxScore = 0;
             using var detector = new TaskClientProvider([.. Env.TaskFactories()]).Create<IObjectDetector>(model);
             var result = await detector.DetectAsync(image, new ObjectDetectionOptions { ScoreThreshold = 0.5f }, TestContext.Current.CancellationToken);
             TestContext.Current.SendDiagnosticMessage($"{name} {backend}: {string.Join("; ", result.Objects.Select(o => $"{o.Label} {o.Score:f3}"))}");
@@ -75,8 +78,12 @@ public class ObjectDetectorTests
                 Assert.True(Math.Abs(match.Box.X1 - box[0]) < 2 && Math.Abs(match.Box.Y1 - box[1]) < 2 && Math.Abs(match.Box.X2 - box[2]) < 2 && Math.Abs(match.Box.Y2 - box[3]) < 2,
                     $"{name} {backend}: {match.Label} box {match.Box} vs [{string.Join(", ", box)}]");
                 Assert.True(Math.Abs(match.Score - expected.GetProperty("score").GetSingle()) < 0.02, $"{name} {backend}: score {match.Score}");
+                maxBox = Math.Max(maxBox, new[] { Math.Abs(match.Box.X1 - box[0]), Math.Abs(match.Box.Y1 - box[1]), Math.Abs(match.Box.X2 - box[2]), Math.Abs(match.Box.Y2 - box[3]) }.Max());
+                maxScore = Math.Max(maxScore, Math.Abs(match.Score - expected.GetProperty("score").GetSingle()));
                 remaining.Remove(match);
             }
+
+            TestContext.Current.SendDiagnosticMessage($"{name} {backend}: max box difference {maxBox:f3} px, max score difference {maxScore:e2}");
         }
 
         _ = expectedLogits;
@@ -154,6 +161,50 @@ public class ObjectDetectorTests
                 var native = await estimator.EstimateAsync(image, new DepthEstimationOptions { ResizeToInput = false }, TestContext.Current.CancellationToken);
                 var (maxAbs, _, rms) = Env.Compare(native.Values, expected);
                 Assert.True(rms < 5e-3, $"{backend}: depth relative rms {rms}, max abs {maxAbs}");
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Rf_detr_runs_from_a_package()
+    {
+        const string Name = "rf-detr-large";
+        if (!Available(Name))
+        {
+            return;
+        }
+
+        var reference = JsonDocument.Parse(File.ReadAllText(Path.Combine(Model(Name), "sharplight-reference.json"))).RootElement;
+        var expected = reference.GetProperty("detections").EnumerateArray().ToArray();
+        var image = PngCodec.Read(Path.Combine(Model(Name), "sharplight-sample.png"));
+        string dir = Path.Combine(Path.GetTempPath(), "sl-slm-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string package = Path.Combine(dir, "model.slm");
+            TestHost.Converter.Convert(Model(Name), package);
+            var backends = new List<(string, DeviceSlot)> { ("cpu", Env.Cpu()) };
+            if (Env.Vulkan() is { } vulkan)
+            {
+                backends.Add(("vulkan", vulkan));
+            }
+
+            foreach (var (backend, slot) in backends)
+            {
+                using var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = package, Devices = [slot] });
+                using var detector = new TaskClientProvider([.. Env.TaskFactories()]).Create<IObjectDetector>(model);
+                var result = await detector.DetectAsync(image, new ObjectDetectionOptions { ScoreThreshold = 0.5f }, TestContext.Current.CancellationToken);
+                Assert.Equal(expected.Length, result.Objects.Count);
+                foreach (var e in expected)
+                {
+                    var box = e.GetProperty("box").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+                    Assert.Contains(result.Objects, o => o.Label == e.GetProperty("label").GetString() && Math.Abs(o.Box.X1 - box[0]) < 2 && Math.Abs(o.Box.Y1 - box[1]) < 2
+                        && Math.Abs(o.Box.X2 - box[2]) < 2 && Math.Abs(o.Box.Y2 - box[3]) < 2);
+                }
             }
         }
         finally

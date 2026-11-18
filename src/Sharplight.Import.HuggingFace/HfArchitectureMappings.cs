@@ -16,6 +16,7 @@ internal static class HfArchitectureMappings
         Register(new DeepseekOcrHfMapping());
         Register(new Glm4vHfMapping());
         Register(new Da3HfMapping());
+        Register(new RfDetrHfMapping());
         Register(new HunyuanVlHfMapping());
         Register(new CogVlmHfMapping());
         Register(new NemotronHHfMapping());
