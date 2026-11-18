@@ -192,7 +192,7 @@ public sealed class PageScreenshotTests
             await HeadlessApp.WaitForAsync(window, () => page.HasIndex);
             page.Panel.Apply(new Dictionary<string, string> { ["mode"] = "hybrid", ["topk"] = "3" });
             page.Query = "how do I look after the ship engine";
-            Assert.True(page.AskCommand.CanExecute(null));
+            await HeadlessApp.WaitForAsync(window, () => page.AskCommand.CanExecute(null));
             ((Fakes.FakeModel)chat).Script.Clear();
             ((Fakes.FakeModel)chat).Script.AddRange([Services.Runtime.ChatStreamUpdate.Content("Check the ship engine every week [1], and watch it when the ship leaves the harbour [2]."),
                 Services.Runtime.ChatStreamUpdate.Finished(new MessageStats())]);
