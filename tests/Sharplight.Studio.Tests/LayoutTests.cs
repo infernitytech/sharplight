@@ -198,6 +198,62 @@ public sealed class LayoutTests
         }
     });
 
+    [Fact]
+    public Task SearchPageChatVoiceAndServerPage_KeepEverythingInsideItsParents() => HeadlessApp.RunAsync(async () =>
+    {
+        using var services = new TestServices(dispatcher: new AvaloniaDispatcher());
+        var chat = new FakeModel("qwen3");
+        var whisper = new FakeModel("whisper-small") { Kind = ModelKinds.SpeechRecognition };
+        whisper.Clients[typeof(ISpeechRecognizer)] = new FakeRecognizer();
+        var tts = new FakeModel("outetts") { Kind = ModelKinds.SpeechSynthesis };
+        tts.Clients[typeof(ISpeechSynthesizer)] = new FakeSynthesizer();
+        var sd = new FakeModel("sdxl-turbo") { Kind = ModelKinds.ImageGeneration };
+        sd.Clients[typeof(IImageGenerator)] = new FakeImageGenerator();
+        var embed = new FakeModel("bge-small") { Kind = ModelKindCatalog.Embeddings, Embedder = new FakeTextEmbedder() };
+        foreach (var model in new[] { chat, whisper, tts, sd, embed })
+        {
+            services.Runtime.Add(model);
+        }
+
+        string docs = services.Directory + "/docs";
+        Directory.CreateDirectory(docs);
+        File.WriteAllText(docs + "/pets.md", "The cat sleeps on the sofa. " + new string('x', 300) + " The dog barks at the ship in the harbour near the engine room.");
+        File.WriteAllText(docs + "/sea.txt", "The ship engine roared. " + string.Join(' ', Enumerable.Repeat("harbour", 80)));
+        new ThemeService(Application.Current!).Apply(AppTheme.Light, "Violet");
+        var viewModel = new MainWindowViewModel(services.Services);
+        var window = new MainWindow { DataContext = viewModel, Width = 1440, Height = 900 };
+        window.Show();
+        try
+        {
+            await viewModel.NavigateAsync(viewModel.Chat);
+            await HeadlessApp.WaitForAsync(window, () => viewModel.Chat.Current is not null);
+            viewModel.Chat.Current!.InputText = "/image a lighthouse at dusk, with a long description that wraps over several lines of the composer " + new string('z', 40);
+            await viewModel.Chat.Current.SendCommand.ExecuteAsync(null);
+            await HeadlessApp.WaitForAsync(window, () => viewModel.Chat.Current.Messages.Count == 2 && !viewModel.Chat.Current.IsGenerating);
+            Assert.Single(viewModel.Chat.Current.Messages[1].Attachments);
+            await AssertWindowLayoutAsync(window, "chat with a generated picture and voice settings");
+
+            await viewModel.NavigateAsync(viewModel.Search);
+            viewModel.OpenKind(ModelKindCatalog.Embeddings, embed);
+            viewModel.Search.SetFolder(docs);
+            viewModel.Search.IndexCommand.Execute(null);
+            await viewModel.Search.Queue.Items.Single().Completion;
+            viewModel.Search.Query = "ship engine";
+            viewModel.Search.SearchCommand.Execute(null);
+            await viewModel.Search.Queue.Items.Last().Completion;
+            await HeadlessApp.WaitForAsync(window, () => viewModel.Search.HasResults);
+            await AssertLayoutAsync(window, "search results", typeof(SearchPage));
+
+            await viewModel.NavigateAsync(viewModel.Server);
+            await AssertWindowLayoutAsync(window, "server with every kind of model");
+        }
+        finally
+        {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
     /// <summary>Checks the pictures and cards of the whole window (without popups) at every test window size; the shared chrome has its own checks.</summary>
     private static async Task AssertWindowLayoutAsync(MainWindow window, string scenario)
     {

@@ -18,7 +18,7 @@ internal sealed class AttachmentViewModel
     public string Name => Record.Name;
 
     /// <summary>True for images.</summary>
-    public bool IsImage => Record.Kind == AttachmentKind.Image;
+    public bool IsImage => Record.Kind is AttachmentKind.Image or AttachmentKind.GeneratedImage;
 
     /// <summary>True for documents.</summary>
     public bool IsDocument => Record.Kind == AttachmentKind.Document;

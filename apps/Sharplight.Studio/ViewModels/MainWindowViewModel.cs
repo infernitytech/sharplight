@@ -6,7 +6,9 @@ using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.ViewModels.Chat;
 using Sharplight.Studio.ViewModels.Image;
 using Sharplight.Studio.ViewModels.Inference;
+using Sharplight.Studio.Models;
 using Sharplight.Studio.ViewModels.Models;
+using Sharplight.Studio.ViewModels.Search;
 using Sharplight.Studio.ViewModels.Server;
 using Sharplight.Studio.ViewModels.Settings;
 using Sharplight.Studio.ViewModels.Audio;
@@ -30,6 +32,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Chat = new ChatPageViewModel(services, this);
         Transcribe = new TranscribePageViewModel(services, this);
         Speak = new SpeakPageViewModel(services, this);
+        Search = new SearchPageViewModel(services, this);
         Audio = new AudioPageViewModel(services, this);
         Image = new ImagePageViewModel(services, this);
         Video = new VideoPageViewModel(services, this);
@@ -41,7 +44,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Settings = new SettingsPageViewModel(services);
         About = new AboutViewModel(services.Platform, services.Updates.CurrentVersion);
         StoreMigration = new StoreMigrationViewModel(services, () => _ = Models.Library.RefreshAsync());
-        Pages = [Chat, Transcribe, Speak, Audio, Image, Video, Vision, Tasks, Models, Server, Stats];
+        Pages = [Chat, Transcribe, Speak, Search, Audio, Image, Video, Vision, Tasks, Models, Server, Stats];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         services.Server.StateChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         UpdateStatus();
@@ -55,6 +58,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     /// <summary>Speak page: text to speech.</summary>
     public SpeakPageViewModel Speak { get; }
+
+    /// <summary>Search page: embeddings over a folder of documents.</summary>
+    public SearchPageViewModel Search { get; }
 
     /// <summary>Audio page: audio codecs and voice activity detection.</summary>
     public AudioPageViewModel Audio { get; }
@@ -185,6 +191,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         {
             Sharplight.Models.ModelKinds.SpeechRecognition => Transcribe,
             Sharplight.Models.ModelKinds.SpeechSynthesis => Speak,
+            ModelKindCatalog.Embeddings => Search,
             Sharplight.Models.ModelKinds.AudioCodec or Sharplight.Models.ModelKinds.VoiceActivity => Audio,
             Sharplight.Models.ModelKinds.ImageGeneration => Image,
             Sharplight.Models.ModelKinds.VideoGeneration => Video,

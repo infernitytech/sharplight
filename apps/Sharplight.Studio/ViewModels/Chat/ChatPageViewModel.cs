@@ -24,6 +24,7 @@ internal sealed partial class ChatPageViewModel : PageViewModel
     {
         _services = services;
         _navigator = navigator;
+        Media = new ChatMediaViewModel(services);
         Picker = new ModelPickerViewModel(services, ModelKinds.TextGeneration);
         Picker.PropertyChanged += (_, args) =>
         {
@@ -39,6 +40,9 @@ internal sealed partial class ChatPageViewModel : PageViewModel
             }
         };
     }
+
+    /// <summary>Dictation, reading aloud and pictures, with the models they use.</summary>
+    public ChatMediaViewModel Media { get; }
 
     /// <summary>The model picker, the same component every inference page uses (resident text-generation models).</summary>
     public ModelPickerViewModel Picker { get; }
@@ -227,7 +231,7 @@ internal sealed partial class ChatPageViewModel : PageViewModel
         if (!_open.TryGetValue(conversation.Id, out var view))
         {
             ConversationViewModel? created = null;
-            created = new ConversationViewModel(conversation, _services, () => ModelOf(created is null ? conversation.ModelId : created.ModelId), OnConversationChanged);
+            created = new ConversationViewModel(conversation, _services, () => ModelOf(created is null ? conversation.ModelId : created.ModelId), OnConversationChanged, Media);
             created.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(ConversationViewModel.IsGenerating)

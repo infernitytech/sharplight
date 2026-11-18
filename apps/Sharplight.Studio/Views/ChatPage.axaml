@@ -160,6 +160,20 @@
                   <Button Classes="ghost icon" Command="{Binding AttachCommand}" ToolTip.Tip="Attach images or documents (PDF, DOCX, Markdown, text, code)">
                     <Path Classes="icon" Data="{StaticResource IconAttach}" />
                   </Button>
+                  <Button Classes="ghost icon" Command="{Binding DictateCommand}" IsVisible="{Binding Media.CanDictate}"
+                          ToolTip.Tip="Dictate: click to record the microphone, click again to transcribe it into the message">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Path Classes="icon" Data="{StaticResource IconMic}" />
+                      <Ellipse Classes="dot busy pulse" Width="7" Height="7" IsVisible="{Binding Media.IsRecording}" VerticalAlignment="Center" />
+                      <TextBlock Text="{Binding Media.DictationText}" FontSize="12.5" VerticalAlignment="Center"
+                                 IsVisible="{Binding Media.IsRecording}" />
+                      <TextBlock Text="Transcribing" FontSize="12.5" VerticalAlignment="Center" IsVisible="{Binding Media.IsTranscribing}" />
+                    </StackPanel>
+                  </Button>
+                  <Button Classes="ghost icon" Command="{Binding GenerateImageFromInputCommand}" IsVisible="{Binding Media.CanPaint}"
+                          ToolTip.Tip="Generate a picture from the message with the image model (or start the message with /image)">
+                    <Path Classes="icon" Data="{StaticResource IconImage}" />
+                  </Button>
                   <ToggleButton Classes="ghost" IsChecked="{Binding EnableThinking}" IsVisible="{Binding SupportsThinking}" Padding="8,5" ToolTip.Tip="Let the model reason before it answers">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                       <Path Classes="icon" Data="{StaticResource IconThink}" Width="14" Height="14" />
@@ -285,6 +299,15 @@
                         <Ellipse Classes="dot busy pulse" />
                         <Ellipse Classes="dot busy pulse" />
                       </StackPanel>
+                      <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="chat:AttachmentViewModel">
+                            <Border CornerRadius="10" ClipToBounds="True" MaxWidth="512" MaxHeight="512" HorizontalAlignment="Left" Margin="0,0,0,6" IsVisible="{Binding IsImage}">
+                              <Image Source="{Binding ImageData, Converter={x:Static conv:BytesToBitmapConverter.Instance}, ConverterParameter=1024}" Stretch="Uniform" />
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
                       <c:MarkdownView Markdown="{Binding Content}" />
                       <Border Classes="warn" IsVisible="{Binding HasError}">
                         <SelectableTextBlock Text="{Binding Error}" TextWrapping="Wrap" />
@@ -295,6 +318,10 @@
                         </Button>
                         <Button Classes="ghost icon" ToolTip.Tip="Regenerate (keeps the previous answer as a version)" Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).RegenerateCommand}" CommandParameter="{Binding}">
                           <Path Classes="icon" Data="{StaticResource IconRefresh}" Width="13" Height="13" />
+                        </Button>
+                        <Button Classes="ghost icon" ToolTip.Tip="Read aloud (click again to stop)" IsVisible="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).Media.CanSpeak}"
+                                Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).ReadAloudCommand}" CommandParameter="{Binding}">
+                          <Path Classes="icon" Data="{StaticResource IconSpeaker}" Width="13" Height="13" />
                         </Button>
                         <views:VersionSwitcher />
                         <TextBlock Classes="caption" Text="{Binding StatsText}" ToolTip.Tip="{Binding StatsTooltip}" IsVisible="{Binding HasStats}" VerticalAlignment="Center" Margin="8,0,0,0" />
@@ -342,6 +369,46 @@
             <TextBox Text="{Binding SeedText}" />
           </StackPanel>
           <ToggleSwitch Content="Thinking" IsChecked="{Binding EnableThinking}" IsVisible="{Binding SupportsThinking}" />
+          <Border Classes="divider" />
+          <StackPanel Spacing="8" DataContext="{Binding Media}" x:DataType="chat:ChatMediaViewModel">
+            <TextBlock Classes="h3" Text="Voice and pictures" />
+            <TextBlock Classes="caption" TextWrapping="Wrap"
+                       Text="Load a speech-to-text, a text-to-speech or an image model to use the microphone, hear answers or create pictures with /image." />
+            <StackPanel>
+              <TextBlock Classes="label" Text="Speech to text (microphone)" />
+              <ComboBox ItemsSource="{Binding Recognizers.Models}" SelectedItem="{Binding Recognizers.SelectedModel}" HorizontalAlignment="Stretch"
+                        PlaceholderText="No speech-to-text model is loaded" IsEnabled="{Binding CanDictate}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ModelOptionViewModel">
+                    <TextBlock Text="{Binding Id}" TextTrimming="CharacterEllipsis" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+            <StackPanel>
+              <TextBlock Classes="label" Text="Text to speech (read aloud)" />
+              <ComboBox ItemsSource="{Binding Synthesizers.Models}" SelectedItem="{Binding Synthesizers.SelectedModel}" HorizontalAlignment="Stretch"
+                        PlaceholderText="No text-to-speech model is loaded" IsEnabled="{Binding CanSpeak}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ModelOptionViewModel">
+                    <TextBlock Text="{Binding Id}" TextTrimming="CharacterEllipsis" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+            <ToggleSwitch Content="Read answers aloud" IsChecked="{Binding ReadAloud}" IsEnabled="{Binding CanSpeak}" />
+            <StackPanel>
+              <TextBlock Classes="label" Text="Image generation (/image)" />
+              <ComboBox ItemsSource="{Binding Painters.Models}" SelectedItem="{Binding Painters.SelectedModel}" HorizontalAlignment="Stretch"
+                        PlaceholderText="No image model is loaded" IsEnabled="{Binding CanPaint}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ModelOptionViewModel">
+                    <TextBlock Text="{Binding Id}" TextTrimming="CharacterEllipsis" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+          </StackPanel>
           <Border Classes="divider" />
           <StackPanel Spacing="6">
             <TextBlock Classes="label" Text="Save these settings as a preset" />
