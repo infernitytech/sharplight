@@ -245,9 +245,8 @@ internal sealed partial class WelcomePageViewModel : PageViewModel
             id = $"{entry.Id}-{suffix}";
         }
 
-        // The feed says this package is a chat model, whatever the library infers from the graphs a package carries.
         var load = _services.Settings.Current.DefaultLoad with { DeviceId = Machine.GpuDeviceId ?? _services.Settings.Current.DefaultLoad.DeviceId, Slots = 1 };
-        var request = new ModelLoadRequest(id, entry.Path, load, _services.Settings.Current.DisabledFeatures, Capabilities: entry.Capabilities, Kind: Sharplight.Models.ModelKinds.TextGeneration);
+        var request = new ModelLoadRequest(id, entry.Path, load, _services.Settings.Current.DisabledFeatures, Capabilities: entry.Capabilities, Kind: entry.Kind);
         try
         {
             using var progress = new DispatchingProgress<LoadStatus>(_services.Dispatcher, update =>
