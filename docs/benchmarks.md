@@ -6261,3 +6261,143 @@ SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_COPIES=6 SHARPLIGHT_BENCH_TYPES=mxfp4 SHARPL
 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --slots 64 --ctx 512 --depth 256 \
   --sizes 1,2,4,8,16,32,64 --modes greedy --reps 20
 ```
+
+## 47. Prefix caching by default: hashed KV blocks, cache namespaces, recurrent-state snapshots, against vLLM's APC (2026-11-18)
+
+Branch `serving/prefix-cache` (design: [kv-cache.md](kv-cache.md) section 2.6). Paged KV with prefix caching is now the default of
+multi-slot decoders; prompts share cached blocks by content hash within their cache namespace (partition and salt); models with
+recurrent state reuse prefixes through state snapshots. Raw results in [`bench/results/s47/`](../bench/results/s47).
+
+### 47.1 Paged by default: no regression (A/B, contiguous vs paged)
+
+Llama-3.2-1B Q8_0, one RTX PRO 4500, the same build with `--kv-tokens 0` (contiguous) and the default (paged, `slots × ctx` pool).
+Decode steps from `BatchBench` (greedy on the device, median / min of 40 steps, GPU ms, three alternating runs each); prefill and
+end-to-end decode from `sharplight serve --slots 8 --ctx 4096 --no-prefix-cache` with `bench/loadgen.py -c 1` (8 requests of 2001
+prompt tokens and 128 output tokens, three rounds):
+
+| measurement | contiguous | paged (default) |
+|---|---|---|
+| decode step, 1 sequence at depth 2048 (median, min) | 2.07-2.23, 1.98-1.99 ms | 2.06-2.11, 2.00-2.01 ms |
+| decode step, 2 sequences at depth 2048 | 2.34-2.73, 2.25-2.26 ms | 2.38-2.41, 2.29 ms |
+| decode step, 4 / 16 sequences at depth 1024 (min) | 2.47-2.48 / 3.18 ms | 2.51-2.52 / 3.20-3.21 ms |
+| TTFT p50, 2001-token prompt (serve, c = 1) | 47.7-51.6 ms | 47.3-50.2 ms |
+| ITL p50 (serve, c = 1) | 2.19-2.40 ms | 2.21-2.29 ms |
+
+Single-stream decode and prefill are unchanged within the noise; batched decode steps are 1-2 % slower (one block-table load per
+16-row tile, as measured in 2.5). Greedy parity: the Families suite (batched greedy parity of every family, now on paged decoders
+by default) passes in full, and `PrefixCacheParityTests` checks greedy output with the cache on against the cache off (47.4).
+
+### 47.2 Against vLLM 0.33.0 APC: Qwen3-8B-FP8, identical weights and KV capacity
+
+Procedure (`bench/s47_prefix.sh`, `bench/prefix_bench.py`): one server per engine and cache setting, 64 sequences of up to 8192
+tokens, the same KV capacity of 73,728 tokens on both (Sharplight `--kv-tokens 73728`; vLLM `--kv-cache-memory-bytes` = 73,728 ×
+147,456 bytes, which vLLM reports as "GPU KV cache size: 73,728 tokens"), vLLM `--enable-prefix-caching` / `--no-enable-prefix-caching`,
+Sharplight default / `--no-prefix-cache`, both with the prompt-tokens details in the usage. Streaming chat completions, temperature 0,
+128 output tokens (`ignore_eos`), thinking off, closed loop; a short unrelated warm-up request, then two rounds per server (round 2
+starts with whatever round 1 left in the cache, on both engines):
+
+- **shared**: a ~1530-token system prompt shared by every request plus a unique 30-word question; 16 workers × 4 and 64 workers × 3 requests;
+- **multiturn**: 16 conversations of 6 turns, every turn resending the whole history (earlier questions and the server's replies) plus a new 90-word message;
+- **rag**: 4 shared 1000-token documents; every request quotes two of them in random order and asks a question (16 workers × 4).
+
+The hit rate is cached prompt tokens / prompt tokens from the usage records. GPU: RTX PRO 4500 (GPU 1) shared with another agent's
+Vulkan test process during the runs (about 300 MiB; GPU 2 was taken by the perf and verification agents), so single figures can be off
+by tens of percent; round-to-round swings of vLLM's cache-on TTFT (round 2 slower than round 1) are of that kind.
+
+| workload | chats | engine | cache | TTFT p50 / p99 ms, round 1 | round 2 | output tok/s, round 1 / 2 | hit rate (round 2) |
+|---|---:|---|---|---|---|---|---:|
+| shared | 16 | Sharplight | on | 134 / 491 | 122 / 133 | 646 / 889 | 97.2 % |
+| shared | 16 | vLLM | on | 158 / 412 | 223 / 336 | 730 / 879 | 97.2 % |
+| shared | 16 | Sharplight | off | 521 / 2468 | 593 / 2448 | 418 / 410 | 0.0 % |
+| shared | 16 | vLLM | off | 442 / 1664 | 451 / 1685 | 554 / 550 | 0.0 % |
+| shared | 64 | Sharplight | on | 418 / 559 | 312 / 360 | 1747 / 2224 | 97.9 % |
+| shared | 64 | vLLM | on | 227 / 497 | 650 / 1090 | 2654 / 2205 | 97.9 % |
+| shared | 64 | Sharplight | off | 4519 / 17892 | 4583 / 17799 | 465 / 464 | 0.0 % |
+| shared | 64 | vLLM | off | 3064 / 10361 | 3085 / 10355 | 665 / 663 | 0.0 % |
+| multiturn | 16 | Sharplight | on | 288 / 440 | 243 / 395 | 767 / 846 | 67.3 % |
+| multiturn | 16 | vLLM | on | 242 / 584 | 324 / 533 | 757 / 796 | 66.8 % |
+| multiturn | 16 | Sharplight | off | 458 / 810 | 420 / 799 | 669 / 664 | 0.0 % |
+| multiturn | 16 | vLLM | off | 308 / 719 | 312 / 691 | 853 / 854 | 0.0 % |
+| rag | 16 | Sharplight | on | 93 / 1520 | 167 / 616 | 689 / 746 | 89.4 % |
+| rag | 16 | vLLM | on | 162 / 2257 | 579 / 1521 | 716 / 546 | 85.5 % |
+| rag | 16 | Sharplight | off | 650 / 3343 | 648 / 3334 | 348 / 349 | 0.0 % |
+| rag | 16 | vLLM | off | 593 / 2406 | 594 / 2326 | 453 / 457 | 0.0 % |
+
+- The cache hits the same tokens on both engines: equal hit rates for the shared prompt (97.2-97.9 %) and the conversations
+  (67 %; the rest is each turn's new message and the reply, re-rendered by the template), a higher one for RAG in round 2 (89 vs 86 %).
+  Without the cache Sharplight is slower than vLLM (FP8 prefill at 0.70-0.75x, section 46), so the cache matters more here: TTFT p50
+  with the cache is 0.07-0.63x of without (vLLM 0.07-1.04x).
+- With the cache on, Sharplight's TTFT p50 is below vLLM's in 6 of the 8 cache-on rows (all 4 of round 2), and throughput is level
+  (1.01-1.37x in round 2); round 1 at 64 chats (418 vs 227 ms, 0.66x tok/s) and multi-turn (288 vs 242 ms) are the exceptions: Sharplight records kernels for new step shapes
+  in its first round (section 46.5), vLLM captured its CUDA graphs at startup.
+- Concurrent arrivals: in the shared workload all 16 or 64 chats start at once; one prompt computes the system prompt and the others wait for
+  its blocks (47.4) instead of all computing it, which is what keeps the 64-chat TTFT at 0.3 s instead of the 4.6 s without the cache.
+
+### 47.3 Hybrid model against vLLM: Qwen3.5-0.8B (gated delta net + attention, HF bf16)
+
+Same procedure on an otherwise idle GPU (GPU 0; another process appeared in 2 of 49 samples). vLLM 0.33.0 caches the gated-delta-net
+state in its "align" mode, which it enables with prefix caching for this model: it sets the attention block size to 544-576 tokens so
+that a Mamba state page fits one block, and keeps the state at block boundaries that end a scheduler step. It was given 4 GiB
+(`--kv-cache-memory-bytes`, attention KV and Mamba states share it); Sharplight used its defaults: 73,728 KV tokens (0.9 GB) and 26
+state snapshots of 19 MB (0.5 GB; `DefaultStateSnapshots`: half the KV pool's memory or 512 MiB).
+
+| workload | chats | engine | cache | TTFT p50 / p99 ms, round 1 | round 2 | output tok/s, round 1 / 2 | hit rate, round 1 / 2 |
+|---|---:|---|---|---|---|---|---|
+| shared | 16 | Sharplight | on | 237 / 547 | 125 / 192 | 2222 / 2991 | 95.1 / 95.1 % |
+| shared | 16 | vLLM | on | 112 / 174 | 204 / 659 | 3396 / 1537 | 72.8 / 73.9 % |
+| shared | 16 | Sharplight | off | 117 / 564 | 112 / 477 | 2006 / 2066 | 0.0 / 0.0 % |
+| shared | 16 | vLLM | off | 537 / 848 | 525 / 818 | 1313 / 1279 | 0.0 / 0.0 % |
+| shared | 64 | Sharplight | on | 499 / 627 | 588 / 714 | 5155 / 4399 | 95.6 / 95.6 % |
+| shared | 64 | vLLM | on | 294 / 506 | 337 / 890 | 6573 / 5197 | 73.9 / 73.9 % |
+| shared | 64 | Sharplight | off | 900 / 3865 | 867 / 3612 | 2207 / 2274 | 0.0 / 0.0 % |
+| shared | 64 | vLLM | off | 1630 / 3284 | 1592 / 3167 | 1983 / 2023 | 0.0 / 0.0 % |
+| multiturn | 16 | Sharplight | on | 178 / 297 | 161 / 289 | 2857 / 2470 | 54.4 / 60.0 % |
+| multiturn | 16 | vLLM | on | 110 / 250 | 99 / 220 | 3178 / 3365 | 28.3 / 28.1 % |
+| multiturn | 16 | Sharplight | off | 101 / 185 | 95 / 178 | 2996 / 2999 | 0.0 / 0.0 % |
+| multiturn | 16 | vLLM | off | 218 / 635 | 321 / 705 | 1956 / 1686 | 0.0 / 0.0 % |
+| rag | 16 | Sharplight | on | 254 / 429 | 279 / 339 | 2248 / 2475 | 68.7 / 69.5 % |
+| rag | 16 | vLLM | on | 127 / 452 | 119 / 137 | 2592 / 3365 | 69.7 / 83.6 % |
+| rag | 16 | Sharplight | off | 170 / 692 | 131 / 681 | 1707 / 1708 | 0.0 / 0.0 % |
+| rag | 16 | vLLM | off | 484 / 994 | 590 / 970 | 1229 / 1242 | 0.0 / 0.0 % |
+
+- Hit rates: Sharplight reuses more of the shared system prompt (95 vs 74 %: snapshots at the 16-token block where the prompts diverge,
+  vLLM at the last 576-token boundary before it) and of the conversations (54-60 vs 28 %: the snapshot one block before each prompt's end),
+  and as much of the RAG prompts in round 1 (69 vs 70 %); in round 2 vLLM's larger state budget (4 GiB against 1.4 GB) keeps more document
+  pairs (84 vs 70 %).
+- TTFT: for this small model a prefill pass costs little, and Sharplight pays for its snapshots in passes: a prompt's prefill stops at each
+  snapshot boundary (merged when closer than 256 tokens), and prompts arriving together wait for the blocks and snapshots another prompt is
+  computing. With the cache on its TTFT p50 is above its own cache-off TTFT on the conversation and RAG loads (161 vs 95, 279 vs 131 ms in
+  round 2) and above vLLM's in 7 of 8 cache-on rows, while it computes 2-9x fewer prompt rows (diagnostic runs of the same loads) and its
+  cache-off TTFT is 1.8-4.7x below vLLM's cache-off. Next lever: for models whose prefill is cheaper than a pass, recompute instead of waiting for another prompt's blocks, and
+  take periodic snapshots only in chunks that end there anyway (no extra pass), as vLLM does.
+- The 8B dense rows of 47.2 show the other side: where prefill is expensive, waiting for blocks and attaching them is what keeps TTFT low.
+
+### 47.4 How concurrent prompts and preemption use the cache, and tests
+
+- Prompts arriving together with the same prefix: at admission each prompt registers the blocks it will compute; a later prompt's
+  prefill chunk stops before the first block another prompt is computing and attaches it after that prompt's step publishes it (attach
+  happens before every prefill chunk, so hits also apply mid-prompt). Waits follow admission order and never cross namespaces.
+  `PrefixCacheTests.ConcurrentPrompts_WaitForBlocksAnotherPromptComputes_InsteadOfComputingThemTwice`: 8 prompts with a 128-token shared
+  prefix arriving at once compute it once (7 of 8 report ≥ 128 cached tokens).
+- Preemption: a preempted sequence's blocks stay cached and are attached again when it resumes (`PreemptedSequences_TakeTheirCachedBlocksBack`).
+- Greedy parity: `PrefixCacheParityTests` (Families) decodes prompts sharing a 40-token prefix with the cache off and on (one after another
+  and two at once) and requires token-identical output and cache hits, on the CPU and Vulkan, for attention-only (qwen1, granite), gated
+  delta net (qwen3.8-flash-next), Mamba, Mamba-2 hybrid (falcon-h1), short-convolution (lfm3) and RWKV-7 tiny models, and for
+  Qwen3.5-0.8B and Qwen3-0.6B on Vulkan: 16 / 16 pass.
+
+Suites after merging `develop` (at `84b42062`): Serving 352 (0 failed, 13 skipped; `OpenAiApiTests.ClientDisconnect_CancelsGeneration`
+failed once under machine load and passed 3 / 3 alone, a one-slot decoder without paging), Families full 1021 (0 failed, 364 skipped, as
+in 46.7), Extensions.AI 38 (0 failed, 3 skipped), Vulkan `PagedAttentionTests`, `StatefulTests`, `DeviceLifetimeTests`,
+`RecurrentRollback*` 70 (0 failed, 1 skipped), Vision `MultiSequenceTests` 27 (0 failed, 25 skipped: models not on this machine).
+
+### 47.5 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> VLLM_VENV=<venv with vLLM 0.33.0>
+bench/s47_prefix.sh bench/results/s47/qwen3-8b-fp8 ~/models/hf/Qwen3-8B-FP8          # sharplight, sharplight-nocache, vllm, vllm-nocache
+VLLM_KV_BYTES=4294967296 bench/s47_prefix.sh bench/results/s47/qwen3.5-0.8b ~/models/hf/Qwen3.5-0.8B
+bench/s47_summarize.py bench/results/s47/qwen3-8b-fp8 2
+# paged vs contiguous (47.1)
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/gguf/Llama-3.2-1B-Instruct-Q8_0.gguf --slots 2 --ctx 4096 --depth 2048 \
+  --batch 4096 --sizes 1,2 --modes greedy --reps 40 [--kv-tokens 0]
+```
