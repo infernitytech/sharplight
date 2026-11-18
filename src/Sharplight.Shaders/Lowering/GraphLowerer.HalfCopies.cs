@@ -18,20 +18,88 @@ public sealed partial class GraphLowerer
     private HashSet<Value>? _halfMatMulRoots;
 
     /// <summary>
-    /// Largest step for which a row norm writes the f16 copy: the skinny GEMM range, where the conversion launches are a
-    /// visible share of the step (Blackwell, 27B FP8 at 16 rows: -0.8 ms per step). Larger steps convert separately, since
-    /// the extra norm stores cost more than the launch saves there (171-row mixed step: +1.3 ms when the norm writes it).
+    /// Largest step for which a row norm writes the f16 copy next to the f32 row: the skinny GEMM range, where the conversion
+    /// launches are a visible share of the step (Blackwell, 27B FP8 at 16 rows: -0.8 ms per step). Larger steps convert
+    /// separately, since the extra norm stores cost more than the launch saves there (171-row mixed step: +1.3 ms when the norm
+    /// writes it), up to <see cref="NormCopyPrefillMinRows"/>, from where the norm writes only the copy.
     /// </summary>
     private static long NormHalfCopyMaxRows => SkinnyMaxRows;
 
     /// <summary>
+    /// Smallest step from which a row norm whose every reader is a tensor-core GEMM writes that GEMM's activations (the f16 copy
+    /// or the E4M3 rows of the fp8 GEMM) instead of the f32 row (<c>SHARPLIGHT_NORM_COPY_MIN_ROWS</c>).
+    /// </summary>
+    private static long NormCopyPrefillMinRows => DiagnosticSwitches.NormCopyMinRows ?? 128;
+
+    /// <summary>E4M3 activation rows written by a row norm for steps of MinRows rows or more (see <see cref="AddFp8CopyOutput"/>).</summary>
+    private readonly Dictionary<Value, (TensorRef Copy, long MinRows)> _fp8Copies = [];
+
+    /// <summary>
+    /// GEMM launches that read a norm-written copy of a root value (by root): the nodes and the step row counts the copy serves
+    /// them, with the largest row count of their x (see <see cref="ReadersUseCopy"/>).
+    /// </summary>
+    private readonly Dictionary<Value, List<(Node[] Nodes, long MinRows, long MaxRows, long RowsMax)>> _copyReaders = [];
+
+    /// <summary>Decisions taken once every launch is lowered (whether row norms may skip their f32 rows).</summary>
+    private readonly List<Action> _deferredCopyChecks = [];
+
+    /// <summary>
+    /// The activation form the GEMMs reading <paramref name="value"/> as x take at prefill sizes when they all agree on one
+    /// that a row norm can write: <see cref="ActivationCode.F16"/> (tensor-core GEMMs over 16-bit or decoded quantized weights),
+    /// <see cref="ActivationCode.Fp8"/> (the fp8 GEMM); else null. A prediction: whether a reader actually takes the copy is
+    /// checked after lowering (<see cref="ReadersUseCopy"/>) before the norm skips its f32 rows.
+    /// </summary>
+    private ActivationCode? PrefillCopyCode(Value value, long k)
+    {
+        if (!DiagnosticSwitches.NormPrefillCopy || !_opt.Has(DeviceFeatures.MatrixF16) || !_opt.Has(DeviceFeatures.Float16))
+        {
+            return null;
+        }
+
+        ActivationCode? code = null;
+        bool any = false;
+        foreach (var node in _seg.Nodes)
+        {
+            for (int i = 0; i < node.Inputs.Length; i++)
+            {
+                if (RootOf(node.Inputs[i]) != value)
+                {
+                    continue;
+                }
+
+                if (node.Op.Name != "MatMul" || i != 0 || node.Inputs.Length < 2 || node.Inputs[1].Type == DataType.F32)
+                {
+                    return null;
+                }
+
+                // The weights' stored type (repacked formats such as Q8_0R decide the GEMM), else the graph's.
+                var w = node.Inputs[1];
+                var type = _refs.TryGetValue(w, out var stored) ? stored.Type : w.Type;
+                long n = w.Shape.Rank > 0 ? w.Shape.Dims[0].Fixed : 0;
+                ActivationCode reader = UseFp8Gemm(type, k) && !UseMmq(type, n, k) ? ActivationCode.Fp8
+                    : UseMmq(type, n, k) ? ActivationCode.Q8_1 : ActivationCode.F16;
+                if (reader == ActivationCode.Q8_1 || (code is { } c && c != reader))
+                {
+                    return null;
+                }
+
+                code = reader;
+                any = true;
+            }
+        }
+
+        return any ? code : null;
+    }
+
+    /// <summary>
     /// Adds an f16 copy output to a row norm for each pass-2 output that a tensor-core matmul reads as x: the norm stores the
     /// same value rounded to f16 next to the f32 row (bit-identical to the separate conversion) for steps of
-    /// <see cref="NormHalfCopyMaxRows"/> rows or fewer where some GEMM reads an f16 copy. Needs f16 tensor-core matrices;
-    /// <c>SHARPLIGHT_NORM_HALF_COPY=0</c> disables it.
+    /// <see cref="NormHalfCopyMaxRows"/> rows or fewer where some GEMM reads an f16 copy, and from
+    /// <see cref="NormCopyPrefillMinRows"/> rows where every reader is an f16 tensor-core GEMM (<paramref name="prefill"/> gets
+    /// those values). Needs f16 tensor-core matrices; <c>SHARPLIGHT_NORM_HALF_COPY=0</c> disables it.
     /// </summary>
     private void AddHalfCopyOutputs(IReadOnlyList<Value>? values, List<(TensorRef Ref, string Expr)> pass2Outputs,
-        Dictionary<int, (long Min, long Max)> rowRanges)
+        Dictionary<int, string> guards, List<Value> prefill)
     {
         if (values is null || !DiagnosticSwitches.NormHalfCopy || !_opt.Has(DeviceFeatures.MatrixF16) || !_opt.Has(DeviceFeatures.Float16))
         {
@@ -40,11 +108,7 @@ public sealed partial class GraphLowerer
 
         long minRows = Math.Min(SkinnyHalfMinRows, MatvecMaxRows + 1);
         long maxRows = NormHalfCopyMaxRows;
-        if (minRows > maxRows)
-        {
-            return;
-        }
-
+        long prefillRows = NormCopyPrefillMinRows;
         int count = pass2Outputs.Count;
         for (int i = 0; i < count && i < values.Count; i++)
         {
@@ -53,6 +117,13 @@ public sealed partial class GraphLowerer
             long k = y.Shape.Length == 0 ? 0 : y.Shape[^1];
             if (value.Type != DataType.F32 || y.Type != DataType.F32 || !y.IsDense || y.Buffer != _arena || k % 8 != 0
                 || RootOf(value) != value || _halfCopies.ContainsKey(value) || !HalfMatMulRoots().Contains(value))
+            {
+                continue;
+            }
+
+            bool small = minRows <= maxRows;
+            bool large = PrefillCopyCode(value, k) == ActivationCode.F16;
+            if (!small && !large)
             {
                 continue;
             }
@@ -67,10 +138,111 @@ public sealed partial class GraphLowerer
             }
 
             list.Add(allocation);
-            _halfCopies[value] = (half, minRows, maxRows, null);
-            rowRanges[pass2Outputs.Count] = (minRows, maxRows);
+            bool Written(long rows) => (small && rows >= minRows && rows <= maxRows) || (large && rows >= prefillRows);
+            _halfCopies[value] = (half, minRows, maxRows, large ? Written : null);
+            string smallGuard = $"(p.rows >= {minRows}u && p.rows <= {maxRows}u)";
+            guards[pass2Outputs.Count] = !large ? smallGuard : small ? $"{smallGuard} || p.rows >= {prefillRows}u" : $"p.rows >= {prefillRows}u";
             pass2Outputs.Add((half, pass2Outputs[i].Expr));
+            if (large)
+            {
+                prefill.Add(value);
+            }
         }
+    }
+
+    /// <summary>
+    /// Adds an output of E4M3 activation rows (the fp8 GEMM's x, see <see cref="RowNormKernelSource.Fp8Output"/>) for the first
+    /// pass-2 value every reader of which is an fp8 GEMM, written for steps of <see cref="NormCopyPrefillMinRows"/> rows or more
+    /// (smaller steps quantize separately into the same rows). Returns the output's index, or null.
+    /// </summary>
+    private int? AddFp8CopyOutput(IReadOnlyList<Value>? values, List<(TensorRef Ref, string Expr)> pass2Outputs, int count, List<Value> prefill)
+    {
+        if (values is null || !_opt.Has(DeviceFeatures.SubgroupOps) || _opt.SubgroupSize != 32)
+        {
+            return null;
+        }
+
+        for (int i = 0; i < count && i < values.Count; i++)
+        {
+            var value = values[i];
+            var y = pass2Outputs[i].Ref;
+            long k = y.Shape.Length == 0 ? 0 : y.Shape[^1];
+            // The row passes through shared memory (4 bytes per value, next to the norm's own 1 KB).
+            if (value.Type != DataType.F32 || y.Type != DataType.F32 || !y.IsDense || y.Buffer != _arena || k % 128 != 0
+                || k * 4 + 1024 > _opt.MaxSharedMemory || RootOf(value) != value || _fp8Copies.ContainsKey(value)
+                || PrefillCopyCode(value, k) != ActivationCode.Fp8)
+            {
+                continue;
+            }
+
+            long rows = y.Shape.Aggregate(1L, (a, d) => a * d) / k;
+            var allocation = new object();
+            long offset = _alloc.Allocate(allocation, rows * (k + k / 32));
+            if (!_rootScratch.TryGetValue(value, out var list))
+            {
+                _rootScratch[value] = list = [];
+            }
+
+            list.Add(allocation);
+            long[] shape = [rows, k + k / 32];
+            _fp8Copies[value] = (new TensorRef(_arena, offset, DataType.U8, shape, TensorRef.DenseStrides(shape), y.Symbol), NormCopyPrefillMinRows);
+            long[] words = [rows, (k + k / 32) / 4];
+            pass2Outputs.Add((new TensorRef(_arena, offset, DataType.U32, words, TensorRef.DenseStrides(words), y.Symbol), pass2Outputs[i].Expr));
+            prefill.Add(value);
+            return pass2Outputs.Count - 1;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The norm-written E4M3 rows of <paramref name="root"/> and the smallest step the norm writes them for, when they serve x
+    /// (the root's own dense rows of <paramref name="k"/> values); else null.
+    /// </summary>
+    private (TensorRef Copy, long MinRows)? NormFp8Copy(Value root, TensorRef x, long xStride, long k)
+        => _fp8Copies.TryGetValue(root, out var copy) && xStride == k && copy.Copy.Shape[1] == k + k / 32 && x.ByteOffset == Ref(root).ByteOffset
+            ? copy : null;
+
+    /// <summary>Notes that <paramref name="nodes"/> read <paramref name="result"/> as x for steps of <paramref name="minRows"/> to <paramref name="maxRows"/> rows, when it is a norm-written copy of <paramref name="root"/>.</summary>
+    private void NoteCopyReader(Value root, TensorRef result, Node[] nodes, long minRows, long maxRows, long rowsMax)
+    {
+        bool half = _halfCopies.TryGetValue(root, out var h) && h.Half.ByteOffset == result.ByteOffset;
+        bool fp8 = _fp8Copies.TryGetValue(root, out var f) && f.Copy.ByteOffset == result.ByteOffset;
+        if (result.Buffer != _arena || (!half && !fp8))
+        {
+            return;
+        }
+
+        if (!_copyReaders.TryGetValue(root, out var readers))
+        {
+            _copyReaders[root] = readers = [];
+        }
+
+        readers.Add((nodes, minRows, maxRows, rowsMax));
+    }
+
+    /// <summary>
+    /// True when every node of the segment reading <paramref name="value"/> (or a view of it) is a GEMM that takes its
+    /// norm-written copy for all steps of <paramref name="fromRows"/> rows or more, and the value is not a segment output: the
+    /// norm then need not write the f32 rows for those steps.
+    /// </summary>
+    private bool ReadersUseCopy(Value value, long fromRows)
+    {
+        if (_seg.Outputs.Any(o => RootOf(o) == value) || !_copyReaders.TryGetValue(value, out var readers))
+        {
+            return false;
+        }
+
+        foreach (var node in _seg.Nodes)
+        {
+            if (node.Inputs.Any(v => RootOf(v) == value)
+                && !readers.Any(r => r.Nodes.Contains(node) && r.MinRows <= fromRows && r.MaxRows >= r.RowsMax))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

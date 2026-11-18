@@ -48,8 +48,33 @@ internal sealed partial class HfConfig : IDisposable
             {
                 _flat[p.Name] = p.Value;
             }
+
+            // Nested text configs are often saved with only the values that differ from their class defaults.
+            if (tc.TryGetProperty("model_type", out var textType) && textType.ValueKind == JsonValueKind.String
+                && s_textConfigDefaults.TryGetValue(textType.GetString()!, out var defaults))
+            {
+                foreach (var p in defaults.RootElement.EnumerateObject())
+                {
+                    _flat.TryAdd(p.Name, p.Value);
+                }
+            }
         }
     }
+
+    /// <summary>
+    /// Class defaults of nested text configs (transformers' <c>Gemma3TextConfig</c>) for keys a checkpoint's <c>text_config</c> leaves out:
+    /// Gemma 3's vision-language checkpoints (e.g. gemma-3-12b-it) list only the sizes there.
+    /// </summary>
+    private static readonly Dictionary<string, JsonDocument> s_textConfigDefaults = new(StringComparer.Ordinal)
+    {
+        ["gemma3_text"] = JsonDocument.Parse("""
+            {
+              "vocab_size": 262208, "head_dim": 256, "hidden_activation": "gelu_pytorch_tanh", "max_position_embeddings": 131072,
+              "rms_norm_eps": 1e-6, "rope_theta": 1000000.0, "rope_local_base_freq": 10000.0, "query_pre_attn_scalar": 256,
+              "sliding_window": 4096, "sliding_window_pattern": 6, "attention_bias": false
+            }
+            """),
+    };
 
     /// <summary>
     /// A quantization object of the checkpoint (<c>quantization_config</c>, or MLX's <c>quantization</c>): the root's, else the nested

@@ -22,7 +22,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } =
     [
-        "llama", "mistral", "qwen2", "mimo", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe", "rnd1",
+        "llama", "mistral", "qwen2", "mimo", "qwen3", "gemma2", "gemma3_text", "gemma3", "phi3", "olmoe", "qwen3_moe", "rnd1",
         "gemma4", "gemma4_text", "gemma4_unified", "gemma4_unified_text", "gemma3n", "gemma3n_text", "muse_glimmer", "flint",
     ];
 
@@ -285,7 +285,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
         {
             md[a + "rope.local_base"] = (float)localBase;
         }
-        else if (type == "gemma3_text")
+        else if (type is "gemma3_text" or "gemma3")
         {
             md[a + "rope.local_base"] = (float)DefaultRopeBase;
         }
@@ -378,6 +378,16 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
             }
 
             var w = tensor.ToWeightInfo();
+            if (c.ModelType == "gemma3")
+            {
+                if (Gemma3TextName(name) is not { } textName)
+                {
+                    continue;
+                }
+
+                name = textName;
+            }
+
             if (extended)
             {
                 if (IsNonTextTensor(name))
@@ -417,6 +427,25 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     }
 
     /// <summary>Embedding, final norm and output head; false when <paramref name="name"/> is none of them.</summary>
+    /// <summary>
+    /// The text decoder's name of a tensor of Gemma 3's vision-language checkpoint (<c>Gemma3ForConditionalGeneration</c>), or null for
+    /// the vision tower and the projector: <c>language_model.model.*</c> (transformers before 4.52) or <c>model.language_model.*</c>
+    /// become <c>model.*</c>, <c>language_model.lm_head.*</c> becomes <c>lm_head.*</c>.
+    /// </summary>
+    private static string? Gemma3TextName(string name)
+    {
+        if (name.StartsWith("vision_tower.", StringComparison.Ordinal) || name.StartsWith("multi_modal_projector.", StringComparison.Ordinal)
+            || name.StartsWith("model.vision_tower.", StringComparison.Ordinal) || name.StartsWith("model.multi_modal_projector.", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return name.StartsWith("language_model.model.", StringComparison.Ordinal) ? "model." + name["language_model.model.".Length..]
+            : name.StartsWith("model.language_model.", StringComparison.Ordinal) ? "model." + name["model.language_model.".Length..]
+            : name.StartsWith("language_model.", StringComparison.Ordinal) ? name["language_model.".Length..]
+            : name;
+    }
+
     private static bool TryMapGlobalTensor(HfConfig c, WeightContext context, string name, WeightInfo w, HfWeightCollector collector)
     {
         switch (name)

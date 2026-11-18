@@ -151,9 +151,13 @@ public sealed partial class GraphLowerer
         List<(TensorRef Ref, string Expr)> pass2Outputs, TensorRef? w, int mode, float eps, IReadOnlyList<Value>? pass2Values = null)
     {
         pass2Outputs = [.. pass2Outputs];
-        var pass2RowRanges = new Dictionary<int, (long Min, long Max)>();
-        AddHalfCopyOutputs(pass2Values, pass2Outputs, pass2RowRanges);
-        var source = new RowNormKernelSource
+        int valueOutputs = pass2Outputs.Count;
+        var guards = new Dictionary<int, string>();
+        var prefill = new List<Value>();
+        AddHalfCopyOutputs(pass2Values, pass2Outputs, guards, prefill);
+        int? fp8Output = AddFp8CopyOutput(pass2Values, pass2Outputs, valueOutputs, prefill);
+        long prefillRows = NormCopyPrefillMinRows;
+        RowNormKernelSource Source(IReadOnlyDictionary<int, string> pass2Guards) => new()
         {
             Shape = shape,
             Inputs = inputs,
@@ -162,21 +166,43 @@ public sealed partial class GraphLowerer
             Pass1Outputs = pass1Outputs,
             PostStatements = postStmts,
             Pass2Outputs = pass2Outputs,
-            Pass2RowRanges = pass2RowRanges,
+            Pass2Guards = pass2Guards,
+            Fp8Output = fp8Output is { } index ? (index, prefillRows) : null,
             HasWeight = w is not null,
             Mode = mode,
             Epsilon = eps,
             UseSubgroupOps = _opt.Has(DeviceFeatures.SubgroupOps),
         };
         var outputs = pass1Outputs.Concat(pass2Outputs).ToList();
-        var kernel = _compiler.Compile("elementwise.slang", source.Build(), "main", _opt.Target, Macros(), _opt.Cache);
+        var kernel = _compiler.Compile("elementwise.slang", Source(guards).Build(), "main", _opt.Target, Macros(), _opt.Cache);
 
         long rowLength = shape[^1];
         long rowsPerSymbol = ElementwiseCodegen.Pitches(shape)[0] / rowLength;
         KernelArg rows = symbol is null ? new UIntArg((uint)(ElementwiseCodegen.ElementCount(shape) / rowLength)) : new SymbolArg(symbol, rowsPerSymbol);
+        Func<Bindings, Grid> grid = b => new Grid((uint)((symbol is null ? shape[0] : b[symbol]) * rowsPerSymbol));
+        var variants = new List<KernelVariant> { Always(kernel, grid) };
+        if (prefill.Count > 0)
+        {
+            // From prefillRows rows the norm writes the GEMMs' copies; it also skips the f32 rows of those values when every reader
+            // takes the copy there, which is known once the whole segment is lowered (until then the kernel writing them is chosen).
+            var skipGuards = new Dictionary<int, string>(guards);
+            for (int i = 0; i < valueOutputs && pass2Values is not null && i < pass2Values.Count; i++)
+            {
+                if (prefill.Contains(pass2Values[i]))
+                {
+                    skipGuards[i] = $"p.rows < {prefillRows}u";
+                }
+            }
+
+            var skipKernel = _compiler.Compile("elementwise.slang", Source(skipGuards).Build(), "main", _opt.Target, Macros(), _opt.Cache);
+            bool skip = false;
+            var values = prefill.ToArray();
+            _deferredCopyChecks.Add(() => skip = values.All(v => ReadersUseCopy(v, prefillRows)));
+            variants = [new KernelVariant(_ => !skip, kernel, grid), new KernelVariant(_ => skip, skipKernel, grid)];
+        }
+
         var weightOrFirstOutput = w ?? outputs[0].Ref;
-        Emit(name, nodes,
-            [Always(kernel, b => new Grid((uint)((symbol is null ? shape[0] : b[symbol]) * rowsPerSymbol)))],
+        Emit(name, nodes, variants,
             [.. inputs.Select(r => (KernelArg)Pointer(r)), Pointer(weightOrFirstOutput), .. outputs.Select(o => (KernelArg)Pointer(o.Ref)), rows],
             w is null ? inputs : [.. inputs, w], outputs.Select(o => o.Ref));
     }

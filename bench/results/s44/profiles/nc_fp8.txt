@@ -1,0 +1,19 @@
+--- prefill T=2048 profile, segment 0
+GPU time 174.25 ms
+    72.684 ms  41.7%     36x  min   1946.2 us  matmul2 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8 T=2048,1
+    38.301 ms  22.0%     36x  min   1029.1 us  matmul [12288→4096] f8e4m3_b128r fp8 gemm_fp8 T=2048,1
+    26.347 ms  15.1%     72x  min    350.1 us  matmul [4096→4096] f8e4m3_b128r fp8 gemm_fp8 T=2048,1
+    11.422 ms   6.6%     36x  min    307.2 us  attention fe T=2048,1
+     7.544 ms   4.3%     72x  min    100.4 us  matmul [4096→1024] f8e4m3_b128r fp8 gemm_fp8 T=2048,1
+     7.441 ms   4.3%     72x  min     92.4 us  fused[Add]+RmsNorm main T=2048,1
+     4.332 ms   2.5%     36x  min    118.2 us  matmul [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8 T=2048,1
+     2.479 ms   1.4%     36x  min     66.7 us  rope+norm rope_row T=2048,1
+     1.492 ms   0.9%      1x  min   1491.7 us  matmul [4096→151936] bf16 matvec_sk T=2048,1
+     0.785 ms   0.5%     36x  min     20.5 us  rope+norm+cache_write rope_row T=2048,1
+     0.668 ms   0.4%     36x  min     17.4 us  cache_write cache_write T=2048,1
+     0.630 ms   0.4%     36x  min     16.1 us  matmul [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8 T=2048,1
+     0.084 ms   0.0%      2x  min      4.1 us  gather gather T=2048,1
+     0.035 ms   0.0%      1x  min     34.8 us  RmsNorm main T=2048,1
+     0.002 ms   0.0%      1x  min      1.9 us  sample sample T=2048,1
+
+prefill 2048 tok: best 196 ms = 10441.7 tok/s | decode: best 48.27, median 37.03, mean 29.41 tok/s | GPU ms/step: best 0.00, median 0.00, wall best 20.72 | prefill median of 5: 200.2 ms = 10230.7 tok/s

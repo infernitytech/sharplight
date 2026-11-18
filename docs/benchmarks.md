@@ -5910,3 +5910,133 @@ python3 bench/s43_serve_summarize.py bench/results/s43/serve-before bench/result
 SHARPLIGHT_MOE_MMVQ_MAX=64 bench/BatchBench/bin/Release/net11.0/BatchBench <model> --slots 64 --ctx 512 --depth 256 \
   --sizes 1,2,4,8,12,16,24,32,64 --modes greedy --reps 20
 ```
+
+## 44. LLM round 7: norms writing the GEMMs' f16 / E4M3 activations, Gemma 3 from Hugging Face, K/V staging and GEMM tiles examined (2026-11-18)
+
+Base: `develop` at `138aaee8` (rounds 6 and 6b merged), branch `perf/llm-r7`. GPU 2 (RTX PRO 4500 Blackwell, 32 GB, nothing else
+on it), checkpoints on local disk. Raw output in [`bench/results/s44/`](../bench/results/s44).
+
+### 44.1 Gap table (procedure of section 42)
+
+`bench/s42_gap.sh` per model and prompt length (one warm-up, median of 5 prefills; decode median of 64 steps). "Before" is the
+same build with `SHARPLIGHT_NORM_PREFILL_COPY=0` (44.2 off, everything else identical), run back to back with "after". The
+vLLM column is section 42's (vLLM 0.33.0, same checkpoints, GPU 1 of the same model); vLLM was not rerun here: the shared network
+file system that holds its virtualenv stalled for most of the session (directory listings of 10-30 s). Session-to-session
+spread on Sharplight is a few percent (section 42's Qwen3-8B-FP8 pp2048 was 10673 tok/s, this session's "before" 11045), so the
+"after / vLLM" ratios carry that uncertainty; the before / after gain is measured within one session.
+
+| model | weights | metric | before | after | after / before | vLLM (§42) | after / vLLM |
+|---|---|---|---:|---:|---:|---:|---:|
+| qwen3-8b | HF bf16 | pp512 | 7532 | 7542 | 1.00x | 8203 | 0.92x |
+| | | pp2048 | 7820 | 7953 | 1.02x | 8782 | 0.91x |
+| | | pp8192 | 6940 | 7051 | 1.02x | 7661 | 0.92x |
+| | | tg (after 512) | 52.3 | 52.7 | | 52 | 1.01x |
+| qwen3-8b-fp8 | HF FP8 | pp512 | 10989 | 11207 | 1.02x | 14446 | 0.78x |
+| | | pp2048 | 11045 | 11344 | 1.03x | 15024 | 0.76x |
+| | | pp8192 | 9352 | 9557 | 1.02x | 12346 | 0.77x |
+| | | tg (after 512) | 87.6 | 88.4 | | 87 | 1.02x |
+| llama3.1-8b | HF bf16 | pp512 | 7687 | 7752 | 1.01x | 8532 | 0.91x |
+| | | pp2048 | 7918 | 8047 | 1.02x | 8836 | 0.91x |
+| | | pp8192 | 7113 | 7218 | 1.01x | 7806 | 0.92x |
+| | | tg (after 512) | 53.3 | 53.6 | | 53 | 1.01x |
+| gemma-3-12b | HF bf16 (new, 44.4) | pp512 | 4356 | 4370 | 1.00x | not run | |
+| | | pp2048 | 4425 | 4447 | 1.00x | not run | |
+| | | pp8192 | 3646 | 3656 | 1.00x | not run | |
+| | | tg (after 512) | 33.4 | 33.5 | | not run | |
+
+A/B runs alternating the switch (2048 tokens, median of 5 per run): Qwen3-8B-FP8 186.4 → 179.7 ms (4 runs each, -3.6 %), Qwen3-8B
+bf16 262.3 → 258.0 ms (3 each, -1.6 %), Llama-3.1-8B Q4_K_M (GGUF, f16 activations into gemm_cm2) 290.0 → 287.6 ms (2 each, -0.8 %).
+Gemma 3 gains least: its norms feed the GEMMs only after its extra sandwich norms and the GELU path, and its pass is dominated by
+the 48 layers' GEMMs.
+
+### 44.2 Row norms write the GEMMs' activations at prefill sizes (kept)
+
+At prefill sizes the residual add + RMS norm wrote f32 rows, and a separate launch converted them for the tensor-core GEMMs
+(`to_f16`, or `quantize_fp8` for the fp8 GEMM: E4M3 codes plus one scale per 128 values). Profile of Qwen3-8B-FP8 at 2048 rows
+(`SHARPLIGHT_VK_PROFILE=1`): norms 10.25 ms (72 launches), quantization of the norm outputs 2.05 ms, GPU time 179.7 ms.
+
+* From 128 rows (`SHARPLIGHT_NORM_COPY_MIN_ROWS`), a norm whose every reader is a GEMM that takes one activation form writes that
+  form itself: the f16 copy (existing small-step mechanism, extended), or the E4M3 rows of the fp8 GEMM. For E4M3 the normalized
+  row passes through shared memory (4 bytes per value), and each 32-lane subgroup then quantizes 128 consecutive values with
+  quantize_fp8's arithmetic (now shared in `e4m3.slang`), so the codes and scales are bit-identical to the separate launch.
+* The f32 rows are skipped from 128 rows when, once the whole segment is lowered, every reader of the value was found to take the
+  copy for all steps of 128 rows or more (recorded where the GEMMs ask for their activations; any other reader, a segment output or
+  a view the GEMM cannot read keeps the f32 rows). The norm launch has two variants, chosen after lowering.
+* Profile after: norms 7.44 ms, the two quantizations gone (the o-projection's input, written by attention, is still quantized
+  separately: 0.63 ms), GPU time 174.3 ms. bf16 Qwen3-8B: conversions 2.6 → 0.78 ms, norms 9.27 → 7.27 ms, GPU 254.4 → 250.6 ms.
+* Writing the f16 copy next to the f32 rows (without skipping them) was measured first: the conversions disappear but the norms
+  grow by the same 1.9 ms (GPU time 254.41 → 254.49 ms); the gain needs the f32 rows gone.
+
+Greedy output: 200-token greedy outputs of the short, ~1100-token and ~4500-token prompts (`--ctx 8192`) on Qwen3-8B and
+Qwen3-8B-FP8 with the switch off and on: byte-identical (all 6). Tests: `NormHalfCopyTests.NormThenPrefillGemms` (new: f8e4m3_b128,
+bf16, f16, q4_k at 100 / 130 / 300 rows, with and without the norm output also read as a graph output).
+
+### 44.3 Tried and not kept
+
+| tried | result |
+|---|---|
+| Prefill attention `fe` (register softmax): K and V tiles staged separately, the K tile of tile j + 1 after the scores of tile j, the V tile after its P·V, loads issued as soon as registers free (two barriers per tile as before, no store sandwiched between them) | attention at 8192 tokens (Qwen3-8B-FP8, 144 launches) 170.8 → 192.3 ms: slower |
+| `fe` with 32-key tiles | 182.8 ms against 170.8 |
+| `fe` diagnostic: no K/V fetch or staging at all (`FE_EXP=1`) | 132.0 ms: staging and fetch cost 39 ms of 171 (23 %), the bound for any K/V pipelining |
+
+Why `fe` resists: it runs at 255 registers per thread (`SHARPLIGHT_VK_PIPELINE_STATS=1`), so one 256-thread workgroup fills an
+SM's register file (8 warps per SM). The output accumulators (64 registers), Q fragments (32), scores (32) and the K/V prefetch (32)
+leave no room for a second workgroup or for a second set of tiles, and the 48 KB shared-memory limit (`maxComputeSharedMemorySize`
+on this driver) holds one 64-key K/V tile pair (34.8 KB). Attention is 6.4 % of the pass at 2048 tokens and 20 % at 8192 for
+Qwen3-8B-FP8, so the 8192-token gap to vLLM now has a large attention share.
+
+GEMM tiles (lever 1 of the brief, examined, not built): section 42.3 found the FP8 GEMM bounded by L2 traffic against MMAs of the same
+duration. Less L2 traffic per FLOP needs a tile with more than 128 x 128 outputs; with 128-value K steps a 256 x 128 FP8 tile needs
+55 KB of shared memory per stage (limit 48 KB), and with 64-value steps the per-block scaling needs the block accumulators across
+two steps (a second accumulator set: 128 + 64 registers of accumulators per thread at 256 threads, past the 255-register limit that
+already spilled the 4-subgroup 128 x 128 variant). The bf16 GEMM's 256 x 128 tile fits only with 32-value single-buffered steps,
+the configuration that section 40.4 measured 28 % slower than 64-value steps. Neither was pursued; asynchronous copies (not exposed
+by the Vulkan driver) or larger shared memory would change this.
+
+### 44.4 Gemma 3 from Hugging Face
+
+The HF importer now takes Gemma 3's vision-language checkpoints (`Gemma3ForConditionalGeneration`, model type `gemma3`, e.g.
+gemma-3-12b-it) as their text decoder: `language_model.model.*` (and the newer `model.language_model.*`) map like
+`gemma3_text`, the vision tower and projector are skipped. Their `text_config` lists only non-default values (the 12B's has no
+`head_dim`, `rope_theta`, `query_pre_attn_scalar` ...), so `HfConfig` fills transformers' `Gemma3TextConfig` defaults for keys a
+nested `gemma3_text` config leaves out.
+
+* gemma-3-12b-it, "The capital of France is", 12 greedy tokens: " Paris.\nThe capital of Germany is Berlin.\nThe", the same ids as
+  transformers 5.23 (fp32 on CPU, `tools/hf_greedy_reference.py`).
+* Families case `tiny-random-gemma-3` (the same wrapper layout) against transformers' greedy ids.
+* Prefill 4447 tok/s at 2048 tokens, decode 33.5 tok/s (44.1). vLLM was not run on it (44.1).
+
+### 44.5 Next levers
+
+* Attention at 8192 tokens (20 % of the FP8 pass): a register budget that allows two `fe` workgroups per SM (Q fragments reloaded from
+  shared memory, fewer prefetch registers), or the o-projection's input written by attention as E4M3 / f16 directly (0.63 / 0.78 ms
+  per 2048-token pass).
+* The down projection's E4M3 input (`quantize_fp8` of the SwiGLU output, 2.5 % of the FP8 pass): the dual GEMM's tile covers 64 of
+  the 128 values of a scale group.
+* GEMM: see 44.3; vLLM serving and prefill on the same session once the network file system allows (dense serving keys
+  `qwen3-8b-fp8-hf` / `qwen3-8b-hf` added to `bench/s43_serve.sh`).
+
+### 44.6 Tests
+
+After merging `develop` (at `b0fa1808`) into the branch, on GPU 2:
+
+| suite | total | failed | skipped |
+|---|---:|---:|---:|
+| Sharplight.Vulkan.Tests (full) | 1558 | 0 | 23 |
+| Sharplight.Families.Tests (full) | 1005 | 8 (see below) | 364 |
+| Sharplight.Import.HuggingFace.Tests (full) | 315 | 0 | 101 |
+
+The 8 Families failures (7 `Batched_GreedyOutput_Matches_SingleSequence` Vulkan cases, `EmbeddingFamilyTests` modernbert on Vulkan)
+were device-memory exhaustion (`InsufficientMemoryException` / `ErrorOutOfDeviceMemory`) while the importer suite ran on the same
+GPU; rerun alone, those classes pass (63 tests, 0 failed). Raw profiles (`profiles/`) and the greedy outputs of 44.2 (`greedy/`,
+`nc0` = switch off, `nc1` = on) are in `bench/results/s44/`.
+
+### 44.7 Reproducing
+
+```bash
+# gap rows (44.1): before = SHARPLIGHT_NORM_PREFILL_COPY=0
+SHARPLIGHT_NORM_PREFILL_COPY=0 bench/s42_gap.sh bench/results/s44/gap qwen3-8b-fp8_before sharplight ~/models/hf/Qwen3-8B-FP8
+bench/s42_gap.sh bench/results/s44/gap qwen3-8b-fp8 sharplight ~/models/hf/Qwen3-8B-FP8
+# attention experiments (44.3)
+SHARPLIGHT_FE_MACROS=FE_EXP=1 SHARPLIGHT_VK_PROFILE=1 sharplight ~/models/hf/Qwen3-8B-FP8 --bench 8192 --ctx 8448
+```

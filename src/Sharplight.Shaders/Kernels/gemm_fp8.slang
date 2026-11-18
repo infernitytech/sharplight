@@ -36,26 +36,6 @@ struct QuantParams
     uint T;
 };
 
-// E4M3 code of |v| <= 448, rounded to nearest even (subnormals below 2^-6 included).
-uint e4m3_code(float v)
-{
-    uint sign = v < 0 ? 0x80u : 0u;
-    float a = abs(v);
-    uint code;
-    if (a < 0.015625)
-    {
-        // Subnormals and zero: multiples of 2^-9 (a rounding up to 8 * 2^-9 is the smallest normal, code 8).
-        code = uint(round(a * 512.0));
-    }
-    else
-    {
-        uint bits = asuint(a);
-        bits += 0x7FFFFu + ((bits >> 20) & 1u);
-        code = min((bits >> 20) - (120u << 3), 0x7Eu);
-    }
-    return sign | code;
-}
-
 // One thread per 4 values; a subgroup covers one 128-value group (32-lane subgroups).
 [shader("compute")]
 [numthreads(256, 1, 1)]
@@ -67,12 +47,10 @@ void quantize_fp8(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
     bool live = t < p.T;
     float4 v = 0;
     if (live) v = *(float4*)(p.x + uint64_t(t) * X_STRIDE + k4 * 4);
-    float amax = WaveActiveMax(max(max(abs(v.x), abs(v.y)), max(abs(v.z), abs(v.w))));
-    float d = amax / 448.0;
-    float id = d > 0 ? 1.0 / d : 0.0;
+    float d = e4m3_group_scale(v);
     if (!live) return;
     uint8_t* row = p.q + uint64_t(t) * F8ROW;
-    *(uint*)(row + k4 * 4) = e4m3_code(v.x * id) | (e4m3_code(v.y * id) << 8) | (e4m3_code(v.z * id) << 16) | (e4m3_code(v.w * id) << 24);
+    *(uint*)(row + k4 * 4) = e4m3_pack4(v, d);
     if ((k4 & 31) == 0) *(float*)(row + K + (k4 / 32) * 4) = d;
 }
 #endif

@@ -79,6 +79,10 @@ public sealed partial class GraphLowerer
         ComputeLiveness(units);
         LowerUnits(units);
         CopyNonMaterializedOutputs();
+        foreach (var check in _deferredCopyChecks)
+        {
+            check();
+        }
 
         _arena.Bytes = Math.Max(256, _alloc.HighWater);
         var resetLaunches = BuildResetLaunches();

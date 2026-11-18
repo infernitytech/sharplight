@@ -613,6 +613,8 @@ uint4 load8h_kquant(uint8_t* w, uint64_t rowBytes, uint row, uint g)
 }
 #endif
 
+#include "e4m3.slang"
+
 #ifdef WFMT
 #include "quant_k.slang"
 #include "quant_iq.slang"
