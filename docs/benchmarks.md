@@ -6040,3 +6040,39 @@ bench/s42_gap.sh bench/results/s44/gap qwen3-8b-fp8 sharplight ~/models/hf/Qwen3
 # attention experiments (44.3)
 SHARPLIGHT_FE_MACROS=FE_EXP=1 SHARPLIGHT_VK_PROFILE=1 sharplight ~/models/hf/Qwen3-8B-FP8 --bench 8192 --ctx 8448
 ```
+
+## 45. Range guard of the f16 activation copies (2026-11-18)
+
+Bug found in the Qwen3-TTS bring-up: with bf16 weights, its code predictor (a 5-layer Qwen3 decoder fed the talker's hidden
+state, outliers near 95) gave wrong logits on Vulkan (490 of 705 argmax disagreements with the reference, worst top-logit error
+37) while the CPU matched. Bisect: only `SHARPLIGHT_SKINNY_GEMM=0` (or `SHARPLIGHT_ROW_INVARIANT=8`, which moves the 2-row steps
+off the skinny GEMM) helped; the norm copies, the bf16 → f16 weight decode and the accumulators were not involved. A replay of the
+predictor in f32 showed layer 2's gated FFN reaching gate 343 and up 427, so silu(g)·u = 1.46e5 at the down projection's input:
+beyond f16's 65504. Every tensor-core GEMM reads f16 copies of its activations (`to_f16`, the dual gemm_cm2's `DUAL_Y16` copy,
+the skinny GEMM's staging), so those rows became infinities and NaN. The talker never reached 2^15 (and its single-row decode
+steps run on the f32 matvec), so only the predictor's 2-row steps showed it.
+
+Fix (generic, all devices with the f16 tensor-core path): copies of values that no norm bounds are row-ranged. A row whose largest
+magnitude reaches 2^15 is stored multiplied by a power of two (into [2^14, 2^15)), with a scale word per row after the rows, and
+the GEMM outputs of that row are multiplied by the inverse (exact). Rows below 2^15 are stored as before, so outputs are
+bit-identical for every model that stays in range. Producers: `to_f16_ranged` (one workgroup per row, rows up to 8192 values held
+in registers: one read), and the dual gemm_cm2's f16 copy, which raises per-row flags (atomic max of its subgroup tile's largest
+magnitude) that `f16_range_fixup` turns into rescaled rows and scale words. Consumers: the skinny GEMM in its store (the
+f32-staging variant finds each row's range itself), gemm_cm2 and gemm_nv2 through `f16_range_unscale` after the launch (one word
+read per row when nothing is scaled), split-K in `splitk_reduce`. Norm-written copies stay plain (a norm's output is at most √K
+times its largest weight), and a dual gemm_cm2 whose x would be a row-ranged copy is not used. `SHARPLIGHT_F16_RANGE=0` restores
+plain copies.
+
+Cost, Qwen3-8B bf16 at 2048 rows (GPU 2, `SHARPLIGHT_VK_PROFILE=1`): GPU time 249.6 → 251.3 ms (dual gemm_cm2 +0.5 ms, the
+three small launches 0.5 ms, `to_f16_ranged` as fast as `to_f16`); wall clock, 3 alternating runs of `--bench 2048` each:
+prefill median of 5 258.6 → 259.2 ms, decode 52.3 → 52.2 tok/s (single rows use the f32 matvec: unchanged). A first version that
+scaled the accumulators inside gemm_cm2 cost 5 % (more shared memory and registers in the 128-row tiles) and was replaced.
+
+Qwen3-TTS now keeps bf16 code-predictor weights (the importer's f32 workaround is gone): 0 disagreements, worst top-logit error
+0.015 on Vulkan (0.016 on CPU). Test: `F16RangeTests` (Vulkan.Tests): matmuls with rows up to 1.5e5 on the skinny GEMM, split-K
+and gemm_cm2, and a tiny FFN block fed hidden states with outliers of 95 / -60 whose product reaches 2^17, on the skinny GEMMs,
+split-K and the dual gemm_cm2 with its flagged copy; all 13 cases gave NaN before.
+
+Not covered: the MoE grouped GEMM's sorted f16 rows (`moe_gather_x16`) and the int8 / FP8 paths (their per-block scales keep the
+range, at their usual precision). Seen on the way: with `SHARPLIGHT_SKINNY_X16=0` (diagnostic), matmuls of fewer than 4096 outputs
+return zeros for 9-16 rows (no f16 copy is made for that range); unrelated to this change.

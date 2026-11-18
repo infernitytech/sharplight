@@ -12,7 +12,15 @@ public sealed partial class GraphLowerer
     /// <see cref="QuantizedActivations"/> hands them to the tensor-core GEMMs instead of launching a conversion (and converts
     /// into the same buffer for the other steps).
     /// </summary>
-    private readonly Dictionary<Value, (TensorRef Half, long MinRows, long MaxRows, Func<long, bool>? Written)> _halfCopies = [];
+    private readonly Dictionary<Value, (TensorRef Half, long MinRows, long MaxRows, Func<long, bool>? Written, long? RangeScales)> _halfCopies = [];
+
+    /// <summary>
+    /// The row-ranged f16 activation copies (<c>f16_range_scale</c> in common.slang) handed to the GEMMs, with the byte offset of
+    /// their per-row scale words (the GEMMs' <c>X_RS</c> macro). A norm's output is bounded (at most √K times its largest
+    /// weight), so the norm-written copies are plain f16 rows; every other value can exceed f16's range (a gated FFN's product,
+    /// e.g. 1.5e5 in Qwen3-TTS's code predictor), and its copy scales the rows that reach 2^15 by a power of two.
+    /// </summary>
+    private readonly Dictionary<TensorRef, long> _rangeScales = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>Root values read as x by a matmul over non-f32 weights (built on first use).</summary>
     private HashSet<Value>? _halfMatMulRoots;
@@ -139,7 +147,7 @@ public sealed partial class GraphLowerer
 
             list.Add(allocation);
             bool Written(long rows) => (small && rows >= minRows && rows <= maxRows) || (large && rows >= prefillRows);
-            _halfCopies[value] = (half, minRows, maxRows, large ? Written : null);
+            _halfCopies[value] = (half, minRows, maxRows, large ? Written : null, null);
             string smallGuard = $"(p.rows >= {minRows}u && p.rows <= {maxRows}u)";
             guards[pass2Outputs.Count] = !large ? smallGuard : small ? $"{smallGuard} || p.rows >= {prefillRows}u" : $"p.rows >= {prefillRows}u";
             pass2Outputs.Add((half, pass2Outputs[i].Expr));
@@ -250,7 +258,7 @@ public sealed partial class GraphLowerer
     /// the norm writes it for, when it serves a conversion of x (the root's own dense rows) for steps from
     /// <paramref name="minRows"/> rows; else null.
     /// </summary>
-    private (TensorRef Copy, long MaxRows, Func<long, bool>? Written)? NormHalfCopy(Value root, TensorRef x, long xStride, long k, long minRows)
+    private (TensorRef Copy, long MaxRows, Func<long, bool>? Written, long? RangeScales)? NormHalfCopy(Value root, TensorRef x, long xStride, long k, long minRows)
     {
         if (!_halfCopies.TryGetValue(root, out var copy) || (copy.Written is null && minRows < copy.MinRows) || xStride != k || copy.Half.Shape[^1] != k
             || x.ByteOffset != Ref(root).ByteOffset)
@@ -260,7 +268,8 @@ public sealed partial class GraphLowerer
 
         long rows = copy.Half.Shape.Aggregate(1L, (a, d) => a * d) / k;
         long[] shape = [rows, 2 * k];
-        return (new TensorRef(_arena, copy.Half.ByteOffset, DataType.U8, shape, TensorRef.DenseStrides(shape), copy.Half.Symbol), copy.MaxRows, copy.Written);
+        return (new TensorRef(_arena, copy.Half.ByteOffset, DataType.U8, shape, TensorRef.DenseStrides(shape), copy.Half.Symbol), copy.MaxRows, copy.Written,
+            copy.RangeScales);
     }
 
     /// <summary>
@@ -277,18 +286,80 @@ public sealed partial class GraphLowerer
             return null;
         }
 
+        // A row-ranged copy: the producer flags the rows that reach 2^15 and f16_range_fixup completes them (see EmitRangeFixup).
         var allocation = new object();
         long elements = y.Shape.Aggregate(1L, (a, d) => a * d);
-        long offset = _alloc.Allocate(allocation, DataType.F16.ByteSize(elements));
-        var half = new TensorRef(_arena, offset, DataType.F16, y.Shape, TensorRef.DenseStrides(y.Shape), y.Symbol);
+        long rows = elements / k;
+        long[] shape = [rows + RangeScaleRows(rows, k), k];
+        long offset = _alloc.Allocate(allocation, DataType.F16.ByteSize(shape[0] * k));
+        var half = new TensorRef(_arena, offset, DataType.F16, shape, TensorRef.DenseStrides(shape), y.Symbol);
         if (!_rootScratch.TryGetValue(value, out var list))
         {
             _rootScratch[value] = list = [];
         }
 
         list.Add(allocation);
-        _halfCopies[value] = (half, 0, long.MaxValue, written);
+        if (!DiagnosticSwitches.F16RangeGuard)
+        {
+            _halfCopies[value] = (half, 0, long.MaxValue, written, null);
+            return half;
+        }
+
+        _halfCopies[value] = (half, 0, long.MaxValue, written, rows * k * 2);
+        _rangeScales[half] = rows * k * 2;
         return half;
+    }
+
+    /// <summary>Rows of <paramref name="k"/> halves after <paramref name="rows"/> f16 rows that hold their range scale words (4 bytes each).</summary>
+    private static long RangeScaleRows(long rows, long k) => ((4 * rows) + (2 * k) - 1) / (2 * k);
+
+    /// <summary>
+    /// <paramref name="macros"/> with <c>X_RS</c> (the byte offset of the per-row scale words) when <paramref name="activations"/> is a
+    /// row-ranged f16 copy (see <see cref="_rangeScales"/>).
+    /// </summary>
+    private Dictionary<string, string> WithRangeScales(Dictionary<string, string> macros, TensorRef activations)
+    {
+        if (_rangeScales.TryGetValue(activations, out long offset))
+        {
+            macros["X_RS"] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture) + "ull";
+        }
+
+        return macros;
+    }
+
+    /// <summary>Zero-initialized per-row flags of the producers of row-ranged copies (see <see cref="EmitRangeFixup"/>); every fixup leaves them zero.</summary>
+    private BufferDecl? _rangeFlags;
+
+    /// <summary>
+    /// The flags (u32 per row, at least <paramref name="rows"/>) that a launch writing a row-ranged f16 copy unscaled raises for
+    /// rows reaching 2^15. One buffer serves every such launch: each is followed by its fixup, which clears them.
+    /// </summary>
+    private TensorRef RangeFlags(long rows)
+    {
+        long bytes = Math.Max(16, rows * 4);
+        if (_rangeFlags is null || _rangeFlags.Bytes < bytes)
+        {
+            _rangeFlags = NewBuffer(BufferKind.Weight, "const:f16-range-flags", bytes, init: new byte[bytes]);
+        }
+
+        return new TensorRef(_rangeFlags, 0, DataType.U32, [bytes / 4], [1], null);
+    }
+
+    /// <summary>
+    /// The launch after one that wrote the row-ranged f16 copy <paramref name="half"/> of the f32 rows <paramref name="y"/>
+    /// (<paramref name="k"/> values) unscaled while flagging rows in <paramref name="flags"/>: the flagged rows are converted again
+    /// with their range scale, every row gets its scale word and the flags are cleared (<c>f16_range_fixup</c>). Runs where
+    /// <paramref name="when"/> holds; nearly free otherwise (a flag read per row).
+    /// </summary>
+    private void EmitRangeFixup(string label, Node[] nodes, TensorRef y, TensorRef half, TensorRef flags, long k, TensorRef x, long rowsPerLead,
+        Func<Bindings, bool> when)
+    {
+        Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
+        var kernel = Lib("data.slang", "f16_range_fixup", Macros(("K", k), ("Y_RS", _rangeScales[half] + "ull")));
+        Emit($"{label} f16 range", nodes,
+            [new KernelVariant(when, kernel, b => new Grid((uint)rows(b)))],
+            [Pointer(y), Pointer(half), Pointer(flags), TokenArg(x, rowsPerLead)],
+            [y, half, flags], [half, flags]);
     }
 
     private HashSet<Value> HalfMatMulRoots()

@@ -849,16 +849,26 @@ public sealed partial class GraphLowerer
         var half = shared;
         if (half is null)
         {
+            // A row-ranged copy (common.slang, f16_range_scale): x's rows may exceed f16's range.
             long rowsMax = x.Shape[0] * rowsPerLead;
-            half = Temp(DataType.F16, [rowsMax, K], x.Symbol);
-            Emit($"matmul {p.Node.Output.Name} x→f16", [p.Node],
-                [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows, Lib("data.slang", "to_f16", Macros(("K", K), ("X_STRIDE", p.XStride))),
-                    b => new Grid(Grid.Div(p.RowCount(b) * (K / 8), 256)))],
+            bool ranged = DiagnosticSwitches.F16RangeGuard;
+            half = Temp(DataType.F16, [rowsMax + (ranged ? RangeScaleRows(rowsMax, K) : 0), K], x.Symbol);
+            if (ranged)
+            {
+                _rangeScales[half] = rowsMax * K * 2;
+            }
+
+            Emit($"matmul {p.Node.Output.Name} x→{(ranged ? "ranged " : "")}f16", [p.Node],
+                [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows,
+                    ranged
+                        ? Lib("data.slang", "to_f16_ranged", Macros(("K", K), ("X_STRIDE", p.XStride), ("Y_RS", _rangeScales[half] + "ull")))
+                        : Lib("data.slang", "to_f16", Macros(("K", K), ("X_STRIDE", p.XStride))),
+                    ranged ? b => new Grid((uint)p.RowCount(b)) : b => new Grid(Grid.Div(p.RowCount(b) * (K / 8), 256)))],
                 [Pointer(x), Pointer(half), TokenArg(x, rowsPerLead)],
                 [x], [half]);
         }
 
-        var halfMacros = new Dictionary<string, string>(p.Macros) { ["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture), ["X_F16"] = "1" };
+        var halfMacros = WithRangeScales(new Dictionary<string, string>(p.Macros) { ["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture), ["X_F16"] = "1" }, half);
         if (p.WorkgroupMatrix)
         {
             halfMacros = new Dictionary<string, string>(halfMacros.Concat(new Dictionary<string, string>
@@ -886,6 +896,17 @@ public sealed partial class GraphLowerer
         Emit(MatMulLabel(p), [p.Node], gemmVariants,
             [Pointer(half), Pointer(p.W), Pointer(p.Y), TokenArg(x, rowsPerLead)],
             [half, p.W], [p.Y]);
+        if (_rangeScales.TryGetValue(half, out long scales))
+        {
+            // The rows of a row-ranged copy that were scaled leave scaled outputs; split-K undoes them in its reduction.
+            Emit($"{MatMulLabel(p)} f16 range", [p.Node],
+                [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == 1,
+                    Lib("data.slang", "f16_range_unscale", Macros(("N", p.N), ("Y_STRIDE", p.Macros["Y_STRIDE"]), ("X_RS", scales + "ull"))),
+                    b => new Grid(Grid.Div(p.RowCount(b), 64)))],
+                [Pointer(half), Pointer(p.Y), TokenArg(x, rowsPerLead)],
+                [half, p.Y], [p.Y]);
+        }
+
         return (half, halfMacros);
     }
 
@@ -955,10 +976,19 @@ public sealed partial class GraphLowerer
             epilogue is null ? Lib("matmul.slang", "splitk_reduce", splitMacros(split)) : MatMulEpilogueKernel(epilogue, "splitk_reduce", splitMacros(split)),
             b => new Grid(Grid.Div(p.RowCount(b) * N, 256))));
         var y = epilogue?.Output ?? p.Y;
+        // w: unused by the reduction, except that a row-ranged f16 copy of the activations (X_RS) goes there for its row scales;
+        // the lookup grid of an IQ weight still leads the arguments (the kernel is built for the weight's format).
+        bool ranged = p.Macros.ContainsKey("X_RS");
+        KernelArg weightArg = Pointer(p.WeightParts ?? p.W);
+        KernelArg[] reduceArgs = [new PointerArg(scratch, 0), ranged ? Pointer(activations) : weightArg, Pointer(y), .. MatMulEpilogueArgs(epilogue), TokenArg(p.X, rowsPerLead)];
+        if (ranged && UsesGrid((p.WeightParts ?? p.W).Type))
+        {
+            reduceArgs = [WithGridArgument([weightArg])[0], .. reduceArgs];
+        }
+
         Emit($"matmul {p.Node.Output.Name} split-k reduce{epilogue?.Label}", [p.Node, .. epilogue?.Group ?? []],
-            [.. reduceVariants],
-            [new PointerArg(scratch, 0), Pointer(p.WeightParts ?? p.W), Pointer(y), .. MatMulEpilogueArgs(epilogue), TokenArg(p.X, rowsPerLead)],   // w: unused by the reduction
-            [partial, .. epilogue?.Args ?? []], [y]);
+            [.. reduceVariants], reduceArgs,
+            ranged ? [partial, activations, .. epilogue?.Args ?? []] : [partial, .. epilogue?.Args ?? []], [y]);
     }
 
     /// <summary>
