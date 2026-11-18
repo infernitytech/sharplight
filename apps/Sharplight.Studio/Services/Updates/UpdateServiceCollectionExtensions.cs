@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Sharplight.Studio.Services.Settings;
 
 namespace Sharplight.Studio.Services.Updates;
@@ -18,7 +19,8 @@ internal static class UpdateServiceCollectionExtensions
             services.TryAddSingleton<IUpdateService>(provider => new VelopackUpdateService(UpdateEndpoint.Resolve(
                 Environment.GetEnvironmentVariable(UpdateEndpoint.EnvironmentVariable),
                 provider.GetRequiredService<ISettingsService>().Current.UpdateUrl,
-                UpdateEndpoint.Baked(typeof(UpdateEndpoint).Assembly))));
+                UpdateEndpoint.Baked(typeof(UpdateEndpoint).Assembly)),
+                provider.GetService<ILoggerFactory>()?.CreateLogger<VelopackUpdateService>()));
             return services;
         }
     }

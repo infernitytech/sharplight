@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Sharplight.Audio;
@@ -34,12 +32,21 @@ public sealed class ServerEndpointTests : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        using var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        await _server.StartAsync(new ServerSettings { Host = "127.0.0.1", Port = port }, TestContext.Current.CancellationToken);
+        await _server.StartAsync(new ServerSettings { Host = "127.0.0.1", Port = 0 }, TestContext.Current.CancellationToken);
         _url = _server.BaseUrl!;
+    }
+
+    [Fact]
+    public async Task PortZero_BindsAFreePortAndReportsTheActualOne()
+    {
+        var uri = new Uri(_url);
+        Assert.NotEqual(0, uri.Port);
+        using var response = await _client.GetAsync(_url + "/v1/models", TestContext.Current.CancellationToken);
+        Assert.True(response.IsSuccessStatusCode);
+
+        await using var second = new KestrelApiServer(_host);
+        await second.StartAsync(new ServerSettings { Host = "127.0.0.1", Port = 0 }, TestContext.Current.CancellationToken);
+        Assert.NotEqual(uri.Port, new Uri(second.BaseUrl!).Port);
     }
 
     public async ValueTask DisposeAsync()

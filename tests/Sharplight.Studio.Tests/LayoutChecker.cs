@@ -17,6 +17,9 @@ internal static class LayoutChecker
 {
     private const double Tolerance = 1.5;
 
+    /// <summary>A wrapping text block narrower than this many characters (of its font size) is squeezed: the words fall one per line.</summary>
+    internal const double MinimumWrapCharacters = 8;
+
     /// <summary>Returns a description of every visual below <paramref name="root"/> that is arranged outside its parent or overlaps a sibling.</summary>
     public static List<string> Find(Visual root, Func<Visual, bool>? focus = null)
     {
@@ -70,6 +73,11 @@ internal static class LayoutChecker
         var parentRect = BoundsIn(visual, root);
         foreach (var child in children)
         {
+            if (child is TextBlock text && FindExtremeWrap(text) is { } wrap)
+            {
+                problems.Add($"{Describe(child)} wraps in {wrap}");
+            }
+
             var painted = Painted(child, root, visual);
             // Cut by the clips above the parent too: what a clipped ancestor hides cannot overlap anything.
             var overall = Painted(child, root, root);
@@ -100,6 +108,25 @@ internal static class LayoutChecker
         {
             Visit(child, root, problems, focus);
         }
+    }
+
+    /// <summary>
+    /// Describes the width of a text block that wraps its text into more than one line while being narrower than
+    /// <see cref="MinimumWrapCharacters"/> characters of its font (average glyph about half the font size), or null.
+    /// </summary>
+    /// <param name="text">The text block, already measured and arranged.</param>
+    public static string? FindExtremeWrap(TextBlock text)
+    {
+        if (text.TextWrapping == Avalonia.Media.TextWrapping.NoWrap || string.IsNullOrWhiteSpace(text.Text) || text.Text.Trim().Length <= MinimumWrapCharacters
+            || text.TextLayout?.TextLines is not { Count: > 1 } lines)
+        {
+            return null;
+        }
+
+        var characters = text.Bounds.Width / Math.Max(1, text.FontSize * 0.5);
+        return characters < MinimumWrapCharacters
+            ? $"{text.Bounds.Width:0} px (about {characters:0.#} characters, {lines.Count} lines): \"{(text.Text.Length > 40 ? text.Text[..40] + "..." : text.Text)}\""
+            : null;
     }
 
     private static bool Contains(Rect outer, Rect inner)

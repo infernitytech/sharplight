@@ -233,8 +233,8 @@ public sealed class StudioEndToEndRealTests
         await session.LoadAsync("ms-marco", rerank, ModelKindCatalog.Reranker, ct);
 
         await using var server = new KestrelApiServer(session.Runtime.Host);
-        int port = 38000 + Random.Shared.Next(2000);
-        await server.StartAsync(new ServerSettings { Host = "127.0.0.1", Port = port }, ct);
+        // Port 0: the system picks a free port when Kestrel binds, so nothing can take it in between.
+        await server.StartAsync(new ServerSettings { Host = "127.0.0.1", Port = 0 }, ct);
         using var http = new HttpClient { BaseAddress = new Uri(server.BaseUrl!), Timeout = TimeSpan.FromMinutes(5) };
 
         var models = await http.GetFromJsonAsync<JsonElement>("/v1/models", ct);
