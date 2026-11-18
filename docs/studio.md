@@ -757,7 +757,21 @@ vocoder (speaks on the Speak page) through the real runtime, when the files are 
 (the microphone path with a fake device delivering `jfk.wav`, whisper-tiny dictation, a Qwen3-0.6B answer, Kokoro reading it aloud), the
 voice choice of Qwen3-TTS CustomVoice, `/image` with tiny-random-SD (PNG stored, kept out of the next turn), Search over text files with
 all-MiniLM-L6-v2 and reranking with ms-marco-MiniLM-L6-v2, and the embedded server answering transcriptions, speech, image generations,
-embeddings and rerank over HTTP. `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
+embeddings and rerank over HTTP. `StudioSpeechPagesRealTests`, `StudioVisionAudioRealTests`, `StudioImageVideoPagesRealTests` and `StudioModelsPageRealTests` do the same for the other inference pages
+(all skipped when a model is missing, driven through the view models on the real runtime and the fake audio device, with `jfk.wav` and the COCO picture of two cats and
+two remote controls as inputs):
+- Transcribe: whisper-tiny.en, Qwen3-ASR-0.6B and Parakeet; segment timestamps are ordered and inside the recording, and the saved `.srt` / `.vtt` files and the
+  gallery copy carry the same cues as the page.
+- Speak: Kokoro and Qwen3-TTS CustomVoice; the voice list, playing while generating through the fake speaker, and the WAV export.
+- Vision: ViT ranks cat labels first; DETR and RT-DETR find both cats (one left, one right) and a remote, the overlay differs from the input and a higher threshold
+  hides objects without a new run; Depth Anything V2 gives a colored map with a real range; SAM2 gives masks of object size; TrOCR reads the printed line.
+- Audio: EnCodec and Mimi round trip `jfk.wav` (more codebooks reconstruct better), Silero VAD finds the speech, MusicGen-small makes a short clip.
+- Image: seed reuse reproduces a picture, the gallery outlives the page, an input picture makes image to image and a mask makes inpainting. Video: tiny Wan and
+  tiny LTX give frames; the MP4 export is checked when the native video layer is installed (skipped otherwise).
+- Models: installs the five feed packages (chat, embedding, reranker, speech, voice activity) from the live feed, checks the library kind of each (a chat
+  package is never a reranker; a cross-encoder declared `embeddings` by an older package is refined to a reranker because it has a classify graph and no decode
+  graph), the kind filter, load and unload through the load panel, and the residency list; a theory checks the inspector's kind for 20 real model folders.
+`RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
 calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here. With
 `SHARPLIGHT_INSPECTOR_PACKAGES` (a list of `.slm` paths, separated like `PATH`), the inspector renders every tab of those
 packages in both themes.
