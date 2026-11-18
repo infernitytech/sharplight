@@ -4,7 +4,7 @@ namespace Sharplight.AudioModels.Tests;
 
 /// <summary>
 /// The Qwen3-TTS 12 Hz tokenizer against the official qwen_tts modeling code (reference from <c>tools/audio-reference/reference_qwen3_tts_tokenizer.py</c>): token-exact codes of the
-/// 16 codebooks and decoded audio to a relative RMS of 1e-3, on 5 s of jfk.wav.
+/// 16 codebooks and decoded audio to a relative RMS of 1e-4 (measured 6e-6 on CPU and Vulkan), on 5 s of jfk.wav.
 /// </summary>
 public class Qwen3TtsCodecTests
 {
@@ -32,6 +32,6 @@ public class Qwen3TtsCodecTests
         var reference = AudioModels.Floats("qtok_dec.f32");
         Assert.Equal(reference.Length, decoded.Samples.Length);
         double error = AudioModels.RelativeRms(decoded.Samples, reference);
-        Assert.True(error < 1e-3, $"relative RMS {error}");
+        Assert.True(error < 1e-4, $"relative RMS {error}");
     }
 }
