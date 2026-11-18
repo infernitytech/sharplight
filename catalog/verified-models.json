@@ -1,7 +1,7 @@
 {
   "$schema": "./verified-models.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-17",
+  "updated": "2026-11-18",
   "docSections": [
     {
       "id": "1.1",
@@ -20982,6 +20982,368 @@
           }
         }
       ]
+    },
+    {
+      "id": "mobilenetv3-small-100-timm",
+      "name": "MobileNetV3 Small 100 (timm)",
+      "kind": "image-classification",
+      "family": "MobileNetV3",
+      "architecture": "mbconvnet",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 414431382,
+          "companions": [],
+          "repository": "timm/mobilenetv3_small_100.lamb_in1k",
+          "revision": "76b303ec28c466e9df37f4745dfb7aef20ab87ae",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 586,
+              "gitOid": "40147f9acd8d526983d577238064088a8d454bba"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 10241912,
+              "sha256": "46d2c063b18125884c48937afa4c49e18128869e52e8db96df48bf0a4d7ff697"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits 7.5e-5 vs timm (CPU and Vulkan), same top-1",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "no label names in timm repositories",
+      "doc": []
+    },
+    {
+      "id": "mobilenetv3-large-100-timm",
+      "name": "MobileNetV3 Large 100 (timm)",
+      "kind": "image-classification",
+      "family": "MobileNetV3",
+      "architecture": "mbconvnet",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 428020253,
+          "companions": [],
+          "repository": "timm/mobilenetv3_large_100.ra_in1k",
+          "revision": "96f46a1c52932f27492dff66c72378eb99b443a7",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 584,
+              "gitOid": "2acacfe0fc99eea766a3d490f8e1efa91718d7e3"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 22058321,
+              "sha256": "f425af34cc1cead2b5d6211f789a1f30b94835dc32f9c0fcc5a916e4fd2dde85"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits 1.0e-4 vs timm (CPU and Vulkan), same top-1",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "no label names in timm repositories",
+      "doc": []
+    },
+    {
+      "id": "efficientnet-b0-timm",
+      "name": "EfficientNet B0 (timm)",
+      "kind": "image-classification",
+      "family": "EfficientNet",
+      "architecture": "mbconvnet",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 427211829,
+          "companions": [],
+          "repository": "timm/efficientnet_b0.ra_in1k",
+          "revision": "1b5383e5f79cc0f7fc067e372f8f26a5fa73f26a",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 578,
+              "gitOid": "13a639ebb2aa187a78940776a4a85237d4372256"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 21355344,
+              "sha256": "d569899762ea9b1384ee07f4af64805cf8caa1c55f9253ebb1080dc40e87a2cd"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits 8.3e-5 vs timm (CPU and Vulkan), same top-1",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "no label names in timm repositories; b1 to b4 map by the same code but were not run",
+      "doc": []
+    },
+    {
+      "id": "efficientnetv2-s-timm",
+      "name": "EfficientNetV2 S (timm, TF padding)",
+      "kind": "image-classification",
+      "family": "EfficientNet",
+      "architecture": "mbconvnet",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 502154928,
+          "companions": [],
+          "repository": "timm/tf_efficientnetv2_s.in21k_ft_in1k",
+          "revision": "ea9abc143ea2b9d8e1ec1de277bce02149b9cf0e",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 638,
+              "gitOid": "c13f200b415782f81ceba85d42f7a1cd6741d2d7"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 86523256,
+              "sha256": "6f1933fb6c0d760eae03863ad0110570393e16c0610f8fe94dc9f978e52ec59c"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits 1.4e-4 vs timm (CPU and Vulkan), same top-1",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "300 px input, TensorFlow 'same' padding; no label names in timm repositories",
+      "doc": []
+    },
+    {
+      "id": "dinov3-vits16",
+      "name": "DINOv3 ViT-S/16 (LVD-1689M)",
+      "kind": "image-embedding",
+      "family": "DINOv3",
+      "architecture": "vit",
+      "level": "verified",
+      "license": "other",
+      "gated": true,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 502020525,
+          "companions": [],
+          "repository": "facebook/dinov3-vits16-pretrain-lvd1689m",
+          "revision": "114c1379950215c8b35dfcd4e90a5c251dde0d32",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 743,
+              "gitOid": "fdff48569812f3cbadf253762565c4ce9dacddac"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 86406384,
+              "sha256": "4610ad75edef83e75afdebf162d148dc628045ea6cbb83d67d4708c709c4f91d"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 585,
+              "gitOid": "0126173c1ab7b75bbd9102e37de8a56ffe0a012b"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "CLS embedding 1.9e-6 vs transformers on a 224 px input (CPU and Vulkan); 7e-3 on a large photo (8-bit resize rounding)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "DINOv3 license (gated, accept the terms and use a token); 4 registers, 2-D rotary positions, LayerScale",
+      "doc": []
+    },
+    {
+      "id": "dinov3-vitb16",
+      "name": "DINOv3 ViT-B/16 (LVD-1689M)",
+      "kind": "image-embedding",
+      "family": "DINOv3",
+      "architecture": "vit",
+      "level": "verified",
+      "license": "other",
+      "gated": true,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 796714704,
+          "companions": [],
+          "repository": "facebook/dinov3-vitb16-pretrain-lvd1689m",
+          "revision": "5931719e67bbdb9737e363e781fb0c67687896bc",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 744,
+              "gitOid": "9f0c03c12a21df9678269d96dac7b59819349792"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 342662192,
+              "sha256": "9a21ac3df0c63839d62612dda6f454d816c25611cc7a52966ed5a5a94921dc8b"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 585,
+              "gitOid": "0126173c1ab7b75bbd9102e37de8a56ffe0a012b"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "CLS embedding 2.9e-6 vs transformers on a 224 px input (CPU and Vulkan); 8.6e-3 on a large photo (8-bit resize rounding)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "DINOv3 license (gated, accept the terms and use a token)",
+      "doc": []
     },
     {
       "id": "qwen3.5-4b",

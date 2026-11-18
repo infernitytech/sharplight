@@ -13,7 +13,10 @@ public class ImageEncoderTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    private static string Model(string name) => Path.Combine(Home, Directory.Exists(Path.Combine(Home, "models/vision", name)) ? "models/vision" : Directory.Exists(Path.Combine(Home, "models/vision-r8", name)) ? "models/vision-r8" : "models/vision-sweep", name);
+    private static readonly string[] Roots = ["models/vision", "models/vision-r8", "models/vision-r9"];
+
+    private static string Model(string name)
+        => Path.Combine(Home, Roots.FirstOrDefault(r => Directory.Exists(Path.Combine(Home, r, name))) ?? "models/vision-sweep", name);
 
     private static bool Available(string name) => File.Exists(Path.Combine(Model(name), "sharplight-reference.json"));
 
@@ -44,6 +47,10 @@ public class ImageEncoderTests
     [InlineData("resnet-18")]
     [InlineData("convnext-tiny-224")]
     [InlineData("convnext_tiny.fb_in1k")]
+    [InlineData("mobilenetv3_small_100.lamb_in1k")]
+    [InlineData("mobilenetv3_large_100.ra_in1k")]
+    [InlineData("efficientnet_b0.ra_in1k")]
+    [InlineData("tf_efficientnetv2_s.in21k_ft_in1k")]
     public async Task VitClassifierMatchesTransformers(string name)
     {
         if (!Available(name))
@@ -73,10 +80,51 @@ public class ImageEncoderTests
     }
 
     [Theory]
+    [InlineData("mobilenetv3_small_100.lamb_in1k")]
+    [InlineData("tf_efficientnetv2_s.in21k_ft_in1k")]
+    public async Task ClassifierRoundTripsThroughSlm(string name)
+    {
+        if (!Available(name))
+        {
+            return;
+        }
+
+        var expected = Floats(Reference(name).GetProperty("logits"));
+        var image = PngCodec.Read(Path.Combine(Model(name), "sharplight-sample.png"));
+        string dir = Path.Combine(Path.GetTempPath(), "sl-slm-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string package = Path.Combine(dir, "model.slm");
+            TestHost.Converter.Convert(Model(name), package);
+            foreach (var (backend, slot) in Backends())
+            {
+                using var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = package, Devices = [slot] });
+                using var classifier = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageClassifier>(model);
+                var result = await classifier.ClassifyAsync(image, new ImageClassificationOptions { TopK = 0 }, TestContext.Current.CancellationToken);
+                var logits = new float[expected.Length];
+                foreach (var p in result.Predictions)
+                {
+                    logits[p.Index] = p.Logit;
+                }
+
+                var (maxAbs, _, rms) = Env.Compare(logits, expected);
+                Assert.True(rms < 2e-3, $"{backend}: logits relative rms {rms}, max abs {maxAbs}");
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Theory]
     [InlineData("dinov2-small")]
     [InlineData("dinov2-base")]
     [InlineData("dinov2-with-registers-base")]
     [InlineData("dino-vitb16")]
+    [InlineData("dinov3-vits16-pretrain-lvd1689m")]
+    [InlineData("dinov3-vitb16-pretrain-lvd1689m")]
     [InlineData("vit-base-patch16-224-in21k")]
     public async Task Dinov2EmbeddingMatchesTransformers(string name)
     {
@@ -97,6 +145,38 @@ public class ImageEncoderTests
             Assert.Equal(expected.Length, embedder.Dimensions);
             var (maxAbs, _, rms) = Env.Compare(embedding, expected);
             Assert.True(rms < 2e-3, $"{backend}: embedding relative rms {rms}, max abs {maxAbs}");
+        }
+    }
+
+    [Fact]
+    public async Task Dinov3EmbeddingRoundTripsThroughSlm()
+    {
+        const string name = "dinov3-vits16-pretrain-lvd1689m";
+        if (!Available(name))
+        {
+            return;
+        }
+
+        var expected = Floats(Reference(name).GetProperty("pooled"));
+        var image = PngCodec.Read(Path.Combine(Model(name), "sharplight-sample.png"));
+        string dir = Path.Combine(Path.GetTempPath(), "sl-slm-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string package = Path.Combine(dir, "model.slm");
+            TestHost.Converter.Convert(Model(name), package);
+            foreach (var (backend, slot) in Backends())
+            {
+                using var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = package, Devices = [slot] });
+                using var embedder = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageEmbedder>(model);
+                var embedding = await embedder.EmbedImageAsync(image, new ImageEmbeddingOptions { Normalize = false }, TestContext.Current.CancellationToken);
+                var (maxAbs, _, rms) = Env.Compare(embedding, expected);
+                Assert.True(rms < 2e-3, $"{backend}: embedding relative rms {rms}, max abs {maxAbs}");
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
         }
     }
 
