@@ -53,6 +53,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<DacAdapter>()
                 .AddModelAdapter<MimiAdapter>()
                 .AddModelAdapter<Qwen3TtsCodecAdapter>()
+                .AddModelAdapter<HiggsAudioCodecAdapter>()
                 .AddModelAdapter<SileroVadAdapter>()
                 .AddModelAdapter<ClapAdapter>()
                 .AddModelAdapter<MusicGenAdapter>()

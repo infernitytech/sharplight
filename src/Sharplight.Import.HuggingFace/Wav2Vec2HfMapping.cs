@@ -101,6 +101,21 @@ internal sealed partial class Wav2Vec2HfMapping : IHfArchitectureMapping
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var collector = new HfWeightCollector();
+        MapInto(collector, tensors, "", ctcHead: true);
+        return collector.Weights;
+    }
+
+    /// <summary>
+    /// Maps the tensors of a wav2vec2 or HuBERT encoder (names relative to the model, an optional <c>wav2vec2.</c> prefix is accepted) to the canonical names under
+    /// <paramref name="targetPrefix"/>; the masked-span embedding and the pre-training heads are dropped.
+    /// </summary>
+    /// <param name="collector">Receives the weights.</param>
+    /// <param name="tensors">The encoder's tensors.</param>
+    /// <param name="targetPrefix">Prepended to every canonical name (empty, or <c>semantic.</c> for the speech codec that embeds a HuBERT).</param>
+    /// <param name="ctcHead">Whether <c>lm_head</c> maps to the CTC head (it is dropped otherwise).</param>
+    internal static void MapInto(HfWeightCollector collector, IReadOnlyDictionary<string, SafetensorsTensor> tensors, string targetPrefix, bool ctcHead)
+    {
+        string t = targetPrefix;
         foreach (var (rawName, tensor) in tensors)
         {
             string name = rawName.StartsWith("wav2vec2.", StringComparison.Ordinal) ? rawName["wav2vec2.".Length..] : rawName;
@@ -111,25 +126,29 @@ internal sealed partial class Wav2Vec2HfMapping : IHfArchitectureMapping
                     or "project_hid.bias" or "project_q.weight" or "project_q.bias":
                     continue;
                 case "lm_head.weight" or "lm_head.bias":
-                    collector.Add(HfTransforms.Plain(info, "ctc." + Suffix(name)));
+                    if (ctcHead)
+                    {
+                        collector.Add(HfTransforms.Plain(info, t + "ctc." + Suffix(name)));
+                    }
+
                     continue;
                 case "feature_projection.layer_norm.weight" or "feature_projection.layer_norm.bias":
-                    collector.Add(HfTransforms.Plain(info, "encoder.projection_norm." + Suffix(name)));
+                    collector.Add(HfTransforms.Plain(info, t + "encoder.projection_norm." + Suffix(name)));
                     continue;
                 case "feature_projection.projection.weight" or "feature_projection.projection.bias":
-                    collector.Add(HfTransforms.Plain(info, "encoder.projection." + Suffix(name)));
+                    collector.Add(HfTransforms.Plain(info, t + "encoder.projection." + Suffix(name)));
                     continue;
                 case "encoder.layer_norm.weight" or "encoder.layer_norm.bias":
-                    collector.Add(HfTransforms.Plain(info, "encoder.norm." + Suffix(name)));
+                    collector.Add(HfTransforms.Plain(info, t + "encoder.norm." + Suffix(name)));
                     continue;
                 case "encoder.pos_conv_embed.conv.bias":
-                    collector.Add(HfTransforms.Plain(info, "encoder.position_conv.bias"));
+                    collector.Add(HfTransforms.Plain(info, t + "encoder.position_conv.bias"));
                     continue;
                 case "encoder.pos_conv_embed.conv.weight":
-                    collector.Add(HfTransforms.ToF32(info, "encoder.position_conv.weight"));
+                    collector.Add(HfTransforms.ToF32(info, t + "encoder.position_conv.weight"));
                     continue;
                 case "encoder.pos_conv_embed.conv.weight_g" or "encoder.pos_conv_embed.conv.parametrizations.weight.original0":
-                    collector.Add(HfWeightNormFolding.FoldLastAxis(info, FindDirection(tensors, name), "encoder.position_conv.weight"));
+                    collector.Add(HfWeightNormFolding.FoldLastAxis(info, FindDirection(tensors, name), t + "encoder.position_conv.weight"));
                     continue;
                 case "encoder.pos_conv_embed.conv.weight_v" or "encoder.pos_conv_embed.conv.parametrizations.weight.original1":
                     continue;
@@ -139,21 +158,19 @@ internal sealed partial class Wav2Vec2HfMapping : IHfArchitectureMapping
             if (conv.Success)
             {
                 string target = conv.Groups[2].Value == "conv" ? "" : "norm.";
-                collector.Add(HfTransforms.Plain(info, $"encoder.conv.{conv.Groups[1].Value}.{target}{conv.Groups[3].Value}"));
+                collector.Add(HfTransforms.Plain(info, $"{t}encoder.conv.{conv.Groups[1].Value}.{target}{conv.Groups[3].Value}"));
                 continue;
             }
 
             var layer = LayerName().Match(name);
             if (layer.Success && s_layerModules.TryGetValue(layer.Groups[2].Value, out var module))
             {
-                collector.Add(HfTransforms.Plain(info, $"encoder.layers.{layer.Groups[1].Value}.{module}.{layer.Groups[3].Value}"));
+                collector.Add(HfTransforms.Plain(info, $"{t}encoder.layers.{layer.Groups[1].Value}.{module}.{layer.Groups[3].Value}"));
                 continue;
             }
 
             throw new NotSupportedException($"wav2vec2: tensor '{rawName}' has no canonical mapping.");
         }
-
-        return collector.Weights;
     }
 
     private static WeightInfo FindDirection(IReadOnlyDictionary<string, SafetensorsTensor> tensors, string gainName)

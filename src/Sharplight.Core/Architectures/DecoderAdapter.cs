@@ -216,7 +216,8 @@ public sealed class DecoderAdapter : IModelAdapter
         }
 
         // Models whose every input row is an embedding the host computes (Chatterbox's T3: conditioning, text and speech rows with learned positions).
-        if (!graphs.ContainsKey(WellKnown.DecodeMultimodalGraph) && src.Arch("embedding_input", false))
+        // (A bidirectional model has no decode graph; its denoise graph takes the embedding rows itself.)
+        if (!graphs.ContainsKey(WellKnown.DecodeMultimodalGraph) && graphs.ContainsKey(WellKnown.DecodeGraph) && src.Arch("embedding_input", false))
         {
             graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(0);
         }
