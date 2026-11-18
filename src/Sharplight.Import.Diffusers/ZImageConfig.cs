@@ -122,19 +122,18 @@ internal sealed record ZImageConfig
     }
 
     /// <summary>
-    /// This configuration for a transformer file recognized by its name: files named like the base model (<c>z-image</c>, <c>z_image</c>,
-    /// <c>zimage</c> without "turbo") are the undistilled Z-Image, everything else the Turbo (or a fine-tune of it).
+    /// This configuration for a transformer file recognized by its name: files named like the base model (<c>z-image</c>, <c>z_image</c>
+    /// without "turbo") are the undistilled Z-Image, everything else the Turbo (or a fine-tune of it).
     /// </summary>
     /// <param name="fileName">The file name.</param>
     public ZImageConfig WithFileName(string fileName)
         => IsBaseName(fileName) ? this with { Distilled = false, Shift = 6f } : this;
 
-    /// <summary>Whether a model name is the undistilled Z-Image's (it starts with z-image / z_image / zimage and does not say turbo).</summary>
+    /// <summary>Whether a model name is the undistilled Z-Image's (it starts with z-image / z_image and does not say turbo).</summary>
     /// <param name="name">A file or folder name.</param>
     public static bool IsBaseName(string name)
         => !name.Contains("turbo", StringComparison.OrdinalIgnoreCase)
-            && (name.StartsWith("z-image", StringComparison.OrdinalIgnoreCase) || name.StartsWith("z_image", StringComparison.OrdinalIgnoreCase)
-                || name.StartsWith("zimage", StringComparison.OrdinalIgnoreCase));
+            && (name.StartsWith("z-image", StringComparison.OrdinalIgnoreCase) || name.StartsWith("z_image", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Writes the transformer, scheduler, family and default keys.</summary>
     /// <param name="metadata">The canonical metadata.</param>

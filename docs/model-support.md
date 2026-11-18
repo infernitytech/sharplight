@@ -2570,7 +2570,7 @@ PSNR as in section 15). Downloads and references went to local disk and were del
   name (or `_name_or_path`) says "turbo" with such a scheduler now default to 4 steps without guidance
   (`SchedulerSettings.WithDistilledDefaults`; SDXL-Turbo single files already had it by file name). Tests: `SchedulerDistilledDefaultsTests`.
 - **The undistilled Z-Image ran as the Turbo** (9 steps, no guidance, shift 3) and its prediction was NaN on Vulkan. Two fixes (`ZImageConfig`,
-  `ZImageHyperParameters`): the base model is recognized by its scheduler shift (6, folders) or its file name (`z-image`, `z_image`, `zimage`
+  `ZImageHyperParameters`): the base model is recognized by its scheduler shift (6, folders) or its file name (`z-image`, `z_image`
   without "turbo", transformer-only files) and gets classifier-free guidance, 50 steps, guidance 4 and shift 6; and its transformer keeps f32
   activations in every matrix product and f32 attention products (`zimage.transformer.f32_activations`): with either of the two f16 shortcuts
   of the Turbo path alone the prediction at the noisy timesteps (sigma >= 0.75) overflowed to NaN on the real prompt features (random features
