@@ -76,7 +76,7 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
 
     private readonly Option<int?> _bench = OptionFactory.OptionalInteger(
         "--bench",
-        "Benchmark instead of generating: prefill N synthetic tokens, then 64 decode steps. Profile with SHARPLIGHT_VK_PROFILE=1.",
+        "Benchmark instead of generating: prefill N synthetic tokens, then 64 decode steps. Profile with SHARPLIGHT_VK_PROFILE=1 (Vulkan), SHARPLIGHT_MTL_PROFILE=1 (Metal) or SHARPLIGHT_CUDA_PROFILE=1 (CUDA).",
         helpName: "tokens");
 
     private readonly Option<string?> _logits = new("--logits")

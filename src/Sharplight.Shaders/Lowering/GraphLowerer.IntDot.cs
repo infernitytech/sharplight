@@ -49,8 +49,13 @@ public sealed partial class GraphLowerer
     /// True when the integer-dot matvec (<c>mmvq.slang</c>, <see cref="DeviceFeatures.IntDot"/>) handles weights of
     /// <paramref name="type"/> with reduction length <paramref name="k"/>: q8-quantized activations, int8 dot products.
     /// </summary>
+    /// <remarks>
+    /// The matvec reads the quantized activation rows (k + k / 4 bytes) with 16-byte loads; where the target needs aligned vector loads
+    /// (<see cref="LoweringOptions.AlignedVectorAccess"/>) the rows must be a multiple of 16 bytes, i.e. k a multiple of 64.
+    /// </remarks>
     private bool UseIntDotMatvec(Node n, DataType type, long k)
         => QuantizedActivationsAllowed(n) && _opt.Has(DeviceFeatures.IntDot) && _opt.Has(DeviceFeatures.SubgroupOps)
+           && (!_opt.AlignedVectorAccess || k % 64 == 0)
            && (k % 256 == 0 && (type == ShaderTypes.Q8_0R || type == DataType.Q4_K || type == DataType.Q5_K || type == DataType.Q6_K)
                || k % 32 == 0 && DiagnosticSwitches.IntDotBlockFormats && s_intDotBlockFormats.Contains(type));
 

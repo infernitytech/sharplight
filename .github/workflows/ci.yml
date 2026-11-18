@@ -79,7 +79,7 @@ jobs:
           for project in tests/*/; do
             name="$(basename "$project")"
             case "$name" in
-              Sharplight.Vulkan.Tests|Sharplight.Import.Onnx.Conformance) continue ;;
+              Sharplight.Vulkan.Tests|Sharplight.Import.Onnx.Conformance|Sharplight.Cuda.Tests) continue ;;
             esac
             echo "::group::$name"
             if ! dotnet run --project "$project" -c Release --no-build; then
@@ -89,3 +89,17 @@ jobs:
             echo "::endgroup::"
           done
           exit $failed
+
+      # The CUDA provider's code generation needs NVRTC but no GPU: the build fetches the pinned NVRTC redistributables of
+      # Sharplight.Cuda.Runtime (docs/cuda.md), and the tests compile every kernel of a transformer block, attention, experts and a
+      # convolution from Slang through CUDA C++ to PTX for compute capabilities 7.5, 8.9 and 12.0 (the GPU tests skip).
+      - name: Cache the CUDA redistributables
+        uses: actions/cache@v4
+        with:
+          path: src/Sharplight.Cuda.Runtime/obj/cuda-redist
+          key: cuda-redist-${{ hashFiles('src/Sharplight.Cuda.Runtime/Sharplight.Cuda.Runtime.csproj') }}
+
+      - name: CUDA code generation (Slang, NVRTC)
+        run: |
+          dotnet build tests/Sharplight.Cuda.Tests -c Release -p:SharplightBundleCudaRuntime=true
+          dotnet run --project tests/Sharplight.Cuda.Tests -c Release --no-build

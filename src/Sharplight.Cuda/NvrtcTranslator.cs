@@ -1,0 +1,220 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
+using Sharplight.Cuda.Interop;
+using Sharplight.Shaders;
+
+namespace Sharplight.Cuda;
+
+/// <summary>
+/// Compiles the CUDA C++ Slang generates into PTX for one virtual architecture (<c>compute_XY</c>) with NVRTC, the portable code of the
+/// CUDA provider. The block size header of the source (<see cref="SlangCompiler.CudaThreadsHeader"/>) is kept as the first line of the PTX.
+/// The floating-point headers the source may include (<c>cuda_fp16.h</c>, <c>cuda_bf16.h</c>, <c>cuda_fp8.h</c>) are passed from the files
+/// shipped next to NVRTC, so no CUDA toolkit is needed. Thread-safe.
+/// </summary>
+internal sealed class NvrtcTranslator : KernelTranslator
+{
+    /// <summary>Version of the options and the PTX post-processing; part of every cache key.</summary>
+    private const string OptionsVersion = "3";
+
+    /// <summary>The headers NVRTC needs for the half, bfloat16 and 8-bit float types (redistributable, see docs/cuda.md).</summary>
+    private static readonly string[] s_headerNames = ["cuda_fp16.h", "cuda_fp16.hpp", "cuda_bf16.h", "cuda_bf16.hpp", "cuda_fp8.h", "cuda_fp8.hpp"];
+
+    private static readonly Lazy<IReadOnlyList<(string Name, string Text)>> s_headers = new(LoadHeaders);
+    private static long s_ticks;
+    private static int s_compiled;
+
+    /// <param name="computeCapability">Compute capability the PTX is generated for (e.g. 120 for 12.0).</param>
+    public NvrtcTranslator(int computeCapability)
+    {
+        ComputeCapability = computeCapability;
+    }
+
+    /// <summary>The compute capability (major * 10 + minor) the PTX targets.</summary>
+    public int ComputeCapability { get; }
+
+    /// <inheritdoc />
+    public override ShaderTarget Target => ShaderTarget.Ptx;
+
+    /// <inheritdoc />
+    public override ShaderTarget SourceTarget => ShaderTarget.CudaSource;
+
+    /// <inheritdoc />
+    public override string Id => $"nvrtc|compute_{ComputeCapability}|{OptionsVersion}";
+
+    /// <summary>Kernels this process compiled with NVRTC and the time spent (diagnostics).</summary>
+    public static (int Kernels, TimeSpan Time) Statistics => (Volatile.Read(ref s_compiled), Stopwatch.GetElapsedTime(0, Volatile.Read(ref s_ticks)));
+
+    /// <summary>The NVRTC version, or null when NVRTC is not installed.</summary>
+    public static unsafe Version? NvrtcVersion
+    {
+        get
+        {
+            CudaLibraries.EnsureResolver();
+            try
+            {
+                int major;
+                int minor;
+                return NvrtcApi.nvrtcVersion(&major, &minor) == 0 ? new Version(major, minor) : null;
+            }
+            catch (DllNotFoundException)
+            {
+                return null;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    /// <exception cref="KernelCompilationException">NVRTC rejected the source, or NVRTC is not installed.</exception>
+    public override byte[] Translate(string name, string entryPoint, byte[] code)
+    {
+        long start = Stopwatch.GetTimestamp();
+        string source = Encoding.UTF8.GetString(code);
+        int headerEnd = source.IndexOf('\n');
+        string threadsLine = source.StartsWith(SlangCompiler.CudaThreadsHeader, StringComparison.Ordinal) && headerEnd > 0 ? source[..(headerEnd + 1)] : "";
+        byte[] ptx;
+        try
+        {
+            ptx = Compile(source, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}.cu", Options(ComputeCapability), cubin: false);
+        }
+        catch (DllNotFoundException e)
+        {
+            throw new KernelCompilationException($"Kernel {name}:{entryPoint} needs NVRTC, which is not installed (add the Sharplight.Cuda.Runtime package, or a precompiled model): {e.Message}");
+        }
+
+        Interlocked.Add(ref s_ticks, Stopwatch.GetTimestamp() - start);
+        Interlocked.Increment(ref s_compiled);
+        if (DiagnosticSwitches.DumpSourceDirectory is { } dump)
+        {
+            Directory.CreateDirectory(dump);
+            string stem = Path.Combine(dump, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}_{Environment.CurrentManagedThreadId}_{start}");
+            File.WriteAllText(stem + ".cu", source);
+            File.WriteAllBytes(stem + ".ptx", ptx);
+        }
+
+        return [.. Encoding.UTF8.GetBytes(threadsLine), .. ptx];
+    }
+
+    /// <summary>
+    /// The NVRTC options of a kernel: PTX for the virtual architecture, no warnings (the Slang prelude has many). The half, bfloat16 and
+    /// 8-bit float headers are always on: Slang lowers <c>f16tof32</c> to the <c>cuda_fp16.h</c> intrinsics but enables the header only
+    /// for kernels with <c>half</c> values, and its cooperative matrices need the type of every fragment.
+    /// </summary>
+    internal static string[] Options(int computeCapability) =>
+        [$"-arch=compute_{computeCapability}", "-default-device", "-std=c++17", "-w", "-DSLANG_CUDA_ENABLE_HALF", "-DSLANG_CUDA_ENABLE_BF16", "-DSLANG_CUDA_ENABLE_FP8"];
+
+    /// <summary>Compiles CUDA C++ with NVRTC into PTX (or SASS for one real architecture when <paramref name="cubin"/> is set).</summary>
+    /// <exception cref="KernelCompilationException">NVRTC rejected the source.</exception>
+    /// <exception cref="DllNotFoundException">NVRTC is not installed.</exception>
+    internal static unsafe byte[] Compile(string source, string fileName, IReadOnlyList<string> options, bool cubin)
+    {
+        CudaLibraries.EnsureResolver();
+        var headers = s_headers.Value;
+        var pinned = new List<GCHandle>();
+        try
+        {
+            byte* Utf8(string text)
+            {
+                var handle = GCHandle.Alloc(Encoding.UTF8.GetBytes(text + "\0"), GCHandleType.Pinned);
+                pinned.Add(handle);
+                return (byte*)handle.AddrOfPinnedObject();
+            }
+
+            var headerTexts = stackalloc byte*[headers.Count];
+            var headerNames = stackalloc byte*[headers.Count];
+            for (int i = 0; i < headers.Count; i++)
+            {
+                headerTexts[i] = Utf8(headers[i].Text);
+                headerNames[i] = Utf8(headers[i].Name);
+            }
+
+            nint program;
+            NvrtcApi.Check(NvrtcApi.nvrtcCreateProgram(&program, Utf8(source), Utf8(fileName), headers.Count, headerTexts, headerNames), "create program");
+            try
+            {
+                var optionPointers = stackalloc byte*[options.Count];
+                for (int i = 0; i < options.Count; i++)
+                {
+                    optionPointers[i] = Utf8(options[i]);
+                }
+
+                int result = NvrtcApi.nvrtcCompileProgram(program, options.Count, optionPointers);
+                if (result != 0)
+                {
+                    throw new KernelCompilationException($"NVRTC rejected {fileName} ({result}):\n{Log(program)}");
+                }
+
+                nuint size;
+                byte[] output;
+                if (cubin)
+                {
+                    NvrtcApi.Check(NvrtcApi.nvrtcGetCUBINSize(program, &size), "cubin size");
+                    output = new byte[size];
+                    fixed (byte* p = output)
+                    {
+                        NvrtcApi.Check(NvrtcApi.nvrtcGetCUBIN(program, p), "get cubin");
+                    }
+
+                    return output;
+                }
+
+                NvrtcApi.Check(NvrtcApi.nvrtcGetPTXSize(program, &size), "PTX size");
+                output = new byte[size];
+                fixed (byte* p = output)
+                {
+                    NvrtcApi.Check(NvrtcApi.nvrtcGetPTX(program, p), "get PTX");
+                }
+
+                // The size includes the terminating NUL; the module loader appends one again.
+                return output.AsSpan().TrimEnd((byte)0).ToArray();
+            }
+            finally
+            {
+                NvrtcApi.nvrtcDestroyProgram(&program);
+            }
+        }
+        finally
+        {
+            foreach (var handle in pinned)
+            {
+                handle.Free();
+            }
+        }
+    }
+
+    private static unsafe string Log(nint program)
+    {
+        nuint size;
+        if (NvrtcApi.nvrtcGetProgramLogSize(program, &size) != 0 || size == 0)
+        {
+            return "";
+        }
+
+        var log = new byte[size];
+        fixed (byte* p = log)
+        {
+            NvrtcApi.nvrtcGetProgramLog(program, p);
+        }
+
+        return Encoding.UTF8.GetString(log).TrimEnd('\0');
+    }
+
+    /// <summary>The floating-point headers next to NVRTC (missing ones are left out: only kernels that include them fail).</summary>
+    private static IReadOnlyList<(string Name, string Text)> LoadHeaders()
+    {
+        // Loading NVRTC fixes the directory the headers ship in.
+        _ = NvrtcVersion;
+        var directories = CudaLibraries.NvrtcDirectory is { } nvrtc ? [nvrtc, .. CudaLibraries.RuntimeDirectories()] : CudaLibraries.RuntimeDirectories();
+        var headers = new List<(string, string)>();
+        foreach (string header in s_headerNames)
+        {
+            string? path = directories.Select(d => Path.Combine(d, header)).FirstOrDefault(File.Exists);
+            if (path is not null)
+            {
+                headers.Add((header, File.ReadAllText(path)));
+            }
+        }
+
+        return headers;
+    }
+}

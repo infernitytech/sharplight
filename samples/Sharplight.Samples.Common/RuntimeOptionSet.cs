@@ -24,7 +24,7 @@ public sealed class RuntimeOptionSet
     /// <summary><c>--provider</c>.</summary>
     public Option<string> Provider { get; } = new("--provider")
     {
-        Description = "GPU provider to run on (metal, vulkan); default: the first available one (Metal on Apple silicon, else Vulkan).",
+        Description = "GPU provider to run on (metal, vulkan, cuda); default: the first available one (Metal on Apple silicon, else Vulkan).",
         HelpName = "name",
     };
 
