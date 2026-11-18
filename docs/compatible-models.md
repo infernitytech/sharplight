@@ -177,6 +177,7 @@ In all, 1,080 of 1,138 GGUF files across 88 repositories and 49 of 72 Hub checkp
 | Qwen3.8 27B | Qwen/Qwen3.8-27B | GGUF mmproj (BF16) | CPU, Vulkan | projector output vs llama.cpp | | 2026-11-14 |
 | Ministral 3 3B, Gemma 3 4B, LFM2-VL 450M | mistralai / google / LiquidAI | GGUF + mmproj | CPU, Vulkan | text vs llama.cpp (see 1.1); projector files load | | 2026-11-14 |
 | PaddleOCR-VL 1.6, Unlimited-OCR | PaddlePaddle/PaddleOCR-VL-1.6, baidu/Unlimited-OCR | safetensors | CPU | Loads | | 2026-11-15 |
+| GLM-OCR | zai-org/GLM-OCR | safetensors | CPU, Vulkan | greedy text identical to transformers (CPU, Vulkan, .slm) | OCR prompt "Text Recognition:"; no multi-token prediction | 2026-11-18 |
 <!-- verified-catalog:end -->
 
 ### 1.4 Diffusion language models
@@ -356,6 +357,8 @@ Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical u
 | YOLOv8n, YOLOv8n-seg, YOLOv10n (Ultralytics ONNX exports; also YOLO11 and the larger sizes by the same graph) | `yolo export format=onnx` output (AGPL-3.0: check the license) | object-detection (instance masks for `-seg`) | same classes, scores within 0.01 and boxes within 2 px as onnxruntime with Ultralytics' decoding; mask IoU 0.994-1.000; CPU = Vulkan | detection and segmentation heads only (pose, obb and classification heads are not read); `.pt` checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export's fixed input size is used (letterboxed) | 2026-11-17 |
 | YOLOS tiny, small | hustvl/yolos-tiny, hustvl/yolos-small (revision 3d8f7130d3ce4907cb206fe1c8485dc8fe8703de) | object-detection | same detections as transformers, boxes within 2 px, scores within 0.02; CPU = Vulkan | fixed 640 px square canvas; small has the mid position tables | 2026-11-17 |
 | Table Transformer structure recognition | microsoft/table-transformer-structure-recognition | detection | same 13 detections as transformers on a synthetic table (rows, columns, column header, table), boxes within 2 px, scores within 0.02, CPU and Vulkan | fixed square canvas; hot-model sweep 2026-11-17 (1.2M downloads in 30 days) | 2026-11-17 |
+| Depth Anything 3 small | depth-anything/DA3-SMALL | depth | depth map 3.1e-5 (CPU) / 3.0e-5 (Vulkan) | fixed 504 px square canvas; single-image depth (the camera branch and rays are not read); DualDPT depth branch | 2026-11-18 |
+| Depth Anything 3 large | depth-anything/DA3-LARGE | depth | depth map 1.8e-5 (CPU and Vulkan); CC-BY-NC-4.0 | fixed 504 px square canvas; single-image depth (the camera branch and rays are not read); DualDPT depth branch | 2026-11-18 |
 <!-- verified-catalog:end -->
 
 ## 6. Audio
