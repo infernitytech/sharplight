@@ -106,6 +106,13 @@ internal static class VisionTowerGraph
             x = Norm(b, p, x, "vision.post_norm");
         }
 
+        if (p.MergerPool)
+        {
+            using var _ = b.Group("merger");
+            b.Output(VisionParameters.EmbeddingsOutput, PooledOutput(b, p, x));
+            return b.Build();
+        }
+
         using (b.Group("merger"))
         {
             var h = Merge(b, b.HasWeight("vision.merger.norm.weight") ? MergerNorm(b, p, x, "vision.merger.norm") : x, p);
@@ -136,6 +143,30 @@ internal static class VisionTowerGraph
             b.Output(VisionParameters.EmbeddingsOutput, outputStage ? OutputStage(b, p, rows, layout) : rows);
         }
         return b.Build();
+    }
+
+    /// <summary>
+    /// Gemma 4's output: the m×m patches of every merge unit averaged and scaled by √hidden, standardized (<c>vision.std_bias</c>, <c>vision.std_scale</c>),
+    /// RMS-normed without weight and projected (<c>vision.merger.out.weight</c>, no bias).
+    /// </summary>
+    private static Value PooledOutput(GraphBuilder b, VisionParameters p, Value x)
+    {
+        int H = p.HiddenSize;
+        var units = Merge(b, x, p);
+        Value sum = b.Slice(units, 1, 0, H);
+        for (int k = 1; k < p.MergeUnit; k++)
+        {
+            sum = b.Add(sum, b.Slice(units, 1, (long)k * H, H));
+        }
+
+        var pooled = b.Scale(sum, MathF.Sqrt(H) / p.MergeUnit, 0f, "pooled");
+        if (p.Standardize)
+        {
+            pooled = b.Mul(b.Sub(pooled, b.Weight("vision.std_bias")), b.Weight("vision.std_scale"), "standardized");
+        }
+
+        var normed = b.RmsNorm(pooled, null, p.MergerNormEps ?? p.NormEps);
+        return b.Linear(normed, "vision.merger.out.weight", "vision.merger.out.bias", "merger_out");
     }
 
     /// <summary>
@@ -192,6 +223,8 @@ internal static class VisionTowerGraph
         // Row count: the symbolic patch count (kept by 0) or, in static graphs, the fixed one.
         long n = x.Shape[0].IsSymbolic ? 0 : x.Shape[0].Fixed;
         bool postNorm = p.NormPlacement == "post";
+        bool sandwich = p.NormPlacement == "sandwich";
+        float scale = p.AttentionScale != 0f ? p.AttentionScale : 1f / MathF.Sqrt(D);
         var h = postNorm ? x : Norm(b, p, x, w + "input_norm");
         Value qk;
         Value v;
@@ -206,7 +239,7 @@ internal static class VisionTowerGraph
                 gk = Rotate(b, gk, cos, sinSigned!, D);
             }
 
-            var ga = b.Emit1("Attention", mask is not null ? [gq, gk, gv, mask] : [gq, gk, gv], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
+            var ga = b.Emit1("Attention", mask is not null ? [gq, gk, gv, mask] : [gq, gk, gv], Attributes.From(("scale", scale), ("causal", false)), $"{w}attn");
             return Mlp(b, p, b.Add(x, b.Linear(b.Reshape(ga, n, H), w + "attention.o.weight", w + "attention.o.bias"), $"{w}attn_residual"), w);
         }
 
@@ -224,15 +257,32 @@ internal static class VisionTowerGraph
             v = b.Reshape(b.Linear(h, w + "attention.v.weight", w + "attention.v.bias"), n, heads, D);
         }
 
+        if (p.QkNorm)
+        {
+            // Per-head RMS norms of the queries and keys (Gemma 4), before the rotation.
+            qk = b.Concat(1, b.RmsNorm(b.Slice(qk, 1, 0, heads), b.Weight(w + "attention.q_norm.weight"), p.NormEps),
+                b.RmsNorm(b.Slice(qk, 1, heads, heads), b.Weight(w + "attention.k_norm.weight"), p.NormEps));
+        }
+
+        if (p.ValueNorm)
+        {
+            v = b.RmsNorm(v, null, p.NormEps);
+        }
+
         if (cos is not null)
         {
-            qk = Rotate(b, qk, cos, sinSigned!, D);
+            qk = Rotate(b, qk, cos, sinSigned!, D, p.RopeLayout == VisionParameters.SplitRopeLayout);
         }
 
         var q = b.Slice(qk, 1, 0, heads);
         var k = b.Slice(qk, 1, heads, heads);
-        var attn = b.Emit1("Attention", windowSpans is not null ? [q, k, v, windowSpans] : [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
+        var attn = b.Emit1("Attention", windowSpans is not null ? [q, k, v, windowSpans] : [q, k, v], Attributes.From(("scale", scale), ("causal", false)), $"{w}attn");
         var o = b.Linear(b.Reshape(attn, n, H), w + "attention.o.weight", w + "attention.o.bias");
+        if (sandwich)
+        {
+            o = Norm(b, p, o, w + "attention.post_norm");
+        }
+
         x = b.Add(x, postNorm ? Norm(b, p, o, w + "input_norm") : o, $"{w}attn_residual");
         return Mlp(b, p, x, w);
     }
@@ -246,6 +296,11 @@ internal static class VisionTowerGraph
             ? b.Mul(Activation(b, b.Linear(h, w + "mlp.gate.weight", w + "mlp.gate.bias"), p.Activation), up)
             : Activation(b, up, p.Activation);
         var down = b.Linear(act, w + "mlp.down.weight", w + "mlp.down.bias");
+        if (p.NormPlacement == "sandwich")
+        {
+            down = Norm(b, p, down, w + "mlp.post_norm");
+        }
+
         return b.Add(x, postNorm ? Norm(b, p, down, w + "post_attention_norm") : down, $"{w}l_out");
     }
 
@@ -275,6 +330,7 @@ internal static class VisionTowerGraph
     {
         int D = p.HeadDim;
         int F = D / 4;
+        bool split = p.RopeLayout == VisionParameters.SplitRopeLayout;
         var freqs = new float[F];
         for (int j = 0; j < F; j++)
         {
@@ -284,7 +340,8 @@ internal static class VisionTowerGraph
         var signs = new float[D];
         for (int i = 0; i < D; i++)
         {
-            signs[i] = i < D / 2 ? -1f : 1f;
+            // Paired: the first half of the head takes the negated sine. Split: the first quarter of each half does.
+            signs[i] = (split ? i % (D / 2) < F : i < D / 2) ? -1f : 1f;
         }
 
         var cf = b.Constant("rope_freqs", DataType.F32, new Shape(1, F), Bytes(freqs));
@@ -293,16 +350,20 @@ internal static class VisionTowerGraph
         var pos = b.Emit1("Cast", [positions], Attributes.From(("type", DataType.F32.Name)));
         var row = b.Mul(b.Slice(pos, 1, 0, 1), cf);
         var col = b.Mul(b.Slice(pos, 1, 1, 1), cf);
-        var half = b.Concat(1, row, col);
-        var angle = b.Reshape(b.Concat(1, half, half), 0, 1, D);
+        // Paired: [row | col | row | col]. Split (Gemma 4, x = column first): [col | col | row | row].
+        Value half = split ? b.Concat(1, col, col) : b.Concat(1, row, col);
+        var angle = b.Reshape(split ? b.Concat(1, half, b.Concat(1, row, row)) : b.Concat(1, half, half), 0, 1, D);
         var cos = b.Unary("Cos", angle, "rope_cos");
         var sin = b.Mul(b.Unary("Sin", angle), cs, "rope_sin");
         return (cos, sin);
     }
 
-    private static Value Rotate(GraphBuilder b, Value x, Value cos, Value sinSigned, int D)
+    private static Value Rotate(GraphBuilder b, Value x, Value cos, Value sinSigned, int D, bool split = false)
     {
-        var swapped = b.Concat(2, b.Slice(x, 2, D / 2, D / 2), b.Slice(x, 2, 0, D / 2));
+        int q = D / 4;
+        var swapped = split
+            ? b.Concat(2, b.Slice(x, 2, q, q), b.Slice(x, 2, 0, q), b.Slice(x, 2, 3L * q, q), b.Slice(x, 2, 2L * q, q))
+            : b.Concat(2, b.Slice(x, 2, D / 2, D / 2), b.Slice(x, 2, 0, D / 2));
         return b.Add(b.Mul(x, cos), b.Mul(swapped, sinSigned));
     }
 

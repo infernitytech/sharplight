@@ -1452,6 +1452,9 @@ preprocessing is the neutral `ImageProcessorConfig` stored with the model. Refer
 | YOLOS (`hustvl/yolos-tiny`, `yolos-small`: ViT over class, patch and 100 detection tokens, DETR heads; the small/base models add per-layer mid position tables) | HF `yolos` (`YolosHfMapping`, `YolosAdapter`) | object-detection | supported on the fixed 640 px canvas (position tables resampled bicubically at import) | same detections as transformers (boxes within 2 px, scores within 0.02), CPU = Vulkan |
 | HF ResNet (`microsoft/resnet-50`, `resnet-18`: embedder, basic or bottleneck stages, ImageNet label names) | HF `resnet` (`ResNetHfMapping`, same canonical `resnet` adapter as timm) | image-classification | supported | logits within 2e-3 of transformers, same top-1 (CPU and Vulkan) |
 | ConvNeXt V1 (`timm/convnext_tiny.fb_in1k`, `facebook/convnext-tiny-224`: 4x4 stem, 7x7 depthwise blocks with layer scale, layer-norm downsamplers) | HF `convnext` and timm `convnext_*` (`ConvNextHfMapping`, `ConvNextClassifierAdapter`; atto to xlarge by name) | image-classification | supported (only tiny was run; other sizes share the code) | logits within 2e-3 of timm / transformers, same top-1 (CPU and Vulkan) |
+| MobileNetV3 (`timm/mobilenetv3_small_100.lamb_in1k`, `mobilenetv3_large_100.ra_in1k`: hard-swish, squeeze-excite with hard-sigmoid gates, depthwise 3x3 / 5x5 blocks, head convolution after the pooling; batch norms folded) | timm folder (`timm_mbconv`, `MbConvHfMapping`; canonical `mbconvnet`, `MbConvClassifierAdapter`; the 050 / 075 widths map the same way, not run) | image-classification | supported (no label names in the repositories) | logits 7.5e-5 (small) / 1.0e-4 (large) of timm, same top-1 (CPU and Vulkan; both also from an `.slm`) |
+| EfficientNet B0 and EfficientNetV2-S (`timm/efficientnet_b0.ra_in1k`, `timm/tf_efficientnetv2_s.in21k_ft_in1k`: MBConv, fused-MBConv (edge residual) and plain 3x3 blocks, SiLU, squeeze-excite, TensorFlow "same" padding computed for the fixed 300 px input of the `tf_` models) | same mapping (b1 to b4 map by the same code, not run) | image-classification | supported | logits 8.3e-5 (B0) / 1.4e-4 (V2-S) of timm, same top-1 (CPU and Vulkan) |
+| DINOv3 ViT (`facebook/dinov3-vits16-pretrain-lvd1689m`, `vitb16`: 2-D rotary positions on the patch rows (patch centers in [-1, 1], tables built into the graph), class token and 4 registers, LayerScale, optional gated MLP) | HF `dinov3_vit` (`VitHfMapping`, canonical `vit` with `vit.rope_theta`; gated repositories: accept the terms, `HF_TOKEN`) | image-embedding | supported (CLS embedding after the final norm; the larger variants (`vitl16`, `vith16plus`, `vit7b`) map the same way, not run) | CLS embedding 1.9e-6 (S) / 2.9e-6 (B) on a 224 px input (CPU), 1.4e-6 / 1.5e-6 (Vulkan); on a 640x480 photo 6.9e-3 / 8.6e-3 because the processor resizes in float where the host resize rounds to 8 bits per pass (a 1 / 255 pixel step moves this model's embedding that much; the same effect measured with PIL gives 6.8e-3) |
 | Mask2Former, DPT (other heads) | - | - | not started (see the sweep below) | - |
 
 ### Vision popularity sweep (2026-11-16)
@@ -1503,9 +1506,9 @@ Not covered, with what is missing:
   Vision page has a `Semantic` mode (colored overlay with a legend of the classes by pixel share, PNG export; a matte model exports the cut-out as PNG with alpha, `PngCodec.EncodeRgba`). The graph runs on the processor's fixed square
   size (512 / 640 / 1024 px, no aspect ratio kept). Still missing: Mask2Former / OneFormer (universal: instance and panoptic), UperNet, CLIPSeg and (BiRefNet / RMBG-2.0 matting is done, see the table).
 - **Detection**: DETR checkpoints without the timm backbone, Ultralytics YOLO `.pt` files and the pose / oriented-box / classification heads (the detection and segmentation ONNX exports are done, see the table), RT-DETR v2 variants listed above. Studio's Detect mode draws the boxes; the instance masks of segmentation models are in the API result only.
-- **Classification**: timm / HF families other than ResNet and ConvNeXt V1 (MobileNetV3, EfficientNet, ConvNeXt V2, RepVGG, EfficientViT, Swin / SwinV2, EVA02 `timm_wrapper`, `SiglipForImageClassification`
+- **Classification**: timm / HF families other than ResNet, ConvNeXt V1, MobileNetV3 and EfficientNet B0-B4 / V2-S (EfficientNetV2 M / L and the b5+ / `tf_` variants with other stage tables, MobileNetV2 / V4, ConvNeXt V2, RepVGG, EfficientViT, Swin / SwinV2, EVA02 `timm_wrapper`, `SiglipForImageClassification`
   such as prithivMLmods' classifiers), and `open_clip`-only repositories (timm/ViT-B-16-SigLIP, Marqo fashion models).
-- **Depth / pose / features**: DPT-hybrid and DPT-large, DepthPro, Depth Anything 3, ZoeDepth, ViTPose, SuperPoint / LightGlue, DINOv3, SigLIP 2 NaFlex.
+- **Depth / pose / features**: DPT-hybrid and DPT-large, DepthPro, Depth Anything 3, ZoeDepth, ViTPose, SuperPoint / LightGlue, SigLIP 2 NaFlex (DINOv3 embeddings are done, see the table; the dense-feature / backbone outputs are not exposed).
 
 The residual 1e-3 of the image towers is the resize (Pillow rounds to 8 bits per pass; the sample's pixel difference is not yet bit-exact), identical on both backends. Text towers match to float rounding.
 
@@ -2372,11 +2375,11 @@ last 30 days.
 | # | Task | Model | Publisher | Released | dl30 / likes | Status |
 |---|---|---|---|---|---|---|
 | 1 | classification | google/vit-base-patch16-224 | Google | 2022 | 15.7M / 1.1k | verified (section 14) |
-| 2 | classification | timm/mobilenetv3_small_100.lamb_in1k | Ross Wightman (timm) | 2022-12 | 8.4M / 160 | needs arch: MobileNetV3 (hard-swish, squeeze-excite, depthwise) |
+| 2 | classification | timm/mobilenetv3_small_100.lamb_in1k | Ross Wightman (timm) | 2022-12 | 8.4M / 160 | **verified round 9** (section 14): small and large, logits 7.5e-5 / 1.0e-4 of timm, CPU and Vulkan |
 | 3 | classification | timm/resnet50.a1_in1k, resnet18, resnet34, wide_resnet50_2 | timm | 2023 | 0.6-1.9M | verified |
-| 4 | classification | timm/efficientnet_b0.ra_in1k, tf_efficientnetv2_s | timm | 2022-12 | 0.7M, 3.6M | needs arch: EfficientNet / V2 (MBConv, fused-MBConv, SE) |
+| 4 | classification | timm/efficientnet_b0.ra_in1k, tf_efficientnetv2_s | timm | 2022-12 | 0.7M, 3.6M | **verified round 9** (section 14): B0 8.3e-5, V2-S (`tf_`, same padding, 300 px) 1.4e-4, CPU and Vulkan |
 | 5 | classification | Falconsai/nsfw_image_detection | Falconsai | 2023-10 | 1.6M / 1.2k | verified (ViT) |
-| 6 | embedding | facebook/dinov3-vitl16 / vitb16 / vits16 / vith16plus (lvd1689m) | Meta | 2025-08 | 697k / 344k / 174k / 60k | needs arch `dinov3_vit` (RoPE positions, 4 registers, LayerScale; Meta license, gated: manual) |
+| 6 | embedding | facebook/dinov3-vitl16 / vitb16 / vits16 / vith16plus (lvd1689m) | Meta | 2025-08 | 697k / 344k / 174k / 60k | **vits16 and vitb16 verified round 9** (section 14: CLS embedding 2e-6 on a 224 px input, CPU and Vulkan); vitl16 / vith16plus (gated MLP) map the same way, not run; Meta license, gated (`HF_TOKEN`) |
 | 7 | embedding | facebook/dinov2-base, -small, -large, dinov2-with-registers | Meta | 2023 | 3.6M / 2.5M / 0.6M | base, small, with-registers verified; large maps the same, not run |
 | 8 | embedding | openai/clip-vit-*, google/siglip*, siglip2 | OpenAI, Google | 2021-2025 | | verified (several) |
 | 9 | detection | Ultralytics/YOLO26 | Ultralytics | 2026-01-26 | 28k / 269 | needs work: YOLO26 NMS-free end-to-end head (ONNX export import exists for v8 / v10 / 11); AGPL-3.0 |
@@ -2416,3 +2419,109 @@ DINOv2 path plus a rotary position op), Cohere Transcribe and Granite Speech (co
 autoregressive decoder), MobileNetV3 / EfficientNet (depthwise + squeeze-excite blocks on the existing `Conv` ops), GLM-OCR, ViTPose (needs a
 `keypoint-detection` task kind), the streaming ASR models (Nemotron 3.5 ASR streaming, Voxtral Realtime, Moonshine streaming: a streaming
 decode loop with encoder state).
+
+## 20. Hot-model sweep 2026-11-17 (text generation, vision-language, embeddings and rerankers)
+
+The sweep of section 17 ranked models by all-time downloads. This one takes the currently hot models: Hugging Face `trendingScore`,
+downloads of the last 30 days (`downloads` of the Hub API) and likes, released or updated in roughly the last six months, one entry per
+family and size. Only official checkpoints are tested: the developer's own repositories, and quantized variants only from the developer
+or trusted providers (unsloth, ggml-org, bartowski, lmstudio-community, RedHatAI / neuralmagic for FP8). A hot model that exists only as
+community conversions is listed with that note and not tested. Models that fit one 32 GB GPU run as the original checkpoint (up to
+about 30 GB) or GGUF Q4_K_M; larger ones as GGUF with the CPU as fallback device, otherwise they are listed with the reason.
+
+Sources (queried 2026-11-17, `limit=100`, with `expand[]=downloads,likes,trendingScore,createdAt,safetensors,gguf`):
+
+```
+GET https://huggingface.co/api/models?pipeline_tag=text-generation&sort=trendingScore
+GET https://huggingface.co/api/models?pipeline_tag=image-text-to-text&sort=trendingScore
+GET https://huggingface.co/api/models?pipeline_tag=feature-extraction&sort=trendingScore      (and sentence-similarity)
+GET https://huggingface.co/api/models?pipeline_tag=text-ranking&sort=trendingScore
+GET https://huggingface.co/api/models?filter=base_model:quantized:<repo>&sort=downloads        (the most used quantization of a model)
+```
+
+Method: `bench/ParitySweep` and `tools/parity/` as in section 17 (tokenizer: 7 texts; chat template: 4 conversations incl. tools; greedy
+48 tokens against transformers fp32 for safetensors, against llama.cpp b11177 on Vulkan and CPU for GGUF with the near-tie policy). Where
+a GGUF embeds a template that differs from the original repository's, transformers renders the GGUF's template. Image inputs: the CLI
+(`--image`, `--mmproj`) against `llama-mtmd-cli` b11177, greedy, one synthetic image (a red square, a blue circle, a green triangle and
+the text "HELLO 42") with the same prompt and the same thinking setting. Embeddings and rerankers: `Sharplight.Embeddings.Tests`
+`ReferenceTests` (cosine against sentence-transformers, rerank logits against the model's own transformers code).
+
+
+### 20.1 Hot-model sweep 2026-11-17: text generation
+
+Selection (trending rank within `pipeline_tag=text-generation` and, where marked VL, `image-text-to-text`; "dl30" = downloads in the last 30
+days, "trend" = Hub trendingScore at query time):
+
+| # | Model | Released | dl30 / likes / trend | Size and format tested | Publisher | Status |
+|---|---|---|---|---|---|---|
+| 1 | Qwen/Qwen3.8-27B (VL) | 2026-08-05 | 6.9 M / 20.4 k / 481 | Q8_0 and FP8 (section 17) | Alibaba Cloud (Qwen) | verified in section 17 |
+| 2 | google/gemma-4-31B-it (VL) | 2026-03-11 | 6.3 M / 4.4 k / 35 | unsloth Q4_K_M 18.3 GB + mmproj | Google | see 20.1.1 |
+| 3 | Qwen/Qwen3.5-9B (VL) | 2026-02-27 | 6.2 M / 2.4 k / 32 | unsloth Q4_K_M 5.7 GB + mmproj | Alibaba Cloud (Qwen) | see 20.1.1 |
+| 4 | Qwen/Qwen3.5-4B (VL) | 2026-02-27 | 4.8 M / 1.2 k / 26 | BF16 safetensors 9 GB; unsloth Q4_K_M + mmproj | Alibaba Cloud (Qwen) | see 20.1.1 |
+| 5 | Qwen/Qwen3.6-35B-A3B (VL) | 2026-04-15 | 3.9 M / 3.1 k / 30 | unsloth UD-Q4_K_M (section 17) | Alibaba Cloud (Qwen) | verified in section 17 |
+| 6 | Qwen/Qwen3.8-Flash-Next (VL, 180 GB) | 2026-08-24 | 3.0 M / 7.3 k / 64 | unsloth UD-IQ1_S, 2 GPUs + CPU (section 17) | Alibaba Cloud (Qwen) | verified in section 17 |
+| 7 | NousResearch/Arete-27B (VL) | 2026-11-06 | 10.7 k / 679 / 95 | bartowski Q4_K_M 17.2 GB + mmproj | Nous Research | see 20.1.1 |
+| 8 | Nanbeige/Nanbeige4.3-33B | 2026-10-24 | 23.8 k / 1.1 k / 18 | bartowski Q4_K_M 20.8 GB | Nanbeige | see 20.1.1 |
+| 9 | RecursiveSI/flint | 2026-10-21 | 59.3 k / 1.4 k / 28 | unsloth UD-Q4_K_XL 25 GB | RecursiveSI | see 20.1.1 |
+| 10 | KRAFTON/Raon-1-nano | 2026-10-29 | 1.9 k / 148 / 49 | not run | KRAFTON | unsupported architecture (20.1.2) |
+| 11 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B | 2026-10-16 | 15.2 k / 265 / 18 | not run | NVIDIA | unsupported architecture (20.1.2) |
+| 12 | maxwell-model/Maxwell-V1-Flash | 2026-10-13 | 287 / 124 / 122 | not run (36.8 GB bf16, remote code) | Maxwell | unsupported architecture (20.1.2) |
+| 13 | LiquidAI/LFM3-1.7B | 2026-10-23 | 110 k / 1.9 k / 49 | section 17 | Liquid AI | verified in section 17 |
+| 14 | nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B | 2026-10-05 | 158 k / 463 / 47 | catalog entry (unsloth GGUF) | NVIDIA | verified earlier (catalog) |
+| 15 | openai/gpt-oss-120b | 2025-08-04 | 2.4 M / 5.5 k / 22 | ggml-org MXFP4, 2 GPUs + CPU (section 17) | OpenAI | verified in section 17 |
+| 16 | meta-llama/Llama-3.1-8B-Instruct | 2024-07-18 | 4.2 M / 9.0 k / 57 | section 17 | Meta | verified in section 17 (older, still trending) |
+| 17 | ornith-ai/Ornith-1.5-35B-A3B | 2026-08-18 | 327 k / 800 / 17 | only community GGUF (mudler, peculiar-ragdoll) for the 36 GB checkpoint | Ornith | not tested: community conversions only; the architecture is qwen3_5_moe (Qwen3.6-35B-A3B passes) |
+| 18 | ibm-granite/granite-4.1-8b-llmon-preview, webAI-Official/TwIL-8B | 2026-10 | 0.7 k, 62 k / 20, 436 / 20, 28 | no trusted GGUF (mradermacher, liodon-ai only); granite arch (mapped) | IBM, webAI | not tested: community conversions only |
+| 19 | whittleOrg/Whittle-Next-27B-A3B | 2026-09-03 | 1.2 k / 64 / 34 | qwen4_exp; 137-file repository, only community GGUF | Whittle | not tested: community conversions only |
+| 20 | zai-org/GLM-5.3-Flash (321 GB), deepseek-ai/DeepSeek-V4.1-Flash(-1017) (763 GB), MiniMaxAI/MiniMax-M3.1-Flash (220 GB), thinkingmachines/Inkling-2-Small (594 GB), moonshotai/Kimi-K3(.1-Pro) (2.8 TB) | 2026-06..11 | 0.07-6.4 M | unsloth GGUF: GLM-5.3-Flash UD-IQ1_S 93 GB, MiniMax-M3.1-Flash UD-IQ1_M 129 GB, DeepSeek-V4.1-Flash-1017 UD-IQ1_S 233 GB (not downloaded yet) | Z.ai, DeepSeek, MiniMax, Thinking Machines, Moonshot | open: the original checkpoints are far beyond one 32 GB GPU; the unsloth IQ1 GGUFs of GLM-5.3-Flash and MiniMax-M3.1-Flash are feasible on GPU 0 plus CPU offload (251 GB RAM) but were not run in this increment (machine load, local disk 56 GB free); their architectures (glm5_next, minimax_m3, deepseek_v41) are verified on tiny models (section 4) |
+
+Hub entries that are fine-tunes, abliterations, "uncensored" or quantization re-uploads of the same families (DavidAU, huihui-ai, HauhauCS,
+ISTA-DASLab GSQ-RCO, xtools-at, Jackrong, ...) were skipped by the one-per-family rule.
+
+#### 20.1.1 Results (increment 1)
+
+Greedy "pass" for GGUF follows section 17's near-tie policy (ours on Vulkan or CPU equals one of llama.cpp's Vulkan / CPU outputs).
+
+| Model | Release | Popularity | Format | Result | Fix |
+|---|---|---|---|---|---|
+| Qwen/Qwen3.5-4B | 2026-02-27 | 4.8 M dl30 | BF16 safetensors (Qwen) | pass: 7 tokenizer texts, 4 chat templates (text and ids) and 3 x 48 greedy ids identical to transformers fp32 | none |
+| unsloth/Qwen3.5-4B-GGUF Q4_K_M | | 1.6 M | GGUF + mmproj F16 | pass: ours on the CPU identical to llama.cpp on the CPU; Vulkan differs from llama.cpp Vulkan only at a spacing near-tie (`n-1` / `n - 1`); image prompt: same description as llama-mtmd-cli (thinking trace identical for 35+ tokens, then a near-tie) | none |
+| Qwen/Qwen3.5-9B (unsloth GGUF Q4_K_M) | 2026-02-27 | 6.2 M | GGUF + mmproj F16 | pass: greedy identical to llama.cpp on both backends (both prompts, 4 device pairs); tokenizer identical; the GGUF's embedded template differs from the repository's (thinking off by default), compared with transformers rendering the GGUF's template | none |
+| NousResearch/Arete-27B (bartowski GGUF Q4_K_M 17.2 GB) | 2026-11-06 | 10.7 k dl30, trend 95 | GGUF + mmproj | pass: greedy identical to llama.cpp on all four device pairs; tokenizer and 4 templates identical to transformers (22 checks) | none |
+| google/gemma-4-31B-it (unsloth GGUF Q4_K_M 18.3 GB) | 2026-03-11 | 6.3 M | GGUF + mmproj | text pass: tokenizer and 4 templates identical to transformers; greedy identical to llama.cpp up to the end-of-turn token (llama.cpp's `--ignore-eos` masks `<turn|>`, ours emits it; the second prompt identical). Image input: the gemma4v tower (20.1.3) matches transformers' `Gemma4VisionModel` + embedder on 266 tokens (worst row cosine 1.000000, worst relative error 1.1e-4, CPU; `Gemma4TowerTests`); end to end (Vulkan, greedy, the synthetic test image) our thinking trace and llama-mtmd-cli's (b11177, `--jinja`) list the same three shapes, colors and the text, and differ in wording from the first line ("Light grey/off-white" vs "Off-white/beige"), i.e. a near-tie from the preprocessing resize, not a tower fault. Needs a free 19 GB on the GPU (a run beside other agents failed with a memory error before the shared GPU was free) | none for the 31B; the 26B-A4B, 12B and E4B mmproj files were not run |
+| Nanbeige/Nanbeige4.3-33B (bartowski GGUF Q4_K_M 20.8 GB) | 2026-10-24 | 23.8 k | GGUF | partial: first prompt identical to llama.cpp; the code prompt differs at token 13, and llama.cpp's own backends give two different continuations there (Vulkan `if n <= 1`, CPU `a, b = 0, 1`), ours (Vulkan = CPU) a third, so a near-tie that cannot be settled by teacher forcing (33 B in fp32 does not fit); tokenizer differs from the repository's tokenizer.json only by llama.cpp's space-prefix placement (leading space, ids after BOS), as for Mistral in section 17 | none; not added to the catalog |
+
+#### 20.1.2 Unsupported or open
+
+| Model | Reason | What is missing |
+|---|---|---|
+| KRAFTON/Raon-1-nano (`raon1_nano`, remote code; GGUF `raon1nano` has no mapping, llama.cpp b11177 lacks it too) | new architecture: 18 recurrent-delta-attention (RDA) layers with a short conv and a full-rank gate lower bound, 6 MLA layers with output gate, 4-stream manifold hyper-connections (Helmert basis), per-layer input embeddings (dim 256), tied head, MTP head | RDA mixer, the mHC variant (`StreamHyperConnections` has the pieces but not this mixing), per-layer inputs (exist for Gemma 3n) |
+| nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B (`dory`, no transformers class; only community GGUF) | new architecture: looped transformer (16 input, 40 recurrent layers run twice with per-loop KV caches, 16 output layers), nGPT-style normalized weights (`ngpt_alpha_init`), attention output gate, sliding and full attention layers, MLP-only layers | `HierarchicalCycles` (hrm_text) covers looping with per-pass caches; the nGPT scaling and the layer pattern are new |
+| maxwell-model/Maxwell-V1-Flash (`maxwell_moe`, 36.8 GB bf16, 256 experts, remote code; one GGUF with 0 downloads, community) | new architecture and above one GPU in bf16 | mapping from `modeling_maxwell_moe.py`; not analysed further |
+| flint (RecursiveSI, `flint`, unsloth UD-Q4_K_XL 25 GB downloaded) | not run in this increment | |
+| Ornith-1.5-35B-A3B, granite-4.1-8b-llmon-preview, TwIL-8B, Whittle-Next-27B-A3B | only community GGUF conversions exist (policy: not tested) | |
+
+#### 20.1.3 Fixes
+
+Gemma 4 vision tower (mmproj projector type `gemma4v`, which the importer now also reads from `clip.vision.projector_type`): axial position
+tables, split-halves 2-D rope, q/k/v norms, sandwich norms, average pooling with standardization, a fit-budget resize and the image framing
+tokens, on the shared tower graph. Verified for gemma-4-31B-it: tower and embedder vs transformers (float32, CPU) at 1.1e-4 relative error,
+and end to end against llama-mtmd-cli as described in 20.1.1. Not verified: the other Gemma 4 mmproj files (26B-A4B, 12B, E4B; the same
+projector type) and the Hugging Face `gemma4_vision` import (the tower loads from the mmproj only).
+
+The other findings above are open items.
+
+### 20.2 Hot-model sweep 2026-11-17: embeddings and rerankers
+
+Checked with `Sharplight.Embeddings.Tests` `ReferenceTests` (8 texts incl. non-Latin text and a long one, token ids, optional prompt; references
+written by `Fixtures/make_reference.py` with sentence-transformers, and for the reranker the model's own transformers code). Float weights
+from the Hugging Face checkpoints; every tokenization matches the reference.
+
+| Model | Architecture | Device | Result |
+|---|---|---|---|
+| ibm-granite/granite-embedding-311m-multilingual-r2 | modernbert | CPU, Vulkan | tokens identical, min cosine 1.000000 |
+| microsoft/harrier-oss-v1-0.6b | qwen3 (last-token pooling) | CPU, Vulkan | tokens identical, min cosine 1.000000, also with the `web_search_query` prompt |
+| Qwen/Qwen3-Embedding-4B | qwen3 | Vulkan | tokens identical, min cosine 1.000000, also with the query prompt |
+| Qwen/Qwen3-Reranker-4B | qwen3 (yes / no logits) | Vulkan | tokens identical, max logit error 4.3e-3 (logits 1.58 / -8.05 / -1.48 / -9.58 / 2.65 / -5.59) |
+
+The 4B models were run on Vulkan only (CPU float32 would take minutes per test). All four are in the verified catalog (`kind` embeddings).

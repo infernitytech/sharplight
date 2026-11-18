@@ -98,6 +98,10 @@ Greedy generation compared token by token. "llama.cpp" = llama.cpp, "transformer
 | GPT-2 | openai-community/gpt2 | safetensors, GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
 | Pythia 160M | EleutherAI/pythia-160m | safetensors, GGUF Q4_K_M | CPU, Vulkan | text identical to llama.cpp | | 2026-11-14 |
 | Bonsai 1.7B, Ternary-Bonsai 1.7B / 2-2B | prism-ml (Bonsai GGUF) | GGUF Q1_0, Q2_0, PQ2_0, PTQ1_0 | CPU, Vulkan | HF vs GGUF parity | 1-2 bit formats | 2026-11-14 |
+| Qwen3.5 4B | Qwen/Qwen3.5-4B, unsloth/Qwen3.5-4B-GGUF | safetensors BF16, GGUF Q4_K_M + mmproj | CPU, Vulkan | HF: tokenizer, 4 templates and 48 greedy ids identical to transformers (fp32); GGUF: greedy equals llama.cpp b11177 on CPU (Vulkan differs at one near-tie); image answer matches llama-mtmd-cli | hybrid (gated delta net) architecture; hot-model sweep 2026-11-17 | 2026-11-17 |
+| Qwen3.5 9B | Qwen/Qwen3.5-9B, unsloth/Qwen3.5-9B-GGUF | GGUF Q4_K_M + mmproj | CPU, Vulkan | GGUF: greedy identical to llama.cpp b11177 on Vulkan and CPU; tokenizer and chat templates (the GGUF's own) identical to transformers | hot-model sweep 2026-11-17 | 2026-11-17 |
+| Arete 27B | NousResearch/Arete-27B, bartowski/NousResearch_Arete-27B-GGUF | GGUF Q4_K_M + mmproj | CPU, Vulkan | GGUF: greedy identical to llama.cpp b11177 (Vulkan and CPU); tokenizer and 4 chat templates identical to transformers | Qwen3.5 architecture; hot-model sweep 2026-11-17 | 2026-11-17 |
+| Gemma 4 31B-it | google/gemma-4-31B-it, unsloth/gemma-4-31B-it-GGUF | GGUF Q4_K_M | CPU, Vulkan | GGUF: tokenizer and 4 chat templates identical to transformers; greedy equals llama.cpp b11177 up to the end-of-turn token (llama.cpp's --ignore-eos masks it); images (mmproj gemma4v): tower vs transformers worst relative error 1.1e-4, end to end the same shapes, colors and text as llama-mtmd-cli, wording differs from the first line (near-tie) | image input via the mmproj file; the 26B-A4B, 12B and E4B projectors were not run | 2026-11-17 |
 <!-- verified-catalog:end -->
 
 More text models were verified against llama.cpp on GGUF files and are summarized by family in model-support.md section 8.1 (all Q4_K_M or

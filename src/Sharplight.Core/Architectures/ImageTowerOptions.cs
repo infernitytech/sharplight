@@ -6,4 +6,5 @@ namespace Sharplight.Architectures;
 /// <param name="ImageSize">Side of the square input; the position table has exactly the grid of this size.</param>
 /// <param name="Registers">Register tokens inserted after the class token.</param>
 /// <param name="Pooling"><c>cls</c> (the class row), <c>mean</c> (the mean of the patch rows) or <c>attention_head</c> (SigLIP's attention pooling with a learned probe).</param>
-internal sealed record ImageTowerOptions(TowerOptions Tower, int Patch, int ImageSize, int Registers, string Pooling);
+/// <param name="RopeTheta">Base of DINOv3's two-dimensional rotary embedding on the patch rows (<see cref="TowerBlocks.PatchRope"/>), 0 for none (a learned position table instead).</param>
+internal sealed record ImageTowerOptions(TowerOptions Tower, int Patch, int ImageSize, int Registers, string Pooling, float RopeTheta = 0f);
