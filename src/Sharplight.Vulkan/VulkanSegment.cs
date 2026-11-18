@@ -29,9 +29,15 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     private readonly Dictionary<string, (int Index, bool BarrierBefore)[]> _orders = [];
     /// <summary>Inputs copied from an earlier segment's device output instead of from staging (<see cref="TryForwardFrom"/>).</summary>
     private readonly Dictionary<BufferDecl, (Allocation Source, long SourceOffset)> _forwarded = [];
-    private readonly Queue<string> _recordOrder = new();
-    /// <summary>Most steps kept recorded per segment (one per distinct symbol binding).</summary>
-    private const int MaxRecordings = 64;
+    /// <summary>When each recording was last submitted (<see cref="_useClock"/>), for least-recently-used eviction.</summary>
+    private readonly Dictionary<string, long> _lastUse = [];
+    private long _useClock;
+    /// <summary>
+    /// Most steps kept recorded per segment (one per distinct symbol binding). A serving engine's batched steps take many shapes
+    /// (decode rows plus prompt chunks of any length, and every row count while a round drains): gpt-oss-20b at 64 streams
+    /// recorded ~75 shapes per loadgen round at 2-20 ms each with 64 recordings kept first-in first-out.
+    /// </summary>
+    private const int MaxRecordings = 256;
     /// <summary>
     /// Most launches recorded into one command buffer. NVIDIA (Blackwell, driver 610) loses the device (Xid 13,
     /// SKEDCHECK36_DEPENDENCE_COUNTER_UNDERFLOW) once a command buffer holds more than about 65.8k dispatches, with or without
@@ -304,7 +310,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         _recorded.Clear();
-        _recordOrder.Clear();
+        _lastUse.Clear();
         FreeDownloads();
         return true;
     }
@@ -440,13 +446,13 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             }
 
             _recorded[key] = cbs;
-            _recordOrder.Enqueue(key);
             if (DiagnosticSwitches.Trace)
             {
                 Console.Error.WriteLine($"[vk] recorded {key} in {System.Diagnostics.Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds:F1} ms ({_recorded.Count} recordings)");
             }
         }
 
+        _lastUse[key] = ++_useClock;
         var fence = _fence;
         _dev.Api.vkResetFences(1, &fence).CheckResult();
         if (_downloads.TryGetValue(key, out var download))
@@ -522,7 +528,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
 
     /// <summary>
     /// Keeps the recording cache bounded: data-dependent symbols (e.g. a detection count) can take a new value on every run, and
-    /// each distinct binding is recorded once. The oldest recording is freed when the cache is full.
+    /// each distinct binding is recorded once. The least recently submitted recording is freed when the cache is full.
     /// </summary>
     private void EvictOldestRecording()
     {
@@ -531,7 +537,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             return;
         }
 
-        var oldest = _recordOrder.Dequeue();
+        var oldest = _lastUse.MinBy(u => u.Value).Key;
+        _lastUse.Remove(oldest);
         FreeCbs(_recorded[oldest]);
         _recorded.Remove(oldest);
         FreeDownload(oldest);

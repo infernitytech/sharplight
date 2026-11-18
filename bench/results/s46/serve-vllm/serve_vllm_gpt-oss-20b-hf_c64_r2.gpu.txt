@@ -1,0 +1,6 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 6761 MiB, 61.76 W, 2827 MHz, 14001 MHz, 37, P0
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 15 MiB, 12.23 W, 180 MHz, 405 MHz, 31, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 100 %, 29550 MiB, 199.99 W, 2362 MHz, 13365 MHz, 66, P1
+995246, /root/sl-worktrees/studio-first-run/tests/Sharplight.Studio.Tests/bin/Release/net11.0/Sharplight.Studi
+1022120, /root/sl-worktrees/vk-unet-batch3/tests/Sharplight.ImageGeneration.Tests/bin/Release/net11.0/Sharplig
+1011798, VLLM::EngineCore, 29540 MiB
