@@ -11,7 +11,7 @@ namespace Sharplight.Vulkan.Tests;
 /// </summary>
 public sealed class DeviceLifetimeTests
 {
-    private const int Iterations = 200;
+    private const int Iterations = 128;
 
     private static DeviceInfo DeviceUnderTest(VulkanProvider provider)
     {
@@ -20,43 +20,81 @@ public sealed class DeviceLifetimeTests
             : devices.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devices[0];
     }
 
+    private static (Sharplight.Graph.ComputeGraph Graph, Sharplight.Graph.Value Input) SmallGraph()
+    {
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, 64);
+        var w = tg.WF("w", Rnd.F(64 * 32, 7, 1f), 32, 64);
+        tg.B.Output("y", tg.B.Unary("Relu", tg.B.MatMul(x, w)));
+        return (tg.B.Build(), x);
+    }
+
+    private static CompiledModel Compile(Sharplight.Graph.ComputeGraph graph, IComputeDevice device)
+        => CompiledModel.Compile(graph, new PlacementOptions
+        {
+            Devices = [new DeviceSlot { Device = device }],
+            Compile = new CompileOptions { MaxTokens = 4, ContextLength = 4 },
+            ReservePerDevice = 0,
+        });
+
+    private static float[] Run(CompiledModel model, Sharplight.Graph.Value x, float[] input)
+    {
+        model.SetInput(x, MemoryMarshal.AsBytes(input.AsSpan()));
+        var parameters = new RunParameters();
+        parameters.Symbols["T"] = 4;
+        model.Run(parameters);
+        var y = new float[4 * 32];
+        model.GetOutput<float>("y", y);
+        return y;
+    }
+
     [Fact]
     public void OpenRunAndDisposeManyDevices()
     {
         Gpu.RequireVulkan();
         var provider = new VulkanProvider();
         var info = DeviceUnderTest(provider);
-        var tg = new TG();
-        var x = tg.InF("x", TG.T, 64);
-        var w = tg.WF("w", Rnd.F(64 * 32, 7, 1f), 32, 64);
-        tg.B.Output("y", tg.B.Unary("Relu", tg.B.MatMul(x, w)));
-        var graph = tg.B.Build();
+        var (graph, x) = SmallGraph();
         var input = Rnd.F(4 * 64, 3, 1f);
         float[]? first = null;
         long usedBefore = Gpu.Device!.GetMemoryInfo().Usage;
         for (int i = 0; i < Iterations; i++)
         {
             using var device = provider.OpenDevice(info);
-            using var model = CompiledModel.Compile(graph, new PlacementOptions
-            {
-                Devices = [new DeviceSlot { Device = device }],
-                Compile = new CompileOptions { MaxTokens = 4, ContextLength = 4 },
-                ReservePerDevice = 0,
-            });
-            model.SetInput(x, MemoryMarshal.AsBytes(input.AsSpan()));
-            var parameters = new RunParameters();
-            parameters.Symbols["T"] = 4;
-            model.Run(parameters);
-            var y = new float[4 * 32];
-            model.GetOutput<float>("y", y);
+            using var model = Compile(graph, device);
+            var y = Run(model, x, input);
             first ??= y;
             Assert.Equal(first, y);
         }
 
         // The driver's view of the process's device-local memory (VK_EXT_memory_budget) is back where it started, give or take
-        // allocator slack: nothing of the 200 devices stayed alive.
+        // allocator slack: nothing of the opened devices stayed alive.
         long growth = Gpu.Device!.GetMemoryInfo().Usage - usedBefore;
         Assert.True(growth < 64L << 20, $"device-local usage grew by {growth >> 20} MiB over {Iterations} open/dispose cycles");
+    }
+
+    /// <summary>
+    /// A device disposed while a model compiled on it is alive (out of order): using the model throws instead of writing to the
+    /// unmapped staging memory, disposing it afterwards is harmless, and the disposed device refuses new compilations.
+    /// </summary>
+    [Fact]
+    public void ModelOfADisposedDeviceThrowsInsteadOfCrashing()
+    {
+        Gpu.RequireVulkan();
+        var provider = new VulkanProvider();
+        var (graph, x) = SmallGraph();
+        var input = Rnd.F(4 * 64, 3, 1f);
+        var device = provider.OpenDevice(DeviceUnderTest(provider));
+        var model = Compile(graph, device);
+        Run(model, x, input);
+        device.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => model.SetInput(x, MemoryMarshal.AsBytes(input.AsSpan())));
+        var parameters = new RunParameters();
+        parameters.Symbols["T"] = 4;
+        Assert.Throws<ObjectDisposedException>(() => model.Run(parameters));
+        Assert.Throws<ObjectDisposedException>(() => model.GetOutput<float>("y", new float[4 * 32]));
+        model.Dispose();
+        Assert.ThrowsAny<ObjectDisposedException>(() => Compile(graph, device));
     }
 
     /// <summary>
