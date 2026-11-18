@@ -108,6 +108,22 @@ public sealed partial class GraphLowerer
     private long InvariantMatvecItems(long items, long slots) => Math.Max(items, InvariantRows * slots);
 
     /// <summary>
+    /// Items up to which the per-item int-dot expert matvec serves a step: <see cref="DiagnosticSwitches.MoeIntDotMaxItems"/> when
+    /// set, else half the expert count (16-128) when the tensor-core grouped GEMM takes the larger steps. The per-item matvec reads
+    /// an expert's weights once per item routed to it, the grouped GEMM once per expert tile, so the GEMM wins from about one item
+    /// per two experts (RTX PRO 4500: Qwen3-30B-A3B, 128 experts, 16 sequences 21.0 → 15.5 ms per step; gpt-oss-20b, 32 experts,
+    /// 16 sequences 20.6 → 10.7 ms); without tensor cores the scalar GEMM only wins much later.
+    /// </summary>
+    private long IntDotPerItemMaxItems(long experts, long slots, bool tensorCoreGemm)
+        => InvariantMatvecItems(DiagnosticSwitches.MoeIntDotMaxItems > 0 ? DiagnosticSwitches.MoeIntDotMaxItems
+            : tensorCoreGemm ? Math.Clamp(experts / 2, 16, 128) : 128, slots);
+
+    /// <summary>Whether the expert products of <paramref name="w"/> (inner size <paramref name="k"/>) run the tensor-core grouped GEMM.</summary>
+    private bool MoeTensorCoreGemm(TensorRef w, long k)
+        => !DiagnosticSwitches.MoeNoCoop && (_opt.Has(DeviceFeatures.MatrixF16) || SmallFragments) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32
+           && k % 32 == 0 && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
+
+    /// <summary>
     /// Two expert products of the same activations and routing (gate / up) whose outputs only feed one elementwise group, which
     /// may also read per-expert rows of f32 tables through the same routing (<paramref name="gathers"/>, e.g. the experts' biases):
     /// batches on the int-dot expert matvec (decode) run one launch that computes both products and applies the group in its
@@ -133,7 +149,7 @@ public sealed partial class GraphLowerer
             var m = Macros(("WFMT", WeightFormat(w.Type)!.Value), ("K", K), ("N", N), ("E", w.Shape[0]), ("S", S), ("PER_SLOT", x.Rank == 3),
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
             string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N);
-            long mv = InvariantMatvecItems(DiagnosticSwitches.MoeIntDotMaxItems, S);
+            long mv = IntDotPerItemMaxItems(w.Shape[0], S, MoeTensorCoreGemm(w, K));
             var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id2 {output.Name} [{w.Shape[0]}x{K}→{N}]x2 {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]",
                 [.. gathers, a, bNode, .. group], a, x, xs, rowsPerLead, [w, Ref(bNode.Inputs[1])], ids, y, m, mv, S,
@@ -182,7 +198,7 @@ public sealed partial class GraphLowerer
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
             string source = ExpertSumEpilogueSource(product, gathers, [.. group.SelectMany(g => g.Inputs).Where(v => v != product.Output && !inGroup.Contains(v)
                 && !gathered.Contains(v)).Distinct()], scalars, group, summed, N);
-            long mv = InvariantMatvecItems(DiagnosticSwitches.MoeIntDotMaxItems, S);
+            long mv = IntDotPerItemMaxItems(w.Shape[0], S, MoeTensorCoreGemm(w, K));
             var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id-sum {reduce.Output.Name} [{w.Shape[0]}x{K}→{N}] {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]+slot-sum",
                 [.. gathers, product, .. group, permute, reduce], product, x, xs, rowsPerLead, [w], ids, y, m, mv, S,
@@ -290,13 +306,11 @@ public sealed partial class GraphLowerer
         var tx = x;
         long maxItems = ids.Shape[0] * S;
         Func<Bindings, long> items = b => Rows(b, tids) * S;
-        bool coop = !DiagnosticSwitches.MoeNoCoop && (_opt.Has(DeviceFeatures.MatrixF16) || SmallFragments) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
-                    && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
+        bool coop = MoeTensorCoreGemm(w, K);
         // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much
         // later, the int-dot matvec only from about 16 items per expert).
         bool intDot = UseIntDotMatvec(n, w.Type, K);
-        long mv = InvariantMatvecItems(intDot ? DiagnosticSwitches.MoeIntDotMaxItems
-            : coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E), S);
+        long mv = intDot ? IntDotPerItemMaxItems(E, S, coop) : InvariantMatvecItems(coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E), S);
         string label = $"matmul-id {n.Output.Name} [{E}x{K}→{N}] {w.Type}";
 
         // Decode / few rows: one matvec per (token, slot), with int8 dot products when the format allows.

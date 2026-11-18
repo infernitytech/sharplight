@@ -6,6 +6,9 @@ public sealed record FeedServiceIndex
     /// <summary>Schema version (1).</summary>
     public int SchemaVersion { get; init; } = 1;
 
+    /// <summary>The channel this index lists, or <see langword="null"/> for a feed without channels (signed, so one channel cannot pose as another).</summary>
+    public string? Channel { get; init; }
+
     /// <summary>Feed name.</summary>
     public string? Name { get; init; }
 

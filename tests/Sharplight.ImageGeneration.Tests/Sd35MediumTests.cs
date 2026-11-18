@@ -106,6 +106,31 @@ public sealed class Sd35MediumTests
         Assert.True(vaeRms < 5e-3, $"vae: max {vaeMax}, relative RMS {vaeRms}");
     }
 
+    /// <summary>
+    /// The VAE alone decoding diffusers' final latents at both sizes, apart from the denoising trajectory (its single-head attention
+    /// over all pixels: 16384 tokens at 1024).
+    /// </summary>
+    [Theory]
+    [InlineData(512)]
+    [InlineData(1024)]
+    public void VaeDecodesDiffusersLatents(int size)
+    {
+        var slot = Gpu("diffusers");
+        Assert.SkipWhen(slot is null, "SD3.5 Medium, its references or a Vulkan GPU missing");
+        Assert.SkipUnless(File.Exists(Path.Combine(Reference, $"latents_{size}.f32")), $"no {size} latents");
+        using var model = Load("diffusers", slot!);
+        var dims = new Dictionary<string, long> { [DiffusionGraphs.Height] = size, [DiffusionGraphs.Width] = size };
+        var decoded = GraphRunner.Run(model, ModelComponentRoles.Vae, DiffusionGraphs.VaeDecode, DiffusionGraphs.Image, 1, dims,
+            (DiffusionGraphs.Latent, Tensor($"latents_{size}")));
+        var expected = Tensor($"image_{size}");
+        Assert.Equal(expected.Length, decoded.Length);
+        double mse = decoded.Zip(expected, (a, b) => (double)(a - b) * (a - b)).Average();
+        double psnr = 10 * Math.Log10(1 / Math.Max(mse, 1e-20));
+        var (maxAbs, rms) = Env.Compare(decoded, expected);
+        TestContext.Current.SendDiagnosticMessage($"vae {size}: PSNR {psnr:F1} dB, relative RMS {rms:E2}");
+        Assert.True(psnr > 45, $"vae {size}: PSNR {psnr:F1} dB, max {maxAbs}, relative RMS {rms}");
+    }
+
     public static TheoryData<string, int> Runs()
     {
         var data = new TheoryData<string, int>();
@@ -159,7 +184,9 @@ public sealed class Sd35MediumTests
         double psnr = Env.Psnr(result.Images[0].Rgb, expected.Rgb);
         TestContext.Current.SendDiagnosticMessage($"{source} {size}: PSNR {psnr:F1} dB; load {load:F1} s, first run (compiling) {first:F1} s, second run {second:F1} s");
         // The GGUF's Q8_0 products quantize the activations (diffusers multiplies the dequantized weights in f32): 42.5 dB at 512, the
-        // 28-step 1024 trajectory drifts to 29.4 dB, visually identical.
-        Assert.True(psnr > (source == "gguf" && size == 1024 ? 25 : 30), $"{source} {size}: PSNR {psnr:F1} dB");
+        // 28-step 1024 trajectory drifts to 29.4 dB, visually identical. The f32 diffusers files reach 38.4 dB at 1024; the trajectory
+        // follows the text encoders' attention rounding (27 dB when the split-f16 flash kernels rescaled every row), hence 35.
+        double minimum = source == "gguf" ? (size == 1024 ? 25 : 30) : (size == 1024 ? 35 : 30);
+        Assert.True(psnr > minimum, $"{source} {size}: PSNR {psnr:F1} dB");
     }
 }

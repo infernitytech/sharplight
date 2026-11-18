@@ -1,0 +1,36 @@
+--- prefill T=2048 profile, segment 0
+GPU time 184.48 ms
+    74.810 ms  40.6%     36x  min   1997.8 us  matmul2 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8 T=2048,1
+    39.611 ms  21.5%     36x  min   1055.7 us  matmul [12288→4096] f8e4m3_b128r fp8 gemm_fp8 T=2048,1
+    27.126 ms  14.7%     72x  min    358.4 us  matmul [4096→4096] f8e4m3_b128r fp8 gemm_fp8 T=2048,1
+    11.756 ms   6.4%     36x  min    315.4 us  attention fe T=2048,1
+    10.333 ms   5.6%     72x  min     92.3 us  fused[Add]+RmsNorm main T=2048,1
+     7.824 ms   4.2%     72x  min    103.6 us  matmul [4096→1024] f8e4m3_b128r fp8 gemm_fp8 T=2048,1
+     4.410 ms   2.4%     36x  min    120.4 us  matmul [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8 T=2048,1
+     2.492 ms   1.4%     36x  min     66.7 us  rope+norm rope_row T=2048,1
+     1.870 ms   1.0%     72x  min     16.4 us  matmul [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8 T=2048,1
+     1.495 ms   0.8%      1x  min   1494.8 us  matmul [4096→151936] bf16 matvec_sk T=2048,1
+     1.170 ms   0.6%     36x  min     31.5 us  matmul2 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] x→fp8 quantize_fp8 T=2048,1
+     0.803 ms   0.4%     36x  min     20.5 us  rope+norm+cache_write rope_row T=2048,1
+     0.671 ms   0.4%     36x  min     18.4 us  cache_write cache_write T=2048,1
+     0.088 ms   0.0%      2x  min      4.1 us  gather gather T=2048,1
+     0.025 ms   0.0%      1x  min     24.6 us  RmsNorm main T=2048,1
+     0.002 ms   0.0%      1x  min      2.0 us  sample sample T=2048,1
+
+--- decode x64 profile, segment 0
+GPU time 779.72 ms
+   287.556 ms  36.9%   2304x  min    122.7 us  matmul2 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] matvec_sk T=1,1
+   149.540 ms  19.2%   2304x  min     63.1 us  matmul [12288→4096] f8e4m3_b128r matvec_sk T=1,1
+   110.166 ms  14.1%   4608x  min     22.8 us  matmul [4096→4096] f8e4m3_b128r matvec_sk T=1,1
+    91.972 ms  11.8%     64x  min   1435.4 us  matmul [4096→151936] bf16 matvec_sk T=1,1
+    42.482 ms   5.4%   4608x  min      7.3 us  matmul [4096→1024] f8e4m3_b128r matvec_sk T=1,1
+    37.724 ms   4.8%   2304x  min     15.4 us  attention decode T=1,1
+    26.503 ms   3.4%   4608x  min      3.7 us  fused[Add]+RmsNorm main T=1,1
+    10.018 ms   1.3%   2304x  min      4.0 us  attention combine decode_combine T=1,1
+     9.432 ms   1.2%   2304x  min      3.1 us  rope+norm+cache_write rope_row T=1,1
+     8.608 ms   1.1%   2304x  min      2.7 us  rope+norm rope_row T=1,1
+     4.898 ms   0.6%   2304x  min      2.0 us  cache_write cache_write T=1,1
+     0.427 ms   0.1%    128x  min      2.0 us  gather gather T=1,1
+     0.262 ms   0.0%     64x  min      4.1 us  RmsNorm main T=1,1
+     0.132 ms   0.0%     64x  min      1.9 us  sample sample T=1,1
+

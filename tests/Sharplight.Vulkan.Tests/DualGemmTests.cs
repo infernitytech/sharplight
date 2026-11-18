@@ -17,6 +17,10 @@ public sealed class DualGemmTests
     [InlineData("f16", 1100, 8192)]
     [InlineData("f16", 100, 96, 64, "Gelu")]
     [InlineData("f16", 77, 128, 64, "GeluTanh")]
+    [InlineData("q4_k", 512, 4096, 1024)]
+    [InlineData("q6_k", 300, 2048, 1024)]
+    [InlineData("q5_k", 640, 1024, 2048)]
+    [InlineData("q4_0", 512, 2048, 1024)]
     public void DualMatchesSeparateBitwise(string fmt, int t, int n, int k = 1024, string activation = "Silu")
     {
         Gpu.Require();
@@ -65,6 +69,7 @@ public sealed class DualGemmTests
     [InlineData("bf16", 512, 4096, 1024)]
     [InlineData("bf16", 600, 4160, 1024)]
     [InlineData("f16", 1100, 2048, 1024)]
+    [InlineData("q4_k", 600, 4096, 1024)]
     public void DownProjectionOfDualMatchesSeparateBitwise(string fmt, int t, int n, int k)
     {
         Gpu.Require();

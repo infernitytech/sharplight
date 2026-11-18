@@ -1181,8 +1181,9 @@ come from the new `HtkMelFilterBank`, which F5-TTS now uses too). Parity vs coqu
 - speaker embedding: 2.8e-6 / 1.3e-6
 - from the reference's signals: conditioning latents 1.9e-6, speaker embedding 3.1e-6
 A cloned sentence is transcribed word for word by Qwen3-ASR-1.7B; its speaker similarity to the recording is 0.62, against 0.19 for a built-in
-speaker. The Perceiver's latents grow to 1e10 before its norm, which overflows the split-f16 flash attention on Vulkan. Its attention therefore sets
-the new `StandardOps.F32ProductsAttribute`, which keeps the products on the f32 kernel.
+speaker. The Perceiver's latents grow to 1e10 before its norm, beyond f16's range; the split-f16 flash attention on Vulkan scales each query row,
+key row and V tile by a power of two into f16's range before splitting (docs/benchmarks.md section 39), so it runs on the tensor cores like
+the other attention.
 
 CosyVoice 3 loading: the release folder (`Sharplight.Import.CosyVoice`, `CosyVoiceImporter`, `services.AddCosyVoiceImporter()`:
 `cosyvoice3.yaml`, `llm.pt`, `flow.pt`, `hift.pt`, the Qwen tokenizer in `CosyVoice-BlankEN/`, `speech_tokenizer_v3.onnx`, `campplus.onnx`). The
