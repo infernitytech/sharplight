@@ -77,10 +77,10 @@
 
       <!-- Tiles -->
       <!-- Clipped: the uniform cells are rounded up to whole pixels, so the last cell (its empty right margin) can end a pixel or two outside the row. -->
-      <ItemsControl ItemsSource="{Binding Tiles}" ClipToBounds="True">
+      <ItemsControl ItemsSource="{Binding Tiles}">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>
-            <UniformGrid Rows="1" />
+            <UniformGrid Rows="1" ClipToBounds="True" />
           </ItemsPanelTemplate>
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
