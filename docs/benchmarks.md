@@ -6225,7 +6225,18 @@ streams 1186 / 1220 / 1227 and 1983 / 1991 / 2020 tok/s (the first round pays th
 
 ### 46.7 Tests
 
-TESTS46
+After merging `develop` (at `823c72e7`) into the branch, on GPU 2:
+
+| suite | total | failed | skipped |
+|---|---:|---:|---:|
+| Sharplight.Vulkan.Tests (full) | 1594 | 0 | 25 |
+| Sharplight.Families.Tests (full, batched greedy parity included) | 1005 | 0 | 364 |
+
+New or changed: `MoeTests.ExpertGroupedSkinny` (8 cases), `MoeTests.MatvecRangeFollowsExpertCount` (new bounds),
+`F16RangeTests.Expert_gemm_reads_rows_beyond_f16_range` (5), `SkinnyGemmTests.NarrowAboveSkinnyRange` (5) and
+`NarrowAboveSkinnyRangeWithF32Staging`, `BenchTests.MoeDecode` (benchmark). A first full run found `QuantFormatTests.MatMulIdFewItems`
+(12 items, 8 experts, staged formats) on gemm_cm2: the per-item bound had dropped to a quarter of the experts although the staged
+skinny form serves nothing above it there; the bound now drops only where the skinny form reaches past it.
 
 ### 46.8 Next levers
 
