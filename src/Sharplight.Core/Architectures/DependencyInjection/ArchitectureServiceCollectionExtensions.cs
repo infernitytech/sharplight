@@ -60,6 +60,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddTaskClientFactory<OrpheusSynthesizerFactory>()
                 .AddCompositeModelAdapter<Qwen3TtsAdapter>()
                 .AddTaskClientFactory<Qwen3TtsSynthesizerFactory>()
+                .AddModelAdapter<CsmAdapter>()
+                .AddTaskClientFactory<CsmSynthesizerFactory>()
                 .AddModelAdapter<ChatterboxAdapter>()
                 .AddTaskClientFactory<ChatterboxSynthesizerFactory>()
                 .AddCompositeModelAdapter<F5Adapter>()

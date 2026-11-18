@@ -53,6 +53,7 @@ internal static class HfArchitectureMappings
         Register(new MimiHfMapping());
         Register(new Qwen3TtsTokenizerHfMapping());
         Register(new Qwen3TtsHfMapping());
+        Register(new CsmHfMapping());
         Register(new Sam2HfMapping());
         Register(new TrOcrHfMapping());
         Register(new Florence2HfMapping());
