@@ -21,6 +21,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   end to end, not kept); the FP8 GEMM is bound by L2 fetch bandwidth against MMAs at ~335 TFLOPS (§42.3). Next: the FP8 and
   bf16 GEMM fetch (bigger tiles with less L2 traffic per FLOP), norms writing the f16 / E4M3 activations at prefill sizes,
   the K/V staging of the attention kernel, Gemma-3 from Hugging Face.
+  Round 7 (§44): row norms write the GEMMs' f16 / E4M3 activations from 128 rows and skip their f32 rows when every reader takes
+  the copy (Qwen3-8B-FP8 pp2048 +3 %, bf16 +1.6 %, Q4_K_M +0.8 %, greedy output byte-identical); against §42's vLLM figures
+  Qwen3-8B bf16 0.91-0.92x, Llama-3.1-8B 0.91-0.92x, Qwen3-8B-FP8 0.76-0.78x. Gemma 3 vision-language checkpoints import as their
+  text decoder (gemma-3-12b-it matches transformers). Separate K/V staging in `fe` was slower (it runs at 255 registers, one
+  workgroup per SM; staging is 23 % of its time); bigger FP8 / bf16 GEMM tiles do not fit 48 KB of shared memory and 255
+  registers (§44.3). Next: attention at 8192 tokens (20 % of the FP8 pass), the down projection's E4M3 input, a vLLM rerun.
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs

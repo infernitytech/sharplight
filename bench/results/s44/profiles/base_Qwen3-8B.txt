@@ -1,0 +1,19 @@
+--- prefill T=2048 profile, segment 0
+GPU time 254.41 ms
+   108.509 ms  42.7%     36x  min   2874.4 us  matmul2 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2 T=2048,1
+    64.820 ms  25.5%     36x  min   1713.3 us  matmul [12288→4096] bf16 gemm_cm2 T=2048,1
+    40.484 ms  15.9%     72x  min    538.4 us  matmul [4096→4096] bf16 gemm_cm2 T=2048,1
+    11.613 ms   4.6%     36x  min    311.3 us  attention fe T=2048,1
+    10.517 ms   4.1%     72x  min    136.7 us  matmul [4096→1024] bf16 gemm_cm2 T=2048,1
+     9.270 ms   3.6%     72x  min     79.6 us  fused[Add]+RmsNorm main T=2048,1
+     2.707 ms   1.1%     36x  min     73.4 us  rope+norm rope_row T=2048,1
+     2.124 ms   0.8%     72x  min     18.4 us  matmul [4096→4096] bf16 x→f16 to_f16 T=2048,1
+     1.480 ms   0.6%      1x  min   1480.4 us  matmul [4096→151936] bf16 matvec_sk T=2048,1
+     1.302 ms   0.5%     36x  min     34.6 us  matmul2 [4096→12288]x2 bf16 fused[Silu,Mul] x→f16 to_f16 T=2048,1
+     0.797 ms   0.3%     36x  min     20.4 us  rope+norm+cache_write rope_row T=2048,1
+     0.669 ms   0.3%     36x  min     18.4 us  cache_write cache_write T=2048,1
+     0.086 ms   0.0%      2x  min      4.1 us  gather gather T=2048,1
+     0.027 ms   0.0%      1x  min     26.6 us  RmsNorm main T=2048,1
+     0.002 ms   0.0%      1x  min      2.0 us  sample sample T=2048,1
+
+prefill 2048 tok: best 269 ms = 7608.4 tok/s | decode: best 41.69, median 39.96, mean 38.11 tok/s | GPU ms/step: best 0.00, median 0.00, wall best 23.99 | prefill median of 5: 272.7 ms = 7509.2 tok/s
