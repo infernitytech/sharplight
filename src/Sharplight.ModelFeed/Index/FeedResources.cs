@@ -1,6 +1,6 @@
 namespace Sharplight.ModelFeed.Index;
 
-/// <summary>Relative paths of a feed's documents.</summary>
+/// <summary>Paths of a feed's documents, relative to the feed root (channel documents include the channel folder).</summary>
 public sealed record FeedResources
 {
     /// <summary>Catalog index.</summary>

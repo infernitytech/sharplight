@@ -1,7 +1,7 @@
 {
   "$schema": "./verified-models.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-17",
+  "updated": "2026-11-18",
   "docSections": [
     {
       "id": "1.1",
@@ -264,7 +264,7 @@
         },
         {
           "key": "load",
-          "title": "Load \u002B first image"
+          "title": "Load + first image"
         }
       ]
     },
@@ -606,7 +606,7 @@
             "repositories": "Qwen/Qwen2.5-*-Instruct, Qwen/Qwen2.5-*-Instruct-GGUF",
             "formats": "safetensors, GGUF Q8_0 / Q4_K_M",
             "verification": "ids identical to transformers; GGUF identical or near-tie vs llama.cpp",
-            "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
+            "notes": "the official GGUFs embed an older tool-call template (literal `{{\"name\": ...}}`), rendered exactly as transformers renders it",
             "date": "2026-11-16"
           }
         }
@@ -715,7 +715,7 @@
           "section": "1.3",
           "cells": {
             "repositories": "Qwen/Qwen3-VL-2B-Instruct",
-            "formats": "safetensors, GGUF \u002B mmproj",
+            "formats": "safetensors, GGUF + mmproj",
             "verification": "greedy text identical to transformers / llama.cpp; mmproj vs llama.cpp",
             "notes": ""
           }
@@ -884,7 +884,7 @@
           "section": "1.3",
           "cells": {
             "repositories": "Qwen/Qwen3.5-0.8B",
-            "formats": "GGUF BF16 \u002B mmproj",
+            "formats": "GGUF BF16 + mmproj",
             "verification": "mmproj vs llama.cpp",
             "notes": ""
           }
@@ -1143,9 +1143,9 @@
           "cells": {
             "repositories": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "formats": "GGUF UD-IQ1_S (66 GB)",
-            "providers": "Vulkan (2 GPUs) \u002B CPU",
+            "providers": "Vulkan (2 GPUs) + CPU",
             "verification": "tokenizer, templates and greedy text identical to llama.cpp",
-            "notes": "its MTP draft file (\u0060mtp-*-Q8_0.gguf\u0060, CLI \u0060--draft\u0060) works as the draft head: acceptance 0.87 / 0.79 / 0.64 at k = 1 / 2 / 3 on one GPU \u002B CPU",
+            "notes": "its MTP draft file (`mtp-*-Q8_0.gguf`, CLI `--draft`) works as the draft head: acceptance 0.87 / 0.79 / 0.64 at k = 1 / 2 / 3 on one GPU + CPU",
             "date": "2026-11-16"
           }
         }
@@ -2942,7 +2942,7 @@
             "model": "gpt-oss 20B / 120B",
             "repositories": "openai/gpt-oss-20b, unsloth/gpt-oss-20b-GGUF, ggml-org/gpt-oss-120b-GGUF",
             "formats": "safetensors MXFP4 (20B), GGUF Q4_K_M, MXFP4 (120B)",
-            "providers": "CPU, Vulkan (120B: 2 GPUs \u002B CPU)",
+            "providers": "CPU, Vulkan (120B: 2 GPUs + CPU)",
             "verification": "20B ids identical to transformers; GGUF near-tie vs llama.cpp",
             "date": "2026-11-16"
           }
@@ -5386,7 +5386,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
+      "notes": "the official GGUFs embed an older tool-call template (literal `{{\"name\": ...}}`), rendered exactly as transformers renders it",
       "doc": []
     },
     {
@@ -5496,7 +5496,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
+      "notes": "the official GGUFs embed an older tool-call template (literal `{{\"name\": ...}}`), rendered exactly as transformers renders it",
       "doc": []
     },
     {
@@ -5621,7 +5621,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
+      "notes": "the official GGUFs embed an older tool-call template (literal `{{\"name\": ...}}`), rendered exactly as transformers renders it",
       "doc": []
     },
     {
@@ -6377,7 +6377,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "built-in MTP layer as draft head: k = 1 1.38x (56.0 \u2192 77.4 tok/s), acceptance 0.70",
+      "notes": "built-in MTP layer as draft head: k = 1 1.38x (56.0 → 77.4 tok/s), acceptance 0.70",
       "doc": [
         {
           "section": "1.1.1",
@@ -6758,7 +6758,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "GGUF prompt ids follow llama.cpp\u0027s space-prefix placement",
+      "notes": "GGUF prompt ids follow llama.cpp's space-prefix placement",
       "doc": [
         {
           "section": "1.1.1",
@@ -7193,7 +7193,7 @@
           "section": "1.3",
           "cells": {
             "repositories": "mistralai / google / LiquidAI",
-            "formats": "GGUF \u002B mmproj"
+            "formats": "GGUF + mmproj"
           }
         }
       ]
@@ -7335,7 +7335,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "cosine \u003E 0.999 vs reference",
+        "summary": "cosine > 0.999 vs reference",
         "providers": [
           "CPU",
           "Vulkan"
@@ -7438,7 +7438,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "cosine \u003E 0.999",
+        "summary": "cosine > 0.999",
         "providers": [
           "CPU",
           "Vulkan"
@@ -7531,7 +7531,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "cosine \u003E 0.999",
+        "summary": "cosine > 0.999",
         "providers": [
           "CPU",
           "Vulkan"
@@ -7625,7 +7625,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "cosine \u003E 0.999",
+        "summary": "cosine > 0.999",
         "providers": [
           "CPU",
           "Vulkan"
@@ -7715,7 +7715,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "cosine \u003E 0.999",
+        "summary": "cosine > 0.999",
         "providers": [
           "CPU",
           "Vulkan"
@@ -8227,7 +8227,7 @@
           "cells": {
             "model": "Whisper tiny, tiny.en, base, base.en, small, small.en",
             "repositories": "openai/whisper-*, ggerganov/whisper.cpp",
-            "formats": "HF, whisper.cpp \u0060.bin\u0060 (f16, q5_1), \u0060.slm\u0060"
+            "formats": "HF, whisper.cpp `.bin` (f16, q5_1), `.slm`"
           }
         },
         {
@@ -9195,7 +9195,7 @@
           "section": "2",
           "cells": {
             "repositories": "openai/whisper-large-v3-turbo, oxide-lab/whisper-large-v3-turbo-GGUF",
-            "formats": "HF, whisper.cpp \u0060.bin\u0060 f16 / q5_0 / q8_0, whisper GGUF Q8_0 / Q4_K_M"
+            "formats": "HF, whisper.cpp `.bin` f16 / q5_0 / q8_0, whisper GGUF Q8_0 / Q4_K_M"
           }
         }
       ]
@@ -9507,7 +9507,7 @@
           "cells": {
             "model": "Moonshine tiny, base",
             "repositories": "moonshine-ai/moonshine-tiny, moonshine-ai/moonshine-base",
-            "formats": "HF, \u0060.slm\u0060"
+            "formats": "HF, `.slm`"
           }
         }
       ]
@@ -9674,7 +9674,7 @@
           "section": "2",
           "cells": {
             "repositories": "nvidia/parakeet-ctc-0.6b",
-            "formats": "HF (transformers format), \u0060.slm\u0060"
+            "formats": "HF (transformers format), `.slm`"
           }
         }
       ]
@@ -9808,7 +9808,7 @@
           "section": "2",
           "cells": {
             "repositories": "nvidia/parakeet-tdt-0.6b-v3",
-            "formats": "HF, \u0060.slm\u0060"
+            "formats": "HF, `.slm`"
           }
         },
         {
@@ -9915,7 +9915,7 @@
           "section": "2",
           "cells": {
             "repositories": "nvidia/canary-1b-v2",
-            "formats": "HF, \u0060.slm\u0060"
+            "formats": "HF, `.slm`"
           }
         }
       ]
@@ -10160,14 +10160,14 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the other \u0060jonatasgrosman/wav2vec2-large-xlsr-53-*\u0060 language models share the layout, not run",
+      "notes": "the other `jonatasgrosman/wav2vec2-large-xlsr-53-*` language models share the layout, not run",
       "doc": [
         {
           "section": "2",
           "cells": {
             "model": "wav2vec2 CTC (base-960h, XLSR-53 fine-tunes)",
             "repositories": "facebook/wav2vec2-base-960h, jonatasgrosman/wav2vec2-large-xlsr-53-japanese",
-            "formats": "HF (\u0060.safetensors\u0060 and \u0060pytorch_model.bin\u0060)"
+            "formats": "HF (`.safetensors` and `pytorch_model.bin`)"
           }
         }
       ]
@@ -10246,7 +10246,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the other \u0060jonatasgrosman/wav2vec2-large-xlsr-53-*\u0060 language models share the layout, not run",
+      "notes": "the other `jonatasgrosman/wav2vec2-large-xlsr-53-*` language models share the layout, not run",
       "doc": []
     },
     {
@@ -10516,7 +10516,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "greedy ids identical to transformers on jfk and LibriSpeech, language detected and English forced, CPU and Vulkan; the \u0060-hf\u0060 layout and the transcribe.cpp F16 GGUF give the same ids; the language the model names is returned",
+        "summary": "greedy ids identical to transformers on jfk and LibriSpeech, language detected and English forced, CPU and Vulkan; the `-hf` layout and the transcribe.cpp F16 GGUF give the same ids; the language the model names is returned",
         "providers": [
           "CPU",
           "Vulkan"
@@ -10635,7 +10635,7 @@
           "cells": {
             "model": "Voxtral Mini 3B (audio language model)",
             "repositories": "mistralai/Voxtral-Mini-3B-2507",
-            "formats": "HF (transformers layout, \u0060tekken.json\u0060 tokenizer)"
+            "formats": "HF (transformers layout, `tekken.json` tokenizer)"
           }
         }
       ]
@@ -10958,7 +10958,7 @@
       "companions": [],
       "verification": {
         "reference": "kokoro package",
-        "summary": "symbols, durations and F0 identical to the \u0060kokoro\u0060 package; waveform within 1.3e-2 relative RMS (the reference\u0027s own noise floor)",
+        "summary": "symbols, durations and F0 identical to the `kokoro` package; waveform within 1.3e-2 relative RMS (the reference's own noise floor)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -10972,14 +10972,14 @@
           "section": "3",
           "cells": {
             "repositories": "hexgrad/Kokoro-82M",
-            "formats": "PyTorch folder, \u0060.slm\u0060"
+            "formats": "PyTorch folder, `.slm`"
           }
         }
       ]
     },
     {
       "id": "orpheus-3b",
-      "name": "Orpheus 3B \u002B SNAC 24 kHz",
+      "name": "Orpheus 3B + SNAC 24 kHz",
       "kind": "speech-synthesis",
       "family": "Orpheus",
       "architecture": "orpheus",
@@ -11110,7 +11110,7 @@
     },
     {
       "id": "outetts-0.2-500m",
-      "name": "OuteTTS 0.2 500M \u002B WavTokenizer",
+      "name": "OuteTTS 0.2 500M + WavTokenizer",
       "kind": "speech-synthesis",
       "family": "OuteTTS",
       "architecture": "outetts",
@@ -11208,7 +11208,7 @@
         {
           "section": "3",
           "cells": {
-            "model": "OuteTTS 0.2 500M \u002B WavTokenizer-Large-75",
+            "model": "OuteTTS 0.2 500M + WavTokenizer-Large-75",
             "repositories": "OuteAI/OuteTTS-0.2-500M, WavTokenizer GGUF",
             "formats": "GGUF pair"
           }
@@ -11281,7 +11281,7 @@
       "companions": [],
       "verification": {
         "reference": "chatterbox-tts",
-        "summary": "vs the chatterbox-tts package: T3 conditioning within 7e-7, guided greedy chain teacher forced with 0 argmax disagreements over 92 tokens, S3Gen flow mel within 6e-7, HiFT waveform within 7e-6 (relative RMS, the reference\u0027s noise)",
+        "summary": "vs the chatterbox-tts package: T3 conditioning within 7e-7, guided greedy chain teacher forced with 0 argmax disagreements over 92 tokens, S3Gen flow mel within 6e-7, HiFT waveform within 7e-6 (relative RMS, the reference's noise)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -11289,20 +11289,20 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "built-in voice \u0060default\u0060, or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; voice encoder within 1.2e-6, S3 prompt and flow tokens identical, CAM\u002B\u002B x-vector within 8e-6 vs the package); streams in chunks of speech tokens cross-faded while T3 generates; a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060); numbers, dates and currency spelled; multilingual and Turbo variants not run",
+      "notes": "built-in voice `default`, or the voice of a recording (`SpeechSynthesisOptions.ReferenceAudio`; voice encoder within 1.2e-6, S3 prompt and flow tokens identical, CAM++ x-vector within 8e-6 vs the package); streams in chunks of speech tokens cross-faded while T3 generates; a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); numbers, dates and currency spelled; multilingual and Turbo variants not run",
       "doc": [
         {
           "section": "3",
           "cells": {
             "repositories": "ResembleAI/chatterbox",
-            "formats": "safetensors folder (\u0060t3_cfg\u0060, \u0060s3gen\u0060, \u0060ve\u0060, \u0060tokenizer.json\u0060, \u0060conds.pt\u0060)"
+            "formats": "safetensors folder (`t3_cfg`, `s3gen`, `ve`, `tokenizer.json`, `conds.pt`)"
           }
         }
       ]
     },
     {
       "id": "f5-tts-v1-base",
-      "name": "F5-TTS v1 Base \u002B Vocos",
+      "name": "F5-TTS v1 Base + Vocos",
       "kind": "speech-synthesis",
       "family": "F5-TTS",
       "architecture": "f5tts",
@@ -11376,7 +11376,7 @@
       ],
       "verification": {
         "reference": "f5-tts",
-        "summary": "vs the f5-tts package: sampled mel within 3.5e-5 and Vocos waveform within 2.4e-5 (relative RMS, the reference\u0027s noise); character ids and duration identical",
+        "summary": "vs the f5-tts package: sampled mel within 3.5e-5 and Vocos waveform within 2.4e-5 (relative RMS, the reference's noise); character ids and duration identical",
         "providers": [
           "CPU",
           "Vulkan"
@@ -11384,13 +11384,13 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "speaks with the voice of a reference recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060 and \u0060ReferenceText\u0060); no Chinese pinyin conversion, no automatic transcription of the reference",
+      "notes": "speaks with the voice of a reference recording (`SpeechSynthesisOptions.ReferenceAudio` and `ReferenceText`); no Chinese pinyin conversion, no automatic transcription of the reference",
       "doc": [
         {
           "section": "3",
           "cells": {
             "repositories": "SWivid/F5-TTS (F5TTS_v1_Base), charactr/vocos-mel-24khz",
-            "formats": "safetensors folder \u002B Vocos folder (\u0060vocoder\u0060 auxiliary)"
+            "formats": "safetensors folder + Vocos folder (`vocoder` auxiliary)"
           }
         }
       ]
@@ -11487,13 +11487,13 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the 58 built-in speakers or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; style latents within 3.7e-6, speaker embedding within 2.8e-6 vs coqui-tts); streams within a sentence (first audio after 12 codes); a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060); English text cleaning, plus numbers, dates and currency spelled for the request\u0027s language (EN, DE, FR, ES, IT, PT, ZH, JA)",
+      "notes": "the 58 built-in speakers or the voice of a recording (`SpeechSynthesisOptions.ReferenceAudio`; style latents within 3.7e-6, speaker embedding within 2.8e-6 vs coqui-tts); streams within a sentence (first audio after 12 codes); a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); English text cleaning, plus numbers, dates and currency spelled for the request's language (EN, DE, FR, ES, IT, PT, ZH, JA)",
       "doc": [
         {
           "section": "3",
           "cells": {
             "repositories": "coqui/XTTS-v2",
-            "formats": "Coqui checkpoint folder (\u0060model.pth\u0060, \u0060config.json\u0060, \u0060vocab.json\u0060, \u0060speakers_xtts.pth\u0060)"
+            "formats": "Coqui checkpoint folder (`model.pth`, `config.json`, `vocab.json`, `speakers_xtts.pth`)"
           }
         }
       ]
@@ -11516,7 +11516,7 @@
       "variants": [
         {
           "id": "release-folder",
-          "label": "Release folder (PyTorch \u002B ONNX)",
+          "label": "Release folder (PyTorch + ONNX)",
           "format": "pytorch",
           "quantization": "F32",
           "recommended": true,
@@ -11618,7 +11618,7 @@
       "companions": [],
       "verification": {
         "reference": "CosyVoice (FunAudioLLM), onnxruntime",
-        "summary": "vs FunAudioLLM\u0027s CosyVoice code and onnxruntime: S3 tokens 275 of 275 identical, CAM\u002B\u002B x-vector within 3e-6; language model teacher forced with 0 argmax disagreements over 300 steps; flow mel within 4.1e-5; causal HiFT waveform within 2.2e-5 on the reference\u0027s F0 (relative RMS); Qwen3-ASR transcribes zero-shot output word for word; Vulkan real-time factor 0.37",
+        "summary": "vs FunAudioLLM's CosyVoice code and onnxruntime: S3 tokens 275 of 275 identical, CAM++ x-vector within 3e-6; language model teacher forced with 0 argmax disagreements over 300 steps; flow mel within 4.1e-5; causal HiFT waveform within 2.2e-5 on the reference's F0 (relative RMS); Qwen3-ASR transcribes zero-shot output word for word; Vulkan real-time factor 0.37",
         "providers": [
           "CPU",
           "Vulkan"
@@ -11628,13 +11628,13 @@
           "CosyVoiceTests"
         ]
       },
-      "notes": "the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, with \u0060ReferenceText\u0060 for zero-shot, \u0060Instructions\u0060 for instruct); no built-in voices in the release; streams chunks of about a second while the language model generates (chunk-causal flow, as \u0060stream=True\u0060 of the reference); a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060); numbers, dates and currency are spelled for the request\u0027s language (EN, DE, FR, ES, IT, PT, ZH, JA)",
+      "notes": "the voice of a recording (`SpeechSynthesisOptions.ReferenceAudio`, with `ReferenceText` for zero-shot, `Instructions` for instruct); no built-in voices in the release; streams chunks of about a second while the language model generates (chunk-causal flow, as `stream=True` of the reference); a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); numbers, dates and currency are spelled for the request's language (EN, DE, FR, ES, IT, PT, ZH, JA)",
       "doc": [
         {
           "section": "3",
           "cells": {
             "repositories": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
-            "formats": "release folder (\u0060llm.pt\u0060, \u0060flow.pt\u0060, \u0060hift.pt\u0060, \u0060CosyVoice-BlankEN/\u0060, \u0060speech_tokenizer_v3.onnx\u0060, \u0060campplus.onnx\u0060), \u0060.slm\u0060"
+            "formats": "release folder (`llm.pt`, `flow.pt`, `hift.pt`, `CosyVoice-BlankEN/`, `speech_tokenizer_v3.onnx`, `campplus.onnx`), `.slm`"
           }
         }
       ]
@@ -11766,7 +11766,7 @@
       "companions": [],
       "verification": {
         "reference": "diffusers",
-        "summary": "Euler 76.3 dB, DDIM 76.2 dB, DPM\u002B\u002B 2M Karras 73.8 dB, PNDM 58.8 dB vs diffusers fp32; GGUF f16 48.7 dB",
+        "summary": "Euler 76.3 dB, DDIM 76.2 dB, DPM++ 2M Karras 73.8 dB, PNDM 58.8 dB vs diffusers fp32; GGUF f16 48.7 dB",
         "providers": [
           "CPU",
           "Vulkan"
@@ -11780,7 +11780,7 @@
           "section": "4",
           "cells": {
             "repositories": "SD 1.5 checkpoints (diffusers folder, original single file, GGUF)",
-            "formats": "diffusers folder, single file \u0060.safetensors\u0060 / \u0060.ckpt\u0060, GGUF f16, Q8_0, Q4_0"
+            "formats": "diffusers folder, single file `.safetensors` / `.ckpt`, GGUF f16, Q8_0, Q4_0"
           }
         }
       ]
@@ -11792,7 +11792,7 @@
       "family": "Stable Diffusion 2",
       "architecture": "sd2",
       "level": "verified",
-      "license": "openrail\u002B\u002B",
+      "license": "openrail++",
       "gated": false,
       "publisher": {
         "name": "Stability AI",
@@ -11921,7 +11921,7 @@
       "companions": [],
       "verification": {
         "reference": "diffusers",
-        "summary": "Euler 70.2 dB, DDIM 64.1 dB, DPM\u002B\u002B 2M Karras 51.8 dB",
+        "summary": "Euler 70.2 dB, DDIM 64.1 dB, DPM++ 2M Karras 51.8 dB",
         "providers": [
           "CPU",
           "Vulkan"
@@ -11947,7 +11947,7 @@
       "family": "SDXL",
       "architecture": "sdxl",
       "level": "verified",
-      "license": "openrail\u002B\u002B",
+      "license": "openrail++",
       "gated": false,
       "publisher": {
         "name": "Stability AI",
@@ -12146,7 +12146,7 @@
       "companions": [],
       "verification": {
         "reference": "diffusers",
-        "summary": "Euler 42.4 dB, DPM\u002B\u002B 2M Karras 30.0 dB (fp16 files); GGUF Q8_0 27.7 dB",
+        "summary": "Euler 42.4 dB, DPM++ 2M Karras 30.0 dB (fp16 files); GGUF Q8_0 27.7 dB",
         "providers": [
           "CPU",
           "Vulkan"
@@ -12667,7 +12667,7 @@
           "section": "4",
           "cells": {
             "repositories": "black-forest-labs/FLUX.1-schnell, city96/FLUX.1-schnell-gguf",
-            "formats": "diffusers (bf16), GGUF Q8_0 \u002B CLIP-L, T5-XXL, VAE companions"
+            "formats": "diffusers (bf16), GGUF Q8_0 + CLIP-L, T5-XXL, VAE companions"
           }
         }
       ]
@@ -12790,7 +12790,7 @@
           "section": "4",
           "cells": {
             "repositories": "black-forest-labs/FLUX.1-dev, city96/FLUX.1-dev-gguf",
-            "formats": "GGUF Q8_0 \u002B companions",
+            "formats": "GGUF Q8_0 + companions",
             "notes": "28 steps at 1024x1024 in 33 s, 23.5 GB device memory"
           }
         }
@@ -12909,13 +12909,13 @@
           "FluxKontextTests"
         ]
       },
-      "notes": "recognized by the file name (kontext) or FluxKontextPipeline; the reference image is resized to the output size (default: its own size); Studio\u0027s Image page shows the edit input",
+      "notes": "recognized by the file name (kontext) or FluxKontextPipeline; the reference image is resized to the output size (default: its own size); Studio's Image page shows the edit input",
       "doc": [
         {
           "section": "4",
           "cells": {
             "repositories": "black-forest-labs/FLUX.1-Kontext-dev (gated), QuantStack/FLUX.1-Kontext-dev-GGUF",
-            "formats": "GGUF Q8_0 \u002B the FLUX.1 companions (CLIP-L, T5-XXL Q8_0, VAE)",
+            "formats": "GGUF Q8_0 + the FLUX.1 companions (CLIP-L, T5-XXL Q8_0, VAE)",
             "providers": ""
           }
         }
@@ -13340,7 +13340,7 @@
           "section": "4",
           "cells": {
             "repositories": "stabilityai/stable-diffusion-3.5-medium (ungated mirror adamo1139/stable-diffusion-3.5-medium-ungated), city96/stable-diffusion-3.5-medium-gguf",
-            "formats": "diffusers (fp16), GGUF Q8_0 \u002B CLIP-L, CLIP-G, T5-XXL, VAE companions"
+            "formats": "diffusers (fp16), GGUF Q8_0 + CLIP-L, CLIP-G, T5-XXL, VAE companions"
           }
         }
       ]
@@ -13495,7 +13495,7 @@
           "section": "4",
           "cells": {
             "repositories": "lodestones/Chroma1-HD, silveroxides/Chroma1-HD-GGUF",
-            "formats": "GGUF Q8_0 \u002B T5-XXL, VAE companions"
+            "formats": "GGUF Q8_0 + T5-XXL, VAE companions"
           }
         }
       ]
@@ -13670,13 +13670,13 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "1024x1024 20 guided steps in 131 s on a 32 GB GPU (13 GB transformer \u002B 16 GB bf16 text encoder, alternating); Studio loads the GGUF with its companions; the diffusers folder loads (verified on the tiny pipeline; its 41 GB bf16 transformer was not run)",
+      "notes": "1024x1024 20 guided steps in 131 s on a 32 GB GPU (13 GB transformer + 16 GB bf16 text encoder, alternating); Studio loads the GGUF with its companions; the diffusers folder loads (verified on the tiny pipeline; its 41 GB bf16 transformer was not run)",
       "doc": [
         {
           "section": "4",
           "cells": {
             "repositories": "Qwen/Qwen-Image, city96/Qwen-Image-gguf, unsloth/Qwen2.5-VL-7B-Instruct-GGUF (text encoder)",
-            "formats": "GGUF Q4_K_M \u002B Qwen2.5-VL-7B text encoder (the pipeline\u0027s \u0060text_encoder\u0060 folder or a Qwen2.5-VL GGUF) and VAE (the pipeline\u0027s or ComfyUI\u0027s \u0060qwen_image_vae.safetensors\u0060) companions"
+            "formats": "GGUF Q4_K_M + Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a Qwen2.5-VL GGUF) and VAE (the pipeline's or ComfyUI's `qwen_image_vae.safetensors`) companions"
           }
         }
       ]
@@ -13952,7 +13952,7 @@
           "section": "4",
           "cells": {
             "repositories": "Tongyi-MAI/Z-Image-Turbo, unsloth/Z-Image-Turbo-GGUF",
-            "formats": "diffusers, GGUF Q8_0 \u002B Qwen3-4B text encoder, VAE companions"
+            "formats": "diffusers, GGUF Q8_0 + Qwen3-4B text encoder, VAE companions"
           }
         }
       ]
@@ -14068,7 +14068,7 @@
           "section": "4",
           "cells": {
             "repositories": "black-forest-labs/FLUX.2-dev (gated), unsloth/FLUX.2-dev-GGUF, unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF",
-            "formats": "GGUF Q4_K_M \u002B Mistral Small 3.2 24B Q8_0 GGUF text encoder and the pipeline\u0027s VAE",
+            "formats": "GGUF Q4_K_M + Mistral Small 3.2 24B Q8_0 GGUF text encoder and the pipeline's VAE",
             "providers": ""
           }
         }
@@ -14231,7 +14231,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "40.1 dB (512) / 41.3 dB (1024) vs diffusers on the same files (4 distilled steps); text encoder \u2264 1.3e-3, transformer 1.6e-3",
+        "summary": "40.1 dB (512) / 41.3 dB (1024) vs diffusers on the same files (4 distilled steps); text encoder ≤ 1.3e-3, transformer 1.6e-3",
         "providers": [
           "Vulkan"
         ],
@@ -14244,7 +14244,7 @@
           "section": "4",
           "cells": {
             "repositories": "black-forest-labs/FLUX.2-klein-4B, unsloth/FLUX.2-klein-4B-GGUF",
-            "formats": "GGUF Q8_0 \u002B Qwen3-4B text encoder and VAE companions (the pipeline\u0027s folders)",
+            "formats": "GGUF Q8_0 + Qwen3-4B text encoder and VAE companions (the pipeline's folders)",
             "providers": ""
           }
         }
@@ -14427,20 +14427,20 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "34.5 dB (1024, its 8-step \u0060sample_sigmas\u0060) vs diffusers on the same files",
+        "summary": "34.5 dB (1024, its 8-step `sample_sigmas`) vs diffusers on the same files",
         "providers": [
           "Vulkan"
         ],
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "8 steps at 1024x1024 in 14.8 s; the schedule comes from \u0060model_index.json\u0060 or the \u0060turbo\u0060 file name",
+      "notes": "8 steps at 1024x1024 in 14.8 s; the schedule comes from `model_index.json` or the `turbo` file name",
       "doc": [
         {
           "section": "4",
           "cells": {
             "repositories": "Qwen/Qwen-Image-2.1-Turbo, unsloth/Qwen-Image-2.1-Turbo-GGUF",
-            "formats": "GGUF Q8_0 \u002B the Qwen-Image 2.1 companions",
+            "formats": "GGUF Q8_0 + the Qwen-Image 2.1 companions",
             "providers": ""
           }
         }
@@ -14623,7 +14623,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder \u2264 9.6e-4",
+        "summary": "42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder ≤ 9.6e-4",
         "providers": [
           "Vulkan"
         ],
@@ -14636,7 +14636,7 @@
           "section": "4",
           "cells": {
             "repositories": "Qwen/Qwen-Image-2.1, unsloth/Qwen-Image-2.1-GGUF",
-            "formats": "GGUF Q8_0 \u002B Qwen3-VL-8B text encoder and VAE companions (the pipeline\u0027s folders)",
+            "formats": "GGUF Q8_0 + Qwen3-VL-8B text encoder and VAE companions (the pipeline's folders)",
             "providers": ""
           }
         }
@@ -14764,7 +14764,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "26.9 dB (512) / 34.1 dB (1024) vs diffusers on the same files (8 distilled steps, visually identical); text encoder \u2264 3.8e-4, transformer 5.7e-3",
+        "summary": "26.9 dB (512) / 34.1 dB (1024) vs diffusers on the same files (8 distilled steps, visually identical); text encoder ≤ 3.8e-4, transformer 5.7e-3",
         "providers": [
           "Vulkan"
         ],
@@ -14773,14 +14773,14 @@
           "Krea2Tests"
         ]
       },
-      "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (\u0060raw\u0060 / \u0060base\u0060 in the name) run 28 guided steps",
+      "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (`raw` / `base` in the name) run 28 guided steps",
       "doc": [
         {
           "section": "4",
           "cells": {
             "repositories": "krea/Krea-2-Turbo (ungated mirror unsloth/Krea-2-Turbo), realrebelai/KREA-2_GGUFs",
-            "formats": "GGUF Q8_0 \u002B Qwen3-VL-4B text encoder and Qwen-Image VAE companions (the pipeline\u0027s folders)",
-            "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (\u0060raw\u0060 / \u0060base\u0060 in the name) run 28 guided steps"
+            "formats": "GGUF Q8_0 + Qwen3-VL-4B text encoder and Qwen-Image VAE companions (the pipeline's folders)",
+            "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (`raw` / `base` in the name) run 28 guided steps"
           }
         }
       ]
@@ -14906,7 +14906,7 @@
       "family": "SDXL",
       "architecture": "sdxl",
       "level": "verified",
-      "license": "openrail\u002B\u002B",
+      "license": "openrail++",
       "gated": false,
       "tags": [],
       "variants": [
@@ -15018,7 +15018,7 @@
       "family": "SDXL",
       "architecture": "sdxl",
       "level": "verified",
-      "license": "openrail\u002B\u002B",
+      "license": "openrail++",
       "gated": false,
       "publisher": {
         "name": "Stability AI",
@@ -15323,7 +15323,7 @@
       "family": "SDXL",
       "architecture": "sdxl",
       "level": "verified",
-      "license": "openrail\u002B\u002B",
+      "license": "openrail++",
       "gated": false,
       "publisher": {
         "name": "Stability AI",
@@ -15551,7 +15551,7 @@
           "section": "4.1",
           "cells": {
             "repositories": "unsloth/Qwen-Image-2512-GGUF",
-            "file": "qwen-image-2512-Q4_K_M.gguf \u002B the Qwen-Image companions",
+            "file": "qwen-image-2512-Q4_K_M.gguf + the Qwen-Image companions",
             "psnr": "25.5 dB (1024, 20 steps, true CFG 4; vs diffusers on the same files; visually identical, three blocks run exact attention)",
             "load": "150 s"
           }
@@ -16191,7 +16191,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "mask IoU \u003E 0.98 vs transformers",
+        "summary": "mask IoU > 0.98 vs transformers",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16325,7 +16325,7 @@
       "companions": [],
       "verification": {
         "reference": "Real-ESRGAN",
-        "summary": "\u003E 40 dB PSNR vs the reference, also tiled",
+        "summary": "> 40 dB PSNR vs the reference, also tiled",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16337,7 +16337,7 @@
         {
           "section": "5",
           "cells": {
-            "repositories": "xinntao/Real-ESRGAN (official \u0060.pth\u0060)",
+            "repositories": "xinntao/Real-ESRGAN (official `.pth`)",
             "task": "4x upscaling"
           }
         }
@@ -16354,7 +16354,7 @@
       "variants": [],
       "companions": [],
       "verification": {
-        "summary": "92.9 dB (Vulkan) / 91.6 dB (CPU) PSNR vs the authors\u0027 network, tiled 61.6 dB",
+        "summary": "92.9 dB (Vulkan) / 91.6 dB (CPU) PSNR vs the authors' network, tiled 61.6 dB",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16367,7 +16367,7 @@
         {
           "section": "5",
           "cells": {
-            "repositories": "JingyunLiang/SwinIR (\u0060001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth\u0060)",
+            "repositories": "JingyunLiang/SwinIR (`001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth`)",
             "task": "4x upscaling"
           }
         }
@@ -16420,7 +16420,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits \u003C 2e-3 vs timm, same top-1",
+        "summary": "logits < 2e-3 vs timm, same top-1",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16487,7 +16487,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits \u003C 2e-3 vs timm, same top-1",
+        "summary": "logits < 2e-3 vs timm, same top-1",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16545,7 +16545,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits \u003C 2e-3 vs timm, same top-1",
+        "summary": "logits < 2e-3 vs timm, same top-1",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16603,7 +16603,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits \u003C 2e-3 vs timm, same top-1",
+        "summary": "logits < 2e-3 vs timm, same top-1",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16669,7 +16669,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits \u003C 2e-3, same top-1",
+        "summary": "logits < 2e-3, same top-1",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16778,7 +16778,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "B/16 ships only \u0060pytorch_model.bin\u0060",
+      "notes": "B/16 ships only `pytorch_model.bin`",
       "doc": [
         {
           "section": "5",
@@ -16881,7 +16881,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "B/16 ships only \u0060pytorch_model.bin\u0060",
+      "notes": "B/16 ships only `pytorch_model.bin`",
       "doc": []
     },
     {
@@ -16982,7 +16982,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the \u0060open_clip_*\u0060 files of the repository are ignored",
+      "notes": "the `open_clip_*` files of the repository are ignored",
       "doc": [
         {
           "section": "5",
@@ -17234,7 +17234,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "CLS embedding \u003C 2e-3",
+        "summary": "CLS embedding < 2e-3",
         "providers": [
           "CPU",
           "Vulkan"
@@ -17307,7 +17307,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "CLS embedding \u003C 2e-3",
+        "summary": "CLS embedding < 2e-3",
         "providers": [
           "CPU",
           "Vulkan"
@@ -17371,7 +17371,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "CLS embedding \u003C 2e-3",
+        "summary": "CLS embedding < 2e-3",
         "providers": [
           "CPU",
           "Vulkan"
@@ -17448,7 +17448,7 @@
         {
           "section": "5",
           "cells": {
-            "model": "RT-DETR R50vd, R101vd (COCO \u002B O365), v2 R18vd",
+            "model": "RT-DETR R50vd, R101vd (COCO + O365), v2 R18vd",
             "repositories": "PekingU/rtdetr_r50vd, PekingU/rtdetr_r101vd_coco_o365, PekingU/rtdetr_v2_r18vd",
             "task": "detection"
           }
@@ -17457,7 +17457,7 @@
     },
     {
       "id": "rtdetr-r101vd-coco-o365",
-      "name": "RT-DETR R101vd (COCO \u002B O365)",
+      "name": "RT-DETR R101vd (COCO + O365)",
       "kind": "object-detection",
       "family": "RT-DETR",
       "architecture": "rt_detr",
@@ -17924,7 +17924,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "fixed square input; \u0060pytorch_model.bin\u0060 read for b5",
+      "notes": "fixed square input; `pytorch_model.bin` read for b5",
       "doc": [
         {
           "section": "5",
@@ -17998,7 +17998,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "fixed square input; \u0060pytorch_model.bin\u0060 read for b5",
+      "notes": "fixed square input; `pytorch_model.bin` read for b5",
       "doc": []
     },
     {
@@ -18163,8 +18163,8 @@
       ],
       "companions": [],
       "verification": {
-        "reference": "authors\u0027 code",
-        "summary": "matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors\u0027 code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical",
+        "reference": "authors' code",
+        "summary": "matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors' code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18172,7 +18172,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "1024 px square; the network\u0027s settings are read from the checkpoint\u0027s \u0060birefnet.py\u0060 (never run): Swin t/s/b/l backbone, deformable-ASPP decoder; both code revisions\u0027 input-patch channel orders",
+      "notes": "1024 px square; the network's settings are read from the checkpoint's `birefnet.py` (never run): Swin t/s/b/l backbone, deformable-ASPP decoder; both code revisions' input-patch channel orders",
       "doc": [
         {
           "section": "5",
@@ -18243,8 +18243,8 @@
       ],
       "companions": [],
       "verification": {
-        "reference": "authors\u0027 code",
-        "summary": "matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors\u0027 code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical",
+        "reference": "authors' code",
+        "summary": "matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors' code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18357,7 +18357,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "image features 6.3e-4 and encoder output 1.1e-3 vs transformers; greedy text and \u0060\u003COD\u003E\u0060 boxes identical on two images (CPU and Vulkan)",
+        "summary": "image features 6.3e-4 and encoder output 1.1e-3 vs transformers; greedy text and `<OD>` boxes identical on two images (CPU and Vulkan)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18365,13 +18365,13 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "num_beams=1 with the checkpoint\u0027s no-repeat n-gram (3) and forced BOS; beam search, region-to-X polygon tasks not done",
+      "notes": "num_beams=1 with the checkpoint's no-repeat n-gram (3) and forced BOS; beam search, region-to-X polygon tasks not done",
       "doc": [
         {
           "section": "5",
           "cells": {
             "repositories": "florence-community/Florence-2-base",
-            "task": "OCR / caption / detection (\u0060ITextRecognizer\u0060 tasks \u0060\u003COCR\u003E\u0060, \u0060\u003CCAPTION\u003E\u0060, \u0060\u003CDETAILED_CAPTION\u003E\u0060, \u0060\u003COD\u003E\u0060, ...)"
+            "task": "OCR / caption / detection (`ITextRecognizer` tasks `<OCR>`, `<CAPTION>`, `<DETAILED_CAPTION>`, `<OD>`, ...)"
           }
         }
       ]
@@ -18388,8 +18388,8 @@
       "variants": [],
       "companions": [],
       "verification": {
-        "reference": "onnxruntime \u002B Ultralytics decoding",
-        "summary": "same classes, scores within 0.01 and boxes within 2 px as onnxruntime with Ultralytics\u0027 decoding; mask IoU 0.994-1.000; CPU = Vulkan",
+        "reference": "onnxruntime + Ultralytics decoding",
+        "summary": "same classes, scores within 0.01 and boxes within 2 px as onnxruntime with Ultralytics' decoding; mask IoU 0.994-1.000; CPU = Vulkan",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18399,15 +18399,15 @@
           "YoloDetectorTests"
         ]
       },
-      "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); \u0060.pt\u0060 checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export\u0027s fixed input size is used (letterboxed). Not installable from the catalog: the ONNX files are exports users make themselves with \u0060yolo export format=onnx\u0060; Ultralytics weights are AGPL-3.0.",
+      "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); `.pt` checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export's fixed input size is used (letterboxed). Not installable from the catalog: the ONNX files are exports users make themselves with `yolo export format=onnx`; Ultralytics weights are AGPL-3.0.",
       "doc": [
         {
           "section": "5",
           "cells": {
             "model": "YOLOv8n, YOLOv8n-seg, YOLOv10n (Ultralytics ONNX exports; also YOLO11 and the larger sizes by the same graph)",
-            "repositories": "\u0060yolo export format=onnx\u0060 output (AGPL-3.0: check the license)",
-            "task": "object-detection (instance masks for \u0060-seg\u0060)",
-            "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); \u0060.pt\u0060 checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export\u0027s fixed input size is used (letterboxed)"
+            "repositories": "`yolo export format=onnx` output (AGPL-3.0: check the license)",
+            "task": "object-detection (instance masks for `-seg`)",
+            "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); `.pt` checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export's fixed input size is used (letterboxed)"
           }
         }
       ]
@@ -18600,7 +18600,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "codes token-exact at 6 kbps; decoder \u003C 1e-3 relative RMS",
+        "summary": "codes token-exact at 6 kbps; decoder < 1e-3 relative RMS",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18672,7 +18672,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "codes token-exact, decoded audio \u003C 1e-3",
+        "summary": "codes token-exact, decoded audio < 1e-3",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18958,7 +18958,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "4.2 s per step at 832\u00D7480\u00D733 frames (f32), 16.3 GB",
+      "notes": "4.2 s per step at 832×480×33 frames (f32), 16.3 GB",
       "doc": [
         {
           "section": "8",
@@ -19133,14 +19133,14 @@
       "variants": [],
       "companions": [],
       "verification": {
-        "summary": "text-to-video 57.5 dB, transformer 1.8e-5, T5 1.4e-5 relative RMS (704\u00D7480, 25 frames)",
+        "summary": "text-to-video 57.5 dB, transformer 1.8e-5, T5 1.4e-5 relative RMS (704×480, 25 frames)",
         "providers": [
           "Vulkan"
         ],
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "LTX-Video 0.9.1\u002B (causal / timestep-conditioned VAE) not yet",
+      "notes": "LTX-Video 0.9.1+ (causal / timestep-conditioned VAE) not yet",
       "doc": [
         {
           "section": "8",
@@ -19163,21 +19163,21 @@
       "companions": [],
       "verification": {
         "reference": "diffusers",
-        "summary": "text-to-video 45.0 dB, transformer 2.9e-4, T5 1.4e-5 relative RMS (704\u00D7480, 25 frames, 20 steps)",
+        "summary": "text-to-video 45.0 dB, transformer 2.9e-4, T5 1.4e-5 relative RMS (704×480, 25 frames, 20 steps)",
         "providers": [
           "Vulkan"
         ],
         "date": "2026-11-17",
         "tests": []
       },
-      "notes": "0.75 s per step at 768\u00D7512\u00D797 frames, 10.0 GB",
+      "notes": "0.75 s per step at 768×512×97 frames, 10.0 GB",
       "doc": [
         {
           "section": "8",
           "cells": {
             "repositories": "Lightricks/LTX-Video-0.9.5 (diffusers folder; T5-XXL as in 0.9.0)",
             "formats": "diffusers folder",
-            "notes": "0.75 s per step at 768\u00D7512\u00D797 frames, 10.0 GB"
+            "notes": "0.75 s per step at 768×512×97 frames, 10.0 GB"
           }
         }
       ]
@@ -19336,7 +19336,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "against diffusers\u0027 LTXConditionPipeline on the same files (f32, CUDA): transformer 2.7e-3 relative RMS; text-to-video 43.1-46.7 dB per frame (704\u00D7480, 25 frames, the 8 distilled timesteps, no guidance)",
+        "summary": "against diffusers' LTXConditionPipeline on the same files (f32, CUDA): transformer 2.7e-3 relative RMS; text-to-video 43.1-46.7 dB per frame (704×480, 25 frames, the 8 distilled timesteps, no guidance)",
         "providers": [
           "Vulkan"
         ],
@@ -19345,14 +19345,14 @@
           "LtxSingleFileTests"
         ]
       },
-      "notes": "2.4 s per step at 768\u00D7512\u00D7121 frames (8 steps, one pass), 12.3 GB peak, 34 s in all",
+      "notes": "2.4 s per step at 768×512×121 frames (8 steps, one pass), 12.3 GB peak, 34 s in all",
       "doc": [
         {
           "section": "8",
           "cells": {
-            "repositories": "QuantStack/LTXV-13B-0.9.8-distilled-GGUF (Q4_K_M \u002B its VAE file)",
-            "formats": "transformer GGUF \u002B stand-alone VAE file (\u0060--vae\u0060) \u002B an LTX-Video folder for T5 (\u0060--companions\u0060)",
-            "notes": "2.4 s per step at 768\u00D7512\u00D7121 frames, 12.3 GB"
+            "repositories": "QuantStack/LTXV-13B-0.9.8-distilled-GGUF (Q4_K_M + its VAE file)",
+            "formats": "transformer GGUF + stand-alone VAE file (`--vae`) + an LTX-Video folder for T5 (`--companions`)",
+            "notes": "2.4 s per step at 768×512×121 frames, 12.3 GB"
           }
         }
       ]
@@ -19505,7 +19505,7 @@
           "section": "8",
           "cells": {
             "repositories": "QuantStack/Wan2.2-TI2V-5B-GGUF (Q8_0)",
-            "formats": "GGUF \u002B the Wan 2.2 diffusers folder as companion"
+            "formats": "GGUF + the Wan 2.2 diffusers folder as companion"
           }
         }
       ]
@@ -19675,20 +19675,20 @@
         }
       ],
       "verification": {
-        "summary": "against diffusers running the same GGUFs (f32 on CUDA): high- / low-noise transformer 3.4e-4 / 2.3e-4, umT5 3e-6 relative RMS; text-to-video 21-25 dB per frame (832\u00D7480, 17 frames, 20 steps), the same scene; a 1e-3 nudge of the initial noise moves Sharplight\u0027s own result as far",
+        "summary": "against diffusers running the same GGUFs (f32 on CUDA): high- / low-noise transformer 3.4e-4 / 2.3e-4, umT5 3e-6 relative RMS; text-to-video 21-25 dB per frame (832×480, 17 frames, 20 steps), the same scene; a 1e-3 nudge of the initial noise moves Sharplight's own result as far",
         "providers": [
           "Vulkan"
         ],
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "14.6 s per step at 832\u00D7480\u00D733 frames, 16.1 GB peak, 334 s total (diffusers: 23 s per step at 17 frames)",
+      "notes": "14.6 s per step at 832×480×33 frames, 16.1 GB peak, 334 s total (diffusers: 23 s per step at 17 frames)",
       "doc": [
         {
           "section": "8",
           "cells": {
-            "repositories": "QuantStack/Wan2.2-T2V-A14B-GGUF (HighNoise \u002B LowNoise Q4_K_M)",
-            "formats": "the two GGUFs (\u0060--transformer-2\u0060 / \u0060AuxiliaryRoles.SecondTransformer\u0060) \u002B a Wan 2.1 diffusers folder as companion"
+            "repositories": "QuantStack/Wan2.2-T2V-A14B-GGUF (HighNoise + LowNoise Q4_K_M)",
+            "formats": "the two GGUFs (`--transformer-2` / `AuxiliaryRoles.SecondTransformer`) + a Wan 2.1 diffusers folder as companion"
           }
         }
       ]
@@ -19900,7 +19900,7 @@
         }
       ],
       "verification": {
-        "summary": "against diffusers on the same GGUF: transformer 3.9e-4, CLIP 3.5e-3 relative RMS; image-to-video 30.6-48.1 dB per frame (832\u00D7480, 17 frames, 20 steps)",
+        "summary": "against diffusers on the same GGUF: transformer 3.9e-4, CLIP 3.5e-3 relative RMS; image-to-video 30.6-48.1 dB per frame (832×480, 17 frames, 20 steps)",
         "providers": [
           "Vulkan"
         ],
@@ -19913,7 +19913,7 @@
           "section": "8",
           "cells": {
             "repositories": "city96/Wan2.1-I2V-14B-480P-gguf (Q4_K_M)",
-            "formats": "GGUF \u002B a Wan 2.1 diffusers folder (umT5, VAE) \u002B Wan-AI/Wan2.1-I2V-14B-480P-Diffusers\u0027 \u0060image_encoder/\u0060 and \u0060image_processor/\u0060 (\u0060--image-encoder\u0060)"
+            "formats": "GGUF + a Wan 2.1 diffusers folder (umT5, VAE) + Wan-AI/Wan2.1-I2V-14B-480P-Diffusers' `image_encoder/` and `image_processor/` (`--image-encoder`)"
           }
         }
       ]
@@ -20162,13 +20162,13 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "\u0060--image\u0060 and \u0060--last-image\u0060",
+      "notes": "`--image` and `--last-image`",
       "doc": [
         {
           "section": "8",
           "cells": {
             "repositories": "city96/Wan2.1-FLF2V-14B-720P-gguf (Q4_K_M)",
-            "formats": "as I2V, with the FLF2V diffusers folder\u0027s image encoder"
+            "formats": "as I2V, with the FLF2V diffusers folder's image encoder"
           }
         }
       ]
@@ -20339,7 +20339,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "against diffusers on the same GGUFs: transformers 3.0e-4 / 6.2e-4; image-to-video 35.0-52.5 dB per frame (832\u00D7480, 17 frames, 20 steps)",
+        "summary": "against diffusers on the same GGUFs: transformers 3.0e-4 / 6.2e-4; image-to-video 35.0-52.5 dB per frame (832×480, 17 frames, 20 steps)",
         "providers": [
           "Vulkan"
         ],
@@ -20351,8 +20351,8 @@
         {
           "section": "8",
           "cells": {
-            "repositories": "QuantStack/Wan2.2-I2V-A14B-GGUF (HighNoise \u002B LowNoise Q4_K_M)",
-            "formats": "the two GGUFs (\u0060--transformer-2\u0060) \u002B a Wan 2.1 diffusers folder as companion",
+            "repositories": "QuantStack/Wan2.2-I2V-A14B-GGUF (HighNoise + LowNoise Q4_K_M)",
+            "formats": "the two GGUFs (`--transformer-2`) + a Wan 2.1 diffusers folder as companion",
             "providers": ""
           }
         }
@@ -20544,7 +20544,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "against diffusers on the same GGUF: transformer 4.1e-3, Llama 2.5e-4, CLIP 3.4e-4 relative RMS; text-to-video 28.2-33.0 dB per frame (832\u00D7480, 33 frames, 20 steps), visually identical",
+        "summary": "against diffusers on the same GGUF: transformer 4.1e-3, Llama 2.5e-4, CLIP 3.4e-4 relative RMS; text-to-video 28.2-33.0 dB per frame (832×480, 33 frames, 20 steps), visually identical",
         "providers": [
           "Vulkan"
         ],
@@ -20557,7 +20557,7 @@
           "section": "8",
           "cells": {
             "repositories": "city96/HunyuanVideo-gguf (hunyuan-video-t2v-720p-Q4_K_M)",
-            "formats": "GGUF \u002B hunyuanvideo-community/HunyuanVideo (without its transformer) as companion (\u0060--companions\u0060)",
+            "formats": "GGUF + hunyuanvideo-community/HunyuanVideo (without its transformer) as companion (`--companions`)",
             "providers": ""
           }
         }
@@ -20617,7 +20617,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits \u003C 2e-3 vs transformers, same top-1, ImageNet label names",
+        "summary": "logits < 2e-3 vs transformers, same top-1, ImageNet label names",
         "providers": [
           "CPU",
           "Vulkan"
@@ -20682,7 +20682,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits \u003C 2e-3 vs transformers, same top-1, ImageNet label names",
+        "summary": "logits < 2e-3 vs transformers, same top-1, ImageNet label names",
         "providers": [
           "CPU",
           "Vulkan"
@@ -20740,7 +20740,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits \u003C 2e-3 vs timm, same top-1 (no label names in timm repositories)",
+        "summary": "logits < 2e-3 vs timm, same top-1 (no label names in timm repositories)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -20805,7 +20805,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits \u003C 2e-3 vs transformers, same top-1, ImageNet label names",
+        "summary": "logits < 2e-3 vs transformers, same top-1, ImageNet label names",
         "providers": [
           "CPU",
           "Vulkan"
@@ -20982,6 +20982,1187 @@
           }
         }
       ]
+    },
+    {
+      "id": "mobilenetv3-small-100-timm",
+      "name": "MobileNetV3 Small 100 (timm)",
+      "kind": "image-classification",
+      "family": "MobileNetV3",
+      "architecture": "mbconvnet",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 414431382,
+          "companions": [],
+          "repository": "timm/mobilenetv3_small_100.lamb_in1k",
+          "revision": "76b303ec28c466e9df37f4745dfb7aef20ab87ae",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 586,
+              "gitOid": "40147f9acd8d526983d577238064088a8d454bba"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 10241912,
+              "sha256": "46d2c063b18125884c48937afa4c49e18128869e52e8db96df48bf0a4d7ff697"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits 7.5e-5 vs timm (CPU and Vulkan), same top-1",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "no label names in timm repositories",
+      "doc": []
+    },
+    {
+      "id": "mobilenetv3-large-100-timm",
+      "name": "MobileNetV3 Large 100 (timm)",
+      "kind": "image-classification",
+      "family": "MobileNetV3",
+      "architecture": "mbconvnet",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 428020253,
+          "companions": [],
+          "repository": "timm/mobilenetv3_large_100.ra_in1k",
+          "revision": "96f46a1c52932f27492dff66c72378eb99b443a7",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 584,
+              "gitOid": "2acacfe0fc99eea766a3d490f8e1efa91718d7e3"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 22058321,
+              "sha256": "f425af34cc1cead2b5d6211f789a1f30b94835dc32f9c0fcc5a916e4fd2dde85"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits 1.0e-4 vs timm (CPU and Vulkan), same top-1",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "no label names in timm repositories",
+      "doc": []
+    },
+    {
+      "id": "efficientnet-b0-timm",
+      "name": "EfficientNet B0 (timm)",
+      "kind": "image-classification",
+      "family": "EfficientNet",
+      "architecture": "mbconvnet",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 427211829,
+          "companions": [],
+          "repository": "timm/efficientnet_b0.ra_in1k",
+          "revision": "1b5383e5f79cc0f7fc067e372f8f26a5fa73f26a",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 578,
+              "gitOid": "13a639ebb2aa187a78940776a4a85237d4372256"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 21355344,
+              "sha256": "d569899762ea9b1384ee07f4af64805cf8caa1c55f9253ebb1080dc40e87a2cd"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits 8.3e-5 vs timm (CPU and Vulkan), same top-1",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "no label names in timm repositories; b1 to b4 map by the same code but were not run",
+      "doc": []
+    },
+    {
+      "id": "efficientnetv2-s-timm",
+      "name": "EfficientNetV2 S (timm, TF padding)",
+      "kind": "image-classification",
+      "family": "EfficientNet",
+      "architecture": "mbconvnet",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "PyTorch Image Models (timm)",
+        "url": "https://github.com/huggingface/pytorch-image-models"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 502154928,
+          "companions": [],
+          "repository": "timm/tf_efficientnetv2_s.in21k_ft_in1k",
+          "revision": "ea9abc143ea2b9d8e1ec1de277bce02149b9cf0e",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 638,
+              "gitOid": "c13f200b415782f81ceba85d42f7a1cd6741d2d7"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 86523256,
+              "sha256": "6f1933fb6c0d760eae03863ad0110570393e16c0610f8fe94dc9f978e52ec59c"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "logits 1.4e-4 vs timm (CPU and Vulkan), same top-1",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "300 px input, TensorFlow 'same' padding; no label names in timm repositories",
+      "doc": []
+    },
+    {
+      "id": "dinov3-vits16",
+      "name": "DINOv3 ViT-S/16 (LVD-1689M)",
+      "kind": "image-embedding",
+      "family": "DINOv3",
+      "architecture": "vit",
+      "level": "verified",
+      "license": "other",
+      "gated": true,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 502020525,
+          "companions": [],
+          "repository": "facebook/dinov3-vits16-pretrain-lvd1689m",
+          "revision": "114c1379950215c8b35dfcd4e90a5c251dde0d32",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 743,
+              "gitOid": "fdff48569812f3cbadf253762565c4ce9dacddac"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 86406384,
+              "sha256": "4610ad75edef83e75afdebf162d148dc628045ea6cbb83d67d4708c709c4f91d"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 585,
+              "gitOid": "0126173c1ab7b75bbd9102e37de8a56ffe0a012b"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "CLS embedding 1.9e-6 vs transformers on a 224 px input (CPU and Vulkan); 7e-3 on a large photo (8-bit resize rounding)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "DINOv3 license (gated, accept the terms and use a token); 4 registers, 2-D rotary positions, LayerScale",
+      "doc": []
+    },
+    {
+      "id": "dinov3-vitb16",
+      "name": "DINOv3 ViT-B/16 (LVD-1689M)",
+      "kind": "image-embedding",
+      "family": "DINOv3",
+      "architecture": "vit",
+      "level": "verified",
+      "license": "other",
+      "gated": true,
+      "publisher": {
+        "name": "Meta",
+        "countryOfOrigin": "US",
+        "url": "https://ai.meta.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 796714704,
+          "companions": [],
+          "repository": "facebook/dinov3-vitb16-pretrain-lvd1689m",
+          "revision": "5931719e67bbdb9737e363e781fb0c67687896bc",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 744,
+              "gitOid": "9f0c03c12a21df9678269d96dac7b59819349792"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 342662192,
+              "sha256": "9a21ac3df0c63839d62612dda6f454d816c25611cc7a52966ed5a5a94921dc8b"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 585,
+              "gitOid": "0126173c1ab7b75bbd9102e37de8a56ffe0a012b"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "CLS embedding 2.9e-6 vs transformers on a 224 px input (CPU and Vulkan); 8.6e-3 on a large photo (8-bit resize rounding)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "DINOv3 license (gated, accept the terms and use a token)",
+      "doc": []
+    },
+    {
+      "id": "qwen3.5-4b",
+      "name": "Qwen3.5 4B",
+      "kind": "text-generation",
+      "family": "Qwen3.5",
+      "architecture": "qwen3_5",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
+      "tags": [
+        "vision",
+        "reasoning"
+      ],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF + mmproj",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 4328018913,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "unsloth/Qwen3.5-4B-GGUF",
+          "revision": "e87f176479d0855a907a41277aca2f8ee7a09523",
+          "include": [
+            "Qwen3.5-4B-Q4_K_M.gguf"
+          ],
+          "primary": "Qwen3.5-4B-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "Qwen3.5-4B-Q4_K_M.gguf",
+              "size": 2740937888,
+              "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
+            }
+          ]
+        },
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": false,
+          "memoryBytes": 11120455494,
+          "companions": [],
+          "repository": "Qwen/Qwen3.5-4B",
+          "revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "chat_template.jinja",
+              "size": 7756,
+              "gitOid": "a585dec894e63da457d9440ec6aa7caa16d20860"
+            },
+            {
+              "path": "config.json",
+              "size": 3161,
+              "gitOid": "557d961b205319c6a7da5f757f565b69b3967b7d"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 76196,
+              "gitOid": "fddda6039f7c1d17260c9e923b8a72fd025d9a86"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 390,
+              "gitOid": "2ea84a437d448ff71b08df68fdd949d5cc4ebb64"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 12807982,
+              "sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 16710,
+              "gitOid": "eda48d3e75a8e59a8479ee4ec8b37f76e711d9c1"
+            },
+            {
+              "path": "video_preprocessor_config.json",
+              "size": 385,
+              "gitOid": "3ba673a5ad7d4d13f54155ecd38b2a94a6dac8fe"
+            },
+            {
+              "path": "vocab.json",
+              "size": 6722759,
+              "gitOid": "0aa0ce0658d60ac4a5d609f4eadb0e8e43514176"
+            },
+            {
+              "path": "model.safetensors-00001-of-00002.safetensors",
+              "size": 5329398688,
+              "sha256": "26a93f066e1916adb13453dae5a0c707c0fbc71299ed98779571a907b8e74c61"
+            },
+            {
+              "path": "model.safetensors-00002-of-00002.safetensors",
+              "size": 3990429408,
+              "sha256": "cb544bd9bfae93dc59b0f22b292f5933573854a7f9b97835c67060d7d910e188"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "mmproj",
+          "role": "mmproj",
+          "additionalRoles": [],
+          "label": "Vision projector (F16)",
+          "repository": "unsloth/Qwen3.5-4B-GGUF",
+          "revision": "e87f176479d0855a907a41277aca2f8ee7a09523",
+          "include": [
+            "mmproj-F16.gguf"
+          ],
+          "primary": "mmproj-F16.gguf",
+          "files": [
+            {
+              "path": "mmproj-F16.gguf",
+              "size": 672423616,
+              "sha256": "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "transformers, llama.cpp",
+        "summary": "HF: tokenizer, 4 templates and 48 greedy ids identical to transformers (fp32); GGUF: greedy equals llama.cpp b11177 on CPU (Vulkan differs at one near-tie); image answer matches llama-mtmd-cli",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "hybrid (gated delta net) architecture; hot-model sweep 2026-11-17",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "Qwen/Qwen3.5-4B, unsloth/Qwen3.5-4B-GGUF",
+            "formats": "safetensors BF16, GGUF Q4_K_M + mmproj"
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen3.5-9b",
+      "name": "Qwen3.5 9B",
+      "kind": "text-generation",
+      "family": "Qwen3.5",
+      "architecture": "qwen3_5",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
+      "tags": [
+        "vision",
+        "reasoning"
+      ],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF + mmproj",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 7991145009,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "unsloth/Qwen3.5-9B-GGUF",
+          "revision": "3885219b6810b007914f3a7950a8d1b469d598a5",
+          "include": [
+            "Qwen3.5-9B-Q4_K_M.gguf"
+          ],
+          "primary": "Qwen3.5-9B-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "Qwen3.5-9B-Q4_K_M.gguf",
+              "size": 5680522464,
+              "sha256": "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "mmproj",
+          "role": "mmproj",
+          "additionalRoles": [],
+          "label": "Vision projector (F16)",
+          "repository": "unsloth/Qwen3.5-9B-GGUF",
+          "revision": "3885219b6810b007914f3a7950a8d1b469d598a5",
+          "include": [
+            "mmproj-F16.gguf"
+          ],
+          "primary": "mmproj-F16.gguf",
+          "files": [
+            {
+              "path": "mmproj-F16.gguf",
+              "size": 918166080,
+              "sha256": "f70dc3509053962b0d0d3ee8a7eacebf5d60aa560cad78254ae8698516ae029f"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "llama.cpp, transformers",
+        "summary": "GGUF: greedy identical to llama.cpp b11177 on Vulkan and CPU; tokenizer and chat templates (the GGUF's own) identical to transformers",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "hot-model sweep 2026-11-17",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "Qwen/Qwen3.5-9B, unsloth/Qwen3.5-9B-GGUF",
+            "formats": "GGUF Q4_K_M + mmproj"
+          }
+        }
+      ]
+    },
+    {
+      "id": "arete-27b",
+      "name": "Arete 27B",
+      "kind": "text-generation",
+      "family": "Arete",
+      "architecture": "qwen3_5",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Nous Research",
+        "countryOfOrigin": "US",
+        "url": "https://nousresearch.com"
+      },
+      "tags": [
+        "vision",
+        "reasoning"
+      ],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF + mmproj",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 21253329827,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "bartowski/NousResearch_Arete-27B-GGUF",
+          "revision": "9762c8502a79bd2b8634735d75f426b9febe092c",
+          "include": [
+            "NousResearch_Arete-27B-Q4_K_M.gguf"
+          ],
+          "primary": "NousResearch_Arete-27B-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "NousResearch_Arete-27B-Q4_K_M.gguf",
+              "size": 17203416064,
+              "sha256": "6f186a1fe0c4f741acb3a35b5df96bc2fc7279651f48500246e56079418f091b"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "mmproj",
+          "role": "mmproj",
+          "additionalRoles": [],
+          "label": "Vision projector (F16)",
+          "repository": "bartowski/NousResearch_Arete-27B-GGUF",
+          "revision": "9762c8502a79bd2b8634735d75f426b9febe092c",
+          "include": [
+            "mmproj-NousResearch_Arete-27B-f16.gguf"
+          ],
+          "primary": "mmproj-NousResearch_Arete-27B-f16.gguf",
+          "files": [
+            {
+              "path": "mmproj-NousResearch_Arete-27B-f16.gguf",
+              "size": 927607104,
+              "sha256": "0c9844f4193e2d25642dc62c5921aef23fd71855b8283cb2b2543a77934966f8"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "llama.cpp, transformers",
+        "summary": "GGUF: greedy identical to llama.cpp b11177 (Vulkan and CPU); tokenizer and 4 chat templates identical to transformers",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "Qwen3.5 architecture; hot-model sweep 2026-11-17",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "NousResearch/Arete-27B, bartowski/NousResearch_Arete-27B-GGUF",
+            "formats": "GGUF Q4_K_M + mmproj"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemma-4-31b-it",
+      "name": "Gemma 4 31B-it",
+      "kind": "text-generation",
+      "family": "Gemma 4",
+      "architecture": "gemma4",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev"
+      },
+      "tags": [
+        "vision"
+      ],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF + mmproj",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 22674946640,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "unsloth/gemma-4-31B-it-GGUF",
+          "revision": "c1ac76e99d5513b141e8adde7288b85c3f9c32ec",
+          "include": [
+            "gemma-4-31B-it-Q4_K_M.gguf"
+          ],
+          "primary": "gemma-4-31B-it-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "gemma-4-31B-it-Q4_K_M.gguf",
+              "size": 18323733440,
+              "sha256": "38bd64c852c4b460434cc7162fa9bdcf242faf86502581a754cb72956bb17f84"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "mmproj",
+          "role": "mmproj",
+          "additionalRoles": [],
+          "label": "Vision projector (F16)",
+          "repository": "unsloth/gemma-4-31B-it-GGUF",
+          "revision": "c1ac76e99d5513b141e8adde7288b85c3f9c32ec",
+          "include": [
+            "mmproj-F16.gguf"
+          ],
+          "primary": "mmproj-F16.gguf",
+          "files": [
+            {
+              "path": "mmproj-F16.gguf",
+              "size": 1198957024,
+              "sha256": "6edcca228213c28d3567a35d22f849eea52d8360875093851959adf5d2f270eb"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "llama.cpp, transformers",
+        "summary": "GGUF: tokenizer and 4 chat templates identical to transformers; greedy equals llama.cpp b11177 up to the end-of-turn token (llama.cpp's --ignore-eos masks it); images (mmproj gemma4v): tower vs transformers worst relative error 1.1e-4, end to end the same shapes, colors and text as llama-mtmd-cli, wording differs from the first line (near-tie)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "image input via the mmproj file; the 26B-A4B, 12B and E4B projectors were not run",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "google/gemma-4-31B-it, unsloth/gemma-4-31B-it-GGUF",
+            "formats": "GGUF Q4_K_M"
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen3-embedding-4b",
+      "name": "Qwen3-Embedding-4B",
+      "kind": "embeddings",
+      "family": "Qwen3 Embedding",
+      "architecture": "qwen3",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwen.ai"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 9652784085,
+          "companions": [],
+          "repository": "Qwen/Qwen3-Embedding-4B",
+          "revision": "5cf2132abc99cad020ac570b19d031efec650f2b",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 727,
+              "gitOid": "8b4b87fc69023e7a224eb6563753aaf3223d8b98"
+            },
+            {
+              "path": "config_sentence_transformers.json",
+              "size": 215,
+              "gitOid": "76aef3ade63553ebb698fe3c2a3264040ed093f8"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 117,
+              "gitOid": "d46f1983345269c582611bbedb3ca0a13f8e5f7b"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 30431,
+              "gitOid": "3d736ef26714eee0abde3e05104ee1b3ec26c974"
+            },
+            {
+              "path": "modules.json",
+              "size": 349,
+              "gitOid": "952a9b81c0bfd99800fabf352f69c7ccd46c5e43"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 11422947,
+              "sha256": "83cdf8c3a34f68862319cb1810ee7b1e2c0a44e0864ae930194ddb76bb7feb8d"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 7256,
+              "gitOid": "df3a9d96759529ca1006eb6db024bbb099a97578"
+            },
+            {
+              "path": "vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "1_Pooling/config.json",
+              "size": 313,
+              "gitOid": "81de5602eacbce382009c5af7a23085871801d8f"
+            },
+            {
+              "path": "model-00001-of-00002.safetensors",
+              "size": 4965826464,
+              "sha256": "e70bfe3c970523fb7ef4eddffed2254ce3f1e7150c3de2af4342de129dd756f8"
+            },
+            {
+              "path": "model-00002-of-00002.safetensors",
+              "size": 3077765624,
+              "sha256": "ed1b87c8e9eb7e535a1a155e4fd00d9f4dba80e58a6db48a4c9f82cede7079c1"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "sentence-transformers",
+        "summary": "8 texts: tokens identical, cosine vs sentence-transformers above 0.999 (Vulkan), with and without the query prompt",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "",
+      "doc": []
+    },
+    {
+      "id": "qwen3-reranker-4b",
+      "name": "Qwen3-Reranker-4B",
+      "kind": "embeddings",
+      "family": "Qwen3 Embedding",
+      "architecture": "qwen3",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwen.ai"
+      },
+      "tags": [
+        "reranker"
+      ],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 9652810388,
+          "companions": [],
+          "repository": "Qwen/Qwen3-Reranker-4B",
+          "revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "chat_template.jinja",
+              "size": 741,
+              "gitOid": "63b97f268a9ddb9c6b34e6d7d8ef531d1fee9cf4"
+            },
+            {
+              "path": "config.json",
+              "size": 727,
+              "gitOid": "b0d564fb244100a8bbcb6499da05485440bae0d2"
+            },
+            {
+              "path": "config_sentence_transformers.json",
+              "size": 325,
+              "gitOid": "c6f8a7e0240028086cbce6b5c018874cf48cbeb7"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 214,
+              "gitOid": "e4f1d3193e99a3e5d7047edf56e93a6e933fa31b"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 32819,
+              "gitOid": "c8dc285661c390e68d4864b34cbe7ec6f755b776"
+            },
+            {
+              "path": "modules.json",
+              "size": 280,
+              "gitOid": "008ceadb8aca5de2810344509a4ac73352f23428"
+            },
+            {
+              "path": "sentence_bert_config.json",
+              "size": 362,
+              "gitOid": "813a773d3bf36aa61b1760d80070c9d72c87e270"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 613,
+              "gitOid": "ac23c0aaa2434523c494330aeb79c58395378103"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 11422654,
+              "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 9706,
+              "gitOid": "7345216a0785dc7086e8c245b2a9d3896ce2b756"
+            },
+            {
+              "path": "vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "model-00001-of-00002.safetensors",
+              "size": 4058781760,
+              "sha256": "cf2e87cbf71fa628961532232e04dd6c19702a0a057f5e2aff95ea1aca4fd488"
+            },
+            {
+              "path": "model-00002-of-00002.safetensors",
+              "size": 3984833200,
+              "sha256": "78946d22b7f6456ea7a5358dbdf3982de36c5bac1f166a5fd58e18e31db8048a"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "sentence-transformers",
+        "summary": "yes/no logits vs the model's own transformers code (Vulkan)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "",
+      "doc": []
+    },
+    {
+      "id": "granite-embedding-311m-multilingual-r2",
+      "name": "granite-embedding-311m-multilingual-r2",
+      "kind": "embeddings",
+      "family": "Granite Embedding",
+      "architecture": "modernbert",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "IBM",
+        "countryOfOrigin": "US",
+        "url": "https://www.ibm.com/granite"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 1119496428,
+          "companions": [],
+          "repository": "ibm-granite/granite-embedding-311m-multilingual-r2",
+          "revision": "44399559930365213510b1ee2eb15ded83374f0e",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1191,
+              "gitOid": "fe4dfa0116f63917ad77d6a82fd9cd139903cf0d"
+            },
+            {
+              "path": "config_sentence_transformers.json",
+              "size": 283,
+              "gitOid": "f607fb9b04418b15d7df129f4296aa5a7b4955bb"
+            },
+            {
+              "path": "modules.json",
+              "size": 349,
+              "gitOid": "952a9b81c0bfd99800fabf352f69c7ccd46c5e43"
+            },
+            {
+              "path": "sentence_bert_config.json",
+              "size": 60,
+              "gitOid": "4cf43a4f6f3e8493efb2bba6fbea420216221110"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 694,
+              "gitOid": "3338497239b49ce5372b4e70019dd63a88ef227a"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 33384821,
+              "sha256": "0087c868b33bad550a78a08d19798cfd7f713cde4f020803b8f51f405503e15f"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 1155500,
+              "gitOid": "b71d75c5c640f4ca16679395b8e210d2514dac7e"
+            },
+            {
+              "path": "1_Pooling/config.json",
+              "size": 313,
+              "gitOid": "ab6181daca023fec59759c7cbcacd3ed6a182fe8"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 623341952,
+              "sha256": "dcb6431bfa6e817fe100a2b0521360cec3383963b03fa966b685de18ca310d31"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "sentence-transformers",
+        "summary": "8 texts: tokens identical, cosine vs sentence-transformers above 0.999 (CPU, Vulkan)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "",
+      "doc": []
+    },
+    {
+      "id": "harrier-oss-v1-0.6b",
+      "name": "harrier-oss-v1-0.6b",
+      "kind": "embeddings",
+      "family": "Harrier",
+      "architecture": "qwen3",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 1773606400,
+          "companions": [],
+          "repository": "microsoft/harrier-oss-v1-0.6b",
+          "revision": "f9b9dc8d367d443f2479d27aa5d8d2850c0774ee",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "added_tokens.json",
+              "size": 707,
+              "gitOid": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+            },
+            {
+              "path": "chat_template.jinja",
+              "size": 4116,
+              "gitOid": "699ff8df401fe4788525e9c1f9b86a99eadd6230"
+            },
+            {
+              "path": "config.json",
+              "size": 1355,
+              "gitOid": "db0369ca6ec6a17b3ccb1b31050cbcdfd6ea573f"
+            },
+            {
+              "path": "config_sentence_transformers.json",
+              "size": 351,
+              "gitOid": "2d094bb77ecdfe35df5e10fdb2f08ceb384afdba"
+            },
+            {
+              "path": "modules.json",
+              "size": 349,
+              "gitOid": "952a9b81c0bfd99800fabf352f69c7ccd46c5e43"
+            },
+            {
+              "path": "mteb_v2_eval_prompts.json",
+              "size": 11877,
+              "gitOid": "af17620cafe3b90decea71116a0c7cdb1777b571"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 613,
+              "gitOid": "ac23c0aaa2434523c494330aeb79c58395378103"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 11423705,
+              "sha256": "def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 5404,
+              "gitOid": "ddaf69808214a44fdd26d3785b66c1367c78277a"
+            },
+            {
+              "path": "vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "1_Pooling/config.json",
+              "size": 297,
+              "gitOid": "e1cde9c8752f2afcae01dc89fad8578afbcf5248"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 1192133232,
+              "sha256": "6bb124227f33c3dbf7fbbd38119b2afa8be959e93666d3c9be7142b66708b66c"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "sentence-transformers",
+        "summary": "8 texts: tokens identical, cosine vs sentence-transformers above 0.999 (CPU, Vulkan), with and without the web_search_query prompt",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": []
+      },
+      "notes": "",
+      "doc": []
     }
   ]
 }

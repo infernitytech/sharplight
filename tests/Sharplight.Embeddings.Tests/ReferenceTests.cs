@@ -20,6 +20,10 @@ public class ReferenceTests
         { "nomic-embed-text-v1.5", "gguf:nomic-embed-text-v1.5/nomic-embed-text-v1.5.f16.gguf", "vulkan" },
         { "Qwen3-Embedding-0.6B", "hf", "cpu" }, { "Qwen3-Embedding-0.6B", "hf", "vulkan" },
         { "Qwen3-Embedding-0.6B", "gguf:Qwen3-Embedding-0.6B/Qwen3-Embedding-0.6B-f16.gguf", "vulkan" },
+        // Hot-model sweep 2026-11-17.
+        { "granite-embedding-311m-multilingual-r2", "hf", "cpu" }, { "granite-embedding-311m-multilingual-r2", "hf", "vulkan" },
+        { "harrier-oss-v1-0.6b", "hf", "cpu" }, { "harrier-oss-v1-0.6b", "hf", "vulkan" },
+        { "Qwen3-Embedding-4B", "hf", "vulkan" },
         // 8-bit quantized against the unquantized reference (tolerance 0.995).
         { "bge-small-en-v1.5", "gguf:bge-small-en-v1.5/bge-small-en-v1.5-q8_0.gguf", "cpu" }, { "bge-small-en-v1.5", "gguf:bge-small-en-v1.5/bge-small-en-v1.5-q8_0.gguf", "vulkan" },
         { "nomic-embed-text-v1.5", "gguf:nomic-embed-text-v1.5/nomic-embed-text-v1.5.Q8_0.gguf", "cpu" },
@@ -33,6 +37,7 @@ public class ReferenceTests
         { "bge-reranker-v2-m3", "hf", "vulkan" },
         { "bge-reranker-v2-m3", "gguf:bge-reranker-v2-m3/bge-reranker-v2-m3-Q8_0.gguf", "cpu" }, { "bge-reranker-v2-m3", "gguf:bge-reranker-v2-m3/bge-reranker-v2-m3-Q8_0.gguf", "vulkan" },
         { "Qwen3-Reranker-0.6B", "hf", "cpu" }, { "Qwen3-Reranker-0.6B", "hf", "vulkan" },
+        { "Qwen3-Reranker-4B", "hf", "vulkan" },
     };
 
     private static string PathOf(string model, string format)

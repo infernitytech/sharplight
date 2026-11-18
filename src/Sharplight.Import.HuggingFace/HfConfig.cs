@@ -144,6 +144,9 @@ internal sealed partial class HfConfig : IDisposable
     /// <summary>The model type of timm ConvNeXt checkpoints (<c>timm/convnext_tiny.fb_in1k</c>).</summary>
     public const string TimmConvNextModelType = "timm_convnext";
 
+    /// <summary>The model type of timm MobileNetV3 and EfficientNet checkpoints (<c>timm/mobilenetv3_small_100.lamb_in1k</c>, <c>timm/efficientnet_b0.ra_in1k</c>).</summary>
+    public const string TimmMbConvModelType = "timm_mbconv";
+
     private string? TimmModelType()
     {
         if (Root.ValueKind != JsonValueKind.Object || !Root.TryGetProperty("pretrained_cfg", out _) || !Root.TryGetProperty("architecture", out var a) || a.ValueKind != JsonValueKind.String)
@@ -157,7 +160,12 @@ internal sealed partial class HfConfig : IDisposable
             return TimmResNetModelType;
         }
 
-        return name.StartsWith("convnext_", StringComparison.Ordinal) ? TimmConvNextModelType : null;
+        if (name.StartsWith("convnext_", StringComparison.Ordinal))
+        {
+            return TimmConvNextModelType;
+        }
+
+        return MbConvHfMapping.Supports(name) ? TimmMbConvModelType : null;
     }
 
     private HfConfig(HfConfig config, string modelType)

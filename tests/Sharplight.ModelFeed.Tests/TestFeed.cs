@@ -43,8 +43,8 @@ internal sealed class TestFeed : IDisposable
         Keys = [.. keys.Select(key => new FeedKeySetEntry { KeyId = key.KeyId, PublicKey = key.PublicKey.Base64 })],
     };
 
-    public FeedClient Client(IFeedStateStore? state = null, bool allowExpired = false, IFeedTransport? transport = null) =>
-        new(transport ?? new FolderFeedTransport(Folder), new FeedClientOptions { TrustedRoots = [RootKey.PublicKey], AllowExpiredIndex = allowExpired }, state, Time);
+    public FeedClient Client(IFeedStateStore? state = null, bool allowExpired = false, IFeedTransport? transport = null, string? channel = null) =>
+        new(transport ?? new FolderFeedTransport(Folder), new FeedClientOptions { TrustedRoots = [RootKey.PublicKey], AllowExpiredIndex = allowExpired, Channel = channel }, state, Time);
 
     /// <summary>Stages a package version with <paramref name="size"/> pseudo-random bytes and returns its folder.</summary>
     public async Task<string> StageAsync(string id, string version, int size = 10_000, IReadOnlyList<PackageDependency>? dependencies = null, string? server = null, byte seed = 1)

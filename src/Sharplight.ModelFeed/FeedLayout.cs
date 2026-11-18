@@ -2,7 +2,11 @@ using System.Text.RegularExpressions;
 
 namespace Sharplight.ModelFeed;
 
-/// <summary>Relative paths of the static feed layout (docs/model-feed.md) and package id rules.</summary>
+/// <summary>
+/// Relative paths of the static feed layout (docs/model-feed.md) and id rules. Key set and package versions
+/// (<c>packages/&lt;id&gt;/&lt;version&gt;/</c>) are shared by all channels; each channel (<c>stable/</c>, <c>unstable/</c>) has its own
+/// signed index, catalog pages and package indexes. A feed without channels keeps those at the root.
+/// </summary>
 public static partial class FeedLayout
 {
     /// <summary>The service index.</summary>
@@ -28,6 +32,26 @@ public static partial class FeedLayout
 
     /// <summary>Name of a version's manifest signature.</summary>
     public const string ManifestSignatureFileName = "manifest.sig";
+
+    /// <summary>The path of a channel document: <paramref name="relative"/> inside the channel's folder, or at the root without a channel.</summary>
+    /// <param name="channel">Channel name, or <see langword="null"/> for a feed without channels.</param>
+    /// <param name="relative">Path inside the channel (<see cref="ServiceIndex"/>, <see cref="CatalogIndex"/>, <see cref="PackageIndex"/>, ...).</param>
+    /// <returns>The path relative to the feed root.</returns>
+    public static string InChannel(string? channel, string relative)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(relative);
+        if (channel is null)
+        {
+            return relative;
+        }
+
+        return IsValidChannel(channel) ? $"{channel}/{relative}" : throw new FeedFormatException($"'{channel}' is not a valid channel name.");
+    }
+
+    /// <summary>Whether <paramref name="channel"/> is a valid channel name (lower case letters, digits and hyphens).</summary>
+    /// <param name="channel">The name.</param>
+    /// <returns><see langword="true"/> when valid.</returns>
+    public static bool IsValidChannel(string? channel) => channel is not null && ChannelPattern().IsMatch(channel) && channel != "packages" && channel != "keys";
 
     /// <summary>Path of catalog page <paramref name="number"/> (1-based).</summary>
     /// <param name="number">Page number.</param>
@@ -98,4 +122,7 @@ public static partial class FeedLayout
 
     [GeneratedRegex("^[a-z0-9][a-z0-9.-]{0,199}$")]
     private static partial Regex IdPattern();
+
+    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,39}$")]
+    private static partial Regex ChannelPattern();
 }
