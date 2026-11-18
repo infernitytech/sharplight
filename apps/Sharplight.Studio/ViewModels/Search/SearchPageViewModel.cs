@@ -163,6 +163,11 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
     [RelayCommand(CanExecute = nameof(CanIndex))]
     private void Index()
     {
+        if (!CanIndex())
+        {
+            return;
+        }
+
         var model = SelectedModel!;
         string folder = FolderPath;
         var options = Panel.Options;
@@ -178,8 +183,12 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
     [RelayCommand(CanExecute = nameof(CanSearch))]
     private void Search()
     {
+        if (!HasModel || _index is not { } index)
+        {
+            return;
+        }
+
         var model = SelectedModel!;
-        var index = _index!;
         if (index.ModelId != model.Id)
         {
             Notice = $"The index was made with {index.ModelId}. Index the folder again to search with {model.Id}.";

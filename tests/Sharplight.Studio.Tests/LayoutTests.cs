@@ -238,6 +238,7 @@ public sealed class LayoutTests
             viewModel.Search.SetFolder(docs);
             viewModel.Search.IndexCommand.Execute(null);
             await viewModel.Search.Queue.Items.Single().Completion;
+            await HeadlessApp.WaitForAsync(window, () => viewModel.Search.HasIndex);
             viewModel.Search.Query = "ship engine";
             viewModel.Search.SearchCommand.Execute(null);
             await viewModel.Search.Queue.Items.Last().Completion;
