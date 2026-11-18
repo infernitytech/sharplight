@@ -88,6 +88,9 @@ internal sealed record AppSettings
     /// <summary>Memory reserve, resident model limit, idle unloading and on-demand loading.</summary>
     public ResidencySettings Residency { get; init; } = new();
 
+    /// <summary>The models the chat uses for dictation, reading answers aloud and image generation.</summary>
+    public VoiceSettings Voice { get; init; } = new();
+
     /// <summary>Endpoint settings.</summary>
     public ServerSettings Server { get; init; } = new();
 

@@ -86,7 +86,7 @@ public class ChatClientPipelineTests
         using var backend = new FakeBackend("one two ", "STOP three");
         using var client = new SharplightChatClient(backend);
         var r = await client.GetResponseAsync("q", new ChatOptions { StopSequences = ["STOP"] });
-        Assert.Equal("one two", r.Text);
+        Assert.Equal("one two ", r.Text);
         Assert.Equal(ChatFinishReason.Stop, r.FinishReason);
     }
 

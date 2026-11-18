@@ -30,6 +30,9 @@ internal sealed record ChatMessageRecord
     /// <summary>The model that wrote an answer.</summary>
     public string? ModelId { get; init; }
 
+    /// <summary>The user's message is an image request (the <c>/image</c> command): its answer is a generated picture, and neither goes to the language model.</summary>
+    public bool ImageRequest { get; init; }
+
     /// <summary>Failure message when generation failed.</summary>
     public string? Error { get; init; }
 

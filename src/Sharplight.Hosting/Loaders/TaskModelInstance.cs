@@ -4,7 +4,7 @@ using Sharplight.Tasks;
 namespace Sharplight.Hosting.Loaders;
 
 /// <summary>A task-layer model that finished loading: the model and its clients, owned until disposed.</summary>
-public sealed class TaskModelInstance(TaskModel model, IReadOnlyList<ITaskClient> clients, long residentBytes) : LoadedModel
+public sealed class TaskModelInstance(TaskModel model, IReadOnlyList<ITaskClient> clients, long residentBytes) : LoadedModel, ITaskClientModel
 {
     /// <inheritdoc/>
     public override ModelKind Kind => ModelKind.Task;
@@ -20,6 +20,11 @@ public sealed class TaskModelInstance(TaskModel model, IReadOnlyList<ITaskClient
     public TClient GetClient<TClient>()
         where TClient : class, ITaskClient
         => clients.OfType<TClient>().FirstOrDefault() ?? throw new NotSupportedException($"The model has no {typeof(TClient).Name}.");
+
+    /// <inheritdoc/>
+    public TClient? FindClient<TClient>()
+        where TClient : class, ITaskClient
+        => clients.OfType<TClient>().FirstOrDefault();
 
     /// <inheritdoc/>
     public override void Dispose()

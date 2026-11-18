@@ -77,6 +77,12 @@ internal interface ILoadedModel
         where TClient : class, Sharplight.Tasks.ITaskClient
         => throw new NotSupportedException($"{Id} ({Kind}) has no {typeof(TClient).Name}.");
 
+    /// <summary>Leases the embedder of an embedding model (kind <see cref="ModelKindCatalog.Embeddings"/>), loading the model first when it sleeps.</summary>
+    /// <param name="cancellationToken">Cancels waiting for the load.</param>
+    /// <exception cref="NotSupportedException">The model is not an embedding model.</exception>
+    public Task<EmbedderLease> AcquireEmbedderAsync(CancellationToken cancellationToken)
+        => throw new NotSupportedException($"{Id} ({Kind}) is not an embedding model.");
+
     /// <summary>Tokens <paramref name="text"/> occupies (an estimate until the model loaded once).</summary>
     public int CountTokens(string text);
 

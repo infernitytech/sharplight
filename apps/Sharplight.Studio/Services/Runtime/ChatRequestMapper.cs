@@ -17,7 +17,7 @@ internal static class ChatRequestMapper
     {
         return new ChatRequest
         {
-            Messages = [.. input.Messages.Select(message => new ChatTurn(RoleName(message.Role), message.Text))],
+            Messages = [.. input.Messages.Select(message => new ChatTurn(RoleName(message.Role), message.Text, Reasoning: message.Reasoning))],
             Sampling = ToSamplingParams(input.Sampling),
             MaxTokens = Math.Max(0, input.Sampling.MaxTokens),
             EnableThinking = reasoningTemplate ? input.EnableThinking : null,

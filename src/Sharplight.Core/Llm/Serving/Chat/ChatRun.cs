@@ -92,7 +92,7 @@ public sealed class ChatRun
             {
                 if (parser is not null)
                 {
-                    foreach (var e in Map(index, parser.Finish()))
+                    foreach (var e in Map(index, parser.Complete()))
                     {
                         yield return e;
                     }
@@ -111,14 +111,14 @@ public sealed class ChatRun
         }
     }
 
-    private static IEnumerable<ChatEvent> Map(int index, List<ParsedPiece> pieces)
+    private static IEnumerable<ChatEvent> Map(int index, IReadOnlyList<ChatOutputPiece> pieces)
     {
         foreach (var p in pieces)
         {
             yield return p.Kind switch
             {
-                PieceKind.Content => new ChatEvent(index, Content: p.Text),
-                PieceKind.Reasoning => new ChatEvent(index, Reasoning: p.Text),
+                ChatOutputPieceKind.Content => new ChatEvent(index, Content: p.Text),
+                ChatOutputPieceKind.Reasoning => new ChatEvent(index, Reasoning: p.Text),
                 _ => new ChatEvent(index, ToolCall: p.Call),
             };
         }
