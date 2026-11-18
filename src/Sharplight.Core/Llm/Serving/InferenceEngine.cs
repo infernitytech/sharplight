@@ -78,6 +78,10 @@ public sealed class InferenceEngine : IDisposable
     private readonly TaskCompletionSource _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly int _budget;
     private readonly int _minBudget;
+    private int _load;
+    private long _loadTimestamp;
+    /// <summary>A step this long after the previous one sees the load of its own sequences only (see <see cref="StepTokens"/>).</summary>
+    private static readonly TimeSpan LoadHoldTime = TimeSpan.FromSeconds(1);
     private readonly int _prefillChunk;
     private long _nextId, _tick;
     private int _rr, _transit;
@@ -1037,7 +1041,13 @@ public sealed class InferenceEngine : IDisposable
             }
         }
 
-        long rows = Math.Max((long)_active.Count * Math.Max(1, _opt.BatchTokensPerSequence), _active.Count + oldest);
+        // The load is the number of sequences holding a slot, held for a while when it drops (by one per step): a group of streams that
+        // finished together is replaced by new requests over the next few steps, which should not see the budget of a light load.
+        // (After a pause, e.g. an idle engine, the load starts over.)
+        long now = Stopwatch.GetTimestamp();
+        _load = Stopwatch.GetElapsedTime(_loadTimestamp, now) > LoadHoldTime ? _active.Count : Math.Max(_active.Count, _load - 1);
+        _loadTimestamp = now;
+        long rows = Math.Max((long)_load * Math.Max(1, _opt.BatchTokensPerSequence), _active.Count + oldest);
         return (int)Math.Clamp(rows, _minBudget, _budget);
     }
 

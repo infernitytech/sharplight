@@ -102,7 +102,7 @@ internal sealed class ServeOptionSet
     {
         Description = "Compute every prompt in full instead of reusing the cached KV of earlier prompts with the same prefix.",
     };
-    private readonly Option<int?> _minStepTokens = OptionFactory.OptionalInteger("--min-step-tokens", "Smallest token budget of a step while few sequences run (default 768: a wave of prompts is prefilled in smaller steps and streams sooner; 0: every step uses the whole budget).", helpName: "tokens");
+    private readonly Option<int?> _minStepTokens = OptionFactory.OptionalInteger("--min-step-tokens", "Smallest token budget of a step while few sequences run (default 768: a wave of prompts is prefilled in smaller steps and streams sooner; 0: every step uses the whole budget).", minimum: 0, helpName: "tokens");
     private readonly Option<int?> _stepTokens = OptionFactory.OptionalInteger("--step-tokens", "Token budget of one engine step (decode rows first, prompt chunks fill the rest; default: the model's batch size).", helpName: "tokens");
 
     private readonly Option<int> _draftTokens = OptionFactory.Integer("--speculate-ngram", "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off).", 0, minimum: 0, helpName: "tokens");
