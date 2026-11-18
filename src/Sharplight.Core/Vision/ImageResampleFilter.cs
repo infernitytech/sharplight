@@ -11,4 +11,7 @@ public enum ImageResampleFilter
 
     /// <summary>Bicubic (Keys kernel with a = -0.5, widened when shrinking).</summary>
     Bicubic,
+
+    /// <summary>Lanczos (windowed sinc with three lobes, widened when shrinking; Pillow's <c>LANCZOS</c>, diffusers' default image resize).</summary>
+    Lanczos,
 }

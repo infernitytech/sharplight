@@ -121,6 +121,13 @@ public static class DiffusionGraphs
     /// </summary>
     public const string ReferenceLatent = "reference_latent";
 
+    /// <summary>
+    /// Optional input of <see cref="Denoise"/> for UNets with extra input channels (<see cref="DiffusionConfigKeys.ConditionMode"/>:
+    /// InstructPix2Pix's image latents, the inpainting UNets' mask and masked-image latents): f32 [N, E, h, w], concatenated to the
+    /// <see cref="Latent"/> input along the channels inside the graph.
+    /// </summary>
+    public const string ConditionLatent = "condition_latent";
+
     /// <summary>Dimension name (<c>AdapterOptions.Dimensions</c>): reference images of an editing denoiser (absent or 0: none).</summary>
     public const string References = "references";
 

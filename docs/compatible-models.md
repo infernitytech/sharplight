@@ -279,6 +279,9 @@ images are visually identical. All run on CPU and Vulkan (Vulkan used for the re
 | Qwen-Image 2.1 Turbo | Qwen/Qwen-Image-2.1-Turbo, unsloth/Qwen-Image-2.1-Turbo-GGUF | GGUF Q8_0 + the Qwen-Image 2.1 companions | 34.5 dB (1024, its 8-step `sample_sigmas`) vs diffusers on the same files | 8 steps at 1024x1024 in 14.8 s; the schedule comes from `model_index.json` or the `turbo` file name | 2026-11-16 |
 | Qwen-Image 2.1 | Qwen/Qwen-Image-2.1, unsloth/Qwen-Image-2.1-GGUF | GGUF Q8_0 + Qwen3-VL-8B text encoder and VAE companions (the pipeline's folders) | 42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder ≤ 9.6e-4 | 1024x1024 20 steps in 36 s; text-to-image only (the editing path is not implemented) | 2026-11-16 |
 | Krea 2 Turbo | krea/Krea-2-Turbo (ungated mirror unsloth/Krea-2-Turbo), realrebelai/KREA-2_GGUFs | GGUF Q8_0 + Qwen3-VL-4B text encoder and Qwen-Image VAE companions (the pipeline's folders) | 26.9 dB (512) / 34.1 dB (1024) vs diffusers on the same files (8 distilled steps, visually identical); text encoder ≤ 3.8e-4, transformer 5.7e-3 | 1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (`raw` / `base` in the name) run 28 guided steps | 2026-11-17 |
+| InstructPix2Pix | timbrooks/instruct-pix2pix | diffusers (fp32 files) | 59.7 dB (512, 20 steps, guidance 7.5 and image guidance 1.5, Euler) vs diffusers on the same files, same latents; the UNet with the image latents 2.2e-4 relative RMS | | 2026-11-18 |
+| Stable Diffusion 1.5 Inpainting | stable-diffusion-v1-5/stable-diffusion-inpainting | diffusers (fp16 files) | 56.3 dB (512, 20 steps, guidance 7.5, DDIM, mask and masked image as UNet inputs) vs diffusers on the same fp16 files (upcast to f32), same latents | | 2026-11-18 |
+| Stable Diffusion XL 1.0 Inpainting 0.1 | diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | diffusers (fp16 files) | 40.5 dB (512, 20 steps, guidance 7.5, Euler, mask and masked image as UNet inputs) vs diffusers on the same fp16 files (upcast to f32), same latents | | 2026-11-18 |
 <!-- verified-catalog:end -->
 
 ### 4.1 Popularity sweep (2026-11-16)
@@ -302,6 +305,7 @@ All images are visually the same picture; the lower values of the anime merges c
 | NoobAI XL 1.1 | Laxhar/noobai-XL-1.1 | NoobAI-XL-v1.1.safetensors | 28.5 dB | 89 s |
 | SDXL-Lightning 4-step | ByteDance/SDXL-Lightning | sdxl_lightning_4step.safetensors | 45.9 dB | 92 s |
 | Qwen-Image-2512 | unsloth/Qwen-Image-2512-GGUF | qwen-image-2512-Q4_K_M.gguf + the Qwen-Image companions | 25.5 dB (1024, 20 steps, true CFG 4; vs diffusers on the same files; visually identical, three blocks run exact attention) | 150 s |
+| Qwen-Image-Edit-2511 | unsloth/Qwen-Image-Edit-2511-GGUF | qwen-image-edit-2511-Q4_K_M.gguf + the Qwen-Image-Edit-2511 text encoder (with its vision tower) and VAE | 40.3 dB (one picture) / 26.4 dB (two), 512x384, 20 steps, true CFG 4 | |
 <!-- verified-catalog:end -->
 
 Real LoRAs on SDXL base 1.0 (single file), `RealLoraTests` (diffusers `load_lora_weights`, Euler, same latents, no guidance): ByteDance's
@@ -431,7 +435,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | Nemotron 3.5 Super-VL and Bolt (ModelOpt NVFP4 / mixed-precision safetensors) | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4, nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB | ModelOpt mixed-precision layout not read (GGUF versions import) |
 | DFlash drafters with LiLiCorr head | Bolt and Super-VL drafters | correction head not implemented (reported as draft models) |
 | Gated repositories | meta-llama/Llama-3.1-8B-Instruct, google/medgemma-1.5-4b-it, nvidia/Cosmos-Reason2-2B | could not be downloaded without a token; not tested |
-| SD 1.5 inpainting UNet, SDXL refiner, Qwen-Image-Edit, Qwen-Image 2.1 editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3 | various | not implemented yet (rejected with a clear message) |
+| SDXL refiner, Qwen-Image 2.1 editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3 | various | not implemented yet (rejected with a clear message) |
 | ControlNet, TAESD, LyCORIS / DoRA LoRAs | | not implemented (plain LoRAs: section 4) |
 | CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
 | Mask2Former | | vision model not implemented (Florence-2, SegFormer, BiRefNet, YOLO detection and segmentation are native task models, see model-support.md section 14) |

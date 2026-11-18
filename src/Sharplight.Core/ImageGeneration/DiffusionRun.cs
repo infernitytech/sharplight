@@ -48,6 +48,15 @@ internal sealed record DiffusionRun
     /// <summary>Reference images of an editing request (0: none).</summary>
     public int References { get; init; }
 
+    /// <summary>
+    /// The image guidance scale of an InstructPix2Pix-style run (<see cref="ImageGenerationOptions.ImageGuidanceScale"/>); 0 for other
+    /// runs. A guided run of such a model evaluates three rows (instruction with image, empty prompt with image, empty prompt without).
+    /// </summary>
+    public float ImageGuidance { get; init; }
+
+    /// <summary>Denoiser rows per evaluation: 1 unguided, 2 with classifier-free guidance, 3 with image guidance as well.</summary>
+    public int Rows => !Guided ? 1 : ImageGuidance > 0 ? 3 : 2;
+
     /// <summary>Values of one latent image.</summary>
     public int LatentSize => LatentChannels * LatentHeight * LatentWidth;
 }

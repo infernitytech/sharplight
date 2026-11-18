@@ -97,6 +97,13 @@ internal sealed record FluxHyperParameters
     /// <summary>The step of the first position axis between reference images (FLUX.2: 10).</summary>
     public int ReferenceIndexStep { get; init; }
 
+    /// <summary>
+    /// Whether the reference images' tokens are modulated by the conditioning at timestep 0 instead of the current one (Qwen-Image-Edit-2511,
+    /// diffusers' <c>zero_cond_t</c>): their image-stream modulations (not the final one) come from a second evaluation of the timestep
+    /// embedding at 0.
+    /// </summary>
+    public bool ZeroConditionTimestep { get; init; }
+
     /// <summary>Width per head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
 
@@ -131,6 +138,7 @@ internal sealed record FluxHyperParameters
             MaxReferences = source.Get(p + "max_references", 0),
             ReferenceIndexBase = source.Get(p + "reference_index_base", 1),
             ReferenceIndexStep = source.Get(p + "reference_index_step", 0),
+            ZeroConditionTimestep = source.Get(p + "zero_cond_t", false),
         };
     }
 }

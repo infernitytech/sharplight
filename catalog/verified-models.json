@@ -23163,6 +23163,600 @@
           }
         }
       ]
+    },
+    {
+      "id": "instruct-pix2pix",
+      "name": "InstructPix2Pix",
+      "kind": "image-generation",
+      "family": "Stable Diffusion",
+      "architecture": "latent_diffusion",
+      "level": "verified",
+      "license": "mit",
+      "gated": false,
+      "publisher": {
+        "name": "Tim Brooks",
+        "countryOfOrigin": "US",
+        "url": "https://www.timothybrooks.com/instruct-pix2pix"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "diffusers",
+          "label": "FP32 diffusers",
+          "format": "diffusers",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 5307544377,
+          "companions": [],
+          "repository": "timbrooks/instruct-pix2pix",
+          "revision": "31519b5cb02a7fd89b906d88731cd4d6a7bbf88d",
+          "include": [
+            "model_index.json",
+            "scheduler/*",
+            "tokenizer/*",
+            "text_encoder/config.json",
+            "text_encoder/model.safetensors",
+            "unet/config.json",
+            "unet/diffusion_pytorch_model.safetensors",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 616,
+              "gitOid": "b1b17da0fdfb6cee5f986f8a70572b1f63f1a45e"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 569,
+              "gitOid": "e48a48f391c0b42339440a4656f71b06b3d9610c"
+            },
+            {
+              "path": "tokenizer/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 472,
+              "gitOid": "2c2130b544c0c5a72d5d00da071ba130a9800fb2"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 806,
+              "gitOid": "5ba7bf706515bc60487ad0e1816b4929b82542d6"
+            },
+            {
+              "path": "tokenizer/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 617,
+              "gitOid": "fbc9705d46378e00e1e09de6495d150e198d5b87"
+            },
+            {
+              "path": "text_encoder/model.safetensors",
+              "size": 492265879,
+              "sha256": "7b3a12df205cb3c74dd4eae4354d93f606ae6b3bc29d5d06fd97921cb9ad8a81"
+            },
+            {
+              "path": "unet/config.json",
+              "size": 1021,
+              "gitOid": "826df45fb9f72909bb84a79eb8d15b94be7bd926"
+            },
+            {
+              "path": "unet/diffusion_pytorch_model.safetensors",
+              "size": 3438213622,
+              "sha256": "fba63ff10c4271b953216b714c4f333c9d26d022e24ac226f09fde475812bd2a"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 553,
+              "gitOid": "2b55f212b08b6891f2bc251b265c354a56717d16"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 334643276,
+              "sha256": "a2b5134f4dbc140d9c11f11cba3233099e00af40f262f136c691fb7d38d2194c"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "59.7 dB (512, 20 steps, guidance 7.5 and image guidance 1.5, Euler) vs diffusers on the same files, same latents; the UNet with the image latents 2.2e-4 relative RMS",
+        "providers": [
+          "Vulkan",
+          "CPU"
+        ],
+        "date": "2026-11-18",
+        "tests": [
+          "SdEditTests"
+        ]
+      },
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "timbrooks/instruct-pix2pix",
+            "formats": "diffusers (fp32 files)",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "sd-1.5-inpainting",
+      "name": "Stable Diffusion 1.5 Inpainting",
+      "kind": "image-generation",
+      "family": "Stable Diffusion",
+      "architecture": "latent_diffusion",
+      "level": "verified",
+      "license": "creativeml-openrail-m",
+      "gated": false,
+      "publisher": {
+        "name": "Runway",
+        "countryOfOrigin": "US",
+        "url": "https://runwayml.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "diffusers",
+          "label": "FP16 diffusers",
+          "format": "diffusers",
+          "quantization": "F16",
+          "recommended": true,
+          "memoryBytes": 2855182640,
+          "companions": [],
+          "repository": "stable-diffusion-v1-5/stable-diffusion-inpainting",
+          "revision": "8a4288a76071f7280aedbdb3253bdb9e9d5d84bb",
+          "include": [
+            "model_index.json",
+            "scheduler/*",
+            "tokenizer/*",
+            "text_encoder/config.json",
+            "text_encoder/model.fp16.safetensors",
+            "unet/config.json",
+            "unet/diffusion_pytorch_model.fp16.safetensors",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.fp16.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 548,
+              "gitOid": "1dda6689b6bed16a8b69f3df22fdc06983de68da"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 313,
+              "gitOid": "3a6a9a51b8ea8eb2b0c55e2811e608f2eca3ffd2"
+            },
+            {
+              "path": "tokenizer/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 472,
+              "gitOid": "2c2130b544c0c5a72d5d00da071ba130a9800fb2"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 806,
+              "gitOid": "5ba7bf706515bc60487ad0e1816b4929b82542d6"
+            },
+            {
+              "path": "tokenizer/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 617,
+              "gitOid": "4d3e873ab5086ad989f407abd50fdce66db8d657"
+            },
+            {
+              "path": "text_encoder/model.fp16.safetensors",
+              "size": 246144864,
+              "sha256": "77795e2023adcf39bc29a884661950380bd093cf0750a966d473d1718dc9ef4e"
+            },
+            {
+              "path": "unet/config.json",
+              "size": 748,
+              "gitOid": "432f2ef043de459ffb66e7e49d22131fc596a5d5"
+            },
+            {
+              "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+              "size": 1719154104,
+              "sha256": "24b788b4a777748377cc20364eea4ae113c8c42f4468c16bc8c02fdae5492af9"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 552,
+              "gitOid": "25c63fb3a9303446a3c9bae3a90afc818641984f"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+              "size": 167335342,
+              "sha256": "4fbcf0ebe55a0984f5a5e00d8c4521d52359af7229bb4d81890039d2aa16dd7c"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "56.3 dB (512, 20 steps, guidance 7.5, DDIM, mask and masked image as UNet inputs) vs diffusers on the same fp16 files (upcast to f32), same latents",
+        "providers": [
+          "Vulkan",
+          "CPU"
+        ],
+        "date": "2026-11-18",
+        "tests": [
+          "SdEditTests"
+        ]
+      },
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "stable-diffusion-v1-5/stable-diffusion-inpainting",
+            "formats": "diffusers (fp16 files)",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "sdxl-1.0-inpainting-0.1",
+      "name": "Stable Diffusion XL 1.0 Inpainting 0.1",
+      "kind": "image-generation",
+      "family": "Stable Diffusion",
+      "architecture": "latent_diffusion",
+      "level": "verified",
+      "license": "openrail\u002B\u002B",
+      "gated": false,
+      "publisher": {
+        "name": "Hugging Face (diffusers)",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co/diffusers"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "diffusers",
+          "label": "FP16 diffusers",
+          "format": "diffusers",
+          "quantization": "F16",
+          "recommended": true,
+          "memoryBytes": 8381401080,
+          "companions": [],
+          "repository": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+          "revision": "115134f363124c53c7d878647567d04daf26e41e",
+          "include": [
+            "model_index.json",
+            "scheduler/*",
+            "tokenizer/*",
+            "tokenizer_2/*",
+            "text_encoder/config.json",
+            "text_encoder/model.fp16.safetensors",
+            "text_encoder_2/config.json",
+            "text_encoder_2/model.fp16.safetensors",
+            "unet/config.json",
+            "unet/diffusion_pytorch_model.fp16.safetensors",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.fp16.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 690,
+              "gitOid": "8cab34157f46b4c35107a65e48a7236057ad6e46"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 479,
+              "gitOid": "9e13de2afd2250977d01837deed2b1c35b75e552"
+            },
+            {
+              "path": "tokenizer/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 472,
+              "gitOid": "2c2130b544c0c5a72d5d00da071ba130a9800fb2"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 737,
+              "gitOid": "2e8612a429492973fe60635b3f44a28b065cfac0"
+            },
+            {
+              "path": "tokenizer/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "tokenizer_2/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer_2/special_tokens_map.json",
+              "size": 460,
+              "gitOid": "ae0c5be6f35217e51c4c000fd325d8de0294e99c"
+            },
+            {
+              "path": "tokenizer_2/tokenizer_config.json",
+              "size": 725,
+              "gitOid": "a8438e020c4497a429240d6b89e0bf9a6e2ffa92"
+            },
+            {
+              "path": "tokenizer_2/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 746,
+              "gitOid": "a34c80dc728ab0a61bc5f7e849fad01723f94a01"
+            },
+            {
+              "path": "text_encoder/model.fp16.safetensors",
+              "size": 246144867,
+              "sha256": "fc83cf401d930147807e7c44021c164bcc5508c9d4cc0ff35f4e354685ca9cd0"
+            },
+            {
+              "path": "text_encoder_2/config.json",
+              "size": 758,
+              "gitOid": "8f0f26a6056dd0aae0437184a1871eed6006e170"
+            },
+            {
+              "path": "text_encoder_2/model.fp16.safetensors",
+              "size": 1389382884,
+              "sha256": "a8622bd41f8d359df484fdf9de091edb9337a2fd747f0a5c9c320a62e24d1fd3"
+            },
+            {
+              "path": "unet/config.json",
+              "size": 1932,
+              "gitOid": "2fa48c31c3a64ba04fa8a76ac91f086d6309b406"
+            },
+            {
+              "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+              "size": 5135178560,
+              "sha256": "6470840731e98cc16713ddf3ac7ee458c9fdbcb881a98c6727cd4a938f227d3f"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 659,
+              "gitOid": "4a3bb2e796869bdfa617fd28162f4087c4f771e3"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+              "size": 167335338,
+              "sha256": "4ad62825e5c8b31eefb77355ba6693785619bf7d669d9b1a6fd9f19dec6d65b3"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "40.5 dB (512, 20 steps, guidance 7.5, Euler, mask and masked image as UNet inputs) vs diffusers on the same fp16 files (upcast to f32), same latents",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": [
+          "SdEditTests"
+        ]
+      },
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+            "formats": "diffusers (fp16 files)",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen-image-edit-2511",
+      "name": "Qwen-Image-Edit-2511",
+      "kind": "image-generation",
+      "family": "Qwen-Image",
+      "architecture": "qwen_image",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 34535862917,
+          "companions": [
+            "text-encoder",
+            "vae"
+          ],
+          "repository": "unsloth/Qwen-Image-Edit-2511-GGUF",
+          "revision": "52838251db242ddd8e8d0118de36c71006d7c397",
+          "include": [
+            "qwen-image-edit-2511-Q4_K_M.gguf"
+          ],
+          "primary": "qwen-image-edit-2511-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "qwen-image-edit-2511-Q4_K_M.gguf",
+              "size": 12842830432,
+              "sha256": "07951f61941a81e236cbd4a9b6f250d49626b3ba518f260135bf2e01a87cf1c8"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "text-encoder",
+          "role": "text-encoder",
+          "additionalRoles": [],
+          "label": "Qwen2.5-VL-7B text encoder with its vision tower (BF16)",
+          "repository": "Qwen/Qwen-Image-Edit-2511",
+          "revision": "6f3ccc0b56e431dc6a0c2b2039706d7d26f22cb9",
+          "include": [
+            "model_index.json",
+            "text_encoder/*",
+            "tokenizer/*"
+          ],
+          "primary": "text_encoder",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 516,
+              "gitOid": "a2e083f28f4f6c958c08f3882c89038b8f6da872"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 3146,
+              "gitOid": "52b1556c2927e08c13529f2a107b08c87c7a4e65"
+            },
+            {
+              "path": "text_encoder/generation_config.json",
+              "size": 244,
+              "gitOid": "5fdb82f3b3f12d83074ce7b45e330d8ee4efb7d7"
+            },
+            {
+              "path": "text_encoder/model-00001-of-00004.safetensors",
+              "size": 4968243304,
+              "sha256": "d725335e4ea2399be706469e4b8807716a8fa64bd03468252e9f7acf2415fee4"
+            },
+            {
+              "path": "text_encoder/model-00002-of-00004.safetensors",
+              "size": 4991495816,
+              "sha256": "b1830db6908dcc76df3a71492acbcf2b8cac130114cf1f3c2d9edae8de8c6de3"
+            },
+            {
+              "path": "text_encoder/model-00003-of-00004.safetensors",
+              "size": 4932751040,
+              "sha256": "09c1807c6d00d7cab94f7db39d4c02ebb8537225ccde383861ac48db97945aa6"
+            },
+            {
+              "path": "text_encoder/model-00004-of-00004.safetensors",
+              "size": 1691924384,
+              "sha256": "5dd068336d14d45ffb43cef374d286cc6ba9d8741b028f90a7d040d847961f4a"
+            },
+            {
+              "path": "text_encoder/model.safetensors.index.json",
+              "size": 57655,
+              "gitOid": "92b467639266f4aa72a9b5ab73dbdf5a1f936ee4"
+            },
+            {
+              "path": "tokenizer/added_tokens.json",
+              "size": 605,
+              "gitOid": "482ced4679301bf287ebb310bdd1790eb4514232"
+            },
+            {
+              "path": "tokenizer/chat_template.jinja",
+              "size": 2427,
+              "gitOid": "28028c056af412405debd878cdda0171e35fa5d1"
+            },
+            {
+              "path": "tokenizer/merges.txt",
+              "size": 1671853,
+              "gitOid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 613,
+              "gitOid": "ac23c0aaa2434523c494330aeb79c58395378103"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 4686,
+              "gitOid": "eaed590d62aaf0ba31e284b66ddcb18222f066c2"
+            },
+            {
+              "path": "tokenizer/vocab.json",
+              "size": 3383407,
+              "gitOid": "6bce3a0a3866c4791a74d83d78f6824c3af64ec3"
+            }
+          ]
+        },
+        {
+          "id": "vae",
+          "role": "vae",
+          "additionalRoles": [],
+          "label": "Qwen-Image VAE",
+          "repository": "Qwen/Qwen-Image-Edit-2511",
+          "revision": "6f3ccc0b56e431dc6a0c2b2039706d7d26f22cb9",
+          "include": [
+            "model_index.json",
+            "vae/*"
+          ],
+          "primary": "vae/diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 516,
+              "gitOid": "a2e083f28f4f6c958c08f3882c89038b8f6da872"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 730,
+              "gitOid": "ebc479e2fe5a2265f4bcaf1e1073df64a2d4e33e"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 253806966,
+              "sha256": "0c8bc8b758c649abef9ea407b95408389a3b2f610d0d10fcb054fe171d0a8344"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "40.3 dB with one picture and 26.4 dB with two (512x384, 20 steps, true CFG 4) vs diffusers on the same files; diffusers moves itself by 45.6 / 24.3 dB under the resampling of the pictures the language model reads",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": [
+          "QwenImageEditTests",
+          "TinyQwenImageEditTests"
+        ]
+      },
+      "doc": [
+        {
+          "section": "4.1",
+          "cells": {
+            "repositories": "unsloth/Qwen-Image-Edit-2511-GGUF",
+            "file": "qwen-image-edit-2511-Q4_K_M.gguf \u002B the Qwen-Image-Edit-2511 text encoder (with its vision tower) and VAE",
+            "psnr": "40.3 dB (one picture) / 26.4 dB (two), 512x384, 20 steps, true CFG 4",
+            "load": ""
+          }
+        }
+      ]
     }
   ]
 }

@@ -53,6 +53,12 @@ internal sealed record UNetHyperParameters
     /// <summary>Width of the sinusoidal embedding of each size condition (SDXL: 256), 0 for none.</summary>
     public int AdditionTimeDim { get; init; }
 
+    /// <summary>
+    /// Input channels beyond the predicted latent channels (InstructPix2Pix: 4 image-latent channels; the inpainting UNets: 1 mask and 4
+    /// masked-image channels), fed through the <see cref="Sharplight.ImageGeneration.DiffusionGraphs.ConditionLatent"/> input.
+    /// </summary>
+    public int ConditionChannels => Math.Max(0, InChannels - OutChannels);
+
     /// <summary>Reads the keys under <c>{prefix}unet.</c>.</summary>
     /// <param name="source">The canonical source.</param>
     /// <param name="prefix">Architecture prefix (<c>latent_diffusion.</c>).</param>
