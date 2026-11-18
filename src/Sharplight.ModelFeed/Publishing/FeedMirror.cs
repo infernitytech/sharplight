@@ -3,7 +3,7 @@ using Sharplight.ModelFeed.Client;
 namespace Sharplight.ModelFeed.Publishing;
 
 /// <summary>
-/// Copies a verified feed into a folder byte for byte (an offline bundle for air-gapped sites): the copy keeps every signature and
+/// Copies a verified feed (the client's channel and the shared objects it lists) into a folder byte for byte (an offline bundle for air-gapped sites): the copy keeps every signature and
 /// digest, so a host trusts it exactly like the original. Package files are downloaded with resume and chunk verification.
 /// </summary>
 public static class FeedMirror
@@ -21,17 +21,18 @@ public static class FeedMirror
         ArgumentException.ThrowIfNullOrWhiteSpace(folder);
         var snapshot = await client.GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
         var transport = client.Transport;
+        var channel = snapshot.Channel;
         var documents = new List<string> { FeedLayout.KeySet, FeedLayout.KeySetSignature, snapshot.Index.Resources.Catalog };
         for (var page = 1; page <= snapshot.Index.Catalog.Pages; page++)
         {
-            documents.Add(FeedLayout.CatalogPage(page));
+            documents.Add(FeedLayout.InChannel(channel, FeedLayout.CatalogPage(page)));
         }
 
         var copied = 0;
         var downloader = new PackageDownloader();
         foreach (var summary in snapshot.Packages)
         {
-            documents.Add(FeedLayout.PackageIndex(summary.Id));
+            documents.Add(FeedLayout.InChannel(channel, FeedLayout.PackageIndex(summary.Id)));
             var index = await client.GetPackageIndexAsync(snapshot, summary.Id, cancellationToken).ConfigureAwait(false);
             foreach (var entry in index.Versions)
             {
@@ -49,8 +50,8 @@ public static class FeedMirror
             }
         }
 
-        documents.Add(FeedLayout.ServiceIndexSignature);
-        documents.Add(FeedLayout.ServiceIndex);
+        documents.Add(FeedLayout.InChannel(channel, FeedLayout.ServiceIndexSignature));
+        documents.Add(FeedLayout.InChannel(channel, FeedLayout.ServiceIndex));
         foreach (var path in documents)
         {
             var bytes = await transport.ReadAsync(path, long.MaxValue, cancellationToken).ConfigureAwait(false);

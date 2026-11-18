@@ -37,6 +37,10 @@ internal sealed class FeedCommands
     private readonly Option<string> _reason = new("--reason") { Description = "Why.", Required = true };
     private readonly Option<string> _severity = new("--severity") { Description = "quality, legal or security.", DefaultValueFactory = _ => YankSeverities.Quality };
     private readonly Option<string?> _alternate = new("--alternate") { Description = "Replacement package id." };
+    private readonly Option<string?> _channel = new("--channel") { Description = "Channel (stable, unstable); none for a feed without channels." };
+    private readonly Option<string> _to = new("--to") { Description = "Channel to promote to.", DefaultValueFactory = _ => FeedChannels.Stable };
+    private readonly Option<string?> _from = new("--from") { Description = "Channel the versions come from (state, and the latest version for a bare id).", DefaultValueFactory = _ => FeedChannels.Unstable };
+    private readonly Argument<string[]> _promoted = new("packages") { Description = "Versions as id@version, or id for the latest in --from.", Arity = ArgumentArity.OneOrMore };
     private readonly Argument<string> _id = new("id") { Description = "Package id." };
     private readonly Argument<string> _version = new("version") { Description = "Package version." };
     private readonly Argument<string[]> _folders = new("folders") { Description = "Staged package folders (from build).", Arity = ArgumentArity.OneOrMore };
@@ -51,13 +55,14 @@ internal sealed class FeedCommands
         root.Subcommands.Add(Command("keyset", "Writes the feed's key set (feed public keys) signed by the root key.", KeySet, _feedFolder, _rootKey, _feedKeys, _revoke, _keySetVersion, _keySetDays));
         root.Subcommands.Add(Command("plan", "Lists catalog variants without a package for their pinned revision in the feed.", Plan, _buildFeed));
         root.Subcommands.Add(Command("build", "Builds packages from catalog variants into staging folders (download, convert with companions, hash, manifest).", BuildAsync, _entries, _variant, _out, _store, _buildFeed, _feedUrl));
-        root.Subcommands.Add(Command("publish", "Adds staged packages to the feed folder, signs manifests and the new index (sequence + 1).", PublishAsync, _folders, _feedFolder, _key, _name, _validityDays));
-        root.Subcommands.Add(Command("reindex", "Re-signs the index with the next sequence (refreshes the expiry).", ReindexAsync, _feedFolder, _key, _name, _validityDays));
+        root.Subcommands.Add(Command("publish", "Adds staged packages to the feed folder (stored once for all channels), lists them in --channel, signs manifests and the channel's new index (sequence + 1).", PublishAsync, _folders, _feedFolder, _key, _channel, _name, _validityDays));
+        root.Subcommands.Add(Command("promote", "Lists published versions in another channel (default: unstable to stable) without copying files, and re-signs that channel's index.", PromoteAsync, _promoted, _feedFolder, _key, _to, _from, _name, _validityDays));
+        root.Subcommands.Add(Command("reindex", "Re-signs a channel's index with the next sequence (refreshes the expiry).", ReindexAsync, _feedFolder, _key, _channel, _name, _validityDays));
         root.Subcommands.Add(StateCommand("yank", "Withdraws a version (not installable; installed copies are flagged).", true, false, false));
         root.Subcommands.Add(StateCommand("deprecate", "Deprecates a version (still installable, flagged).", false, true, false));
         root.Subcommands.Add(StateCommand("unlist", "Hides a version from listings.", false, false, true));
-        root.Subcommands.Add(Command("verify", "Checks a feed the way a host does (key set, index, digests, signatures; --files: package hashes).", VerifyAsync, _feedLocation, _roots, _files, _allowExpired));
-        root.Subcommands.Add(Command("mirror", "Copies a verified feed into a folder (offline bundle).", MirrorAsync, _feedLocation, _roots, _out, _filter, _allowExpired));
+        root.Subcommands.Add(Command("verify", "Checks a feed channel the way a host does (key set, index, digests, signatures; --files: package hashes).", VerifyAsync, _feedLocation, _roots, _channel, _files, _allowExpired));
+        root.Subcommands.Add(Command("mirror", "Copies a verified feed channel into a folder (offline bundle; run once per channel into the same folder).", MirrorAsync, _feedLocation, _roots, _channel, _out, _filter, _allowExpired));
         return root;
     }
 
@@ -96,9 +101,9 @@ internal sealed class FeedCommands
 
     private Command StateCommand(string name, string description, bool yank, bool deprecate, bool unlist)
     {
-        Symbol[] symbols = yank ? [_id, _version, _feedFolder, _key, _reason, _severity, _name, _validityDays]
-            : deprecate ? [_id, _version, _feedFolder, _key, _reason, _alternate, _name, _validityDays]
-            : [_id, _version, _feedFolder, _key, _name, _validityDays];
+        Symbol[] symbols = yank ? [_id, _version, _feedFolder, _key, _channel, _reason, _severity, _name, _validityDays]
+            : deprecate ? [_id, _version, _feedFolder, _key, _channel, _reason, _alternate, _name, _validityDays]
+            : [_id, _version, _feedFolder, _key, _channel, _name, _validityDays];
         return Command(name, description, async (result, cancellationToken) =>
         {
             var now = DateTimeOffset.UtcNow;
@@ -117,7 +122,7 @@ internal sealed class FeedCommands
                 }
 
                 return state with { Listed = !unlist };
-            }, key, PublishOptions(result), cancellationToken).ConfigureAwait(false);
+            }, key, PublishOptions(result, result.GetValue(_channel)), cancellationToken).ConfigureAwait(false);
             Console.WriteLine($"{name}: {result.GetValue(_id)} {result.GetValue(_version)}; index sequence {sequence}");
             return 0;
         }, symbols);
@@ -166,7 +171,7 @@ internal sealed class FeedCommands
             foreach (var variant in entry.Variants)
             {
                 var id = ManifestFactory.PackageId(entry, variant);
-                var latest = feed is null ? null : LatestManifest(feed, id);
+                var latest = feed is null ? null : VersionPlanner.LatestManifest(feed, id);
                 var pinned = latest?.Provenance?.Sources.Any(source => source.Role == "primary" && source.Revision == variant.Revision) == true;
                 if (!pinned)
                 {
@@ -216,7 +221,7 @@ internal sealed class FeedCommands
     private async Task<int> PublishAsync(ParseResult result, CancellationToken cancellationToken)
     {
         using var key = FeedSigningKey.Load(result.GetValue(_key)!);
-        var published = await new FeedPublisher().PublishAsync(result.GetValue(_feedFolder)!, result.GetValue(_folders)!, key, PublishOptions(result), cancellationToken).ConfigureAwait(false);
+        var published = await new FeedPublisher().PublishAsync(result.GetValue(_feedFolder)!, result.GetValue(_folders)!, key, PublishOptions(result, result.GetValue(_channel)), cancellationToken).ConfigureAwait(false);
         foreach (var added in published.Added)
         {
             Console.WriteLine($"added {added}");
@@ -231,10 +236,28 @@ internal sealed class FeedCommands
         return 0;
     }
 
+    private async Task<int> PromoteAsync(ParseResult result, CancellationToken cancellationToken)
+    {
+        using var key = FeedSigningKey.Load(result.GetValue(_key)!);
+        var promoted = await new FeedPublisher().PromoteAsync(result.GetValue(_feedFolder)!, result.GetValue(_to)!, result.GetValue(_promoted)!, result.GetValue(_from), key, PublishOptions(result, result.GetValue(_to)), cancellationToken).ConfigureAwait(false);
+        foreach (var added in promoted.Added)
+        {
+            Console.WriteLine($"promoted {added} to {result.GetValue(_to)}");
+        }
+
+        foreach (var unchanged in promoted.Unchanged)
+        {
+            Console.WriteLine($"already in {result.GetValue(_to)}: {unchanged}");
+        }
+
+        Console.WriteLine($"{result.GetValue(_to)} index sequence {promoted.Sequence}: {promoted.Packages} package(s)");
+        return 0;
+    }
+
     private async Task<int> ReindexAsync(ParseResult result, CancellationToken cancellationToken)
     {
         using var key = FeedSigningKey.Load(result.GetValue(_key)!);
-        var (sequence, packages) = await new FeedPublisher().ReindexAsync(result.GetValue(_feedFolder)!, key, PublishOptions(result), cancellationToken).ConfigureAwait(false);
+        var (sequence, packages) = await new FeedPublisher().ReindexAsync(result.GetValue(_feedFolder)!, key, PublishOptions(result, result.GetValue(_channel)), cancellationToken).ConfigureAwait(false);
         Console.WriteLine($"Index sequence {sequence}: {packages} package(s)");
         return 0;
     }
@@ -269,6 +292,7 @@ internal sealed class FeedCommands
         {
             TrustedRoots = [.. Roots(result).Select(FeedPublicKey.Load)],
             AllowExpiredIndex = result.GetValue(_allowExpired),
+            Channel = result.GetValue(_channel),
         };
         return new FeedClient(FeedTransports.Create(result.GetValue(_feedLocation)!, http), options);
     }
@@ -279,8 +303,9 @@ internal sealed class FeedCommands
         return roots is { Length: > 0 } ? roots : [FeedToolPaths.InRepository(FeedToolPaths.OfficialFeedKey)];
     }
 
-    private FeedPublishOptions PublishOptions(ParseResult result) => new()
+    private FeedPublishOptions PublishOptions(ParseResult result, string? channel) => new()
     {
+        Channel = channel,
         Name = result.GetValue(_name)!,
         Validity = TimeSpan.FromDays(result.GetValue(_validityDays)),
     };
@@ -304,18 +329,5 @@ internal sealed class FeedCommands
         {
             throw new InvalidDataException($"{path} is not a valid feed overlay: {exception.Message}", exception);
         }
-    }
-
-    private static PackageManifest? LatestManifest(string feedFolder, string id)
-    {
-        var indexPath = Path.Combine(feedFolder, FeedLayout.PackageIndex(id));
-        if (!File.Exists(indexPath))
-        {
-            return null;
-        }
-
-        var index = FeedJson.Read(File.ReadAllBytes(indexPath), FeedJsonContext.Default.FeedPackageIndex, $"The package index of {id}");
-        var latest = index.Versions.Select(entry => Sharplight.ModelFeed.Versioning.SemanticVersion.Parse(entry.Version)).Max();
-        return latest is null ? null : FeedJson.ReadManifest(File.ReadAllBytes(Path.Combine(feedFolder, FeedLayout.Manifest(id, latest.ToString()))));
     }
 }

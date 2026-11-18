@@ -17,12 +17,12 @@ namespace Sharplight.Architectures;
 /// Hyper-parameters (<c>vit.*</c>): <c>layer_count</c>, <c>hidden_size</c>, <c>ffn_hidden_size</c>, <c>attention.head_count</c>, <c>norm_eps</c>,
 /// <c>mlp.activation</c> ("gelu" (erf, default), "gelu_tanh", "quick_gelu", "relu", "silu"), <c>patch_size</c>, <c>image_size</c> (the side of
 /// the square input; the position table has exactly the grid of this size), <c>register_count</c> (default 0), <c>pooling</c> ("cls" (default)
-/// or "mean": the mean of the patch rows). The canonical keys <see cref="CanonicalKeys.ClassifierLabels"/>, <see cref="CanonicalKeys.ClassifierActivation"/>
+/// or "mean": the mean of the patch rows), <c>rope_theta</c> (DINOv3: rotary positions on the patch rows instead of a position table, default 0). The canonical keys <see cref="CanonicalKeys.ClassifierLabels"/>, <see cref="CanonicalKeys.ClassifierActivation"/>
 /// and <see cref="CanonicalKeys.ImageProcessor"/> describe the model's classes and preprocessing.
 /// <para>Weights: <c>patch_embed.weight</c> [hidden, 3·patch²] (the patch convolution flattened channel-major) and <c>.bias</c>;
 /// <c>class_embedding</c> [hidden]; optional <c>register_embedding.weight</c> [registers, hidden]; <c>position_embedding.weight</c>
 /// [1 + grid², hidden] (row 0 is the class token's); per layer <c>layers.{i}.</c>: <c>input_norm</c>, <c>attention.{q,k,v,o}</c> (+ biases),
-/// optional <c>layer_scale_1.weight</c> [hidden], <c>post_attention_norm</c>, <c>mlp.{up,down}</c> (+ biases), optional <c>layer_scale_2.weight</c>;
+/// optional <c>layer_scale_1.weight</c> [hidden], <c>post_attention_norm</c>, <c>mlp.{up,down}</c> (+ biases, and <c>mlp.gate</c> for gated MLPs), optional <c>layer_scale_2.weight</c>;
 /// <c>output_norm</c> (applied to every row before pooling); optional <c>classifier.out.{weight,bias}</c> [labels, hidden]. Norms are LayerNorms.</para>
 /// </remarks>
 public sealed class ImageEncoderAdapter : IModelAdapter
@@ -96,6 +96,6 @@ public sealed class ImageEncoderAdapter : IModelAdapter
         };
 
         ComputeGraph BuildGraph() => ImageTowerGraph.Build(WellKnown.ImageEncodeGraph, src, new ImageTowerOptions(
-            new TowerOptions(layers, hidden, heads, eps, act, ""), patch, imageSize, registers, pooling));
+            new TowerOptions(layers, hidden, heads, eps, act, ""), patch, imageSize, registers, pooling, src.Arch("rope_theta", 0f)));
     }
 }

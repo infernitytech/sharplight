@@ -8,7 +8,8 @@ namespace Sharplight.Import.HuggingFace;
 
 /// <summary>
 /// Hugging Face plain vision transformers (<c>vit</c>: ViTModel / ViTForImageClassification, <c>dinov2</c> and
-/// <c>dinov2_with_registers</c>: Dinov2Model, DINOv2 with LayerScale and register tokens) → canonical <c>vit</c> (documented on
+/// <c>dinov2_with_registers</c>: Dinov2Model, DINOv2 with LayerScale and register tokens; <c>dinov3_vit</c>: DINOv3ViTModel, the same with
+/// two-dimensional rotary positions on the patch rows instead of a position table and optionally gated MLPs) → canonical <c>vit</c> (documented on
 /// <c>ImageEncoderAdapter</c>). The patch convolution is read as a matrix product (zero-copy reshape); the position table is resampled
 /// bicubically (as PyTorch does at run time) to the grid of the processor's input size, so DINOv2 checkpoints trained at 518 px run at the
 /// 224 px of their processor with the reference's numbers; the processor configuration, labels and registers are stored as canonical metadata.
@@ -19,7 +20,7 @@ internal sealed partial class VitHfMapping : IHfArchitectureMapping
     public string Architecture => "vit";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["vit", "dinov2", "dinov2_with_registers"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["vit", "dinov2", "dinov2_with_registers", "dinov3_vit"];
 
     /// <inheritdoc/>
     public bool NeedsTokenizer => false;
@@ -65,6 +66,11 @@ internal sealed partial class VitHfMapping : IHfArchitectureMapping
             [a + "pooling"] = "cls",
             [CanonicalKeys.ImageProcessor] = processor.ToJson().ToJsonString(),
         };
+        if (c.ModelType == "dinov3_vit")
+        {
+            md[a + "rope_theta"] = (float)(c.GetDouble("rope_theta") ?? 100.0);
+        }
+
         if (Labels(c) is { Length: > 0 } labels)
         {
             md[CanonicalKeys.ClassifierLabels] = labels;
@@ -91,7 +97,7 @@ internal sealed partial class VitHfMapping : IHfArchitectureMapping
         return [.. map.EnumerateObject().Select(p => (Index: int.Parse(p.Name, System.Globalization.CultureInfo.InvariantCulture), Label: p.Value.GetString() ?? "")).OrderBy(p => p.Index).Select(p => p.Label)];
     }
 
-    [GeneratedRegex(@"^encoder\.layer\.(\d+)\.(.+)$")]
+    [GeneratedRegex(@"^(?:encoder\.)?layer\.(\d+)\.(.+)$")]
     private static partial Regex LayerName();
 
     private static readonly Dictionary<string, string> s_layerModules = new(StringComparer.Ordinal)
@@ -104,6 +110,13 @@ internal sealed partial class VitHfMapping : IHfArchitectureMapping
         ["attention.attention.key"] = "attention.k",
         ["attention.attention.value"] = "attention.v",
         ["attention.output.dense"] = "attention.o",
+        ["attention.q_proj"] = "attention.q",
+        ["attention.k_proj"] = "attention.k",
+        ["attention.v_proj"] = "attention.v",
+        ["attention.o_proj"] = "attention.o",
+        ["mlp.up_proj"] = "mlp.up",
+        ["mlp.down_proj"] = "mlp.down",
+        ["mlp.gate_proj"] = "mlp.gate",
         ["intermediate.dense"] = "mlp.up",
         ["mlp.fc1"] = "mlp.up",
         ["output.dense"] = "mlp.down",
@@ -140,16 +153,16 @@ internal sealed partial class VitHfMapping : IHfArchitectureMapping
                     continue;
                 case "embeddings.mask_token" or "pooler.dense.weight" or "pooler.dense.bias":
                     continue;
-                case "embeddings.patch_embeddings.projection.weight":
+                case "embeddings.patch_embeddings.projection.weight" or "embeddings.patch_embeddings.weight":
                     collector.Add(info.As("patch_embed.weight", new Shape(hidden, info.Shape.Elements() / hidden)));
                     continue;
-                case "embeddings.patch_embeddings.projection.bias":
+                case "embeddings.patch_embeddings.projection.bias" or "embeddings.patch_embeddings.bias":
                     collector.Add(HfTransforms.Plain(info, "patch_embed.bias"));
                     continue;
                 case "embeddings.position_embeddings":
                     collector.Add(PositionEmbedding(info, hidden, imageSize / patch, c.GetBool("interpolate_antialias") == true));
                     continue;
-                case "layernorm.weight" or "layernorm.bias":
+                case "layernorm.weight" or "layernorm.bias" or "norm.weight" or "norm.bias":
                     collector.Add(HfTransforms.Plain(info, "output_norm." + name[(name.IndexOf('.', StringComparison.Ordinal) + 1)..]));
                     continue;
                 case "classifier.weight" or "classifier.bias":
