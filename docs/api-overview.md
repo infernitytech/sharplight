@@ -463,6 +463,10 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
   provider. `ImageGenerationOptions.InitialNoise` replaces it (reproducing another implementation's run).
 - Image-to-image: `ImageGenerationRequest.Image` with `Strength`; inpainting: plus `Mask` (white = regenerate; the input is
   re-imposed outside the mask after every step).
+- Two stages (the SDXL base with the SDXL refiner): `ImageGenerationOptions.Refiner` is a second generator that takes over the latents
+  after `RefinerStart` (default 0.8) of the noise schedule (diffusers' `denoising_end` / `denoising_start`), denoises the rest on its own
+  conditioning and decodes; the updates count the steps of both. Models conditioned on an aesthetic score (the refiner) take
+  `AestheticScore` / `NegativeAestheticScore` (6 / 2.5).
 - LoRA: LoRA files are auxiliary sources with roles starting with `AuxiliaryRoles.Lora` (`lora`, `lora:2`, ...; a `@scale` suffix sets
   the strength, e.g. `lora@0.8`). Their importer turns them into an `IWeightPatch` (`ModelSource.FormatData`) that `WeightPatches.Merge`
   applies to the primary's canonical weights before the adapter builds the model (W + s · α / r · up · down, computed when the weight
