@@ -43,7 +43,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// </summary>
     private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase, string DefaultActivation = "gelu_tanh",
         string NormType = "layer", bool LearnedPositions = true, IReadOnlyDictionary<string, string>? Names = null, IReadOnlyDictionary<string, object>? Extra = null,
-        bool ClassToken = false, bool ExactGelu = false);
+        bool ClassToken = false, bool ExactGelu = false, bool AxialPositions = false);
 
     // Processor defaults of the Qwen3-VL family (the file does not store them; same as its Hugging Face preprocessor_config.json).
     private static readonly Dictionary<string, Projector> s_projectors = new(StringComparer.Ordinal)
@@ -130,6 +130,24 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
                 ["norm.placement"] = "post", ["class_token"] = true, ["spatial_merge_size"] = 1, ["merger.activation"] = "silu", ["merger.norm_eps"] = 1e-5f,
                 ["merger.boundary"] = true, ["image_positions"] = "grouped", ["media_weight_rows"] = "all_but_last", ["image_token"] = "<unk>",
             }),
+        // Gemma 4 (gemma4v): RMS sandwich blocks with per-head q/k norms and weightless v norm, unscaled attention, two position tables (x, y; the
+        // file's [2, rows, hidden]), a split-halves 2-D rope (base 100), 3×3 average pooling scaled by √hidden, standardization (v.std_bias /
+        // v.std_scale), then a weightless RMS norm and mm.input_projection. The processor feeds 2·pixel − 1 (mean and std 0.5 here), resizes to the
+        // largest image within 280 tokens (280·3²·16² pixels) and frames the rows with <|image> / <image|>.
+        ["gemma4v"] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 280L * 9 * 256, RopeBase: 100f, NormType: "rms", AxialPositions: true,
+            Names: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["v.std_bias"] = "vision.std_bias",
+                ["v.std_scale"] = "vision.std_scale",
+                ["mm.input_projection.weight"] = "vision.merger.out.weight",
+            },
+            Extra: new Dictionary<string, object>
+            {
+                ["merger.pool"] = true, ["standardize"] = true, ["position_embedding.axial"] = true, ["rope.layout"] = "split", ["attention.scale"] = 1f,
+                ["attention.qk_norm"] = true, ["attention.v_norm"] = true, ["norm.placement"] = "sandwich", ["resize.mode"] = "fit_budget",
+                ["spatial_merge_size"] = 3, ["image_token"] = "<|image|>", ["image_begin_token"] = "<|image>", ["image_end_token"] = "<image|>",
+                ["image_mean"] = new[] { 0.5f, 0.5f, 0.5f }, ["image_std"] = new[] { 0.5f, 0.5f, 0.5f },
+            }),
         [DeepseekOcr] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultActivation: "quick_gelu"),
         [DeepseekOcr2] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultActivation: "silu"),
     };
@@ -139,7 +157,8 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
 
     private static Projector Find(GgufMetadataView g)
     {
-        string type = g.Raw("projector_type") as string ?? throw new InvalidDataException("clip GGUF: missing clip.projector_type.");
+        // Current converters write the type under clip.vision (Gemma 4), older ones as clip.projector_type.
+        string type = (g.Raw("projector_type") ?? g.Raw("vision.projector_type")) as string ?? throw new InvalidDataException("clip GGUF: missing clip.projector_type.");
         return s_projectors.TryGetValue(type, out var p) ? p
             : throw new NotSupportedException($"clip GGUF projector type '{type}' is not supported (supported: {string.Join(", ", s_projectors.Keys)}).");
     }
@@ -183,7 +202,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             // The learned position grid is (image_size / patch_size)² entries; PaddleOCR files store sqrt(max_pixels) as image_size, so the
             // tensor's row count is taken when the file has it.
             [a + "position_embedding_count"] = !p.LearnedPositions ? 0
-                : g.Tensor("v.position_embd.weight") is { } pos ? (int)pos.Shape[0].Fixed : (int)Math.Pow(g.Int("vision.image_size") / patch, 2),
+                : g.Tensor("v.position_embd.weight") is { } pos ? (int)pos.Shape[p.AxialPositions ? 1 : 0].Fixed : (int)Math.Pow(g.Int("vision.image_size") / patch, 2),
             [a + "rope.base"] = p.RopeBase,
             [a + "out_hidden_size"] = g.Int("vision.projection_dim"),
             [a + "min_pixels"] = Pixels(g, "min_pixels") ?? p.MinPixels,
@@ -251,6 +270,10 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         ["ln1.bias"] = "input_norm.bias",
         ["ln2.weight"] = "post_attention_norm.weight",
         ["ln2.bias"] = "post_attention_norm.bias",
+        ["attn_post_norm.weight"] = "attention.post_norm.weight",
+        ["ffn_post_norm.weight"] = "mlp.post_norm.weight",
+        ["attn_q_norm.weight"] = "attention.q_norm.weight",
+        ["attn_k_norm.weight"] = "attention.k_norm.weight",
         ["attn_qkv.weight"] = "attention.qkv.weight",
         ["attn_qkv.bias"] = "attention.qkv.bias",
         ["attn_q.weight"] = "attention.q.weight",
@@ -328,6 +351,12 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         }
 
         weights.Remove(UnusedWeight);
+        if (weights.TryGetValue("vision.position_embedding.weight", out var tables) && tables.Shape.Rank == 3)
+        {
+            // Gemma 4's two tables [2, rows, hidden] (x then y) as one [2·rows, hidden] table.
+            weights["vision.position_embedding.weight"] = tables.As("vision.position_embedding.weight", new Shape(tables.Shape[0].Fixed * tables.Shape[1].Fixed, tables.Shape[2].Fixed));
+        }
+
         SplitClassPosition(weights);
         SwapLegacyMlpNames(weights, g);
         if (weights.Remove("vision.merger.downsample.weight", out var kernel) && kernel.Shape.Rank == 4)

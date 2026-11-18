@@ -64,7 +64,7 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
         // Grouped image positions (CogVLM) have their own layout on the single axis.
         if (!grouped && context.Model.Properties.TryGetValue(WellKnown.PositionAxes, out var axesValue) && Convert.ToInt32(axesValue, CultureInfo.InvariantCulture) == 1)
         {
-            return Sequential(tokens, images, imagePad, rows, startPosition);
+            return Sequential(tokens, images, imagePad, vision, context, startPosition);
         }
 
         var toks = new int[rows];
@@ -182,25 +182,44 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
         axes[3] = ordinal;
     }
 
-    /// <summary>One position axis: every row, text or image, takes the next position.</summary>
-    private static MultimodalPrompt Sequential(ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int imagePad, int rows, int startPosition)
+    /// <summary>
+    /// One position axis: every row, text or image, takes the next position. With <see cref="VisionParameters.ImageBeginToken"/> and
+    /// <see cref="VisionParameters.ImageEndToken"/> (Gemma 4) the image's rows are framed by those tokens, as the model's processor does.
+    /// </summary>
+    private static MultimodalPrompt Sequential(ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int imagePad, VisionParameters? vision,
+        MultimodalContext context, int startPosition)
     {
+        int begin = vision is { ImageBeginToken.Length: > 0 } ? context.RequireToken(vision.ImageBeginToken) : -1;
+        int end = vision is { ImageEndToken.Length: > 0 } ? context.RequireToken(vision.ImageEndToken) : -1;
+        int framing = (begin >= 0 ? 1 : 0) + (end >= 0 ? 1 : 0);
+        int rows = tokens.Length - images.Count + images.Sum(im => im.TokenCount + framing);
         var toks = new int[rows];
         var imageIndex = new int[rows];
         var imageRow = new int[rows];
         var pos = new int[rows];
         int r = 0;
         int img = 0;
+
+        void Text(int token)
+        {
+            toks[r] = token;
+            imageIndex[r] = -1;
+            imageRow[r] = -1;
+            pos[r] = startPosition + r;
+            r++;
+        }
+
         foreach (var t in tokens)
         {
             if (t != imagePad)
             {
-                toks[r] = t;
-                imageIndex[r] = -1;
-                imageRow[r] = -1;
-                pos[r] = startPosition + r;
-                r++;
+                Text(t);
                 continue;
+            }
+
+            if (begin >= 0)
+            {
+                Text(begin);
             }
 
             for (int i = 0; i < images[img].TokenCount; i++, r++)
@@ -208,6 +227,11 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
                 imageIndex[r] = img;
                 imageRow[r] = i;
                 pos[r] = startPosition + r;
+            }
+
+            if (end >= 0)
+            {
+                Text(end);
             }
 
             img++;
