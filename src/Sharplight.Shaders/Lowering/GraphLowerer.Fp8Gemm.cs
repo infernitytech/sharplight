@@ -43,7 +43,7 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool DualFp8Serves(long rows, long n, long k)
         => rows >= Fp8GemmMinRows && (rows <= DualFp8AlwaysMaxRows
-                                      || (rows <= (DiagnosticSwitches.Fp8DualGemmMaxRows ?? long.MaxValue) && QuantizedGemmSplit(n, k, rows, 128) == 1));
+                                      || (rows <= (DiagnosticSwitches.Fp8DualGemmMaxRows ?? long.MaxValue) && QuantizedGemmSplit(n, k, rows, 128, fp8: true) == 1));
 
     /// <summary>
     /// Emits the dual fp8 GEMM of a matmul pair sharing x (gate / up) for the batches <see cref="DualFp8Serves"/> accepts: one

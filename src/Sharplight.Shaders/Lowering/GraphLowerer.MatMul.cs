@@ -420,7 +420,11 @@ public sealed partial class GraphLowerer
 
         var plan = PlanMatMul(n, x, w);
         var outer = _launchCondition;
-        var epilogueCode = epilogue is not null && plan.SplitHalf ? MatMulEpilogueSource(n, epilogue) : null;
+        // The split-f16 GEMM applies the epilogue in its store; the f16 tensor-core path in its split-K reduction (the bias / residual of
+        // projections at 9-256 rows, whose grids split K), the group's own launch covering the other row counts.
+        bool reduceEpilogue = epilogue is not null && !plan.SplitHalf && plan.Coop && !plan.WorkgroupMatrix && DiagnosticSwitches.Gemm2
+                              && DiagnosticSwitches.GemmHalfActivations && DiagnosticSwitches.SplitKReduceEpilogue;
+        var epilogueCode = epilogue is not null && (plan.SplitHalf || reduceEpilogue) ? MatMulEpilogueSource(n, epilogue) : null;
         bool intDot = UseIntDotMatvec(n, plan.W.Type, plan.K);
         bool mmq = QuantizedActivationsAllowed(n) && UseMmq(plan.W.Type, plan.N, plan.K);
         bool fp8Gemm = !mmq && UseFp8Gemm(plan.W.Type, plan.K);
@@ -464,11 +468,18 @@ public sealed partial class GraphLowerer
             _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(plan.RowCount(b), plan.N, plan.W.Type, skinnyMin);
         }
 
-        EmitMatMulLaunches(plan, half, epilogueCode);
+        var reduced = EmitMatMulLaunches(plan, half, epilogueCode);
         _launchCondition = outer;
         if (epilogue is not null && epilogueCode is null)
         {
             LowerElementwise(epilogue.Group, [epilogue.Output]);
+        }
+        else if (epilogue is not null && !plan.SplitHalf)
+        {
+            // Row counts whose split-K reduction did not apply the group (no K split, or another launch served them).
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(reduced?.Invoke(b) ?? false);
+            LowerElementwise(epilogue.Group, [epilogue.Output]);
+            _launchCondition = outer;
         }
     }
 
@@ -501,9 +512,10 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// The f32-activation launches of a planned matmul: matvec variants, GEMM (optionally on the f16 activations
-    /// <paramref name="half"/>), split-K.
+    /// <paramref name="half"/>), split-K. Returns the condition under which the split-K reduction runs (and applies
+    /// <paramref name="epilogue"/>), or null when no row count splits K.
     /// </summary>
-    private void EmitMatMulLaunches(MatMulPlan plan, TensorRef? half = null, MatMulEpilogueCode? epilogue = null)
+    private Func<Bindings, bool>? EmitMatMulLaunches(MatMulPlan plan, TensorRef? half = null, MatMulEpilogueCode? epilogue = null)
     {
         var activations = plan.X;
         if (plan.Coop && !plan.SplitHalf && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations)
@@ -538,7 +550,7 @@ public sealed partial class GraphLowerer
             EmitDirectMatMul(plan);
         }
 
-        EmitSplitKMatMul(plan, activations, epilogue);
+        return EmitSplitKMatMul(plan, activations, epilogue);
     }
 
     /// <summary>
@@ -916,17 +928,17 @@ public sealed partial class GraphLowerer
     /// Split-K for grids too small to fill the GPU (small N or few token tiles): partial sums into a shared
     /// scratch buffer, then a reduction. Both launches only run when the chosen split is greater than one.
     /// </summary>
-    private void EmitSplitKMatMul(MatMulPlan p, TensorRef activations, MatMulEpilogueCode? epilogue = null)
+    private Func<Bindings, bool>? EmitSplitKMatMul(MatMulPlan p, TensorRef activations, MatMulEpilogueCode? epilogue = null)
     {
         if (!p.Coop)
         {
             EmitSimtSplitKMatMul(p);
-            return;
+            return null;
         }
 
         if (!DiagnosticSwitches.Gemm2)
         {
-            return;
+            return null;
         }
 
         long N = p.N;
@@ -950,7 +962,7 @@ public sealed partial class GraphLowerer
 
         if (splits.Count == 0)
         {
-            return;
+            return null;
         }
 
         var scratch = SplitScratch(scratchBytes);
@@ -991,6 +1003,8 @@ public sealed partial class GraphLowerer
         Emit($"matmul {p.Node.Output.Name} split-k reduce{epilogue?.Label}", [p.Node, .. epilogue?.Group ?? []],
             [.. reduceVariants], reduceArgs,
             ranged ? [partial, activations, .. epilogue?.Args ?? []] : [partial, .. epilogue?.Args ?? []], [y]);
+        var condition = _launchCondition;
+        return b => (condition?.Invoke(b) ?? true) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1;
     }
 
     /// <summary>
