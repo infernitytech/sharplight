@@ -1138,16 +1138,37 @@ public sealed class InferenceEngine : IDisposable
     /// <summary>Milliseconds that computing <paramref name="rows"/> more prompt rows in some step costs, summed over the requests it delays.</summary>
     private double RecomputeMs(int rows) => _cost.PerRowMs * Math.Max(0, rows) * Concurrency;
 
-    /// <summary>Milliseconds one more pass costs a prompt that still has <paramref name="rows"/> rows to compute (the decoding sequences share it).</summary>
-    private double PassMs(int rows)
+    /// <summary>
+    /// Milliseconds one more pass costs <paramref name="self"/> when it still has <paramref name="rows"/> rows to compute then: the next
+    /// step also carries the decode rows of the running requests and the prompt rows the current step's budget leaves of the others, and
+    /// the prompt waits for all of it.
+    /// </summary>
+    private double PassMs(EngineSequence self, int rows)
     {
-        int decoding = 0;
+        long decode = 0, prompts = 0;
         foreach (var a in _active)
         {
-            decoding += a.Prefilling ? 0 : 1;
+            if (a == self)
+            {
+                continue;
+            }
+
+            if (a.Replay is { } replay)
+            {
+                prompts += replay.Length - a.ReplayPos;
+            }
+            else if (a.Prefilling)
+            {
+                prompts += a.Leader is null ? a.Prompt.Length - a.PromptPos : 0;
+            }
+            else
+            {
+                decode += a.InputLength;
+            }
         }
 
-        return _cost.StepMs(decoding + Math.Max(1, rows));
+        long next = Math.Max(1, rows) + decode + Math.Max(0, prompts + decode - _budget);
+        return _cost.StepMs((int)Math.Min(_budget, next));
     }
 
     /// <summary>
@@ -1165,7 +1186,7 @@ public sealed class InferenceEngine : IDisposable
 
         int step = Math.Max(_decoder.KvBlockSize, _prefillChunk);
         int passes = Math.Max(1, (until - owner.PromptPos + step - 1) / step);
-        return RecomputeMs(rows) > passes * PassMs(Math.Min(step, waiter.Prompt.Length - until));
+        return RecomputeMs(rows) > passes * PassMs(waiter, Math.Min(step, waiter.Prompt.Length - until));
     }
 
     /// <summary>
@@ -1200,7 +1221,7 @@ public sealed class InferenceEngine : IDisposable
 
             // Free when the chunk ends early anyway (the budget) and the rest of the prompt needs no more passes from b than from end.
             bool free = end < length && Passes(length - b, chunk) == Passes(length - end, chunk);
-            double gain = value - _cost.CopyMs - (free ? 0 : PassMs(end - b));
+            double gain = value - _cost.CopyMs - (free ? 0 : PassMs(s, end - b));
             if (gain > bestGain)
             {
                 best = b;

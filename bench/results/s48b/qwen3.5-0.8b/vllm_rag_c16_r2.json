@@ -1,0 +1,17 @@
+{
+ "workload": "rag",
+ "concurrency": 16,
+ "requests": 64,
+ "errors": 0,
+ "first_error": null,
+ "wall_s": 2.426218605003669,
+ "output_tok_s": 3376.447605795032,
+ "prompt_tokens_mean": 2067.0,
+ "cached_tokens": 110592,
+ "prompt_tokens": 132288,
+ "hit_rate": 0.8359941944847605,
+ "ttft_p50_ms": 115.56243599625304,
+ "ttft_p99_ms": 148.81462742516305,
+ "ttft_mean_ms": 115.90720528147358,
+ "latency_p50_s": 0.6008714135023183
+}

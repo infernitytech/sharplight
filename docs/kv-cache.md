@@ -279,8 +279,25 @@ Engine (`InferenceEngine`):
 - Mid-prompt hits: before every prefill chunk the engine attaches blocks published since admission, so a prompt arriving while another
   prompt with the same prefix is still prefilling does not compute the prefix again: the blocks a prefilling prompt will compute are
   registered at its admission, and a later prompt's chunk stops before the first such block of another prompt and attaches it once it
-  is published (waits follow admission order, so they cannot cycle). Prefill chunks that do not end the prompt end on a block boundary.
-  Attached tokens take no step budget.
+  is published (waits follow admission order, so they cannot cycle), unless computing the blocks itself is cheaper (below). Prefill
+  chunks that do not end the prompt end on a block boundary. Attached tokens take no step budget.
+- Cost model (`StepCostModel`, internal): the engine fits `step ms ≈ fixed + per-row × rows` to the steps it runs (exponentially
+  weighted least squares over the last ~50 steps; steps more than 3x slower than predicted, such as first recordings of a step shape, are
+  left out) and times its state copies. Every prefix-cache decision that trades passes for rows is priced with it:
+  - wait or recompute: a prompt waits for blocks another prompt is computing only if computing them itself (per-row × rows × running
+    requests, since a longer step delays all of them) costs more than the passes it would wait (the owner's remaining passes to the
+    point where the two prompts part × the cost of a pass); otherwise it computes them in the same step;
+  - recurrent-state snapshots: see below;
+  - with a frozen model (tests: `EngineOptions.StepCost`) the decisions are deterministic.
+- Several samples of one prompt (`n` > 1 in the chat and completion APIs, which submit n requests, or the same prompt sent twice at
+  once): a request whose prompt (tokens, content, namespace) equals one that is still prefilling becomes its follower and computes
+  nothing. At the leader's first token the follower forks the leader's context (`IBatchDecoder.ForkKv`: it shares all of the leader's
+  KV blocks, including the partly filled last one, and gets a copy of the recurrent state) and samples its own first token from a copy
+  of the leader's logits row (so the leader's last prompt row is sampled on the CPU). Copy-on-write: the first slot that writes into a
+  block another slot holds copies the block's rows into a new block (`KvBlockCache.Unshare`, `CompiledModel.CopyStateRows` with a row
+  count: `vkCmdCopyBuffer` on Vulkan, memcpy on the CPU); full blocks are never written, so only the last one is ever copied. A follower
+  whose leader is cancelled or preempted first computes its prompt itself (attaching what is cached). Needs a device that copies state
+  rows and KV caches with one row per token (compressed caches: no forks). Metric: `EngineMetricsSnapshot.ForkedSequences`.
 - Preemption: a preempted sequence's blocks are released into the cache; when it resumes, the blocks still cached are attached and
   only the rest is recomputed.
 - Speculation: drafts are verified as before; published blocks are full and committed, rollbacks only touch the private last block.
@@ -295,14 +312,25 @@ Models with recurrent state (gated delta nets, Mamba, Mamba-2, RWKV, short convo
   copied with `CompiledModel.CopyStateRows` (CPU: memcpy; Vulkan: `vkCmdCopyBuffer` ordered with the steps; a device without it,
   e.g. Metal for now, falls back to no prefix caching for such models). A snapshot is keyed by the hash of the block it ends with;
   blocks are attached only up to the last block with a snapshot, which is restored into the slot's row.
-- Where snapshots are taken (bounded memory instead of one per block): at the end of the prefix a new prompt shares with a running
-  prompt or a slot's context (so the second prompt with a system prompt leaves the snapshot the third and later ones restore, and
-  concurrent prompts waiting for another prompt's blocks find it there), and one block before the last full block of every prompt (a
-  later turn of the same conversation restores the state after most of the previous prompt; one block of slack because chat templates
-  render the generation prompt, e.g. an empty thinking block, differently once the reply is part of the history), and every
-  `EngineOptions.StateSnapshotInterval` (512) prompt tokens, like vLLM's block-aligned Mamba states (prefill chunks end there; the
-  snapshots of prompts no later prompt shares are the least recently used and go first). The prefill chunk is cut at such a boundary and the state is
-  copied after the step (one extra pass for the prompt end; the copy is the size of one slot's state).
+- Where snapshots are taken (bounded memory instead of one per block). A snapshot is the state after a step, so a boundary inside a
+  prompt chunk costs that prompt one more pass (the chunk is cut there), while a boundary where the chunk ends anyway costs only the copy.
+  The engine therefore prices each candidate boundary b of a chunk with the cost model: the value is what later prompts save by restoring
+  it instead of recomputing from the prompt's previous snapshot (per-row × (b - previous snapshot) × running requests, times the expected
+  uses), the cost is the copy plus, unless the cut is free, one pass; the best positive boundary wins, else the chunk is not cut. A cut is
+  free when the step budget ends the chunk early anyway and the rest of the prompt needs no more passes from b than from the chunk's end.
+  Candidates and their expected uses:
+  - the end of the prefix a new prompt shares with a running prompt or a slot's context (one expected use: the second prompt with a
+    system prompt leaves the snapshot the third and later ones restore), plus every running prompt that parts from this one exactly there
+    and waits for its blocks (each saves its own rows);
+  - one block before the last full block of every prompt (a later turn of the same conversation restores the state after most of the
+    previous prompt; one block of slack because chat templates render the generation prompt, e.g. an empty thinking block, differently
+    once the reply is part of the history), with the learnt rate at which such snapshots were restored ((restored + 1) / (taken + 2),
+    counted apart for prompts that continue an earlier prompt themselves and for others, so a load of unrelated prompts stops paying for
+    them);
+  - every block boundary where a prefill chunk ends because of the step budget, when recomputing from the previous snapshot would cost more
+    than two copies (these are free, like vLLM's states at scheduler-step ends; `EngineOptions.StateSnapshotInterval` sets a least
+    distance between them, 0 by default).
+  Prefixes too short to pay off (a one-block system prompt) are not snapshotted, and a waiting prompt whose rows are cheap recomputes them.
 - Capacity: `ChatModelOptions.KvStateSnapshots` / `stateSnapshots` / `sharplight serve --kv-snapshots` (default
   `LlmModel.DefaultStateSnapshots`: as many as fit in half the KV pool's memory or 512 MiB, whichever is more, at least 2 and
   at most two per slot), each the size of one slot's recurrent state (`LlmModel.RecurrentStateBytesPerSlot`, counted in
@@ -310,9 +338,9 @@ Models with recurrent state (gated delta nets, Mamba, Mamba-2, RWKV, short convo
 - vLLM 0.33 (`mamba_cache_mode="align"`) caches Mamba / GDN state only at multiples of its Mamba block size (aligned to the attention
   page: 544-576 tokens for Qwen3.5-0.8B) at the end of scheduler steps, plus optionally at a shared-prefix junction seen with EAGLE / MTP, and does
   not cache attention-free models (pure Mamba / RWKV). Here the granularity is 16 tokens, junctions are found for every prompt, and pure
-  recurrent models are cached the same way. Measured (benchmarks.md section 48.3): higher hit rates than vLLM on shared system prompts and
-  conversations, but each snapshot boundary costs the prompt a pass, which for a small model (cheap prefill) raises TTFT above the
-  cache-off TTFT; the lever is recomputing instead of waiting where prefill is cheaper than a pass.
+  recurrent models are cached the same way. Measured (benchmarks.md sections 48.3, 48.6): higher hit rates than vLLM on shared system
+  prompts and conversations; with the cost model (48.6) snapshots no longer cost passes where they do not pay, and TTFT with the cache is
+  below the cache-off TTFT and below vLLM's on the small hybrid model.
 
 API and hosting:
 
@@ -339,13 +367,22 @@ What a host such as Sharplight Server passes (one request = one namespace):
   the conversation), consistent hashing over the replicas, with a load bound. A conversation id works as well for multi-turn chats.
   The key must include the scope so that one tenant's prefixes never steer another tenant's routing.
 
+Step shapes prepared at start-up: a provider that records command buffers per step shape (Vulkan: one recording per binding of the
+token, run and logits-row counts, 1-50 ms each, the first ones slowest) would record every batch size's decode step the first time it
+occurs, inside the first round of a load. `InferenceEngine` therefore prepares the decode steps of 1 to `slots` sequences when it starts
+(`IBatchDecoder.PrepareDecodeSteps`, `CompiledModel.Prepare`, `ICompiledSegment.Prepare`; `EngineOptions.PrepareDecodeSteps`, default on;
+`InferenceEngine.PrepareTime`). Mixed decode and prefill steps take arbitrary row counts and are still recorded when first met (and kept,
+least recently used first out, 256 per segment). Measured in benchmarks.md section 48.6.
+
 Tests: `PrefixCacheTests` (Serving: blocks outlive their slot, namespaces of partition and salt, content keys, bypass, concurrent prompts
-waiting for each other's blocks instead of computing the prefix twice, preempted contexts reattached, tail-first eviction, published
-blocks never rewritten, recurrent models restoring snapshots for shared prefixes and the next turn of a conversation, none without
-snapshots), `CachePartitionTests`, `MultiTenantApiTests.AClientCacheSaltIsRefusedUnlessTheServerAllowsIt`,
+waiting for each other's blocks instead of computing the prefix twice where rows are costly and recomputing it where a pass is costlier,
+preempted contexts reattached, tail-first eviction, published blocks never rewritten, recurrent models restoring snapshots for shared
+prefixes, the next turn of a conversation and chunk ends, skipping snapshots that cost a pass when recomputing is cheaper, none without
+snapshots, samples of one prompt forking it copy-on-write with and without recurrent state, followers computing their prompt when the
+leader is cancelled), `CachePartitionTests`, `MultiTenantApiTests.AClientCacheSaltIsRefusedUnlessTheServerAllowsIt`,
 `ServingChatClientTests.TheCacheSaltNarrowsSharingWithinAPartition`, and `PrefixCacheParityTests` (Families: greedy output with the cache
 on equals the cache off for shared prefixes, sequential and concurrent, on CPU and Vulkan, for attention-only, gated delta net, Mamba,
-Mamba-2, short-convolution and RWKV-7 tiny models and for Qwen3.5-0.8B and Qwen3-0.6B).
+Mamba-2, short-convolution and RWKV-7 tiny models and for Qwen3.5-0.8B and Qwen3-0.6B, and three samples of one prompt forking it).
 
 ## 3. Steps
 
