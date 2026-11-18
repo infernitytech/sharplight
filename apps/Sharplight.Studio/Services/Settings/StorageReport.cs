@@ -1,5 +1,6 @@
 using System.Text;
 using Sharplight.Storage;
+using Sharplight.Studio.Services.Logging;
 
 namespace Sharplight.Studio.Services.Settings;
 
@@ -25,6 +26,7 @@ internal static class StorageReport
         text.AppendLine($"Models:      {layout.ModelsDirectory}");
         text.AppendLine($"Cache:       {layout.CacheDirectory}");
         text.AppendLine($"Logs:        {layout.LogsDirectory}");
+        text.AppendLine($"Log file:    {Path.Combine(layout.LogsDirectory, new FileLogOptions { Directory = layout.LogsDirectory }.FileName)}");
         return text.ToString();
     }
 }

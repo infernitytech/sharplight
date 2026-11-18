@@ -395,6 +395,25 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         _services.Platform.Open(StoreRoot);
     }
 
+    /// <summary>The folder with Studio's log files (follows the storage mode).</summary>
+    public string LogsDirectory => _services.StorageLocation.Current.LogsDirectory;
+
+    [RelayCommand]
+    private void OpenLogsDirectory()
+    {
+        try
+        {
+            Directory.CreateDirectory(LogsDirectory);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Message = $"Cannot create {LogsDirectory}: {error.Message}";
+            return;
+        }
+
+        _services.Platform.Open(LogsDirectory);
+    }
+
     [RelayCommand]
     private void ResetDefaults()
     {

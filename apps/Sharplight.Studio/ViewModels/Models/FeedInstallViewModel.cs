@@ -51,6 +51,7 @@ internal sealed partial class FeedInstallViewModel : ObservableObject
     public partial bool IsActive { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowCard))]
     public partial bool IsDone { get; set; }
 
     [ObservableProperty]
@@ -74,6 +75,9 @@ internal sealed partial class FeedInstallViewModel : ObservableObject
     public partial string Status { get; set; } = "";
 
     public bool HasError => Error is not null;
+
+    /// <summary>The install is still of interest as a card: running, failed or cancelled. A finished one only counts in the page's summary.</summary>
+    public bool ShowCard => !IsDone;
 
     /// <summary>The install can be started again (it resumes where it stopped).</summary>
     public bool CanRetry => !IsActive && !IsDone && (IsCancelled || Error is not null && !IsVerificationFailure);

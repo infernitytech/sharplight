@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.Globalization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Sharplight.AspNetCore;
@@ -100,9 +102,13 @@ internal sealed class KestrelApiServer(ModelHost host) : IApiServer
         }
 
         _app = app;
-        BaseUrl = url;
+        // Port 0 lets the system pick a free port (no probe-then-bind race): the address Kestrel bound is the base URL.
+        BaseUrl = settings.Port == 0 ? BoundAddress(app) ?? url : url;
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    private static string? BoundAddress(WebApplication app)
+        => app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()?.Addresses.FirstOrDefault()?.TrimEnd('/');
 
     /// <inheritdoc/>
     public async Task StopAsync()

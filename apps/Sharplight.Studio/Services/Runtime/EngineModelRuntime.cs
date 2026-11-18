@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Sharplight.Hosting;
 using Sharplight.Hosting.Fit;
 using Sharplight.Hosting.Loaders;
@@ -27,6 +29,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private static readonly TimeSpan s_drainTimeout = TimeSpan.FromSeconds(5);
 
     private readonly DevicePool _pool = new();
+    private readonly ILogger _logger;
     private readonly Dictionary<string, IEngineModel> _models = new(StringComparer.Ordinal);
     private readonly Lock _lock = new();
     private readonly Dictionary<string, (IExecutionProvider Provider, DeviceInfo Info)> _devices;
@@ -43,13 +46,18 @@ internal sealed class EngineModelRuntime : IModelRuntime
     /// <param name="residency">The current residency settings (read when a model is added).</param>
     /// <param name="resolve">Turns a name requested by a chat or API client into a library model to load on demand, or null.</param>
     /// <param name="useCompilationCache">Whether devices use the per-user artifact store (read when a device is opened); default yes.</param>
-    public EngineModelRuntime(EngineServices engine, Func<ResidencySettings> residency, Func<string, ModelLoadRequest?>? resolve = null, Func<bool>? useCompilationCache = null)
+    /// <param name="logger">Receives the device list and load events (never prompts or other content), or null.</param>
+    public EngineModelRuntime(EngineServices engine, Func<ResidencySettings> residency, Func<string, ModelLoadRequest?>? resolve = null, Func<bool>? useCompilationCache = null,
+        ILogger? logger = null)
     {
+        _logger = logger ?? NullLogger.Instance;
         _engine = engine;
         _estimator = new FootprintEstimator(engine.Loader);
         _useCompilationCache = useCompilationCache ?? (() => true);
         var discovered = DeviceCatalog.Discover(engine.Providers);
         _physical = [.. discovered.Select(entry => entry.Option)];
+        _logger.LogInformation("Compute devices: {Devices}", _physical.Count == 0 ? "none"
+            : string.Join("; ", _physical.Select(device => $"{device.Name} [{device.Provider}{(device.IsGpu ? ", GPU" : "")}]")));
         // Only GPUs of the preferred provider are split over: on a Mac the Metal and the Vulkan (MoltenVK) device are the same GPU.
         var gpus = _physical.Where(device => device.IsGpu).ToList();
         var splittable = gpus.Where(device => device.Provider == gpus[0].Provider).ToList();
@@ -134,13 +142,15 @@ internal sealed class EngineModelRuntime : IModelRuntime
         model.LoadListener = progress;
         try
         {
+            _logger.LogInformation("Loading a {Kind} model on {Device}", request.Kind, model.Device.Name);
             progress?.Report(LoadStatus.Message($"Loading {Path.GetFileName(request.Path)} on {model.Device.Name}"));
             await Host.LoadAsync(request.Id, cancellationToken).ConfigureAwait(false);
             return model;
         }
-        catch (Exception)
+        catch (Exception loadError)
         {
             // Cancelled or failed: abandon a load still running and forget the model.
+            _logger.LogWarning(loadError, "Loading a {Kind} model failed", request.Kind);
             AbandonLoad(request.Id);
             _ = RemoveAsync(request.Id, force: true);
             throw;
