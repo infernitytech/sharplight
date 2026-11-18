@@ -52,6 +52,12 @@ internal static class TtsModels
     /// <summary>Reference ids, frames and logits of transformers' CSM (raw arrays, see <c>CsmTests</c>).</summary>
     public static string CsmReference => Path.Combine(s_root, "csm-ref");
 
+    /// <summary>VibeVoice-1.5B (Microsoft's checkpoint directory with the Qwen2.5 <c>tokenizer.json</c> next to it).</summary>
+    public static string VibeVoice => Path.Combine(s_root, "..", "vibevoice", "VibeVoice-1.5B");
+
+    /// <summary>Reference tensors of transformers' VibeVoice (raw arrays, see <c>VibeVoiceTests</c>).</summary>
+    public static string VibeVoiceReference => Path.Combine(s_root, "..", "vibevoice", "ref");
+
     /// <summary>A fixture file next to the test assembly.</summary>
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
