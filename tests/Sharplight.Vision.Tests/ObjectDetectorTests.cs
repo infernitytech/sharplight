@@ -13,7 +13,7 @@ public class ObjectDetectorTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    private static readonly string[] Roots = ["models/vision", "models/vision-sweep", "models/vision-r7", "models/hot-b"];
+    private static readonly string[] Roots = ["models/vision", "models/vision-sweep", "models/vision-r7", "models/hot-b", "models/vision-r10"];
 
     private static string Model(string name) => Path.Combine(Home, Roots.FirstOrDefault(r => Directory.Exists(Path.Combine(Home, r, name))) ?? Roots[2], name);
 
@@ -87,6 +87,7 @@ public class ObjectDetectorTests
     [InlineData("Depth-Anything-V2-Base-hf")]
     [InlineData("depth-anything-base-hf")]
     [InlineData("Depth-Anything-V2-Large-hf")]
+    [InlineData("da3-small")]
     public async Task DepthEstimatorMatchesTransformers(string name)
     {
         string Name = name;

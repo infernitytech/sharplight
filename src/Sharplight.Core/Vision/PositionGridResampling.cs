@@ -11,10 +11,11 @@ public static class PositionGridResampling
     /// <summary>Dense weights [<paramref name="outSize"/>, <paramref name="inSize"/>] of PyTorch's non-antialiased bicubic resize of one axis. Equal sizes give the identity.</summary>
     /// <param name="inSize">Source length.</param>
     /// <param name="outSize">Target length.</param>
-    public static float[] Bicubic(int inSize, int outSize)
+    /// <param name="sourcePerTarget">Source pixels per target pixel; null for <c>inSize / outSize</c>. PyTorch uses the inverse of a given <c>scale_factor</c> instead (DINOv2's interpolation offset).</param>
+    public static float[] Bicubic(int inSize, int outSize, double? sourcePerTarget = null)
     {
         var m = new float[(long)outSize * inSize];
-        double scale = (double)inSize / outSize;
+        double scale = sourcePerTarget ?? (double)inSize / outSize;
         for (int o = 0; o < outSize; o++)
         {
             double real = scale * (o + 0.5) - 0.5;
@@ -44,14 +45,15 @@ public static class PositionGridResampling
     /// <param name="width">Length of each vector.</param>
     /// <param name="antialias">True for PyTorch's <c>antialias=True</c> (the filter widens when shrinking), as DINOv2 with registers resizes its table.</param>
     /// <returns>The <c>outSize · outSize · width</c> values.</returns>
-    public static float[] ResizeGrid(ReadOnlySpan<float> grid, int inSize, int outSize, int width, bool antialias = false)
+    /// <param name="sourcePerTarget">Source pixels per target pixel of the non-antialiased resize; null for <c>inSize / outSize</c>.</param>
+    public static float[] ResizeGrid(ReadOnlySpan<float> grid, int inSize, int outSize, int width, bool antialias = false, double? sourcePerTarget = null)
     {
         if (grid.Length != (long)inSize * inSize * width)
         {
             throw new ArgumentException($"Expected {(long)inSize * inSize * width} values for a {inSize}x{inSize} grid of {width}.", nameof(grid));
         }
 
-        var m = antialias ? ImageResampling.AntialiasedBicubic(inSize, outSize) : Bicubic(inSize, outSize);
+        var m = antialias ? ImageResampling.AntialiasedBicubic(inSize, outSize) : Bicubic(inSize, outSize, sourcePerTarget);
         // Rows first: [out, in] × [in, in·width], then columns.
         var rows = new float[(long)outSize * inSize * width];
         for (int oy = 0; oy < outSize; oy++)

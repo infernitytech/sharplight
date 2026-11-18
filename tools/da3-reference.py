@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reference outputs of Depth Anything 3 (the authors' network, `depth_anything_3`, CPU) for the Sharplight depth tests.
 
-Needs a checkout of https://github.com/ByteDance-Seed/Depth-Anything-3 (SRC = its `src` folder) and torch, omegaconf, addict, einops. Resizes IMAGE to a
+Needs (on PYTHONPATH or installed) torch, omegaconf, addict, einops, safetensors and a checkout of https://github.com/ByteDance-Seed/Depth-Anything-3 (SRC = its `src` folder). Resizes IMAGE to a
 SIZE x SIZE canvas (bicubic, ImageNet statistics, like the DPT processor with keep_aspect_ratio off), runs the single-view network and writes
 `sharplight-sample.png` and `sharplight-reference.json` (depth, confidence) next to the weights.
 
@@ -45,7 +45,8 @@ def main() -> None:
         out = net(x)
     depth = out["depth"][0, 0]
     conf = out["depth_conf"][0, 0]
-    result = {"depth_shape": list(depth.shape), "depth": depth.flatten().tolist(), "conf": conf.flatten().tolist()}
+    resized = torch.nn.functional.interpolate(depth[None, None], size=(image.height, image.width), mode="bilinear", align_corners=False)[0, 0]
+    result = {"depth_shape": list(depth.shape), "depth": depth.flatten().tolist(), "conf": conf.flatten().tolist(), "depth_resized_sample": resized.flatten()[::997].tolist()}
     print(list(depth.shape), float(depth.min()), float(depth.max()))
     with open(os.path.join(model_dir, "sharplight-reference.json"), "w") as f:
         json.dump(result, f)
