@@ -40,6 +40,9 @@ internal static partial class SharedMemoryRewriter
     public static string Rewrite(string source, out int dynamicBytes)
     {
         dynamicBytes = 0;
+        // Shared arrays 16-byte aligned (Slang's FixedArray of uint or half is 4- or 2-byte aligned): the fragment loads take
+        // ldmatrix only for 16-byte aligned rows.
+        source = source.Replace("__shared__ FixedArray<", "__shared__ __align__(16) FixedArray<", StringComparison.Ordinal);
         var matches = DeclarationPattern().Matches(source);
         if (matches.Count == 0)
         {
@@ -102,7 +105,7 @@ internal static partial class SharedMemoryRewriter
         return s_sizes.TryGetValue(type, out int size) ? size : null;
     }
 
-    [GeneratedRegex(@"^(?:__device__\s+)?__shared__\s+(?<type>.+?)\s+(?<name>\w+)\s*;[ \t]*\r?$", RegexOptions.Multiline)]
+    [GeneratedRegex(@"^(?:__device__\s+)?__shared__\s+(?:__align__\(\d+\)\s+)?(?<type>.+?)\s+(?<name>\w+)\s*;[ \t]*\r?$", RegexOptions.Multiline)]
     private static partial Regex DeclarationPattern();
 
     [GeneratedRegex(@"^FixedArray<\s*(?<element>.+)\s*,\s*(?<count>\d+)\s*>$")]

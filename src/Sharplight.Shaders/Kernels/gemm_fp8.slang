@@ -175,6 +175,21 @@ void fp8_step<let PAIR : bool>(inout float acc[F8_FM][F8_FN][8], uint wm, uint w
                 uint base = bs + wn + j * 16 + c0;
                 ws[j][0] = sBS[base]; ws[j][1] = sBS[base + 1]; ws[j][2] = sBS[base + 8]; ws[j][3] = sBS[base + 9];
             }
+#if SL_TARGET_CUDA
+            // CUDA: the B fragments of the weight block are loaded once for all row fragments. The shared-memory fragment loads are
+            // volatile there (ldmatrix in inline PTX), so the compiler cannot merge the reloads of the form below as the Vulkan
+            // driver does (33 % slower fp8 GEMMs).
+            MatB8 bw[F8_MMAS][F8_FN];
+            [ForceUnroll]
+            for (uint m = 0; m < F8_MMAS; m++)
+            {
+                [ForceUnroll]
+                for (int j = 0; j < F8_FN; j++)
+                {
+                    bw[m][j] = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + (wb * WBLOCK + m * 32) / 4, F8_RS);
+                }
+            }
+#endif
             [ForceUnroll]
             for (int i = 0; i < F8_FM; i++)
             {
@@ -188,8 +203,12 @@ void fp8_step<let PAIR : bool>(inout float acc[F8_FM][F8_FN][8], uint wm, uint w
                     [ForceUnroll]
                     for (int j = 0; j < F8_FN; j++)
                     {
+#if SL_TARGET_CUDA
+                        c[j] = coopMatMulAdd<float, false>(a, bw[m][j], c[j]);
+#else
                         MatB8 b = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + kw, F8_RS);
                         c[j] = coopMatMulAdd<float, false>(a, b, c[j]);
+#endif
                     }
                 }
                 [ForceUnroll]

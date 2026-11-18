@@ -411,7 +411,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
                 continue;
             }
 
-            recorded.Add(new CudaRecordedLaunch(launch.Name, _dev.Kernel(variant.Kernel), grid.X, grid.Y, grid.Z, PackArguments(launch, bindings)));
+            recorded.Add(new CudaRecordedLaunch(launch.Name, ProfileName(launch.Name, variant.Kernel.EntryPoint), _dev.Kernel(variant.Kernel), grid.X, grid.Y, grid.Z, PackArguments(launch, bindings)));
         }
 
         return [.. recorded];
@@ -504,6 +504,16 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     }
 
     /// <summary>Runs each launch between its own pair of events and accumulates its GPU time in <see cref="ProfileData"/>.</summary>
+    /// <summary>
+    /// The launch name as profiles show it: without the node name (its second word), with the kernel's entry point, so launches of
+    /// the same kind add up as in the Vulkan provider's profile.
+    /// </summary>
+    private static string ProfileName(string name, string entryPoint)
+    {
+        var parts = name.Split(' ');
+        return $"{parts[0]}{(parts.Length > 2 ? " " + string.Join(" ", parts[2..]) : "")} {entryPoint}";
+    }
+
     private void RunProfiled(CudaRecordedLaunch[] launches, string key)
     {
         double total = 0;
@@ -511,7 +521,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         {
             double ms = Run(new ReadOnlySpan<CudaRecordedLaunch>(in launch));
             total += ms;
-            string name = $"{launch.Name} {key}";
+            string name = $"{launch.ProfileName} {key}";
             ProfileData[name] = ProfileData.TryGetValue(name, out var entry)
                 ? (entry.Ms + ms, entry.Count + 1, Math.Min(entry.MinMs, ms))
                 : (ms, 1, ms);

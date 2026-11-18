@@ -43,7 +43,9 @@ __device__ __forceinline__ uint4 sl_ld16(P* arr, unsigned element, unsigned stri
     if (sl_is_shared(arr))
     {
         unsigned sa = (unsigned)__cvta_generic_to_shared(base);
-        if (((sa | pitch) & 15) == 0)
+        // Arrays of 16-byte elements (the packed-half tiles) are aligned by construction (shared arrays are declared 16-byte
+        // aligned), which keeps the check out of the inner loops; others are checked.
+        if (es % 16 == 0 || ((sa | pitch) & 15) == 0)
         {
             unsigned q = l >> 3;
             unsigned rb = RowsLow ? (q & 1) : (q >> 1), cb = RowsLow ? (q >> 1) : (q & 1);

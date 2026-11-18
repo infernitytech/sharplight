@@ -855,10 +855,13 @@ using namespace linalg;
 #define SPLIT_LO 0
 #define SPLIT_HALVES 1
 #endif
+// GNBUF (macro): double-buffer the GBK = 64 tiles too where the shared memory allows it (CUDA's opt-in shared memory).
+#ifndef GNBUF
 #if GBK == 32 && !SPLIT_LO
 #define GNBUF 2
 #else
 #define GNBUF 1
+#endif
 #endif
 #define GQ (GBK / 8)
 #define GAS (GBK + 8)
