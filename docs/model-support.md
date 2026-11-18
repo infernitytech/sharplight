@@ -1288,8 +1288,10 @@ of speech (jfk.wav, normalized to -25 dBFS): acoustic latents 3.0e-6, semantic l
   token mid-speech, as between two speakers, starts it over) and the diffusion head for the next latent, the acoustic decoder turns it into 3200 samples, and the sum of the
   acoustic connector's image of the latent and the semantic connector's image of the semantic encoder's feature of those samples is the next input. `ISpeechSynthesizer`
   (`VibeVoiceSynthesizer`), `IVoiceCloner` (`CreateVoiceAsync`), streaming in buffers of 4 frames (about half a second).
-  The checkpoint (`microsoft/VibeVoice-1.5B`, original layout, MIT) ships no tokenizer: the Qwen2.5 `tokenizer.json` (with the audio tokens) must sit next to it, e.g. from
-  `vibevoice/VibeVoice-1.5B-hf`; the transformers conversion is not imported (the mapping says so).
+  Both layouts import to the same canonical model (`VibeVoiceHfShared.CanonicalName` maps the tensor names of either; the configurations give the same hyper-parameters, checked by
+  `VibeVoiceLayoutTests` against both repositories' configurations and safetensors indexes): transformers' conversion `vibevoice/VibeVoice-1.5B-hf` (carries the Qwen2.5 tokenizer and the
+  generation config with the guidance scale and steps; the catalog's variant; the tests give the same numbers as with the original) and Microsoft's `microsoft/VibeVoice-1.5B` (MIT; ships no
+  tokenizer: the Qwen2.5 `tokenizer.json` and `tokenizer_config.json` must sit next to it).
 - **Speech to text** (section 13.4): `VibeVoiceAsrAdapter` reuses the tokenizers' encoders and the connectors with a Qwen2 7B language model.
 
 
@@ -1537,7 +1539,7 @@ transcribe it with these keys: Start time, End time, Speaker ID, Content"); the 
   is one segment of speaker 0 (0.0-11.0 s), the conversation four segments of speakers 0, 1, 0, 1 (0.0-5.41, 5.41-8.98, 8.98-11.86, 12.0-17.2 s) with the script's words; the model converted to a
   `.slm` package transcribes identically. End to end: a four-turn two-speaker script spoken by this repository's VibeVoice-1.5B synthesizer on Vulkan (11.9 s, no voice prompts) is
   transcribed with two speakers and a word error rate of 3.4 % ("I'm doing well" for "I am doing well").
-- Catalog: documentation only (the repository has no tokenizer files; `microsoft/VibeVoice-ASR-HF` is the transformers conversion, not imported).
+- Layouts and catalog: both import to the same canonical model (`VibeVoiceLayoutTests`); the catalog's variant is `microsoft/VibeVoice-ASR-HF` (transformers' conversion with the Qwen2.5 tokenizer, 16 GB); the original `microsoft/VibeVoice-ASR` ships no tokenizer files (copy `tokenizer.json` and `tokenizer_config.json` next to it).
 
 ## 14. Vision models (task layer)
 

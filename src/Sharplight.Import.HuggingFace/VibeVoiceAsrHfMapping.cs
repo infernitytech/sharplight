@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Sharplight.Models;
 
 namespace Sharplight.Import.HuggingFace;
@@ -29,18 +28,18 @@ internal sealed partial class VibeVoiceAsrHfMapping : IHfArchitectureMapping
     /// <inheritdoc/>
     public IEnumerable<string> Validate(HfConfig c)
     {
-        if (!VibeVoiceHfShared.IsOriginalLayout(c))
+        if (!VibeVoiceHfShared.IsSupportedLayout(c))
         {
-            yield return "vibevoice_asr: only the original (Microsoft) checkpoint layout is supported (decoder_config, acoustic_tokenizer_config), not the transformers conversion.";
+            yield return "vibevoice_asr: the configuration is neither the original (Microsoft) layout (decoder_config, acoustic_tokenizer_config) nor transformers' conversion (text_config, acoustic_tokenizer_encoder_config).";
             yield break;
         }
 
-        foreach (string reason in VibeVoiceHfShared.ValidateTokenizer("acoustic tokenizer", c.Root.GetProperty("acoustic_tokenizer_config")))
+        foreach (string reason in VibeVoiceHfShared.ValidateTokenizer("acoustic tokenizer", VibeVoiceHfShared.Acoustic(c)))
         {
             yield return reason;
         }
 
-        foreach (string reason in VibeVoiceHfShared.ValidateTokenizer("semantic tokenizer", c.Root.GetProperty("semantic_tokenizer_config")))
+        foreach (string reason in VibeVoiceHfShared.ValidateTokenizer("semantic tokenizer", VibeVoiceHfShared.Semantic(c)))
         {
             yield return reason;
         }
@@ -66,11 +65,11 @@ internal sealed partial class VibeVoiceAsrHfMapping : IHfArchitectureMapping
         md[a + "eos_token_id"] = VibeVoiceHfShared.TokenId(c, "<|endoftext|>", 151643);
         md[a + "sample_rate"] = VibeVoiceHfShared.SampleRate(c);
         md[a + "normalize_dbfs"] = -25f;
-        md[a + "hidden"] = c.Root.GetProperty("decoder_config").GetProperty("hidden_size").GetInt32();
+        md[a + "hidden"] = VibeVoiceHfShared.LanguageModel(c).GetProperty("hidden_size").GetInt32();
         md[a + "prompt.template"] = Template;
         md[a + "prompt.context_template"] = ContextTemplate;
-        VibeVoiceHfShared.AddTokenizer(md, a + "acoustic.", c.Root.GetProperty("acoustic_tokenizer_config"));
-        VibeVoiceHfShared.AddTokenizer(md, a + "semantic.", c.Root.GetProperty("semantic_tokenizer_config"));
+        VibeVoiceHfShared.AddTokenizer(md, a + "acoustic.", VibeVoiceHfShared.Acoustic(c));
+        VibeVoiceHfShared.AddTokenizer(md, a + "semantic.", VibeVoiceHfShared.Semantic(c));
         return md;
     }
 
@@ -81,35 +80,17 @@ internal sealed partial class VibeVoiceAsrHfMapping : IHfArchitectureMapping
         var collector = new HfWeightCollector();
         foreach (var (name, tensor) in tensors)
         {
-            if (name.StartsWith("model.language_model.", StringComparison.Ordinal))
+            if (VibeVoiceHfShared.LanguageName(name) is { } languageName)
             {
-                language["model." + name["model.language_model.".Length..]] = tensor;
+                language[languageName] = tensor;
             }
-            else if (name == "lm_head.weight")
+            else if (VibeVoiceHfShared.IsAcousticDecoder(name) || name.Contains("diffusion_head.", StringComparison.Ordinal) || name.Contains("prediction_head.", StringComparison.Ordinal))
             {
-                language[name] = tensor;
+                // The recognizer never decodes audio and has no use for a diffusion head.
             }
-            else if (name.StartsWith("model.acoustic_tokenizer.decoder.", StringComparison.Ordinal))
+            else if (VibeVoiceHfShared.CanonicalName(name) is { } canonical)
             {
-                // The recognizer never decodes audio.
-            }
-            else if (name.StartsWith("model.acoustic_tokenizer.", StringComparison.Ordinal) || name.StartsWith("model.semantic_tokenizer.", StringComparison.Ordinal))
-            {
-                bool acoustic = name.StartsWith("model.acoustic_tokenizer.", StringComparison.Ordinal);
-                string rest = name[(acoustic ? "model.acoustic_tokenizer.".Length : "model.semantic_tokenizer.".Length)..];
-                var weight = VibeVoiceHfShared.Tokenizer(tensor, rest, acoustic ? "acoustic." : "semantic.");
-                if (weight is null)
-                {
-                    collector.AddUnmapped(name);
-                }
-                else
-                {
-                    collector.Add(weight);
-                }
-            }
-            else if (ConnectorPattern().Match(name) is { Success: true } connector)
-            {
-                collector.Add(HfTransforms.Plain(tensor.ToWeightInfo(), connector.Groups[1].Value + "_connector." + connector.Groups[2].Value + "." + connector.Groups[3].Value));
+                collector.Add(VibeVoiceHfShared.Weight(tensor, canonical));
             }
             else
             {
@@ -128,7 +109,4 @@ internal sealed partial class VibeVoiceAsrHfMapping : IHfArchitectureMapping
         collector.ThrowIfUnmapped(c.ModelType);
         return collector.Weights;
     }
-
-    [GeneratedRegex(@"^model\.(acoustic|semantic)_connector\.(fc1|norm|fc2)\.(weight|bias)$", RegexOptions.CultureInvariant)]
-    private static partial Regex ConnectorPattern();
 }

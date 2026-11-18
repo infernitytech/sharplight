@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+using System.Text.Json;
 using Sharplight.Models;
 
 namespace Sharplight.Import.HuggingFace;
@@ -26,23 +26,22 @@ internal sealed partial class VibeVoiceHfMapping : IHfArchitectureMapping
     /// <inheritdoc/>
     public IEnumerable<string> Validate(HfConfig c)
     {
-        if (!VibeVoiceHfShared.IsOriginalLayout(c))
+        if (!VibeVoiceHfShared.IsSupportedLayout(c) || !c.Root.TryGetProperty("diffusion_head_config", out var head))
         {
-            yield return "vibevoice: only the original (Microsoft) checkpoint layout is supported (decoder_config, acoustic_tokenizer_config), not the transformers conversion.";
+            yield return "vibevoice: the configuration is neither the original (Microsoft) layout (decoder_config, acoustic_tokenizer_config, diffusion_head_config) nor transformers' conversion (text_config, audio_config, diffusion_head_config).";
             yield break;
         }
 
-        foreach (string reason in VibeVoiceHfShared.ValidateTokenizer("acoustic tokenizer", c.Root.GetProperty("acoustic_tokenizer_config")))
+        foreach (string reason in VibeVoiceHfShared.ValidateTokenizer("acoustic tokenizer", VibeVoiceHfShared.Acoustic(c)))
         {
             yield return reason;
         }
 
-        foreach (string reason in VibeVoiceHfShared.ValidateTokenizer("semantic tokenizer", c.Root.GetProperty("semantic_tokenizer_config")))
+        foreach (string reason in VibeVoiceHfShared.ValidateTokenizer("semantic tokenizer", VibeVoiceHfShared.Semantic(c)))
         {
             yield return reason;
         }
 
-        var head = c.Root.GetProperty("diffusion_head_config");
         if (head.TryGetProperty("diffusion_type", out var type) && type.GetString() != "ddpm")
         {
             yield return $"vibevoice: only the DDPM diffusion head is supported, not '{type.GetString()}'.";
@@ -62,8 +61,9 @@ internal sealed partial class VibeVoiceHfMapping : IHfArchitectureMapping
         }
 
         string a = Architecture + ".";
-        var text = c.Root.GetProperty("decoder_config");
+        var text = VibeVoiceHfShared.LanguageModel(c);
         var head = c.Root.GetProperty("diffusion_head_config");
+        var generation = GenerationSettings(c);
         md[a + "audio_bos_token_id"] = VibeVoiceHfShared.TokenId(c, "<|vision_start|>", 151652);
         md[a + "audio_eos_token_id"] = VibeVoiceHfShared.TokenId(c, "<|vision_end|>", 151653);
         md[a + "audio_token_id"] = VibeVoiceHfShared.TokenId(c, "<|vision_pad|>", 151654);
@@ -71,23 +71,49 @@ internal sealed partial class VibeVoiceHfMapping : IHfArchitectureMapping
         md[a + "sample_rate"] = VibeVoiceHfShared.SampleRate(c);
         md[a + "normalize_dbfs"] = -25f;
         md[a + "hidden"] = text.GetProperty("hidden_size").GetInt32();
-        md[a + "diffusion.layers"] = head.GetProperty("head_layers").GetInt32();
-        md[a + "diffusion.frequencies"] = 256;
+        md[a + "diffusion.layers"] = head.TryGetProperty("head_layers", out var layers) ? layers.GetInt32() : head.GetProperty("num_hidden_layers").GetInt32();
+        md[a + "diffusion.frequencies"] = head.TryGetProperty("frequency_embedding_size", out var frequencies) ? frequencies.GetInt32() : 256;
         md[a + "diffusion.eps"] = head.TryGetProperty("rms_norm_eps", out var eps) ? (float)eps.GetDouble() : 1e-5f;
-        md[a + "diffusion.train_steps"] = head.GetProperty("ddpm_num_steps").GetInt32();
-        md[a + "diffusion.max_period"] = 10000f;
-        md[a + "diffusion.beta_schedule"] = head.GetProperty("ddpm_beta_schedule").GetString()!;
-        md[a + "diffusion.prediction_type"] = head.GetProperty("prediction_type").GetString()!;
-        md[a + "sampling.cfg_scale"] = 1.3f;
-        md[a + "sampling.diffusion_steps"] = 10f;
-        md[a + "sampling.max_frames"] = 40500f;
+        md[a + "diffusion.train_steps"] = head.TryGetProperty("ddpm_num_steps", out var steps) ? steps.GetInt32() : 1000;
+        md[a + "diffusion.max_period"] = head.TryGetProperty("diffusion_max_period", out var period) ? (float)period.GetDouble() : 10000f;
+        md[a + "diffusion.beta_schedule"] = head.TryGetProperty("ddpm_beta_schedule", out var schedule) && schedule.GetString() is { } named ? (named == "cosine" ? "squaredcos_cap_v2" : named) : generation.BetaSchedule;
+        md[a + "diffusion.prediction_type"] = head.TryGetProperty("prediction_type", out var prediction) ? prediction.GetString()! : generation.PredictionType;
+        md[a + "sampling.cfg_scale"] = generation.Guidance;
+        md[a + "sampling.diffusion_steps"] = generation.Steps;
+        md[a + "sampling.max_frames"] = generation.MaxFrames;
         md[a + "prompt.system"] = SystemPrompt;
         md[a + "prompt.voice"] = VoicePrompt;
         md[a + "prompt.text"] = TextPrompt;
         md[a + "prompt.speech"] = SpeechPrompt;
-        VibeVoiceHfShared.AddTokenizer(md, a + "acoustic.", c.Root.GetProperty("acoustic_tokenizer_config"));
-        VibeVoiceHfShared.AddTokenizer(md, a + "semantic.", c.Root.GetProperty("semantic_tokenizer_config"));
+        VibeVoiceHfShared.AddTokenizer(md, a + "acoustic.", VibeVoiceHfShared.Acoustic(c));
+        VibeVoiceHfShared.AddTokenizer(md, a + "semantic.", VibeVoiceHfShared.Semantic(c));
         return md;
+    }
+
+    // The sampling defaults of transformers' <c>generation_config.json</c> (guidance scale, diffusion steps, noise scheduler); the original checkpoint has none (the demo's 1.3 and 10).
+    private static (float Guidance, float Steps, float MaxFrames, string BetaSchedule, string PredictionType) GenerationSettings(HfConfig c)
+    {
+        float guidance = 1.3f;
+        float steps = 10f;
+        float maxFrames = 40500f;
+        string schedule = "squaredcos_cap_v2";
+        string prediction = "v_prediction";
+        string path = Path.Combine(c.Directory, "generation_config.json");
+        if (File.Exists(path))
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            guidance = root.TryGetProperty("guidance_scale", out var g) && g.ValueKind == JsonValueKind.Number ? (float)g.GetDouble() : guidance;
+            steps = root.TryGetProperty("num_diffusion_steps", out var n) && n.ValueKind == JsonValueKind.Number ? (float)n.GetDouble() : steps;
+            maxFrames = root.TryGetProperty("max_new_tokens", out var m) && m.ValueKind == JsonValueKind.Number ? (float)m.GetDouble() : maxFrames;
+            if (root.TryGetProperty("noise_scheduler_config", out var scheduler))
+            {
+                schedule = scheduler.TryGetProperty("beta_schedule", out var b) ? b.GetString() ?? schedule : schedule;
+                prediction = scheduler.TryGetProperty("prediction_type", out var t) ? t.GetString() ?? prediction : prediction;
+            }
+        }
+
+        return (guidance, steps, maxFrames, schedule, prediction);
     }
 
     /// <inheritdoc/>
@@ -97,43 +123,13 @@ internal sealed partial class VibeVoiceHfMapping : IHfArchitectureMapping
         var collector = new HfWeightCollector();
         foreach (var (name, tensor) in tensors)
         {
-            if (name.StartsWith("model.language_model.", StringComparison.Ordinal))
+            if (VibeVoiceHfShared.LanguageName(name) is { } languageName)
             {
-                language["model." + name["model.language_model.".Length..]] = tensor;
+                language[languageName] = tensor;
             }
-            else if (name == "lm_head.weight")
+            else if (VibeVoiceHfShared.CanonicalName(name) is { } canonical)
             {
-                language[name] = tensor;
-            }
-            else if (name.StartsWith("model.acoustic_tokenizer.", StringComparison.Ordinal) || name.StartsWith("model.semantic_tokenizer.", StringComparison.Ordinal))
-            {
-                bool acoustic = name.StartsWith("model.acoustic_tokenizer.", StringComparison.Ordinal);
-                string rest = name[(acoustic ? "model.acoustic_tokenizer.".Length : "model.semantic_tokenizer.".Length)..];
-                var weight = VibeVoiceHfShared.Tokenizer(tensor, rest, acoustic ? "acoustic." : "semantic.");
-                if (weight is null)
-                {
-                    collector.AddUnmapped(name);
-                }
-                else
-                {
-                    collector.Add(weight);
-                }
-            }
-            else if (ConnectorPattern().Match(name) is { Success: true } connector)
-            {
-                collector.Add(HfTransforms.Plain(tensor.ToWeightInfo(), connector.Groups[1].Value + "_connector." + connector.Groups[2].Value + "." + connector.Groups[3].Value));
-            }
-            else if (name.StartsWith("model.prediction_head.", StringComparison.Ordinal))
-            {
-                collector.Add(HfTransforms.Plain(tensor.ToWeightInfo(), "diffusion." + Head(name["model.prediction_head.".Length..])));
-            }
-            else if (name == "model.speech_scaling_factor")
-            {
-                collector.Add(HfTransforms.Plain(tensor.ToWeightInfo(), "vibevoice.latent_scale"));
-            }
-            else if (name == "model.speech_bias_factor")
-            {
-                collector.Add(HfTransforms.Plain(tensor.ToWeightInfo(), "vibevoice.latent_bias"));
+                collector.Add(VibeVoiceHfShared.Weight(tensor, canonical));
             }
             else
             {
@@ -152,21 +148,4 @@ internal sealed partial class VibeVoiceHfMapping : IHfArchitectureMapping
         collector.ThrowIfUnmapped(c.ModelType);
         return collector.Weights;
     }
-
-    // The head's tensors: the timestep MLP and the modulation layers get readable names.
-    private static string Head(string name)
-    {
-        name = name.Replace("t_embedder.mlp.0.", "time.fc1.", StringComparison.Ordinal).Replace("t_embedder.mlp.2.", "time.fc2.", StringComparison.Ordinal)
-            .Replace("noisy_images_proj.", "noisy_proj.", StringComparison.Ordinal);
-        name = Layer().Replace(name, "layers.$1.ada.");
-        name = name.Replace("final_layer.adaLN_modulation.1.", "final.ada.", StringComparison.Ordinal).Replace("final_layer.linear.", "final.out.", StringComparison.Ordinal);
-        return name.Replace("ffn.gate_proj.", "ffn.gate.", StringComparison.Ordinal).Replace("ffn.up_proj.", "ffn.up.", StringComparison.Ordinal)
-            .Replace("ffn.down_proj.", "ffn.down.", StringComparison.Ordinal);
-    }
-
-    [GeneratedRegex(@"^model\.(acoustic|semantic)_connector\.(fc1|norm|fc2)\.(weight|bias)$", RegexOptions.CultureInvariant)]
-    private static partial Regex ConnectorPattern();
-
-    [GeneratedRegex(@"^layers\.(\d+)\.adaLN_modulation\.1\.", RegexOptions.CultureInvariant)]
-    private static partial Regex Layer();
 }
