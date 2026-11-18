@@ -18,6 +18,36 @@ public sealed class ModelKindTests
     private static LibraryViewModel CreateLibrary(TestServices services, FakeNavigator? navigator = null)
         => new(services.Services, navigator ?? new FakeNavigator());
 
+    [Theory]
+    [InlineData("all-MiniLM-L6-v2", """{"model_type":"bert","architectures":["BertModel"]}""", ModelKindCatalog.Embeddings)]
+    [InlineData("bge-m3", """{"model_type":"xlm-roberta","architectures":["XLMRobertaModel"]}""", ModelKindCatalog.Embeddings)]
+    [InlineData("harrier-embed-0.6b", """{"model_type":"qwen3","architectures":["Qwen3Model"]}""", ModelKindCatalog.Embeddings)]
+    [InlineData("ms-marco-MiniLM-L6-v2", """{"model_type":"bert","architectures":["BertForSequenceClassification"],"id2label":{"0":"LABEL_0"}}""", ModelKindCatalog.Reranker)]
+    [InlineData("bge-reranker-base", """{"model_type":"xlm-roberta","architectures":["XLMRobertaForSequenceClassification"]}""", ModelKindCatalog.Reranker)]
+    [InlineData("Qwen3-Reranker-0.6B", """{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}""", ModelKindCatalog.Reranker)]
+    [InlineData("Qwen3-TTS-12Hz-0.6B-CustomVoice", """{"model_type":"qwen3_tts","architectures":["Qwen3TTSForConditionalGeneration"]}""", ModelKinds.SpeechSynthesis)]
+    [InlineData("sentiment", """{"model_type":"bert","architectures":["BertForSequenceClassification"],"id2label":{"0":"NEG","1":"NEU","2":"POS"}}""", ModelKinds.TextGeneration)]
+    [InlineData("gpt2", """{"model_type":"gpt2","architectures":["GPT2LMHeadModel"]}""", ModelKinds.TextGeneration)]
+    [InlineData("tiny-random-T5Model", """{"model_type":"t5","architectures":["T5Model"]}""", ModelKinds.TextGeneration)]
+    public void Inspector_RecognizesEmbeddingAndRerankerFolders_ByTheirConfiguration(string folder, string config, string kind)
+    {
+        using var directory = new TempDir();
+        string path = directory.File(folder);
+        Directory.CreateDirectory(path);
+        File.WriteAllText(Path.Combine(path, "config.json"), config);
+
+        Assert.Equal(kind, ModelInspector.Inspect(path).Kind);
+    }
+
+    [Fact]
+    public void RerankersAreServedOnTheRerankRoutes_AndOpenTheSearchPage()
+    {
+        Assert.Equal(["/v1/rerank", "/v2/rerank", "/rerank"], Sharplight.Studio.Services.Server.ServedEndpoints.For(ModelKindCatalog.Reranker, openAi: true, anthropic: false));
+        var info = ModelKindCatalog.For(ModelKindCatalog.Reranker);
+        Assert.True(info.Runnable);
+        Assert.Equal("Reranker", info.Title);
+    }
+
     [Fact]
     public void Inspector_ReadsTheKindOfThePackageDescription()
     {

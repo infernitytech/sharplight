@@ -191,7 +191,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         {
             Sharplight.Models.ModelKinds.SpeechRecognition => Transcribe,
             Sharplight.Models.ModelKinds.SpeechSynthesis => Speak,
-            ModelKindCatalog.Embeddings => Search,
+            ModelKindCatalog.Embeddings or ModelKindCatalog.Reranker => Search,
             Sharplight.Models.ModelKinds.AudioCodec or Sharplight.Models.ModelKinds.VoiceActivity => Audio,
             Sharplight.Models.ModelKinds.ImageGeneration => Image,
             Sharplight.Models.ModelKinds.VideoGeneration => Video,

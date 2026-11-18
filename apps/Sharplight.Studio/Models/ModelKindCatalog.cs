@@ -13,6 +13,9 @@ internal static class ModelKindCatalog
     /// <summary>The kind of embedding models (a package describes them as text generation; its graphs tell them apart).</summary>
     public const string Embeddings = "embeddings";
 
+    /// <summary>The kind of rerankers (cross-encoders and yes/no decoders that score a document against a query); served on <c>/v1/rerank</c>, used by Search.</summary>
+    public const string Reranker = "reranker";
+
     /// <summary>The kind of LoRA adapter files: not models of their own, they attach to image models in the load panel.</summary>
     public const string Lora = "lora";
 
@@ -40,6 +43,7 @@ internal static class ModelKindCatalog
         new(ModelKinds.AudioCodec, "Audio codec", "IconWave", [], Runnable: true),
         new(ModelKinds.VoiceActivity, "Voice activity", "IconWave", [], Runnable: true),
         new(Embeddings, "Embeddings", "IconEmbed", [ModelTask.Embeddings], Runnable: true),
+        new(Reranker, "Reranker", "IconEmbed", [], Runnable: true),
         new("time-series", "Time series", "IconStats", [ModelTask.TimeSeries], Runnable: false),
         new("3d-generation", "3D", "IconCube", [ModelTask.ThreeD], Runnable: false),
         new("bio", "Bio", "IconBio", [ModelTask.Bio], Runnable: false),

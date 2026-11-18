@@ -33,7 +33,22 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
     public SearchPageViewModel(StudioServices services, INavigator navigator)
         : base(services, navigator, ModelKindCatalog.Embeddings, "search", CreateParameters(services))
     {
+        Rerankers = new ModelPickerViewModel(services, ModelKindCatalog.Reranker);
+        Rerankers.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ModelPickerViewModel.HasModels))
+            {
+                UpdateRerankers();
+            }
+        };
+        UpdateRerankers();
     }
+
+    /// <summary>The resident reranking models and the chosen one (used when <c>Rerank results</c> is on).</summary>
+    public ModelPickerViewModel Rerankers { get; }
+
+    /// <summary>A reranking model is resident, so results can be reranked.</summary>
+    public bool CanRerank => Rerankers.HasModels;
 
     /// <inheritdoc/>
     public override string Title => "Search";
@@ -87,6 +102,19 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
     /// <summary>Indexes <paramref name="folder"/> (as if chosen).</summary>
     /// <param name="folder">The folder.</param>
     public void SetFolder(string folder) => FolderPath = folder;
+
+    /// <inheritdoc/>
+    public override Task ActivateAsync()
+    {
+        Rerankers.Refresh();
+        return base.ActivateAsync();
+    }
+
+    private void UpdateRerankers()
+    {
+        Panel.SetVisible("rerank", Rerankers.HasModels);
+        OnPropertyChanged(nameof(CanRerank));
+    }
 
     /// <inheritdoc/>
     protected override void OnModelChanged(ILoadedModel? model) => OnInputChanged();
@@ -189,6 +217,7 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         }
 
         var model = SelectedModel!;
+        var reranker = Rerankers.SelectedModel?.Model;
         if (index.ModelId != model.Id)
         {
             Notice = $"The index was made with {index.ModelId}. Index the folder again to search with {model.Id}.";
@@ -200,7 +229,7 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         var values = Parameters.Snapshot();
         Parameters.Persist();
         Notice = "";
-        Queue.Enqueue(query.Length > 60 ? query[..60] + "…" : query, model.Id, context => SearchAsync(model, index, query, options, values, context));
+        Queue.Enqueue(query.Length > 60 ? query[..60] + "…" : query, model.Id, context => SearchAsync(model, options.Rerank ? reranker : null, index, query, options, values, context));
     }
 
     /// <summary>Cancels the queued and running work.</summary>
@@ -322,7 +351,7 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         Finish(outcome, error, context);
     }
 
-    private async Task SearchAsync(ILoadedModel model, SearchIndex index, string query, SearchOptions options, Dictionary<string, string> values, RunContext context)
+    private async Task SearchAsync(ILoadedModel model, ILoadedModel? reranker, SearchIndex index, string query, SearchOptions options, Dictionary<string, string> values, RunContext context)
     {
         var watch = Stopwatch.StartNew();
         RunOutcome outcome = RunOutcome.Completed;
@@ -334,8 +363,16 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
             using var lease = await model.AcquireEmbedderAsync(context.CancellationToken).ConfigureAwait(false);
             context.Report(0.5, "Embedding the question");
             var embedded = await Task.Run(() => lease.Embedder.Embed([query], new EmbedOptions { Prompt = QueryPrompt(lease.Embedder) }), context.CancellationToken).ConfigureAwait(false);
-            var nearest = await Task.Run(() => index.Nearest(embedded.Vectors[0], Math.Max(1, options.TopK)), context.CancellationToken).ConfigureAwait(false);
+            int top = Math.Max(1, options.TopK);
+            var nearest = await Task.Run(() => index.Nearest(embedded.Vectors[0], reranker is null ? top : Math.Max(top * 4, 20)), context.CancellationToken).ConfigureAwait(false);
             hits = [.. nearest.Select(hit => new SearchHitRecord { File = hit.Chunk.File, Start = hit.Chunk.Start, Text = hit.Chunk.Text, Score = hit.Score })];
+            if (reranker is not null && hits.Count > 0)
+            {
+                context.Report(0.75, $"Reranking {hits.Count} passages");
+                using var rerankLease = await reranker.AcquireRerankerAsync(context.CancellationToken).ConfigureAwait(false);
+                var scored = await Task.Run(() => rerankLease.Reranker.Score(query, [.. hits.Select(hit => hit.Text)]), context.CancellationToken).ConfigureAwait(false);
+                hits = [.. hits.Select((hit, i) => hit with { Score = scored.Scores[i] }).OrderByDescending(hit => hit.Score).Take(top)];
+            }
         }
         catch (OperationCanceledException)
         {
@@ -353,6 +390,11 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
             ["passages"] = hits.Count.ToString(CultureInfo.InvariantCulture),
             ["time"] = $"{seconds * 1000:0} ms",
         };
+        if (reranker is not null)
+        {
+            metadata["reranker"] = reranker.Id;
+        }
+
         if (outcome == RunOutcome.Completed)
         {
             Services.Dispatcher.Post(() =>
@@ -422,6 +464,7 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
             new NumberParameterViewModel("topk", "Results", "How many passages a search lists.", 1, 50, 1, 5),
             new NumberParameterViewModel("chunk", "Passage length", "Documents are cut into passages of about this many characters; shorter passages find details, longer ones keep context.", 200, 4000, 100, 1000),
             new NumberParameterViewModel("overlap", "Overlap", "Characters that consecutive passages share, so an answer on a boundary is not lost.", 0, 1000, 50, 150),
+            new BoolParameterViewModel("rerank", "Rerank results", "Score the closest passages again with the chosen reranking model (a cross-encoder reads the question and each passage together) and list the best of them. Shown when a reranking model is loaded."),
         ];
         ParameterPreset[] presets =
         [
@@ -430,6 +473,6 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
             new("Context", new() { ["chunk"] = "2000", ["overlap"] = "300", ["topk"] = "4" }, BuiltIn: true),
         ];
         return new ParameterPanelViewModel<SearchOptions>(services.Pages, "search", parameters,
-            panel => new SearchOptions(panel.GetInt("topk"), panel.GetInt("chunk"), panel.GetInt("overlap")), presets);
+            panel => new SearchOptions(panel.GetInt("topk"), panel.GetInt("chunk"), panel.GetInt("overlap"), panel.GetBool("rerank")), presets);
     }
 }

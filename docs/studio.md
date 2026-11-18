@@ -54,7 +54,9 @@ is chosen when it loads).
 - **Read aloud.** With a text-to-speech model resident, every answer has a speaker button, and *Read answers aloud* reads each
   finished answer by itself. Markdown is not spoken (code blocks, link addresses, table and list markup are dropped). The audio is
   played while it is generated (the streaming synthesis call, so the first words start before the whole answer is synthesized);
-  clicking the button again, or turning the setting off, stops it. A new answer replaces one still being read.
+  clicking the button again, or turning the setting off, stops it. A new answer replaces one still being read. When the model
+  offers voices (Kokoro voices, the Qwen3-TTS speakers), the *Voice* choice below the model picker selects one (remembered in the
+  settings, `Voice.SynthesisVoice`; a model that lacks the remembered voice reads with its default one without forgetting the choice).
 - **Pictures.** With an image-generation model resident, `/image a lighthouse at dusk` (or the picture button next to the
   microphone, which uses the whole message) generates one image with the model's own defaults and shows it inline as the answer,
   with model, size, seed and time under it. The PNG is stored in the conversation (as a generated-image attachment), regenerating
@@ -488,6 +490,10 @@ has one, and the *Results* closest passages (cosine similarity, shown as a score
 *Open* shows in the system's program and *Copy* puts on the clipboard. Indexing and searching are runs of the queue (progress per
 document, cancel, history), the history restores a past search with its parameters, and every search keeps `results.json` in the
 outputs. Presets *Precise*, *Balanced* and *Context*. The index itself is not saved: it is rebuilt after a restart.
+With a reranking model resident (kind *Reranker*, e.g. ms-marco-MiniLM-L6-v2, bge-reranker or Qwen3-Reranker), the *Rerank results*
+switch appears: a search then takes the nearest 4x *Results* passages (at least 20) from the index, scores each against the question
+with the reranker (a cross-encoder reads both together) and lists the best of them by the reranker's score; the run records the
+reranker in its metadata. The same model answers `/v1/rerank` (also `/v2/rerank`, `/rerank`) of the embedded server.
 
 **Vision** (one page for `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`, `image-segmentation`, `ocr` and `image-upscaling`; the mode follows the
 kind of the chosen model, and the parameters that do not apply are hidden). Choose or drop an image (PNG through the engine's codec,
@@ -519,6 +525,12 @@ with a small built-in font (upper-case letters, digits and basic punctuation).
 ![Vision zero-shot](images/studio/studio-vision-zero-shot.png)
 ![Vision segmentation](images/studio/studio-vision-segmentation.png) ![Vision OCR](images/studio/studio-vision-ocr.png)
 ![Vision upscaling](images/studio/studio-vision-upscale.png)
+
+*Embedding and reranking models* are recognized without a package: a Hugging Face folder by its `config.json` (an encoder `...Model`
+architecture of a BERT-like type, a sentence-transformers `modules.json` or "embed" in the name: embeddings; an encoder
+`...ForSequenceClassification` with one label, or "rerank" in the name: reranker; a Qwen3-TTS configuration: text to speech) and a
+GGUF file by its architecture (`bert`, `nomic-bert`, `jina-bert-*`; a ranking `pooling_type` or "rerank" in the name: reranker). A
+package whose graphs include `classify` is a reranker. They load through the load panel without context and cache settings.
 
 The library recognizes the image models without a package: a diffusers folder (`model_index.json`), a single-file checkpoint (its
 safetensors header or GGUF tensor table names the UNet, or a GGUF names a diffusion transformer such as FLUX; a `.ckpt` only by its
@@ -694,7 +706,11 @@ versions kept them.
 `GgufRealModelTests` takes the GGUF and whisper.cpp files people download (transcribe.cpp whisper GGUF, a whisper.cpp file named
 `.gguf`, large-v3-turbo, the SDXL-Turbo GGUF) through library recognition, the runtime and the Transcribe / Image pages, and checks that
 FLUX GGUF files are listed as image models and named as not supported yet. `SpeechRealModelTests` loads `ggml-tiny.en.bin` (transcribes `jfk.wav` on the Transcribe page) and OuteTTS with its WavTokenizer
-vocoder (speaks on the Speak page) through the real runtime, when the files are on disk. `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
+vocoder (speaks on the Speak page) through the real runtime, when the files are on disk. `StudioEndToEndRealTests` drives the chat, Search and server features on real models headlessly (skipped when a model is missing): voice chat
+(the microphone path with a fake device delivering `jfk.wav`, whisper-tiny dictation, a Qwen3-0.6B answer, Kokoro reading it aloud), the
+voice choice of Qwen3-TTS CustomVoice, `/image` with tiny-random-SD (PNG stored, kept out of the next turn), Search over text files with
+all-MiniLM-L6-v2 and reranking with ms-marco-MiniLM-L6-v2, and the embedded server answering transcriptions, speech, image generations,
+embeddings and rerank over HTTP. `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
 calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here. With
 `SHARPLIGHT_INSPECTOR_PACKAGES` (a list of `.slm` paths, separated like `PATH`), the inspector renders every tab of those
 packages in both themes.

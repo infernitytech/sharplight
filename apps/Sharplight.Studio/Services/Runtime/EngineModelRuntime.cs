@@ -290,15 +290,18 @@ internal sealed class EngineModelRuntime : IModelRuntime
     {
         var device = ResolveDevice(request.Settings.DeviceId);
         var idle = _residency().IdleUnloadMinutes;
-        if (TaskKindClients.Handles(request.Kind) || request.Kind == ModelKindCatalog.Embeddings)
+        if (TaskKindClients.Handles(request.Kind) || request.Kind is ModelKindCatalog.Embeddings or ModelKindCatalog.Reranker)
         {
             var task = new EngineTaskModel(request, device, Host, pinned, RaiseChanged);
             registration = new ModelRegistration
             {
                 Name = request.Id,
-                Loader = new ObservedLoader(request.Kind == ModelKindCatalog.Embeddings
-                    ? CreateEmbeddingLoader(request, device, task)
-                    : CreateTaskLoader(request, device, task), task.OnInstanceLoaded),
+                Loader = new ObservedLoader(request.Kind switch
+                {
+                    ModelKindCatalog.Embeddings => CreateRetrievalLoader(request, device, task, reranker: false),
+                    ModelKindCatalog.Reranker => CreateRetrievalLoader(request, device, task, reranker: true),
+                    _ => CreateTaskLoader(request, device, task),
+                }, task.OnInstanceLoaded),
                 Pinned = pinned,
                 IdleTimeout = idle > 0 ? TimeSpan.FromMinutes(idle) : null,
                 Description = request.Path,
@@ -329,20 +332,18 @@ internal sealed class EngineModelRuntime : IModelRuntime
         return Devices.FirstOrDefault() ?? throw new InvalidOperationException("No execution provider is available on this machine.");
     }
 
-    private RetrievalModelLoader CreateEmbeddingLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model)
+    private RetrievalModelLoader CreateRetrievalLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model, bool reranker)
     {
         var disabled = new HashSet<string>(request.DisabledFeatures, StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<DeviceSlot> slots = device.IsSplit ? SplitSlots(disabled) : [new DeviceSlot { Device = Open(device, disabled) }];
-        var options = new EmbeddingLoadOptions
-        {
-            ModelPath = request.Path,
-            Devices = [.. slots],
-            DisabledFeatures = disabled,
-            AllowReducedPrecision = request.Settings.AllowReducedPrecision,
-            Log = model.OnLoadMessage,
-            Progress = new SynchronousProgress<LoadProgress>(model.OnLoadProgress),
-        };
-        return new RetrievalModelLoader(ModelKind.Embedding, options, [.. slots.Select(slot => new ComputeDeviceMemoryDomain(slot.Device))], _engine.Services);
+        PackedModelLoadOptions options = reranker ? new RerankerLoadOptions() : new EmbeddingLoadOptions();
+        options.ModelPath = request.Path;
+        options.Devices = [.. slots];
+        options.DisabledFeatures = disabled;
+        options.AllowReducedPrecision = request.Settings.AllowReducedPrecision;
+        options.Log = model.OnLoadMessage;
+        options.Progress = new SynchronousProgress<LoadProgress>(model.OnLoadProgress);
+        return new RetrievalModelLoader(reranker ? ModelKind.Reranker : ModelKind.Embedding, options, [.. slots.Select(slot => new ComputeDeviceMemoryDomain(slot.Device))], _engine.Services);
     }
 
     private TaskModelLoader CreateTaskLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model)
