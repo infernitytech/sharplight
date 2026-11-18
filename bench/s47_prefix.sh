@@ -1,10 +1,11 @@
 #!/bin/bash
 # Prefix caching against vLLM (docs/benchmarks.md section 47): one server per engine and cache setting (64 sequences, 8192-token
-# contexts, the same KV capacity), then bench/prefix_bench.py: 1500-token shared system prompt at 16 and 64 concurrent chats,
+# contexts, the same KV capacity in tokens), then bench/prefix_bench.py: 1500-token shared system prompt at 16 and 64 concurrent chats,
 # 16 multi-turn conversations of 6 turns resending their history, and a RAG load over 4 shared 1000-token documents.
 # usage: s47_prefix.sh <out dir> <model dir> [engine...]   engines: sharplight sharplight-nocache vllm vllm-nocache (default: all)
-# env: VLLM_VENV, SHARPLIGHT_SERVER (default: this checkout's Release build), PORT (18090), KV_TOKENS (Sharplight pool, 114688),
-#      VLLM_MEM (vLLM --gpu-memory-utilization, 0.9), ROUNDS (2)
+# env: VLLM_VENV, SHARPLIGHT_SERVER (default: this checkout's Release build), PORT (18090), KV_TOKENS (KV capacity of both engines in
+#      tokens, 73728), KV_BYTES_PER_TOKEN (147456: Qwen3-8B, 36 layers x 8 KV heads x 128 x K/V x f16; vLLM --kv-cache-memory-bytes =
+#      KV_TOKENS x this), ROUNDS (2)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT=${1:?out dir}; MP=${2:?model dir}; shift 2
 ENGINES=${*:-"sharplight sharplight-nocache vllm vllm-nocache"}
@@ -17,11 +18,11 @@ for E in $ENGINES; do
     sharplight|sharplight-nocache)
       SRV=${SHARPLIGHT_SERVER:-$HERE/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight}
       EXTRA=(); [ "$E" = sharplight-nocache ] && EXTRA=(--no-prefix-cache)
-      "$SRV" serve "$MP" --slots 64 --ctx 8192 --kv-tokens "${KV_TOKENS:-114688}" --listen "http://127.0.0.1:$PORT" --temp 0 "${EXTRA[@]}" > "$LOG" 2>&1 & ;;
+      "$SRV" serve "$MP" --slots 64 --ctx 8192 --kv-tokens "${KV_TOKENS:-73728}" --listen "http://127.0.0.1:$PORT" --temp 0 "${EXTRA[@]}" > "$LOG" 2>&1 & ;;
     vllm|vllm-nocache)
       EXTRA=(--enable-prefix-caching); [ "$E" = vllm-nocache ] && EXTRA=(--no-enable-prefix-caching)
       VLLM_USE_FLASHINFER_SAMPLER=0 "$VLLM_VENV/bin/vllm" serve "$MP" --served-model-name m --max-model-len 8192 --max-num-seqs 64 \
-        --gpu-memory-utilization "${VLLM_MEM:-0.9}" --enable-prompt-tokens-details --port "$PORT" "${EXTRA[@]}" > "$LOG" 2>&1 & ;;
+        --kv-cache-memory-bytes $(( ${KV_TOKENS:-73728} * ${KV_BYTES_PER_TOKEN:-147456} )) --enable-prompt-tokens-details --port "$PORT" "${EXTRA[@]}" > "$LOG" 2>&1 & ;;
     *) echo "unknown engine $E"; exit 1 ;;
   esac
   SP=$!; T0=$SECONDS; OK=0
