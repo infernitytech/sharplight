@@ -5559,3 +5559,354 @@ Same runner and commands; "Metal, int_dot off" runs `--disable-features int_dot`
 Split-K raises prefill by 20-64 % over round 1 (the 64 x 128 tile left most of the GPU idle at 512 rows of these narrow models);
 Metal prefill is now 3-3.4x MoltenVK. `int_dot` stays on: +5 to +25 % decode for Q4_K_M, Q8_0 within the runner's noise. The
 llama.cpp numbers keep the caveat above (reduced path on this paravirtual GPU).
+
+## 42. LLM round 6: per-model gap to vLLM and llama.cpp, SD3.5 attention regression fixed, dual GEMM for quantized weights (2026-11-17)
+
+Base: `develop` at `b4a5e60d` (v0.2.0 merged back), branch `perf/llm-r6`. GPU 1 (RTX PRO 4500 Blackwell, 32 GB, 82 SMs), vLLM
+0.33.0, llama.cpp b11177 (CUDA build). Raw output in [`bench/results/s42/`](../bench/results/s42).
+
+### 42.1 Gap table (identical procedure)
+
+`bench/s42_gap.sh` per engine and model, table from `bench/s42_summarize.py`: one process run per engine and model (Sharplight:
+one per prompt length), per length one warm-up and 5 timed prefills of 512 / 2048 / 8192 random token ids, the **median of the
+5** on every side, no prefix caching. Decode: Sharplight's median of 64 steps after the prompt (512 / 8192 tokens); vLLM's median
+of 5 128-token runs at depth 16 / 8192 (`bench/vllm_single.py`); llama-bench's tg128 (median of 5) after an empty context. Each
+row compares the same weights (the Hugging Face checkpoint for Sharplight and vLLM, the same GGUF file for Sharplight and
+llama.cpp, `-ngl 99 -fa 1`). Engines ran back to back per model, the GPU otherwise idle. Tokens/s, higher is better; measured
+before the changes of 42.4 (the Llama-3.1-8B Q4_K_M row after them is in 42.4).
+
+| model | weights | other engine | metric | Sharplight | other | Sharplight / other |
+|---|---|---|---|---:|---:|---:|
+| qwen3-8b | HF bf16 | vLLM | pp512 | 7276 | 8203 | 0.89x |
+| qwen3-8b | HF bf16 | vLLM | pp2048 | 7611 | 8782 | 0.87x |
+| qwen3-8b | HF bf16 | vLLM | pp8192 | 6733 | 7661 | 0.88x |
+| qwen3-8b | HF bf16 | vLLM | tg@d16 (SL: after 512) | 52 | 52 | 1.01x |
+| qwen3-8b | HF bf16 | vLLM | tg@d8192 | 49 | 48 | 1.02x |
+| qwen3-8b-fp8 | HF FP8 | vLLM | pp512 | 10260 | 14446 | 0.71x |
+| qwen3-8b-fp8 | HF FP8 | vLLM | pp2048 | 10673 | 15024 | 0.71x |
+| qwen3-8b-fp8 | HF FP8 | vLLM | pp8192 | 9086 | 12346 | 0.74x |
+| qwen3-8b-fp8 | HF FP8 | vLLM | tg@d16 (SL: after 512) | 87 | 87 | 1.01x |
+| qwen3-8b-fp8 | HF FP8 | vLLM | tg@d8192 | 77 | 77 | 1.00x |
+| llama3.1-8b | HF bf16 | vLLM | pp512 | 7372 | 8532 | 0.86x |
+| llama3.1-8b | HF bf16 | vLLM | pp2048 | 7722 | 8836 | 0.87x |
+| llama3.1-8b | HF bf16 | vLLM | pp8192 | 6938 | 7806 | 0.89x |
+| llama3.1-8b | HF bf16 | vLLM | tg@d16 (SL: after 512) | 53 | 53 | 1.01x |
+| llama3.1-8b | HF bf16 | vLLM | tg@d8192 | 50 | 49 | 1.02x |
+| llama3.1-8b-q4_k_m | GGUF Q4_K_M | llama.cpp | pp512 | 6496 | 7121 | 0.91x |
+| llama3.1-8b-q4_k_m | GGUF Q4_K_M | llama.cpp | pp2048 | 6402 | 6993 | 0.92x |
+| llama3.1-8b-q4_k_m | GGUF Q4_K_M | llama.cpp | pp8192 | 5841 | 6388 | 0.91x |
+| llama3.1-8b-q4_k_m | GGUF Q4_K_M | llama.cpp | tg128 (SL: after 512) | 138 | 149 | 0.93x |
+| qwen3.8-27b-q8_0 | GGUF Q8_0 | llama.cpp | pp512 | 1827 | 1885 | 0.97x |
+| qwen3.8-27b-q8_0 | GGUF Q8_0 | llama.cpp | pp2048 | 1875 | 1869 | 1.00x |
+| qwen3.8-27b-q8_0 | GGUF Q8_0 | llama.cpp | pp8192 | 1699 | 1815 | 0.94x |
+| qwen3.8-27b-q8_0 | GGUF Q8_0 | llama.cpp | tg128 (SL: after 512) | 29 | 28 | 1.05x |
+| qwen3-30b-a3b-q4_k_m | GGUF Q4_K_M | llama.cpp | pp512 | 6984 | 5976 | 1.17x |
+| qwen3-30b-a3b-q4_k_m | GGUF Q4_K_M | llama.cpp | pp2048 | 8691 | 5896 | 1.47x |
+| qwen3-30b-a3b-q4_k_m | GGUF Q4_K_M | llama.cpp | pp8192 | 7340 | 5315 | 1.38x |
+| qwen3-30b-a3b-q4_k_m | GGUF Q4_K_M | llama.cpp | tg128 (SL: after 512) | 215 | 257 | 0.84x |
+| qwen3.6-35b-a3b-q4_k_m | GGUF UD-Q4_K_M | llama.cpp | pp512 | 6859 | 4987 | 1.38x |
+| qwen3.6-35b-a3b-q4_k_m | GGUF UD-Q4_K_M | llama.cpp | pp2048 | 7962 | 4892 | 1.63x |
+| qwen3.6-35b-a3b-q4_k_m | GGUF UD-Q4_K_M | llama.cpp | pp8192 | 6835 | 4749 | 1.44x |
+| qwen3.6-35b-a3b-q4_k_m | GGUF UD-Q4_K_M | llama.cpp | tg128 (SL: after 512) | 191 | 189 | 1.01x |
+| gpt-oss-20b-mxfp4 | GGUF MXFP4 | llama.cpp | pp512 | 9819 | 11399 | 0.86x |
+| gpt-oss-20b-mxfp4 | GGUF MXFP4 | llama.cpp | pp2048 | 10594 | 11416 | 0.93x |
+| gpt-oss-20b-mxfp4 | GGUF MXFP4 | llama.cpp | pp8192 | 8888 | 10926 | 0.81x |
+| gpt-oss-20b-mxfp4 | GGUF MXFP4 | llama.cpp | tg128 (SL: after 512) | 229 | 227 | 1.01x |
+
+Where the gap is (per-op profiles, `SHARPLIGHT_VK_PROFILE=1`, 2048-token prefill; raw in `bench/results/s42/profiles/`):
+
+* **Dense bf16 (Qwen3-8B, Llama-3.1-8B: 0.86-0.89x of vLLM)**: GEMMs are 85 % of the GPU time (Qwen3-8B: dual gate / up 140
+  TFLOPS, down 118, q / o 125, k / v 112), attention 4.6 %, norms 3.6 %. vLLM's GEMMs run at ~160 TFLOPS on these shapes; the
+  gap is the GEMM fetch (42.3 / section 40.4).
+* **FP8 (Qwen3-8B-FP8: 0.71-0.74x)**: GEMMs 81 % (gate / up 199 TFLOPS, down 189, q / o 184, k / v 159), activation
+  quantization 4 %, attention 6.4 %, norms 5.6 %. Even at vLLM's ~235 TFLOPS the GEMMs alone would leave 0.83x: the rest
+  (quantization launches, norms, attention) is a third of the gap. See 42.3.
+* **GGUF dense (Llama-3.1-8B Q4_K_M 0.91x, Qwen3.8-27B Q8_0 0.94-1.00x of llama.cpp)**: Llama's gate / up ran as two GEMMs and an
+  elementwise launch (4.3 %); fixed in 42.4. The 27B (32 GB GPU, 29 GB of Q8_0 weights) runs 512-row passes; its time is the
+  int8 GEMM (MMQ) and the delta-rule chunks of its linear-attention layers.
+* **MoE (now round 6b's)**: Qwen3-30B-A3B and Qwen3.6-35B-A3B prefill 1.17-1.63x of llama.cpp, but Qwen3-30B-A3B decode 0.84x;
+  gpt-oss-20b prefill 0.81-0.93x (its MXFP4 expert GEMM is 52 % of the pass at 107 TFLOPS), decode level.
+* **Did not run**: Gemma-3-12B from Hugging Face: Sharplight's HF importer does not take `Gemma3ForConditionalGeneration`
+  (the multimodal wrapper the 12B ships as; Gemma-3 GGUFs load), and vLLM stalled on the network file system while loading it;
+  Qwen3.8-27B-FP8 (29 GB of weights): Sharplight needs 28.4 GiB plus 2.4 GiB for the output layer, which do not fit one 32 GB
+  GPU without `--cpu-offload`; vLLM did not start within the session either (it needs the same weights plus its KV cache).
+  Qwen3-30B-A3B-FP8 (31 GB) fits neither.
+
+### 42.2 SD3.5 Medium at 1024 px: root cause of the split-f16 attention regression
+
+Section 39's power-of-two scaling of the split-f16 flash kernels (`fa` / `fe` with FA_SPLIT, every query row, key row and V
+tile scaled into [2^14, 2^15) before the hi / lo split) dropped SD3.5 Medium's 1024 px text-to-image parity against diffusers
+from 38.4 to 27.0 dB (GGUF 30.2 to 26.5 dB); it was reverted for v0.2.0. Bisected here:
+
+* The only split-f16 attention in the SD3.5 pipeline is the CLIP-L / CLIP-G text encoders' (causal `fa`, 77 tokens). The
+  transformer runs single f16 products (its RMS-normed queries and keys, `F16ProductsAttribute`), the VAE's single-head
+  attention (head size 512) another kernel. `VaeDecodesDiffusersLatents` (new) decodes diffusers' final latents at 512 and 1024:
+  78.1 / 76.5 dB with either kernel.
+* The scaling is exact in f16's normal range, but it moves the rounding of the lo parts of small values (subnormal f16 when
+  unscaled): the CLIP hidden states changed by up to 9e-3 absolute (relative RMS 4e-5 to 7e-4 between the two kernels, about as
+  large as either one's distance to a CPU run of the same graph, so neither is more accurate). The 28-step 1024 px trajectory
+  follows the text conditioning that closely: 38.4 → 27.0 dB. Scaling only Q, only K or only V each moved it as well; with all
+  three scales at 1 the outputs were bit-identical to the old kernel.
+* Fix (`split_scale_outside`, common.slang): scale 1 while the row's or tile's largest magnitude is in [2^-6, 2^15), the power
+  of two outside, where the hi parts would overflow (XTTS's 1e10 latents, `SplitHalfLargeMagnitudes`) or the largest values
+  lose bits to f16's subnormals. In range the kernels round exactly as before 622e6bd9 (the CLIP outputs are bit-identical).
+
+| test | before the fix | after |
+|---|---|---|
+| Sd35MediumTests.TextToImageMatchesDiffusers diffusers 512 / 1024 | 51.6 / 27.0 dB | 48.2 / 38.4 dB |
+| (gguf) 512 / 1024 | 41.8 / 26.5 dB | 43.1 / 30.2 dB |
+| FullAttentionTests (incl. SplitHalfLargeMagnitudes) | 30 / 30 | 30 / 30 |
+| XttsCloningTests (no f32_products opt-out) | 5 / 5 | 5 / 5 |
+
+The diffusers 1024 threshold is now 35 dB (was 30), so a rounding change in the text encoders shows up as a failure.
+
+### 42.3 FP8 GEMM: what limits it (lever 1, not solved)
+
+Experiments on [4096 → 12288] at 2048 rows (`BenchTests.MatMulPrefill`, the quantize launch included; 197 TFLOPS as shipped):
+
+| experiment (`F8_EXP` macro, experiment build) | ms | TFLOPS |
+|---|---:|---:|
+| as shipped (8 subgroups, 128x128x128, 222 registers, 1 workgroup per SM) | 1.044 | 197 |
+| no global loads, no staging, no barriers (MMAs, shared-memory fragment loads and block scaling only) | 0.722 | 286 |
+| ... and the fragments loaded once (MMAs + scaling) | 0.700 | 294 |
+| ... without the block scaling (MMAs + shared loads) | 0.636 | 324 |
+| MMAs only | 0.620 | 333 |
+| loads, staging and barriers only (no MMAs) | 0.675 | 305 |
+| 128x64 tiles, 3 workgroups per SM: loads / staging only | 0.948 | 218 |
+
+* The FP8 MMAs run at ~335 TFLOPS on this card (not the ~520 an earlier note assumed); the block scaling costs 8 %, the
+  shared-memory fragment loads 3 %. The fetch alone (0.675 ms) moves 1.6 GB from L2 at 2.4 TB/s; the 128x64 tile, with three
+  workgroups per SM, moves 1.5x the bytes at 2.5 TB/s: L2 bandwidth, not latency, bounds the fetch. Fetch and MMAs take
+  about the same time and overlap to 1.04 ms (perfect overlap: ~0.72).
+* Two workgroups per SM are out of reach for a 128x128 tile: the per-block scaling needs a second accumulator set, and
+  the driver gives a 4-subgroup 128x128 tile (64x64 per subgroup) 255 registers with spills (94-122 TFLOPS), with or
+  without register prefetch; preventing the B-fragment hoisting did not lower the count (238 vs 222).
+* Activations read straight into the MMA fragments (new `F8_AFRAG` layout written by the quantization: each lane's
+  operands of a 128-value block as two 16-byte loads; only the weights staged, double buffered, one barrier per step; layout
+  probed and NaN on mismatch): 178 TFLOPS, because building the A fragments from bytes costs ~15 %; with the fragment
+  construction taken out (an invalid experiment) it reaches 207. Not kept; the 207 shows the ceiling of single-workgroup
+  double buffering at this tile size is ~+5 %.
+* Other layouts (4,2,2,4 / 1,8,8,1): 190 TFLOPS. 16-byte shared stores: no change (the compiler already merges them).
+
+So a FP8 GEMM at vLLM's ~235 TFLOPS needs the fetch and the MMAs to overlap almost fully at 1.6 GB of L2 traffic, which the
+48 KB of shared memory per workgroup (one 36 KB stage) and the register budget do not allow with register-staged loads. The
+remaining options are bigger tiles with less L2 traffic per FLOP (256-wide tiles need more than 48 KB per stage or K steps of
+64 with two accumulator sets) or asynchronous copies the Vulkan driver does not expose today.
+
+### 42.4 Dual gate / up GEMM for quantized weights (kept)
+
+The dual gemm_cm2 (gate and up in one launch storing `silu(gate) * up`, section 39) already decoded generic formats 16 values
+at a time; the lowering offered it only to f16 / bf16. It now serves every format gemm_cm2 decodes that way where the separate
+matmuls also run gemm_cm2 (not the int8 GEMM, not MXFP4R's 32-value raw units). Bit-identical to the separate launches
+(`DualGemmTests` with q4_k, q6_k, q5_k, q4_0 and the down projection after a q4_k dual).
+
+| measurement | before | after |
+|---|---:|---:|
+| Q4_K [4096 → 14336] x2 + SiLU·mul at 2048 rows | 4.28 ms (112 TFLOPS) | 3.77 ms (128) |
+| Q6_K [4096 → 12288] x2 + SiLU·mul at 2048 rows | 4.42 ms | 3.87 ms |
+| Llama-3.1-8B Q4_K_M prefill 2048 (median of 5, two runs each) | 6356 / 6347 tok/s | 6814 / 6813 tok/s |
+
+Llama-3.1-8B Q4_K_M pp2048 goes from 0.92x to 0.97x of llama.cpp (6993 tok/s in 42.1).
+
+### 42.5 Stream-K without a reduction launch (lever 2, tried, not kept)
+
+Both the FP8 GEMM and gemm_cm2 got a stream-K form in one launch: G workgroups (one per SM for the FP8 tile, two for the bf16
+tile) run all but the last two waves of tiles whole in launch order, then share the remaining G to 2G tiles' K steps evenly.
+A tile cut in two is started by the workgroup whose range ends in it (its first work, accumulators to a scratch slot, a flag
+raised with a device-scope release) and finished by the next workgroup as its last work (it polls the flag with its first
+subgroup, loads the accumulators and continues in the same K order), so every output sums its K steps exactly as the plain
+launch: bit-identical, no reduction launch, no deadlock (a workgroup only waits for its predecessor's first work).
+
+| GEMM at 2048 rows | plain | stream-K |
+|---|---:|---:|
+| FP8 [12288 → 4096] (512 tiles, 6.2 waves of 82) | 1.178 ms | 1.163 ms |
+| FP8 [4096 → 4096] | 0.384 ms | 0.372 ms |
+| FP8 [4096 → 1024] (128 tiles) | 0.122 ms | 0.120 ms |
+| bf16 [12288 → 4096] (512 tiles, 3.1 waves of 164) | 1.921 ms | 1.948 ms |
+| bf16 [4096 → 4096] | 0.573 ms | 0.583 ms |
+| Qwen3-8B-FP8 prefill 2048, end to end (two runs each) | 190.5 / 190.5 ms | 190.9 / 190.8 ms |
+
+Greedy outputs with the FP8 stream-K were byte-identical (three prompts, `--ctx 8192`). The GEMM gains are 1-3 % for FP8 and
+negative for bf16, and nothing end to end: with two workgroups per SM a partial last wave is not idle time (the lone workgroup
+on an SM runs at nearly the SM's full rate), and with one per SM the fetch, not the wave quantization, sets the time. The first
+version that walked the K ranges in tile order lost L2 locality on the down projection (1.215 ms); the data-parallel waves
+first fixed that. A pointer placed after the 32-bit row count in the parameter block hung the GPU (the host packs the block
+without padding): pointers go before the count. Code kept out of the branch (diff in the round's notes).
+
+### 42.6 Greedy output
+
+Every change kept is bit-identical by construction and test: the attention fix restores the pre-622e6bd9 rounding for in-range
+data (the CLIP outputs of the SD3.5 pipeline are bit-identical to the old kernel's); the dual quantized GEMM equals the separate
+launches bit for bit (`DualGemmTests`, gate / up and the down projection reading its output). The FP8 stream-K experiment
+(not kept) gave byte-identical 200-token greedy outputs on Qwen3-8B-FP8 for a short, a ~1100-token and a ~4500-token prompt
+(`--ctx 8192`). A greedy rerun of Llama-3.1-8B Q4_K_M with and without the dual GEMM did not finish: the network file system
+holding the GGUF stalled for the rest of the session.
+
+### 42.7 Tests
+
+TESTS
+
+### 42.8 Next levers
+
+* FP8 GEMM (the largest dense gap, 0.71-0.74x): see 42.3; the activation quantization (4 % of the pass) and the norms (5.6 %)
+  can be fused (norms writing E4M3 rows directly), worth ~0.03x.
+* bf16 GEMM fetch (0.86-0.89x): the down projection's fetch alone takes as long as its MMAs (section 40.4).
+* Attention at 8192 tokens is 6-9 % of the dense passes; K/V double buffering in `fe` (lever 3) is still open.
+* Gemma-3 from Hugging Face (`Gemma3ForConditionalGeneration`) in the HF importer, so the dense table can include it.
+* MoE, serving and Qwen3.8-Flash-Next: round 6b.
+
+## 43. Serving and MoE against vLLM and llama.cpp: expert products of 16-64 sequences on the grouped GEMM (round 6b, 2026-11-17)
+
+Base: `develop` at `4c6c6e7a` ("before"), branch `perf/llm-r6b` ("after"). One RTX PRO 4500 (GPU 2, nothing else running on it;
+checkpoints on local disk). Section 42 is the parallel dense-model round.
+
+### 43.1 Procedure (identical on every engine)
+
+`bench/s43_serve.sh` (on top of `bench/s16_serve.sh`): per model one server per engine, 64 slots of 512 tokens (Sharplight
+`serve --slots 64 --ctx 512`, llama-server `-np 64 -c 32768 -ngl 99 -fa on`, vLLM `--max-num-seqs 64 --max-model-len 512`,
+prefix caching off), then `bench/loadgen.py` at 1 / 4 / 16 / 64 concurrent streams: closed loop, ~250-token random-word prompts,
+128 output tokens with `ignore_eos`, temperature 0, one concurrent warm-up request per worker, 8 / 6 / 4 / 3 requests per
+worker, **3 rounds per concurrency, median** (min..max) of the aggregate output tok/s; TTFT p50 and the per-stream decode rate
+(1000 / mean inter-token latency) are the medians over the rounds. Engines of one model ran back to back. Same weights per pair:
+the GGUF files for Sharplight and llama.cpp (b11177 CUDA), the Hugging Face checkpoint (`openai/gpt-oss-20b`, native MXFP4
+experts, bf16 rest) for Sharplight and vLLM 0.33.0 (Marlin MXFP4 MoE backend, FlashInfer attention, CUDA graphs). Tables:
+`bench/s43_serve_summarize.py bench/results/s43/serve-before bench/results/s43/serve-after`; raw JSON (with the servers'
+`/metrics` deltas) in [`bench/results/s43/`](../bench/results/s43).
+
+Models: Qwen3-30B-A3B Q4_K_M (128 experts, top 8), Qwen3.6-35B-A3B UD-Q4_K_M (256 experts, top 8), gpt-oss-20b (32
+experts, top 4) as MXFP4 GGUF and as the HF checkpoint. Qwen3-30B-A3B-FP8 (31 GB) does not leave vLLM room for a KV cache on
+the 32 GB card, so Qwen3-30B is compared with llama.cpp only.
+
+### 43.2 Gap table
+
+Output tok/s, higher is better; "SL / other" uses the after column.
+
+| model | weights | streams | SL before | SL after | other engine | other | SL / other | TTFT p50 SL / other (ms) | decode tok/s per stream SL / other |
+|---|---|---:|---:|---:|---|---:|---:|---|---|
+| Qwen3-30B-A3B | GGUF Q4_K_M | 1 | 211 | 211 | llama.cpp | 203 | 1.04x | 41 / 78 | 225 / 231 |
+| | | 4 | 421 | 427 | llama.cpp | 274 | 1.56x | 67 / 238 | 113 / 79 |
+| | | 16 | 646 | **958** | llama.cpp | 428 | 2.24x | 135 / 822 | 65 / 32 |
+| | | 64 | 1548 | 1568 | llama.cpp | 849 | 1.85x | 254 / 1029 | 28 / 15 |
+| gpt-oss-20b | GGUF MXFP4 | 1 | 231 | 234 | llama.cpp | 184 | 1.27x | 33 / 53 | 248 / 199 |
+| | | 4 | 478 | 483 | llama.cpp | 299 | 1.61x | 69 / 146 | 127 / 82 |
+| | | 16 | 675 | **1148** | llama.cpp | 439 | 2.61x | 106 / 608 | 78 / 31 |
+| | | 64 | 1953 | 2012 | llama.cpp | 792 | 2.54x | 180 / 891 | 36 / 14 |
+| gpt-oss-20b | HF MXFP4 | 1 | 178 | 179 | vLLM | 169 | 1.06x | 33 / 29 | 186 / 175 |
+| | | 4 | 383 | 384 | vLLM | 503 | 0.76x | 63 / 72 | 100 / 133 |
+| | | 16 | 602 | **1078** | vLLM | 1440 | 0.75x | 108 / 166 | 73 / 102 |
+| | | 64 | 1916 | 1996 | vLLM | 3243 | 0.62x | 181 / 372 | 36 / 61 |
+| Qwen3.6-35B-A3B | GGUF UD-Q4_K_M | 1 | | 193 | llama.cpp | 149 | 1.30x | 41 / 157 | 205 / 181 |
+| | | 4 | | 435 | llama.cpp | 148 | 2.95x | 109 / 549 | 118 / 59 |
+| | | 16 | | 778 | llama.cpp | 113 | 6.89x | 145 / 12035 | 52 / 24 |
+| | | 64 | | 1188 | llama.cpp | 303 | 3.93x | 270 / 4896 | 21 / 8 |
+
+Qwen3.6-35B-A3B (256 experts: the per-item bound stays 128, so before = after) was measured with the after build only.
+llama-server serves its hybrid delta-rule / attention layers poorly under concurrency (TTFT 12 s at 16 streams).
+
+* Against llama.cpp on the same GGUF Sharplight serves 1.04-2.6x the throughput (Qwen3.6: 1.3-6.9x) with a lower TTFT everywhere (llama-server's
+  64-stream rounds of gpt-oss spread 533..1183 tok/s). The single-stream decode of Qwen3-30B is level (225 against 231 tok/s).
+* Against vLLM on the same HF checkpoint Sharplight leads at one stream (1.06x, lower ITL) and is behind from 4 streams on
+  (0.62-0.76x after this round, 0.42-0.76x before). TTFT is lower than vLLM's from 4 streams on.
+* The HF checkpoint decodes slower than the GGUF on Sharplight (179 against 234 tok/s single stream) because its attention
+  projections and LM head are bf16 where the GGUF has Q8_0: the bf16 LM head [2880 → 201088] alone takes 1.34 ms of the
+  5.3 ms step. vLLM reads the same bf16 weights.
+
+### 43.3 Lever 1: expert products of 16-64 sequences on the grouped GEMM (per-item matvec up to half the expert count)
+
+The batched decode step of a MoE model ran its expert products on the per-item int-dot matvec up to 128 (token, slot) items and on the
+tensor-core grouped GEMM above. The per-item matvec reads an expert's weights once for every item routed to it; the grouped GEMM
+reads them once per expert tile. With 128 items and 32 experts (gpt-oss-20b at 32 sequences) every expert is read about 4 times.
+`BatchBench` (64 slots, 256-token contexts, greedy on the device, minimum GPU ms per step of 20) with the per-item bound forced to
+128 / 64 / 32 / 16 items (`SHARPLIGHT_MOE_MMVQ_MAX`):
+
+| model (experts x slots) | sequences | items | per-item ≤ 128 (before) | ≤ 64 | ≤ 32 | ≤ 16 | after (≤ experts / 2) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Qwen3-30B-A3B Q4_K_M (128 x 8) | 4 | 32 | 8.68 | 8.69 | 8.70 | 10.75 | 8.67 |
+| | 8 | 64 | 13.71 | 13.69 | 13.53 | 13.51 | 13.68 |
+| | 12 | 96 | 16.26 | 13.51 | 13.57 | 13.55 | 13.48 |
+| | 16 | 128 | 20.83 | 15.46 | 15.49 | 15.44 | 15.40 |
+| gpt-oss-20b MXFP4 GGUF (32 x 4) | 4 | 16 | 7.30 | 7.30 | 7.28 | 7.28 | 7.28 |
+| | 8 | 32 | 11.68 | 11.66 | 11.68 | 9.02 | 9.01 |
+| | 16 | 64 | 20.43 | 20.38 | 10.68 | 10.62 | 10.61 |
+| | 24 | 96 | 29.65 | 12.26 | 12.25 | 12.25 | 12.20 |
+| | 32 | 128 | 38.49 | 13.75 | 13.77 | 13.77 | 13.72 |
+| gpt-oss-20b HF MXFP4 (32 x 4) | 8 | 32 | 14.17 | 14.07 | 14.17 | 10.44 | 10.41 |
+| | 16 | 64 | 23.49 | 23.52 | 11.49 | 11.49 | 11.44 |
+| | 32 | 128 | 43.39 | 14.23 | 14.22 | 14.24 | 14.20 |
+
+The crossover sits at about one item per two experts on both models (Qwen3-30B: 32 items per-item 8.7 ms against the GEMM's 10.8, 64
+items level; gpt-oss: 16 items level, 32 items 11.7 against 9.0). The per-item bound is now half the expert count, clamped to
+16-128, when the tensor-core grouped GEMM serves the larger steps; without tensor cores (scalar `moe_gemm`) it stays 128. Models with
+256 experts (Qwen3.6-35B-A3B) keep 128. The bound still covers the row-invariant speculative verification rows
+(`InvariantMatvecItems`), so MTP / n-gram verification stays bitwise equal to single-row decoding.
+
+Tried first and not kept: a **grouped int-dot matvec** (`moe_mmvq` reading the expert-sorted routing, one launch row per expert tile
+of up to 8 items, each weight chunk loaded once for the tile's items, the fused gate / up epilogue kept; bitwise equal to the per-item
+matvec). On Qwen3-30B-A3B it took 39.8 / 62.0 ms at 32 / 64 sequences against the GEMM's 18.8 / 25.4: once an expert sees several items the
+int8 dot products and the per-chunk K-quant unpacking (repeated for every item), not the weight traffic, appear to bound it (not
+profiled further).
+
+Serving effect (43.2): 16 streams Qwen3-30B-A3B 646 → 958 tok/s (+48 %), gpt-oss-20b GGUF 675 → 1148 (+70 %), HF 602 → 1078
+(+79 %; against vLLM 0.42x → 0.75x). 1, 4 and 64 streams are unchanged within 1-4 % (4 streams stay on the per-item matvec,
+64 streams were already on the GEMM).
+
+Greedy output: single-stream decoding and speculative verification rows run exactly the kernels they ran before (at most 8 / 4
+items per token, below every bound, and the row-invariant rows stay on the matvec), so their outputs are unchanged by
+construction. Batched steps of 4-16 sequences now take the f16 tensor-core GEMM where they took the int8 matvec, as steps of more
+than 16 sequences already did: those rows round differently (within the tolerances of `MoeTests`, new
+`MatvecRangeFollowsExpertCount`).
+
+### 43.4 Where the time goes against vLLM (gpt-oss-20b HF)
+
+`BatchBench` profile of the decode step (16 sequences, after; `SHARPLIGHT_VK_PROFILE=1`), 11.1 GPU ms per step:
+
+| op | ms per step |
+|---|---:|
+| expert GEMMs (fused gate / up [2880 → 5760] and down, MXFP4, `gemm_cm2` grouped) | 6.8 |
+| LM head [2880 → 201088] bf16 | 1.38 |
+| q / k / v / o projections bf16 | 2.2 |
+| attention (decode + combine) | 0.62 |
+| routing, gathers, norms, elementwise, top-k, sampling | ~1.0 (2400 small `fused[Add]` launches alone 0.33) |
+
+Host overhead is not the gap: the engine's step metric covers 99.4-99.6 % of the wall time at 64 streams (`metrics_delta` in the
+raw files). In serving, a 64-stream round is 192 requests x (250 prompt + 128 output) tokens: 422 steps of ~171 rows (64 decode
+rows plus chunked prefill of ~3 prompts), 29 ms each, 12.3 s per round against vLLM's 7.6 s. The decode-only step at 64 sequences
+is 18.5 ms (`BatchBench`), so about a third of the gap is the mixed prefill / decode steps and the rest the expert GEMMs and the bf16
+projections at 64-171 rows. vLLM's Marlin MXFP4 MoE reads the experts once per step for all rows with gate and up fused; ours
+fuses gate / up only in the checkpoint's own layout (HF) and runs the routing, the f16 gather of x and the SiLU epilogue as
+separate launches.
+
+### 43.5 Not measured: Qwen3.8-Flash-Next with CPU offload
+
+The UD-IQ1_S shards (66 GB) exceed the 60 GB local-disk budget of this round, and the shared network filesystem delivered
+1-2 MB/s for them during the session (a pre-read reached 16 GB in three hours; a 22 GB GGUF load through it hung in
+`fuse_get_req` and was killed). The Flash-Next comparison against llama.cpp (same split, MTP) is left for a session with the
+files on local disk; section 17.5 has the last single-GPU + CPU figures.
+
+### 43.6 Tests
+
+QWEN36_TESTS
+
+### 43.7 Next levers
+
+* **Mixed prefill / decode steps of MoE models** (gpt-oss at 64 streams: 29 ms per 171-row step against 18.5 ms for 64 decode
+  rows): the prompt chunks make the expert GEMMs taller; a token budget per step that keeps the GEMM tiles full, or decode-priority
+  scheduling with larger, rarer prefill chunks.
+* **Expert GEMM against Marlin**: gate / up as one dual GEMM with the SiLU-clamp epilogue (as the int-dot matvec already does),
+  the routing and the f16 gather in one launch, MXFP4 fetch at the bandwidth limit for 2-8 rows per expert.
+* **bf16 LM head / projections at decode** (HF checkpoints): 1.38 ms of 11.1 for the LM head at 16 sequences; FP8 or Q8 weight
+  copies are an accuracy trade, so first the bf16 skinny GEMM's own bandwidth.
+* Qwen3.8-Flash-Next with local files (43.5).
+
+### 43.8 Reproduce
+
+```bash
+export SHARPLIGHT_VK_DEVICES=2 CUDA_VISIBLE_DEVICES=2 GGUF_DIR=<gguf files> HF_DIR=<hf checkpoints> LLAMA_DIR=<llama.cpp runtimes>
+export VLLM_VENV=<venv with vLLM 0.33.0> LOADGEN_PY=python3 READY_TIMEOUT=10800   # vLLM's first start JIT-compiles FlashInfer
+bench/s43_serve.sh bench/results/s43/serve-before qwen3-30b-a3b gpt-oss-20b gpt-oss-20b-hf qwen3.6-35b-a3b   # base build
+ENGINES=sharplight SHARPLIGHT_SERVER=<after build>/sharplight bench/s43_serve.sh bench/results/s43/serve-after qwen3-30b-a3b gpt-oss-20b gpt-oss-20b-hf
+python3 bench/s43_serve_summarize.py bench/results/s43/serve-before bench/results/s43/serve-after
+# per-item bound sweep (43.3):
+SHARPLIGHT_MOE_MMVQ_MAX=64 bench/BatchBench/bin/Release/net11.0/BatchBench <model> --slots 64 --ctx 512 --depth 256 \
+  --sizes 1,2,4,8,12,16,24,32,64 --modes greedy --reps 20
+```

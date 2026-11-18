@@ -1,0 +1,6 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 5367 MiB, 12.95 W, 255 MHz, 405 MHz, 33, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 11823 MiB, 41.54 W, 2400 MHz, 13365 MHz, 38, P1
+gpu util,memused,power,smclk,memclk,temp,pstate: 88 %, 21092 MiB, 194.88 W, 2790 MHz, 13365 MHz, 52, P1
+3320503, dotnet, 5334 MiB
+3293956, VLLM::EngineCore, 11800 MiB
+3318904, <path>, 21082 MiB

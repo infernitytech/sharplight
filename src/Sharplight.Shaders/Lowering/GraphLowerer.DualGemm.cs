@@ -1,19 +1,19 @@
 using System.Globalization;
 using Sharplight.Graph;
-using Sharplight.Tensors;
 
 namespace Sharplight.Shaders.Lowering;
 
 public sealed partial class GraphLowerer
 {
     /// <summary>
-    /// Emits the dual gemm_cm2 of a matmul pair sharing x (gate / up of a gated FFN) with f16 or bf16 weights for the prefill batches
+    /// Emits the dual gemm_cm2 of a matmul pair sharing x (gate / up of a gated FFN) for the prefill batches
     /// <see cref="DualGemm2Serves"/> accepts: one launch reads the f16 activations once, multiplies both weight matrices (their
     /// 16-row fragments alternate in the B tile) and stores the fused elementwise group <paramref name="epilogueSource"/> defines as
     /// <c>epi2</c>, instead of two GEMMs writing two f32 products and an elementwise launch reading them back. Every product is
     /// accumulated exactly as in the separate GEMM (same K steps, same tensor-core operations), and the epilogue is the elementwise
     /// kernel's expression, so the output equals that of the separate launches. Returns the rows it serves, or null when it does
-    /// not apply.
+    /// not apply. Weights: f16, bf16 and the formats gemm_cm2 decodes 16 values at a time (K-quants, Q8_0, ...) where the separate
+    /// matmuls take gemm_cm2 too (not the int8 GEMM, not MXFP4R's 32-value raw units).
     /// </summary>
     private Func<long, bool>? EmitDualGemm2(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef weightA,
         TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, Value? output = null)
@@ -21,7 +21,7 @@ public sealed partial class GraphLowerer
         long rowsMax = x.Shape[0] * rowsPerLead;
         var layout = Gemm2Layout(Gemm2TileRows, splitHalf: false);
         if (!DiagnosticSwitches.DualGemm2 || !DiagnosticSwitches.Gemm2 || !DiagnosticSwitches.GemmHalfActivations || PreferWorkgroupMatrixGemm
-            || (weightA.Type != DataType.F16 && weightA.Type != DataType.BF16) || weightB.Type != weightA.Type
+            || weightB.Type != weightA.Type || WeightFormat(weightA.Type) is null || weightA.Type == ShaderTypes.MXFP4R || UseMmq(weightA.Type, n, k)
             || !CoopUsable(nodes[0], weightA.Type, k) || k % 64 != 0 || DiagnosticSwitches.GemmBlockK != 64 || layout[3] % 2 != 0
             || rowsMax <= DualGemm2MinRows)
         {

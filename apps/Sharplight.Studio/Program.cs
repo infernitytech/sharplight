@@ -1,5 +1,7 @@
 using System.CommandLine;
 using Avalonia;
+using Sharplight.Storage;
+using Sharplight.Studio.Services.Settings;
 using Velopack;
 
 namespace Sharplight.Studio;
@@ -21,11 +23,21 @@ internal static class Program
             Description = "Model store directory (overrides the settings and SHARPLIGHT_MODELS, like the command-line tools).",
             HelpName = "dir",
         };
-        var root = new RootCommand("Sharplight Studio: find, download, convert, chat with and serve local models.") { modelsDir };
+        var printStorage = new Option<bool>("--print-storage")
+        {
+            Description = "Print the resolved storage location (package folder, portable marker, config, data, models, cache, logs) and exit.",
+        };
+        var root = new RootCommand("Sharplight Studio: find, download, convert, chat with and serve local models.") { modelsDir, printStorage };
         var parsed = root.Parse(args);
         if (parsed.Errors.Count > 0 || args.Any(arg => arg is "--help" or "-h" or "-?" or "--version"))
         {
             return parsed.Invoke();
+        }
+
+        if (parsed.GetValue(printStorage))
+        {
+            Console.Out.Write(StorageReport.Create(StorageEnvironment.Process));
+            return 0;
         }
 
         ModelsDirectory = parsed.GetValue(modelsDir);

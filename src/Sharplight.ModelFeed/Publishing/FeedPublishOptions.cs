@@ -3,6 +3,9 @@ namespace Sharplight.ModelFeed.Publishing;
 /// <summary>Options of <see cref="FeedPublisher"/>.</summary>
 public sealed record FeedPublishOptions
 {
+    /// <summary>The channel to publish to (<see cref="FeedChannels.Unstable"/> for new versions), or <see langword="null"/> for a feed without channels.</summary>
+    public string? Channel { get; init; }
+
     /// <summary>Feed name in the service index.</summary>
     public string Name { get; init; } = "Sharplight model feed";
 

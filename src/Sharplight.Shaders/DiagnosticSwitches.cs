@@ -416,8 +416,11 @@ internal static class DiagnosticSwitches
     /// <summary>(token, slot) items up to which a per-item expert matvec beats grouping by expert.</summary>
     public static int MoeMatvecMaxItems { get; } = int.Parse(Read("SHARPLIGHT_MOE_MV_MAX") ?? "16", CultureInfo.InvariantCulture);
 
-    /// <summary>(token, slot) items up to which the per-item int-dot expert matvec beats grouping by expert.</summary>
-    public static int MoeIntDotMaxItems { get; } = int.Parse(Read("SHARPLIGHT_MOE_MMVQ_MAX") ?? "128", CultureInfo.InvariantCulture);
+    /// <summary>
+    /// (token, slot) items up to which the per-item int-dot expert matvec beats grouping by expert; 0 (default) for half the expert
+    /// count (16-128) with the tensor-core grouped GEMM, 128 without.
+    /// </summary>
+    public static int MoeIntDotMaxItems { get; } = int.Parse(Read("SHARPLIGHT_MOE_MMVQ_MAX") ?? "0", CultureInfo.InvariantCulture);
 
     /// <summary>Forced expert-matmul token tile, or 0 for the heuristic.</summary>
     public static int MoeTile { get; } = int.Parse(Read("SHARPLIGHT_MOE_TILE") ?? "0", CultureInfo.InvariantCulture);

@@ -13,6 +13,7 @@
 // in each of the last slots, as the serving engine's chunked prefill feeds them); "D+PxN" splits P*N prompt rows over N sequences.
 // --batch sets the decoder's rows per step (default 512). With --mixed, --profile takes the index of the mixed entry instead.
 using System.Diagnostics;
+using Sharplight;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Graph;
 using Sharplight.Llm;
@@ -20,6 +21,7 @@ using Sharplight.Models;
 using Sharplight.Llm.Serving;
 using Sharplight.Package;
 using Sharplight.Runtime;
+using Sharplight.Vulkan;
 
 var argv = args.ToList();
 string? Opt(string n, string? d = null)

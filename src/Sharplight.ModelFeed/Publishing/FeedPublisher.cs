@@ -6,8 +6,10 @@ namespace Sharplight.ModelFeed.Publishing;
 
 /// <summary>
 /// Writes a feed into a folder (upload it to object storage as is, package objects first and <c>index.json</c> last): adds built
-/// package versions (immutable), signs manifests, rewrites package indexes, catalog pages and the service index with the next
-/// sequence, and signs the index. Not thread safe: one publisher per feed folder at a time.
+/// package versions (immutable, stored once in <c>packages/&lt;id&gt;/&lt;version&gt;/</c> and shared by all channels), signs manifests,
+/// rewrites the channel's package indexes, catalog pages and service index with the channel's next sequence, and signs the index.
+/// <see cref="PromoteAsync"/> lists already published versions in another channel without copying them. Not thread safe: one
+/// publisher per feed folder at a time.
 /// </summary>
 public sealed class FeedPublisher
 {
@@ -55,18 +57,27 @@ public sealed class FeedPublisher
             var manifestBytes = await File.ReadAllBytesAsync(Path.Combine(folder, FeedLayout.ManifestFileName), cancellationToken).ConfigureAwait(false);
             var manifest = FeedJson.ReadManifest(manifestBytes);
             var label = $"{manifest.Id}@{manifest.Version}";
-            var packageIndex = ReadPackageIndex(feedFolder, manifest.Id) ?? new FeedPackageIndex { Id = manifest.Id };
+            var packageIndex = ReadPackageIndex(feedFolder, options.Channel, manifest.Id) ?? new FeedPackageIndex { Id = manifest.Id };
             var version = SemanticVersion.Parse(manifest.Version);
-            var existing = packageIndex.Versions.FirstOrDefault(entry => SemanticVersion.Parse(entry.Version) == version);
             var digest = FeedDigest.Of(manifestBytes);
-            if (existing is not null)
+            var storedPath = Path.Combine(feedFolder, FeedLayout.Manifest(manifest.Id, manifest.Version));
+            if (File.Exists(storedPath))
             {
-                if (existing.ManifestDigest != digest)
+                // Versions are stored once for all channels and never change.
+                if (FeedDigest.Of(await File.ReadAllBytesAsync(storedPath, cancellationToken).ConfigureAwait(false)) != digest)
                 {
                     throw new FeedFormatException($"{label} is published already with another manifest; versions are immutable, build a new version.");
                 }
 
-                unchanged.Add(label);
+                if (packageIndex.Versions.Any(entry => SemanticVersion.Parse(entry.Version) == version))
+                {
+                    unchanged.Add(label);
+                    continue;
+                }
+
+                packageIndex = AddVersion(packageIndex, Entry(manifest, digest, now));
+                WriteAtomic(feedFolder, FeedLayout.InChannel(options.Channel, FeedLayout.PackageIndex(manifest.Id)), FeedJson.Write(packageIndex, FeedJsonContext.Default.FeedPackageIndex));
+                added.Add(label);
                 continue;
             }
 
@@ -84,18 +95,82 @@ public sealed class FeedPublisher
             File.Move(target + ".tmp", target, overwrite: true);
             WriteAtomic(feedFolder, FeedLayout.Manifest(manifest.Id, manifest.Version), manifestBytes);
             WriteAtomic(feedFolder, FeedLayout.ManifestSignature(manifest.Id, manifest.Version), key.SignDocument(manifestBytes, "package-manifest"));
-            var entry = new FeedPackageVersion
+            packageIndex = AddVersion(packageIndex, Entry(manifest, digest, now));
+            WriteAtomic(feedFolder, FeedLayout.InChannel(options.Channel, FeedLayout.PackageIndex(manifest.Id)), FeedJson.Write(packageIndex, FeedJsonContext.Default.FeedPackageIndex));
+            added.Add(label);
+        }
+
+        var (sequence, count) = await ReindexAsync(feedFolder, key, options, cancellationToken).ConfigureAwait(false);
+        return new FeedPublishResult(sequence, added, unchanged, count);
+    }
+
+    /// <summary>
+    /// Lists already published versions in <paramref name="channel"/> (typically <see cref="FeedChannels.Stable"/>) without copying
+    /// package files, and republishes that channel's index. The state is taken from <paramref name="fromChannel"/> when the version is
+    /// listed there (a yanked version cannot be promoted), otherwise from the manifest.
+    /// </summary>
+    /// <param name="feedFolder">The feed folder.</param>
+    /// <param name="channel">The target channel.</param>
+    /// <param name="packages">Versions as <c>id@version</c>, or <c>id</c> for the latest version listed in <paramref name="fromChannel"/>.</param>
+    /// <param name="fromChannel">The channel the versions come from (for <c>id</c> without version and for the state), or <see langword="null"/>.</param>
+    /// <param name="key">The feed signing key.</param>
+    /// <param name="options">Feed name, validity, page size (its channel is ignored).</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What was written.</returns>
+    /// <exception cref="KeyNotFoundException">A version is not published.</exception>
+    /// <exception cref="FeedFormatException">A version is yanked in <paramref name="fromChannel"/>.</exception>
+    public async Task<FeedPublishResult> PromoteAsync(string feedFolder, string channel, IReadOnlyList<string> packages, string? fromChannel, FeedSigningKey key, FeedPublishOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(packages);
+        ArgumentNullException.ThrowIfNull(key);
+        options = (options ?? new FeedPublishOptions()) with { Channel = channel };
+        RequireKeyInKeySet(feedFolder, key);
+        var now = _time.GetUtcNow();
+        var added = new List<string>();
+        var unchanged = new List<string>();
+        foreach (var request in packages)
+        {
+            var at = request.IndexOf('@', StringComparison.Ordinal);
+            var id = at < 0 ? request : request[..at];
+            var source = fromChannel is null ? null : ReadPackageIndex(feedFolder, fromChannel, id);
+            string versionText;
+            if (at >= 0)
             {
-                Version = manifest.Version,
-                ManifestDigest = digest,
-                Size = file.Size,
-                Published = now,
-                State = manifest.State ?? new PackageState(),
-                Requirements = manifest.Requirements,
-                Dependencies = manifest.Dependencies,
-            };
-            packageIndex = packageIndex with { Versions = [.. packageIndex.Versions.Append(entry).OrderBy(item => SemanticVersion.Parse(item.Version))] };
-            WriteAtomic(feedFolder, FeedLayout.PackageIndex(manifest.Id), FeedJson.Write(packageIndex, FeedJsonContext.Default.FeedPackageIndex));
+                versionText = request[(at + 1)..];
+            }
+            else
+            {
+                versionText = source is null || source.Versions.Count == 0
+                    ? throw new KeyNotFoundException($"'{id}' is not listed in channel '{fromChannel}'; give the version as {id}@<version>.")
+                    : Latest(source.Versions).Version;
+            }
+
+            var version = SemanticVersion.Parse(versionText);
+            var manifestPath = Path.Combine(feedFolder, FeedLayout.Manifest(id, versionText));
+            if (!File.Exists(manifestPath))
+            {
+                throw new KeyNotFoundException($"{id}@{versionText} is not published in this feed.");
+            }
+
+            var manifestBytes = await File.ReadAllBytesAsync(manifestPath, cancellationToken).ConfigureAwait(false);
+            var manifest = FeedJson.ReadManifest(manifestBytes);
+            var label = $"{id}@{manifest.Version}";
+            var fromEntry = source?.Versions.FirstOrDefault(entry => SemanticVersion.Parse(entry.Version) == version);
+            if (fromEntry?.State.Yanked is not null)
+            {
+                throw new FeedFormatException($"{label} is yanked in '{fromChannel}' and cannot be promoted.");
+            }
+
+            var target = ReadPackageIndex(feedFolder, channel, id) ?? new FeedPackageIndex { Id = id };
+            if (target.Versions.Any(entry => SemanticVersion.Parse(entry.Version) == version))
+            {
+                unchanged.Add(label);
+                continue;
+            }
+
+            var entry = fromEntry ?? Entry(manifest, FeedDigest.Of(manifestBytes), now);
+            target = AddVersion(target, entry with { Published = entry.Published == default ? now : entry.Published });
+            WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.PackageIndex(id)), FeedJson.Write(target, FeedJsonContext.Default.FeedPackageIndex));
             added.Add(label);
         }
 
@@ -107,7 +182,7 @@ public sealed class FeedPublisher
     /// <param name="feedFolder">The feed folder.</param>
     /// <param name="id">Package id.</param>
     /// <param name="version">Version.</param>
-    /// <param name="change">Computes the new state from the current one.</param>
+    /// <param name="change">Computes the new state from the current one (in the channel of <paramref name="options"/>).</param>
     /// <param name="key">The feed signing key.</param>
     /// <param name="options">Feed options.</param>
     /// <param name="cancellationToken">Cancellation.</param>
@@ -118,14 +193,15 @@ public sealed class FeedPublisher
         ArgumentNullException.ThrowIfNull(change);
         ArgumentNullException.ThrowIfNull(key);
         RequireKeyInKeySet(feedFolder, key);
-        var packageIndex = ReadPackageIndex(feedFolder, id) ?? throw new KeyNotFoundException($"The feed has no package '{id}'.");
+        options ??= new FeedPublishOptions();
+        var packageIndex = ReadPackageIndex(feedFolder, options.Channel, id) ?? throw new KeyNotFoundException($"The feed has no package '{id}'.");
         var wanted = SemanticVersion.Parse(version);
         var entry = packageIndex.Versions.FirstOrDefault(item => SemanticVersion.Parse(item.Version) == wanted)
             ?? throw new KeyNotFoundException($"The feed has no version {version} of '{id}'.");
         var updated = entry with { State = change(entry.State) };
         packageIndex = packageIndex with { Versions = [.. packageIndex.Versions.Select(item => ReferenceEquals(item, entry) ? updated : item)] };
-        WriteAtomic(feedFolder, FeedLayout.PackageIndex(id), FeedJson.Write(packageIndex, FeedJsonContext.Default.FeedPackageIndex));
-        var (sequence, _) = await ReindexAsync(feedFolder, key, options ?? new FeedPublishOptions(), cancellationToken).ConfigureAwait(false);
+        WriteAtomic(feedFolder, FeedLayout.InChannel(options.Channel, FeedLayout.PackageIndex(id)), FeedJson.Write(packageIndex, FeedJsonContext.Default.FeedPackageIndex));
+        var (sequence, _) = await ReindexAsync(feedFolder, key, options, cancellationToken).ConfigureAwait(false);
         return sequence;
     }
 
@@ -140,15 +216,16 @@ public sealed class FeedPublisher
         ArgumentNullException.ThrowIfNull(key);
         options ??= new FeedPublishOptions();
         RequireKeyInKeySet(feedFolder, key);
+        var channel = options.Channel;
         var summaries = new List<FeedPackageSummary>();
-        var packagesFolder = Path.Combine(feedFolder, "packages");
+        var packagesFolder = Path.Combine(feedFolder, FeedLayout.InChannel(channel, "packages"));
         var ids = Directory.Exists(packagesFolder)
             ? Directory.EnumerateDirectories(packagesFolder).Select(Path.GetFileName).Where(FeedLayout.IsValidId).Order(StringComparer.Ordinal).ToList()
             : [];
         foreach (var id in ids)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var indexPath = Path.Combine(feedFolder, FeedLayout.PackageIndex(id!));
+            var indexPath = Path.Combine(feedFolder, FeedLayout.InChannel(channel, FeedLayout.PackageIndex(id!)));
             if (!File.Exists(indexPath))
             {
                 continue;
@@ -185,32 +262,38 @@ public sealed class FeedPublisher
         var pages = new List<FeedPageReference>();
         foreach (var (chunk, number) in summaries.Chunk(Math.Max(1, options.PageSize)).Select((chunk, index) => (chunk, index + 1)))
         {
-            var path = FeedLayout.CatalogPage(number);
+            var path = FeedLayout.InChannel(channel, FeedLayout.CatalogPage(number));
             var bytes = FeedJson.Write(new FeedCatalogPage { Packages = chunk }, FeedJsonContext.Default.FeedCatalogPage);
             WriteAtomic(feedFolder, path, bytes);
             pages.Add(new FeedPageReference { Path = path, Count = chunk.Length, FirstId = chunk[0].Id, LastId = chunk[^1].Id, Digest = FeedDigest.Of(bytes) });
         }
 
-        RemoveStalePages(feedFolder, pages.Count);
+        RemoveStalePages(feedFolder, channel, pages.Count);
         var catalogBytes = FeedJson.Write(new FeedCatalogIndex { Pages = pages }, FeedJsonContext.Default.FeedCatalogIndex);
-        WriteAtomic(feedFolder, FeedLayout.CatalogIndex, catalogBytes);
+        WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.CatalogIndex), catalogBytes);
 
-        var previousPath = Path.Combine(feedFolder, FeedLayout.ServiceIndex);
+        var previousPath = Path.Combine(feedFolder, FeedLayout.InChannel(channel, FeedLayout.ServiceIndex));
         var previous = File.Exists(previousPath)
             ? FeedJson.Read(await File.ReadAllBytesAsync(previousPath, cancellationToken).ConfigureAwait(false), FeedJsonContext.Default.FeedServiceIndex, "The previous feed index")
             : null;
         var now = _time.GetUtcNow();
         var index = new FeedServiceIndex
         {
+            Channel = channel,
             Name = options.Name,
             Updated = now,
             Expires = now + options.Validity,
             Sequence = (previous?.Sequence ?? 0) + 1,
+            Resources = new FeedResources
+            {
+                Catalog = FeedLayout.InChannel(channel, FeedLayout.CatalogIndex),
+                Packages = FeedLayout.InChannel(channel, FeedLayout.PackageIndexTemplate),
+            },
             Catalog = new FeedCatalogSummary { Pages = pages.Count, Packages = summaries.Count, Digest = FeedDigest.Of(catalogBytes) },
         };
         var indexBytesOut = FeedJson.Write(index, FeedJsonContext.Default.FeedServiceIndex);
-        WriteAtomic(feedFolder, FeedLayout.ServiceIndex, indexBytesOut);
-        WriteAtomic(feedFolder, FeedLayout.ServiceIndexSignature, key.SignDocument(indexBytesOut, "feed-index"));
+        WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.ServiceIndex), indexBytesOut);
+        WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.ServiceIndexSignature), key.SignDocument(indexBytesOut, "feed-index"));
         return (index.Sequence, summaries.Count);
     }
 
@@ -223,9 +306,23 @@ public sealed class FeedPublisher
             ?? ordered[0];
     }
 
-    private static FeedPackageIndex? ReadPackageIndex(string feedFolder, string id)
+    private static FeedPackageVersion Entry(PackageManifest manifest, string digest, DateTimeOffset published) => new()
     {
-        var path = Path.Combine(feedFolder, FeedLayout.PackageIndex(id));
+        Version = manifest.Version,
+        ManifestDigest = digest,
+        Size = manifest.PrimaryFile?.Size ?? 0,
+        Published = published,
+        State = manifest.State ?? new PackageState(),
+        Requirements = manifest.Requirements,
+        Dependencies = manifest.Dependencies,
+    };
+
+    private static FeedPackageIndex AddVersion(FeedPackageIndex index, FeedPackageVersion entry) =>
+        index with { Versions = [.. index.Versions.Append(entry).OrderBy(item => SemanticVersion.Parse(item.Version))] };
+
+    private static FeedPackageIndex? ReadPackageIndex(string feedFolder, string? channel, string id)
+    {
+        var path = Path.Combine(feedFolder, FeedLayout.InChannel(channel, FeedLayout.PackageIndex(id)));
         return File.Exists(path) ? FeedJson.Read(File.ReadAllBytes(path), FeedJsonContext.Default.FeedPackageIndex, $"The package index of {id}") : null;
     }
 
@@ -244,11 +341,11 @@ public sealed class FeedPublisher
         }
     }
 
-    private static void RemoveStalePages(string feedFolder, int pages)
+    private static void RemoveStalePages(string feedFolder, string? channel, int pages)
     {
-        for (var number = pages + 1; File.Exists(Path.Combine(feedFolder, FeedLayout.CatalogPage(number))); number++)
+        for (var number = pages + 1; File.Exists(Path.Combine(feedFolder, FeedLayout.InChannel(channel, FeedLayout.CatalogPage(number)))); number++)
         {
-            File.Delete(Path.Combine(feedFolder, FeedLayout.CatalogPage(number)));
+            File.Delete(Path.Combine(feedFolder, FeedLayout.InChannel(channel, FeedLayout.CatalogPage(number))));
         }
     }
 

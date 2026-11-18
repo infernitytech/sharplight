@@ -746,6 +746,16 @@ float split_scale(float m)
     return asfloat(uint(clamp(268 - e, 1, 253)) << 23);
 }
 
+// split_scale for the split-f16 flash attention kernels: 1 while the largest magnitude m is in [2^-6, 2^15), else split_scale(m).
+// Inside, the unscaled f16 parts hold the values (at most the lo parts of the smallest ones lose bits to f16's subnormals) and the
+// kernels round exactly as their outputs were validated: SD3.5 Medium's 1024 px image follows its text encoders' attention so
+// closely that rescaling every in-range row moved it from 38.4 to 27 dB against diffusers (docs/benchmarks.md section 42).
+// Outside, the hi parts would overflow (from 2^15) or the largest values' parts lose their low bits (below 2^-6).
+float split_scale_outside(float m)
+{
+    return m >= 0.015625 && m < 32768.0 ? 1.0 : split_scale(m);
+}
+
 // Two values as packed f16 hi parts (returned) and lo parts.
 uint split_h2(float a, float b, out uint lo)
 {
