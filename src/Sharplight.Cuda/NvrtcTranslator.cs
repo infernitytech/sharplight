@@ -15,7 +15,7 @@ namespace Sharplight.Cuda;
 internal sealed class NvrtcTranslator : KernelTranslator
 {
     /// <summary>Version of the options and the PTX post-processing; part of every cache key.</summary>
-    private const string OptionsVersion = "2";
+    private const string OptionsVersion = "3";
 
     /// <summary>The headers NVRTC needs for the half, bfloat16 and 8-bit float types (redistributable, see docs/cuda.md).</summary>
     private static readonly string[] s_headerNames = ["cuda_fp16.h", "cuda_fp16.hpp", "cuda_bf16.h", "cuda_bf16.hpp", "cuda_fp8.h", "cuda_fp8.hpp"];
@@ -96,10 +96,12 @@ internal sealed class NvrtcTranslator : KernelTranslator
     }
 
     /// <summary>
-    /// The NVRTC options of a kernel: PTX for the virtual architecture, no warnings (the Slang prelude has many). Half precision is always
-    /// on: Slang lowers <c>f16tof32</c> to the <c>cuda_fp16.h</c> intrinsics but enables the header only for kernels with <c>half</c> values.
+    /// The NVRTC options of a kernel: PTX for the virtual architecture, no warnings (the Slang prelude has many). The half, bfloat16 and
+    /// 8-bit float headers are always on: Slang lowers <c>f16tof32</c> to the <c>cuda_fp16.h</c> intrinsics but enables the header only
+    /// for kernels with <c>half</c> values, and its cooperative matrices need the type of every fragment.
     /// </summary>
-    internal static string[] Options(int computeCapability) => [$"-arch=compute_{computeCapability}", "-default-device", "-std=c++17", "-w", "-DSLANG_CUDA_ENABLE_HALF"];
+    internal static string[] Options(int computeCapability) =>
+        [$"-arch=compute_{computeCapability}", "-default-device", "-std=c++17", "-w", "-DSLANG_CUDA_ENABLE_HALF", "-DSLANG_CUDA_ENABLE_BF16", "-DSLANG_CUDA_ENABLE_FP8"];
 
     /// <summary>Compiles CUDA C++ with NVRTC into PTX (or SASS for one real architecture when <paramref name="cubin"/> is set).</summary>
     /// <exception cref="KernelCompilationException">NVRTC rejected the source.</exception>

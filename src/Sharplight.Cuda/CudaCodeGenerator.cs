@@ -98,6 +98,7 @@ internal sealed class CudaCodeGenerator
             SubmissionBudgetMs = SubmissionBudgetMs,
             ConcurrentWorkgroups = ConcurrentWorkgroups,
             ComputeUnits = ComputeUnits,
+            AlignedVectorAccess = true,
             Cache = cache,
         });
         kernels = [.. program.Launches.Concat(program.ResetLaunches).SelectMany(l => l.Variants).Select(v => v.Kernel).DistinctBy(k => k.CacheKey)];

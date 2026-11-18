@@ -108,7 +108,7 @@ hand-written kernels of phase 2, which are where the larger tiles pay off.
 
 | package | contents | size |
 | --- | --- | --- |
-| `Sharplight.Cuda` | the managed provider (`Sharplight.Cuda.dll`), depends on `Sharplight.Shaders` and `Sharplight.Cuda.Runtime` | ~0.1 MB |
+| `Sharplight.Cuda` | the managed provider (`Sharplight.Cuda.dll`), depends on `Sharplight.Shaders` | 72 KB |
 | `Sharplight.Cuda.Runtime` | native assets per RID: NVRTC with its builtins library and the six floating-point type headers, plus NVIDIA's license | see [sizes](#package-sizes) |
 
 `Sharplight.Cuda.Runtime` (`src/Sharplight.Cuda.Runtime`) follows the pattern of `Sharplight.Vulkan.MoltenVK`: nothing is committed;
@@ -154,13 +154,35 @@ with the driver alone. NVRTC is what lets an arbitrary model, or a precompile st
 toolkit, so it ships like PyTorch's wheels ship it (`nvidia-cuda-nvrtc`). Hand-written CUDA kernels of later phases with a fixed set of
 specializations will be compiled at build time with `nvcc` into cubins for the target SMs plus PTX, and embedded.
 
+`Sharplight.Cuda` does not depend on `Sharplight.Cuda.Runtime`: an application that only loads models precompiled for its GPUs (PTX and
+cubins in the `.slm`) needs no NVRTC, so it adds the runtime package only when it compiles kernels itself, which is the normal case. In
+this repository the provider project references the runtime project (`ReferenceOutputAssembly="false"`), so the CLI, the samples and
+the test projects get NVRTC next to their executables on machines with an NVIDIA driver.
+
 ### Package sizes
 
-FIXME
+Measured on `cuda/provider-r1` (`dotnet pack`, CUDA 13.0 Update 2 redistributables):
+
+| | size |
+| --- | --- |
+| `Sharplight.Cuda` nupkg | 72 KB (+ 26 KB symbols) |
+| `Sharplight.Cuda.Runtime` nupkg (all three RIDs) | 130.5 MB compressed, 315.5 MB unpacked (nuget.org allows 250 MB per package) |
+| linux-x64 files | `libnvrtc.so.13` 109.3 MB, `libnvrtc-builtins.so.13.0` 4.4 MB, headers 0.8 MB: 114.5 MB |
+| linux-arm64 files | 99.5 + 4.4 + 0.8 = 104.7 MB |
+| win-x64 files | `nvrtc64_130_0.dll` 91.0 MB, `nvrtc-builtins64_130.dll` 4.5 MB, headers 0.8 MB: 96.2 MB |
+| linux-x64 files compressed | 44.9 MB with deflate (zip, Velopack), 34.3 MB with zstd -19 (AppImage squashfs) |
+
+A self-contained linux-x64 publish of the CLI with the CUDA provider is 278 MB, of which 114.5 MB are the CUDA runtime files.
 
 ### Studio
 
-FIXME
+Studio does not include the CUDA provider in phase 1: Vulkan stays its GPU provider, and nothing a Studio user runs would take the
+CUDA path. Including it would add about 115 MB installed per platform, about 34 MB to the AppImage and about 45 MB to each full
+Velopack package (deltas carry it only when NVRTC changes). The plan is to add it when CUDA becomes the default for a device class, as
+an optional component: the managed provider always (72 KB), NVRTC either in the package or downloaded on first use of an NVIDIA GPU
+into the storage location (the same pinned archive and SHA-256 as the build, from NVIDIA's server). Packages precompiled for the
+common GPUs (the verified catalog's models, PTX for `ptx_86` / `ptx_89` / `ptx_120` plus cubins) would make even that download
+unnecessary for catalog models.
 
 ## Tests
 
@@ -177,7 +199,36 @@ FIXME results
 
 ## Driver-only proof
 
-FIXME
+`packaging/smoke/cuda-driver-only.sh <published app> <model> [arguments]` runs a self-contained published CLI so that nothing of a
+CUDA toolkit can be found: an empty environment (`env -i`: no `PATH` entries of a toolkit, no `LD_LIBRARY_PATH`, no `CUDA_PATH`), a new
+empty `HOME` (no per-user kernel cache, so every kernel is compiled in the run: Slang, NVRTC, the driver's JIT) and the dynamic loader
+without its cache (`ld.so --inhibit-cache`, through the small `hostfxr-launch.c` launcher, since under `ld.so` the apphost cannot find
+its own directory). Without the cache, `/etc/ld.so.conf` entries such as `/usr/local/cuda/lib64` or a toolkit's forward-compatibility
+driver are not searched; only the app directory and the loader's built-in system directories, which hold glibc and the driver's
+user-space libraries. The script then lists every CUDA library the process mapped and fails if one came from a toolkit directory.
+
+This machine (RunPod container, CUDA 13.2 toolkit installed at `/usr/local/cuda` and registered in `/etc/ld.so.conf.d`, including its
+`compat/libcuda.so`) allows neither `mknod` nor mount namespaces, so a chroot with only the driver libraries was not possible; the
+loader isolation above is the equivalent. Run on GPU 0 (`CUDA_VISIBLE_DEVICES=0`), Qwen3-0.6B Q8_0, `--provider cuda -n 16`:
+
+```
+Compiling 110 / 110 (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 31121 ms
+The capital of France is Paris. The capital of France is also the capital of the Republic of France.
+CUDA / NVIDIA libraries the process mapped:
+  <app>/libnvrtc-builtins.so.13.0
+  <app>/libnvrtc.so.13
+  /usr/lib/x86_64-linux-gnu/libcuda.so.595.112.07
+  /usr/lib/x86_64-linux-gnu/libnvidia-gpucomp.so.595.112.07
+  /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.595.112.07
+OK: NVRTC from the app directory, the driver API from the driver installation
+```
+
+The same run with the loader cache (a plain start of the app) maps `libcuda.so` from `/usr/local/cuda-13.2/compat/`: on a machine
+whose administrator registered the toolkit's forward-compatibility driver, the provider uses it, as every CUDA application does
+(`dlopen("libcuda.so.1")`). Where containers are available, the strict form is
+`docker run --gpus all -v <publish dir>:/app ubuntu:24.04 /app/Sharplight.Cli ...`: the NVIDIA container toolkit mounts only the
+driver's libraries and device nodes into a plain image.
 
 ## First numbers
 

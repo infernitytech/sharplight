@@ -33,6 +33,12 @@ public sealed class LoweringOptions
     /// only has relaxed atomics and threadgroup-scope barriers within a dispatch: kernels then merge in a separate launch.
     /// </summary>
     public bool CrossWorkgroupFences { get; init; } = true;
+    /// <summary>
+    /// True when the target requires vector loads and stores to be aligned to the vector's size (CUDA: a 16-byte <c>uint4</c> load from an
+    /// 8-byte aligned address faults with "misaligned address"). False (default) for SPIR-V and MSL, whose pointer accesses only assume the
+    /// element alignment. Kernels whose row strides would misalign their vector accesses are then not chosen for such shapes.
+    /// </summary>
+    public bool AlignedVectorAccess { get; init; }
     /// <summary>Model-level compile options (symbol bounds, context length, precision policy).</summary>
     public required CompileOptions Compile { get; init; }
     /// <summary>Model-level compilation cache for this device (see <see cref="CompileOptions.CacheFor"/>).</summary>
