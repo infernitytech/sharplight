@@ -1,0 +1,22 @@
+{
+  // Starter models of the welcome flow. Packages qualify by kind and task and are ranked by the "prefer" fragments (matched against the
+  // package's family, name, architecture and id); the largest ranked package whose memory and download fit the machine is offered.
+  // A copy of this file named starter-models.json in the settings folder replaces it.
+  "assumedDownloadMbps": 100,
+  "gpuMemoryFraction": 0.8,
+  "cpuMemoryFraction": 0.4,
+  "cpuMaxMiB": 3072,
+  "maxDownloadMiB": 20480,
+  "diskReserveMiB": 2048,
+  "examplePrompts": [
+    "Explain in simple words how a large language model works, with one everyday analogy."
+  ],
+  "roles": [
+    { "role": "Chat", "kind": "text-generation", "task": "chat", "preselected": true,
+      "prefer": ["qwen3", "gemma", "llama", "phi", "smollm"] },
+    { "role": "Speech", "kind": "speech-recognition", "preselected": true, "maxDownloadMiB": 1024,
+      "prefer": ["whisper"] },
+    { "role": "Embedding", "kind": "embeddings", "task": "embedding", "preselected": false, "maxDownloadMiB": 512,
+      "prefer": ["minilm", "bge", "e5"] }
+  ]
+}

@@ -396,6 +396,40 @@ in a narrow window:
 ![Settings: Updates tab with the channel selector](images/studio/studio-settings-updates.png)
 ![Settings: narrow window](images/studio/studio-settings-narrow.png)
 
+## First start
+
+A new user is chatting within a minute without knowing anything about Hugging Face. On the first start (no model resident, an empty library
+and `FirstRunDone` not yet set in the settings) Studio opens the **welcome flow** instead of the Models page. The same flow is behind **Get a
+model** on the chat page, which offers it whenever no model is loaded (a banner and the empty conversation); it is a page of its own, not
+listed in the navigation.
+
+1. *Your machine.* The GPU (name and memory of the largest one; without a GPU the page says models run on the CPU), the system memory and the
+   free disk space where models are stored (the model store of the current storage mode).
+2. *Recommended for you.* One to three packages from the Sharplight feed (stable channel, see *Sharplight feed* above) that fit: a **chat model**
+   sized to the GPU (or to the CPU without one), then optionally **speech to text** (ticked) and a **text embedding model** (not ticked). Each shows
+   its description, where it runs and the memory it needs, the download size (the package and its required dependencies, such as the voice
+   detector of a speech model) and an estimated download time at an assumed connection speed. The total follows the ticks.
+3. **Get started** installs the ticked packages one after the other through the feed installer (signatures and SHA-256 verified, resumable), with one
+   progress bar for the downloads and the load, loads the chat model on the best GPU with one slot, marks the flow done and opens a **new chat** with the
+   model selected and an example question in the message box (not sent). A failed or interrupted install shows the reason and the button reads
+   *Try again* (it resumes). **Skip, browse models myself** leads to Discover and the flow is not offered again on start.
+
+*Offline.* The recommendation is made from the last verified listing (the feed cache) and says so; installing then needs the network and fails
+with a clear message and *Try again*. Without a saved listing the page explains that the feed could not be reached and offers *Try again* and *Skip*.
+*No GPU.* The chat model must fit within a CPU budget (40 % of system memory, at most 3 GiB by default), so a small model is chosen and a note says
+answers are slower. When no chat model fits the memory or the disk, the page says which.
+
+**The recommendation service.** `StarterRecommender` (`Services/FirstRun`) is pure: a listing, a `MachineProfile` (from the engine's devices by
+`MachineProfiler`) and the preferences give the same answer. It names no model id. A package qualifies for a role by the feed's metadata (`model.kind`,
+`model.tasks`, not yanked or deprecated, requirements met by this Studio and engine, required dependencies listed), must fit the memory budget (the
+feed's memory figure for one slot, else the file size; GPU memory times `gpuMemoryFraction`, or the CPU budget, whichever is larger), the free disk
+(minus a reserve) and the role's download limit. Candidates are ordered by the rank of the first `prefer` fragment found in the package's family, name,
+architecture or id, then by memory (largest first), so the best-ranked family wins and is as large as the machine allows.
+
+The ranking and limits are the JSON resource `Assets/starter-models.json` (the roles with their kind, task, `prefer` fragments, preselection and
+download limit, the assumed download speed, the memory fractions, the CPU cap, the disk reserve and the example prompts). A file `starter-models.json`
+in the settings folder replaces it (an unreadable or role-less file is ignored); comments are allowed.
+
 ## Inference pages
 
 Every model kind gets a page built from the same blocks, so they look and behave alike: the **frame** (`InferenceFrame`) has the
@@ -614,7 +648,7 @@ platform is in [storage.md](storage.md)). `<config>`, `<data>` and `<cache>` are
 
 | What | Where |
 |---|---|
-| Settings (`settings.json`), including the download queue | `<config>/studio` |
+| Settings (`settings.json`), including the download queue, and the optional `starter-models.json` | `<config>/studio` |
 | Conversations and statistics (`studio.db`), Discover's highlights (`discover-highlights.json`) and verified catalog (`verified-models.json`) | `<data>/studio` |
 | Inference pages: parameter presets, run history and output files (`pages/<page>/`) | `<data>/studio/pages` |
 | Models | The model store: `<data>/models` by default, else the folder chosen on the *Models* card; converted local models go to `converted/` in it by default |
@@ -708,6 +742,11 @@ versions kept them.
   until the new one verified, a tampered index, manifest and package file, an untrusted root, offline use of the cached listing including an expired
   index, channel switching) and its views (headless render, layout checks at three window sizes, binding errors), plus one test against the live feed that
   installs the whisper-tiny and silero-vad packages, checks the library entry and loads whisper-tiny through the engine (skipped without network);
+- the first-run flow: the recommendation (8, 24 and 32 GB of VRAM, a small GPU, CPU only with little and with more memory, offline, disk limits, withdrawn
+  and deprecated packages, a missing dependency, the preferences file and its fallback), the welcome view model over a local test feed (detection,
+  install of chat and speech with the voice detector, load, new chat with the example, skip, offline with and without a saved listing, a failed install
+  that resumes, no GPU, the start page choice, the chat page's *Get a model*), and one test against the live feed that runs the flow with Qwen3-0.6B
+  (skipped without network). The welcome page and the chat page without a model are in `PageScreenshotTests` too;
 - the package inspector: every tab of a small package, a view for every section kind the format defines, unknown sections
   listed raw, the linked graph, IR and node selection, the graph layout, and a 100,000-node graph that stays virtualized.
 

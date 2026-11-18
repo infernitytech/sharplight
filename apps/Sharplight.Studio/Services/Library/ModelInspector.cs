@@ -32,19 +32,10 @@ internal static class ModelInspector
                 capabilities |= ModelCapabilities.Vision;
             }
 
-            string kind = definition.Description.Kind;
-            if (graphs.Contains(WellKnown.EmbedGraph) && !graphs.Contains(WellKnown.DecodeGraph))
+            string kind = KindOf(definition.Description.Kind, graphs, definition.Name, definition.Metadata.TryGetValue(CanonicalKeys.Name, out var general) ? general as string : null);
+            if (kind == ModelKindCatalog.Embeddings)
             {
                 capabilities = (capabilities & ~ModelCapabilities.Chat) | ModelCapabilities.Embedding;
-                if (kind == ModelKinds.TextGeneration)
-                {
-                    kind = ModelKindCatalog.Embeddings;
-                }
-            }
-
-            if (graphs.Contains(WellKnown.ClassifyGraph) && kind == ModelKinds.TextGeneration)
-            {
-                kind = ModelKindCatalog.Reranker;
             }
 
             int? context = definition.Properties.TryGetValue(WellKnown.ContextLength, out var raw) ? ToInt(raw) : null;
@@ -55,6 +46,33 @@ internal static class ModelInspector
         {
             return new InspectedModel(ModelCapabilities.None, null, null, ModelKinds.TextGeneration, KindInferred: true, Precompiled: []);
         }
+    }
+
+    /// <summary>
+    /// The kind of a package. A declared kind other than text generation (which is also what a package without a description resolves to) wins.
+    /// Text generation is refined only where the graphs prove it is not one: no decode graph means an encoder, scoring pairs through the classify
+    /// graph (a reranker) or pooling through the embed graph (embeddings). A model with a decode graph stays a language model whatever auxiliary
+    /// graphs it carries (the decoder adapters add embed and classify graphs to every model); only a name that says so (Qwen3-Reranker) makes it a reranker.
+    /// </summary>
+    internal static string KindOf(string declared, IReadOnlySet<string> graphs, string name, string? generalName)
+    {
+        if (declared != ModelKinds.TextGeneration)
+        {
+            return declared;
+        }
+
+        if (!graphs.Contains(WellKnown.DecodeGraph))
+        {
+            if (graphs.Contains(WellKnown.ClassifyGraph))
+            {
+                return ModelKindCatalog.Reranker;
+            }
+
+            return graphs.Contains(WellKnown.EmbedGraph) ? ModelKindCatalog.Embeddings : declared;
+        }
+
+        bool named = name.Contains("rerank", StringComparison.OrdinalIgnoreCase) || generalName?.Contains("rerank", StringComparison.OrdinalIgnoreCase) == true;
+        return named && graphs.Contains(WellKnown.ClassifyGraph) ? ModelKindCatalog.Reranker : declared;
     }
 
     /// <summary>
@@ -91,7 +109,14 @@ internal static class ModelInspector
                     : ModelKindCatalog.Embeddings;
             }
 
-            return System.IO.Path.GetFileName(path).Contains("outetts", StringComparison.OrdinalIgnoreCase) ? ModelKinds.SpeechSynthesis : ModelKinds.TextGeneration;
+            string file = System.IO.Path.GetFileName(path);
+            if (file.Contains("outetts", StringComparison.OrdinalIgnoreCase))
+            {
+                return ModelKinds.SpeechSynthesis;
+            }
+
+            // Decoder rerankers (Qwen3-Reranker) are named so; a chat model never becomes one.
+            return file.Contains("rerank", StringComparison.OrdinalIgnoreCase) ? ModelKindCatalog.Reranker : ModelKinds.TextGeneration;
         }
 
         string config = System.IO.Path.Combine(path, "config.json");

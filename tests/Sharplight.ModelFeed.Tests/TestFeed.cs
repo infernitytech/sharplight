@@ -47,7 +47,7 @@ internal sealed class TestFeed : IDisposable
         new(transport ?? new FolderFeedTransport(Folder), new FeedClientOptions { TrustedRoots = [RootKey.PublicKey], AllowExpiredIndex = allowExpired, Channel = channel }, state, Time);
 
     /// <summary>Stages a package version with <paramref name="size"/> pseudo-random bytes and returns its folder.</summary>
-    public async Task<string> StageAsync(string id, string version, int size = 10_000, IReadOnlyList<PackageDependency>? dependencies = null, string? server = null, byte seed = 1)
+    public async Task<string> StageAsync(string id, string version, int size = 10_000, IReadOnlyList<PackageDependency>? dependencies = null, string? server = null, byte seed = 1, Func<PackageManifest, PackageManifest>? customize = null)
     {
         var folder = Path.Combine(Staging, $"{id}-{version}");
         Directory.CreateDirectory(folder);
@@ -68,6 +68,7 @@ internal sealed class TestFeed : IDisposable
             Dependencies = dependencies ?? [],
             Files = [file],
         };
+        manifest = customize?.Invoke(manifest) ?? manifest;
         await File.WriteAllBytesAsync(Path.Combine(folder, FeedLayout.ManifestFileName), FeedJson.Write(manifest, FeedJsonContext.Default.PackageManifest));
         return folder;
     }

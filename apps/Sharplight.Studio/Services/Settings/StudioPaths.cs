@@ -17,6 +17,9 @@ internal sealed record StudioPaths(string ConfigDirectory, string DataDirectory)
     /// <summary>The settings file.</summary>
     public string SettingsFile => Path.Combine(ConfigDirectory, "settings.json");
 
+    /// <summary>The user's starter model preferences, which replace the built-in ones when present (see <see cref="FirstRun.StarterPreferencesLoader"/>).</summary>
+    public string StarterModelsFile => Path.Combine(ConfigDirectory, "starter-models.json");
+
     /// <summary>The Hub's highlighted models, cached for Discover.</summary>
     public string HighlightsFile => Path.Combine(DataDirectory, "discover-highlights.json");
 

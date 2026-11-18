@@ -97,8 +97,8 @@ internal sealed record AppSettings
     /// <summary>Downloads not finished when the app closed; running ones resume at the next start, paused ones stay paused.</summary>
     public IReadOnlyList<PendingDownload> Downloads { get; init; } = [];
 
-    /// <summary>Hide the welcome hints after the first model was downloaded.</summary>
-    public bool OnboardingDone { get; init; }
+    /// <summary>The first-run welcome flow was finished or skipped; it is offered on start only while this is false and the library is empty.</summary>
+    public bool FirstRunDone { get; init; }
 
     /// <summary>Check for a new Studio version at startup and every few hours (installed builds only).</summary>
     public bool AutoCheckForUpdates { get; init; } = true;

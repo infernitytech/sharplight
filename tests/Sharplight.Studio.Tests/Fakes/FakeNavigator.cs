@@ -10,6 +10,22 @@ internal sealed class FakeNavigator : INavigator
 
     public void OpenChat(ILoadedModel? model) => Visited.Add("chat");
 
+    /// <summary>The prompts suggested by <see cref="OpenChat(ILoadedModel?, string?)"/>.</summary>
+    public List<string?> SuggestedPrompts { get; } = [];
+
+    public void OpenChat(ILoadedModel? model, string? suggestedPrompt)
+    {
+        Visited.Add("chat");
+        Visited.Add("chat:new");
+        SuggestedPrompts.Add(suggestedPrompt);
+        LastChatModel = model;
+    }
+
+    /// <summary>The model the last new chat was opened with.</summary>
+    public ILoadedModel? LastChatModel { get; private set; }
+
+    public void OpenWelcome() => Visited.Add("welcome");
+
     /// <summary>The kinds that have a page.</summary>
     public HashSet<string> Pages { get; } = [Sharplight.Models.ModelKinds.SpeechRecognition, Sharplight.Models.ModelKinds.SpeechSynthesis, Sharplight.Models.ModelKinds.ImageGeneration];
 

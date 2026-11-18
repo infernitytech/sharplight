@@ -4,6 +4,7 @@ using Avalonia.Logging;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Sharplight.Studio.Models;
+using Sharplight.Studio.Tests.FirstRun;
 using Sharplight.Studio.Platform;
 using Sharplight.Studio.ViewModels;
 using Sharplight.Studio.ViewModels.Models;
@@ -25,6 +26,17 @@ public sealed class PageScreenshotTests
     private static readonly (string Name, Func<MainWindowViewModel, MainWindow, Task> Show)[] s_pages =
     [
         ("chat", (model, _) => model.NavigateAsync(model.Chat)),
+        ("welcome", async (model, window) =>
+        {
+            await model.NavigateAsync(model.Welcome);
+            await model.Welcome.Loading;
+            await HeadlessApp.WaitForAsync(window, () => model.Welcome.HasItems);
+        }),
+        ("chat-get-model", async (model, _) =>
+        {
+            await model.NavigateAsync(model.Chat);
+            model.Chat.NewChatCommand.Execute(null);
+        }),
         ("transcribe", (model, _) => model.NavigateAsync(model.Transcribe)),
         ("speak", (model, _) => model.NavigateAsync(model.Speak)),
         ("search", (model, _) => model.NavigateAsync(model.Search)),
@@ -95,7 +107,16 @@ public sealed class PageScreenshotTests
         Logger.Sink = sink;
         using var rig = new FeedCatalogTests.Rig();
         await FeedCatalogTests.PublishAlphaAsync(rig);
+        await WelcomeFeed.PublishAsync(rig);
         await DemoData.FillAsync(rig.Services);
+        if (page == "chat-get-model")
+        {
+            foreach (var resident in rig.Services.Runtime.LoadedModels.ToList())
+            {
+                await rig.Services.Runtime.UnloadAsync(resident.Id);
+            }
+        }
+
         new ThemeService(Application.Current!).Apply(theme == "dark" ? AppTheme.Dark : AppTheme.Light, "Violet");
         var viewModel = new MainWindowViewModel(rig.All);
         var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
