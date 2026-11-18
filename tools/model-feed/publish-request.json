@@ -7,5 +7,5 @@
     "ms-marco-minilm-l6-v2.f32-safetensors"
   ],
   "validityDays": 30,
-  "reason": "Republish ms-marco-MiniLM-L6-v2 with catalog kind reranker (was embeddings); re-signs both channels."
+  "reason": "Republish ms-marco-MiniLM-L6-v2 as 1.0.1 with catalog kind reranker (manifest-only patch reusing the 1.0.0 payload)."
 }
