@@ -23575,6 +23575,132 @@
       ]
     },
     {
+      "id": "sdxl-refiner-1.0",
+      "name": "Stable Diffusion XL Refiner 1.0",
+      "kind": "image-generation",
+      "family": "Stable Diffusion",
+      "architecture": "latent_diffusion",
+      "level": "verified",
+      "license": "openrail\u002B\u002B",
+      "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "diffusers",
+          "label": "FP16 diffusers",
+          "format": "diffusers",
+          "quantization": "F16",
+          "recommended": true,
+          "memoryBytes": 7389970703,
+          "companions": [],
+          "repository": "stabilityai/stable-diffusion-xl-refiner-1.0",
+          "revision": "5d4cfe854c9a9a87939ff3653551c2b3c99a4356",
+          "include": [
+            "model_index.json",
+            "scheduler/*",
+            "tokenizer_2/*",
+            "text_encoder_2/config.json",
+            "text_encoder_2/model.fp16.safetensors",
+            "unet/config.json",
+            "unet/diffusion_pytorch_model.fp16.safetensors",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.fp16.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 612,
+              "gitOid": "d1024c8407ea1d8a7ed659509888ed667c0f38d6"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 479,
+              "gitOid": "e5bc8421e047838523be7acfb6720f167f7382f6"
+            },
+            {
+              "path": "tokenizer_2/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer_2/special_tokens_map.json",
+              "size": 460,
+              "gitOid": "ae0c5be6f35217e51c4c000fd325d8de0294e99c"
+            },
+            {
+              "path": "tokenizer_2/tokenizer_config.json",
+              "size": 725,
+              "gitOid": "a8438e020c4497a429240d6b89e0bf9a6e2ffa92"
+            },
+            {
+              "path": "tokenizer_2/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "text_encoder_2/config.json",
+              "size": 575,
+              "gitOid": "da1848b5ed17b676f021578838f12c4023b86379"
+            },
+            {
+              "path": "text_encoder_2/model.fp16.safetensors",
+              "size": 1389382176,
+              "sha256": "ec310df2af79c318e24d20511b601a591ca8cd4f1fce1d8dff822a356bcdb1f4"
+            },
+            {
+              "path": "unet/config.json",
+              "size": 1709,
+              "gitOid": "a800deb05f8387cac67a6f98e5a77c5fdd87773d"
+            },
+            {
+              "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+              "size": 4519210760,
+              "sha256": "3ea0376dcf065eaefd27806394a90e310001b1a71d4f1cf1f655e86c0e566ffe"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 642,
+              "gitOid": "a66a171ba7c8efb1a8fc3bdc64e65318eade8e13"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+              "size": 167335342,
+              "sha256": "bcb60880a46b63dea58e9bc591abe15f8350bde47b405f9c38f4be70c6161e68"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "Second stage after the SDXL base (ImageGenerationOptions.Refiner, switch 0.8): base \u002B refiner 48.3 dB vs diffusers\u0027 StableDiffusionXLPipeline (denoising_end) and StableDiffusionXLImg2ImgPipeline (denoising_start) on the same fp16 files (upcast to f32), 1024, 20 Euler steps, guidance 5, same latents; refiner UNet 4.4e-5 and OpenCLIP bigG 5.7e-4 relative RMS",
+        "providers": [
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": [
+          "SdxlRefinerTests"
+        ]
+      },
+      "notes": "A refiner, not a text-to-image model on its own: load it next to the SDXL base and choose it as the refiner (Studio\u0027s Image page; ImageGenerationOptions.Refiner), or use it alone for image to image at a low strength (diffusers\u0027 default 0.3).",
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "stabilityai/stable-diffusion-xl-refiner-1.0",
+            "formats": "diffusers (fp16 files)",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
       "id": "qwen-image-edit-2511",
       "name": "Qwen-Image-Edit-2511",
       "kind": "image-generation",

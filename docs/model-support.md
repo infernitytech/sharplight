@@ -1609,7 +1609,8 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Qwen-Image 2.1 (and its Turbo) | diffusers folder; transformer-only GGUF (unsloth: no metadata, ComfyUI names) and ComfyUI single files plus companions: the Qwen3-VL-8B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the pipeline's VAE file | **supported** (text-to-image; 40 steps without guidance by default; Turbo: its 8-step schedule from the pipeline's `sample_sigmas` or the file name) | [below](#qwen-image-21) |
 | FLUX.2 Klein (4B; 9B and the base models share the layout), FLUX.2 Dev (32B) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (Klein; the pipeline's `text_encoder` folder or a `qwen3` GGUF) or Mistral Small 3.2 24B (Dev; a `llama` GGUF of Mistral-Small-3.2-24B-Instruct-2506 or the pipeline's folder), the pipeline's VAE file | **supported** (txt2img and editing with up to 10 reference images; Klein distilled: 4 steps without guidance; Klein base: 50 steps, guidance 4; Dev: 50 steps with the embedded guidance 4) | [below](#flux-2) |
 | Krea 2 (Turbo, Raw and fine-tunes) | diffusers folder; the release's original-name single files (`turbo.safetensors`, `raw.safetensors`, ComfyUI's bf16 files); transformer-only GGUF (realrebelai, vantagewithai, ...: architecture `krea2`, some labelled `qwen_image`) plus companions: the Qwen3-VL-4B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the Qwen-Image VAE (the pipeline's file or ComfyUI's `qwen_image_vae.safetensors`) | **supported** (text-to-image; Turbo: 8 steps without guidance; Raw (file names with `raw` / `base`): 28 steps, guidance 5.5) | [below](#krea-2) |
-| SDXL refiner (single OpenCLIP encoder, aesthetic-score conditioning), Qwen-Image 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
+| SDXL refiner (stabilityai/stable-diffusion-xl-refiner-1.0: the OpenCLIP bigG encoder alone, aesthetic-score conditioning; as the second stage after the SDXL base or for image to image) | diffusers folder (`text_encoder_2/` and `tokenizer_2/` only) | **supported** since 2026-11-18 ("SDXL refiner" below): base + refiner 48.3 dB against diffusers | |
+| Qwen-Image 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image, Krea 2 (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
 | ControlNet, TAESD | - | missing | |
 
@@ -2074,6 +2075,33 @@ models; the VAE encoder against the mode of the posterior (InstructPix2Pix's ima
 **59.7 dB**, SD 1.5 inpainting **56.3 dB** and SDXL inpainting (diffusers/stable-diffusion-xl-1.0-inpainting-0.1, Euler, 512×512) **40.5 dB**. The `.slm` round trip (256×256,
 Vulkan) generates the same bytes as the folder for both. Studio's Image page shows the edit input and an "Image guidance" parameter for
 InstructPix2Pix-style models (`ImageEditModeTests`).
+
+### SDXL refiner
+
+<a id="sdxl-refiner"></a>
+stabilityai/stable-diffusion-xl-refiner-1.0 (2026-11-18) is an SDXL UNet (384 / 768 / 1536 channels, four transformer blocks per level) conditioned
+on OpenCLIP bigG alone and on an aesthetic score instead of the target size.
+
+- Import: a diffusers folder without `text_encoder/` but with `text_encoder_2/` and `tokenizer_2/` puts the bigG encoder in the first encoder's
+  place (`text_encoder.*`, with its `projection.weight`), as SDXL's second encoder: the penultimate layer without the final norm, the pooled
+  embedding from the projection. The text-encode graph then outputs the pooled embedding itself.
+- Size conditions: the UNet's added conditioning takes `class_embedding_input` = pooled width + conditions × `addition_time_dim`, so the adapter
+  derives the number of conditions from the pooled projection's width (SDXL 2816 = 1280 + 6 · 256, the refiner 2560 = 1280 + 5 · 256;
+  `UNetHyperParameters.SizeConditions`, nothing new stored in the `.slm`). With five the generator passes `[height, width, 0, 0, score]` per row:
+  the negative prompt's row 2.5, the prompt's 6 (diffusers' `negative_aesthetic_score` / `aesthetic_score`; `ImageGenerationOptions.AestheticScore`,
+  `NegativeAestheticScore`, `ImageGenerationDefaults.AestheticScore`).
+- Ensemble: `ImageGenerationOptions.Refiner` (another latent-diffusion generator, e.g. the refiner's) and `RefinerStart` (default 0.8). The
+  first generator runs its schedule down to the switch timestep `round(T − start · T)` (diffusers' `denoising_end`: the timesteps at or above it),
+  hands its latents to the refiner, which runs the timesteps of its own schedule below it (`denoising_start`) on its own text conditioning and
+  decodes with its VAE. The steps of both stages are reported as one run. The refiner alone does image to image as any SDXL model (diffusers'
+  default strength 0.3).
+- Studio: the Image page offers every other resident image-generation model as the refiner of the chosen one, with the "Refiner switch"
+  parameter (`ImageRefinerTests`).
+
+Verification (tools/make-sdxl-refiner-references.py: diffusers' StableDiffusionXLPipeline with `denoising_end` and StableDiffusionXLImg2ImgPipeline
+with `denoising_start`, the fp16 files upcast to f32 on CUDA, Euler, 1024×1024, 20 steps cut at 0.8, guidance 5, the same initial noise;
+`SdxlRefinerTests`): bigG hidden states 5.7e-4 and pooled embedding 1.9e-4 relative RMS, the refiner UNet (two rows, both scores) 4.4e-5 on
+Vulkan, the whole base + refiner image on Vulkan **48.3 dB**. Not checked: the original single file (`sd_xl_refiner_1.0.safetensors`).
 
 ### Qwen-Image-Edit
 
@@ -2692,7 +2720,7 @@ PSNR as in section 15). Downloads and references went to local disk and were del
 | 4 | FireRedTeam/FireRed-Image-Edit-1.0 | FireRed; apache-2.0 | 2026-02-12 | 45k / 358 | diffusers (`QwenImageEditPlusPipeline`) | supported with #3 (same pipeline class as -2509; its checkpoint was not run) |
 | 5 | jdopensource/JoyAI-Image-Edit-Diffusers | JD; apache-2.0 | 2026-04-10 | 105k / 23 | diffusers | needs arch: `JoyImageEditTransformer3DModel` over a Wan VAE with a Qwen3-VL text encoder |
 | 6 | timbrooks/instruct-pix2pix | Tim Brooks; MIT | 2023-01-20 | 80k / 1.2k | diffusers | **supported since the editing round of 2026-11-18** (section 15 "SD editing"): 8-channel UNet, text and image guidance on three rows; 59.7 dB against diffusers (Euler, 20 steps, f32, same noise) on Vulkan |
-| 7 | stable-diffusion-v1-5/stable-diffusion-inpainting, stabilityai/stable-diffusion-xl-refiner-1.0 | Runway, Stability AI | 2022 / 2023 | 271k / 122, 113k / 2.1k | diffusers | the inpainting UNet is **supported since the editing round of 2026-11-18** (section 15 "SD editing": 56.3 dB against diffusers; the SDXL inpainting UNet diffusers/stable-diffusion-xl-1.0-inpainting-0.1 40.5 dB); the SDXL refiner is still missing (its single OpenCLIP encoder without CLIP-L, five size conditions with the aesthetic scores (6 for the prompt, 2.5 for the negative prompt) per row) |
+| 7 | stable-diffusion-v1-5/stable-diffusion-inpainting, stabilityai/stable-diffusion-xl-refiner-1.0 | Runway, Stability AI | 2022 / 2023 | 271k / 122, 113k / 2.1k | diffusers | the inpainting UNet is **supported since the editing round of 2026-11-18** (section 15 "SD editing": 56.3 dB against diffusers; the SDXL inpainting UNet diffusers/stable-diffusion-xl-1.0-inpainting-0.1 40.5 dB); the SDXL refiner is **supported since 2026-11-18** (section 15 "SDXL refiner": base + refiner 48.3 dB against diffusers) |
 | 8 | MiniMax-H3-Image (editing mode), flux-3-image-klein (editing), Fibo-2.0-edit-turbo | | | | | needs the arch of 21.1 #1, #13, #19 |
 | 9 | LoRA and adapter repositories (Qwen-Image-Edit multiple-angles, AnyPose, Anything2Real, BFS face swap, MOSS control LoRAs, krea2 anypaint / pose controlnet) | community | | | | community only |
 
@@ -2728,7 +2756,7 @@ on the fly where there is one), PSNR of the 8-bit images:
 
 Needs a new architecture (none implemented in this branch): MiniMax-H3-Image, MOSS-Image (and Kromoss), FLUX.3 Klein (`Flux3Transformer2DModel`),
 Fibo 2.0, JoyAI-Image-Edit. The pipeline work on supported transformers (Qwen-Image-Edit / -2509 / -2511, FireRed-Image-Edit, InstructPix2Pix, the
-inpainting UNets) was done in the editing round of the same day (section 15 "SD editing" and "Qwen-Image-Edit"); only the SDXL refiner stays as in section 15.
+inpainting UNets) was done in the editing round of the same day (section 15 "SD editing" and "Qwen-Image-Edit"); the SDXL refiner followed later that day (section 15 "SDXL refiner").
 
 ### 21.5 Editing round (2026-11-18, branch `imagegen/edit-r1`)
 
@@ -2744,4 +2772,5 @@ Vulkan, GPU 0, the same initial latents and prompts as the diffusers reference (
 | Qwen-Image-Edit-2511, two pictures | as above | 20 / true CFG 4 | 26.4 dB (24.3 dB) |
 | tiny Qwen-Image-Edit-2509 / -2511 (random) | diffusers folder and Q8_0 GGUF | 4 / true CFG 4 | 56 to 59 dB, CPU and Vulkan |
 
-Not done: the SDXL refiner. Downloads and references were deleted afterwards except the diffusers references and the tiny pipelines.
+Not done in this round: the SDXL refiner (done afterwards in branch `fix/vk-unet-batch3`, section 15 "SDXL refiner"). Downloads and references
+were deleted afterwards except the diffusers references and the tiny pipelines.
