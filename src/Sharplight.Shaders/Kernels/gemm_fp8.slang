@@ -273,7 +273,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 16), q = idx % (F8_BK / 16);               \
         uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));               \
-        if (idx < F8_BN * F8_BK / 16) wq[it] = *(uint4*)(row + (k0) + q * 16);                          \
+        if (idx < F8_BN * F8_BK / 16) wq[it] = LOAD_U4_ALIGNED(row + (k0) + q * 16, ALIGN_OF(ROW_BYTES)); \
     }
     #define F8_STAGE_W()                                                                                \
     [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
@@ -308,7 +308,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 16), q = idx % (F8_BK / 16);               \
         uint t = min(t0 + r, p.T - 1);                                                                  \
-        if (idx < F8_BM * F8_BK / 16) xa[it] = *(uint4*)byteAt(p.x, uint64_t(t) * F8ROW + (k0) + q * 16); \
+        if (idx < F8_BM * F8_BK / 16) xa[it] = LOAD_U4_ALIGNED(byteAt(p.x, uint64_t(t) * F8ROW + (k0) + q * 16), ALIGN_OF(F8ROW)); \
     }                                                                                                   \
     if (tid < F8_BM) xs = *(float*)byteAt(p.x, uint64_t(min(t0 + tid, p.T - 1)) * F8ROW + K + (k0) / 32); \
     F8_FETCH_W(k0)                                                                                      \

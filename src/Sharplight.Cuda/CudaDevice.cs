@@ -263,13 +263,23 @@ internal sealed unsafe class CudaDevice : IComputeDevice
             throw new KernelCompilationException($"Kernel {kernel.Name}:{kernel.EntryPoint} needs {ptx.ThreadsX * ptx.ThreadsY * ptx.ThreadsZ} threads per block; its registers allow {maxThreads}.");
         }
 
+        if (ptx.SharedBytes > 0)
+        {
+            int result = CudaApi.cuFuncSetAttribute(function, CudaApi.FunctionMaxDynamicSharedSizeBytes, ptx.SharedBytes);
+            if (result != 0)
+            {
+                CudaApi.cuModuleUnload(module);
+                throw new KernelCompilationException($"Kernel {kernel.Name}:{kernel.EntryPoint} needs {ptx.SharedBytes} bytes of shared memory: {CudaApi.ErrorText(result)}");
+            }
+        }
+
         Interlocked.Add(ref KernelLoadTicks, Stopwatch.GetTimestamp() - start);
         if (DiagnosticSwitches.Trace)
         {
-            Console.Error.WriteLine($"[cuda] kernel {kernel.Name}:{kernel.EntryPoint} {kernel.CacheKey[..12]} block {ptx.ThreadsX}x{ptx.ThreadsY}x{ptx.ThreadsZ} (max {maxThreads}) in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:F1} ms");
+            Console.Error.WriteLine($"[cuda] kernel {kernel.Name}:{kernel.EntryPoint} {kernel.CacheKey[..12]} block {ptx.ThreadsX}x{ptx.ThreadsY}x{ptx.ThreadsZ} (max {maxThreads}), dynamic shared {ptx.SharedBytes} B in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:F1} ms");
         }
 
-        return new CudaKernel(module, function, ptx.ThreadsX, ptx.ThreadsY, ptx.ThreadsZ);
+        return new CudaKernel(module, function, ptx.ThreadsX, ptx.ThreadsY, ptx.ThreadsZ, ptx.SharedBytes);
     }
 
     /// <summary>Compiles PTX into a cubin for this GPU with the driver's JIT linker. The context must be current.</summary>

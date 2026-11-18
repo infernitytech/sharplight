@@ -481,7 +481,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         {
             void* parameter = arguments;
             int result = CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
-                0, _stream, &parameter, null);
+                (uint)kernel.SharedBytes, _stream, &parameter, null);
             if (result != 0)
             {
                 throw new CudaException(result, $"CUDA launch of {launch.Name} (grid {launch.GridX}x{launch.GridY}x{launch.GridZ}) failed: {CudaApi.ErrorText(result)}");

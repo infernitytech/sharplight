@@ -140,9 +140,14 @@ void load_unit(uint8_t* w, uint row, uint b, out uint4 q[2 * MQ_UB], out float2 
 #if WFMT == FMT_Q8_0R
     // Repacked Q8_0 row: [K/32 f16 scales][K int8].
     s[0] = float2(h2f(*(uint16_t*)(r + b * 2)), 0);
+#if SL_TARGET_CUDA
+    q[0] = LOAD_U4_ALIGNED(r + (ROW_BYTES / 17 + b * 32), Q8R_ALIGN);
+    q[1] = LOAD_U4_ALIGNED(r + (ROW_BYTES / 17 + b * 32 + 16), Q8R_ALIGN);
+#else
     uint4* codes = (uint4*)(r + (ROW_BYTES / 17 + b * 32));
     q[0] = codes[0];
     q[1] = codes[1];
+#endif
 #elif WFMT == FMT_Q4_K || WFMT == FMT_Q5_K
 #if WFMT == FMT_Q4_K
 #define KQ_BYTES 144
@@ -282,7 +287,7 @@ void mmq_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     {                                                                                                   \
         uint idx = tid + it * MQ_THREADS, r = idx / (MQ_BK / 16), q = idx % (MQ_BK / 16);                \
         uint t = min(t0 + r, p.T - 1);                                                                  \
-        if (idx < MQ_BM * MQ_BK / 16) xa[it] = *(uint4*)byteAt(p.x, uint64_t(t) * QROW + (k0) + q * 16); \
+        if (idx < MQ_BM * MQ_BK / 16) xa[it] = LOAD_U4_ALIGNED(byteAt(p.x, uint64_t(t) * QROW + (k0) + q * 16), ALIGN_OF(QROW)); \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < MQ_AS_ITEMS; it++)                                             \
     {                                                                                                   \

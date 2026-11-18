@@ -12,7 +12,6 @@ internal sealed class CudaDeviceProperties
     /// Shared memory the kernels are specialized for at most. The Slang kernels declare their shared arrays statically, and CUDA limits
     /// static shared memory to 48 KB per block (more needs dynamic shared memory and an opt-in per kernel, phase 2 of docs/cuda.md).
     /// </summary>
-    private const long MaxKernelSharedMemory = 48 * 1024;
 
     /// <summary>Oldest compute capability the provider lists (Turing, the oldest the CUDA 13 compiler targets).</summary>
     public const int MinimumComputeCapability = 75;
@@ -56,8 +55,12 @@ internal sealed class CudaDeviceProperties
     /// <summary>The CUDA version the driver implements (e.g. 13020 for 13.2).</summary>
     public int DriverVersion { get; private init; }
 
-    /// <summary>Shared memory per block the kernels are specialized for.</summary>
-    public long KernelSharedMemory => Math.Min(MaxKernelSharedMemory, MaxSharedMemoryPerBlock);
+    /// <summary>
+    /// Shared memory per block the kernels are specialized for: the device's opt-in maximum (kernels above the 48 KB static limit
+    /// run with dynamic shared memory, see <see cref="SharedMemoryRewriter"/>), or <c>SHARPLIGHT_CUDA_MAX_SHARED</c> bytes
+    /// (49152 keeps the static limit, the shared memory of the Vulkan provider).
+    /// </summary>
+    public long KernelSharedMemory => Math.Max(MaxSharedMemoryPerBlock, Math.Min(DiagnosticSwitches.MaxSharedMemory ?? MaxSharedMemoryOptin, MaxSharedMemoryOptin));
 
     /// <summary>Why the device is not listed, or null when it is usable.</summary>
     public string? Unsupported => ComputeCapability < MinimumComputeCapability

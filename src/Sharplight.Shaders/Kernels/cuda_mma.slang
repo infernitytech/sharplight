@@ -452,3 +452,13 @@ CuAccF coopMatMulAdd<CuR, let CuSat : bool>(CuA8f a, CuB8f b, CuAccF c)
     d.t1 = cu_mma_e4m3(a.r, b.r.zw, c.t1);
     return d;
 }
+
+// Element-wise arithmetic on accumulators (all of a lane's elements share the layout of every accumulator of the same type).
+CuAccF operator+(CuAccF a, CuAccF b) { CuAccF d; d.t0 = a.t0 + b.t0; d.t1 = a.t1 + b.t1; return d; }
+CuAccF operator-(CuAccF a, CuAccF b) { CuAccF d; d.t0 = a.t0 - b.t0; d.t1 = a.t1 - b.t1; return d; }
+CuAccF operator*(CuAccF a, CuAccF b) { CuAccF d; d.t0 = a.t0 * b.t0; d.t1 = a.t1 * b.t1; return d; }
+CuAccF operator/(CuAccF a, CuAccF b) { CuAccF d; d.t0 = a.t0 / b.t0; d.t1 = a.t1 / b.t1; return d; }
+CuAccF operator*(CuAccF a, float s) { CuAccF d; d.t0 = a.t0 * s; d.t1 = a.t1 * s; return d; }
+CuAccF operator*(float s, CuAccF a) { CuAccF d; d.t0 = a.t0 * s; d.t1 = a.t1 * s; return d; }
+CuAccF operator-(CuAccF a) { CuAccF d; d.t0 = -a.t0; d.t1 = -a.t1; return d; }
+CuAccI operator+(CuAccI a, CuAccI b) { CuAccI d; d.t0 = a.t0 + b.t0; d.t1 = a.t1 + b.t1; return d; }

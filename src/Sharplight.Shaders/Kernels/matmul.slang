@@ -925,7 +925,7 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     uint8_t* r = rowStart(w, ROW_BYTES, row);
     uint d16 = uint(*(uint16_t*)(r + (g16 >> 1) * 2));
     half2 d = bit_cast<half2>(d16 * 0x10001u);
-    uint4 q = *(uint4*)(r + ROW_BYTES / 17 + uint64_t(g16) * 16);
+    uint4 q = LOAD_U4_ALIGNED(r + ROW_BYTES / 17 + uint64_t(g16) * 16, Q8R_ALIGN);
     lo = uint4(q8x4_h2(q.x, d, false), q8x4_h2(q.x, d, true), q8x4_h2(q.y, d, false), q8x4_h2(q.y, d, true));
     hi = uint4(q8x4_h2(q.z, d, false), q8x4_h2(q.z, d, true), q8x4_h2(q.w, d, false), q8x4_h2(q.w, d, true));
 #elif WFMT == FMT_Q4_K || WFMT == FMT_Q5_K
@@ -1067,7 +1067,7 @@ uint4 load8h(uint8_t* w, uint row, uint g)
     uint8_t* r = rowStart(w, ROW_BYTES, row);
     uint d16 = uint(*(uint16_t*)(r + (g >> 2) * 2));
     half2 d = bit_cast<half2>(d16 * 0x10001u);
-    uint2 q = *(uint2*)(r + ROW_BYTES / 17 + uint64_t(g) * 8);
+    uint2 q = LOAD_U2_ALIGNED(r + ROW_BYTES / 17 + uint64_t(g) * 8, Q8R_ALIGN);
     half2 off = half2(1152.0h, 1152.0h);
     uint4 o;
     uint u = q.x ^ 0x80808080u;

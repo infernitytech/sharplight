@@ -115,6 +115,9 @@ internal static unsafe partial class CudaApi
     public static partial int cuFuncGetAttribute(int* value, int attribute, nint function);
 
     [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuFuncSetAttribute(nint function, int attribute, int value);
+
+    [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuLaunchKernel(nint function, uint gridX, uint gridY, uint gridZ, uint blockX, uint blockY, uint blockZ,
         uint sharedMemoryBytes, nint stream, void** parameters, void** extra);
 
@@ -135,6 +138,9 @@ internal static unsafe partial class CudaApi
 
     /// <summary><c>CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK</c>.</summary>
     public const int FunctionMaxThreadsPerBlock = 0;
+
+    /// <summary><c>CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES</c>.</summary>
+    public const int FunctionMaxDynamicSharedSizeBytes = 8;
 
     /// <summary><c>CU_FUNC_ATTRIBUTE_NUM_REGS</c>.</summary>
     public const int FunctionRegisters = 4;

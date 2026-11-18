@@ -554,6 +554,57 @@ uint mxfp4r_scale(uint8_t* table, uint64_t rowBytes, uint row, uint block)
 
 // Start of row `row`. The address is computed on integers: NVIDIA's driver truncates a 64-bit OpPtrAccessChain index on a byte
 // pointer to 32 bits, which breaks rows that start 4 GiB or more into a table.
+// Alignment in bytes (1-16) that a byte offset guarantees, and vector loads at addresses of a known alignment (a compile-time
+// constant). CUDA faults on a vector load whose address is not a multiple of its size, SPIR-V and MSL only assume the element
+// alignment: on CUDA the loads are split into the widest aligned parts, elsewhere they are the plain vector loads.
+#define ALIGN_OF(x) (((x) & 15) == 0 ? 16u : ((x) & 7) == 0 ? 8u : ((x) & 3) == 0 ? 4u : ((x) & 1) == 0 ? 2u : 1u)
+#if SL_TARGET_CUDA
+uint4 load_u4_aligned(uint8_t* p, uint align)
+{
+    if (align >= 16)
+    {
+        return *(uint4*)p;
+    }
+    if (align >= 8)
+    {
+        uint2 a = *(uint2*)p, b = *(uint2*)(p + 8);
+        return uint4(a.x, a.y, b.x, b.y);
+    }
+    if (align >= 4)
+    {
+        return uint4(*(uint*)p, *(uint*)(p + 4), *(uint*)(p + 8), *(uint*)(p + 12));
+    }
+    uint w[4];
+    [ForceUnroll]
+    for (uint i = 0; i < 4; i++)
+    {
+        w[i] = uint(*(uint16_t*)(p + 4 * i)) | (uint(*(uint16_t*)(p + 4 * i + 2)) << 16);
+    }
+    return uint4(w[0], w[1], w[2], w[3]);
+}
+uint2 load_u2_aligned(uint8_t* p, uint align)
+{
+    if (align >= 8)
+    {
+        return *(uint2*)p;
+    }
+    if (align >= 4)
+    {
+        return uint2(*(uint*)p, *(uint*)(p + 4));
+    }
+    return uint2(uint(*(uint16_t*)p) | (uint(*(uint16_t*)(p + 2)) << 16), uint(*(uint16_t*)(p + 4)) | (uint(*(uint16_t*)(p + 6)) << 16));
+}
+#define LOAD_U4_ALIGNED(p, align) load_u4_aligned((uint8_t*)(p), align)
+#define LOAD_U2_ALIGNED(p, align) load_u2_aligned((uint8_t*)(p), align)
+#else
+#define LOAD_U4_ALIGNED(p, align) (*(uint4*)(p))
+#define LOAD_U2_ALIGNED(p, align) (*(uint2*)(p))
+#endif
+// Alignment of the code rows of repacked Q8_0 weights ([K / 32 f16 scales][K int8] per row).
+#ifdef ROW_BYTES
+#define Q8R_ALIGN min(ALIGN_OF(ROW_BYTES), ALIGN_OF((ROW_BYTES) / 17))
+#endif
+
 uint8_t* rowStart(uint8_t* base, uint64_t rowBytes, uint row)
 {
     return (uint8_t*)(uint64_t(base) + rowBytes * row);
