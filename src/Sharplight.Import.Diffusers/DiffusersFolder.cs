@@ -81,19 +81,22 @@ internal static class DiffusersFolder
             return HunyuanVideoFolder.Open(path);
         }
 
-        if (Directory.Exists(Path.Combine(path, "transformer")) || !Directory.Exists(Path.Combine(path, "text_encoder")))
+        // The SDXL refiner has only the second encoder (OpenCLIP bigG with its projection) and its tokenizer.
+        bool onlySecond = !Directory.Exists(Path.Combine(path, "text_encoder")) && Directory.Exists(Path.Combine(path, "text_encoder_2"))
+            && Directory.Exists(Path.Combine(path, "unet"));
+        if (Directory.Exists(Path.Combine(path, "transformer")) || !Directory.Exists(Path.Combine(path, "text_encoder")) && !onlySecond)
         {
             throw new NotSupportedException($"'{path}': only Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image, Qwen-Image, Wan and LTX-Video pipelines are supported so far.");
         }
 
-        bool xl = Directory.Exists(Path.Combine(path, "text_encoder_2"));
+        bool xl = !onlySecond && Directory.Exists(Path.Combine(path, "text_encoder_2"));
 
         var tensors = new CheckpointTensors();
         try
         {
             AddComponent(tensors, path, "unet");
             AddComponent(tensors, path, "vae");
-            AddComponent(tensors, path, "text_encoder");
+            AddComponent(tensors, path, onlySecond ? "text_encoder_2" : "text_encoder");
             if (xl)
             {
                 AddComponent(tensors, path, "text_encoder_2");
@@ -114,7 +117,7 @@ internal static class DiffusersFolder
                         DiffusersNames.AddVae(rest, weight, weights);
                         break;
                     case "text_encoder_2":
-                        DiffusersNames.AddClipText(rest, weight, LatentDiffusionSource.SecondTextEncoderPrefix, weights);
+                        DiffusersNames.AddClipText(rest, weight, onlySecond ? LatentDiffusionSource.TextEncoderPrefix : LatentDiffusionSource.SecondTextEncoderPrefix, weights);
                         break;
                     default:
                         DiffusersNames.AddClipText(rest, weight, LatentDiffusionSource.TextEncoderPrefix, weights);
@@ -124,7 +127,13 @@ internal static class DiffusersFolder
 
             var unet = UNetConfig.FromDiffusers(ReadJson(path, "unet", "config.json"));
             var vae = VaeConfig.FromDiffusers(ReadJson(path, "vae", "config.json"), LatentDiffusionSource.StableDiffusion1RgbFactors);
-            var text = ClipTextConfig.FromTransformers(ReadJson(path, "text_encoder", "config.json"));
+            var text = ClipTextConfig.FromTransformers(ReadJson(path, onlySecond ? "text_encoder_2" : "text_encoder", "config.json"));
+            if (onlySecond)
+            {
+                // As SDXL's second encoder: the penultimate layer without the final norm; the pooled embedding from its projection.
+                text = text with { ClipSkip = 2, FinalNorm = false };
+            }
+
             ClipTextConfig? secondText = null;
             int secondPadId = -1;
             if (xl)
@@ -138,7 +147,7 @@ internal static class DiffusersFolder
 
             bool zeroEmptyNegative = File.Exists(Path.Combine(path, "model_index.json"))
                 && ReadJson(path, "", "model_index.json").Bool("force_zeros_for_empty_prompt", false);
-            var vocabulary = ClipVocabulary.FromFolder(Path.Combine(path, "tokenizer"));
+            var vocabulary = ClipVocabulary.FromFolder(Path.Combine(path, onlySecond ? "tokenizer_2" : "tokenizer"));
             string schedulerPath = Path.Combine(path, "scheduler", "scheduler_config.json");
             var scheduler = File.Exists(schedulerPath) ? SchedulerSettings.FromDiffusers(File.ReadAllText(schedulerPath)) : new SchedulerSettings();
             string displayName = Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)));

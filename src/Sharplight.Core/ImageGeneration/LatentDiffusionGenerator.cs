@@ -48,6 +48,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly float _defaultImageGuidance;
     private readonly float _scalingFactor;
     private readonly bool _classifierFree;
+    private readonly int _sizeConditions;
     private bool _releaseTextEncoders;
     private (string Prompt, string? Negative, int Rows, IReadOnlyList<ImageInput>? Images, PromptConditioning Conditioning)? _lastConditioning;
     private readonly int _patchSize;
@@ -120,6 +121,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             ? denoiser.ConfigValue<string?>(DiffusionConfigKeys.ConditionMode, null)
             : null;
         _embeddedGuidance = model.ComponentGraph(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise).Inputs.Any(i => i.Name == DiffusionGraphs.Guidance);
+        _sizeConditions = model.ComponentGraph(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise).Inputs.FirstOrDefault(i => i.Name == DiffusionGraphs.SizeConditions)
+            is { } sizes ? (int)sizes.Shape[1].Fixed : 0;
         if (_secondEncoderRole is null && model.Definition.Graphs.TryGetValue(DiffusionGraphs.Denoise, out var denoise)
             && denoise.Inputs.Any(input => input.Name == DiffusionGraphs.Pooled)
             && !model.ComponentGraph(ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode).Outputs.ContainsKey(DiffusionGraphs.Pooled))
@@ -156,6 +159,18 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     /// <inheritdoc/>
     public TaskClientMetadata Metadata { get; }
 
+    /// <summary>diffusers' default aesthetic score of the prompt's row (SDXL refiner, <c>aesthetic_score</c>).</summary>
+    private const float DefaultAestheticScore = 6f;
+
+    /// <summary>diffusers' default aesthetic score of the negative prompt's row (<c>negative_aesthetic_score</c>).</summary>
+    private const float DefaultNegativeAestheticScore = 2.5f;
+
+    /// <summary>
+    /// Whether the denoiser's added conditioning ends with an aesthetic score instead of the target size (the SDXL refiner: five size
+    /// conditions, original size, crop corner and the score, instead of SDXL's six).
+    /// </summary>
+    private bool Aesthetic => _sizeConditions == 5;
+
     /// <inheritdoc/>
     /// <remarks>Also answers <see cref="ImageGenerationDefaults"/> (the model's native size, steps, guidance and sampler).</remarks>
     public object? GetService(Type serviceType, object? serviceKey = null)
@@ -163,7 +178,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         ArgumentNullException.ThrowIfNull(serviceType);
         if (serviceKey is null && serviceType == typeof(ImageGenerationDefaults))
         {
-            return new ImageGenerationDefaults(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler, _classifierFree && !_embeddedGuidance, _maxReferences, _defaultImageGuidance);
+            return new ImageGenerationDefaults(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler, _classifierFree && !_embeddedGuidance, _maxReferences, _defaultImageGuidance,
+                Aesthetic ? DefaultAestheticScore : 0f);
         }
 
         return serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model
@@ -228,9 +244,40 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var condition = _conditionMode is null ? null : await Task.Run(() => ConditionLatents(request, run, mask), cancellationToken).ConfigureAwait(false);
         var references = run.References == 0 ? null : await Task.Run(() => EncodeReferences(request.ReferenceImages!, run), cancellationToken).ConfigureAwait(false);
         var images = new List<ImageInput>(run.Count);
-        int evaluations = CreateSampler(run).Timesteps.Count;
+        var timesteps = CreateSampler(run).Timesteps;
+        int evaluations = timesteps.Count;
         int start = !startsFromImage ? 0 : CreateSampler(run).StartIndex(run.Steps, request.Strength);
-        int perImage = evaluations - start;
+        var refiner = Refiner(options);
+        float cutoff = 0f;
+        ImageGenerationOptions? refinerOptions = null;
+        int refinerSteps = 0;
+        if (refiner is not null)
+        {
+            // diffusers' denoising_end / denoising_start: both stages cut the schedule at the same training timestep; this one runs the
+            // timesteps at or above it, the refiner the rest of its own schedule (the same one when both use the same sampler settings).
+            float fraction = options!.RefinerStart ?? ImageGenerationOptions.DefaultRefinerStart;
+            if (fraction is <= 0f or >= 1f)
+            {
+                throw new ArgumentOutOfRangeException(nameof(options), fraction, "RefinerStart must be in (0, 1).");
+            }
+
+            cutoff = MathF.Round(_schedule.TrainSteps - fraction * _schedule.TrainSteps);
+            evaluations = Math.Max(start, timesteps.Count(t => t >= cutoff));
+            refinerOptions = options with
+            {
+                Width = run.Width,
+                Height = run.Height,
+                Steps = run.Steps,
+                GuidanceScale = run.Guidance,
+                Count = 1,
+                Refiner = null,
+                InitialNoise = null,
+                Seed = run.Seed,
+            };
+            refinerSteps = refiner.RefinementSteps(request, refinerOptions, cutoff);
+        }
+
+        int perImage = evaluations - start + refinerSteps;
         int total = perImage * run.Count;
         for (int image = 0; image < run.Count; image++)
         {
@@ -273,10 +320,109 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
                 yield return new ImageGenerationUpdate(done, total, Preview: preview ? Preview(sampler.PredictedOriginal ?? latents, run) : null);
             }
 
-            images.Add(await Task.Run(() => Decode(run, latents), cancellationToken).ConfigureAwait(false));
+            if (refiner is null)
+            {
+                images.Add(await Task.Run(() => Decode(run, latents), cancellationToken).ConfigureAwait(false));
+                continue;
+            }
+
+            int before = image * perImage + evaluations - start;
+            ImageInput? refined = null;
+            await foreach (var update in refiner.RefineAsync(request, refinerOptions! with { Seed = seed }, latents, cutoff, before, total, cancellationToken)
+                .ConfigureAwait(false))
+            {
+                if (update.Result is { } finished)
+                {
+                    refined = finished.Images[0];
+                    continue;
+                }
+
+                yield return update;
+            }
+
+            images.Add(refined ?? throw new InvalidOperationException("The refiner produced no image."));
         }
 
         yield return new ImageGenerationUpdate(total, total, new ImageGenerationResult(images, run.Seed));
+    }
+
+    /// <summary>The refiner of a request (<see cref="ImageGenerationOptions.Refiner"/>), checked to continue this generator's latents.</summary>
+    private LatentDiffusionGenerator? Refiner(ImageGenerationOptions? options)
+    {
+        if (options?.Refiner is null)
+        {
+            return null;
+        }
+
+        if (options.Refiner is not LatentDiffusionGenerator refiner || ReferenceEquals(refiner, this))
+        {
+            throw new NotSupportedException("ImageGenerationOptions.Refiner must be another latent-diffusion generator (the SDXL refiner for the SDXL base).");
+        }
+
+        if (refiner._latentChannels != _latentChannels || refiner._downscale != _downscale || refiner._patchSize != _patchSize
+            || refiner._conditionMode is not null || refiner._maxReferences > 0 || refiner._schedule.IsFlow != _schedule.IsFlow)
+        {
+            throw new NotSupportedException($"{refiner._model.Definition.Name} cannot refine {_model.Definition.Name}'s latents (another latent space or schedule).");
+        }
+
+        return refiner;
+    }
+
+    /// <summary>The steps a refiner runs (<see cref="RefineAsync"/>) for a request: its schedule's timesteps below <paramref name="cutoff"/>.</summary>
+    private int RefinementSteps(ImageGenerationRequest request, ImageGenerationOptions options, float cutoff)
+    {
+        var run = Plan(RefinerRequest(request), options);
+        return CreateSampler(run).Timesteps.Count(t => t < cutoff);
+    }
+
+    /// <summary>The prompts of a request without its images (a refiner continues latents; it neither encodes nor edits an image).</summary>
+    private static ImageGenerationRequest RefinerRequest(ImageGenerationRequest request)
+        => request with { Image = null, Mask = null, ReferenceImages = null };
+
+    /// <summary>
+    /// Continues another generator's latents as its refiner (diffusers' <c>denoising_start</c>): the timesteps of this model's schedule below
+    /// <paramref name="cutoff"/> on its own conditioning, then this model's VAE decode. Reports steps from <paramref name="before"/> of
+    /// <paramref name="total"/>; the last update carries the image.
+    /// </summary>
+    private async IAsyncEnumerable<ImageGenerationUpdate> RefineAsync(ImageGenerationRequest request, ImageGenerationOptions options, float[] latents,
+        float cutoff, int before, int total, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var prompts = RefinerRequest(request);
+            var run = Plan(prompts, options);
+            if (run.LatentSize != latents.Length)
+            {
+                throw new ArgumentException($"The latents have {latents.Length} values; the refiner's {run.Width}x{run.Height} run needs {run.LatentSize}.", nameof(latents));
+            }
+
+            var context = await Task.Run(() => Conditioning(prompts, run.Rows), cancellationToken).ConfigureAwait(false);
+            var sampler = CreateSampler(run);
+            int evaluations = sampler.Timesteps.Count;
+            int first = evaluations - sampler.Timesteps.Count(t => t < cutoff);
+            var state = (float[])latents.Clone();
+            long stream = 1L << 32;
+            for (int index = first; index < evaluations; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int step = index;
+                var prediction = await Task.Run(() => Denoise(run, context, sampler, step, state, null, null), cancellationToken).ConfigureAwait(false);
+                long seed = run.Seed;
+                long noiseStream = stream++;
+                sampler.Step(index, prediction, state, () => LatentNoise.Draw(seed, noiseStream, state.Length));
+                bool preview = run.PreviewInterval > 0 && _rgbFactors.Length > 0 && (index - first + 1) % run.PreviewInterval == 0;
+                yield return new ImageGenerationUpdate(before + index - first + 1, total, Preview: preview ? Preview(sampler.PredictedOriginal ?? state, run) : null);
+            }
+
+            var image = await Task.Run(() => Decode(run, state), cancellationToken).ConfigureAwait(false);
+            yield return new ImageGenerationUpdate(before + evaluations - first, total, new ImageGenerationResult([image], run.Seed));
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <inheritdoc/>
@@ -355,6 +501,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             Guidance = guidance,
             Guided = guidance > 1f && _classifierFree && !_embeddedGuidance && imageGuidance is 0f or >= 1f,
             ImageGuidance = imageGuidance,
+            AestheticScore = options.AestheticScore ?? DefaultAestheticScore,
+            NegativeAestheticScore = options.NegativeAestheticScore ?? DefaultNegativeAestheticScore,
             Seed = options.Seed ?? Random.Shared.NextInt64(1L << 53),
             Count = options.Count,
             Sampler = options.Scheduler ?? _schedule.Sampler,
@@ -822,17 +970,21 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.ContextMask), mask.AsSpan(firstRow * maskRow, rows * maskRow).ToArray());
         }
 
-        if (denoiser.Graph.Inputs.Any(i => i.Name == DiffusionGraphs.SizeConditions))
+        if (denoiser.Graph.Inputs.FirstOrDefault(i => i.Name == DiffusionGraphs.SizeConditions) is { } sizeInput)
         {
-            // Original size = target size = the output size, no crop (diffusers' defaults).
-            float[] size = [run.Height, run.Width, 0f, 0f, run.Height, run.Width];
-            var sizes = new float[size.Length * rows];
+            // Original size = target size = the output size, no crop (diffusers' defaults). The SDXL refiner's five conditions end with
+            // the aesthetic score instead of the target size: the negative prompt's (the first row of a guided step) and the prompt's.
+            int conditions = (int)sizeInput.Shape[1].Fixed;
+            var sizes = new float[conditions * rows];
             for (int row = 0; row < rows; row++)
             {
-                size.CopyTo(sizes, row * size.Length);
+                float[] size = conditions == 5
+                    ? [run.Height, run.Width, 0f, 0f, run.Guided && firstRow + row == 0 ? run.NegativeAestheticScore : run.AestheticScore]
+                    : [run.Height, run.Width, 0f, 0f, run.Height, run.Width];
+                size.CopyTo(sizes, row * conditions);
             }
 
-            denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.SizeConditions), sizes);
+            denoiser.SetInput<float>(sizeInput, sizes);
         }
 
         if (denoiser.Graph.Inputs.Any(i => i.Name == DiffusionGraphs.Guidance))

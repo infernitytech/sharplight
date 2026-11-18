@@ -44,6 +44,36 @@ public sealed record ImageGenerationOptions
     /// </summary>
     public int PreviewInterval { get; init; }
 
+    /// <summary>
+    /// For models conditioned on an aesthetic score (the SDXL refiner, <see cref="ImageGenerationDefaults.AestheticScore"/> above 0): the score
+    /// the prompt's row asks for, or <see langword="null"/> for the model's default (6).
+    /// </summary>
+    public float? AestheticScore { get; init; }
+
+    /// <summary>
+    /// For models conditioned on an aesthetic score: the score of the negative prompt's row, or <see langword="null"/> for the model's
+    /// default (2.5).
+    /// </summary>
+    public float? NegativeAestheticScore { get; init; }
+
+    /// <summary>
+    /// A second generator that finishes the denoising (the SDXL refiner after the SDXL base, as diffusers' <c>denoising_end</c> and
+    /// <c>denoising_start</c>): this generator runs the schedule until <see cref="RefinerStart"/>, hands its latents to the refiner, which
+    /// runs the remaining steps of the same schedule on its own conditioning and decodes the image; or <see langword="null"/> for none. Both
+    /// must share the latent space (the same VAE latents); the refiner is used with the request's prompts and this request's size, steps,
+    /// guidance and sampler, and must not be this generator.
+    /// </summary>
+    public IImageGenerator? Refiner { get; init; }
+
+    /// <summary>
+    /// With <see cref="Refiner"/>: the fraction of the noise schedule (of the training timesteps, as diffusers' <c>denoising_end</c>) after
+    /// which the refiner takes over, in (0, 1), or <see langword="null"/> for 0.8.
+    /// </summary>
+    public float? RefinerStart { get; init; }
+
+    /// <summary>The default <see cref="RefinerStart"/>.</summary>
+    public const float DefaultRefinerStart = 0.8f;
+
     /// <summary>The defaults.</summary>
     public static ImageGenerationOptions Default { get; } = new();
 }

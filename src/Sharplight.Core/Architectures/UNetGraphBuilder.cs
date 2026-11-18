@@ -139,13 +139,13 @@ internal sealed class UNetGraphBuilder
     }
 
     /// <summary>
-    /// SDXL's added conditioning: the pooled text embedding [N, P] and the sinusoidal embeddings of the six size conditions
-    /// [N, 6] (each <see cref="UNetHyperParameters.AdditionTimeDim"/> wide), concatenated and passed through the two-layer MLP
-    /// <c>unet.class_embedding.linear1|linear2</c> → [N, 4·C0].
+    /// SDXL's added conditioning: the pooled text embedding [N, P] and the sinusoidal embeddings of the size conditions [N, 6] (the
+    /// refiner: [N, 5], see <see cref="UNetHyperParameters.SizeConditions"/>; each <see cref="UNetHyperParameters.AdditionTimeDim"/> wide),
+    /// concatenated and passed through the two-layer MLP <c>unet.class_embedding.linear1|linear2</c> → [N, 4·C0].
     /// </summary>
     private Value AddedConditioning(Dim batch)
     {
-        const int conditions = 6;
+        int conditions = _hp.SizeConditions;
         int pooledWidth = _hp.ClassEmbeddingInput - conditions * _hp.AdditionTimeDim;
         var pooled = _b.Input(DiffusionGraphs.Pooled, InputRole.Other, DataType.F32, new Shape(batch, pooledWidth));
         var sizes = _b.Input(DiffusionGraphs.SizeConditions, InputRole.Other, DataType.F32, new Shape(batch, conditions));

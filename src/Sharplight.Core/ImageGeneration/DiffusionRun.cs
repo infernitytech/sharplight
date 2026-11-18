@@ -54,6 +54,12 @@ internal sealed record DiffusionRun
     /// </summary>
     public float ImageGuidance { get; init; }
 
+    /// <summary>The aesthetic score of the prompt's row (models with five size conditions: the SDXL refiner).</summary>
+    public float AestheticScore { get; init; }
+
+    /// <summary>The aesthetic score of the negative prompt's row.</summary>
+    public float NegativeAestheticScore { get; init; }
+
     /// <summary>Denoiser rows per evaluation: 1 unguided, 2 with classifier-free guidance, 3 with image guidance as well.</summary>
     public int Rows => !Guided ? 1 : ImageGuidance > 0 ? 3 : 2;
 
