@@ -57,6 +57,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddTaskClientFactory<KokoroSynthesizerFactory>()
                 .AddCompositeModelAdapter<OrpheusAdapter>()
                 .AddTaskClientFactory<OrpheusSynthesizerFactory>()
+                .AddCompositeModelAdapter<Qwen3TtsAdapter>()
+                .AddTaskClientFactory<Qwen3TtsSynthesizerFactory>()
                 .AddModelAdapter<ChatterboxAdapter>()
                 .AddTaskClientFactory<ChatterboxSynthesizerFactory>()
                 .AddCompositeModelAdapter<F5Adapter>()

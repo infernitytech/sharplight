@@ -40,6 +40,12 @@ internal static class TtsModels
     /// <summary>Reference tokens and logits of transformers' Orpheus (raw arrays).</summary>
     public static string OrpheusReference => Path.Combine(s_root, "orpheus-ref");
 
+    /// <summary>Qwen3-TTS 12 Hz 0.6B CustomVoice (the checkpoint directory, with its codec in <c>speech_tokenizer/</c>).</summary>
+    public static string Qwen3Tts => Path.Combine(s_root, "Qwen3-TTS-12Hz-0.6B-CustomVoice");
+
+    /// <summary>Reference prompt, codes and logits of the official qwen_tts package (raw arrays, see <c>Qwen3TtsTests</c>).</summary>
+    public static string Qwen3TtsReference => Path.Combine(s_root, "qwen3-tts-ref");
+
     /// <summary>A fixture file next to the test assembly.</summary>
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 

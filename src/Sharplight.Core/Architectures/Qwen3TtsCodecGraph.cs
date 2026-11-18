@@ -17,9 +17,10 @@ internal static class Qwen3TtsCodecGraph
     /// <summary>Builds the decoder graph: the codes of the codebooks (each masked in or out) to <c>audio</c> [T · samples per frame, 1].</summary>
     /// <param name="p">The decoder hyper-parameters.</param>
     /// <param name="weights">Finds a weight by name.</param>
-    public static ComputeGraph BuildDecoder(Qwen3TtsCodecParameters p, Func<string, WeightInfo?> weights)
+    /// <param name="name">The graph's name.</param>
+    public static ComputeGraph BuildDecoder(Qwen3TtsCodecParameters p, Func<string, WeightInfo?> weights, string name = AudioCodecGraphs.DecodeGraph)
     {
-        var b = new GraphBuilder(AudioCodecGraphs.DecodeGraph, weights);
+        var b = new GraphBuilder(name, weights);
         var frames = Dim.Sym(WellKnown.TokenSymbol);
         var mask = b.Input(AudioCodecGraphs.MaskInput, InputRole.Other, DataType.F32, new Shape(p.Quantizers));
         Value? first = null;
