@@ -73,9 +73,9 @@ public sealed class SdEditTests
         TestContext.Current.SendDiagnosticMessage($"{device} {kind} UNet: max {max}, relative RMS {rms}");
         Assert.True(rms < (device == "cpu" ? 1e-3 : 5e-3), $"unet: max {max}, relative RMS {rms}");
 
-        // Three rows (InstructPix2Pix's guided step): the third row repeats the first. Vulkan's UNet kernels are wrong for a batch of three
-        // (the pipeline runs such a step as two rows and one), so only the CPU is checked.
-        if (device != "cpu" || kind == "sdxl-inpaint")
+        // Three rows (InstructPix2Pix's guided step, one run): the third row repeats the first. Vulkan once overwrote the time embedding at
+        // three rows (the conv split-K workspace was sized for the split batches only).
+        if (kind == "sdxl-inpaint")
         {
             return;
         }

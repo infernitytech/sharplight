@@ -68,6 +68,9 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
         var vae = AutoencoderHyperParameters.Read(src, Prefix);
         var text = ClipTextHyperParameters.Read(src, Prefix, "text_encoder");
         var secondText = src.Has(Prefix + "text_encoder_2.layer_count") ? ClipTextHyperParameters.Read(src, Prefix, "text_encoder_2") : null;
+        // The pooled embedding comes from the second encoder's projection (SDXL), or the only encoder's (the SDXL refiner's OpenCLIP bigG).
+        var projection = src.Weight(SecondTextEncoderPrefix + "projection.weight") ?? src.Weight(TextEncoderPrefix + "projection.weight");
+        unet = unet.WithPooledWidth(projection is null ? 0 : (int)projection.Shape[0].Fixed);
         int downscale = vae.Downscale;
         long height = options.Dimensions.GetValueOrDefault(DiffusionGraphs.Height, unet.SampleSize * downscale);
         long width = options.Dimensions.GetValueOrDefault(DiffusionGraphs.Width, unet.SampleSize * downscale);
@@ -81,7 +84,8 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
         long latentWidth = width / downscale;
         var graphs = new Dictionary<string, Graph.ComputeGraph>
         {
-            [DiffusionGraphs.TextEncode] = ClipTextGraphBuilder.Build(src.Weight, text, TextEncoderPrefix),
+            [DiffusionGraphs.TextEncode] = ClipTextGraphBuilder.Build(src.Weight, text, TextEncoderPrefix,
+                pooled: secondText is null && src.Weight(TextEncoderPrefix + "projection.weight") is not null),
             [DiffusionGraphs.Denoise] = UNetGraphBuilder.Build(src.Weight, unet, latentHeight, latentWidth, text.ContextLength),
             [DiffusionGraphs.VaeDecode] = AutoencoderGraphBuilder.BuildDecoder(src.Weight, vae, latentHeight, latentWidth),
             [DiffusionGraphs.VaeEncode] = AutoencoderGraphBuilder.BuildEncoder(src.Weight, vae, height, width),
@@ -170,7 +174,10 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
         }
 
         long batch1 = 1;
-        long batch2 = 2;
+        // A guided step evaluates two rows (unconditional and conditional); with image guidance (InstructPix2Pix) three.
+        long denoiserRows = unet.ConditionChannels > 0
+            && src.Get(Prefix + "unet.condition_mode", unet.ConditionChannels == 4 ? DiffusionConfigKeys.ConditionImage : DiffusionConfigKeys.ConditionInpaint)
+                == DiffusionConfigKeys.ConditionImage ? 3 : 2;
         int nativeSize = unet.SampleSize * vae.Downscale;
         return new ModelDescription
         {
@@ -195,7 +202,7 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
                     Graphs = [DiffusionGraphs.Denoise],
                     WeightPrefixes = ["unet."],
                     Config = DenoiserConfig(unet, src),
-                    SymbolBounds = new Dictionary<string, long> { [DiffusionGraphs.BatchSymbol] = batch2 },
+                    SymbolBounds = new Dictionary<string, long> { [DiffusionGraphs.BatchSymbol] = denoiserRows },
                 },
                 new ModelComponent
                 {

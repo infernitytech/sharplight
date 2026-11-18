@@ -156,6 +156,28 @@ public sealed partial class GraphLowerer
         return list;
     }
 
+    /// <summary>
+    /// Elements of the split-K workspace ([splits][batch][<paramref name="perImage"/>]) of a kernel whose split count
+    /// (<paramref name="split"/>) depends on the batch (1..<paramref name="bound"/> for a symbolic batch): 0 when no batch splits.
+    /// Otherwise every batch goes through the workspace, the unsplit ones too (one partial per image), so it holds the largest
+    /// <c>splits · batch · perImage</c> over all batches, not only over the split ones: a batch past the largest split one would
+    /// write beyond it (the SD UNets' convs at three rows split for one and two rows only, and the third image overwrote the
+    /// arena's neighbouring values).
+    /// </summary>
+    private static long SplitKWorkspaceElements(string? symbol, long bound, Func<long, int> split, long perImage)
+    {
+        bool anySplit = false;
+        long elements = 0;
+        for (long v = symbol is null ? bound : 1; v <= bound; v++)
+        {
+            int s = split(v);
+            anySplit |= s > 1;
+            elements = Math.Max(elements, s * v * perImage);
+        }
+
+        return anySplit ? elements : 0;
+    }
+
     // ---- Conv --------------------------------------------------------------------------------
     private sealed record ConvTile(int BM, int BN, int TM, int TN)
     {
@@ -359,15 +381,7 @@ public sealed partial class GraphLowerer
         bool aVec = w.Type.IsQuantized || K % 8 == 0;
         long bound = x.Symbol is null ? x.Shape[0] : Bound(Dim.Sym(x.Symbol));
         Func<long, ConvCfg> choose = N => ChooseConv(N, OG, G, HW, K);
-        long maxWs = 0;
-        for (long v = x.Symbol is null ? bound : 1; v <= bound; v++)
-        {
-            var c = choose(v);
-            if (c.Split > 1)
-            {
-                maxWs = Math.Max(maxWs, c.Split * v * O * HW);
-            }
-        }
+        long maxWs = SplitKWorkspaceElements(x.Symbol, bound, v => choose(v).Split, O * HW);
         TensorRef? ws = maxWs > 0 ? Temp(DataType.F32, [maxWs], null) : null;
 
         bool useWs = maxWs > 0;

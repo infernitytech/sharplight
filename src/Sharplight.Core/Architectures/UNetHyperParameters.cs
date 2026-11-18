@@ -54,6 +54,29 @@ internal sealed record UNetHyperParameters
     public int AdditionTimeDim { get; init; }
 
     /// <summary>
+    /// Size conditions embedded next to the pooled text embedding (<see cref="Sharplight.ImageGeneration.DiffusionGraphs.SizeConditions"/>):
+    /// SDXL's six (original size, crop corner, target size) or the SDXL refiner's five (original size, crop corner, aesthetic score). Not stored:
+    /// the adapter derives it from <see cref="ClassEmbeddingInput"/> and the pooled embedding's width (<see cref="WithPooledWidth"/>).
+    /// </summary>
+    public int SizeConditions { get; init; } = 6;
+
+    /// <summary>
+    /// The parameters with <see cref="SizeConditions"/> derived from the width of the pooled text embedding the UNet receives: the rest of
+    /// <see cref="ClassEmbeddingInput"/> holds one <see cref="AdditionTimeDim"/>-wide embedding per condition.
+    /// </summary>
+    /// <param name="pooledWidth">The pooled embedding's width (SDXL and its refiner: OpenCLIP bigG's projection, 1280); 0 when unknown.</param>
+    public UNetHyperParameters WithPooledWidth(int pooledWidth)
+    {
+        if (ClassEmbeddingInput <= 0 || AdditionTimeDim <= 0 || pooledWidth <= 0 || pooledWidth >= ClassEmbeddingInput
+            || (ClassEmbeddingInput - pooledWidth) % AdditionTimeDim != 0)
+        {
+            return this;
+        }
+
+        return this with { SizeConditions = (ClassEmbeddingInput - pooledWidth) / AdditionTimeDim };
+    }
+
+    /// <summary>
     /// Input channels beyond the predicted latent channels (InstructPix2Pix: 4 image-latent channels; the inpainting UNets: 1 mask and 4
     /// masked-image channels), fed through the <see cref="Sharplight.ImageGeneration.DiffusionGraphs.ConditionLatent"/> input.
     /// </summary>

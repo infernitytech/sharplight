@@ -23,5 +23,9 @@ namespace Sharplight.ImageGeneration;
 /// The default <see cref="ImageGenerationOptions.ImageGuidanceScale"/> of InstructPix2Pix-style models, which edit the request's
 /// <see cref="ImageGenerationRequest.Image"/> by an instruction; 0 for models without it.
 /// </param>
+/// <param name="AestheticScore">
+/// The default <see cref="ImageGenerationOptions.AestheticScore"/> of models conditioned on an aesthetic score (the SDXL refiner, typically
+/// the second stage of <see cref="ImageGenerationOptions.Refiner"/>); 0 for models without it.
+/// </param>
 public sealed record ImageGenerationDefaults(int Width, int Height, int Steps, float GuidanceScale, string Sampler, bool ClassifierFreeGuidance = true,
-    int ReferenceImages = 0, float ImageGuidanceScale = 0f);
+    int ReferenceImages = 0, float ImageGuidanceScale = 0f, float AestheticScore = 0f);

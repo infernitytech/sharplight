@@ -77,6 +77,40 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         Generations = new ImageGalleryViewModel(_store, services.Platform, services.Dispatcher, OpenStored, ReuseStored);
         Loras = new LoraListViewModel(services.Platform, () => _library);
         Loras.Changed += (_, _) => OnLorasEdited();
+        Picker.Models.CollectionChanged += (_, _) => RefreshRefiners();
+        RefreshRefiners();
+    }
+
+    /// <summary>
+    /// The refiners on offer: none, and every other resident image-generation model (the SDXL refiner for the SDXL base: it finishes the
+    /// denoising from <c>refinerStart</c> of the schedule on the base's latents).
+    /// </summary>
+    public ObservableCollection<RefinerChoice> Refiners { get; } = [RefinerChoice.None];
+
+    /// <summary>The chosen refiner (<see cref="RefinerChoice.None"/> for none).</summary>
+    [ObservableProperty]
+    public partial RefinerChoice SelectedRefiner { get; set; } = RefinerChoice.None;
+
+    /// <summary>Another image-generation model is resident, so a refiner can be chosen.</summary>
+    public bool HasRefiners => Refiners.Count > 1;
+
+    partial void OnSelectedRefinerChanged(RefinerChoice value) => Panel.SetVisible("refinerStart", value.Model is not null);
+
+    /// <summary>Lists the resident image-generation models other than the chosen one as refiners, keeping the choice while it is offered.</summary>
+    private void RefreshRefiners()
+    {
+        var chosen = SelectedRefiner.Model;
+        var others = Picker.Models.Select(option => option.Model).Where(model => !ReferenceEquals(model, SelectedModel)).ToList();
+        Refiners.Clear();
+        Refiners.Add(RefinerChoice.None);
+        foreach (var model in others)
+        {
+            Refiners.Add(new RefinerChoice(model.Id, model));
+        }
+
+        SelectedRefiner = Refiners.FirstOrDefault(choice => choice.Model is not null && ReferenceEquals(choice.Model, chosen)) ?? RefinerChoice.None;
+        Panel.SetVisible("refinerStart", SelectedRefiner.Model is not null);
+        OnPropertyChanged(nameof(HasRefiners));
     }
 
     private IReadOnlyList<LibraryEntry> _library = [];
@@ -409,6 +443,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
 
         OnPropertyChanged(nameof(RunHint));
         RunCommand.NotifyCanExecuteChanged();
+        RefreshRefiners();
         if (model is not null)
         {
             _settingLoras = true;
@@ -594,7 +629,13 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
 
         var plan = new GenerationPlan(Prompt.Trim(), NegativePrompt.Trim(), options, seed, editing ? null : Source.Image,
             !editing && Source.Image is not null ? Mask.Image : null, (float)Panel.GetNumber("strength"), values, Panel.GetBool("preview"),
-            editing ? EditImage.Image : null, editing && SupportsSeveralEditImages ? [EditImage2.Image, EditImage3.Image] : [], SupportsImageGuidance);
+            editing ? EditImage.Image : null, editing && SupportsSeveralEditImages ? [EditImage2.Image, EditImage3.Image] : [], SupportsImageGuidance,
+            editing ? null : SelectedRefiner.Model);
+        if (plan.Refiner is { } refiner)
+        {
+            values["refiner"] = refiner.Id;
+        }
+
         string title = plan.Prompt.Length > PromptTitleLength ? plan.Prompt[..PromptTitleLength] + "…" : plan.Prompt;
         Panel.Persist();
         Notice = "";
@@ -616,6 +657,8 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         {
             context.Report(null, "Loading the model");
             using var lease = await model.AcquireClientAsync<IImageGenerator>(context.CancellationToken).ConfigureAwait(false);
+            // The refiner finishes the denoising on the chosen model's latents (the SDXL refiner after the SDXL base).
+            using var refinerLease = plan.Refiner is null ? null : await plan.Refiner.AcquireClientAsync<IImageGenerator>(context.CancellationToken).ConfigureAwait(false);
             var request = new ImageGenerationRequest
             {
                 Prompt = plan.Prompt,
@@ -626,7 +669,13 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
                 Mask = plan.Mask,
                 ReferenceImages = plan.Edit is null || plan.InstructEdit ? null : [plan.Edit, .. plan.MoreEdits?.OfType<ImageInput>() ?? []],
             };
-            var options = plan.Options with { Seed = plan.Seed, PreviewInterval = plan.Preview ? Math.Max(1, (plan.Options.Steps ?? 20) / 10) : 0 };
+            var options = plan.Options with
+            {
+                Seed = plan.Seed,
+                PreviewInterval = plan.Preview ? Math.Max(1, (plan.Options.Steps ?? 20) / 10) : 0,
+                Refiner = refinerLease?.Client,
+                RefinerStart = refinerLease is null ? null : plan.Options.RefinerStart,
+            };
             context.Report(0, "Starting");
             await foreach (var update in lease.Client.GenerateStreamingAsync(request, options, context.CancellationToken).ConfigureAwait(false))
             {
@@ -726,6 +775,11 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         if (loras.Count > 0)
         {
             metadata["loras"] = string.Join(", ", loras.Select(lora => $"{lora.Name} @ {lora.Scale.ToString("0.##", CultureInfo.InvariantCulture)}"));
+        }
+
+        if (plan.Refiner is { } usedRefiner)
+        {
+            metadata["refiner"] = $"{usedRefiner.Id} from {(plan.Options.RefinerStart ?? ImageGenerationOptions.DefaultRefinerStart).ToString("0.##", CultureInfo.InvariantCulture)}";
         }
 
         if (file.Inpainting)
@@ -930,6 +984,8 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
             new ChoiceParameterViewModel("sampler", "Sampler", "The scheduler that steps the noise away.", s_samplers),
             new NumberParameterViewModel("imageGuidance", "Image guidance", "Instruction editing: how closely the result follows the picture (1: not at all, higher: closer).", 1, 3, 0.1, 1.5),
             new NumberParameterViewModel("strength", "Strength", "Image to image: how much of the input image is replaced (1 ignores it).", 0.05, 1, 0.05, 0.75),
+            new NumberParameterViewModel("refinerStart", "Refiner switch", "With a refiner: the share of the noise schedule the model runs before the refiner takes over (0.8: the last fifth is refined).",
+                0.5, 0.95, 0.05, ImageGenerationOptions.DefaultRefinerStart),
             new TextParameterViewModel("seed", "Seed", "Empty picks a random seed; a number repeats the picture.", "Random"),
             new NumberParameterViewModel("count", "Images", "How many pictures to make (seeds follow each other).", 1, 8, 1, 1),
             new BoolParameterViewModel("preview", "Live preview", "Show the picture taking shape while it is generated.", defaultValue: true),
@@ -959,11 +1015,13 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
                 ImageGuidanceScale = (float)panel.GetNumber("imageGuidance"),
                 Scheduler = panel.GetChoice("sampler") is { Length: > 0 } sampler ? sampler : null,
                 Count = panel.GetInt("count"),
+                RefinerStart = (float)panel.GetNumber("refinerStart"),
             };
         }, presets);
     }
 
     /// <summary>Everything one run needs, read from the page when it starts.</summary>
     private sealed record GenerationPlan(string Prompt, string NegativePrompt, ImageGenerationOptions Options, long? Seed, ImageInput? Image, ImageInput? Mask, float Strength,
-        Dictionary<string, string> Values, bool Preview, ImageInput? Edit = null, IReadOnlyList<ImageInput?>? MoreEdits = null, bool InstructEdit = false);
+        Dictionary<string, string> Values, bool Preview, ImageInput? Edit = null, IReadOnlyList<ImageInput?>? MoreEdits = null, bool InstructEdit = false,
+        ILoadedModel? Refiner = null);
 }

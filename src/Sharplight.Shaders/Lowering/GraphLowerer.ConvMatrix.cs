@@ -141,15 +141,7 @@ public sealed partial class GraphLowerer
         int warpsM = ConvMatrixWarpsM(OG, form);
         long tileRows = warpsM * ConvMatrixWarpRows;
         Func<long, (int Split, long Kps)> choose = batch => ChooseConvMatrixSplit(batch, OG, G, HW, K, tileRows, form.TileColumns, form.TileK);
-        long workspace = 0;
-        for (long v = x.Symbol is null ? bound : 1; v <= bound; v++)
-        {
-            var c = choose(v);
-            if (c.Split > 1)
-            {
-                workspace = Math.Max(workspace, c.Split * v * O * HW);
-            }
-        }
+        long workspace = SplitKWorkspaceElements(x.Symbol, bound, v => choose(v).Split, O * HW);
 
         bool useWorkspace = workspace > 0;
         TensorRef? ws = useWorkspace ? Temp(DataType.F32, [workspace], null) : null;
