@@ -41,8 +41,17 @@ internal static class Env
         return new DeviceSlot { Device = p.OpenDevice(p.GetDevices()[0]) };
     }
 
-    /// <summary>A Vulkan device slot (the discrete GPU if any, SHARPLIGHT_TEST_VK_DEVICE selects an index), or null if none is available.</summary>
-    public static DeviceSlot? Vulkan()
+    private static readonly Lazy<DeviceSlot?> s_vulkan = new(OpenVulkan);
+
+    /// <summary>
+    /// The Vulkan device slot shared by every test of the process (the discrete GPU if any, SHARPLIGHT_TEST_VK_DEVICE selects an index),
+    /// or null if none is available. It is opened once and never disposed by the tests: models do not own their devices, and a device
+    /// per test would leave one driver context alive per test until the process exits, which the driver refuses after a few dozen
+    /// (<c>VkException: ErrorInitializationFailed</c> from vkCreateDevice).
+    /// </summary>
+    public static DeviceSlot? Vulkan() => s_vulkan.Value;
+
+    private static DeviceSlot? OpenVulkan()
     {
         var p = new VulkanProvider();
         if (!p.CheckAvailability().IsAvailable)
@@ -53,7 +62,22 @@ internal static class Env
         var devs = p.GetDevices();
         var dev = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") is { } e && int.TryParse(e, out int i) && i < devs.Count ? devs[i]
             : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault();
-        return dev is null ? null : new DeviceSlot { Device = p.OpenDevice(dev) };
+        if (dev is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return new DeviceSlot { Device = p.OpenDevice(dev) };
+        }
+        catch (Exception error)
+        {
+            throw new InvalidOperationException(
+                $"Opening the shared Vulkan test device {dev} failed ({error.Message}). The suite opens one device per process; if this "
+                + "fails, the driver has no free context for this process (another component opened devices without disposing them) or "
+                + "the GPU is unusable (check nvidia-smi and SHARPLIGHT_VK_DEVICES).", error);
+        }
     }
 
     public static (float MaxAbs, float MaxRel, double Rms) Compare(float[] a, float[] b)

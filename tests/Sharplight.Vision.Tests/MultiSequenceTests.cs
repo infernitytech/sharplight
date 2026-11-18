@@ -76,7 +76,6 @@ public class MultiSequenceTests
         Assert.SkipUnless(File.Exists(path), $"model not found: {path}");
         var slot = device == "cpu" ? Env.Cpu() : Env.Vulkan();
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        using var dev = slot!.Device;
         // The integer-dot matvec (DeviceFeatures.IntDot) quantizes activations to 8 bits, so whether a chunk runs there or in a
         // larger tensor-core batch would change its logits by percents (tens of percents on outlier-heavy Mamba layers); it is
         // off here so the comparison checks the multi-sequence bookkeeping. Its precision is covered by the Vulkan kernel tests.
