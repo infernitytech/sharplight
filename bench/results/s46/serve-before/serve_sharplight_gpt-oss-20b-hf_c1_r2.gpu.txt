@@ -1,4 +1,4 @@
 gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 12 MiB, 12.81 W, 180 MHz, 405 MHz, 30, P8
 gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 15 MiB, 12.04 W, 180 MHz, 405 MHz, 31, P8
 gpu util,memused,power,smclk,memclk,temp,pstate: 52 %, 15101 MiB, 190.29 W, 2752 MHz, 14001 MHz, 45, P0
-1173979, /root/sl-worktrees/perf-r8-base/samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 15084 MiB
+1173979, sharplight, 15084 MiB
