@@ -2472,14 +2472,13 @@ Greedy "pass" for GGUF follows section 17's near-tie policy (ours on Vulkan or C
 | unsloth/Qwen3.5-4B-GGUF Q4_K_M | | 1.6 M | GGUF + mmproj F16 | pass: ours on the CPU identical to llama.cpp on the CPU; Vulkan differs from llama.cpp Vulkan only at a spacing near-tie (`n-1` / `n - 1`); image prompt: same description as llama-mtmd-cli (thinking trace identical for 35+ tokens, then a near-tie) | none |
 | Qwen/Qwen3.5-9B (unsloth GGUF Q4_K_M) | 2026-02-27 | 6.2 M | GGUF + mmproj F16 | pass: greedy identical to llama.cpp on both backends (both prompts, 4 device pairs); tokenizer identical; the GGUF's embedded template differs from the repository's (thinking off by default), compared with transformers rendering the GGUF's template | none |
 | NousResearch/Arete-27B (bartowski GGUF Q4_K_M 17.2 GB) | 2026-11-06 | 10.7 k dl30, trend 95 | GGUF + mmproj | pass: greedy identical to llama.cpp on all four device pairs; tokenizer and 4 templates identical to transformers (22 checks) | none |
-| google/gemma-4-31B-it (unsloth GGUF Q4_K_M 18.3 GB) | 2026-03-11 | 6.3 M | GGUF + mmproj | text pass: tokenizer and 4 templates identical to transformers; greedy identical to llama.cpp up to the end-of-turn token (llama.cpp's `--ignore-eos` masks `<turn|>`, ours emits it; the second prompt identical). Image input fails: see 20.1.2. Needs a free 19 GB on the GPU (a run beside other agents failed with a memory error before the shared GPU was free) | gemma4v projector missing (20.1.2) |
+| google/gemma-4-31B-it (unsloth GGUF Q4_K_M 18.3 GB) | 2026-03-11 | 6.3 M | GGUF + mmproj | text pass: tokenizer and 4 templates identical to transformers; greedy identical to llama.cpp up to the end-of-turn token (llama.cpp's `--ignore-eos` masks `<turn|>`, ours emits it; the second prompt identical). Image input: the gemma4v tower (20.1.3) matches transformers' `Gemma4VisionModel` + embedder on 266 tokens (worst row cosine 1.000000, worst relative error 1.1e-4, CPU; `Gemma4TowerTests`); end to end (Vulkan, greedy, the synthetic test image) our thinking trace and llama-mtmd-cli's (b11177, `--jinja`) list the same three shapes, colors and the text, and differ in wording from the first line ("Light grey/off-white" vs "Off-white/beige"), i.e. a near-tie from the preprocessing resize, not a tower fault. Needs a free 19 GB on the GPU (a run beside other agents failed with a memory error before the shared GPU was free) | none for the 31B; the 26B-A4B, 12B and E4B mmproj files were not run |
 | Nanbeige/Nanbeige4.3-33B (bartowski GGUF Q4_K_M 20.8 GB) | 2026-10-24 | 23.8 k | GGUF | partial: first prompt identical to llama.cpp; the code prompt differs at token 13, and llama.cpp's own backends give two different continuations there (Vulkan `if n <= 1`, CPU `a, b = 0, 1`), ours (Vulkan = CPU) a third, so a near-tie that cannot be settled by teacher forcing (33 B in fp32 does not fit); tokenizer differs from the repository's tokenizer.json only by llama.cpp's space-prefix placement (leading space, ids after BOS), as for Mistral in section 17 | none; not added to the catalog |
 
 #### 20.1.2 Unsupported or open
 
 | Model | Reason | What is missing |
 |---|---|---|
-| google/gemma-4-31B-it images (and every Gemma 4 mmproj / vision tower: 31B, 26B-A4B, 12B, E4B) | the mmproj has `clip.vision.projector_type = gemma4v` (the importer reads `clip.projector_type`, so it reports "missing"), and `gemma4_vision` is not implemented for Hugging Face either | a gemma4 vision tower on the shared tower graph: SigLIP-style 27 layers of 1152 with 16 heads, learned 2-D position table (10240), 2-D rope, `standardize`, clipped linears, 3x3 pooling (`pooling_kernel_size`, 280 default output tokens) and the `mm.input_projection` head, plus its preprocessing (variable resolution, mean 0, std 1); tiny model vs transformers, mmproj vs llama-mtmd-debug |
 | KRAFTON/Raon-1-nano (`raon1_nano`, remote code; GGUF `raon1nano` has no mapping, llama.cpp b11177 lacks it too) | new architecture: 18 recurrent-delta-attention (RDA) layers with a short conv and a full-rank gate lower bound, 6 MLA layers with output gate, 4-stream manifold hyper-connections (Helmert basis), per-layer input embeddings (dim 256), tied head, MTP head | RDA mixer, the mHC variant (`StreamHyperConnections` has the pieces but not this mixing), per-layer inputs (exist for Gemma 3n) |
 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B (`dory`, no transformers class; only community GGUF) | new architecture: looped transformer (16 input, 40 recurrent layers run twice with per-loop KV caches, 16 output layers), nGPT-style normalized weights (`ngpt_alpha_init`), attention output gate, sliding and full attention layers, MLP-only layers | `HierarchicalCycles` (hrm_text) covers looping with per-pass caches; the nGPT scaling and the layer pattern are new |
 | maxwell-model/Maxwell-V1-Flash (`maxwell_moe`, 36.8 GB bf16, 256 experts, remote code; one GGUF with 0 downloads, community) | new architecture and above one GPU in bf16 | mapping from `modeling_maxwell_moe.py`; not analysed further |
@@ -2488,4 +2487,25 @@ Greedy "pass" for GGUF follows section 17's near-tie policy (ours on Vulkan or C
 
 #### 20.1.3 Fixes
 
-None needed in this increment; the findings above are open items, not fixed here.
+Gemma 4 vision tower (mmproj projector type `gemma4v`, which the importer now also reads from `clip.vision.projector_type`): axial position
+tables, split-halves 2-D rope, q/k/v norms, sandwich norms, average pooling with standardization, a fit-budget resize and the image framing
+tokens, on the shared tower graph. Verified for gemma-4-31B-it: tower and embedder vs transformers (float32, CPU) at 1.1e-4 relative error,
+and end to end against llama-mtmd-cli as described in 20.1.1. Not verified: the other Gemma 4 mmproj files (26B-A4B, 12B, E4B; the same
+projector type) and the Hugging Face `gemma4_vision` import (the tower loads from the mmproj only).
+
+The other findings above are open items.
+
+### 20.2 Hot-model sweep 2026-11-17: embeddings and rerankers
+
+Checked with `Sharplight.Embeddings.Tests` `ReferenceTests` (8 texts incl. non-Latin text and a long one, token ids, optional prompt; references
+written by `Fixtures/make_reference.py` with sentence-transformers, and for the reranker the model's own transformers code). Float weights
+from the Hugging Face checkpoints; every tokenization matches the reference.
+
+| Model | Architecture | Device | Result |
+|---|---|---|---|
+| ibm-granite/granite-embedding-311m-multilingual-r2 | modernbert | CPU, Vulkan | tokens identical, min cosine 1.000000 |
+| microsoft/harrier-oss-v1-0.6b | qwen3 (last-token pooling) | CPU, Vulkan | tokens identical, min cosine 1.000000, also with the `web_search_query` prompt |
+| Qwen/Qwen3-Embedding-4B | qwen3 | Vulkan | tokens identical, min cosine 1.000000, also with the query prompt |
+| Qwen/Qwen3-Reranker-4B | qwen3 (yes / no logits) | Vulkan | tokens identical, max logit error 4.3e-3 (logits 1.58 / -8.05 / -1.48 / -9.58 / 2.65 / -5.59) |
+
+The 4B models were run on Vulkan only (CPU float32 would take minutes per test). All four are in the verified catalog (`kind` embeddings).
