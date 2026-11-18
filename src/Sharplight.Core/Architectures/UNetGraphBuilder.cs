@@ -40,7 +40,7 @@ internal sealed class UNetGraphBuilder
     private ComputeGraph Build(long latentHeight, long latentWidth)
     {
         var batch = Dim.Sym(DiffusionGraphs.BatchSymbol);
-        var latent = _b.Input(DiffusionGraphs.Latent, InputRole.Media, DataType.F32, new Shape(batch, _hp.InChannels, latentHeight, latentWidth));
+        var latent = _b.Input(DiffusionGraphs.Latent, InputRole.Media, DataType.F32, new Shape(batch, _hp.InChannels - _hp.ConditionChannels, latentHeight, latentWidth));
         var timestep = _b.Input(DiffusionGraphs.Timestep, InputRole.Other, DataType.F32, new Shape(batch));
         var context = _b.Input(DiffusionGraphs.Context, InputRole.Other, DataType.F32, new Shape(batch, _contextRows, _hp.ContextDim));
         _context = _b.Emit1("Reshape", [context], Attributes.From(("shape", new[] { 0, (long)_hp.ContextDim }), ("outer_symbol", $"{_contextRows}*{batch}")));
@@ -55,6 +55,13 @@ internal sealed class UNetGraphBuilder
             }
 
             time = _b.Silu(time);
+        }
+
+        if (_hp.ConditionChannels > 0)
+        {
+            // InstructPix2Pix / inpainting: the image (or mask and masked image) channels follow the noisy latents.
+            var condition = _b.Input(DiffusionGraphs.ConditionLatent, InputRole.Media, DataType.F32, new Shape(batch, _hp.ConditionChannels, latentHeight, latentWidth));
+            latent = _b.Concat(1, latent, condition);
         }
 
         var h = DiffusionBlocks.Conv(_b, latent, "unet.input_conv");

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Sharplight.ImageGeneration;
 using Sharplight.Models;
 using Sharplight.Tensors;
@@ -111,6 +112,18 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
         };
     }
 
+    private static IReadOnlyDictionary<string, JsonElement> DenoiserConfig(UNetHyperParameters unet, ModelSource src)
+    {
+        var config = new ComponentConfigBuilder().Add(DiffusionConfigKeys.LatentChannels, unet.InChannels - unet.ConditionChannels);
+        if (unet.ConditionChannels > 0)
+        {
+            // 4 extra channels: InstructPix2Pix's image latents; 5: the inpainting UNets' mask and masked-image latents.
+            config.Add(DiffusionConfigKeys.ConditionMode, src.Get(Prefix + "unet.condition_mode", unet.ConditionChannels == 4 ? DiffusionConfigKeys.ConditionImage : DiffusionConfigKeys.ConditionInpaint));
+        }
+
+        return config.Build();
+    }
+
     private static ModelDescription Describe(ModelSource src, UNetHyperParameters unet, AutoencoderHyperParameters vae, ClipTextHyperParameters text,
         bool secondEncoder, bool hasSchedulerAttachment)
     {
@@ -149,7 +162,8 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
 
         var vaeConfig = new ComponentConfigBuilder()
             .Add(DiffusionConfigKeys.LatentChannels, vae.LatentChannels)
-            .Add(DiffusionConfigKeys.Downscale, vae.Downscale);
+            .Add(DiffusionConfigKeys.Downscale, vae.Downscale)
+            .Add(DiffusionConfigKeys.ScalingFactor, vae.ScalingFactor);
         if (vae.LatentRgbFactors.Length > 0)
         {
             vaeConfig.Add(DiffusionConfigKeys.LatentRgbFactors, vae.LatentRgbFactors);
@@ -180,7 +194,7 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
                     Role = ModelComponentRoles.Denoiser,
                     Graphs = [DiffusionGraphs.Denoise],
                     WeightPrefixes = ["unet."],
-                    Config = new ComponentConfigBuilder().Add(DiffusionConfigKeys.LatentChannels, unet.InChannels).Build(),
+                    Config = DenoiserConfig(unet, src),
                     SymbolBounds = new Dictionary<string, long> { [DiffusionGraphs.BatchSymbol] = batch2 },
                 },
                 new ModelComponent
@@ -200,12 +214,22 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
                         : new Dictionary<string, string>(),
                 },
             ],
-            Config = new ComponentConfigBuilder()
-                .Add(DiffusionConfigKeys.Width, nativeSize)
-                .Add(DiffusionConfigKeys.Height, nativeSize)
-                .Add(DiffusionConfigKeys.Steps, src.Get(s + "default_steps", 25))
-                .Add(DiffusionConfigKeys.GuidanceScale, src.Get(s + "default_guidance", 7.5f))
-                .Build(),
+            Config = ModelConfig(src, s, nativeSize, unet),
         };
+    }
+
+    private static IReadOnlyDictionary<string, JsonElement> ModelConfig(ModelSource src, string s, int nativeSize, UNetHyperParameters unet)
+    {
+        var config = new ComponentConfigBuilder()
+            .Add(DiffusionConfigKeys.Width, nativeSize)
+            .Add(DiffusionConfigKeys.Height, nativeSize)
+            .Add(DiffusionConfigKeys.Steps, src.Get(s + "default_steps", 25))
+            .Add(DiffusionConfigKeys.GuidanceScale, src.Get(s + "default_guidance", 7.5f));
+        if (unet.ConditionChannels == 4)
+        {
+            config.Add(DiffusionConfigKeys.ImageGuidanceScale, src.Get(s + "default_image_guidance", 1.5f));
+        }
+
+        return config.Build();
     }
 }
