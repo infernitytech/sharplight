@@ -35,6 +35,7 @@ namespace Sharplight.Cli;
 /// <param name="Pull">How models missing from the store are pulled.</param>
 /// <param name="AllowClientCacheSalt">Accept the <c>cache_salt</c> request field from clients.</param>
 /// <param name="NoPrefixCache">Turn prefix caching off (every prompt is computed in full).</param>
+/// <param name="KvStateSnapshots">Recurrent-state snapshots for prefix caching of models with recurrent state; null: the default.</param>
 internal sealed record ServeSettings(
     IReadOnlyList<string> PositionalModels,
     string? PositionalModelName,
@@ -65,4 +66,5 @@ internal sealed record ServeSettings(
     string StoreRoot,
     PullSettings Pull,
     bool AllowClientCacheSalt = false,
-    bool NoPrefixCache = false);
+    bool NoPrefixCache = false,
+    int? KvStateSnapshots = null);

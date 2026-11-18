@@ -181,7 +181,21 @@ public sealed class PrefixCacheTests
         await e.Submit(Req(new string('z', 30))).CompleteAsync();
         var r2 = await e.Submit(Req(turn1 + "\u0001" + r1.Text + "next question")).CompleteAsync();
         Assert.Equal("0123", r2.Text);
-        Assert.True(r2.Usage.CachedTokens >= 44, $"cached {r2.Usage.CachedTokens}");
+        Assert.True(r2.Usage.CachedTokens >= 40, $"cached {r2.Usage.CachedTokens}");   // the snapshot one block before turn one's end
+    }
+
+    [Fact]
+    public async Task RecurrentModel_PeriodicSnapshots_ServeTheSecondPromptAlready()
+    {
+        // Snapshots every 16 tokens of a prompt: the second prompt, sharing 22 tokens with the first, restores the one at 16.
+        var d = new FakeBatchDecoder(1, canTruncate: false, kvBlockSize: 4, kvBlocks: 128, stateSnapshots: 8);
+        d.Script("0123");
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { StateSnapshotInterval = 16 });
+        string shared = new('s', 22);
+        await e.Submit(Req(shared + new string('a', 40))).CompleteAsync();
+        var second = await e.Submit(Req(shared + new string('b', 40))).CompleteAsync();
+        Assert.Equal("0123", second.Text);
+        Assert.Equal(16, second.Usage.CachedTokens);
     }
 
     [Fact]

@@ -72,6 +72,9 @@ public sealed record HostedModelSettings
     /// <summary>Prefix caching on.</summary>
     public bool PrefixCache { get; init; } = true;
 
+    /// <summary>Recurrent-state snapshots for prefix caching, or null for the default.</summary>
+    public int? KvStateSnapshots { get; init; }
+
     /// <summary>Token budget of one engine step, or null.</summary>
     public int? StepTokens { get; init; }
 
@@ -125,6 +128,7 @@ public sealed record HostedModelSettings
             MaxQueue = defaults.MaxQueue,
             PrefillChunk = defaults.PrefillChunk,
             PrefixCache = defaults.PrefixCache,
+            KvStateSnapshots = defaults.KvStateSnapshots,
             StepTokens = defaults.StepTokens,
             NgramDraftTokens = defaults.NgramDraftTokens,
             MtpDraftTokens = defaults.MtpDraftTokens,

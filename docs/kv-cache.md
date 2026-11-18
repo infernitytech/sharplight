@@ -297,12 +297,16 @@ Models with recurrent state (gated delta nets, Mamba, Mamba-2, RWKV, short convo
   blocks are attached only up to the last block with a snapshot, which is restored into the slot's row.
 - Where snapshots are taken (bounded memory instead of one per block): at the end of the prefix a new prompt shares with a running
   prompt or a slot's context (so the second prompt with a system prompt leaves the snapshot the third and later ones restore, and
-  concurrent prompts waiting for another prompt's blocks find it there), and at the last block boundary of every prompt (a later turn
-  of the same conversation restores the state after the previous prompt). The prefill chunk is cut at such a boundary and the state is
+  concurrent prompts waiting for another prompt's blocks find it there), and one block before the last full block of every prompt (a
+  later turn of the same conversation restores the state after most of the previous prompt; one block of slack because chat templates
+  render the generation prompt, e.g. an empty thinking block, differently once the reply is part of the history), and every
+  `EngineOptions.StateSnapshotInterval` (512) prompt tokens, like vLLM's block-aligned Mamba states (prefill chunks end there; the
+  snapshots of prompts no later prompt shares are the least recently used and go first). The prefill chunk is cut at such a boundary and the state is
   copied after the step (one extra pass for the prompt end; the copy is the size of one slot's state).
-- Capacity: `ChatModelOptions.KvStateSnapshots` / `stateSnapshots` (default one per slot, 2 to 8, `LlmModel.DefaultStateSnapshots`),
-  each the size of one slot's recurrent state (`LlmModel.RecurrentStateBytesPerSlot`, counted in `EstimateFootprint`); least recently
-  used first out, and dropped together with their block when the pool evicts it.
+- Capacity: `ChatModelOptions.KvStateSnapshots` / `stateSnapshots` / `sharplight serve --kv-snapshots` (default
+  `LlmModel.DefaultStateSnapshots`: as many as fit in half the KV pool's memory or 512 MiB, whichever is more, at least 2 and
+  at most two per slot), each the size of one slot's recurrent state (`LlmModel.RecurrentStateBytesPerSlot`, counted in
+  `EstimateFootprint`); least recently used first out, and dropped together with their block when the pool evicts it.
 - vLLM 0.33 (`mamba_cache_mode="align"`) caches Mamba / GDN state only at multiples of its Mamba block size (aligned to the attention
   page, hundreds of tokens) at the end of scheduler steps, plus optionally at a shared-prefix junction seen with EAGLE / MTP, and does
   not cache attention-free models (pure Mamba / RWKV). Here the granularity is 16 tokens, junctions are found for every prompt, and pure

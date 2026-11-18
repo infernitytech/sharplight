@@ -5,7 +5,7 @@
 # usage: s47_prefix.sh <out dir> <model dir> [engine...]   engines: sharplight sharplight-nocache vllm vllm-nocache (default: all)
 # env: VLLM_VENV, SHARPLIGHT_SERVER (default: this checkout's Release build), PORT (18090), KV_TOKENS (KV capacity of both engines in
 #      tokens, 73728), KV_BYTES_PER_TOKEN (147456: Qwen3-8B, 36 layers x 8 KV heads x 128 x K/V x f16; vLLM --kv-cache-memory-bytes =
-#      KV_TOKENS x this), ROUNDS (2)
+#      KV_TOKENS x this), VLLM_KV_BYTES (overrides that product, e.g. for hybrid models whose Mamba state shares the budget), ROUNDS (2)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT=${1:?out dir}; MP=${2:?model dir}; shift 2
 ENGINES=${*:-"sharplight sharplight-nocache vllm vllm-nocache"}
@@ -22,7 +22,7 @@ for E in $ENGINES; do
     vllm|vllm-nocache)
       EXTRA=(--enable-prefix-caching); [ "$E" = vllm-nocache ] && EXTRA=(--no-enable-prefix-caching)
       VLLM_USE_FLASHINFER_SAMPLER=0 "$VLLM_VENV/bin/vllm" serve "$MP" --served-model-name m --max-model-len 8192 --max-num-seqs 64 \
-        --kv-cache-memory-bytes $(( ${KV_TOKENS:-73728} * ${KV_BYTES_PER_TOKEN:-147456} )) --enable-prompt-tokens-details --port "$PORT" "${EXTRA[@]}" > "$LOG" 2>&1 & ;;
+        --kv-cache-memory-bytes ${VLLM_KV_BYTES:-$(( ${KV_TOKENS:-73728} * ${KV_BYTES_PER_TOKEN:-147456} ))} --enable-prompt-tokens-details --port "$PORT" "${EXTRA[@]}" > "$LOG" 2>&1 & ;;
     *) echo "unknown engine $E"; exit 1 ;;
   esac
   SP=$!; T0=$SECONDS; OK=0

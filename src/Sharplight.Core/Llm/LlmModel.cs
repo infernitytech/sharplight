@@ -322,7 +322,7 @@ public sealed class LlmModel : IDisposable
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
         long tokens = kvCacheTokens ?? DefaultKvCacheTokens(slots, ctx);
         long paged = tokens > 0 && SupportsPagedKv(graph, slots, ctx) ? PagedRows(tokens) : 0;
-        int snapshots = paged > 0 ? stateSnapshots ?? DefaultStateSnapshots(slots) : 0;
+        int snapshots = paged > 0 ? stateSnapshots ?? DefaultStateSnapshots(slots, paged) : 0;
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, BatchTokens, placement, UsesDeviceSampling, paged,
             rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0,
             stateSnapshots: snapshots);
@@ -350,11 +350,23 @@ public sealed class LlmModel : IDisposable
     }
 
     /// <summary>
-    /// Recurrent-state snapshots a paged decoder keeps for prefix caching by default: one per slot, at least 2 and at most 8 (each costs one
-    /// slot's recurrent state; <see cref="RecurrentStateBytesPerSlot"/>).
+    /// Recurrent-state snapshots a paged decoder keeps for prefix caching by default (each costs one slot's recurrent state,
+    /// <see cref="RecurrentStateBytesPerSlot"/>): as many as fit in half the KV pool's memory or 512 MiB, whichever is more,
+    /// at least 2 and at most two per slot (a shared prefix and a conversation's last prompt per sequence); 0 for attention-only models.
     /// </summary>
     /// <param name="slots">Sequences decoded together.</param>
-    public static int DefaultStateSnapshots(int slots) => Math.Clamp(slots, 2, 8);
+    /// <param name="kvCacheTokens">Tokens of the paged KV cache.</param>
+    public int DefaultStateSnapshots(int slots, long kvCacheTokens)
+    {
+        long state = RecurrentStateBytesPerSlot;
+        if (state <= 0)
+        {
+            return 0;
+        }
+
+        long budget = Math.Max(KvBytesPerToken * kvCacheTokens / 2, 512L << 20);
+        return (int)Math.Clamp(budget / state, 2, Math.Max(2, 2L * slots));
+    }
 
     /// <summary>Bytes of recurrent state (everything but KV caches) one sequence of the decode graph holds; 0 for attention-only models.</summary>
     public long RecurrentStateBytesPerSlot => Definition.Graph(WellKnown.DecodeGraph).States.Select(v => v.State!)
@@ -635,7 +647,7 @@ public sealed class LlmModel : IDisposable
         }, multi ? slots : 1, paged);
         if (paged > 0)
         {
-            fp = fp with { StateBytes = fp.StateBytes + RecurrentStateBytesPerSlot * (stateSnapshots ?? DefaultStateSnapshots(slots)) };
+            fp = fp with { StateBytes = fp.StateBytes + RecurrentStateBytesPerSlot * (stateSnapshots ?? DefaultStateSnapshots(slots, paged)) };
         }
 
         if (!multi || draftTokens <= 0)

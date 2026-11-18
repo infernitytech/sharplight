@@ -94,6 +94,10 @@ internal sealed class ServeOptionSet
         Description = "Accept the cache_salt request field (vLLM's prefix-cache salt) from clients; it can only narrow prefix-cache sharing.",
     };
 
+    private readonly Option<int?> _kvSnapshots = OptionFactory.OptionalInteger("--kv-snapshots",
+        "Recurrent-state snapshots kept for prefix caching of models with recurrent state (gated delta nets, Mamba, RWKV); each costs one sequence's state. "
+        + "Default: what fits in half the KV pool's memory or 512 MiB, at most two per slot; 0: no prefix caching for such models.", minimum: 0, helpName: "count");
+
     private readonly Option<bool> _noPrefixCache = new("--no-prefix-cache")
     {
         Description = "Compute every prompt in full instead of reusing the cached KV of earlier prompts with the same prefix.",
@@ -167,6 +171,7 @@ internal sealed class ServeOptionSet
         command.Options.Add(_kvTokens);
         command.Options.Add(_allowCacheSalt);
         command.Options.Add(_noPrefixCache);
+        command.Options.Add(_kvSnapshots);
         command.Options.Add(_draftTokens);
         command.Options.Add(_mtpTokens);
         command.Options.Add(_specMaxBatch);
@@ -237,7 +242,8 @@ internal sealed class ServeOptionSet
             _store.ReadRoot(parseResult),
             pull,
             parseResult.GetValue(_allowCacheSalt),
-            parseResult.GetValue(_noPrefixCache));
+            parseResult.GetValue(_noPrefixCache),
+            parseResult.GetValue(_kvSnapshots));
     }
 
     private static ApiSurface ParseApi(string value)

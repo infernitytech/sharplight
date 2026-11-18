@@ -807,9 +807,13 @@ public sealed class InferenceEngine : IDisposable
             _wantSnapshot.Add(hashes[shared - 1]);
         }
 
-        if (hashes.Count * bs > pos)
+        // The prompt's end, one block before its last full block: a chat template's generation prompt (e.g. "<|im_start|>assistant\n"
+        // and an empty thinking block) is rendered differently once the reply is part of the history, so the next turn diverges a few
+        // tokens before this prompt's end.
+        int end = (seq.Prompt.Length - 1 - bs) / bs;
+        if (end > 0 && end * bs > pos && end <= hashes.Count)
         {
-            _wantSnapshot.Add(hashes[^1]);
+            _wantSnapshot.Add(hashes[end - 1]);
         }
     }
 
@@ -899,6 +903,19 @@ public sealed class InferenceEngine : IDisposable
                     end = j * bs;
                     break;
                 }
+            }
+        }
+
+        if (SnapshotsState && _opt.StateSnapshotInterval >= bs)
+        {
+            // Periodic snapshot boundaries (like vLLM's block-aligned Mamba states): the chunk ends at the next one inside the prompt's
+            // full blocks.
+            int interval = _opt.StateSnapshotInterval / bs * bs;
+            int next = (pos / interval + 1) * interval;
+            if (next < end && next / bs <= hashes.Count)
+            {
+                end = next;
+                _wantSnapshot.Add(hashes[next / bs - 1]);
             }
         }
 
