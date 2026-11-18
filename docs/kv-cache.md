@@ -1,12 +1,13 @@
 # KV cache: paged blocks, prefix sharing, quantised storage
 
-Status: quantised KV storage (section 2.4) and paged blocks with admission by blocks, preemption by recomputation and prefix
-sharing between slots (section 2.5) are implemented; sections 2.1-2.3 are the original design, 2.5 says where the code
-differs. The contiguous cache and its limits are described first (it remains the default without `--kv-tokens`), then the
-design, the order in which it landed and how each step is tested. The engine-facing contract
-is `IBatchDecoder`.
+Status: quantised KV storage (section 2.4), paged blocks with admission by blocks and preemption by recomputation (section 2.5)
+and prefix caching by block content with cache namespaces and recurrent-state snapshots (section 2.6) are implemented, and the
+paged cache with prefix caching is the default of multi-slot decoders. Sections 2.1-2.3 are the original design; 2.5 and 2.6 say
+where the code differs. The contiguous cache and its limits are described first (the fallback where the devices lack the paged
+kernels, with `--kv-tokens 0`, or a single slot), then the design, the order in which it landed and how each step is tested. The
+engine-facing contract is `IBatchDecoder`.
 
-## 1. Contiguous cache (the default)
+## 1. Contiguous cache (the fallback)
 
 - `MultiSequence.Transform` keeps every KV state at its single-sequence shape `[Ctx, heads, head_dim]` and compiles it with
   `Ctx = slots × per-slot context`. Slot `s` owns rows `[s·C, (s+1)·C)`. `CacheWrite` scatters new rows through the
@@ -15,8 +16,9 @@ is `IBatchDecoder`.
   With 64 slots × 4096 tokens the Llama-1B cache alone is 64 × 4096 × 16 layers × 2 × 512 × 2 bytes = 8 GiB, of which typical
   chat traffic touches a few percent. Slots, not memory, limit concurrency.
 - Prefix reuse is per slot: a finished slot keeps its tokens, and a new request whose prompt starts with them is put into
-  that slot and skips the shared part (`EngineOptions.PrefixCache`, `GenerationUsage.CachedTokens`). Two concurrent requests
-  with the same system prompt each compute and store it.
+  that slot and skips the shared part (`EngineOptions.PrefixCache`, `GenerationUsage.CachedTokens`), only when both requests
+  have the same cache namespace (partition and salt, section 2.6) and the same non-text content up to that point. Two concurrent
+  requests with the same system prompt each compute and store it.
 - Storage is `LlmLoadOptions.KvCacheType` / `AdapterOptions.KvCacheType`: F16 (default), F32, Q8_0 or Q4_0 (section 2.4),
   on the CPU and on Vulkan.
 - Recurrent state (Mamba, RWKV, gated delta nets, conv) has a leading `[S]` slot dimension and is small and fixed; it is not
@@ -73,7 +75,7 @@ and per compile like the other device features, with the contiguous path as the 
 - This replaces the per-slot prefix cache for paged decoders: reuse works across slots and between concurrent requests.
   Metrics: `kv_prefix_hit_tokens_total`, `kv_blocks_shared`.
 - Hybrid models: the recurrent state at the end of a shared prefix is not stored, so prefix sharing is disabled for models
-  with recurrent state. A later step can snapshot recurrent state at block boundaries. (Speculation works for them: rejected
+  with recurrent state. A later step can snapshot recurrent state at block boundaries (done, section 2.6). (Speculation works for them: rejected
   drafts are rolled back by record-and-replay of the recurrent ops, see `Graph.RecurrentRollback`; the record state is
   `[slots, 2, k + 1, W]` f32 per recurrent op, about 35 MB per slot for Qwen3.8-27B with 3 drafts, against about 160 MB of
   recurrent state per slot that per-position snapshots would copy k + 1 times.)
@@ -133,8 +135,9 @@ last-token logits after a 2.8k-token prompt, KL divergence from the F16-cache ru
 
 What landed differs from 2.1-2.3 in a few places; this section describes the code.
 
-Selecting it: `LlmModel.CreateBatchDecoder(slots, ctx, kvCacheTokens: N)`, `ChatModelOptions.KvCacheTokens`, and
-`sharplight serve --kv-tokens N` (K / M suffixes, binary). Without it every slot reserves `ctx` rows, as before.
+Selecting it: the default of `LlmModel.CreateBatchDecoder` with more than one slot (or speculation), `ChatModelOptions.KvCacheTokens`
+and `sharplight serve --kv-tokens N` (K / M suffixes, binary) size the pool; section 2.6 has the defaults. `--kv-tokens 0`
+(`kvCacheTokens: 0`) keeps every slot's fixed `ctx` rows.
 
 Graph and kernels:
 
@@ -169,17 +172,13 @@ Host side:
   - preemption by recomputation: the victim's blocks are released, it keeps its slot, and its context (prompt + generated
     tokens) is re-fed in prompt chunks without logits before it continues decoding. Its output is unchanged (greedy
     parity), only delayed. A step in which every running sequence waits for blocks preempts the newest one.
-  - prefix sharing (attention-only models, `EngineOptions.PrefixCache`): at admission the engine looks for the slot (running
-    or idle) whose context shares the longest prefix with the prompt and maps its full blocks into the new slot's table
-    (reference count + 1, no copy, no hashing: slot contexts are compared token by token). Blocks are never written after
-    they are full, so sharing needs no copy-on-write. The per-slot reuse of section 1 still applies on top.
+  - prefix sharing: by block content since section 2.6 (it first compared slot contexts token by token). Blocks are never
+    written after they are full, so sharing needs no copy-on-write. The per-slot reuse of section 1 still applies on top.
   - isolation (`GenerationRequest.CachePartition`, set from the request's scope by `Sharplight.AspNetCore`): prefix reuse of a
     slot's own context and block sharing only happen between requests of the same partition, so identical prompts of different
     tenants never share cache entries (no cross-tenant timing side channel); null is one partition of its own, the default.
-  - metrics: `sharplight_kv_preemptions_total`, `sharplight_kv_prefix_hit_tokens_total`.
-- Not done: block hashes (lookup is a linear scan of the slots' tokens, fine for tens of slots), an LRU of freed-but-valid
-  blocks beyond idle slots, copy-on-write for `n > 1`, host swap, a separate per-device switch (paging needs no device
-  feature; the contiguous layout remains when `--kv-tokens` is not given).
+  - metrics: `sharplight_kv_preemptions_total` and the prefix-cache metrics of section 2.6.
+- Not done: copy-on-write for `n > 1`, host swap.
 
 Tests: `PagedAttentionTests` (Vulkan vs the CPU oracle on shuffled block tables with holes and partial last blocks, decode,
 split-K, flash and MLA kernels, f16 / f32 / q8_0 / q4_0), `MultiSequenceTests.Paged_Matches_Independent_Sessions` (greedy parity of a paged decoder with
@@ -229,6 +228,119 @@ tokens on average; Llama-1B):
 - TTFT with the shared prefix is higher on the paged decoder than on a fixed 64-slot cache whose every slot already holds the
   prefix: a pool sized for the working set evicts idle contexts and maps shared blocks instead of reusing a slot's own copy.
 
+### 2.6 Prefix caching by block content (implemented, the default)
+
+Automatic prefix caching in the sense of vLLM's APC: every full block of a paged cache is named by a hash of its content, a block
+that no sequence holds any more keeps its rows until its memory is needed, and a later prompt that starts with the same blocks
+attaches them instead of computing them.
+
+Defaults and sizing:
+
+- `LlmModel.CreateBatchDecoder` with more than one slot (or speculation) builds a paged decoder by default: a pool of `slots × ctx`
+  tokens (`LlmModel.DefaultKvCacheTokens`, the memory the contiguous cache reserved, so placement and the model host see the same
+  footprint as before). The pool is used only where every device that runs the cache ops has their paged forms (`Supports` of the
+  transformed nodes, neutral feature name `DeviceFeatures.PagedKv` = `paged_kv`, which `LlmLoadOptions.DisabledFeatures` or
+  `SHARPLIGHT_DISABLE_FEATURES=paged_kv` turn off); otherwise, with `kvCacheTokens: 0` / `--kv-tokens 0`, or for one slot without
+  speculation (a single-sequence session), the contiguous cache of section 1 remains.
+- Hosted chat models (`LlmChatModelLoader`, so `sharplight serve` and Studio): when the model host has to load a model into less memory
+  than its footprint (`IPreparedModel.Load(limit)`), a default-sized pool shrinks to fit (to at least one full context plus a block per
+  slot) before layers are offloaded; an explicit `ChatModelOptions.KvCacheTokens` is kept.
+- `EngineOptions.PrefixCache` (default on; `sharplight serve --no-prefix-cache`) turns all prefix reuse off.
+
+Hashing and namespaces (`KvBlockHash`):
+
+- Block j's hash is SHA-256, truncated to 128 bits, of block j - 1's hash, the block's token ids and the hashes of the non-text
+  content overlapping the block (`GenerationRequest.PromptContent`: image or audio placeholder spans with a content hash, the
+  equivalent of vLLM's multimodal hashes). The chain starts at a seed of the request's *cache namespace*: `GenerationRequest.CachePartition`
+  (the isolation scope a host sets, e.g. the tenant or space) and `GenerationRequest.CacheSalt` (vLLM's `cache_salt`). Requests of
+  different namespaces never produce equal hashes, so they never share blocks, never wait for each other's blocks and never reuse
+  each other's slots (no cross-tenant timing side channel). Null partition and salt are one shared namespace, the single-scope default.
+  A collision-resistant hash keeps a prompt from being crafted to alias another prompt's blocks within a namespace.
+- Hashing runs on the scheduler thread once per prompt at admission (about 1 µs per block) and once per block that fills while decoding.
+- The model and its adapters are fixed per engine (one engine per loaded model and pool), so they need no part in the key; per-token
+  adapter routing (`SwitchedLora`) is part of the model graph.
+
+Block pool (`KvBlockPool`, `KvBlockCache`):
+
+- Reference counts, a content index `hash → block`, and one free queue: blocks without content first, then *cached* blocks (free,
+  content kept) in the order they were released. A sequence releases its blocks last first, so its tail is evicted before its prefix,
+  and a system prompt shared by many sequences is released last. `Allocate` takes the head and, for a cached block, drops its hash
+  (an eviction). Attaching a cached block takes it out of the queue.
+- A block is published (named) only when it is full; a published or shared block is never written again (a truncation into one drops
+  the whole block, as for shared blocks in 2.5). A duplicate (the same content computed twice) stays private.
+- Idle slots keep their contexts as before; evicting one (for blocks) now only moves its blocks to the cached end of the queue.
+
+Engine (`InferenceEngine`):
+
+- Admission: the slot's own context (section 1) or the cached blocks of the prompt, whichever reaches further; the attached blocks
+  count as cached prompt tokens (`GenerationUsage.CachedTokens`, `prompt_tokens_details.cached_tokens`). Admission by blocks counts
+  only the blocks the prompt must newly take: cached blocks other sequences hold cost nothing (cached free blocks are counted as
+  free already).
+- Mid-prompt hits: before every prefill chunk the engine attaches blocks published since admission, so a prompt arriving while another
+  prompt with the same prefix is still prefilling does not compute the prefix again: the blocks a prefilling prompt will compute are
+  registered at its admission, and a later prompt's chunk stops before the first such block of another prompt and attaches it once it
+  is published (waits follow admission order, so they cannot cycle). Prefill chunks that do not end the prompt end on a block boundary.
+  Attached tokens take no step budget.
+- Preemption: a preempted sequence's blocks are released into the cache; when it resumes, the blocks still cached are attached and
+  only the rest is recomputed.
+- Speculation: drafts are verified as before; published blocks are full and committed, rollbacks only touch the private last block.
+  A draft head's own cache treats attached prefixes as a gap (as for reused prefixes before).
+- `GenerationRequest.BypassPrefixCache`: nothing is reused (for requests that need every prompt position computed, e.g. prompt
+  log-probabilities, which vLLM also computes without the cache); the request's blocks are still published.
+
+Models with recurrent state (gated delta nets, Mamba, Mamba-2, RWKV, short convolutions; hybrids and pure recurrent models):
+
+- KV rows of the attention layers can be attached, but the recurrent state after a prefix cannot be rebuilt from them. The decoder
+  keeps *state snapshots* in spare rows of every recurrent state (`MultiSequence.Transform(..., spareStateRows)`, `[slots + N, ...]`),
+  copied with `CompiledModel.CopyStateRows` (CPU: memcpy; Vulkan: `vkCmdCopyBuffer` ordered with the steps; a device without it,
+  e.g. Metal for now, falls back to no prefix caching for such models). A snapshot is keyed by the hash of the block it ends with;
+  blocks are attached only up to the last block with a snapshot, which is restored into the slot's row.
+- Where snapshots are taken (bounded memory instead of one per block): at the end of the prefix a new prompt shares with a running
+  prompt or a slot's context (so the second prompt with a system prompt leaves the snapshot the third and later ones restore, and
+  concurrent prompts waiting for another prompt's blocks find it there), and at the last block boundary of every prompt (a later turn
+  of the same conversation restores the state after the previous prompt). The prefill chunk is cut at such a boundary and the state is
+  copied after the step (one extra pass for the prompt end; the copy is the size of one slot's state).
+- Capacity: `ChatModelOptions.KvStateSnapshots` / `stateSnapshots` (default one per slot, 2 to 8, `LlmModel.DefaultStateSnapshots`),
+  each the size of one slot's recurrent state (`LlmModel.RecurrentStateBytesPerSlot`, counted in `EstimateFootprint`); least recently
+  used first out, and dropped together with their block when the pool evicts it.
+- vLLM 0.33 (`mamba_cache_mode="align"`) caches Mamba / GDN state only at multiples of its Mamba block size (aligned to the attention
+  page, hundreds of tokens) at the end of scheduler steps, plus optionally at a shared-prefix junction seen with EAGLE / MTP, and does
+  not cache attention-free models (pure Mamba / RWKV). Here the granularity is 16 tokens, junctions are found for every prompt, and pure
+  recurrent models are cached the same way.
+
+API and hosting:
+
+- OpenAI chat / completions and Anthropic messages: the partition is the request context's scope (`SharplightRequestContext.Scope`), the
+  salt the context's `CacheSalt`. The request field `cache_salt` (vLLM's name) is accepted only with
+  `SharplightServerOptions.AllowClientCacheSalt` (`sharplight serve --allow-cache-salt`); it is appended to the host's salt, so it can
+  narrow sharing but never widen it. Without the option a request carrying it is refused with 400 (`param: cache_salt`), so a client
+  never believes it is isolated when it is not. Extensions.AI: `ServingChatClientOptions.CacheSalt` and the per-call property
+  `sharplight.cache_salt`.
+- Metrics, summed over all namespaces (no namespace or tenant labels): `sharplight_kv_prefix_hit_tokens_total`,
+  `sharplight_kv_prefix_shared_blocks_total`, `sharplight_kv_blocks_cached`, `sharplight_kv_block_evictions_total`,
+  `sharplight_kv_state_snapshots_total`, besides `sharplight_cached_prompt_tokens_total` and the lookups / hits counters
+  (`EngineMetricsSnapshot.SharedPrefixTokens`, `SharedPrefixBlocks`, `KvBlocksCached`, `KvBlocksEvicted`, `StateSnapshots`).
+
+What a host such as Sharplight Server passes (one request = one namespace):
+
+- The namespace: `SharplightRequestContext.Scope` = the space (tenant) id, from authentication, never from the request body; optionally
+  `SharplightRequestContext.CacheSalt` for a finer split (per user, per data classification). Keep `AllowClientCacheSalt` off unless a
+  deployment wants client-chosen salts.
+- KV caching on: nothing to set (paged + prefix caching is the default); size the pool with `ChatModelOptions.KvCacheTokens` when the
+  default (`slots × ctx`) is not what the replica should hold, and keep `EngineOptions.PrefixCache` on.
+- Routing affinity: a prefix cache is per engine (per replica and model), so a router should send requests that share a prefix to
+  the same replica: key = (model, scope, salt, a hash of the start of the rendered prompt, e.g. the system prompt or the first 1-2 KB of
+  the conversation), consistent hashing over the replicas, with a load bound. A conversation id works as well for multi-turn chats.
+  The key must include the scope so that one tenant's prefixes never steer another tenant's routing.
+
+Tests: `PrefixCacheTests` (Serving: blocks outlive their slot, namespaces of partition and salt, content keys, bypass, concurrent prompts
+waiting for each other's blocks instead of computing the prefix twice, preempted contexts reattached, tail-first eviction, published
+blocks never rewritten, recurrent models restoring snapshots for shared prefixes and the next turn of a conversation, none without
+snapshots), `CachePartitionTests`, `MultiTenantApiTests.AClientCacheSaltIsRefusedUnlessTheServerAllowsIt`,
+`ServingChatClientTests.TheCacheSaltNarrowsSharingWithinAPartition`, and `PrefixCacheParityTests` (Families: greedy output with the cache
+on equals the cache off for shared prefixes, sequential and concurrent, on CPU and Vulkan, for attention-only, gated delta net, Mamba,
+Mamba-2, short-convolution and RWKV-7 tiny models and for Qwen3.5-0.8B and Qwen3-0.6B).
+
 ## 3. Steps
 
 1. Done: quantised KV in the contiguous layout (independent of paging): Q8_0 and Q4_0 `CacheWrite` + `CachedAttention` for
@@ -236,9 +348,10 @@ tokens on average; Llama-1B):
 2. Done: paged ops (`kv_block_table` input, paged `CacheWrite` / `CachedAttention` on CPU and Vulkan, all attention kernels).
 3. Done: `KvBlockPool` + dynamic allocation + admission by blocks + preemption by recompute; `IBatchDecoder` gains
    `KvBlocksFree` / `KvBlockSize` and per-sequence block management (`Truncate`, `Reset` release blocks); `--kv-tokens`.
-4. Done: prefix sharing between slots (attention-only models), by comparing slot contexts instead of block hashes.
+4. Done: prefix sharing between slots, first by comparing slot contexts, then by block content hashes with an LRU of cached blocks,
+   cache namespaces and recurrent-state snapshots (2.6); paged KV and prefix caching on by default.
    Open: `n > 1` sharing with copy-on-write.
-5. Optional: host swap, recurrent-state snapshots for hybrid prefix sharing.
+5. Optional: host swap.
 
 ## 4. Testing and acceptance
 
