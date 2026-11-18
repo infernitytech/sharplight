@@ -43,7 +43,7 @@ internal sealed class ZImageTransformerGraphBuilder
 
     private ZImageTransformerGraphBuilder(Func<string, WeightInfo?> weights, ZImageHyperParameters hp, long latentHeight, long latentWidth, int captionRows)
     {
-        _b = new GraphBuilder(DiffusionGraphs.Denoise, weights);
+        _b = new GraphBuilder(DiffusionGraphs.Denoise, weights) { F32MatMulActivations = hp.F32Activations };
         _hp = hp;
         _captionRows = captionRows;
         _latentHeight = latentHeight;
@@ -247,9 +247,9 @@ internal sealed class ZImageTransformerGraphBuilder
             ("sections", new[] { _hp.AxesDim[0] / 2, _hp.AxesDim[1] / 2, _hp.AxesDim[2] / 2, 0 }));
         q = _b.Emit1("Rope", [q, positions, _frequencyFactors], rope);
         k = _b.Emit1("Rope", [k, positions, _frequencyFactors], rope);
-        // f16 products with f32 accumulation: queries and keys are RMS-normed and Z-Image runs in bf16.
+        // f16 products with f32 accumulation: queries and keys are RMS-normed and Z-Image-Turbo runs in bf16 (the undistilled model overflows them).
         var attended = _b.Emit1("Attention", keyBias is null ? [q, k, v] : [q, k, v, keyBias], Attributes.From(("scale", 1f / MathF.Sqrt(_hp.HeadDim)),
-            ("causal", false), (StandardOps.F16ProductsAttribute, true)));
+            ("causal", false), (StandardOps.F16ProductsAttribute, !_hp.F32Activations)));
         return _b.Linear(_b.Reshape(attended, rows, d), p + "out.weight");
     }
 

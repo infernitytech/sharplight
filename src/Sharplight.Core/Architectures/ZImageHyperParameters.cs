@@ -47,6 +47,12 @@ internal sealed record ZImageHyperParameters
     /// <summary>Native image size in pixels.</summary>
     public required int SampleSize { get; init; }
 
+    /// <summary>
+    /// Whether every matrix product keeps f32 activations and attention keeps f32 products (the undistilled Z-Image: its activations
+    /// overflow the f16 paths that Z-Image-Turbo runs on, the whole prediction came out NaN on Vulkan).
+    /// </summary>
+    public bool F32Activations { get; init; }
+
     /// <summary>Width per head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
 
@@ -71,6 +77,7 @@ internal sealed record ZImageHyperParameters
             TimeScale = source.Get(p + "time_scale", 1000f),
             NormEps = source.Get(p + "norm_eps", 1e-5f),
             SampleSize = source.Get(p + "sample_size", 1024),
+            F32Activations = source.Get(p + "f32_activations", false),
         };
     }
 }
