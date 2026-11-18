@@ -7736,7 +7736,7 @@
     {
       "id": "ms-marco-minilm-l6-v2",
       "name": "ms-marco-MiniLM-L6-v2 (reranker)",
-      "kind": "embeddings",
+      "kind": "reranker",
       "family": "MiniLM",
       "architecture": "bert",
       "level": "verified",
@@ -7816,7 +7816,7 @@
     {
       "id": "bge-reranker-base",
       "name": "bge-reranker-base",
-      "kind": "embeddings",
+      "kind": "reranker",
       "family": "BGE",
       "architecture": "xlm-roberta",
       "level": "verified",
@@ -7898,7 +7898,7 @@
     {
       "id": "bge-reranker-v2-m3",
       "name": "bge-reranker-v2-m3",
-      "kind": "embeddings",
+      "kind": "reranker",
       "family": "BGE",
       "architecture": "xlm-roberta",
       "level": "verified",
@@ -22673,7 +22673,7 @@
     {
       "id": "qwen3-reranker-4b",
       "name": "Qwen3-Reranker-4B",
-      "kind": "embeddings",
+      "kind": "reranker",
       "family": "Qwen3 Embedding",
       "architecture": "qwen3",
       "level": "verified",

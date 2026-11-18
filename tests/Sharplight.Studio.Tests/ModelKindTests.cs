@@ -66,7 +66,11 @@ public sealed class ModelKindTests
     [InlineData(ModelKinds.TextGeneration, "decode", "gpt2", null, ModelKinds.TextGeneration)]
     // A declared kind wins over the graphs.
     [InlineData(ModelKindCatalog.Reranker, "decode embed classify", "any", null, ModelKindCatalog.Reranker)]
-    [InlineData(ModelKindCatalog.Embeddings, "embed classify", "any", null, ModelKindCatalog.Embeddings)]
+    [InlineData(ModelKindCatalog.Embeddings, "embed", "all-minilm", null, ModelKindCatalog.Embeddings)]
+    [InlineData(ModelKindCatalog.Embeddings, "embed classify decode", "any", null, ModelKindCatalog.Embeddings)]
+    // A cross-encoder of an older feed package declares embeddings but carries the classify graph.
+    [InlineData(ModelKindCatalog.Embeddings, "embed classify", "ms-marco", null, ModelKindCatalog.Reranker)]
+    [InlineData(ModelKindCatalog.Embeddings, "classify", "bge-reranker", null, ModelKindCatalog.Reranker)]
     [InlineData(ModelKinds.SpeechRecognition, "decode classify", "whisper", null, ModelKinds.SpeechRecognition)]
     public void Inspector_KindOfAPackage_IsItsDeclaredKind_RefinedOnlyByWhatTheGraphsProve(string declared, string graphs, string name, string? generalName, string expected)
         => Assert.Equal(expected, ModelInspector.KindOf(declared, graphs.Split(' ').ToHashSet(), name, generalName));

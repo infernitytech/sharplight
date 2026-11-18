@@ -4,6 +4,7 @@ using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Runtime;
+using Sharplight.Studio.ViewModels.Inference;
 
 namespace Sharplight.Studio.Tests;
 
@@ -41,12 +42,37 @@ internal sealed class RealStudioSession : IDisposable
 
     public string Directory => _fakes.Directory;
 
+    public Fakes.FakePlatform Platform => _fakes.Platform;
+
     /// <summary>The path below the model mirror (<c>~/models</c>); the test is skipped when it does not exist.</summary>
     public static string Require(string relative)
     {
         string path = System.IO.Path.Combine(Home, "models", relative);
         Assert.SkipUnless(File.Exists(path) || System.IO.Directory.Exists(path), $"{relative} not found");
         return path;
+    }
+
+    /// <summary>Waits until <paramref name="condition"/> holds (the dispatcher and the playback run on other threads).</summary>
+    public static async Task WaitFor(Func<bool> condition, int seconds = 120)
+    {
+        for (int i = 0; i < seconds * 20 && !condition(); i++)
+        {
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(condition());
+    }
+
+    /// <summary>Whether the samples hold more than silence.</summary>
+    public static bool IsAudible(IEnumerable<float> samples) => samples.Any(sample => MathF.Abs(sample) > 0.02f);
+
+    /// <summary>Runs the page's queue item to the end and returns it, failing with its detail when it did not complete.</summary>
+    public static async Task<RunItemViewModel> FinishAsync(InferencePageViewModel page, int minutes = 5)
+    {
+        var item = page.Queue.Items[^1];
+        await item.Completion.WaitAsync(TimeSpan.FromMinutes(minutes), TestContext.Current.CancellationToken);
+        Assert.True(item.Status == RunStatus.Completed, item.Detail + item.StatusText);
+        return item;
     }
 
     /// <summary>Loads a model the way the library's load panel does: the kind is what the inspector recognizes.</summary>

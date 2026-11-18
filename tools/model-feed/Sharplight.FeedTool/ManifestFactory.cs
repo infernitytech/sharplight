@@ -127,7 +127,7 @@ internal static class ManifestFactory
                 capabilities.Add(PackageCapabilities.StructuredOutput);
                 var input = capabilities.Contains(PackageCapabilities.Vision) ? new[] { "text", "image" } : ["text"];
                 return ([PackageTasks.Chat, PackageTasks.Completion], capabilities, new PackageModalities { Input = input, Output = ["text"] });
-            case "embeddings" when entry.Tags.Contains("reranker", StringComparer.Ordinal):
+            case "reranker":
                 return ([PackageTasks.Rerank], capabilities, new PackageModalities { Input = ["text"], Output = ["score"] });
             case "embeddings":
                 return ([PackageTasks.Embedding], capabilities, new PackageModalities { Input = ["text"], Output = ["embedding"] });

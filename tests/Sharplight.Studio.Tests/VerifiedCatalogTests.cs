@@ -169,6 +169,8 @@ public sealed class VerifiedCatalogTests
     [InlineData("not json")]
     [InlineData("""{"schemaVersion": 9, "updated": "2027-01-01", "entries": []}""")]
     [InlineData("""{"schemaVersion": 1, "updated": "2027-01-01", "entries": [{"id": "BAD ID", "name": "x", "kind": "text-generation"}]}""")]
+    // A newer catalog with a kind this build does not know (an older client reading the one with "reranker"): the whole file is ignored, not an error.
+    [InlineData("""{"schemaVersion": 1, "updated": "2027-01-01", "entries": [{"id": "x", "name": "x", "kind": "a-future-kind"}]}""")]
     public async Task Source_IgnoresInvalidDownloads(string remote)
     {
         var source = new VerifiedCatalogSource(_ => Task.FromResult(remote), null, () => VerifiedCatalogSerializer.Serialize(Sample("2026-11-16")));

@@ -53,9 +53,19 @@ internal static class ModelInspector
     /// Text generation is refined only where the graphs prove it is not one: no decode graph means an encoder, scoring pairs through the classify
     /// graph (a reranker) or pooling through the embed graph (embeddings). A model with a decode graph stays a language model whatever auxiliary
     /// graphs it carries (the decoder adapters add embed and classify graphs to every model); only a name that says so (Qwen3-Reranker) makes it a reranker.
+    /// A declared <c>embeddings</c> kind (older feed packages of cross-encoders) becomes a reranker only for an encoder with a classify graph and no decode graph.
     /// </summary>
     internal static string KindOf(string declared, IReadOnlySet<string> graphs, string name, string? generalName)
     {
+        // Packages published before the feed declared cross-encoders as rerankers say "embeddings": an encoder (no decode graph) that scores
+        // pairs through a classify graph is a reranker. Embedding models carry the embed graph only.
+        if (declared == ModelKindCatalog.Embeddings)
+        {
+            return graphs.Contains(WellKnown.ClassifyGraph) && !graphs.Contains(WellKnown.DecodeGraph)
+                ? ModelKindCatalog.Reranker
+                : declared;
+        }
+
         if (declared != ModelKinds.TextGeneration)
         {
             return declared;
