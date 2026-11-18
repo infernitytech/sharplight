@@ -7,6 +7,7 @@
              xmlns:stats="using:Sharplight.Studio.ViewModels.Stats"
              xmlns:tasks="using:Sharplight.Studio.ViewModels.Tasks"
              xmlns:settings="using:Sharplight.Studio.ViewModels.Settings"
+             xmlns:welcome="using:Sharplight.Studio.ViewModels.Welcome"
              xmlns:speech="using:Sharplight.Studio.ViewModels.Speech"
              xmlns:search="using:Sharplight.Studio.ViewModels.Search"
              xmlns:audio="using:Sharplight.Studio.ViewModels.Audio"
@@ -60,6 +61,9 @@
     </DataTemplate>
     <DataTemplate DataType="stats:StatsPageViewModel">
       <views:StatsPage />
+    </DataTemplate>
+    <DataTemplate DataType="welcome:WelcomePageViewModel">
+      <views:WelcomePage />
     </DataTemplate>
     <DataTemplate DataType="settings:SettingsPageViewModel">
       <views:SettingsPage />

@@ -37,6 +37,7 @@ internal sealed partial class ChatPageViewModel : PageViewModel
             else if (args.PropertyName == nameof(ModelPickerViewModel.HasModels))
             {
                 OnPropertyChanged(nameof(HasModels));
+                OnPropertyChanged(nameof(ShowGetModel));
             }
         };
     }
@@ -85,6 +86,15 @@ internal sealed partial class ChatPageViewModel : PageViewModel
     /// <summary>At least one model is loaded.</summary>
     public bool HasModels => Picker.HasModels;
 
+    /// <summary>The empty chat offers "Get a model": no model is loaded and there is nothing to read.</summary>
+    public bool ShowGetModel => !HasModels && (Current?.IsEmpty ?? true);
+
+    partial void OnCurrentChanged(ConversationViewModel? value) => OnPropertyChanged(nameof(ShowGetModel));
+
+    /// <summary>Opens the welcome flow that recommends and installs starter models.</summary>
+    [RelayCommand]
+    private void GetModel() => _navigator.OpenWelcome();
+
     /// <summary>Badges of the selected model.</summary>
     public CapabilityBadges? SelectedBadges => SelectedModel?.Badges;
 
@@ -113,6 +123,20 @@ internal sealed partial class ChatPageViewModel : PageViewModel
 
     /// <summary>Selects <paramref name="model"/> (or keeps the selection).</summary>
     public void SelectModel(ILoadedModel? model) => Picker.Select(model);
+
+    /// <summary>Opens a new conversation with <paramref name="model"/> and puts <paramref name="prompt"/> in its message box without sending it.</summary>
+    /// <param name="model">The model to chat with, or null to keep the selection.</param>
+    /// <param name="prompt">The example question, or null.</param>
+    public async Task StartChatAsync(ILoadedModel? model, string? prompt)
+    {
+        await ActivateAsync();
+        Picker.Select(model);
+        await NewChatAsync();
+        if (Current is { } conversation && !string.IsNullOrEmpty(prompt))
+        {
+            conversation.InputText = prompt;
+        }
+    }
 
     partial void OnFilterTextChanged(string value) => ApplyFilter();
 
