@@ -61,6 +61,7 @@
     <!-- The verified-model catalog (docs/verified-catalog.md): Discover's "Verified" list works offline with this copy. -->
     <EmbeddedResource Include="../../tools/model-feed/keys/sharplight-feed.pub.pem" LogicalName="Sharplight.Studio.sharplight-feed.pub.pem" Link="Assets/sharplight-feed.pub.pem" />
     <EmbeddedResource Include="../../catalog/verified-models.json" LogicalName="Sharplight.Studio.verified-models.json" Link="Assets/verified-models.json" />
+    <EmbeddedResource Include="Assets/starter-models.json" LogicalName="Sharplight.Studio.starter-models.json" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Studio.Tests" />

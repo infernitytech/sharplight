@@ -18,6 +18,7 @@ using Sharplight.Studio.ViewModels.Tasks;
 using Sharplight.Studio.ViewModels.Updates;
 using Sharplight.Studio.ViewModels.Video;
 using Sharplight.Studio.ViewModels.Vision;
+using Sharplight.Studio.ViewModels.Welcome;
 
 namespace Sharplight.Studio.ViewModels;
 
@@ -39,6 +40,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Vision = new VisionPageViewModel(services, this);
         Tasks = new TasksPageViewModel(services, this);
         Models = new ModelsPageViewModel(services, this);
+        Welcome = new WelcomePageViewModel(services, this, Models);
         Server = new ServerPageViewModel(services);
         Stats = new StatsPageViewModel(services);
         Settings = new SettingsPageViewModel(services);
@@ -79,6 +81,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     /// <summary>Models page.</summary>
     public ModelsPageViewModel Models { get; }
+
+    /// <summary>The welcome flow: starter models for a new user (not in the navigation).</summary>
+    public WelcomePageViewModel Welcome { get; }
 
     /// <summary>Server page.</summary>
     public ServerPageViewModel Server { get; }
@@ -130,13 +135,25 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     /// <summary>The main device, for the status bar.</summary>
     public string DeviceText => _services.Runtime.Devices.FirstOrDefault()?.Name ?? "No device";
 
-    /// <summary>Offers to move the models of a previous store, then shows the first page.</summary>
-    public Task StartAsync()
+    /// <summary>Offers to move the models of a previous store, then shows the first page: the welcome flow on a first start, else the chat or the models.</summary>
+    public async Task StartAsync()
     {
         StoreMigration.Check();
         StorageNotice = _services.StorageLocation.Current.Notice;
         _ = Updates.StartAsync();
-        return NavigateAsync(_services.Runtime.LoadedModels.Count == 0 ? Models : Chat);
+        if (_services.Runtime.LoadedModels.Count == 0 && !_services.Settings.Current.FirstRunDone)
+        {
+            var library = await _services.Library.ListAsync(CancellationToken.None);
+            if (library.Count == 0)
+            {
+                await NavigateAsync(Welcome);
+                return;
+            }
+
+            _services.Settings.Update(settings => settings with { FirstRunDone = true });
+        }
+
+        await NavigateAsync(_services.Runtime.LoadedModels.Count == 0 ? Models : Chat);
     }
 
     [RelayCommand]
@@ -182,6 +199,21 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     {
         Chat.SelectModel(model);
         _ = NavigateAsync(Chat);
+    }
+
+    /// <inheritdoc/>
+    public void OpenChat(ILoadedModel? model, string? suggestedPrompt) => _ = OpenNewChatAsync(model, suggestedPrompt);
+
+    /// <inheritdoc/>
+    public void OpenWelcome()
+    {
+        _ = NavigateAsync(Welcome);
+    }
+
+    private async Task OpenNewChatAsync(ILoadedModel? model, string? suggestedPrompt)
+    {
+        await NavigateAsync(Chat);
+        await Chat.StartChatAsync(model, suggestedPrompt);
     }
 
     /// <inheritdoc/>

@@ -1,0 +1,100 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:wvm="using:Sharplight.Studio.ViewModels.Welcome"
+             x:Class="Sharplight.Studio.Views.WelcomePage"
+             x:DataType="wvm:WelcomePageViewModel">
+  <ScrollViewer>
+    <Grid Margin="28,22,28,24">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MaxWidth="820" />
+      </Grid.ColumnDefinitions>
+      <StackPanel Spacing="16">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="h1" Text="Welcome to Sharplight Studio" TextWrapping="Wrap" />
+          <TextBlock Classes="muted" TextWrapping="Wrap"
+                     Text="Chat with a language model that runs on this machine. Nothing you write leaves your computer. We looked at your hardware and picked models that fit it." />
+        </StackPanel>
+
+        <!-- The machine -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="h3" Text="Your machine" />
+            <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
+              <TextBlock Classes="label" Text="Graphics" />
+              <TextBlock x:Name="GpuText" Grid.Column="1" Text="{Binding GpuText}" TextWrapping="Wrap" />
+              <TextBlock Grid.Row="1" Classes="label" Text="Memory" />
+              <TextBlock x:Name="MemoryText" Grid.Row="1" Grid.Column="1" Text="{Binding MemoryText}" />
+              <TextBlock Grid.Row="2" Classes="label" Text="Disk" />
+              <TextBlock x:Name="DiskText" Grid.Row="2" Grid.Column="1" Text="{Binding DiskText}" TextWrapping="Wrap" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <!-- Reading the feed -->
+        <Border Classes="card" IsVisible="{Binding IsLoading}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Finding models that fit…" />
+            <ProgressBar IsIndeterminate="True" />
+          </StackPanel>
+        </Border>
+
+        <!-- Nothing to offer, or a note about the list -->
+        <Border x:Name="WelcomeMessage" Classes="callout warn" IsVisible="{Binding HasMessage}">
+          <DockPanel>
+            <Button DockPanel.Dock="Right" x:Name="WelcomeRetry" Classes="small" Content="Try again" Command="{Binding RetryCommand}" Margin="12,0,0,0" VerticalAlignment="Center"
+                    IsVisible="{Binding ShowEmpty}" />
+            <TextBlock Text="{Binding Message}" TextWrapping="Wrap" VerticalAlignment="Center" />
+          </DockPanel>
+        </Border>
+
+        <!-- The recommendation -->
+        <Border Classes="card" IsVisible="{Binding HasItems}">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="h3" Text="Recommended for you" />
+            <TextBlock Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsCpuOnly}"
+                       Text="No GPU was found, so these models are small enough to run on the CPU. Answers will be slower than on a GPU." />
+            <ItemsControl x:Name="WelcomeItems" ItemsSource="{Binding Items}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="wvm:StarterItemViewModel">
+                  <Border Classes="card" Padding="14,10" Margin="0,0,0,8" Background="{DynamicResource SurfaceAltBrush}">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                      <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" IsEnabled="{Binding CanToggle}" VerticalAlignment="Top" Margin="0,0,10,0" />
+                      <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Classes="caption" Text="{Binding RoleTitle}" />
+                        <TextBlock Classes="muted" Text="{Binding Description}" TextWrapping="Wrap" />
+                        <TextBlock Classes="caption" Text="{Binding FitText}" TextWrapping="Wrap" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="2" Spacing="2" Margin="12,0,0,0" MinWidth="110">
+                        <TextBlock Text="{Binding SizeText}" HorizontalAlignment="Right" />
+                        <TextBlock Classes="caption" Text="{Binding TimeText}" HorizontalAlignment="Right" />
+                        <TextBlock Classes="caption" Text="{Binding State}" HorizontalAlignment="Right" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock x:Name="WelcomeTotal" Text="{Binding TotalText}" FontWeight="Medium" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <!-- Install progress -->
+        <Border Classes="card" IsVisible="{Binding ShowProgress}">
+          <StackPanel Spacing="8">
+            <TextBlock x:Name="WelcomeStatus" Text="{Binding Status}" TextWrapping="Wrap" />
+            <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" IsVisible="{Binding IsWorking}" />
+          </StackPanel>
+        </Border>
+        <Border x:Name="WelcomeError" Classes="callout bad" IsVisible="{Binding HasError}">
+          <TextBlock Text="{Binding Error}" TextWrapping="Wrap" />
+        </Border>
+
+        <WrapPanel>
+          <Button x:Name="WelcomeStart" Classes="accent" Content="{Binding StartText}" Command="{Binding GetStartedCommand}" IsVisible="{Binding HasItems}" Margin="0,0,8,8" />
+          <Button x:Name="WelcomeSkip" Content="Skip, browse models myself" Command="{Binding SkipCommand}" IsEnabled="{Binding !IsWorking}" Margin="0,0,8,8" />
+        </WrapPanel>
+      </StackPanel>
+    </Grid>
+  </ScrollViewer>
+</UserControl>

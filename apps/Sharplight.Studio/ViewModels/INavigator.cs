@@ -8,6 +8,14 @@ internal interface INavigator
     /// <summary>Shows the chat, selecting <paramref name="model"/> when given.</summary>
     public void OpenChat(ILoadedModel? model);
 
+    /// <summary>Shows a new chat with <paramref name="model"/> selected and <paramref name="suggestedPrompt"/> in the message box (not sent).</summary>
+    /// <param name="model">The model to chat with, or null.</param>
+    /// <param name="suggestedPrompt">The example question, or null.</param>
+    public void OpenChat(ILoadedModel? model, string? suggestedPrompt);
+
+    /// <summary>Shows the welcome flow that recommends and installs starter models ("Get a model").</summary>
+    public void OpenWelcome();
+
     /// <summary>Shows the page of a model kind (the chat for text generation, the transcribe and speak pages, ...), selecting <paramref name="model"/> when given.</summary>
     /// <param name="kind">The kind (<see cref="Sharplight.Models.ModelKinds"/>).</param>
     /// <param name="model">The model to choose, or null.</param>
