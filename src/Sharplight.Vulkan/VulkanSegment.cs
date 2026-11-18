@@ -789,6 +789,51 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// <inheritdoc />
     public void ResetState() => RunLaunches(_program.ResetLaunches);
 
+    /// <inheritdoc/>
+    public bool CanCopyStateRows => true;
+
+    /// <inheritdoc/>
+    public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to)
+    {
+        _dev.ThrowIfDisposed();
+        var regions = new List<(Allocation Buffer, ulong From, ulong To, ulong Bytes)>();
+        foreach (var b in _program.Buffers)
+        {
+            // A state shared by several segments of the graph is copied by the one that allocated it.
+            if (b.Kind != BufferKind.State || b.State is not { } st || !states.Contains(st.Name) || _borrowedStates.Contains(b))
+            {
+                continue;
+            }
+
+            long rows = st.Shape[0].Fixed;
+            long row = st.Type.ByteSize(st.Shape.Dims.Skip(1).Aggregate(1L, (n, d) => n * d.Fixed));
+            if ((ulong)from >= (ulong)rows || (ulong)to >= (ulong)rows)
+            {
+                throw new ArgumentOutOfRangeException(nameof(to), $"State '{st.Name}' has {rows} rows.");
+            }
+
+            regions.Add((_alloc[b], (ulong)(from * row), (ulong)(to * row), (ulong)row));
+        }
+
+        if (regions.Count == 0)
+        {
+            return;
+        }
+
+        _dev.Immediate(cb =>
+        {
+            // After the kernels of earlier submissions, before those of later ones.
+            Barrier(cb, VkPipelineStageFlags.AllCommands, VkAccessFlags.MemoryWrite, VkPipelineStageFlags.Transfer, VkAccessFlags.TransferRead | VkAccessFlags.TransferWrite);
+            foreach (var (a, src, dst, bytes) in regions)
+            {
+                var region = new VkBufferCopy { srcOffset = a.Offset + src, dstOffset = a.Offset + dst, size = bytes };
+                _dev.Api.vkCmdCopyBuffer(cb, a.Buffer, a.Buffer, 1, &region);
+            }
+
+            Barrier(cb, VkPipelineStageFlags.Transfer, VkAccessFlags.TransferWrite, VkPipelineStageFlags.AllCommands, VkAccessFlags.MemoryRead | VkAccessFlags.MemoryWrite);
+        });
+    }
+
     private void RunLaunches(IReadOnlyList<KernelLaunch> launches)
     {
         if (launches.Count == 0)

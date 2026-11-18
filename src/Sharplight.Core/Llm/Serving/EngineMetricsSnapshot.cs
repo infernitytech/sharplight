@@ -47,8 +47,19 @@ public sealed record EngineMetricsSnapshot
     public long AcceptedDraftTokens { get; init; }
     /// <summary>Running sequences whose KV blocks were taken back for others (paged cache) and recomputed later.</summary>
     public long Preemptions { get; init; }
-    /// <summary>Prompt tokens served from KV blocks shared with another slot's context (paged cache).</summary>
+    /// <summary>
+    /// Tokens served from cached KV blocks attached by content (paged cache: prompt prefixes at admission or mid-prompt, and contexts of
+    /// preempted sequences), summed over all cache namespaces.
+    /// </summary>
     public long SharedPrefixTokens { get; init; }
+    /// <summary>KV blocks attached from the prefix cache instead of being computed (all namespaces).</summary>
+    public long SharedPrefixBlocks { get; init; }
+    /// <summary>Free KV blocks that still hold cached content (reused least recently released first).</summary>
+    public long KvBlocksCached { get; init; }
+    /// <summary>Cached KV blocks whose content was dropped to reuse their memory.</summary>
+    public long KvBlocksEvicted { get; init; }
+    /// <summary>Recurrent-state snapshots taken for prefix caching of models with recurrent state.</summary>
+    public long StateSnapshots { get; init; }
     /// <summary>Accepted divided by proposed draft tokens (0 without speculation).</summary>
     public double DraftAcceptanceRate => DraftTokens == 0 ? 0 : (double)AcceptedDraftTokens / DraftTokens;
     /// <summary>Seconds from submission to the first generated token.</summary>
