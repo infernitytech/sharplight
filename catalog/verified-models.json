@@ -11099,6 +11099,44 @@
       ]
     },
     {
+      "id": "csm-1b",
+      "name": "CSM 1B (Sesame)",
+      "kind": "speech-synthesis",
+      "family": "CSM",
+      "architecture": "csm",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": true,
+      "publisher": {
+        "name": "Sesame",
+        "countryOfOrigin": "US",
+        "url": "https://www.sesame.com"
+      },
+      "tags": [],
+      "variants": [],
+      "companions": [],
+      "verification": {
+        "reference": "transformers CsmForConditionalGeneration (CPU, f32)",
+        "summary": "text ids identical; teacher forced over 31 frames (30 frames plus the end frame, 992 codes): 0 backbone and 0 depth-decoder argmax disagreements, worst top-logit delta 6e-3 (CPU) / 6e-3 (Vulkan), backbone hidden state relative RMS 2e-4 / 3e-4; Mimi decode of the reference frames relative RMS 1.4e-6 (CPU) / 2.1e-4 (Vulkan); .slm round trip identical",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "Gated repository (terms on the Hub). Verified on the repository\u0027s earlier model.safetensors revision (39e8c756, F16 with the Mimi codec bundled; since replaced by a 6.2 GB file, not re-verified), so documented only until a pin with checksums can be made. Speaker numbers (0, 1) as the text prefix; no audio context yet.",
+      "doc": [
+        {
+          "section": "3",
+          "cells": {
+            "repositories": "sesame/csm-1b",
+            "formats": "safetensors"
+          }
+        }
+      ]
+    },
+    {
       "id": "orpheus-3b",
       "name": "Orpheus 3B \u002B SNAC 24 kHz",
       "kind": "speech-synthesis",

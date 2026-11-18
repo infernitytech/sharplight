@@ -1054,7 +1054,8 @@ codecs and vocoders are graphs of generic Core ops; the host runs only the token
 | F5-TTS v1 Base (SWivid; flow-matching diffusion transformer over characters) + Vocos mel 24 kHz, voice of a reference recording | supported, CPU and Vulkan | the `f5-tts` package 1.1.22 on torch (CPU, float32; `tools/make_f5tts_reference.py`, jfk.wav as the reference) | character ids and duration identical; sampled mel from the reference's log-mel and noise (32 guided Euler steps) 4.2e-6 (CPU) / 3.5e-5 (Vulkan) relative RMS; Vocos waveform 2.4e-5 / 1.8e-5; the reference log-mel within 5e-3 on a 24 kHz copy of the recording (from 16 kHz the resamplers differ in near-silent frames, which the log floor magnifies) |
 | XTTS v2 (Coqui; GPT-2 over audio codes + HiFi-GAN decoder), the 58 built-in speakers, English | supported, CPU and Vulkan | coqui-tts 0.28.0 on torch (CPU, float32; `tools/make_xtts_reference.py`, speaker "Claribel Dervla") | text ids identical (abbreviations, numbers as num2words spells them, symbols); greedy codes 90 of 90 identical (repetition penalty 10); latents 6.4e-5 (CPU) / 6.8e-5 (Vulkan) relative RMS; HiFi-GAN waveform of the reference latents 1.6e-4 / 1.8e-4; sampled with the model's settings, a four-sentence passage transcribed word for word by Qwen3-ASR-1.7B; Vulkan real-time factor 0.24 (4.2 s of audio in 1.0 s, RTX PRO 4500), CPU 1.2; voice cloning: style latents 3.7e-6 / 2.7e-6, speaker embedding 2.8e-6 / 1.3e-6 |
 | CosyVoice 3 (FunAudioLLM Fun-CosyVoice3-0.5B; Qwen2 0.5B over S3 speech tokens v3, DiT flow, causal HiFT), the voice of a recording (zero-shot, cross-lingual, instruct) | supported, CPU and Vulkan | FunAudioLLM's CosyVoice code (dd9105b) on torch (CPU, float32) and onnxruntime 1.32 (`tools/make_cosyvoice3_reference.py`, jfk.wav as the recording) | S3 tokenizer v3 275 of 275 tokens identical and CAM++ x-vector 3.0e-6 (CPU) / 1.8e-6 (Vulkan) vs onnxruntime; prompt log-mel 7.5e-6; text and prompt ids identical; language model teacher forced along the greedy chain: 0 argmax disagreements over 300 steps, worst logit delta 1.1e-2 / 1.2e-2; flow mel for the sampled tokens and the reference's noise 4.1e-5 / 3.3e-5; causal HiFT F0 1.5e-6 / 1.7e-6, waveform 2.2e-5 / 2.1e-5 on the reference's F0 and source noise (3.9e-3 / 1.0e-2 on its own F0, see below); a zero-shot sentence transcribed word for word by Qwen3-ASR-1.7B, CAM++ speaker similarity to the recording 0.85; Vulkan real-time factor 0.37 (9.2 s of audio in 3.4 s, RTX PRO 4500), CPU 2.8 |
-| CSM-1B + Mimi, Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
+| CSM-1B (Sesame; Llama 1B backbone over text tokens and frame sums, 4-layer depth decoder over codebooks 1-31, Mimi codec bundled in the checkpoint), speaker numbers 0 and 1, no audio context | supported, CPU and Vulkan | transformers 4.57.3 `CsmForConditionalGeneration` (CPU, float32; `tools/make_csm_reference.py`, greedy backbone and depth decoder) | text ids identical; teacher forced over 31 frames (992 codes): 0 argmax disagreements of the backbone and of the depth decoder, worst top-logit delta 6.3e-3 (CPU) / 5.7e-3 (Vulkan), backbone hidden state relative RMS 2.1e-4 / 3.2e-4; greedy frames identical to the reference for the first 25 (CPU) / 9 (Vulkan) of 30 (near ties); Mimi decode of the reference frames relative RMS 1.4e-6 (CPU) / 2.1e-4 (Vulkan); `.slm` round trip generates the same frames and audio |
+| Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
 `samples/Sharplight.Speak`). `OuteTtsAdapter` is a composite adapter (`ICompositeModelAdapter`, `services.AddCompositeModelAdapter<T>()`): it builds the language model with the adapter of its
@@ -1111,8 +1112,20 @@ New generic Core ops of this round (CPU and Vulkan, time-major `[T, C]` with a s
 projections; on the device one workgroup walks the steps), `Atan2` (IEEE zero handling on both providers), reflect padding for `Conv1d`, and `CumSum` accumulating in double
 on the CPU and with compensated summation on the device. The angle of a complex number uses `Where` so the phase of an exactly-zero imaginary part (DC and Nyquist bins) does
 not depend on the sign of that zero. `Sharplight.Import.PyTorch` reads a file written by `torch.save(tensor)` and has the shared weight-norm helpers (`TorchWeightNorm`).
-Not done: CSM (the depth decoder over 32 codebooks and the Mimi decoder), Dia (encoder-decoder with delay-pattern codebook heads and the DAC codec), qwen3tts and pockettts
+Not done: Dia (encoder-decoder with delay-pattern codebook heads and the DAC codec), qwen3tts and pockettts
 (no GGUFs were looked for), and OuteTTS 0.3.
+
+CSM loading: the checkpoint folder (`Sharplight.Import.HuggingFace`, `CsmHfMapping`, model type `csm`) maps the backbone and the depth decoder like Llama checkpoints (llama3 rope
+scalings become `rope.freq_factors`; the decoders take host-composed embedding rows, with the first codebook head as stand-in output), keeps the text embedding, the codebook
+embedding table (tied between the backbone's input and the depth decoder's, 32 x 2051 rows), the depth decoder's input projector and its 31 codebook heads under `csm.`, and maps the
+bundled Mimi codec (`codec_model.*`, through `MimiHfMapping`) under `codec.`; the Hub tokenizer is sized by `text_vocab_size`, not the 2051-entry audio `vocab_size` (a general
+change of the BPE translator: `text_vocab_size` wins when a config has it). `CsmAdapter` (canonical `csm`) builds the backbone through `DecoderAdapter` (embedding input), the depth
+decoder as a second decoder under `depth.` and the Mimi decode graph; `CsmSynthesizer` embeds `<|begin_of_text|>[speaker]text<|end_of_text|>`, then per frame samples codebook 0 from
+the backbone (temperature 0.9, top-k 50 from the generation config; 0 is greedy), runs the depth decoder over [projected backbone hidden state, code 0, ...] for codebooks 1-31
+(positions 0-31; the heads are applied on the host), feeds the sum of the 32 codebook embeddings back, and stops on a frame whose first 31 codes are zero; audio is decoded in chunks
+of 250 frames with 25 frames of context, streaming every 25 frames. Not done: audio context (earlier turns with their recordings, which need the Mimi encoder to feed frame
+sums into the prompt) and so voice prompting; `ReferenceAudio` is ignored. The catalog entry is documentation only: the repository is gated and its `model.safetensors` was replaced after the
+verification (the verified file is no longer at a retrievable revision).
 
 Chatterbox loading: the checkpoint folder (`Sharplight.Import.Chatterbox`, `ChatterboxImporter`, `services.AddChatterboxImporter()`): T3's Llama is
 mapped like a Hugging Face Llama checkpoint to the canonical decoder weights (the speech-token embedding is the `token_embedding`, the speech head
@@ -2468,7 +2481,7 @@ format has no importer; the same models import from the OpenAI checkpoints.
 |---|---|---|---|---|---|---|
 | 1 | Zyphra/ZONOS3-Mini | Zyphra | 2026-11-09 | 94k / 501 (trending #1) | Zyphra repository (no `config.json`; `-hf` conversion and a GGUF by AtomicChat, community) | not run: needs inspection of the architecture; voice cloning |
 | 2 | hexgrad/Kokoro-82M | hexgrad | 2024-12-26 | 13.0M / 7.4k | PyTorch folder; onnx-community ONNX (877k) | verified (section 12) |
-| 3 | k2-fsa/OmniVoice | k2-fsa | 2026-03-30 | 4.2M / 1.7k | safetensors (`omnivoice`, 613 M) | needs arch (section 13.1): masked-diffusion acoustic model over audio codes + codec decoder; no license tag on the card |
+| 3 | k2-fsa/OmniVoice | k2-fsa | 2026-03-30 | 4.2M / 1.7k | safetensors (`omnivoice`, 613 M) | needs arch (section 13.1): masked-diffusion acoustic model (Qwen3-0.6B over 8 audio codebooks, iterative unmasking) + the Higgs Audio v2 tokenizer decoder (HuBERT-semantic + DAC-style RVQ codec). License checked in round 5: the card's text says code Apache 2.0, pre-trained model CC-BY-NC (non-commercial, from its Emilia training data), and the bundled audio tokenizer carries the Boson Higgs Audio 2 community license (a Llama-3-style agreement, a request for a license above 100k annual active users); loadable like XTTS (CPML) with those terms noted. Not started in round 5 |
 | 4 | coqui/XTTS-v2 | Coqui | 2023-10-31 | 5.2M / 4.0k | PyTorch folder | verified, voice cloning (section 12); CPML non-commercial license |
 | 5 | ResembleAI/chatterbox | Resemble AI | 2025-04-24 | 2.5M / 1.9k | safetensors folder | verified, voice cloning |
 | 6 | SWivid/F5-TTS | SWivid | 2024-10-07 | 1.4M / 1.2k | safetensors | verified, voice cloning |
@@ -2485,7 +2498,8 @@ format has no importer; the same models import from the OpenAI checkpoints.
 | 17 | microsoft/speecht5_tts | Microsoft | 2023-02-02 | 172k / 852 | safetensors | needs arch `speecht5` (+ HiFi-GAN vocoder, x-vector speaker) |
 | 18 | canopylabs/orpheus-3b-0.1-ft | Canopy Labs | 2025 | n/a | safetensors (gated, auto); unsloth mirror | verified through the unsloth mirror (section 12) |
 | 19 | OuteAI/OuteTTS-0.2-500M | OuteAI | 2024 | n/a | GGUF | verified (section 12) |
-| 20 | sesame/csm-1b, nari-labs/Dia-1.6B, 2Noise/ChatTTS | Sesame, Nari Labs, 2Noise | 2025 / 2024 | n/a | safetensors | needs arch (csm: Llama backbone + depth decoder over Mimi codes; Dia: DAC-codebook delay-pattern LM; ChatTTS: GPT + DVAE + Vocos) |
+| 20 | sesame/csm-1b | Sesame | 2025 | n/a | safetensors (gated, auto) | verified, CPU and Vulkan (section 12; no audio context) |
+| 21 | nari-labs/Dia-1.6B, 2Noise/ChatTTS | Nari Labs, 2Noise | 2025 / 2024 | n/a | safetensors | needs arch (Dia: DAC-codebook delay-pattern LM; ChatTTS: GPT + DVAE + Vocos) |
 
 Community only: ampixa/sanoTTS, remsky/kokoro-inno-clone-tuner, pnnbao-ump VieNeu-TTS (a fine-tune family), drbaph/Higgs-Audio-v3-Studio,
 HoppouAI/Breeze-TTS-2.cpp, audio-cpp/* GGUF collections (a third-party runtime's conversions; not tested).
