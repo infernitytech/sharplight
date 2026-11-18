@@ -59,7 +59,7 @@ public class MultiSequenceTests
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public void Matches_Independent_Sessions(string model, string device) => Run(model, device, null);
+    public void Matches_Independent_Sessions(string model, string device) => Run(model, device, 0);   // contiguous (0; paged is the default)
 
     /// <summary>
     /// The same script on a paged KV cache smaller than slots x context: blocks are taken as contexts grow and the reset slot's
@@ -85,7 +85,7 @@ public class MultiSequenceTests
         });
         using var dec = llm.CreateBatchDecoder(4, 256, kvCacheTokens: kvCacheTokens);
         Assert.IsType<MultiSequenceDecoder>(dec);
-        Assert.Equal(kvCacheTokens is null ? 0 : MultiSequenceDecoder.DefaultKvBlockSize, dec.KvBlockSize);
+        Assert.Equal(kvCacheTokens is 0 ? 0 : MultiSequenceDecoder.DefaultKvBlockSize, dec.KvBlockSize);
 
         // Script: per step, (slot, tokens) inputs. Slot 0 is reset and reused for a new sequence at step 5.
         // Shapes cover: prompts of several flash-attention tiles next to decode rows, short mixed rows (per-query
@@ -149,7 +149,7 @@ public class MultiSequenceTests
                 }
             }
 
-            if (kvCacheTokens is { } pool)
+            if (kvCacheTokens is { } pool && pool > 0)
             {
                 int held = Enumerable.Range(0, 4).Sum(slot => (dec.Length(slot) + dec.KvBlockSize - 1) / dec.KvBlockSize);
                 Assert.Equal((int)(pool / dec.KvBlockSize) - held, dec.KvBlocksFree);

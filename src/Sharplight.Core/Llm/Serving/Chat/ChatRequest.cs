@@ -38,6 +38,8 @@ public sealed class ChatRequest
     public string? Tenant { get; init; }
     /// <summary>Isolation scope of the prefix cache (see <see cref="GenerationRequest.CachePartition"/>); null = the default partition.</summary>
     public string? CachePartition { get; init; }
+    /// <summary>Additional prefix-cache key (see <see cref="GenerationRequest.CacheSalt"/>); null = none.</summary>
+    public string? CacheSalt { get; init; }
     /// <summary>Total time budget (queue plus generation); null uses the engine default.</summary>
     public TimeSpan? Timeout { get; init; }
     /// <summary>Passed to the chat template as <c>enable_thinking</c> when set.</summary>

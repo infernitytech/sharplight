@@ -189,6 +189,27 @@ internal sealed class SharplightServerContext
     /// <summary>The prefix-cache partition of the request (its scope).</summary>
     public static string? CachePartition(HttpContext http) => Request(http)?.Scope;
 
+    /// <summary>
+    /// The prefix-cache salt of the request: the context's <see cref="SharplightRequestContext.CacheSalt"/>, followed by the client's
+    /// <c>cache_salt</c> when <see cref="SharplightServerOptions.AllowClientCacheSalt"/> allows it.
+    /// </summary>
+    /// <exception cref="ApiException">The client sent a salt the server does not accept (400).</exception>
+    public string? CacheSalt(HttpContext http, string? client)
+    {
+        var host = Request(http)?.CacheSalt;
+        if (client is null)
+        {
+            return host;
+        }
+
+        if (!Options.AllowClientCacheSalt)
+        {
+            throw new ApiException(400, "invalid_request_error", "cache_salt is not accepted by this server.", null, "cache_salt");
+        }
+
+        return host is null ? "client:" + client : host + "\0client:" + client;
+    }
+
     /// <summary>Refuses tools the request's context does not allow (400).</summary>
     public static void CheckTools(HttpContext http, IEnumerable<string> names)
     {

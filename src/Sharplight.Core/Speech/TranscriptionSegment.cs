@@ -15,6 +15,9 @@ public sealed record TranscriptionSegment
     /// <summary>Language of the segment (ISO 639-1, e.g. <c>en</c>), given or detected; <see langword="null"/> when unknown.</summary>
     public string? Language { get; init; }
 
+    /// <summary>The speaker of the segment (a label such as <c>0</c> or <c>Speaker 1</c>) for models that tell speakers apart (diarization); <see langword="null"/> otherwise.</summary>
+    public string? Speaker { get; init; }
+
     /// <summary>Per-word timings when <see cref="TimestampGranularity.Word"/> was requested and supported; otherwise empty.</summary>
     public IReadOnlyList<WordTiming> Words { get; init; } = [];
 

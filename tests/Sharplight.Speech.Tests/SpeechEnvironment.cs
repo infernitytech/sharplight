@@ -56,6 +56,10 @@ internal static class SpeechEnvironment
 
     public static string SpeechGguf(string name) => Path.Combine(s_models, "speech-gguf", name);
 
+    /// <summary>A file or folder under <c>~/models/vibevoice</c> (the Microsoft checkpoints and the reference tensors of the VibeVoice tests).</summary>
+    /// <param name="relative">The path below the folder.</param>
+    public static string VibeVoice(string relative) => Path.Combine(s_models, "vibevoice", relative);
+
     /// <summary>A whisper.cpp model file under <c>~/models/whisper.cpp</c>.</summary>
     /// <param name="name">The name without extension, e.g. <c>ggml-tiny.en</c>.</param>
     public static string WhisperCpp(string name) => Path.Combine(s_models, "whisper.cpp", name + ".bin");

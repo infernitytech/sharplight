@@ -18,8 +18,17 @@ public sealed record EngineOptions
     /// decoder's rows). Smaller chunks interleave long prefills with other sequences' decoding at the cost of prefill speed.
     /// </summary>
     public int PrefillChunk { get; set; }
-    /// <summary>Reuse the cached context of idle slots for prompts sharing a prefix.</summary>
+    /// <summary>
+    /// Prefix caching: reuse the KV blocks (and, for models with recurrent state, state snapshots) of earlier prompts that share a
+    /// prefix with a new one, within the same cache namespace (<see cref="GenerationRequest.CachePartition"/>, <see cref="GenerationRequest.CacheSalt"/>).
+    /// </summary>
     public bool PrefixCache { get; set; } = true;
+    /// <summary>
+    /// Models with recurrent state: prompt tokens between recurrent-state snapshots during prefill (prefill chunks end at multiples of it
+    /// and the state there is kept for later prompts, least recently used first out), in addition to the snapshots at prefixes shared with
+    /// other contexts and at prompt ends. Rounded down to whole KV blocks; 0 turns the periodic snapshots off.
+    /// </summary>
+    public int StateSnapshotInterval { get; set; } = 512;
     /// <summary>Applied to requests without their own <see cref="GenerationRequest.Timeout"/>.</summary>
     public TimeSpan? DefaultTimeout { get; set; }
     /// <summary>Applied to requests without their own <see cref="GenerationRequest.QueueTimeout"/>.</summary>

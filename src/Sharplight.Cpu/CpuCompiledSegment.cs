@@ -32,6 +32,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     private readonly List<IDisposable> _leases = [];
     private readonly CpuDevice _device;
     private readonly List<(Buf State, long Bytes)> _stateBufs = [];
+    private readonly Dictionary<string, (Buf State, long Bytes, long Rows)> _statesByName = [];
     private readonly Dictionary<string, long> _symbolBounds = new(StringComparer.Ordinal);
     private byte* _arena;
     private long _arenaBytes;
@@ -261,6 +262,29 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
         foreach (var (buf, bytes) in _stateBufs)
         {
             System.Runtime.InteropServices.NativeMemory.Clear(buf.Ptr, (nuint)bytes);
+        }
+    }
+
+    /// <inheritdoc />
+    public bool CanCopyStateRows => true;
+
+    /// <inheritdoc />
+    public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to)
+    {
+        foreach (var name in states)
+        {
+            if (!_statesByName.TryGetValue(name, out var st))
+            {
+                continue;
+            }
+
+            long row = st.Bytes / st.Rows;
+            if ((ulong)from >= (ulong)st.Rows || (ulong)to >= (ulong)st.Rows)
+            {
+                throw new ArgumentOutOfRangeException(nameof(to), $"State '{name}' has {st.Rows} rows.");
+            }
+
+            System.Runtime.InteropServices.NativeMemory.Copy(st.State.Ptr + from * row, st.State.Ptr + to * row, (nuint)row);
         }
     }
 

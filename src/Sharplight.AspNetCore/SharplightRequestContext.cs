@@ -14,6 +14,13 @@ public sealed record SharplightRequestContext
     /// </summary>
     public string? Scope { get; init; }
 
+    /// <summary>
+    /// Additional prefix-cache key within the scope (<c>GenerationRequest.CacheSalt</c>, vLLM's <c>cache_salt</c>), e.g. per user when
+    /// prompts of one scope's users must not share cached prefixes either. Null = none. A client-sent <c>cache_salt</c> (allowed by
+    /// <see cref="SharplightServerOptions.AllowClientCacheSalt"/>) is appended to it.
+    /// </summary>
+    public string? CacheSalt { get; init; }
+
     /// <summary>Who sends the request (a user or key id from authentication), for usage records and stored state; null = anonymous.</summary>
     public string? Principal { get; init; }
 

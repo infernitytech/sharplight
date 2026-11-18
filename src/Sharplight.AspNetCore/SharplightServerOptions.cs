@@ -10,6 +10,12 @@ public sealed class SharplightServerOptions
 {
     /// <summary>Expose the OpenAI-compatible API (<c>/v1/chat/completions</c>, <c>/v1/completions</c>, <c>/v1/models</c>).</summary>
     public bool OpenAi { get; set; } = true;
+    /// <summary>
+    /// Accept the request field <c>cache_salt</c> (vLLM's prefix-cache salt) from clients; it narrows prefix-cache sharing within the
+    /// request's scope (<see cref="SharplightRequestContext.CacheSalt"/>, <see cref="SharplightRequestContext.Scope"/>) and can never
+    /// widen it. Off by default: a request carrying it is refused with 400, and the cache key is what the host sets.
+    /// </summary>
+    public bool AllowClientCacheSalt { get; set; }
     /// <summary>Expose the Anthropic-compatible API (<c>/v1/messages</c>, <c>/v1/messages/count_tokens</c>).</summary>
     public bool Anthropic { get; set; } = true;
     /// <summary>Accepted API keys (<c>Authorization: Bearer</c> or <c>x-api-key</c>). Empty = no authentication.</summary>

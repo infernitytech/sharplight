@@ -57,10 +57,12 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
         {
             Slots = settings.Slots,
             KvCacheTokens = settings.KvCacheTokens,
+            KvStateSnapshots = settings.KvStateSnapshots,
             Engine = new EngineOptions
             {
                 MaxQueue = settings.MaxQueue,
                 PrefillChunk = settings.PrefillChunk,
+                PrefixCache = settings.PrefixCache,
                 MaxBatchTokens = settings.StepTokens ?? 0,
                 SpeculationMaxBatch = settings.SpeculationMaxBatch,
             },

@@ -81,6 +81,10 @@ internal sealed class EngineSequence
     /// </summary>
     public int[]? Replay { get; set; }
     public int ReplayPos { get; set; }
+    /// <summary>Paged cache with prefix caching: content hashes of the prompt's full blocks before its last token (computed at admission).</summary>
+    public List<UInt128>? PromptHashes { get; set; }
+    /// <summary>Content hashes of the blocks of <see cref="Replay"/>, attached again where they are still cached.</summary>
+    public List<UInt128>? ReplayHashes { get; set; }
     /// <summary>Masked diffusion: the sequence being denoised (created at its first step), or null.</summary>
     public DiffusionSequence? Diffusion { get; set; }
     /// <summary>Logical admission time (the newest running sequence is preempted first).</summary>
