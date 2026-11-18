@@ -427,6 +427,11 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
     GRID_BIND(p);
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
+#if MOE && MOE_TILE_MAJOR
+    // Expert tiles along gid.x: the tiles of one expert (and of all experts) run side by side for each column chunk, so an
+    // expert's second tile reads the chunk from L2 instead of DRAM.
+    gid.xy = gid.yx;
+#endif
     uint n0 = gid.x * SK_COLS;
     // The subgroup's weight rows and K phase.
     uint sn0 = n0 + (sg / SK_KS) * (SK_FN * 16), kp = sg % SK_KS;

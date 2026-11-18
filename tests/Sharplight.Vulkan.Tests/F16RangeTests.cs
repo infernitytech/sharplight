@@ -122,4 +122,36 @@ public sealed class F16RangeTests
         Diff.Check("F16Range.moe", tg.B.Build(), new Step(t, 0, (x, xs), (ids, idData)), atol: 8.0, rtol: 1e-2, maxTokens: t,
             what: $"{fmt} T={t} perSlot={perSlot}");
     }
+
+    /// <summary>
+    /// A gate / up expert pair over rows beyond f16's range (the dual grouped gemm_cm2 above the skinny range): both products of a
+    /// scaled row are unscaled before the fused silu(gate) · up, on the 32-, 64- and 128-row tiles.
+    /// </summary>
+    [Theory]
+    [InlineData("bf16", 40)]
+    [InlineData("mxfp4", 48)]
+    [InlineData("mxfp4", 300)]
+    [InlineData("f16", 1300)]
+    public void Dual_expert_gemm_reads_rows_beyond_f16_range(string fmt, int t)
+    {
+        Gpu.Require();
+        const int E = 8, S = 4, K = 1024, N = 256;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, S);
+        var gate = tg.B.Emit1("MatMulId", [x, tg.RandW("gate", DataType.Get(fmt), 0.05f, E, N, K), ids]);
+        var up = tg.B.Emit1("MatMulId", [x, tg.RandW("up", DataType.Get(fmt), 0.05f, E, N, K), ids]);
+        tg.B.Output("y", tg.B.Mul(tg.B.Silu(gate), up));
+        var xs = Rnd.F((long)t * K, 3);
+        for (int r = 0; r < t; r += 3)
+        {
+            xs[((long)r * K) + 17] = 1.5e5f;
+            xs[((long)r * K) + 900] = -7e4f;
+        }
+
+        var rng = new Random(7 + t);
+        int[] idData = [.. Enumerable.Range(0, t * S).Select(_ => rng.Next(E))];
+        Diff.Check("F16Range.moe-dual", tg.B.Build(), new Step(t, 0, (x, xs), (ids, idData)), atol: 8.0, rtol: 1e-2, maxTokens: t,
+            what: $"{fmt} T={t}");
+    }
 }

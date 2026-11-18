@@ -212,8 +212,28 @@ public sealed partial class GraphLowerer
             _launchCondition = b => (outer?.Invoke(b) ?? true) && Rows(b, tids) * S > mv;
         }
 
-        LowerMatMulId(a);
-        LowerMatMulId(bNode);
+        // Batches on the grouped gemm_cm2: one dual launch multiplies both expert matrices (their 16-row fragments alternate in
+        // the B tile, each activation tile staged once) and stores the group, instead of two GEMMs writing their f32 products and
+        // the group's launch reading them back.
+        Func<Bindings, bool>? fused = null;
+        var dualY = Produce(output);
+        if (DiagnosticSwitches.MoeDualGemm2 && dualY.IsDense)
+        {
+            string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N, "matmul.slang");
+            fused = LowerMatMulId(a, (Ref(bNode.Inputs[1]), dualY, [.. gathers.Select(g => Ref(g.Inputs[0]))], source, [.. gathers, a, bNode, .. group]));
+        }
+        else
+        {
+            LowerMatMulId(a);
+        }
+
+        LowerMatMulId(bNode, skipGrouped: fused is not null);
+        var beforeGroup = _launchCondition;
+        if (fused is not null)
+        {
+            _launchCondition = b => (beforeGroup?.Invoke(b) ?? true) && !fused(b);
+        }
+
         LowerElementwise(group, [output]);
         _launchCondition = outer;
     }
@@ -307,8 +327,11 @@ public sealed partial class GraphLowerer
         return src.ToString();
     }
 
-    /// <summary>Source of the <c>MOE_EPI</c> epilogue of the dual expert matvec: the group over both products and the gathered rows.</summary>
-    private static string DualExpertEpilogueSource(Node a, Node bNode, List<Node> gathers, List<Node> group, Value output, long n)
+    /// <summary>
+    /// Source of the <c>MOE_EPI</c> epilogue of the dual expert matvec (<paramref name="library"/> mmvq.slang) or of the dual grouped
+    /// gemm_cm2 (matmul.slang): the group over both products and the gathered rows.
+    /// </summary>
+    private static string DualExpertEpilogueSource(Node a, Node bNode, List<Node> gathers, List<Node> group, Value output, long n, string library = "mmvq.slang")
     {
         var name = new Dictionary<Value, string> { [a.Output] = "m0", [bNode.Output] = "m1" };
         for (int i = 0; i < gathers.Count; i++)
@@ -331,11 +354,19 @@ public sealed partial class GraphLowerer
         src.AppendLine("}");
         string rows = string.Concat(gathers.Select((_, i) => $", p.gt{i}[uint64_t(e) * {n} + (n)]"));
         src.AppendLine($"#define MOE_EPI(m0, m1, e, n) epi2(m0, m1{rows})");
-        src.AppendLine("#include \"mmvq.slang\"");
+        src.AppendLine($"#include \"{library}\"");
         return src.ToString();
     }
 
-    private void LowerMatMulId(Node n)
+    /// <summary>
+    /// Lowers the expert product <paramref name="n"/>. With <paramref name="dual"/>, the grouped gemm_cm2 launches compute it together
+    /// with a second expert matrix of the same shape (same activations and routing) and store the dual epilogue <c>MOE_EPI</c> of
+    /// the generated source into the group's output instead of the product. <paramref name="skipGrouped"/> leaves the grouped
+    /// gemm_cm2 launches out (a dual launch of the partner serves those batches). Returns the batches the grouped gemm_cm2 serves
+    /// (null when it does not run).
+    /// </summary>
+    private Func<Bindings, bool>? LowerMatMulId(Node n, (TensorRef W2, TensorRef Y, TensorRef[] Tables, string Source, Node[] Nodes)? dual = null,
+        bool skipGrouped = false)
     {
         var x = Ref(n.Inputs[0]);
         var w = Ref(n.Inputs[1]);
@@ -431,6 +462,9 @@ public sealed partial class GraphLowerer
         {
             // The dense tensor-core GEMM in its expert-grouped form: one routing tile per workgroup row.
             var groupedMacros = new Dictionary<string, string>(gm) { ["MOE"] = "1", ["Y_STRIDE"] = N.ToString(CultureInfo.InvariantCulture) };
+            bool cm2TileMajor = (DiagnosticSwitches.MoeTileMajor & 2) != 0;
+            bool skTileMajor = (DiagnosticSwitches.MoeTileMajor & 1) != 0;
+            Grid TileGrid(bool major, uint columnTiles, uint expertTiles) => major ? new Grid(expertTiles, columnTiles) : new Grid(columnTiles, expertTiles);
             var gemmX = x;
             if (DiagnosticSwitches.MoeSortedHalfActivations)
             {
@@ -451,24 +485,51 @@ public sealed partial class GraphLowerer
             // does not depend on the tile height. The two launches write disjoint output rows, so they share a write group
             // and run without a barrier between them.
             bool split = DiagnosticSwitches.MoeSplitTiles;
-            _writeGroup = split ? new object() : null;
             Dictionary<string, string> Rows(int t, string limit, int rows)
                 => new(Gemm2Macros(groupedMacros, t)) { [limit] = rows.ToString(CultureInfo.InvariantCulture) };
-            Emit(label + " gemm-cm2", [n],
-                [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b),
-                    Lib("matmul.slang", "gemm_cm2", split && t > 32 ? Rows(t, "MOE_MIN_ROWS", t / 2 + 1) : Gemm2Macros(groupedMacros, t)),
-                    b => new Grid(Grid.Div(N, Gemm2Columns(t)), tiles(b))))],
-                gargs, [gemmX, w, scratch], [y]);
-            if (split)
+            // The dual form (see the dual parameter) alternates 16-row fragments of the two matrices in the B tile: each tile layout
+            // needs an even fragment count along N, and the expert-sorted f16 rows.
+            var d = dual is { } dd && DiagnosticSwitches.MoeSortedHalfActivations
+                    && coopTiles.All(t => int.Parse(Gemm2Macros(groupedMacros, t)["FRAG_N"], CultureInfo.InvariantCulture) % 2 == 0) ? dd : default;
+            bool isDual = d.Source is not null;
+            Func<Bindings, bool> grouped = b => items(b) > mv && coopTiles.Contains(tile(b)) && !isWide(b);
+            CompiledKernel Grouped(Dictionary<string, string> macros)
             {
-                Emit(label + " gemm-cm2 half tiles", [n],
-                    [.. coopTiles.Where(t => t > 32).Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b),
-                        Lib("matmul.slang", "gemm_cm2", Rows(t / 2, "MOE_MAX_ROWS", t / 2)),
-                        b => new Grid(Grid.Div(N, Gemm2Columns(t / 2)), tiles(b))))],
-                    gargs, [gemmX, w, scratch], [y]);
+                if (cm2TileMajor)
+                {
+                    macros = new Dictionary<string, string>(macros) { ["MOE_TILE_MAJOR"] = "1" };
+                }
+
+                return isDual ? _compiler.Compile("matmul_moe_dual.slang", d.Source, "gemm_cm2", _opt.Target,
+                    new Dictionary<string, string>(macros) { ["DUAL"] = "1", ["KERNEL_GEMM_CM2"] = "1" }, _opt.Cache)
+                    : Lib("matmul.slang", "gemm_cm2", macros);
             }
 
-            _writeGroup = null;
+            int Columns(int t) => isDual ? Gemm2Columns(t) / 2 : Gemm2Columns(t);
+            var groupedLabel = isDual ? $"{label}x2 fused gemm-cm2" : label + " gemm-cm2";
+            Node[] groupedNodes = isDual ? d.Nodes : [n];
+            KernelArg[] groupedArgs = isDual ? [Pointer(gemmX), Pointer(w), Pointer(d.W2), scratchArg, Pointer(d.Y), .. d.Tables.Select(Pointer), TokenArg(ids)] : gargs;
+            TensorRef[] groupedReads = isDual ? [gemmX, w, d.W2, scratch, .. d.Tables] : [gemmX, w, scratch];
+            TensorRef groupedOut = isDual ? d.Y : y;
+            if (!skipGrouped)
+            {
+                _writeGroup = split ? new object() : null;
+                Emit(groupedLabel, groupedNodes,
+                    [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b),
+                        Grouped(split && t > 32 ? Rows(t, "MOE_MIN_ROWS", t / 2 + 1) : Gemm2Macros(groupedMacros, t)),
+                        b => TileGrid(cm2TileMajor, Grid.Div(N, Columns(t)), tiles(b))))],
+                    groupedArgs, groupedReads, [groupedOut]);
+                if (split)
+                {
+                    Emit(groupedLabel + " half tiles", groupedNodes,
+                        [.. coopTiles.Where(t => t > 32).Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b),
+                            Grouped(Rows(t / 2, "MOE_MAX_ROWS", t / 2)),
+                            b => TileGrid(cm2TileMajor, Grid.Div(N, Columns(t / 2)), tiles(b))))],
+                        groupedArgs, groupedReads, [groupedOut]);
+                }
+
+                _writeGroup = null;
+            }
             if (skinnyMoe)
             {
                 // Two weight fragments and 4 subgroups per workgroup on the direct path: an expert tile's workgroups each read 32
@@ -485,6 +546,7 @@ public sealed partial class GraphLowerer
                     ["SK_SG"] = sg.ToString(CultureInfo.InvariantCulture),
                     ["SK_BK"] = bk.ToString(CultureInfo.InvariantCulture),
                     ["SK_DIRECT"] = direct ? "1" : "0",
+                    ["MOE_TILE_MAJOR"] = skTileMajor ? "1" : "0",
                 };
                 foreach (var (name, value) in DiagnosticSwitches.GemmExtraMacros)
                 {
@@ -493,7 +555,7 @@ public sealed partial class GraphLowerer
 
                 Emit(label + " skinny", [n],
                     [new KernelVariant(b => items(b) > mv && tile(b) == MoeSkinnyTile, Lib("matmul.slang", "gemm_sk", skinnyMacros),
-                        b => new Grid(Grid.Div(N, fn * 16), tiles(b)))],
+                        b => TileGrid(skTileMajor, Grid.Div(N, fn * 16), tiles(b)))],
                     gargs, [gemmX, w, scratch], [y]);
             }
 
@@ -519,6 +581,8 @@ public sealed partial class GraphLowerer
                         b => new Grid(Grid.Div(N, cols), tiles(b)))],
                     gargs, [gemmX, w, scratch], [y]);
             }
+
+            return isDual || skipGrouped ? grouped : null;
         }
         else if (coop)
         {
@@ -538,5 +602,7 @@ public sealed partial class GraphLowerer
                 [new KernelVariant(b => items(b) > mv, Lib("moe.slang", "moe_gemm", gm), b => new Grid(Grid.Div(N, 64), tiles(b)))],
                 gargs, [x, w, scratch], [y]);
         }
+
+        return null;
     }
 }

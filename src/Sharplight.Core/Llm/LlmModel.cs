@@ -410,7 +410,8 @@ public sealed class LlmModel : IDisposable
     /// <summary>
     /// Rows per forward pass of this model's sessions and batch decoders (prompts are prefilled in chunks of this many tokens):
     /// <see cref="TaskLoadOptions.MaxBatchTokens"/>, or when that is 0 (the default of <see cref="LlmLoadOptions"/>) the largest of
-    /// <see cref="AutomaticMaxBatchTokens"/>, 1024 and <see cref="AutomaticMinBatchTokens"/> (at most the context length) whose
+    /// <see cref="AutomaticMaxBatchTokens"/>, 1024 and <see cref="AutomaticMinBatchTokens"/> (at most the context length times
+    /// <see cref="LlmLoadOptions.Sequences"/>) whose
     /// estimated footprint (<see cref="PlacementPlanner.Estimate"/>: weights, one sequence's state, activations) fits the devices'
     /// available memory. Fixed by the first compilation of the model, so every session and decoder agrees.
     /// </summary>
@@ -436,7 +437,9 @@ public sealed class LlmModel : IDisposable
         long reserve = _options.ReservePerDevice ?? DefaultReserve;
         long capacity = devices.Sum(slot => Math.Max(0, (slot.MemoryLimit ?? slot.Device.AvailableMemory) - reserve));
         int context = _options.ContextLength > 0 ? _options.ContextLength : AutomaticMaxBatchTokens;
-        int rows = Math.Max(AutomaticMinBatchTokens, Math.Min(AutomaticMaxBatchTokens, context));
+        // Rows of one step may come from every sequence decoded together (serving slots), each up to its context.
+        long stepRows = (long)context * Math.Max(1, _options.Sequences);
+        int rows = (int)Math.Max(AutomaticMinBatchTokens, Math.Min(AutomaticMaxBatchTokens, stepRows));
         while (rows > AutomaticMinBatchTokens && SessionFootprint(rows, context).Total > capacity)
         {
             rows /= 2;

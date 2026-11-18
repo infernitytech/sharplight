@@ -358,6 +358,10 @@ public sealed class MoeTests
     [InlineData("q4_k", 8, 1)]
     [InlineData("q4_k", 8, 9)]
     [InlineData("q8_0", 2, 5)]
+    [InlineData("mxfp4", 4, 150)]
+    [InlineData("mxfp4", 4, 520)]
+    [InlineData("bf16", 4, 90)]
+    [InlineData("q4_k", 8, 200)]
     public void RoutedExpertBlock(string fmt, int s, int t)
     {
         Gpu.Require();
@@ -378,6 +382,6 @@ public sealed class MoeTests
         tg.B.Output("y", summed);
         Diff.Check("MatMulId.routed." + fmt, tg.B.Build(),
             new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (ids, Ids("random", t, s, E)), (weights, Rnd.F((long)t * s, 5))),
-            atol: 2.0, rtol: 5e-2, maxTokens: 128, what: $"S={s} T={t}");
+            atol: 2.0, rtol: 5e-2, maxTokens: 640, what: $"S={s} T={t}");
     }
 }
