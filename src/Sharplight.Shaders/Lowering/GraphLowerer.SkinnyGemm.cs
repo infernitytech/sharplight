@@ -132,6 +132,11 @@ public sealed partial class GraphLowerer
                 ["SK_BK"] = bk.ToString(CultureInfo.InvariantCulture),
                 ["SK_DIRECT"] = direct ? "1" : "0",
             };
+            if (half)
+            {
+                WithRangeScales(macros, activations);
+            }
+
             long low = previous;
             long high = bucketMax;
             int rowsPerWorkgroup = fn * 16;

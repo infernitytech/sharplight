@@ -78,6 +78,9 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_FP8_DUAL_TALL=0</c>: the dual fp8 gate / up GEMM keeps 64-row tiles above 64 rows.</item>
 /// <item><c>SHARPLIGHT_NORM_HALF_COPY=0</c>: row norms and dual GEMMs feeding matmuls do not also write the f16 activation copy the
 /// tensor-core GEMMs read; a separate conversion launch makes it.</item>
+/// <item><c>SHARPLIGHT_F16_RANGE=0</c>: the f16 activation copies of values no norm bounds are plain f16 rows instead of row-ranged
+/// ones (<c>f16_range_scale</c> in common.slang: rows reaching 2^15 scaled by a power of two that the GEMMs undo), so values beyond
+/// 65504 become infinities, as before the guard (for A/B measurements).</item>
 /// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
 /// <item><c>SHARPLIGHT_GEMM_X16=0</c>: tensor-core GEMMs read f32 activations instead of an f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_NV2=1</c>: default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</item>
@@ -264,6 +267,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Let row norms and dual GEMMs feeding tensor-core matmuls write the f16 activation copy too (no separate conversion launch).</summary>
     public static bool NormHalfCopy { get; } = IsNotZero("SHARPLIGHT_NORM_HALF_COPY");
+
+    /// <summary>False (<c>SHARPLIGHT_F16_RANGE=0</c>) when f16 activation copies are plain f16 rows even for values no norm bounds.</summary>
+    public static bool F16RangeGuard { get; } = IsNotZero("SHARPLIGHT_F16_RANGE");
 
     /// <summary>
     /// False keeps row norms at prefill sizes writing f32 rows only (separate f16 conversion / E4M3 quantization launches)

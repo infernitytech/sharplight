@@ -8,10 +8,6 @@
   <!-- The image input of the inference pages: a preview with name and size, or a hint to choose or drop a file. -->
   <Border x:Name="DropArea" Classes="inset" DragDrop.AllowDrop="True" Padding="10">
     <DockPanel>
-      <StackPanel DockPanel.Dock="Right" Spacing="6" Margin="12,0,0,0" VerticalAlignment="Center">
-        <Button Classes="small" Content="Choose file" Command="{Binding ChooseCommand}" />
-        <Button Classes="small" Content="Remove" Command="{Binding ClearCommand}" IsVisible="{Binding HasImage}" />
-      </StackPanel>
       <Button DockPanel.Dock="Left" Classes="ghost" Padding="0" Margin="0,0,12,0" IsVisible="{Binding HasImage}" ToolTip.Tip="Click to view the image large (zoom and pan)">
         <Button.Flyout>
           <Flyout Placement="Bottom">
@@ -29,6 +25,11 @@
         <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" IsVisible="{Binding HasImage}" ToolTip.Tip="{Binding Path}" />
         <TextBlock Classes="caption" Text="{Binding Summary}" IsVisible="{Binding HasImage}" />
         <TextBlock Classes="muted" Text="{Binding Hint}" TextWrapping="Wrap" IsVisible="{Binding !HasImage}" />
+        <!-- Under the text, not beside it: next to the preview they left the text a few characters of width in a narrow window. -->
+        <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,4,0,0">
+          <Button Classes="small" Content="Choose file" Command="{Binding ChooseCommand}" />
+          <Button Classes="small" Content="Remove" Command="{Binding ClearCommand}" IsVisible="{Binding HasImage}" />
+        </WrapPanel>
       </StackPanel>
     </DockPanel>
   </Border>

@@ -197,6 +197,45 @@ jobs:
           aws s3 cp catalog/verified-models.json "s3://$R2_BUCKET/$CATALOG_KEY" --endpoint-url "$R2_ENDPOINT" \
             --content-type application/json --cache-control "public, max-age=3600"
 
+  screenshots:
+    # One screenshot test per Studio page in the light and dark theme at 1440 and 900 px (tests/Sharplight.Studio.Tests/PageScreenshotTests.cs):
+    # checks for binding errors and clipped or overlapping controls, and the PNGs are uploaded as an artifact (no golden images; look at them).
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Nerdbank.GitVersioning needs the history to compute the version height
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-audio-*
+          merge-multiple: true
+          path: native/sharplight_audio/out
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-ffmpeg-*
+          merge-multiple: true
+          path: native/ffmpeg/out
+
+      - name: Page screenshot tests
+        env:
+          SHARPLIGHT_STUDIO_SCREENSHOTS: ${{ runner.temp }}/studio-screenshots
+        run: dotnet run --project tests/Sharplight.Studio.Tests -c Release -- -class "Sharplight.Studio.Tests.PageScreenshotTests"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: studio-page-screenshots
+          path: ${{ runner.temp }}/studio-screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+
   release:
     # Attach the installers to the GitHub release of the version, for release/* pushes only.
     needs: package

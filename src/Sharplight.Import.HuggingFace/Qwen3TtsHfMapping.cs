@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Sharplight.Models;
-using Sharplight.Tensors;
 using Sharplight.Vision;
 
 namespace Sharplight.Import.HuggingFace;
@@ -174,8 +173,7 @@ internal sealed class Qwen3TtsHfMapping : IHfArchitectureMapping
         {
             foreach (var (name, w) in mapping.MapWeights(config, predictorTensors, options))
             {
-                // In f32: the talker's hidden state it reads has outliers near 100, beyond what reduced-precision activation paths for 16-bit weights keep exact.
-                collector.Add(w.Type == DataType.BF16 || w.Type == DataType.F16 ? HfTransforms.ToF32(w, "code_predictor." + name) : w.As("code_predictor." + name));
+                collector.Add(w.As("code_predictor." + name));
             }
         }
 

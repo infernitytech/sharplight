@@ -125,6 +125,45 @@ public sealed class ChatMediaTests
     }
 
     [Fact]
+    public async Task ReadAloud_OffersTheVoicesOfTheModel_UsesTheChosenOne_AndRemembersIt()
+    {
+        using var services = new TestServices();
+        var chatModel = Chat(services);
+        Synthesizer(services, out var tts);
+        tts.Voices = ["af_heart", "bm_george"];
+        var media = new ChatMediaViewModel(services.Services);
+        await media.RefreshVoicesAsync();
+        Assert.True(media.HasVoices);
+        Assert.Equal([ChatMediaViewModel.DefaultVoice, "af_heart", "bm_george"], media.Voices);
+        Assert.Equal(ChatMediaViewModel.DefaultVoice, media.SelectedVoice);
+        var chat = Create(services, media, () => chatModel);
+        chat.InputText = "hi";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        await chat.ReadAloudCommand.ExecuteAsync(chat.Messages[1]);
+        Assert.Null(tts.Requests[0].Options);   // the model's own voice
+
+        media.SelectedVoice = "bm_george";
+        Assert.Equal("bm_george", services.Settings.Current.Voice.SynthesisVoice);
+        await chat.ReadAloudCommand.ExecuteAsync(chat.Messages[1]);
+        Assert.Equal("bm_george", tts.Requests[1].Options!.Voice);
+
+        // A new chat window starts with the remembered voice; a model without that voice falls back without forgetting it.
+        var again = new ChatMediaViewModel(services.Services);
+        await again.RefreshVoicesAsync();
+        Assert.Equal("bm_george", again.SelectedVoice);
+        tts.Voices = ["other"];
+        await again.RefreshVoicesAsync();
+        Assert.Equal(ChatMediaViewModel.DefaultVoice, again.SelectedVoice);
+        Assert.Equal("bm_george", services.Settings.Current.Voice.SynthesisVoice);
+
+        // A model that offers no voices shows no choice.
+        tts.Voices = [];
+        await again.RefreshVoicesAsync();
+        Assert.False(again.HasVoices);
+    }
+
+    [Fact]
     public async Task ImageCommand_StoresThePictureInTheConversation_AndKeepsItOutOfTheChatModel()
     {
         using var services = new TestServices();

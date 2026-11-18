@@ -107,6 +107,28 @@ internal sealed partial class FeedCatalogViewModel : ObservableObject
     /// <summary>How many installs are running.</summary>
     public int ActiveInstalls => Installs.Count(install => install.IsActive);
 
+    /// <summary>How many installs finished successfully and are not dismissed.</summary>
+    public int FinishedInstalls => Installs.Count(install => install.IsDone);
+
+    /// <summary>There are finished installs: the page shows one compact summary instead of a card each.</summary>
+    public bool HasFinishedInstalls => FinishedInstalls > 0;
+
+    /// <summary>The summary of the finished installs, e.g. <c>Installed 2 packages: Whisper tiny, Qwen3 0.6B</c>.</summary>
+    public string FinishedSummary
+    {
+        get
+        {
+            var names = Installs.Where(install => install.IsDone).Select(install => install.Name).ToList();
+            return names.Count switch
+            {
+                0 => "",
+                1 => $"Installed {names[0]}",
+                <= 3 => $"Installed {names.Count} packages: {string.Join(", ", names)}",
+                _ => $"Installed {names.Count} packages: {string.Join(", ", names.Take(3))} and {names.Count - 3} more",
+            };
+        }
+    }
+
     /// <summary>Whether the verified-signature check applied to the listing.</summary>
     [ObservableProperty]
     public partial bool IsListingVerified { get; set; }
@@ -159,6 +181,10 @@ internal sealed partial class FeedCatalogViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(ActiveInstalls));
             }
+            else if (args.PropertyName == nameof(FeedInstallViewModel.IsDone))
+            {
+                NotifyFinishedChanged();
+            }
         };
         Installs.Insert(0, install);
         _ = install.StartAsync();
@@ -182,6 +208,15 @@ internal sealed partial class FeedCatalogViewModel : ObservableObject
         {
             Installs.Remove(install);
         }
+
+        NotifyFinishedChanged();
+    }
+
+    private void NotifyFinishedChanged()
+    {
+        OnPropertyChanged(nameof(FinishedInstalls));
+        OnPropertyChanged(nameof(HasFinishedInstalls));
+        OnPropertyChanged(nameof(FinishedSummary));
     }
 
     private bool CanInstall() => Selected is { IsInstallable: true };

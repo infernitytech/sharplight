@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Sharplight.Audio;
 using Sharplight.Hub;
 using Sharplight.Storage;
@@ -54,14 +55,15 @@ internal sealed class StudioHost : IDisposable
         var settings = new JsonSettingsService(paths.SettingsFile, modelsDirectory, layout);
         var storage = new StorageLocationService(environment, layout, settings);
         var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddSingleton<IStorageLocationService>(storage)
-            .AddSingleton(paths).AddSharplightStorage(layout).AddStudioUpdates().AddStudioFeed().AddSharplight().BuildServiceProvider();
+            .AddSingleton(Program.Logs).AddSingleton(typeof(ILogger<>), typeof(Logger<>)).AddSingleton(paths).AddSharplightStorage(layout).AddStudioUpdates().AddStudioFeed().AddSharplight().BuildServiceProvider();
         var engine = EngineServices.From(container);
         var audioDecoder = container.GetRequiredService<IAudioDecoder>();
         var audioEncoder = container.GetRequiredService<IAudioEncoder>();
         var audioDevices = container.GetRequiredService<IAudioDeviceProvider>();
         var precompiler = new PrecompileService(settings, engine);
         var runtime = new EngineModelRuntime(engine, () => settings.Current.Residency, name => ResolveOnDemand(settings, name, precompiler.IsBusy),
-            () => settings.Current.UseCompilationCache);
+            () => settings.Current.UseCompilationCache,
+            Program.Logs.CreateLogger<EngineModelRuntime>());
         var hub = new HubService(settings, engine, paths.HighlightsFile, paths.CatalogFile);
         var database = new StudioDatabase(paths.DatabaseFile);
         var stats = new SqliteStatsStore(database);

@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Sharplight.ImageGeneration;
@@ -22,6 +23,11 @@ internal sealed partial class ChatMediaViewModel : ObservableObject
     private readonly StudioServices _services;
     private IRecording? _recording;
     private CancellationTokenSource? _speech;
+    private int _voiceRefresh;
+    private bool _refreshingVoices;
+
+    /// <summary>The first entry of <see cref="Voices"/>: the model's own default voice.</summary>
+    public const string DefaultVoice = "Default voice";
 
     public ChatMediaViewModel(StudioServices services)
     {
@@ -31,9 +37,92 @@ internal sealed partial class ChatMediaViewModel : ObservableObject
             id => services.Settings.Update(current => current with { Voice = current.Voice with { RecognitionModel = id } }));
         Synthesizers = Prefer(new ModelPickerViewModel(services, ModelKinds.SpeechSynthesis), settings.SynthesisModel,
             id => services.Settings.Update(current => current with { Voice = current.Voice with { SynthesisModel = id } }));
+        Voices = [DefaultVoice];
+        _selectedVoice = DefaultVoice;
+        Synthesizers.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ModelPickerViewModel.SelectedModel))
+            {
+                _ = RefreshVoicesAsync();
+            }
+        };
+        Synthesizers.SelectedModelStateChanged += (_, _) => _ = RefreshVoicesAsync();
         Painters = Prefer(new ModelPickerViewModel(services, ModelKinds.ImageGeneration), settings.ImageModel,
             id => services.Settings.Update(current => current with { Voice = current.Voice with { ImageModel = id } }));
         ReadAloud = settings.ReadAloud;
+        _ = RefreshVoicesAsync();
+    }
+
+    /// <summary>The voices of the chosen speech-synthesis model (<see cref="DefaultVoice"/> first); only the default when the model offers none.</summary>
+    public ObservableCollection<string> Voices { get; }
+
+    /// <summary>The voice that reads answers aloud (one of <see cref="Voices"/>); remembered in the settings.</summary>
+    public string SelectedVoice
+    {
+        get => _selectedVoice;
+        set
+        {
+            if (SetProperty(ref _selectedVoice, value) && !_refreshingVoices && value is not null)
+            {
+                string? remembered = value == DefaultVoice ? null : value;
+                _services.Settings.Update(current => current with { Voice = current.Voice with { SynthesisVoice = remembered } });
+            }
+        }
+    }
+
+    private string _selectedVoice;
+
+    /// <summary>The chosen model offers voices to choose from.</summary>
+    public bool HasVoices => Voices.Count > 1;
+
+    /// <summary>
+    /// Lists the voices of the chosen speech-synthesis model (leasing it off the UI thread once it is resident), keeps the remembered
+    /// voice when the model has it and the default otherwise.
+    /// </summary>
+    /// <returns>A task that completes when the list is set.</returns>
+    internal async Task RefreshVoicesAsync()
+    {
+        int version = ++_voiceRefresh;
+        IReadOnlyList<string> voices = [];
+        if (Synthesizers.SelectedModel?.Model is { State: ResidentState.Ready or ResidentState.Busy } model)
+        {
+            try
+            {
+                voices = await Task.Run(async () =>
+                {
+                    using var lease = await model.AcquireClientAsync<ISpeechSynthesizer>(CancellationToken.None).ConfigureAwait(false);
+                    return lease.Client.Voices;
+                });
+            }
+            catch (Exception error) when (error is NotSupportedException or InvalidOperationException)
+            {
+                voices = [];
+            }
+        }
+
+        if (version != _voiceRefresh)
+        {
+            return;
+        }
+
+        _refreshingVoices = true;
+        try
+        {
+            string? remembered = _services.Settings.Current.Voice.SynthesisVoice;
+            Voices.Clear();
+            Voices.Add(DefaultVoice);
+            foreach (string voice in voices)
+            {
+                Voices.Add(voice);
+            }
+
+            SelectedVoice = remembered is not null && voices.Contains(remembered) ? remembered : DefaultVoice;
+            OnPropertyChanged(nameof(HasVoices));
+        }
+        finally
+        {
+            _refreshingVoices = false;
+        }
     }
 
     /// <summary>The resident speech-recognition models and the chosen one (dictation).</summary>
@@ -169,6 +258,7 @@ internal sealed partial class ChatMediaViewModel : ObservableObject
             return;
         }
 
+        string? voice = SelectedVoice == DefaultVoice ? null : SelectedVoice;
         var speech = new CancellationTokenSource();
         _speech = speech;
         IsSpeaking = true;
@@ -177,7 +267,7 @@ internal sealed partial class ChatMediaViewModel : ObservableObject
             await Task.Run(async () =>
             {
                 using var lease = await model.AcquireClientAsync<ISpeechSynthesizer>(speech.Token).ConfigureAwait(false);
-                await _services.Player.PlayStreamAsync(lease.Client.SynthesizeStreamingAsync(text, null, speech.Token), speech.Token).ConfigureAwait(false);
+                await _services.Player.PlayStreamAsync(lease.Client.SynthesizeStreamingAsync(text, voice is null ? null : new SpeechSynthesisOptions { Voice = voice }, speech.Token), speech.Token).ConfigureAwait(false);
             }, CancellationToken.None);
         }
         catch (OperationCanceledException)

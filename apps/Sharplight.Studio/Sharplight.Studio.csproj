@@ -4,6 +4,10 @@
     <AssemblyName>sharplight-studio</AssemblyName>
     <RootNamespace>Sharplight.Studio</RootNamespace>
     <IsPackable>false</IsPackable>
+    <!-- API documentation (*.xml next to the assemblies) is for NuGet package consumers, not for the installed app: the 28 files of the
+         referenced libraries and packages were 322 MB unpacked. Library projects still generate them for their packages. -->
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets/Icons/sharplight-studio.ico</ApplicationIcon>

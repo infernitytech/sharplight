@@ -69,6 +69,44 @@ public sealed class SearchPageTests
     }
 
     [Fact]
+    public async Task Reranking_ReordersTheNearestPassages_WithTheRerankersScores_WhenTurnedOn()
+    {
+        using var services = new TestServices();
+        Embedding(services, out _);
+        var reranker = new FakeTextReranker();
+        var page = new SearchPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        Assert.False(page.CanRerank);
+        Assert.False(page.Parameters.Parameters.Single(parameter => parameter.Key == "rerank").IsVisibleNow);
+
+        services.Runtime.Add(new FakeModel("fake-rerank") { Kind = ModelKindCatalog.Reranker, Reranker = reranker });
+        Assert.True(page.CanRerank);
+        Assert.True(page.Parameters.Parameters.Single(parameter => parameter.Key == "rerank").IsVisibleNow);
+        page.SetFolder(Documents(services));
+        page.IndexCommand.Execute(null);
+        await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
+
+        // Off: the embedding order, no reranker call.
+        page.Query = "cat";
+        page.SearchCommand.Execute(null);
+        await page.Queue.Items.Last().Completion.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("pets.md", page.Results[0].FileName);
+        Assert.Empty(reranker.Calls);
+
+        // On: the nearest passages are scored by the reranker and listed by its scores.
+        page.Panel.Apply(new Dictionary<string, string> { ["rerank"] = "true", ["topk"] = "2" });
+        page.Query = "tax";
+        page.SearchCommand.Execute(null);
+        await page.Queue.Items.Last().Completion.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, Assert.Single(reranker.Calls).Count);   // all three passages are candidates (the nearest 20 at most)
+        Assert.Equal(2, page.Results.Count);
+        Assert.Equal("money.txt", page.Results[0].FileName);
+        Assert.Equal(0.667, page.Results[0].Hit.Score, 3);   // "Tax tax tax. Pay your tax.": 4 of 6 words are the query
+        Assert.True(page.Results[0].Hit.Score > page.Results[1].Hit.Score);
+        Assert.Equal("fake-rerank", page.History.Items[0].Record.Metadata["reranker"]);
+    }
+
+    [Fact]
     public async Task TheResultsOfAPastSearch_ComeBackFromTheHistory()
     {
         using var services = new TestServices();
