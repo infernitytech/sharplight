@@ -13,7 +13,10 @@ public class ImageEncoderTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    private static string Model(string name) => Path.Combine(Home, Directory.Exists(Path.Combine(Home, "models/vision", name)) ? "models/vision" : Directory.Exists(Path.Combine(Home, "models/vision-r8", name)) ? "models/vision-r8" : "models/vision-sweep", name);
+    private static readonly string[] Roots = ["models/vision", "models/vision-r8", "models/vision-r9"];
+
+    private static string Model(string name)
+        => Path.Combine(Home, Roots.FirstOrDefault(r => Directory.Exists(Path.Combine(Home, r, name))) ?? "models/vision-sweep", name);
 
     private static bool Available(string name) => File.Exists(Path.Combine(Model(name), "sharplight-reference.json"));
 
@@ -44,6 +47,10 @@ public class ImageEncoderTests
     [InlineData("resnet-18")]
     [InlineData("convnext-tiny-224")]
     [InlineData("convnext_tiny.fb_in1k")]
+    [InlineData("mobilenetv3_small_100.lamb_in1k")]
+    [InlineData("mobilenetv3_large_100.ra_in1k")]
+    [InlineData("efficientnet_b0.ra_in1k")]
+    [InlineData("tf_efficientnetv2_s.in21k_ft_in1k")]
     public async Task VitClassifierMatchesTransformers(string name)
     {
         if (!Available(name))
@@ -69,6 +76,45 @@ public class ImageEncoderTests
             var (maxAbs, _, rms) = Env.Compare(logits, expected);
             Assert.True(rms < 2e-3, $"{backend}: logits relative rms {rms}, max abs {maxAbs}");
             Assert.Equal(Array.IndexOf(expected, expected.Max()), result.Top!.Index);
+        }
+    }
+
+    [Theory]
+    [InlineData("mobilenetv3_small_100.lamb_in1k")]
+    [InlineData("tf_efficientnetv2_s.in21k_ft_in1k")]
+    public async Task ClassifierRoundTripsThroughSlm(string name)
+    {
+        if (!Available(name))
+        {
+            return;
+        }
+
+        var expected = Floats(Reference(name).GetProperty("logits"));
+        var image = PngCodec.Read(Path.Combine(Model(name), "sharplight-sample.png"));
+        string dir = Path.Combine(Path.GetTempPath(), "sl-slm-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string package = Path.Combine(dir, "model.slm");
+            TestHost.Converter.Convert(Model(name), package);
+            foreach (var (backend, slot) in Backends())
+            {
+                using var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = package, Devices = [slot] });
+                using var classifier = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageClassifier>(model);
+                var result = await classifier.ClassifyAsync(image, new ImageClassificationOptions { TopK = 0 }, TestContext.Current.CancellationToken);
+                var logits = new float[expected.Length];
+                foreach (var p in result.Predictions)
+                {
+                    logits[p.Index] = p.Logit;
+                }
+
+                var (maxAbs, _, rms) = Env.Compare(logits, expected);
+                Assert.True(rms < 2e-3, $"{backend}: logits relative rms {rms}, max abs {maxAbs}");
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
         }
     }
 
