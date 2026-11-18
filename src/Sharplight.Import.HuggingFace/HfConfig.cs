@@ -198,6 +198,7 @@ internal sealed partial class HfConfig : IDisposable
     {
         ["GroveMoeForCausalLM"] = "grove_moe",
         ["modeling_grove_moe.GroveMoeForCausalLM"] = "grove_moe",
+        ["VibeVoiceForASRTraining"] = VibeVoiceAsrHfMapping.ModelType,
     };
 
     /// <summary>The <c>architectures</c> class names (e.g. "Qwen3ForCausalLM"); empty when absent.</summary>

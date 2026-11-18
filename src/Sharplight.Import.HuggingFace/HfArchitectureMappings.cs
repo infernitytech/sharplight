@@ -58,6 +58,8 @@ internal static class HfArchitectureMappings
         Register(new OmniVoiceHfMapping());
         Register(new Qwen3TtsHfMapping());
         Register(new CsmHfMapping());
+        Register(new VibeVoiceHfMapping());
+        Register(new VibeVoiceAsrHfMapping());
         Register(new Sam2HfMapping());
         Register(new TrOcrHfMapping());
         Register(new Florence2HfMapping());

@@ -53,6 +53,18 @@ public sealed record SpeechSynthesisOptions
     /// </summary>
     public Normalization.ITextNormalizer? TextNormalizer { get; init; }
 
+    /// <summary>
+    /// The voices of the speakers of a multi-speaker script (speaker label as written in the script, for example <c>1</c> for <c>Speaker 1:</c>, to the saved voice), for models that
+    /// speak several voices in one request (VibeVoice); a speaker without an entry gets the model's own voice. <see cref="ReferenceAudio"/> and <see cref="VoiceProfile"/> serve the first speaker.
+    /// </summary>
+    public IReadOnlyDictionary<string, VoiceProfile>? SpeakerVoices { get; init; }
+
+    /// <summary>Denoising steps per frame of models whose acoustic features come from a diffusion head (VibeVoice), or <see langword="null"/> for the model's default; more steps cost more time.</summary>
+    public int? DiffusionSteps { get; init; }
+
+    /// <summary>Classifier-free guidance scale of models with a diffusion head (VibeVoice), or <see langword="null"/> for the model's default; 1 turns guidance off.</summary>
+    public float? GuidanceScale { get; init; }
+
     /// <summary>The defaults.</summary>
     public static SpeechSynthesisOptions Default { get; } = new();
 }
