@@ -46,6 +46,12 @@ internal static class TtsModels
     /// <summary>Reference prompt, codes and logits of the official qwen_tts package (raw arrays, see <c>Qwen3TtsTests</c>).</summary>
     public static string Qwen3TtsReference => Path.Combine(s_root, "qwen3-tts-ref");
 
+    /// <summary>CSM-1B (the transformers checkpoint directory, with the Mimi codec bundled).</summary>
+    public static string Csm => Path.Combine(s_root, "csm-1b");
+
+    /// <summary>Reference ids, frames and logits of transformers' CSM (raw arrays, see <c>CsmTests</c>).</summary>
+    public static string CsmReference => Path.Combine(s_root, "csm-ref");
+
     /// <summary>A fixture file next to the test assembly.</summary>
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 

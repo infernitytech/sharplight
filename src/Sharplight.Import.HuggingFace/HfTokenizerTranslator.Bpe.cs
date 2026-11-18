@@ -49,7 +49,7 @@ internal static partial class HfTokenizerTranslator
         var vocab = ReadBpeVocabulary(model, addedTokens, tokenizerConfig, addedById);
 
         int maxId = vocab.Count == 0 ? -1 : vocab.Values.Max();
-        int vocabSize = config.GetInt("vocab_size") ?? vocab.Count;
+        int vocabSize = config.GetInt("text_vocab_size") ?? config.GetInt("vocab_size") ?? vocab.Count; // models with a separate audio vocabulary (CSM) size the text one apart
         // Tokens beyond the model's embedding table cannot be produced or fed (e.g. Gemma 3's extra added token): drop them.
         if (maxId >= vocabSize)
         {
