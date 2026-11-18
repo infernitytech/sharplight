@@ -53,11 +53,13 @@ public sealed class SpeechPackageTests : IDisposable
         Assert.Equal(expected.Segments.SelectMany(s => s.Tokens), actual.Segments.SelectMany(s => s.Tokens));
     }
 
-    /// <summary>The other speech families convert to packages that transcribe like their sources (raw-waveform, CTC and transducer models).</summary>
+    /// <summary>The other speech families convert to packages that transcribe like their sources (raw-waveform, CTC and transducer models, streaming FastConformer and causal audio language models).</summary>
     [Theory]
     [InlineData("moonshine-tiny", "cpu")]
     [InlineData("parakeet-ctc-0.6b", "vulkan")]
     [InlineData("parakeet-tdt-0.6b-v3", "vulkan")]
+    [InlineData("nemotron-3.5-asr-streaming-0.6b", "cpu")]
+    [InlineData("Voxtral-Mini-4B-Realtime-2602", "cpu")]
     public async Task OtherFamiliesPackageAndTranscribeLikeTheirSources(string name, string device)
     {
         string source = SpeechEnvironment.HuggingFace(name);

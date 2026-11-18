@@ -264,7 +264,7 @@
         },
         {
           "key": "load",
-          "title": "Load + first image"
+          "title": "Load \u002B first image"
         }
       ]
     },
@@ -606,7 +606,7 @@
             "repositories": "Qwen/Qwen2.5-*-Instruct, Qwen/Qwen2.5-*-Instruct-GGUF",
             "formats": "safetensors, GGUF Q8_0 / Q4_K_M",
             "verification": "ids identical to transformers; GGUF identical or near-tie vs llama.cpp",
-            "notes": "the official GGUFs embed an older tool-call template (literal `{{\"name\": ...}}`), rendered exactly as transformers renders it",
+            "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
             "date": "2026-11-16"
           }
         }
@@ -715,7 +715,7 @@
           "section": "1.3",
           "cells": {
             "repositories": "Qwen/Qwen3-VL-2B-Instruct",
-            "formats": "safetensors, GGUF + mmproj",
+            "formats": "safetensors, GGUF \u002B mmproj",
             "verification": "greedy text identical to transformers / llama.cpp; mmproj vs llama.cpp",
             "notes": ""
           }
@@ -884,7 +884,7 @@
           "section": "1.3",
           "cells": {
             "repositories": "Qwen/Qwen3.5-0.8B",
-            "formats": "GGUF BF16 + mmproj",
+            "formats": "GGUF BF16 \u002B mmproj",
             "verification": "mmproj vs llama.cpp",
             "notes": ""
           }
@@ -1143,9 +1143,9 @@
           "cells": {
             "repositories": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "formats": "GGUF UD-IQ1_S (66 GB)",
-            "providers": "Vulkan (2 GPUs) + CPU",
+            "providers": "Vulkan (2 GPUs) \u002B CPU",
             "verification": "tokenizer, templates and greedy text identical to llama.cpp",
-            "notes": "its MTP draft file (`mtp-*-Q8_0.gguf`, CLI `--draft`) works as the draft head: acceptance 0.87 / 0.79 / 0.64 at k = 1 / 2 / 3 on one GPU + CPU",
+            "notes": "its MTP draft file (\u0060mtp-*-Q8_0.gguf\u0060, CLI \u0060--draft\u0060) works as the draft head: acceptance 0.87 / 0.79 / 0.64 at k = 1 / 2 / 3 on one GPU \u002B CPU",
             "date": "2026-11-16"
           }
         }
@@ -2942,7 +2942,7 @@
             "model": "gpt-oss 20B / 120B",
             "repositories": "openai/gpt-oss-20b, unsloth/gpt-oss-20b-GGUF, ggml-org/gpt-oss-120b-GGUF",
             "formats": "safetensors MXFP4 (20B), GGUF Q4_K_M, MXFP4 (120B)",
-            "providers": "CPU, Vulkan (120B: 2 GPUs + CPU)",
+            "providers": "CPU, Vulkan (120B: 2 GPUs \u002B CPU)",
             "verification": "20B ids identical to transformers; GGUF near-tie vs llama.cpp",
             "date": "2026-11-16"
           }
@@ -5386,7 +5386,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the official GGUFs embed an older tool-call template (literal `{{\"name\": ...}}`), rendered exactly as transformers renders it",
+      "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
       "doc": []
     },
     {
@@ -5496,7 +5496,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the official GGUFs embed an older tool-call template (literal `{{\"name\": ...}}`), rendered exactly as transformers renders it",
+      "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
       "doc": []
     },
     {
@@ -5621,7 +5621,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the official GGUFs embed an older tool-call template (literal `{{\"name\": ...}}`), rendered exactly as transformers renders it",
+      "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
       "doc": []
     },
     {
@@ -6377,7 +6377,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "built-in MTP layer as draft head: k = 1 1.38x (56.0 → 77.4 tok/s), acceptance 0.70",
+      "notes": "built-in MTP layer as draft head: k = 1 1.38x (56.0 \u2192 77.4 tok/s), acceptance 0.70",
       "doc": [
         {
           "section": "1.1.1",
@@ -6758,7 +6758,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "GGUF prompt ids follow llama.cpp's space-prefix placement",
+      "notes": "GGUF prompt ids follow llama.cpp\u0027s space-prefix placement",
       "doc": [
         {
           "section": "1.1.1",
@@ -7193,7 +7193,7 @@
           "section": "1.3",
           "cells": {
             "repositories": "mistralai / google / LiquidAI",
-            "formats": "GGUF + mmproj"
+            "formats": "GGUF \u002B mmproj"
           }
         }
       ]
@@ -7335,7 +7335,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "cosine > 0.999 vs reference",
+        "summary": "cosine \u003E 0.999 vs reference",
         "providers": [
           "CPU",
           "Vulkan"
@@ -7438,7 +7438,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "cosine > 0.999",
+        "summary": "cosine \u003E 0.999",
         "providers": [
           "CPU",
           "Vulkan"
@@ -7531,7 +7531,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "cosine > 0.999",
+        "summary": "cosine \u003E 0.999",
         "providers": [
           "CPU",
           "Vulkan"
@@ -7625,7 +7625,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "cosine > 0.999",
+        "summary": "cosine \u003E 0.999",
         "providers": [
           "CPU",
           "Vulkan"
@@ -7715,7 +7715,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "cosine > 0.999",
+        "summary": "cosine \u003E 0.999",
         "providers": [
           "CPU",
           "Vulkan"
@@ -8227,7 +8227,7 @@
           "cells": {
             "model": "Whisper tiny, tiny.en, base, base.en, small, small.en",
             "repositories": "openai/whisper-*, ggerganov/whisper.cpp",
-            "formats": "HF, whisper.cpp `.bin` (f16, q5_1), `.slm`"
+            "formats": "HF, whisper.cpp \u0060.bin\u0060 (f16, q5_1), \u0060.slm\u0060"
           }
         },
         {
@@ -9195,7 +9195,7 @@
           "section": "2",
           "cells": {
             "repositories": "openai/whisper-large-v3-turbo, oxide-lab/whisper-large-v3-turbo-GGUF",
-            "formats": "HF, whisper.cpp `.bin` f16 / q5_0 / q8_0, whisper GGUF Q8_0 / Q4_K_M"
+            "formats": "HF, whisper.cpp \u0060.bin\u0060 f16 / q5_0 / q8_0, whisper GGUF Q8_0 / Q4_K_M"
           }
         }
       ]
@@ -9507,7 +9507,7 @@
           "cells": {
             "model": "Moonshine tiny, base",
             "repositories": "moonshine-ai/moonshine-tiny, moonshine-ai/moonshine-base",
-            "formats": "HF, `.slm`"
+            "formats": "HF, \u0060.slm\u0060"
           }
         }
       ]
@@ -9674,7 +9674,7 @@
           "section": "2",
           "cells": {
             "repositories": "nvidia/parakeet-ctc-0.6b",
-            "formats": "HF (transformers format), `.slm`"
+            "formats": "HF (transformers format), \u0060.slm\u0060"
           }
         }
       ]
@@ -9808,7 +9808,7 @@
           "section": "2",
           "cells": {
             "repositories": "nvidia/parakeet-tdt-0.6b-v3",
-            "formats": "HF, `.slm`"
+            "formats": "HF, \u0060.slm\u0060"
           }
         },
         {
@@ -9915,7 +9915,7 @@
           "section": "2",
           "cells": {
             "repositories": "nvidia/canary-1b-v2",
-            "formats": "HF, `.slm`"
+            "formats": "HF, \u0060.slm\u0060"
           }
         }
       ]
@@ -10160,14 +10160,14 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the other `jonatasgrosman/wav2vec2-large-xlsr-53-*` language models share the layout, not run",
+      "notes": "the other \u0060jonatasgrosman/wav2vec2-large-xlsr-53-*\u0060 language models share the layout, not run",
       "doc": [
         {
           "section": "2",
           "cells": {
             "model": "wav2vec2 CTC (base-960h, XLSR-53 fine-tunes)",
             "repositories": "facebook/wav2vec2-base-960h, jonatasgrosman/wav2vec2-large-xlsr-53-japanese",
-            "formats": "HF (`.safetensors` and `pytorch_model.bin`)"
+            "formats": "HF (\u0060.safetensors\u0060 and \u0060pytorch_model.bin\u0060)"
           }
         }
       ]
@@ -10246,7 +10246,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the other `jonatasgrosman/wav2vec2-large-xlsr-53-*` language models share the layout, not run",
+      "notes": "the other \u0060jonatasgrosman/wav2vec2-large-xlsr-53-*\u0060 language models share the layout, not run",
       "doc": []
     },
     {
@@ -10516,7 +10516,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "greedy ids identical to transformers on jfk and LibriSpeech, language detected and English forced, CPU and Vulkan; the `-hf` layout and the transcribe.cpp F16 GGUF give the same ids; the language the model names is returned",
+        "summary": "greedy ids identical to transformers on jfk and LibriSpeech, language detected and English forced, CPU and Vulkan; the \u0060-hf\u0060 layout and the transcribe.cpp F16 GGUF give the same ids; the language the model names is returned",
         "providers": [
           "CPU",
           "Vulkan"
@@ -10635,7 +10635,7 @@
           "cells": {
             "model": "Voxtral Mini 3B (audio language model)",
             "repositories": "mistralai/Voxtral-Mini-3B-2507",
-            "formats": "HF (transformers layout, `tekken.json` tokenizer)"
+            "formats": "HF (transformers layout, \u0060tekken.json\u0060 tokenizer)"
           }
         }
       ]
@@ -10958,7 +10958,7 @@
       "companions": [],
       "verification": {
         "reference": "kokoro package",
-        "summary": "symbols, durations and F0 identical to the `kokoro` package; waveform within 1.3e-2 relative RMS (the reference's own noise floor)",
+        "summary": "symbols, durations and F0 identical to the \u0060kokoro\u0060 package; waveform within 1.3e-2 relative RMS (the reference\u0027s own noise floor)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -10972,14 +10972,14 @@
           "section": "3",
           "cells": {
             "repositories": "hexgrad/Kokoro-82M",
-            "formats": "PyTorch folder, `.slm`"
+            "formats": "PyTorch folder, \u0060.slm\u0060"
           }
         }
       ]
     },
     {
       "id": "orpheus-3b",
-      "name": "Orpheus 3B + SNAC 24 kHz",
+      "name": "Orpheus 3B \u002B SNAC 24 kHz",
       "kind": "speech-synthesis",
       "family": "Orpheus",
       "architecture": "orpheus",
@@ -11110,7 +11110,7 @@
     },
     {
       "id": "outetts-0.2-500m",
-      "name": "OuteTTS 0.2 500M + WavTokenizer",
+      "name": "OuteTTS 0.2 500M \u002B WavTokenizer",
       "kind": "speech-synthesis",
       "family": "OuteTTS",
       "architecture": "outetts",
@@ -11208,7 +11208,7 @@
         {
           "section": "3",
           "cells": {
-            "model": "OuteTTS 0.2 500M + WavTokenizer-Large-75",
+            "model": "OuteTTS 0.2 500M \u002B WavTokenizer-Large-75",
             "repositories": "OuteAI/OuteTTS-0.2-500M, WavTokenizer GGUF",
             "formats": "GGUF pair"
           }
@@ -11281,7 +11281,7 @@
       "companions": [],
       "verification": {
         "reference": "chatterbox-tts",
-        "summary": "vs the chatterbox-tts package: T3 conditioning within 7e-7, guided greedy chain teacher forced with 0 argmax disagreements over 92 tokens, S3Gen flow mel within 6e-7, HiFT waveform within 7e-6 (relative RMS, the reference's noise)",
+        "summary": "vs the chatterbox-tts package: T3 conditioning within 7e-7, guided greedy chain teacher forced with 0 argmax disagreements over 92 tokens, S3Gen flow mel within 6e-7, HiFT waveform within 7e-6 (relative RMS, the reference\u0027s noise)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -11289,20 +11289,20 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "built-in voice `default`, or the voice of a recording (`SpeechSynthesisOptions.ReferenceAudio`; voice encoder within 1.2e-6, S3 prompt and flow tokens identical, CAM++ x-vector within 8e-6 vs the package); streams in chunks of speech tokens cross-faded while T3 generates; a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); numbers, dates and currency spelled; multilingual and Turbo variants not run",
+      "notes": "built-in voice \u0060default\u0060, or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; voice encoder within 1.2e-6, S3 prompt and flow tokens identical, CAM\u002B\u002B x-vector within 8e-6 vs the package); streams in chunks of speech tokens cross-faded while T3 generates; a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060); numbers, dates and currency spelled; multilingual and Turbo variants not run",
       "doc": [
         {
           "section": "3",
           "cells": {
             "repositories": "ResembleAI/chatterbox",
-            "formats": "safetensors folder (`t3_cfg`, `s3gen`, `ve`, `tokenizer.json`, `conds.pt`)"
+            "formats": "safetensors folder (\u0060t3_cfg\u0060, \u0060s3gen\u0060, \u0060ve\u0060, \u0060tokenizer.json\u0060, \u0060conds.pt\u0060)"
           }
         }
       ]
     },
     {
       "id": "f5-tts-v1-base",
-      "name": "F5-TTS v1 Base + Vocos",
+      "name": "F5-TTS v1 Base \u002B Vocos",
       "kind": "speech-synthesis",
       "family": "F5-TTS",
       "architecture": "f5tts",
@@ -11376,7 +11376,7 @@
       ],
       "verification": {
         "reference": "f5-tts",
-        "summary": "vs the f5-tts package: sampled mel within 3.5e-5 and Vocos waveform within 2.4e-5 (relative RMS, the reference's noise); character ids and duration identical",
+        "summary": "vs the f5-tts package: sampled mel within 3.5e-5 and Vocos waveform within 2.4e-5 (relative RMS, the reference\u0027s noise); character ids and duration identical",
         "providers": [
           "CPU",
           "Vulkan"
@@ -11384,13 +11384,13 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "speaks with the voice of a reference recording (`SpeechSynthesisOptions.ReferenceAudio` and `ReferenceText`); no Chinese pinyin conversion, no automatic transcription of the reference",
+      "notes": "speaks with the voice of a reference recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060 and \u0060ReferenceText\u0060); no Chinese pinyin conversion, no automatic transcription of the reference",
       "doc": [
         {
           "section": "3",
           "cells": {
             "repositories": "SWivid/F5-TTS (F5TTS_v1_Base), charactr/vocos-mel-24khz",
-            "formats": "safetensors folder + Vocos folder (`vocoder` auxiliary)"
+            "formats": "safetensors folder \u002B Vocos folder (\u0060vocoder\u0060 auxiliary)"
           }
         }
       ]
@@ -11487,13 +11487,13 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the 58 built-in speakers or the voice of a recording (`SpeechSynthesisOptions.ReferenceAudio`; style latents within 3.7e-6, speaker embedding within 2.8e-6 vs coqui-tts); streams within a sentence (first audio after 12 codes); a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); English text cleaning, plus numbers, dates and currency spelled for the request's language (EN, DE, FR, ES, IT, PT, ZH, JA)",
+      "notes": "the 58 built-in speakers or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; style latents within 3.7e-6, speaker embedding within 2.8e-6 vs coqui-tts); streams within a sentence (first audio after 12 codes); a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060); English text cleaning, plus numbers, dates and currency spelled for the request\u0027s language (EN, DE, FR, ES, IT, PT, ZH, JA)",
       "doc": [
         {
           "section": "3",
           "cells": {
             "repositories": "coqui/XTTS-v2",
-            "formats": "Coqui checkpoint folder (`model.pth`, `config.json`, `vocab.json`, `speakers_xtts.pth`)"
+            "formats": "Coqui checkpoint folder (\u0060model.pth\u0060, \u0060config.json\u0060, \u0060vocab.json\u0060, \u0060speakers_xtts.pth\u0060)"
           }
         }
       ]
@@ -11516,7 +11516,7 @@
       "variants": [
         {
           "id": "release-folder",
-          "label": "Release folder (PyTorch + ONNX)",
+          "label": "Release folder (PyTorch \u002B ONNX)",
           "format": "pytorch",
           "quantization": "F32",
           "recommended": true,
@@ -11618,7 +11618,7 @@
       "companions": [],
       "verification": {
         "reference": "CosyVoice (FunAudioLLM), onnxruntime",
-        "summary": "vs FunAudioLLM's CosyVoice code and onnxruntime: S3 tokens 275 of 275 identical, CAM++ x-vector within 3e-6; language model teacher forced with 0 argmax disagreements over 300 steps; flow mel within 4.1e-5; causal HiFT waveform within 2.2e-5 on the reference's F0 (relative RMS); Qwen3-ASR transcribes zero-shot output word for word; Vulkan real-time factor 0.37",
+        "summary": "vs FunAudioLLM\u0027s CosyVoice code and onnxruntime: S3 tokens 275 of 275 identical, CAM\u002B\u002B x-vector within 3e-6; language model teacher forced with 0 argmax disagreements over 300 steps; flow mel within 4.1e-5; causal HiFT waveform within 2.2e-5 on the reference\u0027s F0 (relative RMS); Qwen3-ASR transcribes zero-shot output word for word; Vulkan real-time factor 0.37",
         "providers": [
           "CPU",
           "Vulkan"
@@ -11628,13 +11628,13 @@
           "CosyVoiceTests"
         ]
       },
-      "notes": "the voice of a recording (`SpeechSynthesisOptions.ReferenceAudio`, with `ReferenceText` for zero-shot, `Instructions` for instruct); no built-in voices in the release; streams chunks of about a second while the language model generates (chunk-causal flow, as `stream=True` of the reference); a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); numbers, dates and currency are spelled for the request's language (EN, DE, FR, ES, IT, PT, ZH, JA)",
+      "notes": "the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, with \u0060ReferenceText\u0060 for zero-shot, \u0060Instructions\u0060 for instruct); no built-in voices in the release; streams chunks of about a second while the language model generates (chunk-causal flow, as \u0060stream=True\u0060 of the reference); a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060); numbers, dates and currency are spelled for the request\u0027s language (EN, DE, FR, ES, IT, PT, ZH, JA)",
       "doc": [
         {
           "section": "3",
           "cells": {
             "repositories": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
-            "formats": "release folder (`llm.pt`, `flow.pt`, `hift.pt`, `CosyVoice-BlankEN/`, `speech_tokenizer_v3.onnx`, `campplus.onnx`), `.slm`"
+            "formats": "release folder (\u0060llm.pt\u0060, \u0060flow.pt\u0060, \u0060hift.pt\u0060, \u0060CosyVoice-BlankEN/\u0060, \u0060speech_tokenizer_v3.onnx\u0060, \u0060campplus.onnx\u0060), \u0060.slm\u0060"
           }
         }
       ]
@@ -11766,7 +11766,7 @@
       "companions": [],
       "verification": {
         "reference": "diffusers",
-        "summary": "Euler 76.3 dB, DDIM 76.2 dB, DPM++ 2M Karras 73.8 dB, PNDM 58.8 dB vs diffusers fp32; GGUF f16 48.7 dB",
+        "summary": "Euler 76.3 dB, DDIM 76.2 dB, DPM\u002B\u002B 2M Karras 73.8 dB, PNDM 58.8 dB vs diffusers fp32; GGUF f16 48.7 dB",
         "providers": [
           "CPU",
           "Vulkan"
@@ -11780,7 +11780,7 @@
           "section": "4",
           "cells": {
             "repositories": "SD 1.5 checkpoints (diffusers folder, original single file, GGUF)",
-            "formats": "diffusers folder, single file `.safetensors` / `.ckpt`, GGUF f16, Q8_0, Q4_0"
+            "formats": "diffusers folder, single file \u0060.safetensors\u0060 / \u0060.ckpt\u0060, GGUF f16, Q8_0, Q4_0"
           }
         }
       ]
@@ -11792,7 +11792,7 @@
       "family": "Stable Diffusion 2",
       "architecture": "sd2",
       "level": "verified",
-      "license": "openrail++",
+      "license": "openrail\u002B\u002B",
       "gated": false,
       "publisher": {
         "name": "Stability AI",
@@ -11921,7 +11921,7 @@
       "companions": [],
       "verification": {
         "reference": "diffusers",
-        "summary": "Euler 70.2 dB, DDIM 64.1 dB, DPM++ 2M Karras 51.8 dB",
+        "summary": "Euler 70.2 dB, DDIM 64.1 dB, DPM\u002B\u002B 2M Karras 51.8 dB",
         "providers": [
           "CPU",
           "Vulkan"
@@ -11947,7 +11947,7 @@
       "family": "SDXL",
       "architecture": "sdxl",
       "level": "verified",
-      "license": "openrail++",
+      "license": "openrail\u002B\u002B",
       "gated": false,
       "publisher": {
         "name": "Stability AI",
@@ -12146,7 +12146,7 @@
       "companions": [],
       "verification": {
         "reference": "diffusers",
-        "summary": "Euler 42.4 dB, DPM++ 2M Karras 30.0 dB (fp16 files); GGUF Q8_0 27.7 dB",
+        "summary": "Euler 42.4 dB, DPM\u002B\u002B 2M Karras 30.0 dB (fp16 files); GGUF Q8_0 27.7 dB",
         "providers": [
           "CPU",
           "Vulkan"
@@ -12667,7 +12667,7 @@
           "section": "4",
           "cells": {
             "repositories": "black-forest-labs/FLUX.1-schnell, city96/FLUX.1-schnell-gguf",
-            "formats": "diffusers (bf16), GGUF Q8_0 + CLIP-L, T5-XXL, VAE companions"
+            "formats": "diffusers (bf16), GGUF Q8_0 \u002B CLIP-L, T5-XXL, VAE companions"
           }
         }
       ]
@@ -12790,7 +12790,7 @@
           "section": "4",
           "cells": {
             "repositories": "black-forest-labs/FLUX.1-dev, city96/FLUX.1-dev-gguf",
-            "formats": "GGUF Q8_0 + companions",
+            "formats": "GGUF Q8_0 \u002B companions",
             "notes": "28 steps at 1024x1024 in 33 s, 23.5 GB device memory"
           }
         }
@@ -12909,13 +12909,13 @@
           "FluxKontextTests"
         ]
       },
-      "notes": "recognized by the file name (kontext) or FluxKontextPipeline; the reference image is resized to the output size (default: its own size); Studio's Image page shows the edit input",
+      "notes": "recognized by the file name (kontext) or FluxKontextPipeline; the reference image is resized to the output size (default: its own size); Studio\u0027s Image page shows the edit input",
       "doc": [
         {
           "section": "4",
           "cells": {
             "repositories": "black-forest-labs/FLUX.1-Kontext-dev (gated), QuantStack/FLUX.1-Kontext-dev-GGUF",
-            "formats": "GGUF Q8_0 + the FLUX.1 companions (CLIP-L, T5-XXL Q8_0, VAE)",
+            "formats": "GGUF Q8_0 \u002B the FLUX.1 companions (CLIP-L, T5-XXL Q8_0, VAE)",
             "providers": ""
           }
         }
@@ -13340,7 +13340,7 @@
           "section": "4",
           "cells": {
             "repositories": "stabilityai/stable-diffusion-3.5-medium (ungated mirror adamo1139/stable-diffusion-3.5-medium-ungated), city96/stable-diffusion-3.5-medium-gguf",
-            "formats": "diffusers (fp16), GGUF Q8_0 + CLIP-L, CLIP-G, T5-XXL, VAE companions"
+            "formats": "diffusers (fp16), GGUF Q8_0 \u002B CLIP-L, CLIP-G, T5-XXL, VAE companions"
           }
         }
       ]
@@ -13495,7 +13495,7 @@
           "section": "4",
           "cells": {
             "repositories": "lodestones/Chroma1-HD, silveroxides/Chroma1-HD-GGUF",
-            "formats": "GGUF Q8_0 + T5-XXL, VAE companions"
+            "formats": "GGUF Q8_0 \u002B T5-XXL, VAE companions"
           }
         }
       ]
@@ -13670,13 +13670,13 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "1024x1024 20 guided steps in 131 s on a 32 GB GPU (13 GB transformer + 16 GB bf16 text encoder, alternating); Studio loads the GGUF with its companions; the diffusers folder loads (verified on the tiny pipeline; its 41 GB bf16 transformer was not run)",
+      "notes": "1024x1024 20 guided steps in 131 s on a 32 GB GPU (13 GB transformer \u002B 16 GB bf16 text encoder, alternating); Studio loads the GGUF with its companions; the diffusers folder loads (verified on the tiny pipeline; its 41 GB bf16 transformer was not run)",
       "doc": [
         {
           "section": "4",
           "cells": {
             "repositories": "Qwen/Qwen-Image, city96/Qwen-Image-gguf, unsloth/Qwen2.5-VL-7B-Instruct-GGUF (text encoder)",
-            "formats": "GGUF Q4_K_M + Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a Qwen2.5-VL GGUF) and VAE (the pipeline's or ComfyUI's `qwen_image_vae.safetensors`) companions"
+            "formats": "GGUF Q4_K_M \u002B Qwen2.5-VL-7B text encoder (the pipeline\u0027s \u0060text_encoder\u0060 folder or a Qwen2.5-VL GGUF) and VAE (the pipeline\u0027s or ComfyUI\u0027s \u0060qwen_image_vae.safetensors\u0060) companions"
           }
         }
       ]
@@ -13952,7 +13952,7 @@
           "section": "4",
           "cells": {
             "repositories": "Tongyi-MAI/Z-Image-Turbo, unsloth/Z-Image-Turbo-GGUF",
-            "formats": "diffusers, GGUF Q8_0 + Qwen3-4B text encoder, VAE companions"
+            "formats": "diffusers, GGUF Q8_0 \u002B Qwen3-4B text encoder, VAE companions"
           }
         }
       ]
@@ -14068,7 +14068,7 @@
           "section": "4",
           "cells": {
             "repositories": "black-forest-labs/FLUX.2-dev (gated), unsloth/FLUX.2-dev-GGUF, unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF",
-            "formats": "GGUF Q4_K_M + Mistral Small 3.2 24B Q8_0 GGUF text encoder and the pipeline's VAE",
+            "formats": "GGUF Q4_K_M \u002B Mistral Small 3.2 24B Q8_0 GGUF text encoder and the pipeline\u0027s VAE",
             "providers": ""
           }
         }
@@ -14231,7 +14231,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "40.1 dB (512) / 41.3 dB (1024) vs diffusers on the same files (4 distilled steps); text encoder ≤ 1.3e-3, transformer 1.6e-3",
+        "summary": "40.1 dB (512) / 41.3 dB (1024) vs diffusers on the same files (4 distilled steps); text encoder \u2264 1.3e-3, transformer 1.6e-3",
         "providers": [
           "Vulkan"
         ],
@@ -14244,7 +14244,7 @@
           "section": "4",
           "cells": {
             "repositories": "black-forest-labs/FLUX.2-klein-4B, unsloth/FLUX.2-klein-4B-GGUF",
-            "formats": "GGUF Q8_0 + Qwen3-4B text encoder and VAE companions (the pipeline's folders)",
+            "formats": "GGUF Q8_0 \u002B Qwen3-4B text encoder and VAE companions (the pipeline\u0027s folders)",
             "providers": ""
           }
         }
@@ -14427,20 +14427,20 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "34.5 dB (1024, its 8-step `sample_sigmas`) vs diffusers on the same files",
+        "summary": "34.5 dB (1024, its 8-step \u0060sample_sigmas\u0060) vs diffusers on the same files",
         "providers": [
           "Vulkan"
         ],
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "8 steps at 1024x1024 in 14.8 s; the schedule comes from `model_index.json` or the `turbo` file name",
+      "notes": "8 steps at 1024x1024 in 14.8 s; the schedule comes from \u0060model_index.json\u0060 or the \u0060turbo\u0060 file name",
       "doc": [
         {
           "section": "4",
           "cells": {
             "repositories": "Qwen/Qwen-Image-2.1-Turbo, unsloth/Qwen-Image-2.1-Turbo-GGUF",
-            "formats": "GGUF Q8_0 + the Qwen-Image 2.1 companions",
+            "formats": "GGUF Q8_0 \u002B the Qwen-Image 2.1 companions",
             "providers": ""
           }
         }
@@ -14623,7 +14623,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder ≤ 9.6e-4",
+        "summary": "42.2 dB (512) / 37.4 dB (1024) vs diffusers on the same files (20 steps, no guidance); text encoder \u2264 9.6e-4",
         "providers": [
           "Vulkan"
         ],
@@ -14636,7 +14636,7 @@
           "section": "4",
           "cells": {
             "repositories": "Qwen/Qwen-Image-2.1, unsloth/Qwen-Image-2.1-GGUF",
-            "formats": "GGUF Q8_0 + Qwen3-VL-8B text encoder and VAE companions (the pipeline's folders)",
+            "formats": "GGUF Q8_0 \u002B Qwen3-VL-8B text encoder and VAE companions (the pipeline\u0027s folders)",
             "providers": ""
           }
         }
@@ -14764,7 +14764,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "26.9 dB (512) / 34.1 dB (1024) vs diffusers on the same files (8 distilled steps, visually identical); text encoder ≤ 3.8e-4, transformer 5.7e-3",
+        "summary": "26.9 dB (512) / 34.1 dB (1024) vs diffusers on the same files (8 distilled steps, visually identical); text encoder \u2264 3.8e-4, transformer 5.7e-3",
         "providers": [
           "Vulkan"
         ],
@@ -14773,14 +14773,14 @@
           "Krea2Tests"
         ]
       },
-      "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (`raw` / `base` in the name) run 28 guided steps",
+      "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (\u0060raw\u0060 / \u0060base\u0060 in the name) run 28 guided steps",
       "doc": [
         {
           "section": "4",
           "cells": {
             "repositories": "krea/Krea-2-Turbo (ungated mirror unsloth/Krea-2-Turbo), realrebelai/KREA-2_GGUFs",
-            "formats": "GGUF Q8_0 + Qwen3-VL-4B text encoder and Qwen-Image VAE companions (the pipeline's folders)",
-            "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (`raw` / `base` in the name) run 28 guided steps"
+            "formats": "GGUF Q8_0 \u002B Qwen3-VL-4B text encoder and Qwen-Image VAE companions (the pipeline\u0027s folders)",
+            "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (\u0060raw\u0060 / \u0060base\u0060 in the name) run 28 guided steps"
           }
         }
       ]
@@ -14906,7 +14906,7 @@
       "family": "SDXL",
       "architecture": "sdxl",
       "level": "verified",
-      "license": "openrail++",
+      "license": "openrail\u002B\u002B",
       "gated": false,
       "tags": [],
       "variants": [
@@ -15018,7 +15018,7 @@
       "family": "SDXL",
       "architecture": "sdxl",
       "level": "verified",
-      "license": "openrail++",
+      "license": "openrail\u002B\u002B",
       "gated": false,
       "publisher": {
         "name": "Stability AI",
@@ -15323,7 +15323,7 @@
       "family": "SDXL",
       "architecture": "sdxl",
       "level": "verified",
-      "license": "openrail++",
+      "license": "openrail\u002B\u002B",
       "gated": false,
       "publisher": {
         "name": "Stability AI",
@@ -15551,7 +15551,7 @@
           "section": "4.1",
           "cells": {
             "repositories": "unsloth/Qwen-Image-2512-GGUF",
-            "file": "qwen-image-2512-Q4_K_M.gguf + the Qwen-Image companions",
+            "file": "qwen-image-2512-Q4_K_M.gguf \u002B the Qwen-Image companions",
             "psnr": "25.5 dB (1024, 20 steps, true CFG 4; vs diffusers on the same files; visually identical, three blocks run exact attention)",
             "load": "150 s"
           }
@@ -16191,7 +16191,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "mask IoU > 0.98 vs transformers",
+        "summary": "mask IoU \u003E 0.98 vs transformers",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16325,7 +16325,7 @@
       "companions": [],
       "verification": {
         "reference": "Real-ESRGAN",
-        "summary": "> 40 dB PSNR vs the reference, also tiled",
+        "summary": "\u003E 40 dB PSNR vs the reference, also tiled",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16337,7 +16337,7 @@
         {
           "section": "5",
           "cells": {
-            "repositories": "xinntao/Real-ESRGAN (official `.pth`)",
+            "repositories": "xinntao/Real-ESRGAN (official \u0060.pth\u0060)",
             "task": "4x upscaling"
           }
         }
@@ -16354,7 +16354,7 @@
       "variants": [],
       "companions": [],
       "verification": {
-        "summary": "92.9 dB (Vulkan) / 91.6 dB (CPU) PSNR vs the authors' network, tiled 61.6 dB",
+        "summary": "92.9 dB (Vulkan) / 91.6 dB (CPU) PSNR vs the authors\u0027 network, tiled 61.6 dB",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16367,7 +16367,7 @@
         {
           "section": "5",
           "cells": {
-            "repositories": "JingyunLiang/SwinIR (`001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth`)",
+            "repositories": "JingyunLiang/SwinIR (\u0060001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth\u0060)",
             "task": "4x upscaling"
           }
         }
@@ -16420,7 +16420,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits < 2e-3 vs timm, same top-1",
+        "summary": "logits \u003C 2e-3 vs timm, same top-1",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16487,7 +16487,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits < 2e-3 vs timm, same top-1",
+        "summary": "logits \u003C 2e-3 vs timm, same top-1",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16545,7 +16545,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits < 2e-3 vs timm, same top-1",
+        "summary": "logits \u003C 2e-3 vs timm, same top-1",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16603,7 +16603,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits < 2e-3 vs timm, same top-1",
+        "summary": "logits \u003C 2e-3 vs timm, same top-1",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16669,7 +16669,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits < 2e-3, same top-1",
+        "summary": "logits \u003C 2e-3, same top-1",
         "providers": [
           "CPU",
           "Vulkan"
@@ -16778,7 +16778,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "B/16 ships only `pytorch_model.bin`",
+      "notes": "B/16 ships only \u0060pytorch_model.bin\u0060",
       "doc": [
         {
           "section": "5",
@@ -16881,7 +16881,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "B/16 ships only `pytorch_model.bin`",
+      "notes": "B/16 ships only \u0060pytorch_model.bin\u0060",
       "doc": []
     },
     {
@@ -16982,7 +16982,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "the `open_clip_*` files of the repository are ignored",
+      "notes": "the \u0060open_clip_*\u0060 files of the repository are ignored",
       "doc": [
         {
           "section": "5",
@@ -17234,7 +17234,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "CLS embedding < 2e-3",
+        "summary": "CLS embedding \u003C 2e-3",
         "providers": [
           "CPU",
           "Vulkan"
@@ -17307,7 +17307,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "CLS embedding < 2e-3",
+        "summary": "CLS embedding \u003C 2e-3",
         "providers": [
           "CPU",
           "Vulkan"
@@ -17371,7 +17371,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "CLS embedding < 2e-3",
+        "summary": "CLS embedding \u003C 2e-3",
         "providers": [
           "CPU",
           "Vulkan"
@@ -17448,7 +17448,7 @@
         {
           "section": "5",
           "cells": {
-            "model": "RT-DETR R50vd, R101vd (COCO + O365), v2 R18vd",
+            "model": "RT-DETR R50vd, R101vd (COCO \u002B O365), v2 R18vd",
             "repositories": "PekingU/rtdetr_r50vd, PekingU/rtdetr_r101vd_coco_o365, PekingU/rtdetr_v2_r18vd",
             "task": "detection"
           }
@@ -17457,7 +17457,7 @@
     },
     {
       "id": "rtdetr-r101vd-coco-o365",
-      "name": "RT-DETR R101vd (COCO + O365)",
+      "name": "RT-DETR R101vd (COCO \u002B O365)",
       "kind": "object-detection",
       "family": "RT-DETR",
       "architecture": "rt_detr",
@@ -17924,7 +17924,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "fixed square input; `pytorch_model.bin` read for b5",
+      "notes": "fixed square input; \u0060pytorch_model.bin\u0060 read for b5",
       "doc": [
         {
           "section": "5",
@@ -17998,7 +17998,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "fixed square input; `pytorch_model.bin` read for b5",
+      "notes": "fixed square input; \u0060pytorch_model.bin\u0060 read for b5",
       "doc": []
     },
     {
@@ -18163,8 +18163,8 @@
       ],
       "companions": [],
       "verification": {
-        "reference": "authors' code",
-        "summary": "matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors' code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical",
+        "reference": "authors\u0027 code",
+        "summary": "matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors\u0027 code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18172,7 +18172,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "1024 px square; the network's settings are read from the checkpoint's `birefnet.py` (never run): Swin t/s/b/l backbone, deformable-ASPP decoder; both code revisions' input-patch channel orders",
+      "notes": "1024 px square; the network\u0027s settings are read from the checkpoint\u0027s \u0060birefnet.py\u0060 (never run): Swin t/s/b/l backbone, deformable-ASPP decoder; both code revisions\u0027 input-patch channel orders",
       "doc": [
         {
           "section": "5",
@@ -18243,8 +18243,8 @@
       ],
       "companions": [],
       "verification": {
-        "reference": "authors' code",
-        "summary": "matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors' code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical",
+        "reference": "authors\u0027 code",
+        "summary": "matte logits 1.9e-6 / 2.3e-6 relative rms vs the authors\u0027 code, alpha within 1.4e-4 (CPU 3.2e-4), foreground identical",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18357,7 +18357,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "image features 6.3e-4 and encoder output 1.1e-3 vs transformers; greedy text and `<OD>` boxes identical on two images (CPU and Vulkan)",
+        "summary": "image features 6.3e-4 and encoder output 1.1e-3 vs transformers; greedy text and \u0060\u003COD\u003E\u0060 boxes identical on two images (CPU and Vulkan)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18365,13 +18365,13 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "num_beams=1 with the checkpoint's no-repeat n-gram (3) and forced BOS; beam search, region-to-X polygon tasks not done",
+      "notes": "num_beams=1 with the checkpoint\u0027s no-repeat n-gram (3) and forced BOS; beam search, region-to-X polygon tasks not done",
       "doc": [
         {
           "section": "5",
           "cells": {
             "repositories": "florence-community/Florence-2-base",
-            "task": "OCR / caption / detection (`ITextRecognizer` tasks `<OCR>`, `<CAPTION>`, `<DETAILED_CAPTION>`, `<OD>`, ...)"
+            "task": "OCR / caption / detection (\u0060ITextRecognizer\u0060 tasks \u0060\u003COCR\u003E\u0060, \u0060\u003CCAPTION\u003E\u0060, \u0060\u003CDETAILED_CAPTION\u003E\u0060, \u0060\u003COD\u003E\u0060, ...)"
           }
         }
       ]
@@ -18388,8 +18388,8 @@
       "variants": [],
       "companions": [],
       "verification": {
-        "reference": "onnxruntime + Ultralytics decoding",
-        "summary": "same classes, scores within 0.01 and boxes within 2 px as onnxruntime with Ultralytics' decoding; mask IoU 0.994-1.000; CPU = Vulkan",
+        "reference": "onnxruntime \u002B Ultralytics decoding",
+        "summary": "same classes, scores within 0.01 and boxes within 2 px as onnxruntime with Ultralytics\u0027 decoding; mask IoU 0.994-1.000; CPU = Vulkan",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18399,15 +18399,15 @@
           "YoloDetectorTests"
         ]
       },
-      "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); `.pt` checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export's fixed input size is used (letterboxed). Not installable from the catalog: the ONNX files are exports users make themselves with `yolo export format=onnx`; Ultralytics weights are AGPL-3.0.",
+      "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); \u0060.pt\u0060 checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export\u0027s fixed input size is used (letterboxed). Not installable from the catalog: the ONNX files are exports users make themselves with \u0060yolo export format=onnx\u0060; Ultralytics weights are AGPL-3.0.",
       "doc": [
         {
           "section": "5",
           "cells": {
             "model": "YOLOv8n, YOLOv8n-seg, YOLOv10n (Ultralytics ONNX exports; also YOLO11 and the larger sizes by the same graph)",
-            "repositories": "`yolo export format=onnx` output (AGPL-3.0: check the license)",
-            "task": "object-detection (instance masks for `-seg`)",
-            "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); `.pt` checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export's fixed input size is used (letterboxed)"
+            "repositories": "\u0060yolo export format=onnx\u0060 output (AGPL-3.0: check the license)",
+            "task": "object-detection (instance masks for \u0060-seg\u0060)",
+            "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); \u0060.pt\u0060 checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export\u0027s fixed input size is used (letterboxed)"
           }
         }
       ]
@@ -18600,7 +18600,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "codes token-exact at 6 kbps; decoder < 1e-3 relative RMS",
+        "summary": "codes token-exact at 6 kbps; decoder \u003C 1e-3 relative RMS",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18672,7 +18672,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "codes token-exact, decoded audio < 1e-3",
+        "summary": "codes token-exact, decoded audio \u003C 1e-3",
         "providers": [
           "CPU",
           "Vulkan"
@@ -18958,7 +18958,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "4.2 s per step at 832×480×33 frames (f32), 16.3 GB",
+      "notes": "4.2 s per step at 832\u00D7480\u00D733 frames (f32), 16.3 GB",
       "doc": [
         {
           "section": "8",
@@ -19133,14 +19133,14 @@
       "variants": [],
       "companions": [],
       "verification": {
-        "summary": "text-to-video 57.5 dB, transformer 1.8e-5, T5 1.4e-5 relative RMS (704×480, 25 frames)",
+        "summary": "text-to-video 57.5 dB, transformer 1.8e-5, T5 1.4e-5 relative RMS (704\u00D7480, 25 frames)",
         "providers": [
           "Vulkan"
         ],
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "LTX-Video 0.9.1+ (causal / timestep-conditioned VAE) not yet",
+      "notes": "LTX-Video 0.9.1\u002B (causal / timestep-conditioned VAE) not yet",
       "doc": [
         {
           "section": "8",
@@ -19163,21 +19163,21 @@
       "companions": [],
       "verification": {
         "reference": "diffusers",
-        "summary": "text-to-video 45.0 dB, transformer 2.9e-4, T5 1.4e-5 relative RMS (704×480, 25 frames, 20 steps)",
+        "summary": "text-to-video 45.0 dB, transformer 2.9e-4, T5 1.4e-5 relative RMS (704\u00D7480, 25 frames, 20 steps)",
         "providers": [
           "Vulkan"
         ],
         "date": "2026-11-17",
         "tests": []
       },
-      "notes": "0.75 s per step at 768×512×97 frames, 10.0 GB",
+      "notes": "0.75 s per step at 768\u00D7512\u00D797 frames, 10.0 GB",
       "doc": [
         {
           "section": "8",
           "cells": {
             "repositories": "Lightricks/LTX-Video-0.9.5 (diffusers folder; T5-XXL as in 0.9.0)",
             "formats": "diffusers folder",
-            "notes": "0.75 s per step at 768×512×97 frames, 10.0 GB"
+            "notes": "0.75 s per step at 768\u00D7512\u00D797 frames, 10.0 GB"
           }
         }
       ]
@@ -19336,7 +19336,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "against diffusers' LTXConditionPipeline on the same files (f32, CUDA): transformer 2.7e-3 relative RMS; text-to-video 43.1-46.7 dB per frame (704×480, 25 frames, the 8 distilled timesteps, no guidance)",
+        "summary": "against diffusers\u0027 LTXConditionPipeline on the same files (f32, CUDA): transformer 2.7e-3 relative RMS; text-to-video 43.1-46.7 dB per frame (704\u00D7480, 25 frames, the 8 distilled timesteps, no guidance)",
         "providers": [
           "Vulkan"
         ],
@@ -19345,14 +19345,14 @@
           "LtxSingleFileTests"
         ]
       },
-      "notes": "2.4 s per step at 768×512×121 frames (8 steps, one pass), 12.3 GB peak, 34 s in all",
+      "notes": "2.4 s per step at 768\u00D7512\u00D7121 frames (8 steps, one pass), 12.3 GB peak, 34 s in all",
       "doc": [
         {
           "section": "8",
           "cells": {
-            "repositories": "QuantStack/LTXV-13B-0.9.8-distilled-GGUF (Q4_K_M + its VAE file)",
-            "formats": "transformer GGUF + stand-alone VAE file (`--vae`) + an LTX-Video folder for T5 (`--companions`)",
-            "notes": "2.4 s per step at 768×512×121 frames, 12.3 GB"
+            "repositories": "QuantStack/LTXV-13B-0.9.8-distilled-GGUF (Q4_K_M \u002B its VAE file)",
+            "formats": "transformer GGUF \u002B stand-alone VAE file (\u0060--vae\u0060) \u002B an LTX-Video folder for T5 (\u0060--companions\u0060)",
+            "notes": "2.4 s per step at 768\u00D7512\u00D7121 frames, 12.3 GB"
           }
         }
       ]
@@ -19505,7 +19505,7 @@
           "section": "8",
           "cells": {
             "repositories": "QuantStack/Wan2.2-TI2V-5B-GGUF (Q8_0)",
-            "formats": "GGUF + the Wan 2.2 diffusers folder as companion"
+            "formats": "GGUF \u002B the Wan 2.2 diffusers folder as companion"
           }
         }
       ]
@@ -19675,20 +19675,20 @@
         }
       ],
       "verification": {
-        "summary": "against diffusers running the same GGUFs (f32 on CUDA): high- / low-noise transformer 3.4e-4 / 2.3e-4, umT5 3e-6 relative RMS; text-to-video 21-25 dB per frame (832×480, 17 frames, 20 steps), the same scene; a 1e-3 nudge of the initial noise moves Sharplight's own result as far",
+        "summary": "against diffusers running the same GGUFs (f32 on CUDA): high- / low-noise transformer 3.4e-4 / 2.3e-4, umT5 3e-6 relative RMS; text-to-video 21-25 dB per frame (832\u00D7480, 17 frames, 20 steps), the same scene; a 1e-3 nudge of the initial noise moves Sharplight\u0027s own result as far",
         "providers": [
           "Vulkan"
         ],
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "14.6 s per step at 832×480×33 frames, 16.1 GB peak, 334 s total (diffusers: 23 s per step at 17 frames)",
+      "notes": "14.6 s per step at 832\u00D7480\u00D733 frames, 16.1 GB peak, 334 s total (diffusers: 23 s per step at 17 frames)",
       "doc": [
         {
           "section": "8",
           "cells": {
-            "repositories": "QuantStack/Wan2.2-T2V-A14B-GGUF (HighNoise + LowNoise Q4_K_M)",
-            "formats": "the two GGUFs (`--transformer-2` / `AuxiliaryRoles.SecondTransformer`) + a Wan 2.1 diffusers folder as companion"
+            "repositories": "QuantStack/Wan2.2-T2V-A14B-GGUF (HighNoise \u002B LowNoise Q4_K_M)",
+            "formats": "the two GGUFs (\u0060--transformer-2\u0060 / \u0060AuxiliaryRoles.SecondTransformer\u0060) \u002B a Wan 2.1 diffusers folder as companion"
           }
         }
       ]
@@ -19900,7 +19900,7 @@
         }
       ],
       "verification": {
-        "summary": "against diffusers on the same GGUF: transformer 3.9e-4, CLIP 3.5e-3 relative RMS; image-to-video 30.6-48.1 dB per frame (832×480, 17 frames, 20 steps)",
+        "summary": "against diffusers on the same GGUF: transformer 3.9e-4, CLIP 3.5e-3 relative RMS; image-to-video 30.6-48.1 dB per frame (832\u00D7480, 17 frames, 20 steps)",
         "providers": [
           "Vulkan"
         ],
@@ -19913,7 +19913,7 @@
           "section": "8",
           "cells": {
             "repositories": "city96/Wan2.1-I2V-14B-480P-gguf (Q4_K_M)",
-            "formats": "GGUF + a Wan 2.1 diffusers folder (umT5, VAE) + Wan-AI/Wan2.1-I2V-14B-480P-Diffusers' `image_encoder/` and `image_processor/` (`--image-encoder`)"
+            "formats": "GGUF \u002B a Wan 2.1 diffusers folder (umT5, VAE) \u002B Wan-AI/Wan2.1-I2V-14B-480P-Diffusers\u0027 \u0060image_encoder/\u0060 and \u0060image_processor/\u0060 (\u0060--image-encoder\u0060)"
           }
         }
       ]
@@ -20162,13 +20162,13 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "`--image` and `--last-image`",
+      "notes": "\u0060--image\u0060 and \u0060--last-image\u0060",
       "doc": [
         {
           "section": "8",
           "cells": {
             "repositories": "city96/Wan2.1-FLF2V-14B-720P-gguf (Q4_K_M)",
-            "formats": "as I2V, with the FLF2V diffusers folder's image encoder"
+            "formats": "as I2V, with the FLF2V diffusers folder\u0027s image encoder"
           }
         }
       ]
@@ -20339,7 +20339,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "against diffusers on the same GGUFs: transformers 3.0e-4 / 6.2e-4; image-to-video 35.0-52.5 dB per frame (832×480, 17 frames, 20 steps)",
+        "summary": "against diffusers on the same GGUFs: transformers 3.0e-4 / 6.2e-4; image-to-video 35.0-52.5 dB per frame (832\u00D7480, 17 frames, 20 steps)",
         "providers": [
           "Vulkan"
         ],
@@ -20351,8 +20351,8 @@
         {
           "section": "8",
           "cells": {
-            "repositories": "QuantStack/Wan2.2-I2V-A14B-GGUF (HighNoise + LowNoise Q4_K_M)",
-            "formats": "the two GGUFs (`--transformer-2`) + a Wan 2.1 diffusers folder as companion",
+            "repositories": "QuantStack/Wan2.2-I2V-A14B-GGUF (HighNoise \u002B LowNoise Q4_K_M)",
+            "formats": "the two GGUFs (\u0060--transformer-2\u0060) \u002B a Wan 2.1 diffusers folder as companion",
             "providers": ""
           }
         }
@@ -20544,7 +20544,7 @@
       ],
       "verification": {
         "reference": "diffusers",
-        "summary": "against diffusers on the same GGUF: transformer 4.1e-3, Llama 2.5e-4, CLIP 3.4e-4 relative RMS; text-to-video 28.2-33.0 dB per frame (832×480, 33 frames, 20 steps), visually identical",
+        "summary": "against diffusers on the same GGUF: transformer 4.1e-3, Llama 2.5e-4, CLIP 3.4e-4 relative RMS; text-to-video 28.2-33.0 dB per frame (832\u00D7480, 33 frames, 20 steps), visually identical",
         "providers": [
           "Vulkan"
         ],
@@ -20557,7 +20557,7 @@
           "section": "8",
           "cells": {
             "repositories": "city96/HunyuanVideo-gguf (hunyuan-video-t2v-720p-Q4_K_M)",
-            "formats": "GGUF + hunyuanvideo-community/HunyuanVideo (without its transformer) as companion (`--companions`)",
+            "formats": "GGUF \u002B hunyuanvideo-community/HunyuanVideo (without its transformer) as companion (\u0060--companions\u0060)",
             "providers": ""
           }
         }
@@ -20617,7 +20617,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits < 2e-3 vs transformers, same top-1, ImageNet label names",
+        "summary": "logits \u003C 2e-3 vs transformers, same top-1, ImageNet label names",
         "providers": [
           "CPU",
           "Vulkan"
@@ -20682,7 +20682,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits < 2e-3 vs transformers, same top-1, ImageNet label names",
+        "summary": "logits \u003C 2e-3 vs transformers, same top-1, ImageNet label names",
         "providers": [
           "CPU",
           "Vulkan"
@@ -20740,7 +20740,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits < 2e-3 vs timm, same top-1 (no label names in timm repositories)",
+        "summary": "logits \u003C 2e-3 vs timm, same top-1 (no label names in timm repositories)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -20805,7 +20805,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "logits < 2e-3 vs transformers, same top-1, ImageNet label names",
+        "summary": "logits \u003C 2e-3 vs transformers, same top-1, ImageNet label names",
         "providers": [
           "CPU",
           "Vulkan"
@@ -21212,7 +21212,7 @@
         "date": "2026-11-18",
         "tests": []
       },
-      "notes": "300 px input, TensorFlow 'same' padding; no label names in timm repositories",
+      "notes": "300 px input, TensorFlow \u0027same\u0027 padding; no label names in timm repositories",
       "doc": []
     },
     {
@@ -21366,7 +21366,7 @@
       "variants": [
         {
           "id": "q4-k-m-gguf",
-          "label": "Q4_K_M GGUF + mmproj",
+          "label": "Q4_K_M GGUF \u002B mmproj",
           "format": "gguf",
           "quantization": "Q4_K_M",
           "recommended": true,
@@ -21491,7 +21491,7 @@
           "section": "1.1",
           "cells": {
             "repositories": "Qwen/Qwen3.5-4B, unsloth/Qwen3.5-4B-GGUF",
-            "formats": "safetensors BF16, GGUF Q4_K_M + mmproj"
+            "formats": "safetensors BF16, GGUF Q4_K_M \u002B mmproj"
           }
         }
       ]
@@ -21517,7 +21517,7 @@
       "variants": [
         {
           "id": "q4-k-m-gguf",
-          "label": "Q4_K_M GGUF + mmproj",
+          "label": "Q4_K_M GGUF \u002B mmproj",
           "format": "gguf",
           "quantization": "Q4_K_M",
           "recommended": true,
@@ -21563,7 +21563,7 @@
       ],
       "verification": {
         "reference": "llama.cpp, transformers",
-        "summary": "GGUF: greedy identical to llama.cpp b11177 on Vulkan and CPU; tokenizer and chat templates (the GGUF's own) identical to transformers",
+        "summary": "GGUF: greedy identical to llama.cpp b11177 on Vulkan and CPU; tokenizer and chat templates (the GGUF\u0027s own) identical to transformers",
         "providers": [
           "CPU",
           "Vulkan"
@@ -21577,7 +21577,7 @@
           "section": "1.1",
           "cells": {
             "repositories": "Qwen/Qwen3.5-9B, unsloth/Qwen3.5-9B-GGUF",
-            "formats": "GGUF Q4_K_M + mmproj"
+            "formats": "GGUF Q4_K_M \u002B mmproj"
           }
         }
       ]
@@ -21603,7 +21603,7 @@
       "variants": [
         {
           "id": "q4-k-m-gguf",
-          "label": "Q4_K_M GGUF + mmproj",
+          "label": "Q4_K_M GGUF \u002B mmproj",
           "format": "gguf",
           "quantization": "Q4_K_M",
           "recommended": true,
@@ -21663,7 +21663,7 @@
           "section": "1.1",
           "cells": {
             "repositories": "NousResearch/Arete-27B, bartowski/NousResearch_Arete-27B-GGUF",
-            "formats": "GGUF Q4_K_M + mmproj"
+            "formats": "GGUF Q4_K_M \u002B mmproj"
           }
         }
       ]
@@ -21688,7 +21688,7 @@
       "variants": [
         {
           "id": "q4-k-m-gguf",
-          "label": "Q4_K_M GGUF + mmproj",
+          "label": "Q4_K_M GGUF \u002B mmproj",
           "format": "gguf",
           "quantization": "Q4_K_M",
           "recommended": true,
@@ -21734,7 +21734,7 @@
       ],
       "verification": {
         "reference": "llama.cpp, transformers",
-        "summary": "GGUF: tokenizer and 4 chat templates identical to transformers; greedy equals llama.cpp b11177 up to the end-of-turn token (llama.cpp's --ignore-eos masks it); images (mmproj gemma4v): tower vs transformers worst relative error 1.1e-4, end to end the same shapes, colors and text as llama-mtmd-cli, wording differs from the first line (near-tie)",
+        "summary": "GGUF: tokenizer and 4 chat templates identical to transformers; greedy equals llama.cpp b11177 up to the end-of-turn token (llama.cpp\u0027s --ignore-eos masks it); images (mmproj gemma4v): tower vs transformers worst relative error 1.1e-4, end to end the same shapes, colors and text as llama-mtmd-cli, wording differs from the first line (near-tie)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -21956,7 +21956,7 @@
       "companions": [],
       "verification": {
         "reference": "sentence-transformers",
-        "summary": "yes/no logits vs the model's own transformers code (Vulkan)",
+        "summary": "yes/no logits vs the model\u0027s own transformers code (Vulkan)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -22163,6 +22163,190 @@
       },
       "notes": "",
       "doc": []
+    },
+    {
+      "id": "voxtral-mini-4b-realtime-2602",
+      "name": "Voxtral Mini 4B Realtime",
+      "kind": "speech-recognition",
+      "family": "Voxtral",
+      "architecture": "voxtral_realtime",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Mistral AI",
+        "countryOfOrigin": "FR",
+        "url": "https://mistral.ai"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 9100000000,
+          "companions": [],
+          "repository": "mistralai/Voxtral-Mini-4B-Realtime-2602",
+          "revision": "2769294da9567371363522aac9bbcfdd19447add",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "model.safetensors",
+            "params.json",
+            "processor_config.json",
+            "tekken.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1572,
+              "gitOid": "442f2f739e26ebaf7dd3d4ebe2280c404f5adaf1"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 191,
+              "gitOid": "81a5cdc3fca9825bd91576588333f05bf7ac7542"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 8859446848,
+              "sha256": "e745e4902df6a4c48f29f2f8dc1f6d0fb4cc73c7156bc45923451a5bcdfcd1d6"
+            },
+            {
+              "path": "params.json",
+              "size": 1343,
+              "gitOid": "a60316a6010cf63138e0932a6d974ae77bd513b4"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 384,
+              "gitOid": "806b2e13fc82235ad644cf89e351d5632c196a34"
+            },
+            {
+              "path": "tekken.json",
+              "size": 14910348,
+              "sha256": "8434af1d39eba99f0ef46cf1450bf1a63fa941a26933a1ef5dbbf4adf0d00e44"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "audio embeddings and greedy ids (pad and word markers included) identical to transformers on jfk and LibriSpeech, offline mode, CPU and Vulkan",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "streaming model run offline: one window of up to about 55 s per request, delay fixed at 480 ms, encoder state not carried across windows",
+      "doc": [
+        {
+          "section": "2",
+          "cells": {
+            "model": "Voxtral Mini 4B Realtime (streaming audio language model)",
+            "repositories": "mistralai/Voxtral-Mini-4B-Realtime-2602",
+            "formats": "HF (transformers layout, \u0060tekken.json\u0060 tokenizer)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "nemotron-3.5-asr-streaming-0.6b",
+      "name": "Nemotron 3.5 ASR streaming 0.6B",
+      "kind": "speech-recognition",
+      "family": "Nemotron ASR",
+      "architecture": "parakeet",
+      "level": "verified",
+      "license": "other",
+      "gated": false,
+      "publisher": {
+        "name": "NVIDIA",
+        "countryOfOrigin": "US",
+        "url": "https://www.nvidia.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 2600000000,
+          "companions": [],
+          "repository": "nvidia/nemotron-3.5-asr-streaming-0.6b",
+          "revision": "ea30d66debe3740a08b573244286791d423d6b3e",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "model.safetensors",
+            "processor_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1376,
+              "gitOid": "3ba627e56b655f0600b652b273c6d1e05fbc78e4"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 193,
+              "gitOid": "b7ca70126139d1bfe866146bb414f372903effdb"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 2552062944,
+              "sha256": "9eebdd6590289cb3030f310858f3df93256600a800a3e8200c5993d5f967e174"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 2519,
+              "gitOid": "d430fe73aa4a2a97b2a0ea606f768b5e71765c3d"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 752051,
+              "gitOid": "425c659bba34d7116233c6e102d2948c26e114f7"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 881,
+              "gitOid": "33e468c971b257265e23a56ca113d2e86b363b30"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "encoder output and RNN-T greedy ids identical to transformers on jfk and LibriSpeech, offline mode with lookahead 3, language auto, CPU and Vulkan",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "license OpenMDW 1.1; windows of 30 s; lookahead fixed at the checkpoint\u0027s default (3 rows); 128 language prompts via SpeechRecognitionOptions.Language; NVIDIA\u0027s q8_0 GGUF not supported",
+      "doc": [
+        {
+          "section": "2",
+          "cells": {
+            "model": "Nemotron 3.5 ASR streaming 0.6B (cache-aware FastConformer, RNN-T)",
+            "repositories": "nvidia/nemotron-3.5-asr-streaming-0.6b",
+            "formats": "HF (transformers format \u0060nemotron3_5_asr\u0060), \u0060.slm\u0060"
+          }
+        }
+      ]
     }
   ]
 }

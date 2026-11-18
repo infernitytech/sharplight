@@ -45,7 +45,8 @@ public sealed class VoxtralRealtimeParityTests
         var embeddings = recognizer.Encode(samples);
         double error = SpeechEnvironment.MaxError(embeddings, expected.GetProperty("embeddings"), out double scale);
         TestContext.Current.TestOutputHelper?.WriteLine($"{clip} {device}: embeddings max abs error {error:G3} of max abs {scale:G3}");
-        double tolerance = device == "cpu" ? 2e-3 : 2e-2;
+        // bf16 weights: the device's matrix products round differently (measured 2e-6 of the largest value on the CPU, 1.6e-4 on Vulkan).
+        double tolerance = device == "cpu" ? 1e-4 : 2e-3;
         Assert.True(error < tolerance * scale, $"embeddings max abs error {error:G3} of max |value| {scale:G3} on {device}");
     }
 

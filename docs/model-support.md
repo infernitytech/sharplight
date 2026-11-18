@@ -1252,6 +1252,8 @@ adapter, the model knowledge lives in the importers, and only the feature extrac
 | Parakeet CTC (parakeet-ctc-0.6b; 1.1b maps the same way) and TDT (parakeet-tdt-0.6b-v3); RNN-T maps but is not verified | Hugging Face `parakeet_ctc`, `parakeet_tdt`, `parakeet_rnnt` (transformers format); `.slm` | **supported** (CPU and Vulkan) | transformers (NeMo log-mel features, encoder output, token-exact greedy CTC / TDT ids) | hf/parakeet-ctc-0.6b, hf/parakeet-tdt-0.6b-v3 |
 | Canary (canary-1b-v2) | Hugging Face `canary` (transformers format); `.slm` | **supported** (CPU and Vulkan; transcription and translation prompts, no timestamps) | transformers (encoder output, token-exact greedy ids of an English transcription with punctuation) | hf/canary-1b-v2 |
 | Qwen3-ASR (1.7B), Voxtral Mini 3B: audio language models | Hugging Face (`qwen3_asr` original and `-hf` layouts, `voxtral` with `tekken.json`); transcribe.cpp `qwen3_asr` GGUF | **supported** (CPU and Vulkan), section 13.2 | transformers (token-exact greedy ids) | hf/Qwen3-ASR-1.7B[-hf], speech-gguf/Qwen3-ASR-1.7B-F16.gguf, hf/Voxtral-Mini-3B-2507 |
+| Nemotron 3.5 ASR streaming 0.6B (`nemotron3_5_asr`) | Hugging Face (transformers format); `.slm` | **supported** (CPU and Vulkan; offline, default lookahead of 3 rows, 128 language prompts); round 5, section 13.3 | transformers (log-mel, encoder output, token-exact greedy RNN-T ids) | hf/nemotron-3.5-asr-streaming-0.6b |
+| Voxtral Mini 4B Realtime (`voxtral_realtime`) | Hugging Face (`tekken.json`; the `consolidated.safetensors` copy is ignored); `.slm` | **supported** (CPU and Vulkan; offline mode, one window of up to about 55 s per request); round 5, section 13.3 | transformers (projected audio embeddings, token-exact greedy ids incl. pad / word markers) | hf/Voxtral-Mini-4B-Realtime-2602 |
 
 How it is built (2026-11-15):
 
@@ -1357,9 +1359,9 @@ LibriSpeech 1272-128104-0004, and FLEURS test clips in German, Spanish and Japan
 | handy-computer/parakeet-tdt-0.6b-v3-gguf | transcribe.cpp GGUF F16, Q8_0 | **new**: F16 text identical to the HF checkpoint on 5 clips, tokens identical on jfk and LibriSpeech, CPU and Vulkan (`ParakeetGgufParityTests`); Q8_0 differs in one capital letter (German) and a few Japanese kana |
 | handy-computer/parakeet-ultra-gguf | GGUF Q8_0 | **new**: the `vad.*` head is ignored; English and Spanish transcripts correct (no reference run) |
 | handy-computer/parakeet-unified-en-0.6b-gguf | GGUF Q8_0 | **new**, partial: RNN-T head with biases and input scaling; transcripts match the reference text, no NeMo reference |
-| handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | GGUF | rejected with a reason: layer-norm convolution module, causal convolutions, chunked-limited attention (cache-aware streaming FastConformer) |
+| handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | GGUF | rejected with a reason: layer-norm convolution module, causal convolutions, chunked-limited attention (cache-aware streaming FastConformer); the Hugging Face checkpoint is supported since round 5 (section 13.3), the GGUF mapping is not written |
 | Qwen/Qwen3-ASR-1.7B (+ transcribe.cpp GGUF) | HF, GGUF | **supported since 2026-11-16** (section 13.2): greedy ids identical to transformers |
-| mistralai/Voxtral-Mini-4B-Realtime-2602 | HF | unsupported: streaming (delayed-token) decoder; the offline mistralai/Voxtral-Mini-3B-2507 is supported since 2026-11-16 (section 13.2) |
+| mistralai/Voxtral-Mini-4B-Realtime-2602 | HF | **supported since round 5** (section 13.3); the offline mistralai/Voxtral-Mini-3B-2507 since 2026-11-16 (section 13.2) |
 | handy-computer/cohere-transcribe-03-2026-gguf | GGUF | unsupported architecture `cohere_asr` |
 | Systran/faster-whisper-* | CTranslate2 | unsupported format (no importer) |
 | Xenova/whisper-* | ONNX | graphs run through the ONNX runner (section 9), no speech-recognition task on ONNX graphs |
@@ -1411,6 +1413,47 @@ the decoder component carries an audio prompt), so the Transcribe page, the audi
 Tests: `Qwen3AsrParityTests` (features, embeddings, greedy ids, the `-hf` layout and the GGUF file), `VoxtralParityTests` (embeddings, greedy ids);
 fixtures from `tools/make_qwen3_asr_fixtures.py` and `tools/make_voxtral_fixtures.py`. Not done: the Qwen3-ASR forced aligner (timestamps),
 Qwen3-ASR 0.6B and Voxtral Small runs, long-form context across windows, a `.slm` round trip of these models.
+
+### 13.3 Streaming speech models (round 5, 2026-11-18)
+
+Two models of the hot list that are built for streaming, run here in transformers' offline mode (the whole recording as one input, which is what
+the reference produces; the cache-aware chunked form computes the same values).
+
+**Voxtral Mini 4B Realtime** (`voxtral_realtime`, `VoxtralRealtimeHfMapping`): decoder architecture with the new `causal` audio tower
+(`CausalAudioTowerGraph`, `AudioTowerParameters.Causal`): two causally padded `Conv1d` layers (strides 1 and 2, GELU), 32 rotary RMS-norm
+layers (SwiGLU, biases on q, v, o and the MLP's down projection, no key bias, head size 64 while the width is 1280) whose attention sees the
+last 750 rows (row spans), the output RMS norm, four rows concatenated and a bias-free two-layer projector. The decoder is Mistral with
+`audio.additive`: the multimodal graph adds the audio row of the step to the token embedding instead of replacing it. The model conditions its
+layers on the transcription delay through adaptive RMS norms whose scale is a constant of the model (the sinusoid of the delay in tokens
+through `linear2(gelu(linear1(.)))`), so the importer folds `1 + scale` into the post-attention norm weights and the decoder is an ordinary
+Mistral graph. `CausalAudioSpeechRecognizer` pads the recording as mistral-common does (32 silent steps before, whole 80 ms steps, delay + 11
+steps after; log-mel with the global peak `logPeak` 1.5), encodes it in one pass (one row per 80 ms step) and runs one decoder step per row:
+the prompt is the start token and 38 pad tokens, every later step feeds the previous token. The output interleaves pad and word-marker tokens
+with the words; the transcript is the decoded text. Recordings longer than the window (`window_frames` 6000, about 55 s of audio) are cut into
+consecutive windows, one segment each, without carrying the encoder state across (the encoder is causal, so a stateful form is possible, not
+done); the delay is fixed at the checkpoint's default (6 steps, 480 ms), and the importer ignores the `consolidated.safetensors` copy.
+
+**Nemotron 3.5 ASR streaming 0.6B** (`nemotron3_5_asr`, `NemotronAsrHfMapping` onto `conformer_asr`): the Parakeet encoder with the streaming
+changes as keys of `ConformerEncoder`: causal subsampling (padding of kernel - 1 before and stride - 1 after on both axes, `SequenceConv2d`
+already pads asymmetrically), causal depthwise convolutions with a LayerNorm in the convolution module (`encoder.conv.norm` "layer"), and
+chunk-limited attention: `RelativeAttention` got an optional sixth input of row spans (i32 [rows, 2]; CPU and Vulkan kernels), the host
+(`SpeechEncoder`) fills it from the chunk of lookahead + 1 rows and 14 chunks of left context. NeMo's front end without per-channel
+normalization (128 mel bins), the RNN-T prediction and joint networks, and the language prompt: the one-hot of the request's language (locale or
+code, "auto" by default) goes through `prompt.linear_1` (split into the part over the encoder rows and the part over the one-hot) and
+`prompt.linear_2` before the joint projection. Lookahead of 3 rows (the checkpoint's default; 0, 6 and 13 are trained too, not exposed yet).
+Not done: NVIDIA's own q8_0 GGUF, the other lookaheads, feeding audio incrementally (windows are 30 s as for the other transducers).
+
+| Check (jfk.wav 11 s, LibriSpeech 1272-128104-0004 29 s) | Result |
+|---|---|
+| Voxtral Realtime greedy ids vs transformers (`generate`, float32; 187 / 417 steps) | identical, CPU and Vulkan (4 of 4) |
+| Voxtral Realtime projected audio embeddings | max abs error 1.8e-5 (CPU) and 1.2e-3 (Vulkan) of values up to 10.4 |
+| Nemotron 3.5 encoder rows vs transformers | max abs error 2e-6 of 0.9, CPU and Vulkan |
+| Nemotron 3.5 log-mel features | max abs error 1.3e-4 of values up to 16.6 |
+| Nemotron 3.5 greedy RNN-T ids and text | identical, CPU and Vulkan (4 of 4) |
+
+Tests: `VoxtralRealtimeParityTests`, `NemotronAsrParityTests`, and the two models in `SpeechPackageTests` (a `.slm` round trip transcribes like
+the source); fixtures from `tools/make_voxtral_realtime_fixtures.py` and `tools/make_nemotron_fixtures.py`. CohereLabs/cohere-transcribe-03-2026 was
+not reached: the Hub repository is gated and the machine's token has not been approved for it (the reference could not be downloaded).
 
 ## 14. Vision models (task layer)
 
@@ -2262,15 +2305,15 @@ column says what is missing), **community only**, **not run** (selected, not rea
 | # | Model | Publisher | Released | dl30 / likes | Format | Status |
 |---|---|---|---|---|---|---|
 | 1 | nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B | NVIDIA | 2026-10-07 | 85k / 3.4k | safetensors (`nemo_speechlm`, 33.7 B) | needs arch: speech-LM wrapper (`Nemotron3_5TranscribeForConditionalGeneration`); non-commercial "other" license; no GGUF/ONNX from NVIDIA |
-| 2 | nvidia/nemotron-3.5-asr-streaming-0.6b | NVIDIA | 2026-05-15 | 481k / 1.3k | `.nemo`, NVIDIA's own `q8_0.gguf`, HF `nemotron3_5_asr` | needs arch: cache-aware streaming FastConformer (causal layer-norm convolution module, chunk-limited attention) with an RNN-T head; "other" license |
+| 2 | nvidia/nemotron-3.5-asr-streaming-0.6b | NVIDIA | 2026-05-15 | 481k / 1.3k | `.nemo`, NVIDIA's own `q8_0.gguf`, HF `nemotron3_5_asr` | **verified (round 5)**: cache-aware streaming FastConformer, token-exact vs transformers on CPU and Vulkan (section 13.3); "other" license |
 | 3 | openai/whisper-large-v3 | OpenAI | 2023-11 | 3.3M / 6.8k | HF, whisper.cpp, GGUF | verified (section 13.1) |
 | 4 | openai/whisper-large-v3-turbo | OpenAI | 2024-10 | 4.8M / 3.6k | HF, whisper.cpp ggml | verified |
 | 5 | Qwen/Qwen3-ASR-1.7B | Alibaba (Qwen) | 2026-01-28 | 1.6M / 1.3k | HF (both layouts), GGUF | verified (section 13.2) |
 | 6 | Qwen/Qwen3-ASR-0.6B | Alibaba (Qwen) | 2026-01-28 | 306k (`-hf`: 527k) / 400 | HF `-hf` | **verified this sweep**: CPU token-exact vs transformers on jfk and LibriSpeech (auto language and English forced); Vulkan: jfk identical, LibriSpeech differs at one comma (section 19.1.1) |
 | 7 | nvidia/parakeet-tdt-0.6b-v3 | NVIDIA | 2025-08-04 | 529k / 1.3k | HF `parakeet_tdt`, GGUF | verified (section 13) |
 | 8 | microsoft/VibeVoice-ASR | Microsoft | 2026-01-21 | 719k / 1.3k | safetensors (`vibevoice`, 8.7 B) | needs arch: acoustic + semantic tokenizers (conv encoders) feeding a Qwen2 decoder with speaker-diarized long-form output; MIT |
-| 9 | mistralai/Voxtral-Mini-4B-Realtime-2602 | Mistral AI | 2026-01-21 | 1.5M / 1.1k | safetensors (`voxtral_realtime`, 4.4 B) | needs arch: streaming causal audio encoder and delayed-token decoder (section 13.1) |
-| 10 | CohereLabs/cohere-transcribe-03-2026 | Cohere Labs | 2026-03-24 | 94k / 1.2k | HF `cohere_asr` (gated, auto), handy-computer GGUF | needs arch `cohere_asr` (conformer encoder + autoregressive decoder); the gate needs accepted terms |
+| 9 | mistralai/Voxtral-Mini-4B-Realtime-2602 | Mistral AI | 2026-01-21 | 1.5M / 1.1k | safetensors (`voxtral_realtime`, 4.4 B) | **verified (round 5)**: causal streaming audio tower and delayed-token decoder, token-exact vs transformers on CPU and Vulkan (section 13.3) |
+| 10 | CohereLabs/cohere-transcribe-03-2026 | Cohere Labs | 2026-03-24 | 94k / 1.2k | HF `cohere_asr` (gated, auto), handy-computer GGUF | needs arch `cohere_asr` (conformer encoder + autoregressive decoder, close to the Canary path); not attempted in round 5: the gate needs accepted terms and the machine's token is not approved for it |
 | 11 | ibm-granite/granite-speech-5.0-2b | IBM | 2026-10-07 | 11k / 85 | HF `granite_speech` (2.3 B) | needs arch: conformer encoder + window Q-former projector + Granite LLM (the Granite text model is supported) |
 | 12 | google/medasr | Google | 2025-12-18 | 7k / 389 | HF `lasr_ctc` (105 M, gated, auto) | needs arch: LASR conformer CTC; Health AI license |
 | 13 | ai-sage/GigaAM-v3 | Sber | 2025-11-19 | 342k / 210 | `pytorch_model.bin` (`gigaam`, MIT) | needs arch: GigaAM conformer (RNN-T / CTC heads, custom code) |
@@ -2404,8 +2447,8 @@ New verifications (catalog entries added, publisher recorded):
 Not reached in this round, in the order they would be taken next (each is a new architecture, none is a quick check): DINOv3 (ViT with RoPE: the
 DINOv2 path plus a rotary position op), Cohere Transcribe and Granite Speech (conformer encoder, section 13's `ConformerEncoder`, plus an
 autoregressive decoder), MobileNetV3 / EfficientNet (depthwise + squeeze-excite blocks on the existing `Conv` ops), GLM-OCR, ViTPose (needs a
-`keypoint-detection` task kind), the streaming ASR models (Nemotron 3.5 ASR streaming, Voxtral Realtime, Moonshine streaming: a streaming
-decode loop with encoder state).
+`keypoint-detection` task kind), Moonshine streaming (the other streaming ASR models, Nemotron 3.5 ASR streaming and Voxtral
+Realtime, were done in round 5, section 13.3).
 
 ## 20. Hot-model sweep 2026-11-17 (text generation, vision-language, embeddings and rerankers)
 
