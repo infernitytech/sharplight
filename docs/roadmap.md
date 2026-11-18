@@ -29,6 +29,10 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   registers (§44.3). Next: attention at 8192 tokens (20 % of the FP8 pass), the down projection's E4M3 input.
   Round 8 (§46): fresh vLLM 0.33.0 baseline with the identical procedures (vLLM measures 1.5-6 % faster prefill than in §42):
   Qwen3-8B bf16 0.86-0.88x, Llama-3.1-8B 0.88-0.89x, Qwen3-8B-FP8 0.70-0.75x, decode 1.02x.
+  Round 9 (§47): prefill unchanged. FP8 GEMM 64-row tiles where they pad fewer rows (129-192, 257-320 rows) gain 12-13 % per mixed
+  step but not in serving, so they are opt-in (`SHARPLIGHT_FP8_SHORT_TILES=1`); the int8 / fp8 split-K variants are now probed every
+  64 rows (a tile-height change had left row counts without a GEMM launch). Host overhead per step is ~0.1 ms (0.5 %).
+  Next: FP8 prefill GEMM (§44.3), why per-step FP8 gains do not reach serving, decode-row attention in mixed steps.
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs
@@ -146,9 +150,13 @@ GPU (Vulkan):
   serves up to 12 items per expert (direct path) and the per-item matvec hands over at a quarter of the experts: gpt-oss-20b
   decode steps at 4-32 sequences -8 to -22 %, serving at 4 / 16 streams 382 → 470 / 1075 → 1201 tok/s; against a fresh vLLM
   1.05x / 0.94x / 0.84x / 0.61x at 1 / 4 / 16 / 64 streams. The MoE grouped GEMM's sorted f16 rows are row-ranged (§46.6).
-  Next: the 64-stream mixed steps, where prompt rows put 20-30 items on each expert and the grouped MXFP4 gemm_cm2 runs at
-  50-80 TFLOPS bound by MMA / decode work, not weight traffic (§46.4); a dual gate / up expert GEMM with the activation
-  epilogue; Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
+  Round 9 (§47): MXFP4 weights decoded per MMA in the direct skinny GEMM (gpt-oss decode steps at 4-64 sequences -2 to -4 %),
+  bias / residual epilogues in the split-K reduction of the f16 tensor-core GEMM (96 fewer launches per gpt-oss step); serving
+  +2-3 % from 4 streams, gaps to vLLM unchanged (0.84x / 0.61x at 16 / 64 streams). Diagnostics show the grouped MXFP4 gemm_cm2
+  at 20-30 items per expert is bound by its weight fetch (~575 GB/s), not by MMAs or decode (§47.2); deeper register prefetch,
+  other tile layouts and register-direct 32-row expert tiles (`SHARPLIGHT_MOE_WIDE`, opt-in) were slower.
+  Next: an expert GEMM fetching at ~800 GB/s for 16-48 rows per expert (raw MXFP4 stages in shared memory, 3 workgroups per SM);
+  Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of
   prefill (§18).

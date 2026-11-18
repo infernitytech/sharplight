@@ -135,6 +135,11 @@ public sealed partial class GraphLowerer
                 ["SK_BK"] = bk.ToString(CultureInfo.InvariantCulture),
                 ["SK_DIRECT"] = direct ? "1" : "0",
             };
+            foreach (var (name, value) in DiagnosticSwitches.GemmExtraMacros)
+            {
+                macros[name] = value;
+            }
+
             if (half)
             {
                 WithRangeScales(macros, activations);

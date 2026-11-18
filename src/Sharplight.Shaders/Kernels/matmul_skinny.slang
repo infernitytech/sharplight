@@ -51,8 +51,31 @@ using namespace linalg;
 #ifndef SK_DIRECT
 #define SK_DIRECT 0
 #endif
-#if SK_DIRECT && (SK_FM != 1 || !X_F16)
-#error "the direct skinny GEMM needs one token fragment and f16 activations"
+// SK_KS: subgroups that split K between them (default all SK_SG); the SK_SG / SK_KS groups of them own consecutive SK_FN x 16
+// weight rows each, so a workgroup covers SK_COLS outputs. Direct path only when SK_KS < SK_SG.
+#ifndef SK_KS
+#define SK_KS SK_SG
+#endif
+#define SK_NG (SK_SG / SK_KS)
+#define SK_COLS (SK_NG * SK_FN * 16)
+// SK_PAIR_DECODE (direct path): decode each MMA's 4 weights per row right before it instead of the lane's 16 values of the block
+// up front. MXFP4R only: RTX PRO 4500, gpt-oss-20b experts (gate / up + down, uniform routing) at 16 / 64 sequences 516 / 603 →
+// 496 / 567 us per block; FP8 dense weights lose 2-6 % (Qwen3-8B-FP8 decode steps at 2-16 sequences).
+#ifndef SK_PAIR_DECODE
+#if WFMT == FMT_MXFP4R
+#define SK_PAIR_DECODE 1
+#else
+#define SK_PAIR_DECODE 0
+#endif
+#endif
+#if SK_DIRECT && !X_F16
+#error "the direct skinny GEMM needs f16 activations"
+#endif
+#if !SK_DIRECT && SK_KS != SK_SG
+#error "the staged skinny GEMM splits K across all its subgroups"
+#endif
+#if SK_SG % SK_KS != 0
+#error "SK_KS must divide SK_SG"
 #endif
 #if MOE && (!X_SORTED || !X_F16 || DUAL)
 #error "the expert-grouped skinny GEMM needs expert-sorted f16 rows and a single matrix"
@@ -129,6 +152,11 @@ void sk_fetch_row(uint8_t* w, uint row, uint g16, out uint4 r0, out uint4 r1)
 // Packed halves (lo: first 8) of what sk_fetch_row fetched; the same values as load16h.
 void sk_decode_row(uint4 r0, uint4 r1, out uint4 lo, out uint4 hi)
 {
+#if defined(SK_EXP) && SK_EXP == 1
+    lo = r0;   // diagnostic (wrong results): no decode
+    hi = r0 ^ r1;
+    return;
+#endif
 #ifdef WFMT_FP8
     float s = asfloat(r1.x);
     lo = uint4(fp8x4_h(r0.x, s), fp8x4_h(r0.y, s));
@@ -143,6 +171,23 @@ void sk_decode_row(uint4 r0, uint4 r1, out uint4 lo, out uint4 hi)
 #else
     lo = r0;
     hi = r1;
+#endif
+}
+
+// Words 2f and 2f + 1 (values 4f .. 4f + 3) of what sk_fetch_row fetched, decoded alone: the same values as sk_decode_row.
+uint2 sk_decode_pair(uint4 r0, uint4 r1, uint f)
+{
+#ifdef WFMT_FP8
+    return fp8x4_h(r0[f], asfloat(r1.x));
+#elif WFMT == FMT_MXFP4R
+    uint q = (r0[f] >> (4 * r1.y)) & 0x0F0F0F0Fu;
+    float s = e8m0_half(r1.x) * 32768.0;
+    half2 s1 = half2(half(min(s, 32768.0)));
+    half2 s2 = half2(half(max(s / 32768.0, 1.0)));
+    return uint2(fp4_h2(q, false, s1, s2), fp4_h2(q, true, s1, s2));
+#else
+    uint4 v = f < 2 ? r0 : r1;
+    return uint2(v[(2 * f) % 4], v[(2 * f + 1) % 4]);
 #endif
 }
 
@@ -263,27 +308,36 @@ bool sk_direct_layout(uint tid, uint lane)
     return match;
 }
 
-// Direct path: accumulates the workgroup's share of K into acc[0]. Lane (g, c) of subgroup sg walks the 64-value blocks
-// sg, sg + SK_SG, ...; of block kb it reads values [64 kb + 16 c, 64 kb + 16 c + 16) of x rows g, g + 8 and of the weight
-// rows g, g + 8 of every B fragment. MMA f (0-3) maps the lane's K slots 2c, 2c + 1, 2c + 8, 2c + 9 to its values 4f .. 4f + 3,
-// the same for A and B, so the four MMAs cover the block once. The weights of the next block are prefetched into registers;
-// x (the same rows for every workgroup, so mostly cache hits) is too.
-void sk_direct(uint n0, uint sg, uint lane, Params p, float* xb, uint T, uint8_t* wb, inout SkC acc[SK_FM][SK_NB])
+// Direct path: accumulates the subgroup's share of K into acc. Lane (g, c) of a subgroup in K phase kp walks the 64-value
+// blocks kp, kp + SK_KS, ...; of block kb it reads values [64 kb + 16 c, 64 kb + 16 c + 16) of x rows 16 i + g, 16 i + g + 8 of
+// every token fragment i and of the weight rows g, g + 8 of every B fragment. MMA f (0-3) maps the lane's K slots 2c, 2c + 1,
+// 2c + 8, 2c + 9 to its values 4f .. 4f + 3, the same for A and B, so the four MMAs cover the block once. The weights of the
+// next block are prefetched into registers; x (the same rows for every workgroup, so mostly cache hits) is too. Each weight is
+// decoded once and serves the SK_FM token fragments.
+#if defined(SK_EXP) && SK_EXP == 2
+#define SK_EXP_X 0
+#else
+#define SK_EXP_X 1
+#endif
+void sk_direct(uint n0, uint kp, uint lane, Params p, float* xb, uint T, uint8_t* wb, inout SkC acc[SK_FM][SK_NB])
 {
     uint g = lane / 4, c = lane % 4;
-    bool rowLo = g < T, rowHi = g + 8 < T;
-    uint4 xr[2][2], wr[SK_NB][2][2];
+    uint4 xr[SK_FM][2][2], wr[SK_NB][2][2];
     #define SKD_FETCH(kb)                                                                               \
     {                                                                                                   \
         uint k_ = (kb) * 64 + c * 16;                                                                   \
         [ForceUnroll]                                                                                   \
         for (int h = 0; h < 2; h++)                                                                     \
         {                                                                                               \
-            xr[h][0] = 0; xr[h][1] = 0;                                                                 \
-            if (h == 0 ? rowLo : rowHi)                                                                 \
+            [ForceUnroll]                                                                               \
+            for (int i = 0; i < SK_FM; i++)                                                             \
             {                                                                                           \
-                uint4* px = (uint4*)((uint16_t*)xb + uint64_t(g + 8 * h) * X_STRIDE + k_);             \
-                xr[h][0] = px[0]; xr[h][1] = px[1];                                                     \
+                xr[i][h][0] = 0; xr[i][h][1] = 0;                                                       \
+                if (16 * i + g + 8 * h < T && (SK_EXP_X || (kb) == kp))                                 \
+                {                                                                                       \
+                    uint4* px = (uint4*)((uint16_t*)xb + uint64_t(16 * i + g + 8 * h) * X_STRIDE + k_); \
+                    xr[i][h][0] = px[0]; xr[i][h][1] = px[1];                                           \
+                }                                                                                       \
             }                                                                                           \
             [ForceUnroll]                                                                               \
             for (int j = 0; j < SK_NB; j++)                                                             \
@@ -301,52 +355,63 @@ void sk_direct(uint n0, uint sg, uint lane, Params p, float* xb, uint T, uint8_t
 #endif
 
     const uint blocks = K / 64;
-    if (sg < blocks)
+    if (kp < blocks)
     {
-        SKD_FETCH(sg)
+        SKD_FETCH(kp)
     }
-    for (uint kb = sg; kb < blocks; kb += SK_SG)
+    for (uint kb = kp; kb < blocks; kb += SK_KS)
     {
-        uint4 xc[2][2], wc[SK_NB][2][2];
+        uint4 xc[SK_FM][2][2], wc[SK_NB][2][2];
         [ForceUnroll]
         for (int h = 0; h < 2; h++)
         {
-            xc[h][0] = xr[h][0];
-            xc[h][1] = xr[h][1];
+            [ForceUnroll] for (int i = 0; i < SK_FM; i++) { xc[i][h][0] = xr[i][h][0]; xc[i][h][1] = xr[i][h][1]; }
             [ForceUnroll] for (int j = 0; j < SK_NB; j++) { wc[j][h][0] = wr[j][h][0]; wc[j][h][1] = wr[j][h][1]; }
         }
-        if (kb + SK_SG < blocks)
+        if (kb + SK_KS < blocks)
         {
-            SKD_FETCH(kb + SK_SG)
+            SKD_FETCH(kb + SK_KS)
         }
 
+#if SK_PAIR_DECODE == 0
         uint4 wd[SK_NB][2][2];
         [ForceUnroll]
         for (int j = 0; j < SK_NB; j++)
         {
             [ForceUnroll] for (int h = 0; h < 2; h++) sk_decode_row(wc[j][h][0], wc[j][h][1], wd[j][h][0], wd[j][h][1]);
         }
+#endif
+        // The weights of MMA f are decoded right before it (4 values per row and lane), so no decoded block is held in registers.
         [ForceUnroll]
         for (uint f = 0; f < 4; f++)
         {
-            SkA a;
-            [ForceUnroll]
-            for (uint e = 0; e < 8; e++)
-            {
-                uint h = e >> 2, w = 2 * f + ((e >> 1) & 1);
-                a[e] = sk_half(sk_word(xc[h][0], xc[h][1], w), e & 1);
-            }
+            SkB b[SK_NB];
             [ForceUnroll]
             for (int j = 0; j < SK_NB; j++)
             {
-                SkB b;
+                uint2 pair[2];
+#if SK_PAIR_DECODE
+                [ForceUnroll] for (int h = 0; h < 2; h++) pair[h] = sk_decode_pair(wc[j][h][0], wc[j][h][1], f);
+#else
+                [ForceUnroll] for (int h = 0; h < 2; h++) pair[h] = uint2(sk_word(wd[j][h][0], wd[j][h][1], 2 * f), sk_word(wd[j][h][0], wd[j][h][1], 2 * f + 1));
+#endif
+                [ForceUnroll]
+                for (uint e = 0; e < 8; e++)
+                {
+                    b[j][e] = sk_half(pair[e >> 2][(e >> 1) & 1], e & 1);
+                }
+            }
+            [ForceUnroll]
+            for (int i = 0; i < SK_FM; i++)
+            {
+                SkA a;
                 [ForceUnroll]
                 for (uint e = 0; e < 8; e++)
                 {
                     uint h = e >> 2, w = 2 * f + ((e >> 1) & 1);
-                    b[e] = sk_half(sk_word(wd[j][h][0], wd[j][h][1], w), e & 1);
+                    a[e] = sk_half(sk_word(xc[i][h][0], xc[i][h][1], w), e & 1);
                 }
-                acc[0][j] = coopMatMulAdd<float, false>(a, b, acc[0][j]);
+                [ForceUnroll] for (int j = 0; j < SK_NB; j++) acc[i][j] = coopMatMulAdd<float, false>(a, b[j], acc[i][j]);
             }
         }
     }
@@ -362,7 +427,9 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
     GRID_BIND(p);
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
-    uint n0 = gid.x * (SK_FN * 16);
+    uint n0 = gid.x * SK_COLS;
+    // The subgroup's weight rows and K phase.
+    uint sn0 = n0 + (sg / SK_KS) * (SK_FN * 16), kp = sg % SK_KS;
 #if MOE
     // The expert tile of this workgroup row: its rows are the sorted f16 rows from rowOff, its weights expert `expert`.
     uint tile = gid.y;
@@ -401,18 +468,19 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 #if SK_DIRECT
     if (sk_direct_layout(tid, lane))
     {
-        sk_direct(n0, sg, lane, p, xb, T, wb, acc);
+        sk_direct(sn0, kp, lane, p, xb, T, wb, acc);
     }
     else
     {
         [ForceUnroll] for (int j = 0; j < SK_NB; j++) acc[0][j] = SkC(asfloat(0x7FC00000u));
     }
 #else
-    sk_staged(n0, sg, lane, p, xb, T, wb, acc);
+    sk_staged(sn0, kp, lane, p, xb, T, wb, acc);
 #endif
 
     // Sum the subgroups' partial tiles fragment by fragment through the (now free) B slices: subgroup s stores its 16x16
-    // f32 tile (and with DUAL its w2 partner) at uint4 offset 64 (2 s (+1)), every thread then adds up whole elements.
+    // f32 tile (and with DUAL its w2 partner) at uint4 offset 64 (2 s (+1)), every thread then adds up whole elements of the
+    // SK_KS K phases of each column group.
     [ForceUnroll]
     for (int i = 0; i < SK_FM; i++)
     {
@@ -425,9 +493,10 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
             acc[i][j + SK_FN].Store<CoopMatMatrixLayout.RowMajor>(skB, 2 * sg * 64 + 64, 4u);
 #endif
             GroupMemoryBarrierWithGroupSync();
-            for (uint e = tid; e < 256; e += SK_SG * 32)
+            for (uint ee = tid; ee < 256 * SK_NG; ee += SK_SG * 32)
             {
-                uint t = i * 16 + e / 16, n = n0 + j * 16 + e % 16;
+                uint e = ee % 256, cg = ee / 256;
+                uint t = i * 16 + e / 16, n = n0 + cg * (SK_FN * 16) + j * 16 + e % 16;
                 if (t < T && n < N)
                 {
 #if !X_F16
@@ -440,11 +509,11 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
                     float inv = 1.0;
 #endif
                     float s = 0;
-                    [ForceUnroll] for (uint z = 0; z < SK_SG; z++) s += asfloat(skB[((1 + DUAL) * z * 256 + e) / 4][e % 4]);
+                    [ForceUnroll] for (uint z = 0; z < SK_KS; z++) s += asfloat(skB[((1 + DUAL) * (cg * SK_KS + z) * 256 + e) / 4][e % 4]);
                     s *= inv;
 #if DUAL
                     float s2 = 0;
-                    [ForceUnroll] for (uint z = 0; z < SK_SG; z++) s2 += asfloat(skB[(2 * z * 256 + 256 + e) / 4][e % 4]);
+                    [ForceUnroll] for (uint z = 0; z < SK_KS; z++) s2 += asfloat(skB[(2 * (cg * SK_KS + z) * 256 + 256 + e) / 4][e % 4]);
                     s = epi2(s, s2 * inv);
 #endif
 #if MOE
