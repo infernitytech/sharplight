@@ -5,4 +5,5 @@ namespace Sharplight.Studio.ViewModels.Search;
 /// <param name="ChunkCharacters">The length of the passages documents are cut into, in characters.</param>
 /// <param name="OverlapCharacters">How far consecutive passages overlap, in characters.</param>
 /// <param name="Rerank">Score the closest candidates again with the chosen reranking model and list the best of them.</param>
-internal sealed record SearchOptions(int TopK, int ChunkCharacters, int OverlapCharacters, bool Rerank = false);
+/// <param name="Mode">How passages are ranked (<see cref="SearchMode"/>).</param>
+internal sealed record SearchOptions(int TopK, int ChunkCharacters, int OverlapCharacters, bool Rerank = false, string Mode = SearchMode.Semantic);

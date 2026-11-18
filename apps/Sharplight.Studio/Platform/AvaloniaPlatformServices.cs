@@ -5,6 +5,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 using Sharplight.Studio.Services.Platform;
+using Sharplight.Studio.Services.Search;
 
 namespace Sharplight.Studio.Platform;
 
@@ -86,6 +87,31 @@ internal sealed class AvaloniaPlatformServices(Func<TopLevel?> topLevel) : IPlat
         {
             _ = launcher.LaunchFileInfoAsync(new FileInfo(pathOrUrl));
         }
+    }
+
+    /// <inheritdoc/>
+    public void OpenAt(string path, int page, int line)
+    {
+        if (LocationOpener.Command(path, page, line, LocationOpener.FindOnPath) is { } command)
+        {
+            try
+            {
+                var start = new ProcessStartInfo(command.Program) { UseShellExecute = false };
+                foreach (string argument in command.Arguments)
+                {
+                    start.ArgumentList.Add(argument);
+                }
+
+                Process.Start(start)?.Dispose();
+                return;
+            }
+            catch (Exception failure) when (failure is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                // The program did not start: fall back to the default program.
+            }
+        }
+
+        Open(path);
     }
 
     /// <inheritdoc/>
