@@ -33,11 +33,11 @@
                 <Border Classes="badge warn" HorizontalAlignment="Left" IsVisible="{Binding IsPlanned}" ToolTip.Tip="The engine has no task client for this kind yet">
                   <TextBlock Text="Not yet supported" />
                 </Border>
-                <StackPanel Orientation="Horizontal" Spacing="8">
+                <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
                   <Button Classes="accent small" Command="{Binding OpenCommand}" Content="{Binding OpenText}" IsEnabled="{Binding IsRunnable}" />
                   <Button Classes="small" Command="{Binding ShowLibraryCommand}" Content="Library" />
                   <Button Classes="small" Command="{Binding BrowseCommand}" Content="Browse models" />
-                </StackPanel>
+                </WrapPanel>
               </StackPanel>
             </Border>
           </DataTemplate>

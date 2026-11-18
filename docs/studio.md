@@ -696,6 +696,14 @@ versions kept them.
   gallery persistence with open, export and delete) and the Transcribe and Speak pages over fake task clients (streamed segments, `.txt` /
   `.srt` / `.vtt` export, cancel and failure, microphone, voices, streaming playback, no-player fallback);
 - a headless render of every page that fails on binding errors;
+- `PageScreenshotTests`: one screenshot test per page, per Models tab and Discover source (Verified, Sharplight feed, Hub search) and per
+  Settings tab, in the light and the dark theme at 1440 and 900 px wide, over demo data and a local test feed. Each fails on binding
+  errors and on controls that are clipped or painted over their neighbours (`LayoutChecker`) and saves
+  `studio-page-<page>-<theme>-<width>.png` to `SHARPLIGHT_STUDIO_SCREENSHOTS` (default `page-screenshots` next to the test binaries).
+  There are no golden images; the PNGs are for a human to look at. The `screenshots` job of `studio.yml` runs this class on every push and
+  pull request and uploads the PNGs as the artifact `studio-page-screenshots`. Run it locally with
+  `dotnet run --project tests/Sharplight.Studio.Tests -c Release -- -class "Sharplight.Studio.Tests.PageScreenshotTests"`;
+  `docs/studio-published-test.md` records the round that drove the published AppImage by hand;
 - the Sharplight feed over a local test feed (listing, install with dependencies, resume of a partial download, update that keeps the old version
   until the new one verified, a tampered index, manifest and package file, an untrusted root, offline use of the cached listing including an expired
   index, channel switching) and its views (headless render, layout checks at three window sizes, binding errors), plus one test against the live feed that
