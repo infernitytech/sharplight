@@ -113,6 +113,7 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_MOE_WIDE=fm,fn,sg,ks,n</c>: wide expert tiles of the direct skinny GEMM (experiment, off by default).</item>
 /// <item><c>SHARPLIGHT_SPLITK_EPILOGUE=0</c>: run a matmul's bias / residual group as its own launch instead of in the split-K
 /// reduction of the f16 tensor-core GEMM.</item>
+/// <item><c>SHARPLIGHT_FP8_SHORT_TILES=1</c>: the fp8 GEMM takes 64-row tiles at 129-192 and 257-320 rows (opt-in).</item>
 /// <item><c>SHARPLIGHT_MMQ_SHORT_MAX_ROWS=n</c>: the int8 / fp8 GEMMs take 64-row tiles exactly up to n rows.</item>
 /// <item><c>SHARPLIGHT_CONV_NO_MATRIX=1</c>: run convolutions on the SIMT conv_gemm instead of the cooperative-matrix conv_cm.</item>
 /// </list>
@@ -485,6 +486,9 @@ internal static class DiagnosticSwitches
     /// its own launch instead of applying it in the split-K reduction.
     /// </summary>
     public static bool SplitKReduceEpilogue { get; } = IsNotZero("SHARPLIGHT_SPLITK_EPILOGUE");
+
+    /// <summary>Opt-in (<c>SHARPLIGHT_FP8_SHORT_TILES=1</c>): the fp8 GEMM takes 64-row tiles above 64 rows where they pad fewer rows.</summary>
+    public static bool Fp8ShortTiles { get; } = IsSet("SHARPLIGHT_FP8_SHORT_TILES");
 
     /// <summary>Rows up to which the int8 / fp8 GEMMs take 64-row tiles (<c>SHARPLIGHT_MMQ_SHORT_MAX_ROWS</c>), or null for the default.</summary>
     public static long? MmqShortTileMaxRows { get; } = Read("SHARPLIGHT_MMQ_SHORT_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;

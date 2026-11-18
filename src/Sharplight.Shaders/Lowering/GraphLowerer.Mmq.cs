@@ -90,11 +90,13 @@ public sealed partial class GraphLowerer
     };
 
     /// <summary>
-    /// Token rows of the int8 / fp8 GEMM tile for a batch of <paramref name="rows"/>: 64 up to 64 rows; the fp8 GEMM also takes
-    /// 64-row tiles up to <see cref="Fp8ShortTileMaxRows"/> rows where they pad fewer rows than 128-row tiles (rows mod 128 in 1-64).
-    /// There they also leave grids large enough to need no K split. RTX PRO 4500, Qwen3-8B-FP8 steps of 64 decode rows plus a
-    /// prompt chunk, GPU ms: 150 / 171 / 300 rows 31.1 / 31.7 / 42.0 → 27.0 / 27.7 / 36.8; at 104 / 128 rows (same padding) 128-row
-    /// tiles stay faster (20.5 / 21.2 against 22.3 / 23.1). <c>SHARPLIGHT_MMQ_SHORT_MAX_ROWS=n</c>: 64-row tiles exactly up to n rows.
+    /// Token rows of the int8 / fp8 GEMM tile for a batch of <paramref name="rows"/>: 64 up to 64 rows. With
+    /// <c>SHARPLIGHT_FP8_SHORT_TILES=1</c> (opt-in) the fp8 GEMM also takes 64-row tiles up to <see cref="Fp8ShortTileMaxRows"/> rows
+    /// where they pad fewer rows than 128-row tiles (rows mod 128 in 1-64), which also leaves grids large enough to need no K split.
+    /// RTX PRO 4500, Qwen3-8B-FP8 BatchBench steps of 64 decode rows plus a prompt chunk, GPU ms: 150 / 171 / 300 rows 31.1 / 31.7 /
+    /// 42.0 → 27.0 / 27.7 / 36.8 (104 / 128 rows: 128-row tiles faster); serving at 16 / 64 streams moved by +4 % / +1 %, within the
+    /// session spread, and greedy outputs of 129-384-token prompts round differently, so it is not the default (benchmarks section 47).
+    /// <c>SHARPLIGHT_MMQ_SHORT_MAX_ROWS=n</c>: 64-row tiles exactly up to n rows.
     /// </summary>
     private static int MmqTileRowsFor(long rows, bool fp8 = false)
     {
@@ -103,7 +105,7 @@ public sealed partial class GraphLowerer
             return rows <= forced ? 64 : 128;
         }
 
-        return rows <= 64 || (fp8 && rows <= Fp8ShortTileMaxRows && (rows - 1) % 128 < 64) ? 64 : 128;
+        return rows <= 64 || (fp8 && DiagnosticSwitches.Fp8ShortTiles && rows <= Fp8ShortTileMaxRows && (rows - 1) % 128 < 64) ? 64 : 128;
     }
 
     /// <summary>Rows up to which the fp8 GEMM may take 64-row tiles above 64 rows (see <see cref="MmqTileRowsFor"/>).</summary>

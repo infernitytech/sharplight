@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
@@ -55,8 +56,9 @@ public sealed class Fp8GemmTests
     }
 
     /// <summary>
-    /// Row counts below the compiled maximum in the ranges where the fp8 GEMM takes 64-row tiles above 64 rows (129-192, 257-320) and
-    /// splits K: every (tile height, split) of the row counts a step may bind has its launch variant.
+    /// Row counts below the compiled maximum, in the ranges where the fp8 GEMM with <c>SHARPLIGHT_FP8_SHORT_TILES=1</c> takes 64-row
+    /// tiles above 64 rows (129-192, 257-320) and splits K: every (tile height, split) of the row counts a step may bind has its
+    /// launch variant (the split variants were probed every 128 rows, so those buckets had none and stored nothing).
     /// </summary>
     [Theory]
     [InlineData("f8e4m3_b128", 150)]
@@ -67,6 +69,31 @@ public sealed class Fp8GemmTests
     {
         const int K = 4096;
         Run(fmt, t, 4096, K, Rnd.ExactFp8((long)t * K, 9), atol: 2e-3, rtol: 1e-3, maxTokens: 2048);
+    }
+
+    /// <summary><see cref="ShortTilesBelowMaxTokens"/> with the opt-in 64-row tiles (read once per process, so in a child run).</summary>
+    [Fact]
+    public void ShortTilesBelowMaxTokensOptIn()
+    {
+        Gpu.Require();
+        string method = $"{typeof(Fp8GemmTests).FullName}.{nameof(ShortTilesBelowMaxTokens)}";
+        string host = Environment.ProcessPath ?? throw new InvalidOperationException("no process path");
+        var info = new ProcessStartInfo(host) { RedirectStandardOutput = true, RedirectStandardError = true };
+        if (Path.GetFileNameWithoutExtension(host) == "dotnet")
+        {
+            info.ArgumentList.Add(typeof(Fp8GemmTests).Assembly.Location);
+        }
+
+        info.ArgumentList.Add("-method");
+        info.ArgumentList.Add(method);
+        info.Environment["SHARPLIGHT_FP8_SHORT_TILES"] = "1";
+        using var process = Process.Start(info) ?? throw new InvalidOperationException("child test run did not start");
+        var stderr = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        string output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, $"child run failed ({process.ExitCode}):\n{output}\n{stderr.Result}");
+        Assert.Contains("Total: 4,", output);
+        Assert.Contains("Failed: 0,", output);
     }
 
     /// <summary>A grid large enough to run without split-K (and the 128-token tile with partial row and column tiles).</summary>
