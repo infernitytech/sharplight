@@ -192,7 +192,9 @@ public sealed partial class GraphLowerer
         // Split-K: the same tiles summing K ranges into partials, then the reduction of matmul.slang.
         var tiledSplits = new SortedSet<(int TileRows, int Split)>();
         long scratchBytes = 0;
-        for (long rows = minRows; rows <= rowsMax; rows = NextSplitProbe(rows, rowsMax))
+        // The split depends on the rows through the tile height and count: probing every multiple of 64 rows (and the largest
+        // row count) visits the largest row count of every tile count of both heights.
+        for (long rows = minRows; rows <= rowsMax; rows = rows == rowsMax ? rowsMax + 1 : Math.Min(rowsMax, (rows / 64 + 1) * 64))
         {
             int split = QuantizedGemmSplit(n, k, rows, blockK, fp8);
             if (split > 1)

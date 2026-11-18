@@ -25,14 +25,14 @@ public sealed class Fp8GemmTests
 
     public static IEnumerable<object[]> Formats() => s_formats.Select(f => new object[] { f });
 
-    private static void Run(string fmt, int t, int n, int k, float[] x, double atol, double rtol, IReadOnlySet<string>? disabled = null)
+    private static void Run(string fmt, int t, int n, int k, float[] x, double atol, double rtol, IReadOnlySet<string>? disabled = null, int maxTokens = 0)
     {
         Gpu.Require();
         var tg = new TG();
         var xv = tg.InF("x", TG.T, k);
         var w = tg.RandW("w", DataType.Get(fmt), 1f, n, k);
         tg.B.Output("y", tg.B.MatMul(xv, w));
-        Diff.Check("MatMul.fp8." + fmt, tg.B.Build(), new Step(t, 0, (xv, x)), atol: atol, rtol: rtol, maxTokens: Math.Max(t, 64),
+        Diff.Check("MatMul.fp8." + fmt, tg.B.Build(), new Step(t, 0, (xv, x)), atol: atol, rtol: rtol, maxTokens: Math.Max(maxTokens, Math.Max(t, 64)),
             what: $"T={t} N={n} K={k}", disabledFeatures: disabled);
     }
 
@@ -52,6 +52,21 @@ public sealed class Fp8GemmTests
     {
         const int K = 1024;
         Run(fmt, t, n, K, Rnd.ExactFp8((long)t * K, 5), atol: 2e-3, rtol: 1e-3);
+    }
+
+    /// <summary>
+    /// Row counts below the compiled maximum in the ranges where the fp8 GEMM takes 64-row tiles above 64 rows (129-192, 257-320) and
+    /// splits K: every (tile height, split) of the row counts a step may bind has its launch variant.
+    /// </summary>
+    [Theory]
+    [InlineData("f8e4m3_b128", 150)]
+    [InlineData("f8e4m3_b128", 182)]
+    [InlineData("f8e4m3_b128", 300)]
+    [InlineData("f8e4m3_b32", 171)]
+    public void ShortTilesBelowMaxTokens(string fmt, int t)
+    {
+        const int K = 4096;
+        Run(fmt, t, 4096, K, Rnd.ExactFp8((long)t * K, 9), atol: 2e-3, rtol: 1e-3, maxTokens: 2048);
     }
 
     /// <summary>A grid large enough to run without split-K (and the 128-token tile with partial row and column tiles).</summary>
