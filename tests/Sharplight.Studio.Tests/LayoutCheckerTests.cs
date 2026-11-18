@@ -1,7 +1,5 @@
 using Avalonia.Controls;
-using Avalonia.Headless;
 using Avalonia.Media;
-using Avalonia.Platform;
 
 namespace Sharplight.Studio.Tests;
 

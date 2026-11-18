@@ -48,7 +48,6 @@ public sealed class FeedInstallSummaryTests
         Assert.True(install.HasError);
         Assert.True(install.ShowCard);
         Assert.False(rig.Catalog.HasFinishedInstalls);
-        rig.Catalog.ClearFinishedInstallsCommand.Execute(null);
         Assert.Single(rig.Catalog.Installs);
     }
 }
