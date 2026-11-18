@@ -101,6 +101,24 @@ internal sealed record SchedulerSettings
         }
     }
 
+    /// <summary>
+    /// The sampling defaults of the adversarially distilled "Turbo" models (SD-Turbo, SDXL-Turbo): their published scheduler
+    /// configurations are Euler (ancestral) on trailing timesteps, and the model cards run them unguided in 1 to 4 steps. A folder
+    /// is taken for one when its name (or the pipeline's recorded origin) says "turbo" and the scheduler is such an Euler on trailing
+    /// timesteps; anything else keeps the generic defaults.
+    /// </summary>
+    /// <param name="names">The folder name and the pipeline's <c>_name_or_path</c> (null entries are ignored).</param>
+    public SchedulerSettings WithDistilledDefaults(params string?[] names)
+    {
+        bool turbo = names.Any(name => name?.Contains("turbo", StringComparison.OrdinalIgnoreCase) == true);
+        if (!turbo || TimestepSpacing != "trailing" || !Sampler.StartsWith("euler", StringComparison.Ordinal) || DefaultSteps is not null)
+        {
+            return this;
+        }
+
+        return this with { DefaultSteps = 4, DefaultGuidance = 0f };
+    }
+
     /// <summary>Reads a diffusers <c>scheduler_config.json</c>.</summary>
     /// <param name="json">The file's text.</param>
     public static SchedulerSettings FromDiffusers(string json)

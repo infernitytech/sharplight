@@ -1602,7 +1602,7 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | FLUX.1-schnell, FLUX.1-dev, FLUX.1 Kontext dev (and fine-tunes with the same layout) | diffusers folder; original single-file `.safetensors` (Black Forest Labs names, also with ComfyUI's `model.diffusion_model.` prefix); transformer-only GGUF (city96 / stable-diffusion.cpp: any ggml type) plus companion files: CLIP-L (`clip_l.safetensors`), T5-XXL (encoder GGUF with its tokenizer, or `t5xxl_*.safetensors` with the embedded T5 vocabulary), VAE (`ae.safetensors`), given as auxiliary sources or found beside the transformer | **supported** (txt2img, img2img, inpainting; Kontext: editing with one reference image, recognized by `FluxKontextPipeline` or "kontext" in the file name; flow-matching Euler with FLUX's static / resolution-dependent shift; dev's guidance embedding; any size that is a multiple of 16; `.slm`) | [below](#flux) |
 | SD3 / SD3.5 (SD3 Medium, SD3.5 Medium / Large and fine-tunes) | diffusers folder; Stability's single file (`model.diffusion_model.*`, the VAE under `first_stage_model.*`); transformer-only GGUF (city96 / stable-diffusion.cpp `sd3`, any ggml type) plus companions: CLIP-L, CLIP-G (`clip_g.safetensors`), T5-XXL (encoder GGUF, `t5xxl_*.safetensors` or a sharded `text_encoder_3` folder named by a shard), the 16-channel VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance; three text encoders; any size that is a multiple of 16 up to the position grid; `.slm`) | [below](#sd3) |
 | Chroma (Chroma1-HD / Base / Flash and fine-tunes) | diffusers folder; original single file (FLUX names plus `distilled_guidance_layer.*`); transformer-only GGUF (silveroxides, any ggml type) plus companions: T5-XXL, the FLUX VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance with negative prompts; masked T5 and text attention) | [below](#chroma) |
-| Z-Image (Z-Image-Turbo and fine-tunes) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
+| Z-Image (Z-Image-Turbo and fine-tunes; the undistilled Z-Image since 2026-11-18, section 21) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
 | Qwen-Image (Qwen-Image and fine-tunes with the same layout, e.g. Qwen-Image-2512) | diffusers folder; transformer-only GGUF (city96 / QuantStack / unsloth, `qwen_image` architecture id, any ggml type) and ComfyUI single files plus companions: the Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a `qwen2vl` GGUF), the causal VAE (the pipeline's `vae` file or ComfyUI's `qwen_image_vae.safetensors` in the original Wan names) | **supported** (txt2img, img2img, inpainting; true CFG with diffusers' norm rescaling; 50 steps, guidance 4 by default) | [below](#qwen-image) |
 | Qwen-Image 2.1 (and its Turbo) | diffusers folder; transformer-only GGUF (unsloth: no metadata, ComfyUI names) and ComfyUI single files plus companions: the Qwen3-VL-8B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the pipeline's VAE file | **supported** (text-to-image; 40 steps without guidance by default; Turbo: its 8-step schedule from the pipeline's `sample_sigmas` or the file name) | [below](#qwen-image-21) |
 | FLUX.2 Klein (4B; 9B and the base models share the layout), FLUX.2 Dev (32B) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (Klein; the pipeline's `text_encoder` folder or a `qwen3` GGUF) or Mistral Small 3.2 24B (Dev; a `llama` GGUF of Mistral-Small-3.2-24B-Instruct-2506 or the pipeline's folder), the pipeline's VAE file | **supported** (txt2img and editing with up to 10 reference images; Klein distilled: 4 steps without guidance; Klein base: 50 steps, guidance 4; Dev: 50 steps with the embedded guidance 4) | [below](#flux-2) |
@@ -2568,3 +2568,87 @@ from the Hugging Face checkpoints; every tokenization matches the reference.
 | Qwen/Qwen3-Reranker-4B | qwen3 (yes / no logits) | Vulkan | tokens identical, max logit error 4.3e-3 (logits 1.58 / -8.05 / -1.48 / -9.58 / 2.65 / -5.59) |
 
 The 4B models were run on Vulkan only (CPU float32 would take minutes per test). All four are in the verified catalog (`kind` embeddings).
+
+## 21. Hot-model sweep 2026-11-18: image generation
+
+Same method and selection rules as section 19 (Hub API `GET /api/models?pipeline_tag=<tag>&sort=trendingScore|downloads&limit=50`, queried on
+2026-11-18; official checkpoints and trusted conversions only; one entry per family and size; restrictive licenses marked), for the tags
+`text-to-image` and `image-to-image` (which carries the editing models), including their GGUF variants (city96, unsloth, QuantStack, the
+developer's own). The Hub lists below were taken from the union of both tags and both sort orders (160 repositories); fine-tune and LoRA
+re-uploads, "uncensored" / "NSFW" variants, pruned or re-quantized community packages (PrunaAI, chatrlabs, AtomicChat, Hearthscale, ...) were
+skipped as community only. dl30 is the Hub's 30-day download count. Families verified in sections 15 and 18 keep their earlier result;
+the models that exist in a family but not yet as a checkpoint are run now ("verified now": output compared with diffusers from the same latents,
+PSNR as in section 15). Downloads and references went to local disk and were deleted afterwards.
+
+### 21.1 Text to image
+
+| # | Model | Publisher / license | Released | dl30 / likes | Format | Status |
+|---|---|---|---|---|---|---|
+| 1 | MiniMaxAI/MiniMax-H3-Image (Comfy-Org repack 2.7M; unsloth / Abiray / Hearthscale GGUF, community conversions) | MiniMax; MiniMax H3 Image community license (other) | 2026-11-03 | 727k / 1.5k | diffusers-style folder (`minimax-h3`), ComfyUI single file, GGUF | **needs arch**: `MiniMaxH3DiTModel` (50 blocks, width 5376, 56 heads of 128, token refiner, 24 latent channels, adaLN-modulated), Qwen3-VL text encoder over 5120-wide features, its own VAE; also does editing (`tasks: t2i, edit`). Section 15 already lists it as "missing" |
+| 2 | Qwen/Qwen-Image-2.1 (+ Turbo: unsloth GGUF) | Alibaba (Qwen); apache-2.0 | 2026-09-14 | 287k / 3.7k (Turbo GGUF 1.7M) | diffusers, unsloth GGUF | verified earlier (section 15, catalog `qwen-image-2.1`, `qwen-image-2.1-turbo`) |
+| 3 | black-forest-labs/FLUX.1-dev, FLUX.1-schnell | Black Forest Labs; FLUX.1 non-commercial (dev, gated), apache-2.0 (schnell) | 2024-07-31 | 460k / 16k, 286k / 6.8k | diffusers, city96 GGUF | verified earlier (section 15) |
+| 4 | krea/Krea-2-Turbo, krea/Krea-2-Raw | Krea; Krea 2 Community License (other, gated) | 2026-06-18 | 85k / 2.0k, 107k / 1.4k | diffusers, ComfyUI files, GGUF | Turbo verified earlier (section 15); Raw uses the same graph with classifier-free guidance (family keys and a tiny model are tested), the 26 GB Raw checkpoint was not run |
+| 5 | OpenMOSS-Team/MOSS-Image-SFT, MOSS-Image-Base (lodestones/Kromoss is a fine-tune of it; unsloth GGUF is a trusted conversion) | OpenMOSS; apache-2.0 | 2026-10-11 | 22k (GGUF 237k) / 973 | diffusers-style folder, unsloth GGUF | **needs arch**: `MOSSImageTransformer` (custom pipeline code, `MOSSImageScheduler`), Qwen3.5 text encoder (`Qwen3_5Model`, a hybrid linear-attention decoder), FLUX.2 VAE (supported) |
+| 6 | Tongyi-MAI/Z-Image-Turbo | Alibaba (Tongyi); apache-2.0 | 2025-11-25 | 800k / 5.6k | diffusers, unsloth / leejet GGUF | verified earlier (section 15) |
+| 7 | Tongyi-MAI/Z-Image (undistilled; unsloth GGUF 251k) | Alibaba (Tongyi); apache-2.0 | 2026-01-27 | n/a (GGUF 251k) | diffusers, unsloth GGUF | **verified now** (21.3): unsloth Q8_0 GGUF, 512, 28 steps, 31.5 dB; 8 steps 28.7 dB; catalog `z-image` |
+| 8 | Qwen/Qwen-Image, Qwen-Image-2512 | Alibaba (Qwen); apache-2.0 | 2025-08-02 | 368k / 2.7k, 472k (GGUF) | diffusers, city96 / unsloth GGUF | verified earlier (section 15) |
+| 9 | black-forest-labs/FLUX.2-dev, FLUX.2-klein-4B | Black Forest Labs; FLUX Dev non-commercial (gated), apache-2.0 | 2025-11-22 / 2026-01-14 | 287k / 2.6k, 436k / 1.1k | diffusers, unsloth / city96 GGUF | verified earlier (section 15) |
+| 10 | black-forest-labs/FLUX.2-klein-9B (unsloth: ungated mirror and GGUF 492k) | Black Forest Labs; FLUX non-commercial | 2026-01-14 | 112k / 1.9k | diffusers, unsloth GGUF | **verified now**: Q8_0 GGUF, 512, 4 steps, 29.8 dB, visually identical (21.3) |
+| 11 | black-forest-labs/FLUX.2-klein-base-4B (unsloth GGUF) | Black Forest Labs; apache-2.0 | 2026-01-14 | 723k / 198 | diffusers, unsloth GGUF | **verified now**: Q8_0 GGUF, 512, 28 steps with guidance 4, 36.6 dB (21.3) |
+| 12 | black-forest-labs/FLUX.2-klein-base-9B (unsloth GGUF) | Black Forest Labs; FLUX non-commercial | 2026-01-14 | 66k / 454 | unsloth GGUF | not run: the 9B transformer of 21.1 #10 with guidance; the same code path as #10 and #11 |
+| 13 | black-forest-labs/flux-3-image-klein (+ `-base`, unsloth GGUF 437k, Comfy repack 1.1M) | Black Forest Labs; other, gated | 2026-10-13 | 161k / 1.0k (trending) | diffusers (gated), single file, unsloth GGUF | **needs arch**: `Flux3Transformer2DModel` (5 dual-stream + 28 single-stream blocks, 24 heads of 128, `flow_map: true` (a flow-map sampler: the transformer is conditioned on the target time as well), 128-channel conditioning `cond_in_channels`, 20480-wide joint features = 8 tapped layers of a Qwen3-VL-4B text encoder), FLUX.2 VAE. The Comfy / unsloth files are not gated, the official folder is |
+| 14 | stabilityai/stable-diffusion-xl-base-1.0 and fine-tunes (RealVisXL, Juggernaut, animagine-4.0, Pony, noobai, WAI-Illustrious, Illustrious) | Stability AI and the fine-tune authors; OpenRAIL++ | 2023-07-25 | 4.8M / 8.5k | diffusers, single file, stable-diffusion.cpp GGUF | verified earlier (section 15; animagine-xl-3.1 and DreamShaper 7 are the same SDXL / SD 1.x graphs as the verified 4.0 and 8) |
+| 15 | stabilityai/sdxl-turbo, SDXL-Lightning | Stability AI, ByteDance; OpenRAIL / non-commercial research | 2023-11-27 | 587k / 2.7k | diffusers, GGUF | verified earlier (section 15) |
+| 16 | stabilityai/sd-turbo | Stability AI; Stability community / non-commercial (other) | 2023-11-27 | 384k / 471 | diffusers, single file | **verified now** (catalog level was "loads"): fp16 folder, 512, 1 step, no guidance, 54.0 dB; the folder defaults were wrong (21.2) |
+| 17 | stabilityai/stable-diffusion-3.5-medium | Stability AI; Stability community | 2024-10-29 | 79k / 1.3k | diffusers, city96 GGUF | verified earlier (section 15) |
+| 18 | stable-diffusion-v1-5/stable-diffusion-v1-5, CompVis/stable-diffusion-v1-4 | Runway / CompVis; CreativeML OpenRAIL-M | 2022 / 2024 | 1.2M / 1.4k, 438k / 7.1k | diffusers, single file | verified earlier (v1-5; v1-4 is the same graph) |
+| 19 | Comfy-Org/Fibo-2.0, briaai/Fibo-2.0-edit-turbo | Bria; CC-BY-NC-4.0 / other, gated | 2026-10-19 | 457k / 238, 3.7k / 186 | ComfyUI single files, diffusers (gated) | needs arch (not inspected beyond the file lists: a Bria DiT conditioned on a structured-prompt language model; non-commercial) |
+| 20 | PrunaAI P-H3-Image / P-Q-Image-2.1-*, chatrlabs Qwen-Image-2.1 Omni, AtomicChat / abenzerps / KasugaiSakura Qwen-Image-2.1 GGUF, Viggle Qwen-Image-2.1 turbo, lightx2v Lightning LoRAs, anima / HaDeS / MossYume | community | | | | community only (re-quantizations, fine-tunes and LoRAs of the models above; the Lightning LoRAs would take the LoRA path of section 15) |
+
+### 21.2 Image to image and editing
+
+| # | Model | Publisher / license | Released | dl30 / likes | Format | Status |
+|---|---|---|---|---|---|---|
+| 1 | black-forest-labs/FLUX.1-Kontext-dev (QuantStack GGUF) | Black Forest Labs; FLUX.1 non-commercial | 2025-05-28 | 186k / 3.0k (GGUF 99k) | diffusers, QuantStack GGUF | verified earlier (section 15, editing) |
+| 2 | FLUX.2 Klein 4B / 9B, FLUX.2 Dev (reference-image editing) | Black Forest Labs | 2025-11 / 2026-01 | see 21.1 | | editing verified earlier on the tiny pipeline and Kontext numbers (section 15); the 9B model shares the code |
+| 3 | Qwen/Qwen-Image-Edit-2511, -2509, Qwen-Image-Edit (unsloth GGUF 1.0M, QuantStack GGUF 192k, lightx2v Lightning 881k) | Alibaba (Qwen); apache-2.0 | 2025-08 to 12 | 237k / 1.6k, 595k / 1.3k, 148k / 2.6k | diffusers, GGUF | **needs pipeline, not a new transformer**: `QwenImageEditPlusPipeline` runs the supported Qwen-Image transformer, but the prompt goes through Qwen2.5-VL with the reference images in it (the VLM's vision tower and image tokens in the text-encoder graph, a processor with its own resizing), and the reference latents are appended to the image tokens with their own RoPE frame indices. Section 15 lists "Qwen-Image-Edit" as missing |
+| 4 | FireRedTeam/FireRed-Image-Edit-1.0 | FireRed; apache-2.0 | 2026-02-12 | 45k / 358 | diffusers (`QwenImageEditPlusPipeline`) | needs the same pipeline as #3 |
+| 5 | jdopensource/JoyAI-Image-Edit-Diffusers | JD; apache-2.0 | 2026-04-10 | 105k / 23 | diffusers | needs arch: `JoyImageEditTransformer3DModel` over a Wan VAE with a Qwen3-VL text encoder |
+| 6 | timbrooks/instruct-pix2pix | Tim Brooks; MIT | 2023-01-20 | 80k / 1.2k | diffusers | needs support (small): SD 1.5 UNet with 8 input channels (noise + image latents) and the two-scale guidance (text and image) |
+| 7 | stable-diffusion-v1-5/stable-diffusion-inpainting, stabilityai/stable-diffusion-xl-refiner-1.0 | Runway, Stability AI | 2022 / 2023 | 271k / 122, 113k / 2.1k | diffusers | missing, as in section 15 (9-channel inpainting UNet with mask input; the refiner's single-encoder conditioning and aesthetic scores) |
+| 8 | MiniMax-H3-Image (editing mode), flux-3-image-klein (editing), Fibo-2.0-edit-turbo | | | | | needs the arch of 21.1 #1, #13, #19 |
+| 9 | LoRA and adapter repositories (Qwen-Image-Edit multiple-angles, AnyPose, Anything2Real, BFS face swap, MOSS control LoRAs, krea2 anypaint / pose controlnet) | community | | | | community only |
+
+### 21.3 Findings and fixes
+
+- **SD-Turbo ran with guidance 7.5.** The diffusers folder carries the distillation only in its scheduler (Euler on trailing timesteps); the
+  importer gave it the generic defaults, so an image without an explicit guidance came out oversaturated (10 dB from diffusers). Folders whose
+  name (or `_name_or_path`) says "turbo" with such a scheduler now default to 4 steps without guidance
+  (`SchedulerSettings.WithDistilledDefaults`; SDXL-Turbo single files already had it by file name). Tests: `SchedulerDistilledDefaultsTests`.
+- **The undistilled Z-Image ran as the Turbo** (9 steps, no guidance, shift 3) and its prediction was NaN on Vulkan. Three fixes (`ZImageConfig`,
+  `ZImageHyperParameters`): the base model is recognized by its scheduler shift (6, folders) or its file name (`z-image`, `z_image`
+  without "turbo", transformer-only files) and gets classifier-free guidance, 50 steps and shift 6; its default guidance is 5 because
+  diffusers' Z-Image pipeline combines `pos + g * (pos - neg)` (its default `guidance_scale` 4), the usual scale `1 + g` (as for Krea 2; with 4
+  the 8-step comparison was 15.6 dB, with 5 it is 28.7 dB); and its transformer keeps f32 activations in every matrix product and f32 attention
+  products (`zimage.transformer.f32_activations`): with either of the two f16 shortcuts of the Turbo path alone the prediction at the noisy
+  timesteps (sigma >= 0.75) overflowed to NaN on the real prompt features (random features passed, which is why the graph test did not see it).
+  The f32 paths are slower than the Turbo's (not measured). Tests: `ZImageBaseConfigTests`; the whole-image comparisons of 21.4.
+- A harness for any further checkpoint: `tools/make-hot-imagegen-references.py` (diffusers reference with fixed latents for FLUX.2 Klein,
+  Z-Image and SD folders) and `HotSweepTests` (manifest per model under `~/models/hot-imagegen`, `SHARPLIGHT_HOT_ROOT`,
+  `SHARPLIGHT_HOT_FILTER`, `SHARPLIGHT_HOT_DEVICE`).
+
+### 21.4 Results of this round (2026-11-18)
+
+All on Vulkan (GPU 0, one RTX PRO 4500), 512x512, the same initial latents as the diffusers reference (f32, the GGUF transformer dequantized
+on the fly where there is one), PSNR of the 8-bit images:
+
+| Model | Files | Steps / guidance | PSNR |
+|---|---|---|---|
+| SD-Turbo | stabilityai/sd-turbo fp16 folder | 1 / none | 54.0 dB |
+| FLUX.2 Klein base 4B | unsloth Q8_0 GGUF, text encoder and VAE of the Klein 4B folder | 28 / 4 | 36.6 dB |
+| FLUX.2 Klein 9B | unsloth Q8_0 GGUF, the unsloth mirror's Qwen3-8B text encoder and VAE | 4 / none | 29.8 dB (visually identical; the 4B distilled model measured 40 dB, the 9B is 2x the transformer to accumulate the Q8_0 / bf16 differences over) |
+| Z-Image (undistilled) | unsloth Q8_0 GGUF, the pipeline's text encoder and VAE | 28 and 8 / 4 (scale 5 here) with negative prompt | 31.5 dB and 28.7 dB (before the fixes the output was a gray NaN image, 8.5 dB) |
+
+Needs a new architecture (none implemented in this branch): MiniMax-H3-Image, MOSS-Image (and Kromoss), FLUX.3 Klein (`Flux3Transformer2DModel`),
+Fibo 2.0, JoyAI-Image-Edit. Needs pipeline work on supported transformers: Qwen-Image-Edit / -2509 / -2511 and FireRed-Image-Edit (VLM with images in the prompt plus reference latents),
+InstructPix2Pix (8-channel UNet, two guidance scales); inpainting and the SDXL refiner stay as in section 15.

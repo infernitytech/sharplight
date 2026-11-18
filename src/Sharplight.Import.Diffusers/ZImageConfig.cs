@@ -19,6 +19,12 @@ internal sealed record ZImageConfig
     /// <summary>The Qwen3 chat template the pipeline puts the prompt into (one user turn, thinking enabled: no empty think block).</summary>
     public const string PromptTemplate = "<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n";
 
+    /// <summary>
+    /// The undistilled model's default guidance scale. diffusers' Z-Image pipeline combines <c>pos + g · (pos − neg)</c> with its default
+    /// <c>guidance_scale</c> 4, which is the usual <c>neg + (1 + g) · (pos − neg)</c> with scale 5 (as for Krea 2).
+    /// </summary>
+    public const double BaseGuidance = 5.0;
+
     /// <summary>Prompt tokens of the pipeline.</summary>
     public const int PromptLength = 512;
 
@@ -57,6 +63,12 @@ internal sealed record ZImageConfig
 
     /// <summary>Flow scheduler: static shift.</summary>
     public float Shift { get; init; } = 3f;
+
+    /// <summary>
+    /// Whether the model is the few-step distilled Z-Image-Turbo (9 steps, no guidance; the default) or the undistilled Z-Image (50 steps,
+    /// classifier-free guidance with a negative prompt (scale 5 in the usual convention, diffusers' 4), shift 6).
+    /// </summary>
+    public bool Distilled { get; init; } = true;
 
     /// <summary>The original scheduler configuration, or null.</summary>
     public string? SchedulerJson { get; init; }
@@ -109,8 +121,25 @@ internal sealed record ZImageConfig
         }
 
         using var document = JsonDocument.Parse(schedulerJson);
-        return result with { Shift = document.RootElement.Float("shift", 3f), SchedulerJson = schedulerJson };
+        float shift = document.RootElement.Float("shift", 3f);
+
+        // The Turbo's scheduler shifts by 3, the base model's by 6.
+        return result with { Shift = shift, SchedulerJson = schedulerJson, Distilled = shift < 5f };
     }
+
+    /// <summary>
+    /// This configuration for a transformer file recognized by its name: files named like the base model (<c>z-image</c>, <c>z_image</c>
+    /// without "turbo") are the undistilled Z-Image, everything else the Turbo (or a fine-tune of it).
+    /// </summary>
+    /// <param name="fileName">The file name.</param>
+    public ZImageConfig WithFileName(string fileName)
+        => IsBaseName(fileName) ? this with { Distilled = false, Shift = 6f } : this;
+
+    /// <summary>Whether a model name is the undistilled Z-Image's (it starts with z-image / z_image and does not say turbo).</summary>
+    /// <param name="name">A file or folder name.</param>
+    public static bool IsBaseName(string name)
+        => !name.Contains("turbo", StringComparison.OrdinalIgnoreCase)
+            && (name.StartsWith("z-image", StringComparison.OrdinalIgnoreCase) || name.StartsWith("z_image", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Writes the transformer, scheduler, family and default keys.</summary>
     /// <param name="metadata">The canonical metadata.</param>
@@ -130,6 +159,7 @@ internal sealed record ZImageConfig
         metadata[t + "rope_theta"] = RopeTheta;
         metadata[t + "time_scale"] = 1000f;
         metadata[t + "norm_eps"] = NormEps;
+        metadata[t + "f32_activations"] = !Distilled;
         metadata[t + "sample_size"] = 1024;
         string s = Prefix + "scheduler.";
         metadata[s + "train_steps"] = 1000;
@@ -146,7 +176,8 @@ internal sealed record ZImageConfig
         metadata[Prefix + "vae.scaling_factor"] = FluxConfig.VaeScalingFactor;
         metadata[Prefix + "vae.shift_factor"] = FluxConfig.VaeShiftFactor;
         metadata[Prefix + "vae.latent_rgb_factors"] = FluxConfig.RgbFactors;
-        metadata[Prefix + "default_steps"] = 9;
-        metadata[Prefix + "default_guidance"] = 0.0;
+        metadata[Prefix + "default_steps"] = Distilled ? 9 : 50;
+        metadata[Prefix + "default_guidance"] = Distilled ? 0.0 : BaseGuidance;
+        metadata[Prefix + "classifier_free_guidance"] = !Distilled;
     }
 }

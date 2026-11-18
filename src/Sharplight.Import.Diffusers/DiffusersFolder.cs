@@ -142,6 +142,8 @@ internal static class DiffusersFolder
             string schedulerPath = Path.Combine(path, "scheduler", "scheduler_config.json");
             var scheduler = File.Exists(schedulerPath) ? SchedulerSettings.FromDiffusers(File.ReadAllText(schedulerPath)) : new SchedulerSettings();
             string displayName = Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)));
+            string? origin = File.Exists(Path.Combine(path, "model_index.json")) ? ReadJson(path, "", "model_index.json").String("_name_or_path", "") : null;
+            scheduler = scheduler.WithDistilledDefaults(displayName, origin);
             return LatentDiffusionSource.Create("diffusers", displayName, path, weights, unet, vae, text, vocabulary, scheduler, tensors.Resources,
                 secondText, secondPadId, zeroEmptyNegative);
         }

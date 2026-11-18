@@ -28,7 +28,7 @@ internal static class ZImageCheckpoint
             var weights = new CanonicalWeights();
             ZImageNames.Add(tensors.Tensors, prefix, weights);
             string format = CheckpointTensors.IsGguf(path) ? "gguf" : "safetensors";
-            return ZImageSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, ZImageConfig.FromWeights(weights.Weights), tensors.Resources);
+            return ZImageSource.Create(format, Path.GetFileNameWithoutExtension(path), path, weights, ZImageConfig.FromWeights(weights.Weights).WithFileName(Path.GetFileName(path)), tensors.Resources);
         }
         catch
         {
