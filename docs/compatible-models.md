@@ -359,6 +359,7 @@ Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical u
 | Table Transformer structure recognition | microsoft/table-transformer-structure-recognition | detection | same 13 detections as transformers on a synthetic table (rows, columns, column header, table), boxes within 2 px, scores within 0.02, CPU and Vulkan | fixed square canvas; hot-model sweep 2026-11-17 (1.2M downloads in 30 days) | 2026-11-17 |
 | Depth Anything 3 small | depth-anything/DA3-SMALL | depth | depth map 3.1e-5 (CPU) / 3.0e-5 (Vulkan) | fixed 504 px square canvas; single-image depth (the camera branch and rays are not read); DualDPT depth branch | 2026-11-18 |
 | Depth Anything 3 large | depth-anything/DA3-LARGE | depth | depth map 1.8e-5 (CPU and Vulkan); CC-BY-NC-4.0 | fixed 504 px square canvas; single-image depth (the camera branch and rays are not read); DualDPT depth branch | 2026-11-18 |
+| RF-DETR large | Roboflow/rf-detr-large | detection | same five detections as transformers, boxes within 0.3 px, scores within 3.3e-3 | fixed 704 px square canvas; detection model only (the instance-segmentation models are not supported) | 2026-11-18 |
 <!-- verified-catalog:end -->
 
 ## 6. Audio
