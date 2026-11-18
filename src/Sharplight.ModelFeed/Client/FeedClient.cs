@@ -26,6 +26,11 @@ public sealed class FeedClient
     {
         ArgumentNullException.ThrowIfNull(transport);
         ArgumentNullException.ThrowIfNull(options);
+        if (options.Channel is not null && !FeedLayout.IsValidChannel(options.Channel))
+        {
+            throw new ArgumentException($"'{options.Channel}' is not a valid channel name.", nameof(options));
+        }
+
         if (options.RequireSignature && options.TrustedRoots.Count == 0)
         {
             throw new ArgumentException("Signatures are required but no trusted root key is configured.", nameof(options));
@@ -41,6 +46,12 @@ public sealed class FeedClient
     /// <summary>The feed's transport.</summary>
     public IFeedTransport Transport => _transport;
 
+    /// <summary>The channel read, or <see langword="null"/>.</summary>
+    public string? Channel => _options.Channel;
+
+    /// <summary>The key under which the accepted sequence is remembered: the location, plus <c>#channel</c> for a channel.</summary>
+    public string StateKey => _options.Channel is null ? _transport.Location : $"{_transport.Location}#{_options.Channel}";
+
     /// <summary>Reads and verifies the index and every catalog page, and records the accepted sequence.</summary>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The snapshot.</returns>
@@ -51,7 +62,8 @@ public sealed class FeedClient
     {
         var now = _time.GetUtcNow();
         var warnings = new List<string>();
-        var indexBytes = await RequireAsync(FeedLayout.ServiceIndex, cancellationToken).ConfigureAwait(false);
+        var channel = _options.Channel;
+        var indexBytes = await RequireAsync(FeedLayout.InChannel(channel, FeedLayout.ServiceIndex), cancellationToken).ConfigureAwait(false);
         FeedKeySet? keySet = null;
         if (_options.RequireSignature)
         {
@@ -70,9 +82,14 @@ public sealed class FeedClient
             throw new FeedFormatException($"Feed index schema version {index.SchemaVersion} is not supported (1 is).");
         }
 
+        if (!string.Equals(index.Channel, channel, StringComparison.Ordinal))
+        {
+            throw new FeedVerificationException($"The feed index is for channel '{index.Channel ?? "(none)"}', not '{channel ?? "(none)"}'.");
+        }
+
         if (keySet is not null)
         {
-            var indexSignature = await RequireAsync(FeedLayout.ServiceIndexSignature, cancellationToken).ConfigureAwait(false);
+            var indexSignature = await RequireAsync(FeedLayout.InChannel(channel, FeedLayout.ServiceIndexSignature), cancellationToken).ConfigureAwait(false);
             DetachedSignature.Verify(indexBytes, indexSignature, kid => FeedTrust.ResolveFeedKey(keySet, kid, index.Updated), "The feed index");
         }
 
@@ -92,7 +109,7 @@ public sealed class FeedClient
         }
 
         var indexDigest = FeedDigest.Of(indexBytes);
-        var previous = await _state.GetAsync(_transport.Location, cancellationToken).ConfigureAwait(false);
+        var previous = await _state.GetAsync(StateKey, cancellationToken).ConfigureAwait(false);
         if (previous is not null)
         {
             if (index.Sequence < previous.Sequence)
@@ -124,10 +141,10 @@ public sealed class FeedClient
 
         if (previous is null || index.Sequence > previous.Sequence)
         {
-            await _state.SetAsync(_transport.Location, new FeedState { Sequence = index.Sequence, IndexDigest = indexDigest, Updated = index.Updated }, cancellationToken).ConfigureAwait(false);
+            await _state.SetAsync(StateKey, new FeedState { Sequence = index.Sequence, IndexDigest = indexDigest, Updated = index.Updated }, cancellationToken).ConfigureAwait(false);
         }
 
-        return new FeedSnapshot(_transport.Location, index, indexDigest, keySet, keySet is not null, [.. packages.OrderBy(package => package.Id, StringComparer.Ordinal)], warnings);
+        return new FeedSnapshot(_transport.Location, channel, index, indexDigest, keySet, keySet is not null, [.. packages.OrderBy(package => package.Id, StringComparer.Ordinal)], warnings);
     }
 
     /// <summary>Reads a package's version list, verified against the snapshot.</summary>
@@ -141,7 +158,7 @@ public sealed class FeedClient
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var summary = snapshot.Find(id) ?? throw new KeyNotFoundException($"The feed has no package '{id}'.");
-        var bytes = await RequireAsync(FeedLayout.PackageIndex(id), cancellationToken).ConfigureAwait(false);
+        var bytes = await RequireAsync(FeedLayout.InChannel(snapshot.Channel, FeedLayout.PackageIndex(id)), cancellationToken).ConfigureAwait(false);
         FeedDigest.Require(bytes, summary.IndexDigest, $"The package index of {id}");
         var packageIndex = FeedJson.Read(bytes, FeedJsonContext.Default.FeedPackageIndex, $"The package index of {id}");
         if (packageIndex.Id != id)

@@ -91,15 +91,27 @@ Readers ignore unknown fields; `schemaVersion` changes only for breaking changes
 
 ## Feed layout
 
+A feed has channels (the official one: `stable` and `unstable`). Package versions are stored once and shared by every channel; each
+channel has its own signed listing:
+
 ```
-index.json, index.sig                          service index and its signature
-keys/keyset.json, keys/keyset.sig              feed keys, signed by a root key
-catalog/index.json                             list of pages
-catalog/page/<n>.json                          package summaries, 200 per page, ordered by id
-packages/<id>/index.json                       all versions of a package: manifest digest, size, publication time, current state,
-                                               requirements and dependencies (what resolution needs)
-packages/<id>/<version>/manifest.json, manifest.sig, <id>.<version>.slm
+keys/keyset.json, keys/keyset.sig                         feed keys, signed by a root key                        (shared)
+packages/<id>/<version>/manifest.json, manifest.sig,
+                        <id>.<version>.slm                the immutable package version                         (shared)
+<channel>/index.json, <channel>/index.sig                 the channel's service index and its signature
+<channel>/catalog/index.json                              list of pages
+<channel>/catalog/page/<n>.json                           package summaries, 200 per page, ordered by id
+<channel>/packages/<id>/index.json                        the versions listed in this channel: manifest digest, size, publication
+                                                          time, current state in this channel, requirements and dependencies
 ```
+
+- New versions are published to `unstable`; **promotion** lists an already published version in `stable` as well, without copying
+  or re-uploading anything. State (deprecated, yanked, unlisted) is per channel.
+- The service index names its channel (`"channel": "stable"`) under the signature, so one channel's index cannot be served as
+  another's. Sequence numbers and the rollback state of clients are per channel (`FeedClient.StateKey` = location + `#channel`).
+- A host configures the feed root URL plus a channel (default `stable`); switching the channel re-syncs.
+- A feed without channels keeps the channel documents at the root (`index.json`, `catalog/`, `packages/<id>/index.json` beside the
+  version folders); clients use it with no channel set.
 
 `index.json`:
 
@@ -109,8 +121,9 @@ packages/<id>/<version>/manifest.json, manifest.sig, <id>.<version>.slm
   "name": "Sharplight verified models",
   "updated": "2026-11-17T10:05:00Z",
   "expires": "2026-12-17T10:05:00Z",     // freeze protection: an expired index is rejected (accepted with a warning when allowed offline)
-  "sequence": 412,                        // strictly increasing; lower than last seen is rejected (rollback protection)
-  "resources": { "catalog": "catalog/index.json", "packages": "packages/{id}/index.json", "keys": "keys/keyset.json" },
+  "sequence": 412,                        // strictly increasing per channel; lower than last seen is rejected (rollback protection)
+  "channel": "stable",                    // the channel this index lists (absent for a feed without channels)
+  "resources": { "catalog": "stable/catalog/index.json", "packages": "stable/packages/{id}/index.json", "keys": "keys/keyset.json" },
   "catalog": { "pages": 3, "packages": 412, "digest": "sha256:..." }
 }
 ```
@@ -121,7 +134,7 @@ mirrors and peers need no trust. A page entry carries what a listing needs witho
 versions, display, publisher and country of origin, license, model (kind, tasks, capabilities, size data), requirements,
 dependencies, size, state, manifest and package index digests.
 
-Caching: `index.json`, `index.sig`, `catalog/**` and `packages/<id>/index.json` short-lived (`no-cache`, ETag); everything under
+Caching: the channel documents (`<channel>/**`) and the key set short-lived (`no-cache`, ETag); everything under
 `packages/<id>/<version>/` immutable (`max-age=31536000, immutable`). Package files are read with range requests. Publication is
 atomic from a reader's view: package objects first, package indexes and pages next, `index.json` and `index.sig` last.
 
@@ -151,17 +164,18 @@ atomic from a reader's view: package objects first, package indexes and pages ne
 |---|---|
 | `PackageManifest` and parts, `FeedServiceIndex`, `FeedCatalogPage`, `FeedPackageIndex`, `FeedJson` | documents (source-generated JSON) |
 | `FeedClient` (`FeedTransports.Create`: `HttpFeedTransport`, `FolderFeedTransport`) | `GetSnapshotAsync` (all checks above, records the sequence in an `IFeedStateStore`), `GetPackageIndexAsync`, `GetManifestAsync` → `VerifiedManifest` |
-| `FeedClientOptions` | trusted roots, `RequireSignature` (default on), `AllowExpiredIndex` (offline), document size limit |
+| `FeedClientOptions` | `Channel`, trusted roots (several for key rotation), `RequireSignature` (default on), `AllowExpiredIndex` (offline), document size limit |
 | `DependencyResolver`, `FeedCandidates`, `PackageCompatibility` | highest (or preferred, e.g. installed) version per id satisfying every range, host compatibility, not yanked; required and selected optional dependencies; conflicts reported, nothing partial |
 | `SemanticVersion`, `VersionRange` | SemVer 2 precedence; ranges as NuGet intervals (`[1.0.0,2.0.0)`, `1.0.0` = at least) or comparator sets (`>=1.0.0 <2.0.0`) |
 | `PackageDownloader` | download with resume (complete chunks of a `.part` file are re-checked and kept), chunk verification, fallback to the next source, final SHA-256 |
-| `FeedPublisher`, `FeedVerifier`, `FeedMirror`, `PackageFileHasher` | write and sign a feed folder, check a whole feed, copy it as an offline bundle |
+| `FeedPublisher`, `FeedVerifier`, `FeedMirror`, `PackageFileHasher` | write and sign a feed folder (`PublishAsync` into a channel, `PromoteAsync` between channels, `SetStateAsync`, `ReindexAsync`), check a channel, copy channels as an offline bundle |
 
 `services.AddModelFeed()` registers the stateless services; hosts create one `FeedClient` per configured feed.
 
 ```csharp
-var client = new FeedClient(FeedTransports.Create("https://example.org/models/v1", http),
-    new FeedClientOptions { TrustedRoots = [FeedPublicKey.Load("root.pub.json")] }, new FileFeedStateStore("feeds.json"));
+var client = new FeedClient(FeedTransports.Create("https://download.sharplight.dev/models/", http),
+    new FeedClientOptions { Channel = FeedChannels.Stable, TrustedRoots = [FeedPublicKey.Load("sharplight-feed.pub.pem")] },
+    new FileFeedStateStore("feeds.json"));
 var snapshot = await client.GetSnapshotAsync();
 var plan = await resolver.ResolveAsync([new PackageRequest("whisper-tiny.q5-1-whispercpp")], FeedCandidates.From(client, snapshot),
     new ResolutionOptions { Environment = new CompatibilityEnvironment { EngineVersion = SemanticVersion.Parse("0.1.0") } });
@@ -180,11 +194,12 @@ feedtool keygen   --out keys/feed
 feedtool keyset   --feed out/ --root-key keys/root.key.json --feed-key keys/feed.pub.json [--revoke <kid>] [--version 2]
 feedtool plan     [--feed out/]                                       # variants without a package for their pinned revision
 feedtool build    --entry qwen3-0.6b [--variant q8-0-gguf] --out staging/ [--feed out/] [--store <model store>]
-feedtool publish  staging/<id>-<version> ... --feed out/ --key keys/feed.key.json [--validity-days 30]
-feedtool yank|deprecate|unlist <id> <version> --feed out/ --key keys/feed.key.json --reason ...
-feedtool reindex  --feed out/ --key keys/feed.key.json                # new sequence and expiry, no content change
-feedtool verify   --feed <url|folder> [--root keys/root.pub.json] [--files]       # default root: the official feed key
-feedtool mirror   --feed <url|folder> [--root keys/root.pub.json] --out bundle/ [--filter <id prefix>]
+feedtool publish  staging/<id>-<version> ... --feed out/ --key keys/feed.key.json --channel unstable [--validity-days 30]
+feedtool promote  <id>[@<version>] ... --feed out/ --key keys/feed.key.json [--to stable] [--from unstable]   # no file copies
+feedtool yank|deprecate|unlist <id> <version> --feed out/ --key keys/feed.key.json --channel <channel> --reason ...
+feedtool reindex  --feed out/ --key keys/feed.key.json --channel <channel>   # new sequence and expiry, no content change
+feedtool verify   --feed <url|folder> --channel stable [--root keys/root.pub.json] [--files]   # default root: the official key
+feedtool mirror   --feed <url|folder> --channel stable [--root ...] --out bundle/ [--filter <id prefix>]   # once per channel
 ```
 
 (`dotnet run --project tools/model-feed/Sharplight.FeedTool -- <command>`.)
@@ -193,7 +208,7 @@ feedtool mirror   --feed <url|folder> [--root keys/root.pub.json] --out bundle/ 
   merged, opens the result, hashes and chunks it and writes `manifest.json` from the catalog entry (license, publisher, verification,
   provenance) and the overlay `tools/model-feed/feed-overlay.json` (feed-only data: dependencies, summaries, languages, minimum host
   version, listing state).
-- Versions are chosen by the tool against the feed: first build 1.0.0; another pinned revision `MAJOR`+1; the same pins rebuilt
+- Versions are chosen by the tool against the stored versions of the feed (all channels): first build 1.0.0; another pinned revision `MAJOR`+1; the same pins rebuilt
   `MINOR`+1; an identical package file is not built again.
 - `publish` signs each manifest and the new index; published versions are immutable (publishing other content under an existing
   version fails). `keyset` needs the root key, nothing else does.
@@ -202,19 +217,49 @@ feedtool mirror   --feed <url|folder> [--root keys/root.pub.json] --out bundle/ 
 ## Publishing the official feed
 
 The official feed lives in the Cloudflare R2 bucket of the Studio downloads under `models/`: https://download.sharplight.dev/models/
-(`index.json` there). It is published by `.github/workflows/model-feed.yml` (manual dispatch only, environment `studio-release`, the
+(channels `stable/index.json` and `unstable/index.json` there; hosts default to stable). It is published by `.github/workflows/model-feed.yml` (a push to develop that changes `tools/model-feed/publish-request.json`, manual dispatch, plus a weekly re-sign; environment `studio-release`, the
 same R2 secrets as `studio.yml`):
+
+**Publish requests.** Until the workflow is on the default branch, the trigger is a commit to develop that changes
+`tools/model-feed/publish-request.json`:
+
+```json
+{
+  "entries": ["qwen3-0.6b:q8-0-gguf", "silero-vad-v5:onnx"],
+  "channel": "stable",
+  "promote": ["qwen3-0.6b.q8-0-gguf@1.0.0", "silero-vad-v5.onnx"],
+  "validityDays": 30,
+  "reason": "why this publication"
+}
+```
+
+`entries` are `entry` or `entry:variant` ids of the verified catalog (default variant: the recommended one); they are built and
+published to `unstable`. `promote` lists package versions (`id@version`, or `id` for its latest version in unstable) to add to
+`channel`, which is `stable` (promotions go from unstable to stable). With neither, the run only re-signs. Manual dispatch (inputs
+`entries`, `promote`, `validity_days`) and the schedule work once the workflow is on the default branch. A run:
 
 1. Fetches the published listings (no package files), writes a key set if the bucket has none.
 2. Builds the requested catalog entries (`entry` or `entry:variant`; default: the first feed: Qwen3 0.6B Q8_0, all-MiniLM-L6-v2,
    ms-marco-MiniLM-L6-v2, Whisper tiny q5_1, Silero VAD v5); versions are chosen against the published feed, an identical package
    is not built again.
-3. Publishes into the local copy, signs, and verifies it against the official public key.
-4. Uploads new package versions first (`Cache-Control: public, max-age=31536000, immutable`; an existing object is never replaced),
-   then package indexes, catalog pages, `catalog/index.json`, `index.json` and `index.sig` (`no-cache`). Nothing is ever deleted.
+3. Publishes the builds into `unstable`, promotes the listed versions into `stable`, re-signs both channels' indexes (so every run
+   refreshes both expiries), and verifies both channels against the official public key.
+4. Uploads new package versions first to `models/packages/` (`Cache-Control: public, max-age=31536000, immutable`; an existing
+   object is never replaced), then per channel (`models/unstable/`, then `models/stable/`) the package indexes, catalog pages,
+   `catalog/index.json`, `index.json` and `index.sig` (`no-cache`). Nothing is ever deleted.
+
+The first publication (`tools/model-feed/publish-request.json` as committed) builds the five first-feed packages into unstable and
+promotes all of them, so both channels list the same five packages.
 
 Without the secret `MODEL_FEED_SIGNING_KEY` (or with incomplete R2 secrets) the workflow builds nothing and says so in a warning.
-An index expires after `validity_days` (default 30): run the workflow with no entries before that to re-sign it.
+
+An index expires after `validity_days` (default 30) and hosts reject an expired index (freeze protection). A **weekly scheduled run**
+(Mondays 04:17 UTC) therefore only re-signs the index: no builds, a new sequence and a new expiry 30 days ahead. Any run without
+entries does the same, and does nothing before the first publication.
+
+**Until the next release** the weekly re-sign does not run: schedules (like dispatch) only run for workflows on the default branch
+(main), and the `studio-release` environment admits only develop and release/*. Until then, re-sign at least every three weeks by
+committing to develop a `publish-request.json` with empty `entries` and `promote` lists (and a new `reason`, so the file changes).
 
 ### Publishing keys
 
