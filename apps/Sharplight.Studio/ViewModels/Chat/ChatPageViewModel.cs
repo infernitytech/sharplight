@@ -17,6 +17,8 @@ internal sealed partial class ChatPageViewModel : PageViewModel
     private const int MaxOpenConversations = 8;
 
     private readonly List<ConversationItemViewModel> _all = [];
+    private static readonly CapabilityBadges s_noBadges = new(ModelCapabilities.None);
+
     private readonly Dictionary<string, ConversationViewModel> _open = new(StringComparer.Ordinal);
     private bool _loaded;
 
@@ -96,7 +98,7 @@ internal sealed partial class ChatPageViewModel : PageViewModel
     private void GetModel() => _navigator.OpenWelcome();
 
     /// <summary>Badges of the selected model.</summary>
-    public CapabilityBadges? SelectedBadges => SelectedModel?.Badges;
+    public CapabilityBadges SelectedBadges => SelectedModel?.Badges ?? s_noBadges;
 
     /// <inheritdoc/>
     public override async Task ActivateAsync()
