@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <ProjectReference Include="../../src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
+    <!-- The graph builder and weight helpers of the GPU kernel suite. -->
+    <Compile Include="../Sharplight.Vulkan.Tests/TG.cs" Link="Shared/TG.cs" />
+    <Compile Include="../Sharplight.Vulkan.Tests/MemSource.cs" Link="Shared/MemSource.cs" />
+    <Compile Include="../Sharplight.Vulkan.Tests/Rnd.cs" Link="Shared/Rnd.cs" />
+    <Compile Include="../Sharplight.Vulkan.Tests/MemoryStore.cs" Link="Shared/MemoryStore.cs" />
+  </ItemGroup>
+</Project>

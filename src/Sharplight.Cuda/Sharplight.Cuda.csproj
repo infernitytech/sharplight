@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>CUDA execution provider for Sharplight (NVIDIA GPUs): the Slang kernel library compiled to CUDA C++ and PTX, run through the CUDA driver API. Needs only the NVIDIA driver; the runtime compiler (NVRTC) comes with Sharplight.Cuda.Runtime.</Description>
+    <PackageTags>$(PackageTags);cuda;nvidia</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Shaders/Sharplight.Shaders.csproj" />
+    <!-- NVRTC and the headers it compiles against, copied next to the application (a package dependency of Sharplight.Cuda). -->
+    <ProjectReference Include="../Sharplight.Cuda.Runtime/Sharplight.Cuda.Runtime.csproj" ReferenceOutputAssembly="false" />
+    <InternalsVisibleTo Include="Sharplight.Cuda.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Vulkan.Tests" />
+  </ItemGroup>
+</Project>
