@@ -16,6 +16,11 @@
     <ProjectReference Include="../../apps/Sharplight.Studio/Sharplight.Studio.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The model feed tests' generated local feed. -->
+    <Compile Include="../Sharplight.ModelFeed.Tests/TestFeed.cs" Link="Feed/TestFeed.cs" />
+    <Compile Include="../Sharplight.ModelFeed.Tests/ManualTime.cs" Link="Feed/FeedManualTime.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- Header-only GGUF fixtures (metadata and tensor table, no data), shared with the importer tests. -->
     <Content Include="../Sharplight.Import.Gguf.Tests/Fixtures/*.gguf" Link="Fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

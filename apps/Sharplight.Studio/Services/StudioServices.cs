@@ -1,6 +1,7 @@
 using Sharplight.Audio;
 using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Documents;
+using Sharplight.Studio.Services.Feed;
 using Sharplight.Studio.Services.Hub;
 using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Monitoring;
@@ -36,4 +37,5 @@ internal sealed record StudioServices(
     IAudioRecorder Recorder,
     IAudioDecoder Decoder,
     IAudioDeviceProvider AudioDevices,
-    IStorageLocationService StorageLocation);
+    IStorageLocationService StorageLocation,
+    IFeedService Feed);

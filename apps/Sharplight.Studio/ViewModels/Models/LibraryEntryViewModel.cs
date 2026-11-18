@@ -70,6 +70,31 @@ internal sealed partial class LibraryEntryViewModel : ObservableObject
     /// <summary>The precompiled sets, one per line, for the badge's tooltip.</summary>
     public string PrecompiledTip => "Precompiled code stored in the package (loads fast):\n" + string.Join("\n", Entry.Precompiled);
 
+    /// <summary>The model came from the Sharplight model feed (a signed, preconverted package).</summary>
+    public bool IsFromFeed => Entry.Manifest?.FeedPackage is not null;
+
+    /// <summary>The installed feed version, e.g. <c>Feed 1.0.0</c>.</summary>
+    public string FeedText => Entry.Manifest?.FeedVersion is { } version ? $"Feed {version}" : "";
+
+    /// <summary>A newer version than the installed one is in the feed; null when none is known.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFeedUpdate), nameof(FeedUpdateText), nameof(CanUpdateFromFeed))]
+    public partial string? FeedUpdateVersion { get; set; }
+
+    /// <summary>The model is being replaced by the newer version.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanUpdateFromFeed))]
+    public partial bool IsUpdating { get; set; }
+
+    /// <summary>A newer feed version exists.</summary>
+    public bool HasFeedUpdate => FeedUpdateVersion is not null;
+
+    /// <summary>The badge text, e.g. <c>Update 1.1.0</c>.</summary>
+    public string FeedUpdateText => FeedUpdateVersion is { } version ? $"Update {version}" : "";
+
+    /// <summary>The update button is offered.</summary>
+    public bool CanUpdateFromFeed => HasFeedUpdate && !IsUpdating;
+
     /// <summary>A file outside the store.</summary>
     public bool IsLocalFile => Entry.IsLocalFile;
 

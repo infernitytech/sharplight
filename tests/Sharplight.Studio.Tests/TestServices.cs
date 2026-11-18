@@ -24,7 +24,7 @@ internal sealed class TestServices : IDisposable
         Stats = new SqliteStatsStore(database);
         Services = new StudioServices(Settings, Runtime, Hub, Library, Conversations, Stats, Server, new DocumentExtractor(), Platform,
             Platform, dispatcher ?? Platform, Platform, Updates, Precompiler, new FilePageStorage(_dir.File("pages")), Audio, Audio, decoder ?? new WavAudioDecoder(), AudioDevices,
-            CreateStorage(Settings, _dir.File("app"), _dir.File("home")));
+            CreateStorage(Settings, _dir.File("app"), _dir.File("home")), Feed);
     }
 
     /// <summary>A custom storage layout in <paramref name="root"/>, for services that need one.</summary>
@@ -62,6 +62,8 @@ internal sealed class TestServices : IDisposable
     public FakePlatform Platform { get; } = new();
 
     public FakeUpdates Updates { get; } = new();
+
+    public FakeFeed Feed { get; } = new();
 
     public FakePrecompiler Precompiler { get; } = new();
 

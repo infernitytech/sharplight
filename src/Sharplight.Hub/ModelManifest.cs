@@ -63,6 +63,15 @@ public sealed class ModelManifest
     /// </summary>
     public string? Catalog { get; init; }
 
+    /// <summary>The model feed package this model was installed from (<c>sharplight/&lt;id&gt;</c> models), or null.</summary>
+    public string? FeedPackage { get; init; }
+
+    /// <summary>The feed package version that is installed; null when the model is not from a feed.</summary>
+    public string? FeedVersion { get; init; }
+
+    /// <summary>The feed channel (<c>stable</c>, <c>unstable</c>) the package was installed from, or null.</summary>
+    public string? FeedChannel { get; init; }
+
     /// <summary>The model's directory in the store (set when the manifest is read; not stored).</summary>
     [JsonIgnore]
     public string Directory { get; set; } = "";

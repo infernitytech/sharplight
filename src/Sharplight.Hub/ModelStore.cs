@@ -256,6 +256,24 @@ public sealed partial class ModelStore
     }
 
     /// <summary>Writes the manifest into its <see cref="ModelManifest.Directory"/> atomically (temporary file, then rename).</summary>
+    /// <summary>
+    /// Writes (or atomically replaces) the record of a model whose <see cref="ModelManifest.Directory"/> already holds its package, e.g. one
+    /// installed from a model feed. The model appears in <see cref="List"/> from then on.
+    /// </summary>
+    /// <param name="manifest">The record; <see cref="ModelManifest.Directory"/> is inside the store.</param>
+    /// <exception cref="HubException">The directory is not inside the store.</exception>
+    public void Save(ModelManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        if (!IsInside(manifest.Directory))
+        {
+            throw new HubException($"'{manifest.Directory}' is not inside the model store {Root}.");
+        }
+
+        Directory.CreateDirectory(manifest.Directory);
+        WriteManifest(manifest);
+    }
+
     internal static void WriteManifest(ModelManifest manifest)
     {
         var path = Path.Combine(manifest.Directory, ManifestFileName);

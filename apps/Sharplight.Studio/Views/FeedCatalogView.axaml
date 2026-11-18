@@ -1,0 +1,175 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.FeedCatalogView"
+             x:DataType="mvm:FeedCatalogViewModel">
+  <Grid ColumnDefinitions="*,16,420" RowDefinitions="Auto,Auto,*">
+    <StackPanel Grid.ColumnSpan="3" Spacing="8" Margin="0,0,0,12">
+      <DockPanel>
+        <Button DockPanel.Dock="Right" x:Name="FeedRefresh" Classes="small" Content="Refresh" Command="{Binding RefreshCommand}" Margin="8,0,0,0" />
+        <CheckBox DockPanel.Dock="Right" x:Name="FeedOnlyFitting" Content="Fits this machine" IsChecked="{Binding OnlyFitting}" Margin="12,0,0,0"
+                  ToolTip.Tip="Hide packages that need more memory than the GPU or system memory has (estimated)" />
+        <ComboBox DockPanel.Dock="Right" x:Name="FeedKindFilter" ItemsSource="{Binding Kinds}" SelectedItem="{Binding SelectedKind}" MinWidth="220" Margin="8,0,0,0"
+                  ToolTip.Tip="Task">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="mvm:FilterOption">
+              <TextBlock Text="{Binding Name}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBox x:Name="FeedQuery" Text="{Binding Query}" PlaceholderText="Filter feed packages, e.g. qwen, whisper, vad">
+          <TextBox.InnerLeftContent>
+            <Path Classes="icon" Data="{StaticResource IconSearch}" Width="14" Height="14" Margin="10,0,0,0" />
+          </TextBox.InnerLeftContent>
+        </TextBox>
+      </DockPanel>
+      <TextBlock Classes="caption" TextWrapping="Wrap"
+                 Text="Preconverted .slm packages with signed manifests: every file is verified against the signature and its SHA-256 before it is installed, and loads without any conversion." />
+    </StackPanel>
+
+    <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Spacing="8" Margin="0,0,0,12">
+      <Border x:Name="FeedFailureBanner" Classes="callout bad" IsVisible="{Binding HasFailure}">
+        <TextBlock x:Name="FeedFailureText" TextWrapping="Wrap" Text="{Binding FailureText}" />
+      </Border>
+      <Border x:Name="FeedOfflineBanner" Classes="callout warn" IsVisible="{Binding IsOffline}">
+        <TextBlock TextWrapping="Wrap" Text="{Binding OfflineText}" />
+      </Border>
+      <ItemsControl x:Name="FeedInstalls" ItemsSource="{Binding Installs}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="mvm:FeedInstallViewModel">
+            <Border Classes="card" Padding="14,10" Margin="0,0,0,6">
+              <StackPanel Spacing="6">
+                <DockPanel>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+                    <Button Classes="ghost icon" ToolTip.Tip="Resume where the download stopped" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}">
+                      <Path Classes="icon accent" Data="{StaticResource IconPlay}" />
+                    </Button>
+                    <Button Classes="ghost icon danger" ToolTip.Tip="Cancel (the partial download is kept)" Command="{Binding CancelCommand}" IsVisible="{Binding IsActive}">
+                      <Path Classes="icon" Data="{StaticResource IconClose}" />
+                    </Button>
+                  </StackPanel>
+                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                </DockPanel>
+                <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" IsVisible="{Binding IsActive}" />
+                <TextBlock Classes="caption" Text="{Binding Status}" TextWrapping="Wrap" />
+                <Border Classes="callout bad" IsVisible="{Binding HasError}">
+                  <TextBlock TextWrapping="Wrap" Text="{Binding Error}" />
+                </Border>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+
+    <Border Grid.Row="2" Classes="card" Padding="6">
+      <DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="8,4,8,6">
+          <ProgressBar DockPanel.Dock="Right" IsIndeterminate="True" Width="80" IsVisible="{Binding IsLoading}" VerticalAlignment="Center" />
+          <StackPanel Spacing="2">
+            <TextBlock Classes="section" Text="{Binding ListingText}" />
+            <TextBlock Classes="caption" Text="{Binding Status}" TextWrapping="Wrap" IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+        </DockPanel>
+        <ListBox x:Name="FeedPackages" Classes="plain" ItemsSource="{Binding Entries}" SelectedItem="{Binding Selected}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="mvm:FeedPackageViewModel">
+              <StackPanel Margin="12,10" Spacing="3">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding Size}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Border Classes="badge vision">
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Path Classes="icon" Data="{Binding KindIcon, Converter={x:Static conv:IconConverter.Instance}}" Width="11" Height="11" />
+                        <TextBlock Text="{Binding KindTitle}" />
+                      </StackPanel>
+                    </Border>
+                    <Border Classes="badge ok" IsVisible="{Binding IsVerified}" ToolTip.Tip="Listed in the signed feed index; the manifest and package file are verified before install">
+                      <TextBlock Text="Verified" />
+                    </Border>
+                    <Border Classes="badge accent">
+                      <TextBlock Text="{Binding Version}" />
+                    </Border>
+                    <Border Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}" IsVisible="{Binding HasFit}">
+                      <TextBlock Text="{Binding FitText}" />
+                    </Border>
+                    <Border Classes="badge tools" IsVisible="{Binding IsInstalled}">
+                      <TextBlock Text="{Binding InstalledText}" />
+                    </Border>
+                    <Border Classes="badge warn" IsVisible="{Binding HasUpdate}">
+                      <TextBlock Text="Update available" />
+                    </Border>
+                  </StackPanel>
+                </DockPanel>
+                <TextBlock Classes="caption" Text="{Binding Description}" TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <Border Grid.Row="2" Grid.Column="2" Classes="card">
+      <Panel>
+        <StackPanel IsVisible="{Binding !HasSelection}" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+          <Path Classes="icon huge" Data="{StaticResource IconCheck}" HorizontalAlignment="Center" />
+          <TextBlock Classes="muted" Text="Select a package to see its details." HorizontalAlignment="Center" />
+        </StackPanel>
+        <DockPanel IsVisible="{Binding HasSelection}">
+          <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,8,0,0">
+            <Button x:Name="FeedInstallButton" Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Command="{Binding InstallSelectedCommand}" Padding="0,9">
+              <StackPanel Orientation="Horizontal" Spacing="8" DataContext="{Binding Selected}" x:DataType="mvm:FeedPackageViewModel">
+                <Path Classes="icon" Data="{StaticResource IconDownload}" />
+                <TextBlock Text="{Binding InstallText}" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
+          <ScrollViewer>
+            <StackPanel Spacing="6" DataContext="{Binding Selected}" x:DataType="mvm:FeedPackageViewModel">
+              <TextBlock Classes="h2" Text="{Binding Name}" TextWrapping="Wrap" />
+              <TextBlock Classes="caption" Text="{Binding Id}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding Description}" TextWrapping="Wrap" FontSize="12.5" />
+              <TextBlock Classes="caption" Text="{Binding Details}" TextWrapping="Wrap" />
+              <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6">
+                <Border Classes="badge">
+                  <TextBlock Text="{Binding Size}" />
+                </Border>
+                <Border Classes="badge accent">
+                  <TextBlock Text="{Binding Version}" />
+                </Border>
+                <Border Classes="badge" IsVisible="{Binding License, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="{Binding License}" />
+                </Border>
+                <Border Classes="badge" IsVisible="{Binding Publisher, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="{Binding Publisher}" />
+                </Border>
+                <Border Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}" IsVisible="{Binding HasFit}">
+                  <TextBlock Text="{Binding FitText}" />
+                </Border>
+              </WrapPanel>
+              <Border Classes="callout bad" IsVisible="{Binding IsBlocked}">
+                <TextBlock TextWrapping="Wrap" Text="{Binding BlockedText}" />
+              </Border>
+              <Border Classes="callout warn" IsVisible="{Binding IsDeprecated}">
+                <TextBlock TextWrapping="Wrap" Text="{Binding DeprecationText}" />
+              </Border>
+              <StackPanel Spacing="3" IsVisible="{Binding HasDependencies}">
+                <TextBlock Classes="section" Text="INSTALLED WITH" />
+                <ItemsControl ItemsSource="{Binding Dependencies}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="x:String">
+                      <TextBlock Classes="caption" Text="{Binding}" Margin="10,1" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </DockPanel>
+      </Panel>
+    </Border>
+  </Grid>
+</UserControl>
