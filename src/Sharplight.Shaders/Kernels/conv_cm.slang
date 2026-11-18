@@ -79,9 +79,21 @@ typealias Elem = BFloat16;
 #else
 typealias Elem = half;
 #endif
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+#if PARTS > 1 && PARTS != 4
+typealias MatA = CuA16bf;
+typealias MatB = CuB16bf;
+#else
+typealias MatA = CuA16;
+typealias MatB = CuB16;
+#endif
+typealias Acc = CuAccF;
+#else
 typealias MatA = CoopMat<Elem, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB = CoopMat<Elem, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 struct ConvParams
 {

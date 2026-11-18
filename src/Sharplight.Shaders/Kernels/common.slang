@@ -12,6 +12,23 @@
 #define SG 32
 #endif
 
+// CUDA C++ (SL_TARGET_CUDA): wave operations run over the lanes active when they execute (__activemask(), the semantics of
+// subgroup operations on SPIR-V and MSL). Without this Slang's CUDA backend tracks the active mask through every branch and
+// loop iteration of a kernel that has a wave operation (a __ballot_sync per branch), which made the decode attention 3.5x slower
+// than its SPIR-V form. The kernels call wave operations in subgroup-uniform control flow or in branches whose lanes are
+// meant to participate, as they must for SPIR-V.
+#if SL_TARGET_CUDA
+#define WaveReadLaneAt(v, l) WaveMaskReadLaneAt(WaveGetConvergedMask(), v, l)
+#define WaveActiveSum(v) WaveMaskSum(WaveGetConvergedMask(), v)
+#define WaveActiveMax(v) WaveMaskMax(WaveGetConvergedMask(), v)
+#define WaveActiveMin(v) WaveMaskMin(WaveGetConvergedMask(), v)
+#define WaveActiveProduct(v) WaveMaskProduct(WaveGetConvergedMask(), v)
+#define WaveActiveAllTrue(c) WaveMaskAllTrue(WaveGetConvergedMask(), c)
+#define WaveActiveAnyTrue(c) WaveMaskAnyTrue(WaveGetConvergedMask(), c)
+#define WaveIsFirstLane() WaveMaskIsFirstLane(WaveGetConvergedMask())
+#define WavePrefixSum(v) WaveMaskPrefixSum(WaveGetConvergedMask(), v)
+#endif
+
 // Runtime scalar slot of the KV offset (n_past) in the `rt` buffer (uint array).
 #ifndef RT_N_PAST
 #define RT_N_PAST 0

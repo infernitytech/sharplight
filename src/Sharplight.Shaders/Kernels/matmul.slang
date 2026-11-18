@@ -579,9 +579,16 @@ using namespace linalg;
 #define CBN 128
 #define CBK 32
 #define SAS (CBK + 8)
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA = CuA16;
+typealias MatB = CuB16;
+typealias Acc = CuAccF;
+#else
 typealias MatA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared half cA[CBM * SAS];
 groupshared half cB[CBN * SAS];
@@ -870,9 +877,18 @@ using namespace linalg;
 #else
 #define GBN_OUT GBN
 #endif
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA2 = CuA16;
+typealias MatB2 = CuB16;
+typealias Acc2 = CuAccF;
+typealias AccH2 = CuAccH;
+#else
 typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+typealias AccH2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 #ifdef KERNEL_GEMM_CM2
 // Tiles hold packed halves, 8 per uint4, so staging is one 16-byte store per 8 values (offsets/strides in uint4s).
@@ -1599,7 +1615,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #endif
             if (tRow + 16 <= p.T && nCol + 16 <= N)
             {
-                CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator> h = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>(r);
+                AccH2 h = AccH2(r);
                 h.Store<CoopMatMatrixLayout.RowMajor>((half*)p.y16 + uint64_t(tRow) * N + nCol, 0u, N);
             }
             else

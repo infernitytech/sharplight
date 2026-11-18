@@ -126,9 +126,16 @@ struct Params
 #define F8_WROW(n0, r) ((n0) + (r))
 #endif
 
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA8 = CuA8f;
+typealias MatB8 = CuB8f;
+typealias AccF = CuAccF;
+#else
 typealias MatA8 = CoopMat<FloatE4M3, MemoryScope.Subgroup, 16, 32, CoopMatMatrixUse.MatrixA>;
 typealias MatB8 = CoopMat<FloatE4M3, MemoryScope.Subgroup, 32, 16, CoopMatMatrixUse.MatrixB>;
 typealias AccF = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared uint sA[F8_BM * F8_RS];
 groupshared uint sB[F8_BN * F8_RS];

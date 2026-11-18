@@ -165,7 +165,7 @@ public sealed class SlangCompiler : IDisposable
         {
             Targets = [new TargetDesc { Format = Format(target), Profile = gs.FindProfile(Profile(target)) }],
             SearchPaths = [_libraryDir],
-            PreprocessorMacros = [.. macros.Select(kv => new PreprocessorMacroDesc(kv.Key, kv.Value))],
+            PreprocessorMacros = [.. macros.Select(kv => new PreprocessorMacroDesc(kv.Key, kv.Value)), .. TargetMacros(target)],
         };
         Check(gs.CreateSession(in desc, out var session), "create session", null);
         var module = session.LoadModuleFromSourceString(Path.GetFileNameWithoutExtension(name) + "_" + entryPoint, Path.Combine(_libraryDir, name), source, out var diag);
@@ -198,6 +198,13 @@ public sealed class SlangCompiler : IDisposable
             }
         }
     }
+
+    /// <summary>
+    /// Macros naming the code generation target, for the kernels with target-specific forms: <c>SL_TARGET_CUDA</c> for CUDA C++ (the
+    /// cooperative-matrix fragments of <c>cuda_mma.slang</c>). The target is part of every cache key, so they are not.
+    /// </summary>
+    private static IEnumerable<PreprocessorMacroDesc> TargetMacros(ShaderTarget target)
+        => target == ShaderTarget.CudaSource ? [new PreprocessorMacroDesc("SL_TARGET_CUDA", "1")] : [];
 
     private static string FormatMacros(IReadOnlyDictionary<string, string> m) => string.Join(" ", m.Select(kv => $"{kv.Key}={kv.Value}"));
 

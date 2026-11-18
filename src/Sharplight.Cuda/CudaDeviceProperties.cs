@@ -110,14 +110,32 @@ internal sealed class CudaDeviceProperties
         };
     }
 
+    /// <summary>Device features with the neutral names of <see cref="DeviceFeatures"/>, see <see cref="FeaturesFor"/>.</summary>
+    public IReadOnlySet<string> Features() => FeaturesFor(ComputeCapability);
+
     /// <summary>
-    /// Device features with the neutral names of <see cref="DeviceFeatures"/>. Every listed GPU (compute capability 7.5 and later) has
-    /// half-precision arithmetic, warp collectives and the packed int8 dot product (<c>dp4a</c>). The tensor-core features are not
-    /// reported yet: Slang's CUDA backend implements 16x16x16 cooperative matrices with <c>mma.sync</c>, but it cannot emit the
-    /// tensor-core GEMM <c>gemm_cm2</c> ("unexpected IR opcode during code emit", like its Metal backend), so those kernels keep their SIMT
-    /// fallbacks until they have CUDA forms (docs/cuda.md, phase 2).
+    /// Device features of a compute capability. Every listed GPU (7.5 and later) has half-precision arithmetic, warp collectives, the
+    /// packed int8 dot product (<c>dp4a</c>) and a fixed warp size of 32 (<see cref="DeviceFeatures.SubgroupSizeControl"/>). From 8.0
+    /// (Ampere) the tensor cores run the cooperative-matrix kernels through their CUDA forms (<c>cuda_mma.slang</c>: <c>ldmatrix</c> and
+    /// <c>mma.sync</c> on f16, bf16 and int8 with the MMA register layout, <see cref="DeviceFeatures.MatrixMmaLayout"/>), and bfloat16
+    /// is native; from 8.9 (Ada, Hopper, Blackwell) also E4M3 (<c>mma.sync ... e4m3</c>) and the 8-bit float types. Turing (7.5) has
+    /// <c>mma.sync</c> only in smaller shapes and keeps the SIMT kernels.
     /// </summary>
-    public IReadOnlySet<string> Features() => new HashSet<string> { DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.IntDot };
+    public static IReadOnlySet<string> FeaturesFor(int computeCapability)
+    {
+        var features = new HashSet<string> { DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.IntDot, DeviceFeatures.SubgroupSizeControl };
+        if (computeCapability >= 80)
+        {
+            features.UnionWith([DeviceFeatures.MatrixF16, DeviceFeatures.MatrixBF16, DeviceFeatures.MatrixInt8, DeviceFeatures.MatrixMmaLayout, DeviceFeatures.BFloat16]);
+        }
+
+        if (computeCapability >= 89)
+        {
+            features.UnionWith([DeviceFeatures.MatrixFp8, DeviceFeatures.Float8]);
+        }
+
+        return features;
+    }
 
     public DeviceInfo ToDeviceInfo(int index) => new()
     {

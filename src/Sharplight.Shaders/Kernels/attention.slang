@@ -914,9 +914,16 @@ using namespace linalg;
 #define FA_PS (FA_BC + 8)
 #define FA_DC 64
 #define FA_NC (FA_DVP / FA_DC)
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias FaA = CuA16;
+typealias FaB = CuB16;
+typealias FaC = CuAccF;
+#else
 typealias FaA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias FaB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias FaC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 // FA_FRAG8 (DeviceFeatures.MatrixF16Small, Metal simdgroup_matrix): each 16x16 tile of S and of P·V is computed as 2 x 2 fragments of
 // 8x8 over K steps of 8, with the same shared-memory layout and stores.
 #ifndef FA_FRAG8
@@ -1411,9 +1418,16 @@ using namespace linalg;
 #define FE_ND (FE_DP / 16)
 #define FE_NO (FE_DVP / 16)
 #define FE_P_SCALE 4096.0
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias FeA = CuA16;
+typealias FeB = CuB16;
+typealias FeC = CuAccF;
+#else
 typealias FeA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias FeB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias FeC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared uint4 feBuf[FE_BUF / 8];          // staged Q (hi, lo), then the K / V tiles (hi, lo each): packed halves, 8 per uint4
 #if !FE_REG
@@ -2201,9 +2215,16 @@ using namespace linalg;
 #define FM_OPS ((FM_OT + FM_NSG - 1) / FM_NSG)      // output tiles per subgroup
 #define FM_PS (FM_BC + 8)
 #define FM_SS (FM_BR * FM_BC)                       // floats of one subgroup's partial scores (and staging slice)
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias FmA = CuA16;
+typealias FmB = CuB16;
+typealias FmC = CuAccF;
+#else
 typealias FmA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias FmB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias FmC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared uint4 fmKV[FM_BC * FM_KS / 8];   // key/value tile as packed f16 x 8; holds the query tile before the key loop
 groupshared float fmS[FM_NSG * FM_SS];   // per-subgroup partial scores, then per-subgroup staging of output tiles

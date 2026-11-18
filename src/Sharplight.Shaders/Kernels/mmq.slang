@@ -85,9 +85,16 @@ struct Params
     uint T;
 };
 
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA8 = CuA8i;
+typealias MatB8 = CuB8i;
+typealias AccI = CuAccI;
+#else
 typealias MatA8 = CoopMat<int8_t, MemoryScope.Subgroup, 16, 32, CoopMatMatrixUse.MatrixA>;
 typealias MatB8 = CoopMat<int8_t, MemoryScope.Subgroup, 32, 16, CoopMatMatrixUse.MatrixB>;
 typealias AccI = CoopMat<int, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared uint4 sA[MQ_A_SIZE];
 groupshared uint4 sB[MQ_B_SIZE];
