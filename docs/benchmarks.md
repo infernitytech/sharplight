@@ -6715,12 +6715,13 @@ bf16 / Q4_K, on the skinny GEMM and the 32- to 128-row gemm_cm2 tiles), `MoeTest
 the dual gate / up pair with biases and the expert-sum epilogue on the grouped GEMMs), `F16RangeTests.Dual_expert_gemm_reads_rows_beyond_f16_range`
 (4: row-ranged rows unscaled before the fused epilogue). The existing `GatedBlockSortedActivations`, `FusedGateUpWithGroupedDown` and
 the MoE range tests now run the dual forms. Greedy output: gpt-oss-20b HF, 200 tokens of two prompts (74 and ~600 tokens), with the
-switches on and off: byte-identical (`greedy/`). After merging `develop` (at `20021ee9`), on GPU 2:
+switches on and off: byte-identical (`greedy/`). After merging `develop` (at `20021ee9`, then again at `986ac6c3` with the CUDA
+provider), on GPU 2:
 
-| suite | total | failed | skipped |
-|---|---:|---:|---:|
-| Sharplight.Vulkan.Tests (full) | 1624 | 0 | 26 |
-| Sharplight.Families.Tests (full, batched greedy parity included) | 1021 | 0 | 364 |
+| suite | after `20021ee9`: total / failed / skipped | after `986ac6c3` |
+|---|---|---|
+| Sharplight.Vulkan.Tests (full) | 1624 / 0 / 26 | 1624 / 0 / 26 |
+| Sharplight.Families.Tests (full, batched greedy parity included) | 1021 / 0 / 364 | 1340 / 0 / 683 (the CUDA parity cases added by the merge, skipped here) |
 
 ### 49.10 Next levers
 
