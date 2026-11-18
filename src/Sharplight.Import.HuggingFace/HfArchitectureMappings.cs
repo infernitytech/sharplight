@@ -54,6 +54,8 @@ internal static class HfArchitectureMappings
         Register(new DacHfMapping());
         Register(new MimiHfMapping());
         Register(new Qwen3TtsTokenizerHfMapping());
+        Register(new HiggsAudioTokenizerHfMapping());
+        Register(new OmniVoiceHfMapping());
         Register(new Qwen3TtsHfMapping());
         Register(new CsmHfMapping());
         Register(new Sam2HfMapping());

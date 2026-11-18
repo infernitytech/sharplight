@@ -1,0 +1,32 @@
+decoder: MultiSequenceDecoder, slots 68, vocab 151936, device sampling: True
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 64 | 0 (0) | 162.5 | 799 / 582 | 17.21 / 17.41, 16.98 |  |
+| 64 | 107 (1) | 60.7 | 870 / 578 | 30.77 / 32.41, 30.52 | 0.127 |
+--- profile mixed 64+107x1 (greedy)
+GPU time 327.44 ms
+   104.931 ms  32.0%    720x  min    142.5 us  matmul [4096→12288] f8e4m3_b128r fp8 split-k gemm_fp8 T=171,65,65
+    58.290 ms  17.8%    360x  min    159.6 us  matmul [12288→4096] f8e4m3_b128r fp8 split-k gemm_fp8 T=171,65,65
+    45.667 ms  13.9%    360x  min    122.9 us  attention decode T=171,65,65
+    40.559 ms  12.4%    720x  min     55.0 us  matmul [4096→4096] f8e4m3_b128r fp8 split-k gemm_fp8 T=171,65,65
+    15.655 ms   4.8%    720x  min     19.7 us  matmul [4096→1024] f8e4m3_b128r fp8 split-k gemm_fp8 T=171,65,65
+    15.349 ms   4.7%     10x  min   1531.6 us  matmul [4096→151936] bf16 gemm_cm2 T=171,65,65
+    14.812 ms   4.5%   2520x  min      3.1 us  matmul fp8 split-k reduce splitk_reduce T=171,65,65
+     8.843 ms   2.7%    360x  min     23.5 us  attention fe T=171,65,65
+     6.834 ms   2.1%    720x  min      8.4 us  fused[Add]+RmsNorm main T=171,65,65
+     6.435 ms   2.0%    360x  min     17.3 us  fused[Silu,Mul] main T=171,65,65
+     2.300 ms   0.7%    360x  min      5.5 us  rope+norm rope_row T=171,65,65
+     2.165 ms   0.7%    360x  min      5.5 us  matmul [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8 T=171,65,65
+     1.954 ms   0.6%    360x  min      4.1 us  rope+norm+cache_write rope_row T=171,65,65
+     1.474 ms   0.5%    360x  min      4.0 us  cache_write cache_write T=171,65,65
+     1.388 ms   0.4%    360x  min      3.8 us  matmul [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8 T=171,65,65
+     0.473 ms   0.1%     10x  min     47.1 us  sample sample T=171,65,65
+     0.165 ms   0.1%     20x  min      6.1 us  gather gather T=171,65,65
+     0.061 ms   0.0%     10x  min      6.1 us  RmsNorm main T=171,65,65
+     0.041 ms   0.0%     10x  min      4.1 us  matmul [4096→151936] bf16 f16 range f16_range_unscale T=171,65,65
+     0.041 ms   0.0%     10x  min      4.1 us  matmul [4096→151936] bf16 x→ranged f16 to_f16_ranged T=171,65,65
+
+| 64 | 256 (1) | 76.8 | 726 / 506 | 40.56 / 42.65, 40.29 | 0.091 |

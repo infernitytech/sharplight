@@ -32,6 +32,25 @@ public sealed partial class GraphLowerer
         return served ? perExpert * w.Shape[0] : 0;
     }
 
+    /// <summary>
+    /// Wide expert tiles of the direct skinny GEMM for <paramref name="w"/> (several 16-row token fragments per expert tile, each
+    /// decoded weight serving all of them), or null when they do not serve the matrix.
+    /// </summary>
+    private (int Fm, int Fn, int Subgroups, int KSplit, int ItemsPerExpert)? MoeWideTiles(TensorRef w, long k)
+    {
+        if (!UseDirectSkinny(w.Type, half: true, 1, k) || k % 64 != 0)
+        {
+            return null;
+        }
+
+        if (DiagnosticSwitches.MoeWideConfig is { } c)
+        {
+            return c.Length == 5 && c[0] > 0 ? (c[0], c[1], c[2], c[3], c[4]) : null;
+        }
+
+        return null;
+    }
+
     private static OpSupport SupportsMoe(Node node)
     {
         var x = node.Inputs[0];
@@ -377,11 +396,17 @@ public sealed partial class GraphLowerer
         // at the matvec's bandwidth instead of through gemm_cm2's 32-row tiles.
         long skinnyItems = MoeSkinnyItems(w, K);
         bool skinnyMoe = gemm2 && skinnyItems > 0;
-        int[] routeTiles = skinnyMoe ? [MoeSkinnyTile, .. coopTiles] : coopTiles;
+        var wide = skinnyMoe ? MoeWideTiles(w, K) : null;
+        long wideItems = wide is { } wc ? wc.ItemsPerExpert * E : 0;
+        int wideTile = wide is { } wt ? 16 * wt.Fm : 0;
+        Func<Bindings, bool> isWide = b => wide is not null && items(b) > skinnyItems && items(b) <= wideItems;
+        int[] routeTiles = skinnyMoe ? [.. new[] { MoeSkinnyTile, wideTile }.Where(t => t > 0), .. coopTiles] : coopTiles;
+        routeTiles = [.. routeTiles.Distinct()];
         Func<Bindings, int> tile = b => !coop ? 64
             : SmallFragments ? 32
             : DiagnosticSwitches.MoeTile != 0 ? DiagnosticSwitches.MoeTile
             : skinnyMoe && items(b) <= skinnyItems ? MoeSkinnyTile
+            : isWide(b) ? wideTile
             : items(b) <= 24 * E ? 32
             : !gemm2 || items(b) <= 160 * E ? 64 : 128;
         Func<Bindings, uint> tiles = b => (uint)Math.Max(1, Math.Min(items(b), items(b) / tile(b) + E));
@@ -430,14 +455,14 @@ public sealed partial class GraphLowerer
             Dictionary<string, string> Rows(int t, string limit, int rows)
                 => new(Gemm2Macros(groupedMacros, t)) { [limit] = rows.ToString(CultureInfo.InvariantCulture) };
             Emit(label + " gemm-cm2", [n],
-                [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
+                [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b),
                     Lib("matmul.slang", "gemm_cm2", split && t > 32 ? Rows(t, "MOE_MIN_ROWS", t / 2 + 1) : Gemm2Macros(groupedMacros, t)),
                     b => new Grid(Grid.Div(N, Gemm2Columns(t)), tiles(b))))],
                 gargs, [gemmX, w, scratch], [y]);
             if (split)
             {
                 Emit(label + " gemm-cm2 half tiles", [n],
-                    [.. coopTiles.Where(t => t > 32).Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
+                    [.. coopTiles.Where(t => t > 32).Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b),
                         Lib("matmul.slang", "gemm_cm2", Rows(t / 2, "MOE_MAX_ROWS", t / 2)),
                         b => new Grid(Grid.Div(N, Gemm2Columns(t / 2)), tiles(b))))],
                     gargs, [gemmX, w, scratch], [y]);
@@ -461,9 +486,37 @@ public sealed partial class GraphLowerer
                     ["SK_BK"] = bk.ToString(CultureInfo.InvariantCulture),
                     ["SK_DIRECT"] = direct ? "1" : "0",
                 };
+                foreach (var (name, value) in DiagnosticSwitches.GemmExtraMacros)
+                {
+                    skinnyMacros[name] = value;
+                }
+
                 Emit(label + " skinny", [n],
                     [new KernelVariant(b => items(b) > mv && tile(b) == MoeSkinnyTile, Lib("matmul.slang", "gemm_sk", skinnyMacros),
                         b => new Grid(Grid.Div(N, fn * 16), tiles(b)))],
+                    gargs, [gemmX, w, scratch], [y]);
+            }
+
+            if (wide is { } wcfg)
+            {
+                var wideMacros = new Dictionary<string, string>(groupedMacros)
+                {
+                    ["SK_FM"] = wcfg.Fm.ToString(CultureInfo.InvariantCulture),
+                    ["SK_FN"] = wcfg.Fn.ToString(CultureInfo.InvariantCulture),
+                    ["SK_SG"] = wcfg.Subgroups.ToString(CultureInfo.InvariantCulture),
+                    ["SK_KS"] = wcfg.KSplit.ToString(CultureInfo.InvariantCulture),
+                    ["SK_BK"] = "64",
+                    ["SK_DIRECT"] = "1",
+                };
+                foreach (var (name, value) in DiagnosticSwitches.GemmExtraMacros)
+                {
+                    wideMacros[name] = value;
+                }
+
+                int cols = wcfg.Subgroups / wcfg.KSplit * wcfg.Fn * 16;
+                Emit(label + " skinny wide", [n],
+                    [new KernelVariant(b => items(b) > mv && isWide(b), Lib("matmul.slang", "gemm_sk", wideMacros),
+                        b => new Grid(Grid.Div(N, cols), tiles(b)))],
                     gargs, [gemmX, w, scratch], [y]);
             }
         }

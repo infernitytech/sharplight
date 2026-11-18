@@ -82,6 +82,16 @@ public sealed class FeedPublisher
             }
 
             var file = manifest.PrimaryFile ?? throw new FeedFormatException($"{label}: the manifest lists no package file.");
+            var reusePath = Path.Combine(folder, FeedLayout.PayloadReuseFileName);
+            if (File.Exists(reusePath))
+            {
+                await PublishReusingPayloadAsync(feedFolder, manifest, manifestBytes, file, FeedJson.Read(await File.ReadAllBytesAsync(reusePath, cancellationToken).ConfigureAwait(false), FeedJsonContext.Default.PayloadReuse, $"{label}: {FeedLayout.PayloadReuseFileName}"), key, cancellationToken).ConfigureAwait(false);
+                packageIndex = AddVersion(packageIndex, Entry(manifest, digest, now));
+                WriteAtomic(feedFolder, FeedLayout.InChannel(options.Channel, FeedLayout.PackageIndex(manifest.Id)), FeedJson.Write(packageIndex, FeedJsonContext.Default.FeedPackageIndex));
+                added.Add(label);
+                continue;
+            }
+
             var source = Path.Combine(folder, file.Name);
             var actual = await PackageFileHasher.DescribeAsync(source, file.Name, file.ChunkSize ?? PackageFileHasher.DefaultChunkSize, cancellationToken).ConfigureAwait(false);
             if (actual.Size != file.Size || actual.Sha256 != file.Sha256.ToLowerInvariant() || (file.Chunks.Count > 0 && !actual.Chunks.SequenceEqual(file.Chunks, StringComparer.OrdinalIgnoreCase)))
@@ -295,6 +305,40 @@ public sealed class FeedPublisher
         WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.ServiceIndex), indexBytesOut);
         WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.ServiceIndexSignature), key.SignDocument(indexBytesOut, "feed-index"));
         return (index.Sequence, summaries.Count);
+    }
+
+    /// <summary>
+    /// Publishes a manifest-only version whose package file is the payload of an earlier version (same SHA-256, size and chunks): the
+    /// manifest and its signature are stored, the file is copied only when the earlier version's file is present in this folder; on
+    /// object storage the uploader copies it server-side (the staging folder's <c>reuse.json</c> names the source).
+    /// </summary>
+    private static async Task PublishReusingPayloadAsync(string feedFolder, PackageManifest manifest, byte[] manifestBytes, PackageFile file, PayloadReuse reuse, FeedSigningKey key, CancellationToken cancellationToken)
+    {
+        var label = $"{manifest.Id}@{manifest.Version}";
+        var earlierPath = Path.Combine(feedFolder, FeedLayout.Manifest(manifest.Id, reuse.Version));
+        if (!File.Exists(earlierPath))
+        {
+            throw new FeedFormatException($"{label} reuses the package file of {reuse.Version}, which the feed does not have.");
+        }
+
+        var earlier = FeedJson.ReadManifest(await File.ReadAllBytesAsync(earlierPath, cancellationToken).ConfigureAwait(false)).PrimaryFile;
+        if (earlier is null || earlier.Name != reuse.File || earlier.Size != file.Size || !string.Equals(earlier.Sha256, file.Sha256, StringComparison.OrdinalIgnoreCase)
+            || !earlier.Chunks.SequenceEqual(file.Chunks, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new FeedFormatException($"{label}: the package file does not match {reuse.File} of {reuse.Version} (size or hashes).");
+        }
+
+        var earlierFile = Path.Combine(feedFolder, FeedLayout.VersionFile(manifest.Id, reuse.Version, reuse.File));
+        if (File.Exists(earlierFile))
+        {
+            var target = Path.Combine(feedFolder, FeedLayout.VersionFile(manifest.Id, manifest.Version, file.Name));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(earlierFile, target + ".tmp", overwrite: true);
+            File.Move(target + ".tmp", target, overwrite: true);
+        }
+
+        WriteAtomic(feedFolder, FeedLayout.Manifest(manifest.Id, manifest.Version), manifestBytes);
+        WriteAtomic(feedFolder, FeedLayout.ManifestSignature(manifest.Id, manifest.Version), key.SignDocument(manifestBytes, "package-manifest"));
     }
 
     private static FeedPackageVersion Latest(IReadOnlyList<FeedPackageVersion> versions)
