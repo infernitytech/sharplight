@@ -71,4 +71,11 @@ internal interface IHfArchitectureMapping
     public void AddMetadata(IDictionary<string, object> metadata, HfConfig config, string directory)
     {
     }
+
+    /// <summary>
+    /// The companion folders of the checkpoint by auxiliary role (a TTS model's codec in a subfolder), which <see cref="HuggingFaceImporter.FindCompanions"/> reports
+    /// for the loader to open. Default: none.
+    /// </summary>
+    /// <param name="directory">The checkpoint directory.</param>
+    public IReadOnlyDictionary<string, string> FindCompanions(string directory) => new Dictionary<string, string>();
 }

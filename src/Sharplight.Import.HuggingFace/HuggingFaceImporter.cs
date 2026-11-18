@@ -45,6 +45,20 @@ public sealed class HuggingFaceImporter(HuggingFaceImportOptions? options = null
 
     ModelSource IModelImporter.Open(string path) => Open(path, options);
 
+    /// <inheritdoc/>
+    /// <remarks>The companions the checkpoint's architecture mapping finds in its folder (the codec of a Qwen3-TTS model).</remarks>
+    public IReadOnlyDictionary<string, string> FindCompanions(string path)
+    {
+        string? dir = ResolveDirectory(path);
+        if (dir is null || !File.Exists(Path.Combine(dir, "config.json")))
+        {
+            return new Dictionary<string, string>();
+        }
+
+        using var config = HfConfig.Load(dir);
+        return HfArchitectureMappings.Find(config.ModelType)?.FindCompanions(dir) ?? new Dictionary<string, string>();
+    }
+
     private static string? ResolveDirectory(string path)
     {
         if (Directory.Exists(path))
