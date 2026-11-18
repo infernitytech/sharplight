@@ -66,10 +66,68 @@ public sealed class ModelKindTests
     [InlineData(ModelKinds.TextGeneration, "decode", "gpt2", null, ModelKinds.TextGeneration)]
     // A declared kind wins over the graphs.
     [InlineData(ModelKindCatalog.Reranker, "decode embed classify", "any", null, ModelKindCatalog.Reranker)]
-    [InlineData(ModelKindCatalog.Embeddings, "embed classify", "any", null, ModelKindCatalog.Embeddings)]
+    [InlineData(ModelKindCatalog.Embeddings, "embed", "all-minilm", null, ModelKindCatalog.Embeddings)]
+    [InlineData(ModelKindCatalog.Embeddings, "embed classify decode", "any", null, ModelKindCatalog.Embeddings)]
+    // A cross-encoder of an older feed package declares embeddings but carries the classify graph.
+    [InlineData(ModelKindCatalog.Embeddings, "embed classify", "ms-marco", null, ModelKindCatalog.Reranker)]
+    [InlineData(ModelKindCatalog.Embeddings, "classify", "bge-reranker", null, ModelKindCatalog.Reranker)]
     [InlineData(ModelKinds.SpeechRecognition, "decode classify", "whisper", null, ModelKinds.SpeechRecognition)]
     public void Inspector_KindOfAPackage_IsItsDeclaredKind_RefinedOnlyByWhatTheGraphsProve(string declared, string graphs, string name, string? generalName, string expected)
         => Assert.Equal(expected, ModelInspector.KindOf(declared, graphs.Split(' ').ToHashSet(), name, generalName));
+
+    [Theory]
+    [InlineData("qwen3_asr", ModelKinds.SpeechRecognition)]
+    [InlineData("encodec", ModelKinds.AudioCodec)]
+    [InlineData("mimi", ModelKinds.AudioCodec)]
+    [InlineData("dac", ModelKinds.AudioCodec)]
+    [InlineData("musicgen", ModelKinds.MusicGeneration)]
+    [InlineData("clap", ModelKinds.AudioEmbedding)]
+    public void Inspector_RecognizesAudioCheckpointFolders_ByTheirModelType(string modelType, string kind)
+    {
+        using var dir = new TempDir();
+        string folder = dir.File(modelType);
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "config.json"), $$"""{"model_type": "{{modelType}}", "architectures": ["SomethingModel"]}""");
+
+        Assert.Equal(kind, ModelInspector.Inspect(folder).Kind);
+    }
+
+    [Theory]
+    [InlineData("WanPipeline", ModelKinds.VideoGeneration)]
+    [InlineData("LTXPipeline", ModelKinds.VideoGeneration)]
+    [InlineData("LTXConditionPipeline", ModelKinds.VideoGeneration)]
+    [InlineData("HunyuanVideoPipeline", ModelKinds.VideoGeneration)]
+    [InlineData("StableDiffusionPipeline", ModelKinds.ImageGeneration)]
+    public void Inspector_RecognizesVideoPipelines_ByTheirModelIndex(string pipeline, string kind)
+    {
+        using var dir = new TempDir();
+        Directory.CreateDirectory(dir.File("unet"));
+        File.WriteAllText(dir.File("model_index.json"), $$"""{"_class_name": "{{pipeline}}", "unet": ["diffusers", "UNet2DConditionModel"]}""");
+
+        Assert.Equal(kind, ModelInspector.Inspect(dir.Path).Kind);
+    }
+
+    [Fact]
+    public void TheAudioKinds_HaveTaskClients_SoTheyDoNotLoadAsLanguageModels()
+    {
+        foreach (string kind in new[] { ModelKinds.AudioCodec, ModelKinds.VoiceActivity, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioSeparation })
+        {
+            Assert.True(Sharplight.Hosting.Loaders.TaskKindClients.Handles(kind), kind);
+        }
+    }
+
+    [Fact]
+    public void Inspector_RecognizesSileroVadFilesAndFolders()
+    {
+        using var dir = new TempDir();
+        string folder = dir.File("silero-vad");
+        Directory.CreateDirectory(folder);
+        string file = Path.Combine(folder, "silero_vad_16k_op15.onnx");
+        File.WriteAllBytes(file, [1, 2, 3]);
+
+        Assert.Equal(ModelKinds.VoiceActivity, ModelInspector.Inspect(file).Kind);
+        Assert.Equal(ModelKinds.VoiceActivity, ModelInspector.Inspect(folder).Kind);
+    }
 
     [Fact]
     public void RerankersAreServedOnTheRerankRoutes_AndOpenTheSearchPage()

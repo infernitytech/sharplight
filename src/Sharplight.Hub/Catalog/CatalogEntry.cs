@@ -9,7 +9,7 @@ public sealed record CatalogEntry
     /// <summary>Display name.</summary>
     public required string Name { get; init; }
 
-    /// <summary>The task kind (<c>Sharplight.Models.ModelKinds</c> or <c>embeddings</c>).</summary>
+    /// <summary>The task kind (<c>Sharplight.Models.ModelKinds</c>, <c>embeddings</c> or <c>reranker</c>).</summary>
     public required string Kind { get; init; }
 
     /// <summary>The model family (<c>Qwen3</c>, <c>FLUX.1</c>, ...).</summary>

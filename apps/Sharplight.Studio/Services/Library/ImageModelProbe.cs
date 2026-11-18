@@ -139,10 +139,15 @@ internal static class ImageModelProbe
         }
     }
 
-    /// <summary>A Wan pipeline: the transformer is a <c>WanTransformer3DModel</c> (the pipeline's own <c>model_index.json</c> names a Wan pipeline).</summary>
+    /// <summary>
+    /// A video pipeline (Wan, LTX-Video, HunyuanVideo): the transformer is a Wan transformer, or the pipeline's own <c>model_index.json</c> names a
+    /// video pipeline.
+    /// </summary>
     private static bool IsVideoDiffusersFolder(string path)
         => ClassNameOf(Path.Combine(path, "transformer", "config.json")) is "WanTransformer3DModel"
-           || ClassNameOf(Path.Combine(path, "model_index.json")) is { } pipeline && pipeline.StartsWith("Wan", StringComparison.Ordinal);
+           || ClassNameOf(Path.Combine(path, "model_index.json")) is { } pipeline && s_videoPipelinePrefixes.Any(prefix => pipeline.StartsWith(prefix, StringComparison.Ordinal));
+
+    private static readonly string[] s_videoPipelinePrefixes = ["Wan", "LTX", "HunyuanVideo"];
 
     /// <summary>The <c>_class_name</c> of a diffusers JSON file, or null when the file is missing, unreadable or names none.</summary>
     private static string? ClassNameOf(string file)
