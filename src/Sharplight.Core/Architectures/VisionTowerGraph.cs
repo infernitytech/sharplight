@@ -351,7 +351,8 @@ internal static class VisionTowerGraph
         var row = b.Mul(b.Slice(pos, 1, 0, 1), cf);
         var col = b.Mul(b.Slice(pos, 1, 1, 1), cf);
         // Paired: [row | col | row | col]. Split (Gemma 4, x = column first): [col | col | row | row].
-        var angle = b.Reshape(split ? b.Concat(1, col, col, row, row) : b.Concat(1, b.Concat(1, row, col), b.Concat(1, row, col)), 0, 1, D);
+        Value half = split ? b.Concat(1, col, col) : b.Concat(1, row, col);
+        var angle = b.Reshape(split ? b.Concat(1, half, b.Concat(1, row, row)) : b.Concat(1, half, half), 0, 1, D);
         var cos = b.Unary("Cos", angle, "rope_cos");
         var sin = b.Mul(b.Unary("Sin", angle), cs, "rope_sin");
         return (cos, sin);
