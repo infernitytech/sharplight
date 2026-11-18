@@ -20,11 +20,20 @@ public sealed class SlangCompiler : IDisposable
 
     private readonly string _libraryDir;
     private readonly ConcurrentDictionary<string, CompiledKernel> _memCache = new();
+    private readonly KernelTranslator? _translator;
 
     /// <summary>Creates a compiler, extracting the embedded kernel library on first use.</summary>
     public SlangCompiler()
+        : this(null)
+    {
+    }
+
+    /// <summary>Creates a compiler whose requests for <see cref="KernelTranslator.Target"/> go through <paramref name="translator"/>.</summary>
+    /// <param name="translator">Translates Slang's output before it is cached, or <see langword="null"/>.</param>
+    public SlangCompiler(KernelTranslator? translator)
     {
         _libraryDir = KernelLibrary.Extract();
+        _translator = translator;
     }
 
     /// <summary>Process-wide totals of the kernels this process compiled with Slang (diagnostics).</summary>
@@ -46,6 +55,12 @@ public sealed class SlangCompiler : IDisposable
     /// entry point (<c>// sharplight-threads: 256 1 1</c>): Metal takes it at dispatch, the MSL source does not state it.
     /// </summary>
     public const string MetalThreadsHeader = "// sharplight-threads: ";
+
+    /// <summary>
+    /// Start of the first line of every kernel compiled for <see cref="ShaderTarget.CudaSource"/>, followed by the block size of the
+    /// entry point (<c>// sharplight-threads: 256 1 1</c>): CUDA takes it at launch, the source does not state it.
+    /// </summary>
+    public const string CudaThreadsHeader = MetalThreadsHeader;
 
     /// <summary>Prefix of the model-level cache keys of compiled kernels (<c>kernel/&lt;content hash&gt;</c>).</summary>
     public const string KernelKeyPrefix = "kernel/";
@@ -87,7 +102,8 @@ public sealed class SlangCompiler : IDisposable
     private CompiledKernel Compile(string name, string source, string sourceDigest, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
         Runtime.ICompilationCache? cache)
     {
-        var key = CacheKey(sourceDigest, entryPoint, target, macros);
+        var translator = _translator is { } t && t.Target == target ? t : null;
+        var key = CacheKey(sourceDigest, entryPoint, target, macros, translator?.Id);
         string ckey = KernelKeyPrefix + key;
         if (DiagnosticSwitches.DumpKernelsDirectory is { } dumpDirectory)
         {
@@ -100,7 +116,7 @@ public sealed class SlangCompiler : IDisposable
         var kernel = _memCache.GetOrAdd(key, fresh);
         if (kernel == fresh)
         {
-            Resolve(fresh, source, ckey, macros, cache);
+            Resolve(fresh, source, ckey, macros, cache, translator);
         }
 
         if (cache is not null && !cache.TryGet(ckey, out _))
@@ -112,7 +128,8 @@ public sealed class SlangCompiler : IDisposable
     }
 
     /// <summary>Fills a new kernel from the model-level cache (artifact sets, then the artifact store), or queues its compilation.</summary>
-    private void Resolve(CompiledKernel kernel, string source, string modelCacheKey, IReadOnlyDictionary<string, string> macros, Runtime.ICompilationCache? cache)
+    private void Resolve(CompiledKernel kernel, string source, string modelCacheKey, IReadOnlyDictionary<string, string> macros, Runtime.ICompilationCache? cache,
+        KernelTranslator? translator)
     {
         if (cache is not null && cache.TryGet(modelCacheKey, out var stored))
         {
@@ -124,9 +141,14 @@ public sealed class SlangCompiler : IDisposable
             session =>
             {
                 long start = Stopwatch.GetTimestamp();
-                var code = CompileUncached(session, kernel.Name, source, kernel.EntryPoint, kernel.Target, macros);
+                var code = CompileUncached(session, kernel.Name, source, kernel.EntryPoint, translator?.SourceTarget ?? kernel.Target, macros);
                 Interlocked.Add(ref s_compileTicks, Stopwatch.GetTimestamp() - start);
                 Interlocked.Increment(ref s_compiled);
+                if (translator is not null)
+                {
+                    code = translator.Translate(kernel.Name, kernel.EntryPoint, code);
+                }
+
                 kernel.Complete(code);
             },
             error =>
@@ -156,12 +178,13 @@ public sealed class SlangCompiler : IDisposable
         Check(session.CreateCompositeComponentType([module, ep], out var composite, out diag), "compose", diag);
         Check(composite.Link(out var linked, out diag), "link", diag);
         Check(linked.GetEntryPointCode(0, 0, out var code, out diag), $"codegen {name}:{entryPoint}", diag);
-        if (target != ShaderTarget.Metal)
+        if (target is not ShaderTarget.Metal and not ShaderTarget.CudaSource)
         {
             return code.Buffer.ToArray();
         }
 
-        // MSL has no threadgroup-size attribute: the dispatch passes it, so the code carries the entry point's [numthreads] in a header line.
+        // MSL and CUDA C++ have no threadgroup-size attribute: the dispatch passes it, so the code carries the entry point's [numthreads]
+        // in a header line.
         Span<nuint> threads = stackalloc nuint[3];
         linked.GetLayout(0, out diag).GetEntryPointByIndex(0).GetComputeThreadGroupSize(threads);
         var header = Encoding.UTF8.GetBytes($"{MetalThreadsHeader}{threads[0]} {threads[1]} {threads[2]}\n");
@@ -195,10 +218,15 @@ public sealed class SlangCompiler : IDisposable
         _ => "",
     };
 
-    private static string CacheKey(string sourceDigest, string entry, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
+    private static string CacheKey(string sourceDigest, string entry, ShaderTarget target, IReadOnlyDictionary<string, string> macros, string? translatorId)
     {
         var sb = new StringBuilder();
         sb.Append(Version).Append('\n').Append(sourceDigest).Append('\n').Append(target).Append('\n').Append(entry).Append('\n');
+        if (translatorId is not null)
+        {
+            sb.Append(translatorId).Append('\n');
+        }
+
         foreach (var kv in macros.OrderBy(k => k.Key, StringComparer.Ordinal))
         {
             sb.Append(kv.Key).Append('=').Append(kv.Value).Append(';');

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Sharplight.Cuda;
 using Sharplight.Llm;
 using Sharplight.Metal;
 using Sharplight.Vulkan;
@@ -33,6 +34,8 @@ internal sealed class BenchmarkRunner
     private IEnumerable<VulkanSegment> VulkanSegments => _session.Compiled.Segments.OfType<VulkanSegment>();
 
     private IEnumerable<MetalSegment> MetalSegments => _session.Compiled.Segments.OfType<MetalSegment>();
+
+    private IEnumerable<CudaSegment> CudaSegments => _session.Compiled.Segments.OfType<CudaSegment>();
 
     /// <summary>Runs the benchmark and returns the one-line summary.</summary>
     public string Run(CancellationToken cancellationToken)
@@ -100,7 +103,8 @@ internal sealed class BenchmarkRunner
             cancellationToken.ThrowIfCancellationRequested();
             int token = _promptTokens[step % _promptTokens.Length];
             stepSeconds.Add(TimeSeconds(() => _session.Process([token])));
-            gpuMilliseconds.Add(VulkanSegments.Sum(segment => segment.LastGpuMs) + MetalSegments.Sum(segment => segment.LastGpuMs));
+            gpuMilliseconds.Add(VulkanSegments.Sum(segment => segment.LastGpuMs) + MetalSegments.Sum(segment => segment.LastGpuMs)
+                + CudaSegments.Sum(segment => segment.LastGpuMs));
         }
 
         return new DecodeMeasurement(stepSeconds, gpuMilliseconds);
@@ -136,6 +140,11 @@ internal sealed class BenchmarkRunner
         {
             segment.ResetProfile();
         }
+
+        foreach (var segment in CudaSegments)
+        {
+            segment.ResetProfile();
+        }
     }
 
     private void PrintProfiles(string phase)
@@ -147,6 +156,12 @@ internal sealed class BenchmarkRunner
         }
 
         foreach (var segment in MetalSegments.Where(segment => segment.Profile))
+        {
+            _log.WriteLine($"--- {phase} profile, segment {segment.Segment.Index}");
+            _log.WriteLine(segment.ProfileReport());
+        }
+
+        foreach (var segment in CudaSegments.Where(segment => segment.Profile))
         {
             _log.WriteLine($"--- {phase} profile, segment {segment.Segment.Index}");
             _log.WriteLine(segment.ProfileReport());
@@ -170,6 +185,12 @@ internal sealed class BenchmarkRunner
         {
             var (dispatches, barriers) = segment.Stats(1);
             _log.WriteLine($"segment {segment.Segment.Index}: {dispatches} dispatches, {barriers} barriers per step (metal)");
+        }
+
+        foreach (var segment in CudaSegments)
+        {
+            var (launches, _) = segment.Stats(1);
+            _log.WriteLine($"segment {segment.Segment.Index}: {launches} launches per step (cuda, one stream)");
         }
     }
 

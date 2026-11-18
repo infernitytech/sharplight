@@ -12,6 +12,7 @@
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Metal/Sharplight.Metal.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
   </ItemGroup>
 </Project>

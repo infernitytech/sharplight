@@ -1,4 +1,5 @@
 using Sharplight.Cpu;
+using Sharplight.Cuda;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -10,10 +11,13 @@ namespace Sharplight.Families.Tests;
 /// Greedy generation of the newer model families against golden outputs captured from the reference implementations:
 /// Hugging Face transformers (fp32 compute on the checkpoint's bf16 weights) for HF checkpoints, llama.cpp b11177 for GGUF files.
 /// Every case skips when its model files are absent (under ~/models, see the case list); each runs on the CPU provider and on the
-/// first Vulkan device when one is present (the discrete GPU unless SHARPLIGHT_TEST_VK_DEVICE selects another).
+/// first Vulkan device when one is present (the discrete GPU unless SHARPLIGHT_TEST_VK_DEVICE selects another), and with
+/// SHARPLIGHT_TEST_CUDA=1 on the first CUDA device.
 /// </summary>
 public class FamilyGenerationTests
 {
+    private const string CpuProvider = "cpu";
+
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>
@@ -211,20 +215,21 @@ public class FamilyGenerationTests
         .. InklingFamilyCases.All,
     ];
 
-    private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback, bool f32Kv)
+    private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, string provider, bool cpuFallback, bool f32Kv)
     {
         DeviceSlot slot, fallback = null!;
-        if (vulkan)
+        bool gpu = provider != CpuProvider;
+        if (gpu)
         {
-            var p = new VulkanProvider();
+            IExecutionProvider p = provider == CudaProvider.ProviderName ? new CudaProvider() : new VulkanProvider();
             if (!p.CheckAvailability().IsAvailable)
             {
-                throw new SkipException("Vulkan is not available");
+                throw new SkipException($"{p.Name} is not available");
             }
 
             var devs = p.GetDevices();
-            var dev = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") is { } e && int.TryParse(e, out int i) && i < devs.Count ? devs[i]
-                : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault() ?? throw new SkipException("no Vulkan device");
+            var dev = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") is { } e && int.TryParse(e, out int i) && i < devs.Count && p is VulkanProvider ? devs[i]
+                : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault() ?? throw new SkipException($"no {p.Name} device");
             slot = new DeviceSlot { Device = p.OpenDevice(dev) };
         }
         else
@@ -232,7 +237,7 @@ public class FamilyGenerationTests
             var p = new CpuExecutionProvider();
             slot = new DeviceSlot { Device = p.OpenDevice(p.GetDevices()[0]) };
         }
-        if (vulkan && cpuFallback)
+        if (gpu && cpuFallback)
         {
             var c = new CpuExecutionProvider();
             fallback = new DeviceSlot { Device = c.OpenDevice(c.GetDevices()[0]) };
@@ -242,10 +247,10 @@ public class FamilyGenerationTests
         // It is off here so these cases check the model wiring; its precision is covered by the Vulkan kernel tests.
         var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
         {
-            Devices = [slot], Fallback = vulkan && cpuFallback ? fallback : null, ContextLength = 256, MaxBatchTokens = 256,
+            Devices = [slot], Fallback = gpu && cpuFallback ? fallback : null, ContextLength = 256, MaxBatchTokens = 256,
             DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot }, KvCacheType = f32Kv ? Sharplight.Tensors.DataType.F32 : null,
         });
-        return (model, vulkan && cpuFallback ? [slot, fallback] : [slot]);
+        return (model, gpu && cpuFallback ? [slot, fallback] : [slot]);
     }
 
     private sealed class SkipException(string reason) : Exception(reason);
@@ -273,9 +278,9 @@ public class FamilyGenerationTests
     }
 
     /// <summary>Largest absolute logit difference allowed, relative to the reference's largest absolute logit (fp32 CPU; f16 GPU paths).</summary>
-    private static double LogitTolerance(bool vulkan) => vulkan ? 2e-2 : 2e-3;
+    private static double LogitTolerance(bool gpu) => gpu ? 2e-2 : 2e-3;
 
-    private static void CheckLogits(LlmModel model, ReferenceLogits reference, bool vulkan)
+    private static void CheckLogits(LlmModel model, ReferenceLogits reference, bool gpu)
     {
         using var session = model.CreateSession(WellKnown.DecodeGraph);
         var logits = session.Process(reference.PromptIds);
@@ -293,17 +298,17 @@ public class FamilyGenerationTests
             worst = Math.Max(worst, Math.Abs(logits[i] - reference.Logits[i]));
         }
 
-        Assert.True(worst <= LogitTolerance(vulkan) * scale, $"prompt logits differ from transformers by {worst:G4} (largest reference logit {scale:G4})");
+        Assert.True(worst <= LogitTolerance(gpu) * scale, $"prompt logits differ from transformers by {worst:G4} (largest reference logit {scale:G4})");
     }
 
-    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, bool vulkan, bool cpuFallback, ReferenceLogits? reference = null, bool f32Kv = false)
+    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, string provider, bool cpuFallback, ReferenceLogits? reference = null, bool f32Kv = false)
     {
-        var (model, slots) = Load(path, vulkan, cpuFallback, f32Kv);
+        var (model, slots) = Load(path, provider, cpuFallback, f32Kv);
         try
         {
             if (reference is not null)
             {
-                CheckLogits(model, reference, vulkan);
+                CheckLogits(model, reference, provider != CpuProvider);
             }
 
             using var session = model.CreateSession(WellKnown.DecodeGraph);
@@ -321,8 +326,15 @@ public class FamilyGenerationTests
         }
     }
 
-    private void Run(string name, bool vulkan)
+    private void Run(string name, string provider)
     {
+        bool gpu = provider != CpuProvider;
+        if (provider == CudaProvider.ProviderName && Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_CUDA") != "1")
+        {
+            Assert.Skip("the CUDA provider runs with SHARPLIGHT_TEST_CUDA=1 (CUDA_VISIBLE_DEVICES selects the GPU)");
+            return;
+        }
+
         var c = Cases.Single(x => x.Name == name);
         string path = System.IO.Path.Combine(Home, "models", c.Path);
         if (!File.Exists(path) && !Directory.Exists(path))
@@ -330,12 +342,12 @@ public class FamilyGenerationTests
             Assert.Skip($"{c.Name}: {path} not present");
             return;
         }
-        if (vulkan && c.Large && Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_LARGE") is null)
+        if (gpu && c.Large && Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_LARGE") is null)
         {
             Assert.Skip("large model: set SHARPLIGHT_TEST_LARGE=1 to run it");
             return;
         }
-        if (!vulkan && c.Large)
+        if (!gpu && c.Large)
         {
             Assert.Skip("large model is only run on the GPU");
             return;
@@ -344,7 +356,7 @@ public class FamilyGenerationTests
         var reference = Directory.Exists(path) && c.Kind == "ids" ? ReferenceLogits.TryLoad(path) : null;
         try
         {
-            result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback, reference, c.F32KvCache);
+            result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, provider, c.NeedsCpuFallback, reference, c.F32KvCache);
         }
         catch (SkipException s)
         {
@@ -362,8 +374,12 @@ public class FamilyGenerationTests
     }
 
     [Theory, MemberData(nameof(CaseNames))]
-    public void Generation_matches_reference_on_cpu(string name) => Run(name, vulkan: false);
+    public void Generation_matches_reference_on_cpu(string name) => Run(name, CpuProvider);
 
     [Theory, MemberData(nameof(CaseNames))]
-    public void Generation_matches_reference_on_vulkan(string name) => Run(name, vulkan: true);
+    public void Generation_matches_reference_on_vulkan(string name) => Run(name, "vulkan");
+
+    /// <summary>The GPU cases on the CUDA provider (opt-in with <c>SHARPLIGHT_TEST_CUDA=1</c>).</summary>
+    [Theory, MemberData(nameof(CaseNames))]
+    public void Generation_matches_reference_on_cuda(string name) => Run(name, CudaProvider.ProviderName);
 }
