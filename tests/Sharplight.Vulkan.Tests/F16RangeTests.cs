@@ -13,7 +13,8 @@ public sealed class F16RangeTests
 {
     /// <summary>
     /// A weight matmul whose activation rows hold values up to 1.5e5 next to ordinary ones, at row counts on the skinny GEMM
-    /// (2-16), gemm_cm2 (40, 130) and split-K, and some rows without outliers (left unscaled).
+    /// (2-16), split-K gemm_cm2 (40, 130) and gemm_cm2 with the separate unscaling launch (600), and rows without outliers (left
+    /// unscaled).
     /// </summary>
     [Theory]
     [InlineData("bf16", 2)]
@@ -23,6 +24,7 @@ public sealed class F16RangeTests
     [InlineData("bf16", 130)]
     [InlineData("f16", 5)]
     [InlineData("f16", 130)]
+    [InlineData("bf16", 600)]
     public void MatMul_reads_rows_beyond_f16_range(string fmt, int t)
     {
         Gpu.Require();
@@ -41,7 +43,7 @@ public sealed class F16RangeTests
         }
 
         // Errors scale with the outliers (f16 rounding of 1.5e5 times weights of 0.05: about 4 per term).
-        Diff.Check("F16Range.matmul", tg.B.Build(), new Step(t, 0, (x, xs)), atol: 8.0, rtol: 1e-2, maxTokens: 160, what: $"{fmt} T={t}");
+        Diff.Check("F16Range.matmul", tg.B.Build(), new Step(t, 0, (x, xs)), atol: 8.0, rtol: 1e-2, maxTokens: 640, what: $"{fmt} T={t}");
     }
 
     /// <summary>

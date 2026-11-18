@@ -896,6 +896,17 @@ public sealed partial class GraphLowerer
         Emit(MatMulLabel(p), [p.Node], gemmVariants,
             [Pointer(half), Pointer(p.W), Pointer(p.Y), TokenArg(x, rowsPerLead)],
             [half, p.W], [p.Y]);
+        if (_rangeScales.TryGetValue(half, out long scales))
+        {
+            // The rows of a row-ranged copy that were scaled leave scaled outputs; split-K undoes them in its reduction.
+            Emit($"{MatMulLabel(p)} f16 range", [p.Node],
+                [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == 1,
+                    Lib("data.slang", "f16_range_unscale", Macros(("N", p.N), ("Y_STRIDE", p.Macros["Y_STRIDE"]), ("X_RS", scales + "ull"))),
+                    b => new Grid(Grid.Div(p.RowCount(b), 64)))],
+                [Pointer(half), Pointer(p.Y), TokenArg(x, rowsPerLead)],
+                [half, p.Y], [p.Y]);
+        }
+
         return (half, halfMacros);
     }
 
@@ -967,8 +978,10 @@ public sealed partial class GraphLowerer
         var y = epilogue?.Output ?? p.Y;
         Emit($"matmul {p.Node.Output.Name} split-k reduce{epilogue?.Label}", [p.Node, .. epilogue?.Group ?? []],
             [.. reduceVariants],
-            [new PointerArg(scratch, 0), Pointer(p.WeightParts ?? p.W), Pointer(y), .. MatMulEpilogueArgs(epilogue), TokenArg(p.X, rowsPerLead)],   // w: unused by the reduction
-            [partial, .. epilogue?.Args ?? []], [y]);
+            // w: unused by the reduction, except that a row-ranged f16 copy of the activations (X_RS) goes there for its row scales.
+            [new PointerArg(scratch, 0), p.Macros.ContainsKey("X_RS") ? Pointer(activations) : Pointer(p.WeightParts ?? p.W), Pointer(y), .. MatMulEpilogueArgs(epilogue),
+                TokenArg(p.X, rowsPerLead)],
+            p.Macros.ContainsKey("X_RS") ? [partial, activations, .. epilogue?.Args ?? []] : [partial, .. epilogue?.Args ?? []], [y]);
     }
 
     /// <summary>

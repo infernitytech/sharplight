@@ -28,12 +28,18 @@ public sealed partial class GraphLowerer
             return null;
         }
 
+        // Its epilogue needs the true products: x must be a plain f16 copy (a norm's output), not a row-ranged one, whose scaled
+        // rows the separate GEMMs undo after their stores.
+        if (DiagnosticSwitches.F16RangeGuard && NormHalfCopy(RootOf(source), x, xStride, k, DualGemm2MinRows + 1) is not { RangeScales: null })
+        {
+            return null;
+        }
+
         long wave = GemmWaveTiles;
         bool Serves(long rows) => DualGemm2Serves(rows, n, k, wave);
         var quantized = QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, DualGemm2MinRows + 1, rowsMax, ActivationCode.F16);
         var macros = Gemm2Macros(Macros(("WFMT", WeightFormat(weightA.Type)!.Value), ("K", k), ("N", n), ("X_STRIDE", k), ("Y_STRIDE", n),
             ("ROW_BYTES", weightA.Type.ByteSize(k) + "ull"), ("X_F16", 1), ("DUAL", 1), ("KERNEL_GEMM_CM2", 1)), Gemm2TileRows);
-        WithRangeScales(macros, quantized);
         if (DiagnosticSwitches.GemmTileGroup > 0 && 2 * weightA.Type.ByteSize(k) * n >= TileGroupMinWeightBytes)
         {
             // Both matrices stream through the tiles: their sum decides the grouped order.

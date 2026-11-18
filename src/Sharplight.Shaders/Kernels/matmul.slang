@@ -31,7 +31,8 @@
 // DUAL_Y16 (dual gemm_cm2): also stores y rounded to f16 into y16, the f16 copy the next GEMM reads (the to_f16 conversion,
 // round to nearest even, so the copy is identical to a separate conversion). With DUAL_Y16_RANGE the copy is row-ranged
 // (common.slang, f16_range_scale): values from 2^15 on raise the row's flag in y16_flags to the bits of their magnitude (atomic
-// max), and the f16_range_fixup launch after this one converts those rows again with their range scale and writes every scale word.
+// max, per subgroup tile), and the f16_range_fixup launch after this one converts those rows again with their range scale and
+// writes every scale word.
 #ifndef DUAL_Y16
 #define DUAL_Y16 0
 #endif
@@ -1127,9 +1128,6 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #if DUAL && (MOE || GEMM_SPLIT || MM_EPI || defined(GW_RAW) || !X_F16 || FRAG_N % 2 != 0 || (defined(SPLITK) && SPLITK != 1))
 #error "the dual gemm_cm2 needs f16 activations, 16-value weight fetches, an even FRAG_N and no K split"
 #endif
-#if defined(X_RS) && (MOE || GEMM_SPLIT || !X_F16)
-#error "row-ranged activations need the dense f16 gemm_cm2"
-#endif
 #if !MOE && defined(GEMM_GROUP) && (!defined(SPLITK) || SPLITK == 1)
     gid.xy = grouped_tile(gid.xy, (N + GBN_OUT - 1) / GBN_OUT, (p.T + GBM - 1) / GBM, GEMM_GROUP);
 #endif
@@ -1499,43 +1497,6 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #undef ROW_OF
     #undef ROWS_LIVE
 
-#ifdef X_RS
-    // x is a row-ranged f16 copy (common.slang, f16_range_scale) whose scale words start X_RS bytes after x. A subgroup with a
-    // scaled row among its FRAG_M x 16 rows multiplies the inverse scales into its accumulators (through its shared slice);
-    // the others store as they are.
-    {
-        bool scaled = false;
-        for (uint r = lane; r < FRAG_M * 16; r += 32)
-        {
-            uint t = t0 + wm + r;
-            scaled = scaled || (t < p.T && *(uint*)(uint64_t(p.x) + X_RS + uint64_t(t) * 4) != 0);
-        }
-        if (WaveActiveAnyTrue(scaled))
-        {
-            [ForceUnroll]
-            for (int i = 0; i < FRAG_M; i++)
-            {
-                float inv[8];
-                [ForceUnroll]
-                for (uint e = 0; e < 8; e++)
-                {
-                    uint t = t0 + wm + i * 16 + (lane + e * 32) / 16;
-                    inv[e] = t < p.T ? f16_range_inverse(*(uint*)(uint64_t(p.x) + X_RS + uint64_t(t) * 4)) : 0.0;
-                }
-                [ForceUnroll]
-                for (int j = 0; j < FRAG_N; j++)
-                {
-                    acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(gC, sg * 256, 16u);
-                    GroupMemoryBarrierWithWaveSync();
-                    [ForceUnroll] for (uint e = 0; e < 8; e++) gC[sg * 256 + lane + e * 32] *= inv[e];
-                    GroupMemoryBarrierWithWaveSync();
-                    acc[i][j] = Acc2.Load<CoopMatMatrixLayout.RowMajor>(gC, sg * 256, 16u);
-                    GroupMemoryBarrierWithWaveSync();
-                }
-            }
-        }
-    }
-#endif
 #if GEMM_SPLIT
     // Undo the row scales of x and W: each subgroup stages its accumulators through its own shared slice.
     [ForceUnroll]
@@ -1570,6 +1531,11 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #endif
 #if DUAL
     // Fragments j and j + 1 hold the products of w and w2 for the same 16 outputs, columns n0 + (wn + j * 16) / 2.
+#if DUAL_Y16_RANGE
+    // The largest magnitude of the subgroup's outputs: from 2^15 on, it raises the flags of all the subgroup's rows (a bound
+    // of each such row's largest value, which is all the fixup needs).
+    float rangeMax = 0;
+#endif
     [ForceUnroll]
     for (int i = 0; i < FRAG_M; i++)
     {
@@ -1585,13 +1551,9 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             }
 #if DUAL_Y16
 #if DUAL_Y16_RANGE
-            float big = 0;
-            [ForceUnroll] for (uint e = 0; e < 8; e++) big = max(big, abs(r[e]));
-            bool inRange = !WaveActiveAnyTrue(big >= 32768.0);
-#else
-            bool inRange = true;
+            [ForceUnroll] for (uint e = 0; e < 8; e++) rangeMax = max(rangeMax, abs(r[e]));
 #endif
-            if (inRange && tRow + 16 <= p.T && nCol + 16 <= N)
+            if (tRow + 16 <= p.T && nCol + 16 <= N)
             {
                 CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator> h = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>(r);
                 h.Store<CoopMatMatrixLayout.RowMajor>((half*)p.y16 + uint64_t(tRow) * N + nCol, 0u, N);
@@ -1604,14 +1566,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
                 for (uint e = 0; e < 8; e++)
                 {
                     uint w = lane + e * 32, t = tRow + w / 16, n = nCol + w % 16;
-                    if (t < p.T && n < N)
-                    {
-                        float v = gC[sg * 256 + w];
-                        *(uint16_t*)(p.y16 + (uint64_t(t) * N + n) * 2) = uint16_t(f32tof16(v));
-#if DUAL_Y16_RANGE
-                        if (abs(v) >= 32768.0) InterlockedMax(p.y16_flags[t], asuint(abs(v)));
-#endif
-                    }
+                    if (t < p.T && n < N) *(uint16_t*)(p.y16 + (uint64_t(t) * N + n) * 2) = uint16_t(f32tof16(gC[sg * 256 + w]));
                 }
                 GroupMemoryBarrierWithWaveSync();
             }
@@ -1634,6 +1589,16 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             GroupMemoryBarrierWithWaveSync();
         }
     }
+#if DUAL_Y16_RANGE
+    if (WaveActiveAnyTrue(rangeMax >= 32768.0))
+    {
+        rangeMax = WaveActiveMax(rangeMax);
+        for (uint r = lane; r < FRAG_M * 16; r += 32)
+        {
+            if (t0 + wm + r < p.T) InterlockedMax(p.y16_flags[t0 + wm + r], asuint(rangeMax));
+        }
+    }
+#endif
     return;
 #endif
     if (!MOE && t0 + GBM <= p.T && (N % GBN == 0 || n0 + GBN <= N))
@@ -1672,7 +1637,8 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #endif
 
 #ifdef KERNEL_SPLITK_REDUCE
-// Sums the SPLITK partial results of gemm_cm2 (x = partials [SPLITK][T][N]) into y.
+// Sums the SPLITK partial results of gemm_cm2 (x = partials [SPLITK][T][N]) into y. With X_RS, w is the row-ranged f16 copy the
+// GEMM read, whose row scales are undone here.
 [shader("compute")]
 [numthreads(256, 1, 1)]
 void splitk_reduce(uint3 dtid : SV_DispatchThreadID, uniform Params p)
@@ -1681,6 +1647,10 @@ void splitk_reduce(uint3 dtid : SV_DispatchThreadID, uniform Params p)
     if (i >= total) return;
     float s = 0;
     [ForceUnroll] for (uint z = 0; z < SPLITK; z++) s += p.x[z * total + i];
+#ifdef X_RS
+    // The GEMM read a row-ranged f16 copy of its activations (common.slang, f16_range_scale), bound as w here.
+    s *= f16_range_inverse(*(uint*)(uint64_t(p.w) + X_RS + (i / N) * 4));
+#endif
     p.y[(i / N) * Y_STRIDE + i % N] = MM_STORE(s, i / N, uint(i % N));
 }
 #endif
