@@ -9,30 +9,48 @@ using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Runtime;
+using Sharplight.Studio.Services.Search;
 using Sharplight.Studio.ViewModels.Inference;
 using Sharplight.Studio.ViewModels.Inference.Parameters;
 
 namespace Sharplight.Studio.ViewModels.Search;
 
 /// <summary>
-/// The Search page (kind <c>embeddings</c>): a folder of documents is read, cut into passages and embedded by the chosen text
-/// embedding model (the index lives in memory for that model), and a question is embedded the same way and answered with the closest
-/// passages. Built from the shared inference blocks (picker, parameters, queue, history, outputs); both indexing and searching are runs
+/// The Search page (kind <c>embeddings</c>): a folder of documents is read (PDF, Office, HTML, Markdown, text and source), cut into
+/// passages along their structure and embedded by the chosen text embedding model. The index is stored for that model and updated
+/// incrementally (only changed, added and removed files are processed). A question is answered with the closest passages by embedding
+/// similarity, BM25 keywords or both (reciprocal rank fusion), optionally reranked, and with a resident chat model <c>Ask</c> writes an
+/// answer from the top passages with citations. Built from the shared inference blocks (picker, parameters, queue, history, outputs); both indexing and searching are runs
 /// of the queue, so the embedding model's work never touches the UI thread and can be cancelled.
 /// </summary>
 internal sealed partial class SearchPageViewModel : InferencePageViewModel
 {
     private const string ResultsName = "results.json";
-    private const int MaxFiles = 5000;
-    private const int BatchSize = 16;
+    private const int CandidatePool = 50;
 
+    private readonly IDocumentParser _parser;
+    private readonly SearchIndexer _indexer;
     private SearchIndex? _index;
+    private FolderWatcher? _watcher;
+    private bool _changedWhileBusy;
+    private bool _active;
 
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
-    public SearchPageViewModel(StudioServices services, INavigator navigator)
+    /// <param name="parser">Reads the documents; the default reads every supported format.</param>
+    public SearchPageViewModel(StudioServices services, INavigator navigator, IDocumentParser? parser = null)
         : base(services, navigator, ModelKindCatalog.Embeddings, "search", CreateParameters(services))
     {
+        _parser = parser ?? new StructuredDocumentParser();
+        _indexer = new SearchIndexer(_parser);
+        ChatModels = new ModelPickerViewModel(services, Sharplight.Models.ModelKinds.TextGeneration);
+        ChatModels.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName is nameof(ModelPickerViewModel.HasModels) or nameof(ModelPickerViewModel.SelectedModel))
+            {
+                OnInputChanged();
+            }
+        };
         Rerankers = new ModelPickerViewModel(services, ModelKindCatalog.Reranker);
         Rerankers.PropertyChanged += (_, args) =>
         {
@@ -46,6 +64,12 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
 
     /// <summary>The resident reranking models and the chosen one (used when <c>Rerank results</c> is on).</summary>
     public ModelPickerViewModel Rerankers { get; }
+
+    /// <summary>The resident chat models and the chosen one, which writes the answer of <c>Ask</c>.</summary>
+    public ModelPickerViewModel ChatModels { get; }
+
+    /// <summary>A chat model is resident, so a question can be answered from the passages.</summary>
+    public bool CanAskModel => ChatModels.HasModels;
 
     /// <summary>A reranking model is resident, so results can be reranked.</summary>
     public bool CanRerank => Rerankers.HasModels;
@@ -83,6 +107,24 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
     [ObservableProperty]
     public partial string ResultSummary { get; set; } = "";
 
+    /// <summary>The model's answer to the last <c>Ask</c>, with <c>[n]</c> citations of the passages below, or empty.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasAnswer))]
+    public partial string Answer { get; set; } = "";
+
+    /// <summary>The answer is being written or is shown.</summary>
+    public bool HasAnswer => Answer.Length > 0;
+
+    /// <summary>The passages the answer cites, in order of first mention.</summary>
+    public ObservableCollection<SearchResultViewModel> AnswerCitations { get; } = [];
+
+    /// <summary>Update the index by itself when files in the folder change while the page is open.</summary>
+    [ObservableProperty]
+    public partial bool WatchFolder { get; set; }
+
+    /// <summary>The load of the stored index the last folder change started (tests and callers can wait for it).</summary>
+    public Task StoredIndexLoad { get; private set; } = Task.CompletedTask;
+
     /// <summary>A folder is indexed.</summary>
     public bool HasIndex => _index is not null;
 
@@ -107,7 +149,56 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
     public override Task ActivateAsync()
     {
         Rerankers.Refresh();
+        ChatModels.Refresh();
+        _active = true;
+        UpdateWatcher();
+        if (WatchFolder)
+        {
+            NotifyFolderChanged();
+        }
+
         return base.ActivateAsync();
+    }
+
+    /// <inheritdoc/>
+    public override void Deactivate()
+    {
+        _active = false;
+        UpdateWatcher();
+        base.Deactivate();
+    }
+
+    /// <summary>
+    /// Brings the stored index up to date after files of the folder changed (called by the watcher once changes are quiet): runs an
+    /// incremental index when a stored index of the chosen model exists and nothing else is running, else remembers it for later.
+    /// </summary>
+    public void NotifyFolderChanged()
+    {
+        if (!WatchFolder || _index is not { } index || SelectedModel is not { } model || index.ModelId != model.Id)
+        {
+            return;
+        }
+
+        if (Queue.IsBusy)
+        {
+            _changedWhileBusy = true;
+            return;
+        }
+
+        _changedWhileBusy = false;
+        Index();
+    }
+
+    partial void OnWatchFolderChanged(bool value) => UpdateWatcher();
+
+    private void UpdateWatcher()
+    {
+        _watcher?.Dispose();
+        _watcher = null;
+        if (_active && WatchFolder && Directory.Exists(FolderPath))
+        {
+            _watcher = new FolderWatcher(FolderPath, TimeSpan.FromSeconds(2), () => Services.Dispatcher.Post(NotifyFolderChanged));
+        }
     }
 
     private void UpdateRerankers()
@@ -125,6 +216,11 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         OnPropertyChanged(nameof(IsWorking));
         IndexCommand.NotifyCanExecuteChanged();
         SearchCommand.NotifyCanExecuteChanged();
+        AskCommand.NotifyCanExecuteChanged();
+        if (!Queue.IsBusy && _changedWhileBusy)
+        {
+            NotifyFolderChanged();
+        }
     }
 
     /// <inheritdoc/>
@@ -155,7 +251,8 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
                 FolderPath = file.Folder;
             }
 
-            Show(file.Hits, file.Folder);
+            Show(file.Hits, file.Folder, file.Query);
+            ShowAnswer(file.Answer);
             ResultSummary = string.Join(" · ", record.Metadata.Select(pair => $"{pair.Key}: {pair.Value}"));
             Parameters.Apply(record.Options);
         }
@@ -165,7 +262,43 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         }
     }
 
-    partial void OnFolderPathChanged(string value) => OnInputChanged();
+    partial void OnFolderPathChanged(string value)
+    {
+        if (_index is { } index && !string.Equals(Path.TrimEndingDirectorySeparator(index.Folder), Path.TrimEndingDirectorySeparator(value), StringComparison.Ordinal))
+        {
+            SetIndex(null);
+        }
+
+        UpdateWatcher();
+        StoredIndexLoad = LoadStoredIndexAsync(value);
+        OnInputChanged();
+    }
+
+    private async Task LoadStoredIndexAsync(string folder)
+    {
+        if (folder.Length == 0 || !Directory.Exists(folder))
+        {
+            return;
+        }
+
+        string file = SearchIndexStore.PathFor(Services.Pages.DirectoryFor("search"), folder);
+        var stored = await Task.Run(() => SearchIndexStore.Load(file)).ConfigureAwait(false);
+        Services.Dispatcher.Post(() =>
+        {
+            if (stored is not null && FolderPath == folder && _index is null)
+            {
+                SetIndex(stored);
+            }
+        });
+    }
+
+    private void SetIndex(SearchIndex? index)
+    {
+        _index = index;
+        IndexSummary = index is null ? "" : $"{index.FileCount} documents, {index.Chunks.Count} passages, {index.ModelId}";
+        OnPropertyChanged(nameof(HasIndex));
+        OnInputChanged();
+    }
 
     partial void OnQueryChanged(string value) => OnInputChanged();
 
@@ -174,6 +307,8 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         OnPropertyChanged(nameof(RunHint));
         IndexCommand.NotifyCanExecuteChanged();
         SearchCommand.NotifyCanExecuteChanged();
+        AskCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CanAskModel));
     }
 
     [RelayCommand]
@@ -187,7 +322,7 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
 
     private bool CanIndex() => HasModel && FolderPath.Length > 0 && Directory.Exists(FolderPath) && !Queue.IsBusy;
 
-    /// <summary>Reads, cuts and embeds the documents of the folder.</summary>
+    /// <summary>Reads, cuts and embeds the documents of the folder; a stored index is updated, not rebuilt.</summary>
     [RelayCommand(CanExecute = nameof(CanIndex))]
     private void Index()
     {
@@ -200,50 +335,62 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         string folder = FolderPath;
         var options = Panel.Options;
         var values = Parameters.Snapshot();
+        var previous = _index is { } current && string.Equals(current.Folder, folder, StringComparison.Ordinal) ? current : null;
         Parameters.Persist();
         Notice = "";
-        Queue.Enqueue("Index " + (Path.GetFileName(folder.TrimEnd('/', '\\')) is { Length: > 0 } name ? name : folder), model.Id, context => IndexAsync(model, folder, options, values, context));
+        Queue.Enqueue("Index " + (Path.GetFileName(folder.TrimEnd('/', '\\')) is { Length: > 0 } name ? name : folder), model.Id, context => IndexAsync(model, folder, previous, options, values, context));
     }
 
     private bool CanSearch() => HasModel && Query.Trim().Length > 0 && HasIndex && !Queue.IsBusy;
 
-    /// <summary>Embeds the question and lists the closest passages.</summary>
+    /// <summary>Lists the passages closest to the question.</summary>
     [RelayCommand(CanExecute = nameof(CanSearch))]
-    private void Search()
+    private void Search() => Enqueue(asker: null);
+
+    private bool CanAsk() => CanSearch() && ChatModels.SelectedModel is not null;
+
+    /// <summary>Lists the closest passages and has the chat model answer from them, citing the passages.</summary>
+    [RelayCommand(CanExecute = nameof(CanAsk))]
+    private void Ask() => Enqueue(asker: ChatModels.SelectedModel?.Model);
+
+    private void Enqueue(ILoadedModel? asker)
     {
-        if (!HasModel || _index is not { } index)
+        if (!HasModel || _index is not { } index || Query.Trim().Length == 0 || Queue.IsBusy)
         {
             return;
         }
 
         var model = SelectedModel!;
         var reranker = Rerankers.SelectedModel?.Model;
-        if (index.ModelId != model.Id)
+        var options = Panel.Options;
+        if (options.Mode != SearchMode.Keyword && index.ModelId != model.Id)
         {
             Notice = $"The index was made with {index.ModelId}. Index the folder again to search with {model.Id}.";
             return;
         }
 
         string query = Query.Trim();
-        var options = Panel.Options;
         var values = Parameters.Snapshot();
         Parameters.Persist();
         Notice = "";
-        Queue.Enqueue(query.Length > 60 ? query[..60] + "…" : query, model.Id, context => SearchAsync(model, options.Rerank ? reranker : null, index, query, options, values, context));
+        Answer = "";
+        AnswerCitations.Clear();
+        string title = (asker is null ? "" : "Ask: ") + (query.Length > 60 ? query[..60] + "…" : query);
+        Queue.Enqueue(title, model.Id, context => SearchAsync(model, options.Rerank ? reranker : null, asker, index, query, options, values, context));
     }
 
     /// <summary>Cancels the queued and running work.</summary>
     [RelayCommand]
     private void Cancel() => Queue.CancelAll();
 
-    /// <summary>Opens the document of a result in the system's program.</summary>
+    /// <summary>Opens the document of a result in the system's program, at its page or line where a program that can do that is installed.</summary>
     /// <param name="result">The result.</param>
     [RelayCommand]
     private void OpenResult(SearchResultViewModel result)
     {
         if (File.Exists(result.Hit.File))
         {
-            Services.Platform.Open(result.Hit.File);
+            Services.Platform.OpenAt(result.Hit.File, result.Hit.Page, result.Hit.Line);
         }
     }
 
@@ -252,50 +399,37 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
     [RelayCommand]
     private Task CopyResultAsync(SearchResultViewModel result) => Services.Platform.CopyTextAsync(result.Text);
 
-    private async Task IndexAsync(ILoadedModel model, string folder, SearchOptions options, Dictionary<string, string> values, RunContext context)
+    /// <summary>Marks the passage a citation of the answer points to.</summary>
+    /// <param name="result">The cited result.</param>
+    [RelayCommand]
+    private void FocusResult(SearchResultViewModel result)
+    {
+        foreach (var other in Results)
+        {
+            other.IsFocused = ReferenceEquals(other, result);
+        }
+    }
+
+    private async Task IndexAsync(ILoadedModel model, string folder, SearchIndex? previous, SearchOptions options, Dictionary<string, string> values, RunContext context)
     {
         var watch = Stopwatch.StartNew();
         RunOutcome outcome = RunOutcome.Completed;
         string? error = null;
-        SearchIndex? built = null;
-        int skipped = 0;
+        IndexUpdate? update = null;
+        SearchIndex? latest = null;
+        string file = SearchIndexStore.PathFor(Services.Pages.DirectoryFor("search"), folder);
         try
         {
-            context.Report(null, "Listing documents");
-            var files = Directory.EnumerateFiles(folder, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true })
-                .Where(Services.Documents.CanExtract).Order(StringComparer.Ordinal).Take(MaxFiles).ToList();
             context.Report(null, "Loading the model");
             using var lease = await model.AcquireEmbedderAsync(context.CancellationToken).ConfigureAwait(false);
-            var chunks = new List<IndexedChunk>();
-            for (int i = 0; i < files.Count; i++)
-            {
-                context.CancellationToken.ThrowIfCancellationRequested();
-                context.Report((double)i / Math.Max(1, files.Count), $"{i + 1} of {files.Count} documents");
-                string text;
-                try
+            update = await _indexer.UpdateAsync(folder, previous, model.Id, lease.Embedder, DocumentPrompt(lease.Embedder), options.ChunkCharacters, options.OverlapCharacters,
+                context.Report, checkpoint: index =>
                 {
-                    text = (await Services.Documents.ExtractAsync(files[i], context.CancellationToken).ConfigureAwait(false)).Text;
-                }
-                catch (Exception failure) when (failure is IOException or NotSupportedException or UnauthorizedAccessException or InvalidDataException)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                var passages = TextChunker.Split(text, options.ChunkCharacters, options.OverlapCharacters);
-                for (int start = 0; start < passages.Count; start += BatchSize)
-                {
-                    var batch = passages.Skip(start).Take(BatchSize).ToList();
-                    var vectors = await Task.Run(() => lease.Embedder.Embed([.. batch.Select(passage => passage.Text)], new EmbedOptions { Prompt = DocumentPrompt(lease.Embedder) }),
-                        context.CancellationToken).ConfigureAwait(false);
-                    for (int j = 0; j < batch.Count; j++)
-                    {
-                        chunks.Add(new IndexedChunk(files[i], batch[j].Start, batch[j].Text, SearchIndex.Normalize(vectors.Vectors[j])));
-                    }
-                }
-            }
-
-            built = new SearchIndex(folder, model.Id, files.Count - skipped, chunks);
+                    SearchIndexStore.Save(file, index);
+                    latest = index;
+                }, context.CancellationToken).ConfigureAwait(false);
+            SearchIndexStore.Save(file, update.Index);
+            latest = update.Index;
         }
         catch (OperationCanceledException)
         {
@@ -309,25 +443,33 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
 
         double seconds = watch.Elapsed.TotalSeconds;
         var metadata = new Dictionary<string, string>();
-        if (built is not null)
+        if (update is not null)
         {
-            metadata["documents"] = built.FileCount.ToString(CultureInfo.InvariantCulture);
-            metadata["passages"] = built.Chunks.Count.ToString(CultureInfo.InvariantCulture);
+            var number = CultureInfo.InvariantCulture;
+            metadata["documents"] = update.Index.FileCount.ToString(number);
+            metadata["passages"] = update.Index.Chunks.Count.ToString(number);
             metadata["time"] = $"{seconds:0.0} s";
-            if (skipped > 0)
+            metadata["added"] = update.Added.ToString(number);
+            metadata["changed"] = update.Changed.ToString(number);
+            metadata["removed"] = update.Removed.ToString(number);
+            if (update.Failed > 0)
             {
-                metadata["unreadable"] = skipped.ToString(CultureInfo.InvariantCulture);
+                metadata["unreadable"] = update.Failed.ToString(number);
             }
+        }
 
+        if (latest is not null)
+        {
+            var shown = latest;
             Services.Dispatcher.Post(() =>
             {
-                _index = built;
-                Results.Clear();
-                ResultSummary = "";
-                IndexSummary = $"{built.FileCount} documents, {built.Chunks.Count} passages, {built.ModelId}";
-                OnPropertyChanged(nameof(HasIndex));
-                OnPropertyChanged(nameof(HasResults));
-                OnInputChanged();
+                SetIndex(shown);
+                if (outcome == RunOutcome.Completed)
+                {
+                    Results.Clear();
+                    ResultSummary = "";
+                    OnPropertyChanged(nameof(HasResults));
+                }
             });
         }
 
@@ -351,27 +493,21 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         Finish(outcome, error, context);
     }
 
-    private async Task SearchAsync(ILoadedModel model, ILoadedModel? reranker, SearchIndex index, string query, SearchOptions options, Dictionary<string, string> values, RunContext context)
+    private async Task SearchAsync(ILoadedModel model, ILoadedModel? reranker, ILoadedModel? asker, SearchIndex index, string query, SearchOptions options, Dictionary<string, string> values, RunContext context)
     {
         var watch = Stopwatch.StartNew();
         RunOutcome outcome = RunOutcome.Completed;
         string? error = null;
+        string answer = "";
         List<SearchHitRecord> hits = [];
         try
         {
-            context.Report(null, "Loading the model");
-            using var lease = await model.AcquireEmbedderAsync(context.CancellationToken).ConfigureAwait(false);
-            context.Report(0.5, "Embedding the question");
-            var embedded = await Task.Run(() => lease.Embedder.Embed([query], new EmbedOptions { Prompt = QueryPrompt(lease.Embedder) }), context.CancellationToken).ConfigureAwait(false);
-            int top = Math.Max(1, options.TopK);
-            var nearest = await Task.Run(() => index.Nearest(embedded.Vectors[0], reranker is null ? top : Math.Max(top * 4, 20)), context.CancellationToken).ConfigureAwait(false);
-            hits = [.. nearest.Select(hit => new SearchHitRecord { File = hit.Chunk.File, Start = hit.Chunk.Start, Text = hit.Chunk.Text, Score = hit.Score })];
-            if (reranker is not null && hits.Count > 0)
+            hits = await RetrieveAsync(model, reranker, index, query, options, context).ConfigureAwait(false);
+            if (asker is not null && hits.Count > 0)
             {
-                context.Report(0.75, $"Reranking {hits.Count} passages");
-                using var rerankLease = await reranker.AcquireRerankerAsync(context.CancellationToken).ConfigureAwait(false);
-                var scored = await Task.Run(() => rerankLease.Reranker.Score(query, [.. hits.Select(hit => hit.Text)]), context.CancellationToken).ConfigureAwait(false);
-                hits = [.. hits.Select((hit, i) => hit with { Score = scored.Scores[i] }).OrderByDescending(hit => hit.Score).Take(top)];
+                var shown = hits;
+                Services.Dispatcher.Post(() => Show(shown, index.Folder, query));
+                answer = await AnswerAsync(asker, query, hits, context).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -390,25 +526,36 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
             ["passages"] = hits.Count.ToString(CultureInfo.InvariantCulture),
             ["time"] = $"{seconds * 1000:0} ms",
         };
+        if (options.Mode != SearchMode.Semantic)
+        {
+            metadata["mode"] = options.Mode;
+        }
+
         if (reranker is not null)
         {
             metadata["reranker"] = reranker.Id;
+        }
+
+        if (asker is not null)
+        {
+            metadata["answered by"] = asker.Id;
         }
 
         if (outcome == RunOutcome.Completed)
         {
             Services.Dispatcher.Post(() =>
             {
-                Show(hits, index.Folder);
+                Show(hits, index.Folder, query);
+                ShowAnswer(answer);
                 ResultSummary = string.Join(" · ", metadata.Select(pair => $"{pair.Key}: {pair.Value}"));
             });
         }
 
-        var file = new SearchResultsFile { Query = query, Folder = index.Folder, Model = model.Id, Hits = hits };
+        var file = new SearchResultsFile { Query = query, Folder = index.Folder, Model = model.Id, Mode = options.Mode, Answer = answer, Hits = hits };
         var record = new RunRecord
         {
             Id = PageArchive.NewId(),
-            Title = query,
+            Title = (asker is null ? "" : "Ask: ") + query,
             Model = model.Id,
             Outcome = outcome,
             Seconds = seconds,
@@ -428,6 +575,95 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         Finish(outcome, error, context);
     }
 
+    private async Task<List<SearchHitRecord>> RetrieveAsync(ILoadedModel model, ILoadedModel? reranker, SearchIndex index, string query, SearchOptions options, RunContext context)
+    {
+        int top = Math.Max(1, options.TopK);
+        int wanted = reranker is null ? top : Math.Max(top * 4, 20);
+        int pool = Math.Max(wanted, CandidatePool);
+        IReadOnlyList<(int Index, double Score)> ranked;
+        if (options.Mode == SearchMode.Keyword)
+        {
+            context.Report(0.5, "Matching keywords");
+            var keyword = await Task.Run(() => index.Keyword(query, wanted), context.CancellationToken).ConfigureAwait(false);
+            double best = keyword.Count > 0 ? keyword[0].Score : 1;
+            ranked = [.. keyword.Select(hit => (hit.Index, hit.Score / best))];
+        }
+        else
+        {
+            context.Report(null, "Loading the model");
+            using var lease = await model.AcquireEmbedderAsync(context.CancellationToken).ConfigureAwait(false);
+            context.Report(0.5, "Embedding the question");
+            var embedded = await Task.Run(() => lease.Embedder.Embed([query], new EmbedOptions { Prompt = QueryPrompt(lease.Embedder) }), context.CancellationToken).ConfigureAwait(false);
+            if (options.Mode == SearchMode.Hybrid)
+            {
+                ranked = await Task.Run(() => Fuse(index, embedded.Vectors[0], query, pool, wanted), context.CancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                ranked = await Task.Run(() => index.Rank(embedded.Vectors[0], wanted).Select(hit => (hit.Index, (double)hit.Score)).ToList(), context.CancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        var hits = ranked.Select(hit => ToHit(index.Chunks[hit.Index], hit.Score)).ToList();
+        if (reranker is not null && hits.Count > 0)
+        {
+            context.Report(0.75, $"Reranking {hits.Count} passages");
+            using var rerankLease = await reranker.AcquireRerankerAsync(context.CancellationToken).ConfigureAwait(false);
+            var scored = await Task.Run(() => rerankLease.Reranker.Score(query, [.. hits.Select(hit => hit.Text)]), context.CancellationToken).ConfigureAwait(false);
+            hits = [.. hits.Select((hit, i) => hit with { Score = scored.Scores[i] }).OrderByDescending(hit => hit.Score).Take(top)];
+        }
+
+        return hits;
+    }
+
+    private static IReadOnlyList<(int Index, double Score)> Fuse(SearchIndex index, float[] question, string query, int pool, int wanted)
+    {
+        var semantic = index.Rank(question, pool).Select(hit => hit.Index).ToList();
+        var keyword = index.Keyword(query, pool).Select(hit => hit.Index).ToList();
+        double best = 2.0 / (RankFusion.DefaultK + 1);
+        return [.. RankFusion.Fuse([semantic, keyword]).Take(wanted).Select(hit => (hit.Id, hit.Score / best))];
+    }
+
+    private static SearchHitRecord ToHit(IndexedChunk chunk, double score) => new()
+    {
+        File = chunk.File,
+        Start = chunk.Start,
+        Text = chunk.Text,
+        Score = score,
+        Page = chunk.Page,
+        Line = chunk.Line,
+        Heading = chunk.Heading,
+    };
+
+    private async Task<string> AnswerAsync(ILoadedModel asker, string query, List<SearchHitRecord> hits, RunContext context)
+    {
+        context.Report(0.85, $"Asking {asker.Id}");
+        var passages = hits.Select(hit => (Label: Path.GetFileName(hit.File) + (LocationLabel.For(hit.File, hit.Page, hit.Line, hit.Heading) is { Length: > 0 } place ? ", " + place : ""), hit.Text)).ToList();
+        var (input, _) = AnswerPrompt.Build(query, passages, asker.ContextLength, asker.CountTokens);
+        var text = new System.Text.StringBuilder();
+        var clock = Stopwatch.StartNew();
+        long lastShown = -1000;
+        await foreach (var update in asker.StreamChatAsync(input, context.CancellationToken).ConfigureAwait(false))
+        {
+            if (update.Kind == ChatStreamKind.Content)
+            {
+                text.Append(update.Text);
+                if (clock.ElapsedMilliseconds - lastShown >= 100)
+                {
+                    lastShown = clock.ElapsedMilliseconds;
+                    string partial = text.ToString();
+                    Services.Dispatcher.Post(() => Answer = partial);
+                }
+            }
+            else if (update.Kind == ChatStreamKind.Finished && update.Error is { } failure)
+            {
+                throw new InvalidOperationException($"{asker.Id} could not answer: {failure}");
+            }
+        }
+
+        return text.ToString().Trim();
+    }
+
     private void Finish(RunOutcome outcome, string? error, RunContext context)
     {
         if (outcome == RunOutcome.Cancelled)
@@ -442,15 +678,26 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         }
     }
 
-    private void Show(IEnumerable<SearchHitRecord> hits, string folder)
+    private void Show(IEnumerable<SearchHitRecord> hits, string folder, string query)
     {
         Results.Clear();
+        int number = 0;
         foreach (var hit in hits)
         {
-            Results.Add(new SearchResultViewModel(hit, folder));
+            Results.Add(new SearchResultViewModel(hit, folder, ++number, query));
         }
 
         OnPropertyChanged(nameof(HasResults));
+    }
+
+    private void ShowAnswer(string answer)
+    {
+        Answer = answer;
+        AnswerCitations.Clear();
+        foreach (int number in AnswerPrompt.Citations(answer, Results.Count))
+        {
+            AnswerCitations.Add(Results[number - 1]);
+        }
     }
 
     private static string? QueryPrompt(ITextEmbedder embedder) => embedder.Prompts.ContainsKey("query") ? "query" : null;
@@ -461,8 +708,10 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
     {
         ParameterViewModel[] parameters =
         [
+            new ChoiceParameterViewModel("mode", "Search mode", "Semantic ranks by meaning (embeddings), Keyword by the words themselves (BM25), Hybrid combines both rankings by reciprocal rank fusion, which finds both paraphrases and exact names, numbers and codes.",
+                [new(SearchMode.Semantic, "Semantic"), new(SearchMode.Keyword, "Keyword (BM25)"), new(SearchMode.Hybrid, "Hybrid")]),
             new NumberParameterViewModel("topk", "Results", "How many passages a search lists.", 1, 50, 1, 5),
-            new NumberParameterViewModel("chunk", "Passage length", "Documents are cut into passages of about this many characters; shorter passages find details, longer ones keep context.", 200, 4000, 100, 1000),
+            new NumberParameterViewModel("chunk", "Passage length", "Documents are cut into passages of about this many characters, along headings, pages and slides first; shorter passages find details, longer ones keep context. Changing it indexes the folder again.", 200, 4000, 100, 1000),
             new NumberParameterViewModel("overlap", "Overlap", "Characters that consecutive passages share, so an answer on a boundary is not lost.", 0, 1000, 50, 150),
             new BoolParameterViewModel("rerank", "Rerank results", "Score the closest passages again with the chosen reranking model (a cross-encoder reads the question and each passage together) and list the best of them. Shown when a reranking model is loaded."),
         ];
@@ -473,6 +722,6 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
             new("Context", new() { ["chunk"] = "2000", ["overlap"] = "300", ["topk"] = "4" }, BuiltIn: true),
         ];
         return new ParameterPanelViewModel<SearchOptions>(services.Pages, "search", parameters,
-            panel => new SearchOptions(panel.GetInt("topk"), panel.GetInt("chunk"), panel.GetInt("overlap"), panel.GetBool("rerank")), presets);
+            panel => new SearchOptions(panel.GetInt("topk"), panel.GetInt("chunk"), panel.GetInt("overlap"), panel.GetBool("rerank"), panel.GetChoice("mode")), presets);
     }
 }

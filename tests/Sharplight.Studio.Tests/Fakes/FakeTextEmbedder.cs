@@ -18,9 +18,13 @@ internal sealed class FakeTextEmbedder : ITextEmbedder
     /// <summary>The options of every call.</summary>
     public List<EmbedOptions?> Calls { get; } = [];
 
+    /// <summary>Every text embedded so far.</summary>
+    public List<string> Texts { get; } = [];
+
     public EmbeddingResult Embed(IReadOnlyList<string> texts, EmbedOptions? options = null)
     {
         Calls.Add(options);
+        Texts.AddRange(texts);
         var vectors = texts.Select(text => s_topics.Select(topic => (float)CountOf(text, topic)).ToArray()).ToList();
         return new EmbeddingResult(vectors, [.. texts.Select(text => text.Length)]);
     }

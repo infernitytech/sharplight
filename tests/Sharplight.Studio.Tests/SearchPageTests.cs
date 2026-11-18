@@ -1,4 +1,5 @@
 using Sharplight.Studio.Models;
+using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Tests.Fakes;
 using Sharplight.Studio.ViewModels.Inference;
 using Sharplight.Studio.ViewModels.Search;
@@ -128,7 +129,8 @@ public sealed class SearchPageTests
         Assert.Equal("tax", reopened.Query);
         Assert.Equal(2, reopened.Results.Count);
         Assert.Contains("money.txt", reopened.Results[0].FileName, StringComparison.Ordinal);
-        Assert.False(reopened.HasIndex);   // the index itself lives in memory
+        await reopened.StoredIndexLoad;
+        Assert.True(reopened.HasIndex);   // the stored index of the restored folder is loaded again
     }
 
     [Fact]
@@ -194,5 +196,269 @@ public sealed class SearchPageTests
         Assert.Equal(["a", "b"], nearest.Select(hit => hit.Chunk.Text));
         Assert.Equal(0.9994, nearest[0].Score, 3);
         Assert.Equal([0f, 0f], SearchIndex.Normalize([0, 0]));
+    }
+
+    private static async Task IndexedAsync(SearchPageViewModel page, string folder)
+    {
+        page.SetFolder(folder);
+        page.IndexCommand.Execute(null);
+        await page.Queue.Items.Last().Completion.WaitAsync(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task RunAsync(SearchPageViewModel page, System.Windows.Input.ICommand command)
+    {
+        command.Execute(null);
+        await page.Queue.Items.Last().Completion.WaitAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task TheIndex_IsStored_AndComesBackWhenTheFolderIsChosenAgain()
+    {
+        using var services = new TestServices();
+        Embedding(services, out var embedder);
+        string folder = Documents(services);
+        var page = new SearchPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        await IndexedAsync(page, folder);
+        Assert.Single(Directory.GetFiles(Path.Combine(services.Directory, "pages", "search", "indexes"), "*.slsx"));
+
+        // A new page (a restart): choosing the folder loads the stored index, so a search needs no indexing and no re-embedding.
+        embedder.Texts.Clear();
+        var reopened = new SearchPageViewModel(services.Services, new FakeNavigator());
+        await reopened.ActivateAsync();
+        reopened.SetFolder(folder);
+        await reopened.StoredIndexLoad;
+        Assert.True(reopened.HasIndex);
+        Assert.Equal("3 documents, 3 passages, fake-embed", reopened.IndexSummary);
+        reopened.Query = "tax";
+        await RunAsync(reopened, reopened.SearchCommand);
+        Assert.Equal("money.txt", reopened.Results[0].FileName);
+        Assert.Equal(["tax"], embedder.Texts);   // only the question was embedded
+
+        // Another folder starts without an index.
+        reopened.SetFolder(Path.Combine(services.Directory, "docs", "sub"));
+        await reopened.StoredIndexLoad;
+        Assert.False(reopened.HasIndex);
+    }
+
+    [Fact]
+    public async Task IndexingAgain_UpdatesOnlyWhatChanged_AndAnotherModelOffersAReindex()
+    {
+        using var services = new TestServices();
+        Embedding(services, out var embedder);
+        services.Runtime.Add(new FakeModel("other-embed") { Kind = ModelKindCatalog.Embeddings, Embedder = new FakeTextEmbedder() });
+        string folder = Documents(services);
+        var page = new SearchPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        await IndexedAsync(page, folder);
+        Assert.Equal("3", page.History.Items[0].Record.Metadata["added"]);
+
+        File.WriteAllText(Path.Combine(folder, "money.txt"), "Tax tax. A new ship tax.");
+        File.WriteAllText(Path.Combine(folder, "new.txt"), "A brand new cat.");
+        File.Delete(Path.Combine(folder, "pets.md"));
+        embedder.Texts.Clear();
+        await RunAsync(page, page.IndexCommand);
+        var metadata = page.History.Items[0].Record.Metadata;
+        Assert.Equal(("1", "1", "1"), (metadata["added"], metadata["changed"], metadata["removed"]));
+        Assert.Equal(2, embedder.Texts.Count);   // the changed and the added file only
+        Assert.Equal("3 documents, 3 passages, fake-embed", page.IndexSummary);
+
+        page.Picker.SelectedModel = page.Picker.Models.Single(option => option.Id == "other-embed");
+        Assert.Contains("index the folder again", page.RunHint, StringComparison.Ordinal);
+        await RunAsync(page, page.IndexCommand);
+        Assert.Equal("3", page.History.Items[0].Record.Metadata["added"]);   // a model change embeds everything again
+        Assert.Equal("3 documents, 3 passages, other-embed", page.IndexSummary);
+    }
+
+    [Fact]
+    public async Task KeywordSearch_NeedsNoEmbedding_AndHybridCombinesBothRankings()
+    {
+        using var services = new TestServices();
+        Embedding(services, out var embedder);
+        string folder = Path.Combine(services.Directory, "docs");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "codes.txt"), "Error code E1042 means the disk is full.");
+        File.WriteAllText(Path.Combine(folder, "cats.txt"), "The cat sleeps. A cat and a cat.");
+        File.WriteAllText(Path.Combine(folder, "sea.txt"), "The ship engine roared at the ship.");
+        var page = new SearchPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        await IndexedAsync(page, folder);
+
+        page.Panel.Apply(new Dictionary<string, string> { ["mode"] = "keyword", ["topk"] = "5" });
+        page.Query = "E1042";
+        int calls = embedder.Calls.Count;
+        await RunAsync(page, page.SearchCommand);
+        Assert.Equal(calls, embedder.Calls.Count);   // BM25 alone does not touch the model
+        Assert.Equal(["codes.txt"], page.Results.Select(result => result.FileName));
+        Assert.Equal(1.0, page.Results[0].Hit.Score, 6);
+        Assert.Equal("keyword", page.History.Items[0].Record.Metadata["mode"]);
+        Assert.Equal(["E1042"], page.Results[0].Segments.Where(segment => segment.IsMatch).Select(segment => segment.Text));
+
+        // The embedder knows only five topic words, so "E1042" means nothing to it; the keyword ranking brings the code in.
+        page.Panel.Apply(new Dictionary<string, string> { ["mode"] = "hybrid" });
+        await RunAsync(page, page.SearchCommand);
+        Assert.Equal("codes.txt", page.Results[0].FileName);
+        Assert.Equal((1.0 / 61 + 1.0 / 62) / (2.0 / 61), page.Results[0].Hit.Score, 6);   // first by keywords, third of three (a zero-similarity tie) by embedding
+        page.Query = "cat";
+        await RunAsync(page, page.SearchCommand);
+        Assert.Equal("cats.txt", page.Results[0].FileName);
+        Assert.Equal(1.0, page.Results[0].Hit.Score, 6);
+        Assert.InRange(page.Results[1].Hit.Score, 0.0, 1.0);
+        Assert.Equal("hybrid", page.History.Items[0].Record.Metadata["mode"]);
+    }
+
+    [Fact]
+    public async Task Results_NameTheirPlace_AndOpenAtIt()
+    {
+        using var services = new TestServices();
+        Embedding(services, out _);
+        string folder = Path.Combine(services.Directory, "docs");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "guide.md"), "# Intro\nWelcome.\n\n# Ships\nThe ship engine roared.\n");
+        DocumentFixtures.Pdf(Path.Combine(folder, "book.pdf"), "Nothing here.", "The cat sat.");
+        var page = new SearchPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        await IndexedAsync(page, folder);
+
+        page.Query = "ship engine";
+        await RunAsync(page, page.SearchCommand);
+        var ship = page.Results.Single(result => result.FileName == "guide.md" && result.Hit.Heading == "Ships");
+        Assert.Equal("line 4 · Ships", ship.Location);
+        page.OpenResultCommand.Execute(ship);
+        Assert.Equal((Path.Combine(folder, "guide.md"), 0, 4), services.Platform.OpenedAt.Single());
+
+        page.Query = "cat";
+        await RunAsync(page, page.SearchCommand);
+        var cat = page.Results[0];
+        Assert.Equal("book.pdf", cat.FileName);
+        Assert.Equal("page 2", cat.Location);
+        page.OpenResultCommand.Execute(cat);
+        Assert.Equal((Path.Combine(folder, "book.pdf"), 2, 0), services.Platform.OpenedAt.Last());
+    }
+
+    [Fact]
+    public async Task Ask_AnswersFromTheTopPassages_WithCitationsLinkedToTheResults()
+    {
+        using var services = new TestServices();
+        Embedding(services, out _);
+        var page = new SearchPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        Assert.False(page.CanAskModel);
+        await IndexedAsync(page, Documents(services));
+        page.Query = "where is the ship engine";
+        Assert.False(page.AskCommand.CanExecute(null));   // no chat model yet
+
+        var chat = services.Runtime.Add(new FakeModel("fake-chat"));
+        chat.Script.Clear();
+        chat.Script.AddRange([ChatStreamUpdate.Content("The ship engine is in "), ChatStreamUpdate.Content("the harbour notes [1], "), ChatStreamUpdate.Content("see also [2] and [9]."),
+            ChatStreamUpdate.Finished(new MessageStats { PromptTokens = 50, CompletionTokens = 20 })]);
+        Assert.True(page.CanAskModel);
+        Assert.True(page.AskCommand.CanExecute(null));
+        await RunAsync(page, page.AskCommand);
+
+        Assert.Equal("The ship engine is in the harbour notes [1], see also [2] and [9].", page.Answer);
+        Assert.True(page.HasAnswer);
+        Assert.Equal(3, page.Results.Count);
+        Assert.Equal([page.Results[0], page.Results[1]], page.AnswerCitations);   // [9] points to no passage and is not linked
+        Assert.Equal("[1]", page.Results[0].NumberText);
+        page.FocusResultCommand.Execute(page.AnswerCitations[1]);
+        Assert.Equal([false, true, false], page.Results.Select(result => result.IsFocused));
+
+        // The prompt carries the numbered passages and the question; the answer is not asked to think.
+        var input = Assert.Single(chat.Inputs);
+        Assert.False(input.EnableThinking);
+        Assert.Equal(ChatRole.System, input.Messages[0].Role);
+        Assert.Contains("[1] sea.txt, line 1", input.Messages[1].Text, StringComparison.Ordinal);
+        Assert.Contains("The ship engine roared.", input.Messages[1].Text, StringComparison.Ordinal);
+        Assert.Contains("Question: where is the ship engine", input.Messages[1].Text, StringComparison.Ordinal);
+
+        var run = page.History.Items[0];
+        Assert.StartsWith("Ask: ", run.Title, StringComparison.Ordinal);
+        Assert.Equal("fake-chat", run.Record.Metadata["answered by"]);
+        var reopened = new SearchPageViewModel(services.Services, new FakeNavigator());
+        reopened.History.RestoreCommand.Execute(reopened.History.Items.First(item => item.Title.StartsWith("Ask: ", StringComparison.Ordinal)));
+        Assert.Equal(page.Answer, reopened.Answer);
+        Assert.Equal(2, reopened.AnswerCitations.Count);
+
+        // A new search clears the old answer.
+        page.Query = "tax";
+        await RunAsync(page, page.SearchCommand);
+        Assert.False(page.HasAnswer);
+        Assert.Empty(page.AnswerCitations);
+    }
+
+    [Fact]
+    public async Task Ask_RunsOffTheCallingThread_AndAFailingChatModelIsReported()
+    {
+        using var services = new TestServices();
+        Embedding(services, out _);
+        var chat = services.Runtime.Add(new FakeModel("fake-chat") { Gate = new TaskCompletionSource() });
+        var page = new SearchPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        await IndexedAsync(page, Documents(services));
+        page.Query = "cat";
+        page.AskCommand.Execute(null);   // returns at once: the work is a run of the queue, parked on the model's gate
+        Assert.True(page.IsWorking);
+        page.CancelCommand.Execute(null);
+        await page.Queue.Items.Last().Completion.WaitAsync(TestContext.Current.CancellationToken).ContinueWith(_ => { }, TestContext.Current.CancellationToken);
+        Assert.Equal(RunStatus.Cancelled, page.Queue.Items.Last().Status);
+
+        chat.Gate = null;
+        chat.Script.Clear();
+        chat.Script.Add(ChatStreamUpdate.Finished(new MessageStats(), "out of memory"));
+        page.AskCommand.Execute(null);
+        await page.Queue.Items.Last().Completion.WaitAsync(TestContext.Current.CancellationToken).ContinueWith(_ => { }, TestContext.Current.CancellationToken);
+        Assert.Equal(RunStatus.Failed, page.Queue.Items.Last().Status);
+        Assert.Contains("could not answer", page.Notice, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WatchingTheFolder_UpdatesTheIndexIncrementally_WhenChangesAreReported()
+    {
+        using var services = new TestServices();
+        Embedding(services, out var embedder);
+        string folder = Documents(services);
+        var page = new SearchPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        await IndexedAsync(page, folder);
+
+        // Not watching: a change report does nothing.
+        File.WriteAllText(Path.Combine(folder, "late.txt"), "A late cat.");
+        int runs = page.Queue.Items.Count;
+        page.NotifyFolderChanged();
+        Assert.Equal(runs, page.Queue.Items.Count);
+
+        page.WatchFolder = true;
+        embedder.Texts.Clear();
+        page.NotifyFolderChanged();
+        await page.Queue.Items.Last().Completion.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(runs + 1, page.Queue.Items.Count);
+        Assert.Equal(["A late cat."], embedder.Texts);
+        Assert.Equal("4 documents, 4 passages, fake-embed", page.IndexSummary);
+        page.WatchFolder = false;
+        await page.ActivateAsync();
+        page.Deactivate();
+    }
+
+    [Fact]
+    public async Task TheFolderWatcher_CallsBackOnceAfterABurstOfChanges()
+    {
+        using var directory = new TempDir();
+        int calls = 0;
+        using var watcher = new Sharplight.Studio.Services.Search.FolderWatcher(directory.Path, TimeSpan.FromMilliseconds(300), () => Interlocked.Increment(ref calls));
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        for (int i = 0; i < 5; i++)
+        {
+            File.WriteAllText(directory.File($"f{i}.txt"), "x");
+            await Task.Delay(30, TestContext.Current.CancellationToken);
+        }
+
+        for (int wait = 0; wait < 100 && Volatile.Read(ref calls) == 0; wait++)
+        {
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+        }
+
+        await Task.Delay(500, TestContext.Current.CancellationToken);
+        Assert.Equal(1, Volatile.Read(ref calls));
     }
 }
