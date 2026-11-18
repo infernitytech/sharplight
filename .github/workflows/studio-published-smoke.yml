@@ -1,0 +1,78 @@
+name: Studio published smoke
+
+# "Test the builds users get": downloads the newest unstable Studio package of each OS from the update feed (download.sharplight.dev/studio),
+# exactly as the in-app updater finds it, starts it headless with portable storage in a temporary folder and runs `sharplight-studio --smoke`
+# (services, devices, install of Whisper tiny from the live Sharplight model feed, load on the CPU, one transcription, JSON report).
+# The script is packaging/smoke/studio-published-smoke.sh; see docs/releasing.md.
+#
+#   after every successful Studio run on develop (the packages are on R2 by then)   -> the version must be built from that commit
+#   nightly, manual                                                                  -> whatever is newest on the channel
+#
+# Only the workflow file on the default branch (main) is used for workflow_run and schedule triggers; manual runs work from any branch.
+# A failure fails the run (the repository does not use issues for CI). The JSON report and the Studio log folder are uploaded as artifacts.
+
+on:
+  workflow_run:
+    workflows: [Studio]
+    types: [completed]
+    branches: [develop]
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Update channel to test'
+        type: choice
+        options: [unstable, stable]
+        default: unstable
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-published-smoke-${{ github.event.workflow_run.head_sha || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    # A workflow_run event also fires for failed or cancelled Studio runs: nothing was published then.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    name: smoke (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64, os: ubuntu-24.04 }
+          - { rid: win-x64, os: windows-latest }
+          - { rid: osx-arm64, os: macos-15 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      SMOKE_CHANNEL: ${{ inputs.channel || 'unstable' }}
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      # The script and the history (to tell a newer published build from the commit under test) come from the repository.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || 'develop' }}
+          fetch-depth: 0
+
+      # Vulkan must exist for the device listing: the Mesa software driver (lavapipe), libegl1 for the loader, Xvfb for the headless display.
+      - name: Install Xvfb and the Vulkan software driver
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libegl1 mesa-vulkan-drivers jq
+
+      - name: Download and run the published Studio
+        shell: bash
+        run: packaging/smoke/studio-published-smoke.sh "${{ matrix.rid }}" "$RUNNER_TEMP/smoke-${{ matrix.rid }}"
+
+      - name: Upload the report and the Studio logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-smoke-${{ matrix.rid }}
+          path: ${{ runner.temp }}/smoke-${{ matrix.rid }}
+          if-no-files-found: warn
+          retention-days: 14

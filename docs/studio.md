@@ -639,6 +639,23 @@ taken from, in this order:
 Without a URL the update checks are disabled, and the Settings section says so. All channels share that one folder; each has its
 own `releases.<channel>.json` feed.
 
+## Smoke mode
+
+`sharplight-studio --smoke [--smoke-report FILE]` starts the real services without a window (settings, storage, the log file, the update
+and feed services, the engine with every provider and format), then runs `Services/Smoke/SmokeRunner`:
+
+1. lists the devices (a CPU device must exist);
+2. lists the Sharplight model feed (verified, not from the cache) and finds `whisper-tiny`;
+3. installs it with its Silero VAD companion into the model store of the storage in effect;
+4. writes a short synthetic WAV and decodes it with the native audio library;
+5. loads the package on the CPU;
+6. transcribes the WAV once (the text is not checked, the whole path must run), then unloads.
+
+The first failing step ends the run. The JSON report (`Version`, `Os`, `Storage`, `Devices`, `Package`, `Steps`, `Passed`, `Error`)
+goes to the file, to standard output and, by default, to `smoke-report.json` in the log folder; the steps are in `studio.log`. Exit code 0
+means passed, 1 failed; a run is limited to ten minutes. CI runs it against the published packages of every OS
+([releasing.md](releasing.md#published-build-smoke-test)); `SmokeRunnerTests` runs the runner over fakes.
+
 ## Where things are kept
 
 Everything follows the storage location chosen in *Settings > Storage* (portable, system or custom; the full table per mode and
@@ -718,6 +735,7 @@ versions kept them.
   architecture, an mmproj projector, real quantized tensor tables read from a prefix, synthetic `Q8_K` and
   unknown type ids, quantized checkpoints, ONNX opsets read behind the graph), the result order, the per-quantization badges and the
   library's import errors;
+- the `--smoke` runner over a fake feed and runtime (steps, the first failing step, no CPU device, the JSON report);
 - update checks and the update dialog: auto and manual checks, up-to-date and failure messages, *Later*, download progress and
   restart (against a fake update service), the feed URL precedence, and a headless render of the dialog;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
