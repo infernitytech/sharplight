@@ -91,9 +91,11 @@ public sealed class InferenceEngine : IDisposable
     private readonly HashSet<UInt128> _wantSnapshot = [];     // ends of prefixes shared with other contexts
     private readonly HashSet<UInt128> _wantPromptEnd = [];    // ends of prompts (a conversation's next turn)
     private readonly HashSet<UInt128> _takeSnapshot = [];     // boundaries a prompt's chunk was cut at to keep the state there
-    // Prompt-end snapshots taken and later restored (how often a prompt is continued by a later one), and the keys not restored yet.
-    private readonly HashSet<UInt128> _promptEndKeys = [];
-    private long _promptEndSaved, _promptEndRestored;
+    // Prompt-end snapshots taken and later restored (how often a prompt is continued by a later one), counted apart for prompts that
+    // continued an earlier prompt themselves (index 1: a conversation's later turns) and others (index 0); the keys not restored yet
+    // with the class of the prompt that left them.
+    private readonly Dictionary<UInt128, int> _promptEndKeys = [];
+    private readonly long[] _promptEndSaved = new long[2], _promptEndRestored = new long[2];
     // What steps and state copies cost, learnt from the steps run (prices the prefix cache's waits, recomputations and snapshots).
     private readonly StepCostModel _cost;
 
@@ -122,6 +124,8 @@ public sealed class InferenceEngine : IDisposable
 
     /// <summary>The live counters; most callers want <see cref="GetMetrics"/>.</summary>
     public EngineMetrics Metrics { get; } = new();
+    /// <summary>How long preparing the decode steps took when the engine started (<see cref="EngineOptions.PrepareDecodeSteps"/>).</summary>
+    public TimeSpan PrepareTime { get; }
     /// <summary>The tokenizer of the served model, for encoding prompts.</summary>
     public ITokenizer Tokenizer => _tokenizer;
     /// <summary>Number of sequences that can run at the same time.</summary>
@@ -182,6 +186,17 @@ public sealed class InferenceEngine : IDisposable
                 // Without rollback of rejected drafts (recurrent state compiled without rollback rows) or spare logits rows nothing
                 // can be verified; a draft head needs the decoder's hidden states.
                 spec.Dispose();
+            }
+        }
+
+        if (_opt.PrepareDecodeSteps && decoder.BatchesSequences && _diffusion is null)
+        {
+            long t0 = Stopwatch.GetTimestamp();
+            int shapes = decoder.PrepareDecodeSteps(_deviceSampler is not null);
+            PrepareTime = Stopwatch.GetElapsedTime(t0);
+            if (DiagnosticSwitches.SchedulerTrace)
+            {
+                Console.Error.WriteLine($"[sched] prepared {shapes} decode step shapes in {PrepareTime.TotalMilliseconds:F0} ms");
             }
         }
 
@@ -680,7 +695,7 @@ public sealed class InferenceEngine : IDisposable
                     keep = 0;
                 }
 
-                keep += AttachCached(slot, seq.Prompt, hashes, keep);
+                keep += AttachCached(seq, slot, seq.Prompt, hashes, keep);
             }
 
             RegisterComputing(seq, keep);
@@ -702,7 +717,6 @@ public sealed class InferenceEngine : IDisposable
         slot.Active = seq;
         seq.PromptPos = keep;
         seq.Cached = keep;
-        seq.SnapshotPos = keep;
         seq.Sampler = new RequestSampler(seq.Request.Sampling, seq.Prompt);
         seq.Decoder = new StreamingDecoder(_tokenizer, seq.Request.SkipSpecialTokens);
         seq.Filter = new StopStringFilter(seq.Request.StopStrings);
@@ -865,7 +879,7 @@ public sealed class InferenceEngine : IDisposable
     /// (a whole number of blocks; <paramref name="hashes"/>: the hashes of the blocks of <paramref name="tokens"/>) and returns the tokens added.
     /// Nothing is attached when that would take more than <paramref name="freeBudget"/> free (cached) blocks.
     /// </summary>
-    private int AttachCached(EngineSlot slot, IReadOnlyList<int> tokens, List<UInt128> hashes, int pos, int freeBudget = int.MaxValue)
+    private int AttachCached(EngineSequence seq, EngineSlot slot, IReadOnlyList<int> tokens, List<UInt128> hashes, int pos, int freeBudget = int.MaxValue)
     {
         int bs = _decoder.KvBlockSize;
         int first = pos / bs;
@@ -894,7 +908,7 @@ public sealed class InferenceEngine : IDisposable
         for (int j = 0; j < added / bs; j++)
         {
             slot.BlockHashes.Add(hashes[first + j]);
-            if (_computing.TryGetValue(hashes[first + j], out var owner) && owner == slot.Active)
+            if (_computing.TryGetValue(hashes[first + j], out var owner) && owner == seq)
             {
                 _computing.Remove(hashes[first + j]);
             }
@@ -903,15 +917,14 @@ public sealed class InferenceEngine : IDisposable
         if (added > 0)
         {
             Metrics.SharedPrefix(added, added / bs);
-            if (_promptEndKeys.Remove(hashes[first + added / bs - 1]))
+            bool continues = _promptEndKeys.Remove(hashes[first + added / bs - 1], out int cls);
+            if (continues)
             {
-                _promptEndRestored++;
+                _promptEndRestored[cls]++;
             }
 
-            if (slot.Active is { } attaching)
-            {
-                attaching.SnapshotPos = pos + added;
-            }
+            seq.SnapshotPos = pos + added;
+            seq.Continues |= continues;
         }
 
         return added;
@@ -1044,13 +1057,14 @@ public sealed class InferenceEngine : IDisposable
         _wantSnapshot.Remove(last);
         if (_wantPromptEnd.Remove(last))
         {
-            _promptEndSaved++;
+            int cls = slot.Active is { Continues: true } ? 1 : 0;
+            _promptEndSaved[cls]++;
             if (_promptEndKeys.Count > 4 * _slots.Length + 256)
             {
                 _promptEndKeys.Clear();
             }
 
-            _promptEndKeys.Add(last);
+            _promptEndKeys[last] = cls;
         }
 
         if (slot.Active is { } owner2)
@@ -1165,7 +1179,8 @@ public sealed class InferenceEngine : IDisposable
     {
         int bs = _decoder.KvBlockSize;
         int length = s.Prompt.Length;
-        double promptEndUse = (_promptEndRestored + 1.0) / (_promptEndSaved + 2.0);
+        int cls = s.Continues ? 1 : 0;
+        double promptEndUse = (_promptEndRestored[cls] + 1.0) / (_promptEndSaved[cls] + 2.0);
         int best = 0;
         double bestGain = 0;
         for (int j = pos / bs; j < hashes.Count && (j + 1) * bs < end; j++)
@@ -1506,7 +1521,7 @@ public sealed class InferenceEngine : IDisposable
             {
                 // Blocks of the preempted context that are still cached come back without recomputation (taking cached free blocks).
                 int free = _decoder.KvBlocksFree;
-                s.ReplayPos += AttachCached(s.Slot!, replay, rh, s.ReplayPos, budget.KvBlocks);
+                s.ReplayPos += AttachCached(s, s.Slot!, replay, rh, s.ReplayPos, budget.KvBlocks);
                 budget.KvBlocks -= free - _decoder.KvBlocksFree;
                 if (s.ReplayPos == replay.Length)
                 {
@@ -1544,7 +1559,7 @@ public sealed class InferenceEngine : IDisposable
             {
                 // Blocks published since admission (another prompt computed them meanwhile) are attached mid-prompt.
                 int free = _decoder.KvBlocksFree;
-                int added = AttachCached(s.Slot!, s.Prompt, hashes, s.PromptPos, budget.KvBlocks);
+                int added = AttachCached(s, s.Slot!, s.Prompt, hashes, s.PromptPos, budget.KvBlocks);
                 budget.KvBlocks -= free - _decoder.KvBlocksFree;
                 if (added > 0)
                 {

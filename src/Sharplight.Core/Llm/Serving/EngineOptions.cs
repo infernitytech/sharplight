@@ -31,6 +31,12 @@ public sealed record EngineOptions
     /// save). 0 (the default): the cost estimate alone decides.
     /// </summary>
     public int StateSnapshotInterval { get; set; }
+    /// <summary>
+    /// Prepare the decode steps of every batch size when the engine starts (<see cref="IBatchDecoder.PrepareDecodeSteps"/>; e.g. Vulkan
+    /// records their command buffers), so the first steps of a load do not wait for it. Costs start-up time (Qwen3.5-0.8B at 64 slots:
+    /// see docs/kv-cache.md section 2.6). Default on.
+    /// </summary>
+    public bool PrepareDecodeSteps { get; set; } = true;
     /// <summary>The step cost estimate the engine starts from and keeps learning (null: defaults); tests pass a frozen one.</summary>
     internal StepCostModel? StepCost { get; set; }
     /// <summary>Applied to requests without their own <see cref="GenerationRequest.Timeout"/>.</summary>

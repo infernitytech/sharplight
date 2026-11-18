@@ -285,6 +285,20 @@ public sealed class CompiledModel : IDisposable
         }
     }
 
+    /// <summary>
+    /// Prepares every segment's work for a run with these symbol bindings and skipped outputs without running it (see
+    /// <see cref="ICompiledSegment.Prepare"/>): providers that record work per shape record it now instead of at the first such run.
+    /// Data-dependent symbols are prepared at their compile-time bounds, as runs record them.
+    /// </summary>
+    /// <param name="parameters">Symbol bindings and <see cref="RunParameters.SkipOutputs"/> of the runs to come; inputs are not read.</param>
+    public void Prepare(RunParameters parameters)
+    {
+        for (int i = 0; i < _segments.Length; i++)
+        {
+            _segments[i].Prepare(parameters, SkippedDownloads(i, parameters));
+        }
+    }
+
     private bool IsConsumedAfter(int segment, Value v) => _segments.Skip(segment + 1).Any(s => s.Segment.Inputs.Contains(v));
 
     /// <summary>

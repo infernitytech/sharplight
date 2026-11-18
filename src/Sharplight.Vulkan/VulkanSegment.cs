@@ -424,37 +424,13 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             ExecuteProfiled(bindings, skipDownloads);
             return;
         }
-        var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}"));
-        if (skipDownloads.Count > 0)
-        {
-            key += " skip:" + string.Join(",", skipDownloads.Select(v => v.Id).Order());
-        }
-
+        var key = RecordingKey(bindings, skipDownloads);
         if (_dev.SubmissionBudgetMs > 0)
         {
             ExecuteBudgeted(key, bindings, skipDownloads);
             return;
         }
-        if (!_recorded.TryGetValue(key, out var cbs))
-        {
-            CheckWithinCompiledBounds(bindings);
-            EvictOldestRecording();
-
-            long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
-            bool transfer = UsesTransferQueue(bindings, skipDownloads);
-            cbs = RecordStep(key, bindings, transfer ? AllOutputs : skipDownloads);
-            if (transfer)
-            {
-                _downloads[key] = RecordDownload(bindings, skipDownloads);
-            }
-
-            _recorded[key] = cbs;
-            if (DiagnosticSwitches.Trace)
-            {
-                Console.Error.WriteLine($"[vk] recorded {key} in {System.Diagnostics.Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds:F1} ms ({_recorded.Count} recordings)");
-            }
-        }
-
+        var cbs = Recording(key, bindings, skipDownloads);
         _lastUse[key] = ++_useClock;
         var fence = _fence;
         _dev.Api.vkResetFences(1, &fence).CheckResult();
@@ -472,6 +448,64 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         if (_dev.Api.vkGetQueryPoolResults(_stepPool, 0, 2, 16, ts, 8, VkQueryResultFlags.Bit64) == VkResult.Success)
         {
             LastGpuMs = (ts[1] - ts[0]) * _dev.Phys.TimestampPeriod * 1e-6;
+        }
+    }
+
+    /// <summary>The key of the recording for these bindings and skipped downloads.</summary>
+    private string RecordingKey(Bindings bindings, IReadOnlySet<Value> skipDownloads)
+    {
+        var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}"));
+        if (skipDownloads.Count > 0)
+        {
+            key += " skip:" + string.Join(",", skipDownloads.Select(v => v.Id).Order());
+        }
+
+        return key;
+    }
+
+    /// <summary>The recorded command buffers of <paramref name="key"/>, recording them first when they are not cached.</summary>
+    private VkCommandBuffer[] Recording(string key, Bindings bindings, IReadOnlySet<Value> skipDownloads)
+    {
+        if (_recorded.TryGetValue(key, out var cbs))
+        {
+            return cbs;
+        }
+
+        CheckWithinCompiledBounds(bindings);
+        EvictOldestRecording();
+        long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool transfer = UsesTransferQueue(bindings, skipDownloads);
+        cbs = RecordStep(key, bindings, transfer ? AllOutputs : skipDownloads);
+        if (transfer)
+        {
+            _downloads[key] = RecordDownload(bindings, skipDownloads);
+        }
+
+        _recorded[key] = cbs;
+        if (DiagnosticSwitches.Trace)
+        {
+            Console.Error.WriteLine($"[vk] recorded {key} in {System.Diagnostics.Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds:F1} ms ({_recorded.Count} recordings)");
+        }
+
+        return cbs;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Records the step's command buffers (kept like those of executed steps, least recently used first out).</remarks>
+    public void Prepare(RunParameters parameters, IReadOnlySet<Value> skipDownloads)
+    {
+        _dev.ThrowIfDisposed();
+        if (Profile || _dev.SubmissionBudgetMs > 0)
+        {
+            return;
+        }
+
+        var bindings = new Bindings(RecordingSymbols(parameters));
+        var key = RecordingKey(bindings, skipDownloads);
+        if (!_recorded.ContainsKey(key))
+        {
+            Recording(key, bindings, skipDownloads);
+            _lastUse[key] = ++_useClock;
         }
     }
 

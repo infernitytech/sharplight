@@ -413,6 +413,31 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <summary>Copies every recurrent state's row <paramref name="from"/> to row <paramref name="to"/> (slots, then snapshot rows).</summary>
     private bool CopyStateRow(int from, int to) => _compiled.CopyStateRows(_recurrentStates, from, to);
 
+    /// <inheritdoc/>
+    public int PrepareDecodeSteps(bool deviceSampling)
+    {
+        var run = new RunParameters();
+        if (deviceSampling && _samplingParams is not null)
+        {
+            run.SkipOutputs.Add("logits");
+        }
+
+        if (_hiddenSize > 0)
+        {
+            run.SkipOutputs.Add(_hiddenOutput);
+        }
+
+        for (int n = 1; n <= SlotCount; n++)
+        {
+            run.Symbols[WellKnown.TokenSymbol] = n;
+            run.Symbols["R"] = n;
+            run.Symbols[WellKnown.RunSymbol] = n;
+            _compiled.Prepare(run);
+        }
+
+        return SlotCount;
+    }
+
     /// <summary>Copies <paramref name="count"/> token rows of every paged KV cache (copy-on-write of a shared block).</summary>
     private bool CopyKvRows(int from, int to, int count) => _compiled.CopyStateRows(_kvStates, from, to, count);
 

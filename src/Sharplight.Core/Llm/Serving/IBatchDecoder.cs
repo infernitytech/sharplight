@@ -74,6 +74,13 @@ public interface IBatchDecoder : IDisposable
     /// The slices point into decoder-owned memory that the next call overwrites; callers may modify them in place.
     /// </summary>
     public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs);
+    /// <summary>
+    /// Prepares the decode steps of 1 to <see cref="SlotCount"/> sequences (one row each, sampled the way <paramref name="deviceSampling"/>
+    /// says) ahead of time, so that the first step of each batch size does not pay for its preparation (a provider that records command
+    /// buffers per step shape records them now). Returns the number of shapes prepared; the default prepares nothing.
+    /// </summary>
+    /// <param name="deviceSampling">Whether the steps sample on the device (their logits are not downloaded).</param>
+    public int PrepareDecodeSteps(bool deviceSampling) => 0;
     /// <summary>Accelerator (GPU) memory held by this decoder's compiled model: weights, state, activations (0 when unknown or all on the CPU).</summary>
     public long DeviceMemoryBytes => 0;
 

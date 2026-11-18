@@ -88,6 +88,8 @@ internal sealed class EngineSequence
     public List<EngineSequence>? Followers { get; set; }
     /// <summary>A follower's copy of the leader's last prompt logits row, sampled at the fork.</summary>
     public float[]? ForkLogits { get; set; }
+    /// <summary>Whether this prompt continues an earlier one (it restored the snapshot another prompt left at its end).</summary>
+    public bool Continues { get; set; }
     /// <summary>Scheduler trace: why the last prompt chunk ended where it did (empty: the budget or the prompt's end).</summary>
     public string TraceClip { get; set; } = "";
 

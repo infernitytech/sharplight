@@ -16,6 +16,14 @@ public interface ICompiledSegment : IDisposable
     /// provider that stages outputs in host memory may skip copying them. The default ignores the hint.
     /// </summary>
     public void Execute(RunParameters parameters, IReadOnlySet<Value> skipDownloads) => Execute(parameters);
+    /// <summary>
+    /// Prepares the work of an <see cref="Execute(RunParameters, IReadOnlySet{Value})"/> with these symbol bindings and skipped outputs
+    /// ahead of time without running it (a provider that records command buffers per shape records them now), so that the first step of
+    /// that shape does not pay for it. Inputs and scalars are not read. The default does nothing.
+    /// </summary>
+    public void Prepare(RunParameters parameters, IReadOnlySet<Value> skipDownloads)
+    {
+    }
     /// <summary>Downloads a segment output (dense, logical layout) after <see cref="Execute(RunParameters)"/>.</summary>
     public void GetOutput(Value value, Span<byte> destination);
     /// <summary>Clears persistent state (KV caches, recurrent states) owned by this segment.</summary>
