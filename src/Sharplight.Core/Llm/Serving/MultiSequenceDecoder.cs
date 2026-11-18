@@ -108,8 +108,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <param name="snapshotRows">Paged recurrent model: spare rows of the recurrent states after the slots' for prefix-cache snapshots.</param>
     /// <param name="recurrentStates">Names of the states with a slot row (copied for snapshots).</param>
     /// <param name="kvStates">
-    /// Names of the paged KV caches when every one has a row per token (copied block by block to fork slots, <see cref="ForkKv"/>); null
-    /// when some cache is laid out otherwise (compressed), which leaves forking off.
+    /// Names of the paged KV caches when every one has a row per token (copied block by block to fork slots, <see cref="ForkKv"/>; empty
+    /// for a model without attention); null when some cache is laid out otherwise (compressed), which leaves forking off.
     /// </param>
     internal MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState, int maxLogitsRows, int kvBlockSize = 0, int kvBlocks = 0,
         int rollbackRows = 0, string? hiddenOutput = null, int textPositionAxes = WellKnown.DefaultTextPositionAxes, int snapshotRows = 0,
@@ -136,7 +136,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _recurrentStates = [.. recurrentStates ?? []];
             _kvStates = [.. kvStates ?? []];
             bool snapshots = hasRecurrentState && snapshotRows > 0 && _recurrentStates.Length > 0 && compiled.CanCopyStateRows;
-            bool fork = kvStates is { Count: > 0 } && compiled.CanCopyStateRows && (!hasRecurrentState || _recurrentStates.Length > 0);
+            bool fork = kvStates is not null && compiled.CanCopyStateRows && (!hasRecurrentState || _recurrentStates.Length > 0);
             _pool = new KvBlockCache(slots, kvBlockSize, kvBlocks, (int)_blockTable.Shape[1].Fixed, hasRecurrentState, snapshots ? snapshotRows : 0,
                 snapshots || (fork && hasRecurrentState) ? CopyStateRow : null, fork ? CopyKvRows : null);
         }

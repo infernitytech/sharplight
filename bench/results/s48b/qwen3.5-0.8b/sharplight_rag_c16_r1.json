@@ -4,14 +4,14 @@
  "requests": 64,
  "errors": 0,
  "first_error": null,
- "wall_s": 2.7499934070074232,
- "output_tok_s": 2978.9162327173126,
+ "wall_s": 5.950025173995527,
+ "output_tok_s": 1376.800897549641,
  "prompt_tokens_mean": 2067.0,
- "cached_tokens": 109856,
+ "cached_tokens": 103120,
  "prompt_tokens": 132288,
- "hit_rate": 0.8304305757135946,
- "ttft_p50_ms": 105.18801249418175,
- "ttft_p99_ms": 373.6204776169324,
- "ttft_mean_ms": 128.5193619214624,
- "latency_p50_s": 0.6381430934998207
+ "hit_rate": 0.7795113691340106,
+ "ttft_p50_ms": 102.56850650330307,
+ "ttft_p99_ms": 595.883402581967,
+ "ttft_mean_ms": 169.61165832753977,
+ "latency_p50_s": 1.4029057289953926
 }
