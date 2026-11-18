@@ -170,6 +170,7 @@ internal static class ModelInspector
         ["mimi"] = ModelKinds.AudioCodec,
         ["dac"] = ModelKinds.AudioCodec,
         ["qwen3_tts_tokenizer_12hz"] = ModelKinds.AudioCodec,
+        ["higgs_audio_v2_tokenizer"] = ModelKinds.AudioCodec,
         ["musicgen"] = ModelKinds.MusicGeneration,
         ["clap"] = ModelKinds.AudioEmbedding,
     };
@@ -267,7 +268,7 @@ internal static class ModelInspector
             return ModelKinds.AudioSeparation;
         }
 
-        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts")
+        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts" or "omnivoice")
         {
             return ModelKinds.SpeechSynthesis;
         }
