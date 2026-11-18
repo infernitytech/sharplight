@@ -1,5 +1,6 @@
 using Sharplight.ImageGeneration;
 using Sharplight.Models;
+using Sharplight.Vision;
 
 namespace Sharplight.Architectures;
 
@@ -66,18 +67,36 @@ public sealed class QwenImageAdapter : IModelAdapter
 
         var textSource = DecoderTextEncoder.Source(src, TextEncoderSourcePrefix, TextEncoderPrefix);
         var decoder = DecoderHyperParameters.Read(textSource);
-        var textGraph = new DecoderGraphBuilder(textSource, new AdapterOptions { IncludeAuxiliaryGraphs = false }, decoder)
-            .BuildLayerHiddenStates(DiffusionGraphs.TextEncode, DiffusionGraphs.Tokens, DiffusionGraphs.Hidden, promptSkip + promptLength, decoder.LogicalLayers,
-                finalNorm: true);
+        int maxReferences = src.Get(Prefix + "edit.max_references", 0);
+        var vision = maxReferences > 0 ? VisionParameters.FromMetadata(textSource.Metadata, textSource.Architecture + ".vision.") : null;
+        if (maxReferences > 0 && vision is null)
+        {
+            throw new NotSupportedException($"'{src.Path}' is a Qwen-Image editing model, whose text encoder reads the reference images: its Qwen2.5-VL text encoder needs the "
+                + "vision tower (the pipeline's text_encoder folder holds it; a text-only language model file does not).");
+        }
+
+        var textBuilder = new DecoderGraphBuilder(textSource, new AdapterOptions { IncludeAuxiliaryGraphs = false }, decoder);
+        var textGraph = textBuilder.BuildLayerHiddenStates(DiffusionGraphs.TextEncode, DiffusionGraphs.Tokens, DiffusionGraphs.Hidden, promptSkip + promptLength,
+            [decoder.LogicalLayers], finalNorm: true, imageRows: vision is not null);
         long latentHeight = height / downscale;
         long latentWidth = width / downscale;
         var graphs = new Dictionary<string, Graph.ComputeGraph>
         {
             [DiffusionGraphs.TextEncode] = textGraph,
-            [DiffusionGraphs.Denoise] = FluxTransformerGraphBuilder.Build(src.Weight, transformer, latentHeight, latentWidth, promptLength),
+            [DiffusionGraphs.Denoise] = FluxTransformerGraphBuilder.Build(src.Weight, transformer, latentHeight, latentWidth, promptLength,
+                options.Dimensions.GetValueOrDefault(DiffusionGraphs.References, 0) is var references and > 0 ? (int)references : 0),
             [DiffusionGraphs.VaeDecode] = WanVaeGraphBuilder.BuildImageDecoder(src.Weight, vae, latentHeight, latentWidth),
             [DiffusionGraphs.VaeEncode] = WanVaeGraphBuilder.BuildImageEncoder(src.Weight, vae, height, width),
         };
+
+        var properties = new Dictionary<string, object>(StringComparer.Ordinal);
+        if (vision is not null)
+        {
+            // The vision tower of the text encoder and what the image-prompt assembly (Qwen35Multimodal) reads.
+            graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, textSource.Weight);
+            vision.WriteProperties(properties);
+            properties[WellKnown.PositionAxes] = decoder.PositionAxes;
+        }
 
         var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
         bool schedulerAttachment = FlowSchedulerComponent.AddAttachment(src, Prefix, attachments);
@@ -90,7 +109,8 @@ public sealed class QwenImageAdapter : IModelAdapter
             SourceMetadata = src.Metadata,
             OwnedResources = src.OwnedResources,
             Attachments = attachments,
-            Description = Describe(src, transformer, vae, promptLength, promptSkip, schedulerAttachment),
+            Properties = properties,
+            Description = Describe(src, transformer, vae, promptLength, promptSkip, schedulerAttachment, vision is not null),
         };
     }
 
@@ -116,9 +136,31 @@ public sealed class QwenImageAdapter : IModelAdapter
     }
 
     private static ModelDescription Describe(ModelSource src, FluxHyperParameters transformer, WanVaeHyperParameters vae, int promptLength, int promptSkip,
-        bool hasSchedulerAttachment)
+        bool hasSchedulerAttachment, bool edit)
     {
         var tokenizer = new ComponentConfigBuilder().Add(DiffusionConfigKeys.ContextLength, promptSkip + promptLength);
+        var textEncoder = new ComponentConfigBuilder()
+            .Add(DiffusionConfigKeys.ContextLength, promptSkip + promptLength)
+            .Add(DiffusionConfigKeys.PromptSkip, promptSkip);
+        var denoiserConfig = new ComponentConfigBuilder()
+            .Add(DiffusionConfigKeys.LatentChannels, transformer.LatentChannels)
+            .Add(DiffusionConfigKeys.PatchSize, transformer.PatchSize)
+            .Add(DiffusionConfigKeys.ContextMaskPadding, 0)
+            .Add(DiffusionConfigKeys.GuidanceRenormalization, true);
+        var modelConfig = new ComponentConfigBuilder()
+            .Add(DiffusionConfigKeys.Width, transformer.SampleSize)
+            .Add(DiffusionConfigKeys.Height, transformer.SampleSize)
+            .Add(DiffusionConfigKeys.Steps, src.Get(Prefix + "default_steps", 50))
+            .Add(DiffusionConfigKeys.GuidanceScale, src.Get(Prefix + "default_guidance", 4.0))
+            .Add(DiffusionConfigKeys.ClassifierFreeGuidance, true);
+        if (edit)
+        {
+            tokenizer.Add(DiffusionConfigKeys.ImagePrompt, src.Get(Prefix + "edit.image_prompt", ""));
+            textEncoder.Add(DiffusionConfigKeys.ConditionPixels, src.Get(Prefix + "edit.condition_pixels", 384 * 384));
+            denoiserConfig.Add(DiffusionConfigKeys.ReferenceImages, transformer.MaxReferences);
+            modelConfig.Add(DiffusionConfigKeys.ReferenceArea, src.Get(Prefix + "edit.reference_area", 1024 * 1024));
+        }
+
         if (src.Get<string?>(Prefix + "text_encoder.prompt_template", null) is { } template)
         {
             tokenizer.Add(DiffusionConfigKeys.PromptTemplate, template);
@@ -134,12 +176,16 @@ public sealed class QwenImageAdapter : IModelAdapter
                 new ModelComponent
                 {
                     Role = ModelComponentRoles.TextEncoder,
-                    Graphs = [DiffusionGraphs.TextEncode],
+                    Graphs = edit ? [DiffusionGraphs.TextEncode, WellKnown.VisionEncodeGraph] : [DiffusionGraphs.TextEncode],
                     WeightPrefixes = [TextEncoderPrefix],
-                    Config = new ComponentConfigBuilder()
-                        .Add(DiffusionConfigKeys.ContextLength, promptSkip + promptLength)
-                        .Add(DiffusionConfigKeys.PromptSkip, promptSkip)
-                        .Build(),
+                    Config = textEncoder.Build(),
+                    SymbolBounds = edit
+                        ? new Dictionary<string, long>
+                        {
+                            [VisionParameters.PatchSymbol] = 4L * promptLength,
+                            [VisionParameters.MergedSymbol] = promptLength,
+                        }
+                        : new Dictionary<string, long>(),
                 },
                 new ModelComponent
                 {
@@ -151,12 +197,7 @@ public sealed class QwenImageAdapter : IModelAdapter
                     Role = ModelComponentRoles.Denoiser,
                     Graphs = [DiffusionGraphs.Denoise],
                     WeightPrefixes = [TransformerPrefix],
-                    Config = new ComponentConfigBuilder()
-                        .Add(DiffusionConfigKeys.LatentChannels, transformer.LatentChannels)
-                        .Add(DiffusionConfigKeys.PatchSize, transformer.PatchSize)
-                        .Add(DiffusionConfigKeys.ContextMaskPadding, 0)
-                        .Add(DiffusionConfigKeys.GuidanceRenormalization, true)
-                        .Build(),
+                    Config = denoiserConfig.Build(),
                     SymbolBounds = new Dictionary<string, long> { [DiffusionGraphs.BatchSymbol] = batch1 },
                 },
                 new ModelComponent
@@ -172,13 +213,7 @@ public sealed class QwenImageAdapter : IModelAdapter
                 },
                 scheduler,
             ],
-            Config = new ComponentConfigBuilder()
-                .Add(DiffusionConfigKeys.Width, transformer.SampleSize)
-                .Add(DiffusionConfigKeys.Height, transformer.SampleSize)
-                .Add(DiffusionConfigKeys.Steps, src.Get(Prefix + "default_steps", 50))
-                .Add(DiffusionConfigKeys.GuidanceScale, src.Get(Prefix + "default_guidance", 4.0))
-                .Add(DiffusionConfigKeys.ClassifierFreeGuidance, true)
-                .Build(),
+            Config = modelConfig.Build(),
         };
     }
 }

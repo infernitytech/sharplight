@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
+using Sharplight.Architectures;
 using Sharplight.Imaging;
+using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tasks;
@@ -38,9 +40,16 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly string? _emptyPrompt;
     private readonly bool _embeddedGuidance;
     private readonly int _maxReferences;
+    private readonly string? _conditionMode;
+    private readonly VisionParameters? _vision;
+    private readonly long _conditionPixels;
+    private readonly long _referenceArea;
+    private readonly string _imagePrompt = "";
+    private readonly float _defaultImageGuidance;
+    private readonly float _scalingFactor;
     private readonly bool _classifierFree;
     private bool _releaseTextEncoders;
-    private (string Prompt, string? Negative, bool Guided, PromptConditioning Conditioning)? _lastConditioning;
+    private (string Prompt, string? Negative, int Rows, IReadOnlyList<ImageInput>? Images, PromptConditioning Conditioning)? _lastConditioning;
     private readonly int _patchSize;
     private readonly int _latentChannels;
     private readonly int _downscale;
@@ -68,6 +77,15 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var textEncoder = description.Component(ModelComponentRoles.TextEncoder);
         _contextLength = textEncoder.ConfigValue(DiffusionConfigKeys.ContextLength, 77);
         _promptSkip = textEncoder.ConfigValue(DiffusionConfigKeys.PromptSkip, 0);
+        _conditionPixels = textEncoder.ConfigValue(DiffusionConfigKeys.ConditionPixels, 0L);
+        if (_conditionPixels > 0 && textEncoder.Graphs.Contains(WellKnown.VisionEncodeGraph))
+        {
+            // Qwen-Image-Edit: the language model reads the reference images through its vision tower.
+            _vision = VisionParameters.Of(model.Definition);
+            _imagePrompt = description.Component(ModelComponentRoles.Tokenizer).ConfigValue(DiffusionConfigKeys.ImagePrompt, "");
+        }
+
+        _referenceArea = description.ConfigValue(DiffusionConfigKeys.ReferenceArea, 0L);
         _secondEncoderRole = textEncoder.Graphs.Contains(DiffusionGraphs.TextEncode2) ? ModelComponentRoles.TextEncoder
             : description.TryGetComponent(DiffusionGraphs.SecondTextEncoderRole, out var second) && second.Graphs.Contains(DiffusionGraphs.TextEncode2)
                 ? DiffusionGraphs.SecondTextEncoderRole
@@ -98,6 +116,9 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         }
 
         _maxReferences = denoiser.ConfigValue(DiffusionConfigKeys.ReferenceImages, 0);
+        _conditionMode = model.ComponentGraph(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise).Inputs.Any(i => i.Name == DiffusionGraphs.ConditionLatent)
+            ? denoiser.ConfigValue<string?>(DiffusionConfigKeys.ConditionMode, null)
+            : null;
         _embeddedGuidance = model.ComponentGraph(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise).Inputs.Any(i => i.Name == DiffusionGraphs.Guidance);
         if (_secondEncoderRole is null && model.Definition.Graphs.TryGetValue(DiffusionGraphs.Denoise, out var denoise)
             && denoise.Inputs.Any(input => input.Name == DiffusionGraphs.Pooled)
@@ -113,6 +134,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         _zeroEmptyNegative = textEncoder.ConfigValue(DiffusionConfigKeys.ZeroEmptyNegative, false);
         var vae = description.Component(ModelComponentRoles.Vae);
         _latentChannels = vae.ConfigValue(DiffusionConfigKeys.LatentChannels, 4);
+        _scalingFactor = vae.ConfigValue(DiffusionConfigKeys.ScalingFactor, 1f);
         _downscale = vae.ConfigValue(DiffusionConfigKeys.Downscale, 8);
         _rgbFactors = vae.Config.TryGetValue(DiffusionConfigKeys.LatentRgbFactors, out var factors)
             ? [.. factors.EnumerateArray().Select(f => f.GetSingle())]
@@ -121,6 +143,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         _nativeHeight = description.ConfigValue(DiffusionConfigKeys.Height, 512);
         _defaultSteps = description.ConfigValue(DiffusionConfigKeys.Steps, 25);
         _defaultGuidance = description.ConfigValue(DiffusionConfigKeys.GuidanceScale, 7.5f);
+        _defaultImageGuidance = _conditionMode == DiffusionConfigKeys.ConditionImage ? description.ConfigValue(DiffusionConfigKeys.ImageGuidanceScale, 1.5f) : 0f;
         _classifierFree = description.ConfigValue(DiffusionConfigKeys.ClassifierFreeGuidance, true);
         // Models that barely fit (FLUX with bf16 weights on a 32 GB GPU: a 24 GB transformer and a 9.5 GB T5) do not keep the text
         // encoders resident during denoising: they are compiled again (from the cached kernels) for the next request.
@@ -140,7 +163,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         ArgumentNullException.ThrowIfNull(serviceType);
         if (serviceKey is null && serviceType == typeof(ImageGenerationDefaults))
         {
-            return new ImageGenerationDefaults(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler, _classifierFree && !_embeddedGuidance, _maxReferences);
+            return new ImageGenerationDefaults(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler, _classifierFree && !_embeddedGuidance, _maxReferences, _defaultImageGuidance);
         }
 
         return serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model
@@ -193,13 +216,20 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var run = Plan(request, options ?? ImageGenerationOptions.Default);
-        var context = await Task.Run(() => Conditioning(request, run.Guided), cancellationToken).ConfigureAwait(false);
-        var reference = request.Image is null ? null : await Task.Run(() => EncodeImage(request.Image, run), cancellationToken).ConfigureAwait(false);
+        var context = await Task.Run(() => Conditioning(request, run.Rows), cancellationToken).ConfigureAwait(false);
+        bool imageConditioned = _conditionMode == DiffusionConfigKeys.ConditionImage;
+        bool inpaintConditioned = _conditionMode == DiffusionConfigKeys.ConditionInpaint;
+        // InstructPix2Pix starts from pure noise (its image enters as extra channels); an inpainting UNet at full strength does as well.
+        bool startsFromImage = request.Image is not null && !imageConditioned && !(inpaintConditioned && request.Strength >= 1f);
+        var reference = request.Image is null || !(startsFromImage || inpaintConditioned && request.Mask is not null)
+            ? null
+            : await Task.Run(() => EncodeImage(request.Image, run), cancellationToken).ConfigureAwait(false);
         var mask = request.Mask is null ? null : LatentMask(request.Mask, run);
+        var condition = _conditionMode is null ? null : await Task.Run(() => ConditionLatents(request, run, mask), cancellationToken).ConfigureAwait(false);
         var references = run.References == 0 ? null : await Task.Run(() => EncodeReferences(request.ReferenceImages!, run), cancellationToken).ConfigureAwait(false);
         var images = new List<ImageInput>(run.Count);
         int evaluations = CreateSampler(run).Timesteps.Count;
-        int start = reference is null ? 0 : CreateSampler(run).StartIndex(run.Steps, request.Strength);
+        int start = !startsFromImage ? 0 : CreateSampler(run).StartIndex(run.Steps, request.Strength);
         int perImage = evaluations - start;
         int total = perImage * run.Count;
         for (int image = 0; image < run.Count; image++)
@@ -208,7 +238,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             var sampler = CreateSampler(run);
             var noise = InitialNoise(run, image, seed);
             var latents = new float[run.LatentSize];
-            if (reference is null)
+            if (!startsFromImage)
             {
                 for (int i = 0; i < latents.Length; i++)
                 {
@@ -229,11 +259,11 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 int step = index;
-                var prediction = await Task.Run(() => Denoise(run, context, sampler, step, latents, references), cancellationToken).ConfigureAwait(false);
+                var prediction = await Task.Run(() => Denoise(run, context, sampler, step, latents, references, condition), cancellationToken).ConfigureAwait(false);
                 long imageSeed = seed;
                 long noiseStream = stream++;
                 sampler.Step(index, prediction, latents, () => LatentNoise.Draw(imageSeed, noiseStream, latents.Length));
-                if (mask is not null && reference is not null)
+                if (mask is not null && reference is not null && !inpaintConditioned)
                 {
                     BlendOutsideMask(sampler, reference, noise, mask, index, evaluations, latents);
                 }
@@ -277,10 +307,15 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
                 : $"{_model.Definition.Name} takes at most {_maxReferences} reference image(s); {references} were given.");
         }
 
-        var sizeSource = request.Image ?? (references > 0 ? request.ReferenceImages![0] : null);
+        var sizeSource = request.Image ?? (references > 0 ? request.ReferenceImages![_referenceArea > 0 ? references - 1 : 0] : null);
         int width = options.Width ?? sizeSource?.Width ?? _nativeWidth;
         int height = options.Height ?? sizeSource?.Height ?? _nativeHeight;
-        if (options.Width is null && options.Height is null && sizeSource is not null)
+        if (options.Width is null && options.Height is null && request.Image is null && references > 0 && _referenceArea > 0)
+        {
+            // Qwen-Image-Edit: about 1024 · 1024 pixels at the last reference image's aspect ratio, sides rounded to 32.
+            (width, height) = FitArea(_referenceArea, sizeSource!.Width, sizeSource.Height);
+        }
+        else if (options.Width is null && options.Height is null && sizeSource is not null)
         {
             // An input image of any size is generated at the nearest size the network accepts; editing models (transformers) take
             // multiples of their token size, as their pipelines round reference images.
@@ -298,6 +333,17 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         }
 
         float guidance = options.GuidanceScale ?? _defaultGuidance;
+        float imageGuidance = _conditionMode == DiffusionConfigKeys.ConditionImage ? options.ImageGuidanceScale ?? _defaultImageGuidance : 0f;
+        if (_conditionMode == DiffusionConfigKeys.ConditionImage && (request.Image is null || request.Mask is not null))
+        {
+            throw new ArgumentException($"{_model.Definition.Name} edits an image by an instruction: give ImageGenerationRequest.Image (and no mask).", nameof(request));
+        }
+
+        if (_conditionMode == DiffusionConfigKeys.ConditionInpaint && request.Image is null)
+        {
+            throw new ArgumentException($"{_model.Definition.Name} is an inpainting model: give ImageGenerationRequest.Image (and Mask).", nameof(request));
+        }
+
         var run = new DiffusionRun
         {
             Width = width,
@@ -307,7 +353,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             LatentChannels = _latentChannels,
             Steps = steps,
             Guidance = guidance,
-            Guided = guidance > 1f && _classifierFree && !_embeddedGuidance,
+            Guided = guidance > 1f && _classifierFree && !_embeddedGuidance && imageGuidance is 0f or >= 1f,
+            ImageGuidance = imageGuidance,
             Seed = options.Seed ?? Random.Shared.NextInt64(1L << 53),
             Count = options.Count,
             Sampler = options.Scheduler ?? _schedule.Sampler,
@@ -332,44 +379,48 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     /// The conditioning of a request, reused when the prompts are those of the previous request. Models that barely fit the device
     /// hold either the text encoders or the denoiser: the other components are released before encoding and the encoders after it.
     /// </summary>
-    private PromptConditioning Conditioning(ImageGenerationRequest request, bool guided)
+    private PromptConditioning Conditioning(ImageGenerationRequest request, int rows)
     {
-        if (_lastConditioning is { } last && last.Prompt == request.Prompt && last.Negative == request.NegativePrompt && last.Guided == guided)
+        if (_lastConditioning is { } last && last.Prompt == request.Prompt && last.Negative == request.NegativePrompt && last.Rows == rows
+            && (_vision is null || ReferenceEquals(last.Images, request.ReferenceImages)))
         {
             return last.Conditioning;
         }
 
         if (_releaseTextEncoders)
         {
-            foreach (string key in _compiled.Keys.Where(k => k is not (DiffusionGraphs.TextEncode or DiffusionGraphs.TextEncode2 or DiffusionGraphs.TextEncode3)).ToList())
+            foreach (string key in _compiled.Keys.Where(k => !IsTextGraph(k)).ToList())
             {
                 Release(key);
             }
         }
 
-        var conditioning = EncodePrompts(request, guided);
+        var conditioning = EncodePrompts(request, rows);
         if (_releaseTextEncoders)
         {
             Release(DiffusionGraphs.TextEncode);
             Release(DiffusionGraphs.TextEncode2);
             Release(DiffusionGraphs.TextEncode3);
+            Release(WellKnown.VisionEncodeGraph);
         }
 
-        _lastConditioning = (request.Prompt, request.NegativePrompt, guided, conditioning);
+        _lastConditioning = (request.Prompt, request.NegativePrompt, rows, request.ReferenceImages, conditioning);
         return conditioning;
     }
 
     /// <summary>The text conditioning: the negative prompt's row first when guided, then the prompt's.</summary>
-    private PromptConditioning EncodePrompts(ImageGenerationRequest request, bool guided)
+    private PromptConditioning EncodePrompts(ImageGenerationRequest request, int rows)
     {
-        var conditional = EncodePrompt(request.Prompt);
-        if (!guided)
+        var pictures = request.ReferenceImages is { Count: > 0 } references && _vision is not null ? EncodePictures(references) : null;
+        var conditional = EncodePrompt(request.Prompt, pictures);
+        if (rows == 1)
         {
             return conditional;
         }
 
-        var unconditional = request.NegativePrompt is null && _zeroEmptyNegative ? conditional.Zeros() : EncodePrompt(request.NegativePrompt ?? "");
-        return unconditional.Append(conditional);
+        var unconditional = request.NegativePrompt is null && _zeroEmptyNegative ? conditional.Zeros() : EncodePrompt(request.NegativePrompt ?? "", pictures);
+        // Image guidance (InstructPix2Pix): the instruction's row, then the negative prompt's twice (with and without the image).
+        return rows == 3 ? conditional.Append(unconditional).Append(unconditional) : unconditional.Append(conditional);
     }
 
     /// <summary>
@@ -377,15 +428,16 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     /// T5 encoder has them), a third encoder's appended along the sequence when it says so (SD3's T5), and the pooled embeddings of all
     /// encoders concatenated in order (SDXL: the OpenCLIP one; FLUX: the CLIP one; SD3: CLIP-L then CLIP-G).
     /// </summary>
-    private PromptConditioning EncodePrompt(string prompt)
+    private PromptConditioning EncodePrompt(string prompt, ImagePrompt? pictures = null)
     {
         if (prompt.Length == 0 && _emptyPrompt is not null)
         {
             prompt = _emptyPrompt;
         }
 
-        var (tokens, length) = PromptTokens(_tokenizer, _contextLength, prompt, _promptTemplate);
-        var (hidden, pooled) = RunTextEncoder(ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, tokens, length);
+        ImageRows? imageRows = null;
+        var (tokens, length) = pictures is null ? PromptTokens(_tokenizer, _contextLength, prompt, _promptTemplate) : PictureTokens(prompt, pictures, out imageRows);
+        var (hidden, pooled) = RunTextEncoder(ModelComponentRoles.TextEncoder, DiffusionGraphs.TextEncode, tokens, length, imageRows);
         int rows = tokens.Length;
         if (_promptSkip > 0 && hidden is not null)
         {
@@ -435,6 +487,99 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         }
 
         return new PromptConditioning(hidden ?? throw new InvalidOperationException("No text encoder produces hidden states."), pooled, mask);
+    }
+
+    /// <summary>
+    /// The language model's view of the reference images (Qwen-Image-Edit): each image resized to <see cref="_conditionPixels"/> pixels (its
+    /// aspect ratio kept, sides multiples of 32), preprocessed and run through the vision tower.
+    /// </summary>
+    private ImagePrompt EncodePictures(IReadOnlyList<ImageInput> images)
+    {
+        var encoder = VisionEncoder.FromCompiled(_model.Definition, Compiled(ModelComponentRoles.TextEncoder, WellKnown.VisionEncodeGraph, null),
+            _contextLength - _promptSkip, new Qwen35Multimodal());
+        var preprocessed = new List<PreprocessedImage>(images.Count);
+        var embeddings = new List<float[]>(images.Count);
+        foreach (var image in images)
+        {
+            var (width, height) = FitArea(_conditionPixels, image.Width, image.Height);
+            var planes = new float[3 * image.Width * image.Height];
+            PlanarImage.ToPlanar(image, planes, 0f, 1f);
+            var condition = PlanarImage.FromPlanar(PlanarResize.Resize(planes, 3, image.Height, image.Width, height, width, lanczos: true), width, height, 0f, 1f);
+            var pre = encoder.Preprocess(condition);
+            preprocessed.Add(pre);
+            embeddings.Add(encoder.Encode(pre));
+        }
+
+        return new ImagePrompt(preprocessed, embeddings);
+    }
+
+    /// <summary>
+    /// The templated prompt with the image labels and placeholders before the prompt, the placeholders expanded to the images' rows (their
+    /// M-RoPE positions and embeddings in <paramref name="rows"/>), padded to the encoder's rows.
+    /// </summary>
+    private (int[] Ids, int Length) PictureTokens(string prompt, ImagePrompt pictures, out ImageRows rows)
+    {
+        string template = _promptTemplate ?? "{prompt}";
+        int at = template.IndexOf("{prompt}", StringComparison.Ordinal);
+        var labels = new System.Text.StringBuilder();
+        for (int n = 1; n <= pictures.Images.Count; n++)
+        {
+            labels.Append(_imagePrompt.Replace("{n}", n.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal));
+        }
+
+        int[] ids = [.. _tokenizer.Encode(template[..at] + labels, addSpecial: false, parseSpecial: true),
+            .. _tokenizer.Encode(prompt, addSpecial: false, parseSpecial: false),
+            .. _tokenizer.Encode(template[(at + "{prompt}".Length)..], addSpecial: false, parseSpecial: true)];
+        int? Lookup(string text)
+        {
+            var token = _tokenizer.Encode(text, addSpecial: false, parseSpecial: true);
+            return token.Length == 1 ? token[0] : null;
+        }
+
+        var assembled = new Qwen35Multimodal().Assemble(new MultimodalContext(_model.Definition, Lookup), ids, pictures.Images, 0);
+        int total = _contextLength;
+        if (assembled.Length > total)
+        {
+            throw new NotSupportedException($"The prompt with its {pictures.Images.Count} image(s) takes {assembled.Length} rows, more than the text encoder's {total} "
+                + $"(the template's {_promptSkip} and {total - _promptSkip} for the prompt and the images): use fewer or smaller images or a shorter prompt.");
+        }
+
+        int axes = assembled.PositionAxes;
+        int width = _vision!.EmbeddingWidth;
+        var tokens = new int[total];
+        var positions = new int[total * axes];
+        var embeddings = new float[(long)total * width];
+        var mask = new float[total];
+        int pad = _tokenizer.PadId ?? _tokenizer.EosId ?? 0;
+        for (int row = 0; row < total; row++)
+        {
+            if (row >= assembled.Length)
+            {
+                tokens[row] = pad;
+                positions.AsSpan(row * axes, Math.Min(axes, 3)).Fill(assembled.NextPosition + row - assembled.Length);
+                continue;
+            }
+
+            tokens[row] = assembled.Tokens[row];
+            assembled.Positions.AsSpan(row * axes, axes).CopyTo(positions.AsSpan(row * axes));
+            if (assembled.ImageIndex[row] >= 0)
+            {
+                pictures.Embeddings[assembled.ImageIndex[row]].AsSpan(assembled.ImageRow[row] * width, width).CopyTo(embeddings.AsSpan(row * width));
+                mask[row] = 1f;
+            }
+        }
+
+        rows = new ImageRows(positions, embeddings, mask);
+        return (tokens, assembled.Length);
+    }
+
+    /// <summary>The size of the image with the given aspect ratio of about <paramref name="area"/> pixels, sides rounded to multiples of 32 (diffusers' calculate_dimensions).</summary>
+    private static (int Width, int Height) FitArea(long area, int width, int height)
+    {
+        double ratio = (double)width / height;
+        double w = Math.Sqrt(area * ratio);
+        double h = w / ratio;
+        return ((int)Math.Round(w / 32) * 32, (int)Math.Round(h / 32) * 32);
     }
 
     private static float[]? Concat(float[]? first, float[]? second)
@@ -487,10 +632,29 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     }
 
     /// <summary>Runs a text graph on one padded prompt of <paramref name="length"/> tokens (the mask input, if any, marks them).</summary>
-    private (float[]? Hidden, float[]? Pooled) RunTextEncoder(string role, string graph, int[] tokens, int length)
+    private (float[]? Hidden, float[]? Pooled) RunTextEncoder(string role, string graph, int[] tokens, int length, ImageRows? imageRows = null)
     {
         var encoder = Compiled(role, graph, null);
         encoder.SetInput<int>(encoder.Graph.Inputs.Single(i => i.Name == DiffusionGraphs.Tokens), tokens);
+        if (encoder.Graph.Inputs.FirstOrDefault(i => i.Name == "positions") is { } positionsInput)
+        {
+            // A vision-language text encoder: M-RoPE positions, and the image rows' embeddings (none: the rows' own indices, no image rows).
+            int axes = (int)positionsInput.Shape[1].Fixed;
+            var rowPositions = imageRows?.Positions;
+            if (rowPositions is null)
+            {
+                rowPositions = new int[tokens.Length * axes];
+                for (int row = 0; row < tokens.Length; row++)
+                {
+                    rowPositions.AsSpan(row * axes, Math.Min(axes, 3)).Fill(row);
+                }
+            }
+
+            encoder.SetInput<int>(positionsInput, rowPositions);
+            encoder.SetInput<float>(encoder.Graph.Inputs.Single(i => i.Name == "embeddings"), imageRows?.Embeddings ?? new float[tokens.Length * (int)encoder.Graph.Inputs.Single(i => i.Name == "embeddings").Shape[1].Fixed]);
+            encoder.SetInput<float>(encoder.Graph.Inputs.Single(i => i.Name == "embedding_mask"), imageRows?.Mask ?? new float[tokens.Length]);
+        }
+
         if (encoder.Graph.Inputs.FirstOrDefault(i => i.Name == DiffusionGraphs.TokenMask) is { } maskInput)
         {
             var mask = new float[tokens.Length];
@@ -522,23 +686,25 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         return (ids, count);
     }
 
-    private float[] Denoise(DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index, float[] latents, float[]? references)
+    private float[] Denoise(DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index, float[] latents, float[]? references, float[]? condition)
     {
         var denoiser = Compiled(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, run.Dimensions);
-        int rows = run.Guided ? 2 : 1;
+        int rows = run.Rows;
         var batchDim = Input(denoiser, DiffusionGraphs.Latent).Shape[0];
-        int perRun = batchDim.IsSymbolic ? rows : (int)batchDim.Fixed;
+        // Three-row steps (image guidance) run as two rows and one row: the Vulkan UNet kernels are exact for batches of one and two only.
+        int perRun = batchDim.IsSymbolic ? Math.Min(rows, 2) : (int)batchDim.Fixed;
         var output = new float[run.LatentSize * rows];
         if (perRun >= rows)
         {
-            RunDenoiser(denoiser, run, conditioning, sampler, index, latents, references, 0, rows, output);
+            RunDenoiser(denoiser, run, conditioning, sampler, index, latents, references, condition, 0, rows, output);
         }
         else
         {
             // A denoiser built for fewer rows (a fixed batch of one) runs once per row of a guided step.
-            for (int row = 0; row < rows; row++)
+            for (int row = 0; row < rows; row += perRun)
             {
-                RunDenoiser(denoiser, run, conditioning, sampler, index, latents, references, row, 1, output.AsSpan(row * run.LatentSize, run.LatentSize));
+                int count = Math.Min(perRun, rows - row);
+                RunDenoiser(denoiser, run, conditioning, sampler, index, latents, references, condition, row, count, output.AsSpan(row * run.LatentSize, count * run.LatentSize));
             }
         }
 
@@ -548,6 +714,20 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         }
 
         var guided = new float[run.LatentSize];
+        if (rows == 3)
+        {
+            // InstructPix2Pix: rows are the instruction with the image, the empty prompt with the image, the empty prompt without it.
+            for (int i = 0; i < guided.Length; i++)
+            {
+                float text = output[i];
+                float image = output[run.LatentSize + i];
+                float neither = output[2 * run.LatentSize + i];
+                guided[i] = neither + run.Guidance * (text - image) + run.ImageGuidance * (image - neither);
+            }
+
+            return guided;
+        }
+
         for (int i = 0; i < guided.Length; i++)
         {
             float unconditional = output[i];
@@ -610,7 +790,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
 
     /// <summary>One denoiser run over <paramref name="rows"/> conditioning rows starting at <paramref name="firstRow"/>.</summary>
     private static void RunDenoiser(CompiledModel denoiser, DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index,
-        float[] latents, float[]? references, int firstRow, int rows, Span<float> output)
+        float[] latents, float[]? references, float[]? condition, int firstRow, int rows, Span<float> output)
     {
         float scale = sampler.ModelInputScale(index);
         var input = new float[run.LatentSize * rows];
@@ -622,7 +802,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             }
         }
 
-        int totalRows = run.Guided ? 2 : 1;
+        int totalRows = run.Rows;
         int contextRow = conditioning.Context.Length / totalRows;
         denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.Latent), input);
         denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.Timestep), Enumerable.Repeat(sampler.Timesteps[index], rows).ToArray());
@@ -659,6 +839,22 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.Guidance), Enumerable.Repeat(run.Guidance, rows).ToArray());
         }
 
+        if (denoiser.Graph.Inputs.Any(i => i.Name == DiffusionGraphs.ConditionLatent))
+        {
+            var extra = condition ?? throw new InvalidOperationException("The denoiser takes extra input channels, but the request gave no image.");
+            var rowsOfCondition = new float[extra.Length * rows];
+            for (int row = 0; row < rows; row++)
+            {
+                // The image-guidance row without the image has zeros as its extra channels.
+                if (!(run.ImageGuidance > 0 && firstRow + row == 2))
+                {
+                    extra.CopyTo(rowsOfCondition, row * extra.Length);
+                }
+            }
+
+            denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.ConditionLatent), rowsOfCondition);
+        }
+
         if (denoiser.Graph.Inputs.Any(i => i.Name == DiffusionGraphs.ReferenceLatent))
         {
             denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.ReferenceLatent),
@@ -686,11 +882,11 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     }
 
     /// <summary>The model latents of the input image (resized to the output size): the VAE encoder's scaled mean.</summary>
-    private float[] EncodeImage(ImageInput image, DiffusionRun run)
+    private float[] EncodeImage(ImageInput image, DiffusionRun run, bool lanczos = false)
     {
         var planes = new float[3 * image.Width * image.Height];
         PlanarImage.ToPlanar(image, planes, 0f, 1f);
-        var resized = PlanarResize.Resize(planes, 3, image.Height, image.Width, run.Height, run.Width);
+        var resized = PlanarResize.Resize(planes, 3, image.Height, image.Width, run.Height, run.Width, lanczos);
         var encoder = Compiled(ModelComponentRoles.Vae, DiffusionGraphs.VaeEncode, run.Dimensions);
         encoder.SetInput<float>(Input(encoder, DiffusionGraphs.Image), resized);
         var parameters = new RunParameters();
@@ -701,13 +897,75 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         return latents;
     }
 
+    /// <summary>
+    /// The extra input channels of a UNet with <see cref="DiffusionGraphs.ConditionLatent"/>: the image's unscaled latents
+    /// (InstructPix2Pix), or the latent mask (1 = regenerate) followed by the latents of the image with the masked pixels grey (inpainting).
+    /// </summary>
+    private float[] ConditionLatents(ImageGenerationRequest request, DiffusionRun run, float[]? mask)
+    {
+        var image = request.Image!;
+        if (_conditionMode == DiffusionConfigKeys.ConditionImage)
+        {
+            var latents = EncodeImage(image, run);
+            for (int i = 0; i < latents.Length; i++)
+            {
+                latents[i] /= _scalingFactor;
+            }
+
+            return latents;
+        }
+
+        var planes = new float[3 * image.Width * image.Height];
+        PlanarImage.ToPlanar(image, planes, 0f, 1f);
+        var resized = PlanarResize.Resize(planes, 3, image.Height, image.Width, run.Height, run.Width);
+        if (request.Mask is { } pixelMask)
+        {
+            // diffusers: masked_image = image * (mask < 0.5) in [-1, 1], that is mid grey inside the mask.
+            var maskPlanes = new float[3 * pixelMask.Width * pixelMask.Height];
+            PlanarImage.ToPlanar(pixelMask, maskPlanes, 0f, 1f);
+            var maskResized = PlanarResize.Resize(maskPlanes, 3, pixelMask.Height, pixelMask.Width, run.Height, run.Width);
+            int pixels = run.Width * run.Height;
+            for (int i = 0; i < pixels; i++)
+            {
+                if ((maskResized[i] + maskResized[pixels + i] + maskResized[2 * pixels + i]) / 3f >= 0.5f)
+                {
+                    resized[i] = resized[pixels + i] = resized[2 * pixels + i] = 0.5f;
+                }
+            }
+        }
+        else
+        {
+            Array.Fill(resized, 0.5f);
+        }
+
+        var encoder = Compiled(ModelComponentRoles.Vae, DiffusionGraphs.VaeEncode, run.Dimensions);
+        encoder.SetInput<float>(Input(encoder, DiffusionGraphs.Image), resized);
+        var parameters = new RunParameters();
+        parameters.Symbols[DiffusionGraphs.BatchSymbol] = 1;
+        encoder.Run(parameters);
+        int plane = run.LatentWidth * run.LatentHeight;
+        var condition = new float[plane + run.LatentSize];
+        if (mask is null)
+        {
+            Array.Fill(condition, 1f, 0, plane);
+        }
+        else
+        {
+            mask.CopyTo(condition, 0);
+        }
+
+        encoder.GetOutput<float>(DiffusionGraphs.Latent, condition.AsSpan(plane));
+        return condition;
+    }
+
     /// <summary>The model latents of the reference images (each resized to the output size) for an editing denoiser, [R, C, h, w].</summary>
     private float[] EncodeReferences(IReadOnlyList<ImageInput> images, DiffusionRun run)
     {
         var latents = new float[run.LatentSize * images.Count];
         for (int i = 0; i < images.Count; i++)
         {
-            EncodeImage(images[i], run).CopyTo(latents, i * run.LatentSize);
+            // Qwen-Image-Edit's pipeline resizes with Lanczos (diffusers' VaeImageProcessor), as for the language model's view.
+            EncodeImage(images[i], run, lanczos: _vision is not null).CopyTo(latents, i * run.LatentSize);
         }
 
         return latents;
@@ -796,7 +1054,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         return compiled;
     }
 
-    private static bool IsTextGraph(string key) => key is DiffusionGraphs.TextEncode or DiffusionGraphs.TextEncode2 or DiffusionGraphs.TextEncode3;
+    private static bool IsTextGraph(string key)
+        => key is DiffusionGraphs.TextEncode or DiffusionGraphs.TextEncode2 or DiffusionGraphs.TextEncode3 or WellKnown.VisionEncodeGraph;
 
     private void Release(string graph)
     {
@@ -807,4 +1066,10 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     }
 
     private static Graph.Value Input(CompiledModel model, string name) => model.Graph.Inputs.Single(i => i.Name == name);
+
+    /// <summary>The reference images as the vision-language text encoder sees them: preprocessed, and the vision tower's embeddings per image.</summary>
+    private sealed record ImagePrompt(IReadOnlyList<PreprocessedImage> Images, IReadOnlyList<float[]> Embeddings);
+
+    /// <summary>The image inputs of the text graph: M-RoPE positions [rows, axes], the rows' embeddings [rows, width] and their mask [rows].</summary>
+    private sealed record ImageRows(int[] Positions, float[] Embeddings, float[] Mask);
 }

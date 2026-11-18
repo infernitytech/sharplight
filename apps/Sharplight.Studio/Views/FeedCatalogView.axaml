@@ -35,10 +35,17 @@
       <Border x:Name="FeedOfflineBanner" Classes="callout warn" IsVisible="{Binding IsOffline}">
         <TextBlock TextWrapping="Wrap" Text="{Binding OfflineText}" />
       </Border>
+      <Border x:Name="FeedInstallsSummary" Classes="card" Padding="14,8" IsVisible="{Binding HasFinishedInstalls}">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" x:Name="FeedInstallsDismiss" Classes="small" Content="Dismiss" Command="{Binding ClearFinishedInstallsCommand}" Margin="8,0,0,0" />
+          <Path Classes="icon accent" DockPanel.Dock="Left" Data="{StaticResource IconCheck}" Margin="0,0,8,0" VerticalAlignment="Center" />
+          <TextBlock x:Name="FeedInstallsSummaryText" Text="{Binding FinishedSummary}" TextWrapping="Wrap" VerticalAlignment="Center" />
+        </DockPanel>
+      </Border>
       <ItemsControl x:Name="FeedInstalls" ItemsSource="{Binding Installs}">
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="mvm:FeedInstallViewModel">
-            <Border Classes="card" Padding="14,10" Margin="0,0,0,6">
+            <Border Classes="card" Padding="14,10" Margin="0,0,0,6" IsVisible="{Binding ShowCard}">
               <StackPanel Spacing="6">
                 <DockPanel>
                   <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">

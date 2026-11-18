@@ -489,6 +489,11 @@
                 <Button DockPanel.Dock="Right" Classes="small danger" Content="Clear statistics" Command="{Binding ClearStatisticsCommand}" />
                 <TextBlock Classes="caption" Text="Request history used by the statistics page. Conversations are kept." VerticalAlignment="Center" />
               </DockPanel>
+              <DockPanel>
+                <Button DockPanel.Dock="Right" Classes="small" Content="Open logs folder" Command="{Binding OpenLogsDirectoryCommand}" Margin="6,0,0,0" />
+                <TextBlock Classes="caption" TextWrapping="Wrap" VerticalAlignment="Center"
+                           Text="Log files with startup, device, update and error events (never prompts or other content)." />
+              </DockPanel>
               <Border Classes="divider" Margin="0,6" />
               <TextBlock Classes="h3" Text="About" />
               <TextBlock Classes="caption">

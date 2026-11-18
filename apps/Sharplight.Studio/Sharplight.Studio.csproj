@@ -4,6 +4,10 @@
     <AssemblyName>sharplight-studio</AssemblyName>
     <RootNamespace>Sharplight.Studio</RootNamespace>
     <IsPackable>false</IsPackable>
+    <!-- API documentation (*.xml next to the assemblies) is for NuGet package consumers, not for the installed app: the 28 files of the
+         referenced libraries and packages were 322 MB unpacked. Library projects still generate them for their packages. -->
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets/Icons/sharplight-studio.ico</ApplicationIcon>
@@ -57,6 +61,7 @@
     <!-- The verified-model catalog (docs/verified-catalog.md): Discover's "Verified" list works offline with this copy. -->
     <EmbeddedResource Include="../../tools/model-feed/keys/sharplight-feed.pub.pem" LogicalName="Sharplight.Studio.sharplight-feed.pub.pem" Link="Assets/sharplight-feed.pub.pem" />
     <EmbeddedResource Include="../../catalog/verified-models.json" LogicalName="Sharplight.Studio.verified-models.json" Link="Assets/verified-models.json" />
+    <EmbeddedResource Include="Assets/starter-models.json" LogicalName="Sharplight.Studio.starter-models.json" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Studio.Tests" />

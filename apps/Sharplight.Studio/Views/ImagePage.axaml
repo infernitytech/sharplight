@@ -30,6 +30,12 @@
             <Panel IsVisible="{Binding SupportsEditing}">
               <iv:ImageInputView DataContext="{Binding EditImage}" />
             </Panel>
+            <Grid ColumnDefinitions="*,12,*" IsVisible="{Binding SupportsSeveralEditImages}">
+              <iv:ImageInputView DataContext="{Binding EditImage2}" />
+              <Panel Grid.Column="2">
+                <iv:ImageInputView DataContext="{Binding EditImage3}" />
+              </Panel>
+            </Grid>
             <Grid ColumnDefinitions="*,12,*" IsVisible="{Binding ShowImageToImage}">
               <iv:ImageInputView DataContext="{Binding Source}" />
               <Panel Grid.Column="2" IsVisible="{Binding UsesInputImage}">

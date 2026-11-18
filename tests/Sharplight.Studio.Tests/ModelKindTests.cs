@@ -25,6 +25,7 @@ public sealed class ModelKindTests
     [InlineData("ms-marco-MiniLM-L6-v2", """{"model_type":"bert","architectures":["BertForSequenceClassification"],"id2label":{"0":"LABEL_0"}}""", ModelKindCatalog.Reranker)]
     [InlineData("bge-reranker-base", """{"model_type":"xlm-roberta","architectures":["XLMRobertaForSequenceClassification"]}""", ModelKindCatalog.Reranker)]
     [InlineData("Qwen3-Reranker-0.6B", """{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}""", ModelKindCatalog.Reranker)]
+    [InlineData("Qwen3-0.6B", """{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}""", ModelKinds.TextGeneration)]
     [InlineData("Qwen3-TTS-12Hz-0.6B-CustomVoice", """{"model_type":"qwen3_tts","architectures":["Qwen3TTSForConditionalGeneration"]}""", ModelKinds.SpeechSynthesis)]
     [InlineData("sentiment", """{"model_type":"bert","architectures":["BertForSequenceClassification"],"id2label":{"0":"NEG","1":"NEU","2":"POS"}}""", ModelKinds.TextGeneration)]
     [InlineData("gpt2", """{"model_type":"gpt2","architectures":["GPT2LMHeadModel"]}""", ModelKinds.TextGeneration)]
@@ -38,6 +39,37 @@ public sealed class ModelKindTests
 
         Assert.Equal(kind, ModelInspector.Inspect(path).Kind);
     }
+
+    [Theory]
+    [InlineData("Qwen3-0.6B-Q8_0.gguf", ModelKinds.TextGeneration)]
+    [InlineData("Qwen3-Reranker-0.6B-Q8_0.gguf", ModelKindCatalog.Reranker)]
+    [InlineData("qwen3-reranker-4b.q4_k_m.gguf", ModelKindCatalog.Reranker)]
+    public void Inspector_RecognizesDecoderRerankerGgufFiles_ByTheirName_AndNeverChatModels(string file, string kind)
+    {
+        using var directory = new TempDir();
+        string path = directory.File(file);
+        File.WriteAllBytes(path, [1, 2, 3]);
+
+        Assert.Equal(kind, ModelInspector.Inspect(path).Kind);
+    }
+
+    [Theory]
+    // A Qwen3 chat package carries the embed and classify graphs every decoder gets: still a chat model.
+    [InlineData(ModelKinds.TextGeneration, "decode embed classify", "qwen3-0.6b", null, ModelKinds.TextGeneration)]
+    [InlineData(ModelKinds.TextGeneration, "decode embed classify", "Qwen3", "Qwen3 0.6B", ModelKinds.TextGeneration)]
+    [InlineData(ModelKinds.TextGeneration, "decode embed classify", "qwen3", "Qwen3-Reranker-0.6B", ModelKindCatalog.Reranker)]
+    [InlineData(ModelKinds.TextGeneration, "decode embed classify", "Qwen3-Reranker-0.6B", null, ModelKindCatalog.Reranker)]
+    [InlineData(ModelKinds.TextGeneration, "decode embed", "Qwen3-Reranker-0.6B", null, ModelKinds.TextGeneration)]
+    // Encoders have no decode graph.
+    [InlineData(ModelKinds.TextGeneration, "embed classify", "ms-marco", null, ModelKindCatalog.Reranker)]
+    [InlineData(ModelKinds.TextGeneration, "embed", "all-minilm", null, ModelKindCatalog.Embeddings)]
+    [InlineData(ModelKinds.TextGeneration, "decode", "gpt2", null, ModelKinds.TextGeneration)]
+    // A declared kind wins over the graphs.
+    [InlineData(ModelKindCatalog.Reranker, "decode embed classify", "any", null, ModelKindCatalog.Reranker)]
+    [InlineData(ModelKindCatalog.Embeddings, "embed classify", "any", null, ModelKindCatalog.Embeddings)]
+    [InlineData(ModelKinds.SpeechRecognition, "decode classify", "whisper", null, ModelKinds.SpeechRecognition)]
+    public void Inspector_KindOfAPackage_IsItsDeclaredKind_RefinedOnlyByWhatTheGraphsProve(string declared, string graphs, string name, string? generalName, string expected)
+        => Assert.Equal(expected, ModelInspector.KindOf(declared, graphs.Split(' ').ToHashSet(), name, generalName));
 
     [Fact]
     public void RerankersAreServedOnTheRerankRoutes_AndOpenTheSearchPage()

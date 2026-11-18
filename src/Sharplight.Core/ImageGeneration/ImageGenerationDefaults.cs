@@ -19,5 +19,9 @@ namespace Sharplight.ImageGeneration;
 /// How many reference images the model edits (<see cref="ImageGenerationRequest.ReferenceImages"/>; FLUX.1 Kontext 1, FLUX.2 up to 10), or 0
 /// for models that do not edit.
 /// </param>
+/// <param name="ImageGuidanceScale">
+/// The default <see cref="ImageGenerationOptions.ImageGuidanceScale"/> of InstructPix2Pix-style models, which edit the request's
+/// <see cref="ImageGenerationRequest.Image"/> by an instruction; 0 for models without it.
+/// </param>
 public sealed record ImageGenerationDefaults(int Width, int Height, int Steps, float GuidanceScale, string Sampler, bool ClassifierFreeGuidance = true,
-    int ReferenceImages = 0);
+    int ReferenceImages = 0, float ImageGuidanceScale = 0f);

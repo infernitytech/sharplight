@@ -12,9 +12,19 @@ public static class ImageResampling
     /// </summary>
     /// <param name="inSize">Source length.</param>
     /// <param name="outSize">Target length.</param>
-    public static float[] AntialiasedBicubic(int inSize, int outSize)
+    public static float[] AntialiasedBicubic(int inSize, int outSize) => Dense(inSize, outSize, ImageResampleFilter.Bicubic);
+
+    /// <summary>
+    /// Dense weights [<paramref name="outSize"/>, <paramref name="inSize"/>] of an antialiased Lanczos resize (Pillow's <c>LANCZOS</c>: three
+    /// lobes, widened by the scale when shrinking). Equal sizes give the identity.
+    /// </summary>
+    /// <param name="inSize">Source length.</param>
+    /// <param name="outSize">Target length.</param>
+    public static float[] AntialiasedLanczos(int inSize, int outSize) => Dense(inSize, outSize, ImageResampleFilter.Lanczos);
+
+    private static float[] Dense(int inSize, int outSize, ImageResampleFilter filter)
     {
-        var (start, count, w, max) = Coefficients(inSize, outSize);
+        var (start, count, w, max) = Coefficients(inSize, outSize, filter);
         var m = new float[(long)outSize * inSize];
         for (int o = 0; o < outSize; o++)
         {
@@ -50,6 +60,23 @@ public static class ImageResampling
         return m;
     }
 
+    private static double Lanczos3(double x)
+    {
+        x = Math.Abs(x);
+        if (x >= 3)
+        {
+            return 0;
+        }
+
+        if (x < 1e-12)
+        {
+            return 1;
+        }
+
+        double px = Math.PI * x;
+        return 3 * Math.Sin(px) * Math.Sin(px / 3) / (px * px);
+    }
+
     private static double Cubic(double x)
     {
         const double a = -0.5;
@@ -73,7 +100,8 @@ public static class ImageResampling
         double scale = (double)inSize / outSize;
         double filterScale = Math.Max(scale, 1.0);
         bool bilinear = filter == ImageResampleFilter.Bilinear;
-        double support = (bilinear ? 1.0 : 2.0) * filterScale;
+        bool lanczos = filter == ImageResampleFilter.Lanczos;
+        double support = (bilinear ? 1.0 : lanczos ? 3.0 : 2.0) * filterScale;
         int max = (int)Math.Ceiling(support) * 2 + 1;
         var start = new int[outSize];
         var count = new int[outSize];
@@ -87,7 +115,8 @@ public static class ImageResampling
             var tmp = new double[xmax - xmin];
             for (int i = 0; i < tmp.Length; i++)
             {
-                tmp[i] = bilinear ? Math.Max(0, 1 - Math.Abs((xmin + i - center + 0.5) / filterScale)) : Cubic((xmin + i - center + 0.5) / filterScale);
+                double distance = (xmin + i - center + 0.5) / filterScale;
+                tmp[i] = bilinear ? Math.Max(0, 1 - Math.Abs(distance)) : lanczos ? Lanczos3(distance) : Cubic(distance);
                 sum += tmp[i];
             }
             start[x] = xmin;

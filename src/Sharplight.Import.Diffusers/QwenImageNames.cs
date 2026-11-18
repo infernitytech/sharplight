@@ -14,6 +14,12 @@ internal static partial class QwenImageNames
 {
     private const string Canonical = "transformer.";
 
+    /// <summary>
+    /// The marker tensor of Qwen-Image-Edit-2511's GGUF files (an index of the zero timestep the reference images are modulated with,
+    /// diffusers' <c>zero_cond_t</c>): it holds no weights and is not part of the canonical transformer.
+    /// </summary>
+    public const string ZeroConditionMarker = "__index_timestep_zero__";
+
     private static readonly Dictionary<string, string> s_blockParts = new(StringComparer.Ordinal)
     {
         ["img_mod.1"] = "img_mod",
@@ -68,6 +74,11 @@ internal static partial class QwenImageNames
             }
 
             string name = stored[prefix.Length..];
+            if (name == ZeroConditionMarker)
+            {
+                continue;
+            }
+
             string canonical = Canonical + (CanonicalName(name) ?? throw new InvalidDataException($"Unexpected Qwen-Image transformer tensor '{stored}'."));
             weights.Add(canonical, canonical.StartsWith(Canonical + "final.mod.", StringComparison.Ordinal) ? SwapHalves(weight) : weight);
         }

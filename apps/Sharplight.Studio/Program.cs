@@ -1,6 +1,9 @@
 using System.CommandLine;
 using Avalonia;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Sharplight.Storage;
+using Sharplight.Studio.Services.Logging;
 using Sharplight.Studio.Services.Settings;
 using Velopack;
 
@@ -11,6 +14,9 @@ internal static class Program
 {
     /// <summary>The model store given on the command line, or null.</summary>
     public static string? ModelsDirectory { get; private set; }
+
+    /// <summary>The logger factory writing to the log folder of the storage layout (a no-op factory until <see cref="Main"/> created it, as in tests).</summary>
+    public static ILoggerFactory Logs { get; private set; } = NullLoggerFactory.Instance;
 
     [STAThread]
     public static int Main(string[] args)
@@ -41,7 +47,24 @@ internal static class Program
         }
 
         ModelsDirectory = parsed.GetValue(modelsDir);
-        return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        var layout = StorageLayout.Resolve(StorageEnvironment.Process);
+        Logs = StudioLogging.Create(layout, Environment.GetEnvironmentVariable(StudioLogging.LevelVariable));
+        var log = Logs.CreateLogger("Sharplight.Studio");
+        StudioLogging.Hook(log);
+        log.LogInformation("Sharplight Studio {Version} starting on {Os} ({Architecture}); storage {Mode} at {Location}",
+            typeof(Program).Assembly.GetName().Version, System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+            System.Runtime.InteropServices.RuntimeInformation.OSArchitecture, layout.Mode, layout.Description);
+        try
+        {
+            var code = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            log.LogInformation("Sharplight Studio exited with code {Code}", code);
+            return code;
+        }
+        catch (Exception error)
+        {
+            log.LogCritical(error, "Sharplight Studio failed to start or crashed");
+            throw;
+        }
     }
 
     /// <summary>Avalonia configuration; also used by the designer and the headless tests.</summary>

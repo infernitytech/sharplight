@@ -105,11 +105,12 @@
         <DockPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
             <Button Classes="small" Content="Library" Command="{Binding OpenLibraryCommand}" />
-            <Button Classes="accent small" Content="Find a model" Command="{Binding OpenDiscoverCommand}" />
+            <Button Classes="small" Content="Find a model" Command="{Binding OpenDiscoverCommand}" />
+            <Button x:Name="HintGetModel" Classes="accent small" Content="Get a model" Command="{Binding GetModelCommand}" />
           </StackPanel>
           <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center">
             <Path Classes="icon accent" Data="{StaticResource IconInfo}" Margin="0,0,10,0" />
-            <TextBlock Grid.Column="1" TextWrapping="Wrap" Text="No model is loaded. Load one from the library or download one from Hugging Face." VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" TextWrapping="Wrap" Text="No model is loaded. Get a starter model in one click, or load one from the library." VerticalAlignment="Center" />
           </Grid>
         </DockPanel>
       </Border>
@@ -201,6 +202,7 @@
       </Panel>
 
       <!-- Messages -->
+      <Panel>
       <Panel DataContext="{Binding Current}" x:DataType="chat:ConversationViewModel">
         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="14" MaxWidth="560" IsVisible="{Binding IsEmpty}">
           <Border Width="56" Height="56" CornerRadius="16" Background="{DynamicResource AccentGradientBrush}" HorizontalAlignment="Center">
@@ -333,6 +335,19 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </ScrollViewer>
+      </Panel>
+      <!-- Empty state without a model: the same flow as the first start -->
+      <Border x:Name="GetModelCard" Background="{DynamicResource AppBackgroundBrush}" IsVisible="{Binding ShowGetModel}">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="14" MaxWidth="560" Margin="24">
+          <Border Width="56" Height="56" CornerRadius="16" Background="{DynamicResource AccentGradientBrush}" HorizontalAlignment="Center">
+            <Path Data="{StaticResource IconLogo}" Fill="White" Stretch="Uniform" Width="24" Height="24" />
+          </Border>
+          <TextBlock Classes="h1" Text="Get a model to start chatting" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+          <TextBlock Classes="muted" TextAlignment="Center" TextWrapping="Wrap"
+                     Text="Studio checks your hardware, recommends a model that fits and installs it in one click. It runs entirely on this machine." />
+          <Button Classes="accent" Content="Get a model" Command="{Binding GetModelCommand}" HorizontalAlignment="Center" />
+        </StackPanel>
+      </Border>
       </Panel>
     </DockPanel>
 

@@ -15,6 +15,12 @@ public sealed record ImageGenerationOptions
     /// <summary>Classifier-free guidance scale, or <see langword="null"/> for the model's default (distilled models ignore it).</summary>
     public float? GuidanceScale { get; init; }
 
+    /// <summary>
+    /// For InstructPix2Pix-style models (<see cref="ImageGenerationDefaults.ImageGuidanceScale"/> above 0): how strongly the output follows
+    /// <see cref="ImageGenerationRequest.Image"/> (1: not at all, higher: closer), or <see langword="null"/> for the model's default.
+    /// </summary>
+    public float? ImageGuidanceScale { get; init; }
+
     /// <summary>Seed of the initial noise; <see langword="null"/> picks one (reported in <see cref="ImageGenerationResult.Seed"/>).</summary>
     public long? Seed { get; init; }
 

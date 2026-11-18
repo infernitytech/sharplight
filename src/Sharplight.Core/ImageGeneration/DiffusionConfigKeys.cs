@@ -165,4 +165,45 @@ public static class DiffusionConfigKeys
     /// several); absent or 0: the model does not edit.
     /// </summary>
     public const string ReferenceImages = "referenceImages";
+
+    /// <summary>
+    /// Denoiser: what the extra input channels of a UNet built with <see cref="DiffusionGraphs.ConditionLatent"/> carry:
+    /// <see cref="ConditionImage"/> (InstructPix2Pix: the input image's latents) or <see cref="ConditionInpaint"/> (the 9-channel
+    /// inpainting UNets: the mask, then the masked image's latents). Absent: the denoiser has no extra channels.
+    /// </summary>
+    public const string ConditionMode = "conditionMode";
+
+    /// <summary><see cref="ConditionMode"/> of InstructPix2Pix: the extra channels are the input image's (unscaled) latents.</summary>
+    public const string ConditionImage = "image";
+
+    /// <summary><see cref="ConditionMode"/> of the inpainting UNets: the extra channels are the latent-resolution mask and the masked image's latents.</summary>
+    public const string ConditionInpaint = "inpaint";
+
+    /// <summary>
+    /// Model: default image guidance scale of <see cref="ConditionImage"/> models (InstructPix2Pix, default 1.5): how strongly the output
+    /// follows the input image, next to <see cref="GuidanceScale"/> for the instruction.
+    /// </summary>
+    public const string ImageGuidanceScale = "imageGuidanceScale";
+
+    /// <summary>VAE: the latent scaling factor (model latents are the VAE's latents times it); needed to feed unscaled latents to a <see cref="ConditionImage"/> denoiser.</summary>
+    public const string ScalingFactor = "scalingFactor";
+
+    /// <summary>
+    /// Tokenizer: the text that stands for each reference image in the prompt of an editing model whose language model reads the images
+    /// (Qwen-Image-Edit), with <c>{n}</c> for the image's number; the language model's image placeholder inside it is expanded to the image's
+    /// rows. The text goes between the template's start and the prompt.
+    /// </summary>
+    public const string ImagePrompt = "imagePrompt";
+
+    /// <summary>
+    /// Text encoder: pixels of the area a reference image is resized to (keeping its aspect ratio) for the language model's vision tower
+    /// (Qwen-Image-Edit-2509 / -2511: 384 · 384; the original Qwen-Image-Edit: 1024 · 1024); 0 or absent: the text encoder reads no images.
+    /// </summary>
+    public const string ConditionPixels = "conditionPixels";
+
+    /// <summary>
+    /// Model: pixels of the area the output is generated at when a request gives no size, the aspect ratio that of the last reference image
+    /// (Qwen-Image-Edit: 1024 · 1024; sides rounded to multiples of 32); 0 or absent: the first reference image's own size.
+    /// </summary>
+    public const string ReferenceArea = "referenceArea";
 }

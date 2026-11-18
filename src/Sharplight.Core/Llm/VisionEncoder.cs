@@ -84,6 +84,16 @@ public sealed class VisionEncoder : IDisposable
         return new VisionEncoder(def, p, compiled, null, pre, maxPatches, multimodal);
     }
 
+    /// <summary>
+    /// Wraps an already compiled <see cref="WellKnown.VisionEncodeGraph"/> (an image generator's text encoder component, compiled through the
+    /// task model) with the generic preprocessing; <paramref name="maxTokens"/> bounds the output tokens of an image.
+    /// </summary>
+    internal static VisionEncoder FromCompiled(ModelDefinition def, CompiledModel compiled, int maxTokens, IMultimodalArchitecture multimodal)
+    {
+        var p = VisionParameters.Of(def) ?? throw new NotSupportedException("This model has no vision tower.");
+        return new VisionEncoder(def, p, compiled, null, new VisionPreprocessor(p, new ImageTokenLimits(null, maxTokens)), maxTokens * p.MergeUnit, multimodal);
+    }
+
     private VisionEncoder(ModelDefinition def, VisionParameters p, CompiledModel compiled, CompiledModel? tile, VisionPreprocessor pre, int maxPatches,
         IMultimodalArchitecture? multimodal)
     {

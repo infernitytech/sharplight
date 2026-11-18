@@ -1,4 +1,6 @@
 using System.Reflection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Velopack;
 using Velopack.Locators;
 using Velopack.Sources;
@@ -13,18 +15,21 @@ namespace Sharplight.Studio.Services.Updates;
 internal sealed class VelopackUpdateService : IUpdateService
 {
     private readonly IVelopackLocator? _locator;
+    private readonly ILogger _logger;
     private UpdateManager? _manager;
     private UpdateInfo? _pending;
 
     /// <summary>Creates the service; <paramref name="updateUrl"/> is the resolved feed URL (see <see cref="UpdateEndpoint.Resolve"/>).</summary>
-    public VelopackUpdateService(string? updateUrl)
+    public VelopackUpdateService(string? updateUrl, ILogger? logger = null)
     {
+        _logger = logger ?? NullLogger.Instance;
         UpdateUrl = updateUrl;
         CurrentVersion = typeof(VelopackUpdateService).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion.Split('+')[0] ?? "dev";
         var locator = TryGetLocator();
         if (locator?.CurrentlyInstalledVersion is not { } installed)
         {
+            _logger.LogInformation("Updates unavailable: not installed with the Studio installer");
             Support = UpdateSupport.Unsupported("Updates are unavailable for this build: it was not installed with the Studio installer.");
         }
         else
@@ -72,17 +77,21 @@ internal sealed class VelopackUpdateService : IUpdateService
             _manager = manager;
             if (info is null)
             {
+                _logger.LogInformation("Update check on channel {Channel}: up to date ({Version})", channel ?? Channel, CurrentVersion);
                 _pending = null;
                 return UpdateCheckResult.UpToDate;
             }
 
             _pending = info;
             var release = info.TargetFullRelease;
+            _logger.LogInformation("Update check on channel {Channel}: {Version} available (installed {Installed})", channel ?? Channel,
+                release.Version, CurrentVersion);
             return UpdateCheckResult.Found(new UpdateOffer(release.Version.ToString(), release.NotesMarkdown, release.Size, info.IsDowngrade));
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
             _pending = null;
+            _logger.LogWarning(error, "Update check on channel {Channel} failed", channel ?? Channel);
             return IsMissingFeed(error) ? UpdateCheckResult.NoReleaseYet : UpdateCheckResult.Failed(error.Message);
         }
     }
