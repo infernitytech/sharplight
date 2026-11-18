@@ -976,12 +976,19 @@ public sealed partial class GraphLowerer
             epilogue is null ? Lib("matmul.slang", "splitk_reduce", splitMacros(split)) : MatMulEpilogueKernel(epilogue, "splitk_reduce", splitMacros(split)),
             b => new Grid(Grid.Div(p.RowCount(b) * N, 256))));
         var y = epilogue?.Output ?? p.Y;
+        // w: unused by the reduction, except that a row-ranged f16 copy of the activations (X_RS) goes there for its row scales;
+        // the lookup grid of an IQ weight still leads the arguments (the kernel is built for the weight's format).
+        bool ranged = p.Macros.ContainsKey("X_RS");
+        KernelArg weightArg = Pointer(p.WeightParts ?? p.W);
+        KernelArg[] reduceArgs = [new PointerArg(scratch, 0), ranged ? Pointer(activations) : weightArg, Pointer(y), .. MatMulEpilogueArgs(epilogue), TokenArg(p.X, rowsPerLead)];
+        if (ranged && UsesGrid((p.WeightParts ?? p.W).Type))
+        {
+            reduceArgs = [WithGridArgument([weightArg])[0], .. reduceArgs];
+        }
+
         Emit($"matmul {p.Node.Output.Name} split-k reduce{epilogue?.Label}", [p.Node, .. epilogue?.Group ?? []],
-            [.. reduceVariants],
-            // w: unused by the reduction, except that a row-ranged f16 copy of the activations (X_RS) goes there for its row scales.
-            [new PointerArg(scratch, 0), p.Macros.ContainsKey("X_RS") ? Pointer(activations) : Pointer(p.WeightParts ?? p.W), Pointer(y), .. MatMulEpilogueArgs(epilogue),
-                TokenArg(p.X, rowsPerLead)],
-            p.Macros.ContainsKey("X_RS") ? [partial, activations, .. epilogue?.Args ?? []] : [partial, .. epilogue?.Args ?? []], [y]);
+            [.. reduceVariants], reduceArgs,
+            ranged ? [partial, activations, .. epilogue?.Args ?? []] : [partial, .. epilogue?.Args ?? []], [y]);
     }
 
     /// <summary>

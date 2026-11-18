@@ -195,7 +195,7 @@ public sealed partial class GraphLowerer
         if (shareable)
         {
             var allocation = new object();
-            long offset = _alloc.Allocate(allocation, DataType.U8.ByteSize(rowsMax * shape[1]));
+            long offset = _alloc.Allocate(allocation, DataType.U8.ByteSize(shape[0] * shape[1]));
             quantized = new TensorRef(_arena, offset, DataType.U8, shape, TensorRef.DenseStrides(shape), x.Symbol);
             if (!_rootScratch.TryGetValue(root, out var list))
             {
