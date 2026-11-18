@@ -39,6 +39,9 @@ public sealed class HostedModelDefaults
     /// <summary>Prompt rows per step and sequence, interleaved with decoding; 0 = the step's rows.</summary>
     public int PrefillChunk { get; set; }
 
+    /// <summary>Reuse cached KV of earlier prompts with the same prefix (prefix caching; <see cref="Llm.Serving.EngineOptions.PrefixCache"/>).</summary>
+    public bool PrefixCache { get; set; } = true;
+
     /// <summary>Token budget of one engine step; null = the model's batch size.</summary>
     public int? StepTokens { get; set; }
 

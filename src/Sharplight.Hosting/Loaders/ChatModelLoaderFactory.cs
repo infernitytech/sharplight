@@ -61,6 +61,7 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
             {
                 MaxQueue = settings.MaxQueue,
                 PrefillChunk = settings.PrefillChunk,
+                PrefixCache = settings.PrefixCache,
                 MaxBatchTokens = settings.StepTokens ?? 0,
                 SpeculationMaxBatch = settings.SpeculationMaxBatch,
             },

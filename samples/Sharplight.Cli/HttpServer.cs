@@ -64,6 +64,7 @@ internal static class HttpServer
             }
 
             options.DefaultSampling = new SamplingParams { Temperature = settings.DefaultTemperature };
+            options.AllowClientCacheSalt = settings.AllowClientCacheSalt;
 
             // A single chat model answers to any name (clients often send arbitrary ones); with several, an unknown name is a 404.
             options.UnknownModelFallsBackToDefault = hosting.Models.Count(model => model.Kind == ModelKind.Chat) == 1 && !hosting.OnDemand;

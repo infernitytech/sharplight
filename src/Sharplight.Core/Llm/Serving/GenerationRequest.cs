@@ -35,6 +35,23 @@ public sealed record GenerationRequest
     /// </summary>
     public string? CachePartition { get; init; }
     /// <summary>
+    /// Additional prefix-cache key (vLLM's <c>cache_salt</c>): mixed into the hash of every cached KV block together with
+    /// <see cref="CachePartition"/>, so only requests with the same partition and salt share cached prefixes. Null = no salt.
+    /// Unlike the partition, which a host derives from authentication, a salt may come from the client (it can only narrow sharing
+    /// further within the partition).
+    /// </summary>
+    public string? CacheSalt { get; init; }
+    /// <summary>
+    /// Non-text content in the prompt (image or audio placeholders): its hashes are part of the prefix-cache key of the blocks it
+    /// overlaps, so prompts with the same placeholder tokens but different content never share them.
+    /// </summary>
+    public IReadOnlyList<PromptContentKey> PromptContent { get; init; } = [];
+    /// <summary>
+    /// Compute the whole prompt instead of reusing cached KV (the request still leaves its blocks for later ones). Set it for requests
+    /// that need every prompt position computed, e.g. prompt log-probabilities.
+    /// </summary>
+    public bool BypassPrefixCache { get; init; }
+    /// <summary>
     /// Restricts the output to a grammar / regular expression / JSON schema (structured outputs). The engine masks the logits
     /// with the tokens the constraint allows before sampling; end-of-generation tokens are allowed only when the output is complete.
     /// </summary>

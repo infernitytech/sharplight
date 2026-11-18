@@ -50,7 +50,11 @@ internal static class Prometheus
         Gauge("sharplight_kv_utilization", "Fraction of the KV capacity held by running sequences.", m => m.KvUtilization);
         Counter("sharplight_spec_draft_tokens_total", "Draft tokens proposed by speculative decoding.", m => m.DraftTokens);
         Counter("sharplight_kv_preemptions_total", "Sequences preempted for KV blocks (paged cache) and recomputed.", m => m.Preemptions);
-        Counter("sharplight_kv_prefix_hit_tokens_total", "Prompt tokens served from KV blocks shared between slots.", m => m.SharedPrefixTokens);
+        Counter("sharplight_kv_prefix_hit_tokens_total", "Tokens served from cached KV blocks attached by content (all cache namespaces).", m => m.SharedPrefixTokens);
+        Counter("sharplight_kv_prefix_shared_blocks_total", "KV blocks attached from the prefix cache instead of computed (all cache namespaces).", m => m.SharedPrefixBlocks);
+        Gauge("sharplight_kv_blocks_cached", "Free KV blocks that still hold cached prefix content.", m => m.KvBlocksCached);
+        Counter("sharplight_kv_block_evictions_total", "Cached KV blocks dropped to reuse their memory.", m => m.KvBlocksEvicted);
+        Counter("sharplight_kv_state_snapshots_total", "Recurrent-state snapshots taken for prefix caching (hybrid and recurrent models).", m => m.StateSnapshots);
         Counter("sharplight_spec_accepted_tokens_total", "Draft tokens accepted by the model.", m => m.AcceptedDraftTokens);
 
         if (models.Count > 0)

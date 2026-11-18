@@ -30,8 +30,8 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
             bool mtp = _chat.MtpDraftTokens > 0 && model.HasDraftHead;
             int drafts = mtp ? _chat.MtpDraftTokens : 0;
             int? rows = drafts > 0 ? _chat.Slots + Math.Min(_chat.Slots, _chat.Engine.SpeculationMaxBatch) * drafts : null;
-            var fp = model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens, drafts, mtp, rows);
-            long headBytes = mtp ? fp.Total - model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens, drafts, false, rows).Total : 0;
+            var fp = model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens, drafts, mtp, rows, _chat.KvStateSnapshots);
+            long headBytes = mtp ? fp.Total - model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens, drafts, false, rows, _chat.KvStateSnapshots).Total : 0;
             // The model is split over the pipeline devices in proportion to their weights (equal when unset).
             var devs = load.Devices;
             double sum = devs.Sum(d => d.Weight ?? 1);
@@ -58,8 +58,9 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
             // The draft head (compiled first) takes its share of the limit too.
             long? limit = primaryLimit is { } l ? Math.Max(0, l - fp.ActivationBytes - headBytes) : null;
             var chat = owner._chat;
+            long? kvTokens = KvTokensFor(primaryLimit);
             var speculator = chat.MtpDraftTokens > 0 && model.HasDraftHead
-                ? model.CreateMtpSpeculator(chat.Slots, chat.MtpDraftTokens, owner.Load.ContextLength, chat.KvCacheTokens)
+                ? model.CreateMtpSpeculator(chat.Slots, chat.MtpDraftTokens, owner.Load.ContextLength, kvTokens)
                 : chat.Speculator?.Invoke(model);
             var options = owner._chat.Engine with { Speculator = speculator ?? owner._chat.Engine.Speculator };
             int? logitsRows = options.Speculator is { } spec
@@ -68,8 +69,8 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
             IBatchDecoder decoder;
             try
             {
-                decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit, logitsRows, owner._chat.KvCacheTokens,
-                    options.Speculator?.MaxDraftTokens ?? 0);
+                decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit, logitsRows, kvTokens,
+                    options.Speculator?.MaxDraftTokens ?? 0, chat.KvStateSnapshots);
             }
             catch
             {
@@ -100,6 +101,36 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
 
                 throw;
             }
+        }
+
+        /// <summary>
+        /// The paged cache size: the configured one, or by default every slot's full context, shrunk (to at least one full context) when the
+        /// host loads the model into <paramref name="primaryLimit"/> bytes, less than it needs: the cache gives way before layers are offloaded.
+        /// </summary>
+        private long? KvTokensFor(long? primaryLimit)
+        {
+            var chat = owner._chat;
+            if (chat.KvCacheTokens is not null || primaryLimit is not { } limit || limit >= fp.Total)
+            {
+                return chat.KvCacheTokens;
+            }
+
+            int ctx = owner.Load.ContextLength;
+            long tokens = model.DefaultKvCacheTokens(chat.Slots, ctx);
+            long perToken = model.KvBytesPerToken;
+            if (tokens <= 0 || perToken <= 0)
+            {
+                return null;
+            }
+
+            long fit = (limit - (fp.Total - tokens * perToken)) / perToken;
+            long shrunk = Math.Clamp(fit, Math.Min(tokens, ctx + (long)chat.Slots * MultiSequenceDecoder.DefaultKvBlockSize), tokens);
+            if (shrunk < tokens)
+            {
+                owner.Load.Log?.Invoke($"Paged KV cache shrunk to {shrunk} tokens ({shrunk * perToken / 1048576.0:F0} MiB) to fit {limit / 1048576.0:F0} MiB.");
+            }
+
+            return shrunk;
         }
 
         public void Dispose()

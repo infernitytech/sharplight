@@ -78,7 +78,7 @@ internal sealed class ServeOptionSet
         DefaultValueFactory = _ => [],
     };
 
-    private readonly Option<int> _slots = OptionFactory.Integer("--slots", "Concurrent sequences batched per forward pass, each with up to --ctx tokens of context (reserved per slot unless --kv-tokens sets a shared pool).", DefaultSlots, helpName: "count");
+    private readonly Option<int> _slots = OptionFactory.Integer("--slots", "Concurrent sequences batched per forward pass, each with up to --ctx tokens of context (from a paged pool shared by the slots, see --kv-tokens).", DefaultSlots, helpName: "count");
 
     private readonly Option<int> _maxQueue = OptionFactory.Integer("--max-queue", "Waiting requests per model before answering 429.", DefaultMaxQueue, helpName: "count");
 
@@ -86,7 +86,18 @@ internal sealed class ServeOptionSet
 
     private readonly Option<long?> _kvTokens = OptionFactory.Size("--kv-tokens",
         "Paged KV cache: one pool of this many tokens (K/M suffixes) shared by all --slots, each growing up to --ctx as needed; "
-        + "admission and preemption follow free cache blocks. Default: every slot reserves --ctx tokens.", helpName: "tokens");
+        + "admission and preemption follow free cache blocks, and prompts share cached blocks by content (prefix caching). "
+        + "Default: --slots x --ctx tokens where the device runs the paged kernels; 0: every slot reserves --ctx tokens (contiguous cache).", helpName: "tokens");
+
+    private readonly Option<bool> _allowCacheSalt = new("--allow-cache-salt")
+    {
+        Description = "Accept the cache_salt request field (vLLM's prefix-cache salt) from clients; it can only narrow prefix-cache sharing.",
+    };
+
+    private readonly Option<bool> _noPrefixCache = new("--no-prefix-cache")
+    {
+        Description = "Compute every prompt in full instead of reusing the cached KV of earlier prompts with the same prefix.",
+    };
     private readonly Option<int?> _stepTokens = OptionFactory.OptionalInteger("--step-tokens", "Token budget of one engine step (decode rows first, prompt chunks fill the rest; default: the model's batch size).", helpName: "tokens");
 
     private readonly Option<int> _draftTokens = OptionFactory.Integer("--speculate-ngram", "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off).", 0, minimum: 0, helpName: "tokens");
@@ -154,6 +165,8 @@ internal sealed class ServeOptionSet
         command.Options.Add(_prefillChunk);
         command.Options.Add(_stepTokens);
         command.Options.Add(_kvTokens);
+        command.Options.Add(_allowCacheSalt);
+        command.Options.Add(_noPrefixCache);
         command.Options.Add(_draftTokens);
         command.Options.Add(_mtpTokens);
         command.Options.Add(_specMaxBatch);
@@ -222,7 +235,9 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_idleTimeout),
             parseResult.GetValue(_onDemand),
             _store.ReadRoot(parseResult),
-            pull);
+            pull,
+            parseResult.GetValue(_allowCacheSalt),
+            parseResult.GetValue(_noPrefixCache));
     }
 
     private static ApiSurface ParseApi(string value)

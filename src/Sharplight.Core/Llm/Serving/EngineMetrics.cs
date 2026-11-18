@@ -5,7 +5,7 @@ namespace Sharplight.Llm.Serving;
 /// <summary>Counters and histograms the engine updates; read them as an <see cref="EngineMetricsSnapshot"/>.</summary>
 public sealed class EngineMetrics
 {
-    private long _submitted, _rejected, _promptTokens, _cachedTokens, _completionTokens, _lookups, _hits, _steps, _drafted, _accepted, _preemptions, _sharedPrefixTokens;
+    private long _submitted, _rejected, _promptTokens, _cachedTokens, _completionTokens, _lookups, _hits, _steps, _drafted, _accepted, _preemptions, _sharedPrefixTokens, _sharedPrefixBlocks, _stateSnapshots;
     private readonly long[] _finished = new long[Enum.GetValues<FinishReason>().Length];
     private readonly Histogram _ttft = new(Histogram.LatencyBuckets), _itl = new(Histogram.FineLatencyBuckets), _wait = new(Histogram.LatencyBuckets),
         _duration = new(Histogram.LatencyBuckets), _stepTime = new(Histogram.FineLatencyBuckets), _rows = new(Histogram.CountBuckets),
@@ -67,7 +67,21 @@ public sealed class EngineMetrics
         _stepTime.Observe(time.TotalSeconds);
     }
     internal void Preempted() => Interlocked.Increment(ref _preemptions);
-    internal void SharedPrefix(int tokens) => Interlocked.Add(ref _sharedPrefixTokens, tokens);
+    internal void SharedPrefix(int tokens, int blocks)
+    {
+        Interlocked.Add(ref _sharedPrefixTokens, tokens);
+        Interlocked.Add(ref _sharedPrefixBlocks, blocks);
+    }
+    /// <summary>Prompt tokens attached from the cache after admission (mid-prompt); <paramref name="firstHit"/> when the request had none before.</summary>
+    internal void CachedLater(int tokens, bool firstHit)
+    {
+        Interlocked.Add(ref _cachedTokens, tokens);
+        if (firstHit)
+        {
+            Interlocked.Increment(ref _hits);
+        }
+    }
+    internal void StateSnapshot() => Interlocked.Increment(ref _stateSnapshots);
     internal void Speculation(int drafted, int accepted)
     {
         Interlocked.Add(ref _drafted, drafted);
@@ -109,6 +123,7 @@ public sealed class EngineMetrics
         Steps = Interlocked.Read(ref _steps), RecentTokensPerSecond = RecentRate(),
         DraftTokens = Interlocked.Read(ref _drafted), AcceptedDraftTokens = Interlocked.Read(ref _accepted),
         Preemptions = Interlocked.Read(ref _preemptions), SharedPrefixTokens = Interlocked.Read(ref _sharedPrefixTokens),
+        SharedPrefixBlocks = Interlocked.Read(ref _sharedPrefixBlocks), StateSnapshots = Interlocked.Read(ref _stateSnapshots),
         TimeToFirstToken = _ttft.Snapshot(), InterTokenLatency = _itl.Snapshot(), QueueWait = _wait.Snapshot(),
         RequestDuration = _duration.Snapshot(), StepDuration = _stepTime.Snapshot(), StepRows = _rows.Snapshot(),
         StepSequences = _sequences.Snapshot(),

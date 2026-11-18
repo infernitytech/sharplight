@@ -353,6 +353,37 @@ public sealed class CompiledModel : IDisposable
         }
     }
 
+    /// <summary>Whether every segment can copy rows of its persistent state (<see cref="CopyStateRows"/>).</summary>
+    public bool CanCopyStateRows => _segments.All(s => s.CanCopyStateRows);
+
+    /// <summary>
+    /// Copies row <paramref name="from"/> of the outermost dimension of the named states to row <paramref name="to"/>, in order with
+    /// <see cref="Run"/> (e.g. a sequence slot's recurrent state into a spare row of a multi-sequence graph and back). Returns false,
+    /// copying nothing, when a segment cannot copy state.
+    /// </summary>
+    /// <param name="states">State names (<see cref="Models.StateDefinition.Name"/>); each must have a fixed outermost dimension.</param>
+    /// <param name="from">Source row.</param>
+    /// <param name="to">Destination row.</param>
+    public bool CopyStateRows(IReadOnlyCollection<string> states, int from, int to)
+    {
+        if (!CanCopyStateRows)
+        {
+            return false;
+        }
+
+        if (from == to || states.Count == 0)
+        {
+            return true;
+        }
+
+        foreach (var s in _segments)
+        {
+            s.CopyStateRows(states, from, to);
+        }
+
+        return true;
+    }
+
     internal static long ByteCount(Value v, RunParameters p) => v.Type.ByteSize(v.Shape.Elements(p.Symbols));
 
     /// <summary>Releases the compiled segments and their device memory.</summary>
