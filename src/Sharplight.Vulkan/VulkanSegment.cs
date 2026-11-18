@@ -795,6 +795,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// <inheritdoc/>
     public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to)
     {
+        _dev.ThrowIfDisposed();
         var regions = new List<(Allocation Buffer, ulong From, ulong To, ulong Bytes)>();
         foreach (var b in _program.Buffers)
         {
