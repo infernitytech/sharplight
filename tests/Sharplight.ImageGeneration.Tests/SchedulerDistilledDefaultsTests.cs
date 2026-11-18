@@ -17,7 +17,7 @@ public sealed class SchedulerDistilledDefaultsTests
         var settings = SchedulerSettings.FromDiffusers(Trailing).WithDistilledDefaults("sd-turbo", null);
         Assert.Equal(0f, settings.DefaultGuidance);
         Assert.Equal(4, settings.DefaultSteps);
-        Assert.Equal(0f, SchedulerSettings.FromDiffusers(Trailing).WithDistilledDefaults("snapshot", "/home/someone/sdxl-turbo/").DefaultGuidance);
+        Assert.Equal(0f, SchedulerSettings.FromDiffusers(Trailing).WithDistilledDefaults("snapshot", "/models/sdxl-turbo/").DefaultGuidance);
     }
 
     [Fact]
