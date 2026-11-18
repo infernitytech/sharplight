@@ -43,10 +43,18 @@ internal sealed class RowNormKernelSource
     public required List<(TensorRef Ref, string Expr)> Pass2Outputs { get; init; }
 
     /// <summary>
-    /// Pass-2 outputs (by index) written only while the step's row count is in the given range; others are always written.
-    /// f16 outputs store the value rounded as <c>f32tof16</c> does.
+    /// Pass-2 outputs (by index) written only while the step's row count <c>p.rows</c> satisfies the given Slang condition;
+    /// others are always written. f16 outputs store the value rounded as <c>f32tof16</c> does.
     /// </summary>
-    public IReadOnlyDictionary<int, (long Min, long Max)> Pass2RowRanges { get; init; } = new Dictionary<int, (long Min, long Max)>();
+    public IReadOnlyDictionary<int, string> Pass2Guards { get; init; } = new Dictionary<int, string>();
+
+    /// <summary>
+    /// A pass-2 output (by index) that receives the value as E4M3 activation rows of the fp8 GEMM (per row: the codes, then one
+    /// f32 scale per 128 values, as <c>quantize_fp8</c> writes them) for steps of <c>MinRows</c> rows or more. The row's values
+    /// pass through shared memory, so that each subgroup quantizes 128 consecutive ones; the arithmetic is quantize_fp8's.
+    /// Requires 32-lane subgroups and a row length that is a multiple of 128.
+    /// </summary>
+    public (int Index, long MinRows)? Fp8Output { get; init; }
 
     /// <summary>True when a per-column f32 weight scales the normalized value.</summary>
     public required bool HasWeight { get; init; }
@@ -77,6 +85,11 @@ internal sealed class RowNormKernelSource
 
         AppendParams();
         _sb.AppendLine($"groupshared float red[{Threads}];");
+        if (Fp8Output is not null)
+        {
+            _sb.AppendLine($"groupshared float qrow[{_rowLength}];");
+        }
+
         _sb.AppendLine($"[shader(\"compute\")] [numthreads({Threads}, 1, 1)]");
         _sb.AppendLine("void main(uint3 gid : SV_GroupID, uint3 lt : SV_GroupThreadID, uniform Params p) {");
         _sb.AppendLine("  uint row = gid.x; if (row >= p.rows) return;");
@@ -87,8 +100,31 @@ internal sealed class RowNormKernelSource
             ? $"  float scale = rsqrt(tot / {GraphLowerer.F((float)_rowLength)} + {GraphLowerer.F(Epsilon)});"
             : $"  float scale = rsqrt(tot + {GraphLowerer.F(Epsilon)});");
         AppendPass(second: true);
+        AppendFp8Quantization();
         _sb.AppendLine("}");
         return _sb.ToString();
+    }
+
+    /// <summary>The E4M3 rows of <see cref="Fp8Output"/> from the values pass 2 left in <c>qrow</c>.</summary>
+    private void AppendFp8Quantization()
+    {
+        if (Fp8Output is not { } fp8)
+        {
+            return;
+        }
+
+        long words = _rowLength / 4 + _rowLength / 128;
+        int output = Pass1Outputs.Count + fp8.Index;
+        _sb.AppendLine($"  if (p.rows >= {fp8.MinRows}u) {{");
+        _sb.AppendLine("    GroupMemoryBarrierWithGroupSync();");
+        _sb.AppendLine($"    uint* qr = (uint*)p.out{output} + row * {words}u;");
+        _sb.AppendLine($"    for (uint c = lt.x; c < {_rowLength / 4}u; c += {Threads}u) {{");
+        _sb.AppendLine("      float4 v = float4(qrow[c * 4], qrow[c * 4 + 1], qrow[c * 4 + 2], qrow[c * 4 + 3]);");
+        _sb.AppendLine("      float d = e4m3_group_scale(v);");
+        _sb.AppendLine("      qr[c] = e4m3_pack4(v, d);");
+        _sb.AppendLine($"      if ((c & 31u) == 0) qr[{_rowLength / 4}u + c / 32u] = asuint(d);");
+        _sb.AppendLine("    }");
+        _sb.AppendLine("  }");
     }
 
     private void AppendParams()
@@ -244,8 +280,14 @@ internal sealed class RowNormKernelSource
 
         for (int i = 0; i < Pass2Outputs.Count; i++)
         {
-            string guard = Pass2RowRanges.TryGetValue(i, out var range) ? $"if (p.rows >= {range.Min}u && p.rows <= {range.Max}u) " : "";
             var (output, expression) = Pass2Outputs[i];
+            if (Fp8Output is { } fp8 && fp8.Index == i)
+            {
+                sb.AppendLine($"    if (p.rows >= {fp8.MinRows}u) qrow[i] = {expression};");
+                continue;
+            }
+
+            string guard = Pass2Guards.TryGetValue(i, out var condition) ? $"if ({condition}) " : "";
             sb.AppendLine($"    {guard}p.out{Pass1Outputs.Count + i}[{ElementwiseCodegen.Offset(output, Shape)}] = {ElementwiseCodegen.Store(output.Type, expression)};");
         }
     }

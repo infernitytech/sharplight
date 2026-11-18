@@ -265,6 +265,15 @@ internal static class DiagnosticSwitches
     /// <summary>Let row norms and dual GEMMs feeding tensor-core matmuls write the f16 activation copy too (no separate conversion launch).</summary>
     public static bool NormHalfCopy { get; } = IsNotZero("SHARPLIGHT_NORM_HALF_COPY");
 
+    /// <summary>
+    /// False keeps row norms at prefill sizes writing f32 rows only (separate f16 conversion / E4M3 quantization launches)
+    /// instead of the activations of the tensor-core GEMMs that read them.
+    /// </summary>
+    public static bool NormPrefillCopy { get; } = IsNotZero("SHARPLIGHT_NORM_PREFILL_COPY");
+
+    /// <summary>Smallest step from which row norms write the GEMMs' activations instead of f32 rows, or null for the default.</summary>
+    public static long? NormCopyMinRows { get; } = Read("SHARPLIGHT_NORM_COPY_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>Let the dual fp8 gate / up GEMM use 128-row tiles above 64 rows.</summary>
     public static bool Fp8DualGemmTall { get; } = IsNotZero("SHARPLIGHT_FP8_DUAL_TALL");
 

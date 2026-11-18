@@ -124,6 +124,14 @@ public sealed partial class GraphLowerer
     private TensorRef QuantizedActivations(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, long k, long minRows,
         long maxRows, ActivationCode code = ActivationCode.Q8_1)
     {
+        var result = QuantizedActivationsCore(label, nodes, source, x, xStride, rowsPerLead, k, minRows, maxRows, code);
+        NoteCopyReader(RootOf(source), result, nodes, minRows, maxRows, x.Shape[0] * rowsPerLead);
+        return result;
+    }
+
+    private TensorRef QuantizedActivationsCore(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, long k, long minRows,
+        long maxRows, ActivationCode code)
+    {
         var root = RootOf(source);
         // Shared only while x is the root's own arena memory (not a concatenation computed in slices: its slices and views
         // share one root): copies made for this matmul are temporaries.
@@ -157,6 +165,17 @@ public sealed partial class GraphLowerer
             }
 
             return normCopy.Copy;
+        }
+
+        if (code == ActivationCode.Fp8 && shareable && NormFp8Copy(root, x, xStride, k) is { } fp8Copy)
+        {
+            // The norm writes the rows from fp8Copy.MinRows rows on; smaller steps quantize into the same rows.
+            if (_quantizedActivations.TryAdd(cacheKey, fp8Copy.Copy))
+            {
+                EmitActivationConversion(label, nodes, x, xStride, rowsPerLead, k, minRows, maxRows, code, fp8Copy.Copy, rows => rows >= fp8Copy.MinRows);
+            }
+
+            return fp8Copy.Copy;
         }
 
         long rowsMax = x.Shape[0] * rowsPerLead;
