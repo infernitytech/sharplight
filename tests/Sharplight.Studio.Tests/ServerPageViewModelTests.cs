@@ -71,4 +71,37 @@ public sealed class ServerPageViewModelTests
         kestrel.SetServedModels([]);
         Assert.True(kestrel.IsServed("b"));
     }
+
+    [Fact]
+    public void TheEndpointList_ShowsWhichModelsAreReachableOnEach()
+    {
+        using var services = new TestServices();
+        services.Runtime.Add(new FakeModel("qwen"));
+        services.Runtime.Add(new FakeModel("whisper") { Kind = Sharplight.Models.ModelKinds.SpeechRecognition });
+        services.Runtime.Add(new FakeModel("kokoro") { Kind = Sharplight.Models.ModelKinds.SpeechSynthesis });
+        services.Runtime.Add(new FakeModel("sdxl") { Kind = Sharplight.Models.ModelKinds.ImageGeneration });
+        services.Runtime.Add(new FakeModel("bge") { Kind = Models.ModelKindCatalog.Embeddings });
+        services.Runtime.Add(new FakeModel("depth") { Kind = Sharplight.Models.ModelKinds.DepthEstimation });
+        var server = new ServerPageViewModel(services.Services);
+
+        List<string>? At(string path) => server.Endpoints.Single(endpoint => endpoint.Path == path).Models?.ToList();
+        Assert.Equal(["qwen"], At("/v1/chat/completions"));
+        Assert.Equal(["qwen"], At("/v1/messages"));
+        Assert.Equal(["whisper"], At("/v1/audio/transcriptions"));
+        Assert.Equal(["whisper"], At("/v1/audio/translations"));
+        Assert.Equal(["kokoro"], At("/v1/audio/speech"));
+        Assert.Equal(["sdxl"], At("/v1/images/generations"));
+        Assert.Equal(["bge"], At("/v1/embeddings"));
+        Assert.Null(At("/health"));
+        Assert.Equal("no resident model", new ServerPageViewModel(new TestServices().Services).Endpoints.Single(endpoint => endpoint.Path == "/v1/embeddings").ModelsText);
+
+        // Per model, and switching one off or turning an API off follows.
+        Assert.Equal("/v1/audio/speech", server.Models.Single(model => model.Id == "kokoro").EndpointsText);
+        Assert.Equal("not served over HTTP", server.Models.Single(model => model.Id == "depth").EndpointsText);
+        server.Models.Single(model => model.Id == "sdxl").IsServed = false;
+        Assert.Empty(At("/v1/images/generations")!);
+        server.Anthropic = false;
+        Assert.DoesNotContain(server.Endpoints, endpoint => endpoint.Path == "/v1/messages");
+        Assert.Equal("/v1/chat/completions  /v1/completions", server.Models.Single(model => model.Id == "qwen").EndpointsText);
+    }
 }

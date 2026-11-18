@@ -45,6 +45,25 @@ different models run at the same time. Images and documents can be attached by d
 - Images need a model with the **Vision** badge; the others refuse them with an explanation.
 - Documents (PDF, DOCX, HTML, text and code) are extracted to text and trimmed to the context window.
 
+*Voice and pictures.* Resident models of other kinds extend the chat; the *Voice and pictures* card of the chat settings picks which
+one is used for each purpose (the choices are remembered in the settings, `Voice`, and a remembered model that is not resident yet
+is chosen when it loads).
+- **Dictation.** With a speech-to-text model resident, a microphone button appears in the composer. The first click records the
+  microphone, the second stops, transcribes the recording with the chosen model (off the UI thread, through the model's task
+  client) and appends the text to the message; you read it and send it yourself. Without a microphone the notice says why.
+- **Read aloud.** With a text-to-speech model resident, every answer has a speaker button, and *Read answers aloud* reads each
+  finished answer by itself. Markdown is not spoken (code blocks, link addresses, table and list markup are dropped). The audio is
+  played while it is generated (the streaming synthesis call, so the first words start before the whole answer is synthesized);
+  clicking the button again, or turning the setting off, stops it. A new answer replaces one still being read.
+- **Pictures.** With an image-generation model resident, `/image a lighthouse at dusk` (or the picture button next to the
+  microphone, which uses the whole message) generates one image with the model's own defaults and shows it inline as the answer,
+  with model, size, seed and time under it. The PNG is stored in the conversation (as a generated-image attachment), regenerating
+  the answer makes a new version with another seed, and editing the request generates again. The request and the picture are not
+  sent to the language model in later turns. The Image page stays the place for sizes, steps, samplers, image-to-image and LoRAs.
+
+**Search.** Embeddings over a local folder of documents (see *Inference pages* below): choose a folder, *Index* it with a
+resident text embedding model, then ask questions and get the closest passages with their documents.
+
 **Tasks.** One card per model kind (text generation, speech to text, text to speech, image generation, video generation, image
 classification, object detection, segmentation, depth estimation, OCR, upscaling, audio, embeddings, time series, 3D, bio,
 robotics) with the number of library and resident models of that kind. The engine runs text generation (the chat page), speech to
@@ -269,7 +288,20 @@ the engine gains a kind, its card opens a page of its own, built from the shared
 **Server.** Starts the embedded API on the chosen host and port, with an optional API key, CORS origins and the OpenAI and
 Anthropic endpoints switched on or off separately.
 - Requests route by their `model` field to any resident model, and `/v1/models` lists them. Loads and unloads apply at once,
-  without a restart.
+  without a restart. Every resident kind that the engine's serving layer has an endpoint for is reachable, not only chat:
+
+  | Model kind | Endpoint |
+  |---|---|
+  | Text generation | `/v1/chat/completions`, `/v1/completions` (OpenAI), `/v1/messages`, `/v1/messages/count_tokens` (Anthropic) |
+  | Speech to text | `POST /v1/audio/transcriptions`, `POST /v1/audio/translations` (multipart WAV upload, `json`, `text`, `srt`, `vtt` or `verbose_json`) |
+  | Text to speech | `POST /v1/audio/speech` (`{"model", "input", "voice", "speed", "response_format"}`; `wav`, or `pcm` streamed while it is generated) |
+  | Image generation | `POST /v1/images/generations` (`prompt`, `n`, `size`, `steps`, `guidance_scale`, `seed`, `sampler`; base64 PNG) |
+  | Embeddings | `POST /v1/embeddings` |
+  | Reranking | `POST /v1/rerank` (also `/v2/rerank`, `/rerank`) for a reranking model on the host; Studio cannot load one yet |
+
+  The *Endpoints* list names, under every endpoint, the served models that answer on it (and a note when none is resident), and
+  every model in *Served models* shows its own endpoints; the other kinds (vision, video, audio) are marked as not served over HTTP.
+  A model of another kind than the endpoint's is refused with its name, an unknown or switched-off one is a 404.
 - Turning a model off hides it from the API immediately.
 - With *Load library models on demand*, a request for a library model that is not resident loads it first. Idle models are
   unloaded after the configured time, and the least recently used one is evicted when memory runs out (pinned models excepted).
@@ -418,6 +450,15 @@ folder* (the file manager), *Save as…* and *Delete* (asks to click again) act 
 of the side panel keep working as before (the last 200 runs).
 
 ![Image gallery](images/studio/studio-image-gallery.png)
+
+**Search** (text embeddings). The input is a folder; *Index* reads every supported document in it (PDF, DOCX, HTML, Markdown, text and
+source files, up to 5,000), cuts the text into overlapping passages (*Passage length* and *Overlap* in characters, cut at paragraph,
+sentence or word ends where possible), embeds them in batches with the chosen model and keeps the normalized vectors in memory
+(the index is for that model: switching models asks to index again). A question is embedded with the model's `query` prompt when it
+has one, and the *Results* closest passages (cosine similarity, shown as a score and a bar) are listed with their document, which
+*Open* shows in the system's program and *Copy* puts on the clipboard. Indexing and searching are runs of the queue (progress per
+document, cancel, history), the history restores a past search with its parameters, and every search keeps `results.json` in the
+outputs. Presets *Precise*, *Balanced* and *Context*. The index itself is not saved: it is rebuilt after a restart.
 
 **Vision** (one page for `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`, `image-segmentation`, `ocr` and `image-upscaling`; the mode follows the
 kind of the chosen model, and the parameters that do not apply are hidden). Choose or drop an image (PNG through the engine's codec,
@@ -579,8 +620,12 @@ versions kept them.
   and loads models through the registered providers and importers. Load progress comes from the engine's structured
   `LoadProgress` reports (`LlmLoadOptions.Progress`). Each request holds a lease on its model, so unloading and eviction wait
   for running requests.
-- **Server.** `KestrelApiServer` maps the endpoints of `Sharplight.AspNetCore` over that host. Chat and API requests to the same
-  model share one engine and are batched together. Stopping the server leaves the models loaded.
+- **Server.** `KestrelApiServer` maps the endpoints of `Sharplight.AspNetCore` over that host with `ServeHostModels` on: the audio,
+  speech, image and retrieval endpoints look the model up in the host per request (task models are `ModelKind.Task` instances
+  holding their clients, text embedders `ModelKind.Embedding`) and lease it for the request, so loads, unloads, idle unloading and
+  the served switch apply without remapping. Chat and API requests to the same model share one engine and are batched together.
+  Stopping the server leaves the models loaded. Text embedding models are loaded by the runtime with `RetrievalModelLoader`
+  (`Sharplight.Hosting`), the same loaders `sharplight serve` uses.
 
 ## Tests
 
@@ -601,7 +646,11 @@ versions kept them.
 - update checks and the update dialog: auto and manual checks, up-to-date and failure messages, *Later*, download progress and
   restart (against a fake update service), the feed URL precedence, and a headless render of the dialog;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
-- the server page;
+- the server page, including which models are listed under which endpoint, and a real embedded server over a model host with
+  speech, image and embedding models (every endpoint, models loaded after the start, the served switch, a model of another kind);
+- chat with voice and pictures over fake task clients (dictation into the prompt, read aloud with streaming playback and without
+  markup, the `/image` command stored with the conversation and kept from the language model, regeneration, remembered model
+  choices) and the Search page (indexing, ranking, restoring a past search, a model switch, a failing embedder, the chunker);
 - the shared inference blocks (presets saved as JSON and restored, the run queue's one-run-per-model order and cancellation, history and
   gallery persistence with open, export and delete) and the Transcribe and Speak pages over fake task clients (streamed segments, `.txt` /
   `.srt` / `.vtt` export, cancel and failure, microphone, voices, streaming playback, no-player fallback);
@@ -631,8 +680,11 @@ packages in both themes.
   their tensor tables are read. A tensor table beyond 64 MiB from the start of a file is not read (the verdict is *Unknown*). ONNX
   operators are not checked before import.
 - **Audio formats and devices.** Microphone and playback depend on a sound server or driver being present
-  (see *Microphone and playback*); the real device backends were only tested through the null backend. Speech runs are not counted in the statistics page, and the
-  embedded API server does not serve the speech models yet.
+  (see *Microphone and playback*); the real device backends were only tested through the null backend. Speech runs are not counted in the statistics page.
+- **Voice, pictures and search.** Dictation transcribes after the recording stops (it does not stream while you speak), the voice
+  of read-aloud is the model's default (no voice choice in the chat), pictures in the chat use the model's default size and steps,
+  and the Search index lives in memory only. Studio loads text embedding models but not reranking models yet, so `/v1/rerank` is
+  mapped but answers only for a reranker on a host that has one. `/v1/audio/speech` answers `wav` and `pcm`, not `mp3`.
 - **Title bar.** Studio's own title bar is used on Linux only, where the window manager moves and resizes windows on request.
 - **GPU utilisation.** The "Engine busy" chart is the share of time the engines spend stepping, not GPU utilisation read from the
   driver.

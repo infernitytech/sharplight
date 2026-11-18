@@ -42,6 +42,15 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     /// <summary>Raised on the UI thread when the chosen model's state changed (it finished loading, went to sleep, ...) without a new choice.</summary>
     public event EventHandler? SelectedModelStateChanged;
 
+    /// <summary>
+    /// The model to choose when none is chosen yet or the chosen one is gone (a remembered choice that is not resident yet); the first
+    /// resident model when it is not resident either.
+    /// </summary>
+    public string? PreferredId { get; set; }
+
+    /// <summary>True while the list is being re-read: a change of <see cref="SelectedModel"/> then is the picker's own, not the user's choice.</summary>
+    public bool IsRefreshing => _refreshing;
+
     /// <summary>The primary model kind.</summary>
     public string Kind => Kinds[0];
 
@@ -106,7 +115,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
                 Models.Add(existing.TryGetValue(model, out var option) ? option : new ModelOptionViewModel(model));
             }
 
-            SelectedModel = Models.FirstOrDefault(option => option.Id == selectedId) ?? Models.FirstOrDefault();
+            SelectedModel = Models.FirstOrDefault(option => option.Id == selectedId) ?? Models.FirstOrDefault(option => option.Id == PreferredId) ?? Models.FirstOrDefault();
             OnPropertyChanged(nameof(HasModels));
         }
 

@@ -34,6 +34,9 @@ public sealed class ToolSchemas
         }
     }
 
+    /// <summary>The names of the offered functions.</summary>
+    public IReadOnlyCollection<string> Names => _names;
+
     /// <summary>True when a function called <paramref name="name"/> was offered.</summary>
     public bool Has(string name) => _names.Contains(name);
 

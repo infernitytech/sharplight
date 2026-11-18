@@ -95,7 +95,7 @@ public sealed class ServingChatClient : IChatClient
             }
             else if (chat.ToolCall is { } call)
             {
-                yield return Update([new FunctionCallContent(call.Id, call.Name, ParseArguments(call.ArgumentsJson))]);
+                yield return Update([ChatOutputContents.From(call)]);
             }
             else if (chat.Finish is { } finish)
             {
@@ -235,26 +235,4 @@ public sealed class ServingChatClient : IChatClient
         JsonElement element => element.ValueKind == JsonValueKind.String ? element.GetString()! : element.GetRawText(),
         _ => result.ToString() ?? "",
     };
-
-    private static Dictionary<string, object?> ParseArguments(string json)
-    {
-        var arguments = new Dictionary<string, object?>(StringComparer.Ordinal);
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-            if (document.RootElement.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var property in document.RootElement.EnumerateObject())
-                {
-                    arguments[property.Name] = property.Value.Clone();
-                }
-            }
-        }
-        catch (JsonException)
-        {
-            // Unparsable arguments arrive as an empty set; the raw text stays in the conversation.
-        }
-
-        return arguments;
-    }
 }

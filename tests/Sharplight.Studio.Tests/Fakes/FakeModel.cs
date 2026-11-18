@@ -98,6 +98,16 @@ internal sealed class FakeModel(string id, ModelCapabilities capabilities = Mode
         return Task.FromResult(new TaskClientLease<TClient>((TClient)client));
     }
 
+    /// <summary>The embedder of an embedding model (kind <c>embeddings</c>).</summary>
+    public Sharplight.Llm.Embeddings.ITextEmbedder? Embedder { get; set; }
+
+    public Task<EmbedderLease> AcquireEmbedderAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Leases++;
+        return Task.FromResult(new EmbedderLease(Embedder ?? throw new NotSupportedException($"{Id} is not an embedding model.")));
+    }
+
     public int CountTokens(string text) => (text.Length + 3) / 4;
 
     public EngineMetricsSnapshot? GetMetrics() => null;

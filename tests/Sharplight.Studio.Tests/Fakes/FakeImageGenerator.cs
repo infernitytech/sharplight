@@ -22,8 +22,16 @@ internal sealed class FakeImageGenerator : IImageGenerator
     /// <summary>Blocking work per step (a stand-in for a graph run that holds its thread), or zero.</summary>
     public TimeSpan StepWork { get; set; }
 
-    public Task<ImageGenerationResult> GenerateAsync(ImageGenerationRequest request, ImageGenerationOptions? options = null, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("The page streams.");
+    public async Task<ImageGenerationResult> GenerateAsync(ImageGenerationRequest request, ImageGenerationOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ImageGenerationResult? result = null;
+        await foreach (var update in GenerateStreamingAsync(request, options, cancellationToken))
+        {
+            result = update.Result ?? result;
+        }
+
+        return result!;
+    }
 
     public async IAsyncEnumerable<ImageGenerationUpdate> GenerateStreamingAsync(ImageGenerationRequest request, ImageGenerationOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)

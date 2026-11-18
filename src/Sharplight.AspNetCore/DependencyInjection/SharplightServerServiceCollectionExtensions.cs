@@ -117,6 +117,20 @@ public static class SharplightServerServiceCollectionExtensions
             return services;
         }
 
+        /// <summary>Serves <paramref name="synthesizer"/> on <c>/v1/audio/speech</c> under <paramref name="name"/>.</summary>
+        /// <param name="synthesizer">The synthesizer; the caller keeps ownership.</param>
+        /// <param name="name">The model name clients pass.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddSharplightSpeechSynthesizer(ISpeechSynthesizer synthesizer, string name)
+        {
+            ArgumentNullException.ThrowIfNull(synthesizer);
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            var models = services.AudioModels();
+            models.Synthesizers[name] = synthesizer;
+            models.DefaultSynthesizer ??= name;
+            return services;
+        }
+
         private AudioModelRegistrations AudioModels()
         {
             if (services.FirstOrDefault(d => d.ServiceType == typeof(AudioModelRegistrations))?.ImplementationInstance is AudioModelRegistrations existing)

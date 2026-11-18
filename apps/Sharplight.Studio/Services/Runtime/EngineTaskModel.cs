@@ -114,6 +114,26 @@ internal sealed class EngineTaskModel : IEngineModel
     }
 
     /// <inheritdoc/>
+    public async Task<EmbedderLease> AcquireEmbedderAsync(CancellationToken cancellationToken)
+    {
+        if (Kind != ModelKindCatalog.Embeddings)
+        {
+            throw new NotSupportedException($"{Id} ({Kind}) is not an embedding model.");
+        }
+
+        var lease = await _host.AcquireAsync(Id, ModelKind.Embedding, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return new EmbedderLease((lease.As<LoadedModel>() as IEmbeddingModel)?.Embedder ?? throw new InvalidOperationException($"{Id} is not an embedding model."), lease);
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
     public int CountTokens(string text) => 0;
 
     /// <inheritdoc/>

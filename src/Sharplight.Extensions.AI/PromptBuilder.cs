@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Sharplight.Llm;
+using Sharplight.Llm.Serving.Chat;
 using Sharplight.Templating;
 using Sharplight.Vision;
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
@@ -47,7 +48,7 @@ internal static class PromptBuilder
             Options = MapOptions(options, clientOptions),
             Tools = new ToolSchemas(useTools ? options!.Tools : null),
             HasTools = tools is { Count: > 0 },
-            StartsInReasoning = prompt.TrimEnd().EndsWith("<think>", StringComparison.Ordinal),
+            StartsInReasoning = ChatOutputParser.PromptEndsInReasoning(prompt),
         };
     }
 
