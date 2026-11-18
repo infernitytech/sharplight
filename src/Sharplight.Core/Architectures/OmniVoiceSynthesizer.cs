@@ -17,7 +17,7 @@ namespace Sharplight.Architectures;
 /// each time revealing the positions it is most confident about (scores penalized by codebook index) under classifier-free guidance against the target alone; the tokenizer's decoder
 /// turns the codes into 24 kHz audio, which is trimmed of long silences, matched to the reference's loudness and faded. Long text is cut at punctuation and spoken chunk by chunk.
 /// </summary>
-internal sealed partial class OmniVoiceSynthesizer : ISpeechSynthesizer, IDisposable
+internal sealed partial class OmniVoiceSynthesizer : ISpeechSynthesizer, IVoiceCloner, IDisposable
 {
     private const double LongTextSeconds = 30;
     private const double ChunkSeconds = 15;
@@ -114,9 +114,13 @@ internal sealed partial class OmniVoiceSynthesizer : ISpeechSynthesizer, IDispos
         string? language = OmniVoiceLanguages.Resolve(options?.Language);
         string? instruct = OmniVoiceInstruct.Resolve(options?.Instructions, OmniVoiceInstruct.HasIdeograph(text));
         OmniVoiceReference? reference = null;
-        if (options?.ReferenceAudio is { } recording)
+        if (options?.VoiceProfile is { } profile)
         {
-            string transcript = options.ReferenceText ?? options.VoiceProfile?.ReferenceText
+            reference = ReferenceOf(profile);
+        }
+        else if (options?.ReferenceAudio is { } recording)
+        {
+            string transcript = options.ReferenceText
                 ?? throw new ArgumentException("OmniVoice clones a voice from a recording together with its transcript (SpeechSynthesisOptions.ReferenceText).", nameof(options));
             reference = EncodeReference(recording, transcript, cancellationToken);
         }
@@ -129,6 +133,39 @@ internal sealed partial class OmniVoiceSynthesizer : ISpeechSynthesizer, IDispos
         var decoded = chunks.Select(codes => Decode(codes, cancellationToken)).ToList();
         var audio = decoded.Count == 1 ? decoded[0] : OmniVoiceAudio.CrossFade(decoded, SampleRate);
         return new AudioBuffer(PostProcess(audio, reference?.Rms), SampleRate);
+    }
+
+    /// <inheritdoc/>
+    public string VoiceArchitecture => OmniVoiceAdapter.Family;
+
+    /// <inheritdoc/>
+    /// <remarks>The voice is the reference's codes, its transcript (required: <paramref name="referenceText"/>) and its loudness.</remarks>
+    public async Task<VoiceProfile> CreateVoiceAsync(string name, AudioBuffer recording, string? referenceText = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recording);
+        ArgumentException.ThrowIfNullOrWhiteSpace(referenceText, nameof(referenceText));
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var reference = await BackgroundCompute.RunAsync(_gate, () => EncodeReference(recording, referenceText, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return new VoiceProfile
+        {
+            Name = name,
+            Architecture = VoiceArchitecture,
+            ReferenceText = referenceText,
+            SampleRate = SampleRate,
+            Tensors = new Dictionary<string, VoiceTensor>
+            {
+                ["codes"] = VoiceTensor.From(reference.Codes, [_codebooks, reference.Frames]),
+                ["rms"] = VoiceTensor.From([reference.Rms]),
+            },
+        };
+    }
+
+    private OmniVoiceReference ReferenceOf(VoiceProfile profile)
+    {
+        profile.RequireArchitecture(VoiceArchitecture);
+        var codes = profile.Tensor("codes").ToInts();
+        string transcript = profile.ReferenceText ?? throw new ArgumentException("The saved voice has no transcript of its recording, which OmniVoice needs.", nameof(profile));
+        return new OmniVoiceReference(codes, codes.Length / _codebooks, OmniVoiceText.AddPunctuation(transcript), profile.Tensor("rms").ToFloats()[0]);
     }
 
     /// <summary>The target codes of the text, one array [codebooks, frames] per chunk (long text is spoken in chunks of about <c>15</c> s).</summary>

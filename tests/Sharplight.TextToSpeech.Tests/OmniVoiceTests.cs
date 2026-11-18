@@ -179,23 +179,52 @@ public class OmniVoiceTests
         Assert.True(error < 1e-4, $"relative RMS {error:E2}");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Speaks_a_cloned_and_a_designed_voice(bool gpu)
+    {
+        RequireFiles("clone");
+        string jfk = Path.Combine(Path.GetDirectoryName(TtsModels.Kokoro)!, "..", "audio", "jfk.wav");
+        TtsModels.Require(jfk);
+        using var model = TtsModels.Load(TtsModels.Open(gpu), TtsModels.OmniVoice);
+        using var synthesizer = TtsModels.Synthesizer(model);
+        var greedy = new Sharplight.Llm.SamplingOptions { Temperature = 0f };
+        var options = new SpeechSynthesisOptions
+        {
+            Language = "English", ReferenceAudio = WavFile.Read(jfk), ReferenceText = Info("clone").GetProperty("ref_text").GetString(), Sampling = greedy,
+        };
+        await synthesizer.SynthesizeAsync("Hi.", options, TestContext.Current.CancellationToken);   // compiles the graphs
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var clone = await synthesizer.SynthesizeAsync("Hello, this is a test of the OmniVoice speech model.", options, TestContext.Current.CancellationToken);
+        double seconds = watch.Elapsed.TotalSeconds;
+        Assert.Equal(24000, clone.Audio.SampleRate);
+        double length = clone.Audio.Samples.Length / 24000.0;
+        ParityReport.Write($"OmniVoice {(gpu ? "vulkan" : "cpu")}: cloned sentence {length:F1} s of audio in {seconds:F1} s (real-time factor {seconds / length:F2}, 32 steps with a 457-row prompt)");
+        Assert.InRange(length, 1.5, 8.0);
+        var design = await synthesizer.SynthesizeAsync("Hello, this is a test.", new SpeechSynthesisOptions { Language = "en", Instructions = "female, british accent", Sampling = greedy }, TestContext.Current.CancellationToken);
+        Assert.InRange(design.Audio.Samples.Length / 24000.0, 0.5, 8.0);
+        Assert.True(design.Audio.Samples.Max(MathF.Abs) > 0.1f);
+    }
+
+    /// <summary>A saved voice (<see cref="IVoiceCloner"/>) speaks exactly like the recording it was made from.</summary>
     [Fact]
-    public async Task Speaks_a_cloned_and_a_designed_voice()
+    public async Task Saved_voice_speaks_like_its_recording()
     {
         RequireFiles("clone");
         string jfk = Path.Combine(Path.GetDirectoryName(TtsModels.Kokoro)!, "..", "audio", "jfk.wav");
         TtsModels.Require(jfk);
         using var model = TtsModels.Load(TtsModels.Open(false), TtsModels.OmniVoice);
         using var synthesizer = TtsModels.Synthesizer(model);
-        var clone = await synthesizer.SynthesizeAsync("Hello, this is a test of the OmniVoice speech model.", new SpeechSynthesisOptions
-        {
-            Language = "English", ReferenceAudio = WavFile.Read(jfk), ReferenceText = Info("clone").GetProperty("ref_text").GetString(), Sampling = new Sharplight.Llm.SamplingOptions { Temperature = 0f },
-        });
-        Assert.Equal(24000, clone.Audio.SampleRate);
-        Assert.InRange(clone.Audio.Samples.Length / 24000.0, 1.5, 8.0);
-        var design = await synthesizer.SynthesizeAsync("Hello, this is a test.", new SpeechSynthesisOptions { Language = "en", Instructions = "female, british accent", Sampling = new Sharplight.Llm.SamplingOptions { Temperature = 0f } });
-        Assert.InRange(design.Audio.Samples.Length / 24000.0, 0.5, 8.0);
-        Assert.True(design.Audio.Samples.Max(MathF.Abs) > 0.1f);
+        var cloner = Assert.IsAssignableFrom<IVoiceCloner>(synthesizer.GetService(typeof(IVoiceCloner)));
+        var recording = WavFile.Read(jfk);
+        string transcript = Info("clone").GetProperty("ref_text").GetString()!;
+        var greedy = new Sharplight.Llm.SamplingOptions { Temperature = 0f };
+        var profile = await cloner.CreateVoiceAsync("jfk", recording, transcript, TestContext.Current.CancellationToken);
+        Assert.Equal("omnivoice", profile.Architecture);
+        var fromProfile = await synthesizer.SynthesizeAsync("Hello there.", new SpeechSynthesisOptions { Language = "en", VoiceProfile = profile, Sampling = greedy }, TestContext.Current.CancellationToken);
+        var fromRecording = await synthesizer.SynthesizeAsync("Hello there.", new SpeechSynthesisOptions { Language = "en", ReferenceAudio = recording, ReferenceText = transcript, Sampling = greedy }, TestContext.Current.CancellationToken);
+        Assert.Equal(fromRecording.Audio.Samples.ToArray(), fromProfile.Audio.Samples.ToArray());
     }
 
     /// <summary>The model converted to a <c>.slm</c> package (both the language model and its tokenizer codec) and loaded again unmasks the same codes and decodes the same audio.</summary>

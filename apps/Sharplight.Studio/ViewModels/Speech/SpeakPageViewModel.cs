@@ -586,9 +586,9 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
             new NumberParameterViewModel("topp", "Top-p", "Sample from the smallest set of tokens with this probability.", 0.1, 1, 0.05, 0.9),
             new NumberParameterViewModel("repetition", "Repetition penalty", "Above 1 discourages repeating audio tokens.", 1, 1.5, 0.05, 1.1),
             new TextParameterViewModel("seed", "Seed", "A whole number for repeatable output; empty is random.", "Random"),
-            new TextParameterViewModel("reference", "Reference recording", "A WAV file of the voice to speak with (CosyVoice 3, F5-TTS, Chatterbox, XTTS).", "Path to a .wav file"),
-            new TextParameterViewModel("referencetext", "Reference text", "The words spoken in the reference recording (CosyVoice 3 zero-shot, F5-TTS).", "Optional"),
-            new TextParameterViewModel("instructions", "Instructions", "How to speak, e.g. \"Please speak as fast as possible.\" (CosyVoice 3).", "Optional"),
+            new TextParameterViewModel("reference", "Reference recording", "A WAV file of the voice to speak with (CosyVoice 3, F5-TTS, Chatterbox, XTTS, OmniVoice).", "Path to a .wav file"),
+            new TextParameterViewModel("referencetext", "Reference text", "The words spoken in the reference recording (CosyVoice 3 zero-shot, F5-TTS; OmniVoice needs them).", "Optional"),
+            new TextParameterViewModel("instructions", "Instructions", "How to speak, e.g. \"Please speak as fast as possible.\" (CosyVoice 3); the voice to design, e.g. \"female, british accent\" (OmniVoice).", "Optional"),
             new BoolParameterViewModel("stream", "Play while generating", "Speak chunk by chunk as the model generates them, for a short wait before the first sound (CosyVoice 3 and XTTS stream within a sentence, Chatterbox per clause)."),
         ];
         ParameterPreset[] presets =

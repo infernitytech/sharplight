@@ -24326,7 +24326,7 @@
       "companions": [],
       "verification": {
         "reference": "omnivoice",
-        "summary": "TBD",
+        "summary": "vs the omnivoice package: prompt ids identical; language-model logits at the first and last of 32 unmasking steps within 6.9e-7 (CPU) / 5.3e-7 (Vulkan) relative RMS; greedy codes identical (0 of 1696 differ); tokenizer reference codes 0 of 2200 differ; decoded audio within 2.8e-6 (relative RMS); Vulkan real-time factor 0.87",
         "providers": [
           "CPU",
           "Vulkan"
@@ -24334,7 +24334,7 @@
         "date": "2026-11-18",
         "tests": []
       },
-      "notes": "LICENSE TERMS, read before use: the weights are CC-BY-NC (non-commercial use only, a constraint of the training data); the bundled audio tokenizer (audio_tokenizer/) is under the Boson Higgs Audio 2 Community License (based on the Meta Llama 3 license: attribution required, and a request for an expanded license from Boson AI above 100,000 annual active users; its text is installed with the model); the code is Apache-2.0. Speaks in 600\u002B languages with the voice of a recording and its transcript (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, \u0060ReferenceText\u0060), a designed voice (\u0060SpeechSynthesisOptions.Instructions\u0060: gender, age, pitch, whisper, accent or Chinese dialect) or one the model chooses; no built-in speakers; no automatic transcription of the reference.",
+      "notes": "LICENSE TERMS, read before use: the weights are CC-BY-NC (non-commercial use only, a constraint of the training data); the bundled audio tokenizer (audio_tokenizer/) is under the Boson Higgs Audio 2 Community License (based on the Meta Llama 3 license: attribution required, and a request for an expanded license from Boson AI above 100,000 annual active users; its text is installed with the model); the code is Apache-2.0. Speaks in 600\u002B languages with the voice of a recording and its transcript (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, \u0060ReferenceText\u0060), a designed voice (\u0060SpeechSynthesisOptions.Instructions\u0060: gender, age, pitch, whisper, accent or Chinese dialect) or one the model chooses; no built-in speakers; no automatic transcription of the reference; a voice can be saved (`IVoiceCloner`, `VoiceLibrary`).",
       "doc": [
         {
           "section": "3",
