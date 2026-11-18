@@ -67,7 +67,8 @@ public sealed partial class GraphLowerer
                     ? OpSupport.Yes
                     : OpSupport.No("SequenceConv2d needs float inputs with fixed channel and feature axes");
             case "RelativeAttention":
-                return node.Inputs.All(v => IsFloatType(v.Type) && v.Shape.Dims.Skip(1).All(d => !d.IsSymbolic))
+                return node.Inputs.Take(5).All(v => IsFloatType(v.Type) && v.Shape.Dims.Skip(1).All(d => !d.IsSymbolic))
+                    && (node.Inputs.Length < 6 || node.Inputs[5].Type == DataType.I32)
                     ? OpSupport.Yes
                     : OpSupport.No("RelativeAttention needs float inputs with fixed head axes");
             case "TreeEnsemble":

@@ -251,7 +251,8 @@ internal sealed partial class DecoderGraphBuilder
                 var emb = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, (long)_hp.NEmbd * (1 + deepstackLayers)));
                 var mask = b.Input("embedding_mask", InputRole.EmbeddingMask, DataType.F32, new Shape(T, 1));
                 var media = deepstackLayers == 0 ? emb : b.Slice(emb, 1, 0, _hp.NEmbd);
-                x = b.Add(b.Mul(x, b.Scale(mask, -1f, 1f)), b.Mul(media, mask), "inp_mixed");
+                // audio.additive (Voxtral Realtime): the rows are added to the token embeddings instead of replacing them.
+                x = _src.Arch("audio.additive", false) ? b.Add(x, b.Mul(media, mask), "inp_mixed") : b.Add(b.Mul(x, b.Scale(mask, -1f, 1f)), b.Mul(media, mask), "inp_mixed");
                 deepstack = deepstackLayers == 0 ? null : b.Slice(emb, 1, _hp.NEmbd, (long)_hp.NEmbd * deepstackLayers);
                 if (TokenWeightSets.Present(b, _hp.NLayer, "attention.q", "attention.k", "attention.v", "attention.o", "mlp.up", "mlp.gate", "mlp.down"))
                 {

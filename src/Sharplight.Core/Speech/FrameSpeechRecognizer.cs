@@ -102,6 +102,7 @@ internal sealed class FrameSpeechRecognizer : ISpeechRecognizer
                 _transducer ??= await Task.Run(() => new TransducerNetwork(_model), cancellationToken).ConfigureAwait(false);
             }
 
+            encoder.SelectLanguage(options.Language);
             if (encoder.Channels != _features.Channels)
             {
                 throw new InvalidDataException($"The encoder takes {encoder.Channels} feature channels, the feature extractor makes {_features.Channels}.");

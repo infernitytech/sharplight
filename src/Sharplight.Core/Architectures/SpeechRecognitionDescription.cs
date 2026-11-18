@@ -178,6 +178,11 @@ internal static class SpeechRecognitionDescription
             ["logScale"] = Json(src.Arch("audio.log_scale", 0.25)),
             ["normalize"] = Json(src.Arch("audio.mel_normalize", "none")),
         };
+        if (src.Has(src.Architecture + ".audio.log_peak"))
+        {
+            featureConfig["logPeak"] = Json(src.Arch("audio.log_peak", 0.0));
+        }
+
         return new ModelComponent
         {
             Role = ModelComponentRoles.FeatureExtractor,

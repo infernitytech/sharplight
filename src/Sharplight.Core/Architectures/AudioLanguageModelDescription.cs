@@ -25,8 +25,9 @@ internal static class AudioLanguageModelDescription
     {
         int sampleRate = src.Arch<int>("audio.sample_rate");
         int hop = src.Arch<int>("audio.hop_length");
+        bool causal = tower.Tower == AudioTowerParameters.Causal;
         bool whole = tower.Tower == AudioTowerParameters.Whisper;
-        int maxFrames = whole ? tower.WindowFrames : MaxWindowSeconds * sampleRate / hop;
+        int maxFrames = whole || causal ? tower.WindowFrames : MaxWindowSeconds * sampleRate / hop;
         var layout = new Speech.ChunkedAudioLayout(tower.ChunkFrames, tower.WindowFrames, tower.ConvCount, tower.MelBins);
         var decoderPrefixes = weights.Keys
             .Where(k => !k.StartsWith(AudioTowerParameters.WeightPrefix, StringComparison.Ordinal))
@@ -50,7 +51,13 @@ internal static class AudioLanguageModelDescription
                     Graphs = [ChunkedAudioTowerGraph.AudioEncodeGraph],
                     WeightPrefixes = [AudioTowerParameters.WeightPrefix],
                     Config = SpeechRecognitionDescription.JsonConfig(encoderConfig),
-                    SymbolBounds = whole
+                    SymbolBounds = causal
+                        ? new Dictionary<string, long>(StringComparer.Ordinal)
+                        {
+                            [WellKnown.AudioFrameSymbol] = maxFrames,
+                            [WellKnown.EncoderSymbol] = maxFrames / (2 * tower.Downsample),
+                        }
+                        : whole
                         ? new Dictionary<string, long>(StringComparer.Ordinal)
                         : new Dictionary<string, long>(StringComparer.Ordinal)
                         {

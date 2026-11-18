@@ -20,7 +20,7 @@ namespace Sharplight.Audio;
 /// the signal is padded by fftSize / 2 on both sides), <c>padMode</c> (<c>reflect</c> (default) or <c>constant</c>),
 /// <c>trailingPadding</c> (zeros appended to the recording, default 0), <c>dropLastFrame</c> (default false), <c>edgePadding</c> (samples padded on both sides
 /// in <c>padMode</c> when frames are not centered, default 0), <c>logBase</c> (<c>10</c> (default), <c>e</c> or <c>none</c>: the mel energies themselves), <c>logFloor</c> (default 1e-10), <c>logGuard</c> (when positive, log(mel + guard) instead of the floor; default 0),
-/// <c>dynamicRange</c> (clamp to the recording's peak minus this many log units; 0 = none, the default), <c>logOffset</c> and <c>logScale</c>
+/// <c>dynamicRange</c> (clamp to the recording's peak minus this many log units; 0 = none, the default), <c>logPeak</c> (a fixed peak in log units instead of the recording's, Voxtral Realtime's global 1.5), <c>logOffset</c> and <c>logScale</c>
 /// (result = (log + offset) · scale; defaults 0 and 1), <c>normalize</c> (<c>none</c> (default) or <c>per-channel</c>: each channel minus its
 /// mean over the frames, divided by its standard deviation (n − 1 denominator) plus <c>normalizeEpsilon</c>, default 1e-5), <c>magnitude</c>
 /// (default false: the power spectrum; true: its square root, torchaudio's <c>power=1</c>, as Vocos and F5-TTS use), <c>magnitudeGuard</c> (added to
@@ -49,6 +49,7 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
     private readonly bool _normalizeChannels;
     private readonly double _normalizeEpsilon;
     private readonly double _dynamicRange;
+    private readonly double? _logPeak;
     private readonly double _logOffset;
     private readonly double _logScale;
     private readonly double[] _window;
@@ -122,6 +123,7 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
         };
         _normalizeEpsilon = component.ConfigValue("normalizeEpsilon", 1e-5);
         _dynamicRange = component.ConfigValue("dynamicRange", 0.0);
+        _logPeak = component.ConfigValue("logPeak", double.NaN) is var logPeak && !double.IsNaN(logPeak) ? logPeak : null;
         _logOffset = component.ConfigValue("logOffset", 0.0);
         _logScale = component.ConfigValue("logScale", 1.0);
         _window = new double[_fftSize];
@@ -260,7 +262,7 @@ internal sealed class LogMelSpectrogram : IAudioFeatureExtractor
             peak = Math.Max(peak, mel[i]);
         }
 
-        double lowest = _dynamicRange > 0 ? peak - _dynamicRange : double.NegativeInfinity;
+        double lowest = _dynamicRange > 0 ? (_logPeak ?? peak) - _dynamicRange : double.NegativeInfinity;
         var features = new float[mel.Length];
         for (int i = 0; i < mel.Length; i++)
         {

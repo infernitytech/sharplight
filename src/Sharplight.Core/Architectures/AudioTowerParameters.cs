@@ -31,7 +31,14 @@ internal sealed record AudioTowerParameters
     /// <summary>The value of <c>audio.tower</c> for the Whisper-encoder tower.</summary>
     public const string Whisper = "whisper";
 
-    /// <summary>The tower type (<see cref="ChunkedConv2d"/> or <see cref="Whisper"/>).</summary>
+    /// <summary>
+    /// The value of <c>audio.tower</c> for the causal streaming tower (Voxtral Realtime): two causally padded <c>Conv1d</c> layers (strides 1 and 2, GELU), then
+    /// rotary RMS-norm layers with SwiGLU MLPs whose attention sees only the last <see cref="SlidingWindow"/> rows; the whole recording is one pass of
+    /// variable length (<see cref="CausalAudioTowerGraph"/>).
+    /// </summary>
+    public const string Causal = "causal";
+
+    /// <summary>The tower type (<see cref="ChunkedConv2d"/>, <see cref="Whisper"/> or <see cref="Causal"/>).</summary>
     public required string Tower { get; init; }
 
     /// <summary>Consecutive rows concatenated into one before the projector (1 for none).</summary>
@@ -61,6 +68,27 @@ internal sealed record AudioTowerParameters
     /// <summary>Log-mel frames per attention window (a multiple of <see cref="ChunkFrames"/>).</summary>
     public required int WindowFrames { get; init; }
 
+    /// <summary>The width of one attention head (the causal tower: <c>audio.head_size</c>, whose projections need not span the hidden width).</summary>
+    public int HeadSize { get; init; }
+
+    /// <summary>Rows each query of the causal tower sees (0: all earlier rows).</summary>
+    public int SlidingWindow { get; init; }
+
+    /// <summary>Feature frames per decoder step of the causal tower (<c>audio.stream.frames_per_token</c>: 8 = 80 ms at a 10 ms hop).</summary>
+    public int FramesPerToken { get; init; } = 8;
+
+    /// <summary>Silent steps before the audio (<c>audio.stream.left_pad_tokens</c>) and the delay steps (<c>audio.stream.delay_tokens</c>) of the causal tower.</summary>
+    public int LeftPadTokens { get; init; }
+
+    /// <summary>The model's transcription delay in steps (<c>audio.stream.delay_tokens</c>).</summary>
+    public int DelayTokens { get; init; }
+
+    /// <summary>Silent steps after the audio (<c>audio.stream.right_pad_tokens</c>).</summary>
+    public int RightPadTokens { get; init; }
+
+    /// <summary>The rotary base of the causal tower.</summary>
+    public float RopeBase { get; init; } = 10000f;
+
     /// <summary>Mel bins of the features.</summary>
     public required int MelBins { get; init; }
 
@@ -78,7 +106,7 @@ internal sealed record AudioTowerParameters
             return null;
         }
 
-        if (tower is not (ChunkedConv2d or Whisper))
+        if (tower is not (ChunkedConv2d or Whisper or Causal))
         {
             throw new NotSupportedException($"{src.Architecture}: unknown audio tower '{tower}'.");
         }
@@ -94,12 +122,19 @@ internal sealed record AudioTowerParameters
             throw new NotSupportedException($"{src.Architecture}: the audio tower has no convolution weights ('{WeightPrefix}conv.0.weight').");
         }
 
-        bool whisper = tower == Whisper;
+        bool whisper = tower is Whisper or Causal;
         int windowFrames = src.Arch("audio.window_frames", whisper ? src.Arch("audio.chunk_samples", 480000) / src.Arch("audio.hop_length", 160) : 800);
         var p = new AudioTowerParameters
         {
             Tower = tower,
             Downsample = whisper ? src.Arch("audio.downsample", 4) : 1,
+            HeadSize = src.Arch("audio.head_size", src.Arch<int>("audio.hidden_size") / src.Arch<int>("audio.head_count")),
+            SlidingWindow = src.Arch("audio.sliding_window", 0),
+            RopeBase = src.Arch("audio.rope.base", 10000f),
+            FramesPerToken = src.Arch("audio.stream.frames_per_token", 8),
+            LeftPadTokens = src.Arch("audio.stream.left_pad_tokens", 0),
+            DelayTokens = src.Arch("audio.stream.delay_tokens", 0),
+            RightPadTokens = src.Arch("audio.stream.right_pad_tokens", 0),
             Layers = src.Arch<int>("audio.layer_count"),
             Hidden = src.Arch<int>("audio.hidden_size"),
             Heads = src.Arch<int>("audio.head_count"),
@@ -110,7 +145,7 @@ internal sealed record AudioTowerParameters
             MelBins = src.Arch<int>("audio.mel_bins"),
             ConvCount = convs,
         };
-        if (p.WindowFrames % p.ChunkFrames != 0 || p.Hidden % p.Heads != 0)
+        if (p.WindowFrames % p.ChunkFrames != 0 || (tower != Causal && p.Hidden % p.Heads != 0))
         {
             throw new InvalidDataException($"{src.Architecture}: audio.window_frames must be a multiple of audio.chunk_frames and audio.hidden_size of audio.head_count.");
         }
@@ -127,5 +162,10 @@ internal sealed record AudioTowerParameters
         ["windowFrames"] = WindowFrames,
         ["convCount"] = ConvCount,
         ["melBins"] = MelBins,
+        ["slidingWindow"] = SlidingWindow,
+        ["framesPerToken"] = FramesPerToken,
+        ["leftPadTokens"] = LeftPadTokens,
+        ["delayTokens"] = DelayTokens,
+        ["rightPadTokens"] = RightPadTokens,
     };
 }

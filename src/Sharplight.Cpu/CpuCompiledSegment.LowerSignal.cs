@@ -42,10 +42,11 @@ internal sealed unsafe partial class CpuCompiledSegment
 
     private void LowerRelativeAttention(Node n)
     {
-        var inputs = n.Inputs.Select(i => Dense(RefF32(i))).ToArray();
+        var inputs = n.Inputs.Take(5).Select(i => Dense(RefF32(i))).ToArray();
+        var spans = n.Inputs.Length > 5 ? Dense(Ref(n.Inputs[5])) : null;
         var y = NewDense(n.Output);
-        AddStep(new RelativeAttentionOp(inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], y, n.Attributes.Get("scale", 1f)),
-            Touched(inputs[0], y, inputs[1], inputs[2], inputs[3], inputs[4]));
+        AddStep(new RelativeAttentionOp(inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], spans, y, n.Attributes.Get("scale", 1f)),
+            Touched(inputs[0], y, inputs[1], inputs[2], inputs[3], inputs[4], spans));
         _refs[n.Output] = y;
     }
 

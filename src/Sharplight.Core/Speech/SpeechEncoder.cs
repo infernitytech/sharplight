@@ -18,6 +18,13 @@ internal sealed class SpeechEncoder : IDisposable
     private readonly CompiledModel _encoder;
     private readonly Value _features;
     private readonly Value? _positions;
+    private readonly Value? _spans;
+    private readonly Value? _prompt;
+    private readonly int _chunkRows;
+    private readonly int _leftChunks;
+    private float[]? _promptValues;
+    private readonly Dictionary<string, int> _promptDictionary = new(StringComparer.OrdinalIgnoreCase);
+    private readonly int _promptDefault;
     private readonly string _output;
     private readonly Dim _rows;
     private readonly Dim _positionRows;
@@ -47,6 +54,22 @@ internal sealed class SpeechEncoder : IDisposable
             MaxFrames = VariableLength ? (int)_encoder.Options.Bound(WellKnown.AudioFrameSymbol) : (int)_features.Shape[1].Fixed;
             _positions = _encoder.Graph.TryInput(InputRole.Positions);
             _positionRows = _positions?.Shape[0] ?? Dim.Of(0);
+            var component = model.Description.Component(ModelComponentRoles.Encoder);
+            _spans = _encoder.Graph.TryInput(InputRole.RowSpans);
+            _chunkRows = Math.Max(component.ConfigValue("chunkRows", 1), 1);
+            _leftChunks = component.ConfigValue("leftContext", 0) / _chunkRows;
+            _prompt = _encoder.Graph.Inputs.FirstOrDefault(v => v.Input!.Name == "prompt");
+            PromptCount = _prompt is null ? 0 : (int)_prompt.Shape[1].Fixed;
+            _promptDefault = component.ConfigValue("promptDefault", 0);
+            PromptIndex = _promptDefault;
+            foreach (string pair in component.ConfigValue("promptDictionary", "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int at = pair.IndexOf('=', StringComparison.Ordinal);
+                if (at > 0 && int.TryParse(pair[(at + 1)..], System.Globalization.CultureInfo.InvariantCulture, out int index))
+                {
+                    _promptDictionary[pair[..at]] = index;
+                }
+            }
             var shape = _encoder.Graph.Outputs[output].Shape;
             _rows = shape[0];
             Width = (int)shape[1].Fixed;
@@ -60,6 +83,33 @@ internal sealed class SpeechEncoder : IDisposable
             _encoder.Dispose();
             throw;
         }
+    }
+
+    /// <summary>The size of the language prompt one-hot of the encoder (0 when it has no prompt).</summary>
+    public int PromptCount { get; }
+
+    /// <summary>The language prompt index of the next windows (see <see cref="PromptCount"/>).</summary>
+    public int PromptIndex { get; set; }
+
+    /// <summary>Selects the language prompt for a request: the language's entry of the model's prompt dictionary (a locale such as "de-DE" or a bare code), the default (automatic detection) without one.</summary>
+    /// <param name="language">The requested language, or <see langword="null"/>.</param>
+    /// <exception cref="NotSupportedException">The model has no prompt for the language.</exception>
+    public void SelectLanguage(string? language)
+    {
+        if (_prompt is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(language))
+        {
+            PromptIndex = _promptDefault;
+            return;
+        }
+
+        PromptIndex = _promptDictionary.TryGetValue(language, out int index) || _promptDictionary.TryGetValue(SpeechLanguages.Code(language), out index)
+            ? index
+            : throw new NotSupportedException($"The model has no language prompt for '{language}'.");
     }
 
     /// <summary>Feature channels per frame.</summary>
@@ -116,6 +166,19 @@ internal sealed class SpeechEncoder : IDisposable
             {
                 _encoder.SetInput<int>(_positions, Positions(frames));
             }
+
+            if (_spans is not null)
+            {
+                _encoder.SetInput<int>(_spans, ChunkSpans(Rows));
+            }
+
+            if (_prompt is not null)
+            {
+                _promptValues ??= new float[PromptCount];
+                Array.Clear(_promptValues);
+                _promptValues[PromptIndex] = 1f;
+                _encoder.SetInput<float>(_prompt, _promptValues);
+            }
         }
         else
         {
@@ -151,6 +214,22 @@ internal sealed class SpeechEncoder : IDisposable
         }
 
         return low;
+    }
+
+    // Chunk-limited attention: a row sees its own chunk (the rows with the same index / chunk size, up to the chunk's last row) and the chunks of the left context.
+    private int[] ChunkSpans(int rows)
+    {
+        var spans = new int[2 * rows];
+        for (int i = 0; i < rows; i++)
+        {
+            int chunk = i / _chunkRows;
+            int first = Math.Max(0, chunk - _leftChunks) * _chunkRows;
+            int last = Math.Min(rows, (chunk + 1) * _chunkRows);
+            spans[2 * i] = first;
+            spans[(2 * i) + 1] = last - first;
+        }
+
+        return spans;
     }
 
     // Row positions, or relative distances when the input has 2·rows − 1 entries.

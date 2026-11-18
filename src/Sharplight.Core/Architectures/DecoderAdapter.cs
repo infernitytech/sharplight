@@ -196,15 +196,16 @@ public sealed class DecoderAdapter : IModelAdapter
                 ?? throw new NotSupportedException($"{src.Architecture}: an audio tower needs the audio prompt keys (audio.prompt.template).");
             var merged = new Dictionary<string, WeightInfo>(weights, StringComparer.Ordinal);
             bool whisper = audio.Tower == AudioTowerParameters.Whisper;
-            var derived = whisper ? WhisperAudioTowerGraph.DerivedWeights(audio, merged.GetValueOrDefault) : ChunkedAudioTowerGraph.DerivedWeights(audio, merged.GetValueOrDefault);
+            bool causal = audio.Tower == AudioTowerParameters.Causal;
+            var derived = whisper || causal ? WhisperAudioTowerGraph.DerivedWeights(audio, merged.GetValueOrDefault) : ChunkedAudioTowerGraph.DerivedWeights(audio, merged.GetValueOrDefault);
             foreach (var w in derived.ToList())
             {
                 merged[w.Name] = w;
             }
 
             weights = merged;
-            graphs[ChunkedAudioTowerGraph.AudioEncodeGraph] = whisper
-                ? WhisperAudioTowerGraph.Build(audio, merged.GetValueOrDefault)
+            graphs[ChunkedAudioTowerGraph.AudioEncodeGraph] = causal ? CausalAudioTowerGraph.Build(audio, merged.GetValueOrDefault)
+                : whisper ? WhisperAudioTowerGraph.Build(audio, merged.GetValueOrDefault)
                 : ChunkedAudioTowerGraph.Build(audio, merged.GetValueOrDefault);
             if (!graphs.ContainsKey(WellKnown.DecodeMultimodalGraph))
             {
