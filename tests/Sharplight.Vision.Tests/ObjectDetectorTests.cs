@@ -88,6 +88,7 @@ public class ObjectDetectorTests
     [InlineData("depth-anything-base-hf")]
     [InlineData("Depth-Anything-V2-Large-hf")]
     [InlineData("da3-small")]
+    [InlineData("da3-large")]
     public async Task DepthEstimatorMatchesTransformers(string name)
     {
         string Name = name;
@@ -119,6 +120,45 @@ public class ObjectDetectorTests
             Assert.Equal(image.Width, resized.Width);
             var sample = Enumerable.Range(0, expectedSample.Length).Select(i => resized.Values[i * 997]).ToArray();
             Assert.True(Env.Compare(sample, expectedSample).Rms < 5e-3, $"{backend}: resized depth");
+        }
+    }
+
+    [Fact]
+    public async Task Depth_anything_3_runs_from_a_package()
+    {
+        const string Name = "da3-small";
+        if (!Available(Name))
+        {
+            return;
+        }
+
+        var reference = JsonDocument.Parse(File.ReadAllText(Path.Combine(Model(Name), "sharplight-reference.json"))).RootElement;
+        var expected = reference.GetProperty("depth").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+        var image = PngCodec.Read(Path.Combine(Model(Name), "sharplight-sample.png"));
+        string dir = Path.Combine(Path.GetTempPath(), "sl-slm-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string package = Path.Combine(dir, "model.slm");
+            TestHost.Converter.Convert(Model(Name), package);
+            var backends = new List<(string, DeviceSlot)> { ("cpu", Env.Cpu()) };
+            if (Env.Vulkan() is { } vulkan)
+            {
+                backends.Add(("vulkan", vulkan));
+            }
+
+            foreach (var (backend, slot) in backends)
+            {
+                using var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = package, Devices = [slot] });
+                using var estimator = new TaskClientProvider([.. Env.TaskFactories()]).Create<IDepthEstimator>(model);
+                var native = await estimator.EstimateAsync(image, new DepthEstimationOptions { ResizeToInput = false }, TestContext.Current.CancellationToken);
+                var (maxAbs, _, rms) = Env.Compare(native.Values, expected);
+                Assert.True(rms < 5e-3, $"{backend}: depth relative rms {rms}, max abs {maxAbs}");
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
         }
     }
 }
