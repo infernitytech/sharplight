@@ -143,9 +143,11 @@ public interface IBatchDecoder : IDisposable
     public int KvStateSnapshots => 0;
     /// <summary>
     /// Snapshots the slot's recurrent state, which must be the state after its context so far, a whole number of blocks whose last
-    /// block is published as <paramref name="hash"/>. Returns false when snapshots are not supported.
+    /// block is published as <paramref name="hash"/>. Returns false when snapshots are not supported, or for a
+    /// <paramref name="speculative"/> snapshot (one no later prompt is known to want, e.g. at a prefill chunk end) when every snapshot row
+    /// holds a wanted one: speculative snapshots replace only free rows and each other, so they never push out a snapshot a prompt asked for.
     /// </summary>
-    public bool SaveKvStateSnapshot(int slot, UInt128 hash) => false;
+    public bool SaveKvStateSnapshot(int slot, UInt128 hash, bool speculative = false) => false;
     /// <summary>
     /// Makes the empty <paramref name="slot"/> continue <paramref name="source"/>'s context without computing it (several samples of one
     /// prompt): the slots share the source's KV blocks, a partly filled last block is copied when one of them first writes into it

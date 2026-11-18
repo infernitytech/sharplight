@@ -399,7 +399,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     }
 
     /// <inheritdoc/>
-    public bool SaveKvStateSnapshot(int slot, UInt128 hash)
+    public bool SaveKvStateSnapshot(int slot, UInt128 hash, bool speculative = false)
     {
         Check(slot);
         if (_pool is null || _pool.SnapshotCapacity == 0 || _length[slot] % KvBlockSize != 0 || (_commits is not null && _pendingRows[slot] != 0))
@@ -407,7 +407,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             return false;
         }
 
-        return _pool.SaveSnapshot(slot, hash);
+        return _pool.SaveSnapshot(slot, hash, speculative);
     }
 
     /// <summary>Copies every recurrent state's row <paramref name="from"/> to row <paramref name="to"/> (slots, then snapshot rows).</summary>

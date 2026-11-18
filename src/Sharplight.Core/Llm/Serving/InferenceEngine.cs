@@ -1048,7 +1048,7 @@ public sealed class InferenceEngine : IDisposable
         }
 
         long t0 = Stopwatch.GetTimestamp();
-        if (!_decoder.SaveKvStateSnapshot(slot.Index, last))
+        if (!_decoder.SaveKvStateSnapshot(slot.Index, last, speculative: !(chosen || promptEnd || _wantSnapshot.Contains(last))))
         {
             return;
         }

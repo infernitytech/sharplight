@@ -160,7 +160,8 @@ public sealed class FakeBatchDecoder : IBatchDecoder
         return true;
     }
 
-    public bool SaveKvStateSnapshot(int slot, UInt128 hash) => _kv is not null && _ctx[slot].Count % KvBlockSize == 0 && _kv.SaveSnapshot(slot, hash);
+    public bool SaveKvStateSnapshot(int slot, UInt128 hash, bool speculative = false)
+        => _kv is not null && _ctx[slot].Count % KvBlockSize == 0 && _kv.SaveSnapshot(slot, hash, speculative);
 
     /// <summary>"Copies recurrent state" between slot rows and snapshot rows: the fake state is the context it belongs to.</summary>
     private bool CopyState(int from, int to)

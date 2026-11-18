@@ -24,6 +24,7 @@ internal sealed class KvBlockCache
     private readonly UInt128[] _snapKey;
     private readonly bool[] _snapUsed;
     private readonly long[] _snapTick;
+    private readonly bool[] _snapSpeculative;
     private readonly Dictionary<UInt128, int> _snapByKey = [];
     private long _tick;
 
@@ -56,6 +57,7 @@ internal sealed class KvBlockCache
         _snapKey = new UInt128[SnapshotCapacity];
         _snapUsed = new bool[SnapshotCapacity];
         _snapTick = new long[SnapshotCapacity];
+        _snapSpeculative = new bool[SnapshotCapacity];
         TableDirty = true;
     }
 
@@ -320,9 +322,11 @@ internal sealed class KvBlockCache
 
     /// <summary>
     /// Copies the slot's recurrent state (which must be the state after its first <c>k</c> blocks, the last of them published as
-    /// <paramref name="hash"/>) into a snapshot row, replacing the least recently used snapshot when all rows are taken.
+    /// <paramref name="hash"/>) into a snapshot row, replacing the least recently used snapshot when all rows are taken. A
+    /// <paramref name="speculative"/> snapshot (no prompt is known to want it) replaces only another speculative one, and is not taken when
+    /// every row holds a wanted snapshot; a restored snapshot counts as wanted from then on.
     /// </summary>
-    public bool SaveSnapshot(int slot, UInt128 hash)
+    public bool SaveSnapshot(int slot, UInt128 hash, bool speculative = false)
     {
         if (SnapshotCapacity == 0 || !_pool.TryFind(hash, out _))
         {
@@ -332,6 +336,7 @@ internal sealed class KvBlockCache
         if (_snapByKey.TryGetValue(hash, out int row))
         {
             _snapTick[row] = ++_tick;
+            _snapSpeculative[row] &= speculative;
             return true;
         }
 
@@ -344,10 +349,21 @@ internal sealed class KvBlockCache
                 break;
             }
 
-            if (row < 0 || _snapTick[r] < _snapTick[row])
+            // Speculative snapshots go first (least recently used of them), then the least recently used of all.
+            if (speculative && !_snapSpeculative[r])
+            {
+                continue;
+            }
+
+            if (row < 0 || (_snapSpeculative[r] && !_snapSpeculative[row]) || (_snapSpeculative[r] == _snapSpeculative[row] && _snapTick[r] < _snapTick[row]))
             {
                 row = r;
             }
+        }
+
+        if (row < 0)
+        {
+            return false;
         }
 
         if (_snapUsed[row])
@@ -365,6 +381,7 @@ internal sealed class KvBlockCache
 
         _snapKey[row] = hash;
         _snapUsed[row] = true;
+        _snapSpeculative[row] = speculative;
         _snapTick[row] = ++_tick;
         _snapByKey[hash] = row;
         return true;
@@ -378,6 +395,7 @@ internal sealed class KvBlockCache
         }
 
         _snapTick[row] = ++_tick;
+        _snapSpeculative[row] = false;
         return true;
     }
 
