@@ -42,12 +42,3 @@ internal sealed record HiggsAudioCodecParameters(int SampleRate, int SemanticSam
         new HubertParameters(source.Arch<int>("hubert.hidden_size"), source.Arch<int>("hubert.layers"), source.Arch<int>("hubert.heads"), source.Arch<long[]>("hubert.conv.strides"),
             source.Arch<int>("hubert.position_conv.groups"), source.Arch("hubert.norm_eps", 1e-5f)));
 }
-
-/// <summary>The HuBERT encoder inside the codec: a group-normed convolutional feature encoder, a grouped positional convolution and post-norm transformer layers.</summary>
-/// <param name="Hidden">Model width.</param>
-/// <param name="Layers">Transformer layers.</param>
-/// <param name="Heads">Attention heads.</param>
-/// <param name="ConvStrides">Stride of each feature convolution.</param>
-/// <param name="PositionGroups">Groups of the positional convolution.</param>
-/// <param name="Eps">Norm epsilon.</param>
-internal sealed record HubertParameters(int Hidden, int Layers, int Heads, long[] ConvStrides, int PositionGroups, float Eps);

@@ -63,6 +63,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddTaskClientFactory<OrpheusSynthesizerFactory>()
                 .AddCompositeModelAdapter<Qwen3TtsAdapter>()
                 .AddTaskClientFactory<Qwen3TtsSynthesizerFactory>()
+                .AddCompositeModelAdapter<OmniVoiceAdapter>()
+                .AddTaskClientFactory<OmniVoiceSynthesizerFactory>()
                 .AddModelAdapter<CsmAdapter>()
                 .AddTaskClientFactory<CsmSynthesizerFactory>()
                 .AddModelAdapter<ChatterboxAdapter>()

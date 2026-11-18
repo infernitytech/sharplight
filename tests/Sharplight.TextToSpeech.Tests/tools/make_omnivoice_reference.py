@@ -16,7 +16,9 @@ import numpy as np
 import torch
 
 sys.path.insert(0, sys.argv[1])
-from omnivoice.models.omnivoice import OmniVoice, OmniVoiceGenerationConfig  # noqa: E402
+import math
+from omnivoice.models.omnivoice import OmniVoice, OmniVoiceGenerationConfig, _get_time_steps  # noqa: E402
+from omnivoice.utils.audio import load_audio  # noqa: E402
 
 torch.set_num_threads(4)
 model_dir, jfk, out = sys.argv[2], sys.argv[3], sys.argv[4]
@@ -40,7 +42,14 @@ def run(case, **kwargs):
     ref_tokens = None
     ref_rms = None
     if "ref_audio" in kwargs:
-        prompt = model.create_voice_clone_prompt(kwargs.pop("ref_audio"), ref_text=REF_TEXT, preprocess_prompt=False)
+        path = kwargs.pop("ref_audio")
+        wav = load_audio(path, model.sampling_rate)
+        wav_rms = float(np.sqrt(np.mean(wav**2)))
+        if 0 < wav_rms < 0.1:
+            wav = wav * 0.1 / wav_rms
+        clip = int(wav.shape[-1] % model.audio_tokenizer.config.hop_length)
+        (wav[:, :-clip] if clip > 0 else wav).astype("<f4").tofile(f"{out}/{case}_ref_audio.f32")
+        prompt = model.create_voice_clone_prompt(path, ref_text=REF_TEXT, preprocess_prompt=False)
         kwargs["voice_clone_prompt"] = prompt
         ref_tokens = prompt.ref_audio_tokens
         ref_rms = prompt.ref_rms
@@ -54,10 +63,16 @@ def run(case, **kwargs):
     # Row 0 is the conditional sequence; its target region is the last target_len rows.
     states = np.stack([c[0][0, :, c_len - target_len : c_len].numpy() for c in calls]).astype("<i4")
     tokens = model._generate_iterative(task, cfg)[0].numpy().astype("<i4")
+    timesteps = _get_time_steps(t_start=0.0, t_end=1.0, num_step=cfg.num_step, t_shift=cfg.t_shift).tolist()
+    total, rem, schedule = target_len * 8, target_len * 8, []
+    for step in range(cfg.num_step):
+        num = rem if step == cfg.num_step - 1 else min(math.ceil(total * (timesteps[step + 1] - timesteps[step])), rem)
+        schedule.append(int(num))
+        rem -= int(num)
     json.dump({
         "text": TEXT, "ref_text": REF_TEXT if ref_tokens is not None else None, "language": "en", "instruct": kwargs.get("instruct"), "steps": steps,
         "target_len": target_len, "ref_len": int(ref_tokens.shape[-1]) if ref_tokens is not None else 0, "c_len": c_len, "ref_rms": ref_rms,
-        "audio_len": int(audio.shape[-1]),
+        "audio_len": int(audio.shape[-1]), "schedule": schedule,
     }, open(f"{out}/{case}_info.json", "w"), indent=1)
     ids0[0].numpy().astype("<i4").tofile(f"{out}/{case}_ids.i32")
     mask0[0].numpy().astype("u1").tofile(f"{out}/{case}_audio_mask.u8")
