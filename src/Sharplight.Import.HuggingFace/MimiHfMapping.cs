@@ -78,6 +78,16 @@ internal sealed class MimiHfMapping : IHfArchitectureMapping
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var collector = new HfWeightCollector();
+        MapInto(collector, tensors);
+        collector.ThrowIfUnmapped(c.ModelType);
+        return collector.Weights;
+    }
+
+    /// <summary>Maps Mimi's tensors (names as in a <c>mimi</c> checkpoint) into <paramref name="collector"/>; other codecs that embed a Mimi encoder call it with the encoder's tensors.</summary>
+    /// <param name="collector">Receives the canonical weights.</param>
+    /// <param name="tensors">The Mimi tensors by their Mimi names.</param>
+    internal static void MapInto(HfWeightCollector collector, IReadOnlyDictionary<string, SafetensorsTensor> tensors)
+    {
         foreach (var (name, tensor) in tensors)
         {
             if (s_codebook.Match(name) is { Success: true } book)
@@ -97,9 +107,6 @@ internal sealed class MimiHfMapping : IHfArchitectureMapping
             string target = name.Replace("_residual_vector_quantizer", "", StringComparison.Ordinal).Replace(".conv.", ".", StringComparison.Ordinal);
             collector.Add(HfTransforms.Plain(tensor.ToWeightInfo(), target));
         }
-
-        collector.ThrowIfUnmapped(c.ModelType);
-        return collector.Weights;
     }
 
     private static byte[] Codebook(WeightInfo sum, WeightInfo usage)

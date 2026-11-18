@@ -241,6 +241,7 @@ Long recordings are cut into 30 s windows (Whisper uses its own timestamp-driven
 | Model | Hub repository | Formats | Providers | Verification | Notes | Verified |
 |---|---|---|---|---|---|---|
 | Kokoro 82M v1.0 | hexgrad/Kokoro-82M | PyTorch folder, `.slm` | CPU, Vulkan | symbols, durations and F0 identical to the `kokoro` package; waveform within 1.3e-2 relative RMS (the reference's own noise floor) | all voice packs load; English front end only | 2026-11-15 |
+| Qwen3-TTS 12Hz 0.6B CustomVoice | Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice | safetensors | CPU, Vulkan | teacher forced over 47 frames: 0 talker and 0 code-predictor argmax disagreements; prompt rows relative RMS 8e-8; codec decode relative RMS 2.5e-6 | 9 built-in speakers; Base (voice cloning) and VoiceDesign variants are not supported. | 2026-11-18 |
 | Orpheus 3B + SNAC 24 kHz | canopylabs/orpheus-3b-0.1-ft (unsloth mirror), hubertsiuzdak/snac_24khz | safetensors | CPU, Vulkan | 0 argmax disagreements over 140 tokens vs transformers; SNAC decoder within 2.4e-6 | voices tara, leah, jess, leo, dan, mia, zac, zoe | 2026-11-15 |
 | OuteTTS 0.2 500M + WavTokenizer-Large-75 | OuteAI/OuteTTS-0.2-500M, WavTokenizer GGUF | GGUF pair | CPU, Vulkan | teacher-forced logits vs llama.cpp; decoder waveform within 2e-3 | no default speaker profile; OuteTTS 0.3 not supported | 2026-11-15 |
 | Chatterbox (English) | ResembleAI/chatterbox | safetensors folder (`t3_cfg`, `s3gen`, `ve`, `tokenizer.json`, `conds.pt`) | CPU, Vulkan | vs the chatterbox-tts package: T3 conditioning within 7e-7, guided greedy chain teacher forced with 0 argmax disagreements over 92 tokens, S3Gen flow mel within 6e-7, HiFT waveform within 7e-6 (relative RMS, the reference's noise) | built-in voice `default`, or the voice of a recording (`SpeechSynthesisOptions.ReferenceAudio`; voice encoder within 1.2e-6, S3 prompt and flow tokens identical, CAM++ x-vector within 8e-6 vs the package); streams in chunks of speech tokens cross-faded while T3 generates; a voice can be saved (`IVoiceCloner`, `VoiceLibrary`); numbers, dates and currency spelled; multilingual and Turbo variants not run | 2026-11-16 |
@@ -359,6 +360,7 @@ Reference: transformers (EnCodec, DAC, Mimi), onnxruntime and the `silero-vad` p
 | EnCodec 24 kHz | facebook/encodec_24khz | codec | codes token-exact at 6 kbps; decoder < 1e-3 relative RMS | 48 kHz model rejected; at 24 kbps up to 0.1 % of codes differ (near ties) | 2026-11-16 |
 | DAC 44 kHz | descript/dac_44khz | codec | codes token-exact, decoded audio < 1e-3 | | 2026-11-16 |
 | Mimi | kyutai/mimi | codec | codes token-exact for 8 and 32 stages | | 2026-11-16 |
+| Qwen3-TTS Tokenizer 12Hz | Qwen/Qwen3-TTS-Tokenizer-12Hz | codec | 16-codebook codes token-exact (2000 of 2000), decoded audio relative RMS 6e-6 | | 2026-11-18 |
 | Silero VAD v5 | snakers4/silero-vad (16 kHz ONNX) | voice activity | probabilities within 1e-3 of onnxruntime, segments identical | 8 kHz branch not imported; also used to pre-segment long speech recognition | 2026-11-16 |
 <!-- verified-catalog:end -->
 
