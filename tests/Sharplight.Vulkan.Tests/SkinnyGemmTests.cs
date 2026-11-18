@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
@@ -56,5 +57,54 @@ public sealed class SkinnyGemmTests
         double atol = exactActivations ? 1e-1 : fmt switch { "q8_0" => 6e-1, "nvfp4" => 3.0, _ => 1e-1 };
         var xs = exactActivations ? Rnd.ExactInt8((long)t * K, 3) : Rnd.F((long)t * K, 3);
         Diff.Check("Skinny.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, xs)), atol: atol, rtol: 2e-2, what: $"T={t}");
+    }
+
+    /// <summary>
+    /// Matmuls narrower than 4096 outputs, where the skinny GEMM serves at most 8 rows (1024-4095 outputs) or none (below 1024)
+    /// and gemm_cm2 the rest: 9-16 rows read the shared f16 copy, which must cover them whatever the skinny GEMM reads.
+    /// </summary>
+    [Theory]
+    [InlineData(1024, 9)]
+    [InlineData(1024, 16)]
+    [InlineData(2048, 12)]
+    [InlineData(512, 9)]
+    [InlineData(4096, 16)]
+    public void NarrowAboveSkinnyRange(int n, int t)
+    {
+        Gpu.Require();
+        const int K = 1024;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        tg.B.Output("y", tg.B.MatMul(x, tg.RandW("w", DataType.BF16, 1f, n, K)));
+        Diff.Check("Skinny.narrow", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: 1.5e-1, rtol: 1e-2, what: $"N={n} T={t}");
+    }
+
+    /// <summary>
+    /// <see cref="NarrowAboveSkinnyRange"/> with the skinny GEMM converting f32 rows itself (<c>SHARPLIGHT_SKINNY_X16=0</c>, read once
+    /// per process, so in a child run of this test assembly): the f16 copy then starts above the skinny range of each width. It
+    /// started at 17 rows for every width, and 9-16 rows of matmuls below 4096 outputs returned zeros.
+    /// </summary>
+    [Fact]
+    public void NarrowAboveSkinnyRangeWithF32Staging()
+    {
+        Gpu.Require();
+        string method = $"{typeof(SkinnyGemmTests).FullName}.{nameof(NarrowAboveSkinnyRange)}";
+        string host = Environment.ProcessPath ?? throw new InvalidOperationException("no process path");
+        var info = new ProcessStartInfo(host) { RedirectStandardOutput = true, RedirectStandardError = true };
+        if (Path.GetFileNameWithoutExtension(host) == "dotnet")
+        {
+            info.ArgumentList.Add(typeof(SkinnyGemmTests).Assembly.Location);
+        }
+
+        info.ArgumentList.Add("-method");
+        info.ArgumentList.Add(method);
+        info.Environment["SHARPLIGHT_SKINNY_X16"] = "0";
+        using var process = Process.Start(info) ?? throw new InvalidOperationException("child test run did not start");
+        var stderr = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        string output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, $"child run failed ({process.ExitCode}):\n{output}\n{stderr.Result}");
+        Assert.Contains("Total: 5,", output);
+        Assert.Contains("Failed: 0,", output);
     }
 }

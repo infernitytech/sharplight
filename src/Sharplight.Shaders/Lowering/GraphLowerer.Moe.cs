@@ -75,14 +75,20 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Emits (once per activations and routing) the gather of the routed rows of x into expert-sorted f16 rows and returns them
-    /// ([items, K], row o = sorted position o of the routing).
+    /// ([items, K], row o = sorted position o of the routing). The rows are row-ranged (common.slang, f16_range_scale) unless
+    /// <c>SHARPLIGHT_F16_RANGE=0</c>: x need not be bounded (the down projection reads a gated FFN's product), so a row reaching
+    /// 2^15 is stored scaled, with its scale word at byte <paramref name="rangeScales"/> + 4 o (null for plain rows), which the
+    /// grouped gemm_cm2 undoes in its store. Rows below 2^15 are stored exactly as by the plain gather.
     /// </summary>
     private TensorRef EmitSortedHalfActivations(Node n, TensorRef x, long xStride, bool perSlot, long S, long maxItems, long maxTiles, long K, int[] tileSizes,
         long matvecMaxItems, Func<Bindings, long> items, Func<Bindings, int> tile, Func<Bindings, uint> tiles, TensorRef scratch,
-        PointerArg scratchArg, TensorRef ids)
+        PointerArg scratchArg, TensorRef ids, out long? rangeScales)
     {
+        bool ranged = DiagnosticSwitches.F16RangeGuard;
+        long rowBytes = maxItems * K * 2;
+        rangeScales = ranged ? rowBytes : null;
         _moeHalfActivations ??= NewBuffer(BufferKind.Activations, "moe-x16", 0);
-        _moeHalfActivations.Bytes = Math.Max(_moeHalfActivations.Bytes, maxItems * K * 2);
+        _moeHalfActivations.Bytes = Math.Max(_moeHalfActivations.Bytes, rowBytes + (ranged ? maxItems * 4 : 0));
         var half = new TensorRef(_moeHalfActivations, 0, DataType.F16, [maxItems, K], [K, 1], null);
         if (_moeGathered is { } g && g.X == n.Inputs[0] && g.Ids == n.Inputs[2] && g.MaxTiles == maxTiles && g.MatvecMaxItems == matvecMaxItems
             && ReferenceEquals(g.Condition, _launchCondition))
@@ -90,10 +96,12 @@ public sealed partial class GraphLowerer
             return half;
         }
 
-        Emit($"moe-gather {n.Inputs[0].Name} x→f16", [n],
+        Emit($"moe-gather {n.Inputs[0].Name} x→{(ranged ? "ranged " : "")}f16", [n],
             [.. tileSizes.Select(t => new KernelVariant(b => items(b) > matvecMaxItems && tile(b) == t,
-                Lib("moe.slang", "moe_gather_x16", Macros(("K", K), ("S", S), ("PER_SLOT", perSlot), ("X_STRIDE", xStride), ("MAXTILES", maxTiles), ("TILE_M", t))),
-                b => new Grid(Grid.Div(t * K / 8, 256), tiles(b))))],
+                Lib("moe.slang", "moe_gather_x16", ranged
+                    ? Macros(("K", K), ("S", S), ("PER_SLOT", perSlot), ("X_STRIDE", xStride), ("MAXTILES", maxTiles), ("TILE_M", t), ("Y_RS", rowBytes + "ull"))
+                    : Macros(("K", K), ("S", S), ("PER_SLOT", perSlot), ("X_STRIDE", xStride), ("MAXTILES", maxTiles), ("TILE_M", t))),
+                ranged ? b => new Grid((uint)t, tiles(b)) : b => new Grid(Grid.Div(t * K / 8, 256), tiles(b))))],
             [Pointer(x), scratchArg, Pointer(half), TokenArg(ids)],
             [x, scratch], [half]);
         _moeGathered = (n.Inputs[0], n.Inputs[2], maxTiles, matvecMaxItems, _launchCondition);
@@ -368,11 +376,16 @@ public sealed partial class GraphLowerer
             var gemmX = x;
             if (DiagnosticSwitches.MoeSortedHalfActivations)
             {
-                gemmX = EmitSortedHalfActivations(n, x, xs, perSlot, S, maxItems, maxTiles, K, coopTiles, mv, items, tile, tiles, scratch, scratchArg, ids);
+                gemmX = EmitSortedHalfActivations(n, x, xs, perSlot, S, maxItems, maxTiles, K, coopTiles, mv, items, tile, tiles, scratch, scratchArg, ids,
+                    out long? rangeScales);
                 gargs = [Pointer(gemmX), Pointer(w), scratchArg, Pointer(y), TokenArg(ids)];
                 groupedMacros["X_F16"] = "1";
                 groupedMacros["X_SORTED"] = "1";
                 groupedMacros["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture);
+                if (rangeScales is { } offset)
+                {
+                    groupedMacros["X_RS"] = offset.ToString(CultureInfo.InvariantCulture) + "ull";
+                }
             }
 
             // Split tiles: the 64- and 128-row launches skip routing tiles of at most half their height (an expert's last tile

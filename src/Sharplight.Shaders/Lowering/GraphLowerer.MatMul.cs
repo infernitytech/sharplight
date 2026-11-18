@@ -476,6 +476,8 @@ public sealed partial class GraphLowerer
     /// The shared f16 copy of a matmul's activations for the row counts its f16 tensor-core launches serve: from 2 rows with the
     /// skinny GEMM, else above the int-dot or matvec range, up to the first row count of the int8 / fp8 GEMM
     /// (<paramref name="quantizedGemmMinRows"/>) when one serves larger batches. Null when no tensor-core launch reads f16 activations.
+    /// When the skinny GEMM converts f32 rows itself (<c>SHARPLIGHT_SKINNY_X16=0</c>), the copy starts above the rows it serves at
+    /// this matmul's width (<see cref="SkinnyMaxRowsFor"/>), where gemm_cm2 takes over.
     /// </summary>
     private TensorRef? SharedHalfActivations(MatMulPlan p, bool intDot, bool skinny, long? quantizedGemmMinRows)
     {
@@ -486,7 +488,7 @@ public sealed partial class GraphLowerer
 
         long rowsMax = p.X.Shape[0] * p.RowsPerLead;
         long minRows = intDot ? (UseSkinnyGemm(p) ? IntDotSkinnyMinRows(p.W.Type, p.K, p.N) : Math.Max(MatvecMaxRows, IntDotMaxRows(p.W.Type, p.K)) + 1)
-            : skinny ? Math.Min(Math.Max(SkinnyMinRows, SkinnyHalfMinRows), Math.Max(MatvecMaxRows, SkinnyMaxRows) + 1)
+            : skinny ? Math.Min(Math.Max(SkinnyMinRows, SkinnyHalfMinRows), Math.Max(MatvecMaxRows, SkinnyMaxRowsFor(p.N)) + 1)
             : MatvecMaxRows + 1;
         long maxRows = quantizedGemmMinRows is { } gemmMin ? Math.Min(rowsMax, gemmMin - 1) : rowsMax;
         if (minRows > maxRows)

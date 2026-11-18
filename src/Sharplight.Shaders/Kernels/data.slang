@@ -200,8 +200,9 @@ void to_f16(uint3 dtid : SV_DispatchThreadID, uniform ToF16Params p)
 
 #ifdef KERNEL_TO_F16_RANGED
 // Rows of f32 (row stride X_STRIDE elements) -> a row-ranged f16 copy (common.slang, f16_range_scale): dense f16 rows of K
-// elements, then one scale word per row at byte offset Y_RS. One workgroup per row: the row's largest magnitude first, then
-// the conversion (8 values per thread and step).
+// elements, then one scale word per row at byte offset Y_RS. One workgroup per row (f16_range_row).
+#include "f16_range_row.slang"
+
 struct ToF16RangedParams
 {
     float* x;
@@ -209,63 +210,14 @@ struct ToF16RangedParams
     uint T;
 };
 
-groupshared float gRangeMax[8];
-
 [shader("compute")]
 [numthreads(256, 1, 1)]
 void to_f16_ranged(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform ToF16RangedParams p)
 {
     uint row = gid.x, tid = ltid.x;
     if (row >= p.T) return;
-    float* xr = p.x + uint64_t(row) * X_STRIDE;
-    // Rows of up to 8192 values stay in registers between the two steps (one read); longer ones are read twice.
-    #define RANGE_HELD (K <= 8192 ? (K + 2047) / 2048 : 1)
-    float4 ha[RANGE_HELD], hb[RANGE_HELD];
-    float m = 0;
-    [ForceUnroll]
-    for (uint i = 0; i < RANGE_HELD; i++)
-    {
-        uint c = tid * 8 + i * 2048;
-        ha[i] = 0;
-        hb[i] = 0;
-        if (c < K)
-        {
-            ha[i] = ((float4*)(xr + c))[0];
-            hb[i] = ((float4*)(xr + c))[1];
-        }
-        float4 a = abs(ha[i]), b = abs(hb[i]);
-        m = max(m, max(max(max(a.x, a.y), max(a.z, a.w)), max(max(b.x, b.y), max(b.z, b.w))));
-    }
-    for (uint c = tid * 8 + RANGE_HELD * 2048; c < K; c += 2048)
-    {
-        float4 a = abs(((float4*)(xr + c))[0]), b = abs(((float4*)(xr + c))[1]);
-        m = max(m, max(max(max(a.x, a.y), max(a.z, a.w)), max(max(b.x, b.y), max(b.z, b.w))));
-    }
-    m = WaveActiveMax(m);
-    if (tid % 32 == 0) gRangeMax[tid / 32] = m;
-    GroupMemoryBarrierWithGroupSync();
-    m = max(max(max(gRangeMax[0], gRangeMax[1]), max(gRangeMax[2], gRangeMax[3])), max(max(gRangeMax[4], gRangeMax[5]), max(gRangeMax[6], gRangeMax[7])));
-    float s = f16_range_scale(m);
-    uint64_t yr = uint64_t(p.y) + uint64_t(row) * K * 2;
-    [ForceUnroll]
-    for (uint i = 0; i < RANGE_HELD; i++)
-    {
-        uint c = tid * 8 + i * 2048;
-        if (c < K)
-        {
-            float4 a = ha[i] * s, b = hb[i] * s;
-            *(uint4*)(yr + uint64_t(c) * 2) = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),
-                                                    f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16));
-        }
-    }
-    for (uint c = tid * 8 + RANGE_HELD * 2048; c < K; c += 2048)
-    {
-        float4 a = ((float4*)(xr + c))[0] * s, b = ((float4*)(xr + c))[1] * s;
-        *(uint4*)(yr + uint64_t(c) * 2) = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),
-                                                f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16));
-    }
-    if (tid == 0) *(uint*)(uint64_t(p.y) + Y_RS + uint64_t(row) * 4) = s == 1.0 ? 0u : asuint(1.0 / s);
-    #undef RANGE_HELD
+    uint word = f16_range_row(p.x + uint64_t(row) * X_STRIDE, uint64_t(p.y) + uint64_t(row) * K * 2, tid);
+    if (tid == 0) *(uint*)(uint64_t(p.y) + Y_RS + uint64_t(row) * 4) = word;
 }
 #endif
 
