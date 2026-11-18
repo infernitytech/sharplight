@@ -107,10 +107,10 @@
             <Button Classes="small" Content="Library" Command="{Binding OpenLibraryCommand}" />
             <Button Classes="accent small" Content="Find a model" Command="{Binding OpenDiscoverCommand}" />
           </StackPanel>
-          <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-            <Path Classes="icon accent" Data="{StaticResource IconInfo}" />
-            <TextBlock Text="No model is loaded. Load one from the library or download one from Hugging Face." VerticalAlignment="Center" />
-          </StackPanel>
+          <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center">
+            <Path Classes="icon accent" Data="{StaticResource IconInfo}" Margin="0,0,10,0" />
+            <TextBlock Grid.Column="1" TextWrapping="Wrap" Text="No model is loaded. Load one from the library or download one from Hugging Face." VerticalAlignment="Center" />
+          </Grid>
         </DockPanel>
       </Border>
 
