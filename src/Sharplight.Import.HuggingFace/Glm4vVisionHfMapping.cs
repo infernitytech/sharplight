@@ -33,6 +33,10 @@ internal static class Glm4vVisionHfMapping
         ["visual.merger.down_proj.bias"] = "vision.merger.down.bias",
     };
 
+    /// <summary>GLM-OCR's tower (<c>glm_ocr_vision</c>): no position table or patch norm, query / key norms, an <c>intermediate_size</c> MLP, bias-free merger.</summary>
+    private static bool IsOcr(JsonElement vc)
+        => vc.TryGetProperty("model_type", out var t) && t.ValueKind == JsonValueKind.String && t.GetString() == "glm_ocr_vision";
+
     /// <summary>Adds <c>{architecture}.vision.*</c> when the checkpoint has a <c>vision_config</c>.</summary>
     public static void AddVisionHyperParameters(HfConfig c, IDictionary<string, object> md, string architecture)
     {
@@ -46,6 +50,7 @@ internal static class Glm4vVisionHfMapping
         int IntOr(string k, int d) => vc.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : d;
         int patch = Int("patch_size");
         int side = IntOr("image_size", 336) / patch;
+        bool hasPositions = !IsOcr(vc);
         string act = vc.TryGetProperty("hidden_act", out var ha) ? ha.GetString() ?? "silu" : "silu";
         string activation = act switch
         {
@@ -56,7 +61,14 @@ internal static class Glm4vVisionHfMapping
         };
         md[a + "layer_count"] = Int("depth");
         md[a + "hidden_size"] = Int("hidden_size");
-        md[a + "ffn_hidden_size"] = Int("out_hidden_size");   // the blocks' MLP is out_hidden_size wide
+        bool ocr = IsOcr(vc);
+        // GLM-4.1V's blocks' MLP is out_hidden_size wide; GLM-OCR's is intermediate_size wide, with per-head RMS norms of the queries and keys.
+        md[a + "ffn_hidden_size"] = ocr ? Int("intermediate_size") : Int("out_hidden_size");
+        if (ocr)
+        {
+            md[a + "attention.qk_norm"] = true;
+        }
+
         md[a + "head_count"] = Int("num_heads");
         md[a + "norm_eps"] = vc.TryGetProperty("rms_norm_eps", out var eps) ? (float)eps.GetDouble() : 1e-5f;
         md[a + "norm.type"] = "rms";
@@ -65,8 +77,12 @@ internal static class Glm4vVisionHfMapping
         md[a + "temporal_patch_size"] = IntOr("temporal_patch_size", 2);
         md[a + "in_channels"] = IntOr("in_channels", 3);
         md[a + "spatial_merge_size"] = IntOr("spatial_merge_size", 2);
-        md[a + "position_embedding_count"] = side * side;
-        md[a + "position_embedding.interpolation"] = "bicubic";
+        if (hasPositions)
+        {
+            md[a + "position_embedding_count"] = side * side;
+            md[a + "position_embedding.interpolation"] = "bicubic";
+        }
+
         md[a + "out_hidden_size"] = Int("out_hidden_size");
         md[a + "merger.activation"] = activation;
         md[a + "merger.norm_eps"] = 1e-5f;   // the projector's LayerNorm has PyTorch's default epsilon
@@ -96,6 +112,15 @@ internal static class Glm4vVisionHfMapping
             // order, each C wide.
             return HfTransforms.Plain(w, "vision.merger.downsample.weight")
                 .TransposeRowBlocks("vision.merger.downsample.weight", w.Shape[1].Fixed, w.Shape[2].Fixed * w.Shape[3].Fixed);
+        }
+
+        if (name.EndsWith(".attn.q_norm.weight", StringComparison.Ordinal) || name.EndsWith(".attn.k_norm.weight", StringComparison.Ordinal))
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(name, @"^visual\.blocks\.(\d+)\.attn\.([qk])_norm\.weight$");
+            if (m.Success)
+            {
+                return HfTransforms.ToF32(w, $"vision.layers.{m.Groups[1].Value}.attention.{m.Groups[2].Value}_norm.weight");
+            }
         }
 
         if (s_global.TryGetValue(name, out var canonical))
