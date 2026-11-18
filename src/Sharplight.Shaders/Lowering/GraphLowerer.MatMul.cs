@@ -849,16 +849,26 @@ public sealed partial class GraphLowerer
         var half = shared;
         if (half is null)
         {
+            // A row-ranged copy (common.slang, f16_range_scale): x's rows may exceed f16's range.
             long rowsMax = x.Shape[0] * rowsPerLead;
-            half = Temp(DataType.F16, [rowsMax, K], x.Symbol);
-            Emit($"matmul {p.Node.Output.Name} x→f16", [p.Node],
-                [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows, Lib("data.slang", "to_f16", Macros(("K", K), ("X_STRIDE", p.XStride))),
-                    b => new Grid(Grid.Div(p.RowCount(b) * (K / 8), 256)))],
+            bool ranged = DiagnosticSwitches.F16RangeGuard;
+            half = Temp(DataType.F16, [rowsMax + (ranged ? RangeScaleRows(rowsMax, K) : 0), K], x.Symbol);
+            if (ranged)
+            {
+                _rangeScales[half] = rowsMax * K * 2;
+            }
+
+            Emit($"matmul {p.Node.Output.Name} x→{(ranged ? "ranged " : "")}f16", [p.Node],
+                [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows,
+                    ranged
+                        ? Lib("data.slang", "to_f16_ranged", Macros(("K", K), ("X_STRIDE", p.XStride), ("Y_RS", _rangeScales[half] + "ull")))
+                        : Lib("data.slang", "to_f16", Macros(("K", K), ("X_STRIDE", p.XStride))),
+                    ranged ? b => new Grid((uint)p.RowCount(b)) : b => new Grid(Grid.Div(p.RowCount(b) * (K / 8), 256)))],
                 [Pointer(x), Pointer(half), TokenArg(x, rowsPerLead)],
                 [x], [half]);
         }
 
-        var halfMacros = new Dictionary<string, string>(p.Macros) { ["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture), ["X_F16"] = "1" };
+        var halfMacros = WithRangeScales(new Dictionary<string, string>(p.Macros) { ["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture), ["X_F16"] = "1" }, half);
         if (p.WorkgroupMatrix)
         {
             halfMacros = new Dictionary<string, string>(halfMacros.Concat(new Dictionary<string, string>

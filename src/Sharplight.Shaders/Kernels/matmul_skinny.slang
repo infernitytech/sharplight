@@ -20,7 +20,10 @@
 //    MatrixMmaLayout); the kernel verifies it once (sk_direct_layout) and stores NaN where it differs, so a wrong detection
 //    fails loudly rather than computing garbage. (Both paths in one kernel cost the direct one 60 registers.)
 //
-// x: f16 rows (X_F16 = 1, row stride X_STRIDE halves) or f32 rows converted while staging (X_F16 = 0). DUAL: w and w2
+// x: f16 rows (X_F16 = 1, row stride X_STRIDE halves) or f32 rows converted while staging (X_F16 = 0). With X_RS, the f16 rows
+// are a row-ranged copy (common.slang, f16_range_scale) whose scale words start X_RS bytes after x: the stores multiply each
+// row's results by its inverse scale. f32 rows get the same range guard in the kernel (each row's largest magnitude first,
+// skRowScale). DUAL: w and w2
 // (same shape and format) give SK_FN fragments each, combined by epi2 per element before the store.
 // Requires K % SK_BK == 0, and K % 64 == 0 with SK_DIRECT.
 #ifdef KERNEL_GEMM_SK
@@ -67,6 +70,11 @@ groupshared uint4 skA[SK_SG * SK_A_WORDS];
 groupshared uint4 skB[SK_SG * SK_B_WORDS];
 #endif
 
+#if !X_F16
+// Range scale (f16_range_scale) of each token row of the f32 activations.
+groupshared float skRowScale[SK_FM * 16];
+#endif
+
 // The 8 activations [k, k + 8) of token row t as packed halves (zeros past T).
 uint4 sk_load_x(float* x, uint t, uint k, uint T)
 {
@@ -78,7 +86,7 @@ uint4 sk_load_x(float* x, uint t, uint k, uint T)
     return ((uint4*)((uint16_t*)x + uint64_t(t) * X_STRIDE + k))[0];
 #else
     float4* xp = (float4*)(x + uint64_t(t) * X_STRIDE + k);
-    float4 a = xp[0], b = xp[1];
+    float4 a = xp[0] * skRowScale[t], b = xp[1] * skRowScale[t];
     return uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),
                  f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16));
 #endif
@@ -333,6 +341,24 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 
     SkC acc[SK_FM][SK_NB];
     [ForceUnroll] for (int i = 0; i < SK_FM; i++) [ForceUnroll] for (int j = 0; j < SK_NB; j++) acc[i][j] = SkC(0.0);
+#if !X_F16
+    // Subgroup s finds the largest magnitude of rows s, s + SK_SG, ...
+    for (uint r = sg; r < SK_FM * 16; r += SK_SG)
+    {
+        float m = 0;
+        if (r < p.T)
+        {
+            for (uint c = lane * 4; c < K; c += 128)
+            {
+                float4 v = abs(*(float4*)(p.x + uint64_t(r) * X_STRIDE + c));
+                m = max(m, max(max(v.x, v.y), max(v.z, v.w)));
+            }
+        }
+        m = WaveActiveMax(m);
+        if (lane == 0) skRowScale[r] = f16_range_scale(m);
+    }
+    GroupMemoryBarrierWithGroupSync();
+#endif
 #if SK_DIRECT
     if (sk_direct_layout(tid, lane))
     {
@@ -365,12 +391,20 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
                 uint t = i * 16 + e / 16, n = n0 + j * 16 + e % 16;
                 if (t < p.T && n < N)
                 {
+#if !X_F16
+                    float inv = 1.0 / skRowScale[t];
+#elif defined(X_RS)
+                    float inv = f16_range_inverse(*(uint*)(uint64_t(p.x) + X_RS + uint64_t(t) * 4));
+#else
+                    float inv = 1.0;
+#endif
                     float s = 0;
                     [ForceUnroll] for (uint z = 0; z < SK_SG; z++) s += asfloat(skB[((1 + DUAL) * z * 256 + e) / 4][e % 4]);
+                    s *= inv;
 #if DUAL
                     float s2 = 0;
                     [ForceUnroll] for (uint z = 0; z < SK_SG; z++) s2 += asfloat(skB[(2 * z * 256 + 256 + e) / 4][e % 4]);
-                    s = epi2(s, s2);
+                    s = epi2(s, s2 * inv);
 #endif
                     p.y[uint64_t(t) * Y_STRIDE + n] = s;
                 }

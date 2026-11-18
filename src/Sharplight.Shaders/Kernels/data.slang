@@ -198,6 +198,95 @@ void to_f16(uint3 dtid : SV_DispatchThreadID, uniform ToF16Params p)
 }
 #endif
 
+#ifdef KERNEL_TO_F16_RANGED
+// Rows of f32 (row stride X_STRIDE elements) -> a row-ranged f16 copy (common.slang, f16_range_scale): dense f16 rows of K
+// elements, then one scale word per row at byte offset Y_RS. One workgroup per row: the row's largest magnitude first, then
+// the conversion (8 values per thread and step).
+struct ToF16RangedParams
+{
+    float* x;
+    uint8_t* y;
+    uint T;
+};
+
+groupshared float gRangeMax[8];
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void to_f16_ranged(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform ToF16RangedParams p)
+{
+    uint row = gid.x, tid = ltid.x;
+    if (row >= p.T) return;
+    float* xr = p.x + uint64_t(row) * X_STRIDE;
+    float m = 0;
+    for (uint c = tid * 8; c < K; c += 2048)
+    {
+        float4 a = ((float4*)(xr + c))[0], b = ((float4*)(xr + c))[1];
+        m = max(m, max(max(max(abs(a.x), abs(a.y)), max(abs(a.z), abs(a.w))), max(max(abs(b.x), abs(b.y)), max(abs(b.z), abs(b.w)))));
+    }
+    m = WaveActiveMax(m);
+    if (tid % 32 == 0) gRangeMax[tid / 32] = m;
+    GroupMemoryBarrierWithGroupSync();
+    m = max(max(max(gRangeMax[0], gRangeMax[1]), max(gRangeMax[2], gRangeMax[3])), max(max(gRangeMax[4], gRangeMax[5]), max(gRangeMax[6], gRangeMax[7])));
+    float s = f16_range_scale(m);
+    uint64_t yr = uint64_t(p.y) + uint64_t(row) * K * 2;
+    for (uint c = tid * 8; c < K; c += 2048)
+    {
+        float4 a = ((float4*)(xr + c))[0] * s, b = ((float4*)(xr + c))[1] * s;
+        *(uint4*)(yr + uint64_t(c) * 2) = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),
+                                                f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16));
+    }
+    if (tid == 0) *(uint*)(uint64_t(p.y) + Y_RS + uint64_t(row) * 4) = s == 1.0 ? 0u : asuint(1.0 / s);
+}
+#endif
+
+#ifdef KERNEL_F16_RANGE_FIXUP
+// Completes a row-ranged f16 copy that its producer wrote unscaled (the dual gemm_cm2's store, DUAL_Y16): the producer raised
+// flags[t] to the bits of the largest magnitude it saw from 2^15 on (atomic max; 0 otherwise). Rows with a flag are converted
+// again from the f32 rows x (row stride K) with f16_range_scale, and every row gets its scale word (at byte offset Y_RS of y).
+// The flags are left zero for the next launch. One workgroup per row.
+struct F16RangeFixupParams
+{
+    float* x;
+    uint8_t* y;
+    uint* flags;
+    uint T;
+};
+
+groupshared uint gRangeFlag;
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void f16_range_fixup(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform F16RangeFixupParams p)
+{
+    uint row = gid.x, tid = ltid.x;
+    if (row >= p.T) return;
+    if (tid == 0) gRangeFlag = p.flags[row];
+    GroupMemoryBarrierWithGroupSync();
+    uint flag = gRangeFlag;
+    uint* word = (uint*)(uint64_t(p.y) + Y_RS + uint64_t(row) * 4);
+    if (flag == 0)
+    {
+        if (tid == 0) *word = 0u;
+        return;
+    }
+    float s = f16_range_scale(asfloat(flag));
+    float* xr = p.x + uint64_t(row) * K;
+    uint64_t yr = uint64_t(p.y) + uint64_t(row) * K * 2;
+    for (uint c = tid * 8; c < K; c += 2048)
+    {
+        float4 a = ((float4*)(xr + c))[0] * s, b = ((float4*)(xr + c))[1] * s;
+        *(uint4*)(yr + uint64_t(c) * 2) = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),
+                                                f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16));
+    }
+    if (tid == 0)
+    {
+        *word = s == 1.0 ? 0u : asuint(1.0 / s);
+        p.flags[row] = 0u;
+    }
+}
+#endif
+
 #ifdef KERNEL_SPLIT_ROWS
 // Rows of f32 (row stride X_STRIDE elements) -> the split f16 form of the split-f16 GEMM (common.slang): per row
 // 4K + 16 bytes holding K hi halves, K lo halves and 1 / split_scale of the row's largest magnitude (the row was multiplied

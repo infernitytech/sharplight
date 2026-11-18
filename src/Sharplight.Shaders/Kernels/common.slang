@@ -758,6 +758,22 @@ float split_scale_outside(float m)
     return m >= 0.015625 && m < 32768.0 ? 1.0 : split_scale(m);
 }
 
+// Range guard of the f16 activation copies the tensor-core GEMMs read ("row-ranged" copies): f16 ends at 65504, while
+// activations that no norm bounds (a gated FFN's product feeding the down projection, ...) can exceed it, e.g. Qwen3-TTS's code
+// predictor at 1.5e5. A row whose largest magnitude m reaches 2^15 is stored multiplied by split_scale(m) (into [2^14, 2^15)),
+// every other row as is (bit-identical to the plain copy). Each row has a scale word after the rows: 0 for an unscaled row,
+// else the bits of 1 / split_scale(m), which the GEMMs multiply into the row's outputs (exact: a power of two).
+float f16_range_scale(float m)
+{
+    return m < 32768.0 ? 1.0 : split_scale(m);
+}
+
+// The factor undoing a row's range scale, from its scale word.
+float f16_range_inverse(uint word)
+{
+    return word == 0 ? 1.0 : asfloat(word);
+}
+
 // Two values as packed f16 hi parts (returned) and lo parts.
 uint split_h2(float a, float b, out uint lo)
 {
