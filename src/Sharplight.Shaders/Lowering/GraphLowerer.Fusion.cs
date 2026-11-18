@@ -46,6 +46,16 @@ public sealed partial class GraphLowerer
             FoldExpertSums(units, consumers);
         }
 
+        if (!DiagnosticSwitches.NoBiasFold && !DiagnosticSwitches.NoGatherFold)
+        {
+            FoldExpertBiases(units, consumers);
+        }
+
+        if (!DiagnosticSwitches.NoDualMatMul)
+        {
+            FindExpertHalves(units, consumers);
+        }
+
         FoldScatterChains(units, consumers);
         if (!DiagnosticSwitches.NoConvEpilogue)
         {
@@ -405,6 +415,133 @@ public sealed partial class GraphLowerer
         }
 
         units.RemoveAll(removed.Contains);
+    }
+
+    /// <summary>
+    /// A single-node Add group that adds the per-expert bias rows of the routed experts (a folded row gather by the same routing)
+    /// to an expert product (MatMulId), the Add being the product's only reader, joins the product's unit
+    /// (<see cref="LoweringUnit.BiasAdd"/> with the gather in <see cref="LoweringUnit.Gathers"/>): e.g. gpt-oss's gate / up biases.
+    /// </summary>
+    private void FoldExpertBiases(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var unitOf = new Dictionary<Node, LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not null)
+            {
+                unitOf[unit.Node] = unit;
+            }
+        }
+
+        var removed = new HashSet<LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Fused is not [{ Op.Name: "Add" } add] || unit.Gathers is not [{ } gather] || unit.NormHead is not null
+                || unit.NormTail is not null || unit.Dual is not null || unit.ExpertSum is not null)
+            {
+                continue;
+            }
+
+            int slot = add.Inputs[0].Producer is { Op.Name: "MatMulId" } && add.Inputs[1] == gather.Output ? 0
+                : add.Inputs[1].Producer is { Op.Name: "MatMulId" } && add.Inputs[0] == gather.Output ? 1 : -1;
+            if (slot < 0)
+            {
+                continue;
+            }
+
+            var product = add.Inputs[slot];
+            var matmul = product.Producer!;
+            if (!unitOf.TryGetValue(matmul, out var matmulUnit) || matmulUnit.BiasAdd is not null || matmulUnit.Absorbed is not null
+                || _segmentOutputs.Contains(product) || !consumers.TryGetValue(product, out var readers) || readers.Count != 1
+                || !IsExpertEpilogueGather(gather, matmul) || add.Output.Type != DataType.F32 || !add.Output.Shape.Equals(product.Shape))
+            {
+                continue;
+            }
+
+            matmulUnit.BiasAdd = add;
+            matmulUnit.Gathers = [gather];
+            removed.Add(unit);
+        }
+
+        units.RemoveAll(removed.Contains);
+    }
+
+    /// <summary>
+    /// Marks expert products whose output (after an optional folded bias Add) is only read as its two halves along the last axis
+    /// by one elementwise group (<see cref="LoweringUnit.Halves"/>): gpt-oss's fused gate / up projection. The units stay in place;
+    /// the product's lowering emits the dual grouped GEMM that stores the group.
+    /// </summary>
+    private void FindExpertHalves(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var unitOf = new Dictionary<Node, LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not null)
+            {
+                unitOf[unit.Node] = unit;
+            }
+        }
+
+        foreach (var unit in units)
+        {
+            if (unit.Fused is not { } group || unit.NormHead is not null || unit.NormTail is not null || unit.Dual is not null
+                || unit.ExpertSum is not null || unit.Gathers is not null || unit.ConvHead is not null || unit.MatMulHead is not null)
+            {
+                continue;
+            }
+
+            var inGroup = group.ToHashSet();
+            var external = group.SelectMany(n => n.Inputs).Where(v => v.Producer is null || !inGroup.Contains(v.Producer)).Distinct().ToList();
+            if (external.Count != 2 || external.Any(v => v.Producer is not { Op.Name: "Slice" } || _segmentOutputs.Contains(v)
+                || !consumers.TryGetValue(v, out var r) || r.Any(c => !inGroup.Contains(c))))
+            {
+                continue;
+            }
+
+            var low = external[0].Producer!;
+            var high = external[1].Producer!;
+            var whole = low.Inputs[0];
+            if (high.Inputs[0] != whole || whole.Shape.Rank != 3 || whole.Shape[2].IsSymbolic || whole.Type != DataType.F32)
+            {
+                continue;
+            }
+
+            long width = whole.Shape[2].Fixed;
+            (long Axis, long Start, long Length) Of(Node s) => (NormAxis(s.Attributes.Get("axis", 0L), 3), s.Attributes.Get("start", 0L), s.Attributes.Get("length", 0L));
+            var (la, ls, ll) = Of(low);
+            var (ha, hs, hl) = Of(high);
+            if (ls != 0)
+            {
+                (low, high, la, ls, ll, ha, hs, hl) = (high, low, ha, hs, hl, la, ls, ll);
+            }
+
+            if (la != 2 || ha != 2 || ls != 0 || ll != width / 2 || hs != width / 2 || hl != width / 2 || width % 32 != 0)
+            {
+                continue;
+            }
+
+            // The whole output: the product itself, or the output of its folded bias Add; read by the two slices only.
+            if (_segmentOutputs.Contains(whole) || !consumers.TryGetValue(whole, out var readers) || readers.Count != 2
+                || !readers.Contains(low) || !readers.Contains(high))
+            {
+                continue;
+            }
+
+            Node? product = whole.Producer switch
+            {
+                { Op.Name: "MatMulId" } p => p,
+                { Op.Name: "Add" } add => add.Inputs.Select(v => v.Producer).FirstOrDefault(p => p is { Op.Name: "MatMulId" } m && unitOf.TryGetValue(m, out var u) && u.BiasAdd == add),
+                _ => null,
+            };
+            if (product is null || !unitOf.TryGetValue(product, out var productUnit) || productUnit.Absorbed is not null || productUnit.Halves is not null
+                || (whole.Producer != product && productUnit.BiasAdd != whole.Producer) || (whole.Producer == product && productUnit.BiasAdd is not null)
+                || group.Select(n => n.Output).Count(v => EscapesGroup(v, consumers, inGroup)) != 1)
+            {
+                continue;
+            }
+
+            productUnit.Halves = (unit, low, high);
+        }
     }
 
     /// <summary>

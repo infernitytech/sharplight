@@ -24,7 +24,8 @@
 // are a row-ranged copy (common.slang, f16_range_scale) whose scale words start X_RS bytes after x: the stores multiply each
 // row's results by its inverse scale. f32 rows get the same range guard in the kernel (each row's largest magnitude first,
 // skRowScale). DUAL: w and w2
-// (same shape and format) give SK_FN fragments each, combined by epi2 per element before the store.
+// (same shape and format) give SK_FN fragments each, combined by epi2 per element before the store (with MOE: by
+// MOE_EPI(m0, m1, e, n) of the expert pair, see DUAL in matmul.slang).
 // MOE (with X_SORTED and X_F16): the expert-grouped form of a MatMulId (see MOE / X_SORTED in matmul.slang). Each workgroup row
 // of the grid (gid.y) is one expert tile of up to 16 rows of the routing scratch; the tile's rows are the dense sorted f16 rows
 // rowOffset .. rowOffset + rows - 1 of x, its weights expert `expert` of w, and row r of the result goes to y row item(r)
@@ -77,8 +78,8 @@ using namespace linalg;
 #if SK_SG % SK_KS != 0
 #error "SK_KS must divide SK_SG"
 #endif
-#if MOE && (!X_SORTED || !X_F16 || DUAL)
-#error "the expert-grouped skinny GEMM needs expert-sorted f16 rows and a single matrix"
+#if MOE && (!X_SORTED || !X_F16)
+#error "the expert-grouped skinny GEMM needs expert-sorted f16 rows"
 #endif
 #define SK_NB (SK_FN * (1 + DUAL))          // B fragments (16 weight rows each) per subgroup
 #define SK_AS (SK_BK + 8)                   // staged row stride in halves (padding against bank conflicts)
@@ -193,7 +194,7 @@ uint2 sk_decode_pair(uint4 r0, uint4 r1, uint f)
 
 #if !SK_DIRECT
 // Staged path: accumulates the workgroup's share of K into acc.
-void sk_staged(uint n0, uint sg, uint lane, Params p, float* xb, uint T, uint8_t* wb, inout SkC acc[SK_FM][SK_NB])
+void sk_staged(uint n0, uint sg, uint lane, Params p, float* xb, uint T, uint8_t* wb, uint8_t* wb2, inout SkC acc[SK_FM][SK_NB])
 {
     uint aBase = sg * SK_A_WORDS, bBase = sg * SK_B_WORDS;
     uint4 xs[SK_A_PER_LANE];
@@ -216,7 +217,7 @@ void sk_staged(uint n0, uint sg, uint lane, Params p, float* xb, uint T, uint8_t
         }                                                                                               \
     }
 #if DUAL
-    #define SK_LOAD_W2(wr, g16, dst) else { sk_fetch_row(p.w2, wr, g16, dst[0], dst[1]); }
+    #define SK_LOAD_W2(wr, g16, dst) else { sk_fetch_row(wb2, wr, g16, dst[0], dst[1]); }
 #else
     #define SK_LOAD_W2(wr, g16, dst)
 #endif
@@ -319,7 +320,7 @@ bool sk_direct_layout(uint tid, uint lane)
 #else
 #define SK_EXP_X 1
 #endif
-void sk_direct(uint n0, uint kp, uint lane, Params p, float* xb, uint T, uint8_t* wb, inout SkC acc[SK_FM][SK_NB])
+void sk_direct(uint n0, uint kp, uint lane, Params p, float* xb, uint T, uint8_t* wb, uint8_t* wb2, inout SkC acc[SK_FM][SK_NB])
 {
     uint g = lane / 4, c = lane % 4;
     uint4 xr[SK_FM][2][2], wr[SK_NB][2][2];
@@ -349,7 +350,7 @@ void sk_direct(uint n0, uint kp, uint lane, Params p, float* xb, uint T, uint8_t
         }                                                                                               \
     }
 #if DUAL
-    #define SKD_WPTR(j) ((j) >= SK_FN ? p.w2 : wb)
+    #define SKD_WPTR(j) ((j) >= SK_FN ? wb2 : wb)
 #else
     #define SKD_WPTR(j) wb
 #endif
@@ -427,6 +428,11 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
     GRID_BIND(p);
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
+#if MOE && MOE_TILE_MAJOR
+    // Expert tiles along gid.x: the tiles of one expert (and of all experts) run side by side for each column chunk, so an
+    // expert's second tile reads the chunk from L2 instead of DRAM.
+    gid.xy = gid.yx;
+#endif
     uint n0 = gid.x * SK_COLS;
     // The subgroup's weight rows and K phase.
     uint sn0 = n0 + (sg / SK_KS) * (SK_FN * 16), kp = sg % SK_KS;
@@ -438,11 +444,21 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
     uint T = p.scratch[3 + 3 * tile];
     float* xb = (float*)(uint64_t(p.x) + uint64_t(rowOff) * X_STRIDE * 2);
     uint8_t* wb = rowStart(p.w, EXPERT_BYTES, expert);
+#if DUAL
+    uint8_t* wb2 = rowStart(p.w2, EXPERT_BYTES, expert);
+#else
+    uint8_t* wb2 = wb;
+#endif
     for (uint r = tid; r < SK_FM * 16; r += SK_SG * 32) skItem[r] = r < T ? p.scratch[1 + 3 * MAXTILES + rowOff + r] : 0u;
 #else
     uint T = p.T;
     float* xb = p.x;
     uint8_t* wb = p.w;
+#if DUAL
+    uint8_t* wb2 = p.w2;
+#else
+    uint8_t* wb2 = wb;
+#endif
 #endif
 
     SkC acc[SK_FM][SK_NB];
@@ -468,14 +484,14 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 #if SK_DIRECT
     if (sk_direct_layout(tid, lane))
     {
-        sk_direct(sn0, kp, lane, p, xb, T, wb, acc);
+        sk_direct(sn0, kp, lane, p, xb, T, wb, wb2, acc);
     }
     else
     {
         [ForceUnroll] for (int j = 0; j < SK_NB; j++) acc[0][j] = SkC(asfloat(0x7FC00000u));
     }
 #else
-    sk_staged(sn0, kp, lane, p, xb, T, wb, acc);
+    sk_staged(sn0, kp, lane, p, xb, T, wb, wb2, acc);
 #endif
 
     // Sum the subgroups' partial tiles fragment by fragment through the (now free) B slices: subgroup s stores its 16x16
@@ -514,10 +530,14 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 #if DUAL
                     float s2 = 0;
                     [ForceUnroll] for (uint z = 0; z < SK_KS; z++) s2 += asfloat(skB[(2 * (cg * SK_KS + z) * 256 + 256 + e) / 4][e % 4]);
+#if MOE
+                    s = MOE_EPI(s, s2 * inv, expert, n);
+#else
                     s = epi2(s, s2 * inv);
 #endif
+#endif
 #if MOE
-                    p.y[uint64_t(skItem[t]) * Y_STRIDE + n] = s;
+                    p.y[uint64_t(skItem[t]) * Y_STRIDE + n] = MOE_STORE1(s, expert, n, skItem[t]);
 #else
                     p.y[uint64_t(t) * Y_STRIDE + n] = s;
 #endif

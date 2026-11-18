@@ -347,6 +347,33 @@ public sealed class MoeTests
     }
 
     /// <summary>
+    /// An expert product whose only reader adds the routed experts' bias rows (gpt-oss's fused gate / up projection, read by two
+    /// strided halves afterwards): the grouped GEMMs (skinny and gemm_cm2, 32- to 128-row tiles) add the bias in their store, the
+    /// per-item matvecs run a separate Add.
+    /// </summary>
+    [Theory]
+    [InlineData("mxfp4", 1)]
+    [InlineData("mxfp4", 12)]
+    [InlineData("mxfp4", 40)]
+    [InlineData("mxfp4", 300)]
+    [InlineData("bf16", 30)]
+    [InlineData("q4_k", 120)]
+    public void ExpertBiasEpilogue(string fmt, int t)
+    {
+        Gpu.Require();
+        const int E = 8, S = 4, K = 256, H = 96;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, S);
+        var product = tg.B.Emit1("MatMulId", [x, tg.RandW("gate_up", DataType.Get(fmt), 0.1f, E, 2 * H, K), ids]);   // [T, S, 2H]
+        var bias = tg.B.Emit1("GatherAxis", [tg.RandW("b", DataType.F32, 1f, E, 2 * H), ids], Attributes.From(("axis", 0L)));
+        var biased = tg.B.Add(product, bias);
+        tg.B.Output("y", tg.B.Mul(tg.B.Silu(tg.B.Slice(biased, 2, 0, H)), tg.B.Slice(biased, 2, H, H)));
+        Diff.Check("MatMulId.bias-epilogue." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (ids, Ids("random", t, S, E))),
+            atol: 1.0, rtol: 5e-2, maxTokens: 320, what: $"T={t}");
+    }
+
+    /// <summary>
     /// A whole routed-expert block: gate and up products with per-expert biases and their activation (the dual expert matvec at
     /// decode sizes), the down product with its bias, scaled by the router weights and summed over the slots (the slot-sum expert
     /// matvec), on decode and prefill batch sizes.
@@ -358,6 +385,10 @@ public sealed class MoeTests
     [InlineData("q4_k", 8, 1)]
     [InlineData("q4_k", 8, 9)]
     [InlineData("q8_0", 2, 5)]
+    [InlineData("mxfp4", 4, 150)]
+    [InlineData("mxfp4", 4, 520)]
+    [InlineData("bf16", 4, 90)]
+    [InlineData("q4_k", 8, 200)]
     public void RoutedExpertBlock(string fmt, int s, int t)
     {
         Gpu.Require();
@@ -378,6 +409,6 @@ public sealed class MoeTests
         tg.B.Output("y", summed);
         Diff.Check("MatMulId.routed." + fmt, tg.B.Build(),
             new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (ids, Ids("random", t, s, E)), (weights, Rnd.F((long)t * s, 5))),
-            atol: 2.0, rtol: 5e-2, maxTokens: 128, what: $"S={s} T={t}");
+            atol: 2.0, rtol: 5e-2, maxTokens: 640, what: $"S={s} T={t}");
     }
 }

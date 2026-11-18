@@ -1,0 +1,16 @@
+== MOE_DUAL=3
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 64 | 107 (1) | 72.2 | 750 / 554 | 29.71 / 30.60, 29.55 |  |
+| 64 | 256 (1) | 56.6 | 798 / 554 | 40.07 / 40.43, 39.94 |  |
+| 64 | 448 (1) | 65.9 | 798 / 554 | 54.72 / 55.62, 54.57 |  |
+== MOE_DUAL=0
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 64 | 107 (1) | 72.8 | 750 / 554 | 29.86 / 30.79, 29.69 |  |
+| 64 | 256 (1) | 55.0 | 798 / 554 | 40.26 / 40.55, 40.10 |  |
+| 64 | 448 (1) | 66.6 | 798 / 554 | 54.92 / 55.77, 54.73 |  |
