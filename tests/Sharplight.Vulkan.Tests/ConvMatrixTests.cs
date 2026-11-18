@@ -135,4 +135,35 @@ public sealed class ConvMatrixTests
         Diff.Check("Conv.matrix.f16", g, new Step(1, 0, (x, Rnd.F((long)c * hw * hw, 51))), atol: 2e-2, rtol: 1e-2, maxTokens: 1,
             allowReducedPrecision: true, what: $"C={c} {hw}x{hw} O={o}");
     }
+
+    /// <summary>
+    /// Batches of 1 to 7 rows through one compiled conv whose split-K choice depends on the batch (split for small batches,
+    /// unsplit for larger ones), followed by a broadcast add of a per-image vector computed before the conv (the SD UNets'
+    /// time embedding): the unsplit batches run through the split-K workspace too, which must hold their partials. It was
+    /// sized for the split batches only, so three rows and more wrote past it and overwrote the vector. With and without the
+    /// matrix features (conv_cm, the SIMT conv).
+    /// </summary>
+    [Theory]
+    [InlineData(320, 64, 320, false)]
+    [InlineData(320, 64, 320, true)]
+    [InlineData(640, 32, 640, false)]
+    [InlineData(640, 32, 640, true)]
+    public void SplitKAcrossBatches(int c, int hw, int o, bool simt)
+    {
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, c, hw, hw);
+        var e = tg.InF("e", TG.T, o);
+        var vector = tg.B.Reshape(tg.B.Silu(e), 0, o, 1, 1);
+        var w = tg.RandW("w", DataType.F32, 0.05f, o, c, 3, 3);
+        var attrs = Attributes.From(("strides", new long[] { 1, 1 }), ("pads", new long[] { 1, 1, 1, 1 }), ("dilations", new long[] { 1, 1 }),
+            ("groups", 1L));
+        var conv = tg.B.Emit1("Conv", [x, w, tg.RandW("b", DataType.F32, 1f, o)], attrs);
+        tg.B.Output("y", tg.B.Add(conv, vector));
+        var g = tg.B.Build();
+        int[] batches = [1, 2, 3, 5, 7, 4, 3];
+        var steps = batches.Select((n, i) => new Step(n, 0, (x, Rnd.F((long)n * c * hw * hw, 70 + i)), (e, Rnd.F((long)n * o, 80 + i)))).ToArray();
+        IReadOnlySet<string>? disabled = simt ? new HashSet<string> { DeviceFeatures.MatrixF16, DeviceFeatures.MatrixBF16, DeviceFeatures.MatrixF16Small } : null;
+        Diff.Check("Conv.splitk.batches", g, steps, atol: 1e-4, rtol: 1e-4, maxTokens: 7, disabledFeatures: disabled,
+            what: $"C={c} {hw}x{hw} O={o}{(simt ? " simt" : "")}");
+    }
 }

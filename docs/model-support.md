@@ -2059,8 +2059,10 @@ predict: 8 (noisy latents + the input image's latents), 9 (noisy latents, the la
   strength does not apply), the image's latents enter unscaled (the VAE mode, not its scaled mean), and a guided step evaluates three rows
   (instruction and image, empty prompt and image, empty prompt and zeros) combined as `uncond + gs · (text − image) + igs · (image − uncond)`.
   `ImageGenerationOptions.ImageGuidanceScale` (default 1.5; below 1 disables guidance) and `ImageGenerationDefaults.ImageGuidanceScale` expose it.
-  Vulkan's UNet kernels give wrong results for a batch of three (the CPU is exact; found while verifying), so a three-row step runs as two
-  rows and one.
+  A three-row step is one denoiser run (the denoiser's batch bound is 3 for image-conditioned UNets). Vulkan once gave wrong results for
+  batches of three and more (found while verifying): the convs' split-K workspace was sized over the batches that split only (one and two
+  rows for the SD UNets), so a larger batch running unsplit through it wrote past it and overwrote the time embedding; it now holds every
+  batch's partials (`ConvMatrixTests.SplitKAcrossBatches`, `TinyUNetBatchTests`, the three-row case of `SdEditTests` on Vulkan).
 - Inpainting UNets: `Image` and `Mask` as for the 4-channel models, but the UNet sees the mask and the masked image (grey where the mask is
   set, as diffusers' `image * (mask < 0.5)` in [-1, 1]), so there is no re-imposing of the known part after each step (diffusers does that
   only for 4-channel UNets) and a strength of 1 starts from pure noise.

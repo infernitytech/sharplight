@@ -691,8 +691,9 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var denoiser = Compiled(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, run.Dimensions);
         int rows = run.Rows;
         var batchDim = Input(denoiser, DiffusionGraphs.Latent).Shape[0];
-        // Three-row steps (image guidance) run as two rows and one row: the Vulkan UNet kernels are exact for batches of one and two only.
-        int perRun = batchDim.IsSymbolic ? Math.Min(rows, 2) : (int)batchDim.Fixed;
+        // A symbolic batch runs every row of a step at once, up to the component's bound (three rows for image guidance).
+        long bound = _model.Description.Component(ModelComponentRoles.Denoiser).SymbolBounds.GetValueOrDefault(DiffusionGraphs.BatchSymbol, rows);
+        int perRun = batchDim.IsSymbolic ? (int)Math.Min(rows, Math.Max(1, bound)) : (int)batchDim.Fixed;
         var output = new float[run.LatentSize * rows];
         if (perRun >= rows)
         {

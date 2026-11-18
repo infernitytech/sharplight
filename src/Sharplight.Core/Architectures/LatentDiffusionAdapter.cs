@@ -170,7 +170,10 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
         }
 
         long batch1 = 1;
-        long batch2 = 2;
+        // A guided step evaluates two rows (unconditional and conditional); with image guidance (InstructPix2Pix) three.
+        long denoiserRows = unet.ConditionChannels > 0
+            && src.Get(Prefix + "unet.condition_mode", unet.ConditionChannels == 4 ? DiffusionConfigKeys.ConditionImage : DiffusionConfigKeys.ConditionInpaint)
+                == DiffusionConfigKeys.ConditionImage ? 3 : 2;
         int nativeSize = unet.SampleSize * vae.Downscale;
         return new ModelDescription
         {
@@ -195,7 +198,7 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
                     Graphs = [DiffusionGraphs.Denoise],
                     WeightPrefixes = ["unet."],
                     Config = DenoiserConfig(unet, src),
-                    SymbolBounds = new Dictionary<string, long> { [DiffusionGraphs.BatchSymbol] = batch2 },
+                    SymbolBounds = new Dictionary<string, long> { [DiffusionGraphs.BatchSymbol] = denoiserRows },
                 },
                 new ModelComponent
                 {
