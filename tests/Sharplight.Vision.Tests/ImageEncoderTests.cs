@@ -123,6 +123,8 @@ public class ImageEncoderTests
     [InlineData("dinov2-base")]
     [InlineData("dinov2-with-registers-base")]
     [InlineData("dino-vitb16")]
+    [InlineData("dinov3-vits16-pretrain-lvd1689m")]
+    [InlineData("dinov3-vitb16-pretrain-lvd1689m")]
     [InlineData("vit-base-patch16-224-in21k")]
     public async Task Dinov2EmbeddingMatchesTransformers(string name)
     {
@@ -143,6 +145,38 @@ public class ImageEncoderTests
             Assert.Equal(expected.Length, embedder.Dimensions);
             var (maxAbs, _, rms) = Env.Compare(embedding, expected);
             Assert.True(rms < 2e-3, $"{backend}: embedding relative rms {rms}, max abs {maxAbs}");
+        }
+    }
+
+    [Fact]
+    public async Task Dinov3EmbeddingRoundTripsThroughSlm()
+    {
+        const string name = "dinov3-vits16-pretrain-lvd1689m";
+        if (!Available(name))
+        {
+            return;
+        }
+
+        var expected = Floats(Reference(name).GetProperty("pooled"));
+        var image = PngCodec.Read(Path.Combine(Model(name), "sharplight-sample.png"));
+        string dir = Path.Combine(Path.GetTempPath(), "sl-slm-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string package = Path.Combine(dir, "model.slm");
+            TestHost.Converter.Convert(Model(name), package);
+            foreach (var (backend, slot) in Backends())
+            {
+                using var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = package, Devices = [slot] });
+                using var embedder = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageEmbedder>(model);
+                var embedding = await embedder.EmbedImageAsync(image, new ImageEmbeddingOptions { Normalize = false }, TestContext.Current.CancellationToken);
+                var (maxAbs, _, rms) = Env.Compare(embedding, expected);
+                Assert.True(rms < 2e-3, $"{backend}: embedding relative rms {rms}, max abs {maxAbs}");
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
         }
     }
 

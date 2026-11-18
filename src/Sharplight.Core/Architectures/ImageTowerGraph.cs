@@ -27,7 +27,7 @@ internal static class ImageTowerGraph
         var b = new GraphBuilder(name, src.Weight);
         var patches = b.Input("patches", InputRole.Media, DataType.F32, new Shape(n, 3 * o.Patch * o.Patch));
         var x = Embed(b, patches, o, out int rows);
-        x = TowerBlocks.Layers(b, x, t, rows, causal: false);
+        x = TowerBlocks.Layers(b, x, t, rows, causal: false, rotate: o.RopeTheta > 0 ? TowerBlocks.PatchRope(b, grid, t.HeadSize, o.RopeTheta, rows) : null);
         using (b.Group(p + "output"))
         {
             x = TowerBlocks.LayerNorm(b, x, p + "output_norm", t.Eps);
@@ -88,7 +88,10 @@ internal static class ImageTowerGraph
                 x = b.Concat(0, b.Reshape(b.Weight(p + "class_embedding"), 1, t.Hidden), x);
             }
 
-            x = b.Add(x, b.Weight(p + "position_embedding.weight"), "inp_pos_embd");
+            if (b.HasWeight(p + "position_embedding.weight"))
+            {
+                x = b.Add(x, b.Weight(p + "position_embedding.weight"), "inp_pos_embd");
+            }
             if (o.Registers > 0)
             {
                 x = b.Concat(0, b.Slice(x, 0, 0, 1), b.Weight(p + "register_embedding.weight"), b.Slice(x, 0, 1, n));
