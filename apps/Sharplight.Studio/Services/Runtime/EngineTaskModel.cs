@@ -134,6 +134,26 @@ internal sealed class EngineTaskModel : IEngineModel
     }
 
     /// <inheritdoc/>
+    public async Task<RerankerLease> AcquireRerankerAsync(CancellationToken cancellationToken)
+    {
+        if (Kind != ModelKindCatalog.Reranker)
+        {
+            throw new NotSupportedException($"{Id} ({Kind}) is not a reranking model.");
+        }
+
+        var lease = await _host.AcquireAsync(Id, ModelKind.Reranker, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return new RerankerLease((lease.As<LoadedModel>() as IRerankerModel)?.Reranker ?? throw new InvalidOperationException($"{Id} is not a reranking model."), lease);
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
     public int CountTokens(string text) => 0;
 
     /// <inheritdoc/>

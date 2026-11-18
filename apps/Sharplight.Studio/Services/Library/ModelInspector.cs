@@ -42,6 +42,11 @@ internal static class ModelInspector
                 }
             }
 
+            if (graphs.Contains(WellKnown.ClassifyGraph) && kind == ModelKinds.TextGeneration)
+            {
+                kind = ModelKindCatalog.Reranker;
+            }
+
             int? context = definition.Properties.TryGetValue(WellKnown.ContextLength, out var raw) ? ToInt(raw) : null;
             var precompiled = package.ArtifactSets.Select(set => set.ToString()).ToList();
             return new InspectedModel(capabilities, context, definition.Architecture, kind, KindInferred: false, precompiled);
@@ -73,9 +78,17 @@ internal static class ModelInspector
 
         if (path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
         {
-            if (GgufArchitecture(path) is "whisper")
+            string? architecture = GgufArchitecture(path);
+            if (architecture is "whisper")
             {
                 return ModelKinds.SpeechRecognition;
+            }
+
+            if (architecture is not null && s_encoderGgufArchitectures.Contains(architecture))
+            {
+                return System.IO.Path.GetFileName(path).Contains("rerank", StringComparison.OrdinalIgnoreCase) || GgufPooling(path, architecture) == 4
+                    ? ModelKindCatalog.Reranker
+                    : ModelKindCatalog.Embeddings;
             }
 
             return System.IO.Path.GetFileName(path).Contains("outetts", StringComparison.OrdinalIgnoreCase) ? ModelKinds.SpeechSynthesis : ModelKinds.TextGeneration;
@@ -95,6 +108,26 @@ internal static class ModelInspector
     {
         "whisper", "moonshine", "parakeet_ctc", "parakeet_tdt", "parakeet_rnnt", "canary", "voxtral",
     };
+
+    /// <summary>The <c>general.architecture</c> values of llama.cpp's bidirectional encoders (embedding models and cross-encoder rerankers).</summary>
+    private static readonly HashSet<string> s_encoderGgufArchitectures = new(StringComparer.Ordinal)
+    {
+        "bert", "nomic-bert", "nomic-bert-moe", "jina-bert-v2", "jina-bert-v3",
+    };
+
+    /// <summary>The <c>pooling_type</c> of an encoder GGUF file (4 marks a ranking model), or -1.</summary>
+    private static long GgufPooling(string path, string architecture)
+    {
+        try
+        {
+            using var file = Sharplight.Import.Gguf.GgufFile.Open(path);
+            return file.Metadata.TryGetValue($"{architecture}.pooling_type", out var value) ? Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture) : -1;
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or NotSupportedException or UnauthorizedAccessException or FormatException or InvalidCastException)
+        {
+            return -1;
+        }
+    }
 
     /// <summary>The <c>general.architecture</c> of a GGUF file, or null when it has none or cannot be read.</summary>
     private static string? GgufArchitecture(string path)
@@ -131,26 +164,73 @@ internal static class ModelInspector
     /// </summary>
     private static string KindOfConfig(string config, string folder)
     {
-        if (IsSpeechRecognitionConfig(config))
-        {
-            return ModelKinds.SpeechRecognition;
-        }
-
+        System.Text.Json.JsonElement root;
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(config));
-            var root = document.RootElement;
-            if (root.ValueKind == System.Text.Json.JsonValueKind.Object && root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _))
-            {
-                return ModelKinds.SpeechSynthesis;
-            }
+            root = document.RootElement.Clone();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
             return ModelKinds.TextGeneration;
         }
 
+        if (root.ValueKind != System.Text.Json.JsonValueKind.Object)
+        {
+            return ModelKinds.TextGeneration;
+        }
+
+        string? modelType = root.TryGetProperty("model_type", out var type) && type.ValueKind == System.Text.Json.JsonValueKind.String ? type.GetString() : null;
+        if (modelType is not null && s_speechRecognitionModelTypes.Contains(modelType))
+        {
+            return ModelKinds.SpeechRecognition;
+        }
+
+        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts")
+        {
+            return ModelKinds.SpeechSynthesis;
+        }
+
+        var architectures = root.TryGetProperty("architectures", out var list) && list.ValueKind == System.Text.Json.JsonValueKind.Array
+            ? list.EnumerateArray().Select(entry => entry.GetString() ?? "").ToList()
+            : [];
+        bool encoder = modelType is not null && s_encoderModelTypes.Contains(modelType);
+        bool named = folder.Contains("rerank", StringComparison.OrdinalIgnoreCase);
+        if (named || encoder && architectures.Any(name => name.EndsWith("ForSequenceClassification", StringComparison.Ordinal)) && LabelCount(root) <= 1)
+        {
+            // Cross-encoders (one score per pair) and the decoder rerankers (Qwen3-Reranker, scored by a yes/no answer).
+            return ModelKindCatalog.Reranker;
+        }
+
+        if (architectures.Count > 0 && architectures.All(name => name.EndsWith("Model", StringComparison.Ordinal))
+            && (encoder || File.Exists(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(config)!, "modules.json")) || folder.Contains("embed", StringComparison.OrdinalIgnoreCase)))
+        {
+            return ModelKindCatalog.Embeddings;
+        }
+
+        if (folder.Contains("embedding", StringComparison.OrdinalIgnoreCase) && architectures.Any(name => name.EndsWith("ForCausalLM", StringComparison.Ordinal))
+            && File.Exists(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(config)!, "modules.json")))
+        {
+            return ModelKindCatalog.Embeddings;
+        }
+
         return folder.Contains("orpheus", StringComparison.OrdinalIgnoreCase) ? ModelKinds.SpeechSynthesis : ModelKinds.TextGeneration;
+    }
+
+    /// <summary>The Hugging Face <c>model_type</c> values of the bidirectional encoders Sharplight imports as embedding models and cross-encoder rerankers.</summary>
+    private static readonly HashSet<string> s_encoderModelTypes = new(StringComparer.Ordinal)
+    {
+        "bert", "xlm-roberta", "roberta", "modernbert", "nomic_bert", "distilbert", "electra", "eurobert", "jina_bert",
+    };
+
+    private static int LabelCount(System.Text.Json.JsonElement root)
+    {
+        if (root.TryGetProperty("num_labels", out var labels) && labels.ValueKind == System.Text.Json.JsonValueKind.Number)
+        {
+            return labels.GetInt32();
+        }
+
+        return root.TryGetProperty("id2label", out var map) && map.ValueKind == System.Text.Json.JsonValueKind.Object ? map.EnumerateObject().Count() : 1;
     }
 
     private static bool IsSpeechRecognitionConfig(string config)

@@ -108,6 +108,16 @@ internal sealed class FakeModel(string id, ModelCapabilities capabilities = Mode
         return Task.FromResult(new EmbedderLease(Embedder ?? throw new NotSupportedException($"{Id} is not an embedding model.")));
     }
 
+    /// <summary>The reranker of a reranking model (kind <c>reranker</c>).</summary>
+    public Sharplight.Llm.Embeddings.ITextReranker? Reranker { get; set; }
+
+    public Task<RerankerLease> AcquireRerankerAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Leases++;
+        return Task.FromResult(new RerankerLease(Reranker ?? throw new NotSupportedException($"{Id} is not a reranking model.")));
+    }
+
     public int CountTokens(string text) => (text.Length + 3) / 4;
 
     public EngineMetricsSnapshot? GetMetrics() => null;

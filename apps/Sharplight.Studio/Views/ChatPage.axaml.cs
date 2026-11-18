@@ -16,7 +16,12 @@ namespace Sharplight.Studio.Views;
 internal sealed partial class ChatPage : UserControl
 {
     private const double StickDistance = 80;
+
+    /// <summary>Below this page width the settings panel would leave the conversation about a hundred pixels (list 264 + panel 300).</summary>
+    private const double SettingsPanelMinPageWidth = 1000;
+
     private bool _stickToBottom = true;
+    private bool _wasNarrow;
 
     public ChatPage()
     {
@@ -29,6 +34,19 @@ internal sealed partial class ChatPage : UserControl
     }
 
     private ChatPageViewModel? ViewModel => DataContext as ChatPageViewModel;
+
+    /// <summary>Closes the settings panel once when the page becomes too narrow for it; the toggle in the header opens it again.</summary>
+    protected override void OnSizeChanged(SizeChangedEventArgs e)
+    {
+        base.OnSizeChanged(e);
+        bool narrow = e.NewSize.Width < SettingsPanelMinPageWidth;
+        if (narrow && !_wasNarrow && ViewModel is { IsSettingsOpen: true } viewModel)
+        {
+            viewModel.IsSettingsOpen = false;
+        }
+
+        _wasNarrow = narrow;
+    }
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {

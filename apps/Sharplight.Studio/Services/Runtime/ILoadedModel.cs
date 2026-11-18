@@ -83,6 +83,12 @@ internal interface ILoadedModel
     public Task<EmbedderLease> AcquireEmbedderAsync(CancellationToken cancellationToken)
         => throw new NotSupportedException($"{Id} ({Kind}) is not an embedding model.");
 
+    /// <summary>Leases the reranker of a reranking model (kind <see cref="ModelKindCatalog.Reranker"/>), loading the model first when it sleeps.</summary>
+    /// <param name="cancellationToken">Cancels waiting for the load.</param>
+    /// <exception cref="NotSupportedException">The model is not a reranking model.</exception>
+    public Task<RerankerLease> AcquireRerankerAsync(CancellationToken cancellationToken)
+        => throw new NotSupportedException($"{Id} ({Kind}) is not a reranking model.");
+
     /// <summary>Tokens <paramref name="text"/> occupies (an estimate until the model loaded once).</summary>
     public int CountTokens(string text);
 
