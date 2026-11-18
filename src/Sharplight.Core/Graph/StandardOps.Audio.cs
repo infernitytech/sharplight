@@ -142,9 +142,10 @@ public static partial class StandardOps
     /// <c>[T, H, Dv]</c> and the projected relative position embeddings p <c>[2T − 1, H, D]</c>, row r for the distance T − 1 − r (from
     /// T − 1 down to −(T − 1)). Query i attends every key j with the score
     /// <c>scale · (qc_i · k_j + qp_i · p_(T − 1 − i + j))</c>, the position term being that of the distance i − j. Attribute <c>scale</c>.
-    /// Output <c>[T, H, Dv]</c>.
+    /// Output <c>[T, H, Dv]</c>. An optional sixth input, i32 <c>[T, 2]</c>, limits query i to the keys <c>first … first + count − 1</c> of its row
+    /// (chunk-limited attention of streaming conformers); the position term is unchanged.
     /// </summary>
-    public static readonly OpSchema RelativeAttention = new("RelativeAttention", OpCategory.Composite, 5, 5, (i, a) =>
+    public static readonly OpSchema RelativeAttention = new("RelativeAttention", OpCategory.Composite, 5, 6, (i, a) =>
     {
         var q = i[0].Shape;
         var v = i[3].Shape;

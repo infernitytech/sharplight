@@ -110,6 +110,7 @@ public sealed partial class GraphLowerer
         var k = AsDenseF32(Ref(n.Inputs[2]), "relattn-k");
         var v = AsDenseF32(Ref(n.Inputs[3]), "relattn-v");
         var pos = AsDenseF32(Ref(n.Inputs[4]), "relattn-p");
+        var spans = n.Inputs.Length > 5 ? DenseInput(n.Inputs[5], "relattn-spans") : null;
         var y = Produce(n.Output);
         long heads = qc.Shape[1];
         long dim = qc.Shape[2];
@@ -118,10 +119,15 @@ public sealed partial class GraphLowerer
         float scale = n.Attributes.Get("scale", 1f);
         var sb = new StringBuilder();
         sb.AppendLine("#include \"math_ext.slang\"");
-        sb.AppendLine("struct Params { float* in0; float* in1; float* in2; float* in3; float* in4; float* out0; uint rows; };");
+        sb.AppendLine(spans is null
+            ? "struct Params { float* in0; float* in1; float* in2; float* in3; float* in4; float* out0; uint rows; };"
+            : "struct Params { float* in0; float* in1; float* in2; float* in3; float* in4; int* in5; float* out0; uint rows; };");
         sb.AppendLine($"groupshared float red[{Threads}];");
         sb.AppendLine($"groupshared float red2[{Threads}];");
         sb.AppendLine($"groupshared float tile[{Threads}];");
+        string range = spans is null
+            ? "uint jFirst = 0u; uint jEnd = rows;"
+            : "uint jFirst = uint(p.in5[i * 2u]); uint jEnd = min(rows, jFirst + uint(p.in5[i * 2u + 1u]));";
         sb.AppendLine($$"""
             float score(Params p, uint i, uint h, uint j) {
               uint rows = p.rows;
@@ -141,9 +147,10 @@ public sealed partial class GraphLowerer
               uint h = gid.x % {{heads}}u;
               if (i >= rows) return;
               uint t = lt.x;
+              {{range}}
               float m = -3.0e38;
               float l = 0.0;
-              for (uint j = t; j < rows; j += {{Threads}}u) {
+              for (uint j = jFirst + t; j < jEnd; j += {{Threads}}u) {
                 float s = score(p, i, h, j);
                 float mn = max(m, s);
                 l = l * exp(m - mn) + exp(s - mn);
@@ -165,11 +172,11 @@ public sealed partial class GraphLowerer
               float L = red2[0];
               float acc[{{slots}}];
               for (uint r = 0u; r < {{slots}}u; r++) { acc[r] = 0.0; }
-              for (uint j0 = 0u; j0 < rows; j0 += {{Threads}}u) {
+              for (uint j0 = jFirst; j0 < jEnd; j0 += {{Threads}}u) {
                 uint j = j0 + t;
-                tile[t] = j < rows ? exp(score(p, i, h, j) - M) : 0.0;
+                tile[t] = j < jEnd ? exp(score(p, i, h, j) - M) : 0.0;
                 GroupMemoryBarrierWithGroupSync();
-                uint count = min({{Threads}}u, rows - j0);
+                uint count = min({{Threads}}u, jEnd - j0);
                 for (uint jj = 0u; jj < count; jj++) {
                   float wgt = tile[jj];
                   uint vb = ((j0 + jj) * {{heads}}u + h) * {{valueDim}}u;
@@ -193,8 +200,8 @@ public sealed partial class GraphLowerer
         long fixedRows = qc.Shape[0];
         Emit($"relattn {n.Output.Name}", [n],
             [Always(kernel, b => new Grid((uint)((symbol is null ? fixedRows : b[symbol]) * heads)))],
-            [Pointer(qc), Pointer(qp), Pointer(k), Pointer(v), Pointer(pos), Pointer(y), rows],
-            [qc, qp, k, v, pos], [y]);
+            [Pointer(qc), Pointer(qp), Pointer(k), Pointer(v), Pointer(pos), .. spans is null ? [] : (KernelArg[])[Pointer(spans)], Pointer(y), rows],
+            spans is null ? [qc, qp, k, v, pos] : [qc, qp, k, v, pos, spans], [y]);
     }
 
     /// <summary>

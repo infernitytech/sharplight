@@ -17,6 +17,10 @@ namespace Sharplight.Architectures;
 /// of the stack: time and feature stride, groups, whether a ReLU follows), optional <c>encoder.input_scale</c> (factor after the projection,
 /// default 1), <c>encoder.position.base</c> (default 10000), <c>encoder.mlp.activation</c> (default "silu", also the convolution module's),
 /// <c>encoder.norm_eps</c> (default 1e-5), <c>encoder.conv.norm_eps</c> (batch norm, default 1e-5).
+/// Streaming models (Nemotron ASR streaming) add <c>encoder.causal</c> (bool: the subsampling convolutions pad (kernel − 1, stride − 1) on both axes
+/// and the depthwise convolution only to the left), <c>encoder.conv.norm</c> ("batch" (default) or "layer": a LayerNorm with <c>conv.norm.{weight,bias}</c>
+/// instead of the folded batch norm) and <c>encoder.attention.chunked</c> (bool: an i32 <see cref="InputRole.RowSpans"/> input [rows, 2] limits every
+/// row's attention, see <see cref="RowSpansInput"/>).
 /// <para>Weights: <c>encoder.subsampling.{i}.weight</c> [O, C/groups, KT, KW] (padding (K − 1) / 2 on both axes) with optional
 /// <c>.bias</c>; <c>encoder.subsampling.out.weight</c> [H, C · W'] and <c>.bias</c>; per block <c>encoder.layers.{i}.</c>:
 /// <c>ff1_norm</c>, <c>ff1.up</c>, <c>ff1.down</c>, <c>attention_norm</c>, <c>attention.{q,k,v,o}</c>, <c>attention.position.weight</c>
@@ -29,6 +33,9 @@ namespace Sharplight.Architectures;
 /// </remarks>
 internal sealed class ConformerEncoder
 {
+    /// <summary>The name of the optional attention spans input [rows, 2] (first key, key count of every row).</summary>
+    public const string RowSpansInput = "row_spans";
+
     private readonly ModelSource _src;
     private readonly int _hidden;
     private readonly int _layers;
@@ -42,6 +49,9 @@ internal sealed class ConformerEncoder
     private readonly float _inputScale;
     private readonly float _eps;
     private readonly string _activation;
+    private readonly bool _causal;
+    private readonly bool _layerNorm;
+    private readonly bool _chunked;
     private readonly float[] _frequencies;
 
     /// <summary>Reads the hyper-parameters and adds the derived weights (f32 kernels, folded batch norms) to <paramref name="weights"/>.</summary>
@@ -66,6 +76,9 @@ internal sealed class ConformerEncoder
         _inputScale = src.Arch("encoder.input_scale", 1f);
         _eps = src.Arch("encoder.norm_eps", 1e-5f);
         _activation = src.Arch("encoder.mlp.activation", "silu");
+        _causal = src.Arch("encoder.causal", false);
+        _layerNorm = src.Arch("encoder.conv.norm", "batch") == "layer";
+        _chunked = src.Arch("encoder.attention.chunked", false);
         _kernels = new long[_strides.Length];
         for (int i = 0; i < _strides.Length; i++)
         {
@@ -81,7 +94,10 @@ internal sealed class ConformerEncoder
             string p = $"encoder.layers.{il}.conv.";
             var depthwise = src.Weight(p + "depthwise.weight") ?? throw new NotSupportedException($"{src.Architecture}: missing '{p}depthwise.weight'.");
             weights[p + "depthwise.kernel"] = ToF32(depthwise, p + "depthwise.kernel");
-            AddFoldedNorm(src, weights, p + "norm", convEps);
+            if (!_layerNorm)
+            {
+                AddFoldedNorm(src, weights, p + "norm", convEps);
+            }
         }
 
         double positionBase = src.Arch("encoder.position.base", 10000.0);
@@ -106,8 +122,7 @@ internal sealed class ConformerEncoder
                 continue;
             }
 
-            long pad = (_kernels[i] - 1) / 2;
-            long extra = (2 * pad) - _kernels[i];
+            long extra = _causal ? (_kernels[i] - 1) + (_strides[i] - 1) - _kernels[i] : (2 * ((_kernels[i] - 1) / 2)) - _kernels[i];
             var padded = extra >= 0 ? frames + extra : frames - (-extra);
             frames = padded.FloorDiv(_strides[i]) + 1;
         }
@@ -121,12 +136,17 @@ internal sealed class ConformerEncoder
     {
         Value x;
         Value distances;
+        Value? spans = null;
         using (b.Group("input"))
         {
             var features = b.Input("features", InputRole.AudioFeatures, DataType.F32, new Shape(Dim.Sym(WellKnown.AudioFrameSymbol), _melBins));
             x = Subsampling(b, features);
             var rows = x.Shape[0];
             distances = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(rows + rows - 1, 1));
+            if (_chunked)
+            {
+                spans = b.Input(RowSpansInput, InputRole.RowSpans, DataType.I32, new Shape(rows, 2));
+            }
         }
 
         var positions = PositionEmbeddings(b, distances);
@@ -143,7 +163,8 @@ internal sealed class ConformerEncoder
             var relative = b.Reshape(b.Linear(positions, p + "attention.position.weight"), 0, _heads, _headDim);
             var content = b.Add(q, b.Weight(p + "attention.bias_u"));
             var position = b.Add(q, b.Weight(p + "attention.bias_v"));
-            var attention = b.Emit1("RelativeAttention", [content, position, k, v, relative], Attributes.From(("scale", scale)), $"{p}attn");
+            Value[] attentionInputs = spans is null ? [content, position, k, v, relative] : [content, position, k, v, relative, spans];
+            var attention = b.Emit1("RelativeAttention", attentionInputs, Attributes.From(("scale", scale)), $"{p}attn");
             x = b.Add(x, Linear(b, b.Reshape(attention, 0, _hidden), p + "attention.o", $"{p}attn_out"));
             x = b.Add(x, ConvolutionModule(b, Norm(b, x, p + "conv_norm"), p + "conv."));
             x = b.Add(x, b.Scale(FeedForward(b, Norm(b, x, p + "ff2_norm"), p + "ff2."), 0.5f));
@@ -161,8 +182,10 @@ internal sealed class ConformerEncoder
         {
             string p = $"encoder.subsampling.{i}.";
             long pad = (_kernels[i] - 1) / 2;
+            long before = _causal ? _kernels[i] - 1 : pad;
+            long after = _causal ? _strides[i] - 1 : pad;
             Value[] inputs = b.HasWeight(p + "bias") ? [x, b.Weight(p + "kernel"), b.Weight(p + "bias")] : [x, b.Weight(p + "kernel")];
-            var attributes = Attributes.From(("strides", new[] { _strides[i], _strides[i] }), ("pads", new[] { pad, pad, pad, pad }), ("groups", _groups[i]));
+            var attributes = Attributes.From(("strides", new[] { _strides[i], _strides[i] }), ("pads", new[] { before, before, after, after }), ("groups", _groups[i]));
             x = b.Emit1("SequenceConv2d", inputs, attributes, $"subsampling{i}");
             if (_activate[i])
             {
@@ -194,9 +217,11 @@ internal sealed class ConformerEncoder
         var glu = b.Mul(b.Slice(projected, 1, 0, _hidden), b.Unary("Sigmoid", b.Slice(projected, 1, _hidden, _hidden)));
         var kernel = b.Weight(p + "depthwise.kernel");
         long pad = (kernel.Shape[2].Fixed - 1) / 2;
+        long left = _causal ? kernel.Shape[2].Fixed - 1 : pad;
+        long right = _causal ? 0 : pad;
         Value[] inputs = b.HasWeight(p + "depthwise.bias") ? [glu, kernel, b.Weight(p + "depthwise.bias")] : [glu, kernel];
-        var conv = b.Emit1("Conv1d", inputs, Attributes.From(("pad_left", pad), ("pad_right", pad), ("groups", (long)_hidden)), p + "depthwise");
-        var normed = b.Add(b.Mul(conv, b.Weight(p + "norm.scale")), b.Weight(p + "norm.shift"));
+        var conv = b.Emit1("Conv1d", inputs, Attributes.From(("pad_left", left), ("pad_right", right), ("groups", (long)_hidden)), p + "depthwise");
+        var normed = _layerNorm ? Norm(b, conv, p + "norm") : b.Add(b.Mul(conv, b.Weight(p + "norm.scale")), b.Weight(p + "norm.shift"));
         return Linear(b, Activation(b, normed), p + "pointwise2");
     }
 

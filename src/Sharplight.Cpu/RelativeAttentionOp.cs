@@ -16,6 +16,7 @@ internal sealed unsafe class RelativeAttentionOp : CpuOp
     private readonly TRef _k;
     private readonly TRef _v;
     private readonly TRef _p;
+    private readonly TRef? _spans;
     private readonly TRef _y;
     private readonly float _scale;
     private readonly Action<int> _body;
@@ -23,13 +24,14 @@ internal sealed unsafe class RelativeAttentionOp : CpuOp
     private long _per;
 
     /// <summary>Creates the op.</summary>
-    public RelativeAttentionOp(TRef qc, TRef qp, TRef k, TRef v, TRef p, TRef y, float scale)
+    public RelativeAttentionOp(TRef qc, TRef qp, TRef k, TRef v, TRef p, TRef? spans, TRef y, float scale)
     {
         _qc = qc;
         _qp = qp;
         _k = k;
         _v = v;
         _p = p;
+        _spans = spans;
         _y = y;
         _scale = scale;
         _body = Body;
@@ -77,8 +79,17 @@ internal sealed unsafe class RelativeAttentionOp : CpuOp
             long h = item % heads;
             float* content = qc + (i * keyStride) + (h * dim);
             float* position = qp + (i * keyStride) + (h * dim);
+            long from = 0;
+            long to = rows;
+            if (_spans is not null)
+            {
+                int* spans = (int*)_spans.P;
+                from = spans[2 * i];
+                to = Math.Min(rows, from + spans[(2 * i) + 1]);
+            }
+
             float max = float.NegativeInfinity;
-            for (long j = 0; j < rows; j++)
+            for (long j = from; j < to; j++)
             {
                 float* key = k + (j * keyStride) + (h * dim);
                 float* relative = pos + (((rows - 1 - i) + j) * keyStride) + (h * dim);
@@ -88,7 +99,7 @@ internal sealed unsafe class RelativeAttentionOp : CpuOp
             }
 
             double sum = 0;
-            for (long j = 0; j < rows; j++)
+            for (long j = from; j < to; j++)
             {
                 float e = MathF.Exp(scores[j] - max);
                 scores[j] = e;
@@ -96,7 +107,7 @@ internal sealed unsafe class RelativeAttentionOp : CpuOp
             }
 
             Array.Clear(accumulator);
-            for (long j = 0; j < rows; j++)
+            for (long j = from; j < to; j++)
             {
                 float weight = scores[j];
                 float* value = v + (j * valueStride) + (h * valueDim);

@@ -81,7 +81,7 @@ internal static partial class CpuOpSupport
             "Dft" => AllF32(node),
             "Conv1d" or "ConvTranspose1d" or "Interpolate1d" or "Lstm" => AllF32(node),
             "SequenceConv2d" => AllF32(node),
-            "RelativeAttention" => AllF32(node),
+            "RelativeAttention" => node.Inputs.Length > 5 && node.Inputs[5].Type != DataType.I32 ? OpSupport.No("RelativeAttention: the spans must be i32") : AllF32(node, node.Inputs.Length > 5 ? 5 : null),
             "Random" => OpSupport.Yes,
             "TreeEnsemble" or "OneVsOne" => AllF32(node),
             "LabelEncode" => node.Inputs[0].Type == DataType.F32 || node.Inputs[0].Type == DataType.I32 || node.Inputs[0].Type == DataType.Str
@@ -112,9 +112,9 @@ internal static partial class CpuOpSupport
         && cache.Shape[-1] is { IsSymbolic: false } rowDims && rowDims.Fixed % 32 == 0;
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static OpSupport AllF32(Node node, string what = "inputs")
+    private static OpSupport AllF32(Node node, int? count = null, string what = "inputs")
     {
-        foreach (var v in node.Inputs)
+        foreach (var v in count is { } n ? node.Inputs.Take(n) : node.Inputs)
         {
             if (!F32Like(v))
             {

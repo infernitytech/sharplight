@@ -63,6 +63,8 @@ internal static class HfArchitectureMappings
         Register(new CanaryHfMapping());
         Register(new Qwen3AsrHfMapping());
         Register(new VoxtralHfMapping());
+        Register(new VoxtralRealtimeHfMapping());
+        Register(new NemotronAsrHfMapping());
         foreach (var family in DecoderFamilies())
         {
             Register(family);
