@@ -42,6 +42,7 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
             Fallback = placement.Fallback,
             ContextLength = settings.ContextLength,
             MaxBatchTokens = settings.BatchTokens,
+            Sequences = Math.Max(1, settings.Slots),
             KvCacheType = settings.KvCacheType is { } type ? DataType.Get(type) : null,
             AllowReducedPrecision = settings.ReducedPrecision,
             Auxiliary = auxiliary,

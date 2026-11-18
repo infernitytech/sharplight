@@ -111,6 +111,10 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_MOE_SKINNY=n</c>: average items per expert up to which the expert-grouped skinny GEMM serves the grouped
 /// expert products (0: gemm_cm2 at every size).</item>
 /// <item><c>SHARPLIGHT_MOE_WIDE=fm,fn,sg,ks,n</c>: wide expert tiles of the direct skinny GEMM (experiment, off by default).</item>
+/// <item><c>SHARPLIGHT_MOE_BIAS_EPILOGUE=0</c>: add the routed experts' bias rows to a grouped expert product in a separate
+/// launch instead of in the grouped GEMM's store.</item>
+/// <item><c>SHARPLIGHT_MOE_DUAL=n</c>: gate / up expert pairs on one dual launch storing the elementwise group (bit 0 grouped
+/// gemm_cm2, bit 1 expert-grouped skinny GEMM; default 3, 0: two launches and the group's).</item>
 /// <item><c>SHARPLIGHT_SPLITK_EPILOGUE=0</c>: run a matmul's bias / residual group as its own launch instead of in the split-K
 /// reduction of the f16 tensor-core GEMM.</item>
 /// <item><c>SHARPLIGHT_FP8_SHORT_TILES=1</c>: the fp8 GEMM takes 64-row tiles at 129-192 and 257-320 rows (opt-in).</item>
@@ -467,6 +471,25 @@ internal static class DiagnosticSwitches
     /// expert's last, partly filled tile) to a second launch with half-height tiles, which multiplies less padding.
     /// </summary>
     public static bool MoeSplitTiles { get; } = IsNotZero("SHARPLIGHT_MOE_SPLIT_TILES");
+
+    /// <summary>
+    /// True when a grouped expert product whose only reader adds the routed experts' bias rows adds them in the grouped GEMM's
+    /// store (<c>SHARPLIGHT_MOE_BIAS_EPILOGUE=0</c>: a separate launch).
+    /// </summary>
+    public static bool MoeBiasEpilogue { get; } = IsNotZero("SHARPLIGHT_MOE_BIAS_EPILOGUE");
+
+    /// <summary>
+    /// Grouped expert GEMMs whose gate / up pairs (products feeding one elementwise group) run as one dual launch that stores the
+    /// group: bit 0 the grouped gemm_cm2, bit 1 the expert-grouped skinny GEMM (<c>SHARPLIGHT_MOE_DUAL=n</c>, default 3; 0: two
+    /// grouped GEMMs and the group's launch).
+    /// </summary>
+    public static int MoeDual { get; } = int.Parse(Read("SHARPLIGHT_MOE_DUAL") ?? "3", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Grouped expert GEMMs launched with the expert tiles along the grid's x (bit 0: the expert-grouped skinny GEMM, bit 1:
+    /// gemm_cm2), so the tiles of one expert read each weight chunk at about the same time (<c>SHARPLIGHT_MOE_TILE_MAJOR=n</c>).
+    /// </summary>
+    public static int MoeTileMajor { get; } = int.Parse(Read("SHARPLIGHT_MOE_TILE_MAJOR") ?? "0", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Average (token, slot) items per expert up to which the expert-grouped skinny GEMM (16-row expert tiles) serves the grouped

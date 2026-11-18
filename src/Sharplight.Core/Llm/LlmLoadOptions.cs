@@ -28,6 +28,13 @@ public sealed class LlmLoadOptions : TaskLoadOptions
     public DataType? KvCacheType { get; set; }
 
     /// <summary>
+    /// Sequences the model decodes together (the slots of a serving batch decoder, default 1). The automatic rows per forward pass
+    /// (<see cref="LlmModel.BatchTokens"/>) are bounded by the context of all of them rather than of one: a serving step carries the
+    /// prompt chunks of several sequences, so a short per-sequence context does not shrink the steps that prefill a wave of prompts.
+    /// </summary>
+    public int Sequences { get; set; } = 1;
+
+    /// <summary>
     /// Element type of 16-bit-capable recurrent states (the gated delta rule's state matrices), overriding
     /// <see cref="AdapterOptions.RecurrentStateType"/> of <see cref="TaskLoadOptions.Adapter"/>: f32, bf16 or f16. Null: bf16 when
     /// <see cref="TaskLoadOptions.AllowReducedPrecision"/> is set, otherwise the adapter setting (default f32). The environment variable

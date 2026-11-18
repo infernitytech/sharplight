@@ -6574,3 +6574,175 @@ bench/s48_summarize.py bench/results/s48/qwen3-8b-fp8 2
 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/gguf/Llama-3.2-1B-Instruct-Q8_0.gguf --slots 2 --ctx 4096 --depth 2048 \
   --batch 4096 --sizes 1,2 --modes greedy --reps 40 [--kv-tokens 0]
 ```
+
+## 49. LLM round 10: serving steps as large as vLLM's, fused gate / up halves and expert epilogues in the grouped expert GEMMs (2026-11-18)
+
+Base: `develop` at `91942038` (round 9), branch `perf/llm-r10`. GPU 2 (RTX PRO 4500 Blackwell, 32 GB, nothing else on it), vLLM
+0.33.0 in a virtualenv on local disk, checkpoints on local disk. "Before" is this branch with the switches that restore round 9's
+behaviour (`SHARPLIGHT_MOE_DUAL=0 SHARPLIGHT_MOE_BIAS_EPILOGUE=0`, and `--batch 512` for serving), run in the same session. Raw
+output in [`bench/results/s49/`](../bench/results/s49).
+
+### 49.1 What a serving round is made of (and why the FP8 64-row tiles of 47.5 did not reach it)
+
+`bench/loadgen.py` now also records the cumulative buckets of the server's `sharplight_step_rows` histogram. One 64-stream round
+(192 requests of ~250 prompt and 128 output tokens, closed loop) on round 9's build:
+
+| step rows | ≤ 64 | 65-128 | 129-256 | 257-512 | 513-2048 | steps |
+|---|---:|---:|---:|---:|---:|---:|
+| gpt-oss-20b, 512-row budget (round 9) | 315 | 0 | 2 | 105 | 0 | 422 |
+| gpt-oss-20b, automatic budget (49.2: 2048 rows) | 367 | 1 | 1 | 2 | 24 | 395 |
+| gpt-oss-20b at 16 streams, 512 / 2048 rows | 487 / 505 | 0 / 0 | 2 / 1 | 35 / 3 | 0 / 8 | 524 / 517 |
+
+The steps are bimodal: decode-only steps of at most 64 rows (75 %) and prompt waves at the step budget. The budget was 512 rows,
+not the 2048 of the automatic choice: `LlmModel.BatchTokens` caps the automatic rows at the context length, and the serving
+benchmark gives each of the 64 slots a 512-token context. A step, however, carries the rows of all slots. vLLM schedules up to
+8192 rows per step (`max_num_batched_tokens=8192` in its log) with the same `--max-model-len 512`.
+
+This also answers 47.5: the 64-row FP8 tiles gain at 129-192 and 257-320 rows, and a round has almost no steps in those ranges
+(2 of 422 between 129 and 256 rows; the prompt steps are full 512-row steps, where 64-row tiles pad as many rows as 128-row ones).
+The per-step gain was real but measured at step sizes the scheduler does not produce. The switch stays opt-in.
+
+### 49.2 Rows per serving step bounded by all slots' contexts (kept)
+
+`LlmLoadOptions.Sequences` (new, default 1): the number of sequences decoded together. The automatic rows per pass are now bounded
+by `context × Sequences` instead of the context (still at most 2048, at least 512, and halved while the footprint does not fit);
+the hosting layer (`Sharplight.Hosting`: `sharplight serve` and other hosts built on it) sets it to the model's slots. With 64
+slots of 512 tokens the server now runs 2048-row steps: a 64-stream round takes 395 steps instead of 422 (24 prompt steps of
+1025-2048 rows instead of 105 of 257-512). The per-row cost of a 2048-row step is lower (one weight pass of the experts or dense
+layers per 2048 prompt rows instead of four); TTFT at 64 streams moves from ~180 ms to ~340-380 ms (vLLM: 381-461 ms) and the mean
+inter-token latency falls.
+
+### 49.3 gpt-oss's fused gate / up projection as a dual pair in the grouped expert GEMMs (kept)
+
+gpt-oss stores gate and up as one expert matrix ([E, 2I, H], gate rows first after import); the block computed the 2I-wide product
+(plus the experts' gate / up bias rows) into an f32 [items, 5760] tensor, which the clamped SwiGLU then read as two strided halves.
+At 2048 prompt rows that is 189 MB written and read again per layer, and 0.3 ms of elementwise time per layer.
+
+* `FindExpertHalves` (lowering): an expert product whose output (after a folded bias Add) is only read, as its two halves along the
+  last axis, by one elementwise group marks that group (`LoweringUnit.Halves`).
+* The grouped GEMMs (gemm_cm2 with 32- to 128-row tiles and the expert-grouped skinny GEMM) then run their dual form with N = I and
+  w2 = the same expert's rows I .. 2I - 1 (a pointer I rows further: every format's rows, MXFP4R's 16-row groups included, stay
+  whole for I a multiple of 16); their store adds both halves' bias rows and applies the group (`MOE_EPI`, generated from the
+  group's nodes). The [items, 2I] product is never stored; batches on the per-item matvecs run the product, the Add and the group
+  as before.
+* The same dual form now also serves separate gate / up expert pairs (Qwen3-MoE style, `LowerDualMatMulId`), which ran two grouped
+  GEMMs and the group above the int-dot matvec range. Both use `DUAL` with `MOE` in gemm_cm2 (16-row fragments of w and w2
+  alternate in the B tile; raw MXFP4 units included) and in gemm_sk.
+* Each product is accumulated as in the separate GEMM (same tiles, K steps and MMAs) and the epilogue is the elementwise kernel's
+  expression, so outputs are those of the separate launches (gpt-oss greedy outputs byte-identical with the switches on and off).
+
+`SHARPLIGHT_MOE_DUAL=0` restores the separate launches.
+
+### 49.4 Expert epilogues in the grouped GEMMs' store (kept)
+
+* A bias Add of the routed experts' rows that is an expert product's only reader (`FoldExpertBiases`) is applied in the grouped
+  GEMMs' store (`MOE_BIAS`): the product's f32 tensor and a launch go away for grouped batches.
+* The routed-expert sum's group (down bias and router weight, `LoweringUnit.ExpertSum`) was fused only into the int-dot slot-sum
+  matvec of decode-sized batches; the grouped GEMMs now apply it in their store too (`MOE_EPI1`, the slot-sum matvec's generated
+  epilogue), so the ReduceSum reads the weighted rows straight from the GEMM.
+
+`SHARPLIGHT_MOE_BIAS_EPILOGUE=0` restores the separate launches.
+
+### 49.5 Step times (BatchBench, gpt-oss-20b HF, GPU ms, minimum of 12)
+
+After merging `develop` (49.9), two alternating runs each, GPU ms per step (minimum of 12, the two runs' values); "before" is the same
+build with `SHARPLIGHT_MOE_DUAL=0 SHARPLIGHT_MOE_BIAS_EPILOGUE=0`:
+
+| step | before | after | after / before | dispatches before / after |
+|---|---:|---:|---:|---:|
+| 16 decode rows | 10.06 / 10.09 | 9.97 / 9.97 | 0.99x | 726 / 654 |
+| 64 decode rows | 17.94 / 18.02 | 17.12 / 17.14 | 0.95x | 823 / 751 |
+| 64 decode + 107 prompt rows | 29.75 / 29.92 | 28.78 / 28.90 | 0.97x | 750 / 678 |
+| 64 decode + 448 prompt rows (a 512-row step) | 55.03 / 55.23 | 51.50 / 51.62 | 0.94x | 798 / 726 |
+| 2048 prompt rows | 192.81 / 193.52 | 169.92 / 170.67 | 0.88x | 798 / 726 |
+
+Profile of the 2048-row step before / after (`SHARPLIGHT_VK_PROFILE=1`, per layer): the gate / up GEMM 2.48 + 0.17 ms (half
+tiles) both ways (same weight traffic, now storing 2880 instead of 5760 columns), the clamped SwiGLU 0.30 ms and the gate / up bias
+Add 0.04 ms gone, the down group (bias, router weight) 0.24 ms gone. At 64 decode rows the dual skinny gate / up launch takes 188 µs
+against 211 µs for the single 5760-wide one.
+
+### 49.6 Serving against vLLM (procedure of section 43, median of 3 rounds, same session)
+
+| model | streams | before | after | after / before | vLLM | before / vLLM | after / vLLM | TTFT p50 after / vLLM (ms) | ITL mean after / vLLM (ms) |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---|
+| gpt-oss-20b HF | 16 | 1191 | 1287 | 1.08x | 1432 | 0.83x | **0.90x** | 198 / 174 | 10.7 / 9.9 |
+| | 64 | 2001 | 2244 | 1.12x | 3222 | 0.62x | **0.70x** | 339 / 461 | 24.9 / 16.3 |
+| Qwen3-8B-FP8 HF | 16 | 935 | 937 | 1.00x | 1129 | 0.83x | 0.83x | 219 / 159 | 15.1 / 12.9 |
+| | 64 | 2032 | 2167 | 1.07x | 2732 | 0.74x | **0.79x** | 380 / 389 | 25.4 / 20.0 |
+
+vLLM was rerun in the same session (gpt-oss 1432 / 3222, Qwen3-8B-FP8 1129 / 2732 tok/s: within 1 % of section 46). The serving
+gain comes from both parts: the 2048-row steps (gpt-oss +3-4 % at 16 / 64 streams on round 9's kernels, measured first with the budget
+alone, `budget/`) and the expert epilogues and halves (49.3-49.4, gpt-oss only). Qwen3-8B-FP8 (dense) gains only from the step budget,
+and at 16 streams not at all: a 16-stream wave of 4000 prompt tokens costs about the same in eight 512-row steps as in two 2048-row
+steps on the dense FP8 GEMMs. TTFT at 16 streams doubles (a prompt now waits for a 2048-row step instead of a 512-row one) and is
+then 14 % / 38 % above vLLM's for gpt-oss / Qwen3-8B-FP8; at 64 streams it is at or below vLLM's. These figures were measured before
+merging `develop` (paged KV by default since section 48). Rerun after the merge (`serve-after-merge/`, median of 3): gpt-oss 1279 /
+2235, Qwen3-8B-FP8 934 / 2146 tok/s at 16 / 64 streams, within 1 % of the table.
+
+### 49.7 Tried and not kept
+
+| tried | result |
+|---|---|
+| Expert tiles along the grid's x (`SHARPLIGHT_MOE_TILE_MAJOR`, opt-in switch kept): the tiles of one expert run side by side, so a second tile of an expert reads its weight chunk from L2 | gpt-oss, 64 + 107 rows: gemm_cm2 29.41 → 29.00 ms, skinny with 2 tiles per expert (`SHARPLIGHT_MOE_SKINNY=24`) 34.04 → 34.51 ms; decode-only 18.37 → 18.14-18.18 ms: within the noise. At 20-30 items per expert gemm_cm2 has one tile per expert, so there is no second read to save |
+| 16-row skinny expert tiles up to 24 items per expert (two tiles per expert) | 64 + 107 rows 29.41 → 34.04 ms (as in 47.2) |
+
+### 49.8 The other candidates of the brief
+
+* **Overlapping the down projection with the next layer's gather and routing** (1b of the brief): not built. The next layer's
+  routing needs its router logits, which need the norm of the residual that the down projection's slot sum produces; the gather needs
+  the routing. Within a decode step there is no independent work to overlap with the down projection except across layers of
+  different sequences, which the single step graph does not have. A second compute queue would only help with independent launches
+  (the device has 8 compute-only queues); none exist on this path.
+* **Weight-stationary expert tiles** (1c): at 20-30 items per expert, gemm_cm2 already runs one 32-row tile per expert, so every
+  expert's weights are read once per step; the tile-major order above covers the case with several tiles per expert. The limit
+  of 47.2 (the fetch at ~575 GB/s) is unchanged; this round removed work around the GEMMs instead (49.3, 49.4).
+* **FP8 64-row tiles in serving** (2): answered in 49.1 (the scheduler does not produce those step sizes); the opt-in stays.
+* **FP8 prefill within 48 KB** (3): not attempted this round. The serving analysis moved the priority: at 64 streams FP8 serving
+  spends ~45 % of its time in prompt steps, which the 2048-row budget made cheaper per row (2032 → 2167 tok/s). The FP8 GEMM limits
+  of 42.3 / 44.3 stand (one 36 KB stage per workgroup, 222 registers, per-128-block scaling needs a second accumulator set).
+* **VK_NV_cooperative_matrix2 / VK_NV_cooperative_vector** (4): queried on this driver (595.112, `sharplight --devices -v`).
+  Cooperative vectors offer f16 × f16 → **f16** and int8 → int32 matrix-vector products only: no FP8, FP4 or bf16 matrices and no
+  f32 accumulation, so neither the MXFP4 experts nor the FP8 / bf16 weights can use them without a precision change. Cooperative
+  matrix 2 offers workgroup-scope 32 x 32 x 32 FP8 shapes (256 invocations) with f32 accumulation and tensor-addressed loads; the
+  device stages the tiles within the same 48 KB of shared memory, and section 24.4 measured an FP8 GEMM on it 1.6x slower than
+  `gemm_fp8` (gemm_nv2 for f16 / q8_0 is opt-in for the same reason). No larger effective tile is available through either
+  extension on this driver, so neither was used.
+
+### 49.9 Tests
+
+New tests: `MoeTests.ExpertBiasEpilogue` (6: a gpt-oss-style fused gate / up product with bias rows read as two halves, MXFP4 /
+bf16 / Q4_K, on the skinny GEMM and the 32- to 128-row gemm_cm2 tiles), `MoeTests.RoutedExpertBlock` (4 new cases at 90-520 tokens:
+the dual gate / up pair with biases and the expert-sum epilogue on the grouped GEMMs), `F16RangeTests.Dual_expert_gemm_reads_rows_beyond_f16_range`
+(4: row-ranged rows unscaled before the fused epilogue). The existing `GatedBlockSortedActivations`, `FusedGateUpWithGroupedDown` and
+the MoE range tests now run the dual forms. Greedy output: gpt-oss-20b HF, 200 tokens of two prompts (74 and ~600 tokens), with the
+switches on and off: byte-identical (`greedy/`). After merging `develop` (at `20021ee9`, then again at `986ac6c3` with the CUDA
+provider), on GPU 2:
+
+| suite | after `20021ee9`: total / failed / skipped | after `986ac6c3` |
+|---|---|---|
+| Sharplight.Vulkan.Tests (full) | 1624 / 0 / 26 | 1624 / 0 / 26 |
+| Sharplight.Families.Tests (full, batched greedy parity included) | 1021 / 0 / 364 | 1340 / 0 / 683 (the CUDA parity cases added by the merge, skipped here) |
+
+### 49.10 Next levers
+
+* **gpt-oss decode step at 64 sequences** (now 17.1 ms against a ~14.6 ms weight bound; vLLM's ITL at 64 streams is 16.3 ms with its
+  prompt steps included): the expert-grouped skinny GEMMs read at ~750 GB/s; the bf16 attention projections and LM head (5 ms per
+  step) run at ~60 % of bandwidth.
+* **Prompt steps of gpt-oss** (2048 rows: 165-170 ms, ~12k tok/s): the grouped MXFP4 gemm_cm2 at 256 rows per expert runs at ~90
+  TFLOPS against ~120 for the dense bf16 GEMM of the same size.
+* **Qwen3-8B-FP8 at 16 streams** (0.83x): its decode steps (15.1 ms ITL against 12.9) and FP8 prefill (0.73x).
+* TTFT at 16 streams: a smaller budget while few streams decode would keep TTFT at round 9's level without losing the 64-stream gain.
+
+### 49.11 Reproduce
+
+```bash
+export SHARPLIGHT_VK_DEVICES=2 CUDA_VISIBLE_DEVICES=2 VLLM_VENV=<venv with vLLM 0.33.0> ROUNDS=3 SLOTS=64
+# serving (49.6): before = round 9's behaviour
+SHARPLIGHT_MOE_DUAL=0 SHARPLIGHT_MOE_BIAS_EPILOGUE=0 OUT_DIR=bench/results/s49/serve-before \
+  bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64" --batch 512
+OUT_DIR=bench/results/s49/serve-after bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64"
+OUT_DIR=bench/results/s49/serve-vllm bench/s16_serve.sh vllm gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64"
+# step times (49.5)
+SHARPLIGHT_MOE_DUAL=0 SHARPLIGHT_MOE_BIAS_EPILOGUE=0 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b \
+  --slots 68 --ctx 2560 --batch 2048 --depth 256 --sizes 16 --mixed 16+0,64+0,64+107x1,64+448x1,0+2048x1 --modes greedy --reps 12
+```
