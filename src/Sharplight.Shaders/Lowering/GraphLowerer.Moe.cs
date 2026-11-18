@@ -220,7 +220,7 @@ public sealed partial class GraphLowerer
         if (DiagnosticSwitches.MoeDual != 0 && dualY.IsDense)
         {
             string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N, "matmul.slang");
-            fused = LowerMatMulId(a, (Ref(bNode.Inputs[1]), dualY, [.. gathers.Select(g => Ref(g.Inputs[0]))], source, [.. gathers, a, bNode, .. group]));
+            fused = LowerMatMulId(a, (Ref(bNode.Inputs[1]), dualY, [.. gathers.Select(g => Ref(g.Inputs[0]))], source, [.. gathers, a, bNode, .. group], false));
         }
         else
         {
@@ -248,7 +248,7 @@ public sealed partial class GraphLowerer
         var outer = _launchCondition;
         var y = Produce(add.Output);
         var served = y.IsDense && DiagnosticSwitches.MoeBiasEpilogue
-            ? LowerMatMulId(product, bias: (Ref(gather.Inputs[0]), y, [gather, product, add]))
+            ? LowerMatMulId(product, single: (y, [Ref(gather.Inputs[0])], null, [gather, product, add]))
             : LowerMatMulId(product);
         if (served is not null)
         {
@@ -257,6 +257,97 @@ public sealed partial class GraphLowerer
 
         LowerElementwise([add], [add.Output]);
         _launchCondition = outer;
+    }
+
+    /// <summary>
+    /// An expert product with a fused gate / up matrix (<see cref="LoweringUnit.Halves"/>): its output, after the optional bias Add
+    /// <paramref name="add"/> of the routed experts' rows (<paramref name="gather"/>), is read only as two halves by one elementwise
+    /// group. The grouped GEMMs compute the halves as a dual pair (w2 = the upper half's rows of each expert) and store the group
+    /// (bias rows added first), so the 2N-wide product is never stored; batches on the per-item matvecs run the product, the Add
+    /// and the group.
+    /// </summary>
+    private void LowerExpertHalves(Node product, Node? add, Node? gather, (LoweringUnit Group, Node Low, Node High) halves)
+    {
+        var outer = _launchCondition;
+        var group = halves.Group;
+        var w = Ref(product.Inputs[1]);
+        long n = w.Shape[1];
+        long half = n / 2;
+        var gy = Produce(group.FusedOutputs![0]);
+        Func<Bindings, bool>? served = null;
+        if (DiagnosticSwitches.MoeDual != 0 && gy.IsDense && (add is null) == (gather is null))
+        {
+            string source = HalvesEpilogueSource(product, add, gather, halves, n);
+            var w2 = w with { ByteOffset = w.ByteOffset + half * w.Type.ByteSize(w.Shape[2]) };
+            Node[] nodes = [.. gather is null ? Array.Empty<Node>() : [gather], product, .. add is null ? Array.Empty<Node>() : [add], halves.Low, halves.High,
+                .. group.Fused!];
+            served = LowerMatMulId(product, (w2, gy, gather is null ? [] : [Ref(gather.Inputs[0])], source, nodes, true));
+        }
+        else if (add is not null && gather is not null)
+        {
+            LowerExpertBias(product, add, gather);
+            return;
+        }
+        else
+        {
+            LowerMatMulId(product);
+        }
+
+        if (served is { } s)
+        {
+            _halvesServed[group] = s;
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && !s(b);
+        }
+
+        if (add is not null)
+        {
+            LowerElementwise([add], [add.Output]);
+        }
+
+        _launchCondition = outer;
+    }
+
+    /// <summary>
+    /// Source of the <c>MOE_EPI</c> epilogue of the dual grouped GEMM over the halves of an expert product (n outputs): the bias
+    /// Add of each half (rows e·n + c and e·n + n / 2 + c of the bias table), then the group over the two halves.
+    /// </summary>
+    private static string HalvesEpilogueSource(Node product, Node? add, Node? gather, (LoweringUnit Group, Node Low, Node High) halves, long n)
+    {
+        var src = new StringBuilder();
+        src.AppendLine("#include \"math_ext.slang\"");
+        if (gather is not null)
+        {
+            src.AppendLine("#define MOE_EPI_FIELDS float* gt0;");
+        }
+
+        src.AppendLine("float epi2(float m0, float m1, float g0, float g1) {");
+        var name = new Dictionary<Value, string>();
+        if (add is not null)
+        {
+            src.AppendLine($"  float s0 = {OpExpr(add, [.. add.Inputs.Select(v => v == product.Output ? "m0" : "g0")])};");
+            src.AppendLine($"  float s1 = {OpExpr(add, [.. add.Inputs.Select(v => v == product.Output ? "m1" : "g1")])};");
+            name[halves.Low.Output] = "s0";
+            name[halves.High.Output] = "s1";
+        }
+        else
+        {
+            name[halves.Low.Output] = "m0";
+            name[halves.High.Output] = "m1";
+        }
+
+        foreach (var node in halves.Group.Fused!)
+        {
+            var local = "v" + name.Count;
+            src.AppendLine($"  float {local} = {OpExpr(node, [.. node.Inputs.Select(i => name[i])])};");
+            name[node.Output] = local;
+        }
+
+        src.AppendLine($"  return {name[halves.Group.FusedOutputs![0]]};");
+        src.AppendLine("}");
+        src.AppendLine(gather is null ? "#define MOE_EPI(m0, m1, e, n) epi2(m0, m1, 0.0, 0.0)"
+            : $"#define MOE_EPI(m0, m1, e, n) epi2(m0, m1, p.gt0[uint64_t(e) * {n} + (n)], p.gt0[uint64_t(e) * {n} + {n / 2} + (n)])");
+        src.AppendLine("#include \"matmul.slang\"");
+        return src.ToString();
     }
 
     /// <summary>
@@ -302,8 +393,39 @@ public sealed partial class GraphLowerer
             _launchCondition = b => (outer?.Invoke(b) ?? true) && Rows(b, tids) * S > mv;
         }
 
-        LowerMatMulId(product);
+        // Batches on the grouped GEMMs apply the group (bias rows, router weights) in their store; the slot sum follows as usual.
+        var ys = Produce(summed);
+        Func<Bindings, bool>? served = null;
+        if (DiagnosticSwitches.MoeBiasEpilogue && ys.IsDense)
+        {
+            var inGroupValues = group.Select(g => g.Output).ToHashSet();
+            var gatheredValues = gathers.Select(g => g.Output).ToHashSet();
+            var scalarValues = group.SelectMany(g => g.Inputs).Where(v => v != product.Output && !inGroupValues.Contains(v) && !gatheredValues.Contains(v))
+                .Distinct().ToList();
+            var scalarRefs = scalarValues.Select(Ref).ToList();
+            if (scalarRefs.All(r => r.Rank == 3 && r.Shape[2] == 1))
+            {
+                string source = ExpertSumEpilogueSource(product, gathers, scalarValues, scalarRefs, group, summed, w.Shape[1], "matmul.slang");
+                served = LowerMatMulId(product, single: (ys, [.. gathers.Select(g => Ref(g.Inputs[0])), .. scalarRefs], source, [.. gathers, product, .. group]));
+            }
+            else
+            {
+                LowerMatMulId(product);
+            }
+        }
+        else
+        {
+            LowerMatMulId(product);
+        }
+
+        var beforeGroup = _launchCondition;
+        if (served is { } s)
+        {
+            _launchCondition = b => (beforeGroup?.Invoke(b) ?? true) && !s(b);
+        }
+
         LowerElementwise(group, [summed]);
+        _launchCondition = beforeGroup;
         LowerNodeOp(permute);
         LowerNodeOp(reduce);
         _launchCondition = outer;
@@ -314,7 +436,7 @@ public sealed partial class GraphLowerer
     /// per-slot scalars (element (t, s) at t * stride0 + s * stride1).
     /// </summary>
     private static string ExpertSumEpilogueSource(Node product, List<Node> gathers, List<Value> scalarValues, List<TensorRef> scalars, List<Node> group,
-        Value output, long n)
+        Value output, long n, string library = "mmvq.slang")
     {
         var name = new Dictionary<Value, string> { [product.Output] = "m0" };
         for (int i = 0; i < gathers.Count; i++)
@@ -344,7 +466,7 @@ public sealed partial class GraphLowerer
         string perSlot = string.Concat(scalars.Select((r, i) =>
             $", p.sc{i}[uint64_t(t) * {r.Strides[0]} + uint64_t(s) * {r.Strides[1]}]"));
         src.AppendLine($"#define MOE_EPI1(m0, e, n, t, s) epi1(m0{rows}{perSlot})");
-        src.AppendLine("#include \"mmvq.slang\"");
+        src.AppendLine($"#include \"{library}\"");
         return src.ToString();
     }
 
@@ -383,12 +505,13 @@ public sealed partial class GraphLowerer
     /// Lowers the expert product <paramref name="n"/>. With <paramref name="dual"/>, the grouped gemm_cm2 launches compute it together
     /// with a second expert matrix of the same shape (same activations and routing) and store the dual epilogue <c>MOE_EPI</c> of
     /// the generated source into the group's output instead of the product. <paramref name="skipGrouped"/> leaves the grouped
-    /// gemm_cm2 launches out (a dual launch of the partner serves those batches). With <paramref name="bias"/>, the grouped
-    /// launches add the bias row of each tile's expert (table [E, N]) in their store and write <c>Y</c> instead of the product.
+    /// gemm_cm2 launches out (a dual launch of the partner serves those batches). With <paramref name="single"/>, the grouped
+    /// launches apply an epilogue in their store and write <c>Y</c> instead of the product: without a source, the bias row of each
+    /// tile's expert (table [E, N]); with one, its <c>MOE_EPI1</c> over the tables.
     /// Returns the batches the dual or biased grouped launches serve (null when there are none).
     /// </summary>
-    private Func<Bindings, bool>? LowerMatMulId(Node n, (TensorRef W2, TensorRef Y, TensorRef[] Tables, string Source, Node[] Nodes)? dual = null,
-        bool skipGrouped = false, (TensorRef Table, TensorRef Y, Node[] Nodes)? bias = null)
+    private Func<Bindings, bool>? LowerMatMulId(Node n, (TensorRef W2, TensorRef Y, TensorRef[] Tables, string Source, Node[] Nodes, bool Halves)? dual = null,
+        bool skipGrouped = false, (TensorRef Y, TensorRef[] Tables, string? Source, Node[] Nodes)? single = null)
     {
         var x = Ref(n.Inputs[0]);
         var w = Ref(n.Inputs[1]);
@@ -512,20 +635,43 @@ public sealed partial class GraphLowerer
             // The dual form (see the dual parameter) alternates 16-row fragments of the two matrices in the B tile: each tile layout
             // needs an even fragment count along N, and the expert-sorted f16 rows.
             // (skipGrouped: this is the partner of such a pair, whose launches its dual partner made.)
+            // Halves: the pair is the two halves of n's own output rows (a fused gate / up matrix): every grouped launch is dual, with
+            // N / 2 outputs and w2 at the upper half's first row.
+            bool halves = dual is { Halves: true };
             bool dualPair = (dual is not null || skipGrouped) && DiagnosticSwitches.MoeSortedHalfActivations
-                            && coopTiles.All(t => int.Parse(Gemm2Macros(groupedMacros, t)["FRAG_N"], CultureInfo.InvariantCulture) % 2 == 0);
+                            && coopTiles.All(t => int.Parse(Gemm2Macros(groupedMacros, t)["FRAG_N"], CultureInfo.InvariantCulture) % 2 == 0)
+                            && (!halves || N % 32 == 0);
             var d = dualPair && dual is { } dd ? dd : default;
-            bool dualCm2 = dualPair && (DiagnosticSwitches.MoeDual & 1) != 0;
-            bool dualSkinny = dualPair && (DiagnosticSwitches.MoeDual & 2) != 0 && skinnyMoe;
+            bool dualCm2 = dualPair && (halves || (DiagnosticSwitches.MoeDual & 1) != 0);
+            bool dualSkinny = dualPair && (halves || (DiagnosticSwitches.MoeDual & 2) != 0) && skinnyMoe;
+            long dualN = halves ? N / 2 : N;
+            Dictionary<string, string> DualMacros(Dictionary<string, string> macros, string kernel)
+            {
+                var r = new Dictionary<string, string>(macros) { ["DUAL"] = "1", ["KERNEL_" + kernel] = "1" };
+                if (halves)
+                {
+                    r["N"] = dualN.ToString(CultureInfo.InvariantCulture);
+                    r["Y_STRIDE"] = dualN.ToString(CultureInfo.InvariantCulture);
+                }
+
+                return r;
+            }
+
             bool isDual = dualCm2 && d.Source is not null;
             // Batches the dual launches serve (the partner's own launches and the group are skipped for them).
-            Func<Bindings, bool> grouped = b => items(b) > mv && (((dualCm2 || bias is not null) && coopTiles.Contains(tile(b)) && !isWide(b))
-                                                                  || ((dualSkinny || bias is not null) && skinnyMoe && tile(b) == MoeSkinnyTile));
+            Func<Bindings, bool> grouped = b => items(b) > mv && (((dualCm2 || single is not null) && coopTiles.Contains(tile(b)) && !isWide(b))
+                                                                  || ((dualSkinny || single is not null) && skinnyMoe && tile(b) == MoeSkinnyTile));
             KernelArg[] dualArgs = d.Source is null ? gargs
                 : [Pointer(gemmX), Pointer(w), Pointer(d.W2), scratchArg, Pointer(d.Y), .. d.Tables.Select(Pointer), TokenArg(ids)];
             TensorRef[] dualReads = d.Source is null ? [gemmX, w, scratch] : [gemmX, w, d.W2, scratch, .. d.Tables];
-            var bb = !isDual && bias is { } bv ? bv : default;
-            bool biased = bb.Table is not null;
+            // The single-product epilogue: the bias rows (no source: MOE_BIAS, the table follows y) or a generated MOE_EPI1.
+            var bb = !isDual && single is { } bv ? bv : default;
+            bool biased = bb.Y is not null;
+            Dictionary<string, string> SingleMacros(Dictionary<string, string> macros, string kernel)
+                => bb.Source is null ? new(macros) { ["MOE_BIAS"] = "1" } : new(macros) { ["KERNEL_" + kernel] = "1" };
+            CompiledKernel Single(Dictionary<string, string> macros, string kernel)
+                => bb.Source is null ? Lib("matmul.slang", kernel.ToLowerInvariant(), SingleMacros(macros, kernel))
+                    : _compiler.Compile("matmul_moe_epi.slang", bb.Source, kernel.ToLowerInvariant(), _opt.Target, SingleMacros(macros, kernel), _opt.Cache);
             CompiledKernel Grouped(Dictionary<string, string> macros)
             {
                 if (cm2TileMajor)
@@ -535,25 +681,26 @@ public sealed partial class GraphLowerer
 
                 if (biased)
                 {
-                    macros = new Dictionary<string, string>(macros) { ["MOE_BIAS"] = "1" };
+                    return Single(macros, "GEMM_CM2");
                 }
 
-                return isDual ? _compiler.Compile("matmul_moe_dual.slang", d.Source!, "gemm_cm2", _opt.Target,
-                    new Dictionary<string, string>(macros) { ["DUAL"] = "1", ["KERNEL_GEMM_CM2"] = "1" }, _opt.Cache)
+                return isDual ? _compiler.Compile("matmul_moe_dual.slang", d.Source!, "gemm_cm2", _opt.Target, DualMacros(macros, "GEMM_CM2"), _opt.Cache)
                     : Lib("matmul.slang", "gemm_cm2", macros);
             }
 
             int Columns(int t) => isDual ? Gemm2Columns(t) / 2 : Gemm2Columns(t);
+            long gridN = isDual ? dualN : N;
             string groupedLabel = isDual ? $"{label}x2 fused gemm-cm2" : label + " gemm-cm2";
             Node[] groupedNodes = isDual ? d.Nodes : [n];
             // The bias epilogue (single products only): the bias table follows y.
-            KernelArg[] biasArgs = biased ? [Pointer(gemmX), Pointer(w), scratchArg, Pointer(bb.Y), Pointer(bb.Table), TokenArg(ids)] : gargs;
+            KernelArg[] biasArgs = biased ? [Pointer(gemmX), Pointer(w), scratchArg, Pointer(bb.Y), .. bb.Tables.Select(Pointer), TokenArg(ids)] : gargs;
+            TensorRef[] biasReads = biased ? [gemmX, w, scratch, .. bb.Tables] : [gemmX, w, scratch];
             KernelArg[] groupedArgs = isDual ? dualArgs : biased ? biasArgs : gargs;
-            TensorRef[] groupedReads = isDual ? dualReads : biased ? [gemmX, w, scratch, bb.Table] : [gemmX, w, scratch];
+            TensorRef[] groupedReads = isDual ? dualReads : biased ? biasReads : [gemmX, w, scratch];
             TensorRef groupedOut = isDual ? d.Y : biased ? bb.Y : y;
             if (biased)
             {
-                groupedLabel += " +bias";
+                groupedLabel += bb.Source is null ? " +bias" : " +epilogue";
                 groupedNodes = bb.Nodes;
             }
             if (!skipGrouped || !dualCm2)
@@ -562,14 +709,14 @@ public sealed partial class GraphLowerer
                 Emit(groupedLabel, groupedNodes,
                     [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b),
                         Grouped(split && t > 32 ? Rows(t, "MOE_MIN_ROWS", t / 2 + 1) : Gemm2Macros(groupedMacros, t)),
-                        b => TileGrid(cm2TileMajor, Grid.Div(N, Columns(t)), tiles(b))))],
+                        b => TileGrid(cm2TileMajor, Grid.Div(gridN, Columns(t)), tiles(b))))],
                     groupedArgs, groupedReads, [groupedOut]);
                 if (split)
                 {
                     Emit(groupedLabel + " half tiles", groupedNodes,
                         [.. coopTiles.Where(t => t > 32).Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b),
                             Grouped(Rows(t / 2, "MOE_MAX_ROWS", t / 2)),
-                            b => TileGrid(cm2TileMajor, Grid.Div(N, Columns(t / 2)), tiles(b))))],
+                            b => TileGrid(cm2TileMajor, Grid.Div(gridN, Columns(t / 2)), tiles(b))))],
                         groupedArgs, groupedReads, [groupedOut]);
                 }
 
@@ -601,21 +748,20 @@ public sealed partial class GraphLowerer
                 if (!skipGrouped || !dualSkinny)
                 {
                     var skinnyKernel = dualSkinny && d.Source is not null
-                        ? _compiler.Compile("matmul_moe_dual.slang", d.Source!, "gemm_sk", _opt.Target,
-                            new Dictionary<string, string>(skinnyMacros) { ["DUAL"] = "1", ["KERNEL_GEMM_SK"] = "1" }, _opt.Cache)
+                        ? _compiler.Compile("matmul_moe_dual.slang", d.Source!, "gemm_sk", _opt.Target, DualMacros(skinnyMacros, "GEMM_SK"), _opt.Cache)
                         : Lib("matmul.slang", "gemm_sk", skinnyMacros);
                     bool fusedSkinny = dualSkinny && d.Source is not null;
                     if (biased && !fusedSkinny)
                     {
-                        skinnyKernel = Lib("matmul.slang", "gemm_sk", new Dictionary<string, string>(skinnyMacros) { ["MOE_BIAS"] = "1" });
+                        skinnyKernel = Single(skinnyMacros, "GEMM_SK");
                     }
 
-                    Emit(fusedSkinny ? $"{label}x2 fused skinny" : biased ? label + " skinny +bias" : label + " skinny",
+                    Emit(fusedSkinny ? $"{label}x2 fused skinny" : biased ? label + (bb.Source is null ? " skinny +bias" : " skinny +epilogue") : label + " skinny",
                         fusedSkinny ? d.Nodes : biased ? bb.Nodes : [n],
                         [new KernelVariant(b => items(b) > mv && tile(b) == MoeSkinnyTile, skinnyKernel,
-                            b => TileGrid(skTileMajor, Grid.Div(N, fn * 16), tiles(b)))],
+                            b => TileGrid(skTileMajor, Grid.Div(fusedSkinny ? dualN : N, fn * 16), tiles(b)))],
                         fusedSkinny ? dualArgs : biased ? biasArgs : gargs,
-                        fusedSkinny ? dualReads : biased ? [gemmX, w, scratch, bb.Table] : [gemmX, w, scratch], [fusedSkinny ? d.Y : biased ? bb.Y : y]);
+                        fusedSkinny ? dualReads : biased ? biasReads : [gemmX, w, scratch], [fusedSkinny ? d.Y : biased ? bb.Y : y]);
                 }
             }
 
@@ -642,7 +788,7 @@ public sealed partial class GraphLowerer
                     gargs, [gemmX, w, scratch], [y]);
             }
 
-            return (dual is not null && (dualCm2 || dualSkinny)) || (bias is not null && !isDual) ? grouped : null;
+            return (dual is not null && (dualCm2 || dualSkinny)) || (single is not null && !isDual) ? grouped : null;
         }
         else if (coop)
         {

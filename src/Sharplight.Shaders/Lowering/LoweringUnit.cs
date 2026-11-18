@@ -26,6 +26,13 @@ internal sealed class LoweringUnit
     /// <summary>Two matmuls (sharing x) whose outputs only feed this group: lowered as one dual matvec for small batches.</summary>
     public (Node A, Node B)? Dual;
 
+    /// <summary>
+    /// On an expert product unit (MatMulId, possibly with its <see cref="BiasAdd"/>): the elementwise group that reads only the two
+    /// halves of its output along the last axis (a fused gate / up projection, gate rows first, sliced into gate and up), with the
+    /// two Slice nodes (lower half first). The grouped GEMMs then compute both halves as a dual pair and store the group.
+    /// </summary>
+    public (LoweringUnit Group, Node Low, Node High)? Halves;
+
     /// <summary>A convolution whose output only feeds this group: one launch computes it with the group as its store epilogue.</summary>
     public Node? ConvHead;
 

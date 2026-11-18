@@ -27,6 +27,16 @@
 #else
 #define MOE_BIAS_OF(e, n) 0.0
 #endif
+// MOE_EPI1(m, e, n, t, s) (with MOE, single matrix; defined by the including generated source): an elementwise group applied to
+// the product m of expert e, output column n, token t and slot s in the store (it may read per-expert rows and per-slot scalars of
+// the tables declared by MOE_EPI_FIELDS), e.g. the down projection's bias and router weight before the slot sum.
+#ifdef MOE_EPI1
+#define MOE_STORE1(v, e, n, item) MOE_EPI1(v, e, n, (item) / S, (item) % S)
+#elif MOE_BIAS
+#define MOE_STORE1(v, e, n, item) ((v) + MOE_BIAS_OF(e, n))
+#else
+#define MOE_STORE1(v, e, n, item) (v)
+#endif
 // MOE_TILE_MAJOR (with MOE): the grid's x runs over the expert tiles and y over the column tiles (default: the other way round).
 #ifndef MOE_TILE_MAJOR
 #define MOE_TILE_MAJOR 0
@@ -78,8 +88,8 @@ struct Params
 #if MOE && MOE_BIAS
     float* moe_bias;   // [E, N]: the bias row of each tile's expert is added in the store
 #endif
-#if DUAL && MOE && defined(MOE_EPI_FIELDS)
-    MOE_EPI_FIELDS   // tables the dual expert epilogue reads (e.g. the experts' biases)
+#if MOE && defined(MOE_EPI_FIELDS)
+    MOE_EPI_FIELDS   // tables the expert epilogue reads (e.g. the experts' biases, the router weights)
 #endif
 #if DUAL_Y16
     uint8_t* y16;   // the f16 copy of y (dense rows of N halves)
@@ -1748,9 +1758,9 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
                 uint n = n0 + wn + j * 16 + w % 16;
 #if MOE
 #if MOE_RANGED
-                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w] * gRowInverse[t] + MOE_BIAS_OF(expert, n);
+                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = MOE_STORE1(gC[sg * 256 + w] * gRowInverse[t], expert, n, gItem[t]);
 #else
-                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w] + MOE_BIAS_OF(expert, n);
+                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = MOE_STORE1(gC[sg * 256 + w], expert, n, gItem[t]);
 #endif
 #else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = gC[sg * 256 + w];

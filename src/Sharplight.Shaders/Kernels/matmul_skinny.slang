@@ -537,7 +537,7 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 #endif
 #endif
 #if MOE
-                    p.y[uint64_t(skItem[t]) * Y_STRIDE + n] = s + MOE_BIAS_OF(expert, n);
+                    p.y[uint64_t(skItem[t]) * Y_STRIDE + n] = MOE_STORE1(s, expert, n, skItem[t]);
 #else
                     p.y[uint64_t(t) * Y_STRIDE + n] = s;
 #endif

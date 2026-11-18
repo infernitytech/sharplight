@@ -34,6 +34,9 @@ public sealed partial class GraphLowerer
     /// <summary>Norm output → norm node computed inside its consumer's kernel (delta rule, rope).</summary>
     private readonly Dictionary<Value, Node> _absorbedNorms = [];
 
+    /// <summary>Batches served by the dual grouped GEMM of an expert product's halves, per group unit (see <c>LowerExpertHalves</c>).</summary>
+    private readonly Dictionary<LoweringUnit, Func<Bindings, bool>> _halvesServed = [];
+
     /// <summary>Outputs of row gathers read in place by their fused consumer group (see <c>FoldRowGathers</c>).</summary>
     private readonly Dictionary<Value, Node> _foldedGathers = [];
 
@@ -200,7 +203,20 @@ public sealed partial class GraphLowerer
         }
         else if (unit.Fused is not null)
         {
+            // The group of an expert product's halves runs only for the batches its dual grouped GEMM does not serve.
+            var outer = _launchCondition;
+            if (_halvesServed.Remove(unit, out var served))
+            {
+                _launchCondition = b => (outer?.Invoke(b) ?? true) && !served(b);
+            }
+
             LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
+            _launchCondition = outer;
+        }
+        else if (unit.Halves is { } halves && unit.Node!.Op.Name == "MatMulId")
+        {
+            LowerExpertHalves(unit.Node, unit.BiasAdd, unit.Gathers?.FirstOrDefault(), halves);
+            FreeTemps();
         }
         else if (unit.BiasAdd is { } biasAdd)
         {
