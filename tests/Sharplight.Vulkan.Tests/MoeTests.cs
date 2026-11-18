@@ -62,6 +62,23 @@ public sealed class MoeTests
     [InlineData("mxfp4", 5, 4, false)]
     public void IntDotExactActivations(string fmt, int t, int s, bool perSlot) => Run(fmt, t, s, perSlot, "random", exactInt8: true);
 
+    /// <summary>
+    /// Steps of up to 12 items per expert above the per-item matvec range run the expert-grouped skinny GEMM (16-row expert
+    /// tiles; an expert with more items gets several): every weight format it decodes, per-slot and shared activation rows, all
+    /// experts or a few busy ones, and N of 80 (a partial 32-row weight tile of the direct path).
+    /// </summary>
+    [Theory]
+    [InlineData("bf16", 20, false, "random", 96)]
+    [InlineData("f16", 20, true, "random", 96)]
+    [InlineData("mxfp4", 20, false, "random", 96)]
+    [InlineData("mxfp4", 20, true, "few", 96)]
+    [InlineData("mxfp4", 24, false, "random", 80)]
+    [InlineData("q8_0", 20, true, "random", 96)]
+    [InlineData("q4_k", 20, false, "few", 96)]
+    [InlineData("f8e4m3_b128", 20, false, "random", 96)]
+    public void ExpertGroupedSkinny(string fmt, int t, bool perSlot, string pattern, int n)
+        => Run(fmt, t, 4, perSlot, pattern, N: n, K: fmt == "q4_k" ? 512 : 1024);
+
     public static IEnumerable<object[]> FormatCases()
     {
         foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q5_0", "q4_k", "q5_k", "q6_k", "mxfp4" })

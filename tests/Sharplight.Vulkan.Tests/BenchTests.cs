@@ -189,6 +189,71 @@ public sealed class BenchTests
     }
 
     /// <summary>
+    /// Routed expert blocks at serving step sizes (16-64 sequences): fused gate / up [K → 2N] and down [N → K] on the same routing,
+    /// S distinct experts per token chosen uniformly (as a real router's mix over many sequences), SHARPLIGHT_BENCH_COPIES blocks
+    /// with their own weights so the experts come from memory as in a model's step. Prints the GPU time per block and the weight
+    /// bytes of the experts the routing touches per microsecond (the bandwidth the expert GEMMs reach). Default shape: gpt-oss-20b
+    /// (32 experts, 4 per token, 2880 → 2 x 2880); SHARPLIGHT_BENCH_MOE="E,S,K,N" overrides it, SHARPLIGHT_BENCH_ROWS the sequences.
+    /// </summary>
+    [Theory]
+    [InlineData("mxfp4")]
+    [InlineData("q4_k")]
+    public void MoeDecode(string type)
+    {
+        RequireBench();
+        if (TestSwitches.BenchmarkTypes is { } only && !only.Contains(type))
+        {
+            return;
+        }
+
+        int rows = TestSwitches.BenchmarkRows;
+        int[] shape = Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_MOE")?.Split(',').Select(int.Parse).ToArray() ?? [32, 4, 2880, 2880];
+        int E = shape[0];
+        int S = shape[1];
+        int K = shape[2];
+        int N = shape[3];
+        if (type.EndsWith("_k", StringComparison.Ordinal))
+        {
+            K = (K + 255) / 256 * 256;
+            N = (N + 255) / 256 * 256;
+        }
+
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, S);
+        var dt = DataType.Get(type);
+        int copies = TestSwitches.BenchmarkWeightCopies;
+        for (int c = 0; c < copies; c++)
+        {
+            var gateUp = tg.B.Emit1("MatMulId", [x, tg.RandW("gate_up" + c, dt, 0.05f, E, 2 * N, K), ids]);
+            var act = tg.B.Emit1("Slice", [gateUp], Attributes.From(("axis", 2L), ("start", 0L), ("length", (long)N)));
+            tg.B.Output("y" + c, tg.B.Emit1("MatMulId", [tg.B.Silu(act), tg.RandW("down" + c, dt, 0.05f, E, K, N), ids]));
+        }
+
+        using var m = Compile(tg.B.Build(), rows);
+        Feed(m, x, (long)rows * K);
+        var rng = new Random(5);
+        var routing = new int[rows * S];
+        for (int t = 0; t < rows; t++)
+        {
+            int[] chosen = [.. Enumerable.Range(0, E).OrderBy(_ => rng.Next()).Take(S)];
+            chosen.CopyTo(routing, t * S);
+        }
+
+        int touched = routing.Distinct().Count();
+        m.SetInput(ids, MemoryMarshal.AsBytes(routing.AsSpan()));
+        var (ms, rep) = Profile(m, rows, iters: TestSwitches.BenchmarkIterations);
+        if (TestSwitches.BenchmarkReports)
+        {
+            Console.WriteLine(rep);
+        }
+
+        ms /= copies;
+        double bytes = touched * (dt.ByteSize(K) * 2.0 * N + dt.ByteSize(N) * (double)K);
+        Console.WriteLine($"BENCH moe-decode {type} T={rows} E={E} S={S} {K}->2x{N} experts {touched}: {ms * 1000,8:F1} us per block  {bytes / (ms * 1e6),7:F1} GB/s");
+    }
+
+    /// <summary>
     /// Absorbed multi-head latent attention (one [latent | rope] cache row per token, values = the latent prefix): decode rows and
     /// prefill chunks at several context depths, for DeepSeek-V2-Lite (16 heads, 576 / 512) and MiniCPM3-4B (40 heads, 288 / 256).
     /// </summary>

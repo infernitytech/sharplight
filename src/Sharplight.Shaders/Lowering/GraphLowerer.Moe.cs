@@ -10,7 +10,16 @@ namespace Sharplight.Shaders.Lowering;
 public sealed partial class GraphLowerer
 {
     private const int MoeMaxExperts = 1024;
-    private const int MoeMinTile = 32;
+    private const int MoeMinTile = 16;
+
+    /// <summary>Rows of the expert tiles of the expert-grouped skinny GEMM (one 16-row token fragment).</summary>
+    private const int MoeSkinnyTile = 16;
+
+    /// <summary>
+    /// Average (token, slot) items per expert up to which the expert-grouped skinny GEMM serves a step (<see cref="MoeSkinnyTile"/>-row
+    /// tiles); above, gemm_cm2's 32-128-row tiles. <c>SHARPLIGHT_MOE_SKINNY=n</c> overrides it, 0 disables the skinny form.
+    /// </summary>
+    private static int MoeSkinnyItemsPerExpert => DiagnosticSwitches.MoeSkinnyItemsPerExpert ?? 12;
 
     private static OpSupport SupportsMoe(Node node)
     {
@@ -346,9 +355,16 @@ public sealed partial class GraphLowerer
         // 8x8 fragments (Metal) keep to the 32-row tile: 16 accumulators per SIMD-group, as gemm_sg (the 64-row tile's 32 crashed
         // Metal's backend compiler on the CI GPU).
         int[] coopTiles = gemm2 ? [32, 64, 128] : SmallFragments ? [32] : [32, 64];
+        // Few items per expert (batched decode): 16-row expert tiles on the expert-grouped skinny GEMM, which reads the weights
+        // at the matvec's bandwidth instead of through gemm_cm2's 32-row tiles.
+        bool skinnyMoe = gemm2 && DiagnosticSwitches.MoeSortedHalfActivations && DiagnosticSwitches.SkinnyGemm && K % 32 == 0
+                         && MoeSkinnyItemsPerExpert > 0;
+        long skinnyItems = MoeSkinnyItemsPerExpert * E;
+        int[] routeTiles = skinnyMoe ? [MoeSkinnyTile, .. coopTiles] : coopTiles;
         Func<Bindings, int> tile = b => !coop ? 64
             : SmallFragments ? 32
             : DiagnosticSwitches.MoeTile != 0 ? DiagnosticSwitches.MoeTile
+            : skinnyMoe && items(b) <= skinnyItems ? MoeSkinnyTile
             : items(b) <= 24 * E ? 32
             : !gemm2 || items(b) <= 160 * E ? 64 : 128;
         Func<Bindings, uint> tiles = b => (uint)Math.Max(1, Math.Min(items(b), items(b) / tile(b) + E));
@@ -357,7 +373,7 @@ public sealed partial class GraphLowerer
         if (_moeRouted is not { } r || r.Ids != n.Inputs[2] || r.E != E || r.MaxTiles != maxTiles || r.Coop != coop || r.MatvecMaxItems != mv
             || !ReferenceEquals(r.Condition, _launchCondition))
         {
-            int[] tiling = coop ? coopTiles : [64];
+            int[] tiling = coop ? routeTiles : [64];
             Emit($"moe-route {n.Inputs[2].Name} [{E} experts]", [n],
                 [.. tiling.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
                     Lib("moe.slang", "moe_route", new Dictionary<string, string>(Macros(("E", E), ("S", S), ("TILE_M", t), ("MAXTILES", maxTiles)))),
@@ -376,7 +392,7 @@ public sealed partial class GraphLowerer
             var gemmX = x;
             if (DiagnosticSwitches.MoeSortedHalfActivations)
             {
-                gemmX = EmitSortedHalfActivations(n, x, xs, perSlot, S, maxItems, maxTiles, K, coopTiles, mv, items, tile, tiles, scratch, scratchArg, ids,
+                gemmX = EmitSortedHalfActivations(n, x, xs, perSlot, S, maxItems, maxTiles, K, routeTiles, mv, items, tile, tiles, scratch, scratchArg, ids,
                     out long? rangeScales);
                 gargs = [Pointer(gemmX), Pointer(w), scratchArg, Pointer(y), TokenArg(ids)];
                 groupedMacros["X_F16"] = "1";
@@ -411,6 +427,28 @@ public sealed partial class GraphLowerer
             }
 
             _writeGroup = null;
+            if (skinnyMoe)
+            {
+                // Two weight fragments and 4 subgroups per workgroup on the direct path: an expert tile's workgroups each read 32
+                // weight rows, so the fixed costs (layout probe, the subgroups' final reduction) are spread over more bytes
+                // (RTX PRO 4500, gpt-oss-20b MXFP4 experts, gate / up + down at 16 / 64 sequences: 1 fragment x 8 subgroups 557 /
+                // 709 us, 2 x 4 495 / 562 us, 4 x 4 508 / 579 us, 2 x 8 512 / 601 us).
+                bool direct = UseDirectSkinny(w.Type, half: true, 1, K);
+                var (fn, sg, bk) = direct && DiagnosticSwitches.SkinnyGemmConfig is null ? (2, (int)Math.Clamp(K / 64, 1, 4), 64)
+                    : SkinnyConfig(N, K, 1, 1, SkinnySharedBytes, direct);
+                var skinnyMacros = new Dictionary<string, string>(groupedMacros)
+                {
+                    ["SK_FM"] = "1",
+                    ["SK_FN"] = fn.ToString(CultureInfo.InvariantCulture),
+                    ["SK_SG"] = sg.ToString(CultureInfo.InvariantCulture),
+                    ["SK_BK"] = bk.ToString(CultureInfo.InvariantCulture),
+                    ["SK_DIRECT"] = direct ? "1" : "0",
+                };
+                Emit(label + " skinny", [n],
+                    [new KernelVariant(b => items(b) > mv && tile(b) == MoeSkinnyTile, Lib("matmul.slang", "gemm_sk", skinnyMacros),
+                        b => new Grid(Grid.Div(N, fn * 16), tiles(b)))],
+                    gargs, [gemmX, w, scratch], [y]);
+            }
         }
         else if (coop)
         {
