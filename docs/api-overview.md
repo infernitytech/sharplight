@@ -179,6 +179,9 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 `SpeechSynthesisOptions` carries the voice: a built-in `Voice`, or a recording in `ReferenceAudio` (voice cloning) with its words in
 `ReferenceText` for models that align them (F5-TTS, CosyVoice 3 zero-shot), and `Instructions`, a natural-language instruction on how to speak
 for models that take one (CosyVoice 3: dialect, emotion, speed).
+Multi-speaker models (VibeVoice) read a script of `Speaker N: text` lines and take one voice per speaker in `SpeakerVoices` (speaker label to `VoiceProfile`; `ReferenceAudio` and
+`VoiceProfile` serve the first speaker); `DiffusionSteps` and `GuidanceScale` set the denoising steps per frame and the classifier-free guidance of models whose acoustic features come from a
+diffusion head.
 
 **Streaming synthesis.** `SynthesizeStreamingAsync` yields audio chunks while the model is still generating, so playback can start early. CosyVoice 3 runs
 the flow with the chunk-causal attention of the reference's `stream=True` (a `cosyvoice_flow_estimator_chunked` graph next to the full-attention one; packages imported before
@@ -187,7 +190,7 @@ first chunk is about 0.85 s of audio). XTTS emits after 12 codes and then every 
 one-shot audio). Chatterbox emits chunks of speech tokens (the first after 15, then 25), each decoded by the flow and the vocoder with context tokens around it and cross-faded
 with the previous chunk. The other models stream per sentence or word. Studio's Speak page plays the chunks back to back on one output stream and reports the time to the first audio.
 
-**Saved voices.** A cloning model (`IVoiceCloner`, taken with `GetService(typeof(IVoiceCloner))`: Chatterbox, XTTS v2, CosyVoice 3, F5-TTS) turns a recording into a `VoiceProfile`
+**Saved voices.** A cloning model (`IVoiceCloner`, taken with `GetService(typeof(IVoiceCloner))`: Chatterbox, XTTS v2, CosyVoice 3, F5-TTS, VibeVoice) turns a recording into a `VoiceProfile`
 once (`CreateVoiceAsync(name, recording, referenceText)`): the conditioning tensors the model derived (speaker embeddings, prompt tokens and mel, style latents; F5-TTS keeps the
 recording itself with its words). `VoiceLibrary` stores them in the layout's `voices` data folder (`new VoiceLibrary(StorageLayout)`): one folder per voice with `voice.json` (name,
 architecture family, reference text, where each tensor lies) and `tensors.bin`. A request passes `SpeechSynthesisOptions.VoiceProfile` instead of the recording and gets the same
@@ -276,7 +279,7 @@ encoder, detects the language when `SpeechRecognitionOptions.Language` is null, 
 beam search of `BeamSize` beams scored like transformers' `num_beams`) with Whisper's timestamp rules. Long recordings advance to the last complete timestamp segment of each window; `ConditionOnPreviousText`
 prompts each window with the text so far, `Prompt` conditions the first. `Timestamps = TimestampGranularity.None` decodes without
 timestamp tokens (one segment per window, as transformers does by default). Each `TranscriptionSegment` carries its token ids, mean log
-probability and no-speech probability. Not yet: temperature fallback, word timestamps.
+probability and no-speech probability. Not yet: temperature fallback, word timestamps. `TranscriptionSegment.Speaker` names the speaker of models that diarize (VibeVoice-ASR: one pass over a long recording, segments with speaker numbers and start and end times, yielded as each is complete).
 
 The same recognizer serves the other prompted encoder-decoders: Moonshine (raw-waveform encoder over variable-length windows, start token
 only, no timestamps) and Canary (FastConformer encoder, a prompt template with source and target language; `Translate` targets English,

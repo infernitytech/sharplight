@@ -1055,6 +1055,7 @@ codecs and vocoders are graphs of generic Core ops; the host runs only the token
 | XTTS v2 (Coqui; GPT-2 over audio codes + HiFi-GAN decoder), the 58 built-in speakers, English | supported, CPU and Vulkan | coqui-tts 0.28.0 on torch (CPU, float32; `tools/make_xtts_reference.py`, speaker "Claribel Dervla") | text ids identical (abbreviations, numbers as num2words spells them, symbols); greedy codes 90 of 90 identical (repetition penalty 10); latents 6.4e-5 (CPU) / 6.8e-5 (Vulkan) relative RMS; HiFi-GAN waveform of the reference latents 1.6e-4 / 1.8e-4; sampled with the model's settings, a four-sentence passage transcribed word for word by Qwen3-ASR-1.7B; Vulkan real-time factor 0.24 (4.2 s of audio in 1.0 s, RTX PRO 4500), CPU 1.2; voice cloning: style latents 3.7e-6 / 2.7e-6, speaker embedding 2.8e-6 / 1.3e-6 |
 | CosyVoice 3 (FunAudioLLM Fun-CosyVoice3-0.5B; Qwen2 0.5B over S3 speech tokens v3, DiT flow, causal HiFT), the voice of a recording (zero-shot, cross-lingual, instruct) | supported, CPU and Vulkan | FunAudioLLM's CosyVoice code (dd9105b) on torch (CPU, float32) and onnxruntime 1.32 (`tools/make_cosyvoice3_reference.py`, jfk.wav as the recording) | S3 tokenizer v3 275 of 275 tokens identical and CAM++ x-vector 3.0e-6 (CPU) / 1.8e-6 (Vulkan) vs onnxruntime; prompt log-mel 7.5e-6; text and prompt ids identical; language model teacher forced along the greedy chain: 0 argmax disagreements over 300 steps, worst logit delta 1.1e-2 / 1.2e-2; flow mel for the sampled tokens and the reference's noise 4.1e-5 / 3.3e-5; causal HiFT F0 1.5e-6 / 1.7e-6, waveform 2.2e-5 / 2.1e-5 on the reference's F0 and source noise (3.9e-3 / 1.0e-2 on its own F0, see below); a zero-shot sentence transcribed word for word by Qwen3-ASR-1.7B, CAM++ speaker similarity to the recording 0.85; Vulkan real-time factor 0.37 (9.2 s of audio in 3.4 s, RTX PRO 4500), CPU 2.8 |
 | CSM-1B (Sesame; Llama 1B backbone over text tokens and frame sums, 4-layer depth decoder over codebooks 1-31, Mimi codec bundled in the checkpoint), speaker numbers 0 and 1, no audio context | supported, CPU and Vulkan | transformers 4.57.3 `CsmForConditionalGeneration` (CPU, float32; `tools/make_csm_reference.py`, greedy backbone and depth decoder) | text ids identical; teacher forced over 31 frames (992 codes): 0 argmax disagreements of the backbone and of the depth decoder, worst top-logit delta 6.3e-3 (CPU) / 5.7e-3 (Vulkan), backbone hidden state relative RMS 2.1e-4 / 3.2e-4; greedy frames identical to the reference for the first 25 (CPU) / 9 (Vulkan) of 30 (near ties); Mimi decode of the reference frames relative RMS 1.4e-6 (CPU) / 2.1e-4 (Vulkan); `.slm` round trip generates the same frames and audio |
+| VibeVoice-1.5B (Microsoft; Qwen2 1.5B over a speaker-turn script, diffusion head over 64-wide continuous acoustic latents at 7.5 Hz, acoustic tokenizer decoder, semantic tokenizer encoder feeding back), multi-speaker scripts (`Speaker N: ...`), voices from reference recordings | supported, CPU and Vulkan | transformers 5.23 `VibeVoiceForConditionalGeneration` (CPU, float32, weights of the original Microsoft checkpoint renamed to transformers' layout; `tools/make_vibevoice_reference.py`) and diffusers' `DPMSolverMultistepScheduler`; greedy language model, 10 DPM-Solver steps, guidance 1.3, the reference's noise | tokenizers (section 12.1): acoustic latents 3.0e-6, semantic latents 6.9e-6, decoded waveform 1.7e-6 relative RMS (CPU); prompt ids identical (single speaker, two speakers, with a voice prompt); teacher forced along the reference's tokens and latents over 34 steps (32 frames): 0 argmax disagreements of the constrained next token, worst logit delta 1.2e-2 (CPU) / 1.2e-2 (Vulkan), language model hidden state 1.7e-3 / 1.9e-3 and context-free (CFG) run's 7.2e-4 / 8.9e-4 relative RMS, diffusion latents (own LM state, same noise and steps) 2.7e-3 / 2.5e-3, waveform of the reference's latents 3.0e-6 / 5.0e-4; two speakers (36 frames, an audio-end/audio-start pair between the turns): 1.3e-3 hidden, 1.1e-3 context-free, 3.6e-3 latents (CPU); voice prompt (4 s recording, 30 frames): acoustic latents 2.9e-6, generation 2.0e-3 hidden, 1.5e-3 latents (CPU) / 2.0e-3 / 2.1e-3 (Vulkan); free running with the reference's noise: the reference's 34 tokens, waveform 5.4e-2 relative RMS (feedback amplifies the 1e-3 latent differences); `.slm` round trip generates the same latents and audio; streamed in buffers of 4 frames |
 | Dia-1.6B (+ DAC), qwen3tts, pockettts | not started | - | - |
 
 OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
@@ -1126,6 +1127,7 @@ the backbone (temperature 0.9, top-k 50 from the generation config; 0 is greedy)
 of 250 frames with 25 frames of context, streaming every 25 frames. Not done: audio context (earlier turns with their recordings, which need the Mimi encoder to feed frame
 sums into the prompt) and so voice prompting; `ReferenceAudio` is ignored. The catalog entry is documentation only: the repository is gated and its `model.safetensors` was replaced after the
 verification (the verified file is no longer at a retrievable revision).
+
 
 Chatterbox loading: the checkpoint folder (`Sharplight.Import.Chatterbox`, `ChatterboxImporter`, `services.AddChatterboxImporter()`): T3's Llama is
 mapped like a Hugging Face Llama checkpoint to the canonical decoder weights (the speech-token embedding is the `token_embedding`, the speech head
@@ -1261,6 +1263,36 @@ JA with the number words of each language (English without "and"; German compoun
 "mil millones"; Italian elision and the accent of tré; Portuguese "e" rules and Brazilian scales; Chinese 零 and 两; Japanese kanji numerals with 万/億). Grammatical gender and case are not
 modelled (21 is always the masculine form), and these are the essentials of wetext and num2words, not their complete rule sets.
 
+### 12.1 VibeVoice (2026-11-18)
+
+Microsoft's VibeVoice family shares two speech tokenizers (24 kHz audio, one latent per 3200 samples = 7.5 Hz): an acoustic one (a VAE: encoder and decoder, 64-wide
+continuous latents) and a semantic one (encoder only, 128-wide). Both are the same causal stack: a stem convolution (kernel 7), seven stages of ConvNeXt-style blocks (RMS norm,
+depthwise convolution of kernel 7, layer scale, RMS norm, a 4x feed-forward with GELU, layer scale; 3, 3, 3, 3, 3, 3 and 8 blocks, 32 channels doubling at every stage) and
+strided convolutions of kernel 2r between the stages (r = 2, 2, 4, 5, 5, 8), a head convolution; the decoder mirrors it with transposed convolutions. `VibeVoiceTokenizerGraph`
+emits them as generic ops; every causal convolution reads its left context from a graph input (`acoustic.cache.N`) and writes the next run's to an output, so a stream of runs
+(one frame per run in generation: `VibeVoiceConvCaches` carries the contexts) equals one run over the whole signal, the way transformers' padding cache works; the graphs
+cover a fixed number of frames (1 for generation, 64 for encoding whole recordings). Verified against transformers' `VibeVoiceAcousticTokenizerModel` and the semantic encoder on 6 s
+of speech (jfk.wav, normalized to -25 dBFS): acoustic latents 3.0e-6, semantic latents 6.9e-6 and the acoustic decoder's waveform 1.7e-6 relative RMS on the CPU; Vulkan 2.5e-4, 3.4e-3
+(the semantic encoder's 26 blocks over 2048 channels amplify the GPU's 16-bit matrix products; its latents only feed the connectors) and 2.0e-4.
+
+- **Text to speech** (`vibevoice`, canonical `vibevoice`, `VibeVoiceAdapter`; `Sharplight.Import.HuggingFace`, `VibeVoiceHfMapping`): the Qwen2 language model is built by
+  `DecoderAdapter` over embedding rows (like CSM and Qwen3-TTS); the head (`VibeVoiceDiffusionGraph`: latent and condition projections, a timestep MLP, four adaptive-RMS-norm gated
+  feed-forward layers, a final modulated layer), the tokenizers and the two connectors (linear, RMS norm, linear) are graphs of their own components; the host keeps the token
+  embedding rows, the latent scale and bias, the DPM-Solver (`VibeVoiceDpmSolver`: a port of diffusers' `DPMSolverMultistepScheduler`, cosine schedule, `v_prediction`, order 2,
+  midpoint, first order at the end, timesteps and sigmas identical to diffusers for 10 and 20 steps) and the classifier-free guidance (scale 1.3 by default,
+  `SpeechSynthesisOptions.GuidanceScale`; steps `DiffusionSteps`, 10 by default). The prompt is the system text, one `Speaker N:` line with the speaker's acoustic latents between the audio
+  start and end tokens per speaker with a voice (`SpeakerVoices`, `VoiceProfile`, `ReferenceAudio`: the recording is normalized to -25 dBFS, encoded, sampled with the
+  encoder's noise (the request's seed), scaled by the model's latent scale and bias and projected by the acoustic connector), the script (`Speaker N: text` lines; lines without
+  a label continue the turn before; a script without labels is speaker 0) and `Speech output:` with the audio start token. Each step takes the best of four tokens: audio start,
+  audio end, audio and end of text; an audio token runs the context-free language model (one run that has seen only the audio start token and the frames so far; an audio start
+  token mid-speech, as between two speakers, starts it over) and the diffusion head for the next latent, the acoustic decoder turns it into 3200 samples, and the sum of the
+  acoustic connector's image of the latent and the semantic connector's image of the semantic encoder's feature of those samples is the next input. `ISpeechSynthesizer`
+  (`VibeVoiceSynthesizer`), `IVoiceCloner` (`CreateVoiceAsync`), streaming in buffers of 4 frames (about half a second).
+  The checkpoint (`microsoft/VibeVoice-1.5B`, original layout, MIT) ships no tokenizer: the Qwen2.5 `tokenizer.json` (with the audio tokens) must sit next to it, e.g. from
+  `vibevoice/VibeVoice-1.5B-hf`; the transformers conversion is not imported (the mapping says so).
+- **Speech to text** (section 13.4): `VibeVoiceAsrAdapter` reuses the tokenizers' encoders and the connectors with a Qwen2 7B language model.
+
+
 ## 13. Speech to text (task kind `speech-recognition`)
 
 Speech-to-text models are the first non-LLM kind on the task layer (`ModelKinds.SpeechRecognition`, docs/api-overview.md "Tasks").
@@ -1279,6 +1311,7 @@ adapter, the model knowledge lives in the importers, and only the feature extrac
 | Qwen3-ASR (1.7B), Voxtral Mini 3B: audio language models | Hugging Face (`qwen3_asr` original and `-hf` layouts, `voxtral` with `tekken.json`); transcribe.cpp `qwen3_asr` GGUF | **supported** (CPU and Vulkan), section 13.2 | transformers (token-exact greedy ids) | hf/Qwen3-ASR-1.7B[-hf], speech-gguf/Qwen3-ASR-1.7B-F16.gguf, hf/Voxtral-Mini-3B-2507 |
 | Nemotron 3.5 ASR streaming 0.6B (`nemotron3_5_asr`) | Hugging Face (transformers format); `.slm` | **supported** (CPU and Vulkan; offline, default lookahead of 3 rows, 128 language prompts); round 5, section 13.3 | transformers (log-mel, encoder output, token-exact greedy RNN-T ids) | hf/nemotron-3.5-asr-streaming-0.6b |
 | Voxtral Mini 4B Realtime (`voxtral_realtime`) | Hugging Face (`tekken.json`; the `consolidated.safetensors` copy is ignored); `.slm` | **supported** (CPU and Vulkan; offline mode, one window of up to about 55 s per request); round 5, section 13.3 | transformers (projected audio embeddings, token-exact greedy ids incl. pad / word markers) | hf/Voxtral-Mini-4B-Realtime-2602 |
+| VibeVoice-ASR 7B (`vibevoice` original layout with `VibeVoiceForASRTraining`; two speech tokenizers and connectors feeding a Qwen2 7B decoder), speaker-diarized long-form transcripts with timestamps | Hugging Face (Microsoft's original layout; the tokenizer files of `microsoft/VibeVoice-ASR-HF` next to it); `.slm` | **supported** (CPU and Vulkan); 2026-11-18, section 13.4 | transformers 5.23 `VibeVoiceAsrForConditionalGeneration` (audio rows, token-exact greedy ids) | vibevoice/VibeVoice-ASR, jfk.wav, a 17 s two-speaker conversation |
 
 How it is built (2026-11-15):
 
@@ -1392,7 +1425,7 @@ LibriSpeech 1272-128104-0004, and FLEURS test clips in German, Spanish and Japan
 | Xenova/whisper-* | ONNX | graphs run through the ONNX runner (section 9), no speech-recognition task on ONNX graphs |
 | coqui/XTTS-v2, ResembleAI/chatterbox, SWivid/F5-TTS | PyTorch / safetensors folders | **supported since 2026-11-16** (section 12) |
 | hexgrad/Kokoro-82M | PyTorch folder | re-checked: synthesized sentence transcribed by Whisper small with one name misspelled ("Sharplugget") |
-| OmniVoice, VoxCPM2, VibeVoice, Qwen3-TTS, CosyVoice 3, MeloTTS, SpeechT5, Indic Parler-TTS, KittenTTS | various | unsupported architectures (metadata only, not downloaded); each needs its own acoustic model plus codec / flow-matching decoder / vocoder |
+| OmniVoice, VoxCPM2, Qwen3-TTS, CosyVoice 3, MeloTTS, SpeechT5, Indic Parler-TTS, KittenTTS | various | unsupported architectures (metadata only, not downloaded); each needs its own acoustic model plus codec / flow-matching decoder / vocoder |
 
 Fixes of the sweep: wav2vec2 CTC import and `Wav2Vec2CtcAdapter` (weight-normed grouped positional convolution folded at import, both
 `weight_g`/`weight_v` and parametrization names; character CTC vocabularies become a Unigram tokenizer with `|` as the space); a `parakeet`
@@ -1479,6 +1512,32 @@ Not done: NVIDIA's own q8_0 GGUF, the other lookaheads, feeding audio incrementa
 Tests: `VoxtralRealtimeParityTests`, `NemotronAsrParityTests`, and the two models in `SpeechPackageTests` (a `.slm` round trip transcribes like
 the source); fixtures from `tools/make_voxtral_realtime_fixtures.py` and `tools/make_nemotron_fixtures.py`. CohereLabs/cohere-transcribe-03-2026 was
 not reached: the Hub repository is gated and the machine's token has not been approved for it (the reference could not be downloaded).
+
+### 13.4 VibeVoice-ASR (2026-11-18)
+
+Microsoft's VibeVoice-ASR transcribes long recordings in one pass and says who speaks when: the acoustic and the semantic speech tokenizer of section 12.1 (the encoders only; the
+acoustic decoder in the checkpoint is not imported) turn 24 kHz audio into 64- and 128-wide latents at 7.5 per second, the two connectors (linear, RMS norm, linear, summed) project them to the
+width of a Qwen2 7B language model, and the rows replace the `<|box_start|>` placeholders of a chat prompt (`<|object_ref_start|>` ... `<|object_ref_end|>`, "This is a N seconds audio, please
+transcribe it with these keys: Start time, End time, Speaker ID, Content"); the model writes `assistant` and a JSON array of `{"Start":..,"End":..,"Speaker":..,"Content":".."}` objects.
+
+- **Model**: `VibeVoiceAsrAdapter` (canonical `vibevoice_asr`, `VibeVoiceAsrHfMapping`; config class `VibeVoiceForASRTraining` has `model_type` `vibevoice` like the synthesis model, so the importer
+  reports `vibevoice_asr` for it): the language model through `DecoderAdapter` over embedding rows, the audio encoder graph `asr.encode` (64 frames per run with the convolutions'
+  contexts carried from run to run, the whole of transformers' 60 s chunking with a padding cache, exactly; the recording is normalized to -25 dBFS first) as a component of its own.
+  The acoustic latents are the encoder's mean: transformers adds the training-time sampling noise by default (`sample=True`), which makes transcripts vary between runs; the reference
+  runs with `sample=False`.
+- **Task client**: `VibeVoiceRecognizer` (`ISpeechRecognizer`, so also `ISpeechToTextClient` through `SharplightSpeechToTextClient`): greedy by default, segments as soon as each JSON object is
+  complete (`TranscribeStreamingAsync`), `TranscriptionSegment.Speaker` (new: the model's speaker number as text) and, with the Microsoft.Extensions.AI client, the `speaker` additional property
+  of each update; `SpeechRecognitionOptions.Prompt` is the "extra info" of the prompt. One pass covers as much audio as the session's context holds (the audio rows take at most 40 % of it: 7.5
+  rows per second, so about 7 minutes at the default 8192 context; `TaskLoadOptions.ContextLength` raises it); a longer recording runs in windows whose speaker numbers are independent.
+  Not done: voice activity pre-segmentation (`UseVoiceActivityDetection` is ignored), translation, word timestamps.
+- **Verification** (transformers on CPU in float32 with the original checkpoint renamed to its layout, `tools/make_vibevoice_asr_reference.py`, greedy, `sample=False`): the prompt ids are identical;
+  the audio rows 4.9e-6 (CPU) / 1.3e-3 (Vulkan) relative RMS on jfk.wav (83 rows) and 6.0e-6 / 2.2e-3 on a 17.2 s conversation of two speakers (129 rows; the reference run of the
+  synthesis model of section 12.1 spoke it); the greedy tokens are identical (51 of 51 on jfk.wav, 142 of 142 on the conversation, CPU and Vulkan), teacher forced along them there are no
+  argmax disagreements beyond a 0.05 margin and the worst top-logit delta is 4.2e-2 / 4.5e-2 (jfk.wav) and 1.5e-1 / 1.6e-1 (conversation; logits up to about 40, bf16 weights); jfk.wav
+  is one segment of speaker 0 (0.0-11.0 s), the conversation four segments of speakers 0, 1, 0, 1 (0.0-5.41, 5.41-8.98, 8.98-11.86, 12.0-17.2 s) with the script's words; the model converted to a
+  `.slm` package transcribes identically. End to end: a four-turn two-speaker script spoken by this repository's VibeVoice-1.5B synthesizer on Vulkan (11.9 s, no voice prompts) is
+  transcribed with two speakers and a word error rate of 3.4 % ("I'm doing well" for "I am doing well").
+- Catalog: documentation only (the repository has no tokenizer files; `microsoft/VibeVoice-ASR-HF` is the transformers conversion, not imported).
 
 ## 14. Vision models (task layer)
 
@@ -2445,7 +2504,7 @@ column says what is missing), **community only**, **not run** (selected, not rea
 | 5 | Qwen/Qwen3-ASR-1.7B | Alibaba (Qwen) | 2026-01-28 | 1.6M / 1.3k | HF (both layouts), GGUF | verified (section 13.2) |
 | 6 | Qwen/Qwen3-ASR-0.6B | Alibaba (Qwen) | 2026-01-28 | 306k (`-hf`: 527k) / 400 | HF `-hf` | **verified this sweep**: CPU token-exact vs transformers on jfk and LibriSpeech (auto language and English forced); Vulkan: jfk identical, LibriSpeech differs at one comma (section 19.1.1) |
 | 7 | nvidia/parakeet-tdt-0.6b-v3 | NVIDIA | 2025-08-04 | 529k / 1.3k | HF `parakeet_tdt`, GGUF | verified (section 13) |
-| 8 | microsoft/VibeVoice-ASR | Microsoft | 2026-01-21 | 719k / 1.3k | safetensors (`vibevoice`, 8.7 B) | needs arch: acoustic + semantic tokenizers (conv encoders) feeding a Qwen2 decoder with speaker-diarized long-form output; MIT |
+| 8 | microsoft/VibeVoice-ASR | Microsoft | 2026-01-21 | 719k / 1.3k | safetensors (`vibevoice`, 8.7 B) | **verified (2026-11-18)**: acoustic + semantic tokenizers (conv encoders) feeding a Qwen2 decoder with speaker-diarized, timestamped long-form output; token-exact greedy vs transformers on jfk.wav and a two-speaker conversation, CPU and Vulkan (section 13.4); MIT |
 | 9 | mistralai/Voxtral-Mini-4B-Realtime-2602 | Mistral AI | 2026-01-21 | 1.5M / 1.1k | safetensors (`voxtral_realtime`, 4.4 B) | **verified (round 5)**: causal streaming audio tower and delayed-token decoder, token-exact vs transformers on CPU and Vulkan (section 13.3) |
 | 10 | CohereLabs/cohere-transcribe-03-2026 | Cohere Labs | 2026-03-24 | 94k / 1.2k | HF `cohere_asr` (gated, auto), handy-computer GGUF | needs arch `cohere_asr` (conformer encoder + autoregressive decoder, close to the Canary path); not attempted in round 5: the gate needs accepted terms and the machine's token is not approved for it |
 | 11 | ibm-granite/granite-speech-5.0-2b | IBM | 2026-10-07 | 11k / 85 | HF `granite_speech` (2.3 B) | needs arch: conformer encoder + window Q-former projector + Granite LLM (the Granite text model is supported) |
@@ -2490,7 +2549,7 @@ format has no importer; the same models import from the OpenAI checkpoints.
 | 9 | FunAudioLLM/Fun-CosyVoice3-0.5B-2512 | Alibaba (FunAudioLLM) | 2025-12 | n/a | PyTorch folder | verified, voice cloning |
 | 10 | fishaudio/drama-3 | Fish Audio | 2026-10-01 | 44k / 1.3k (Jmica GGUF community: 559k) | safetensors | not run: architecture not inspected; license to check |
 | 11 | fishaudio/s2-pro | Fish Audio | 2026-03-09 | 46k / 1.5k | safetensors | not run (Fish "dual-AR" with DAC codec; the DAC codec is supported) |
-| 12 | microsoft/VibeVoice-1.5B | Microsoft | 2025-08-25 | 216k / 2.5k | safetensors (`vibevoice`, 2.7 B) | needs arch: Qwen2 LM + diffusion head over continuous acoustic tokens (7.5 Hz tokenizers) |
+| 12 | microsoft/VibeVoice-1.5B | Microsoft | 2025-08-25 | 216k / 2.5k | safetensors (`vibevoice`, 2.7 B) | **verified (2026-11-18)**: Qwen2 LM + diffusion head over continuous acoustic latents (7.5 Hz tokenizers), multi-speaker scripts, voice prompts, streaming; teacher forced against transformers on CPU and Vulkan (section 12.1); MIT |
 | 13 | OpenMOSS-Team/MOSS-TTS-Local-Transformer | OpenMOSS | 2026-02-08 | 204k / 32 | safetensors | not run |
 | 14 | gradium/phonon-31m-en | Gradium | 2026-10-19 | 321k / 167 | safetensors (31 M) | not run (small; candidate for a quick bring-up) |
 | 15 | KittenML/kitten-tts-nano-0.8, kitten-tts-2-mini | KittenML | 2026-02-19 / 2026-11-13 | 261k / 2.8k | ONNX (Kokoro-style StyleTTS 2) | not run (ONNX graph; the espeak phonemizer is the open part) |

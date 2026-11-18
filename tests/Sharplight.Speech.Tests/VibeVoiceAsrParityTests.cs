@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Architectures;
 using Sharplight.Audio;
 using Sharplight.Llm;
@@ -191,5 +192,55 @@ public sealed class VibeVoiceAsrParityTests
         using var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [new DeviceSlot { Device = gpu ?? SpeechEnvironment.Device("cpu")! }] });
         using var recognizer = (ISpeechRecognizer)new VibeVoiceRecognizer(model);
         return await recognizer.TranscribeAsync(new AudioBuffer(samples, 24000), cancellationToken: TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>End to end: a two-speaker script spoken by VibeVoice-1.5B (this repository's synthesizer, no voice prompts) is transcribed by VibeVoice-ASR with two speakers and (nearly) the script's words.</summary>
+    [Fact]
+    public async Task Transcribes_speech_synthesized_by_VibeVoice()
+    {
+        string tts = SpeechEnvironment.VibeVoice("VibeVoice-1.5B");
+        Assert.SkipUnless(File.Exists(Path.Combine(Model, "model.safetensors.index.json")) && File.Exists(Path.Combine(Model, "tokenizer.json")) && File.Exists(Path.Combine(tts, "tokenizer.json")),
+            "the VibeVoice models are not present");
+        var gpu = SpeechEnvironment.Device("vulkan");
+        Assert.SkipUnless(gpu is not null, "no Vulkan device");
+        const string Script = "Speaker 1: Good morning, how are you today?\nSpeaker 2: I am doing well, thank you. And you?\nSpeaker 1: Very well. Shall we begin the meeting?\nSpeaker 2: Yes, let us start with the first item.";
+        AudioBuffer speech;
+        using (var model = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = tts, Devices = [new DeviceSlot { Device = gpu! }] }))
+        {
+            var synthesizer = TestHost.Services.GetRequiredService<TaskClientProvider>().Create<ISpeechSynthesizer>(model);
+            var result = await synthesizer.SynthesizeAsync(Script, new SpeechSynthesisOptions { NormalizeText = false, Sampling = new Sharplight.Llm.SamplingOptions { Seed = 11 } }, TestContext.Current.CancellationToken);
+            speech = result.Audio;
+        }
+
+        using var asr = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = Model, Devices = [new DeviceSlot { Device = gpu! }] });
+        using var recognizer = (ISpeechRecognizer)new VibeVoiceRecognizer(asr);
+        var transcription = await recognizer.TranscribeAsync(speech, cancellationToken: TestContext.Current.CancellationToken);
+        static string[] Words(string text) => System.Text.RegularExpressions.Regex.Replace(text.ToLowerInvariant(), "[^a-z ]", " ").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var expected = Words(string.Join(" ", Script.Split('\n').Select(l => l[(l.IndexOf(':', StringComparison.Ordinal) + 1)..])));
+        var actual = Words(transcription.Text);
+        var distance = new int[expected.Length + 1, actual.Length + 1];
+        for (int i = 0; i <= expected.Length; i++)
+        {
+            distance[i, 0] = i;
+        }
+
+        for (int j = 0; j <= actual.Length; j++)
+        {
+            distance[0, j] = j;
+        }
+
+        for (int i = 1; i <= expected.Length; i++)
+        {
+            for (int j = 1; j <= actual.Length; j++)
+            {
+                distance[i, j] = Math.Min(Math.Min(distance[i - 1, j] + 1, distance[i, j - 1] + 1), distance[i - 1, j - 1] + (expected[i - 1] == actual[j - 1] ? 0 : 1));
+            }
+        }
+
+        double wer = (double)distance[expected.Length, actual.Length] / expected.Length;
+        var speakers = transcription.Segments.Select(s => s.Speaker).Distinct().ToList();
+        Console.WriteLine($"VibeVoice end to end: {speech.Duration.TotalSeconds:F1} s synthesized, {transcription.Segments.Count} segments, speakers {string.Join(",", speakers)}, word error rate {wer:P1}: {transcription.Text}");
+        Assert.True(speakers.Count >= 2, $"speakers {string.Join(",", speakers)}");
+        Assert.True(wer < 0.25, $"word error rate {wer:P1}: {transcription.Text}");
     }
 }
