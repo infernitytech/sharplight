@@ -1,0 +1,6 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 18242 MiB, 39.61 W, 2392 MHz, 13365 MHz, 34, P1
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 15 MiB, 12.01 W, 180 MHz, 405 MHz, 31, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 99 %, 15185 MiB, 197.70 W, 2670 MHz, 14001 MHz, 64, P0
+1155874, /root/sl-worktrees/studio-first-run/tests/Sharplight.Studio.Tests/bin/Release/net11.0/Sharplight.Stud
+1179056, /root/venvs/sdxl-refiner/bin/python, 18442 MiB
+1173979, /root/sl-worktrees/perf-r8-base/samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 15168 MiB
