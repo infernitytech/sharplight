@@ -3,6 +3,7 @@ using System.Text.Json;
 using Sharplight.Imaging;
 using Sharplight.Llm;
 using Sharplight.Models;
+using Sharplight.Runtime;
 using Sharplight.Templating;
 
 namespace Sharplight.Vision.Tests;
@@ -17,9 +18,11 @@ public class GlmOcrTests
     private static readonly string Dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/vision-r10/glm-ocr");
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Greedy_text_matches_transformers(bool gpu)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Greedy_text_matches_transformers(bool gpu, bool package)
     {
         string refPath = Path.Combine(Dir, "sharplight-reference.json");
         Assert.SkipUnless(File.Exists(refPath), "GLM-OCR or its reference is not available");
@@ -28,7 +31,31 @@ public class GlmOcrTests
         var reference = JsonDocument.Parse(File.ReadAllText(refPath)).RootElement;
         string expected = reference.GetProperty("text").GetString()!;
         var image = PngCodec.Read(Path.Combine(Dir, "sharplight-sample.png"));
-        using var model = LlmModel.Load(TestHost.Loader, Dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 1024 });
+        string scratch = Path.Combine(Path.GetTempPath(), "sl-slm-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string path = Dir;
+            if (package)
+            {
+                Directory.CreateDirectory(scratch);
+                path = Path.Combine(scratch, "model.slm");
+                TestHost.Converter.Convert(Dir, path);
+            }
+
+            Check(path, slot!, gpu, package, expected, image);
+        }
+        finally
+        {
+            if (Directory.Exists(scratch))
+            {
+                Directory.Delete(scratch, recursive: true);
+            }
+        }
+    }
+
+    private static void Check(string path, DeviceSlot slot, bool gpu, bool package, string expected, ImageInput image)
+    {
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [slot], ContextLength = 1024 });
         using var vision = model.CreateVisionEncoder();
         using var session = model.CreateSession(WellKnown.DecodeMultimodalGraph);
         var gen = new Generator(session, model.Tokenizer, vision);
@@ -43,7 +70,7 @@ public class GlmOcrTests
             ids.Add(t.Id);
         }
 
-        TestContext.Current.SendDiagnosticMessage($"{(gpu ? "Vulkan" : "CPU")}: '{sb}' (reference '{expected}')");
+        TestContext.Current.SendDiagnosticMessage($"{(gpu ? "Vulkan" : "CPU")}{(package ? " (.slm)" : "")}: '{sb}' (reference '{expected}')");
         Assert.Equal(expected, sb.ToString().Trim());
     }
 }
