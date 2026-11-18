@@ -54,7 +54,7 @@ public sealed class CudaCodeTests
         var portable = await provider.CompilePortableAsync(new PortableCompilationRequest(profile, Workload), TestContext.Current.CancellationToken);
 
         Assert.Equal("ptx", provider.PortableCodeFormat);
-        Assert.Equal("ptx", portable.Format);
+        Assert.Equal(profile.CodeTarget, portable.Format);
         Assert.Equal("cuda", portable.Provider);
         Assert.NotEmpty(portable.Entries);
         Assert.All(portable.Entries.Keys, key => Assert.StartsWith(SlangCompiler.KernelKeyPrefix, key));

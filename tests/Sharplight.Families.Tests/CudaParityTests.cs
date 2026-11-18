@@ -1,5 +1,6 @@
 using Sharplight.Cuda;
 using Sharplight.Llm;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
 
@@ -35,21 +36,26 @@ public class CudaParityTests
         var vulkan = new VulkanProvider();
         Assert.SkipUnless(cuda.CheckAvailability().IsAvailable && vulkan.CheckAvailability().IsAvailable, "needs the CUDA and the Vulkan provider");
 
-        var expected = Generate(vulkan, path);
-        var actual = Generate(cuda, path);
+        // Vulkan runs with the features the CUDA provider does not report switched off (tensor cores, bf16 and fp8 types), so both
+        // providers lower the model to the same kernels.
+        var cudaFeatures = cuda.GetDevices()[0].Features;
+        var disabled = new HashSet<string>(DeviceFeatures.All.Where(f => !cudaFeatures.Contains(f) && f is not (DeviceFeatures.KernelBinaries or DeviceFeatures.MemoryBudget))) { DeviceFeatures.IntDot };
+        var expected = Generate(vulkan, path, disabled);
+        var actual = Generate(cuda, path, disabled);
 
         Assert.Equal(expected, actual);
     }
 
-    private static int[] Generate(IExecutionProvider provider, string path)
+    private static int[] Generate(IExecutionProvider provider, string path, HashSet<string> disabled)
     {
         var info = provider.GetDevices().First(d => d.Kind == DeviceKind.DiscreteGpu);
         using var device = provider.OpenDevice(info);
         // The integer-dot matvec quantizes activations; it is off so that the comparison checks the provider, not that approximation.
+        // kernel_binaries and memory_budget do not change the kernels and stay as they are.
         using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 256, MaxBatchTokens = 256,
-            DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot },
+            DisabledFeatures = disabled,
         });
         using var session = model.CreateSession(WellKnown.DecodeGraph);
         var generator = new Generator(session, model.Tokenizer);

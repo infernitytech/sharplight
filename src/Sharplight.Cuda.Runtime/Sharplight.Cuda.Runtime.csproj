@@ -22,7 +22,6 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <!-- NU5128: no lib/ folder by design (native assets only). -->
     <NoWarn>$(NoWarn);NU5128</NoWarn>
-    <BeforePack>$(BeforePack);FetchCudaRedist</BeforePack>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -96,7 +95,7 @@
 
   <Target Name="_FetchCudaArchive">
     <PropertyGroup>
-      <_Marker>$(CudaArchiveDestination).$(CudaArchiveId).done</_Marker>
+      <_Marker>$(CudaRedistDirectory)markers/$(CudaArchiveId).done</_Marker>
       <_Download>$(CudaRedistDirectory)download/</_Download>
     </PropertyGroup>
     <ItemGroup>
@@ -116,8 +115,13 @@
     <Delete Condition="!Exists('$(_Marker)') And '$(_Actual.ToLowerInvariant())' != '$(CudaArchiveSha256)'" Files="$(_Download)$(CudaArchiveName)" />
     <Error Condition="!Exists('$(_Marker)') And '$(_Actual.ToLowerInvariant())' != '$(CudaArchiveSha256)'"
            Text="CUDA redistributable $(CudaArchiveName): the SHA-256 $(_Actual) does not match the pinned $(CudaArchiveSha256)." />
-    <MakeDir Condition="!Exists('$(_Marker)')" Directories="$(_Download)x;$(CudaArchiveDestination)" />
-    <Exec Condition="!Exists('$(_Marker)')" Command="tar --no-same-owner -xf &quot;$(CudaArchiveName)&quot; -C x @(_Wanted->'&quot;$(_Root)/%(From)&quot;', ' ')" WorkingDirectory="$(_Download)" />
+    <MakeDir Condition="!Exists('$(_Marker)')" Directories="$(_Download)x;$(CudaArchiveDestination);$(CudaRedistDirectory)markers" />
+    <!-- GNU tar reads no zip archives (the Windows ones); Windows' bsdtar reads both. -->
+    <PropertyGroup>
+      <_UseUnzip Condition="$(CudaArchiveName.EndsWith('.zip')) And !$([MSBuild]::IsOSPlatform('Windows'))">true</_UseUnzip>
+    </PropertyGroup>
+    <Exec Condition="!Exists('$(_Marker)') And '$(_UseUnzip)' != 'true'" Command="tar --no-same-owner -xf &quot;$(CudaArchiveName)&quot; -C x @(_Wanted->'&quot;$(_Root)/%(From)&quot;', ' ')" WorkingDirectory="$(_Download)" />
+    <Exec Condition="!Exists('$(_Marker)') And '$(_UseUnzip)' == 'true'" Command="unzip -q -o &quot;$(CudaArchiveName)&quot; @(_Wanted->'&quot;$(_Root)/%(From)&quot;', ' ') -d x" WorkingDirectory="$(_Download)" />
     <Copy Condition="!Exists('$(_Marker)')" SourceFiles="@(_Wanted->'$(_Download)x/$(_Root)/%(From)')" DestinationFiles="@(_Wanted->'$(CudaArchiveDestination)%(To)')" />
     <RemoveDir Condition="!Exists('$(_Marker)')" Directories="$(_Download)x" />
     <Delete Condition="!Exists('$(_Marker)')" Files="$(_Download)$(CudaArchiveName)" />
@@ -125,15 +129,21 @@
   </Target>
 
   <!-- The files of the build machine's runtime, copied next to every referencing application. -->
-  <Target Name="AddCudaRedistContent" AfterTargets="FetchCudaRedist" BeforeTargets="AssignTargetPaths" Condition="'$(CudaRedistFetch)' == 'true' Or '$(_IsPacking)' == 'true'">
+  <Target Name="AddCudaRedistContent" AfterTargets="FetchCudaRedist" BeforeTargets="AssignTargetPaths" Condition="'$(CudaRedistFetch)' == 'true'">
     <ItemGroup>
       <_CudaRuntimeFile Include="$(CudaRedistDirectory)$(CudaHostRid)/*" Exclude="$(CudaRedistDirectory)$(CudaHostRid)/LICENSE-NVIDIA-CUDA.txt" />
       <_CudaRuntimeFile Include="@(_CudaHeaderNames->'$(CudaRedistDirectory)any/%(Identity)')" />
-      <None Include="@(_CudaRuntimeFile)" Link="%(Filename)%(Extension)" Visible="false" CopyToOutputDirectory="PreserveNewest" Condition="'$(CudaRedistFetch)' == 'true'" />
-      <None Include="$(CudaRedistDirectory)linux-x64/*;$(CudaRedistDirectory)any/*" Exclude="$(CudaRedistDirectory)linux-x64/LICENSE-NVIDIA-CUDA.txt;$(CudaRedistDirectory)*/.*" Visible="false" Pack="true" PackagePath="runtimes/linux-x64/native/" Condition="'$(_IsPacking)' == 'true'" />
-      <None Include="$(CudaRedistDirectory)linux-arm64/*;$(CudaRedistDirectory)any/*" Exclude="$(CudaRedistDirectory)linux-arm64/LICENSE-NVIDIA-CUDA.txt;$(CudaRedistDirectory)*/.*" Visible="false" Pack="true" PackagePath="runtimes/linux-arm64/native/" Condition="'$(_IsPacking)' == 'true'" />
-      <None Include="$(CudaRedistDirectory)win-x64/*;$(CudaRedistDirectory)any/*" Exclude="$(CudaRedistDirectory)win-x64/LICENSE-NVIDIA-CUDA.txt;$(CudaRedistDirectory)*/.*" Visible="false" Pack="true" PackagePath="runtimes/win-x64/native/" Condition="'$(_IsPacking)' == 'true'" />
-      <None Include="$(CudaRedistDirectory)linux-x64/LICENSE-NVIDIA-CUDA.txt" Visible="false" Pack="true" PackagePath="/" Condition="'$(_IsPacking)' == 'true'" />
+      <None Include="@(_CudaRuntimeFile)" Link="%(Filename)%(Extension)" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Pack: every runtime's files under runtimes/<rid>/native/ (the headers in each), NVIDIA's license at the root. -->
+  <Target Name="AddCudaRedistPackFiles" BeforeTargets="_GetPackageFiles" DependsOnTargets="FetchCudaRedist">
+    <ItemGroup>
+      <_CudaPackRid Include="linux-x64;linux-arm64;win-x64" />
+      <None Include="$(CudaRedistDirectory)%(_CudaPackRid.Identity)/*" Exclude="$(CudaRedistDirectory)%(_CudaPackRid.Identity)/LICENSE-NVIDIA-CUDA.txt" Visible="false" Pack="true" PackagePath="runtimes/%(_CudaPackRid.Identity)/native/" />
+      <None Include="@(_CudaHeaderNames->'$(CudaRedistDirectory)any/%(Identity)')" Visible="false" Pack="true" PackagePath="runtimes/linux-x64/native/;runtimes/linux-arm64/native/;runtimes/win-x64/native/" />
+      <None Include="$(CudaRedistDirectory)linux-x64/LICENSE-NVIDIA-CUDA.txt" Visible="false" Pack="true" PackagePath="/" />
     </ItemGroup>
   </Target>
 </Project>

@@ -11,6 +11,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <!-- The graph builder and weight helpers of the GPU kernel suite. -->
     <Compile Include="../Sharplight.Vulkan.Tests/TG.cs" Link="Shared/TG.cs" />
     <Compile Include="../Sharplight.Vulkan.Tests/MemSource.cs" Link="Shared/MemSource.cs" />
