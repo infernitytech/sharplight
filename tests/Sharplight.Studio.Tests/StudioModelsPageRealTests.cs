@@ -134,8 +134,11 @@ public sealed class StudioModelsPageRealTests
     [InlineData("vision/detr-resnet-50", ModelKinds.ObjectDetection)]
     [InlineData("vision/depth-anything-v2-small", ModelKinds.DepthEstimation)]
     [InlineData("vision/trocr-base-printed", ModelKinds.Ocr)]
+    [InlineData("audio-models/silero-vad/silero_vad_16k_op15.onnx", ModelKinds.VoiceActivity)]
     [InlineData("audio-models/mimi", ModelKinds.AudioCodec)]
-    [InlineData("audio-models/silero-vad", ModelKinds.VoiceActivity)]
+    [InlineData("audio-models/encodec_24khz", ModelKinds.AudioCodec)]
+    [InlineData("audio-models/musicgen-small", ModelKinds.MusicGeneration)]
+    [InlineData("audio-models/clap-htsat-unfused", ModelKinds.AudioEmbedding)]
     [InlineData("sd/tiny-random-sd/diffusers", ModelKinds.ImageGeneration)]
     [InlineData("video/tiny-random-wan/t2v/diffusers", ModelKinds.VideoGeneration)]
     public void Inspector_GivesEveryRealModelItsOwnKind(string relative, string kind)

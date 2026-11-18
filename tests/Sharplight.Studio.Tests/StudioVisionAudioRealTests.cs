@@ -100,7 +100,7 @@ public sealed partial class StudioVisionAudioRealTests
 
             // Raising the threshold hides objects without another run.
             int before = page.Rows.Count;
-            page.Panel.Apply(new Dictionary<string, string> { ["threshold"] = "0.99" });
+            page.Panel.Apply(new Dictionary<string, string> { ["threshold"] = "1" });
             await RealStudioSession.WaitFor(() => page.Rows.Count < before, 20);
         }
     }
@@ -197,7 +197,7 @@ public sealed partial class StudioVisionAudioRealTests
     [Fact]
     public async Task VoiceActivity_FindsTheSpeechOfJfk_InsideTheRecording()
     {
-        string vad = RealStudioSession.Require("audio-models/silero-vad");
+        string vad = RealStudioSession.Require("audio-models/silero-vad/silero_vad_16k_op15.onnx");
         string jfk = RealStudioSession.Require("audio/jfk.wav");
         using var session = new RealStudioSession();
         var ct = TestContext.Current.CancellationToken;

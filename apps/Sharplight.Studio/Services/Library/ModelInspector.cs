@@ -129,6 +129,11 @@ internal static class ModelInspector
             return file.Contains("rerank", StringComparison.OrdinalIgnoreCase) ? ModelKindCatalog.Reranker : ModelKinds.TextGeneration;
         }
 
+        if (IsSileroVad(path))
+        {
+            return ModelKinds.VoiceActivity;
+        }
+
         string config = System.IO.Path.Combine(path, "config.json");
         if (Directory.Exists(path) && File.Exists(config))
         {
@@ -137,6 +142,37 @@ internal static class ModelInspector
 
         return ModelKindCatalog.Other;
     }
+
+    /// <summary>Whether <paramref name="path"/> is a Silero VAD ONNX file or a folder holding one.</summary>
+    private static bool IsSileroVad(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                string file = System.IO.Path.GetFileName(path);
+                return file.StartsWith("silero", StringComparison.OrdinalIgnoreCase) && file.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return Directory.Exists(path) && Directory.EnumerateFiles(path, "silero*.onnx").Any();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The kinds of the audio checkpoint folders by their Hugging Face <c>model_type</c>.</summary>
+    private static readonly Dictionary<string, string> s_audioModelTypes = new(StringComparer.Ordinal)
+    {
+        ["qwen3_asr"] = ModelKinds.SpeechRecognition,
+        ["encodec"] = ModelKinds.AudioCodec,
+        ["mimi"] = ModelKinds.AudioCodec,
+        ["dac"] = ModelKinds.AudioCodec,
+        ["qwen3_tts_tokenizer_12hz"] = ModelKinds.AudioCodec,
+        ["musicgen"] = ModelKinds.MusicGeneration,
+        ["clap"] = ModelKinds.AudioEmbedding,
+    };
 
     /// <summary>The Hugging Face <c>model_type</c> values of the speech-recognition checkpoints Sharplight imports.</summary>
     private static readonly HashSet<string> s_speechRecognitionModelTypes = new(StringComparer.Ordinal)
@@ -219,6 +255,16 @@ internal static class ModelInspector
         if (modelType is not null && s_speechRecognitionModelTypes.Contains(modelType))
         {
             return ModelKinds.SpeechRecognition;
+        }
+
+        if (modelType is not null && s_audioModelTypes.TryGetValue(modelType, out string? audioKind))
+        {
+            return audioKind;
+        }
+
+        if (folder.Contains("demucs", StringComparison.OrdinalIgnoreCase))
+        {
+            return ModelKinds.AudioSeparation;
         }
 
         if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts")

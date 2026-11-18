@@ -1,3 +1,4 @@
+using Sharplight.Audio;
 using Sharplight.ImageGeneration;
 using Sharplight.Models;
 using Sharplight.Speech;
@@ -14,7 +15,8 @@ public static class TaskKindClients
     /// <param name="kind">The model kind.</param>
     public static bool Handles(string kind) => kind is ModelKinds.SpeechRecognition or ModelKinds.SpeechSynthesis or ModelKinds.ImageGeneration
         or ModelKinds.VideoGeneration or ModelKinds.ImageClassification or ModelKinds.ImageEmbedding or ModelKinds.ObjectDetection
-        or ModelKinds.DepthEstimation or ModelKinds.ImageSegmentation or ModelKinds.SemanticSegmentation or ModelKinds.Ocr or ModelKinds.ImageUpscaling;
+        or ModelKinds.DepthEstimation or ModelKinds.ImageSegmentation or ModelKinds.SemanticSegmentation or ModelKinds.Ocr or ModelKinds.ImageUpscaling
+        or ModelKinds.AudioCodec or ModelKinds.VoiceActivity or ModelKinds.AudioEmbedding or ModelKinds.MusicGeneration or ModelKinds.AudioSeparation;
 
     /// <summary>Creates the client of <paramref name="kind"/> for <paramref name="model"/>.</summary>
     /// <param name="provider">The registered task client factories.</param>
@@ -35,6 +37,11 @@ public static class TaskKindClients
         ModelKinds.SemanticSegmentation => provider.Create<ISemanticSegmenter>(model),
         ModelKinds.Ocr => provider.Create<ITextRecognizer>(model),
         ModelKinds.ImageUpscaling => provider.Create<IImageUpscaler>(model),
+        ModelKinds.AudioCodec => provider.Create<IAudioCodec>(model),
+        ModelKinds.VoiceActivity => provider.Create<IVoiceActivityDetector>(model),
+        ModelKinds.AudioEmbedding => provider.Create<IAudioEmbedder>(model),
+        ModelKinds.MusicGeneration => provider.Create<IMusicGenerator>(model),
+        ModelKinds.AudioSeparation => provider.Create<IAudioSeparator>(model),
         _ => throw new NotSupportedException($"There is no task client for the kind '{kind}'."),
     };
 }
