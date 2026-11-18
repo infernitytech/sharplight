@@ -77,6 +77,7 @@ public sealed class InferenceEngine : IDisposable
     private readonly HashSet<int> _eog;
     private readonly TaskCompletionSource _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly int _budget;
+    private readonly int _minBudget;
     private readonly int _prefillChunk;
     private long _nextId, _tick;
     private int _rr, _transit;
@@ -161,6 +162,7 @@ public sealed class InferenceEngine : IDisposable
         _queue = new RequestQueue(_opt.FairShareHalfLife);
         _eog = [.. tokenizer.EndOfGenerationIds];
         _budget = Math.Max(1, _opt.MaxBatchTokens > 0 ? Math.Min(_opt.MaxBatchTokens, decoder.MaxBatchTokens) : decoder.MaxBatchTokens);
+        _minBudget = _opt.MinBatchTokens > 0 ? Math.Min(_opt.MinBatchTokens, _budget) : _budget;
         _prefillChunk = _opt.PrefillChunk > 0 ? _opt.PrefillChunk : _budget;
         _specRequests = new SpeculationRequest[decoder.SlotCount];
         _specViews = new ContextView[decoder.SlotCount];
@@ -1005,6 +1007,40 @@ public sealed class InferenceEngine : IDisposable
         public int KvBlocks;
     }
 
+    /// <summary>
+    /// The token budget of the next step: <see cref="EngineOptions.BatchTokensPerSequence"/> rows per sequence holding a slot,
+    /// within <see cref="EngineOptions.MinBatchTokens"/> and the full budget. Few sequences: a wave of prompts is prefilled in
+    /// smaller steps and its first prompts stream sooner; many: full steps, whose larger GEMMs prefill more rows per second.
+    /// </summary>
+    private int StepTokens()
+    {
+        if (_minBudget >= _budget)
+        {
+            return _budget;
+        }
+
+        // The oldest prompt still prefilling may always take a whole step: a lone long prompt keeps the full budget, only prompts
+        // that compete with each other are spread over smaller steps.
+        long oldest = 0;
+        foreach (var s in _active)
+        {
+            if (s.Replay is { } replay)
+            {
+                oldest = replay.Length - s.ReplayPos;
+                break;
+            }
+
+            if (s.Prefilling)
+            {
+                oldest = s.Prompt.Length - s.PromptPos;
+                break;
+            }
+        }
+
+        long rows = Math.Max((long)_active.Count * Math.Max(1, _opt.BatchTokensPerSequence), _active.Count + oldest);
+        return (int)Math.Clamp(rows, _minBudget, _budget);
+    }
+
     private void StepOnce()
     {
         if (_diffusion is not null)
@@ -1022,7 +1058,8 @@ public sealed class InferenceEngine : IDisposable
             ProposeDrafts();
         }
 
-        var budget = new StepBudget { Tokens = _budget, LogitsRows = _decoder.MaxLogitsRows };
+        int stepTokens = StepTokens();
+        var budget = new StepBudget { Tokens = stepTokens, LogitsRows = _decoder.MaxLogitsRows };
         budget.KvBlocks = EnsureKvBlocksForDecode();
         ScheduleDecode(ref budget);
         ScheduleReplay(ref budget);
@@ -1050,7 +1087,7 @@ public sealed class InferenceEngine : IDisposable
         var results = PrepareDeviceSampling()
             ? _deviceSampler!.Step(_inputs, _deviceRows, _sampledTokens, _sampledLogprobs)
             : _decoder.Step(_inputs);
-        Metrics.Step(_budget - budget.Tokens, _inputs.Count, Stopwatch.GetElapsedTime(t0));
+        Metrics.Step(stepTokens - budget.Tokens, _inputs.Count, Stopwatch.GetElapsedTime(t0));
         ProcessResults(results);
         if (observe)
         {

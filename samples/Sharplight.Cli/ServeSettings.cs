@@ -17,6 +17,7 @@ namespace Sharplight.Cli;
 /// <param name="MaxQueue">Waiting requests per model before answering 429.</param>
 /// <param name="PrefillChunk">Prompt rows per step and sequence.</param>
 /// <param name="StepTokens">Token budget per engine step; null uses the model's batch size.</param>
+/// <param name="MinStepTokens">Smallest token budget of the load-adaptive step; null: the engine's default, 0: always the full budget.</param>
 /// <param name="KvCacheTokens">Paged KV cache size in tokens shared by the slots; null: the default (every slot's full context, paged
 /// with prefix caching where the device supports it); 0: the contiguous per-slot cache.</param>
 /// <param name="NgramDraftTokens">Draft length of prompt-lookup speculation; 0 disables it.</param>
@@ -50,6 +51,7 @@ internal sealed record ServeSettings(
     int MaxQueue,
     int PrefillChunk,
     int? StepTokens,
+    int? MinStepTokens,
     long? KvCacheTokens,
     int NgramDraftTokens,
     int MtpDraftTokens,

@@ -65,6 +65,7 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
                 PrefillChunk = settings.PrefillChunk,
                 PrefixCache = settings.PrefixCache,
                 MaxBatchTokens = settings.StepTokens ?? 0,
+                MinBatchTokens = settings.MinStepTokens ?? new EngineOptions().MinBatchTokens,
                 SpeculationMaxBatch = settings.SpeculationMaxBatch,
             },
             Speculator = settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(settings.NgramDraftTokens) : null,

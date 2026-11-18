@@ -14,6 +14,16 @@ public sealed record EngineOptions
     /// </summary>
     public int MaxBatchTokens { get; set; }
     /// <summary>
+    /// Load-adaptive step budget: while few sequences hold a slot, a step carries at most <see cref="BatchTokensPerSequence"/> rows
+    /// per such sequence, but never fewer than this (0 turns the adaptive budget off: every step may use the whole
+    /// <see cref="MaxBatchTokens"/>). A wave of prompts arriving at a lightly loaded engine is then prefilled in several smaller
+    /// steps, so the first prompts finish (and stream their first token) earlier, while under load the steps grow to the full
+    /// budget, whose larger GEMMs prefill more rows per second.
+    /// </summary>
+    public int MinBatchTokens { get; set; } = 768;
+    /// <summary>Rows per sequence holding a slot that the adaptive step budget allows (see <see cref="MinBatchTokens"/>).</summary>
+    public int BatchTokensPerSequence { get; set; } = 32;
+    /// <summary>
     /// Maximum prompt rows of one sequence per step (0, the default: the step's token budget, so a prompt takes whole passes of the
     /// decoder's rows). Smaller chunks interleave long prefills with other sequences' decoding at the cost of prefill speed.
     /// </summary>

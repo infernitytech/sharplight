@@ -35,9 +35,12 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Smallest step from which a row norm whose every reader is a tensor-core GEMM writes that GEMM's activations (the f16 copy
-    /// or the E4M3 rows of the fp8 GEMM) instead of the f32 row (<c>SHARPLIGHT_NORM_COPY_MIN_ROWS</c>).
+    /// or the E4M3 rows of the fp8 GEMM) instead of the f32 row (<c>SHARPLIGHT_NORM_COPY_MIN_ROWS</c>): right above the skinny
+    /// range, so decode batches of 17-127 rows skip the conversion launches too (one per row range of the Q / K / V / router
+    /// readers; RTX PRO 4500, gpt-oss-20b at 32 / 64 decode rows: 12.77 / 17.86 → 12.48 / 17.54 ms per step, 72 launches fewer;
+    /// Qwen3-8B-FP8 17.39 → 17.31 ms at 64). Until round 10 it was 128.
     /// </summary>
-    private static long NormCopyPrefillMinRows => DiagnosticSwitches.NormCopyMinRows ?? 128;
+    private static long NormCopyPrefillMinRows => DiagnosticSwitches.NormCopyMinRows ?? NormHalfCopyMaxRows + 1;
 
     /// <summary>E4M3 activation rows written by a row norm for steps of MinRows rows or more (see <see cref="AddFp8CopyOutput"/>).</summary>
     private readonly Dictionary<Value, (TensorRef Copy, long MinRows)> _fp8Copies = [];
