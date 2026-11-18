@@ -26,12 +26,14 @@ internal sealed partial class ConversationViewModel : ObservableObject
     private Conversation _conversation;
     private CancellationTokenSource? _generation;
 
-    public ConversationViewModel(Conversation conversation, StudioServices services, Func<ILoadedModel?> currentModel, Action<Conversation> changed)
+    public ConversationViewModel(Conversation conversation, StudioServices services, Func<ILoadedModel?> currentModel, Action<Conversation> changed,
+        ChatMediaViewModel? media = null)
     {
         _conversation = conversation;
         _services = services;
         _currentModel = currentModel;
         _changed = changed;
+        Media = media;
         _loading = true;
         SystemPrompt = conversation.SystemPrompt;
         EnableThinking = conversation.EnableThinking;
@@ -42,6 +44,9 @@ internal sealed partial class ConversationViewModel : ObservableObject
         RebuildMessages();
         UpdateContextInfo();
     }
+
+    /// <summary>Dictation, reading aloud and pictures, shared with the other conversations of the chat page; null where the host has none.</summary>
+    public ChatMediaViewModel? Media { get; }
 
     /// <summary>The conversation as stored.</summary>
     public Conversation Conversation => _conversation;
@@ -83,12 +88,12 @@ internal sealed partial class ConversationViewModel : ObservableObject
 
     /// <summary>The message being written.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(GenerateImageFromInputCommand))]
     public partial string InputText { get; set; } = "";
 
     /// <summary>An answer is being generated.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopCommand), nameof(GenerateImageFromInputCommand))]
     public partial bool IsGenerating { get; set; }
 
     /// <summary>A hint or problem to show above the composer.</summary>
@@ -252,6 +257,13 @@ internal sealed partial class ConversationViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSend))]
     private async Task SendAsync()
     {
+        if (TryParseImageCommand(InputText, out var command))
+        {
+            Notice = null;
+            await StartImageAsync(command);
+            return;
+        }
+
         if (_currentModel() is not { } model)
         {
             Notice = "Load a model to start chatting (Models → Library → Load).";
@@ -293,6 +305,12 @@ internal sealed partial class ConversationViewModel : ObservableObject
             return;
         }
 
+        if (_conversation.Messages.FirstOrDefault(candidate => candidate.Id == parent) is { ImageRequest: true } request)
+        {
+            await GenerateImageAsync(request.Id, request.Content);
+            return;
+        }
+
         if (_currentModel() is not { } model)
         {
             Notice = "Load a model to regenerate the answer.";
@@ -327,10 +345,15 @@ internal sealed partial class ConversationViewModel : ObservableObject
             Role = ChatRole.User,
             Content = message.EditText.Trim(),
             Attachments = message.Record.Attachments,
+            ImageRequest = message.Record.ImageRequest,
         };
         _conversation = ConversationTree.Append(_conversation, edited);
         RebuildMessages();
-        if (_currentModel() is { } model)
+        if (edited.ImageRequest)
+        {
+            await GenerateImageAsync(edited.Id, edited.Content);
+        }
+        else if (_currentModel() is { } model)
         {
             await GenerateAsync(edited.Id, model);
         }
@@ -351,6 +374,52 @@ internal sealed partial class ConversationViewModel : ObservableObject
 
     [RelayCommand]
     private void UseSuggestion(string text) => InputText = text;
+
+    /// <summary>Starts recording the microphone; the next call stops it and adds what was said to the message.</summary>
+    [RelayCommand]
+    private async Task DictateAsync()
+    {
+        if (Media is null)
+        {
+            return;
+        }
+
+        var text = await Media.ToggleDictationAsync(ShowNotice);
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            InputText = InputText.Trim().Length == 0 ? text : InputText.TrimEnd() + " " + text;
+        }
+        else if (text is not null)
+        {
+            Notice = "Nothing was recognized.";
+        }
+    }
+
+    /// <summary>Generates a picture from the text of the message box (the same as sending <c>/image</c> and the text).</summary>
+    [RelayCommand(CanExecute = nameof(CanSend))]
+    private async Task GenerateImageFromInputAsync()
+    {
+        var text = InputText.Trim();
+        await StartImageAsync(TryParseImageCommand(text, out var prompt) ? prompt : text);
+    }
+
+    /// <summary>Reads an answer aloud, or stops reading when it is being read.</summary>
+    [RelayCommand]
+    private async Task ReadAloudAsync(MessageViewModel message)
+    {
+        if (Media is null)
+        {
+            return;
+        }
+
+        if (Media.IsSpeaking)
+        {
+            Media.StopSpeaking();
+            return;
+        }
+
+        await Media.SpeakAsync(message.Content, ShowNotice);
+    }
 
     [RelayCommand]
     private void SavePreset()
@@ -434,7 +503,110 @@ internal sealed partial class ConversationViewModel : ObservableObject
         view.Update(record);
         UpdateContextInfo();
         await SaveAsync();
+        if (error is null && Media is { ReadAloud: true, CanSpeak: true } media && view.Content.Length > 0)
+        {
+            _ = media.SpeakAsync(view.Content, ShowNotice);
+        }
     }
+
+    /// <summary>True when <paramref name="text"/> is the image command (<c>/image</c>, optionally followed by the prompt).</summary>
+    /// <param name="text">The composer's text.</param>
+    /// <param name="prompt">The text after the command.</param>
+    internal static bool TryParseImageCommand(string text, out string prompt)
+    {
+        var trimmed = text.Trim();
+        if (trimmed.StartsWith("/image", StringComparison.OrdinalIgnoreCase) && (trimmed.Length == 6 || char.IsWhiteSpace(trimmed[6])))
+        {
+            prompt = trimmed[6..].Trim();
+            return true;
+        }
+
+        prompt = "";
+        return false;
+    }
+
+    private async Task StartImageAsync(string prompt)
+    {
+        if (Media is not { CanPaint: true })
+        {
+            Notice = "Load an image-generation model to create pictures with /image (Models, then Library).";
+            return;
+        }
+
+        if (prompt.Length == 0)
+        {
+            Notice = "Describe the picture after the command, for example: /image a lighthouse at dusk, oil painting.";
+            return;
+        }
+
+        var user = new ChatMessageRecord { ParentId = _conversation.CurrentLeafId, Role = ChatRole.User, Content = prompt, ImageRequest = true };
+        _conversation = ConversationTree.Append(_conversation, user);
+        if (_conversation.Messages.Count(message => message.Role == ChatRole.User) == 1)
+        {
+            _conversation = _conversation with { Title = ConversationTree.TitleFrom(prompt) };
+        }
+
+        InputText = "";
+        RebuildMessages();
+        await GenerateImageAsync(user.Id, prompt);
+    }
+
+    /// <summary>Generates a picture as the answer to the image request <paramref name="parentId"/> and stores it in the conversation.</summary>
+    private async Task GenerateImageAsync(string parentId, string prompt)
+    {
+        if (Media is not { CanPaint: true } media)
+        {
+            Notice = "Load an image-generation model to create pictures with /image (Models, then Library).";
+            return;
+        }
+
+        var assistant = new ChatMessageRecord { ParentId = parentId, Role = ChatRole.Assistant, ModelId = media.Painters.SelectedModel?.Id };
+        _conversation = ConversationTree.Append(_conversation, assistant) with { ModelId = _conversation.ModelId };
+        RebuildMessages();
+        var view = Messages[^1];
+        view.IsStreaming = true;
+        IsGenerating = true;
+        using var generation = new CancellationTokenSource();
+        _generation = generation;
+        GeneratedPicture? picture = null;
+        string? error = null;
+        try
+        {
+            picture = await media.GenerateImageAsync(prompt, generation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            error = "Image generation was stopped.";
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException)
+        {
+            error = failure.GetBaseException().Message;
+        }
+        finally
+        {
+            _generation = null;
+            view.IsStreaming = false;
+            IsGenerating = false;
+        }
+
+        var record = assistant with { Error = error };
+        if (picture is not null)
+        {
+            record = record with
+            {
+                ModelId = picture.ModelId,
+                Content = string.Create(CultureInfo.InvariantCulture, $"{picture.ModelId} · {picture.Width}×{picture.Height} · seed {picture.Seed} · {picture.Seconds:0.#} s"),
+                Attachments = [new AttachmentRecord { Kind = AttachmentKind.GeneratedImage, Name = $"image-{picture.Seed}.png", MediaType = "image/png", Data = picture.Png }],
+            };
+            view.Content = record.Content;
+        }
+
+        _conversation = ConversationTree.Replace(_conversation, record);
+        view.Update(record);
+        await SaveAsync();
+    }
+
+    private void ShowNotice(string? text) => _services.Dispatcher.Post(() => Notice = text);
 
     /// <summary>The model input for the branch ending at the last message of <paramref name="path"/>.</summary>
     internal ChatInput BuildInput(IReadOnlyList<ChatMessageRecord> path)
@@ -449,6 +621,12 @@ internal sealed partial class ConversationViewModel : ObservableObject
         {
             if (message.Role == ChatRole.Assistant && (message.Error is not null || message.Content.Length == 0))
             {
+                continue;
+            }
+
+            if (message.ImageRequest || message.Attachments.Any(attachment => attachment.Kind == AttachmentKind.GeneratedImage))
+            {
+                // Pictures are for the reader: the language model never sees the request or the image.
                 continue;
             }
 
@@ -541,6 +719,7 @@ internal sealed partial class ConversationViewModel : ObservableObject
 
     private void OnComposerChanged()
     {
+        GenerateImageFromInputCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(HasAttachments));
         OnPropertyChanged(nameof(ImageNotSupported));
         SendCommand.NotifyCanExecuteChanged();

@@ -14,6 +14,12 @@ internal sealed class AudioModelRegistrations
     /// <summary>Recognizers resolved from the container, by name.</summary>
     public Dictionary<string, Func<IServiceProvider, ISpeechRecognizer>> Lazy { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>Synthesizers given directly, by name.</summary>
+    public Dictionary<string, ISpeechSynthesizer> Synthesizers { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>The default synthesizer name.</summary>
+    public string? DefaultSynthesizer { get; set; }
+
     /// <summary>The default model name.</summary>
     public string? DefaultRecognizer { get; set; }
 
@@ -21,7 +27,12 @@ internal sealed class AudioModelRegistrations
     /// <param name="provider">The container.</param>
     public AudioModels Resolve(IServiceProvider provider)
     {
-        var models = new AudioModels { DefaultRecognizer = DefaultRecognizer };
+        var models = new AudioModels { DefaultRecognizer = DefaultRecognizer, DefaultSynthesizer = DefaultSynthesizer };
+        foreach (var (name, synthesizer) in Synthesizers)
+        {
+            models.Synthesizers[name] = synthesizer;
+        }
+
         foreach (var (name, recognizer) in Recognizers)
         {
             models.Recognizers[name] = recognizer;

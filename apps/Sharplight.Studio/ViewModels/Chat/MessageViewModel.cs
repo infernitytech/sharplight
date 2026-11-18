@@ -184,5 +184,15 @@ internal sealed partial class MessageViewModel : ObservableObject
         Record = record;
         Stats = record.Stats;
         Error = record.Error;
+        if (!Attachments.Select(attachment => attachment.Record).SequenceEqual(record.Attachments))
+        {
+            Attachments.Clear();
+            foreach (var attachment in record.Attachments)
+            {
+                Attachments.Add(new AttachmentViewModel(attachment));
+            }
+
+            OnPropertyChanged(nameof(HasAttachments));
+        }
     }
 }

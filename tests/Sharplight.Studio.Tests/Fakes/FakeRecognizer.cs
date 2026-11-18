@@ -31,8 +31,16 @@ internal sealed class FakeRecognizer : ISpeechRecognizer
     /// <summary>The options of every request.</summary>
     public List<SpeechRecognitionOptions?> Requests { get; } = [];
 
-    public Task<Transcription> TranscribeAsync(AudioBuffer audio, SpeechRecognitionOptions? options = null, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("The page streams.");
+    public async Task<Transcription> TranscribeAsync(AudioBuffer audio, SpeechRecognitionOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var segments = new List<TranscriptionSegment>();
+        await foreach (var segment in TranscribeStreamingAsync(audio, options, cancellationToken))
+        {
+            segments.Add(segment);
+        }
+
+        return new Transcription(string.Concat(segments.Select(segment => segment.Text)).Trim(), segments.FirstOrDefault()?.Language, segments, audio.Duration);
+    }
 
     public async IAsyncEnumerable<TranscriptionSegment> TranscribeStreamingAsync(AudioBuffer audio, SpeechRecognitionOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)

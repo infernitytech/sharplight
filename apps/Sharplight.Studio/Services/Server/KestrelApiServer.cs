@@ -82,6 +82,7 @@ internal sealed class KestrelApiServer(ModelHost host) : IApiServer
             options.ModelFilter = IsServed;
             options.DrainModelsOnStop = false;
             options.Admin = false;
+            options.ServeHostModels = true;
         });
 
         var app = builder.Build();
