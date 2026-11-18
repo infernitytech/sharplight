@@ -137,6 +137,50 @@ public sealed class SdEditTests
         Assert.True(psnr > 35, $"{kind}: PSNR {psnr:F1} dB");
     }
 
+    [Theory]
+    [InlineData("instruct-pix2pix")]
+    [InlineData("inpaint")]
+    public async Task PackageRoundTripGeneratesTheSameImage(string kind)
+    {
+        Assert.SkipUnless(Present(kind), $"{kind} or its references missing");
+        var slot = Env.Vulkan();
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        _ = Env.Services;
+        string folder = Path.Combine(Environment.GetEnvironmentVariable("SHARPLIGHT_WORK") ?? Path.GetTempPath(), "imagegen-tests");
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, $"{kind}-{Guid.NewGuid():N}.slm");
+        try
+        {
+            TestHost.Converter.Convert(Model(kind), path);
+            var request = new ImageGenerationRequest
+            {
+                Prompt = "make it a painting",
+                Image = PngCodec.Read(Path.Combine(Reference(kind), "input.png")),
+                Mask = kind == "inpaint" ? PngCodec.Read(Path.Combine(Reference(kind), "mask.png")) : null,
+                Strength = 1f,
+            };
+            var options = new ImageGenerationOptions { Steps = 3, Seed = 5, Width = 256, Height = 256, Scheduler = Samplers.Euler };
+            var ct = TestContext.Current.CancellationToken;
+            byte[] expected;
+            using (var folderModel = Env.Load(Model(kind), slot!))
+            using (var generator = Env.Clients.Create<IImageGenerator>(folderModel))
+            {
+                expected = (await generator.GenerateAsync(request, options, ct)).Images[0].Rgb;
+            }
+
+            using var package = Env.Load(path, slot!);
+            using var fromPackage = Env.Clients.Create<IImageGenerator>(package);
+            var denoiser = package.Description.Component(ModelComponentRoles.Denoiser);
+            Assert.Equal(kind == "inpaint" ? DiffusionConfigKeys.ConditionInpaint : DiffusionConfigKeys.ConditionImage,
+                denoiser.ConfigValue<string?>(DiffusionConfigKeys.ConditionMode, null));
+            Assert.Equal(expected, (await fromPackage.GenerateAsync(request, options, ct)).Images[0].Rgb);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task InstructPix2PixNeedsAnImageAndInpaintingTakesNoReferences()
     {

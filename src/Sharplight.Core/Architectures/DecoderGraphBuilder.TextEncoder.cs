@@ -44,9 +44,14 @@ internal sealed partial class DecoderGraphBuilder
     /// it padding rows also see the padding before them (the prompt's rows are the same either way).
     /// </param>
     /// <param name="f32Activations">Whether the matrix products keep f32 activations (<see cref="GraphBuilder.F32MatMulActivations"/>).</param>
+    /// <param name="imageRows">
+    /// Whether the graph takes image rows of a vision-language model (Qwen-Image-Edit's Qwen2.5-VL with the reference images in the prompt):
+    /// inputs <c>positions</c> i32 [rows, position axes] (M-RoPE positions instead of the row index), <c>embeddings</c> f32 [rows, hidden size]
+    /// and <c>embedding_mask</c> f32 [rows, 1]; rows with mask 1 take their embedding instead of the token's.
+    /// </param>
     /// <exception cref="InvalidDataException">The decoder's layout has no single hidden state per layer.</exception>
     public ComputeGraph BuildLayerHiddenStates(string name, string tokensInput, string hiddenOutput, int rows, IReadOnlyList<int> layers, bool finalNorm = false,
-        string? maskInput = null, bool f32Activations = false)
+        string? maskInput = null, bool f32Activations = false, bool imageRows = false)
     {
         if (layers.Count == 0 || layers.Any(l => l < 0 || l > _hp.LogicalLayers) || _hp.AltUpStreams > 0 || _hp.Cycles is not null)
         {
@@ -67,7 +72,9 @@ internal sealed partial class DecoderGraphBuilder
             spanValues[row * 2 + 1] = rows;
         }
 
-        var positions = b.Constant("prompt_positions", DataType.I32, new Shape(rows, _hp.PositionAxes), MemoryMarshal.AsBytes(positionValues.AsSpan()).ToArray());
+        var positions = imageRows
+            ? b.Input("positions", InputRole.Other, DataType.I32, new Shape(rows, _hp.PositionAxes))
+            : b.Constant("prompt_positions", DataType.I32, new Shape(rows, _hp.PositionAxes), MemoryMarshal.AsBytes(positionValues.AsSpan()).ToArray());
         var spans = b.Constant("prompt_spans", DataType.I32, new Shape(rows, 2), MemoryMarshal.AsBytes(spanValues.AsSpan()).ToArray());
         if (maskInput is not null)
         {
@@ -87,7 +94,15 @@ internal sealed partial class DecoderGraphBuilder
         Value? perLayer = null;
         using (b.Group("input"))
         {
-            x = AddPositionEmbeddings(b, TokenEmbeddings(b, RouteAdapters(b, tokens, spans)), positions);
+            x = TokenEmbeddings(b, RouteAdapters(b, tokens, spans));
+            if (imageRows)
+            {
+                var embeddings = b.Input("embeddings", InputRole.Other, DataType.F32, new Shape(rows, _hp.NEmbd));
+                var rowMask = b.Input("embedding_mask", InputRole.Other, DataType.F32, new Shape(rows, 1));
+                x = b.Add(b.Mul(x, b.Scale(rowMask, -1f, 1f)), b.Mul(embeddings, rowMask), "inp_mixed");
+            }
+
+            x = AddPositionEmbeddings(b, x, positions);
             if (_hp.PerLayerSize > 0)
             {
                 perLayer = PerLayerInputs(b, x, tokens);

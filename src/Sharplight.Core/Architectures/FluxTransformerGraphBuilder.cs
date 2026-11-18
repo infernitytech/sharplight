@@ -49,6 +49,7 @@ internal sealed class FluxTransformerGraphBuilder
     private Value? _modulations;
     private Value? _keyBias;
     private Value _modulationInput = null!;
+    private Value? _zeroModulationInput;
     private readonly Dictionary<string, Value> _sharedModulations = new(StringComparer.Ordinal);
 
     private FluxTransformerGraphBuilder(Func<string, WeightInfo?> weights, FluxHyperParameters hp, long latentHeight, long latentWidth, int textRows, int references)
@@ -121,6 +122,11 @@ internal sealed class FluxTransformerGraphBuilder
                 }
 
                 _modulationInput = _b.Silu(vector);
+                if (_hp.ZeroConditionTimestep && _references > 0)
+                {
+                    // Qwen-Image-Edit-2511: the reference images' tokens are modulated as at timestep 0 (diffusers' zero_cond_t).
+                    _zeroModulationInput = _b.Silu(Mlp(Sinusoids(_b.Scale(timestep, 0f), "time_frequencies_zero", FrequencyChannels), P + "time_in"));
+                }
             }
         }
 
@@ -225,17 +231,49 @@ internal sealed class FluxTransformerGraphBuilder
     {
         int d = _hp.HiddenSize;
         var imageMod = Modulation(p + "img_mod", 6, 3 * _hp.SingleLayers + 6 * index);
+        var zeroMod = _zeroModulationInput is null ? null : Linear(_zeroModulationInput, p + "img_mod");
         var textMod = Modulation(p + "txt_mod", 6, 3 * _hp.SingleLayers + 6 * _hp.DoubleLayers + 6 * index);
-        var (iq, ik, iv) = Projections(Modulate(image, Chunk(imageMod, 0, d), Chunk(imageMod, 1, d)), p + "img_attn", _imageRows);
+        var (iq, ik, iv) = Projections(ModulateImage(image, imageMod, zeroMod, 0, 1), p + "img_attn", _imageRows);
         var (tq, tk, tv) = Projections(Modulate(text, Chunk(textMod, 0, d), Chunk(textMod, 1, d)), p + "txt_attn", _textRows);
         var attended = Attend(_b.Concat(0, tq, iq), _b.Concat(0, tk, ik), _b.Concat(0, tv, iv), F16Safe(p + "img_attn.") && F16Safe(p + "txt_attn."));
         var textAttention = _b.Slice(attended, 0, 0, _textRows);
         var imageAttention = _b.Slice(attended, 0, _textRows, _imageRows);
-        image = _b.Add(image, _b.Mul(Chunk(imageMod, 2, d), Linear(imageAttention, p + "img_attn.proj")));
-        image = _b.Add(image, _b.Mul(Chunk(imageMod, 5, d), FeedForward(Modulate(image, Chunk(imageMod, 3, d), Chunk(imageMod, 4, d)), p + "img_mlp")));
+        image = _b.Add(image, GateImage(Linear(imageAttention, p + "img_attn.proj"), imageMod, zeroMod, 2));
+        image = _b.Add(image, GateImage(FeedForward(ModulateImage(image, imageMod, zeroMod, 3, 4), p + "img_mlp"), imageMod, zeroMod, 5));
         text = _b.Add(text, _b.Mul(Chunk(textMod, 2, d), Linear(textAttention, p + "txt_attn.proj")));
         text = _b.Add(text, _b.Mul(Chunk(textMod, 5, d), FeedForward(Modulate(text, Chunk(textMod, 3, d), Chunk(textMod, 4, d)), p + "txt_mlp")));
         return (image, text);
+    }
+
+    /// <summary>
+    /// The image stream's modulation by chunks (<paramref name="shift"/>, <paramref name="scale"/>) of <paramref name="modulation"/>; with
+    /// <paramref name="zeroModulation"/> the reference images' rows (after the output's) take the chunks of that one instead.
+    /// </summary>
+    private Value ModulateImage(Value image, Value modulation, Value? zeroModulation, int shift, int scale)
+    {
+        int d = _hp.HiddenSize;
+        if (zeroModulation is null)
+        {
+            return Modulate(image, Chunk(modulation, shift, d), Chunk(modulation, scale, d));
+        }
+
+        var target = Modulate(_b.Slice(image, 0, 0, _outputRows), Chunk(modulation, shift, d), Chunk(modulation, scale, d));
+        var references = Modulate(_b.Slice(image, 0, _outputRows, _imageRows - _outputRows), Chunk(zeroModulation, shift, d), Chunk(zeroModulation, scale, d));
+        return _b.Concat(0, target, references);
+    }
+
+    /// <summary>The image stream's gate (chunk <paramref name="chunk"/> of the modulation, the zero-timestep one for the reference rows) times a block output.</summary>
+    private Value GateImage(Value output, Value modulation, Value? zeroModulation, int chunk)
+    {
+        int d = _hp.HiddenSize;
+        if (zeroModulation is null)
+        {
+            return _b.Mul(Chunk(modulation, chunk, d), output);
+        }
+
+        var target = _b.Mul(Chunk(modulation, chunk, d), _b.Slice(output, 0, 0, _outputRows));
+        var references = _b.Mul(Chunk(zeroModulation, chunk, d), _b.Slice(output, 0, _outputRows, _imageRows - _outputRows));
+        return _b.Concat(0, target, references);
     }
 
     /// <summary>A single-stream block: one projection to q, k, v and the MLP input, attention and MLP side by side, one output projection.</summary>

@@ -54,8 +54,10 @@ internal static class QwenImageFolder
             QwenImageNames.Add(transformer, "", weights);
             textEncoder = HuggingFaceImporter.Open(Path.Combine(path, "text_encoder"));
             string schedulerPath = Path.Combine(path, "scheduler", "scheduler_config.json");
+            var transformerConfig = ReadJson(path, "transformer");
             var config = QwenImageConfig.FromWeights(weights.Weights)
-                .WithDiffusers(File.Exists(schedulerPath) ? File.ReadAllText(schedulerPath) : null, ReadJson(path, "transformer"));
+                .WithDiffusers(File.Exists(schedulerPath) ? File.ReadAllText(schedulerPath) : null, transformerConfig)
+                .WithEdit(QwenImageEditVariant.FromPipeline(PipelineClass(path), transformerConfig.Bool("zero_cond_t", false)));
             var vae = new Dictionary<string, object>(StringComparer.Ordinal);
             WanVaeConfig.WriteTo(ReadJson(path, "vae"), vae, QwenImageConfig.Prefix);
             string displayName = Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)));
@@ -71,6 +73,18 @@ internal static class QwenImageFolder
 
             throw;
         }
+    }
+
+    private static string PipelineClass(string path)
+    {
+        string index = Path.Combine(path, "model_index.json");
+        if (!File.Exists(index))
+        {
+            return "";
+        }
+
+        using var document = JsonDocument.Parse(File.ReadAllBytes(index));
+        return document.RootElement.String("_class_name", "");
     }
 
     private static JsonElement ReadJson(string root, string component)

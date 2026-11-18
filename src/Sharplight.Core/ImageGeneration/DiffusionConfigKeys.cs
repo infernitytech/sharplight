@@ -187,4 +187,23 @@ public static class DiffusionConfigKeys
 
     /// <summary>VAE: the latent scaling factor (model latents are the VAE's latents times it); needed to feed unscaled latents to a <see cref="ConditionImage"/> denoiser.</summary>
     public const string ScalingFactor = "scalingFactor";
+
+    /// <summary>
+    /// Tokenizer: the text that stands for each reference image in the prompt of an editing model whose language model reads the images
+    /// (Qwen-Image-Edit), with <c>{n}</c> for the image's number; the language model's image placeholder inside it is expanded to the image's
+    /// rows. The text goes between the template's start and the prompt.
+    /// </summary>
+    public const string ImagePrompt = "imagePrompt";
+
+    /// <summary>
+    /// Text encoder: pixels of the area a reference image is resized to (keeping its aspect ratio) for the language model's vision tower
+    /// (Qwen-Image-Edit-2509 / -2511: 384 · 384; the original Qwen-Image-Edit: 1024 · 1024); 0 or absent: the text encoder reads no images.
+    /// </summary>
+    public const string ConditionPixels = "conditionPixels";
+
+    /// <summary>
+    /// Model: pixels of the area the output is generated at when a request gives no size, the aspect ratio that of the last reference image
+    /// (Qwen-Image-Edit: 1024 · 1024; sides rounded to multiples of 32); 0 or absent: the first reference image's own size.
+    /// </summary>
+    public const string ReferenceArea = "referenceArea";
 }
