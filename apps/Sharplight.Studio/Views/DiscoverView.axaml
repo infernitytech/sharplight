@@ -57,14 +57,21 @@
   <DockPanel>
   <!-- Verified catalog (models checked from download to execution) or a free Hub search -->
   <StackPanel DockPanel.Dock="Top" x:Name="ModeSwitch" Orientation="Horizontal" Spacing="6" Margin="0,0,0,12">
-    <Button x:Name="VerifiedMode" Classes="small" Classes.accent="{Binding IsVerifiedMode}" Classes.ghost="{Binding IsHubMode}" Command="{Binding ShowVerifiedCommand}"
+    <Button x:Name="VerifiedMode" Classes="small" Classes.accent="{Binding IsVerifiedMode}" Classes.ghost="{Binding !IsVerifiedMode}" Command="{Binding ShowVerifiedCommand}"
             ToolTip.Tip="Models verified from download to execution, with the exact files and revision that work">
       <StackPanel Orientation="Horizontal" Spacing="6">
         <Path Classes="icon" Data="{StaticResource IconCheck}" Width="12" Height="12" />
         <TextBlock Text="Verified models" />
       </StackPanel>
     </Button>
-    <Button x:Name="HubMode" Classes="small" Classes.accent="{Binding IsHubMode}" Classes.ghost="{Binding IsVerifiedMode}" Command="{Binding ShowHubSearchCommand}"
+    <Button x:Name="FeedMode" Classes="small" Classes.accent="{Binding IsFeedMode}" Classes.ghost="{Binding !IsFeedMode}" Command="{Binding ShowFeedCommand}"
+            ToolTip.Tip="Signed, preconverted .slm packages from the Sharplight model feed: install and load, no conversion">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <Path Classes="icon" Data="{StaticResource IconDownload}" Width="12" Height="12" />
+        <TextBlock Text="Sharplight feed" />
+      </StackPanel>
+    </Button>
+    <Button x:Name="HubMode" Classes="small" Classes.accent="{Binding IsHubMode}" Classes.ghost="{Binding !IsHubMode}" Command="{Binding ShowHubSearchCommand}"
             ToolTip.Tip="Search every model on Hugging Face (compatibility is estimated, not verified)">
       <StackPanel Orientation="Horizontal" Spacing="6">
         <Path Classes="icon" Data="{StaticResource IconSearch}" Width="12" Height="12" />
@@ -75,6 +82,9 @@
   <Panel>
   <Panel IsVisible="{Binding IsVerifiedMode}">
     <views:VerifiedCatalogView x:Name="VerifiedCatalog" DataContext="{Binding Verified}" Margin="0,0,0,16" />
+  </Panel>
+  <Panel IsVisible="{Binding IsFeedMode}">
+    <views:FeedCatalogView x:Name="FeedCatalog" DataContext="{Binding Feed}" Margin="0,0,0,16" />
   </Panel>
   <Grid ColumnDefinitions="*,16,420" RowDefinitions="Auto,*" Margin="0,0,0,16" IsVisible="{Binding IsHubMode}">
     <StackPanel Grid.ColumnSpan="3" Spacing="8" Margin="0,0,0,12">

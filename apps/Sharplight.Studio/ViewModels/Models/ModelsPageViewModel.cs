@@ -26,11 +26,19 @@ internal sealed partial class ModelsPageViewModel : PageViewModel
         Library = new LibraryViewModel(services, navigator);
         Resident = new ResidentModelsViewModel(services, navigator);
         Discover = new HubSearchViewModel(services, Downloads, () => Library.StoredNames, () => Library.StoredManifests);
+        Library.Feed = Discover.Feed;
         Downloads.ModelStored += async (_, _) =>
         {
             await Library.RefreshAsync();
             Discover.Verified.RefreshInstalled();
         };
+        Discover.Feed.Installed += async (_, _) =>
+        {
+            await Library.RefreshAsync();
+            Discover.Feed.RefreshInstalled();
+            Library.ApplyFeedUpdates();
+        };
+        Discover.Feed.ListingChanged += (_, _) => Library.ApplyFeedUpdates();
         Downloads.Enqueued += (_, _) => SelectedTab = DownloadsTab;
         Downloads.PropertyChanged += (_, args) =>
         {
@@ -79,6 +87,8 @@ internal sealed partial class ModelsPageViewModel : PageViewModel
         {
             _loaded = true;
             await Library.RefreshAsync();
+            // The listing tells the library which installed packages have a newer version.
+            _ = Discover.Feed.LoadAsync();
             if (Library.IsEmpty)
             {
                 SelectedTab = DiscoverTab;

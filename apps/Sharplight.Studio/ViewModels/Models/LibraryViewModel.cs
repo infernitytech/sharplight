@@ -28,6 +28,9 @@ internal sealed partial class LibraryViewModel : ObservableObject
         services.Settings.Changed += (_, _) => services.Dispatcher.Post(() => OnPropertyChanged(nameof(StoreRoot)));
     }
 
+    /// <summary>The model feed whose listing says which installed packages have a newer version; null until the page wires it.</summary>
+    public FeedCatalogViewModel? Feed { get; set; }
+
     /// <summary>Stored models and added files.</summary>
     public ObservableCollection<LibraryEntryViewModel> Entries { get; } = [];
 
@@ -107,6 +110,7 @@ internal sealed partial class LibraryViewModel : ObservableObject
             }
 
             RebuildKindFilters();
+            ApplyFeedUpdates();
 
             Status = Entries.Count == 1 ? "1 model" : $"{Entries.Count} models";
         }
@@ -121,6 +125,43 @@ internal sealed partial class LibraryViewModel : ObservableObject
             OnPropertyChanged(nameof(StoreRoot));
             OnPropertyChanged(nameof(StoreSource));
         }
+    }
+
+    /// <summary>Marks the entries that came from the model feed and have a newer version listed there.</summary>
+    public void ApplyFeedUpdates()
+    {
+        foreach (var entry in Entries)
+        {
+            entry.FeedUpdateVersion = entry.Entry.Manifest is { } manifest ? Feed?.NewerVersionOf(manifest) : null;
+        }
+    }
+
+    /// <summary>Installs the newer feed version of <paramref name="entry"/>; the old package stays until the new one verified.</summary>
+    [RelayCommand]
+    private void UpdateFromFeed(LibraryEntryViewModel entry)
+    {
+        if (Feed is null || entry.Entry.Manifest?.FeedPackage is not { } id)
+        {
+            return;
+        }
+
+        var install = Feed.Update(id);
+        if (install is null)
+        {
+            Status = $"{entry.Name} is no longer in the feed.";
+            return;
+        }
+
+        entry.IsUpdating = true;
+        Status = $"Updating {entry.Name} to {install.Version}…";
+        _ = FinishUpdateAsync(entry, install);
+    }
+
+    private async Task FinishUpdateAsync(LibraryEntryViewModel entry, FeedInstallViewModel install)
+    {
+        await install.Completion;
+        entry.IsUpdating = false;
+        Status = install.Error ?? (install.IsDone ? $"{entry.Name} updated to {install.Version}." : "Update cancelled.");
     }
 
     /// <summary>Rebuilds the kind choices from the entries; the chosen kind stays chosen while the library still has models of it.</summary>

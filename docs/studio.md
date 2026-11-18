@@ -93,6 +93,35 @@ the engine gains a kind, its card opens a page of its own, built from the shared
   ![Verified models](images/studio/studio-discover-verified.png)
   ![Verified image model with companions](images/studio/studio-discover-verified-companions.png)
 
+- **Sharplight feed.** The third Discover source, next to *Verified models* and *Hub search*, lists the packages of Sharplight's model
+  feed ([model-feed.md](model-feed.md)): preconverted `.slm` files with signed manifests that install without conversion. Each row shows
+  the name and variant, the task, the version, the size, a *Verified* badge (the package is listed in the signed index; the install
+  verifies it again), a fit badge for this machine (the package's memory figure against the GPUs and system memory, like the verified
+  list) and *Installed* / *Update available*. The list is filtered by text, task and *Fits this machine*. A package whose requirements
+  this Studio or engine does not meet, or that the publisher withdrew, is listed but cannot be installed and says why; a deprecated one
+  carries the publisher's note.
+  - *Download and install* resolves the package and its required dependencies (semantic versions, e.g. a voice-activity model), reads
+    their manifests, verifies every signature and digest, downloads the package files with resume (the partial file is kept when you cancel
+    or the connection drops; installing again continues after the chunks that verified) and checks every chunk and the whole file against
+    the manifest's SHA-256. Only then is the package moved into the model store of the current storage mode (`<store>/sharplight/<id>/default`,
+    next to a `manifest.json` that records the package, version and channel) and listed in the library as a ready-to-load `.slm`, with a
+    *Feed x.y.z* badge. Progress, cancel and retry are shown above the list.
+  - A failed signature, expired or older index, digest or hash is shown as an error and nothing is installed or listed from that feed:
+    *The feed failed verification and was not used*, or *Not installed: verification failed* for a manifest or file.
+  - **Updates.** After the listing is read (when the Models page opens), the library marks stored feed packages for which the channel lists
+    a newer version (*Update 1.1.0*); the button downloads and verifies the new version next to the old one and replaces the package file in
+    one step only when that succeeded, so a failed or cancelled update leaves the installed version untouched. A model that is resident
+    keeps running its old copy until it is unloaded.
+  - **Offline.** Every verified document of the last successful listing is kept (`feed-cache` next to `studio.db`, per feed and channel). When
+    the feed cannot be reached the list is built from it, through the same signature and digest checks, and the page says so (an index that
+    expired meanwhile is accepted only in this case); without an earlier visit the page says that nothing is cached. Installing needs
+    the network. The accepted index sequence of every feed is kept in `feed-state.json`, so an older index is refused (rollback).
+  - **Settings > Models > Sharplight model feed** has the channel (*Stable*, or *Unstable* for packages before they are promoted; changing it reloads the
+    list) and the feed address (default `https://download.sharplight.dev/models`; another feed or a local folder works, but its signatures are
+    always checked against the Sharplight root key embedded in Studio, `tools/model-feed/keys/sharplight-feed.pub.pem`).
+  - All network and file work (listing, hashing, downloading, moving) runs off the UI thread; the services are `IFeedService` (`FeedService` over
+    `Sharplight.ModelFeed`, registered with `AddStudioFeed()`) and the view models `FeedCatalogViewModel` and `FeedInstallViewModel`.
+
 ![Discover](images/studio/studio-discover.png)
 
 - **Filters.** The filter bar above the results picks the model type, format, quantization, size, license, gating and sort order.
@@ -655,6 +684,10 @@ versions kept them.
   gallery persistence with open, export and delete) and the Transcribe and Speak pages over fake task clients (streamed segments, `.txt` /
   `.srt` / `.vtt` export, cancel and failure, microphone, voices, streaming playback, no-player fallback);
 - a headless render of every page that fails on binding errors;
+- the Sharplight feed over a local test feed (listing, install with dependencies, resume of a partial download, update that keeps the old version
+  until the new one verified, a tampered index, manifest and package file, an untrusted root, offline use of the cached listing including an expired
+  index, channel switching) and its views (headless render, layout checks at three window sizes, binding errors), plus one test against the live feed that
+  installs the whisper-tiny and silero-vad packages, checks the library entry and loads whisper-tiny through the engine (skipped without network);
 - the package inspector: every tab of a small package, a view for every section kind the format defines, unknown sections
   listed raw, the linked graph, IR and node selection, the graph layout, and a 100,000-node graph that stays virtualized.
 

@@ -4,6 +4,7 @@ using Sharplight.Hub;
 using Sharplight.Storage;
 using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Documents;
+using Sharplight.Studio.Services.Feed;
 using Sharplight.Studio.Services.Hub;
 using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Monitoring;
@@ -53,7 +54,7 @@ internal sealed class StudioHost : IDisposable
         var settings = new JsonSettingsService(paths.SettingsFile, modelsDirectory, layout);
         var storage = new StorageLocationService(environment, layout, settings);
         var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddSingleton<IStorageLocationService>(storage)
-            .AddSharplightStorage(layout).AddStudioUpdates().AddSharplight().BuildServiceProvider();
+            .AddSingleton(paths).AddSharplightStorage(layout).AddStudioUpdates().AddStudioFeed().AddSharplight().BuildServiceProvider();
         var engine = EngineServices.From(container);
         var audioDecoder = container.GetRequiredService<IAudioDecoder>();
         var audioEncoder = container.GetRequiredService<IAudioEncoder>();
@@ -69,7 +70,7 @@ internal sealed class StudioHost : IDisposable
             new DocumentExtractor(), new SystemMonitor(runtime), platform, dispatcher, theme,
             container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(paths.PagesDirectory, paths.GenerationsDirectory),
             new EngineAudioPlayer(audioDecoder, audioDevices, settings), new EngineAudioRecorder(audioDevices, audioEncoder, settings),
-            audioDecoder, audioDevices, storage);
+            audioDecoder, audioDevices, storage, container.GetRequiredService<IFeedService>());
         return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), server, container);
     }
 

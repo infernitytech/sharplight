@@ -38,6 +38,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
     <ProjectReference Include="../../src/Sharplight.Hub/Sharplight.Hub.csproj" />
+    <ProjectReference Include="../../src/Sharplight.ModelFeed/Sharplight.ModelFeed.csproj" />
     <ProjectReference Include="../../src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <ProjectReference Include="../../src/Sharplight.Hosting/Sharplight.Hosting.csproj" />
     <ProjectReference Include="../../src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
@@ -54,6 +55,7 @@
   </ItemGroup>
   <ItemGroup>
     <!-- The verified-model catalog (docs/verified-catalog.md): Discover's "Verified" list works offline with this copy. -->
+    <EmbeddedResource Include="../../tools/model-feed/keys/sharplight-feed.pub.pem" LogicalName="Sharplight.Studio.sharplight-feed.pub.pem" Link="Assets/sharplight-feed.pub.pem" />
     <EmbeddedResource Include="../../catalog/verified-models.json" LogicalName="Sharplight.Studio.verified-models.json" Link="Assets/verified-models.json" />
   </ItemGroup>
   <ItemGroup>

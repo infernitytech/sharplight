@@ -23,6 +23,12 @@ internal sealed record StudioPaths(string ConfigDirectory, string DataDirectory)
     /// <summary>The verified-model catalog last downloaded (see <see cref="Hub.VerifiedCatalogSource"/>).</summary>
     public string CatalogFile => Path.Combine(DataDirectory, "verified-models.json");
 
+    /// <summary>The accepted sequence of every model feed (rollback protection).</summary>
+    public string FeedStateFile => Path.Combine(DataDirectory, "feed-state.json");
+
+    /// <summary>The last verified documents of every model feed channel (offline listing).</summary>
+    public string FeedCacheDirectory => Path.Combine(DataDirectory, "feed-cache");
+
     /// <summary>The conversation and statistics database.</summary>
     public string DatabaseFile => Path.Combine(DataDirectory, "studio.db");
 

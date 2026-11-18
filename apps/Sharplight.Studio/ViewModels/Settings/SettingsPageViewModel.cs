@@ -126,6 +126,20 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     [ObservableProperty]
     public partial string HuggingFaceToken { get; set; } = "";
 
+    /// <summary>The channels of the Sharplight model feed to pick from.</summary>
+    public IReadOnlyList<FeedChannelChoice> FeedChannels => FeedChannelChoice.All;
+
+    /// <summary>The model feed channel packages are listed and installed from.</summary>
+    [ObservableProperty]
+    public partial FeedChannelChoice FeedChannel { get; set; } = FeedChannelChoice.All[0];
+
+    /// <summary>Address of the model feed; empty uses the official feed.</summary>
+    [ObservableProperty]
+    public partial string FeedUrl { get; set; } = "";
+
+    /// <summary>The address the official feed is at.</summary>
+    public string DefaultFeedUrl => Services.Feed.FeedOptions.DefaultUrl;
+
     /// <summary>System prompt of new chats.</summary>
     [ObservableProperty]
     public partial string DefaultSystemPrompt { get; set; } = "";
@@ -293,6 +307,10 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
 
     partial void OnHuggingFaceTokenChanged(string value) => Save();
 
+    partial void OnFeedChannelChanged(FeedChannelChoice value) => Save();
+
+    partial void OnFeedUrlChanged(string value) => Save();
+
     partial void OnDefaultSystemPromptChanged(string value) => Save();
 
     partial void OnEnableThinkingChanged(bool value) => Save();
@@ -409,6 +427,8 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         StoreLocation = StoreLocationChoice.Get(Services.Settings.StoreLocation.Effective(settings));
         ModelsDirectory = settings.ModelsDirectory ?? "";
         HuggingFaceToken = settings.HuggingFaceToken ?? "";
+        FeedChannel = FeedChannelChoice.For(settings.FeedChannel);
+        FeedUrl = settings.FeedUrl ?? "";
         DefaultSystemPrompt = settings.DefaultSystemPrompt;
         EnableThinking = settings.EnableThinking;
         var sampling = settings.DefaultSampling;
@@ -477,6 +497,8 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
                 : StoreLocation.Value,
             ModelsDirectory = string.IsNullOrWhiteSpace(ModelsDirectory) ? null : ModelsDirectory.Trim(),
             HuggingFaceToken = string.IsNullOrWhiteSpace(HuggingFaceToken) ? null : HuggingFaceToken.Trim(),
+            FeedChannel = FeedChannel.Value == Services.Feed.FeedOptions.Stable ? null : FeedChannel.Value,
+            FeedUrl = string.IsNullOrWhiteSpace(FeedUrl) ? null : FeedUrl.Trim(),
             DefaultSystemPrompt = DefaultSystemPrompt,
             EnableThinking = EnableThinking,
             DefaultSampling = current.DefaultSampling with

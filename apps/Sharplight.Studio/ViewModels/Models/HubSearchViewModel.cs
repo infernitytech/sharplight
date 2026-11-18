@@ -46,24 +46,34 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         ShowOnlySupported = services.Settings.Current.ShowOnlySupported;
         Filters.FiltersChanged += (_, _) => _ = OnFiltersChangedAsync();
         Verified = new VerifiedCatalogViewModel(services, downloads, storedModels ?? (() => []));
+        Feed = new FeedCatalogViewModel(services, storedModels ?? (() => []));
         Verified.Loaded += (_, _) => ChooseMode();
     }
 
     /// <summary>The verified-model catalog, Discover's default list when it has models of the selected type.</summary>
     public VerifiedCatalogViewModel Verified { get; }
 
-    /// <summary>Discover shows the verified catalog (otherwise the Hub search).</summary>
+    /// <summary>The Sharplight model feed: signed, preconverted <c>.slm</c> packages.</summary>
+    public FeedCatalogViewModel Feed { get; }
+
+    /// <summary>Discover shows the verified catalog.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsHubMode))]
     public partial bool IsVerifiedMode { get; set; }
 
+    /// <summary>Discover shows the Sharplight model feed.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHubMode))]
+    public partial bool IsFeedMode { get; set; }
+
     /// <summary>Discover shows the Hub search.</summary>
-    public bool IsHubMode => !IsVerifiedMode;
+    public bool IsHubMode => !IsVerifiedMode && !IsFeedMode;
 
     [RelayCommand]
     private void ShowVerified()
     {
         _modeChosen = true;
+        IsFeedMode = false;
         IsVerifiedMode = true;
     }
 
@@ -71,7 +81,17 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     private void ShowHubSearch()
     {
         _modeChosen = true;
+        IsFeedMode = false;
         IsVerifiedMode = false;
+    }
+
+    [RelayCommand]
+    private void ShowFeed()
+    {
+        _modeChosen = true;
+        IsVerifiedMode = false;
+        IsFeedMode = true;
+        _ = Feed.LoadAsync();
     }
 
     /// <summary>Follows the model type: the verified list when the catalog has models of it, else the Hub search (until a mode is picked).</summary>
@@ -319,6 +339,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     public Task LoadHighlightsAsync()
     {
         _ = Verified.LoadAsync();
+        _ = Feed.LoadAsync();
         if (_highlightsLoad is null || _highlightsFailed || _highlightsTask != Filters.Current.Task)
         {
             _highlightsFailed = false;

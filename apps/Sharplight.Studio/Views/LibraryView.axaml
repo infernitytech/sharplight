@@ -69,6 +69,14 @@
                       <Border Classes="badge tools" IsVisible="{Binding IsLoaded}">
                         <TextBlock Text="Resident" />
                       </Border>
+                      <Button x:Name="FeedUpdate" Classes="small" IsVisible="{Binding HasFeedUpdate}" IsEnabled="{Binding CanUpdateFromFeed}"
+                              ToolTip.Tip="Download and verify the newer version from the Sharplight feed; the installed one is replaced only when that succeeded"
+                              Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).UpdateFromFeedCommand}" CommandParameter="{Binding}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Path Classes="icon" Data="{StaticResource IconDownload}" Width="12" Height="12" />
+                          <TextBlock Text="{Binding FeedUpdateText}" />
+                        </StackPanel>
+                      </Button>
                       <Button Classes="small" IsVisible="{Binding IsPackage}" IsEnabled="{Binding CanPrecompile}"
                               ToolTip.Tip="{Binding PrecompileHint}" ToolTip.ShowOnDisabled="True"
                               Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).PrecompileCommand}" CommandParameter="{Binding}">
@@ -120,6 +128,9 @@
                         <views:CapabilityBadgesView DataContext="{Binding Badges}" />
                         <Border Classes="badge" IsVisible="{Binding IsPrecompiled}" ToolTip.Tip="{Binding PrecompiledTip}">
                           <TextBlock Text="Precompiled" />
+                        </Border>
+                        <Border Classes="badge ok" IsVisible="{Binding IsFromFeed}" ToolTip.Tip="Installed from the Sharplight model feed: a signed, preconverted package">
+                          <TextBlock Text="{Binding FeedText}" />
                         </Border>
                         <Border Classes="badge" IsVisible="{Binding IsLocalFile}">
                           <TextBlock Text="Local file" />
