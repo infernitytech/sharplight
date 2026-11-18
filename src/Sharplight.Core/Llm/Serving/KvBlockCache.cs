@@ -19,6 +19,7 @@ internal sealed class KvBlockCache
     private readonly int _blocksPerSlot;
     private readonly bool _recurrent;
     private readonly Func<int, int, bool>? _copyState;
+    private readonly Func<int, int, int, bool>? _copyKv;
     // Snapshots: per spare row its key, whether it is used and its last use (LRU).
     private readonly UInt128[] _snapKey;
     private readonly bool[] _snapUsed;
@@ -33,7 +34,12 @@ internal sealed class KvBlockCache
     /// <param name="recurrent">Slots also hold recurrent state: blocks are attached only together with a state snapshot.</param>
     /// <param name="snapshotCapacity">Spare recurrent-state rows for snapshots (rows <paramref name="slots"/> and up); 0 for none.</param>
     /// <param name="copyState">Copies all recurrent state from one row to another (slot or snapshot row); false when the device cannot.</param>
-    public KvBlockCache(int slots, int blockSize, int blocks, int blocksPerSlot, bool recurrent = false, int snapshotCapacity = 0, Func<int, int, bool>? copyState = null)
+    /// <param name="copyKv">
+    /// Copies KV cache rows (first source row, first destination row, rows) of every paged cache; false when the device cannot. Needed
+    /// to fork a slot (<see cref="Fork"/>): a block that two slots share and one of them writes into is copied first (copy-on-write).
+    /// </param>
+    public KvBlockCache(int slots, int blockSize, int blocks, int blocksPerSlot, bool recurrent = false, int snapshotCapacity = 0, Func<int, int, bool>? copyState = null,
+        Func<int, int, int, bool>? copyKv = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(blockSize, 1);
         BlockSize = blockSize;
@@ -45,6 +51,7 @@ internal sealed class KvBlockCache
         Array.Fill(_table, -1);
         _recurrent = recurrent;
         _copyState = copyState;
+        _copyKv = copyKv;
         SnapshotCapacity = recurrent && copyState is not null ? snapshotCapacity : 0;
         _snapKey = new UInt128[SnapshotCapacity];
         _snapUsed = new bool[SnapshotCapacity];
@@ -81,8 +88,78 @@ internal sealed class KvBlockCache
     /// <summary>Blocks needed for <paramref name="tokens"/> tokens.</summary>
     public int BlocksFor(long tokens) => (int)((tokens + BlockSize - 1) / BlockSize);
 
-    /// <summary>Blocks a slot of <paramref name="length"/> tokens must newly take to append <paramref name="tokens"/>.</summary>
-    public int Needed(int slot, int length, int tokens) => Math.Max(0, BlocksFor((long)length + tokens) - _blocks[slot].Count);
+    /// <summary>
+    /// Blocks a slot of <paramref name="length"/> tokens must newly take to append <paramref name="tokens"/>, including the copy of a
+    /// partly filled last block it shares with another slot (<see cref="Unshare"/>).
+    /// </summary>
+    public int Needed(int slot, int length, int tokens)
+        => Math.Max(0, BlocksFor((long)length + tokens) - _blocks[slot].Count) + (tokens > 0 && SharesTail(slot, length) ? 1 : 0);
+
+    /// <summary>Whether <see cref="Fork"/> works: the device copies KV rows (and recurrent state, for a recurrent model).</summary>
+    public bool CanFork => _copyKv is not null && (!_recurrent || _copyState is not null);
+
+    /// <summary>
+    /// Makes the empty <paramref name="slot"/> continue <paramref name="source"/>'s context: it shares all of the source's blocks,
+    /// the partly filled last one included (copied by the first slot that writes into it, see <see cref="Unshare"/>), and for a
+    /// recurrent model gets a copy of the source's state. Returns false, changing nothing, when the slot is not empty or the device
+    /// cannot copy.
+    /// </summary>
+    public bool Fork(int slot, int source)
+    {
+        if (!CanFork || slot == source || _blocks[slot].Count != 0 || (_recurrent && !_copyState!(source, slot)))
+        {
+            return false;
+        }
+
+        var from = _blocks[source];
+        for (int j = 0; j < from.Count; j++)
+        {
+            _pool.Retain(from[j]);
+            _blocks[slot].Add(from[j]);
+            _table[slot * _blocksPerSlot + j] = from[j];
+        }
+
+        TableDirty = true;
+        return true;
+    }
+
+    /// <summary>
+    /// Copy-on-write: before a slot of <paramref name="length"/> tokens appends to its partly filled last block while another slot
+    /// holds that block too, the block's rows are copied into a free block that replaces it in this slot. Returns false when the
+    /// copy failed (the device cannot copy), leaving the slot as it was.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The pool has no free block.</exception>
+    public bool Unshare(int slot, int length)
+    {
+        if (!SharesTail(slot, length))
+        {
+            return true;
+        }
+
+        var list = _blocks[slot];
+        int k = length / BlockSize;
+        int old = list[k];
+        int copy = _pool.Allocate();
+        if (_copyKv is null || !_copyKv(old * BlockSize, copy * BlockSize, length % BlockSize))
+        {
+            _pool.Release(copy);
+            return false;
+        }
+
+        _pool.Release(old);
+        list[k] = copy;
+        _table[slot * _blocksPerSlot + k] = copy;
+        TableDirty = true;
+        return true;
+    }
+
+    /// <summary>Whether the slot's context ends inside a block that another slot also holds.</summary>
+    private bool SharesTail(int slot, int length)
+    {
+        var list = _blocks[slot];
+        int k = length / BlockSize;
+        return length % BlockSize != 0 && k < list.Count && _pool.RefCount(list[k]) > 1;
+    }
 
     /// <summary>Blocks that become free when the slot is reset (those no other slot holds).</summary>
     public int Releasable(int slot)

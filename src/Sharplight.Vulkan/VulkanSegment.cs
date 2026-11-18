@@ -793,7 +793,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     public bool CanCopyStateRows => true;
 
     /// <inheritdoc/>
-    public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to)
+    public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to, int count)
     {
         _dev.ThrowIfDisposed();
         var regions = new List<(Allocation Buffer, ulong From, ulong To, ulong Bytes)>();
@@ -805,14 +805,15 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                 continue;
             }
 
-            long rows = st.Shape[0].Fixed;
+            // Rows of the outermost dimension: fixed for recurrent states, the compiled context for KV caches ([Ctx, ...]).
             long row = st.Type.ByteSize(st.Shape.Dims.Skip(1).Aggregate(1L, (n, d) => n * d.Fixed));
-            if ((ulong)from >= (ulong)rows || (ulong)to >= (ulong)rows)
+            long rows = st.Shape[0].IsSymbolic ? (long)(_alloc[b].Size / (ulong)row) : st.Shape[0].Fixed;
+            if (from < 0 || to < 0 || (long)from + count > rows || (long)to + count > rows)
             {
                 throw new ArgumentOutOfRangeException(nameof(to), $"State '{st.Name}' has {rows} rows.");
             }
 
-            regions.Add((_alloc[b], (ulong)(from * row), (ulong)(to * row), (ulong)row));
+            regions.Add((_alloc[b], (ulong)(from * row), (ulong)(to * row), (ulong)(row * count)));
         }
 
         if (regions.Count == 0)

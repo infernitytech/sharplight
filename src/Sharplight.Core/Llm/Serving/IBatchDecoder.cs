@@ -139,6 +139,13 @@ public interface IBatchDecoder : IDisposable
     /// block is published as <paramref name="hash"/>. Returns false when snapshots are not supported.
     /// </summary>
     public bool SaveKvStateSnapshot(int slot, UInt128 hash) => false;
+    /// <summary>
+    /// Makes the empty <paramref name="slot"/> continue <paramref name="source"/>'s context without computing it (several samples of one
+    /// prompt): the slots share the source's KV blocks, a partly filled last block is copied when one of them first writes into it
+    /// (copy-on-write), and recurrent state is copied. Returns false, changing nothing, when the decoder cannot (not paged, the device
+    /// cannot copy, the slot is not empty).
+    /// </summary>
+    public bool ForkKv(int slot, int source) => false;
     /// <summary>Free blocks that still hold published content (counted in <see cref="KvBlocksFree"/>).</summary>
     public int KvBlocksCached => 0;
     /// <summary>Cached blocks whose content was dropped to reuse their memory.</summary>

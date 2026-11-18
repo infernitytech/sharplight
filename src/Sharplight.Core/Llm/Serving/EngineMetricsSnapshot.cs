@@ -60,6 +60,11 @@ public sealed record EngineMetricsSnapshot
     public long KvBlocksEvicted { get; init; }
     /// <summary>Recurrent-state snapshots taken for prefix caching of models with recurrent state.</summary>
     public long StateSnapshots { get; init; }
+    /// <summary>
+    /// Sequences that took the computed prompt of another running sequence with the same prompt (several samples of one prompt, n &gt; 1)
+    /// instead of computing it: their KV blocks are shared copy-on-write.
+    /// </summary>
+    public long ForkedSequences { get; init; }
     /// <summary>Accepted divided by proposed draft tokens (0 without speculation).</summary>
     public double DraftAcceptanceRate => DraftTokens == 0 ? 0 : (double)AcceptedDraftTokens / DraftTokens;
     /// <summary>Seconds from submission to the first generated token.</summary>

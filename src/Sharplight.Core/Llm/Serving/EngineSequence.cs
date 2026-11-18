@@ -74,6 +74,22 @@ internal sealed class EngineSequence
     public float[]? RawLogits { get; set; }
 
     public bool Prefilling => PromptPos < Prompt.Length;
+    /// <summary>
+    /// Recurrent state with prefix caching: the prompt position of the last state snapshot a later prompt sharing this one could restore
+    /// (what a new snapshot saves is the recomputation from there).
+    /// </summary>
+    public int SnapshotPos { get; set; }
+    /// <summary>
+    /// Another sampling of the same prompt (n &gt; 1): the running sequence whose prompt this one waits for instead of computing it; at
+    /// the leader's first token this one forks its context (shared blocks, copy-on-write) and samples from the same logits. Null otherwise.
+    /// </summary>
+    public EngineSequence? Leader { get; set; }
+    /// <summary>The sequences waiting to fork from this one (null when none).</summary>
+    public List<EngineSequence>? Followers { get; set; }
+    /// <summary>A follower's copy of the leader's last prompt logits row, sampled at the fork.</summary>
+    public float[]? ForkLogits { get; set; }
+    /// <summary>Scheduler trace: why the last prompt chunk ended where it did (empty: the budget or the prompt's end).</summary>
+    public string TraceClip { get; set; } = "";
 
     /// <summary>
     /// Preempted (paged KV cache): the context tokens to compute again before the sequence continues, or null. Fed like a prompt
