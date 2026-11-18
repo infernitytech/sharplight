@@ -203,7 +203,19 @@ unnecessary for catalog models.
 - `tests/Sharplight.Families.Tests`: `FamilyGenerationTests.Generation_matches_reference_on_cuda` (the golden outputs of the reference
   implementations) and `CudaParityTests` (greedy tokens on CUDA against Vulkan on the same GPU), opt-in with `SHARPLIGHT_TEST_CUDA=1`.
 
-FIXME results
+Results on `cuda/provider-r1` (RTX PRO 4500 Blackwell, compute capability 12.0, driver 595.112.07 / CUDA 13.2, NVRTC 13.0.88):
+
+| suite | result |
+| --- | --- |
+| `Sharplight.Vulkan.Tests` on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class) | 1610 tests: 1564 pass, 0 fail, 46 skip (38 Vulkan internals, 5 workgroup-matrix GEMMs, 2 opt-in large tests, 1 diagnostic) |
+| `Sharplight.Cuda.Tests` | 8 / 8 pass |
+| `CudaParityTests` (greedy, 32 tokens, CUDA against Vulkan with the same feature set) | 4 / 4 identical: Qwen3-0.6B Q8_0, Llama-3.2-1B-Instruct Q8_0, gemma-3-1b-it Q8_0 (GGUF), Qwen3-0.6B (HF) |
+| `FamilyGenerationTests.Generation_matches_reference_on_cuda` (reference outputs) | 9 / 9 pass: gemma-4-E2B-it HF (Gemma), tiny Mixtral (MoE), tiny gemma4 MoE HF + GGUF, tiny Qwen2.5-VL HF + GGUF and tiny GLM-4V HF + GGUF (vision-language), tiny Nemotron-H (hybrid Mamba / MoE, with CPU fallback) |
+| `Sharplight.Metal.Tests` (MSL generation, Linux) | 7 tests: 4 pass, 3 skip (need macOS) |
+
+A kernel fault leaves a CUDA context unusable ("sticky" errors such as `misaligned address`), so every later test of the same process
+fails at its first driver call; running the suite one class per process isolates a fault to its class. The only fault found was the
+int-dot alignment above.
 
 ## Driver-only proof
 
@@ -240,7 +252,34 @@ driver's libraries and device nodes into a plain image.
 
 ## First numbers
 
-FIXME
+GPU 1 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs, nothing else running), `sharplight <model> --bench 512` (prefill of 512
+tokens: best of 5; decode: 64 steps after the prefill), three runs each, medians of the three shown (they agree within 2 %). Raw output
+of the runs in `/workspace/work/cuda-r1/logs/bench` on the machine. "Vulkan SIMT" is the Vulkan provider with the features the CUDA
+provider does not report switched off (`--disable-features matrix_*,bf16,fp8,subgroup_size_control`), i.e. the same kernels as CUDA.
+
+| model | provider | prefill 512 tok/s | decode tok/s (median) | GPU ms per decode step |
+| --- | --- | ---: | ---: | ---: |
+| Qwen3-0.6B Q8_0 | Vulkan (default: tensor cores) | 61,565 | 577 | 1.64 |
+| | Vulkan SIMT | 9,804 | 549 | 1.63 |
+| | **CUDA** | **12,159** | **331** | 2.93 |
+| Llama-3.2-1B-Instruct Q8_0 | Vulkan (default) | 42,611 | 465 | 2.04 |
+| | Vulkan SIMT | 6,525 | 468 | 2.03 |
+| | **CUDA** | **7,729** | **364** | 2.66 |
+
+- **Prefill.** With the same SIMT kernels, CUDA is 18-24 % faster than Vulkan (12.2k against 9.8k, 7.7k against 6.5k tok/s); against
+  Vulkan's tensor-core GEMMs it is 5x slower, which is what phase 2 (tensor cores on CUDA) closes.
+- **Decode** is 1.3-1.8x slower on CUDA. It is GPU time (the event-timed step), not launch overhead (~300 launches per step, host time
+  per step equals GPU time within 0.1 ms on both providers). The per-kernel profile (`SHARPLIGHT_CUDA_PROFILE=1` against
+  `SHARPLIGHT_VK_PROFILE=1`, Qwen3-0.6B, 64 steps) puts most of the gap in the decode attention: 92.2 ms on CUDA against 25.0 ms on
+  Vulkan (50 against 14 µs per layer and step) of a 104 ms total gap (236.6 against 132.6 ms). The kernel is the same Slang source; its
+  CUDA form has no spills (93 registers, `ptxas -v`), but Slang's CUDA backend makes the active mask of every wave operation explicit:
+  the decode attention's CUDA source carries 664 `__ballot_sync` calls that track the mask through every branch and loop iteration,
+  which SPIR-V does not need. Removing that (a Slang option, uniform-control-flow annotations, or a CUDA form of the decode attention)
+  is the first decode item of phase 2.
+
+Load: the first load compiles every kernel (Slang, then NVRTC: about 0.3-0.6 s per kernel on one thread, in parallel); Qwen3-0.6B's
+110-126 kernels took 31-67 s depending on the machine load (the per-user artifact store then serves PTX and cubins, and the next load
+compiles nothing: 3.3 s). Precompiled packages skip it entirely.
 
 ## Diagnostics
 
@@ -255,10 +294,14 @@ faulting kernel is named), plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION
 Phase 1 is correctness on the shared kernels. The phases after it each add CUDA-only fast paths behind neutral device features with the
 phase-1 kernels as the fallback, and each flips the default for a device class only when measured faster and green.
 
-1. **Phase 2: GEMMs on tensor cores.**
-   - `matrix_f16` / `matrix_bf16` / `matrix_mma_layout` on CUDA: either Slang's cooperative matrices lowered to `mma.sync`
-     (upstream work in Slang's CUDA backend, or a small CUDA intrinsic layer in the kernels behind `#if` on the target), so every
-     cooperative-matrix kernel of the library runs on CUDA too.
+1. **Phase 2: tensor cores and decode.**
+   - `matrix_f16` / `matrix_bf16` / `matrix_int8` / `matrix_fp8` / `matrix_mma_layout` on CUDA. Slang's CUDA prelude already maps
+     16x16x16 cooperative matrices to `mma.sync.m16n8k16`; what fails is the code generation of some kernels (`gemm_cm2`: E99999).
+     Find the construct (most likely the fragment loads from `uint4` shared arrays, as on Metal), give those kernels a form Slang's
+     CUDA backend emits (as `*_FRAG8` did for Metal) without changing their SPIR-V, and report the features from compute
+     capability 8.0 (8.9 for FP8). That alone brings the prefill GEMMs to the Vulkan level.
+   - Decode: remove the explicit active-mask tracking of Slang's CUDA output from the hot kernels (decode attention first), see
+     [first numbers](#first-numbers).
    - cuBLASLt for the large prefill GEMMs (bf16, FP8 E4M3 with per-tensor and per-block scales, MXFP8 / NVFP4 block-scaled on
      Blackwell), in the optional `Sharplight.Cuda.Blas` package, chosen per shape against the Slang GEMMs with a small autotune cache.
    - Dynamic shared memory above 48 KB for the existing tile kernels (larger GEMM tiles, two K/V tiles in flight in `fe`).
