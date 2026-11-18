@@ -281,6 +281,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             return;
         }
 
+        _dev.ThrowIfDisposed();
         var a = _staging[r.Buffer];
         if ((ulong)data.Length > a.Size - (ulong)r.ByteOffset)
         {
@@ -321,6 +322,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// <inheritdoc />
     public void GetOutput(Value value, long byteOffset, Span<byte> destination)
     {
+        _dev.ThrowIfDisposed();
         var r = _program.OutputRefs[value];
         var a = _staging[r.Buffer];
         byte* source = a.Mapped + r.ByteOffset + byteOffset;
@@ -371,6 +373,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// <remarks>Each distinct set of skipped outputs gets its own recorded command buffer (without their staging copies).</remarks>
     public void Execute(RunParameters parameters, IReadOnlySet<Value> skipDownloads)
     {
+        _dev.ThrowIfDisposed();
         var rt = _staging[_program.RuntimeBuffer];
         var slots = new Span<uint>(rt.Mapped, 64);
         foreach (var (name, slot) in _program.ScalarSlots)
@@ -1091,6 +1094,21 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         _disposed = true;
+        if (_dev.IsDisposed)
+        {
+            // The device was disposed first (out of order): destroying it released this segment's command buffers, pools, fences
+            // and memory, and calling into the destroyed VkDevice would crash. Only the shared-weight holds are given back.
+            foreach (var lease in _leases.Values)
+            {
+                lease.Dispose();
+            }
+
+            _leases.Clear();
+            _alloc.Clear();
+            _staging.Clear();
+            return;
+        }
+
         // Every Execute waits for its fence, so no work of this segment is in flight; no device-wide wait (it would
         // stall, and need the queue lock against, the other models sharing the device).
         foreach (var cbs in _recorded.Values)

@@ -40,6 +40,8 @@ public class LogprobReferenceTests
         var devices = provider.GetDevices();
         var info = vulkan ? devices.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devices[0] : devices[0];
         var slot = new DeviceSlot { Device = provider.OpenDevice(info) };
+        // The test owns the device (models do not): disposed after the model, so no device outlives the test.
+        using var device = slot.Device;
         using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [slot], ContextLength = 256, MaxBatchTokens = 64 });
         using var session = model.CreateSession(WellKnown.DecodeGraph);
         var logits = session.Process(model.Tokenizer.Encode(c.Prompt, addSpecial: true, parseSpecial: false));

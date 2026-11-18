@@ -252,6 +252,17 @@ jobs:
             id=$(jq -r .id "$WORK/staging/$folder/manifest.json")
             version=$(jq -r .version "$WORK/staging/$folder/manifest.json")
             version_dir="packages/$id/$version"
+            # A manifest-only version (same package file, changed metadata) has no package file locally: copy the earlier version's
+            # object server-side first (the package object always precedes the manifest).
+            if [ -f "$WORK/staging/$folder/reuse.json" ]; then
+              from_version=$(jq -r .version "$WORK/staging/$folder/reuse.json")
+              from_file=$(jq -r .file "$WORK/staging/$folder/reuse.json")
+              to_file=$(jq -r '.files[0].name' "$WORK/staging/$folder/manifest.json")
+              if ! aws s3api head-object --bucket "$R2_BUCKET" --key "$FEED_PREFIX/$version_dir/$to_file" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
+                s3 cp "s3://$R2_BUCKET/$FEED_PREFIX/packages/$id/$from_version/$from_file" "s3://$R2_BUCKET/$FEED_PREFIX/$version_dir/$to_file" \
+                  --metadata-directive REPLACE --content-type application/octet-stream --cache-control "public, max-age=31536000, immutable"
+              fi
+            fi
             for file in "$WORK/feed/$version_dir"/*; do
               key="$version_dir/$(basename "$file")"
               if aws s3api head-object --bucket "$R2_BUCKET" --key "$FEED_PREFIX/$key" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then

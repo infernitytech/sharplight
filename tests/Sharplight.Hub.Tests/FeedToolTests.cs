@@ -68,29 +68,97 @@ public sealed class FeedToolTests
         Assert.Contains(task, ManifestFactory.Describe(entry).Tasks);
     }
 
-    [Fact]
-    public async Task Versions_FollowPinsAndContent()
+    private static ProvenanceSource[] Pins(string revision = "1") => [new() { Repository = "org/model", Revision = new string(revision[0], 40), Role = "primary" }];
+
+    private static PackageManifest Draft(string kind, string sha256, ProvenanceSource[] pins) => new()
     {
-        using var directory = new TempDirectory();
+        Id = "model.q8",
+        Version = "1.0.0",
+        Files = [new PackageFile { Name = "pending.slm", Role = PackageFileRoles.Package, Size = 3, Sha256 = sha256 }],
+        Model = new PackageModel { Kind = kind, Tasks = [kind] },
+        Provenance = new PackageProvenance { Sources = pins, Built = DateTimeOffset.UtcNow, Converter = new ConverterInfo { Engine = "9.9.9", Tool = "feedtool 9.9.9" } },
+        Requirements = new PackageRequirements { Engine = ">=9.9.0" },
+    };
+
+    private static async Task<(string Feed, FeedSigningKey Key, PackageManifest Published)> PublishedFeedAsync(TempDirectory directory, string kind)
+    {
         var feed = directory.Combine("feed");
         Directory.CreateDirectory(feed);
         using var root = FeedSigningKey.Generate();
-        using var key = FeedSigningKey.Generate();
+        var key = FeedSigningKey.Generate();
         FeedPublisher.WriteKeySet(feed, new FeedKeySet { Version = 1, Issued = DateTimeOffset.UtcNow.AddDays(-1), Keys = [new FeedKeySetEntry { KeyId = key.KeyId, PublicKey = key.PublicKey.Base64 }] }, root);
-        ProvenanceSource[] pins = [new() { Repository = "org/model", Revision = new string('1', 40), Role = "primary" }];
-        Assert.Equal("1.0.0", VersionPlanner.Next(feed, "model.q8", pins, new string('a', 64)));
-
         var staged = directory.Combine("staged");
         Directory.CreateDirectory(staged);
         await File.WriteAllBytesAsync(Path.Combine(staged, "model.q8.1.0.0.slm"), [1, 2, 3], TestContext.Current.CancellationToken);
         var file = await PackageFileHasher.DescribeAsync(Path.Combine(staged, "model.q8.1.0.0.slm"), "model.q8.1.0.0.slm", cancellationToken: TestContext.Current.CancellationToken);
-        var manifest = new PackageManifest { Id = "model.q8", Version = "1.0.0", Files = [file], Provenance = new PackageProvenance { Sources = pins } };
+        var manifest = Draft(kind, file.Sha256, Pins()) with { Files = [file] };
         await File.WriteAllBytesAsync(Path.Combine(staged, FeedLayout.ManifestFileName), FeedJson.Write(manifest, FeedJsonContext.Default.PackageManifest), TestContext.Current.CancellationToken);
-        await new FeedPublisher().PublishAsync(feed, [staged], key, cancellationToken: TestContext.Current.CancellationToken);
+        await new FeedPublisher().PublishAsync(feed, [staged], key, new FeedPublishOptions { Channel = FeedChannels.Unstable }, TestContext.Current.CancellationToken);
+        return (feed, key, manifest);
+    }
 
-        Assert.Null(VersionPlanner.Next(feed, "model.q8", pins, file.Sha256));
-        Assert.Equal("1.1.0", VersionPlanner.Next(feed, "model.q8", pins, new string('b', 64)));
-        ProvenanceSource[] newPins = [pins[0] with { Revision = new string('2', 40) }];
-        Assert.Equal("2.0.0", VersionPlanner.Next(feed, "model.q8", newPins, new string('b', 64)));
+    [Fact]
+    public async Task Versions_FollowPinsAndContent()
+    {
+        using var directory = new TempDirectory();
+        Assert.Equal("1.0.0", VersionPlanner.Plan(null, Draft("embeddings", new string('a', 64), Pins()))!.Version);
+        var (feed, key, published) = await PublishedFeedAsync(directory, "embeddings");
+        using var _ = key;
+        var sha = published.PrimaryFile!.Sha256;
+
+        // Identical file and metadata (a rebuild by a newer engine changes only build time, converter and minimum engine): nothing.
+        Assert.Null(VersionPlanner.Plan(feed, Draft("embeddings", sha, Pins())));
+        // A changed file is a new version as before.
+        Assert.Equal("1.1.0", VersionPlanner.Plan(feed, Draft("embeddings", new string('b', 64), Pins()))!.Version);
+        Assert.Null(VersionPlanner.Plan(feed, Draft("embeddings", new string('b', 64), Pins()))!.ReusesPayloadOf);
+        Assert.Equal("2.0.0", VersionPlanner.Plan(feed, Draft("embeddings", new string('b', 64), Pins("2")))!.Version);
+    }
+
+    [Fact]
+    public async Task ChangedMetadataWithSamePayload_PublishesPatchVersionSharingThePayload()
+    {
+        using var directory = new TempDirectory();
+        var (feed, key, published) = await PublishedFeedAsync(directory, "embeddings");
+        using var _ = key;
+        var file = published.PrimaryFile!;
+        var plan = VersionPlanner.Plan(feed, Draft("reranker", file.Sha256, Pins()))!;
+        Assert.Equal("1.0.1", plan.Version);
+        Assert.Equal("1.0.0", plan.ReusesPayloadOf!.Version);
+
+        var staged = directory.Combine("staged-1.0.1");
+        Directory.CreateDirectory(staged);
+        var manifest = Draft("reranker", file.Sha256, Pins()) with { Version = "1.0.1", Files = [file with { Name = "model.q8.1.0.1.slm" }] };
+        await File.WriteAllBytesAsync(Path.Combine(staged, FeedLayout.ManifestFileName), FeedJson.Write(manifest, FeedJsonContext.Default.PackageManifest), TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(staged, FeedLayout.PayloadReuseFileName), FeedJson.Write(new PayloadReuse { Version = "1.0.0", File = file.Name }, FeedJsonContext.Default.PayloadReuse), TestContext.Current.CancellationToken);
+        var result = await new FeedPublisher().PublishAsync(feed, [staged], key, new FeedPublishOptions { Channel = FeedChannels.Unstable }, TestContext.Current.CancellationToken);
+        Assert.Equal(["model.q8@1.0.1"], result.Added);
+
+        // The new version has its own manifest (new kind), and the same bytes as the first version's file under its own name.
+        var stored = FeedJson.ReadManifest(File.ReadAllBytes(Path.Combine(feed, FeedLayout.Manifest("model.q8", "1.0.1"))));
+        Assert.Equal("reranker", stored.Model!.Kind);
+        Assert.Equal(File.ReadAllBytes(Path.Combine(feed, FeedLayout.VersionFile("model.q8", "1.0.0", file.Name))), File.ReadAllBytes(Path.Combine(feed, FeedLayout.VersionFile("model.q8", "1.0.1", "model.q8.1.0.1.slm"))));
+        Assert.Equal("embeddings", FeedJson.ReadManifest(File.ReadAllBytes(Path.Combine(feed, FeedLayout.Manifest("model.q8", "1.0.0")))).Model!.Kind);
+
+        // Promoting the id takes the latest unstable version.
+        await new FeedPublisher().PromoteAsync(feed, FeedChannels.Stable, ["model.q8"], FeedChannels.Unstable, key, cancellationToken: TestContext.Current.CancellationToken);
+        var stable = FeedJson.Read(File.ReadAllBytes(Path.Combine(feed, FeedLayout.InChannel(FeedChannels.Stable, FeedLayout.PackageIndex("model.q8")))), FeedJsonContext.Default.FeedPackageIndex, "index");
+        Assert.Equal(["1.0.1"], stable.Versions.Select(version => version.Version));
+
+        // The new latest version now matches: nothing more to build.
+        Assert.Null(VersionPlanner.Plan(feed, Draft("reranker", file.Sha256, Pins())));
+    }
+
+    [Fact]
+    public async Task ReusedPayload_MustMatchTheEarlierFile()
+    {
+        using var directory = new TempDirectory();
+        var (feed, key, published) = await PublishedFeedAsync(directory, "embeddings");
+        using var _ = key;
+        var staged = directory.Combine("staged-bad");
+        Directory.CreateDirectory(staged);
+        var manifest = Draft("reranker", new string('c', 64), Pins()) with { Version = "1.0.1", Files = [published.PrimaryFile! with { Name = "model.q8.1.0.1.slm", Sha256 = new string('c', 64) }] };
+        await File.WriteAllBytesAsync(Path.Combine(staged, FeedLayout.ManifestFileName), FeedJson.Write(manifest, FeedJsonContext.Default.PackageManifest), TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(staged, FeedLayout.PayloadReuseFileName), FeedJson.Write(new PayloadReuse { Version = "1.0.0", File = published.PrimaryFile!.Name }, FeedJsonContext.Default.PayloadReuse), TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<FeedFormatException>(() => new FeedPublisher().PublishAsync(feed, [staged], key, new FeedPublishOptions { Channel = FeedChannels.Unstable }, TestContext.Current.CancellationToken));
     }
 }
