@@ -52,6 +52,17 @@ internal sealed record QwenImageConfig
     /// <summary>The original scheduler configuration, or null.</summary>
     public string? SchedulerJson { get; init; }
 
+    /// <summary>The editing variant (Qwen-Image-Edit, -2509, -2511 and fine-tunes), or null for the text-to-image model.</summary>
+    public QwenImageEditVariant? Edit { get; init; }
+
+    /// <summary>The prompt template of the editing pipelines (a system turn about the input image, then the prompt as the user turn).</summary>
+    public const string EditPromptTemplate = "<|im_start|>system\nDescribe the key features of the input image (color, shape, size, texture, objects, background), then explain how "
+        + "the user's text instruction should alter or modify the image. Generate a new image that meets the user's requirements while maintaining consistency with the "
+        + "original input where appropriate.<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n";
+
+    /// <summary>Tokens of <see cref="EditPromptTemplate"/> before the prompt whose hidden states the editing pipelines drop.</summary>
+    public const int EditPromptSkip = 64;
+
     /// <summary>Infers the configuration from canonical <c>transformer.*</c> weights (128-wide heads, as every release).</summary>
     /// <param name="weights">The canonical weights.</param>
     /// <exception cref="InvalidDataException">The weights are not a Qwen-Image transformer.</exception>
@@ -81,6 +92,10 @@ internal sealed record QwenImageConfig
             AxesDim = [headDim / 8, headDim * 7 / 16, headDim * 7 / 16],
         };
     }
+
+    /// <summary>This configuration as an editing model.</summary>
+    /// <param name="variant">The editing variant.</param>
+    public QwenImageConfig WithEdit(QwenImageEditVariant? variant) => this with { Edit = variant };
 
     /// <summary>This configuration with the transformer and scheduler settings of a diffusers folder.</summary>
     /// <param name="schedulerJson">The <c>scheduler_config.json</c> text, or null.</param>
@@ -118,9 +133,23 @@ internal sealed record QwenImageConfig
         metadata[t + "sample_size"] = 1024;
 
         WriteScheduler(metadata, Prefix, SchedulerJson);
-        metadata[Prefix + "text_encoder.prompt_length"] = PromptLength;
-        metadata[Prefix + "text_encoder.prompt_skip"] = PromptSkip;
-        metadata[Prefix + "text_encoder.prompt_template"] = PromptTemplate;
+        metadata[Prefix + "text_encoder.prompt_length"] = Edit?.PromptLength ?? PromptLength;
+        metadata[Prefix + "text_encoder.prompt_skip"] = Edit is null ? PromptSkip : EditPromptSkip;
+        metadata[Prefix + "text_encoder.prompt_template"] = Edit is null ? PromptTemplate : EditPromptTemplate;
+        if (Edit is { } edit)
+        {
+            // Editing: the reference images' tokens follow the image's (first position axis 1, 2, ...), the language model reads the images.
+            metadata[t + "max_references"] = edit.MaxReferences;
+            metadata[t + "reference_index_base"] = 1;
+            metadata[t + "reference_index_step"] = 1;
+            metadata[t + "zero_cond_t"] = edit.ZeroConditionTimestep;
+            string e = Prefix + "edit.";
+            metadata[e + "max_references"] = edit.MaxReferences;
+            metadata[e + "condition_pixels"] = edit.ConditionPixels;
+            metadata[e + "reference_area"] = 1024 * 1024;
+            metadata[e + "image_prompt"] = edit.ImagePrompt;
+        }
+
         metadata[Prefix + "default_steps"] = 50;
         metadata[Prefix + "default_guidance"] = 4.0;
     }

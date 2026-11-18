@@ -6,15 +6,22 @@ namespace Sharplight.ImageGeneration;
 internal static class PlanarResize
 {
     /// <summary>Resizes every channel of <paramref name="source"/> from <paramref name="inHeight"/>×<paramref name="inWidth"/>.</summary>
-    public static float[] Resize(float[] source, int channels, int inHeight, int inWidth, int outHeight, int outWidth)
+    /// <param name="source">The planes.</param>
+    /// <param name="channels">The number of planes.</param>
+    /// <param name="inHeight">The source height.</param>
+    /// <param name="inWidth">The source width.</param>
+    /// <param name="outHeight">The target height.</param>
+    /// <param name="outWidth">The target width.</param>
+    /// <param name="lanczos">Whether to resample with Lanczos weights (diffusers' <c>VaeImageProcessor</c> default) instead of bicubic ones.</param>
+    public static float[] Resize(float[] source, int channels, int inHeight, int inWidth, int outHeight, int outWidth, bool lanczos = false)
     {
         if (inHeight == outHeight && inWidth == outWidth)
         {
             return source;
         }
 
-        var rows = ImageResampling.AntialiasedBicubic(inHeight, outHeight);
-        var columns = ImageResampling.AntialiasedBicubic(inWidth, outWidth);
+        var rows = lanczos ? ImageResampling.AntialiasedLanczos(inHeight, outHeight) : ImageResampling.AntialiasedBicubic(inHeight, outHeight);
+        var columns = lanczos ? ImageResampling.AntialiasedLanczos(inWidth, outWidth) : ImageResampling.AntialiasedBicubic(inWidth, outWidth);
         var result = new float[channels * outHeight * outWidth];
         var horizontal = new float[inHeight * outWidth];
         for (int c = 0; c < channels; c++)
