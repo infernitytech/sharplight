@@ -7,7 +7,7 @@ namespace Sharplight.Vulkan.Tests;
 /// Opening and disposing Vulkan devices and models repeatedly, the way applications that load and unload models do: every
 /// disposed device must release its driver context and memory, so the loop runs as long as the caller wants. A device that is
 /// not disposed keeps its driver context until the process exits, and the driver allows only a limited number of them per
-/// process (about 40 per GPU on the NVIDIA driver); <see cref="LeakedDevicesHitTheDriverLimit"/> measures that limit.
+/// process (63 live devices on the NVIDIA 595 driver); <see cref="LeakedDevicesHitTheDriverLimit"/> measures that limit.
 /// </summary>
 public sealed class DeviceLifetimeTests
 {
