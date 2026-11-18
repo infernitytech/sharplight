@@ -1,0 +1,5 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 100 %, 31036 MiB, 199.96 W, 2340 MHz, 13365 MHz, 61, P1
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 15 MiB, 12.06 W, 180 MHz, 405 MHz, 31, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 38 %, 15213 MiB, 191.37 W, 2550 MHz, 14001 MHz, 61, P0
+1179056, python, 31016 MiB
+1173979, sharplight, 15196 MiB

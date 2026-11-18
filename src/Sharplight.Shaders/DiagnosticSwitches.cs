@@ -108,6 +108,8 @@ namespace Sharplight.Shaders;
 /// grouped expert matmuls on moe_gemm_cm instead of the expert-grouped gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_MOE_X16=0</c>: the expert-grouped gemm_cm2 gathers and converts the f32 activation rows itself (in every
 /// column tile) instead of reading the expert-sorted f16 rows written once per routing by <c>moe_gather_x16</c>.</item>
+/// <item><c>SHARPLIGHT_MOE_SKINNY=n</c>: average items per expert up to which the expert-grouped skinny GEMM serves the grouped
+/// expert products (0: gemm_cm2 at every size).</item>
 /// <item><c>SHARPLIGHT_CONV_NO_MATRIX=1</c>: run convolutions on the SIMT conv_gemm instead of the cooperative-matrix conv_cm.</item>
 /// </list>
 /// </summary>
@@ -460,6 +462,12 @@ internal static class DiagnosticSwitches
     /// expert's last, partly filled tile) to a second launch with half-height tiles, which multiplies less padding.
     /// </summary>
     public static bool MoeSplitTiles { get; } = IsNotZero("SHARPLIGHT_MOE_SPLIT_TILES");
+
+    /// <summary>
+    /// Average (token, slot) items per expert up to which the expert-grouped skinny GEMM (16-row expert tiles) serves the grouped
+    /// expert products (<c>SHARPLIGHT_MOE_SKINNY=n</c>; 0 keeps them on gemm_cm2), or null for the default.
+    /// </summary>
+    public static int? MoeSkinnyItemsPerExpert { get; } = Read("SHARPLIGHT_MOE_SKINNY") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>Disables the tensor-core expert matmul.</summary>
     public static bool MoeNoCoop { get; } = IsSet("SHARPLIGHT_MOE_NO_COOP");

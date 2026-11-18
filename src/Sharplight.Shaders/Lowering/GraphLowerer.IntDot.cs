@@ -26,7 +26,7 @@ public sealed partial class GraphLowerer
     private long IntDotSkinnyMinRows(DataType type, long k, long n)
     {
         long cap = IntDotMaxRows(type, k);
-        return Math.Max((cap < MatvecMaxRows && SkinnyMaxRowsFor(n) >= MatvecMaxRows ? cap : Math.Max(MatvecMaxRows, cap)) + 1, InvariantRows + 1);
+        return Math.Max((cap < MatvecMaxRows && SkinnyMaxRowsFor(n, type) >= MatvecMaxRows ? cap : Math.Max(MatvecMaxRows, cap)) + 1, InvariantRows + 1);
     }
 
     /// <summary>Threads an int-dot matvec launch aims for (splitting K inside workgroups when there are few weight rows).</summary>

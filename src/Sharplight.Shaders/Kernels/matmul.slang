@@ -24,9 +24,15 @@
 #define MM_EPI 0
 #endif
 // X_SORTED (with MOE and X_F16): x holds the routed rows in expert-sorted order (moe_gather_x16 in moe.slang, X_STRIDE = K), so
-// the rows of a tile are the dense rows rowOffset .. rowOffset + rows - 1.
+// the rows of a tile are the dense rows rowOffset .. rowOffset + rows - 1. With X_RS, x is row-ranged (common.slang,
+// f16_range_scale; scale word of sorted row o at byte offset X_RS + 4 o) and the store multiplies each row by its inverse scale.
 #ifndef X_SORTED
 #define X_SORTED 0
+#endif
+#if MOE && X_SORTED && defined(X_RS)
+#define MOE_RANGED 1
+#else
+#define MOE_RANGED 0
 #endif
 // DUAL_Y16 (dual gemm_cm2): also stores y rounded to f16 into y16, the f16 copy the next GEMM reads (the to_f16 conversion,
 // round to nearest even, so the copy is identical to a separate conversion). With DUAL_Y16_RANGE the copy is row-ranged
@@ -1116,6 +1122,9 @@ groupshared float gC[WARPS_M * WARPS_N * 256];
 #if MOE
 groupshared uint gItem[GBM];
 #endif
+#if MOE_RANGED
+groupshared float gRowInverse[GBM];
+#endif
 
 [shader("compute")]
 [numthreads(GTHREADS, 1, 1)]
@@ -1146,6 +1155,9 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #endif
     uint8_t* wbase = rowStart(p.w, EXPERT_BYTES, expert);
     for (uint r = tid; r < GBM; r += GTHREADS) gItem[r] = r < tileRows ? p.scratch[1 + 3 * MAXTILES + rowOff + r] : 0xFFFFFFFFu;
+#if MOE_RANGED
+    for (uint r = tid; r < GBM; r += GTHREADS) gRowInverse[r] = r < tileRows ? f16_range_inverse(*(uint*)(uint64_t(p.x) + X_RS + uint64_t(rowOff + r) * 4)) : 1.0;
+#endif
     GroupMemoryBarrierWithGroupSync();
     uint t0 = 0;
 #if X_SORTED
@@ -1623,7 +1635,11 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
                 uint t = t0 + wm + i * 16 + w / 16;
                 uint n = n0 + wn + j * 16 + w % 16;
 #if MOE
+#if MOE_RANGED
+                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w] * gRowInverse[t];
+#else
                 if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w];
+#endif
 #else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = gC[sg * 256 + w];
 #endif

@@ -25,6 +25,11 @@
 // row's results by its inverse scale. f32 rows get the same range guard in the kernel (each row's largest magnitude first,
 // skRowScale). DUAL: w and w2
 // (same shape and format) give SK_FN fragments each, combined by epi2 per element before the store.
+// MOE (with X_SORTED and X_F16): the expert-grouped form of a MatMulId (see MOE / X_SORTED in matmul.slang). Each workgroup row
+// of the grid (gid.y) is one expert tile of up to 16 rows of the routing scratch; the tile's rows are the dense sorted f16 rows
+// rowOffset .. rowOffset + rows - 1 of x, its weights expert `expert` of w, and row r of the result goes to y row item(r)
+// (multiplied by the row's inverse range scale with X_RS). So an expert's weights are read once per tile by the bandwidth-bound
+// skinny loop, instead of by gemm_cm2's 32-row tiles with a barrier per K step.
 // Requires K % SK_BK == 0, and K % 64 == 0 with SK_DIRECT.
 #ifdef KERNEL_GEMM_SK
 using namespace linalg;
@@ -48,6 +53,9 @@ using namespace linalg;
 #endif
 #if SK_DIRECT && (SK_FM != 1 || !X_F16)
 #error "the direct skinny GEMM needs one token fragment and f16 activations"
+#endif
+#if MOE && (!X_SORTED || !X_F16 || DUAL)
+#error "the expert-grouped skinny GEMM needs expert-sorted f16 rows and a single matrix"
 #endif
 #define SK_NB (SK_FN * (1 + DUAL))          // B fragments (16 weight rows each) per subgroup
 #define SK_AS (SK_BK + 8)                   // staged row stride in halves (padding against bank conflicts)
@@ -74,6 +82,10 @@ groupshared uint4 skB[SK_SG * SK_B_WORDS];
 // Range scale (f16_range_scale) of each token row of the f32 activations.
 groupshared float skRowScale[SK_FM * 16];
 #endif
+#if MOE
+// The output row (routed item) of each tile row.
+groupshared uint skItem[SK_FM * 16];
+#endif
 
 // The 8 activations [k, k + 8) of token row t as packed halves (zeros past T).
 uint4 sk_load_x(float* x, uint t, uint k, uint T)
@@ -92,9 +104,51 @@ uint4 sk_load_x(float* x, uint t, uint k, uint T)
 #endif
 }
 
+// The 16 weights [16 g16, 16 g16 + 16) of row `row` as fetched for sk_decode_row: FP8 codes stay packed (one uint4, and the
+// group multiplier in r1.x) and MXFP4R codes raw (one uint4 holding both nibble halves of the block, the scale byte and the
+// half in r1) until their MMAs, so the loads stay in flight meanwhile; other formats are decoded to packed halves at once.
+void sk_fetch_row(uint8_t* w, uint row, uint g16, out uint4 r0, out uint4 r1)
+{
+#ifdef WFMT_FP8
+    float s;
+    uint* q = (uint*)fp8_group(w, ROW_BYTES, row, g16 * 2, FP8_BLOCK, WFMT == FMT_F8E5M2, s);
+#if FP8_SPLIT || FP8_BLOCK == 0
+    r0 = *(uint4*)q;   // 16-byte aligned codes
+#else
+    r0 = uint4(q[0], q[1], q[2], q[3]);
+#endif
+    r1 = uint4(asuint(s), 0, 0, 0);
+#elif WFMT == FMT_MXFP4R
+    r0 = *(uint4*)(mxfp4r_codes(w, ROW_BYTES, row) + uint64_t(g16 >> 1) * 16);
+    r1 = uint4(mxfp4r_scale(w, ROW_BYTES, row, g16 >> 1), g16 & 1, 0, 0);
+#else
+    load16h(w, row, g16, r0, r1);
+#endif
+}
+
+// Packed halves (lo: first 8) of what sk_fetch_row fetched; the same values as load16h.
+void sk_decode_row(uint4 r0, uint4 r1, out uint4 lo, out uint4 hi)
+{
+#ifdef WFMT_FP8
+    float s = asfloat(r1.x);
+    lo = uint4(fp8x4_h(r0.x, s), fp8x4_h(r0.y, s));
+    hi = uint4(fp8x4_h(r0.z, s), fp8x4_h(r0.w, s));
+#elif WFMT == FMT_MXFP4R
+    uint4 q = (r0 >> (4 * r1.y)) & 0x0F0F0F0Fu;
+    float s = e8m0_half(r1.x) * 32768.0;
+    half2 s1 = half2(half(min(s, 32768.0)));
+    half2 s2 = half2(half(max(s / 32768.0, 1.0)));
+    lo = uint4(fp4_h2(q.x, false, s1, s2), fp4_h2(q.x, true, s1, s2), fp4_h2(q.y, false, s1, s2), fp4_h2(q.y, true, s1, s2));
+    hi = uint4(fp4_h2(q.z, false, s1, s2), fp4_h2(q.z, true, s1, s2), fp4_h2(q.w, false, s1, s2), fp4_h2(q.w, true, s1, s2));
+#else
+    lo = r0;
+    hi = r1;
+#endif
+}
+
 #if !SK_DIRECT
 // Staged path: accumulates the workgroup's share of K into acc.
-void sk_staged(uint n0, uint sg, uint lane, Params p, inout SkC acc[SK_FM][SK_NB])
+void sk_staged(uint n0, uint sg, uint lane, Params p, float* xb, uint T, uint8_t* wb, inout SkC acc[SK_FM][SK_NB])
 {
     uint aBase = sg * SK_A_WORDS, bBase = sg * SK_B_WORDS;
     uint4 xs[SK_A_PER_LANE];
@@ -103,7 +157,7 @@ void sk_staged(uint n0, uint sg, uint lane, Params p, inout SkC acc[SK_FM][SK_NB
     [ForceUnroll] for (uint it = 0; it < SK_A_PER_LANE; it++)                                           \
     {                                                                                                   \
         uint idx = lane + it * 32, r = idx / (SK_BK / 8), q = idx % (SK_BK / 8);                       \
-        xs[it] = sk_load_x(p.x, r, (k0) + q * 8, p.T);                                                  \
+        xs[it] = sk_load_x(xb, r, (k0) + q * 8, T);                                                  \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < SK_B_PER_LANE; it++)                                           \
     {                                                                                                   \
@@ -112,12 +166,12 @@ void sk_staged(uint n0, uint sg, uint lane, Params p, inout SkC acc[SK_FM][SK_NB
         ws[it][0] = 0; ws[it][1] = 0;                                                                   \
         if (N % (SK_FN * 16) == 0 || wr < N)                                                            \
         {                                                                                               \
-            if (!DUAL || r < SK_FN * 16) load16h(p.w, wr, (k0) / 16 + q, ws[it][0], ws[it][1]);        \
+            if (!DUAL || r < SK_FN * 16) sk_fetch_row(wb, wr, (k0) / 16 + q, ws[it][0], ws[it][1]);   \
             SK_LOAD_W2(wr, (k0) / 16 + q, ws[it])                                                        \
         }                                                                                               \
     }
 #if DUAL
-    #define SK_LOAD_W2(wr, g16, dst) else { load16h(p.w2, wr, g16, dst[0], dst[1]); }
+    #define SK_LOAD_W2(wr, g16, dst) else { sk_fetch_row(p.w2, wr, g16, dst[0], dst[1]); }
 #else
     #define SK_LOAD_W2(wr, g16, dst)
 #endif
@@ -131,7 +185,9 @@ void sk_staged(uint n0, uint sg, uint lane, Params p, inout SkC acc[SK_FM][SK_NB
     {                                                                                                   \
         uint idx = lane + it * 32, r = idx / (SK_BK / 16), q = idx % (SK_BK / 16);                      \
         uint ob = bBase + (r * SK_AS + q * 16) / 8;                                                     \
-        skB[ob] = ws[it][0]; skB[ob + 1] = ws[it][1];                                                   \
+        uint4 lo_, hi_;                                                                                 \
+        sk_decode_row(ws[it][0], ws[it][1], lo_, hi_);                                                  \
+        skB[ob] = lo_; skB[ob + 1] = hi_;                                                               \
     }
 
     const uint blocks = K / SK_BK;
@@ -181,37 +237,6 @@ half sk_half(uint word, uint h)
     return h == 0 ? v.x : v.y;
 }
 
-// The 16 weights [16 g16, 16 g16 + 16) of row `row` as fetched for sk_decode_row: FP8 codes stay packed (one uint4, and the
-// group multiplier in r1.x) until their MMAs, other formats are decoded to packed halves at once.
-void sk_fetch_row(uint8_t* w, uint row, uint g16, out uint4 r0, out uint4 r1)
-{
-#ifdef WFMT_FP8
-    float s;
-    uint* q = (uint*)fp8_group(w, ROW_BYTES, row, g16 * 2, FP8_BLOCK, WFMT == FMT_F8E5M2, s);
-#if FP8_SPLIT || FP8_BLOCK == 0
-    r0 = *(uint4*)q;   // 16-byte aligned codes
-#else
-    r0 = uint4(q[0], q[1], q[2], q[3]);
-#endif
-    r1 = uint4(asuint(s), 0, 0, 0);
-#else
-    load16h(w, row, g16, r0, r1);
-#endif
-}
-
-// Packed halves (lo: first 8) of what sk_fetch_row fetched; the same values as load16h.
-void sk_decode_row(uint4 r0, uint4 r1, out uint4 lo, out uint4 hi)
-{
-#ifdef WFMT_FP8
-    float s = asfloat(r1.x);
-    lo = uint4(fp8x4_h(r0.x, s), fp8x4_h(r0.y, s));
-    hi = uint4(fp8x4_h(r0.z, s), fp8x4_h(r0.w, s));
-#else
-    lo = r0;
-    hi = r1;
-#endif
-}
-
 // True when the device's 16x16 f16 fragments have the element layout the direct path assumes (uniform over the workgroup):
 // element e of lane (g, c) is at row (A) / column (B) g + 8 (e >> 2) and K slot 2c + (e & 1) + 8 ((e >> 1) & 1). Loads both
 // fragments from a matrix whose element (r, k) / (k, n) holds 16 r + k / 16 n + k.
@@ -243,10 +268,10 @@ bool sk_direct_layout(uint tid, uint lane)
 // rows g, g + 8 of every B fragment. MMA f (0-3) maps the lane's K slots 2c, 2c + 1, 2c + 8, 2c + 9 to its values 4f .. 4f + 3,
 // the same for A and B, so the four MMAs cover the block once. The weights of the next block are prefetched into registers;
 // x (the same rows for every workgroup, so mostly cache hits) is too.
-void sk_direct(uint n0, uint sg, uint lane, Params p, inout SkC acc[SK_FM][SK_NB])
+void sk_direct(uint n0, uint sg, uint lane, Params p, float* xb, uint T, uint8_t* wb, inout SkC acc[SK_FM][SK_NB])
 {
     uint g = lane / 4, c = lane % 4;
-    bool rowLo = g < p.T, rowHi = g + 8 < p.T;
+    bool rowLo = g < T, rowHi = g + 8 < T;
     uint4 xr[2][2], wr[SK_NB][2][2];
     #define SKD_FETCH(kb)                                                                               \
     {                                                                                                   \
@@ -257,7 +282,7 @@ void sk_direct(uint n0, uint sg, uint lane, Params p, inout SkC acc[SK_FM][SK_NB
             xr[h][0] = 0; xr[h][1] = 0;                                                                 \
             if (h == 0 ? rowLo : rowHi)                                                                 \
             {                                                                                           \
-                uint4* px = (uint4*)((uint16_t*)p.x + uint64_t(g + 8 * h) * X_STRIDE + k_);             \
+                uint4* px = (uint4*)((uint16_t*)xb + uint64_t(g + 8 * h) * X_STRIDE + k_);             \
                 xr[h][0] = px[0]; xr[h][1] = px[1];                                                     \
             }                                                                                           \
             [ForceUnroll]                                                                               \
@@ -270,9 +295,9 @@ void sk_direct(uint n0, uint sg, uint lane, Params p, inout SkC acc[SK_FM][SK_NB
         }                                                                                               \
     }
 #if DUAL
-    #define SKD_WPTR(j) ((j) >= SK_FN ? p.w2 : p.w)
+    #define SKD_WPTR(j) ((j) >= SK_FN ? p.w2 : wb)
 #else
-    #define SKD_WPTR(j) p.w
+    #define SKD_WPTR(j) wb
 #endif
 
     const uint blocks = K / 64;
@@ -338,6 +363,20 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
     uint n0 = gid.x * (SK_FN * 16);
+#if MOE
+    // The expert tile of this workgroup row: its rows are the sorted f16 rows from rowOff, its weights expert `expert`.
+    uint tile = gid.y;
+    if (tile >= p.scratch[0]) return;
+    uint expert = p.scratch[1 + 3 * tile], rowOff = p.scratch[2 + 3 * tile];
+    uint T = p.scratch[3 + 3 * tile];
+    float* xb = (float*)(uint64_t(p.x) + uint64_t(rowOff) * X_STRIDE * 2);
+    uint8_t* wb = rowStart(p.w, EXPERT_BYTES, expert);
+    for (uint r = tid; r < SK_FM * 16; r += SK_SG * 32) skItem[r] = r < T ? p.scratch[1 + 3 * MAXTILES + rowOff + r] : 0u;
+#else
+    uint T = p.T;
+    float* xb = p.x;
+    uint8_t* wb = p.w;
+#endif
 
     SkC acc[SK_FM][SK_NB];
     [ForceUnroll] for (int i = 0; i < SK_FM; i++) [ForceUnroll] for (int j = 0; j < SK_NB; j++) acc[i][j] = SkC(0.0);
@@ -346,7 +385,7 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
     for (uint r = sg; r < SK_FM * 16; r += SK_SG)
     {
         float m = 0;
-        if (r < p.T)
+        if (r < T)
         {
             for (uint c = lane * 4; c < K; c += 128)
             {
@@ -362,14 +401,14 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 #if SK_DIRECT
     if (sk_direct_layout(tid, lane))
     {
-        sk_direct(n0, sg, lane, p, acc);
+        sk_direct(n0, sg, lane, p, xb, T, wb, acc);
     }
     else
     {
         [ForceUnroll] for (int j = 0; j < SK_NB; j++) acc[0][j] = SkC(asfloat(0x7FC00000u));
     }
 #else
-    sk_staged(n0, sg, lane, p, acc);
+    sk_staged(n0, sg, lane, p, xb, T, wb, acc);
 #endif
 
     // Sum the subgroups' partial tiles fragment by fragment through the (now free) B slices: subgroup s stores its 16x16
@@ -389,10 +428,12 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
             for (uint e = tid; e < 256; e += SK_SG * 32)
             {
                 uint t = i * 16 + e / 16, n = n0 + j * 16 + e % 16;
-                if (t < p.T && n < N)
+                if (t < T && n < N)
                 {
 #if !X_F16
                     float inv = 1.0 / skRowScale[t];
+#elif MOE && defined(X_RS)
+                    float inv = f16_range_inverse(*(uint*)(uint64_t(p.x) + X_RS + uint64_t(rowOff + t) * 4));
 #elif defined(X_RS)
                     float inv = f16_range_inverse(*(uint*)(uint64_t(p.x) + X_RS + uint64_t(t) * 4));
 #else
@@ -406,7 +447,11 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
                     [ForceUnroll] for (uint z = 0; z < SK_SG; z++) s2 += asfloat(skB[(2 * z * 256 + 256 + e) / 4][e % 4]);
                     s = epi2(s, s2 * inv);
 #endif
+#if MOE
+                    p.y[uint64_t(skItem[t]) * Y_STRIDE + n] = s;
+#else
                     p.y[uint64_t(t) * Y_STRIDE + n] = s;
+#endif
                 }
             }
         }
