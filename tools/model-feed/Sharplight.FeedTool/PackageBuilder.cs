@@ -40,22 +40,34 @@ internal sealed class PackageBuilder(string storeRoot, Action<string> log)
         var described = await PackageFileHasher.DescribeAsync(packagePath, "pending.slm", cancellationToken: cancellationToken).ConfigureAwait(false);
         var engineVersion = EngineVersion();
         var draft = ManifestFactory.Create(plan, inspection, described, "1.0.0", overlay.Packages.GetValueOrDefault(id), engineVersion, feedUrl, DateTimeOffset.UtcNow);
-        var version = VersionPlanner.Next(feedFolder, id, draft.Provenance!.Sources, described.Sha256);
-        if (version is null)
+        var versionPlan = VersionPlanner.Plan(feedFolder, draft);
+        if (versionPlan is null)
         {
-            log($"{id}: the feed already has this exact package; nothing to build.");
+            log($"{id}: the feed already has this exact package (file and metadata); nothing to build.");
             return null;
         }
 
+        var version = versionPlan.Version;
         var fileName = FeedLayout.PackageFileName(id, version);
         var folder = Path.Combine(outputFolder, $"{id}-{version}");
         Directory.CreateDirectory(folder);
-        File.Copy(packagePath, Path.Combine(folder, fileName), overwrite: true);
         var manifest = draft with
         {
             Version = version,
             Files = [described with { Name = fileName }],
         };
+        if (versionPlan.ReusesPayloadOf is { } earlier)
+        {
+            // Same package file, new manifest: the file is stored once, the feed copies it under the new version.
+            log($"{id}: the package file is unchanged but the manifest metadata differs; publishing {version} (manifest only) that reuses the file of {earlier.Version}.");
+            var reuse = new PayloadReuse { Version = earlier.Version, File = earlier.PrimaryFile!.Name };
+            await File.WriteAllBytesAsync(Path.Combine(folder, FeedLayout.PayloadReuseFileName), FeedJson.Write(reuse, FeedJsonContext.Default.PayloadReuse), cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            File.Copy(packagePath, Path.Combine(folder, fileName), overwrite: true);
+        }
+
         await File.WriteAllBytesAsync(Path.Combine(folder, FeedLayout.ManifestFileName), FeedJson.Write(manifest, FeedJsonContext.Default.PackageManifest), cancellationToken).ConfigureAwait(false);
         log($"{id} {version}: {described.Size} bytes, sha256 {described.Sha256[..16]}…, staged in {folder}");
         return folder;

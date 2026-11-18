@@ -1,0 +1,5 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 38 MiB, 61.49 W, 2827 MHz, 14001 MHz, 34, P0
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 46 MiB, 37.50 W, 2400 MHz, 14001 MHz, 38, P0
+gpu util,memused,power,smclk,memclk,temp,pstate: 53 %, 14527 MiB, 193.74 W, 2430 MHz, 14001 MHz, 65, P0
+1975506, Sharplight.Speech.Test
+1969435, sharplight, 14506 MiB

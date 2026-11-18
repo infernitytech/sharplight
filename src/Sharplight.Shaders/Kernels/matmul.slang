@@ -1339,12 +1339,12 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
         uint t = t0 + r;                                                                                \
-        GEMM_LOAD_X(t, X_K(k0, q), xs[set][it], XS_LO(set, it))                                        \
+        if (GEMM_EXP != 4 || (k0) == kBeg) GEMM_LOAD_X(t, X_K(k0, q), xs[set][it], XS_LO(set, it))      \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / (GBK / GW_UNIT), q = idx % (GBK / GW_UNIT);           \
-        WLOAD(set, it, n0 + r, (k0) / GW_UNIT + q)                                                      \
+        if (GEMM_EXP != 3 || (k0) == kBeg) WLOAD(set, it, n0 + r, (k0) / GW_UNIT + q)                  \
     }
     #define STAGE(set, buf)                                                                             \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
@@ -1412,6 +1412,10 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     }
 #endif
 
+    // GEMM_EXP (diagnostic, wrong results): 1 no loads after the first step, 2 no MMAs, 3 no weight loads, 4 no activation loads.
+#ifndef GEMM_EXP
+#define GEMM_EXP 0
+#endif
 #if GPF == 2 && GNBUF == 2
     // Double-buffered tiles with two register sets: entering step s, buffer s % 2 holds step s, register set (s + 1) % 2 the
     // loads of step s + 1 and set s % 2 those of step s + 2. Step s multiplies its buffer, stages step s + 1 into the other one
@@ -1468,6 +1472,37 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             GroupMemoryBarrierWithGroupSync();
         }
     }
+#elif GPF > 2 && GNBUF == 1
+    // GPF register sets for a single-buffered tile: set j holds the loads of the steps j mod GPF, so the loads of step t + GPF
+    // are issued right after step t + 1 was staged from the same set and have GPF - 1 steps of MMAs to arrive (more bytes in
+    // flight for tiles with few weight units per thread). The loop is unrolled by GPF to keep the register sets static.
+    uint steps = (kEnd - kBeg) / GBK;
+    if (steps > 0)
+    {
+        FETCH(0, kBeg)
+        STAGE(0, 0u)
+    }
+    [ForceUnroll] for (uint q = 1; q <= GPF; q++) { if (steps > q) { FETCH(q % GPF, kBeg + q * GBK) } }
+    GroupMemoryBarrierWithGroupSync();
+    for (uint s = 0; s < steps; s += GPF)
+    {
+        [ForceUnroll]
+        for (uint u = 0; u < GPF; u++)
+        {
+            uint t = s + u;
+            if (t < steps)
+            {
+                COMPUTE(0u)
+                GroupMemoryBarrierWithGroupSync();
+                if (t + 1 < steps)
+                {
+                    STAGE((u + 1) % GPF, 0u)
+                    GroupMemoryBarrierWithGroupSync();
+                    if (t + 1 + GPF < steps) { FETCH((u + 1) % GPF, kBeg + (t + 1 + GPF) * GBK) }
+                }
+            }
+        }
+    }
 #else
     // A split-K slice may be empty (K steps not divisible by SPLITK): never prefetch at or past K.
     if (kBeg < kEnd)
@@ -1478,9 +1513,6 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     GroupMemoryBarrierWithGroupSync();
 
     uint cur = 0;
-#ifndef GEMM_EXP
-#define GEMM_EXP 0
-#endif
     for (uint k0 = kBeg; k0 < kEnd; k0 += GBK)
     {
         bool more = k0 + GBK < kEnd && GEMM_EXP != 1;

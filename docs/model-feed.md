@@ -31,7 +31,8 @@ manifest.sig           detached signature over the exact bytes of manifest.json
 
 - **Id**: lower case `[a-z0-9.-]`, `<catalog entry id>.<catalog variant id>` (`qwen3-0.6b.q8-0-gguf`). Ids are never reused.
 - **Version**: SemVer 2. `MAJOR`: other weights or behaviour (new upstream revision); `MINOR`: same weights, rebuilt package (newer
-  engine, graphs, added portable code, higher minimum engine); `PATCH`: manifest-only change. Prerelease versions are only chosen when
+  engine, graphs, added portable code, higher minimum engine); `PATCH`: manifest-only change (same `.slm`, new metadata such as kind, tasks, requirements, license or description; the new
+  version's manifest names its own copy of the unchanged file, which the feed stores by copying the earlier object, nothing is rebuilt). Prerelease versions are only chosen when
   a host opts in or a range names one.
 - The `.slm` is identified by its SHA-256; device-specific code is never part of a package (it is compiled on the host); portable code
   may be.
@@ -209,7 +210,11 @@ feedtool mirror   --feed <url|folder> --channel stable [--root ...] --out bundle
   provenance) and the overlay `tools/model-feed/feed-overlay.json` (feed-only data: dependencies, summaries, languages, minimum host
   version, listing state).
 - Versions are chosen by the tool against the stored versions of the feed (all channels): first build 1.0.0; another pinned revision `MAJOR`+1; the same pins rebuilt
-  `MINOR`+1; an identical package file is not built again.
+  `MINOR`+1; the same package file with a different manifest (compared without version, file name, build time, converter and
+  minimum engine, which a rebuild changes by itself) is a manifest-only `PATCH`+1 that reuses the file: the staging folder holds
+  `manifest.json` and `reuse.json` (`{"version","file"}` of the earlier version), `publish` checks size and hashes against the earlier
+  manifest and, on object storage, the workflow copies the earlier object server-side; an identical file with identical metadata is
+  not built again. `promote <id>` then promotes the new latest version.
 - `publish` signs each manifest and the new index; published versions are immutable (publishing other content under an existing
   version fails). `keyset` needs the root key, nothing else does.
 - The output folder is uploaded as is (package objects before `index.json`).
@@ -241,7 +246,7 @@ published to `unstable`. `promote` lists package versions (`id@version`, or `id`
 1. Fetches the published listings (no package files), writes a key set if the bucket has none.
 2. Builds the requested catalog entries (`entry` or `entry:variant`; default: the first feed: Qwen3 0.6B Q8_0, all-MiniLM-L6-v2,
    ms-marco-MiniLM-L6-v2, Whisper tiny q5_1, Silero VAD v5); versions are chosen against the published feed, an identical package
-   is not built again.
+   is not built again; a changed catalog kind, license or description republishes as the next patch version.
 3. Publishes the builds into `unstable`, promotes the listed versions into `stable`, re-signs both channels' indexes (so every run
    refreshes both expiries), and verifies both channels against the official public key.
 4. Uploads new package versions first to `models/packages/` (`Cache-Control: public, max-age=31536000, immutable`; an existing

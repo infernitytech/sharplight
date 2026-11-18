@@ -1,0 +1,155 @@
+Graph optimization (sharplight-ir/1): decode 868 -> 868 nodes, decode_embeddings 867 -> 867 nodes, embed 796 -> 796 nodes, classify 796 -> 796 nodes [160 ms]
+Loaded Qwen3-8B-FP8 (decoder): 399 tensors, 9.65 GB, vocab 151936 [1465 ms]
+Rows per forward pass: 512 (automatic, 28988 MiB available).
+[load] lower segment 0: 843 ms (2781 launches, 487 buffers)
+Compiling 122 / 122, 122 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 9.65 / 9.65 GB (NVIDIA RTX PRO 4500 Blackwell)
+[load] upload segment 0: 3258 ms, 9.65 GB
+[load] kernels and pipelines segment 0: waited 894 ms for 122 kernels; slang CompileStatistics { Compiled = 0, CompileTime = 00:00:00 }; 122 pipelines, 3727 ms summed (0 from kernel binaries, 0 stored device code rejected)
+Compiled 'decode' for 64 sequences x 512 tokens in 5804 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 38 groups, 13.49 GiB weights+state
+1 segment(s): [0@0: 869 nodes]
+Ready (decode)
+Model 'Qwen3-8B-FP8' loaded in 8408 ms (estimated 14771 MiB, resident 14043 MiB).
+Serving 'Qwen3-8B-FP8' (both API, VRAM reserve 1 GiB) on http://127.0.0.1:18080
+  Qwen3-8B-FP8 [Chat] Loaded 14043 MiB
+  NVIDIA RTX PRO 4500 Blackwell: total 32623 MiB, budget 30013 MiB, used 14428 MiB (ours 14422 MiB), available 15585 MiB
+[load] record T=512,U=3,R=2 skip:1268,1271: 65 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=490,U=4,R=4 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=4,U=4,R=4 skip:1268,1271: 33 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=2,U=2,R=2 skip:1268,1271: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=250,U=1,R=1 skip:1268,1271: 41 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=4,R=3 skip:1268,1271: 17 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=6,R=5 skip:1268,1271: 12 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=8,R=7 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=10,R=9 skip:1268,1271: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=12,R=11 skip:1268,1271: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=14,R=13 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=16,R=15 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=230,U=16,R=16 skip:1268,1271: 19 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=16,U=16,R=16 skip:1268,1271: 18 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=15,U=15,R=15 skip:1268,1271: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=263,U=14,R=14 skip:1268,1271: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=14,R=14 skip:1268,1271: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=511,U=14,R=14 skip:1268,1271: 20 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=15,R=14 skip:1268,1271: 9 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=265,U=16,R=16 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=15,R=15 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=261,U=13,R=13 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=508,U=14,R=14 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=511,U=15,R=15 skip:1268,1271: 17 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=262,U=14,R=14 skip:1268,1271: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=263,U=15,R=15 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=264,U=16,R=16 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=13,U=13,R=13 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=12,U=12,R=12 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=10,U=10,R=10 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=8,U=8,R=8 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=6,U=6,R=6 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=3,U=3,R=3 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=1,U=1,R=1 skip:1268,1271: 13 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=249,U=1,R=1 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=241,U=4,R=4 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=224,U=16,R=16 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=510,U=14,R=14 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=17,U=16,R=16 skip:1268,1271: 13 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=264,U=15,R=15 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=11,U=11,R=11 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=9,U=9,R=9 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=7,U=7,R=7 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=5,U=5,R=5 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=499,U=2,R=2 skip:1268,1271: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=502,U=4,R=4 skip:1268,1271: 9 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=222,U=16,R=16 skip:1268,1271: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=511,U=13,R=13 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=13,R=13 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=509,U=16,R=16 skip:1268,1271: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=16,R=16 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=498,U=2,R=2 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=501,U=4,R=4 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=223,U=16,R=16 skip:1268,1271: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=509,U=14,R=14 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=225,U=16,R=16 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=488,U=4,R=4 skip:1268,1271: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=18,R=17 skip:1268,1271: 18 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=20,R=19 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=22,R=21 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=24,R=23 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=26,R=25 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=27,R=26 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=29,R=28 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=31,R=30 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=33,R=32 skip:1268,1271: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=35,R=34 skip:1268,1271: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=37,R=36 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=39,R=38 skip:1268,1271: 9 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=41,R=40 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=43,R=42 skip:1268,1271: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=45,R=44 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=47,R=46 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=48,R=47 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=50,R=49 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=52,R=51 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=54,R=53 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=56,R=55 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=58,R=57 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=59,R=58 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=61,R=60 skip:1268,1271: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=63,R=62 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=407,U=64,R=64 skip:1268,1271: 20 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=64,U=64,R=64 skip:1268,1271: 16 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=63,U=63,R=63 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=311,U=62,R=62 skip:1268,1271: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=62,R=61 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=60,R=59 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=372,U=64,R=64 skip:1268,1271: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=312,U=63,R=63 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=500,U=62,R=62 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=64,R=63 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=199,U=64,R=64 skip:1268,1271: 17 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=62,U=62,R=62 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=61,U=61,R=61 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=59,U=59,R=59 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=57,U=57,R=57 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=55,U=55,R=55 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=53,U=53,R=53 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=52,U=52,R=52 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=50,U=50,R=50 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=48,U=48,R=48 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=46,U=46,R=46 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=44,U=44,R=44 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=43,U=43,R=43 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=41,U=41,R=41 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=39,U=39,R=39 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=37,U=37,R=37 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=35,U=35,R=35 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=34,U=34,R=34 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=32,U=32,R=32 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=30,U=30,R=30 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=28,U=28,R=28 skip:1268,1271: 1 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=26,U=26,R=26 skip:1268,1271: 1 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=25,U=25,R=25 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=23,U=23,R=23 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=21,U=21,R=21 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=19,U=19,R=19 skip:1268,1271: 1 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=17,U=17,R=17 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=14,U=14,R=14 skip:1268,1271: 2 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=240,U=4,R=4 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=406,U=64,R=64 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=368,U=64,R=64 skip:1268,1271: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=501,U=62,R=62 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=202,U=64,R=64 skip:1268,1271: 12 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=411,U=64,R=64 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=371,U=64,R=64 skip:1268,1271: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=200,U=64,R=64 skip:1268,1271: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=489,U=4,R=4 skip:1268,1271: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=408,U=64,R=64 skip:1268,1271: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=370,U=64,R=64 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=316,U=61,R=61 skip:1268,1271: 38 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=309,U=60,R=60 skip:1268,1271: 20 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=141,U=64,R=64 skip:1268,1271: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=54,U=54,R=54 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=45,U=45,R=45 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=36,U=36,R=36 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=33,U=33,R=33 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=24,U=24,R=24 skip:1268,1271: 3 ms in 1 command buffer(s), of which 0 pipelines 0 ms

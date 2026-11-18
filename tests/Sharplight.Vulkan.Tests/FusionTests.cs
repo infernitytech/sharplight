@@ -82,10 +82,15 @@ public sealed class FusionTests
     }
 
     /// <summary>
-    /// Matmul + bias row (q / k / v / o projections with biases): single rows add the bias in the split-K matvec's store, other
-    /// row counts run the matmul and the Add; a bias added to a matmul output that is also read elsewhere is not folded.
+    /// Matmul + bias row (q / k / v / o projections with biases): single rows add the bias in the split-K matvec's store, row counts
+    /// whose f16 tensor-core GEMM splits K add it in the split-K reduction, other row counts run the matmul and the Add; a bias
+    /// added to a matmul output that is also read elsewhere is not folded.
     /// </summary>
     [Theory]
+    [InlineData("bf16", 20)]
+    [InlineData("bf16", 171)]
+    [InlineData("f16", 300)]
+    [InlineData("mxfp4", 100)]
     [InlineData("f32", 1)]
     [InlineData("f16", 1)]
     [InlineData("q8_0", 1)]

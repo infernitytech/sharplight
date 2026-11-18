@@ -110,6 +110,11 @@ namespace Sharplight.Shaders;
 /// column tile) instead of reading the expert-sorted f16 rows written once per routing by <c>moe_gather_x16</c>.</item>
 /// <item><c>SHARPLIGHT_MOE_SKINNY=n</c>: average items per expert up to which the expert-grouped skinny GEMM serves the grouped
 /// expert products (0: gemm_cm2 at every size).</item>
+/// <item><c>SHARPLIGHT_MOE_WIDE=fm,fn,sg,ks,n</c>: wide expert tiles of the direct skinny GEMM (experiment, off by default).</item>
+/// <item><c>SHARPLIGHT_SPLITK_EPILOGUE=0</c>: run a matmul's bias / residual group as its own launch instead of in the split-K
+/// reduction of the f16 tensor-core GEMM.</item>
+/// <item><c>SHARPLIGHT_FP8_SHORT_TILES=1</c>: the fp8 GEMM takes 64-row tiles at 129-192 and 257-320 rows (opt-in).</item>
+/// <item><c>SHARPLIGHT_MMQ_SHORT_MAX_ROWS=n</c>: the int8 / fp8 GEMMs take 64-row tiles exactly up to n rows.</item>
 /// <item><c>SHARPLIGHT_CONV_NO_MATRIX=1</c>: run convolutions on the SIMT conv_gemm instead of the cooperative-matrix conv_cm.</item>
 /// </list>
 /// </summary>
@@ -468,6 +473,25 @@ internal static class DiagnosticSwitches
     /// expert products (<c>SHARPLIGHT_MOE_SKINNY=n</c>; 0 keeps them on gemm_cm2), or null for the default.
     /// </summary>
     public static int? MoeSkinnyItemsPerExpert { get; } = Read("SHARPLIGHT_MOE_SKINNY") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// Configuration of the wide expert tiles of the direct skinny GEMM (<c>SHARPLIGHT_MOE_WIDE=fm,fn,sg,ks,n</c>: token fragments,
+    /// weight fragments per subgroup, subgroups, subgroups splitting K, items per expert up to which it serves; <c>0</c> disables
+    /// them), or null for the default.
+    /// </summary>
+    public static int[]? MoeWideConfig { get; } = Read("SHARPLIGHT_MOE_WIDE")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_SPLITK_EPILOGUE=0</c>) keeps the elementwise group after an f16 tensor-core matmul (bias, residual) as
+    /// its own launch instead of applying it in the split-K reduction.
+    /// </summary>
+    public static bool SplitKReduceEpilogue { get; } = IsNotZero("SHARPLIGHT_SPLITK_EPILOGUE");
+
+    /// <summary>Opt-in (<c>SHARPLIGHT_FP8_SHORT_TILES=1</c>): the fp8 GEMM takes 64-row tiles above 64 rows where they pad fewer rows.</summary>
+    public static bool Fp8ShortTiles { get; } = IsSet("SHARPLIGHT_FP8_SHORT_TILES");
+
+    /// <summary>Rows up to which the int8 / fp8 GEMMs take 64-row tiles (<c>SHARPLIGHT_MMQ_SHORT_MAX_ROWS</c>), or null for the default.</summary>
+    public static long? MmqShortTileMaxRows { get; } = Read("SHARPLIGHT_MMQ_SHORT_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>Disables the tensor-core expert matmul.</summary>
     public static bool MoeNoCoop { get; } = IsSet("SHARPLIGHT_MOE_NO_COOP");

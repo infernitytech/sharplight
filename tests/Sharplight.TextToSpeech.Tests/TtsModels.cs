@@ -58,6 +58,12 @@ internal static class TtsModels
     /// <summary>Reference tensors of transformers' VibeVoice (raw arrays, see <c>VibeVoiceTests</c>).</summary>
     public static string VibeVoiceReference => Path.Combine(s_root, "..", "vibevoice", "ref");
 
+    /// <summary>OmniVoice (the checkpoint directory, with its audio tokenizer in <c>audio_tokenizer/</c>).</summary>
+    public static string OmniVoice => Path.Combine(s_root, "omnivoice");
+
+    /// <summary>Reference tokens, logits and audio of the official omnivoice package (raw arrays, see <c>OmniVoiceTests</c>).</summary>
+    public static string OmniVoiceReference => Path.Combine(s_root, "omnivoice-ref");
+
     /// <summary>A fixture file next to the test assembly.</summary>
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 

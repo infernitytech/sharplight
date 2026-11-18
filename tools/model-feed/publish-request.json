@@ -1,19 +1,11 @@
 {
   "entries": [
-    "qwen3-0.6b:q8-0-gguf",
-    "all-minilm-l6-v2:f32-safetensors",
-    "ms-marco-minilm-l6-v2:f32-safetensors",
-    "whisper-tiny:q5-1-whispercpp",
-    "silero-vad-v5:onnx"
+    "ms-marco-minilm-l6-v2:f32-safetensors"
   ],
   "channel": "stable",
   "promote": [
-    "qwen3-0.6b.q8-0-gguf",
-    "all-minilm-l6-v2.f32-safetensors",
-    "ms-marco-minilm-l6-v2.f32-safetensors",
-    "whisper-tiny.q5-1-whispercpp",
-    "silero-vad-v5.onnx"
+    "ms-marco-minilm-l6-v2.f32-safetensors"
   ],
   "validityDays": 30,
-  "reason": "First publication of the model feed: a chat model, an embedder, a reranker, speech recognition and its voice activity detector, in unstable and promoted to stable."
+  "reason": "Republish ms-marco-MiniLM-L6-v2 as 1.0.1 with catalog kind reranker (manifest-only patch reusing the 1.0.0 payload)."
 }

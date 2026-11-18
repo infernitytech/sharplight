@@ -6261,3 +6261,177 @@ SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_COPIES=6 SHARPLIGHT_BENCH_TYPES=mxfp4 SHARPL
 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --slots 64 --ctx 512 --depth 256 \
   --sizes 1,2,4,8,16,32,64 --modes greedy --reps 20
 ```
+
+## 47. LLM round 9: mixed serving steps examined, MXFP4 decoded per MMA, bias epilogues in the split-K reduction (2026-11-18)
+
+Base: `develop` at `93b68949` (round 8), branch `perf/llm-r9`. GPU 2 (RTX PRO 4500 Blackwell, 32 GB, nothing else on it),
+checkpoints on local disk; other agents built and tested on the same host (load average 9-28), which moved host-bound
+measurements by up to 10 % (47.6). "Before" is this branch with the switches that restore round 8's behaviour
+(`SHARPLIGHT_GEMM_MACROS=SK_PAIR_DECODE=0 SHARPLIGHT_SPLITK_EPILOGUE=0`), run in the same session. vLLM figures are section 46's
+(vLLM 0.33.0, same checkpoints, same procedure, measured the same day). Raw output in [`bench/results/s47/`](../bench/results/s47).
+
+### 47.1 Where the mixed steps go
+
+`BatchBench --mixed` (64 decode rows at depth 256 plus one fresh prompt, greedy, minimum GPU ms of 20; profiles over 10 steps,
+`SHARPLIGHT_VK_PROFILE=1`, in `profiles/`):
+
+| step | gpt-oss-20b HF | Qwen3-8B-FP8 |
+|---|---:|---:|
+| 64 decode rows | 19.3 ms | 17.0 ms |
+| 64 + 107 prompt rows (the 64-stream serving average of 171 rows) | 29.2 ms | 30.5 ms |
+| 64 + 256 prompt rows | 40.1 ms | 40.3 ms |
+
+171-row step, ms per step: gpt-oss: expert GEMMs 19.3 (gate / up [2880 → 5760] 12.6, down 6.7, both gemm_cm2 with 32-row tiles),
+bf16 projections + LM head 5.5, attention 2.6, norms / elementwise 2.2 (of which 120 bias `fused[Add]` launches 0.84), split-K
+reductions 0.5. Qwen3-8B-FP8: FP8 GEMMs 22.0 (gate / up as two split-K launches, 10.5; down 5.8; q / o 4.1; k / v 1.6), split-K
+reductions 1.5 (7 per layer), attention 5.4 (decode rows 4.6), bf16 LM head 1.5.
+
+At 64 streams all 32 experts of every gpt-oss layer are touched, so a step reads at least the 10.1 GB of MXFP4 experts plus 2.4 GB
+of bf16 projections and LM head: ~14.6 ms at the card's ~860 GB/s. vLLM's mean inter-token latency at 64 streams is 16.4 ms
+(section 46) including its mixed steps, i.e. close to that bound; ours is 28.6 ms, and the decode-only step alone is 19.3.
+
+### 47.2 The grouped MXFP4 GEMM at 20-30 items per expert: what limits it
+
+`BenchTests.MoeDecode` at 171 rows (684 items, uniform routing, 21 per expert; gate / up + down, µs per expert block):
+
+| experiment | gate / up | down | block |
+|---|---:|---:|---:|
+| gemm_cm2, 32-row tiles (as shipped; 92-95 registers, 31.5 KB shared, 2 workgroups per SM) | 489 | 268 | 766 |
+| `GPF=1` (one prefetch register set) | 543 | 279 | 849 |
+| `GEMM_EXP=2`: no MMAs (loads, decode, staging, barriers) | 479 | 252 | 759 |
+| `GEMM_EXP=1`: no loads after the first step (MMAs, decode, staging) | 186 | 96 | 312 |
+| `GEMM_EXP=4`: no activation loads | 467 | 258 | 753 |
+| `GPF=3` / `GPF=4` (new: loads issued 2 / 3 steps ahead; 96 / 99 registers) | 475 / 492 | 268 / 297 | 771 / 816 |
+| K-loop barriers without memory semantics (diagnostic) | 490 | 266 | 783 |
+
+The weight fetch (281 MB for gate / up in 489 µs: 575 GB/s) bounds the kernel; the MMAs, the decode and the shared-memory staging
+take ~40 % of its time and hide under it. Deeper register prefetch and barrier semantics do not change it, so it is not the
+number of loads a thread keeps in flight alone. Other forms (all slower, µs per block at 171 rows):
+
+| tried | block |
+|---|---:|
+| gemm_cm2 32-row layouts [1,4,2,2] / [1,8,2,1] / [1,4,2,4] / [2,4,1,4] / [1,8,2,2] / [2,2,1,4] (`SHARPLIGHT_GEMM2_CFG32`) | 820 / 766 / 941 / 894 / 880 / 826 |
+| 16-row skinny expert tiles at 21 items per expert (`SHARPLIGHT_MOE_SKINNY=24`: two tiles per expert) | 1004 |
+| new: direct skinny GEMM with 2 token fragments (32-row expert tiles, each decoded weight serving both), subgroups along N (`SHARPLIGHT_MOE_WIDE=fm,fn,sg,ks,n`): 2,2,8,1 / 2,2,4,4 / 2,4,4,1 / 2,2,4,2 / 3,2,8,2 | 879 / 864 / 827 / 783 / 1015 |
+| ... the same without the MXFP4 decode / without activation loads (diagnostics, 2,4,4,1) | 781 / 877 |
+
+The wide direct tiles run at 168-255 registers. The opt-in switch (and the kernel's `SK_KS` / several-fragment direct path) is kept
+for further work; the default is unchanged. The real lever stays a fetch at the bandwidth limit for 16-48 rows per expert, which
+neither the staged gemm_cm2 (single-buffered 64-value K steps, 2 workgroups per SM) nor the register-direct skinny form reach on
+this driver.
+
+### 47.3 MXFP4 weights decoded per MMA in the direct skinny GEMM (kept)
+
+The direct path decoded a lane's 16 weights of a 64-value block per row before the block's four MMAs (32 registers per weight
+fragment). It now decodes the 4 values each MMA needs right before it (`SK_PAIR_DECODE`, MXFP4R only), so no decoded block is held.
+`MoeDecode` (6 weight copies) at 16 / 64 sequences 516 / 603 → 496 / 567 µs per block; BatchBench decode steps of gpt-oss-20b HF:
+
+| sequences | 4 | 8 | 16 | 32 | 64 |
+|---|---:|---:|---:|---:|---:|
+| before, GPU ms | 7.89 | 9.13 | 10.29 | 13.37 | 19.58 |
+| after | 7.76 | 8.94 | 10.04 | 12.94 | 18.99 |
+
+The decoded values are identical (same arithmetic), so outputs do not change. FP8 weights lose 2-6 % with the per-MMA decode
+(Qwen3-8B-FP8 decode steps at 2-16 sequences 11.9-13.7 → 12.7-14.1 ms) and keep the block decode.
+
+### 47.4 Bias and residual epilogues in the split-K reduction (kept)
+
+A weight matmul's bias add (`BiasAdd` units: q / k / v / o biases) and the folded elementwise groups were applied in the store
+only by the split-f16 GEMM (f32 weights); for f16 / bf16 / quantized weights on the f16 tensor-core GEMM they ran as their own
+launch. Where that GEMM splits K (9-~256 rows for projections of 512-4096 outputs), `splitk_reduce` now applies the group (its
+existing `MM_EPI` path); other row counts run the group's launch as before. Each output is the same expression of the same sums,
+so results are bit-identical. gpt-oss-20b (biased q / k / v / o and router): 96 fewer launches per step; 64-row decode step 18.72
+→ 18.36 ms, 171-row mixed step 29.32 → 29.22 ms (BatchBench, two alternating runs each). `SHARPLIGHT_SPLITK_EPILOGUE=0` restores
+the separate launch. Test: `FusionTests.MatMulBias` (new bf16 / f16 / MXFP4 cases at 20-300 rows).
+
+### 47.5 FP8 GEMM with 64-row tiles at 129-192 and 257-320 rows (opt-in, not kept as default)
+
+The fp8 GEMM takes 64-row tiles up to 64 rows and 128-row tiles above. For 150-320 rows 128-row tiles pad up to 41 % of the rows,
+and the small grids split K (two launches plus a reduction per matmul, and the dual gate / up GEMM is skipped where the separate
+GEMMs split). Qwen3-8B-FP8, BatchBench mixed steps (64 decode rows + prompt), GPU ms, 128-row tiles → 64-row tiles:
+
+| rows | 104 | 128 | 150 | 171 | 214 | 256 | 300 | 320 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128-row tiles | 20.5 | 21.2 | 31.1 | 31.7 | 33.4 | 35.9 | 42.0 | 41.3 |
+| 64-row tiles | 22.3 | 23.1 | 27.0 | 27.7 | 32.3 | 35.1 | 36.8 | 38.9 |
+
+The rule "64-row tiles where they pad fewer rows" (rows mod 128 in 1-64, up to 384 rows) gains 12-13 % on those steps, but serving
+did not follow (Qwen3-8B-FP8, 5 rounds each, same build with the rule on / off: 16 streams 899 → 936, 64 streams 1996 → 2014
+tok/s, within the session spread; round-8 behaviour measured 917 / 2030 in the same session), and it changes the rounding of
+129-384-token prompts (greedy output of a 182-token prompt diverged after 50 tokens). It is opt-in (`SHARPLIGHT_FP8_SHORT_TILES=1`).
+Why the per-step gain does not reach serving is open (the serving steps of 64 streams average 171 rows, 422 per round).
+
+Bug found on the way and fixed (generic): the split-K variants of the int8 / fp8 GEMMs were found by probing row counts in steps of
+128 (`NextSplitProbe`), which skips row counts whose tile height differs from that of the probed ones; with the 64-row tiles above
+128 rows, prompts of 129-192 rows ran no GEMM launch at all (garbage output) while tests that compile exactly their row count passed.
+The quantized GEMMs now probe every 64 rows. Test: `Fp8GemmTests.ShortTilesBelowMaxTokens` (rows 150-300 in a graph compiled for
+2048; fails without the fix with the opt-in tiles) and `ShortTilesBelowMaxTokensOptIn` (child run with the switch).
+
+### 47.6 Per-step host overhead at 64 streams
+
+The engine's step metric covers 99.0-99.8 % of a 64-stream round's wall time (`metrics_delta`, 422 steps per round), and
+BatchBench's wall time per step exceeds the GPU time by 0.1 ms at 64 decode rows (19.08 against 18.99 ms) and 0.13 ms at 171 rows.
+Host work is not part of the gap. Host load from other processes, however, moved whole serving runs: the first before / after
+pair ran while the machine's load average was 28 and its "before" rounds took 6-10 % longer step times (gpt-oss 1 / 4 streams 161 /
+416 tok/s against 178 / 456 in the repeat), so the table below uses the repeat, run in reverse order (after, then before).
+
+### 47.7 Serving against vLLM (procedure of section 43, median of 3 rounds; Qwen3-8B-FP8 "before" at 16 / 64 streams: 5 rounds)
+
+| model | streams | before | after | after / before | vLLM (§46) | after / vLLM | TTFT p50 after / vLLM (ms) | per-stream decode after / vLLM |
+|---|---:|---:|---:|---:|---:|---:|---|---|
+| gpt-oss-20b HF | 1 | 178 | 178 | 1.00x | 169 | 1.05x | 32 / 31 | 186 / 175 |
+| | 4 | 456 | 468 | 1.03x | 501 | 0.93x | 61 / 77 | 123 / 134 |
+| | 16 | 1171 | 1200 | 1.02x | 1428 | 0.84x | 109 / 175 | 81 / 102 |
+| | 64 | 1939 | 1979 | 1.02x | 3221 | 0.61x | 184 / 381 | 35 / 61 |
+| Qwen3-8B-FP8 HF | 1 | 88 | 88 | 1.00x | 86 | 1.02x | 34 / 32 | 89 / 87 |
+| | 4 | 303 | 304 | 1.00x | 326 | 0.93x | 71 / 72 | 79 / 85 |
+| | 16 | 917 | 919 | 1.00x | 1123 | 0.82x | 103 / 157 | 61 / 78 |
+| | 64 | 2030 | 1958 | 0.96x | 2717 | 0.72x | 196 / 391 | 35 / 50 |
+
+Qwen3-8B-FP8 "after" is the final default build (`serve-after5`), run while the host's load average was 45 (`before3`: 9-20); its
+kept changes do not touch FP8 weights (the per-MMA decode is MXFP4-only, the model has no biases), so the 64-stream difference is
+host load, not the change (`serve-after2/3` with the then-default FP8 tiles measured 2022 / 2014). The gains are small (gpt-oss
++2-3 % from 4 streams) and the absolute figures equal section 46's after-columns within their spread. The gaps to vLLM are
+unchanged: 0.84x / 0.61x (gpt-oss) and 0.82-0.83x / 0.72-0.75x (Qwen3-8B-FP8) at 16 / 64 streams. Dense prefill (bf16 0.87x,
+FP8 0.73x) was not changed this round.
+
+### 47.8 Greedy output and tests
+
+Greedy output (200 tokens, prompts of ~100, ~150 and 182 tokens): gpt-oss-20b HF identical with the round's changes on and off
+(per-MMA decode and reduction epilogue are bit-identical); Qwen3-8B-FP8 identical with the default build (the 64-row FP8 tiles,
+now opt-in, changed the 182-token prompt's output after 50 tokens). New tests: `FusionTests.MatMulBias` (4 cases),
+`Fp8GemmTests.ShortTilesBelowMaxTokens` (4) and `ShortTilesBelowMaxTokensOptIn`. After merging `develop` (at `92c451a3`), on GPU 2:
+
+| suite | total | failed | skipped |
+|---|---:|---:|---:|
+| Sharplight.Vulkan.Tests (full) | 1610 | 0 | 26 |
+| Sharplight.Families.Tests (full, batched greedy parity included) | 1005 | 0 | 364 |
+
+### 47.9 Next levers
+
+* **The grouped MXFP4 GEMM at 16-48 rows per expert** (47.2): bound by a weight fetch at ~575 GB/s; 64-stream steps need it at
+  ~800. Candidates: weights staged raw (4.25 bits) in shared memory with several stages and decoded at the fragment load, so the
+  stages fit 48 KB; a register budget that allows 3 workgroups per SM; the expert block's gate / up and down fused per expert so
+  each expert tile is scheduled once.
+* **Why per-step FP8 gains do not reach serving** (47.5): profile a serving run per step size.
+* **FP8 prefill (0.73x)** and the attention of the decode rows in mixed steps (Qwen3-8B-FP8: 4.6 ms of a 30.5 ms step).
+
+### 47.10 Reproduce
+
+```bash
+export SHARPLIGHT_VK_DEVICES=2 CUDA_VISIBLE_DEVICES=2 HF_DIR=<hf checkpoints> VLLM_VENV=<venv with vLLM 0.33.0>
+# mixed-step profiles (47.1)
+SHARPLIGHT_VK_PROFILE=1 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --slots 68 --ctx 512 --depth 256 \
+  --mixed 64+0,64+107x1,64+128x2 --modes greedy --reps 20 --profile 1,2
+# expert block diagnostics (47.2)
+SHARPLIGHT_GEMM_MACROS=GEMM_EXP=2 SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_REPORT=1 SHARPLIGHT_BENCH_TYPES=mxfp4 SHARPLIGHT_BENCH_ROWS=171 \
+  dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -method "*MoeDecode"
+SHARPLIGHT_MOE_WIDE=2,2,4,2,48 ...   # wide direct expert tiles
+# serving (47.7): before = round 8's behaviour
+SHARPLIGHT_GEMM_MACROS=SK_PAIR_DECODE=0 SHARPLIGHT_SPLITK_EPILOGUE=0 ENGINES=sharplight \
+  bench/s43_serve.sh bench/results/s47/serve-before2 gpt-oss-20b-hf qwen3-8b-fp8-hf
+ENGINES=sharplight bench/s43_serve.sh bench/results/s47/serve-after2 gpt-oss-20b-hf qwen3-8b-fp8-hf
+# FP8 64-row tiles (47.5)
+SHARPLIGHT_FP8_SHORT_TILES=1 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3-8B-FP8 --slots 68 --ctx 512 \
+  --depth 256 --mixed 64+0,64+86x1,64+107x1,64+236x1 --modes greedy --reps 15
+```
