@@ -58,6 +58,12 @@ internal sealed record ZImageConfig
     /// <summary>Flow scheduler: static shift.</summary>
     public float Shift { get; init; } = 3f;
 
+    /// <summary>
+    /// Whether the model is the few-step distilled Z-Image-Turbo (9 steps, no guidance; the default) or the undistilled Z-Image (50 steps,
+    /// classifier-free guidance 4 with a negative prompt, shift 6).
+    /// </summary>
+    public bool Distilled { get; init; } = true;
+
     /// <summary>The original scheduler configuration, or null.</summary>
     public string? SchedulerJson { get; init; }
 
@@ -109,8 +115,26 @@ internal sealed record ZImageConfig
         }
 
         using var document = JsonDocument.Parse(schedulerJson);
-        return result with { Shift = document.RootElement.Float("shift", 3f), SchedulerJson = schedulerJson };
+        float shift = document.RootElement.Float("shift", 3f);
+
+        // The Turbo's scheduler shifts by 3, the base model's by 6.
+        return result with { Shift = shift, SchedulerJson = schedulerJson, Distilled = shift < 5f };
     }
+
+    /// <summary>
+    /// This configuration for a transformer file recognized by its name: files named like the base model (<c>z-image</c>, <c>z_image</c>,
+    /// <c>zimage</c> without "turbo") are the undistilled Z-Image, everything else the Turbo (or a fine-tune of it).
+    /// </summary>
+    /// <param name="fileName">The file name.</param>
+    public ZImageConfig WithFileName(string fileName)
+        => IsBaseName(fileName) ? this with { Distilled = false, Shift = 6f } : this;
+
+    /// <summary>Whether a model name is the undistilled Z-Image's (it starts with z-image / z_image / zimage and does not say turbo).</summary>
+    /// <param name="name">A file or folder name.</param>
+    public static bool IsBaseName(string name)
+        => !name.Contains("turbo", StringComparison.OrdinalIgnoreCase)
+            && (name.StartsWith("z-image", StringComparison.OrdinalIgnoreCase) || name.StartsWith("z_image", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("zimage", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Writes the transformer, scheduler, family and default keys.</summary>
     /// <param name="metadata">The canonical metadata.</param>
@@ -130,6 +154,7 @@ internal sealed record ZImageConfig
         metadata[t + "rope_theta"] = RopeTheta;
         metadata[t + "time_scale"] = 1000f;
         metadata[t + "norm_eps"] = NormEps;
+        metadata[t + "f32_activations"] = !Distilled;
         metadata[t + "sample_size"] = 1024;
         string s = Prefix + "scheduler.";
         metadata[s + "train_steps"] = 1000;
@@ -146,7 +171,8 @@ internal sealed record ZImageConfig
         metadata[Prefix + "vae.scaling_factor"] = FluxConfig.VaeScalingFactor;
         metadata[Prefix + "vae.shift_factor"] = FluxConfig.VaeShiftFactor;
         metadata[Prefix + "vae.latent_rgb_factors"] = FluxConfig.RgbFactors;
-        metadata[Prefix + "default_steps"] = 9;
-        metadata[Prefix + "default_guidance"] = 0.0;
+        metadata[Prefix + "default_steps"] = Distilled ? 9 : 50;
+        metadata[Prefix + "default_guidance"] = Distilled ? 0.0 : 4.0;
+        metadata[Prefix + "classifier_free_guidance"] = !Distilled;
     }
 }
