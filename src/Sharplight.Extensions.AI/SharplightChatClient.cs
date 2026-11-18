@@ -1,8 +1,10 @@
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
 using Sharplight.Llm;
+using Sharplight.Llm.Serving.Chat;
 using Sharplight.Models;
 using Sharplight.Templating;
+using ChatFinishReason = Microsoft.Extensions.AI.ChatFinishReason;
 using ChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Sharplight.Extensions.AI;
@@ -92,8 +94,7 @@ public sealed class SharplightChatClient : IChatClient
         ArgumentNullException.ThrowIfNull(messages);
         var template = _template ??= CreateTemplate();
         var req = PromptBuilder.Prepare(template, messages, options, _options, _backend.SupportsImages);
-        var parser = new OutputParser(req.StartsInReasoning, req.Options.StopStrings,
-            req.HasTools ? _options.ToolCallStart : null, _options.ToolCallEnd, _options.ToolCallParsers, req.Tools);
+        var parser = new ChatOutputParser(CreateParserOptions(req));
 
         string id = "chatcmpl-" + Guid.NewGuid().ToString("N")[..16];
         var created = DateTimeOffset.UtcNow;
@@ -111,10 +112,10 @@ public sealed class SharplightChatClient : IChatClient
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         await foreach (var piece in _backend.GenerateAsync(genRequest, result, cts.Token).ConfigureAwait(false))
         {
-            var contents = parser.Push(piece);
-            if (contents.Count > 0)
+            var pieces = parser.Push(piece);
+            if (pieces.Count > 0)
             {
-                yield return Update([.. contents]);
+                yield return Update([.. pieces.Select(ChatOutputContents.From)]);
             }
 
             if (parser.Stopped)
@@ -127,7 +128,7 @@ public sealed class SharplightChatClient : IChatClient
         var tail = parser.Complete();
         if (tail.Count > 0)
         {
-            yield return Update([.. tail]);
+            yield return Update([.. tail.Select(ChatOutputContents.From)]);
         }
 
         var final = Update([new UsageContent(new UsageDetails
@@ -139,6 +140,22 @@ public sealed class SharplightChatClient : IChatClient
         final.FinishReason = parser.ToolCallCount > 0 ? ChatFinishReason.ToolCalls
             : !parser.Stopped && result.ReachedTokenLimit ? ChatFinishReason.Length : ChatFinishReason.Stop;
         yield return final;
+    }
+
+    /// <summary>The shared output parser's settings for a request: the template's reasoning style, the offered tools and the stop strings.</summary>
+    private ChatOutputParserOptions CreateParserOptions(PreparedRequest request)
+    {
+        var formats = request.HasTools
+            ? new IToolCallFormat[] { new ToolCallParserFormat(_options.ToolCallStart, _options.ToolCallEnd, _options.ToolCallParsers, request.Tools) }
+            : [];
+        return new ChatOutputParserOptions
+        {
+            ToolCallFormats = formats,
+            ToolNames = request.HasTools ? request.Tools.Names : [],
+            StartsInReasoning = request.StartsInReasoning,
+            Harmony = ChatOutputParser.IsHarmonyTemplate(_backend.ChatTemplate),
+            StopStrings = request.Options.StopStrings,
+        };
     }
 
     private ChatTemplate CreateTemplate()

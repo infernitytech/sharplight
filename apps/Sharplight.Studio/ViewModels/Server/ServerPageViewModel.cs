@@ -115,7 +115,7 @@ internal sealed partial class ServerPageViewModel : PageViewModel
     /// <summary>True when a model is loaded.</summary>
     public bool HasModels => Models.Count > 0;
 
-    /// <summary>Endpoints the enabled APIs map.</summary>
+    /// <summary>Endpoints the enabled APIs map, with the served models reachable on each.</summary>
     public IReadOnlyList<EndpointInfo> Endpoints
     {
         get
@@ -123,21 +123,32 @@ internal sealed partial class ServerPageViewModel : PageViewModel
             var list = new List<EndpointInfo>();
             if (OpenAi)
             {
-                list.Add(new("POST", "/v1/chat/completions", "OpenAI chat (streaming, tools, JSON schema)"));
-                list.Add(new("POST", "/v1/completions", "OpenAI text completion"));
+                list.Add(new("POST", "/v1/chat/completions", "OpenAI chat (streaming, tools, JSON schema)", ModelsAt("/v1/chat/completions")));
+                list.Add(new("POST", "/v1/completions", "OpenAI text completion", ModelsAt("/v1/completions")));
             }
 
             if (Anthropic)
             {
-                list.Add(new("POST", "/v1/messages", "Anthropic Messages (streaming, tools, thinking)"));
-                list.Add(new("POST", "/v1/messages/count_tokens", "Anthropic token count"));
+                list.Add(new("POST", "/v1/messages", "Anthropic Messages (streaming, tools, thinking)", ModelsAt("/v1/messages")));
+                list.Add(new("POST", "/v1/messages/count_tokens", "Anthropic token count", ModelsAt("/v1/messages/count_tokens")));
             }
+
+            list.Add(new("POST", "/v1/embeddings", "OpenAI embeddings", ModelsAt("/v1/embeddings")));
+            list.Add(new("POST", "/v1/audio/transcriptions", "OpenAI speech to text (multipart WAV upload)", ModelsAt("/v1/audio/transcriptions")));
+            list.Add(new("POST", "/v1/audio/translations", "Speech to English text", ModelsAt("/v1/audio/translations")));
+            list.Add(new("POST", "/v1/audio/speech", "OpenAI text to speech (wav, or streamed pcm)", ModelsAt("/v1/audio/speech")));
+            list.Add(new("POST", "/v1/images/generations", "OpenAI image generation (base64 PNG)", ModelsAt("/v1/images/generations")));
 
             list.Add(new("GET", "/v1/models", "Served models"));
             list.Add(new("GET", "/health", "Status"));
             list.Add(new("GET", "/metrics", "Prometheus metrics"));
             return list;
         }
+    }
+
+    private List<string> ModelsAt(string path)
+    {
+        return [.. Models.Where(model => model.IsServed && model.Endpoints.Contains(path)).Select(model => model.Id)];
     }
 
     /// <summary>A ready-to-paste request.</summary>
@@ -160,9 +171,17 @@ internal sealed partial class ServerPageViewModel : PageViewModel
 
     partial void OnCorsOriginsChanged(string value) => Save();
 
-    partial void OnOpenAiChanged(bool value) => Save();
+    partial void OnOpenAiChanged(bool value)
+    {
+        Save();
+        OnPropertyChanged(nameof(Endpoints));
+    }
 
-    partial void OnAnthropicChanged(bool value) => Save();
+    partial void OnAnthropicChanged(bool value)
+    {
+        Save();
+        OnPropertyChanged(nameof(Endpoints));
+    }
 
     partial void OnLoadOnDemandChanged(bool value)
     {
@@ -251,10 +270,11 @@ internal sealed partial class ServerPageViewModel : PageViewModel
         Models.Clear();
         foreach (var model in current)
         {
-            Models.Add(new ServedModelViewModel(model, served.Count == 0 || served.Contains(model.Id), OnServedChanged));
+            Models.Add(new ServedModelViewModel(model, served.Count == 0 || served.Contains(model.Id), OnServedChanged, () => (OpenAi, Anthropic)));
         }
 
         OnPropertyChanged(nameof(HasModels));
+        OnPropertyChanged(nameof(Endpoints));
         OnPropertyChanged(nameof(CurlExample));
         OnPropertyChanged(nameof(StatusText));
     }
@@ -262,6 +282,7 @@ internal sealed partial class ServerPageViewModel : PageViewModel
     private void OnServedChanged()
     {
         Save();
+        OnPropertyChanged(nameof(Endpoints));
         OnPropertyChanged(nameof(StatusText));
         if (IsRunning)
         {

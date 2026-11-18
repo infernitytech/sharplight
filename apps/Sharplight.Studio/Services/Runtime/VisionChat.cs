@@ -86,6 +86,11 @@ internal sealed class VisionChat : IDisposable
         };
         var contents = new List<AIContent>();
         contents.AddRange(message.Images.Select(image => new DataContent(image.Data, image.MediaType)));
+        if (message.Reasoning is { Length: > 0 } reasoning)
+        {
+            contents.Add(new TextReasoningContent(reasoning));
+        }
+
         contents.Add(new TextContent(message.Text));
         return new AiChatMessage(role, contents);
     }

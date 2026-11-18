@@ -67,17 +67,21 @@ public static class ImageApi
         public IEndpointRouteBuilder MapSharplightImages()
         {
             ArgumentNullException.ThrowIfNull(routes);
-            if (routes.ServiceProvider.GetService<ImageModels>() is not { } models)
+            bool host = HostTaskModels.Enabled(routes.ServiceProvider);
+            var models = routes.ServiceProvider.GetService<ImageModels>();
+            if (models is null && !host)
             {
                 return routes;
             }
+
+            models ??= new ImageModels();
 
             foreach (var pending in routes.ServiceProvider.GetServices<PendingImageGenerator>())
             {
                 models.Generators[pending.Name] = routes.ServiceProvider.GetRequiredService<IImageGenerator>();
             }
 
-            if (models.Generators.Count > 0)
+            if (models.Generators.Count > 0 || host)
             {
                 routes.MapPost("/v1/images/generations", http => Handle(http, () => Generate(http, models)));
             }
@@ -107,7 +111,8 @@ public static class ImageApi
         using var document = await HttpJson.ReadBodyAsync(http, models.MaxRequestBodyBytes);
         var body = document.RootElement;
         string prompt = body.Str("prompt") is { Length: > 0 } p ? p : throw ApiException.BadRequest("'prompt' is required.", "prompt");
-        var generator = Pick(models, body.Str("model"));
+        using var leased = await Pick(http, models, body.Str("model"));
+        var generator = leased.Client;
         if (body.Str("response_format") is { } format && format != "b64_json")
         {
             throw ApiException.BadRequest("Only response_format \"b64_json\" is supported.", "response_format");
@@ -166,21 +171,31 @@ public static class ImageApi
         });
     }
 
-    private static IImageGenerator Pick(ImageModels models, string? requested)
+    private static async Task<Leased> Pick(HttpContext http, ImageModels models, string? requested)
     {
         if (requested is not null && models.Generators.TryGetValue(requested, out var named))
         {
-            return named;
+            return new Leased(named, null);
+        }
+
+        if (await HostTaskModels.TryAcquireAsync<IImageGenerator>(http, requested, "image generation") is { } hosted)
+        {
+            return new Leased(hosted.Client, hosted.Lease);
         }
 
         // A single model answers to any name (clients often hard-code e.g. "dall-e-2").
-        if (requested is null || models.Generators.Count == 1)
+        if (models.Generators.Count > 0 && (requested is null || models.Generators.Count == 1))
         {
-            return models.Generators[models.DefaultGenerator ?? models.Generators.Keys.First()];
+            return new Leased(models.Generators[models.DefaultGenerator ?? models.Generators.Keys.First()], null);
         }
 
         throw new ApiException(404, "invalid_request_error", $"The image model '{requested}' does not exist (available: {string.Join(", ", models.Generators.Keys)}).",
             "model_not_found", "model");
+    }
+
+    private readonly record struct Leased(IImageGenerator Client, IDisposable? Lease) : IDisposable
+    {
+        public void Dispose() => Lease?.Dispose();
     }
 
     /// <summary>OpenAI's <c>size</c> ("WIDTHxHEIGHT", or "auto" / absent for the model's native size).</summary>

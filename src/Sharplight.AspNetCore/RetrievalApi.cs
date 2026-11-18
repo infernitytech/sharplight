@@ -38,13 +38,15 @@ public static class RetrievalApi
         public IEndpointRouteBuilder MapSharplightRetrieval()
         {
             var models = routes.ServiceProvider.GetService<RetrievalModels>() ?? new RetrievalModels();
-            var host = routes.ServiceProvider.GetService<SharplightServerContext>()?.Host;
+            var context = routes.ServiceProvider.GetService<SharplightServerContext>();
+            var host = context?.Host;
+            bool dynamic = context?.Options.ServeHostModels ?? false;
             bool HostHas(ModelKind kind) => host?.List().Any(model => model.Kind == kind) ?? false;
-            if (models.Embedders.Count > 0 || HostHas(ModelKind.Embedding))
+            if (dynamic || models.Embedders.Count > 0 || HostHas(ModelKind.Embedding))
             {
                 routes.MapPost("/v1/embeddings", http => Handle(http, () => Embeddings(http, models)));
             }
-            if (models.Rerankers.Count > 0 || HostHas(ModelKind.Reranker))
+            if (dynamic || models.Rerankers.Count > 0 || HostHas(ModelKind.Reranker))
             {
                 foreach (var path in new[] { "/v1/rerank", "/v2/rerank", "/rerank" })
                 {

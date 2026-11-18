@@ -40,6 +40,25 @@ public sealed class ConversationViewModelTests
     }
 
     [Fact]
+    public async Task FollowUps_ReplayTheReasoningOfEarlierAnswers()
+    {
+        using var services = new TestServices();
+        var model = services.Runtime.Add(new FakeModel("qwen3", ModelCapabilities.Chat | ModelCapabilities.Reasoning));
+        var chat = Create(services, () => model);
+        chat.InputText = "first";
+        await chat.SendCommand.ExecuteAsync(null);
+        chat.InputText = "you're fast!";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        var earlier = model.Inputs[1].Messages.Single(message => message.Role == ChatRole.Assistant);
+        Assert.Equal(("Hello there!", "Thinking about it."), (earlier.Text, earlier.Reasoning));
+        Assert.All(model.Inputs[1].Messages.Where(message => message.Role != ChatRole.Assistant), message => Assert.Null(message.Reasoning));
+
+        var request = ChatRequestMapper.ToChatRequest(model.Inputs[1], reasoningTemplate: true);
+        Assert.Equal("Thinking about it.", request.Messages.Single(turn => turn.Role == "assistant").Reasoning);
+    }
+
+    [Fact]
     public async Task Send_WithoutAModel_ExplainsWhatToDo()
     {
         using var services = new TestServices();
