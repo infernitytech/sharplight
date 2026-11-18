@@ -63,21 +63,22 @@ public sealed class MoeTests
     public void IntDotExactActivations(string fmt, int t, int s, bool perSlot) => Run(fmt, t, s, perSlot, "random", exactInt8: true);
 
     /// <summary>
-    /// Steps of up to 12 items per expert above the per-item matvec range run the expert-grouped skinny GEMM (16-row expert
-    /// tiles; an expert with more items gets several): every weight format it decodes, per-slot and shared activation rows, all
-    /// experts or a few busy ones, and N of 80 (a partial 32-row weight tile of the direct path).
+    /// Steps above the per-item matvec range and up to 12 items per expert (direct path: MXFP4, Q8_0, FP8) or one per expert
+    /// (staged path: the other formats, here with 64 experts) run the expert-grouped skinny GEMM (16-row expert tiles; an expert
+    /// with more items gets several): per-slot and shared activation rows, all experts or a few busy ones, and N of 80 (a partial
+    /// 32-row weight tile of the direct path).
     /// </summary>
     [Theory]
-    [InlineData("bf16", 20, false, "random", 96)]
-    [InlineData("f16", 20, true, "random", 96)]
-    [InlineData("mxfp4", 20, false, "random", 96)]
-    [InlineData("mxfp4", 20, true, "few", 96)]
-    [InlineData("mxfp4", 24, false, "random", 80)]
-    [InlineData("q8_0", 20, true, "random", 96)]
-    [InlineData("q4_k", 20, false, "few", 96)]
-    [InlineData("f8e4m3_b128", 20, false, "random", 96)]
-    public void ExpertGroupedSkinny(string fmt, int t, bool perSlot, string pattern, int n)
-        => Run(fmt, t, 4, perSlot, pattern, N: n, K: fmt == "q4_k" ? 512 : 1024);
+    [InlineData("bf16", 10, false, "random", 96, 64)]
+    [InlineData("f16", 10, true, "random", 96, 64)]
+    [InlineData("q4_k", 10, false, "few", 96, 64)]
+    [InlineData("mxfp4", 20, false, "random", 96, 8)]
+    [InlineData("mxfp4", 20, true, "few", 96, 8)]
+    [InlineData("mxfp4", 24, false, "random", 80, 8)]
+    [InlineData("q8_0", 20, true, "random", 96, 8)]
+    [InlineData("f8e4m3_b128", 20, false, "random", 96, 8)]
+    public void ExpertGroupedSkinny(string fmt, int t, bool perSlot, string pattern, int n, int experts)
+        => Run(fmt, t, 4, perSlot, pattern, experts, n, fmt == "q4_k" ? 512 : 1024);
 
     public static IEnumerable<object[]> FormatCases()
     {
@@ -129,15 +130,18 @@ public sealed class MoeTests
     public void ShapeVariants(int E, int N, int K) => Run(K % 256 == 0 ? "q4_k" : "q8_0", 70, 3, false, "random", E, N, K);
 
     /// <summary>
-    /// With the tensor-core grouped GEMM the per-item matvec serves up to half the expert count of items: 128 experts x 8 slots on
-    /// both sides of that bound (40 items on the matvec, 96 and 136 on the GEMM), and 32 experts x 4 slots (16 / 20 items).
+    /// With the expert-grouped skinny GEMM above it the per-item matvec serves up to a quarter of the expert count of items, the
+    /// skinny GEMM (staged for Q4_K) up to one item per expert, gemm_cm2 above: 128 experts x 8 slots (24 items on the matvec, 40
+    /// and 96 on the skinny GEMM, 136 on gemm_cm2) and 32 experts x 4 slots (8 / 12 / 36 items).
     /// </summary>
     [Theory]
+    [InlineData(128, 8, 3)]
     [InlineData(128, 8, 5)]
     [InlineData(128, 8, 12)]
     [InlineData(128, 8, 17)]
-    [InlineData(32, 4, 4)]
-    [InlineData(32, 4, 5)]
+    [InlineData(32, 4, 2)]
+    [InlineData(32, 4, 3)]
+    [InlineData(32, 4, 9)]
     public void MatvecRangeFollowsExpertCount(int E, int s, int t) => Run("q4_k", t, s, false, "random", E, 96, 512);
 
     /// <summary>

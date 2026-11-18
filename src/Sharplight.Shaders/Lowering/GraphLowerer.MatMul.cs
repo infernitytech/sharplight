@@ -160,7 +160,7 @@ public sealed partial class GraphLowerer
 
         string source = DualEpilogueSource(a, bNode, group, output, "matmul.slang");
         long dualSkinnyMin = UseIntDotMatvec(a, weightA.Type, K) ? IntDotSkinnyMinRows(weightA.Type, K, N) : SkinnyMinRows;
-        if (DiagnosticSwitches.SkinnyGemm && CoopUsable(a, weightA.Type, K) && SkinnyMaxRowsFor(N) >= dualSkinnyMin)
+        if (DiagnosticSwitches.SkinnyGemm && CoopUsable(a, weightA.Type, K) && SkinnyMaxRowsFor(N, weightA.Type) >= dualSkinnyMin)
         {
             // Up to 16 rows (above the int-dot range for formats with one): both matrices on the skinny GEMM with the group as
             // its epilogue.
@@ -169,8 +169,8 @@ public sealed partial class GraphLowerer
                 [weightA, weightB], y, N, K, macros,
                 skinnyMacros => _compiler.Compile("matmul_dual.slang", source, "gemm_sk", _opt.Target,
                     new Dictionary<string, string>(skinnyMacros) { ["KERNEL_GEMM_SK"] = "1" }, _opt.Cache));
-            _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(rows(b), N, dualSkinnyMin);
-            fusedMaxRows = Math.Max(fusedMaxRows, SkinnyMaxRowsFor(N));
+            _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(rows(b), N, weightA.Type, dualSkinnyMin);
+            fusedMaxRows = Math.Max(fusedMaxRows, SkinnyMaxRowsFor(N, weightA.Type));
         }
 
         Emit($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
@@ -426,7 +426,7 @@ public sealed partial class GraphLowerer
         bool fp8Gemm = !mmq && UseFp8Gemm(plan.W.Type, plan.K);
         bool skinny = UseSkinnyGemm(plan);
         long skinnyMin = intDot ? IntDotSkinnyMinRows(plan.W.Type, plan.K, plan.N) : SkinnyMinRows;
-        bool skinnyHere = skinny && SkinnyMaxRowsFor(plan.N) >= skinnyMin;
+        bool skinnyHere = skinny && SkinnyMaxRowsFor(plan.N, plan.W.Type) >= skinnyMin;
         // One f16 copy of x for every f16 tensor-core launch of this matmul (skinny GEMM, gemm_cm2), emitted under the outer
         // condition so that the matmuls reading the same rows (Q/K/V, gate/up, ...) share it.
         var half = SharedHalfActivations(plan, intDot, skinny && !intDot, mmq ? MmqMinRows : fp8Gemm ? Fp8GemmMinRows : null);
@@ -461,7 +461,7 @@ public sealed partial class GraphLowerer
             var beforeSkinny = _launchCondition;
             EmitSkinnyGemm(skinnyMin, MatMulLabel(plan), [n], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K, plan.Macros,
                 macros => Lib("matmul.slang", "gemm_sk", macros), half);
-            _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(plan.RowCount(b), plan.N, skinnyMin);
+            _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(plan.RowCount(b), plan.N, plan.W.Type, skinnyMin);
         }
 
         EmitMatMulLaunches(plan, half, epilogueCode);
@@ -488,7 +488,7 @@ public sealed partial class GraphLowerer
 
         long rowsMax = p.X.Shape[0] * p.RowsPerLead;
         long minRows = intDot ? (UseSkinnyGemm(p) ? IntDotSkinnyMinRows(p.W.Type, p.K, p.N) : Math.Max(MatvecMaxRows, IntDotMaxRows(p.W.Type, p.K)) + 1)
-            : skinny ? Math.Min(Math.Max(SkinnyMinRows, SkinnyHalfMinRows), Math.Max(MatvecMaxRows, SkinnyMaxRowsFor(p.N)) + 1)
+            : skinny ? Math.Min(Math.Max(SkinnyMinRows, SkinnyHalfMinRows), Math.Max(MatvecMaxRows, SkinnyMaxRowsFor(p.N, p.W.Type)) + 1)
             : MatvecMaxRows + 1;
         long maxRows = quantizedGemmMinRows is { } gemmMin ? Math.Min(rowsMax, gemmMin - 1) : rowsMax;
         if (minRows > maxRows)

@@ -16,10 +16,21 @@ public sealed partial class GraphLowerer
     private const int MoeSkinnyTile = 16;
 
     /// <summary>
-    /// Average (token, slot) items per expert up to which the expert-grouped skinny GEMM serves a step (<see cref="MoeSkinnyTile"/>-row
-    /// tiles); above, gemm_cm2's 32-128-row tiles. <c>SHARPLIGHT_MOE_SKINNY=n</c> overrides it, 0 disables the skinny form.
+    /// (token, slot) items up to which the expert-grouped skinny GEMM serves a step of <paramref name="w"/> (<see cref="MoeSkinnyTile"/>-row
+    /// tiles; above, gemm_cm2's 32-128-row tiles), or 0 when it does not serve the matrix: 12 per expert where the skinny GEMM loads
+    /// the operands straight into the fragments (<see cref="UseDirectSkinny"/>), 1 per expert on its staged path.
+    /// <c>SHARPLIGHT_MOE_SKINNY=n</c> sets the items per expert, 0 disables the skinny form. RTX PRO 4500, ms per decode step:
+    /// gpt-oss-20b (MXFP4, direct, 32 experts) at 8 / 16 / 32 / 64 sequences 11.05 / 11.78 / 14.16 / 18.85 → 9.53 / 10.07 / 12.91 /
+    /// 18.62, uniform routing at 96 sequences (12 per expert) 731 → 615 us per expert block, at 128 level; Qwen3-30B-A3B (Q4_K,
+    /// staged, 128 experts) at 8 / 16 sequences 13.45 → 12.44 / 15.20 → 14.35 but 32 sequences (2 per expert) 18.98 → 19.87.
     /// </summary>
-    private static int MoeSkinnyItemsPerExpert => DiagnosticSwitches.MoeSkinnyItemsPerExpert ?? 12;
+    private long MoeSkinnyItems(TensorRef w, long k)
+    {
+        bool served = MoeTensorCoreGemm(w, k) && DiagnosticSwitches.MoeGemm2 && !SmallFragments && DiagnosticSwitches.MoeSortedHalfActivations
+                      && DiagnosticSwitches.SkinnyGemm && k % 32 == 0;
+        long perExpert = DiagnosticSwitches.MoeSkinnyItemsPerExpert ?? (UseDirectSkinny(w.Type, half: true, 1, k) ? 12 : 1);
+        return served ? perExpert * w.Shape[0] : 0;
+    }
 
     private static OpSupport SupportsMoe(Node node)
     {
@@ -125,15 +136,21 @@ public sealed partial class GraphLowerer
     private long InvariantMatvecItems(long items, long slots) => Math.Max(items, InvariantRows * slots);
 
     /// <summary>
-    /// Items up to which the per-item int-dot expert matvec serves a step: <see cref="DiagnosticSwitches.MoeIntDotMaxItems"/> when
-    /// set, else half the expert count (16-128) when the tensor-core grouped GEMM takes the larger steps. The per-item matvec reads
-    /// an expert's weights once per item routed to it, the grouped GEMM once per expert tile, so the GEMM wins from about one item
-    /// per two experts (RTX PRO 4500: Qwen3-30B-A3B, 128 experts, 16 sequences 21.0 → 15.5 ms per step; gpt-oss-20b, 32 experts,
-    /// 16 sequences 20.6 → 10.7 ms); without tensor cores the scalar GEMM only wins much later.
+    /// Items up to which the per-item int-dot expert matvec serves a step of <paramref name="w"/>:
+    /// <see cref="DiagnosticSwitches.MoeIntDotMaxItems"/> when set, else a quarter of the expert count (8-128) when the expert-grouped
+    /// skinny GEMM takes the next steps (<see cref="MoeSkinnyItems"/>), half (16-128) when gemm_cm2 does. The per-item matvec reads
+    /// an expert's weights once per item routed to it, the grouped GEMMs once per expert tile, so the gemm_cm2 wins from about one
+    /// item per two experts (RTX PRO 4500: Qwen3-30B-A3B, 128 experts, 16 sequences 21.0 → 15.5 ms per step; gpt-oss-20b, 32
+    /// experts, 16 sequences 20.6 → 10.7 ms) and the skinny GEMM from one per four (gpt-oss-20b at 3 / 4 sequences 8.04 / 9.19 →
+    /// 7.48 / 7.67 ms; Qwen3-30B-A3B at 8 sequences 13.71 → 12.45 ms); without tensor cores the scalar GEMM only wins much later.
     /// </summary>
-    private long IntDotPerItemMaxItems(long experts, long slots, bool tensorCoreGemm)
-        => InvariantMatvecItems(DiagnosticSwitches.MoeIntDotMaxItems > 0 ? DiagnosticSwitches.MoeIntDotMaxItems
-            : tensorCoreGemm ? Math.Clamp(experts / 2, 16, 128) : 128, slots);
+    private long IntDotPerItemMaxItems(TensorRef w, long k, long slots)
+    {
+        long experts = w.Shape[0];
+        return InvariantMatvecItems(DiagnosticSwitches.MoeIntDotMaxItems > 0 ? DiagnosticSwitches.MoeIntDotMaxItems
+            : MoeSkinnyItems(w, k) > 0 ? Math.Clamp(experts / 4, 8, 128)
+            : MoeTensorCoreGemm(w, k) ? Math.Clamp(experts / 2, 16, 128) : 128, slots);
+    }
 
     /// <summary>Whether the expert products of <paramref name="w"/> (inner size <paramref name="k"/>) run the tensor-core grouped GEMM.</summary>
     private bool MoeTensorCoreGemm(TensorRef w, long k)
@@ -166,7 +183,7 @@ public sealed partial class GraphLowerer
             var m = Macros(("WFMT", WeightFormat(w.Type)!.Value), ("K", K), ("N", N), ("E", w.Shape[0]), ("S", S), ("PER_SLOT", x.Rank == 3),
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
             string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N);
-            long mv = IntDotPerItemMaxItems(w.Shape[0], S, MoeTensorCoreGemm(w, K));
+            long mv = IntDotPerItemMaxItems(w, K, S);
             var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id2 {output.Name} [{w.Shape[0]}x{K}→{N}]x2 {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]",
                 [.. gathers, a, bNode, .. group], a, x, xs, rowsPerLead, [w, Ref(bNode.Inputs[1])], ids, y, m, mv, S,
@@ -215,7 +232,7 @@ public sealed partial class GraphLowerer
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
             string source = ExpertSumEpilogueSource(product, gathers, [.. group.SelectMany(g => g.Inputs).Where(v => v != product.Output && !inGroup.Contains(v)
                 && !gathered.Contains(v)).Distinct()], scalars, group, summed, N);
-            long mv = IntDotPerItemMaxItems(w.Shape[0], S, MoeTensorCoreGemm(w, K));
+            long mv = IntDotPerItemMaxItems(w, K, S);
             var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id-sum {reduce.Output.Name} [{w.Shape[0]}x{K}→{N}] {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]+slot-sum",
                 [.. gathers, product, .. group, permute, reduce], product, x, xs, rowsPerLead, [w], ids, y, m, mv, S,
@@ -327,7 +344,7 @@ public sealed partial class GraphLowerer
         // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much
         // later, the int-dot matvec only from about 16 items per expert).
         bool intDot = UseIntDotMatvec(n, w.Type, K);
-        long mv = intDot ? IntDotPerItemMaxItems(E, S, coop) : InvariantMatvecItems(coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E), S);
+        long mv = intDot ? IntDotPerItemMaxItems(w, K, S) : InvariantMatvecItems(coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E), S);
         string label = $"matmul-id {n.Output.Name} [{E}x{K}→{N}] {w.Type}";
 
         // Decode / few rows: one matvec per (token, slot), with int8 dot products when the format allows.
@@ -357,9 +374,8 @@ public sealed partial class GraphLowerer
         int[] coopTiles = gemm2 ? [32, 64, 128] : SmallFragments ? [32] : [32, 64];
         // Few items per expert (batched decode): 16-row expert tiles on the expert-grouped skinny GEMM, which reads the weights
         // at the matvec's bandwidth instead of through gemm_cm2's 32-row tiles.
-        bool skinnyMoe = gemm2 && DiagnosticSwitches.MoeSortedHalfActivations && DiagnosticSwitches.SkinnyGemm && K % 32 == 0
-                         && MoeSkinnyItemsPerExpert > 0;
-        long skinnyItems = MoeSkinnyItemsPerExpert * E;
+        long skinnyItems = MoeSkinnyItems(w, K);
+        bool skinnyMoe = gemm2 && skinnyItems > 0;
         int[] routeTiles = skinnyMoe ? [MoeSkinnyTile, .. coopTiles] : coopTiles;
         Func<Bindings, int> tile = b => !coop ? 64
             : SmallFragments ? 32

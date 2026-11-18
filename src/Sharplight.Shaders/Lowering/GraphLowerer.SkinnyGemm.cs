@@ -26,9 +26,12 @@ public sealed partial class GraphLowerer
     /// narrow matrices leave the GPU idle and take a fixed ~20 µs at K = 5120, where the split-K matvec (up to 8 rows) and
     /// the split-K gemm_cm2 (9+ rows) spread K over many workgroups. Blackwell, FP8 at K = 5120, skinny vs those: N = 48
     /// 24 vs 8 µs at 4 rows; N = 1024 23 vs 20 µs at 4 rows, 23 vs 35 µs at 8 rows, 21 vs 12 µs at 16 rows; N = 2048
-    /// 21 vs 16 µs at 16 rows; N = 4096 even at 16 rows.
+    /// 21 vs 16 µs at 16 rows; N = 4096 even at 16 rows. 16-bit weights (<paramref name="type"/> f16 / bf16), whose small batches
+    /// otherwise take the f32 split-K matvec, use it up to 8 rows from 256 outputs: that matvec re-reads the weights per row (RTX
+    /// PRO 4500, bf16 [2880→512] at 2 / 4 / 8 rows: 12 / 16 / 24 µs against 8 µs on the skinny GEMM).
     /// </summary>
-    private static long SkinnyMaxRowsFor(long n) => DiagnosticSwitches.SkinnyGemmMaxRows ?? (n >= 4096 ? SkinnyMaxRows : n >= 1024 ? 8 : 0);
+    private static long SkinnyMaxRowsFor(long n, DataType type) => DiagnosticSwitches.SkinnyGemmMaxRows
+        ?? (n >= 4096 ? SkinnyMaxRows : n >= 1024 || (n >= 256 && (type == DataType.F16 || type == DataType.BF16)) ? 8 : 0);
 
     /// <summary>
     /// Subgroups a skinny GEMM launch aims for in total: below this, workgroups get 8 subgroups instead of 4, which keeps
@@ -69,7 +72,7 @@ public sealed partial class GraphLowerer
     /// True when <paramref name="rows"/> activation rows are in the skinny GEMM's range for <paramref name="n"/> output rows,
     /// starting at <paramref name="minRows"/>.
     /// </summary>
-    private static bool InSkinnyRange(long rows, long n, long minRows) => rows >= minRows && rows <= SkinnyMaxRowsFor(n);
+    private static bool InSkinnyRange(long rows, long n, DataType type, long minRows) => rows >= minRows && rows <= SkinnyMaxRowsFor(n, type);
 
     /// <summary>
     /// Smallest row count for which the skinny GEMM reads an f16 copy of x (shared with the matmul's siblings) rather than
@@ -90,7 +93,7 @@ public sealed partial class GraphLowerer
         TensorRef y, long n, long k, Dictionary<string, string> baseMacros, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef? half = null)
     {
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long maxRows = Math.Min(SkinnyMaxRowsFor(n), rowsMax);
+        long maxRows = Math.Min(SkinnyMaxRowsFor(n, weights[0].Type), rowsMax);
         long halfMin = Math.Max(minRows, SkinnyHalfMinRows);
         if (minRows < halfMin && minRows <= maxRows)
         {
