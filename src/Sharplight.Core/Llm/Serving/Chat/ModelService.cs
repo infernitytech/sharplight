@@ -62,7 +62,7 @@ public sealed class ModelService
             _template = new ChatTemplate(src, _bos, Tok(engine.Tokenizer.EosId));
         }
 
-        _harmony = src?.Contains("<|channel|>", StringComparison.Ordinal) == true;
+        _harmony = ChatOutputParser.IsHarmonyTemplate(src);
         _formats = Options.ToolFormats ?? (_harmony ? [ToolCallFormats.Hermes] : ToolCallFormats.ForTemplate(src));
         _reasoningTemplate = src?.Contains("<think>", StringComparison.Ordinal) == true;
     }
@@ -121,7 +121,7 @@ public sealed class ModelService
             : FallbackPrompt(msgs);
         bool addSpecial = Tokenizer.AddBos && _bos is not null && !text.StartsWith(_bos, StringComparison.Ordinal);
         var tokens = Tokenizer.Encode(text, addSpecial, parseSpecial: true);
-        return new ChatPrompt(text, tokens, text.TrimEnd().EndsWith("<think>", StringComparison.Ordinal));
+        return new ChatPrompt(text, tokens, ChatOutputParser.PromptEndsInReasoning(text));
     }
 
     /// <summary>Number of prompt tokens the request would occupy after template rendering.</summary>
@@ -186,7 +186,14 @@ public sealed class ModelService
             StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, CachePartition = r.CachePartition, Timeout = r.Timeout,
             Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs, Constraint = BuildConstraint(r, prompt), Diffusion = r.Diffusion,
         };
-        return Start(template, r.N, () => new ChatOutputParser(useTools ? _formats : null, useTools ? names : null, prompt.StartsInReasoning, harmony: _harmony), ct);
+        var parserOptions = new ChatOutputParserOptions
+        {
+            ToolCallFormats = useTools ? _formats : [],
+            ToolNames = useTools ? names : [],
+            StartsInReasoning = prompt.StartsInReasoning,
+            Harmony = _harmony,
+        };
+        return Start(template, r.N, () => new ChatOutputParser(parserOptions), ct);
     }
 
     /// <summary>Submits a raw text completion request.</summary>

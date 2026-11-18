@@ -632,7 +632,8 @@ internal sealed partial class ConversationViewModel : ObservableObject
 
             var images = message.Attachments.Where(attachment => attachment.Kind == AttachmentKind.Image && attachment.Data is not null)
                 .Select(attachment => new ImageContent(attachment.Data!, attachment.MediaType)).ToList();
-            messages.Add(new ChatInputMessage(message.Role, PromptComposer.Compose(message.Content, message.Attachments), images));
+            string? reasoning = message.Role == ChatRole.Assistant ? message.Reasoning : null;
+            messages.Add(new ChatInputMessage(message.Role, PromptComposer.Compose(message.Content, message.Attachments), images, reasoning));
         }
 
         return new ChatInput(messages, CurrentSampling(), EnableThinking);
@@ -652,7 +653,7 @@ internal sealed partial class ConversationViewModel : ObservableObject
         }
 
         var history = BuildInput(ConversationTree.ActivePath(_conversation));
-        int conversationTokens = history.Messages.Sum(message => model.CountTokens(message.Text)) + model.CountTokens(text);
+        int conversationTokens = history.Messages.Sum(message => model.CountTokens(message.Text) + model.CountTokens(message.Reasoning ?? "")) + model.CountTokens(text);
         int available = ContextBudget.Available(model.ContextLength, ContextBudget.AnswerReserve(model.ContextLength, (int)MaxTokens), conversationTokens);
         var fitted = new Dictionary<string, AttachmentRecord>();
         for (int i = 0; i < documents.Count; i++)
