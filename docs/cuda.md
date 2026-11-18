@@ -55,11 +55,19 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
   artifact store when present, otherwise it links the PTX into a cubin with the driver's JIT (`cuLinkCreate` / `cuLinkAddData` /
   `cuLinkComplete`), records it in the cache (so the next load skips the JIT) and loads it with `cuModuleLoadData`.
 - **Device features** use the neutral names: `fp16`, `subgroup_ops` and `int_dot` (`dp4a`) on every listed GPU. The tensor-core
-  features (`matrix_f16`, `matrix_bf16`, `matrix_int8`, `matrix_fp8`, `matrix_mma_layout`) are not reported in phase 1: the kernels
-  written for them use Slang cooperative matrices, which Slang's CUDA backend does not emit as `mma.sync`. Those kernels take their SIMT
-  fallbacks, exactly like the Vulkan provider on a GPU without cooperative matrices. `SHARPLIGHT_DISABLE_FEATURES` and
-  `DeviceOptions.DisabledFeatures` work as for every provider, and `kernel_binaries` turns off the cubin tier (kernels then load from
-  PTX, JIT-compiled by the driver on every load).
+  features (`matrix_f16`, `matrix_bf16`, `matrix_int8`, `matrix_fp8`, `matrix_mma_layout`) and the `bf16` / `fp8` types are not reported
+  in phase 1, so the kernels written for them take their SIMT fallbacks, exactly like the Vulkan provider on a GPU without cooperative
+  matrices. Slang's CUDA prelude does implement cooperative matrices (16x16x16 fragments on `mma.sync.m16n8k16`: f16 and bf16 with f32
+  accumulators, int8, fp8; the register layout is the MMA layout `matrix_mma_layout` describes), and reporting those features from
+  compute capability 8.0 was tried: Slang aborts the code generation of the tensor-core GEMM `gemm_cm2` ("internal error E99999:
+  unexpected IR opcode during code emit", the same failure as its Metal backend for fragment loads from `uint4` shared arrays, see
+  [macos.md](macos.md#slang-8x8-fragment-loads-from-uint4-shared-arrays-on-metal)). Giving those kernels CUDA forms is phase 2.
+  `SHARPLIGHT_DISABLE_FEATURES` and `DeviceOptions.DisabledFeatures` work as for every provider, and `kernel_binaries` turns off the
+  cubin tier (kernels then load from PTX, JIT-compiled by the driver on every load).
+- **Alignment.** CUDA requires vector loads to be aligned to their size; SPIR-V and MSL pointer accesses only assume the element
+  alignment. `LoweringOptions.AlignedVectorAccess` (set by the CUDA provider only) keeps kernels whose row strides would misalign their
+  16-byte loads off such shapes: the int-dot matvec then needs K to be a multiple of 64 (its quantized activation rows are 1.25 K
+  bytes), other K take the f32 matvec. Found by `MatMulTests.OddShapes` (Q8_0, K = 96: "misaligned address").
 - **Format-agnostic core.** Nothing outside `src/Sharplight.Cuda` (and the native package `Sharplight.Cuda.Runtime`) knows about CUDA.
   The only shared change is the `KernelTranslator` hook and the CUDA block-size header in `Sharplight.Shaders`.
 

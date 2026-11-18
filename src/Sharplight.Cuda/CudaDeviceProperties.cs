@@ -112,27 +112,12 @@ internal sealed class CudaDeviceProperties
 
     /// <summary>
     /// Device features with the neutral names of <see cref="DeviceFeatures"/>. Every listed GPU (compute capability 7.5 and later) has
-    /// half-precision arithmetic, warp collectives and the packed int8 dot product (<c>dp4a</c>). From compute capability 8.0 (Ampere) the
-    /// tensor cores run the cooperative-matrix kernels: Slang's CUDA backend implements 16x16x16 cooperative matrices with
-    /// <c>mma.sync.m16n8k16</c> (f16 and bf16 with f32 accumulators, int8 with int32), whose fragments hold their elements in the MMA
-    /// register layout (<see cref="DeviceFeatures.MatrixMmaLayout"/>), and bf16 is a native type; from 8.9 (Ada) also the 8-bit floats
-    /// (E4M3 MMAs, <see cref="DeviceFeatures.MatrixFp8"/>).
+    /// half-precision arithmetic, warp collectives and the packed int8 dot product (<c>dp4a</c>). The tensor-core features are not
+    /// reported yet: Slang's CUDA backend implements 16x16x16 cooperative matrices with <c>mma.sync</c>, but it cannot emit the
+    /// tensor-core GEMM <c>gemm_cm2</c> ("unexpected IR opcode during code emit", like its Metal backend), so those kernels keep their SIMT
+    /// fallbacks until they have CUDA forms (docs/cuda.md, phase 2).
     /// </summary>
-    public IReadOnlySet<string> Features()
-    {
-        var features = new HashSet<string> { DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.IntDot };
-        if (ComputeCapability >= 80)
-        {
-            features.UnionWith([DeviceFeatures.BFloat16, DeviceFeatures.MatrixF16, DeviceFeatures.MatrixBF16, DeviceFeatures.MatrixInt8, DeviceFeatures.MatrixMmaLayout]);
-        }
-
-        if (ComputeCapability >= 89)
-        {
-            features.UnionWith([DeviceFeatures.Float8, DeviceFeatures.MatrixFp8]);
-        }
-
-        return features;
-    }
+    public IReadOnlySet<string> Features() => new HashSet<string> { DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.IntDot };
 
     public DeviceInfo ToDeviceInfo(int index) => new()
     {
