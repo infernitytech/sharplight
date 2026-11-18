@@ -176,6 +176,67 @@ public class ParserTests
         }
     }
 
+    /// <summary>
+    /// Qwen3.5 / Qwen3.8 structured thinking (indented lists, which markdown shows as code when they leak into the answer) arriving
+    /// token by token, with the close marker split over several pieces: all of it is reasoning, only the reply is content.
+    /// </summary>
+    [Fact]
+    public void StructuredThinking_TokenByToken_StaysReasoning()
+    {
+        string[] tokens =
+        [
+            "Thinking", " Process", ":\n\n", "1", ".", "  **", "Draft", ":**\n", "    ", "*", "   ", "*Option", " 1", " (Casual", "):*",
+            " \"Haha", ", yeah", ", I try", "!\"\n\n", "    ", "*", "   ", "Acknowledge", " the speed", ".\n", "    ", "*", "   ", "Offer",
+            " assistance", ".\n", "</", "think", ">", "\n\n", "Haha", ", yeah", ", I try", "!",
+        ];
+        var parser = new ChatOutputParser(new ChatOutputParserOptions { StartsInReasoning = true });
+        var pieces = new List<ChatOutputPiece>();
+        foreach (var token in tokens)
+        {
+            pieces.AddRange(parser.Push(token));
+        }
+
+        pieces.AddRange(parser.Complete());
+        string reasoning = Join(pieces, ChatOutputPieceKind.Reasoning);
+        Assert.StartsWith("Thinking Process:", reasoning);
+        Assert.EndsWith("    *   Offer assistance.", reasoning);
+        Assert.Equal("Haha, yeah, I try!", Join(pieces, ChatOutputPieceKind.Content));
+    }
+
+    [Theory]
+    [InlineData("<|im_start|>assistant\n<think>\n", true)]                         // Qwen3 / Qwen3.5 / Qwen3.8, thinking on
+    [InlineData("<|im_start|>assistant\n<think>\n\n</think>\n\n", false)]          // thinking off
+    [InlineData("<｜Assistant｜><think>\n", true)]                                  // DeepSeek-R1
+    [InlineData("<|im_start|>assistant\n", false)]                                 // the model opens reasoning itself (Qwen3 hybrid)
+    [InlineData("<|start|>assistant", false)]                                      // gpt-oss harmony
+    public void PromptEndsInReasoning_OnlyForAnOpenBlock(string promptEnd, bool expected)
+    {
+        Assert.Equal(expected, ChatOutputParser.PromptEndsInReasoning("<|im_start|>user\nhi<|im_end|>\n" + promptEnd));
+    }
+
+    [Fact]
+    public void HarmonyTemplate_IsDetected()
+    {
+        Assert.True(ChatOutputParser.IsHarmonyTemplate("{{ '<|start|>assistant<|channel|>final<|message|>' }}"));
+        Assert.False(ChatOutputParser.IsHarmonyTemplate("{{ '<|im_start|>assistant\n<think>\n' }}"));
+        Assert.False(ChatOutputParser.IsHarmonyTemplate(null));
+    }
+
+    [Fact]
+    public void StopStrings_CutTheOutput_AcrossPieces()
+    {
+        var parser = new ChatOutputParser(new ChatOutputParserOptions { StopStrings = ["END"] });
+        var pieces = new List<ChatOutputPiece>();
+        foreach (var piece in new[] { "one two E", "N", "D three" })
+        {
+            pieces.AddRange(parser.Push(piece));
+        }
+
+        pieces.AddRange(parser.Complete());
+        Assert.Equal("one two ", Join(pieces, ChatOutputPieceKind.Content));
+        Assert.True(parser.Stopped);
+    }
+
     [Fact]
     public void FormatDetection_FromTemplate()
     {

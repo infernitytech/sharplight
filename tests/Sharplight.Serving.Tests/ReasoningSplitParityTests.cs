@@ -23,6 +23,11 @@ public sealed class ReasoningSplitParityTests
         "{% for m in messages %}<|im_start|>{{ m.role }}\n{{ m.content }}<|im_end|>\n{% endfor %}" +
         "{% if add_generation_prompt %}<|im_start|>assistant\n\u0001{% endif %}";
 
+    /// <summary>An OpenAI harmony (gpt-oss) template: analysis and final channels instead of think markers (detected from the source).</summary>
+    private const string Harmony =
+        "{% for m in messages %}<|start|>{{ m.role }}<|message|>{{ m.content }}<|end|>{% endfor %}" +
+        "{% if add_generation_prompt %}<|start|>assistant\u0001{% endif %}{# <|channel|> #}";
+
     /// <summary>The tail of a Qwen3.5-style structured thinking block (indented lists that markdown would show as code).</summary>
     private const string StructuredThinking =
         "Thinking Process:\n\n1.  **Analyze:** the user says I am fast.\n2.  **Draft:**\n" +
@@ -32,24 +37,31 @@ public sealed class ReasoningSplitParityTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    public static TheoryData<bool, string, string, string> Outputs => new()
+    public static TheoryData<string, string, string, string> Outputs => new()
     {
-        { true, "Let me think.\n</think>\n\nThe answer is 4.", "Let me think.", "The answer is 4." },
-        { true, StructuredThinking + "</think>\n\nHaha, thanks! What can I do for you?", StructuredThinking.Trim(), "Haha, thanks! What can I do for you?" },
-        { true, "\n\n</think>\n\nNo reasoning needed.", "", "No reasoning needed." },
-        { true, "Cut off by the token limit while still thinking\n", "Cut off by the token limit while still thinking", "" },
-        { false, "<think>\nhmm\n</think>\n\nok", "hmm", "ok" },
-        { false, "  Hello, <b>world</b>!\n\n", "", "Hello, <b>world</b>!\n\n" },
+        { nameof(OpensReasoning), "Let me think.\n</think>\n\nThe answer is 4.", "Let me think.", "The answer is 4." },
+        { nameof(OpensReasoning), StructuredThinking + "</think>\n\nHaha, thanks! What can I do for you?", StructuredThinking.Trim(), "Haha, thanks! What can I do for you?" },
+        { nameof(OpensReasoning), "\n\n</think>\n\nNo reasoning needed.", "", "No reasoning needed." },
+        { nameof(OpensReasoning), "Cut off by the token limit while still thinking\n", "Cut off by the token limit while still thinking", "" },
+        { nameof(LeavesReasoning), "<think>\nhmm\n</think>\n\nok", "hmm", "ok" },
+        { nameof(LeavesReasoning), "  Hello, <b>world</b>!\n\n", "", "Hello, <b>world</b>!\n\n" },
+        { nameof(Harmony), "<|channel|>analysis<|message|>The user is happy.<|end|><|start|>assistant<|channel|>final<|message|>Thanks!<|return|>", "The user is happy.", "Thanks!" },
     };
 
     [Theory]
     [MemberData(nameof(Outputs))]
-    public async Task EveryPathSplitsReasoningAndContentTheSameWay(bool templateOpensReasoning, string output, string reasoning, string content)
+    public async Task EveryPathSplitsReasoningAndContentTheSameWay(string templateName, string output, string reasoning, string content)
     {
-        string template = templateOpensReasoning ? OpensReasoning : LeavesReasoning;
+        string template = templateName switch
+        {
+            nameof(OpensReasoning) => OpensReasoning,
+            nameof(LeavesReasoning) => LeavesReasoning,
+            _ => Harmony,
+        };
+        bool templateOpensReasoning = template == OpensReasoning;
         var expected = (reasoning, content);
 
-        Assert.Equal(expected, ParseDirectly(output, templateOpensReasoning));
+        Assert.Equal(expected, ParseDirectly(output, templateOpensReasoning, ChatOutputParser.IsHarmonyTemplate(template)));
 
         var (engine, service) = CreateService(template, output);
         using (engine)
@@ -66,9 +78,9 @@ public sealed class ReasoningSplitParityTests
         Assert.Equal(expected, Split(await client.GetResponseAsync("q", cancellationToken: Ct)));
     }
 
-    private static (string Reasoning, string Content) ParseDirectly(string output, bool startsInReasoning)
+    private static (string Reasoning, string Content) ParseDirectly(string output, bool startsInReasoning, bool harmony)
     {
-        var parser = new ChatOutputParser(new ChatOutputParserOptions { StartsInReasoning = startsInReasoning });
+        var parser = new ChatOutputParser(new ChatOutputParserOptions { StartsInReasoning = startsInReasoning, Harmony = harmony });
         var pieces = new List<ChatOutputPiece>();
         foreach (char c in output)
         {
