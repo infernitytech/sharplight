@@ -151,7 +151,9 @@ public sealed class F16RangeTests
 
         var rng = new Random(7 + t);
         int[] idData = [.. Enumerable.Range(0, t * S).Select(_ => rng.Next(E))];
-        Diff.Check("F16Range.moe-dual", tg.B.Build(), new Step(t, 0, (x, xs), (ids, idData)), atol: 8.0, rtol: 1e-2, maxTokens: t,
+        // The products of rows with 1.5e5 outliers reach ~7e4 with absolute errors of ~1e3 (f16 rounding of the outliers; the
+        // separate launches give the same values), cancellations included; the check is for finite rows near the reference.
+        Diff.Check("F16Range.moe-dual", tg.B.Build(), new Step(t, 0, (x, xs), (ids, idData)), atol: 1500.0, rtol: 3e-2, maxTokens: t,
             what: $"{fmt} T={t}");
     }
 }

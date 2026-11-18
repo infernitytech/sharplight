@@ -69,7 +69,7 @@ internal sealed class LoweringUnit
         {
             if (Fused is null)
             {
-                return BiasAdd is null ? [.. Absorbed ?? [], Node!] : [.. Absorbed ?? [], Node!, BiasAdd];
+                return BiasAdd is null ? [.. Absorbed ?? [], Node!] : [.. Gathers ?? [], .. Absorbed ?? [], Node!, BiasAdd];
             }
 
             Node[] dual = Dual is { } pair ? [pair.A, pair.B] : ConvHead is not null ? [ConvHead] : MatMulHead is not null ? [MatMulHead] : [];

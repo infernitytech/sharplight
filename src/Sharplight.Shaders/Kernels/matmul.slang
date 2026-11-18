@@ -18,6 +18,15 @@
 #ifndef MOE
 #define MOE 0
 #endif
+// MOE_BIAS (with MOE, single matrix; gemm_cm2 and gemm_sk): y gets product + moe_bias[expert, n], the routed experts' bias rows.
+#ifndef MOE_BIAS
+#define MOE_BIAS 0
+#endif
+#if MOE_BIAS
+#define MOE_BIAS_OF(e, n) p.moe_bias[uint64_t(e) * N + (n)]
+#else
+#define MOE_BIAS_OF(e, n) 0.0
+#endif
 // MOE_TILE_MAJOR (with MOE): the grid's x runs over the expert tiles and y over the column tiles (default: the other way round).
 #ifndef MOE_TILE_MAJOR
 #define MOE_TILE_MAJOR 0
@@ -66,6 +75,9 @@ struct Params
     uint* scratch;
 #endif
     float* y;
+#if MOE && MOE_BIAS
+    float* moe_bias;   // [E, N]: the bias row of each tile's expert is added in the store
+#endif
 #if DUAL && MOE && defined(MOE_EPI_FIELDS)
     MOE_EPI_FIELDS   // tables the dual expert epilogue reads (e.g. the experts' biases)
 #endif
@@ -226,7 +238,7 @@ void matvec(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
         if (c < p.T)
         {
             float s = WaveActiveSum(acc[c]);
-#if DUAL
+#if DUAL && !MOE   // (expert-grouped dual kernels store MOE_EPI instead)
             s = epi2(s, WaveActiveSum(acc2[c]));
 #endif
             if (lane == 0) p.y[uint64_t(c) * Y_STRIDE + row] = s;
@@ -324,7 +336,7 @@ void matvec_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Pa
         {
             float s = 0;
             [ForceUnroll] for (int i = 0; i < MV_SK_SG; i++) s += skPart[r][c][i];
-#if DUAL
+#if DUAL && !MOE
             float s2 = 0;
             [ForceUnroll] for (int i = 0; i < MV_SK_SG; i++) s2 += skPart2[r][c][i];
             s = epi2(s, s2);
@@ -1736,9 +1748,9 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
                 uint n = n0 + wn + j * 16 + w % 16;
 #if MOE
 #if MOE_RANGED
-                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w] * gRowInverse[t];
+                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w] * gRowInverse[t] + MOE_BIAS_OF(expert, n);
 #else
-                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w];
+                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w] + MOE_BIAS_OF(expert, n);
 #endif
 #else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = gC[sg * 256 + w];

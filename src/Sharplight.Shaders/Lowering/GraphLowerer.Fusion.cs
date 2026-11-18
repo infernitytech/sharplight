@@ -46,6 +46,11 @@ public sealed partial class GraphLowerer
             FoldExpertSums(units, consumers);
         }
 
+        if (!DiagnosticSwitches.NoBiasFold && !DiagnosticSwitches.NoGatherFold)
+        {
+            FoldExpertBiases(units, consumers);
+        }
+
         FoldScatterChains(units, consumers);
         if (!DiagnosticSwitches.NoConvEpilogue)
         {
@@ -401,6 +406,55 @@ public sealed partial class GraphLowerer
             }
 
             matmulUnit.BiasAdd = add;
+            removed.Add(unit);
+        }
+
+        units.RemoveAll(removed.Contains);
+    }
+
+    /// <summary>
+    /// A single-node Add group that adds the per-expert bias rows of the routed experts (a folded row gather by the same routing)
+    /// to an expert product (MatMulId), the Add being the product's only reader, joins the product's unit
+    /// (<see cref="LoweringUnit.BiasAdd"/> with the gather in <see cref="LoweringUnit.Gathers"/>): e.g. gpt-oss's gate / up biases.
+    /// </summary>
+    private void FoldExpertBiases(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var unitOf = new Dictionary<Node, LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not null)
+            {
+                unitOf[unit.Node] = unit;
+            }
+        }
+
+        var removed = new HashSet<LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Fused is not [{ Op.Name: "Add" } add] || unit.Gathers is not [{ } gather] || unit.NormHead is not null
+                || unit.NormTail is not null || unit.Dual is not null || unit.ExpertSum is not null)
+            {
+                continue;
+            }
+
+            int slot = add.Inputs[0].Producer is { Op.Name: "MatMulId" } && add.Inputs[1] == gather.Output ? 0
+                : add.Inputs[1].Producer is { Op.Name: "MatMulId" } && add.Inputs[0] == gather.Output ? 1 : -1;
+            if (slot < 0)
+            {
+                continue;
+            }
+
+            var product = add.Inputs[slot];
+            var matmul = product.Producer!;
+            if (!unitOf.TryGetValue(matmul, out var matmulUnit) || matmulUnit.BiasAdd is not null || matmulUnit.Absorbed is not null
+                || _segmentOutputs.Contains(product) || !consumers.TryGetValue(product, out var readers) || readers.Count != 1
+                || !IsExpertEpilogueGather(gather, matmul) || add.Output.Type != DataType.F32 || !add.Output.Shape.Equals(product.Shape))
+            {
+                continue;
+            }
+
+            matmulUnit.BiasAdd = add;
+            matmulUnit.Gathers = [gather];
             removed.Add(unit);
         }
 

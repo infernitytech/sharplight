@@ -217,7 +217,7 @@ public sealed partial class GraphLowerer
         // the group's launch reading them back.
         Func<Bindings, bool>? fused = null;
         var dualY = Produce(output);
-        if (DiagnosticSwitches.MoeDualGemm2 && dualY.IsDense)
+        if (DiagnosticSwitches.MoeDual != 0 && dualY.IsDense)
         {
             string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N, "matmul.slang");
             fused = LowerMatMulId(a, (Ref(bNode.Inputs[1]), dualY, [.. gathers.Select(g => Ref(g.Inputs[0]))], source, [.. gathers, a, bNode, .. group]));
@@ -235,6 +235,27 @@ public sealed partial class GraphLowerer
         }
 
         LowerElementwise(group, [output]);
+        _launchCondition = outer;
+    }
+
+    /// <summary>
+    /// An expert product whose only reader adds the routed experts' bias rows (<see cref="LoweringUnit.BiasAdd"/>, the folded
+    /// gather <paramref name="gather"/>): the grouped GEMMs (gemm_cm2 and the expert-grouped skinny GEMM) add the bias row of
+    /// each tile's expert in their store and write the sum; batches on the per-item matvecs run the product and the Add.
+    /// </summary>
+    private void LowerExpertBias(Node product, Node add, Node gather)
+    {
+        var outer = _launchCondition;
+        var y = Produce(add.Output);
+        var served = y.IsDense && DiagnosticSwitches.MoeBiasEpilogue
+            ? LowerMatMulId(product, bias: (Ref(gather.Inputs[0]), y, [gather, product, add]))
+            : LowerMatMulId(product);
+        if (served is not null)
+        {
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && !served(b);
+        }
+
+        LowerElementwise([add], [add.Output]);
         _launchCondition = outer;
     }
 
@@ -362,11 +383,12 @@ public sealed partial class GraphLowerer
     /// Lowers the expert product <paramref name="n"/>. With <paramref name="dual"/>, the grouped gemm_cm2 launches compute it together
     /// with a second expert matrix of the same shape (same activations and routing) and store the dual epilogue <c>MOE_EPI</c> of
     /// the generated source into the group's output instead of the product. <paramref name="skipGrouped"/> leaves the grouped
-    /// gemm_cm2 launches out (a dual launch of the partner serves those batches). Returns the batches the grouped gemm_cm2 serves
-    /// (null when it does not run).
+    /// gemm_cm2 launches out (a dual launch of the partner serves those batches). With <paramref name="bias"/>, the grouped
+    /// launches add the bias row of each tile's expert (table [E, N]) in their store and write <c>Y</c> instead of the product.
+    /// Returns the batches the dual or biased grouped launches serve (null when there are none).
     /// </summary>
     private Func<Bindings, bool>? LowerMatMulId(Node n, (TensorRef W2, TensorRef Y, TensorRef[] Tables, string Source, Node[] Nodes)? dual = null,
-        bool skipGrouped = false)
+        bool skipGrouped = false, (TensorRef Table, TensorRef Y, Node[] Nodes)? bias = null)
     {
         var x = Ref(n.Inputs[0]);
         var w = Ref(n.Inputs[1]);
@@ -489,10 +511,21 @@ public sealed partial class GraphLowerer
                 => new(Gemm2Macros(groupedMacros, t)) { [limit] = rows.ToString(CultureInfo.InvariantCulture) };
             // The dual form (see the dual parameter) alternates 16-row fragments of the two matrices in the B tile: each tile layout
             // needs an even fragment count along N, and the expert-sorted f16 rows.
-            var d = dual is { } dd && DiagnosticSwitches.MoeSortedHalfActivations
-                    && coopTiles.All(t => int.Parse(Gemm2Macros(groupedMacros, t)["FRAG_N"], CultureInfo.InvariantCulture) % 2 == 0) ? dd : default;
-            bool isDual = d.Source is not null;
-            Func<Bindings, bool> grouped = b => items(b) > mv && coopTiles.Contains(tile(b)) && !isWide(b);
+            // (skipGrouped: this is the partner of such a pair, whose launches its dual partner made.)
+            bool dualPair = (dual is not null || skipGrouped) && DiagnosticSwitches.MoeSortedHalfActivations
+                            && coopTiles.All(t => int.Parse(Gemm2Macros(groupedMacros, t)["FRAG_N"], CultureInfo.InvariantCulture) % 2 == 0);
+            var d = dualPair && dual is { } dd ? dd : default;
+            bool dualCm2 = dualPair && (DiagnosticSwitches.MoeDual & 1) != 0;
+            bool dualSkinny = dualPair && (DiagnosticSwitches.MoeDual & 2) != 0 && skinnyMoe;
+            bool isDual = dualCm2 && d.Source is not null;
+            // Batches the dual launches serve (the partner's own launches and the group are skipped for them).
+            Func<Bindings, bool> grouped = b => items(b) > mv && (((dualCm2 || bias is not null) && coopTiles.Contains(tile(b)) && !isWide(b))
+                                                                  || ((dualSkinny || bias is not null) && skinnyMoe && tile(b) == MoeSkinnyTile));
+            KernelArg[] dualArgs = d.Source is null ? gargs
+                : [Pointer(gemmX), Pointer(w), Pointer(d.W2), scratchArg, Pointer(d.Y), .. d.Tables.Select(Pointer), TokenArg(ids)];
+            TensorRef[] dualReads = d.Source is null ? [gemmX, w, scratch] : [gemmX, w, d.W2, scratch, .. d.Tables];
+            var bb = !isDual && bias is { } bv ? bv : default;
+            bool biased = bb.Table is not null;
             CompiledKernel Grouped(Dictionary<string, string> macros)
             {
                 if (cm2TileMajor)
@@ -500,18 +533,30 @@ public sealed partial class GraphLowerer
                     macros = new Dictionary<string, string>(macros) { ["MOE_TILE_MAJOR"] = "1" };
                 }
 
-                return isDual ? _compiler.Compile("matmul_moe_dual.slang", d.Source, "gemm_cm2", _opt.Target,
+                if (biased)
+                {
+                    macros = new Dictionary<string, string>(macros) { ["MOE_BIAS"] = "1" };
+                }
+
+                return isDual ? _compiler.Compile("matmul_moe_dual.slang", d.Source!, "gemm_cm2", _opt.Target,
                     new Dictionary<string, string>(macros) { ["DUAL"] = "1", ["KERNEL_GEMM_CM2"] = "1" }, _opt.Cache)
                     : Lib("matmul.slang", "gemm_cm2", macros);
             }
 
             int Columns(int t) => isDual ? Gemm2Columns(t) / 2 : Gemm2Columns(t);
-            var groupedLabel = isDual ? $"{label}x2 fused gemm-cm2" : label + " gemm-cm2";
+            string groupedLabel = isDual ? $"{label}x2 fused gemm-cm2" : label + " gemm-cm2";
             Node[] groupedNodes = isDual ? d.Nodes : [n];
-            KernelArg[] groupedArgs = isDual ? [Pointer(gemmX), Pointer(w), Pointer(d.W2), scratchArg, Pointer(d.Y), .. d.Tables.Select(Pointer), TokenArg(ids)] : gargs;
-            TensorRef[] groupedReads = isDual ? [gemmX, w, d.W2, scratch, .. d.Tables] : [gemmX, w, scratch];
-            TensorRef groupedOut = isDual ? d.Y : y;
-            if (!skipGrouped)
+            // The bias epilogue (single products only): the bias table follows y.
+            KernelArg[] biasArgs = biased ? [Pointer(gemmX), Pointer(w), scratchArg, Pointer(bb.Y), Pointer(bb.Table), TokenArg(ids)] : gargs;
+            KernelArg[] groupedArgs = isDual ? dualArgs : biased ? biasArgs : gargs;
+            TensorRef[] groupedReads = isDual ? dualReads : biased ? [gemmX, w, scratch, bb.Table] : [gemmX, w, scratch];
+            TensorRef groupedOut = isDual ? d.Y : biased ? bb.Y : y;
+            if (biased)
+            {
+                groupedLabel += " +bias";
+                groupedNodes = bb.Nodes;
+            }
+            if (!skipGrouped || !dualCm2)
             {
                 _writeGroup = split ? new object() : null;
                 Emit(groupedLabel, groupedNodes,
@@ -553,10 +598,25 @@ public sealed partial class GraphLowerer
                     skinnyMacros[name] = value;
                 }
 
-                Emit(label + " skinny", [n],
-                    [new KernelVariant(b => items(b) > mv && tile(b) == MoeSkinnyTile, Lib("matmul.slang", "gemm_sk", skinnyMacros),
-                        b => TileGrid(skTileMajor, Grid.Div(N, fn * 16), tiles(b)))],
-                    gargs, [gemmX, w, scratch], [y]);
+                if (!skipGrouped || !dualSkinny)
+                {
+                    var skinnyKernel = dualSkinny && d.Source is not null
+                        ? _compiler.Compile("matmul_moe_dual.slang", d.Source!, "gemm_sk", _opt.Target,
+                            new Dictionary<string, string>(skinnyMacros) { ["DUAL"] = "1", ["KERNEL_GEMM_SK"] = "1" }, _opt.Cache)
+                        : Lib("matmul.slang", "gemm_sk", skinnyMacros);
+                    bool fusedSkinny = dualSkinny && d.Source is not null;
+                    if (biased && !fusedSkinny)
+                    {
+                        skinnyKernel = Lib("matmul.slang", "gemm_sk", new Dictionary<string, string>(skinnyMacros) { ["MOE_BIAS"] = "1" });
+                    }
+
+                    Emit(fusedSkinny ? $"{label}x2 fused skinny" : biased ? label + " skinny +bias" : label + " skinny",
+                        fusedSkinny ? d.Nodes : biased ? bb.Nodes : [n],
+                        [new KernelVariant(b => items(b) > mv && tile(b) == MoeSkinnyTile, skinnyKernel,
+                            b => TileGrid(skTileMajor, Grid.Div(N, fn * 16), tiles(b)))],
+                        fusedSkinny ? dualArgs : biased ? biasArgs : gargs,
+                        fusedSkinny ? dualReads : biased ? [gemmX, w, scratch, bb.Table] : [gemmX, w, scratch], [fusedSkinny ? d.Y : biased ? bb.Y : y]);
+                }
             }
 
             if (wide is { } wcfg)
@@ -582,7 +642,7 @@ public sealed partial class GraphLowerer
                     gargs, [gemmX, w, scratch], [y]);
             }
 
-            return isDual || skipGrouped ? grouped : null;
+            return (dual is not null && (dualCm2 || dualSkinny)) || (bias is not null && !isDual) ? grouped : null;
         }
         else if (coop)
         {

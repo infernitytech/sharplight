@@ -204,7 +204,15 @@ public sealed partial class GraphLowerer
         }
         else if (unit.BiasAdd is { } biasAdd)
         {
-            LowerMatMulBias(unit.Node!, biasAdd);
+            if (unit.Node!.Op.Name == "MatMulId")
+            {
+                LowerExpertBias(unit.Node, biasAdd, unit.Gathers![0]);
+            }
+            else
+            {
+                LowerMatMulBias(unit.Node, biasAdd);
+            }
+
             FreeTemps();
         }
         else
