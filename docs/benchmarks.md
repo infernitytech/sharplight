@@ -6076,3 +6076,188 @@ split-K and the dual gemm_cm2 with its flagged copy; all 13 cases gave NaN befor
 Not covered: the MoE grouped GEMM's sorted f16 rows (`moe_gather_x16`) and the int8 / FP8 paths (their per-block scales keep the
 range, at their usual precision). Seen on the way: with `SHARPLIGHT_SKINNY_X16=0` (diagnostic), matmuls of fewer than 4096 outputs
 return zeros for 9-16 rows (no f16 copy is made for that range); unrelated to this change.
+
+## 46. LLM round 8: fresh vLLM baseline, expert-grouped skinny GEMM for MoE decode, MoE range guard (2026-11-18)
+
+Base: `develop` at `6420f2ea` ("before", built in a separate worktree), branch `perf/llm-r8` ("after"). GPU 2 (RTX PRO 4500
+Blackwell, 32 GB, nothing else on it), vLLM 0.33.0 in a fresh virtualenv on local disk, checkpoints on local disk. Raw output in
+[`bench/results/s46/`](../bench/results/s46).
+
+### 46.1 Fresh vLLM baseline (procedures of sections 42 and 43)
+
+Round 7 could not rerun vLLM (its virtualenv sat on the stalling network file system). Rerun here with the identical procedures
+(`bench/s42_gap.sh`, `bench/s43_serve.sh`); the Sharplight columns are this branch (its changes do not touch prefill).
+
+| model | weights | metric | Sharplight | vLLM (§46) | SL / vLLM | vLLM (§42) |
+|---|---|---|---:|---:|---:|---:|
+| qwen3-8b | HF bf16 | pp512 | 7292 | 8478 | 0.86x | 8203 |
+| | | pp2048 | 7860 | 9059 | 0.87x | 8782 |
+| | | pp8192 | 6961 | 7887 | 0.88x | 7661 |
+| | | tg (SL after 512 / vLLM depth 16) | 53 | 52 | 1.02x | 52 |
+| | | tg@d8192 | 49 | 48 | 1.02x | 48 |
+| qwen3-8b-fp8 | HF FP8 | pp512 | 10630 | 15281 | 0.70x | 14446 |
+| | | pp2048 | 11154 | 15308 | 0.73x | 15024 |
+| | | pp8192 | 9436 | 12577 | 0.75x | 12346 |
+| | | tg (after 512 / depth 16) | 89 | 87 | 1.02x | 87 |
+| | | tg@d8192 | 79 | 78 | 1.02x | 77 |
+| llama3.1-8b | HF bf16 | pp512 | 7630 | 8699 | 0.88x | 8532 |
+| | | pp2048 | 7918 | 8992 | 0.88x | 8836 |
+| | | pp8192 | 7113 | 7959 | 0.89x | 7806 |
+| | | tg (after 512 / depth 16) | 54 | 53 | 1.02x | 53 |
+| | | tg@d8192 | 50 | 49 | 1.02x | 49 |
+
+vLLM measures 1.5-6 % faster prefill than in section 42 (other GPU of the same model, older driver state), so section 44's
+"after / vLLM" ratios, taken against the section 42 figures, were 0.01-0.04x optimistic: dense bf16 is at 0.86-0.89x, FP8 at
+0.70-0.75x, decode level (1.02x).
+
+Serving, gpt-oss-20b HF (median of 3 rounds; vLLM 0.33.0 Marlin MXFP4, same procedure as 43.1):
+
+| streams | SL before | SL after | vLLM (§46) | after / vLLM | vLLM (§43) | TTFT p50 after / vLLM (ms) | per-stream decode after / vLLM |
+|---:|---:|---:|---:|---:|---:|---|---|
+| 1 | 178 | 177 | 169 | 1.05x | 169 | 33 / 31 | 184 / 175 |
+| 4 | 382 | **470** | 501 | 0.94x | 503 | 71 / 77 | 124 / 134 |
+| 16 | 1075 | **1201** | 1428 | 0.84x | 1440 | 109 / 175 | 82 / 102 |
+| 64 | 1977 | 1979 | 3221 | 0.61x | 3243 | 184 / 381 | 35 / 61 |
+
+Serving, Qwen3-8B-FP8 HF (dense, first measured against vLLM with the keys added in section 44; this branch, median of 3):
+
+| streams | Sharplight | vLLM | SL / vLLM | TTFT p50 SL / vLLM (ms) | per-stream decode SL / vLLM |
+|---:|---:|---:|---:|---|---|
+| 1 | 88 | 86 | 1.02x | 34 / 32 | 90 / 87 |
+| 4 | 305 | 326 | 0.94x | 70 / 72 | 79 / 85 |
+| 16 | 934 | 1123 | 0.83x | 104 / 157 | 62 / 78 |
+| 64 | 2036 | 2717 | 0.75x | 193 / 391 | 36 / 50 |
+
+### 46.2 Where the time goes (gpt-oss-20b HF, decode steps)
+
+`BatchBench` (64 slots, 256-token contexts, greedy on the device), per-op profile of the step before this round
+(`SHARPLIGHT_VK_PROFILE=1`, `bench/profile_categories.py`):
+
+| | 16 sequences | 64 sequences |
+|---|---:|---:|
+| GPU ms per step | 13.7 | 20.2 |
+| MoE (expert GEMMs, routing, gather) | 58 % | 57 % |
+| dense GEMM / matvec (bf16 q / k / v / o, router, LM head) | 27 % | 21 % |
+| attention | 4.6 % | 10.7 % |
+| norms / elementwise / rope / cache | 7.0 % | 7.0 % |
+
+The expert GEMMs, measured alone (`BenchTests.MoeDecode`, new: gate / up [2880 → 5760] + down [2880 → 2880] MXFP4 on uniform
+routing, 6 weight copies so the experts come from memory), read the touched experts at 600 GB/s at 16-64 sequences (the card
+streams bf16 at ~860 GB/s, the 1-row MXFP4 matvec at ~800): gemm_cm2's 32-row tiles with 2-8 rows per expert, one barrier per
+K step. Host overhead: the step metric covers the wall time as before; recording a new step shape costs 2-20 ms and a 64-stream
+loadgen round met ~75 new shapes with the first-in first-out cache of 64 recordings (46.5).
+
+### 46.3 Expert-grouped skinny GEMM (kept)
+
+The skinny GEMM (`gemm_sk`, 2-16 rows, K split across the subgroups of a workgroup, no barrier per K step) got an expert-grouped
+form (`MOE` with `X_SORTED`): each workgroup row of the grid is a 16-row expert tile of the routing scratch, its rows the
+expert-sorted f16 rows of `moe_gather_x16`, its output row the routed item. On the direct path (operands loaded straight into
+the MMA fragments, `matrix_mma_layout`) MXFP4R weights are now fetched raw (codes and scale byte) and decoded after the MMAs,
+like FP8; workgroups take two 16-row weight fragments and 4 subgroups.
+
+| `MoeDecode`, µs per expert block (gate / up + down) | 16 seq. | 64 seq. | 96 seq. | 128 seq. |
+|---|---:|---:|---:|---:|
+| gemm_cm2 (before) | 642 | 720 | 731 | 749 |
+| skinny, staged | 616 | 748 | | |
+| skinny, direct, 1 fragment x 8 subgroups | 557 | 709 | | |
+| skinny, direct, 2 x 4 (kept) | **495** | **562** | 615 | 759 |
+| skinny, direct, 4 x 4 / 2 x 8 / 1 x 4 | 508 / 512 / 487 | 579 / 601 / 582 | | |
+
+Selection (`GraphLowerer.Moe.cs`): the skinny form serves up to 12 items per expert on the direct path (MXFP4, Q8_0, FP8) and up
+to one item per expert on the staged path (other formats: Qwen3-30B-A3B Q4_K gains at 8-16 sequences but loses 5 % at 32); the
+per-item int-dot matvec now hands over at a quarter of the expert count (8-128 items) when the skinny form follows (gpt-oss at
+3 / 4 sequences: 8.04 / 9.19 → 7.48 / 7.67 ms). Also: 16-bit weights with 256-1023 outputs (gpt-oss's k / v projections) take the
+skinny GEMM up to 8 rows instead of the f32 split-K matvec, which re-reads the weights per row (bf16 [2880 → 512] at 8 rows 23.3 →
+7.9 µs).
+
+Decode step, GPU ms (BatchBench, greedy, minimum of 20; "before" is the base build for gpt-oss and this branch with
+`SHARPLIGHT_MOE_SKINNY=0` and the old per-item bound for gpt-oss at 8 sequences and for Qwen3-30B-A3B):
+
+| sequences | gpt-oss-20b HF before | after | Qwen3-30B-A3B Q4_K_M before | after |
+|---:|---:|---:|---:|---:|
+| 1 | 5.30 | 5.29 | 4.27 | 4.26 |
+| 2 | | 6.79 | 5.61 | 5.65 |
+| 4 | 9.32 | **7.73** | 8.57 | 8.66 |
+| 8 | 10.97 | **8.58** | 13.71 | **12.45** |
+| 16 | 12.03 | **9.90** | 15.12 | **14.30** |
+| 32 | 13.87 | **12.83** | 18.89 | 18.55 |
+| 64 | 18.65 | 18.70 | | 25.36 |
+
+At 64 sequences BatchBench's routing (random tokens) concentrates on few experts, which then take several 16-row tiles; with the
+uniform routing of `MoeDecode` the same step size gains 22 % (720 → 562 µs per block). Serving at 64 streams does not move (46.1):
+its steps are 64 decode rows plus ~107 prompt rows (422 steps of 171 rows per round), and the prompt rows put 20-30 items on each
+expert, the range of gemm_cm2.
+
+Greedy output: single-stream decoding and speculative verification rows run the kernels they ran before (the row-invariant
+items stay on the per-item matvec), so their outputs are unchanged. Batched steps of 3-32 sequences of models whose expert
+products run the skinny form now round like the skinny GEMM (K split across subgroups) instead of the int8 matvec or gemm_cm2;
+`MoeTests.ExpertGroupedSkinny` (new) checks every format against the CPU, and the Families batched greedy tests pass (46.7).
+
+### 46.4 Tried and not kept
+
+| tried | result |
+|---|---|
+| Two token fragments (32-row expert tiles) on the direct skinny path for 12-24 items per expert | 128 / 171 sequences 749 / 769 → 754 / 793 µs per block |
+| 128-row routing tiles launched per height class (≤16 skinny, 17-32 / 33-64 / 65-128 gemm_cm2), so no expert is read by two launches | 171 / 256 / 512 / 1024 sequences 767 / 987 / 1573 / 2514 → 794 / 1010 / 1796 / 2683 µs: the split-tile launches' second read hits L2; at 20-128 items per expert the grouped MXFP4 GEMM is bound by its MMA / decode work (52-81 TFLOPS), not by weight traffic |
+| MXFP4 decode removed from gemm_cm2's raw path (diagnostic, wrong results) | 256 sequences 989 → 904 µs: the decode is ~9 % of the mid-size expert GEMM |
+| Forced 64 / 128-row expert tiles on mixed steps (60 decode + 128 / 256 prompt rows) | 30.6 / 39.4 ms → 29.7 / 39.6 (64) and 32.7 / 42.6 (128): noise or slower |
+
+### 46.5 Recording cache (kept)
+
+Recorded steps are now evicted least recently used and 256 are kept per segment (was 64, first in first out): a 64-stream
+gpt-oss round records ~75 shapes (2-20 ms each) while it drains, which later rounds now find recorded. Small: 3 rounds at 16 / 64
+streams 1186 / 1220 / 1227 and 1983 / 1991 / 2020 tok/s (the first round pays the recordings).
+
+### 46.6 Range guard of the MoE grouped GEMM's sorted f16 rows; f16 copy with `SHARPLIGHT_SKINNY_X16=0`
+
+* `moe_gather_x16` (the expert-sorted f16 rows the grouped gemm_cm2 and the skinny form read) is row-ranged like the dense copies
+  (section 45): one workgroup per sorted row finds its largest magnitude (`f16_range_row`, shared with `to_f16_ranged`), a row
+  reaching 2^15 is stored scaled with a scale word per sorted position, and the GEMMs multiply each row's outputs by the inverse
+  in their store (exact; rows below 2^15 are stored and computed exactly as before, the multiply by 1 is exact).
+  `SHARPLIGHT_F16_RANGE=0` restores the plain gather. Test: `F16RangeTests.Expert_gemm_reads_rows_beyond_f16_range` (bf16,
+  f16, MXFP4; per-slot and shared rows; 32-, 64- and 128-row tiles): NaN with the guard off, within tolerance with it.
+  Not covered: `moe_gemm_cm` (devices with 8x8 fragments) and `SHARPLIGHT_MOE_X16=0`, which convert f32 rows in the tile.
+* With `SHARPLIGHT_SKINNY_X16=0`, the shared f16 copy started above the skinny range of 4096-wide matrices (17 rows) for every
+  width, while narrower matrices hand 9-16 rows to gemm_cm2, which read the unwritten copy (zeros). The copy now starts above
+  the skinny range of the matmul's own width. Test: `SkinnyGemmTests.NarrowAboveSkinnyRange` (512-4096 outputs at 9-16 rows)
+  and `NarrowAboveSkinnyRangeWithF32Staging`, which reruns it in a child process with `SHARPLIGHT_SKINNY_X16=0` (the switch is
+  read once per process).
+
+### 46.7 Tests
+
+After merging `develop` (at `823c72e7`) into the branch, on GPU 2:
+
+| suite | total | failed | skipped |
+|---|---:|---:|---:|
+| Sharplight.Vulkan.Tests (full) | 1594 | 0 | 25 |
+| Sharplight.Families.Tests (full, batched greedy parity included) | 1005 | 0 | 364 |
+
+New or changed: `MoeTests.ExpertGroupedSkinny` (8 cases), `MoeTests.MatvecRangeFollowsExpertCount` (new bounds),
+`F16RangeTests.Expert_gemm_reads_rows_beyond_f16_range` (5), `SkinnyGemmTests.NarrowAboveSkinnyRange` (5) and
+`NarrowAboveSkinnyRangeWithF32Staging`, `BenchTests.MoeDecode` (benchmark). A first full run found `QuantFormatTests.MatMulIdFewItems`
+(12 items, 8 experts, staged formats) on gemm_cm2: the per-item bound had dropped to a quarter of the experts although the staged
+skinny form serves nothing above it there; the bound now drops only where the skinny form reaches past it.
+
+### 46.8 Next levers
+
+* **Mixed decode / prefill steps of MoE models** (64 streams, 0.61x of vLLM): the prompt rows cost ~0.094 ms each (128 rows add
+  12 ms to a 19 ms step, 70 % of it in the expert GEMMs at 20-30 items per expert, 50-80 TFLOPS). A grouped MXFP4 GEMM with
+  more MMA work per decoded weight (wider tiles per expert, or the int8 / FP8 MMA path for MXFP4 weights) is the lever; the
+  weight traffic is not (46.4).
+* The bf16 attention projections at 64 rows (split-K gemm_cm2 + reductions, ~3.1 ms per step against ~1.5 ms of weight traffic).
+* FP8 prefill (0.70-0.75x against the fresh baseline): section 44.3.
+
+### 46.9 Reproduce
+
+```bash
+export SHARPLIGHT_VK_DEVICES=2 CUDA_VISIBLE_DEVICES=2 VLLM_VENV=<venv with vLLM 0.33.0> HF_DIR=<hf checkpoints>
+bench/s42_gap.sh bench/results/s46/gap qwen3-8b vllm ~/models/hf/Qwen3-8B          # and sharplight, per model
+ENGINES=vllm bench/s43_serve.sh bench/results/s46/serve-vllm gpt-oss-20b-hf
+ENGINES=sharplight SHARPLIGHT_SERVER=<base build>/sharplight bench/s43_serve.sh bench/results/s46/serve-before gpt-oss-20b-hf
+ENGINES=sharplight bench/s43_serve.sh bench/results/s46/serve-after gpt-oss-20b-hf
+# expert block at serving step sizes (46.3); SHARPLIGHT_MOE_SKINNY=0 for gemm_cm2
+SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_COPIES=6 SHARPLIGHT_BENCH_TYPES=mxfp4 SHARPLIGHT_BENCH_ROWS=16 \
+  dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -method "*MoeDecode"
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --slots 64 --ctx 512 --depth 256 \
+  --sizes 1,2,4,8,16,32,64 --modes greedy --reps 20
+```

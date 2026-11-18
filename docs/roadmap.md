@@ -26,7 +26,9 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   Qwen3-8B bf16 0.91-0.92x, Llama-3.1-8B 0.91-0.92x, Qwen3-8B-FP8 0.76-0.78x. Gemma 3 vision-language checkpoints import as their
   text decoder (gemma-3-12b-it matches transformers). Separate K/V staging in `fe` was slower (it runs at 255 registers, one
   workgroup per SM; staging is 23 % of its time); bigger FP8 / bf16 GEMM tiles do not fit 48 KB of shared memory and 255
-  registers (§44.3). Next: attention at 8192 tokens (20 % of the FP8 pass), the down projection's E4M3 input, a vLLM rerun.
+  registers (§44.3). Next: attention at 8192 tokens (20 % of the FP8 pass), the down projection's E4M3 input.
+  Round 8 (§46): fresh vLLM 0.33.0 baseline with the identical procedures (vLLM measures 1.5-6 % faster prefill than in §42):
+  Qwen3-8B bf16 0.86-0.88x, Llama-3.1-8B 0.88-0.89x, Qwen3-8B-FP8 0.70-0.75x, decode 1.02x.
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs
@@ -139,10 +141,14 @@ GPU (Vulkan):
   the two split-tile launches no longer wait on a barrier (pp512 +10 %, §28.2).
   Left: the expert GEMM's weight fetch (64-row tiles still about 65 % full before the split launch), and the
   dual gate/up and slot-sum fusions for the batched expert GEMM (they cover the int-dot matvec only).
-  Serving (§43): 16-64 sequences now take the grouped GEMM from half the expert count of items (16 streams +48-79 %); against
-  vLLM on gpt-oss-20b HF Sharplight leads at 1 stream and is at 0.62-0.76x from 4 streams on. Next: MoE steps that mix
-  prefill chunks with decode rows (29 ms per 171-row step against 18.5 ms for 64 decode rows), a dual gate / up expert GEMM
-  with the activation epilogue, and Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
+  Serving (§43): 16-64 sequences now take the grouped GEMM from half the expert count of items (16 streams +48-79 %).
+  Round 8 (§46): an expert-grouped form of the skinny GEMM (16-row expert tiles, MXFP4 fetched raw and decoded after the MMAs)
+  serves up to 12 items per expert (direct path) and the per-item matvec hands over at a quarter of the experts: gpt-oss-20b
+  decode steps at 4-32 sequences -8 to -22 %, serving at 4 / 16 streams 382 → 470 / 1075 → 1201 tok/s; against a fresh vLLM
+  1.05x / 0.94x / 0.84x / 0.61x at 1 / 4 / 16 / 64 streams. The MoE grouped GEMM's sorted f16 rows are row-ranged (§46.6).
+  Next: the 64-stream mixed steps, where prompt rows put 20-30 items on each expert and the grouped MXFP4 gemm_cm2 runs at
+  50-80 TFLOPS bound by MMA / decode work, not weight traffic (§46.4); a dual gate / up expert GEMM with the activation
+  epilogue; Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of
   prefill (§18).

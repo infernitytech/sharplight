@@ -147,6 +147,26 @@ struct GatherParams
     uint T;
 };
 
+#ifdef Y_RS
+// Row-ranged form (common.slang, f16_range_scale; Y_RS = byte offset of the scale words in xs): the activations of the grouped
+// GEMMs need not be bounded (a gated FFN's product feeding the down projection), so a row whose largest magnitude reaches 2^15 is
+// stored scaled and its sorted position o gets the scale word Y_RS + 4 o, which gemm_cm2 (X_SORTED with X_RS) multiplies into
+// the row's outputs. Other rows are stored exactly as by the plain gather. One workgroup per sorted row (grid: x = row of the
+// tile, TILE_M; y = tile).
+#include "f16_range_row.slang"
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void moe_gather_x16(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform GatherParams p)
+{
+    uint tile = gid.y, r = gid.x, tid = ltid.x;
+    if (tile >= p.scratch[0] || r >= p.scratch[3 + 3 * tile]) return;
+    uint o = p.scratch[2 + 3 * tile] + r;
+    uint item = p.scratch[ROW_BASE + o];
+    uint word = f16_range_row(p.x + uint64_t(PER_SLOT ? item : item / S) * X_STRIDE, uint64_t(p.xs) + uint64_t(o) * K * 2, tid);
+    if (tid == 0) *(uint*)(uint64_t(p.xs) + Y_RS + uint64_t(o) * 4) = word;
+}
+#else
 // Gathers the activation rows of the routed items in expert-sorted order as f16: xs[o, :] = half(x[row(item_o), :]) for every
 // sorted position o of every expert tile (grid: y = tile, x = TILE_M * K / 8 threads of 8 values). The grouped GEMMs then read
 // dense f16 rows (rowOffset + r) instead of gathering and converting f32 rows in every column tile.
@@ -166,6 +186,7 @@ void moe_gather_x16(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, unifo
     ((uint4*)(p.xs + uint64_t(o) * K + c))[0] = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),
                                                        f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16));
 }
+#endif
 #endif
 
 struct GemmParams
