@@ -309,8 +309,21 @@ internal sealed partial class DecoderGraphBuilder
     private ComputeGraph BuildDenoise()
     {
         var b = new GraphBuilder(WellKnown.DenoiseGraph, _src.Weight);
-        var inp = PackedSequences.Declare(b, tokenTypes: false);
-        var x = PackedLayers(b, inp);
+        Value x;
+        if (_src.Arch("embedding_input", false))
+        {
+            // Embedding rows in place of token ids (the host or a model-specific front end embeds them, OmniVoice's text and audio rows).
+            var T = Dim.Sym(WellKnown.TokenSymbol);
+            var embeddings = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, _hp.NEmbd));
+            var positions = b.Input(PackedSequences.PositionsInput, InputRole.Positions, DataType.I32, new Shape(T, 1));
+            var spans = b.Input(PackedSequences.RowSpansInput, InputRole.RowSpans, DataType.I32, new Shape(T, 2));
+            x = Layers(b, embeddings, positions, FrequencyFactors(b), null, spans);
+        }
+        else
+        {
+            x = PackedLayers(b, PackedSequences.Declare(b, tokenTypes: false));
+        }
+
         using (b.Group("output"))
         {
             var hidden = OutputNorm(b, x);

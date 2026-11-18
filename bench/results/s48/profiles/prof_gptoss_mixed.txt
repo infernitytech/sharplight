@@ -1,0 +1,77 @@
+decoder: MultiSequenceDecoder, slots 68, vocab 201088, device sampling: True
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 64 | 0 (0) | 93.0 | 919 / 726 | 19.43 / 20.48, 19.30 |  |
+| 64 | 107 (1) | 60.0 | 846 / 602 | 29.35 / 30.92, 29.22 | 0.093 |
+--- profile mixed 64+107x1 (greedy)
+GPU time 309.63 ms
+   125.532 ms  40.5%    240x  min    415.8 us  matmul-id [32x2880→5760] mxfp4r gemm-cm2 gemm_cm2 T=171,65,65
+    66.983 ms  21.6%    240x  min    223.3 us  matmul-id [32x2880→2880] mxfp4r gemm-cm2 gemm_cm2 T=171,65,65
+    18.457 ms   6.0%    240x  min     47.1 us  attention decode T=171,65,65
+    15.837 ms   5.1%    240x  min     61.0 us  matmul [4096→2880] bf16 split-k gemm_cm2 T=171,65,65
+    15.165 ms   4.9%     10x  min   1512.2 us  matmul [2880→201088] bf16 gemm_cm2 T=171,65,65
+    13.065 ms   4.2%    240x  min     52.6 us  matmul [2880→4096] bf16 split-k gemm_cm2 T=171,65,65
+     8.398 ms   2.7%   1200x  min      2.0 us  fused[Add] main T=171,65,65
+     7.663 ms   2.5%    480x  min     15.3 us  matmul [2880→512] bf16 split-k gemm_cm2 T=171,65,65
+     7.381 ms   2.4%    240x  min     29.7 us  attention fa T=171,65,65
+     4.931 ms   1.6%   1200x  min      2.0 us  matmul split-k reduce splitk_reduce T=171,65,65
+     3.913 ms   1.3%    240x  min     16.0 us  fused[Add,Mul] main T=171,65,65
+     3.778 ms   1.2%    480x  min      6.1 us  moe-gather x→ranged f16 moe_gather_x16 T=171,65,65
+     2.909 ms   0.9%    240x  min     11.9 us  matmul [2880→32] bf16 split-k gemm_cm2 T=171,65,65
+     2.010 ms   0.6%    240x  min      8.2 us  fused[Add,Add]+RmsNorm main T=171,65,65
+     2.010 ms   0.6%    240x  min      8.2 us  fused[Clip,Clip,Scale,Sigmoid,Mul,Scale,Mul] main T=171,65,65
+     1.745 ms   0.6%    480x  min      2.8 us  moe-route [32 experts] moe_route T=171,65,65
+     1.543 ms   0.5%    240x  min      6.1 us  fused[Add]+RmsNorm main T=171,65,65
+     1.471 ms   0.5%    240x  min      5.1 us  rope main T=171,65,65
+     0.984 ms   0.3%    240x  min      4.0 us  rope+cache_write rope_row T=171,65,65
+     0.982 ms   0.3%    240x  min      4.1 us  ReduceSum rowreduce_narrow T=171,65,65
+     0.958 ms   0.3%    240x  min      3.9 us  matmul [4096→2880] bf16 x→ranged f16 to_f16_ranged T=171,65,65
+     0.954 ms   0.3%    240x  min      3.0 us  matmul [2880→32] bf16 x→f16 to_f16 T=171,65,65
+     0.857 ms   0.3%    240x  min      2.0 us  topk topk_subgroup T=171,65,65
+     0.696 ms   0.2%    240x  min      2.0 us  cache_write cache_write T=171,65,65
+     0.655 ms   0.2%     10x  min     65.5 us  sample sample T=171,65,65
+     0.492 ms   0.2%    240x  min      2.0 us  softmax softmax T=171,65,65
+     0.112 ms   0.0%     20x  min      4.1 us  gather gather T=171,65,65
+     0.061 ms   0.0%     10x  min      6.1 us  RmsNorm main T=171,65,65
+     0.044 ms   0.0%     10x  min      4.1 us  matmul [2880→201088] bf16 f16 range f16_range_unscale T=171,65,65
+     0.041 ms   0.0%     10x  min      4.1 us  matmul [2880→201088] bf16 x→ranged f16 to_f16_ranged T=171,65,65
+
+| 64 | 256 (2) | 58.4 | 894 / 602 | 40.25 / 41.22, 40.11 | 0.081 |
+--- profile mixed 64+128x2 (greedy)
+GPU time 416.30 ms
+    95.827 ms  23.0%    240x  min    309.3 us  matmul-id [32x2880→5760] mxfp4r gemm-cm2 gemm_cm2 T=320,66,66
+    72.395 ms  17.4%    240x  min    170.0 us  matmul-id [32x2880→5760] mxfp4r gemm-cm2 half tiles gemm_cm2 T=320,66,66
+    49.391 ms  11.9%    240x  min    151.6 us  matmul-id [32x2880→2880] mxfp4r gemm-cm2 gemm_cm2 T=320,66,66
+    42.100 ms  10.1%    240x  min    106.5 us  matmul-id [32x2880→2880] mxfp4r gemm-cm2 half tiles gemm_cm2 T=320,66,66
+    26.003 ms   6.2%    240x  min    103.9 us  matmul [2880→4096] bf16 split-k gemm_cm2 T=320,66,66
+    19.355 ms   4.6%    240x  min     47.1 us  attention decode T=320,66,66
+    16.764 ms   4.0%    240x  min     67.1 us  matmul [4096→2880] bf16 split-k gemm_cm2 T=320,66,66
+    15.312 ms   3.7%     10x  min   1525.5 us  matmul [2880→201088] bf16 gemm_cm2 T=320,66,66
+    15.238 ms   3.7%   1200x  min      2.0 us  fused[Add] main T=320,66,66
+    11.776 ms   2.8%    240x  min     47.1 us  attention fa T=320,66,66
+     8.568 ms   2.1%    480x  min     16.8 us  matmul [2880→512] bf16 split-k gemm_cm2 T=320,66,66
+     7.092 ms   1.7%    240x  min     27.0 us  fused[Add,Mul] main T=320,66,66
+     6.392 ms   1.5%   1200x  min      2.0 us  matmul split-k reduce splitk_reduce T=320,66,66
+     5.213 ms   1.3%    480x  min     10.2 us  moe-gather x→ranged f16 moe_gather_x16 T=320,66,66
+     3.585 ms   0.9%    240x  min     14.3 us  fused[Add,Add]+RmsNorm main T=320,66,66
+     3.463 ms   0.8%    240x  min     14.1 us  fused[Clip,Clip,Scale,Sigmoid,Mul,Scale,Mul] main T=320,66,66
+     3.367 ms   0.8%    240x  min     13.0 us  matmul [2880→32] bf16 split-k gemm_cm2 T=320,66,66
+     2.225 ms   0.5%    480x  min      3.7 us  moe-route [32 experts] moe_route T=320,66,66
+     2.048 ms   0.5%    240x  min      8.2 us  fused[Add]+RmsNorm main T=320,66,66
+     1.965 ms   0.5%    240x  min      7.2 us  rope main T=320,66,66
+     1.473 ms   0.4%    240x  min      5.1 us  ReduceSum rowreduce_narrow T=320,66,66
+     1.439 ms   0.3%    240x  min      5.0 us  matmul [2880→32] bf16 x→f16 to_f16 T=320,66,66
+     1.060 ms   0.3%    240x  min      4.0 us  matmul [4096→2880] bf16 x→ranged f16 to_f16_ranged T=320,66,66
+     0.984 ms   0.2%    240x  min      4.1 us  rope+cache_write rope_row T=320,66,66
+     0.982 ms   0.2%    240x  min      3.1 us  topk topk_subgroup T=320,66,66
+     0.821 ms   0.2%    240x  min      2.0 us  cache_write cache_write T=320,66,66
+     0.656 ms   0.2%     10x  min     65.5 us  sample sample T=320,66,66
+     0.491 ms   0.1%    240x  min      2.0 us  softmax softmax T=320,66,66
+     0.166 ms   0.0%     20x  min      4.1 us  gather gather T=320,66,66
+     0.061 ms   0.0%     10x  min      6.1 us  RmsNorm main T=320,66,66
+     0.049 ms   0.0%     10x  min      4.1 us  matmul [2880→201088] bf16 f16 range f16_range_unscale T=320,66,66
+     0.041 ms   0.0%     10x  min      4.1 us  matmul [2880→201088] bf16 x→ranged f16 to_f16_ranged T=320,66,66
+

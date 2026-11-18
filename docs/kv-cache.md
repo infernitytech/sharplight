@@ -310,7 +310,7 @@ Models with recurrent state (gated delta nets, Mamba, Mamba-2, RWKV, short convo
 - vLLM 0.33 (`mamba_cache_mode="align"`) caches Mamba / GDN state only at multiples of its Mamba block size (aligned to the attention
   page: 544-576 tokens for Qwen3.5-0.8B) at the end of scheduler steps, plus optionally at a shared-prefix junction seen with EAGLE / MTP, and does
   not cache attention-free models (pure Mamba / RWKV). Here the granularity is 16 tokens, junctions are found for every prompt, and pure
-  recurrent models are cached the same way. Measured (benchmarks.md section 47.3): higher hit rates than vLLM on shared system prompts and
+  recurrent models are cached the same way. Measured (benchmarks.md section 48.3): higher hit rates than vLLM on shared system prompts and
   conversations, but each snapshot boundary costs the prompt a pass, which for a small model (cheap prefill) raises TTFT above the
   cache-off TTFT; the lever is recomputing instead of waiting where prefill is cheaper than a pass.
 

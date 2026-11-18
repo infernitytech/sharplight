@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prefix-caching workloads for OpenAI-compatible /v1/chat/completions servers (streaming), docs/benchmarks.md section 47.
+"""Prefix-caching workloads for OpenAI-compatible /v1/chat/completions servers (streaming), docs/benchmarks.md section 48.
 
 Workloads (closed loop: --concurrency workers, each sending its requests back to back):
   shared     every request is [system: one shared ~--system-tokens system prompt, user: a unique short question]
