@@ -138,7 +138,7 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Items up to which the per-item int-dot expert matvec serves a step of <paramref name="w"/>:
     /// <see cref="DiagnosticSwitches.MoeIntDotMaxItems"/> when set, else a quarter of the expert count (8-128) when the expert-grouped
-    /// skinny GEMM takes the next steps (<see cref="MoeSkinnyItems"/>), half (16-128) when gemm_cm2 does. The per-item matvec reads
+    /// skinny GEMM takes the next steps (<see cref="MoeSkinnyItems"/> reaches past it), half (16-128) when gemm_cm2 does. The per-item matvec reads
     /// an expert's weights once per item routed to it, the grouped GEMMs once per expert tile, so the gemm_cm2 wins from about one
     /// item per two experts (RTX PRO 4500: Qwen3-30B-A3B, 128 experts, 16 sequences 21.0 → 15.5 ms per step; gpt-oss-20b, 32
     /// experts, 16 sequences 20.6 → 10.7 ms) and the skinny GEMM from one per four (gpt-oss-20b at 3 / 4 sequences 8.04 / 9.19 →
@@ -147,8 +147,9 @@ public sealed partial class GraphLowerer
     private long IntDotPerItemMaxItems(TensorRef w, long k, long slots)
     {
         long experts = w.Shape[0];
+        long quarter = Math.Clamp(experts / 4, 8, 128);
         return InvariantMatvecItems(DiagnosticSwitches.MoeIntDotMaxItems > 0 ? DiagnosticSwitches.MoeIntDotMaxItems
-            : MoeSkinnyItems(w, k) > 0 ? Math.Clamp(experts / 4, 8, 128)
+            : MoeSkinnyItems(w, k) > quarter ? quarter
             : MoeTensorCoreGemm(w, k) ? Math.Clamp(experts / 2, 16, 128) : 128, slots);
     }
 
