@@ -52,8 +52,22 @@ internal static class AudioModels
         return Math.Sqrt(error / Math.Max(energy, 1e-30));
     }
 
-    /// <summary>Opens the CPU device or the first GPU device (skipping the test when there is none).</summary>
+    private static readonly Lazy<DeviceSlot?> s_cpu = new(() => OpenFirst(gpu: false));
+    private static readonly Lazy<DeviceSlot?> s_gpu = new(() => OpenFirst(gpu: true));
+
+    /// <summary>
+    /// The CPU device or the first GPU device, opened once and shared by every test of the assembly (skipping the test when there is
+    /// none). Models do not own their devices: a device per test would stay alive until the process exits, and the GPU driver refuses
+    /// new devices after a few dozen live ones (<c>ErrorInitializationFailed</c>).
+    /// </summary>
     public static DeviceSlot Open(bool gpu)
+    {
+        var slot = (gpu ? s_gpu : s_cpu).Value;
+        Assert.SkipWhen(slot is null, gpu ? "No GPU provider is available" : "The CPU provider is not available");
+        return slot!;
+    }
+
+    private static DeviceSlot? OpenFirst(bool gpu)
     {
         foreach (var (provider, availability) in Services.GetRequiredService<ExecutionProviderCatalog>().Discover())
         {
@@ -63,8 +77,7 @@ internal static class AudioModels
             }
         }
 
-        Assert.Skip(gpu ? "No GPU provider is available" : "The CPU provider is not available");
-        return null!;
+        return null;
     }
 
     /// <summary>Loads a model directory or file as a task model.</summary>

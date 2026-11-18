@@ -437,6 +437,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
     {
+        ThrowIfDisposed();
         var cache = options.CacheFor?.Invoke(this) ?? _ownArtifacts.For(this);
         EnsurePipelineCache(cache);
         var program = Code.Lower(segment, this, options, cache, out var kernels);
@@ -957,6 +958,16 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             }
         }
     }
+
+    /// <summary>
+    /// Throws when the device was disposed. Its memory is unmapped and freed by then, so a model that still uses it (a device
+    /// disposed while models compiled on it were alive) would otherwise write to unmapped staging memory and crash the process.
+    /// </summary>
+    /// <exception cref="ObjectDisposedException">The device was disposed.</exception>
+    internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+    /// <summary>Whether the device was disposed (its Vulkan objects and memory are gone).</summary>
+    internal bool IsDisposed => _disposed;
 
     public void Dispose()
     {
