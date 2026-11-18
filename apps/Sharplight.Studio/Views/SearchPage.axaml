@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:se="using:Sharplight.Studio.ViewModels.Search"
              xmlns:iv="using:Sharplight.Studio.Views.Inference"
+             xmlns:vmi="using:Sharplight.Studio.ViewModels"
              x:Class="Sharplight.Studio.Views.SearchPage"
              x:DataType="se:SearchPageViewModel">
   <iv:InferenceFrame>
@@ -29,6 +30,16 @@
           <Border Grid.Row="1" Classes="card">
             <StackPanel Spacing="10">
               <TextBlock Classes="h2" Text="Question" />
+              <StackPanel IsVisible="{Binding CanRerank}" Spacing="4">
+                <TextBlock Classes="label" Text="Reranking model (used when Rerank results is on)" />
+                <ComboBox ItemsSource="{Binding Rerankers.Models}" SelectedItem="{Binding Rerankers.SelectedModel}" HorizontalAlignment="Stretch">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="vmi:ModelOptionViewModel">
+                      <TextBlock Text="{Binding Id}" TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+              </StackPanel>
               <DockPanel>
                 <Button DockPanel.Dock="Right" Classes="accent" Content="Search" Command="{Binding SearchCommand}" Margin="12,0,0,0" />
                 <TextBox Text="{Binding Query}" PlaceholderText="Ask about the documents" AcceptsReturn="False" />

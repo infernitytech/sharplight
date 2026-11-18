@@ -396,6 +396,10 @@
                 </ComboBox.ItemTemplate>
               </ComboBox>
             </StackPanel>
+            <StackPanel IsVisible="{Binding HasVoices}">
+              <TextBlock Classes="label" Text="Voice (read aloud)" />
+              <ComboBox ItemsSource="{Binding Voices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch" />
+            </StackPanel>
             <ToggleSwitch Content="Read answers aloud" IsChecked="{Binding ReadAloud}" IsEnabled="{Binding CanSpeak}" />
             <StackPanel>
               <TextBlock Classes="label" Text="Image generation (/image)" />

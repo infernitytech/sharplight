@@ -95,7 +95,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     public LibraryEntryViewModel Entry { get; }
 
     /// <summary>The model generates text, so context, batching, KV cache and speculation apply (the other kinds load with defaults).</summary>
-    public bool IsLanguageModel => !TaskKindClients.Handles(Entry.Entry.Kind) && Entry.Entry.Kind != ModelKindCatalog.Embeddings;
+    public bool IsLanguageModel => !TaskKindClients.Handles(Entry.Entry.Kind) && Entry.Entry.Kind is not (ModelKindCatalog.Embeddings or ModelKindCatalog.Reranker);
 
     /// <summary>
     /// A speech synthesis model given as a language-model file or folder (OuteTTS with its WavTokenizer, Orpheus with SNAC) needs the codec decoder next to it; a package and a

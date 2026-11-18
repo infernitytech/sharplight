@@ -25,6 +25,7 @@ internal static class ServedEndpoints
             ModelKinds.SpeechSynthesis => ["/v1/audio/speech"],
             ModelKinds.ImageGeneration => ["/v1/images/generations"],
             ModelKindCatalog.Embeddings => ["/v1/embeddings"],
+            ModelKindCatalog.Reranker => ["/v1/rerank", "/v2/rerank", "/rerank"],
             _ => [],
         };
     }
