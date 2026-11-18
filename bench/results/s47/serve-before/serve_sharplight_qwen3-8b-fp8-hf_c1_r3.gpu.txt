@@ -1,0 +1,6 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 3 MiB, 12.33 W, 180 MHz, 405 MHz, 30, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 466 MiB, 15.41 W, 195 MHz, 405 MHz, 41, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 99 %, 14471 MiB, 200.17 W, 2520 MHz, 14001 MHz, 65, P0
+1913021, ~/sl-worktrees/vk-init/tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests,
+1915508, Sharplight.TextToS
+1932413, sharplight, 14446 MiB

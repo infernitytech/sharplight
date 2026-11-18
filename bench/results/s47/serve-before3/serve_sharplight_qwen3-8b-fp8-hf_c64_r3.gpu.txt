@@ -1,0 +1,5 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 66 MiB, 20.79 W, 345 MHz, 810 MHz, 32, P5
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 19 MiB, 34.32 W, 1920 MHz, 810 MHz, 34, P5
+gpu util,memused,power,smclk,memclk,temp,pstate: 9 %, 14644 MiB, 187.21 W, 2467 MHz, 14001 MHz, 63, P0
+2001682, Sharplight.TextT
+2001582, sharplight, 14626 MiB
