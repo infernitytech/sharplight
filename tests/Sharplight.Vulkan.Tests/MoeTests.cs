@@ -112,6 +112,18 @@ public sealed class MoeTests
     public void ShapeVariants(int E, int N, int K) => Run(K % 256 == 0 ? "q4_k" : "q8_0", 70, 3, false, "random", E, N, K);
 
     /// <summary>
+    /// With the tensor-core grouped GEMM the per-item matvec serves up to half the expert count of items: 128 experts x 8 slots on
+    /// both sides of that bound (40 items on the matvec, 96 and 136 on the GEMM), and 32 experts x 4 slots (16 / 20 items).
+    /// </summary>
+    [Theory]
+    [InlineData(128, 8, 5)]
+    [InlineData(128, 8, 12)]
+    [InlineData(128, 8, 17)]
+    [InlineData(32, 4, 4)]
+    [InlineData(32, 4, 5)]
+    public void MatvecRangeFollowsExpertCount(int E, int s, int t) => Run("q4_k", t, s, false, "random", E, 96, 512);
+
+    /// <summary>
     /// Multi-head latent attention's absorbed projections: one "expert" per head, every head selected once per row (ids = head index),
     /// f16 per-head matrices with small output sizes.
     /// </summary>
