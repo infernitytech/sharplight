@@ -382,7 +382,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private PromptConditioning Conditioning(ImageGenerationRequest request, int rows)
     {
         if (_lastConditioning is { } last && last.Prompt == request.Prompt && last.Negative == request.NegativePrompt && last.Rows == rows
-            && ReferenceEquals(last.Images, request.ReferenceImages))
+            && (_vision is null || ReferenceEquals(last.Images, request.ReferenceImages)))
         {
             return last.Conditioning;
         }

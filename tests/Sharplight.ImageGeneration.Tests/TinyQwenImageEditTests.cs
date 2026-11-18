@@ -134,4 +134,46 @@ public sealed class TinyQwenImageEditTests
             Assert.True(psnr > (source == "gguf" ? 30 : 38), $"{n} reference(s): PSNR {psnr:F1} dB");
         }
     }
+
+    [Theory]
+    [InlineData("edit-2509")]
+    [InlineData("edit-2511")]
+    public async Task PackageGeneratesTheSameEdit(string variant)
+    {
+        Assert.SkipUnless(Present(variant), "tiny-random-qwen-image-edit missing");
+        _ = Env.Services;
+        string folder = Path.Combine(Environment.GetEnvironmentVariable("SHARPLIGHT_WORK") ?? Path.GetTempPath(), "imagegen-tests");
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, $"tiny-{variant}-{Guid.NewGuid():N}.slm");
+        try
+        {
+            TestHost.Converter.Convert(Path.Combine(Root(variant), "diffusers"), path);
+            var index = Index(variant);
+            var request = new ImageGenerationRequest
+            {
+                Prompt = index.GetProperty("prompt").GetString()!,
+                NegativePrompt = index.GetProperty("negative").GetString(),
+                ReferenceImages = [PngCodec.Read(Path.Combine(Root(variant), "reference", "ref_0.png")), PngCodec.Read(Path.Combine(Root(variant), "reference", "ref_1.png"))],
+            };
+            var options = new ImageGenerationOptions { Width = 96, Height = 64, Steps = 2, Seed = 5 };
+            var ct = TestContext.Current.CancellationToken;
+            byte[] expected;
+            using (var folderModel = Load(variant, "diffusers", Env.Cpu()))
+            using (var generator = Env.Clients.Create<IImageGenerator>(folderModel))
+            {
+                expected = (await generator.GenerateAsync(request, options, ct)).Images[0].Rgb;
+            }
+
+            using var package = Env.Load(path, Env.Cpu());
+            Assert.Contains(package.Description.Component(ModelComponentRoles.TextEncoder).Graphs, g => g == WellKnown.VisionEncodeGraph);
+            Assert.True(VisionParameters.Of(package.Definition) is not null);
+            Assert.Equal(3, package.Description.Component(ModelComponentRoles.Denoiser).ConfigValue(DiffusionConfigKeys.ReferenceImages, 0));
+            using var fromPackage = Env.Clients.Create<IImageGenerator>(package);
+            Assert.Equal(expected, (await fromPackage.GenerateAsync(request, options, ct)).Images[0].Rgb);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
