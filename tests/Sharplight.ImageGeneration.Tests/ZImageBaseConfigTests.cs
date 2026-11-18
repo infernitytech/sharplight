@@ -43,7 +43,7 @@ public sealed class ZImageBaseConfigTests
         var baseModel = Write(Config().WithFileName("z-image-Q8_0.gguf"));
         Assert.Equal(true, baseModel["zimage.classifier_free_guidance"]);
         Assert.Equal(50, baseModel["zimage.default_steps"]);
-        Assert.Equal(4.0, baseModel["zimage.default_guidance"]);
+        Assert.Equal(5.0, baseModel["zimage.default_guidance"]);
         Assert.Equal(6f, baseModel["zimage.scheduler.shift"]);
         Assert.Equal(true, baseModel["zimage.transformer.f32_activations"]);
 

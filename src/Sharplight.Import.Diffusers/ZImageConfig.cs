@@ -19,6 +19,12 @@ internal sealed record ZImageConfig
     /// <summary>The Qwen3 chat template the pipeline puts the prompt into (one user turn, thinking enabled: no empty think block).</summary>
     public const string PromptTemplate = "<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n";
 
+    /// <summary>
+    /// The undistilled model's default guidance scale. diffusers' Z-Image pipeline combines <c>pos + g · (pos − neg)</c> with its default
+    /// <c>guidance_scale</c> 4, which is the usual <c>neg + (1 + g) · (pos − neg)</c> with scale 5 (as for Krea 2).
+    /// </summary>
+    public const double BaseGuidance = 5.0;
+
     /// <summary>Prompt tokens of the pipeline.</summary>
     public const int PromptLength = 512;
 
@@ -60,7 +66,7 @@ internal sealed record ZImageConfig
 
     /// <summary>
     /// Whether the model is the few-step distilled Z-Image-Turbo (9 steps, no guidance; the default) or the undistilled Z-Image (50 steps,
-    /// classifier-free guidance 4 with a negative prompt, shift 6).
+    /// classifier-free guidance with a negative prompt (scale 5 in the usual convention, diffusers' 4), shift 6).
     /// </summary>
     public bool Distilled { get; init; } = true;
 
@@ -171,7 +177,7 @@ internal sealed record ZImageConfig
         metadata[Prefix + "vae.shift_factor"] = FluxConfig.VaeShiftFactor;
         metadata[Prefix + "vae.latent_rgb_factors"] = FluxConfig.RgbFactors;
         metadata[Prefix + "default_steps"] = Distilled ? 9 : 50;
-        metadata[Prefix + "default_guidance"] = Distilled ? 0.0 : 4.0;
+        metadata[Prefix + "default_guidance"] = Distilled ? 0.0 : BaseGuidance;
         metadata[Prefix + "classifier_free_guidance"] = !Distilled;
     }
 }
