@@ -504,7 +504,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             var (width, height) = FitArea(_conditionPixels, image.Width, image.Height);
             var planes = new float[3 * image.Width * image.Height];
             PlanarImage.ToPlanar(image, planes, 0f, 1f);
-            var condition = PlanarImage.FromPlanar(PlanarResize.Resize(planes, 3, image.Height, image.Width, height, width), width, height, 0f, 1f);
+            var condition = PlanarImage.FromPlanar(PlanarResize.Resize(planes, 3, image.Height, image.Width, height, width, lanczos: true), width, height, 0f, 1f);
             var pre = encoder.Preprocess(condition);
             preprocessed.Add(pre);
             embeddings.Add(encoder.Encode(pre));
@@ -882,11 +882,11 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     }
 
     /// <summary>The model latents of the input image (resized to the output size): the VAE encoder's scaled mean.</summary>
-    private float[] EncodeImage(ImageInput image, DiffusionRun run)
+    private float[] EncodeImage(ImageInput image, DiffusionRun run, bool lanczos = false)
     {
         var planes = new float[3 * image.Width * image.Height];
         PlanarImage.ToPlanar(image, planes, 0f, 1f);
-        var resized = PlanarResize.Resize(planes, 3, image.Height, image.Width, run.Height, run.Width);
+        var resized = PlanarResize.Resize(planes, 3, image.Height, image.Width, run.Height, run.Width, lanczos);
         var encoder = Compiled(ModelComponentRoles.Vae, DiffusionGraphs.VaeEncode, run.Dimensions);
         encoder.SetInput<float>(Input(encoder, DiffusionGraphs.Image), resized);
         var parameters = new RunParameters();
@@ -964,7 +964,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var latents = new float[run.LatentSize * images.Count];
         for (int i = 0; i < images.Count; i++)
         {
-            EncodeImage(images[i], run).CopyTo(latents, i * run.LatentSize);
+            // Qwen-Image-Edit's pipeline resizes with Lanczos (diffusers' VaeImageProcessor), as for the language model's view.
+            EncodeImage(images[i], run, lanczos: _vision is not null).CopyTo(latents, i * run.LatentSize);
         }
 
         return latents;

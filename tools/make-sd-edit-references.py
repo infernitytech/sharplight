@@ -3,6 +3,7 @@
 
   instruct-pix2pix  timbrooks/instruct-pix2pix (StableDiffusionInstructPix2PixPipeline: 8-channel UNet, text and image guidance)
   inpaint           stable-diffusion-v1-5/stable-diffusion-inpainting (StableDiffusionInpaintPipeline: 9-channel UNet)
+  sdxl-inpaint      diffusers/stable-diffusion-xl-1.0-inpainting-0.1 (StableDiffusionXLInpaintPipeline: 9-channel SDXL UNet)
 
 Usage: make-sd-edit-references.py KIND MODEL OUT [--size 512] [--steps 20] [--device cuda]
 
@@ -46,7 +47,7 @@ def write(out, name, tensor):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("kind", choices=["instruct-pix2pix", "inpaint"])
+    parser.add_argument("kind", choices=["instruct-pix2pix", "inpaint", "sdxl-inpaint"])
     parser.add_argument("model")
     parser.add_argument("out")
     parser.add_argument("--size", type=int, default=512)
@@ -91,8 +92,13 @@ def main():
                           latents=noise.to(device), output_type="pt")
         write(args.out, "image", result.images[0])
     else:
-        import diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_inpaint as module
-        from diffusers import StableDiffusionInpaintPipeline
+        xl = args.kind == "sdxl-inpaint"
+        if xl:
+            import diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_inpaint as module
+            from diffusers import StableDiffusionXLInpaintPipeline as StableDiffusionInpaintPipeline
+        else:
+            import diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_inpaint as module
+            from diffusers import StableDiffusionInpaintPipeline
 
         original = module.retrieve_latents
         module.retrieve_latents = lambda output, generator=None, sample_mode="sample": original(output, generator, "argmax")
@@ -102,18 +108,28 @@ def main():
         mask.save(os.path.join(args.out, "mask.png"))
         prompt, negative = "a green apple on a table", None
         guidance = 7.5
+        if xl:
+            pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
         index.update(prompt=prompt, guidance_scale=guidance, sampler=pipe.scheduler.__class__.__name__)
         with torch.no_grad():
             g = torch.Generator().manual_seed(11)
             unet_latent = torch.randn(2, 4, size // 8, size // 8, generator=g)
             condition = torch.randn(2, 5, size // 8, size // 8, generator=g)
-            context = torch.randn(2, 77, 768, generator=g) * 0.5
+            context = torch.randn(2, 77, 2048 if xl else 768, generator=g) * 0.5
             timestep = torch.tensor([801.0, 801.0])
-            unet_out = pipe.unet(torch.cat([unet_latent, condition], 1).to(device), timestep.to(device), context.to(device)).sample
+            extra = {}
+            if xl:
+                pooled = torch.randn(2, 1280, generator=g) * 0.5
+                time_ids = torch.tensor([[size, size, 0, 0, size, size]] * 2, dtype=torch.float32)
+                extra = {"added_cond_kwargs": {"text_embeds": pooled.to(device), "time_ids": time_ids.to(device)}}
+                write(args.out, "unet_pooled", pooled)
+                write(args.out, "unet_time_ids", time_ids)
+            unet_out = pipe.unet(torch.cat([unet_latent, condition], 1).to(device), timestep.to(device), context.to(device), **extra).sample
             for name, value in [("unet_latent", unet_latent), ("unet_condition", condition), ("unet_context", context), ("unet_timestep", timestep), ("unet_out", unet_out)]:
                 write(args.out, name, value)
+            sizes = {"height": size, "width": size} if xl else {}
             result = pipe(prompt, image=image, mask_image=mask, num_inference_steps=args.steps, guidance_scale=guidance, strength=1.0,
-                          latents=noise.to(device), output_type="pt")
+                          latents=noise.to(device), output_type="pt", **sizes)
         write(args.out, "image", result.images[0])
 
     with open(os.path.join(args.out, "index.json"), "w") as f:

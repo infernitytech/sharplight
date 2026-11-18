@@ -14,7 +14,14 @@ public sealed class SdEditTests
 {
     private static readonly string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/imagegen-edit");
 
-    private static string Model(string kind) => Path.Combine(Root, kind == "instruct-pix2pix" ? "instruct-pix2pix" : "sd15-inpainting");
+    private static string Model(string kind) => Path.Combine(Root, kind switch
+    {
+        "instruct-pix2pix" => "instruct-pix2pix",
+        "sdxl-inpaint" => "sdxl-inpainting",
+        _ => "sd15-inpainting",
+    });
+
+    private static bool Inpainting(string kind) => kind is "inpaint" or "sdxl-inpaint";
 
     private static string Reference(string kind) => Model(kind) + "-reference";
 
@@ -34,6 +41,7 @@ public sealed class SdEditTests
         { "vulkan", "instruct-pix2pix" },
         { "cpu", "inpaint" },
         { "vulkan", "inpaint" },
+        { "vulkan", "sdxl-inpaint" },
     };
 
     [Theory]
@@ -45,18 +53,29 @@ public sealed class SdEditTests
         Assert.SkipWhen(slot is null, "no Vulkan device");
         using var model = Env.Load(Model(kind), slot!);
         var denoiser = model.Description.Component(ModelComponentRoles.Denoiser);
-        Assert.Equal(kind == "inpaint" ? DiffusionConfigKeys.ConditionInpaint : DiffusionConfigKeys.ConditionImage,
+        Assert.Equal(Inpainting(kind) ? DiffusionConfigKeys.ConditionInpaint : DiffusionConfigKeys.ConditionImage,
             denoiser.ConfigValue<string?>(DiffusionConfigKeys.ConditionMode, null));
-        var prediction = GraphRunner.Run(model, ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, DiffusionGraphs.Prediction, 2,
+        var inputs = new List<(string, Array)>
+        {
             (DiffusionGraphs.Latent, Tensor(kind, "unet_latent")), (DiffusionGraphs.ConditionLatent, Tensor(kind, "unet_condition")),
-            (DiffusionGraphs.Timestep, Tensor(kind, "unet_timestep")), (DiffusionGraphs.Context, Tensor(kind, "unet_context")));
+            (DiffusionGraphs.Timestep, Tensor(kind, "unet_timestep")), (DiffusionGraphs.Context, Tensor(kind, "unet_context")),
+        };
+        if (kind == "sdxl-inpaint")
+        {
+            inputs.Add((DiffusionGraphs.Pooled, Tensor(kind, "unet_pooled")));
+            inputs.Add((DiffusionGraphs.SizeConditions, Tensor(kind, "unet_time_ids")));
+        }
+
+        // SDXL's native size is 1024; the references are 512.
+        var dims = kind == "sdxl-inpaint" ? new Dictionary<string, long> { [DiffusionGraphs.Height] = 512, [DiffusionGraphs.Width] = 512 } : null;
+        var prediction = GraphRunner.Run(model, ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, DiffusionGraphs.Prediction, 2, dims, [.. inputs]);
         var (max, rms) = Env.Compare(prediction, Tensor(kind, "unet_out"));
         TestContext.Current.SendDiagnosticMessage($"{device} {kind} UNet: max {max}, relative RMS {rms}");
         Assert.True(rms < (device == "cpu" ? 1e-3 : 5e-3), $"unet: max {max}, relative RMS {rms}");
 
         // Three rows (InstructPix2Pix's guided step): the third row repeats the first. Vulkan's UNet kernels are wrong for a batch of three
         // (the pipeline runs such a step as two rows and one), so only the CPU is checked.
-        if (device != "cpu")
+        if (device != "cpu" || kind == "sdxl-inpaint")
         {
             return;
         }
@@ -99,6 +118,7 @@ public sealed class SdEditTests
     [Theory]
     [InlineData("instruct-pix2pix")]
     [InlineData("inpaint")]
+    [InlineData("sdxl-inpaint")]
     public async Task EditMatchesDiffusers(string kind)
     {
         Assert.SkipUnless(Present(kind), $"{kind} or its references missing");
@@ -112,7 +132,7 @@ public sealed class SdEditTests
         {
             Prompt = index.GetProperty("prompt").GetString()!,
             Image = PngCodec.Read(Path.Combine(Reference(kind), "input.png")),
-            Mask = kind == "inpaint" ? PngCodec.Read(Path.Combine(Reference(kind), "mask.png")) : null,
+            Mask = Inpainting(kind) ? PngCodec.Read(Path.Combine(Reference(kind), "mask.png")) : null,
             Strength = 1f,
         };
         var result = await generator.GenerateAsync(request, new ImageGenerationOptions
@@ -156,7 +176,7 @@ public sealed class SdEditTests
             {
                 Prompt = "make it a painting",
                 Image = PngCodec.Read(Path.Combine(Reference(kind), "input.png")),
-                Mask = kind == "inpaint" ? PngCodec.Read(Path.Combine(Reference(kind), "mask.png")) : null,
+                Mask = Inpainting(kind) ? PngCodec.Read(Path.Combine(Reference(kind), "mask.png")) : null,
                 Strength = 1f,
             };
             var options = new ImageGenerationOptions { Steps = 3, Seed = 5, Width = 256, Height = 256, Scheduler = Samplers.Euler };
@@ -171,7 +191,7 @@ public sealed class SdEditTests
             using var package = Env.Load(path, slot!);
             using var fromPackage = Env.Clients.Create<IImageGenerator>(package);
             var denoiser = package.Description.Component(ModelComponentRoles.Denoiser);
-            Assert.Equal(kind == "inpaint" ? DiffusionConfigKeys.ConditionInpaint : DiffusionConfigKeys.ConditionImage,
+            Assert.Equal(Inpainting(kind) ? DiffusionConfigKeys.ConditionInpaint : DiffusionConfigKeys.ConditionImage,
                 denoiser.ConfigValue<string?>(DiffusionConfigKeys.ConditionMode, null));
             Assert.Equal(expected, (await fromPackage.GenerateAsync(request, options, ct)).Images[0].Rgb);
         }

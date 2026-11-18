@@ -1596,6 +1596,7 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | family | formats | status | verified |
 |---|---|---|---|
 | Stable Diffusion 1.x (SD 1.5) | diffusers folder (with or without `model_index.json`), original single-file `.safetensors` or `.ckpt` (restricted unpickler, nothing executed), stable-diffusion.cpp GGUF (f16, Q8_0, Q4_0, any ggml type for linear weights) | **supported** (txt2img, negative prompts, img2img, mask-blend inpainting, any size that is a multiple of 64, `.slm` with per-component precompilation) | below |
+| InstructPix2Pix (timbrooks/instruct-pix2pix), SD 1.5 / SDXL inpainting UNets (stable-diffusion-v1-5/stable-diffusion-inpainting, diffusers/stable-diffusion-xl-1.0-inpainting-0.1) | diffusers folder, the original single files (the UNet's `input_blocks.0.0` takes 8 or 9 channels) | **supported since 2026-11-18** (an editing instruction with text and image guidance; inpainting with the mask and the masked picture as UNet inputs), see [below](#sd-editing) | below |
 | Stable Diffusion 2.x (2.1 768-v, 2.1 base) | diffusers folder, original single-file `.safetensors` / `.ckpt` (OpenCLIP ViT-H tower; 768 files default to v-prediction at 768×768, files named like the 512 / base releases to epsilon at 512×512) | **supported** (as SD 1.x) | below |
 | SDXL (base 1.0) | diffusers folder, original (SGM) single-file `.safetensors` (CLIP-L + OpenCLIP bigG with the text projection), stable-diffusion.cpp GGUF in both naming schemes (sd.cpp's own `cond_stage_model.1.transformer.*`, e.g. gpustack/stable-diffusion-xl-base-1.0-GGUF Q8_0 / Q4_0; the SGM names, e.g. kostakoff/stable-diffusion-xl-base-1.0-GGUF Q4_K) | **supported** (two text encoders, pooled + size conditioning, `force_zeros_for_empty_prompt`) | below |
 | SDXL-Turbo, SDXL-Lightning (distilled SDXL) | the SDXL formats; stable-diffusion.cpp GGUF (OlegSkutte/sdxl-turbo-GGUF, mzwing/SDXL-Lightning-GGUF) | **supported** (single files are recognized by their published names: Turbo 512×512, Euler ancestral on trailing timesteps, 4 steps, no guidance; Lightning 1024×1024, Euler trailing, the file's step count, no guidance, the 1-step "x0" file predicts the sample) | Turbo below; Lightning maps the same way, not verified |
@@ -1603,11 +1604,12 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | SD3 / SD3.5 (SD3 Medium, SD3.5 Medium / Large and fine-tunes) | diffusers folder; Stability's single file (`model.diffusion_model.*`, the VAE under `first_stage_model.*`); transformer-only GGUF (city96 / stable-diffusion.cpp `sd3`, any ggml type) plus companions: CLIP-L, CLIP-G (`clip_g.safetensors`), T5-XXL (encoder GGUF, `t5xxl_*.safetensors` or a sharded `text_encoder_3` folder named by a shard), the 16-channel VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance; three text encoders; any size that is a multiple of 16 up to the position grid; `.slm`) | [below](#sd3) |
 | Chroma (Chroma1-HD / Base / Flash and fine-tunes) | diffusers folder; original single file (FLUX names plus `distilled_guidance_layer.*`); transformer-only GGUF (silveroxides, any ggml type) plus companions: T5-XXL, the FLUX VAE | **supported** (txt2img, img2img, inpainting; classifier-free guidance with negative prompts; masked T5 and text attention) | [below](#chroma) |
 | Z-Image (Z-Image-Turbo and fine-tunes; the undistilled Z-Image since 2026-11-18, section 21) | diffusers folder; original-name single file (ComfyUI); transformer-only GGUF (unsloth / stable-diffusion.cpp, `lumina2` architecture id, any ggml type) plus companions: the Qwen3-4B text encoder (a Qwen3-4B GGUF or the pipeline's `text_encoder` folder), the FLUX VAE | **supported** (txt2img, img2img, inpainting; 9 steps without guidance by default; `.slm`) | [below](#z-image) |
+| Qwen-Image-Edit (-2509, -2511, the first Qwen-Image-Edit, FireRed-Image-Edit) | diffusers folder (`QwenImageEditPlusPipeline` / `QwenImageEditPipeline`; `transformer/` weights or a transformer-only GGUF with the folder's `text_encoder/` (Qwen2.5-VL with its vision tower) and `vae/` as companions); unsloth / QuantStack GGUF files (the -2511 files hold a `__index_timestep_zero__` marker tensor, the editing variant otherwise follows the file name: "edit", with a 25xx release for the multi-image pipeline) | **supported since 2026-11-18** (editing with up to three reference images (the first Edit: one), see [below](#qwen-image-edit)) | below |
 | Qwen-Image (Qwen-Image and fine-tunes with the same layout, e.g. Qwen-Image-2512) | diffusers folder; transformer-only GGUF (city96 / QuantStack / unsloth, `qwen_image` architecture id, any ggml type) and ComfyUI single files plus companions: the Qwen2.5-VL-7B text encoder (the pipeline's `text_encoder` folder or a `qwen2vl` GGUF), the causal VAE (the pipeline's `vae` file or ComfyUI's `qwen_image_vae.safetensors` in the original Wan names) | **supported** (txt2img, img2img, inpainting; true CFG with diffusers' norm rescaling; 50 steps, guidance 4 by default) | [below](#qwen-image) |
 | Qwen-Image 2.1 (and its Turbo) | diffusers folder; transformer-only GGUF (unsloth: no metadata, ComfyUI names) and ComfyUI single files plus companions: the Qwen3-VL-8B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the pipeline's VAE file | **supported** (text-to-image; 40 steps without guidance by default; Turbo: its 8-step schedule from the pipeline's `sample_sigmas` or the file name) | [below](#qwen-image-21) |
 | FLUX.2 Klein (4B; 9B and the base models share the layout), FLUX.2 Dev (32B) | diffusers folder; original-name single file (the one in the model repository, ComfyUI's); transformer-only GGUF (unsloth / leejet, the `flux` architecture id, told apart by the shared modulations) plus companions: the Qwen3 text encoder (Klein; the pipeline's `text_encoder` folder or a `qwen3` GGUF) or Mistral Small 3.2 24B (Dev; a `llama` GGUF of Mistral-Small-3.2-24B-Instruct-2506 or the pipeline's folder), the pipeline's VAE file | **supported** (txt2img and editing with up to 10 reference images; Klein distilled: 4 steps without guidance; Klein base: 50 steps, guidance 4; Dev: 50 steps with the embedded guidance 4) | [below](#flux-2) |
 | Krea 2 (Turbo, Raw and fine-tunes) | diffusers folder; the release's original-name single files (`turbo.safetensors`, `raw.safetensors`, ComfyUI's bf16 files); transformer-only GGUF (realrebelai, vantagewithai, ...: architecture `krea2`, some labelled `qwen_image`) plus companions: the Qwen3-VL-4B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the Qwen-Image VAE (the pipeline's file or ComfyUI's `qwen_image_vae.safetensors`) | **supported** (text-to-image; Turbo: 8 steps without guidance; Raw (file names with `raw` / `base`): 28 steps, guidance 5.5) | [below](#krea-2) |
-| SD 1.5 inpainting UNet (9 input channels), SDXL refiner, Qwen-Image-Edit / 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
+| SDXL refiner (single OpenCLIP encoder, aesthetic-score conditioning), Qwen-Image 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
 | LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image, Krea 2 (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
 | ControlNet, TAESD | - | missing | |
 
@@ -2042,6 +2044,79 @@ Verification (tools/make-tiny-krea2.py, tools/make-krea2-references.py; `TinyKre
   reused): 1024×1024 8 steps in 29.9 s (about 3.6 s per step), 512×512 in 8.6 s; diffusers (GGUF dequantized on the fly, CUDA f32) 5.7 s per step at
   1024. Studio: the load panel shows the Qwen3-VL-4B and VAE slots, fills them from the pipeline folder beside the GGUF's folder, and the Image page
   generates 1024×1024.
+
+### SD editing (InstructPix2Pix and the inpainting UNets)
+
+<a id="sd-editing"></a>
+InstructPix2Pix, the SD 1.5 inpainting UNet and the SDXL inpainting UNet (2026-11-18) are the SD UNets with more input channels than they
+predict: 8 (noisy latents + the input image's latents), 9 (noisy latents, the latent-resolution mask, the masked image's latents).
+
+- Core: `UNetHyperParameters.ConditionChannels` (input minus output channels); the UNet graph takes the extra channels as the optional
+  `condition_latent` input (`DiffusionGraphs.ConditionLatent`) and concatenates them to `latent` inside the graph, so the `.slm` keeps the
+  contract; the denoiser component says what they carry (`DiffusionConfigKeys.ConditionMode`: `image` for 4 extra channels, `inpaint` for 5)
+  and the model carries the default image guidance scale 1.5 (`imageGuidanceScale`) and the VAE's scaling factor.
+- InstructPix2Pix: the request's `Image` is the picture and the prompt the instruction (no mask); the run starts from noise (as diffusers: the
+  strength does not apply), the image's latents enter unscaled (the VAE mode, not its scaled mean), and a guided step evaluates three rows
+  (instruction and image, empty prompt and image, empty prompt and zeros) combined as `uncond + gs · (text − image) + igs · (image − uncond)`.
+  `ImageGenerationOptions.ImageGuidanceScale` (default 1.5; below 1 disables guidance) and `ImageGenerationDefaults.ImageGuidanceScale` expose it.
+  Vulkan's UNet kernels give wrong results for a batch of three (the CPU is exact; found while verifying), so a three-row step runs as two
+  rows and one.
+- Inpainting UNets: `Image` and `Mask` as for the 4-channel models, but the UNet sees the mask and the masked image (grey where the mask is
+  set, as diffusers' `image * (mask < 0.5)` in [-1, 1]), so there is no re-imposing of the known part after each step (diffusers does that
+  only for 4-channel UNets) and a strength of 1 starts from pure noise.
+
+Verification (tools/make-sd-edit-references.py: float32 diffusers on CUDA, Euler for InstructPix2Pix (its ancestral scheduler draws new noise
+every step) and DDIM for the SD 1.5 inpainting model, shared initial noise, 512×512, 20 steps, the VAE posterior taken at its mode;
+`SdEditTests`): the UNet with the extra channels 2.2e-4 relative RMS on the CPU and on Vulkan, for InstructPix2Pix and both inpainting
+models; the VAE encoder against the mode of the posterior (InstructPix2Pix's image latents) within 5e-3; whole edits on Vulkan: InstructPix2Pix
+**59.7 dB**, SD 1.5 inpainting **56.3 dB** and SDXL inpainting (diffusers/stable-diffusion-xl-1.0-inpainting-0.1, Euler, 512×512) **40.5 dB**. The `.slm` round trip (256×256,
+Vulkan) generates the same bytes as the folder for both. Studio's Image page shows the edit input and an "Image guidance" parameter for
+InstructPix2Pix-style models (`ImageEditModeTests`).
+
+### Qwen-Image-Edit
+
+<a id="qwen-image-edit"></a>
+Qwen-Image-Edit (2026-11-18; `QwenImageEditPlusPipeline` for -2509, -2511 and FireRed-Image-Edit, `QwenImageEditPipeline` for the first
+Qwen-Image-Edit) runs the Qwen-Image transformer (section above) with the reference images in two places:
+
+- The language model reads them. The Qwen2.5-VL text encoder keeps its vision tower (`vision_encode` graph in the text-encoder component; the
+  weights were always kept with the encoder, they were just unused) and its prompt is the edit template (64 skipped tokens) followed by
+  `Picture n: <|vision_start|><|image_pad|><|vision_end|>` per image and the instruction; each image is resized to about 384 · 384 pixels at
+  its aspect ratio (sides multiples of 32, Lanczos as diffusers' `VaeImageProcessor`; the first Edit: 1024 · 1024), preprocessed by the vision
+  preprocessor (smart resize to multiples of 28, windowed attention) and its merged-token embeddings replace the placeholders' rows;
+  the M-RoPE positions come from `Qwen35Multimodal` (text positions advance by one, an image by max(rows, columns) of its token grid).
+  `DecoderGraphBuilder.BuildLayerHiddenStates(imageRows: true)` takes `positions`, `embeddings` and `embedding_mask`; the generator pads the
+  prompt to 64 + 1024 rows (the first Edit 1536) and masks the padding as for text-to-image. The negative prompt (true CFG) sees the images too.
+- The transformer sees their latents. The VAE-encoded references (normalized, resized to the output's size) follow the image's tokens with
+  frame index 1, 2, 3 on the first RoPE axis (the existing reference mechanism of FLUX.1 Kontext and FLUX.2); -2511's `zero_cond_t`
+  modulates the reference tokens' image stream at timestep 0 (`FluxHyperParameters.ZeroConditionTimestep`: a second evaluation of the timestep
+  embedding at 0 for the image modulations, not the final one, and the reference rows split off for each modulation and gate). References
+  of other sizes than the output are resized to it; diffusers encodes each at about one megapixel with its own aspect ratio, so the two agree
+  when the references share the output's aspect ratio.
+- Output size: when the request gives none, about one megapixel at the last reference image's aspect ratio (`DiffusionConfigKeys.ReferenceArea`,
+  diffusers' `calculate_dimensions`). True CFG with the norm rescaling, 50 steps, guidance 4, the exponential dynamic shift (max length 8192).
+- Importers: the diffusers folder's pipeline class and `zero_cond_t` pick the variant; a transformer-only file takes it from the marker tensor
+  of the -2511 GGUF files (`__index_timestep_zero__`, skipped as a weight) or its file name. Metadata `qwen_image.edit.*` and
+  `qwen_image.transformer.{max_references, reference_index_base, reference_index_step, zero_cond_t}` carry it into the `.slm`.
+
+Verification (tools/make-tiny-qwen-image-edit.py, tools/make-qwen-image-edit-references.py; `TinyQwenImageEditTests`, `QwenImageEditTests`):
+
+- Tiny random pipelines (output 64×96, references at the output size, condition pictures at the real 384 · 384 area; "edit-2509" and
+  "edit-2511"): the transformer with one and two references against diffusers 1e-4 (CPU) / 1e-3 (Vulkan) relative RMS, the Q8_0 GGUF
+  (with the -2511 marker tensor) within 3e-2; whole edits with one and two images **58 to 59 dB** (diffusers folder) and 56 to 59 dB (Q8_0 GGUF),
+  on the CPU and on Vulkan.
+- Qwen-Image-Edit-2511, unsloth's Q4_K_M GGUF with the pipeline's text encoder (bf16) and VAE as companions, on Vulkan against diffusers running
+  the same files (dequantized GGUF transformer on CUDA, f32 text encoder), 512×384, 20 steps, true CFG 4, negative prompt " ", same latents,
+  640×480 input pictures: one picture **40.3 dB**, two pictures **26.4 dB**. The language model's rows are sensitive to the pixels it reads: the
+  vision tower alone matches transformers to 2.5e-5 relative RMS on the CPU (4.4e-3 on Vulkan) on identical pixels, but a few gray levels of
+  resampling difference (PIL's Lanczos for the pipeline's resize, torch's bicubic for the processor's) move its embeddings by about 4 % and the
+  text encoder's image rows by far more; diffusers itself, with PIL's bicubic instead of Lanczos for the pictures the language model reads, moves
+  its own result by 45.6 dB (one picture) and 24.3 dB (two), the same size as the difference above, which is why the thresholds are 35 / 22 dB.
+  Speed on Vulkan (Q4_K_M, the 13 GB transformer and 16 GB text encoder alternate on the 32 GB GPU): 74 s for one picture and 97 s for two
+  (including loading, conditioning and 40 transformer evaluations at 512×384).
+- Not verified numerically: the first Qwen-Image-Edit (`QwenImageEditPipeline`: one picture read at 1024 · 1024 pixels, no "Picture n" label)
+  and FireRed-Image-Edit (the same pipeline as -2509 per its model index); both go through the code above (the first Edit with 1536 prompt rows),
+  and -2509 through the tiny pipeline and the same transformer.
 
 ### LoRA
 
@@ -2611,11 +2686,11 @@ PSNR as in section 15). Downloads and references went to local disk and were del
 |---|---|---|---|---|---|---|
 | 1 | black-forest-labs/FLUX.1-Kontext-dev (QuantStack GGUF) | Black Forest Labs; FLUX.1 non-commercial | 2025-05-28 | 186k / 3.0k (GGUF 99k) | diffusers, QuantStack GGUF | verified earlier (section 15, editing) |
 | 2 | FLUX.2 Klein 4B / 9B, FLUX.2 Dev (reference-image editing) | Black Forest Labs | 2025-11 / 2026-01 | see 21.1 | | editing verified earlier on the tiny pipeline and Kontext numbers (section 15); the 9B model shares the code |
-| 3 | Qwen/Qwen-Image-Edit-2511, -2509, Qwen-Image-Edit (unsloth GGUF 1.0M, QuantStack GGUF 192k, lightx2v Lightning 881k) | Alibaba (Qwen); apache-2.0 | 2025-08 to 12 | 237k / 1.6k, 595k / 1.3k, 148k / 2.6k | diffusers, GGUF | **needs pipeline, not a new transformer**: `QwenImageEditPlusPipeline` runs the supported Qwen-Image transformer, but the prompt goes through Qwen2.5-VL with the reference images in it (the VLM's vision tower and image tokens in the text-encoder graph, a processor with its own resizing), and the reference latents are appended to the image tokens with their own RoPE frame indices. Section 15 lists "Qwen-Image-Edit" as missing |
-| 4 | FireRedTeam/FireRed-Image-Edit-1.0 | FireRed; apache-2.0 | 2026-02-12 | 45k / 358 | diffusers (`QwenImageEditPlusPipeline`) | needs the same pipeline as #3 |
+| 3 | Qwen/Qwen-Image-Edit-2511, -2509, Qwen-Image-Edit (unsloth GGUF 1.0M, QuantStack GGUF 192k, lightx2v Lightning 881k) | Alibaba (Qwen); apache-2.0 | 2025-08 to 12 | 237k / 1.6k, 595k / 1.3k, 148k / 2.6k | diffusers, GGUF | **supported since the editing round of 2026-11-18** (branch `imagegen/edit-r1`; section 15 "Qwen-Image-Edit"): `QwenImageEditPlusPipeline` runs the Qwen-Image transformer, the Qwen2.5-VL text encoder reads the reference images through its vision tower (M-RoPE image rows in the text graph) and the reference latents follow the image tokens (-2511's zero-timestep modulation); -2511 Q4_K_M verified against diffusers (40.3 dB with one picture, 26.4 dB with two, which is the size of diffusers' own sensitivity to the resampling of the pictures the language model reads), -2509 through the tiny pipeline; the first Qwen-Image-Edit shares the code (1024 · 1024 reading size, one picture) and is not verified numerically |
+| 4 | FireRedTeam/FireRed-Image-Edit-1.0 | FireRed; apache-2.0 | 2026-02-12 | 45k / 358 | diffusers (`QwenImageEditPlusPipeline`) | supported with #3 (same pipeline class as -2509; its checkpoint was not run) |
 | 5 | jdopensource/JoyAI-Image-Edit-Diffusers | JD; apache-2.0 | 2026-04-10 | 105k / 23 | diffusers | needs arch: `JoyImageEditTransformer3DModel` over a Wan VAE with a Qwen3-VL text encoder |
-| 6 | timbrooks/instruct-pix2pix | Tim Brooks; MIT | 2023-01-20 | 80k / 1.2k | diffusers | needs support (small): SD 1.5 UNet with 8 input channels (noise + image latents) and the two-scale guidance (text and image) |
-| 7 | stable-diffusion-v1-5/stable-diffusion-inpainting, stabilityai/stable-diffusion-xl-refiner-1.0 | Runway, Stability AI | 2022 / 2023 | 271k / 122, 113k / 2.1k | diffusers | missing, as in section 15 (9-channel inpainting UNet with mask input; the refiner's single-encoder conditioning and aesthetic scores) |
+| 6 | timbrooks/instruct-pix2pix | Tim Brooks; MIT | 2023-01-20 | 80k / 1.2k | diffusers | **supported since the editing round of 2026-11-18** (section 15 "SD editing"): 8-channel UNet, text and image guidance on three rows; 59.7 dB against diffusers (Euler, 20 steps, f32, same noise) on Vulkan |
+| 7 | stable-diffusion-v1-5/stable-diffusion-inpainting, stabilityai/stable-diffusion-xl-refiner-1.0 | Runway, Stability AI | 2022 / 2023 | 271k / 122, 113k / 2.1k | diffusers | the inpainting UNet is **supported since the editing round of 2026-11-18** (section 15 "SD editing": 56.3 dB against diffusers; the SDXL inpainting UNet diffusers/stable-diffusion-xl-1.0-inpainting-0.1 40.5 dB); the SDXL refiner is still missing (its single OpenCLIP encoder without CLIP-L, five size conditions with the aesthetic scores (6 for the prompt, 2.5 for the negative prompt) per row) |
 | 8 | MiniMax-H3-Image (editing mode), flux-3-image-klein (editing), Fibo-2.0-edit-turbo | | | | | needs the arch of 21.1 #1, #13, #19 |
 | 9 | LoRA and adapter repositories (Qwen-Image-Edit multiple-angles, AnyPose, Anything2Real, BFS face swap, MOSS control LoRAs, krea2 anypaint / pose controlnet) | community | | | | community only |
 
@@ -2650,5 +2725,21 @@ on the fly where there is one), PSNR of the 8-bit images:
 | Z-Image (undistilled) | unsloth Q8_0 GGUF, the pipeline's text encoder and VAE | 28 and 8 / 4 (scale 5 here) with negative prompt | 31.5 dB and 28.7 dB (before the fixes the output was a gray NaN image, 8.5 dB) |
 
 Needs a new architecture (none implemented in this branch): MiniMax-H3-Image, MOSS-Image (and Kromoss), FLUX.3 Klein (`Flux3Transformer2DModel`),
-Fibo 2.0, JoyAI-Image-Edit. Needs pipeline work on supported transformers: Qwen-Image-Edit / -2509 / -2511 and FireRed-Image-Edit (VLM with images in the prompt plus reference latents),
-InstructPix2Pix (8-channel UNet, two guidance scales); inpainting and the SDXL refiner stay as in section 15.
+Fibo 2.0, JoyAI-Image-Edit. The pipeline work on supported transformers (Qwen-Image-Edit / -2509 / -2511, FireRed-Image-Edit, InstructPix2Pix, the
+inpainting UNets) was done in the editing round of the same day (section 15 "SD editing" and "Qwen-Image-Edit"); only the SDXL refiner stays as in section 15.
+
+### 21.5 Editing round (2026-11-18, branch `imagegen/edit-r1`)
+
+Vulkan, GPU 0, the same initial latents and prompts as the diffusers reference (f32; the GGUF transformer dequantized on the fly), PSNR of the 8-bit images
+(details in section 15):
+
+| Model | Files | Steps / guidance | Result |
+|---|---|---|---|
+| InstructPix2Pix | timbrooks/instruct-pix2pix fp32 diffusers folder | 20 / 7.5 text, 1.5 image, Euler | 59.7 dB |
+| SD 1.5 inpainting | stable-diffusion-v1-5/stable-diffusion-inpainting fp16 diffusers folder | 20 / 7.5, DDIM | 56.3 dB |
+| SDXL inpainting | diffusers/stable-diffusion-xl-1.0-inpainting-0.1 fp16 diffusers folder | 20 / 7.5, Euler, 512×512 | 40.5 dB |
+| Qwen-Image-Edit-2511, one picture | unsloth Q4_K_M GGUF, the pipeline's text encoder and VAE, 640×480 picture, 512×384 | 20 / true CFG 4 | 40.3 dB (diffusers against itself with PIL's bicubic for the language model's pictures: 45.6 dB) |
+| Qwen-Image-Edit-2511, two pictures | as above | 20 / true CFG 4 | 26.4 dB (24.3 dB) |
+| tiny Qwen-Image-Edit-2509 / -2511 (random) | diffusers folder and Q8_0 GGUF | 4 / true CFG 4 | 56 to 59 dB, CPU and Vulkan |
+
+Not done: the SDXL refiner. Downloads and references were deleted afterwards except the diffusers references and the tiny pipelines.

@@ -68,6 +68,10 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         Mask = new ImageInputViewModel(services.Platform, text => Notice = text, "Mask", "Optional: with an input image, bright areas are regenerated, the rest stays (inpainting).", OnSourceChanged);
         EditImage = new ImageInputViewModel(services.Platform, text => Notice = text, "Image to edit",
             "Edit mode: the prompt is the instruction (for example: make the sky stormy, keep everything else). Drop a picture here or choose one.", OnSourceChanged);
+        EditImage2 = new ImageInputViewModel(services.Platform, text => Notice = text, "Second image",
+            "Optional: a second picture the instruction can refer to (Picture 2).", OnSourceChanged);
+        EditImage3 = new ImageInputViewModel(services.Platform, text => Notice = text, "Third image",
+            "Optional: a third picture the instruction can refer to (Picture 3).", OnSourceChanged);
         OnSourceChanged();
         _store = new ImageGalleryStore(services.Pages.GenerationsDirectory("images"));
         Generations = new ImageGalleryViewModel(_store, services.Platform, services.Dispatcher, OpenStored, ReuseStored);
@@ -298,6 +302,23 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     /// <summary>The picture an editing model changes as the prompt instructs (FLUX.1 Kontext, FLUX.2: a reference image).</summary>
     public ImageInputViewModel EditImage { get; }
 
+    /// <summary>A second reference image of an editing model that takes several (Qwen-Image-Edit-2509 / -2511, FLUX.2).</summary>
+    public ImageInputViewModel EditImage2 { get; }
+
+    /// <summary>A third reference image of an editing model that takes several.</summary>
+    public ImageInputViewModel EditImage3 { get; }
+
+    /// <summary>The chosen model takes several reference images: the further edit inputs are shown.</summary>
+    [ObservableProperty]
+    public partial bool SupportsSeveralEditImages { get; set; }
+
+    /// <summary>
+    /// The chosen model is an InstructPix2Pix-style editor (<see cref="ImageGenerationDefaults.ImageGuidanceScale"/>): the picture goes in as
+    /// the request's image (not as a reference image) and the image guidance parameter is shown.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool SupportsImageGuidance { get; set; }
+
     /// <summary>The chosen model edits images (it takes reference images): the edit input is shown.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsEditing), nameof(ShowImageToImage), nameof(ComparePng))]
@@ -382,6 +403,8 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
         {
             // Known once the model's defaults are read (it is resident).
             SupportsEditing = false;
+            SupportsSeveralEditImages = false;
+            SupportsImageGuidance = false;
         }
 
         OnPropertyChanged(nameof(RunHint));
@@ -454,7 +477,15 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
                 return;
             }
 
-            SupportsEditing = defaults.ReferenceImages > 0;
+            SupportsEditing = defaults.ReferenceImages > 0 || defaults.ImageGuidanceScale > 0;
+            SupportsSeveralEditImages = defaults.ReferenceImages > 1;
+            SupportsImageGuidance = defaults.ImageGuidanceScale > 0;
+            Panel.SetVisible("imageGuidance", SupportsImageGuidance);
+            if (SupportsImageGuidance)
+            {
+                Panel.Apply(new Dictionary<string, string> { ["imageGuidance"] = defaults.ImageGuidanceScale.ToString(CultureInfo.InvariantCulture) });
+            }
+
             OnSourceChanged();
 
             if (distilled)
@@ -532,6 +563,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     private void OnSourceChanged()
     {
         Panel.SetVisible("strength", Source.HasImage && !IsEditing);
+        Panel.SetVisible("imageGuidance", SupportsImageGuidance);
         OnPropertyChanged(nameof(UsesInputImage));
         OnPropertyChanged(nameof(IsEditing));
         OnPropertyChanged(nameof(ShowImageToImage));
@@ -562,7 +594,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
 
         var plan = new GenerationPlan(Prompt.Trim(), NegativePrompt.Trim(), options, seed, editing ? null : Source.Image,
             !editing && Source.Image is not null ? Mask.Image : null, (float)Panel.GetNumber("strength"), values, Panel.GetBool("preview"),
-            editing ? EditImage.Image : null);
+            editing ? EditImage.Image : null, editing && SupportsSeveralEditImages ? [EditImage2.Image, EditImage3.Image] : [], SupportsImageGuidance);
         string title = plan.Prompt.Length > PromptTitleLength ? plan.Prompt[..PromptTitleLength] + "…" : plan.Prompt;
         Panel.Persist();
         Notice = "";
@@ -588,10 +620,11 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
             {
                 Prompt = plan.Prompt,
                 NegativePrompt = plan.NegativePrompt.Length > 0 ? plan.NegativePrompt : null,
-                Image = plan.Image,
+                // InstructPix2Pix-style models take the picture as the request's image, reference-image editors as reference images.
+                Image = plan.InstructEdit && plan.Edit is not null ? plan.Edit : plan.Image,
                 Strength = plan.Strength,
                 Mask = plan.Mask,
-                ReferenceImages = plan.Edit is null ? null : [plan.Edit],
+                ReferenceImages = plan.Edit is null || plan.InstructEdit ? null : [plan.Edit, .. plan.MoreEdits?.OfType<ImageInput>() ?? []],
             };
             var options = plan.Options with { Seed = plan.Seed, PreviewInterval = plan.Preview ? Math.Max(1, (plan.Options.Steps ?? 20) / 10) : 0 };
             context.Report(0, "Starting");
@@ -895,6 +928,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
             new NumberParameterViewModel("steps", "Steps", "Denoising steps: more are slower and finer.", 1, 100, 1, GenericSteps),
             new NumberParameterViewModel("guidance", "Guidance", "How closely the picture follows the prompt (classifier-free guidance); distilled models ignore it.", 0, 20, 0.5, GenericGuidance),
             new ChoiceParameterViewModel("sampler", "Sampler", "The scheduler that steps the noise away.", s_samplers),
+            new NumberParameterViewModel("imageGuidance", "Image guidance", "Instruction editing: how closely the result follows the picture (1: not at all, higher: closer).", 1, 3, 0.1, 1.5),
             new NumberParameterViewModel("strength", "Strength", "Image to image: how much of the input image is replaced (1 ignores it).", 0.05, 1, 0.05, 0.75),
             new TextParameterViewModel("seed", "Seed", "Empty picks a random seed; a number repeats the picture.", "Random"),
             new NumberParameterViewModel("count", "Images", "How many pictures to make (seeds follow each other).", 1, 8, 1, 1),
@@ -922,6 +956,7 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
                 Height = height,
                 Steps = panel.GetInt("steps"),
                 GuidanceScale = (float)panel.GetNumber("guidance"),
+                ImageGuidanceScale = (float)panel.GetNumber("imageGuidance"),
                 Scheduler = panel.GetChoice("sampler") is { Length: > 0 } sampler ? sampler : null,
                 Count = panel.GetInt("count"),
             };
@@ -930,5 +965,5 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
 
     /// <summary>Everything one run needs, read from the page when it starts.</summary>
     private sealed record GenerationPlan(string Prompt, string NegativePrompt, ImageGenerationOptions Options, long? Seed, ImageInput? Image, ImageInput? Mask, float Strength,
-        Dictionary<string, string> Values, bool Preview, ImageInput? Edit = null);
+        Dictionary<string, string> Values, bool Preview, ImageInput? Edit = null, IReadOnlyList<ImageInput?>? MoreEdits = null, bool InstructEdit = false);
 }
