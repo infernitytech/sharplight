@@ -75,8 +75,15 @@ public static class DeviceFeatures
     /// </summary>
     public const string ChannelsLast = "channels_last";
 
+    /// <summary>
+    /// Paged KV cache for multi-sequence serving (block tables read by the cache-write and attention kernels) with prefix caching by
+    /// block content. Detected per device from the support of the paged kernel forms; disabling it keeps the contiguous per-slot
+    /// cache. Like <see cref="MemoryBudget"/> it is not part of <see cref="DeviceInfo.Features"/> (it does not change generated code).
+    /// </summary>
+    public const string PagedKv = "paged_kv";
+
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

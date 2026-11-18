@@ -183,7 +183,7 @@ public sealed class ModelService
         var template = new GenerationRequest
         {
             PromptTokens = prompt.Tokens, Sampling = r.Sampling, MaxTokens = r.MaxTokens, MinTokens = r.MinTokens, StopAtEog = !r.IgnoreEos,
-            StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, CachePartition = r.CachePartition, Timeout = r.Timeout,
+            StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, CachePartition = r.CachePartition, CacheSalt = r.CacheSalt, Timeout = r.Timeout,
             Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs, Constraint = BuildConstraint(r, prompt), Diffusion = r.Diffusion,
         };
         var parserOptions = new ChatOutputParserOptions
@@ -204,7 +204,7 @@ public sealed class ModelService
         var template = new GenerationRequest
         {
             PromptTokens = tokens, Sampling = r.Sampling, MaxTokens = r.MaxTokens, MinTokens = r.MinTokens, StopAtEog = !r.IgnoreEos,
-            StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, CachePartition = r.CachePartition, Timeout = r.Timeout,
+            StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, CachePartition = r.CachePartition, CacheSalt = r.CacheSalt, Timeout = r.Timeout,
             Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs, Diffusion = r.Diffusion,
             Constraint = r.ResponseFormat is { } format ? Compile("completion|" + format.CacheKey, b => format.AddTo(b), null) : null,
         };

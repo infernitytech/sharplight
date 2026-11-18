@@ -242,6 +242,15 @@ public sealed class MultiTenantApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task AClientCacheSaltIsRefusedUnlessTheServerAllowsIt()
+    {
+        // A client could otherwise believe its prefixes are isolated by a salt the server ignores.
+        var (status, body, _) = await Send(HttpMethod.Post, "/t1/v1/chat/completions", Chat("chat", "hi", extra: ",\"cache_salt\":\"x\""), "key-1");
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("cache_salt", body.GetProperty("error").GetProperty("param").GetString());
+    }
+
+    [Fact]
     public async Task EmbeddingsComeFromTheModelHostUnderTheAlias()
     {
         var (status, body, text) = await Send(HttpMethod.Post, "/t1/v1/embeddings", """{"model":"embed","input":["hello"]}""", "key-1");

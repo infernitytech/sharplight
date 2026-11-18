@@ -6,27 +6,28 @@ namespace Sharplight.Serving.Tests;
 /// <summary>
 /// Deterministic multi-slot decoder: the next token of a slot is a pure function of its context (<see cref="Next"/>), the logits
 /// are a one-hot spike on it. Records every step so tests can assert on batching. With <c>kvBlockSize</c> it also keeps the
-/// block accounting of a paged KV cache (reference-counted blocks, shared prefixes) and fails a step that needs more blocks
-/// than are free.
+/// block accounting of a paged KV cache (the engine's <see cref="KvBlockCache"/>: reference-counted blocks, prefix caching by content,
+/// recurrent-state snapshots with <c>stateSnapshots</c>) and fails a step that needs more blocks than are free. Attached blocks bring
+/// back the tokens they were computed from, so a wrongly attached block shows up as a wrong context.
 /// </summary>
 public sealed class FakeBatchDecoder : IBatchDecoder
 {
     public const int Marker = 1;   // prompts end with this token; scripted replies are indexed relative to it
     private readonly List<int>[] _ctx;
     private readonly float[] _logits;
-    private readonly List<int>[] _blocks;
-    private readonly int[] _refs;
-    private readonly Stack<int> _free = new();
+    private readonly KvBlockCache? _kv;
+    private readonly int[][] _blockTokens;   // tokens each physical block was computed from
+    private readonly List<int>[] _snapshotContext;   // per snapshot row: the context its "state" belongs to (checked on restore)
 
     public FakeBatchDecoder(int slots, int contextLength = 4096, int maxBatchTokens = 64, bool batches = true, bool canTruncate = true, int maxLogitsRows = 0,
-        int kvBlockSize = 0, int kvBlocks = 0)
+        int kvBlockSize = 0, int kvBlocks = 0, int stateSnapshots = 0)
     {
         KvBlockSize = kvBlockSize;
-        _blocks = [.. Enumerable.Range(0, slots).Select(_ => new List<int>())];
-        _refs = new int[kvBlocks];
-        for (int b = kvBlocks - 1; b >= 0; b--)
+        _blockTokens = new int[kvBlocks][];
+        _snapshotContext = [.. Enumerable.Range(0, stateSnapshots).Select(_ => new List<int>())];
+        if (kvBlockSize > 0)
         {
-            _free.Push(b);
+            _kv = new KvBlockCache(slots, kvBlockSize, kvBlocks, (contextLength + kvBlockSize - 1) / kvBlockSize, !canTruncate, stateSnapshots, CopyState);
         }
 
         SlotCount = slots;
@@ -84,57 +85,88 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     }
 
     public int KvBlockSize { get; }
-    public int KvBlocksTotal => _refs.Length;
-    public int KvBlocksFree => KvBlockSize > 0 ? _free.Count : int.MaxValue;
+    public int KvBlocksTotal => _kv?.Total ?? 0;
+    public int KvBlocksFree => _kv?.Free ?? int.MaxValue;
+    public int KvBlocksCached => _kv?.Cached ?? 0;
+    public long KvBlocksEvicted => _kv?.Evictions ?? 0;
+    public bool CachesKvBlocks => _kv?.CachesBlocks ?? false;
+    public int KvStateSnapshots => _kv?.SnapshotCapacity ?? 0;
     /// <summary>Most blocks held at once.</summary>
     public int PeakBlocksHeld { get; private set; }
-    public int KvBlocksNeeded(int slot, int tokens) => KvBlockSize == 0 ? 0 : Math.Max(0, BlocksFor(_ctx[slot].Count + tokens) - _blocks[slot].Count);
-    public int KvBlocksReleasable(int slot) => _blocks[slot].Count(b => _refs[b] == 1);
+    /// <summary>Recurrent-state snapshots restored (attached blocks of a model with recurrent state).</summary>
+    public int SnapshotRestores { get; private set; }
+    public int KvBlocksNeeded(int slot, int tokens) => _kv?.Needed(slot, _ctx[slot].Count, tokens) ?? 0;
+    public int KvBlocksReleasable(int slot) => _kv?.Releasable(slot) ?? 0;
 
-    public int ShareKvPrefix(int slot, int source, int tokens)
+    public int FindKvBlocks(ReadOnlySpan<UInt128> hashes, out int inUse)
     {
-        if (KvBlockSize == 0)
+        inUse = 0;
+        return _kv?.Find(hashes, out inUse) ?? 0;
+    }
+
+    public int AttachKvBlocks(int slot, ReadOnlySpan<UInt128> hashes)
+    {
+        if (_kv is null)
         {
             return 0;
         }
 
-        if (_ctx[slot].Count != 0)
+        int before = _kv.Blocks(slot).Count;
+        int n = _kv.Attach(slot, _ctx[slot].Count, hashes);
+        for (int j = before; j < before + n; j++)
         {
-            throw new InvalidOperationException("slot not empty");
+            _ctx[slot].AddRange(_blockTokens[_kv.Blocks(slot)[j]]);
         }
 
-        int n = Math.Min(tokens, _ctx[source].Count) / KvBlockSize;
-        for (int j = 0; j < n; j++)
+        if (_restoring is { } expected)
         {
-            _refs[_blocks[source][j]]++;
-            _blocks[slot].Add(_blocks[source][j]);
+            _restoring = null;
+            if (!_ctx[slot].SequenceEqual(expected))
+            {
+                throw new InvalidOperationException("The restored recurrent state belongs to another context than the attached blocks.");
+            }
         }
 
-        _ctx[slot].AddRange(_ctx[source].Take(n * KvBlockSize));
         return n * KvBlockSize;
     }
 
-    private int BlocksFor(int tokens) => (tokens + KvBlockSize - 1) / KvBlockSize;
-
-    private void Release(int slot, int keep)
+    public void PublishKvBlocks(int slot, int firstBlock, ReadOnlySpan<UInt128> hashes)
     {
-        var list = _blocks[slot];
-        for (int j = list.Count - 1; j >= keep; j--)
+        int full = _ctx[slot].Count / Math.Max(1, KvBlockSize);
+        if (_kv is { CachesBlocks: true } && firstBlock < full)
         {
-            if (--_refs[list[j]] == 0)
-            {
-                _free.Push(list[j]);
-            }
-
-            list.RemoveAt(j);
+            _kv.Publish(slot, firstBlock, hashes[..Math.Min(hashes.Length, full - firstBlock)]);
         }
     }
+
+    public bool SaveKvStateSnapshot(int slot, UInt128 hash) => _kv is not null && _ctx[slot].Count % KvBlockSize == 0 && _kv.SaveSnapshot(slot, hash);
+
+    /// <summary>"Copies recurrent state" between slot rows and snapshot rows: the fake state is the context it belongs to.</summary>
+    private bool CopyState(int from, int to)
+    {
+        int slots = SlotCount;
+        if (to >= slots)
+        {
+            _snapshotContext[to - slots].Clear();
+            _snapshotContext[to - slots].AddRange(_ctx[from]);
+        }
+        else
+        {
+            // Restoring: the slot's context must be exactly the blocks before the snapshot boundary, which Attach appends next.
+            SnapshotRestores++;
+            _restoring = _snapshotContext[from - slots];
+        }
+
+        return true;
+    }
+
+    private List<int>? _restoring;
 
     public int Length(int slot) => _ctx[slot].Count;
     public void Reset(int slot)
     {
         _ctx[slot].Clear();
-        Release(slot, 0);
+        _kv?.Release(slot, 0);
         lock (Resets)
         {
             Resets.Add(slot);
@@ -147,16 +179,9 @@ public sealed class FakeBatchDecoder : IBatchDecoder
             throw new NotSupportedException();
         }
 
-        if (KvBlockSize > 0)
+        if (_kv is not null)
         {
-            int keep = BlocksFor(length);
-            if (length % KvBlockSize != 0 && _refs[_blocks[slot][keep - 1]] > 1)
-            {
-                keep--;
-                length = keep * KvBlockSize;
-            }
-
-            Release(slot, keep);
+            length = _kv.Truncate(slot, length);
         }
 
         _ctx[slot].RemoveRange(length, _ctx[slot].Count - length);
@@ -204,25 +229,20 @@ public sealed class FakeBatchDecoder : IBatchDecoder
             throw new InvalidOperationException("too many logits rows");
         }
 
-        if (KvBlockSize > 0)
+        if (_kv is not null)
         {
             int need = inputs.Sum(i => KvBlocksNeeded(i.Slot, i.Tokens.Length));
-            if (need > _free.Count)
+            if (need > _kv.Free)
             {
-                throw new InvalidOperationException($"KV blocks exhausted: need {need}, {_free.Count} free");
+                throw new InvalidOperationException($"KV blocks exhausted: need {need}, {_kv.Free} free");
             }
 
             foreach (var i in inputs)
             {
-                for (int n = BlocksFor(_ctx[i.Slot].Count + i.Tokens.Length); _blocks[i.Slot].Count < n;)
-                {
-                    int b = _free.Pop();
-                    _refs[b] = 1;
-                    _blocks[i.Slot].Add(b);
-                }
+                _kv.Grow(i.Slot, _ctx[i.Slot].Count + i.Tokens.Length);
             }
 
-            PeakBlocksHeld = Math.Max(PeakBlocksHeld, KvBlocksTotal - _free.Count);
+            PeakBlocksHeld = Math.Max(PeakBlocksHeld, KvBlocksTotal - _kv.Free);
         }
 
         var res = new Memory<float>[inputs.Count];
@@ -261,6 +281,15 @@ public sealed class FakeBatchDecoder : IBatchDecoder
             }
 
             r += rows;
+            if (_kv is not null)
+            {
+                // Full blocks remember the tokens they hold (a block is never rewritten while published or shared).
+                var blocks = _kv.Blocks(inputs[i].Slot);
+                for (int j = (c.Count - toks.Length) / KvBlockSize; j < c.Count / KvBlockSize; j++)
+                {
+                    _blockTokens[blocks[j]] = [.. c.Skip(j * KvBlockSize).Take(KvBlockSize)];
+                }
+            }
         }
         return res;
     }

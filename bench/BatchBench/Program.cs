@@ -40,9 +40,12 @@ var sizes = Opt("--sizes", "1,2,4,8,16,32,64")!.Split(',').Select(int.Parse).Whe
 var provider = services.GetRequiredService<ExecutionProviderCatalog>().Discover().First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu").Provider;
 using var device = provider.OpenDevice(provider.GetDevices()[0], new DeviceOptions());
 using var model = LlmModel.Load(loader, argv[0], new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = int.Parse(Opt("--batch", "512")!) });
-using var dec = (MultiSequenceDecoder)model.CreateBatchDecoder(slots, ctx);
+// --kv-tokens N: paged pool size (0: the contiguous per-slot cache; default: the paged default of slots x ctx).
+long? kvTokens = Opt("--kv-tokens") is { } kv ? long.Parse(kv) : null;
+using var dec = (MultiSequenceDecoder)model.CreateBatchDecoder(slots, ctx, kvCacheTokens: kvTokens);
 var sampler = (IDeviceSamplingDecoder)dec;
-Console.WriteLine($"decoder: {dec.GetType().Name}, slots {dec.SlotCount}, vocab {dec.VocabSize}, device sampling: {sampler.SamplesOnDevice}");
+Console.WriteLine($"decoder: {dec.GetType().Name}, slots {dec.SlotCount}, vocab {dec.VocabSize}, device sampling: {sampler.SamplesOnDevice}, "
+    + $"KV {(dec.KvBlockSize > 0 ? $"paged {dec.KvBlocksTotal} x {dec.KvBlockSize}" : "contiguous")}");
 var rng = new Random(1);
 int[] Toks(int n) => Enumerable.Range(0, n).Select(_ => rng.Next(1000, 30000)).ToArray();
 for (int s = 0; s < slots; s++) dec.Step([new SequenceInput(s, Toks(depth), false)]);   // prefill each slot

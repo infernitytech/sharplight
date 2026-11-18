@@ -213,7 +213,7 @@ internal static class AnthropicApi
             Messages = SharplightServerContext.WithSystemPrompt(http, turns), Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname, Sampling = sampling, MaxTokens = maxTokens,
             StopStrings = [.. b.Arr("stop_sequences").Select(s => s.GetString() ?? "")], EnableThinking = thinking, Timeout = ctx.RequestTimeout(http),
             ResponseFormat = ParseOutputFormat(b), Tenant = SharplightServerContext.TenantOf(http, b.Obj("metadata")?.Str("user_id")),
-            CachePartition = SharplightServerContext.CachePartition(http),
+            CachePartition = SharplightServerContext.CachePartition(http), CacheSalt = ctx.CacheSalt(http, b.Str("cache_salt")),
         };
     }
 

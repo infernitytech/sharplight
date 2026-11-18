@@ -17,7 +17,8 @@ namespace Sharplight.Cli;
 /// <param name="MaxQueue">Waiting requests per model before answering 429.</param>
 /// <param name="PrefillChunk">Prompt rows per step and sequence.</param>
 /// <param name="StepTokens">Token budget per engine step; null uses the model's batch size.</param>
-/// <param name="KvCacheTokens">Paged KV cache size in tokens shared by the slots; null reserves the full context per slot.</param>
+/// <param name="KvCacheTokens">Paged KV cache size in tokens shared by the slots; null: the default (every slot's full context, paged
+/// with prefix caching where the device supports it); 0: the contiguous per-slot cache.</param>
 /// <param name="NgramDraftTokens">Draft length of prompt-lookup speculation; 0 disables it.</param>
 /// <param name="MtpDraftTokens">Draft length of multi-token-prediction speculation (models with an MTP head); 0 disables it.</param>
 /// <param name="SpeculationMaxBatch">Speculate only while at most this many sequences decode.</param>
@@ -32,6 +33,9 @@ namespace Sharplight.Cli;
 /// <param name="OnDemand">Also serve every model of the store by name, loading it on its first request.</param>
 /// <param name="StoreRoot">The model store that model names are looked up in.</param>
 /// <param name="Pull">How models missing from the store are pulled.</param>
+/// <param name="AllowClientCacheSalt">Accept the <c>cache_salt</c> request field from clients.</param>
+/// <param name="NoPrefixCache">Turn prefix caching off (every prompt is computed in full).</param>
+/// <param name="KvStateSnapshots">Recurrent-state snapshots for prefix caching of models with recurrent state; null: the default.</param>
 internal sealed record ServeSettings(
     IReadOnlyList<string> PositionalModels,
     string? PositionalModelName,
@@ -60,4 +64,7 @@ internal sealed record ServeSettings(
     double? IdleTimeoutSeconds,
     bool OnDemand,
     string StoreRoot,
-    PullSettings Pull);
+    PullSettings Pull,
+    bool AllowClientCacheSalt = false,
+    bool NoPrefixCache = false,
+    int? KvStateSnapshots = null);

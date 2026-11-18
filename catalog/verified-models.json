@@ -24344,6 +24344,255 @@
           }
         }
       ]
+    },
+    {
+      "id": "vibevoice-1.5b",
+      "name": "VibeVoice 1.5B (Microsoft)",
+      "kind": "speech-synthesis",
+      "family": "VibeVoice",
+      "architecture": "vibevoice",
+      "level": "verified",
+      "license": "mit",
+      "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors (transformers layout)",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 6622087726,
+          "companions": [],
+          "repository": "vibevoice/VibeVoice-1.5B-hf",
+          "revision": "d4cd82eb4371bf3e3d088e1ea7fa4eefb60449bf",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "model-00001-of-00003.safetensors",
+            "model-00002-of-00003.safetensors",
+            "model-00003-of-00003.safetensors",
+            "model.safetensors.index.json",
+            "processor_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 3201,
+              "gitOid": "e24107ef50f7ad185a548261ccf0a0fb79eaaec8"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 487,
+              "gitOid": "ff05333e967d55d5d7492aaf6b8ada35469d242f"
+            },
+            {
+              "path": "model-00001-of-00003.safetensors",
+              "size": 1973742446,
+              "sha256": "a3b37bfffd8433e74b7255da7cd87751830496964e68650c0591a1c0d47b2bfc"
+            },
+            {
+              "path": "model-00002-of-00003.safetensors",
+              "size": 1993066216,
+              "sha256": "6c560af42a0cb2223d3db6c8d9ea8139d853b6f5c5ffa6664f1afe83ecbb7328"
+            },
+            {
+              "path": "model-00003-of-00003.safetensors",
+              "size": 1441395288,
+              "sha256": "eeb349833fd1e3558a6b11c7ba67b992acd2f22f5b85de377239367713d16a41"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 124129,
+              "gitOid": "2c3a1a1be4870d67e968a871954bfb9769cc078c"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 511,
+              "gitOid": "e05a0365bf7e2a01f66f24b10f794b04736e2733"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 11421892,
+              "sha256": "3fd169731d2cbde95e10bf356d66d5997fd885dd8dbb6fb4684da3f23b2585d8"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 811,
+              "gitOid": "0b30405ba70da3c6b0c82f6916372e735cfb1dfe"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers 5.23 VibeVoiceForConditionalGeneration (CPU, f32, original checkpoint renamed to its layout) and diffusers DPMSolverMultistepScheduler",
+        "summary": "tokenizers: acoustic latents 3.0e-6, semantic latents 6.9e-6, decoded waveform 1.7e-6 relative RMS (CPU); prompt ids identical (one speaker, two speakers, voice prompt); teacher forced over 34 steps (32 frames): 0 argmax disagreements, language model hidden state 1.7e-3 (CPU) / 1.9e-3 (Vulkan), diffusion latents 2.7e-3 / 2.5e-3, waveform of the reference latents 3.0e-6 / 5.0e-4; two speakers (36 frames) and a 4 s voice prompt likewise; the speech is transcribed by VibeVoice-ASR with two speakers and a 3.4 % word error rate; .slm round trip identical; the transformers conversion (the variant) and Microsoft\u0027s original layout give identical numbers",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "Installs the transformers conversion (vibevoice/VibeVoice-1.5B-hf, which carries the Qwen2.5 tokenizer); Microsoft\u0027s original microsoft/VibeVoice-1.5B imports too once the tokenizer.json and tokenizer_config.json of that repository sit next to it (it ships none). Multi-speaker scripts (Speaker 1: ...), voices from reference recordings, 10 diffusion steps and guidance 1.3 by default. MIT license.",
+      "doc": [
+        {
+          "section": "3",
+          "cells": {
+            "repositories": "vibevoice/VibeVoice-1.5B-hf, microsoft/VibeVoice-1.5B (\u002B tokenizer files)",
+            "formats": "safetensors (transformers and original layouts)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vibevoice-asr",
+      "name": "VibeVoice-ASR (Microsoft)",
+      "kind": "speech-recognition",
+      "family": "VibeVoice",
+      "architecture": "vibevoice_asr",
+      "level": "verified",
+      "license": "mit",
+      "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors (transformers layout)",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 19562539567,
+          "companions": [],
+          "repository": "microsoft/VibeVoice-ASR-HF",
+          "revision": "f22241c2062b3b25272bf117397e03d73381037a",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "model-00001-of-00008.safetensors",
+            "model-00002-of-00008.safetensors",
+            "model-00003-of-00008.safetensors",
+            "model-00004-of-00008.safetensors",
+            "model-00005-of-00008.safetensors",
+            "model-00006-of-00008.safetensors",
+            "model-00007-of-00008.safetensors",
+            "model-00008-of-00008.safetensors",
+            "model.safetensors.index.json",
+            "processor_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 2920,
+              "gitOid": "31a7f439f4d179a6812e106182dbabc54192e90e"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 281,
+              "gitOid": "6a19aaa17efc616bb3d7c5edaa2a13b920494b28"
+            },
+            {
+              "path": "model-00001-of-00008.safetensors",
+              "size": 2488346304,
+              "sha256": "580189757a1c737ecc6fad16e633b922bc73220268356e31362c24365f081095"
+            },
+            {
+              "path": "model-00002-of-00008.safetensors",
+              "size": 2389316008,
+              "sha256": "65e419d28fc8c87d6938ec611c7b425b38e391c80a2df59c2b4935f6fd65c7c2"
+            },
+            {
+              "path": "model-00003-of-00008.safetensors",
+              "size": 2466376400,
+              "sha256": "30f574c764550d26c654cc3f5dd000b90b0c3305db955267c577001c1013fdf7"
+            },
+            {
+              "path": "model-00004-of-00008.safetensors",
+              "size": 2466376432,
+              "sha256": "8fa3d9350f0a8cc97524617ff582e451159bfdba2ef0b2e372a627518ef681b1"
+            },
+            {
+              "path": "model-00005-of-00008.safetensors",
+              "size": 2499431160,
+              "sha256": "5015ecacc86d897d20d5e42ba52ef83355d42f587d3b158ff897ec94847bd083"
+            },
+            {
+              "path": "model-00006-of-00008.safetensors",
+              "size": 1831435704,
+              "sha256": "7463d75607185c118925cea6a60a5698aaa6f428e626bcee774572bdc28ef55d"
+            },
+            {
+              "path": "model-00007-of-00008.safetensors",
+              "size": 2482226384,
+              "sha256": "b52aa2fab9640bcac5201a278f540b018c439ed4e99516d9ff30ea1ae399525e"
+            },
+            {
+              "path": "model-00008-of-00008.safetensors",
+              "size": 37262376,
+              "sha256": "a66ced85b619507e1970dc51be45786ff55803ccc63658765e412ea23d9a8ace"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 91965,
+              "gitOid": "f561f7de1dc8d6ef3b071dc06bb7fba8e81a8e2b"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 537,
+              "gitOid": "c6dd299f9d3cb6beb737b92bee63b7ed5f85743d"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 11421892,
+              "sha256": "3fd169731d2cbde95e10bf356d66d5997fd885dd8dbb6fb4684da3f23b2585d8"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 714,
+              "gitOid": "6dd91914eff1204550a117eec5479027e50a8ff9"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers 5.23 VibeVoiceAsrForConditionalGeneration (CPU, f32, original checkpoint renamed to its layout), greedy",
+        "summary": "prompt ids identical; audio embedding rows 4.9e-6 (CPU) / 1.3e-3 (Vulkan) relative RMS on jfk.wav (83 rows), 6.0e-6 / 2.2e-3 on a 17 s two-speaker conversation (129 rows); greedy tokens identical to transformers (51 of 51 and 142 of 142, CPU and Vulkan), 0 teacher-forced argmax disagreements, worst top-logit delta 4.2e-2 / 4.5e-2 (jfk) and 1.5e-1 / 1.6e-1 (two speakers); segments with speakers 0 and 1 and timestamps; speech synthesized by VibeVoice-1.5B transcribed with two speakers and a 3.4 % word error rate; .slm round trip identical; the transformers conversion (the variant) and Microsoft\u0027s original layout give identical numbers (both layouts import to the same canonical tensors and hyper-parameters)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-18",
+        "tests": []
+      },
+      "notes": "Installs the transformers conversion (microsoft/VibeVoice-ASR-HF, which carries the Qwen2.5 tokenizer); Microsoft\u0027s original microsoft/VibeVoice-ASR imports too once the tokenizer.json and tokenizer_config.json of that repository sit next to it (it ships none). 17 GB (BF16). One pass over as much audio as the context holds (the audio rows take 40 % of it, 7.5 rows per second); longer recordings run in windows with independent speaker numbers. The acoustic latents are the encoder\u0027s mean (transformers samples them with noise). MIT license.",
+      "doc": [
+        {
+          "section": "2",
+          "cells": {
+            "model": "VibeVoice-ASR 7B (speaker-diarized long-form transcription)",
+            "repositories": "microsoft/VibeVoice-ASR-HF, microsoft/VibeVoice-ASR (\u002B tokenizer files)",
+            "formats": "safetensors (transformers and original layouts)"
+          }
+        }
+      ]
     }
   ]
 }

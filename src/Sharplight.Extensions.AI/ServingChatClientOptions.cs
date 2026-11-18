@@ -5,8 +5,8 @@ namespace Sharplight.Extensions.AI;
 /// <summary>
 /// Settings of a <see cref="ServingChatClient"/>: who the requests are charged to, which prefix-cache partition they use and the
 /// defaults for options a call leaves out. Per call, <see cref="Microsoft.Extensions.AI.ChatOptions.AdditionalProperties"/> may override
-/// the tenant, partition and priority (<see cref="ServingChatClient.TenantProperty"/>, <see cref="ServingChatClient.CachePartitionProperty"/>,
-/// <see cref="ServingChatClient.PriorityProperty"/>).
+/// the tenant, partition, salt and priority (<see cref="ServingChatClient.TenantProperty"/>, <see cref="ServingChatClient.CachePartitionProperty"/>,
+/// <see cref="ServingChatClient.CacheSaltProperty"/>, <see cref="ServingChatClient.PriorityProperty"/>).
 /// </summary>
 public sealed record ServingChatClientOptions
 {
@@ -18,6 +18,9 @@ public sealed record ServingChatClientOptions
 
     /// <summary>Prefix-cache partition of the requests (<see cref="GenerationRequest.CachePartition"/>), e.g. a tenant's isolation scope.</summary>
     public string? CachePartition { get; init; }
+
+    /// <summary>Additional prefix-cache key within the partition (<see cref="GenerationRequest.CacheSalt"/>), or null.</summary>
+    public string? CacheSalt { get; init; }
 
     /// <summary>Scheduling priority (higher runs first).</summary>
     public int Priority { get; init; }

@@ -194,6 +194,7 @@ internal sealed unsafe partial class CpuCompiledSegment
                 }
 
                 _stateBufs.Add((buf, bytes));
+                _statesByName[def.Name] = (buf, bytes, dims.Length > 0 ? dims[0] : 1);
                 r = Register(new TRef { Type = def.Type, Dims = dims, Strides = TRef.RowMajor(dims), Buf = buf });
                 break;
             }

@@ -108,8 +108,25 @@ public static class MultiSequence
     /// <returns>The rewritten graph and the state definitions to allocate.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="slots"/> is below 1, a paged layout without blocks per slot, or negative rollback rows.</exception>
     /// <exception cref="NotSupportedException">A stateful op of the graph has no multi-sequence form (see <see cref="IsSupported"/>).</exception>
-    public static Result Transform(ComputeGraph g, int slots, int blockSize, int blocksPerSlot, int rollbackRows)
+    public static Result Transform(ComputeGraph g, int slots, int blockSize, int blocksPerSlot, int rollbackRows) => Transform(g, slots, blockSize, blocksPerSlot, rollbackRows, 0);
+
+    /// <summary>
+    /// Like <see cref="Transform(ComputeGraph, int, int, int, int)"/>, with <paramref name="spareStateRows"/> extra rows after the
+    /// <paramref name="slots"/> slot rows of every recurrent state (<c>[slots + spare, ...]</c>). No run addresses them; a runtime copies
+    /// slot rows into them and back (prefix-cache snapshots of recurrent state, see <see cref="Runtime.CompiledModel.CopyStateRows"/>).
+    /// </summary>
+    /// <param name="g">The single-sequence graph.</param>
+    /// <param name="slots">Number of sequences ("slots") the rewritten graph serves.</param>
+    /// <param name="blockSize">Rows per KV block (0: each slot owns a contiguous range of the caches).</param>
+    /// <param name="blocksPerSlot">Block table columns: the most blocks one slot can hold.</param>
+    /// <param name="rollbackRows">Most rows of one tentative run whose recurrent state can be rolled back; 0 for none.</param>
+    /// <param name="spareStateRows">Rows added to each recurrent state after the slots' (0 for none).</param>
+    /// <returns>The rewritten graph and the state definitions to allocate.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slots"/> is below 1, a paged layout without blocks per slot, or negative rollback or spare rows.</exception>
+    /// <exception cref="NotSupportedException">A stateful op of the graph has no multi-sequence form (see <see cref="IsSupported"/>).</exception>
+    public static Result Transform(ComputeGraph g, int slots, int blockSize, int blocksPerSlot, int rollbackRows, int spareStateRows)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(spareStateRows);
         if (slots < 1)
         {
             throw new ArgumentOutOfRangeException(nameof(slots));
@@ -186,7 +203,7 @@ public static class MultiSequence
             d = IsKvState(s) ? s.Compression > 1 ? CompressedState(s, slots, blockSize) : s : new StateDefinition
             {
                 Name = s.Name, Type = s.Type, Kind = s.Kind, Group = s.Group,
-                Shape = new Shape([Dim.Of(slots), .. s.Shape.Dims]),
+                Shape = new Shape([Dim.Of(slots + spareStateRows), .. s.Shape.Dims]),
             };
             return states[s] = d;
         }

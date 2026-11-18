@@ -69,6 +69,12 @@ public sealed record HostedModelSettings
     /// <summary>Prompt rows per step and sequence (0 = the step's rows).</summary>
     public int PrefillChunk { get; init; }
 
+    /// <summary>Prefix caching on.</summary>
+    public bool PrefixCache { get; init; } = true;
+
+    /// <summary>Recurrent-state snapshots for prefix caching, or null for the default.</summary>
+    public int? KvStateSnapshots { get; init; }
+
     /// <summary>Token budget of one engine step, or null.</summary>
     public int? StepTokens { get; init; }
 
@@ -121,6 +127,8 @@ public sealed record HostedModelSettings
             IdleTimeout = model.IdleTimeoutSeconds is > 0 ? TimeSpan.FromSeconds(model.IdleTimeoutSeconds.Value) : null,
             MaxQueue = defaults.MaxQueue,
             PrefillChunk = defaults.PrefillChunk,
+            PrefixCache = defaults.PrefixCache,
+            KvStateSnapshots = defaults.KvStateSnapshots,
             StepTokens = defaults.StepTokens,
             NgramDraftTokens = defaults.NgramDraftTokens,
             MtpDraftTokens = defaults.MtpDraftTokens,

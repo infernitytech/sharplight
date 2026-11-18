@@ -11,6 +11,14 @@ internal sealed class EngineSlot(int index)
     public long LastUsed { get; set; }
     /// <summary>The <see cref="GenerationRequest.CachePartition"/> of the request whose context the slot holds.</summary>
     public string? Partition { get; set; }
+    /// <summary>The <see cref="GenerationRequest.CacheSalt"/> of that request.</summary>
+    public string? Salt { get; set; }
+    /// <summary>The <see cref="GenerationRequest.PromptContent"/> of that request.</summary>
+    public IReadOnlyList<PromptContentKey> Content { get; set; } = [];
+    /// <summary>Start of the block hash chain of that request's cache namespace.</summary>
+    public UInt128 Seed { get; set; }
+    /// <summary>Paged cache with prefix caching: content hashes of the full blocks of <see cref="Tokens"/>, published to the decoder.</summary>
+    public List<UInt128> BlockHashes { get; } = [];
     /// <summary>The sequence running in the slot, or null when idle.</summary>
     public EngineSequence? Active { get; set; }
 }

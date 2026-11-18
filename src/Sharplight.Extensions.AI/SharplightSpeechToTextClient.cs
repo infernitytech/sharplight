@@ -58,6 +58,7 @@ public sealed class SharplightSpeechToTextClient : ISpeechToTextClient
                 EndTime = segment.End,
                 ModelId = model,
                 RawRepresentation = segment,
+                AdditionalProperties = segment.Speaker is null ? null : new AdditionalPropertiesDictionary { ["speaker"] = segment.Speaker },
             };
         }
     }

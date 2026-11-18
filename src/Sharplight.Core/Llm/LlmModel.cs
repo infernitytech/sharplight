@@ -277,7 +277,13 @@ public sealed class LlmModel : IDisposable
     /// <param name="kvCacheTokens">
     /// Paged KV cache: one pool of this many tokens (in blocks of <see cref="Serving.MultiSequenceDecoder.DefaultKvBlockSize"/>)
     /// shared by all slots, each slot growing up to <paramref name="contextLength"/> as its sequence needs, so many short
-    /// sequences fit in the memory of a few long ones. Null: every slot owns <paramref name="contextLength"/> cache rows.
+    /// sequences fit in the memory of a few long ones, with prefix caching by block content. Null: the default,
+    /// <see cref="DefaultKvCacheTokens"/> (paged with every slot's full context where the devices run the paged kernels). 0: every
+    /// slot owns <paramref name="contextLength"/> cache rows (contiguous cache, prefix reuse only within a slot).
+    /// </param>
+    /// <param name="stateSnapshots">
+    /// Paged cache of a model with recurrent state (gated delta nets, Mamba, RWKV, conv): snapshots of that state kept for prefix
+    /// caching, each the size of one slot's recurrent state (null: <see cref="DefaultStateSnapshots"/>; 0: no prefix caching for such models).
     /// </param>
     /// <param name="draftTokens">
     /// Speculative decoding: the most draft tokens per sequence and step the decoder must verify and roll back (0: none). Models
@@ -288,7 +294,7 @@ public sealed class LlmModel : IDisposable
     /// so verified greedy output is token-identical to decoding without speculation.
     /// </param>
     public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null, int? maxLogitsRows = null,
-        long? kvCacheTokens = null, int draftTokens = 0)
+        long? kvCacheTokens = null, int draftTokens = 0, int? stateSnapshots = null)
     {
         if (IsDiffusion)
         {
@@ -314,13 +320,99 @@ public sealed class LlmModel : IDisposable
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
-        long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
+        long tokens = kvCacheTokens ?? DefaultKvCacheTokens(slots, ctx);
+        long paged = tokens > 0 && SupportsPagedKv(graph, slots, ctx) ? PagedRows(tokens) : 0;
+        int snapshots = paged > 0 ? stateSnapshots ?? DefaultStateSnapshots(slots, paged) : 0;
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, BatchTokens, placement, UsesDeviceSampling, paged,
-            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0);
-        string kv = paged > 0 ? $", paged KV cache of {paged} tokens" : "";
+            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0,
+            stateSnapshots: snapshots);
+        string kv = paged > 0 ? $", paged KV cache of {paged} tokens{(dec.KvStateSnapshots > 0 ? $" with {dec.KvStateSnapshots} recurrent-state snapshots" : "")}" : ", contiguous KV cache";
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         ReportReady(WellKnown.DecodeGraph);
         return dec;
+    }
+
+    /// <summary>
+    /// The paged KV cache size <see cref="CreateBatchDecoder"/> uses when none is given: <paramref name="slots"/> full contexts (the
+    /// memory a contiguous cache reserves), or 0 (contiguous) for a single slot without speculation, which is served by a
+    /// single-sequence session, or when <see cref="DeviceFeatures.PagedKv"/> is disabled for the load or the process.
+    /// </summary>
+    /// <param name="slots">Sequences decoded together.</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
+    public long DefaultKvCacheTokens(int slots, int? contextLength = null)
+    {
+        if (slots <= 1 || IsPagedKvDisabled)
+        {
+            return 0;
+        }
+
+        return (long)slots * (contextLength ?? _options.ContextLength);
+    }
+
+    /// <summary>
+    /// Recurrent-state snapshots a paged decoder keeps for prefix caching by default (each costs one slot's recurrent state,
+    /// <see cref="RecurrentStateBytesPerSlot"/>): as many as fit in half the KV pool's memory or 512 MiB, whichever is more,
+    /// at least 2 and at most two per slot (a shared prefix and a conversation's last prompt per sequence); 0 for attention-only models.
+    /// </summary>
+    /// <param name="slots">Sequences decoded together.</param>
+    /// <param name="kvCacheTokens">Tokens of the paged KV cache.</param>
+    public int DefaultStateSnapshots(int slots, long kvCacheTokens)
+    {
+        long state = RecurrentStateBytesPerSlot;
+        if (state <= 0)
+        {
+            return 0;
+        }
+
+        long budget = Math.Max(KvBytesPerToken * kvCacheTokens / 2, 512L << 20);
+        return (int)Math.Clamp(budget / state, 2, Math.Max(2, 2L * slots));
+    }
+
+    /// <summary>Bytes of recurrent state (everything but KV caches) one sequence of the decode graph holds; 0 for attention-only models.</summary>
+    public long RecurrentStateBytesPerSlot => Definition.Graph(WellKnown.DecodeGraph).States.Select(v => v.State!)
+        .Where(s => !Graph.MultiSequence.IsKvState(s) && s.Shape.IsStatic).Sum(s => s.Type.ByteSize(s.Shape.Elements()));
+
+    /// <summary>Device bytes one token of a paged KV cache takes over all layers (from the graph's cache states; 0 without KV caches).</summary>
+    public long KvBytesPerToken
+    {
+        get
+        {
+            var graph = Definition.Graph(WellKnown.DecodeGraph);
+            var options = new CompileOptions { MaxTokens = 1, ContextLength = 1, SymbolBounds = new Dictionary<string, long> { ["R"] = 1 } };
+            long rows = 64 * Serving.MultiSequenceDecoder.DefaultKvBlockSize;
+            long large = PlacementPlanner.Estimate(graph, options, 2, 2 * rows).StateBytes;
+            long small = PlacementPlanner.Estimate(graph, options, 2, rows).StateBytes;
+            return Math.Max(0, (large - small) / rows);
+        }
+    }
+
+    private bool IsPagedKvDisabled => _options.DisabledFeatures.Contains(DeviceFeatures.PagedKv, StringComparer.OrdinalIgnoreCase)
+        || DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.PagedKv);
+
+    /// <summary>
+    /// Whether the paged forms of the decode graph's cache ops run on the configured devices (<see cref="DeviceFeatures.PagedKv"/>): every
+    /// device that would execute them supports them (or the CPU fallback does when no accelerator is configured).
+    /// </summary>
+    private bool SupportsPagedKv(ComputeGraph graph, int slots, int contextLength)
+    {
+        if (IsPagedKvDisabled)
+        {
+            return false;
+        }
+
+        int bs = Serving.MultiSequenceDecoder.DefaultKvBlockSize;
+        var paged = Graph.MultiSequence.Transform(graph, slots, bs, (contextLength + bs - 1) / bs).Graph;
+        var devices = _options.Devices.Select(d => d.Device).ToList();
+        foreach (var n in paged.Nodes)
+        {
+            if (n.Inputs.Any(v => v.Input?.Role == InputRole.KvBlockTable) && devices.Any(d => !d.Supports(n).IsSupported))
+            {
+                _options.Log?.Invoke($"Paged KV cache unavailable ({n.Op.Name} has no paged form on {string.Join(", ", devices.Where(d => !d.Supports(n).IsSupported).Select(d => d.Info.Name))}); using the contiguous cache.");
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -347,10 +439,11 @@ public sealed class LlmModel : IDisposable
     /// <param name="slots">Slots of the target decoder.</param>
     /// <param name="draftTokens">Drafts proposed per sequence and step (1 to 4 are typical).</param>
     /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
-    /// <param name="kvCacheTokens">The target decoder's paged KV cache size, or null for a contiguous cache.</param>
+    /// <param name="kvCacheTokens">The target decoder's paged KV cache size (null: <see cref="DefaultKvCacheTokens"/>; 0: contiguous).</param>
     /// <exception cref="NotSupportedException">The model has no draft head.</exception>
     public Serving.Speculative.ISpeculator CreateMtpSpeculator(int slots, int draftTokens, int? contextLength = null, long? kvCacheTokens = null)
     {
+        kvCacheTokens ??= DefaultKvCacheTokens(slots, contextLength);
         if (!HasDraftHead)
         {
             throw new NotSupportedException($"{Definition.Name} has no multi-token-prediction head.");
@@ -520,7 +613,8 @@ public sealed class LlmModel : IDisposable
     /// </summary>
     /// <param name="slots">Concurrent sequences.</param>
     /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
-    /// <param name="kvCacheTokens">Paged KV cache of this many tokens shared by the slots (see <see cref="CreateBatchDecoder"/>), or null.</param>
+    /// <param name="kvCacheTokens">Paged KV cache of this many tokens shared by the slots (see <see cref="CreateBatchDecoder"/>; null: the default, 0: contiguous).</param>
+    /// <param name="stateSnapshots">Recurrent-state snapshots of a paged cache (see <see cref="CreateBatchDecoder"/>; null: the default).</param>
     /// <param name="draftTokens">
     /// Speculative decoding (as <see cref="CreateBatchDecoder"/>'s <c>draftTokens</c>): adds the rollback record states of the
     /// recurrent ops (<see cref="Graph.RecurrentRollback.RecordStateBytes"/>) and sizes the logits rows for verification.
@@ -529,7 +623,7 @@ public sealed class LlmModel : IDisposable
     /// with the decoder are counted once), its KV cache and activations.</param>
     /// <param name="maxLogitsRows">Logits rows per step (default <paramref name="slots"/> · (<paramref name="draftTokens"/> + 1)).</param>
     public ModelFootprint EstimateFootprint(int slots = 1, int? contextLength = null, long? kvCacheTokens = null, int draftTokens = 0, bool draftHead = false,
-        int? maxLogitsRows = null)
+        int? maxLogitsRows = null, int? stateSnapshots = null)
     {
         if (IsDiffusion)
         {
@@ -545,6 +639,7 @@ public sealed class LlmModel : IDisposable
         int ctx = contextLength ?? _options.ContextLength;
         var graph = Definition.Graph(WellKnown.DecodeGraph);
         bool multi = (slots > 1 || draftTokens > 0) && Graph.MultiSequence.IsSupported(graph, out _);
+        kvCacheTokens ??= DefaultKvCacheTokens(slots, ctx);
         long paged = multi && kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
         long rows = maxLogitsRows ?? (long)slots * (Math.Max(0, draftTokens) + 1);
         var fp = PlacementPlanner.Estimate(graph, new CompileOptions
@@ -553,6 +648,11 @@ public sealed class LlmModel : IDisposable
             ContextLength = ctx,
             SymbolBounds = new Dictionary<string, long> { ["R"] = multi ? Math.Min(rows, BatchTokens) : BatchTokens },
         }, multi ? slots : 1, paged);
+        if (paged > 0)
+        {
+            fp = fp with { StateBytes = fp.StateBytes + RecurrentStateBytesPerSlot * (stateSnapshots ?? DefaultStateSnapshots(slots, paged)) };
+        }
+
         if (!multi || draftTokens <= 0)
         {
             return fp;

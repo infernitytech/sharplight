@@ -83,7 +83,9 @@ public interface IBatchDecoder : IDisposable
     public int KvBlockSize => 0;
     /// <summary>Blocks of the paged cache (0 when not paged).</summary>
     public int KvBlocksTotal => 0;
-    /// <summary>Blocks not held by any slot (<see cref="int.MaxValue"/> when not paged: slots never run out of cache).</summary>
+    /// <summary>
+    /// Blocks not held by any slot, cached ones included (<see cref="int.MaxValue"/> when not paged: slots never run out of cache).
+    /// </summary>
     public int KvBlocksFree => int.MaxValue;
     /// <summary>Blocks a slot must newly take to append <paramref name="tokens"/> tokens (0 when not paged).</summary>
     public int KvBlocksNeeded(int slot, int tokens) => 0;
@@ -95,4 +97,50 @@ public interface IBatchDecoder : IDisposable
     /// and 0 when the cache is not paged. The slot's <see cref="Length"/> becomes that count.
     /// </summary>
     public int ShareKvPrefix(int slot, int source, int tokens) => 0;
+
+    // ---- prefix caching by content (paged caches) ----------------------------------------------------------------------
+
+    /// <summary>
+    /// Whether full KV blocks can be published under a content hash and attached to other slots (<see cref="AttachKvBlocks"/>):
+    /// paged caches of attention-only models, and of models with recurrent state when the device can snapshot that state
+    /// (<see cref="KvStateSnapshots"/>).
+    /// </summary>
+    public bool CachesKvBlocks => false;
+    /// <summary>
+    /// How many of <paramref name="hashes"/> (content hashes of a slot's next blocks, each chained from the one before) are cached
+    /// and can be attached; <paramref name="inUse"/> of them are held by other slots, so attaching them takes no free block.
+    /// </summary>
+    public int FindKvBlocks(ReadOnlySpan<UInt128> hashes, out int inUse)
+    {
+        inUse = 0;
+        return 0;
+    }
+    /// <summary>
+    /// Appends the cached blocks <see cref="FindKvBlocks"/> reports to a slot that holds whole blocks (for a model with recurrent state
+    /// also restoring the state snapshot taken at the last of them) and returns the tokens added; the slot's
+    /// <see cref="Length"/> grows by that many.
+    /// </summary>
+    public int AttachKvBlocks(int slot, ReadOnlySpan<UInt128> hashes) => 0;
+    /// <summary>
+    /// Publishes the slot's full blocks <paramref name="firstBlock"/>, <paramref name="firstBlock"/> + 1, ... under the content hashes
+    /// <paramref name="hashes"/>: they stay cached after the slot releases them, until their memory is needed (least recently
+    /// released first, a sequence's last blocks before its first).
+    /// </summary>
+    public void PublishKvBlocks(int slot, int firstBlock, ReadOnlySpan<UInt128> hashes)
+    {
+    }
+    /// <summary>
+    /// Recurrent state snapshots the decoder keeps for prefix caching (0: none, or the model has no recurrent state). A snapshot is
+    /// the state after a published block; attaching that block restores it.
+    /// </summary>
+    public int KvStateSnapshots => 0;
+    /// <summary>
+    /// Snapshots the slot's recurrent state, which must be the state after its context so far, a whole number of blocks whose last
+    /// block is published as <paramref name="hash"/>. Returns false when snapshots are not supported.
+    /// </summary>
+    public bool SaveKvStateSnapshot(int slot, UInt128 hash) => false;
+    /// <summary>Free blocks that still hold published content (counted in <see cref="KvBlocksFree"/>).</summary>
+    public int KvBlocksCached => 0;
+    /// <summary>Cached blocks whose content was dropped to reuse their memory.</summary>
+    public long KvBlocksEvicted => 0;
 }

@@ -31,6 +31,9 @@ public sealed class ServingChatClient : IChatClient
     /// <summary><see cref="ChatOptions.AdditionalProperties"/> key overriding the prefix-cache partition of one call (a string).</summary>
     public const string CachePartitionProperty = "sharplight.cache_partition";
 
+    /// <summary><see cref="ChatOptions.AdditionalProperties"/> key overriding the prefix-cache salt of one call (a string, see <see cref="GenerationRequest.CacheSalt"/>).</summary>
+    public const string CacheSaltProperty = "sharplight.cache_salt";
+
     /// <summary><see cref="ChatOptions.AdditionalProperties"/> key overriding the priority of one call (an int).</summary>
     public const string PriorityProperty = "sharplight.priority";
 
@@ -198,6 +201,7 @@ public sealed class ServingChatClient : IChatClient
             },
             Tenant = Property<string>(options, TenantProperty) ?? _options.Tenant,
             CachePartition = Property<string>(options, CachePartitionProperty) ?? _options.CachePartition,
+            CacheSalt = Property<string>(options, CacheSaltProperty) ?? _options.CacheSalt,
             Priority = options?.AdditionalProperties?.TryGetValue(PriorityProperty, out var priority) == true && priority is int value ? value : _options.Priority,
             Timeout = _options.Timeout,
         };
