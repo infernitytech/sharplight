@@ -9,7 +9,7 @@ namespace Sharplight.Architectures;
 /// <param name="Filters">Channels of the stem (doubled after every downsampling).</param>
 /// <param name="Kernel">Kernel of the stem, the head and the depthwise convolutions.</param>
 /// <param name="Depths">Blocks per encoder stage, from the audio rate to the frame rate; the decoder's stages run in reverse.</param>
-/// <param name="Ratios">The downsampling ratio of each encoder step (the decoder upsamples with them in reverse).</param>
+/// <param name="Ratios">The upsampling ratio of each decoder step, in the decoder's order (the encoder downsamples with them in reverse).</param>
 /// <param name="Latent">The width of the latents.</param>
 /// <param name="Eps">The RMS norm epsilon.</param>
 internal sealed record VibeVoiceTokenizerParameters(int Filters, int Kernel, int[] Depths, long[] Ratios, int Latent, float Eps)

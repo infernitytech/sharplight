@@ -41,9 +41,13 @@ public sealed class VibeVoiceAsrParityTests
         return cases;
     }
 
+    // The checkpoint with its tokenizer and weights (the Hub's index names the shards; the first one stands for all).
+    private static bool Present(string folder)
+        => File.Exists(Path.Combine(folder, "tokenizer.json")) && Directory.Exists(folder) && Directory.EnumerateFiles(folder, "model-00001-of-*.safetensors").Any();
+
     private static TaskModel Load(string clip, string device)
     {
-        Assert.SkipUnless(File.Exists(Path.Combine(Model, "model.safetensors.index.json")) && File.Exists(Path.Combine(Model, "tokenizer.json")), $"{Model} is not present");
+        Assert.SkipUnless(Present(Model), $"{Model} is not present");
         Assert.SkipUnless(File.Exists(Reference(clip, "info.json")), $"the reference of {clip} is not present");
         var gpu = SpeechEnvironment.Device(device);
         Assert.SkipUnless(gpu is not null, "no Vulkan device");
@@ -164,7 +168,7 @@ public sealed class VibeVoiceAsrParityTests
     public async Task Package_round_trip_transcribes_the_same()
     {
         const string Clip = "asr_jfk";
-        Assert.SkipUnless(File.Exists(Path.Combine(Model, "model.safetensors.index.json")) && File.Exists(Path.Combine(Model, "tokenizer.json")) && File.Exists(Reference(Clip, "info.json")), "the model is not present");
+        Assert.SkipUnless(Present(Model) && File.Exists(Reference(Clip, "info.json")), "the model is not present");
         string folder = Path.Combine(Environment.GetEnvironmentVariable("SHARPLIGHT_WORK") ?? Path.GetTempPath(), "speech-tests");
         Directory.CreateDirectory(folder);
         string path = Path.Combine(folder, $"vibevoice-asr-{Guid.NewGuid():N}.slm");
@@ -199,8 +203,7 @@ public sealed class VibeVoiceAsrParityTests
     public async Task Transcribes_speech_synthesized_by_VibeVoice()
     {
         string tts = SpeechEnvironment.VibeVoice("VibeVoice-1.5B");
-        Assert.SkipUnless(File.Exists(Path.Combine(Model, "model.safetensors.index.json")) && File.Exists(Path.Combine(Model, "tokenizer.json")) && File.Exists(Path.Combine(tts, "tokenizer.json")),
-            "the VibeVoice models are not present");
+        Assert.SkipUnless(Present(Model) && Present(tts), "the VibeVoice models are not present");
         var gpu = SpeechEnvironment.Device("vulkan");
         Assert.SkipUnless(gpu is not null, "no Vulkan device");
         const string Script = "Speaker 1: Good morning, how are you today?\nSpeaker 2: I am doing well, thank you. And you?\nSpeaker 1: Very well. Shall we begin the meeting?\nSpeaker 2: Yes, let us start with the first item.";

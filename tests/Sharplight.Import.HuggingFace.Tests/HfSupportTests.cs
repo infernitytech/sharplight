@@ -33,7 +33,9 @@ public sealed class HfSupportTests : IDisposable
     [InlineData("inkling_mm_model", SupportLevel.Supported)]
     [InlineData("inkling2", SupportLevel.Unsupported)]
     [InlineData("qwen3_tts", SupportLevel.Supported)]
-    [InlineData("vibevoice", SupportLevel.Unsupported)]
+    [InlineData("vibevoice", SupportLevel.Supported)]
+    [InlineData("vibevoice_asr", SupportLevel.Supported)]
+    [InlineData("voxcpm2", SupportLevel.Unsupported)]
     [InlineData(null, SupportLevel.Unsupported)]
     public void ArchitectureSupport_FollowsTheMappings(string? modelType, SupportLevel expected)
     {
@@ -192,8 +194,8 @@ public sealed class HfSupportTests : IDisposable
     [Fact]
     public void Import_UnknownModelType_NamesIt()
     {
-        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "vibevoice", "architectures": ["VibeVoiceForConditionalGeneration"]}""");
+        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "voxcpm2", "architectures": ["VoxCPM2ForConditionalGeneration"]}""");
         var error = Assert.Throws<UnsupportedArchitectureException>(() => HuggingFaceImporter.Open(_dir));
-        Assert.Equal("vibevoice", error.Architecture);
+        Assert.Equal("voxcpm2", error.Architecture);
     }
 }
