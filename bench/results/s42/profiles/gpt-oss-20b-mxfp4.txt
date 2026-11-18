@@ -1,0 +1,57 @@
+--- prefill T=2048 profile, segment 0
+GPU time 189.64 ms
+    98.175 ms  51.8%     72x  min   1268.4 us  matmul-id [32x2880→2880] mxfp4r gemm-cm2 gemm_cm2 T=2048,1
+    15.385 ms   8.1%     24x  min    207.9 us  attention fa T=2048,1
+    14.090 ms   7.4%     72x  min    120.8 us  matmul-id [32x2880→2880] mxfp4r gemm-cm2 half tiles gemm_cm2 T=2048,1
+    13.275 ms   7.0%     24x  min    534.2 us  matmul [4096→2880] q8_0r gemm_cm2 T=2048,1
+    11.740 ms   6.2%     24x  min    474.7 us  matmul [2880→4096] q8_0 gemm_cm2 T=2048,1
+     7.700 ms   4.1%     24x  min    313.3 us  fused[Add,Clip,Add,Clip,Scale,Sigmoid,Mul,Scale,Mul] main T=2048,1
+     5.872 ms   3.1%     24x  min    241.6 us  fused[Add,Mul] main T=2048,1
+     4.442 ms   2.3%     48x  min     43.0 us  moe-gather x→f16 moe_gather_x16 T=2048,1
+     2.786 ms   1.5%     48x  min     54.8 us  matmul [2880→512] q8_0 split-k gemm_cm2 T=2048,1
+     2.532 ms   1.3%     24x  min    104.4 us  ReduceSum rowreduce_narrow T=2048,1
+     2.252 ms   1.2%     24x  min     59.4 us  fused[Add]+RmsNorm main T=2048,1
+     2.002 ms   1.1%     24x  min     79.6 us  fused[Add,Add]+RmsNorm main T=2048,1
+     1.571 ms   0.8%     24x  min     63.5 us  rope main T=2048,1
+     1.368 ms   0.7%     48x  min     14.2 us  matmul [2880→512] q8_0 x→f16 to_f16 T=2048,1
+     1.283 ms   0.7%     24x  min     51.1 us  matmul [2880→32] f32 split-k gemm_cm2 T=2048,1
+     1.034 ms   0.5%     72x  min      6.1 us  fused[Add] main T=2048,1
+     0.741 ms   0.4%      1x  min    740.9 us  matmul [2880→201088] q8_0 matvec_sk T=2048,1
+     0.734 ms   0.4%     48x  min     11.6 us  moe-route [32 experts] moe_route T=2048,1
+     0.733 ms   0.4%     24x  min     30.3 us  matmul [2880→32] f32 x→split f16 split_rows T=2048,1
+     0.391 ms   0.2%     24x  min     14.2 us  matmul [4096→2880] q8_0r x→f16 to_f16 T=2048,1
+     0.388 ms   0.2%     24x  min     14.2 us  matmul [2880→4096] q8_0 x→f16 to_f16 T=2048,1
+     0.336 ms   0.2%     24x  min     12.3 us  rope+cache_write rope_row T=2048,1
+     0.294 ms   0.2%     48x  min      6.0 us  matmul split-k reduce splitk_reduce T=2048,1
+     0.197 ms   0.1%     24x  min      8.2 us  cache_write cache_write T=2048,1
+     0.098 ms   0.1%     24x  min      4.1 us  topk topk_subgroup T=2048,1
+     0.086 ms   0.0%     24x  min      2.0 us  matmul split-k reduce fused[Add] splitk_reduce T=2048,1
+     0.063 ms   0.0%      2x  min      4.1 us  gather gather T=2048,1
+     0.049 ms   0.0%     24x  min      2.0 us  softmax softmax T=2048,1
+     0.020 ms   0.0%      1x  min     20.5 us  RmsNorm main T=2048,1
+     0.004 ms   0.0%      1x  min      3.9 us  sample sample T=2048,1
+
+--- decode x64 profile, segment 0
+GPU time 304.92 ms
+    69.236 ms  22.7%   1536x  min     44.1 us  matmul-id2 [32x2880→2880]x2 mxfp4r fused[Add,Clip,Add,Clip,Scale,Sigmoid,Mul,Scale,Mul] int-dot moe_mmvq T=1,1
+    45.729 ms  15.0%     64x  min    714.2 us  matmul [2880→201088] q8_0 matvec_sk T=1,1
+    37.766 ms  12.4%   1536x  min     23.5 us  matmul-id-sum [32x2880→2880] mxfp4r fused[Add,Mul]+slot-sum int-dot moe_mmvq T=1,1
+    28.475 ms   9.3%   1536x  min     18.4 us  matmul [2880→4096] q8_0 +bias matvec_sk T=1,1
+    27.751 ms   9.1%   1536x  min     17.8 us  matmul [4096→2880] q8_0r matvec_sk T=1,1
+    21.943 ms   7.2%   3072x  min      5.1 us  matmul [2880→512] q8_0 +bias matvec_sk T=1,1
+    19.004 ms   6.2%   1536x  min     10.2 us  attention decode T=1,1
+     8.826 ms   2.9%   1536x  min      3.7 us  fused[Add,Add]+RmsNorm main T=1,1
+     7.668 ms   2.5%   1536x  min      2.9 us  fused[Add]+RmsNorm main T=1,1
+     6.292 ms   2.1%   1536x  min      3.4 us  matmul [2880→32] f32 +bias matvec_sk T=1,1
+     5.177 ms   1.7%   1536x  min      2.8 us  topk topk_subgroup T=1,1
+     4.792 ms   1.6%   1536x  min      2.8 us  rope main T=1,1
+     4.720 ms   1.5%   1536x  min      2.0 us  attention combine decode_combine T=1,1
+     4.067 ms   1.3%   1536x  min      1.6 us  matmul-id-sum [32x2880→2880] mxfp4r fused[Add,Mul]+slot-sum x→q8 quantize_q8_1 T=1,1
+     3.163 ms   1.0%   1536x  min      2.0 us  rope+cache_write rope_row T=1,1
+     3.149 ms   1.0%   1536x  min      2.0 us  cache_write cache_write T=1,1
+     3.149 ms   1.0%   1536x  min      2.0 us  matmul-id2 [32x2880→2880]x2 mxfp4r fused[Add,Clip,Add,Clip,Scale,Sigmoid,Mul,Scale,Mul] x→q8 quantize_q8_1 T=1,1
+     3.148 ms   1.0%   1536x  min      2.0 us  softmax softmax T=1,1
+     0.460 ms   0.2%    128x  min      2.0 us  gather gather T=1,1
+     0.262 ms   0.1%     64x  min      4.1 us  RmsNorm main T=1,1
+     0.148 ms   0.0%     64x  min      1.9 us  sample sample T=1,1
+

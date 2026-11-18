@@ -315,6 +315,8 @@
     <Setter Property="Height" Value="5" />
   </Style>
   <Style Selector="ProgressBar.thin">
+    <!-- The theme's minimum width of 200 would push a bar out of a narrow column. -->
+    <Setter Property="MinWidth" Value="0" />
     <Setter Property="MinHeight" Value="3" />
     <Setter Property="Height" Value="3" />
   </Style>

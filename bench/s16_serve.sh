@@ -5,7 +5,7 @@
 # bench/loadgen.py (closed loop, ~250-token random-word prompts or --natural instructions, 128 output tokens, ignore_eos, temperature
 # 0, server /metrics deltas) ROUNDS times per concurrency, then stops the server.
 # Results: $OUT_DIR/serve_<engine>_<name>_c<N>_r<round>.json (+ .gpu.txt), server log $OUT_DIR/serve_<engine>_<name>.server.log
-# env: OUT_DIR (bench/results/s16), PORT (18080), CTX_PER_SLOT (512), SLOTS (max concurrency), ROUNDS (2), NATURAL=1 (natural
+# env: OUT_DIR (bench/results/s16), PORT (18080), READY_TIMEOUT (1500 s), CTX_PER_SLOT (512), SLOTS (max concurrency), ROUNDS (2), NATURAL=1 (natural
 #      prompts), SHARPLIGHT_SERVER (default: the Release build in this checkout), LLAMA_DIR / LLAMA_BUILD (b11177), VLLM_VENV
 #      (virtualenv with vLLM and httpx; its python also runs loadgen.py; LOADGEN_PY overrides).
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -16,6 +16,7 @@ SLOTS=${SLOTS:-$(echo $CONCS | tr ' ' '\n' | sort -n | tail -1)}
 PY=${LOADGEN_PY:-${VLLM_VENV:?set VLLM_VENV}/bin/python}
 LOG=$OUT_DIR/serve_${ENG}_${NAME}.server.log
 export VLLM_USE_FLASHINFER_SAMPLER=0
+set -m
 case $ENG in
   sharplight)
     SRV=${SHARPLIGHT_SERVER:-$HERE/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight}
@@ -31,7 +32,7 @@ esac
 SP=$!; T0=$SECONDS; OK=0
 while kill -0 $SP 2>/dev/null; do
   curl -sf "localhost:$PORT/health" >/dev/null 2>&1 && { OK=1; break; }
-  [ $((SECONDS - T0)) -gt 1500 ] && break; sleep 1
+  [ $((SECONDS - T0)) -gt "${READY_TIMEOUT:-1500}" ] && break; sleep 1
 done
 echo "ready=$OK after $((SECONDS - T0)) s" | tee "$LOG.ready"
 NAT=""; [ "${NATURAL:-0}" = 1 ] && NAT="--natural"
@@ -45,4 +46,5 @@ if [ $OK = 1 ]; then
     done
   done
 fi
-kill $SP 2>/dev/null; sleep 3; kill -9 $SP 2>/dev/null; wait $SP 2>/dev/null; sleep 5
+# The server runs in its own process group (set -m): stop the group, so worker processes (vLLM's engine core) go with it.
+kill -- -$SP 2>/dev/null; sleep 3; kill -9 -- -$SP 2>/dev/null; wait $SP 2>/dev/null; sleep 5

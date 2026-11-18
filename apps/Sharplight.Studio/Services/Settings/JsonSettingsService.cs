@@ -8,7 +8,7 @@ namespace Sharplight.Studio.Services.Settings;
 /// <summary><see cref="ISettingsService"/> persisted as JSON; a missing or unreadable file gives the defaults.</summary>
 internal sealed class JsonSettingsService : ISettingsService
 {
-    private readonly string _path;
+    private string _path;
     private readonly string? _commandLineStore;
     private readonly StorageLayout _layout;
     private readonly Lock _lock = new();
@@ -74,6 +74,15 @@ internal sealed class JsonSettingsService : ISettingsService
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <inheritdoc/>
+    public void RelocateTo(string settingsFile)
+    {
+        lock (_lock)
+        {
+            _path = settingsFile;
+        }
     }
 
     internal static AppSettings Load(string path)

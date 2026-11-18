@@ -1,0 +1,48 @@
+--- prefill T=2048 profile, segment 0
+GPU time 311.67 ms
+   129.355 ms  41.5%     64x  min   1905.2 us  matmul [4096→14336] q4_k gemm_cm2 T=2048,1
+    46.438 ms  14.9%     16x  min   2776.6 us  matmul [14336→4096] q6_k gemm_cm2 T=2048,1
+    41.066 ms  13.2%     64x  min    610.9 us  matmul [4096→4096] q4_k gemm_cm2 T=2048,1
+    37.549 ms  12.0%     16x  min   2243.1 us  matmul [14336→4096] q4_k gemm_cm2 T=2048,1
+    13.262 ms   4.3%     32x  min    412.4 us  fused[Silu,Mul] main T=2048,1
+    10.446 ms   3.4%     32x  min    312.4 us  attention fe T=2048,1
+     8.687 ms   2.8%     64x  min     79.7 us  fused[Add]+RmsNorm main T=2048,1
+     7.736 ms   2.5%     48x  min    153.2 us  matmul [4096→1024] q4_k gemm_cm2 T=2048,1
+     3.553 ms   1.1%     16x  min    220.1 us  matmul [14336→4096] q6_k x→f16 to_f16 T=2048,1
+     3.539 ms   1.1%     16x  min    218.1 us  matmul [14336→4096] q4_k x→f16 to_f16 T=2048,1
+     3.143 ms   1.0%     16x  min    188.0 us  matmul [4096→1024] q6_k gemm_cm2 T=2048,1
+     2.129 ms   0.7%     32x  min     64.2 us  rope main T=2048,1
+     1.790 ms   0.6%     64x  min     16.3 us  matmul [4096→4096] q4_k x→f16 to_f16 T=2048,1
+     1.154 ms   0.4%     32x  min     34.3 us  matmul [4096→14336] q4_k x→f16 to_f16 T=2048,1
+     0.614 ms   0.2%     32x  min     18.4 us  rope+cache_write rope_row T=2048,1
+     0.557 ms   0.2%     32x  min     16.4 us  cache_write cache_write T=2048,1
+     0.534 ms   0.2%      1x  min    533.5 us  matmul [4096→128256] q6_k int-dot mmvq T=2048,1
+     0.088 ms   0.0%      2x  min      4.1 us  gather gather T=2048,1
+     0.027 ms   0.0%      1x  min     26.6 us  RmsNorm main T=2048,1
+     0.004 ms   0.0%      1x  min      3.9 us  matmul [4096→128256] q6_k x→q8 quantize_q8_1 T=2048,1
+     0.004 ms   0.0%      1x  min      3.7 us  sample sample T=2048,1
+
+--- decode x64 profile, segment 0
+GPU time 496.46 ms
+   163.764 ms  33.0%   2048x  min     78.8 us  matmul2 [4096→14336]x2 q4_k fused[Silu,Mul] int-dot mmvq T=1,1
+    65.419 ms  13.2%   1024x  min     62.5 us  matmul [14336→4096] q6_k int-dot mmvq T=1,1
+    59.028 ms  11.9%   4096x  min     14.3 us  matmul [4096→4096] q4_k int-dot mmvq T=1,1
+    49.710 ms  10.0%   1024x  min     46.0 us  matmul [14336→4096] q4_k int-dot mmvq T=1,1
+    33.567 ms   6.8%   2048x  min     15.4 us  attention decode T=1,1
+    32.211 ms   6.5%     64x  min    501.8 us  matmul [4096→128256] q6_k int-dot mmvq T=1,1
+    22.535 ms   4.5%   4096x  min      3.4 us  fused[Add]+RmsNorm main T=1,1
+    19.719 ms   4.0%   3072x  min      5.2 us  matmul [4096→1024] q4_k int-dot mmvq T=1,1
+     9.022 ms   1.8%   2048x  min      4.0 us  attention combine decode_combine T=1,1
+     8.133 ms   1.6%   1024x  min      7.6 us  matmul [4096→1024] q6_k int-dot mmvq T=1,1
+     7.905 ms   1.6%   4096x  min      1.8 us  matmul [4096→4096] q4_k x→q8 quantize_q8_1 T=1,1
+     7.001 ms   1.4%   2048x  min      1.5 us  rope main T=1,1
+     4.890 ms   1.0%   2048x  min      2.0 us  rope+cache_write rope_row T=1,1
+     4.243 ms   0.9%   2048x  min      2.0 us  cache_write cache_write T=1,1
+     4.194 ms   0.8%   2048x  min      2.0 us  matmul2 [4096→14336]x2 q4_k fused[Silu,Mul] x→q8 quantize_q8_1 T=1,1
+     1.990 ms   0.4%   1024x  min      1.7 us  matmul [14336→4096] q6_k x→q8 quantize_q8_1 T=1,1
+     1.987 ms   0.4%   1024x  min      1.7 us  matmul [14336→4096] q4_k x→q8 quantize_q8_1 T=1,1
+     0.521 ms   0.1%    128x  min      3.5 us  gather gather T=1,1
+     0.262 ms   0.1%     64x  min      4.1 us  RmsNorm main T=1,1
+     0.238 ms   0.0%     64x  min      3.7 us  sample sample T=1,1
+     0.123 ms   0.0%     64x  min      1.9 us  matmul [4096→128256] q6_k x→q8 quantize_q8_1 T=1,1
+

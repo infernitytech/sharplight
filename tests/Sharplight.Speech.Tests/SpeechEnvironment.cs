@@ -51,6 +51,9 @@ internal static class SpeechEnvironment
 
     /// <summary>A speech GGUF file under <c>~/models/speech-gguf</c> (transcribe.cpp layout).</summary>
     /// <param name="name">The file name, e.g. <c>parakeet-tdt-0.6b-v3-F16.gguf</c>.</param>
+    /// <summary>A checkpoint folder of the hot-model sweep (<c>models/hot-b</c>).</summary>
+    public static string HotModel(string name) => Path.Combine(s_models, "hot-b", name);
+
     public static string SpeechGguf(string name) => Path.Combine(s_models, "speech-gguf", name);
 
     /// <summary>A whisper.cpp model file under <c>~/models/whisper.cpp</c>.</summary>

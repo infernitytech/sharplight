@@ -6,6 +6,8 @@
              x:DataType="sp:SpeakPageViewModel">
   <iv:InferenceFrame>
     <iv:InferenceFrame.Workspace>
+      <!-- Scrolls when the window is too small for the input and the result, instead of laying the result out over the controls around it. -->
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <Grid RowDefinitions="*,Auto,Auto" RowSpacing="14">
         <!-- Input -->
         <Border Classes="card">
@@ -16,7 +18,7 @@
               <TextBlock Classes="caption" Text="{Binding RunHint}" VerticalAlignment="Center" />
             </StackPanel>
             <TextBlock DockPanel.Dock="Top" Classes="h2" Text="Text" Margin="0,0,0,10" />
-            <TextBox x:Name="Input" Text="{Binding InputText}" AcceptsReturn="True" TextWrapping="Wrap" PlaceholderText="Type or paste the text to speak" VerticalContentAlignment="Top" />
+            <TextBox x:Name="Input" MinHeight="140" Text="{Binding InputText}" AcceptsReturn="True" TextWrapping="Wrap" PlaceholderText="Type or paste the text to speak" VerticalContentAlignment="Top" />
           </DockPanel>
         </Border>
         <!-- Voices -->
@@ -24,20 +26,20 @@
           <StackPanel Spacing="8">
             <TextBlock Classes="h2" Text="Voices" />
             <TextBlock Classes="muted" TextWrapping="Wrap" Text="Cloning models (CosyVoice 3, F5-TTS, Chatterbox, XTTS) speak in the voice of the reference recording set in the parameters. Save it once under a name and pick it later as the saved voice." />
-            <StackPanel Orientation="Horizontal" Spacing="8">
+            <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
               <TextBox Width="200" Text="{Binding VoiceName}" PlaceholderText="Name of the new voice" />
               <Button Classes="small" Content="Save voice from the reference" Command="{Binding SaveVoiceCommand}" />
               <Button Classes="small" Content="{Binding RecordReferenceText}" Command="{Binding ToggleReferenceRecordingCommand}" IsEnabled="{Binding CanRecord}" />
               <Button Classes="small" Content="Delete the chosen saved voice" Command="{Binding DeleteVoiceCommand}" />
-            </StackPanel>
+            </WrapPanel>
           </StackPanel>
         </Border>
         <!-- Result -->
-        <Border Grid.Row="2" Classes="card">
+        <Border Grid.Row="2" Classes="card" ClipToBounds="True">
           <StackPanel Spacing="10">
             <TextBlock Classes="h2" Text="Audio" />
             <TextBlock Classes="muted" Text="The speech appears here once it is generated." IsVisible="{Binding !HasResult}" />
-            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasResult}">
+            <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8" IsVisible="{Binding HasResult}">
               <Button Classes="accent small" Command="{Binding PlayCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <Path Classes="icon" Data="{StaticResource IconPlay}" Width="12" Height="12" IsVisible="{Binding !IsPlaying}" />
@@ -47,12 +49,13 @@
               </Button>
               <Button Classes="small" Content="Save as WAV" Command="{Binding SaveCommand}" />
               <Button Classes="small" Content="Open in the system player" Command="{Binding OpenResultCommand}" />
-            </StackPanel>
+            </WrapPanel>
             <TextBlock Classes="caption" Text="{Binding ResultSummary}" IsVisible="{Binding HasResult}" TextWrapping="Wrap" />
             <TextBlock Classes="caption" Text="{Binding PlayHint}" IsVisible="{Binding !CanPlay}" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
       </Grid>
+      </ScrollViewer>
     </iv:InferenceFrame.Workspace>
   </iv:InferenceFrame>
 </UserControl>

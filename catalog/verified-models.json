@@ -1,7 +1,7 @@
 {
   "$schema": "./verified-models.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-16",
+  "updated": "2026-11-17",
   "docSections": [
     {
       "id": "1.1",
@@ -20815,6 +20815,173 @@
       },
       "notes": "HF convnext format",
       "doc": []
+    },
+    {
+      "id": "table-transformer-structure-recognition",
+      "name": "Table Transformer structure recognition",
+      "kind": "object-detection",
+      "family": "DETR",
+      "architecture": "table-transformer",
+      "level": "verified",
+      "license": "mit",
+      "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com/research"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 535402592,
+          "companions": [],
+          "repository": "microsoft/table-transformer-structure-recognition",
+          "revision": "f4d4bdc85c3fe4b1fa49658882a5d38bbdd0f343",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1469,
+              "gitOid": "b784cf6d3759e23c6af6d5c52a9db9e34a7b5aaa"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 115434268,
+              "sha256": "f581da65a586591124cac9545b09b93e4e8bf28ce3a8357af6ac15ce94fce16b"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 274,
+              "gitOid": "3cf68cfe0f9b5ef223c0e71613930b758ddaae4d"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "same 13 detections as transformers on a synthetic table (rows, columns, column header, table), boxes within 2 px, scores within 0.02, CPU and Vulkan",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "ObjectDetectorTests.DetectorMatchesTransformers"
+        ]
+      },
+      "notes": "fixed square canvas; hot-model sweep 2026-11-17 (1.2M downloads in 30 days)",
+      "doc": [
+        {
+          "section": "5",
+          "cells": {
+            "repositories": "microsoft/table-transformer-structure-recognition",
+            "task": "detection"
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen3-asr-0.6b",
+      "name": "Qwen3-ASR 0.6B",
+      "kind": "speech-recognition",
+      "family": "Qwen3-ASR",
+      "architecture": "qwen3_asr",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors-hf",
+          "label": "BF16 safetensors (transformers layout)",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 2202320485,
+          "companions": [],
+          "repository": "Qwen/Qwen3-ASR-0.6B-hf",
+          "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "chat_template.jinja",
+              "size": 1434,
+              "gitOid": "491fff331513a97316daf53591c7b9b9da53ef8c"
+            },
+            {
+              "path": "config.json",
+              "size": 2398,
+              "gitOid": "3b4221f651b59ec21f545e5852b4d6cb23420b09"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 165,
+              "gitOid": "3ed98c80087572bad932a83279c5602e58bbfc5c"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 487,
+              "gitOid": "a07dff48032bed341260501d6688036c6fd7f3ef"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 11429653,
+              "sha256": "fe1fad59be22a41ee293363fcf95fdedbc7c93f3b49270b1d2e18bd1399a7a05"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 998,
+              "gitOid": "aa62b6c06ab8a704dc0895420fb1d2515954a49c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 1564928088,
+              "sha256": "d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "greedy ids identical to transformers on jfk and LibriSpeech, language detected and English forced, on the CPU; on Vulkan jfk is identical and LibriSpeech differs at one comma (near-tie, see notes)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-17",
+        "tests": [
+          "Qwen3AsrParityTests.SmallModelTokensMatchTransformers"
+        ]
+      },
+      "notes": "30 languages; recordings in 30 s windows; hot-model sweep 2026-11-17 (the original Qwen/Qwen3-ASR-0.6B layout loads through the same mapping, not compared)",
+      "doc": [
+        {
+          "section": "2",
+          "cells": {
+            "model": "Qwen3-ASR 0.6B (audio language model)",
+            "repositories": "Qwen/Qwen3-ASR-0.6B-hf",
+            "formats": "HF (transformers layout)"
+          }
+        }
+      ]
     }
   ]
 }

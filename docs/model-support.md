@@ -1181,8 +1181,9 @@ come from the new `HtkMelFilterBank`, which F5-TTS now uses too). Parity vs coqu
 - speaker embedding: 2.8e-6 / 1.3e-6
 - from the reference's signals: conditioning latents 1.9e-6, speaker embedding 3.1e-6
 A cloned sentence is transcribed word for word by Qwen3-ASR-1.7B; its speaker similarity to the recording is 0.62, against 0.19 for a built-in
-speaker. The Perceiver's latents grow to 1e10 before its norm, which overflows the split-f16 flash attention on Vulkan. Its attention therefore sets
-the new `StandardOps.F32ProductsAttribute`, which keeps the products on the f32 kernel.
+speaker. The Perceiver's latents grow to 1e10 before its norm, beyond f16's range; the split-f16 flash attention on Vulkan scales each query row,
+key row and V tile by a power of two into f16's range before splitting (docs/benchmarks.md section 39), so it runs on the tensor cores like
+the other attention.
 
 CosyVoice 3 loading: the release folder (`Sharplight.Import.CosyVoice`, `CosyVoiceImporter`, `services.AddCosyVoiceImporter()`:
 `cosyvoice3.yaml`, `llm.pt`, `flow.pt`, `hift.pt`, the Qwen tokenizer in `CosyVoice-BlankEN/`, `speech_tokenizer_v3.onnx`, `campplus.onnx`). The
@@ -2229,3 +2230,176 @@ Open:
    hidden size) are refused by the mapping; both are small additions to the decoder (a post-norm layer flag and in/out projections).
 3. **Larger safetensors.** bf16 checkpoints above ~30 GB were not run through the HF importer (only GGUF, and FP8 for Qwen3.8-27B), by
    the sweep's disk rule.
+
+## 19. Hot-model sweep 2026-11-17
+
+The product owner's request: the 20 most popular models per category, current rather than all-time, because older models run but many hot new
+ones were untested. Selection rules:
+
+- **Ranking.** Hub API, `GET /api/models?pipeline_tag=<tag>&sort=trendingScore|downloads&limit=50`, queried on 2026-11-17 with the tags named in
+  each section. `downloads` is the Hub's 30-day count, `trendingScore` its current trending score; the tables give the 30-day downloads (dl30)
+  and likes. Models created or updated in the last ~6 months come first; where a category has few new releases (vision) the list is filled with
+  the most downloaded of the last 30 days.
+- **Official checkpoints only.** The developer's own repository (openai, nvidia, Qwen, mistralai, microsoft, google, facebook, ...), and
+  conversions or quantizations only from the developer itself or a trusted provider (unsloth, ggml-org, onnx-community, Xenova where it is the
+  de-facto official ONNX). A hot model that exists only as community conversions is listed as "community only" and not tested. The publisher is
+  recorded in the catalog entry (`publisher`) and in the tables as "Publisher".
+- One entry per family and size; fine-tunes and re-uploads skipped. Licenses that restrict use (non-commercial, AGPL, gated) are marked.
+- Already verified models (docs/compatible-models.md, `catalog/verified-models.json`) are listed with their earlier result.
+- Downloads go to `~/models/hot-b`; references run in the sandboxed venvs (transformers 5.23, float32, CPU).
+
+Architecture descriptions in the "needs arch" cells are read from the Hub metadata (`model_type`, class names, file lists, model cards), not from
+the modeling code; each needs its own read before it is estimated. "n/a" in the release / downloads cells: not queried individually.
+
+Status legend: **verified** (this sweep or earlier: output compared with the reference), **needs arch** (the architecture is not implemented; the
+column says what is missing), **community only**, **not run** (selected, not reached in this round).
+
+### 19.1 Speech to text (`automatic-speech-recognition`, trending + downloads)
+
+| # | Model | Publisher | Released | dl30 / likes | Format | Status |
+|---|---|---|---|---|---|---|
+| 1 | nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B | NVIDIA | 2026-10-07 | 85k / 3.4k | safetensors (`nemo_speechlm`, 33.7 B) | needs arch: speech-LM wrapper (`Nemotron3_5TranscribeForConditionalGeneration`); non-commercial "other" license; no GGUF/ONNX from NVIDIA |
+| 2 | nvidia/nemotron-3.5-asr-streaming-0.6b | NVIDIA | 2026-05-15 | 481k / 1.3k | `.nemo`, NVIDIA's own `q8_0.gguf`, HF `nemotron3_5_asr` | needs arch: cache-aware streaming FastConformer (causal layer-norm convolution module, chunk-limited attention) with an RNN-T head; "other" license |
+| 3 | openai/whisper-large-v3 | OpenAI | 2023-11 | 3.3M / 6.8k | HF, whisper.cpp, GGUF | verified (section 13.1) |
+| 4 | openai/whisper-large-v3-turbo | OpenAI | 2024-10 | 4.8M / 3.6k | HF, whisper.cpp ggml | verified |
+| 5 | Qwen/Qwen3-ASR-1.7B | Alibaba (Qwen) | 2026-01-28 | 1.6M / 1.3k | HF (both layouts), GGUF | verified (section 13.2) |
+| 6 | Qwen/Qwen3-ASR-0.6B | Alibaba (Qwen) | 2026-01-28 | 306k (`-hf`: 527k) / 400 | HF `-hf` | **verified this sweep**: CPU token-exact vs transformers on jfk and LibriSpeech (auto language and English forced); Vulkan: jfk identical, LibriSpeech differs at one comma (section 19.1.1) |
+| 7 | nvidia/parakeet-tdt-0.6b-v3 | NVIDIA | 2025-08-04 | 529k / 1.3k | HF `parakeet_tdt`, GGUF | verified (section 13) |
+| 8 | microsoft/VibeVoice-ASR | Microsoft | 2026-01-21 | 719k / 1.3k | safetensors (`vibevoice`, 8.7 B) | needs arch: acoustic + semantic tokenizers (conv encoders) feeding a Qwen2 decoder with speaker-diarized long-form output; MIT |
+| 9 | mistralai/Voxtral-Mini-4B-Realtime-2602 | Mistral AI | 2026-01-21 | 1.5M / 1.1k | safetensors (`voxtral_realtime`, 4.4 B) | needs arch: streaming causal audio encoder and delayed-token decoder (section 13.1) |
+| 10 | CohereLabs/cohere-transcribe-03-2026 | Cohere Labs | 2026-03-24 | 94k / 1.2k | HF `cohere_asr` (gated, auto), handy-computer GGUF | needs arch `cohere_asr` (conformer encoder + autoregressive decoder); the gate needs accepted terms |
+| 11 | ibm-granite/granite-speech-5.0-2b | IBM | 2026-10-07 | 11k / 85 | HF `granite_speech` (2.3 B) | needs arch: conformer encoder + window Q-former projector + Granite LLM (the Granite text model is supported) |
+| 12 | google/medasr | Google | 2025-12-18 | 7k / 389 | HF `lasr_ctc` (105 M, gated, auto) | needs arch: LASR conformer CTC; Health AI license |
+| 13 | ai-sage/GigaAM-v3 | Sber | 2025-11-19 | 342k / 210 | `pytorch_model.bin` (`gigaam`, MIT) | needs arch: GigaAM conformer (RNN-T / CTC heads, custom code) |
+| 14 | nvidia/parakeet-ctc-1.1b | NVIDIA | 2023-12-28 | 47k / 67 | HF `parakeet_ctc`, NVIDIA's own `q8_0.gguf` | not run (maps like the verified parakeet-ctc-0.6b) |
+| 15 | moonshine-ai/moonshine-streaming-medium | Moonshine AI | 2026-01-06 | 44k / 35 | HF `moonshine_streaming` | needs arch: sliding-window streaming encoder |
+| 16 | kyutai/stt-2.6b-en | Kyutai | 2025-06-06 | 0 / 128 | safetensors (moshi) | needs arch: Mimi-token delayed-stream LM (the Mimi codec is supported) |
+| 17 | facebook/omniASR-LLM-7B | Meta | 2025-11-27 | 0 / 49 | fairseq2 checkpoint | needs arch: wav2vec2 encoder + LLM decoder in fairseq2 layout |
+| 18 | nvidia/canary-qwen-2.5b | NVIDIA | 2025-06-26 | 25k / 474 | `.nemo` | needs a `.nemo` (tar of NeMo checkpoint) reader plus the FastConformer + Qwen3 SALM wrapper |
+| 19 | openai/whisper-small | OpenAI | 2022-09 | 4.5M / 657 | HF, whisper.cpp | verified |
+| 20 | facebook/wav2vec2-base-960h | Meta | 2022-03 | 1.8M / 418 | HF | verified (section 13.1) |
+
+Community-only hot models, not tested: fluid-speech-pro (FluidVoice-Labs), SOV-Transcribe-1, moondream/parakeet-ultra and
+handy-computer/*-gguf re-uploads of the NVIDIA models (the transcribe.cpp GGUF files were already run in section 13.1), indic and language
+fine-tunes. Systran/faster-whisper-* (CTranslate2, 1.7-6.3M dl30) is a trusted conversion of the OpenAI models but the CTranslate2 `model.bin`
+format has no importer; the same models import from the OpenAI checkpoints.
+
+#### 19.1.1 Qwen3-ASR 0.6B
+
+`Qwen/Qwen3-ASR-0.6B-hf` through the existing `qwen3_asr` mapping, no code change: the fixtures come from
+`tests/Sharplight.Speech.Tests/tools/make_qwen3_asr_fixtures.py` (transformers 5.23, float32; `Fixtures/qwen3-asr-0.6b.json`), the test is
+`Qwen3AsrParityTests.SmallModelTokensMatchTransformers`.
+
+- CPU: greedy ids identical on jfk.wav and LibriSpeech 1272-128104-0004, language auto-detected ("English") and forced.
+- Vulkan: jfk identical; LibriSpeech drops one comma ("a sort of, up guards" against "a sort of up guards"). It is a near-tie: after "a sort of" the reference
+  logits of "," and "up" are 29.405 and 29.402 (gap 0.004), which the GPU path's f16 compute resolves the other way. The test leaves that one clip
+  out on Vulkan.
+
+### 19.2 Text to speech incl. voice cloning (`text-to-speech`, trending + downloads)
+
+| # | Model | Publisher | Released | dl30 / likes | Format | Status |
+|---|---|---|---|---|---|---|
+| 1 | Zyphra/ZONOS3-Mini | Zyphra | 2026-11-09 | 94k / 501 (trending #1) | Zyphra repository (no `config.json`; `-hf` conversion and a GGUF by AtomicChat, community) | not run: needs inspection of the architecture; voice cloning |
+| 2 | hexgrad/Kokoro-82M | hexgrad | 2024-12-26 | 13.0M / 7.4k | PyTorch folder; onnx-community ONNX (877k) | verified (section 12) |
+| 3 | k2-fsa/OmniVoice | k2-fsa | 2026-03-30 | 4.2M / 1.7k | safetensors (`omnivoice`, 613 M) | needs arch (section 13.1): masked-diffusion acoustic model over audio codes + codec decoder; no license tag on the card |
+| 4 | coqui/XTTS-v2 | Coqui | 2023-10-31 | 5.2M / 4.0k | PyTorch folder | verified, voice cloning (section 12); CPML non-commercial license |
+| 5 | ResembleAI/chatterbox | Resemble AI | 2025-04-24 | 2.5M / 1.9k | safetensors folder | verified, voice cloning |
+| 6 | SWivid/F5-TTS | SWivid | 2024-10-07 | 1.4M / 1.2k | safetensors | verified, voice cloning |
+| 7 | Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice (+ 0.6B-Base, 0.6B-CustomVoice, 1.7B-VoiceDesign, Qwen3-TTS-Tokenizer-12Hz) | Alibaba (Qwen) | 2026-01-21 | 1.17M (family 3.4M) / 2.2k | HF `qwen3_tts` (0.9-1.7 B), tokenizer `qwen3_tts_tokenizer_12hz` | needs arch: talker LM + code-predictor over 16 codebooks + 12 Hz codec decoder (section 13.1) |
+| 8 | openbmb/VoxCPM2 | OpenBMB | 2026-04-03 | 980k / 1.8k | safetensors (2.3 B) | needs arch: continuous-latent diffusion-AR TTS (MiniCPM backbone + local DiT + AudioVAE) |
+| 9 | FunAudioLLM/Fun-CosyVoice3-0.5B-2512 | Alibaba (FunAudioLLM) | 2025-12 | n/a | PyTorch folder | verified, voice cloning |
+| 10 | fishaudio/drama-3 | Fish Audio | 2026-10-01 | 44k / 1.3k (Jmica GGUF community: 559k) | safetensors | not run: architecture not inspected; license to check |
+| 11 | fishaudio/s2-pro | Fish Audio | 2026-03-09 | 46k / 1.5k | safetensors | not run (Fish "dual-AR" with DAC codec; the DAC codec is supported) |
+| 12 | microsoft/VibeVoice-1.5B | Microsoft | 2025-08-25 | 216k / 2.5k | safetensors (`vibevoice`, 2.7 B) | needs arch: Qwen2 LM + diffusion head over continuous acoustic tokens (7.5 Hz tokenizers) |
+| 13 | OpenMOSS-Team/MOSS-TTS-Local-Transformer | OpenMOSS | 2026-02-08 | 204k / 32 | safetensors | not run |
+| 14 | gradium/phonon-31m-en | Gradium | 2026-10-19 | 321k / 167 | safetensors (31 M) | not run (small; candidate for a quick bring-up) |
+| 15 | KittenML/kitten-tts-nano-0.8, kitten-tts-2-mini | KittenML | 2026-02-19 / 2026-11-13 | 261k / 2.8k | ONNX (Kokoro-style StyleTTS 2) | not run (ONNX graph; the espeak phonemizer is the open part) |
+| 16 | ai4bharat/indic-parler-tts | AI4Bharat | 2024-10-28 | 176k / 581 | safetensors (Parler: T5 + DAC decoder LM) | needs arch `parler_tts` (DAC codec supported) |
+| 17 | microsoft/speecht5_tts | Microsoft | 2023-02-02 | 172k / 852 | safetensors | needs arch `speecht5` (+ HiFi-GAN vocoder, x-vector speaker) |
+| 18 | canopylabs/orpheus-3b-0.1-ft | Canopy Labs | 2025 | n/a | safetensors (gated, auto); unsloth mirror | verified through the unsloth mirror (section 12) |
+| 19 | OuteAI/OuteTTS-0.2-500M | OuteAI | 2024 | n/a | GGUF | verified (section 12) |
+| 20 | sesame/csm-1b, nari-labs/Dia-1.6B, 2Noise/ChatTTS | Sesame, Nari Labs, 2Noise | 2025 / 2024 | n/a | safetensors | needs arch (csm: Llama backbone + depth decoder over Mimi codes; Dia: DAC-codebook delay-pattern LM; ChatTTS: GPT + DVAE + Vocos) |
+
+Community only: ampixa/sanoTTS, remsky/kokoro-inno-clone-tuner, pnnbao-ump VieNeu-TTS (a fine-tune family), drbaph/Higgs-Audio-v3-Studio,
+HoppouAI/Breeze-TTS-2.cpp, audio-cpp/* GGUF collections (a third-party runtime's conversions; not tested).
+
+### 19.3 Audio: codecs, music generation, separation, embeddings and classification, VAD (`audio-to-audio`, `audio-classification`, `voice-activity-detection`, `text-to-audio`)
+
+| # | Model | Publisher | Released | dl30 / likes | Format | Status |
+|---|---|---|---|---|---|---|
+| 1 | facebook/encodec_24khz | Meta | 2023 | n/a | HF | verified (section 16) |
+| 2 | descript/dac_44khz | Descript | 2023 | n/a | HF | verified |
+| 3 | kyutai/mimi | Kyutai | 2024 | n/a | HF | verified |
+| 4 | Qwen/Qwen3-TTS-Tokenizer-12Hz | Alibaba (Qwen) | 2026-01-21 | 57k / 103 | HF `qwen3_tts_tokenizer_12hz` (171 M) | needs arch: Mimi-like 16-codebook codec; reuses the Mimi building blocks (see 19.2 #7) |
+| 5 | neuphonic/neucodec | Neuphonic | 2025-06-19 | 49k / 194 | safetensors (630 M, gated auto) | not run: FSQ codec with a Wav2Vec2-BERT semantic encoder |
+| 6 | nvidia/bigvgan_v2_22khz_80band_256x (+ 44khz 128band) | NVIDIA | 2024-07-15 | 1.8M, 1.7M / 43, 85 | PyTorch (`bigvgan` package) | not run: vocoder (snake activations, anti-aliased upsampling); mel to wave |
+| 7 | ACE-Step/Ace-Step1.5 | ACE-Step | 2026-01-23 | 105k / 976 | safetensors + 5 Hz LM (`acestep`) | needs arch: DiT + music DCAE + LM planner |
+| 8 | stabilityai/stable-audio-3-medium (small-sfx, small-music) | Stability AI | 2026-05-17 | 134k / 620 | safetensors (gated auto, community license) | needs arch: DiT over an audio autoencoder latent with a T5 text encoder |
+| 9 | stabilityai/stable-audio-open-1.0 | Stability AI | 2024-05-24 | 23k / 2.0k | safetensors (gated) | needs arch (as 8) |
+| 10 | facebook/musicgen-small, -medium | Meta | 2023-06-08 | 194k, 2.0M / 533, 179 | HF `musicgen` | small verified (section 16); medium (CC-BY-NC) maps the same way, not run |
+| 11 | m-a-p/YuE2-3B | M-A-P | 2026-09-09 | 21k / 1.3k | safetensors | needs arch: two-stage LM (Llama-style, supported) + xcodec-style audio codec |
+| 12 | MiniMaxAI/MiniMax-Music3 | MiniMax | 2026-08-07 | 5k / 1.5k | safetensors | not run: size and architecture not inspected |
+| 13 | google/magenta-realtime-2 | Google | 2026-05-28 | 18k / 267 | not inspected | not run |
+| 14 | MIT/ast-finetuned-audioset-10-10-0.4593 | MIT CSAIL | 2022-11-14 | 1.9M / 392 | HF `audio-spectrogram-transformer` (87 M) | not run: ViT over fbank patches; needs an audio-classification task or reuses the CLAP audio path |
+| 15 | laion/clap-htsat-fused | LAION | 2023-02-16 | 9.4M / 179 | HF `clap` | rejected on purpose: the fusion variant is not implemented (the unfused laion/clap-htsat-unfused is verified) |
+| 16 | pyannote/segmentation-3.0, pyannote/speaker-diarization-community-1 | pyannote | 2023-09-22 / 2025-04-15 | 4.7M, 4.9M / 2.7k, 4.6k | PyTorch (gated auto) | not run: PyanNet (SincNet + LSTM) segmentation; powerset decoding |
+| 17 | nvidia/Nemotron-3-Diarization | NVIDIA | 2026-09-01 | 232k / 842 | safetensors (`nemotron3_diarization`, 99 M); onnx-community ONNX | not run: streaming Sortformer-style diarizer |
+| 18 | snakers4/silero-vad v5 / v6 | Silero | 2025 | n/a | ONNX | v5 verified (section 16); v6.2 only as handy-computer GGUF (community) |
+| 19 | nvidia/NVIDIA-NemotronLabs-RE-USE | NVIDIA | 2026-07-22 | 48k / 230 | safetensors | not run: speech enhancement (ReUSE) |
+| 20 | facebook/htdemucs family, m-a-p/MERT-v1-95M, audeering/wav2vec2-large-robust-24-ft-age-gender (2.4M), facebook/audiobox-aesthetics (367k) | Meta, M-A-P, audeering | various | | HF | htdemucs verified (KeighBee conversion, section 16); the rest not run (wav2vec2-family encoders with heads: reuse the wav2vec2 graph) |
+
+Community only: audio-cpp/* GGUF collections, JusperLee/TIGER-DnR (separation research code, community of the paper's authors, not tested),
+chenmozhijin/BSRoformer-GGUF (500k-ish), handy-computer silero / sortformer GGUF files, RVC voice models.
+
+### 19.4 Vision (`image-classification`, `image-feature-extraction`, `object-detection`, `image-segmentation`, `mask-generation`, `depth-estimation`, `image-to-text`, `image-to-image`, `keypoint-detection`)
+
+Few vision models are new, so the lists mix new releases (DINOv3, SAM 3, RF-DETR, YOLO26, GLM-OCR, DA3, RMBG-3.0) with the most downloaded of the
+last 30 days.
+
+| # | Task | Model | Publisher | Released | dl30 / likes | Status |
+|---|---|---|---|---|---|---|
+| 1 | classification | google/vit-base-patch16-224 | Google | 2022 | 15.7M / 1.1k | verified (section 14) |
+| 2 | classification | timm/mobilenetv3_small_100.lamb_in1k | Ross Wightman (timm) | 2022-12 | 8.4M / 160 | needs arch: MobileNetV3 (hard-swish, squeeze-excite, depthwise) |
+| 3 | classification | timm/resnet50.a1_in1k, resnet18, resnet34, wide_resnet50_2 | timm | 2023 | 0.6-1.9M | verified |
+| 4 | classification | timm/efficientnet_b0.ra_in1k, tf_efficientnetv2_s | timm | 2022-12 | 0.7M, 3.6M | needs arch: EfficientNet / V2 (MBConv, fused-MBConv, SE) |
+| 5 | classification | Falconsai/nsfw_image_detection | Falconsai | 2023-10 | 1.6M / 1.2k | verified (ViT) |
+| 6 | embedding | facebook/dinov3-vitl16 / vitb16 / vits16 / vith16plus (lvd1689m) | Meta | 2025-08 | 697k / 344k / 174k / 60k | needs arch `dinov3_vit` (RoPE positions, 4 registers, LayerScale; Meta license, gated: manual) |
+| 7 | embedding | facebook/dinov2-base, -small, -large, dinov2-with-registers | Meta | 2023 | 3.6M / 2.5M / 0.6M | base, small, with-registers verified; large maps the same, not run |
+| 8 | embedding | openai/clip-vit-*, google/siglip*, siglip2 | OpenAI, Google | 2021-2025 | | verified (several) |
+| 9 | detection | Ultralytics/YOLO26 | Ultralytics | 2026-01-26 | 28k / 269 | needs work: YOLO26 NMS-free end-to-end head (ONNX export import exists for v8 / v10 / 11); AGPL-3.0 |
+| 10 | detection | Roboflow/rf-detr-large | Roboflow | 2026-05-11 | 2.8k / 27 | needs arch `rf_detr` (DINOv2-windowed backbone + deformable decoder); Apache-2.0 |
+| 11 | detection | PekingU/rtdetr_r50vd, r101vd, v2_r18vd, r18vd | PekingU / Baidu | 2024-25 | 1.2M, 232k, 173k | verified |
+| 12 | detection | microsoft/table-transformer-structure-recognition | Microsoft | 2022-10 | 1.24M / 245 | **verified this sweep**: 13 detections (rows, columns, column header, table) as transformers, CPU and Vulkan |
+| 13 | detection | microsoft/table-transformer-detection, hustvl/yolos-small, facebook/detr-resnet-50 | Microsoft, HUST, Meta | 2022 | 270k, 756k, 84k | verified |
+| 14 | layout | PaddlePaddle/PP-DocLayoutV3_safetensors | Baidu | 2026-01-20 | 817k / 59 | needs arch `pp_doclayout_v3` (RT-DETR family with a PP-HGNetV2 backbone and mask head) |
+| 15 | segmentation | facebook/sam3, sam3.1 | Meta | 2025-11-07 / 2026-03-26 | 2.0M, 155k / 6.8k, 1.5k | needs arch `sam3` (gated: manual; Meta SAM license); the SAM 2 image path is verified |
+| 16 | segmentation | facebook/sam2.1-hiera-large, -small, -tiny, -base-plus | Meta | 2024-09 | 272k, 171k, 163k | tiny verified; the others map the same way, not run |
+| 17 | matting | ZhengPeng7/BiRefNet, briaai/RMBG-2.0 | ZhengPeng, Bria | 2024 | 1.0M, 395k | verified; briaai/RMBG-3.0 (2026-11-10, 8.1 B, "other" license) and RMBG-1.4 (SegFormer-style IS-Net, 235k) not run |
+| 18 | segmentation | nvidia/segformer-b0 / b2 / b5, facebook/mask2former-swin-large-ade-semantic, CIDAS/clipseg-rd64-refined | NVIDIA, Meta, CIDAS | 2022-23 | 285k, 362k, 387k | segformer verified; Mask2Former and CLIPSeg need arch |
+| 19 | depth | depth-anything/Depth-Anything-V2-Small / Base / Large-hf | TikTok / HKU | 2024-06 | 1.3M, 81k, 206k | verified |
+| 20 | depth | depth-anything/DA3-SMALL / DA3-LARGE / DA3METRIC-LARGE / DA3MONO-LARGE | ByteDance | 2025-11-13 | 174k, 473k, 458k, 200k | needs arch (DA3: DINOv2 backbone with camera tokens, DualDPT head; the repository carries `depth_anything_3` custom code, no HF model type); LARGE is CC-BY-NC |
+| 21 | depth | apple/DepthPro | Apple | 2024-10 | 6k / 565 | needs arch (two-scale DINOv2 patches + FOV head); Apple research license |
+| 22 | OCR | zai-org/GLM-OCR | Z.ai | 2026-01-30 | 1.8M / 2.2k | needs arch `glm_ocr` (CogViT-style tower + GLM decoder with multi-token prediction; GLM-4V is supported) |
+| 23 | OCR | microsoft/trocr-base-printed, -handwritten, -small-handwritten | Microsoft | 2022 | 349k, 132k, 245k | verified |
+| 24 | OCR | PaddlePaddle/PP-OCRv5_server_det, _rec, UVDoc, PP-LCNet doc-orientation | Baidu | 2025 | 432k, 156k, 452k, 330k | needs a Paddle importer (inference graphs) |
+| 25 | OCR | naver-clova-ix/donut-base, facebook/nougat-base, tiiuae/Falcon-OCR | NAVER, Meta, TII | 2022-2026 | 58k, 2k, 6k | needs arch (Donut / Nougat: Swin encoder + mBART decoder; Falcon-OCR not inspected) |
+| 26 | upscaling | Real-ESRGAN x4plus, SwinIR classical x4 | xinntao, JingyunLiang | 2021 | | verified |
+| 27 | pose | usyd-community/vitpose-base-simple (+ plus-base, plus-large, plus-huge) | USYD (ViTPose authors) | 2025-01-08 | 317k, 55k, 28k, 47k | needs a keypoint task (ViT backbone with a deconvolution / simple head; heat-map decode) |
+| 28 | pose | facebook/sapiens2-pose-0.4b / 1b / 5b | Meta | 2026-04-23 | 10k, 51k, 15k | needs arch `sapiens2` (Meta license) |
+
+Community only: Comfy-Org/* repacks of official models (BiRefNet, Depth-Anything-3), qualcomm/* on-device exports, Arm/*, pixai taggers.
+
+### 19.5 Results of this round (2026-11-17)
+
+New verifications (catalog entries added, publisher recorded):
+
+| Model | Publisher | Format | Check | Result |
+|---|---|---|---|---|
+| Qwen/Qwen3-ASR-0.6B-hf | Alibaba (Qwen) | safetensors | greedy ids vs transformers (fp32), jfk and LibriSpeech, auto and English | CPU identical (4 of 4); Vulkan jfk identical, LibriSpeech one comma differs (19.1.1) |
+| microsoft/table-transformer-structure-recognition | Microsoft | safetensors | detections, boxes, scores vs transformers on a table image (640 px canvas) | identical detections, boxes within 2 px, scores within 0.02; CPU and Vulkan |
+
+Not reached in this round, in the order they would be taken next (each is a new architecture, none is a quick check): DINOv3 (ViT with RoPE: the
+DINOv2 path plus a rotary position op), Cohere Transcribe and Granite Speech (conformer encoder, section 13's `ConformerEncoder`, plus an
+autoregressive decoder), MobileNetV3 / EfficientNet (depthwise + squeeze-excite blocks on the existing `Conv` ops), GLM-OCR, ViTPose (needs a
+`keypoint-detection` task kind), the streaming ASR models (Nemotron 3.5 ASR streaming, Voxtral Realtime, Moonshine streaming: a streaming
+decode loop with encoder state).
