@@ -469,6 +469,13 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static int? MoeSkinnyItemsPerExpert { get; } = Read("SHARPLIGHT_MOE_SKINNY") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary>
+    /// Configuration of the wide expert tiles of the direct skinny GEMM (<c>SHARPLIGHT_MOE_WIDE=fm,fn,sg,ks,n</c>: token fragments,
+    /// weight fragments per subgroup, subgroups, subgroups splitting K, items per expert up to which it serves; <c>0</c> disables
+    /// them), or null for the default.
+    /// </summary>
+    public static int[]? MoeWideConfig { get; } = Read("SHARPLIGHT_MOE_WIDE")?.Split(',').Select(int.Parse).ToArray();
+
     /// <summary>Disables the tensor-core expert matmul.</summary>
     public static bool MoeNoCoop { get; } = IsSet("SHARPLIGHT_MOE_NO_COOP");
 
