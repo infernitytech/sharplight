@@ -401,6 +401,20 @@ AudioBuffer rain = await generator.GenerateAsync(new AudioGenerationRequest
 });
 ```
 
+Stable Audio 3 (architecture `stable_audio_3`, imported by `Sharplight.Import.StableAudio` from the stable-audio-3 checkpoint folders: `model_config.json`, `model.safetensors`, `t5gemma-b-b-ul2/`)
+uses the rectified-flow form of `TimedAudioDiffusionGraphs` (the denoiser's `objective` is `rectified_flow` or `rf_denoiser`): a T5Gemma `text_encode`, a `timing_encode` of the total seconds, a
+`denoise` velocity network whose latent length follows the duration, and a SAME autoencoder `audio_decode` over fixed windows. The base models sample with Euler steps and adaptive projected
+guidance (50 steps, guidance 7 by default), the post-trained ones with ping-pong steps and no guidance (`DefaultGuidanceScale` null, no negative prompt). The SAME decoder adds a little random
+dither as the reference package does; `AudioGenerationRequest.DecoderNoise` scales it (0 decodes deterministically).
+
+```csharp
+using var generator = clients.Create<IAudioGenerator>(model);   // stable-audio-3-small-music-base
+AudioBuffer loop = await generator.GenerateAsync(new AudioGenerationRequest
+{
+    Prompt = "lofi house loop, 120 BPM", Duration = TimeSpan.FromSeconds(30), Steps = 50, GuidanceScale = 7, Seed = 1,
+});
+```
+
 `audio-separation` models (Demucs `htdemucs`; architecture `demucs`) have one component whose graph `separate` runs one fixed-length segment (the host computes the spectrogram and the
 normalizations and rebuilds the audio, see `SeparationGraphs`). `IAudioSeparator.SeparateAsync` converts the mixture to the model's rate and channels, runs overlapping segments with a
 triangular cross-fade (`AudioSeparationOptions.Overlap`) and returns one `SeparatedStem` per source.
