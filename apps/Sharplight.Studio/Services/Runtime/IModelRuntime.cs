@@ -13,6 +13,12 @@ internal interface IModelRuntime : IDisposable
     /// </summary>
     public IReadOnlyList<ComputeDeviceOption> Devices { get; }
 
+    /// <summary>
+    /// The physical GPUs with the providers that can drive each and the one in use (Vulkan unless the user or per-device data chose another);
+    /// empty for a runtime without GPUs.
+    /// </summary>
+    public IReadOnlyList<PhysicalGpu> Gpus => [];
+
     /// <summary>The registered models (loaded, loading or sleeping), in registration order.</summary>
     public IReadOnlyList<ILoadedModel> LoadedModels { get; }
 

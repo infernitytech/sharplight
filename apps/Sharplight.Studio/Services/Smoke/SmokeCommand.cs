@@ -23,13 +23,14 @@ internal static class SmokeCommand
     /// <param name="layout">The storage layout in effect.</param>
     /// <param name="logs">The logger factory writing to the log folder.</param>
     /// <param name="reportPath">Where to write the JSON report, or null for <c>smoke-report.json</c> in the log folder.</param>
-    public static int Run(StorageLayout layout, ILoggerFactory logs, string? reportPath)
+    /// <param name="provider">The execution provider to load the package on; null or <c>cpu</c>: the CPU.</param>
+    public static int Run(StorageLayout layout, ILoggerFactory logs, string? reportPath, string? provider = null)
     {
         var log = logs.CreateLogger("Sharplight.Studio.Smoke");
         SmokeReport report;
         try
         {
-            report = RunServices(layout, logs, log);
+            report = RunServices(layout, logs, log, string.IsNullOrWhiteSpace(provider) ? "cpu" : provider);
         }
         catch (Exception error)
         {
@@ -54,7 +55,7 @@ internal static class SmokeCommand
         return report.Passed ? 0 : 1;
     }
 
-    private static SmokeReport RunServices(StorageLayout layout, ILoggerFactory logs, ILogger log)
+    private static SmokeReport RunServices(StorageLayout layout, ILoggerFactory logs, ILogger log, string provider)
     {
         var environment = StorageEnvironment.Process;
         StorageMigration.CompletePending(layout);
@@ -62,12 +63,12 @@ internal static class SmokeCommand
         var settings = new JsonSettingsService(paths.SettingsFile, null, layout);
         using var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddSingleton(logs)
             .AddSingleton(typeof(ILogger<>), typeof(Logger<>)).AddSingleton(paths).AddSharplightStorage(layout).AddStudioUpdates().AddStudioFeed()
-            .AddSharplight().BuildServiceProvider();
+            .AddSharplight().AddStudioProviders().BuildServiceProvider();
         var engine = EngineServices.From(container);
         using var runtime = new EngineModelRuntime(engine, () => settings.Current.Residency, null, () => settings.Current.UseCompilationCache,
             logs.CreateLogger<EngineModelRuntime>());
         var runner = new SmokeRunner(container.GetRequiredService<IFeedService>(), runtime, container.GetRequiredService<IAudioDecoder>(),
-            Path.Combine(paths.DataDirectory, "smoke"), log);
+            Path.Combine(paths.DataDirectory, "smoke"), log, provider);
         using var cancel = new CancellationTokenSource(Timeout);
         return runner.RunAsync(Program.Version, $"{layout.Mode} at {layout.Description}", cancel.Token).GetAwaiter().GetResult();
     }
