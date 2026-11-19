@@ -7528,3 +7528,24 @@ stays off there.
 
 ### 54.8 Tests
 
+Interrupted by a machine relaunch (see [cuda.md, phase 4 status](cuda.md#phase-4-status-checkpoint-2026-11-19)). Run so far, GPU 1:
+
+| suite | result |
+|---|---|
+| Sharplight.Cuda.Tests (incl. `NativeFp8GemmMatchesTheCpu`: 100 / 300 / 700 rows, single and dual, against the CPU and the generated GEMM) | 17 / 0 failed / 0 skipped |
+| Sharplight.Vulkan.Tests on CUDA, one process per class (45 of 62 classes; `bench/results/s54/tests`) | 1354 / 0 failed / 32 skipped |
+| remaining kernel-suite classes, CudaParityTests, FamilyGenerationTests on CUDA, Vulkan suite on Vulkan | not run yet |
+
+### 54.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=1 SHARPLIGHT_VK_DEVICES=1
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+ONLY=qwen3-8b-fp8 bench/s53_providers.sh bench/results/s54/cuda.txt $CLI cuda      # likewise vulkan
+VLLM_USE_DEEP_GEMM=0 LENS="2048 8192" bench/s42_gap.sh bench/results/s54/vllm-nodg qwen3-8b-fp8 vllm ~/models/hf/Qwen3-8B-FP8
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 64 --modes greedy --profile 64 --profile-mode greedy
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 68 --ctx 512 --batch 2048 --depth 256 --modes greedy --mixed 64+0,64+16,64+32,64+64,64+96,64+128,64+256,64+512
+$VLLM_VENV/bin/python bench/s54_vllm_decode_profile.py ~/models/hf/Qwen3-8B-FP8 --seqs 64
+OUT_DIR=bench/results/s54/serve-cuda ROUNDS=2 bench/s16_serve.sh sharplight qwen3-8b-fp8-hf ~/models/hf/Qwen3-8B-FP8 "1 4 16 64" --provider cuda   # and vllm
+# FP8 GEMM harness and ablations: bench/s54_gemm/README.md
+```

@@ -528,6 +528,26 @@ Same GPU and procedure ([benchmarks.md §54](benchmarks.md)); only the FP8 paths
   at 64 streams is unchanged at 0.78x of vLLM (0.84x at 16, 0.92x at 4, 1.00x single), since its steps are pure decode steps or
   prompt batches of 1-2k rows.
 
+## Phase 4 status (checkpoint 2026-11-19)
+
+State of `cuda/provider-r4` (merged with `develop` at `47f9af79`, builds clean) when the session was interrupted:
+
+- **Done and measured:** dense FP8 scale layouts (128-row weight groups `f8e4m3_b128g` repacked at upload; dense activation-scale
+  copy from `quantize_fp8` and the E4M3-writing norms), 64-row FP8 tiles chosen by waves, hand-written FP8 GEMM from 65 rows,
+  `SHARPLIGHT_FP8_GROUPED`, `BatchBench --provider cuda`, `bench/s54_vllm_decode_profile.py`. Numbers in
+  [phase 4 numbers](#phase-4-numbers) and [benchmarks.md §54](benchmarks.md): Qwen3-8B-FP8 prefill 12,688 / 12,819 / 10,494 tok/s at
+  512 / 2048 / 8192 rows (0.85-0.87x vLLM, phase 3 0.79x), decode unchanged (1.00x), serving 0.78x at 64 streams (unchanged).
+- **Verified:** `Sharplight.Cuda.Tests` 17 / 17 (incl. the new `NativeFp8GemmMatchesTheCpu`); `Sharplight.Vulkan.Tests` on CUDA, one
+  process per class: 45 of 62 classes run before the stop, 1354 tests, 0 failed, 32 skipped (incl. `Fp8GemmTests` 31 / 31,
+  `MmqTests`, `RowInvarianceTests`); Vulkan SPIR-V of 225 kernels (Qwen3-8B-FP8, Qwen3-0.6B Q8_0) identical to `develop`; long-prompt
+  logits of Qwen3-8B-FP8 against Vulkan within the provider spread of phase 3.
+- **Not yet run:** the remaining 17 kernel-suite classes on CUDA (from `SampleTests` alphabetically on), `CudaParityTests`,
+  `FamilyGenerationTests.Generation_matches_reference_on_cuda`, the Vulkan suite on Vulkan (script:
+  `final-suites.sh` of the phase-3 work dir adapted to this branch; class list as in phase 3).
+- **Next steps:** finish those suites and fill benchmarks.md §54.8; then the open items of the roadmap's phase 4 (FP8 main loop
+  toward CUTLASS's ~290 TFLOPS; decode step: fused q / k / v GEMM, weight streaming, split-KV decode attention; FlashAttention-2
+  prefill kernel; MXFP4 expert GEMM). Ideas measured and rejected are listed in §54.3 so they are not retried.
+
 ## Diagnostics
 
 `DiagnosticSwitches` of `Sharplight.Cuda`: `SHARPLIGHT_CUDA_RUNTIME_DIR` (directory with NVRTC and the headers, searched first),
