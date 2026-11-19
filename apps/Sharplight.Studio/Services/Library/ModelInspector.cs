@@ -134,7 +134,7 @@ internal static class ModelInspector
             return ModelKinds.VoiceActivity;
         }
 
-        if (IsAceStepFolder(path))
+        if (IsAceStepFolder(path) || IsStableAudio3Folder(path))
         {
             return ModelKinds.AudioGeneration;
         }
@@ -159,6 +159,29 @@ internal static class ModelInspector
             return Directory.Exists(path) && Directory.Exists(System.IO.Path.Combine(path, "vae"))
                 && Directory.EnumerateDirectories(path, "acestep-v15-*").Any(dir => File.Exists(System.IO.Path.Combine(dir, "config.json")))
                 && Directory.EnumerateDirectories(path, "Qwen3-Embedding*").Any();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="path"/> is a Stable Audio 3 checkpoint folder: it has no <c>config.json</c> of its own but a <c>model_config.json</c> of the stable-audio-3
+    /// layout (a conditioned diffusion model with a <c>t5gemma</c> prompt conditioner) and <c>model.safetensors</c>.
+    /// </summary>
+    internal static bool IsStableAudio3Folder(string path)
+    {
+        try
+        {
+            string config = System.IO.Path.Combine(path, "model_config.json");
+            if (!Directory.Exists(path) || !File.Exists(config) || !File.Exists(System.IO.Path.Combine(path, "model.safetensors")))
+            {
+                return false;
+            }
+
+            string text = File.ReadAllText(config);
+            return text.Contains("\"diffusion_cond", StringComparison.Ordinal) && text.Contains("\"t5gemma\"", StringComparison.Ordinal);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {

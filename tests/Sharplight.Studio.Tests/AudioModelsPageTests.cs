@@ -204,7 +204,75 @@ public sealed class AudioModelsPageTests
         Assert.Equal("music, voices", page.History.Items.Single().Record.Input["negative"]);
     }
 
+    [Theory]
+    [InlineData("stable-audio-3-small-music-base", 7f, 50)]
+    [InlineData("stable-audio-3-small-music", null, 8)]
+    public async Task Audio_StableAudio3_BaseModelsAreGuided_PostTrainedModelsHideGuidanceAndTheNegativePrompt(string id, float? guidance, int steps)
+    {
+        using var services = new TestServices();
+        Generator(services, id, out var client);
+        client.SupportsLyrics = false;
+        client.SupportsShift = false;
+        client.SupportsNegativePrompt = guidance is not null;
+        client.DefaultGuidanceScale = guidance;
+        client.DefaultSteps = steps;
+        client.MaxDuration = TimeSpan.FromSeconds(120.7);
+        var page = new AudioPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        await WaitFor(() => page.IsNegativePromptMusic == (guidance is not null) && Visible(page.Panel, "guidance") == (guidance is not null));
+
+        Assert.True(page.IsMusic);
+        Assert.False(page.IsLyricMusic);
+        foreach (string key in new[] { "duration", "seed", "musicsteps" })
+        {
+            Assert.True(Visible(page.Panel, key), key);
+        }
+
+        foreach (string key in new[] { "shift", "musiclanguage", "greedy", "temperature", "musictopk" })
+        {
+            Assert.False(Visible(page.Panel, key), key);
+        }
+
+        page.Prompt = "a cello drone";
+        page.Panel.Apply(new Dictionary<string, string> { ["seed"] = "4", ["duration"] = "200" });
+        page.RunCommand.Execute(null);
+        await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
+        var request = Assert.Single(client.Requests);
+        Assert.Equal(TimeSpan.FromSeconds(120.7), request.Duration);   // limited by the model
+        Assert.Null(request.Lyrics);
+        Assert.Null(request.Shift);
+        Assert.Equal(4, request.Seed);
+    }
+
     // ---- Kind detection ----
+
+    [Fact]
+    public void Inspector_RecognizesTheStableAudio3Folder_AsAudioGeneration()
+    {
+        using var directory = new TempDir();
+        string root = directory.File("stable-audio-3-small-music-base");
+        Directory.CreateDirectory(Path.Combine(root, "t5gemma-b-b-ul2"));
+        File.WriteAllText(Path.Combine(root, "model_config.json"),
+            """{"model_type":"diffusion_cond_inpaint","model":{"conditioning":{"configs":[{"id":"prompt","type":"t5gemma"}]}}}""");
+        File.WriteAllBytes(Path.Combine(root, "model.safetensors"), [0]);
+
+        var inspected = ModelInspector.Inspect(root);
+
+        Assert.Equal(ModelKinds.AudioGeneration, inspected.Kind);
+        Assert.True(inspected.KindInferred);
+    }
+
+    [Fact]
+    public void Inspector_DoesNotTakeAnotherStableAudioToolsFolder_ForStableAudio3()
+    {
+        using var directory = new TempDir();
+        string root = directory.File("other");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "model_config.json"), """{"model_type":"diffusion_cond","model":{"conditioning":{"configs":[{"id":"prompt","type":"t5"}]}}}""");
+        File.WriteAllBytes(Path.Combine(root, "model.safetensors"), [0]);
+
+        Assert.NotEqual(ModelKinds.AudioGeneration, ModelInspector.Inspect(root).Kind);
+    }
 
     [Fact]
     public void Inspector_RecognizesTheStableAudioDiffusersFolder_AsAudioGeneration()

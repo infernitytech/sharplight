@@ -94,7 +94,8 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
 
     public int DefaultSteps { get; }
 
-    public bool SupportsNegativePrompt => true;
+    /// <summary>The guided models (the base models) take a negative prompt; the post-trained ones sample without guidance.</summary>
+    public bool SupportsNegativePrompt => DefaultGuidanceScale is not null;
 
     public float? DefaultGuidanceScale { get; }
 
