@@ -6832,3 +6832,133 @@ OUT_DIR=bench/results/s49/serve-vllm bench/s16_serve.sh vllm gpt-oss-20b-hf ~/mo
 SHARPLIGHT_MOE_DUAL=0 SHARPLIGHT_MOE_BIAS_EPILOGUE=0 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b \
   --slots 68 --ctx 2560 --batch 2048 --depth 256 --sizes 16 --mixed 16+0,64+0,64+107x1,64+448x1,0+2048x1 --modes greedy --reps 12
 ```
+
+## 50. CUDA provider phase 2: tensor cores, decode, dynamic shared memory, cuBLASLt; CUDA against Vulkan and vLLM (2026-11-19)
+
+Branch `cuda/provider-r2` ([cuda.md](cuda.md)). GPU 1 of the RunPod machine (RTX PRO 4500 Blackwell, compute capability 12.0, 82
+SMs, nothing else on it), driver 595.112.07 (CUDA 13.2), NVRTC 13.0.88, cuBLASLt 13.1.0.3 (`Sharplight.Cuda.Blas`). Identical weights
+for every engine (the GGUF files for the 1B models, the Hugging Face checkpoints for the 8B ones), procedure of section 42 for
+Sharplight (`bench/s50_providers.sh`: one process per model and prompt length, `--bench N --ctx N+256`, prefill median of 5, decode
+median of 64 steps after the prompt) and for vLLM 0.33.0 (`bench/s42_gap.sh ... vllm`, fresh on the same GPU: pp median of 5, tg128 at
+depth 16). Raw output in [`bench/results/s50/`](../bench/results/s50).
+
+### 50.1 Prefill and decode per provider (tok/s; prefill median of 5 / decode median)
+
+"Vulkan before" is the branch start (`develop` at the merge of phase 1), "Vulkan after" this branch: the Vulkan provider runs the
+same SPIR-V (50.5), so the two columns show the run-to-run spread (up to 4 % on the 512-row medians, which ran while builds used the
+CPU). "CUDA kernels" is CUDA without the library GEMM (`--disable-features library_gemm`), "CUDA" the default with cuBLASLt installed.
+
+| model | rows | Vulkan before | Vulkan after | CUDA phase 1 | CUDA kernels | **CUDA** | CUDA / Vulkan | vLLM | CUDA / vLLM |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Qwen3-0.6B Q8_0 | 512 | 61,018 / 572 | 61,454 / 585 | 12,159 / 331 | | **59,254 / 649** | 0.97 / 1.13 | | |
+| | 2048 | 82,990 / 535 | 82,340 / 543 | | | **80,439 / 569** | 0.97 / 1.06 | | |
+| Llama-3.2-1B Q8_0 | 512 | 42,788 / 470 | 42,679 / 454 | 7,729 / 364 | | **44,374 / 480** | 1.04 / 1.02 | | |
+| | 2048 | 47,862 / 451 | 47,504 / 455 | | | **48,138 / 466** | 1.01 / 1.03 | | |
+| gemma-3-1b Q8_0 | 512 | 44,442 / 459 | 44,344 / 453 | | | **43,357 / 454** | 0.98 / 0.99 | | |
+| | 2048 | 56,936 / 451 | 54,689 / 448 | | | **57,645 / 450** | 1.01 / 1.00 | | |
+| Qwen3-8B (bf16) | 512 | 7,545 / 52.8 | 7,256 / 52.8 | | 6,969 / 51.1 | **8,301 / 51.4** | 1.10 / 0.97 | 8,086 / 51.7 | 1.03 / 0.99 |
+| | 2048 | 7,822 / 48.8 | 7,712 / 52.4 | | 7,304 / 50.7 | **7,888 / 50.8** | 1.01 / 0.97 | 8,807 | 0.90 |
+| | 8192 | 6,835 / 49.1 | 6,823 / 49.3 | | 6,405 / 48.0 | **6,862 / 48.0** | 1.00 / 0.98 | 7,678 | 0.89 |
+| Qwen3-8B-FP8 | 512 | 10,829 / 88.7 | 10,879 / 88.2 | | | **11,207 / 86.9** | 1.03 / 0.98 | 14,546 / 87.3 | 0.77 / 1.00 |
+| | 2048 | 10,959 / 87.3 | 10,967 / 86.6 | | | **11,368 / 85.3** | 1.04 / 0.98 | 14,948 | 0.76 |
+| | 8192 | 9,272 / 78.9 | 9,285 / 78.8 | | | **9,342 / 77.3** | 1.01 / 0.98 | 12,316 | 0.76 |
+| Llama-3.1-8B (bf16) | 512 | 7,493 / 51.5 | 7,399 / 53.7 | | 7,146 / 52.2 | **8,178 / 52.1** | 1.09 / 1.01 | 8,513 / 52.5 | 0.96 / 0.99 |
+| | 2048 | 7,805 / 53.1 | 7,806 / 53.3 | | 7,462 / 51.5 | **7,951 / 51.7** | 1.02 / 0.97 | 8,736 | 0.91 |
+| | 8192 | 6,980 / 50.2 | 6,980 / 50.5 | | 6,566 / 49.0 | **7,005 / 49.0** | 1.00 / 0.97 | 7,730 | 0.91 |
+
+(CUDA phase 1: section "First numbers" of cuda.md, same GPU. CUDA / Vulkan against "Vulkan before"; decode of the 8B models
+against vLLM's tg128 at depth 16.)
+
+* **Prefill**: CUDA went from 0.18-0.20x of Vulkan (phase 1, SIMT kernels) to 0.97-1.10x: tensor cores (`cuda_mma.slang`) bring the
+  quantized and FP8 models to Vulkan's level, the library GEMM puts bf16 prefill 0-10 % above it. Against vLLM: bf16 0.89-1.03x (the
+  512-row steps above vLLM), FP8 0.76-0.77x (50.4).
+* **Decode**: the small models are 2-13 % faster on CUDA than on Vulkan (the active-mask fix, 50.2), the 8B models 2-3 % slower
+  (GPU time per step 19.35 against 18.75 ms for bf16: the matvecs stream the weights at 848 against 875 GB/s) and at vLLM's level.
+
+### 50.2 Decode: Slang's active-mask tracking
+
+Phase 1 measured the decode attention at 50 µs per layer on CUDA against 14 on Vulkan (cuda.md): Slang's CUDA backend tracks the
+active mask of every wave operation explicitly (a `__ballot_sync` per branch and loop iteration, 664 in the decode attention). With
+the wave operations mapped to their `WaveMask*` forms over `__activemask()` on CUDA (common.slang), Qwen3-0.6B Q8_0 decodes at 654
+tok/s (2.93 → 1.44 ms of GPU time per step), against 331 in phase 1 and 577 on Vulkan.
+
+### 50.3 Tensor cores on CUDA: what it took
+
+| step (Qwen3-0.6B Q8_0, 512 rows) | prefill tok/s |
+|---|---:|
+| phase 1 (SIMT kernels) | 12,159 |
+| CUDA fragments (`ldmatrix`, `mma.sync`), matrix_* features | 51,319 |
+| + wave operations over `__activemask()` | 59,005 |
+| Vulkan (tensor cores) | 61,018 |
+
+gemma-3-1b faulted with "misaligned address" on its Q8_0 rows at K = 1152 (1224-byte rows; Vulkan tolerates 16-byte loads at 8-byte
+alignment): fixed with the compile-time aligned loads. Its prefill then gained 10 % (39.4 → 43.4k at 512 rows) when the `ldmatrix`
+alignment check left the inner loops (shared arrays declared 16-byte aligned).
+
+### 50.4 FP8: the volatile fragment loads, and why FP8 stays at 0.76x of vLLM
+
+With the first CUDA fragments, Qwen3-8B-FP8 prefilled at 0.70x of Vulkan: its dual gate / up GEMM took 3.11 ms per layer at 2048
+rows against 2.09 on Vulkan. `gemm_fp8` reloads the B fragments for every row fragment (fewer registers; the Vulkan driver merges the
+identical shared-memory loads), but on CUDA the fragment loads are volatile inline PTX that NVVM does not merge. Loading the B
+fragments of a weight block once on CUDA (`#if SL_TARGET_CUDA`) gives 1.97 ms (profiles in `profiles/qwen3-8b-fp8-*`), slightly
+faster than Vulkan.
+
+The remaining gap to vLLM is the FP8 GEMM itself (~200 TFLOPS against vLLM's CUTLASS kernels). cuBLASLt cannot take it over: per-tensor
+E4M3 runs at 250-336 TFLOPS on these shapes, but the 128x128 block scales of the checkpoint (`BLK128x128_32F` with `VEC128_32F`
+activations) are not supported on compute capability 12.0 (`CUBLAS_STATUS_NOT_SUPPORTED`, `bench/s50_cublaslt_probe.cu`).
+
+### 50.5 Vulkan unchanged
+
+The CUDA forms sit behind `SL_TARGET_CUDA`, which only the CUDA C++ target defines. The SPIR-V of the 778 kernels the Vulkan provider
+compiles for Qwen3-0.6B Q8_0, Llama-3.2-1B Q8_0, gemma-3-1b Q8_0, Qwen3-0.6B HF, Qwen3.5-0.8B and OLMoE-1B-7B is byte-identical between
+the branch start and this branch (compiled with the kernel libraries of both commits); their MSL differs only in `#line` directives.
+The "Vulkan before / after" columns of 50.1 agree within the run-to-run spread.
+
+### 50.6 Library GEMM (cuBLASLt) and dynamic shared memory
+
+cuBLASLt on the Qwen3-8B prefill shapes (bf16 operands, f32 output, `bench/s50_cublaslt_probe.cu`, random data): 143-164 TFLOPS,
+against 112-128 TFLOPS for gemm_cm2 on CUDA (and 118-125 on Vulkan, section 42). Qwen3-8B at 2048 rows, GPU ms of the prefill
+(profiles `qwen3-8b-cuda-kernels.log`, `qwen3-8b-cuda-library.log`, `qwen3-8b-vulkan.log`):
+
+| launches | CUDA kernels | CUDA library | Vulkan |
+|---|---:|---:|---:|
+| gate / up (dual gemm_cm2 with SiLU·mul, or 2 library GEMMs + SiLU·mul + x→bf16) | 120.2 | 98.2 + 13.6 + 2.3 | 111.3 |
+| down [12288 → 4096] (+ x→bf16) | 68.3 | 54.9 + 7.0 | 66.4 |
+| q / o [4096 → 4096] (+ x→bf16) | 42.7 | 35.1 + 2.3 | 41.3 |
+| k / v [4096 → 1024] | 12.6 | 9.9 | 10.6 |
+| attention `fe` | 13.3 | 12.7 | 11.8 |
+| total | 272.6 | 253.4 | 255.7 |
+
+The library GEMMs are 18-21 % faster than gemm_cm2; a third of that goes to the bf16 copies of x and the separate SiLU·mul launch
+(the next lever: producers writing the bf16 rows). At 512 rows the library is 19 % ahead of the kernels (vLLM: 1.03x).
+
+Dynamic shared memory above 48 KB works (the kernel suite runs on CUDA with the 99 KB budget) but gives the LLM GEMMs nothing: gemm_cm2
+with double-buffered 64-value K blocks (80 KB, one workgroup per SM) is 21 % slower on Qwen3-8B, with two register prefetch sets 31 %
+(`profiles/qwen3-8b-cuda-gemm-*`). `exp` as `__expf` (the precision of SPIR-V's `Exp` on NVIDIA) took `fe` from 13.3 to 12.7 ms; it is
+still 5-8 % slower than on Vulkan.
+
+### 50.7 Tests
+
+TESTS_PLACEHOLDER
+
+### 50.8 Next levers
+
+* bf16 activations straight from their producers for the library GEMMs (SiLU·mul and the norms writing bf16 rows): removes ~11 ms of
+  the 253 at 2048 rows; a single library GEMM over the concatenated gate / up weights.
+* FP8 prefill (0.76x of vLLM): a hand-written FP8 GEMM with larger tiles in dynamic shared memory, or the Blackwell block-scaled
+  `mma.sync ... kind::mxf8f6f4`.
+* The prefill attention `fe` on CUDA (5-8 % behind its SPIR-V form) and the bf16 / FP8 decode matvecs (2-3 % behind).
+
+### 50.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=1 SHARPLIGHT_VK_DEVICES=1
+dotnet build samples/Sharplight.Cli -c Release -p:SharplightBundleCudaBlas=true
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+bench/s50_providers.sh bench/results/s50/vulkan.txt $CLI vulkan
+bench/s50_providers.sh bench/results/s50/cuda.txt $CLI cuda
+ONLY="qwen3-8b llama3.1-8b" bench/s50_providers.sh bench/results/s50/cuda-kernels.txt $CLI cuda --disable-features library_gemm
+VLLM_VENV=<venv with vLLM 0.33.0> bench/s42_gap.sh bench/results/s50/vllm qwen3-8b vllm ~/models/hf/Qwen3-8B   # likewise the others
+SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/Qwen3-8B --provider cuda --bench 2048 --ctx 2304   # per-launch profiles (Vulkan: SHARPLIGHT_VK_PROFILE=1)
+nvcc -O2 -arch=sm_120 bench/s50_cublaslt_probe.cu -lcublasLt -o probe && ./probe
+```
