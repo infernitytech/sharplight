@@ -44,6 +44,9 @@ internal sealed partial class ChatPageViewModel : PageViewModel
                 OnPropertyChanged(nameof(ShowGetModel));
             }
         };
+
+        // A model chosen while the picker was built raises no change: look its licence up now.
+        _ = License.RefreshAsync(Picker.SelectedModel?.Model);
     }
 
     /// <summary>The licence callout of the chosen chat model (a catalog entry with a non-permissive licence: Llama, Gemma, Qwen research...), shown until dismissed.</summary>
