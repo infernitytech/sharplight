@@ -137,9 +137,10 @@ Blackwell, `max_shared_memory_optin`; 227 KB on H100 / B200), `SHARPLIGHT_CUDA_M
 
 Measured on Qwen3-8B (bf16) at 2048 rows: the larger budget changes no default tile choice of the LLM kernels, and double-buffering
 gemm_cm2's 64-value K blocks (80 KB, `SHARPLIGHT_GEMM_MACROS=GNBUF=2`) is 21 % slower (one workgroup per SM instead of two), as are
-more register prefetch sets (`GPF=2`). The budget pays off for kernels whose tiles are bounded by shared memory (attention with large
-head sizes, convolutions with large channel tiles), which now take their large-tile forms on CUDA; new tile shapes for the GEMMs belong
-to the hand-written kernels of the roadmap.
+more register prefetch sets (`GPF=2`). What the budget changes is which forms pass their shared-memory fit checks (the lowering
+compares against `max_shared_memory`): the MQA attention over latent KV rows, the general flash attention, the two-row convolution
+tiles, the delta-rule chunk width, top-k and NMS sorting in shared memory; the kernel suite runs on CUDA with the 99 KB budget. New tile shapes
+for the GEMMs belong to the hand-written kernels of the roadmap.
 
 ### Library GEMM (cuBLASLt)
 
@@ -150,7 +151,7 @@ and hosts fall back as for any kernel. The CUDA provider reports the feature fro
 and runs the descriptors with `cublasLtMatmul` on the segment's stream (`CudaBlas`: one handle and a 32 MB workspace per device, a
 plan per shape, row count and operand alignment, the heuristic's first algorithm).
 
-Used where it beats the generated GEMMs on this GPU (`cuda_r2` measurements, `scripts`-free probe in the benchmark section): bf16
+Used where it beats the generated GEMMs on this GPU ([benchmarks.md §49](benchmarks.md)): bf16
 weights from 256 rows (`SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS`), x converted once per row set to dense bf16 rows (`to_bf16`, shared by the
 matmuls reading it), f32 output. A gate / up pair with its SiLU·mul group then runs as two library GEMMs and the group's own launch
 instead of the dual gemm_cm2. cuBLASLt measured 145-165 TFLOPS on the Qwen3-8B shapes against 112-128 for gemm_cm2 on CUDA (and
