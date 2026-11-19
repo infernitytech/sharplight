@@ -5,6 +5,7 @@ using Sharplight.Hub;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Fit;
+using Sharplight.Studio.Services.Library;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
@@ -144,9 +145,14 @@ internal sealed partial class VerifiedCatalogViewModel : ObservableObject
     private bool CanInstall() => SelectedEntry is not null && SelectedVariant is not null;
 
     [RelayCommand(CanExecute = nameof(CanInstall))]
-    private void Install()
+    private async Task InstallAsync()
     {
         var plan = SelectedVariant!.Plan;
+        if (!await _services.Licenses.RequestAsync(LicenseNotices.TermsFor(plan.Entry, plan.Variant)))
+        {
+            return;
+        }
+
         _downloads.Enqueue(plan.Reference, plan.TotalBytes, plan.Entry.Kind, plan.Key, $"{plan.Entry.Name} · {plan.Variant.Label}");
     }
 

@@ -130,6 +130,9 @@ internal sealed record AppSettings
     /// <summary>The catalog entries whose licence notice the user dismissed (shown once per model).</summary>
     public IReadOnlyList<string> DismissedLicenseNotices { get; init; } = [];
 
+    /// <summary>The licences the user accepted before a download (asked once per model and version of its terms).</summary>
+    public IReadOnlyList<AcceptedLicense> AcceptedLicenses { get; init; } = [];
+
     /// <summary>The model feed channel, <c>stable</c> or <c>unstable</c>; null is <c>stable</c>.</summary>
     public string? FeedChannel { get; init; }
 

@@ -45,6 +45,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Stats = new StatsPageViewModel(services);
         Settings = new SettingsPageViewModel(services);
         About = new AboutViewModel(services.Platform, services.Updates.CurrentVersion);
+        LicenseDialog = new LicenseDialogViewModel(services.Licenses, services.Platform, services.Dispatcher);
         StoreMigration = new StoreMigrationViewModel(services, () => _ = Models.Library.RefreshAsync());
         Pages = [Chat, Transcribe, Speak, Search, Audio, Image, Video, Vision, Tasks, Models, Server, Stats];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
@@ -96,6 +97,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     /// <summary>Update checks and the "update available" dialog (the same instance the Settings page shows).</summary>
     public UpdatesViewModel Updates => Settings.Updates;
+
+    /// <summary>The dialog that asks to accept licence terms before a download.</summary>
+    public LicenseDialogViewModel LicenseDialog { get; }
 
     /// <summary>The About dialog.</summary>
     public AboutViewModel About { get; }

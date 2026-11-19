@@ -49,7 +49,7 @@ internal sealed partial class LicenseNoticeViewModel : ObservableObject
         }
 
         _entryId = notice?.EntryId ?? "";
-        Text = notice is null || LicenseNotices.IsDismissed(_services, notice.EntryId) ? "" : notice.Text;
+        Text = notice is null || LicenseNotices.IsHandled(_services, notice) ? "" : notice.Text;
     }
 
     /// <summary>Hides the notice for good: this model's catalog entry is remembered in the settings.</summary>

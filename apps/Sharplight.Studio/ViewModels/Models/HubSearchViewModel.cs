@@ -8,6 +8,7 @@ using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Fit;
 using Sharplight.Studio.Services.Hub;
+using Sharplight.Studio.Services.Library;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
@@ -554,11 +555,18 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     private bool CanDownload() => SelectedResult is not null && SelectedVariant is not null;
 
     [RelayCommand(CanExecute = nameof(CanDownload))]
-    private void Download()
+    private async Task DownloadAsync()
     {
-        var tag = SelectedVariant!.Info.Tag;
-        var reference = new ModelReference(SelectedResult!.Id, tag.Length == 0 ? null : tag);
-        _downloads.Enqueue(reference, SelectedVariant.Info.Bytes, SelectedResult.HasKind ? SelectedResult.Kind.Id : null);
+        var result = SelectedResult!;
+        var variant = SelectedVariant!;
+        if (!await _services.Licenses.RequestAsync(LicenseNotices.TermsFor(result.Id, result.License, result.Summary.Gated)))
+        {
+            return;
+        }
+
+        var tag = variant.Info.Tag;
+        var reference = new ModelReference(result.Id, tag.Length == 0 ? null : tag);
+        _downloads.Enqueue(reference, variant.Info.Bytes, result.HasKind ? result.Kind.Id : null);
     }
 
     [RelayCommand]

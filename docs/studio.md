@@ -542,8 +542,18 @@ ASR, and `csm`, `omnivoice` and `dia` (also the original Dia checkpoint's `confi
 **Licence notices.** A verified-catalog entry whose licence is `other` or a non-commercial one (`cc-by-nc-*`, `*-non-commercial-*`: OmniVoice, XTTS,
 Depth Anything 3 large, FLUX dev) shows its notes prominently: in Discover's *Verified* detail as a warning callout "Read the licence before you use this
 model", on every inference page while that model is chosen (found through the model's catalog key or repository, `LicenseNotices.ForModelAsync`), and
-in the library's status line when it loads. An entry with such a licence and no notes shows a general line. There is no acceptance dialog; that waits on
-an owner decision.
+in the library's status line when it loads. An entry with such a licence and no notes shows a general line.
+
+**Accepting licence terms before a download.** Every download path asks first when the model's licence is restrictive: the verified catalog (Discover
+*Verified*, from the entry's `licenseNotice` or a licence that is not permissive), Hub downloads (a non-permissive Hub licence tag, or a gated repository),
+model-feed installs (a licence that is not permissive, a gated or non-commercial one), and with them the first-run starter models and *Update all* (they
+install through the feed). The one list of permissive licences is `CatalogLicenses.IsPermissive` (Apache-2.0, MIT, ISC, Unlicense, CC0, CC-BY-4.0, CC-BY-SA-4.0,
+CDLA-Permissive-2.0, BSL-1.0, Zlib and every `bsd-*`); a model with no recorded licence is not asked about. The dialog (`LicenseDialogViewModel`, in the
+main window) shows the model, the licence name, the notice text, *Read the full licence* (the licence link of the feed package, else the model's Hub page)
+and *Accept* / *Cancel*; Cancel downloads nothing (a feed install is shown as cancelled and *Retry* asks again). `ILicenseGate` queues the requests and
+shows one at a time, and the acceptance is stored per model in the settings (`AcceptedLicenses`: key, licence, a fingerprint of the licence and notice,
+date; keys are the catalog entry id, `feed:<package>` or `hub:<repository>`), so it is asked once; a changed licence or notice asks again. A model whose
+terms were accepted does not show the dismissible notice after the download (`LicenseNotices.IsHandled`).
 
 **Image** (image generation, `IImageGenerator`). Type a prompt and optionally a negative prompt; the parameters are the size, steps,
 guidance, sampler (`Samplers`: Euler, Euler Karras, Euler ancestral, DDIM, PNDM, DPM++ 2M, DPM++ 2M Karras), the seed (empty is random,

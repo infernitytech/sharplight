@@ -216,6 +216,28 @@
         </Border>
       </Panel>
 
+      <!-- Licence terms to accept before a download -->
+      <Panel x:Name="LicenseDialog" IsVisible="{Binding LicenseDialog.IsOpen}" x:DataType="vm:MainWindowViewModel">
+        <Border Background="#99000000" />
+        <Border Classes="card" Width="500" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center"
+                x:DataType="vm:MainWindowViewModel" DataContext="{Binding LicenseDialog}">
+          <DockPanel x:DataType="vm:LicenseDialogViewModel">
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,10">
+              <TextBlock x:Name="LicenseTitle" Classes="h3" Text="{Binding Title}" TextWrapping="Wrap" />
+              <TextBlock x:Name="LicenseName" Classes="caption" Text="{Binding License, StringFormat='Licence: {0}'}" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,12,0,0">
+              <Button x:Name="LicenseLinkButton" Content="Read the full licence" Command="{Binding OpenLicenseCommand}" IsVisible="{Binding HasLink}" />
+              <Button x:Name="LicenseCancelButton" Content="Cancel" Command="{Binding CancelCommand}" />
+              <Button x:Name="LicenseAcceptButton" Classes="accent" Content="Accept" Command="{Binding AcceptCommand}" />
+            </StackPanel>
+            <ScrollViewer>
+              <TextBlock x:Name="LicenseNoticeText" Text="{Binding Notice}" TextWrapping="Wrap" />
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+      </Panel>
+
       <!-- Resize edges (custom chrome, not maximized) -->
       <Panel x:Name="ResizeEdges">
         <Border Classes="edge" Tag="North" Height="5" VerticalAlignment="Top" Cursor="TopSide" Margin="8,0" />

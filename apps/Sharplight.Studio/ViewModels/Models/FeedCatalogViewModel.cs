@@ -7,6 +7,7 @@ using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Feed;
 using Sharplight.Studio.Services.Fit;
+using Sharplight.Studio.Services.Library;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
@@ -174,7 +175,8 @@ internal sealed partial class FeedCatalogViewModel : ObservableObject
             return running;
         }
 
-        var install = new FeedInstallViewModel(package.Id, package.Name, package.Version, package.HasUpdate, _services.Feed, _services.Dispatcher, OnInstalled);
+        var install = new FeedInstallViewModel(package.Id, package.Name, package.Version, package.HasUpdate, _services.Feed, _services.Dispatcher, OnInstalled,
+            token => _services.Licenses.RequestAsync(LicenseNotices.TermsFor(package.Id, package.Name, package.Summary.License), token));
         install.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(FeedInstallViewModel.IsActive))
