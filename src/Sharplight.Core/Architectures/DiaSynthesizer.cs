@@ -143,14 +143,14 @@ internal sealed class DiaSynthesizer : ISpeechSynthesizer, IVoiceCloner
                 {
                     while (complete - emitted >= StreamFrames + StreamLookahead)
                     {
-                        emit(DecodeSlice(DiaDelay.Revert(rows, _delays, start, start + emitted + StreamFrames + StreamLookahead), emitted, emitted + StreamFrames, StreamContext));
+                        emit(DecodeSlice(DiaDelay.Revert(rows, _delays, start, start + emitted + StreamFrames + StreamLookahead), emitted, emitted + StreamFrames, StreamContext, StreamLookahead));
                         emitted += StreamFrames;
                     }
                 }, token);
                 int total = result.End - result.Start;
                 if (total > emitted)
                 {
-                    emit(DecodeSlice(DiaDelay.Revert(result.Rows, _delays, result.Start, result.End), emitted, total, StreamContext));
+                    emit(DecodeSlice(DiaDelay.Revert(result.Rows, _delays, result.Start, result.End), emitted, total, StreamContext, 0));
                 }
             }
             finally
@@ -214,13 +214,13 @@ internal sealed class DiaSynthesizer : ISpeechSynthesizer, IVoiceCloner
     internal AudioBuffer Decode(IReadOnlyList<int[]> frames, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(frames);
-        int chunk = DiaAdapter.CodecDecodeFrames - DiaAdapter.CodecContextFrames;
+        int chunk = DiaAdapter.CodecDecodeFrames - (2 * DiaAdapter.CodecContextFrames);
         var samples = new List<float>(frames.Count * _frameSamples);
         for (int start = 0; start < frames.Count; start += chunk)
         {
             cancellationToken.ThrowIfCancellationRequested();
             int end = Math.Min(frames.Count, start + chunk);
-            samples.AddRange(DecodeSlice(frames, start, end, Math.Min(DiaAdapter.CodecContextFrames, start)).Samples);
+            samples.AddRange(DecodeSlice(frames, start, end, DiaAdapter.CodecContextFrames, DiaAdapter.CodecContextFrames).Samples);
         }
 
         return new AudioBuffer([.. samples], SampleRate);
@@ -444,11 +444,15 @@ internal sealed class DiaSynthesizer : ISpeechSynthesizer, IVoiceCloner
         return rows;
     }
 
-    /// <summary>Decodes frames <c>[first, end)</c> of <paramref name="frames"/> with up to <paramref name="context"/> frames before them whose audio is dropped.</summary>
-    private AudioBuffer DecodeSlice(IReadOnlyList<int[]> frames, int first, int end, int context)
+    /// <summary>
+    /// Decodes frames <c>[first, end)</c> of <paramref name="frames"/> with up to <paramref name="context"/> frames before them and <paramref name="lookahead"/> frames after
+    /// them, whose audio is dropped (the codec's convolutions see both sides).
+    /// </summary>
+    private AudioBuffer DecodeSlice(IReadOnlyList<int[]> frames, int first, int end, int context, int lookahead)
     {
         int begin = Math.Max(0, first - context);
-        int count = Math.Min(frames.Count, end) - begin;
+        end = Math.Min(frames.Count, end);
+        int count = Math.Min(frames.Count, end + lookahead) - begin;
         if (count <= 0)
         {
             return new AudioBuffer([], SampleRate);
@@ -475,7 +479,7 @@ internal sealed class DiaSynthesizer : ISpeechSynthesizer, IVoiceCloner
         var samples = new float[count * _frameSamples];
         codec.GetOutput<float>(AudioCodecGraphs.AudioOutput, samples);
         int skip = (first - begin) * _frameSamples;
-        int take = Math.Min(end, begin + count) * _frameSamples - (begin * _frameSamples) - skip;
+        int take = (end - first) * _frameSamples;
         return new AudioBuffer(samples.AsSpan(skip, take).ToArray(), SampleRate);
     }
 }
