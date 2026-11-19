@@ -199,8 +199,9 @@ internal sealed partial class VerifiedCatalogViewModel : ObservableObject
         try
         {
             var memory = await _advisor.GetMemoryAsync(CancellationToken.None);
-            long gpu = memory.Where(device => device.IsGpu).Sum(device => device.TotalBytes);
-            long system = memory.Where(device => !device.IsGpu).Select(device => device.TotalBytes).DefaultIfEmpty(0).Max();
+            // What the devices can hold for Sharplight (memory other applications occupy is not counted), not their total memory.
+            long gpu = memory.Where(device => device.IsGpu).Sum(device => device.UsableBytes);
+            long system = memory.Where(device => !device.IsGpu).Select(device => device.UsableBytes).DefaultIfEmpty(0).Max();
             foreach (var variant in _all.SelectMany(entry => entry.Variants))
             {
                 variant.EstimateFit(gpu, system);
