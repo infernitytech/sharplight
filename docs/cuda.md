@@ -223,6 +223,22 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   grouped layout too (`FP8_GROUPED`, `F8_GROUPED`), so the layout costs decode nothing measurable; on Vulkan it is off
   (`SHARPLIGHT_FP8_GROUPED=1` turns it on anywhere, [benchmarks.md §54.7](benchmarks.md)).
 
+- **`gemm_moe_native.cu`** (`native_gemm_moe`, compute capability 8.0+): the expert-grouped product of a MatMulId with MXFP4 experts
+  (the 16-row groups of `WeightRepack.Mxfp4Split`) from 12 routed rows per expert on average (`SHARPLIGHT_NATIVE_MOE_MIN_ROWS`;
+  below, the expert-grouped skinny GEMM serves). One block per routing tile of 128 rows (`moe_route`) and 256 (dual) or 192 weight
+  rows: a four-stage `cp.async` ring of 64-value K steps holds the expert-sorted f16 activation rows (swizzled 128-byte rows) and
+  the raw codes and E8M0 scales (4.25 bits per weight; codes stored [block][row] so a fragment's 8 rows are one 128-byte line, with
+  an `L2::256B` prefetch hint so the 32 bytes a stage takes of each row still stream from memory in whole bursts). Eight warps side
+  by side along the weight rows (warp tile 128 x 32) decode the 4-bit codes of the fragment they multiply with the arithmetic of
+  gemm_cm2's decode (doubled code in half bits, two half factors of the scale from a per-block table) right before
+  `mma.sync.m16n8k16`, and the next block's decode is issued between the current block's MMAs. A partial tile's empty 16-row
+  fragments are skipped by a warp-uniform branch (predicated-off MMAs still take the tensor pipe's time; this alone took 2048-token
+  gate / up from 2.42 to 2.29 ms per layer). The store applies the expert group's generated epilogue in CUDA C++ (dual: gpt-oss's
+  halves with their bias rows and clamped SwiGLU, or a gate / up pair; single: bias rows, router weight; `MoeEpilogueWriter`
+  writes both the Slang and the CUDA form), and multiplies row-ranged rows by their inverse scale. The decode and the MMAs' K
+  order are gemm_cm2's, so outputs are identical with the feature on and off (gpt-oss-20b greedy outputs byte-identical).
+  gpt-oss-20b, 2048 tokens: gate / up 2.63 → 2.26 ms, down 1.43 → 1.20 ms per layer ([benchmarks.md §56](benchmarks.md)).
+
 Measured limits of the FP8 kernel (prototypes, [benchmarks.md §53.4 and §54.3](benchmarks.md)): with the MMAs and `ldmatrix` alone
 the loop runs at ~300 TFLOPS (the `mma.sync` E4M3 peak of this GPU is 474); with the dense layouts the scale copies cost nothing, the
 per-block promotion ~6 % and the code copies that the MMAs do not hide ~15 %. CUTLASS's block-scaled sm120 kernel (vLLM with
@@ -614,7 +630,8 @@ memory the kernels are lowered for; 49152 keeps the static limit), `SHARPLIGHT_C
 first); of `Sharplight.Shaders`: `SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS` (rows from which matmuls take the library GEMM or the hand-written
 f16 GEMM, default 256), `SHARPLIGHT_NATIVE_GEMM_MIN_ROWS` (rows from which the hand-written FP8 GEMM serves, default 65),
 `SHARPLIGHT_FP8_GROUPED=1|0` (FP8 weights in 128-row groups on every target or none; default: where the hand-written FP8 GEMM runs),
-`SHARPLIGHT_DISABLE_FEATURES=native_gemm_f16,native_gemm_fp8,launch_graphs` (back to the phase-2 kernels and per-launch submission),
+`SHARPLIGHT_NATIVE_MOE_MIN_ROWS` (average routed rows per expert from which the hand-written grouped MXFP4 GEMM serves, default 12),
+`SHARPLIGHT_DISABLE_FEATURES=native_gemm_f16,native_gemm_fp8,native_gemm_moe,launch_graphs` (back to the phase-2 kernels and per-launch submission),
 `SHARPLIGHT_GEMM_MACROS` (e.g. `GNBUF=2` for double-buffered 64-value K blocks of gemm_cm2); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
 `SHARPLIGHT_DEVICE_FORWARDING` as for Vulkan. `compute-sanitizer` works on the provider as on any CUDA application.
 
@@ -653,8 +670,12 @@ phase-1 kernels as the fallback, and each flips the default for a device class o
    - a FlashAttention-2-style prefill kernel in CUDA C++ (`fe` is a quarter of an 8192-token FP8 prefill at 105 TFLOPS), split-K for
      the native f16 GEMM's small grids, the dual GEMM writing the f16 copy, the 8B decode matvecs;
    - gpt-oss-20b prefill (MoE, 0.63-0.76x of vLLM): a grouped MXFP4 expert GEMM in CUDA C++.
-4. **Phase 5: MoE.** Grouped GEMMs over sorted experts with TMA-gathered rows, fused routing / top-k / gather, MXFP4 and NVFP4 expert
-   weights on the Blackwell block-scaled tensor-core instructions.
+4. **Phase 5: MoE.** Started on `perf/llm-r12` ([benchmarks.md §56](benchmarks.md)): the hand-written grouped MXFP4 expert GEMM
+   (`gemm_moe_native.cu`, raw codes in a `cp.async` ring, decoded per MMA); gpt-oss-20b prefill 0.81-1.07x / 0.74-0.87x / 0.63-0.71x of
+   vLLM at 512 / 2048 / 8192 tokens before / after. Open: the prefill attention (`fa` is 16 of 140 ms at 2048 tokens against
+   FlashInfer's 4.4 ms, 30 % of an 8192-token prefill), the bf16 projections (q / k / v as one GEMM), the 64-sequence decode step
+   (19.8 against vLLM's 16.2 ms incl. LM head), TMA-gathered rows, fused routing / gather, NVFP4 experts, and the Blackwell
+   block-scaled instructions (they need UE8M0 activation scales, a numerics change).
 5. **Phase 6: launch overhead.** Programmatic dependent launch and asynchronous host copies (CUDA graphs are in phase 3).
 6. **Phase 7: FP8 / NVFP4 / MXFP4 tensor cores everywhere** (KV cache in FP8, attention in FP8), and **multi-GPU**: NCCL-free
    peer-to-peer copies (`cuMemcpyPeer`, P2P over NVLink / PCIe) for pipeline and tensor parallelism across the three GPUs.
