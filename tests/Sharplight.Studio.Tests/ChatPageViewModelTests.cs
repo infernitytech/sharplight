@@ -16,6 +16,39 @@ public sealed class ChatPageViewModelTests
     }
 
     [Fact]
+    public async Task Chat_ShowsTheLicenceNoticeOfAChatModelOnce_UntilDismissed()
+    {
+        using var services = new TestServices();
+        var model = services.Runtime.Add(new FakeModel("llama") { Path = "/models/llama.slm" });
+        services.Library.Entries.Add(new Sharplight.Studio.Services.Library.LibraryEntry
+        {
+            Id = "llama",
+            DisplayName = "llama",
+            Path = model.Path,
+            Kind = Sharplight.Models.ModelKinds.TextGeneration,
+            Manifest = new Sharplight.Hub.ModelManifest { Repository = "x/llama", Tag = "latest", Alias = "llama", Commit = "abc", Catalog = "llama-3.3-70b-instruct/q4" },
+        });
+        services.Hub.Catalog = new Sharplight.Hub.Catalog.VerifiedCatalog
+        {
+            Updated = "2026-11-19",
+            Entries = [new Sharplight.Hub.Catalog.CatalogEntry { Id = "llama-3.3-70b-instruct", Name = "Llama", Kind = Sharplight.Models.ModelKinds.TextGeneration, License = "llama3.3", Notes = "unrelated", LicenseNotice = "Llama Community License applies." }],
+        };
+        var chat = new ViewModels.Chat.ChatPageViewModel(services.Services, new Fakes.FakeNavigator());
+
+        await chat.ActivateAsync();
+        await WaitFor(() => chat.License.IsVisible);
+        Assert.Equal("Llama Community License applies.", chat.License.Text);
+
+        chat.License.DismissCommand.Execute(null);
+        chat.SelectModel(null);
+        chat.SelectModel(model);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+
+        Assert.False(chat.License.IsVisible);
+        Assert.Equal(["llama-3.3-70b-instruct"], services.Settings.Current.DismissedLicenseNotices);
+    }
+
+    [Fact]
     public async Task Activate_OpensTheNewestConversation_WithItsModel()
     {
         using var services = new TestServices();

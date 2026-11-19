@@ -121,6 +121,9 @@ internal sealed record AppSettings
     /// <summary>Address of the Sharplight model feed that replaces the official one; null or empty uses <c>https://download.sharplight.dev/models</c>.</summary>
     public string? FeedUrl { get; init; }
 
+    /// <summary>The catalog entries whose licence notice the user dismissed (shown once per model).</summary>
+    public IReadOnlyList<string> DismissedLicenseNotices { get; init; } = [];
+
     /// <summary>The model feed channel, <c>stable</c> or <c>unstable</c>; null is <c>stable</c>.</summary>
     public string? FeedChannel { get; init; }
 }

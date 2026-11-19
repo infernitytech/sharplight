@@ -28,7 +28,16 @@ internal sealed class FakeRuntime : IModelRuntime
     /// <summary>The devices' memory; by default the GPU minus what the models hold, and 24 GB of 32 GB system memory free.</summary>
     public Func<IReadOnlyList<DeviceMemory>>? Memory { get; set; }
 
-    public IReadOnlyList<ILoadedModel> LoadedModels => _models;
+    public IReadOnlyList<ILoadedModel> LoadedModels
+    {
+        get
+        {
+            lock (_models)
+            {
+                return [.. _models];
+            }
+        }
+    }
 
     public List<ModelLoadRequest> Requests { get; } = [];
 
@@ -41,7 +50,11 @@ internal sealed class FakeRuntime : IModelRuntime
 
     public FakeModel Add(FakeModel model)
     {
-        _models.Add(model);
+        lock (_models)
+        {
+            _models.Add(model);
+        }
+
         ModelsChanged?.Invoke(this, EventArgs.Empty);
         return model;
     }
@@ -58,13 +71,17 @@ internal sealed class FakeRuntime : IModelRuntime
 
     public Task UnloadAsync(string id)
     {
-        _models.RemoveAll(model => model.Id == id);
+        lock (_models)
+        {
+            _models.RemoveAll(model => model.Id == id);
+        }
+
         ModelsChanged?.Invoke(this, EventArgs.Empty);
         return Task.CompletedTask;
     }
 
     public IReadOnlyList<DeviceUsage> GetDeviceUsage() =>
-        [new DeviceUsage(Gpu.Id, Gpu.Name, _models.Sum(model => model.ResidentBytes), Gpu.TotalMemory, true)];
+        [new DeviceUsage(Gpu.Id, Gpu.Name, LoadedModels.Sum(model => model.ResidentBytes), Gpu.TotalMemory, true)];
 
     public Task<ModelFootprint> EstimateFootprintAsync(ModelLoadRequest request, CancellationToken cancellationToken)
     {
@@ -79,7 +96,7 @@ internal sealed class FakeRuntime : IModelRuntime
     public Task<IReadOnlyList<DeviceMemory>> GetDeviceMemoryAsync(IReadOnlyList<string> disabledFeatures, CancellationToken cancellationToken) =>
         Task.FromResult(Memory?.Invoke() ??
         [
-            new DeviceMemory(Gpu.Id, Gpu.Name, true, Gpu.TotalMemory, Gpu.TotalMemory - _models.Sum(model => model.ResidentBytes), true),
+            new DeviceMemory(Gpu.Id, Gpu.Name, true, Gpu.TotalMemory, Gpu.TotalMemory - LoadedModels.Sum(model => model.ResidentBytes), true),
             new DeviceMemory(Cpu.Id, Cpu.Name, false, Cpu.TotalMemory, 24L << 30, true),
         ]);
 

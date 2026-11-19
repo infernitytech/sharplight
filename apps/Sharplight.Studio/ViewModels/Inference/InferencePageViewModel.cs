@@ -2,7 +2,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
-using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Runtime;
 
@@ -44,6 +43,12 @@ internal abstract partial class InferencePageViewModel : PageViewModel
         PageId = pageId;
         Parameters = parameters;
         Picker = new Inference.ModelPickerViewModel(services, kinds);
+        License = new LicenseNoticeViewModel(services);
+        License.PropertyChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(LicenseNotice));
+            OnPropertyChanged(nameof(HasLicenseNotice));
+        };
         Queue = new RunQueueViewModel(services.Dispatcher);
         Archive = new PageArchive(services.Pages, pageId);
         History = new RunHistoryViewModel(Archive, Restore);
@@ -120,35 +125,16 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     public bool HasNotice => Notice.Length > 0;
 
     /// <summary>
-    /// The licence notice of the chosen model when its catalog entry has the license <c>other</c> or a non-commercial one (OmniVoice, XTTS, Depth Anything 3 large): the
-    /// licence and the entry's notes, shown above the page's work area for as long as the model is chosen. Empty otherwise.
+    /// The licence callout of the chosen model (a catalog entry with a non-permissive licence: OmniVoice, XTTS, Depth Anything 3 large, FLUX): shown above the work area
+    /// until the user dismisses it, once per model.
     /// </summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasLicenseNotice))]
-    public partial string LicenseNotice { get; set; } = "";
+    public LicenseNoticeViewModel License { get; }
 
-    /// <summary>There is a licence notice.</summary>
-    public bool HasLicenseNotice => LicenseNotice.Length > 0;
+    /// <summary>The licence notice of the chosen model, empty when there is none or it was dismissed.</summary>
+    public string LicenseNotice => License.Text;
 
-    private CancellationTokenSource? _licenseLookup;
-
-    private async Task RefreshLicenseNoticeAsync(ILoadedModel? model)
-    {
-        _licenseLookup?.Cancel();
-        _licenseLookup = new CancellationTokenSource();
-        var token = _licenseLookup.Token;
-        if (model is null)
-        {
-            LicenseNotice = "";
-            return;
-        }
-
-        string? notice = await LicenseNotices.ForModelAsync(Services, model.Path, token).ConfigureAwait(true);
-        if (!token.IsCancellationRequested)
-        {
-            LicenseNotice = notice ?? "";
-        }
-    }
+    /// <summary>There is a licence notice to show.</summary>
+    public bool HasLicenseNotice => License.IsVisible;
 
     /// <summary>Which side tab is shown: 0 parameters, 1 history, 2 outputs.</summary>
     [ObservableProperty]
@@ -173,7 +159,7 @@ internal abstract partial class InferencePageViewModel : PageViewModel
         OnPropertyChanged(nameof(SelectedModel));
         OnPropertyChanged(nameof(HasModel));
         OnModelChanged(SelectedModel);
-        _ = RefreshLicenseNoticeAsync(SelectedModel);
+        _ = License.RefreshAsync(SelectedModel);
     }
 
     /// <summary>Chooses <paramref name="model"/> in the picker.</summary>
