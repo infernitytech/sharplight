@@ -25021,6 +25021,159 @@
           }
         }
       ]
+    },
+    {
+      "id": "stable-audio-open-1-0",
+      "name": "Stable Audio Open 1.0",
+      "kind": "audio-generation",
+      "family": "Stable Audio",
+      "architecture": "stable_audio",
+      "level": "verified",
+      "license": "other",
+      "gated": true,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "fp32-diffusers",
+          "label": "FP32 diffusers (transformer, T5 text encoder, timing conditioners, Oobleck VAE)",
+          "format": "diffusers",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 6488923819,
+          "companions": [],
+          "repository": "stabilityai/stable-audio-open-1.0",
+          "revision": "f21265c1e2710b3bd2386596943f0007f55f802e",
+          "include": [
+            "LICENSE.md",
+            "README.md",
+            "model_index.json",
+            "projection_model/config.json",
+            "projection_model/diffusion_pytorch_model.safetensors",
+            "scheduler/scheduler_config.json",
+            "text_encoder/config.json",
+            "text_encoder/model.safetensors",
+            "tokenizer/special_tokens_map.json",
+            "tokenizer/spiece.model",
+            "tokenizer/tokenizer.json",
+            "tokenizer/tokenizer_config.json",
+            "transformer/config.json",
+            "transformer/diffusion_pytorch_model.safetensors",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "LICENSE.md",
+              "size": 11852,
+              "gitOid": "1d9ce2ee1067327543544de197291726e4fc57a4"
+            },
+            {
+              "path": "README.md",
+              "size": 8342,
+              "gitOid": "3d885b931f93cf475e68acc8ab41473b057ef2a5"
+            },
+            {
+              "path": "model_index.json",
+              "size": 498,
+              "gitOid": "a2e08e9778cc18fdc1c039092f5912abd687d3af"
+            },
+            {
+              "path": "projection_model/config.json",
+              "size": 181,
+              "gitOid": "1cbca1a6bfc87ee7ba4b427ae1a6567dbb7578fb"
+            },
+            {
+              "path": "projection_model/diffusion_pytorch_model.safetensors",
+              "size": 1586944,
+              "sha256": "032102e2b0e4b9b9e19c648dc476345157b97906752a7b4b7a0133900f340926"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 411,
+              "gitOid": "0b2751bbf251c66bcb66f985c7f01dcd0611b0d6"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 1497,
+              "gitOid": "0db501afad36254770a00fd59e338faa64fd7bbb"
+            },
+            {
+              "path": "text_encoder/model.safetensors",
+              "size": 438525864,
+              "sha256": "095878c81d21f17d235e1b4aa20e9595289177e2658ef4dcec69fa5aa3b07ca2"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 2201,
+              "gitOid": "2c19eb6e3b583f52d34b903b5978d3d30b6b7682"
+            },
+            {
+              "path": "tokenizer/spiece.model",
+              "size": 791656,
+              "sha256": "d60acb128cf7b7f2536e8f38a5b18a05535c9e14c7a355904270e15b0945ea86"
+            },
+            {
+              "path": "tokenizer/tokenizer.json",
+              "size": 2422169,
+              "gitOid": "440e6b89375c688d05cd1d8d4b9d90ee52cdd6a7"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 20768,
+              "gitOid": "8186f3399223c5566a5cffd47d01fa26772d5f2d"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 391,
+              "gitOid": "886f818d47bbf280b5c273288b5f50c1d974bc79"
+            },
+            {
+              "path": "transformer/diffusion_pytorch_model.safetensors",
+              "size": 4227806200,
+              "sha256": "65ae9715febfeb2dc9f33aa506c2bda69fd2ddf8ebc483fb2df090df4ca506fd"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 350,
+              "gitOid": "b8419aca11a4ddd9dd4ce3ea26dd59dd563cb189"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 624490240,
+              "sha256": "2131cdb52020b2473707465449d8bdb4f6cca61c93150a947baca02bc58ffd7b"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "vs diffusers StableAudioPipeline (fp32, CPU) with the same initial and SDE step noise, 8 DPM-Solver\u002B\u002B(2M) SDE steps, guidance 7, a 10 s clip: one transformer evaluation 121.7 dB (CPU) / 111.3 dB (Vulkan) / 123.4 dB (CUDA) SNR, final latents 92.2 dB (CPU) / 80.2 dB (Vulkan) / 89.1 dB (CUDA), decoded 44.1 kHz stereo audio 74.7 dB (CPU) / 62.6 dB (Vulkan) / 70.8 dB (CUDA); T5 rows 120 dB, timing rows 137 dB",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "Text to 44.1 kHz stereo music and sound effects up to 47.5 s, \u0060IAudioGenerator\u0060: prompt, negative prompt, duration, steps (default 100), guidance (default 7), seed. The transformer always denoises its whole 1024-frame window; the duration conditions it and cuts the audio. Not covered: audio-to-audio (initial audio), a start offset other than 0, the original stable-audio-tools single-file layout (model.safetensors with model_config.json).",
+      "licenseNotice": "Stability AI Community License: free for research, non-commercial and commercial use while your annual revenue is below 1 million US dollars (commercial users register with Stability AI); above that you need an enterprise licence. Sharing the model or its outputs in a product requires the \u0022Powered by Stability AI\u0022 attribution.",
+      "doc": [
+        {
+          "section": "6",
+          "cells": {
+            "repositories": "stabilityai/stable-audio-open-1.0",
+            "kind": "audio generation (music, sound effects)"
+          }
+        }
+      ]
     }
   ]
 }

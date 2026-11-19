@@ -93,8 +93,9 @@ public class StableAudioTests
         Assert.False(generator.SupportsLyrics);
         Assert.Equal(47.55, generator.MaxDuration.TotalSeconds, 2);
 
-        var steps = new List<int>();
-        var latents = await generator.GenerateLatentsAsync(Request(), new Progress<(int Step, int Steps)>(p => steps.Add(p.Step)));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var latents = await generator.GenerateLatentsAsync(Request());
+        ParityReport.Write($"stable-audio gpu={gpu} 8 steps with guidance in {watch.Elapsed.TotalSeconds:F1} s");
         Report(gpu, "final latents", latents.Values, AudioModels.Floats("sao_latent.f32"), tolerance);
 
         var audio = await generator.GenerateAsync(Request());
