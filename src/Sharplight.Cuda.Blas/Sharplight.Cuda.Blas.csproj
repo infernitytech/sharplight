@@ -4,8 +4,9 @@
     matrix products of bf16 weights where it is faster than the generated kernels (DeviceFeatures.LibraryGemm, docs/cuda.md). The file is
     distributable per Attachment A of the CUDA Toolkit EULA ("CUDA BLAS Library"). Nothing is committed: the pinned archive of NVIDIA's
     redistributable server is downloaded and checked against the SHA-256 of the release manifest the first time it is needed.
-    cuBLASLt alone is about 500 MB per runtime (SASS for every architecture), more than nuget.org takes in one package, so the package is
-    packed per runtime: dotnet pack -p:CudaBlasRid=linux-x64 gives Sharplight.Cuda.Blas.linux-x64 (likewise linux-arm64, win-x64).
+    cuBLASLt alone is 541 MB per runtime (SASS for every architecture, 375 MB deflated), so the package is packed per runtime:
+    dotnet pack -p:CudaBlasRid=linux-x64 gives Sharplight.Cuda.Blas.linux-x64 (likewise linux-arm64, win-x64). Even so it exceeds
+    nuget.org's 250 MB limit; it is meant for feeds without that limit (see docs/cuda.md).
     Builds copy the build machine's file next to the application only on request (SharplightBundleCudaBlas=true), since it is that large.
   -->
   <PropertyGroup>

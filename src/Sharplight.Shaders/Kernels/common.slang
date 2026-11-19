@@ -27,6 +27,19 @@
 #define WaveActiveAnyTrue(c) WaveMaskAnyTrue(WaveGetConvergedMask(), c)
 #define WaveIsFirstLane() WaveMaskIsFirstLane(WaveGetConvergedMask())
 #define WavePrefixSum(v) WaveMaskPrefixSum(WaveGetConvergedMask(), v)
+
+// exp as the hardware approximation (__expf: ex2.approx after a scale), the precision SPIR-V's Exp has on NVIDIA's Vulkan driver
+// (GLSL.std.450 allows 3 + 2|x| ULP); Slang's CUDA output otherwise calls the correctly rounded expf (the prefill attention fe:
+// 5 % faster with __expf).
+float cu_fast_exp(float x)
+{
+    __target_switch { case cuda: __intrinsic_asm "__expf($0)"; }
+}
+float2 cu_fast_exp(float2 x) { return float2(cu_fast_exp(x.x), cu_fast_exp(x.y)); }
+float3 cu_fast_exp(float3 x) { return float3(cu_fast_exp(x.x), cu_fast_exp(x.y), cu_fast_exp(x.z)); }
+float4 cu_fast_exp(float4 x) { return float4(cu_fast_exp(x.x), cu_fast_exp(x.y), cu_fast_exp(x.z), cu_fast_exp(x.w)); }
+half cu_fast_exp(half x) { return half(cu_fast_exp(float(x))); }
+#define exp(x) cu_fast_exp(x)
 #endif
 
 // Runtime scalar slot of the KV offset (n_past) in the `rt` buffer (uint array).
