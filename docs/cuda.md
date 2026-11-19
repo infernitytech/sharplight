@@ -43,9 +43,9 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
   neutral, used only by CUDA) runs NVRTC on the Slang output before it is cached, so the cached and exported code of a kernel is its
   PTX: `NvrtcTranslator` compiles for the device's virtual architecture (`-arch=compute_XY`), with the floating-point headers passed
   in memory. Cache keys of SPIR-V and MSL kernels are unchanged.
-- **Lowering.** `CudaCodeGenerator` calls the shared `GraphLowerer` with warp size 32, 48 KB of shared memory (the static limit, see
-  below), the SM count as compute units and the device's features, so the CUDA provider selects the same kernels as the Vulkan provider
-  on the same NVIDIA GPU. That makes Vulkan the reference for parity and keeps phase 1 free of new tuning decisions.
+- **Lowering.** `CudaCodeGenerator` calls the shared `GraphLowerer` with warp size 32, the device's opt-in shared memory (see
+  [shared memory](#shared-memory)), the SM count as compute units and the device's features, so the CUDA provider selects the same
+  kernels as the Vulkan provider on the same NVIDIA GPU where both have the features. That keeps Vulkan the reference for parity.
 - **Memory.** Device memory per buffer (`cuMemAlloc`, zeroed), weights uploaded through two 64 MB pinned staging buffers that the CPU
   fills (reading mapped files, repacking rows with the shared `WeightCopier`) while the GPU copies the other one. Shared weights,
   per-graph states, device forwarding between segments and data-dependent symbols work as on Vulkan.
@@ -67,8 +67,10 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
   alignment. `LoweringOptions.AlignedVectorAccess` (set by the CUDA provider only) keeps kernels whose row strides would misalign their
   16-byte loads off such shapes: the int-dot matvec then needs K to be a multiple of 64 (its quantized activation rows are 1.25 K
   bytes), other K take the f32 matvec. Found by `MatMulTests.OddShapes` (Q8_0, K = 96: "misaligned address").
-- **Format-agnostic core.** Nothing outside `src/Sharplight.Cuda` (and the native package `Sharplight.Cuda.Runtime`) knows about CUDA.
-  The only shared change is the `KernelTranslator` hook and the CUDA block-size header in `Sharplight.Shaders`.
+- **Format-agnostic core.** Nothing outside `src/Sharplight.Cuda` (and the native packages `Sharplight.Cuda.Runtime` and
+  `Sharplight.Cuda.Blas`) knows about CUDA. The shared changes are provider-neutral: the `KernelTranslator` hook, the block-size header
+  and the `SL_TARGET_CUDA` target macro in `Sharplight.Shaders`, the `library_gemm` feature with its `LibraryKernel` descriptors, and
+  the CUDA forms inside the kernel library (`cuda_mma.slang`, `#if SL_TARGET_CUDA` blocks), which SPIR-V and MSL do not see.
 
 ### Tensor cores
 
@@ -368,17 +370,15 @@ faulting kernel is named), plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION
 Phase 1 is correctness on the shared kernels. The phases after it each add CUDA-only fast paths behind neutral device features with the
 phase-1 kernels as the fallback, and each flips the default for a device class only when measured faster and green.
 
-1. **Phase 2: tensor cores and decode.**
-   - `matrix_f16` / `matrix_bf16` / `matrix_int8` / `matrix_fp8` / `matrix_mma_layout` on CUDA. Slang's CUDA prelude already maps
-     16x16x16 cooperative matrices to `mma.sync.m16n8k16`; what fails is the code generation of some kernels (`gemm_cm2`: E99999).
-     Find the construct (most likely the fragment loads from `uint4` shared arrays, as on Metal), give those kernels a form Slang's
-     CUDA backend emits (as `*_FRAG8` did for Metal) without changing their SPIR-V, and report the features from compute
-     capability 8.0 (8.9 for FP8). That alone brings the prefill GEMMs to the Vulkan level.
-   - Decode: remove the explicit active-mask tracking of Slang's CUDA output from the hot kernels (decode attention first), see
-     [first numbers](#first-numbers).
-   - cuBLASLt for the large prefill GEMMs (bf16, FP8 E4M3 with per-tensor and per-block scales, MXFP8 / NVFP4 block-scaled on
-     Blackwell), in the optional `Sharplight.Cuda.Blas` package, chosen per shape against the Slang GEMMs with a small autotune cache.
-   - Dynamic shared memory above 48 KB for the existing tile kernels (larger GEMM tiles, two K/V tiles in flight in `fe`).
+1. **Phase 2: tensor cores and decode** (done, branch `cuda/provider-r2`): tensor-core fragments for CUDA (`cuda_mma.slang`), the
+   `matrix_*` features from compute capability 8.0 / 8.9, wave operations over `__activemask()`, `exp` as `__expf`, aligned vector
+   loads, dynamic shared memory above 48 KB, and cuBLASLt as the optional library GEMM for bf16 weights. Open from it:
+   - the activations of library GEMMs in bf16 straight from their producers (the SiLU·mul group and the norms writing the bf16 rows
+     next to, or instead of, the f32 ones), which removes the `to_bf16` passes (3-4 % of a bf16 prefill) and the f32 round trip of
+     the gate / up products;
+   - FP8 at vLLM's level (0.76x): cuBLASLt has no 128x128 block-scaled FP8 on compute capability 12.0, so this needs a hand-written
+     FP8 GEMM with larger tiles (the dynamic shared memory is in place) or the Blackwell block-scaled `mma.sync ... kind::mxf8f6f4`;
+   - the prefill attention `fe` is 5-8 % slower than its SPIR-V form on the NVIDIA Vulkan driver (same kernel).
 2. **Phase 3: attention.** A flash-attention kernel for prefill with large shared memory, `cp.async` / TMA loads and warp-specialized
    producer / consumer pipelines (Hopper / Blackwell: `wgmma` / `tcgen05`), paged decode attention with split-K, written in CUDA C++ and
    compiled at build time to cubins for sm_80, sm_89, sm_90a, sm_100a, sm_120a plus PTX.
