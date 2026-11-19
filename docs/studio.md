@@ -473,7 +473,42 @@ voices), the speed and the sampling (temperature, top-k, top-p, repetition penal
 one, so the sound differs slightly from a whole-text pass). OuteTTS is a language model plus the WavTokenizer decoder: when you load
 an OuteTTS GGUF, the load panel asks for the vocoder file (a `.slm` package made with the vocoder needs none).
 
+What the page offers follows what the chosen model's client says it can do (`SpeechModelTraits`: its canonical architecture and the
+`ISpeechLanguageList` it implements):
+
+- *VibeVoice-1.5B* and *Sesame CSM-1B* speak a script of lines `Speaker N: ...`. An *Add a turn* button writes the next label; every speaker of the
+  script gets a row in the *Speakers* card with a voice choice: the model's own voice, one of its built-in voices (CSM: 0 and 1), a saved voice, or
+  (VibeVoice) a *Reference recording* (a WAV file and, optionally, its words), from which the voice is made for the run. VibeVoice speaks the whole
+  script in one request with `SpeechSynthesisOptions.SpeakerVoices`; CSM has no script input, so the page speaks the turns one after the other
+  (the speaker's built-in voice, a 0.3 s pause between turns). The single *Voice* choice is hidden for these models.
+- *Diffusion steps* and *Guidance* appear for models with a diffusion head (VibeVoice; defaults 10 and 1.3) and go to `DiffusionSteps` and `GuidanceScale`.
+- *OmniVoice* shows a *Language* picker with its 600+ languages (the names of `ISpeechLanguageList`) and a *Voice design* box (for example
+  "female, young adult, british accent", sent as `Instructions`; a reference recording or a saved voice replaces it). Its licence notice is
+  shown above the page (see *Licence notices*).
+
 ![Speak](images/studio/studio-speak.png)
+
+**Transcribe and speakers.** A model that tells speakers apart (VibeVoice-ASR) returns segments with `TranscriptionSegment.Speaker`. The page then
+shows a coloured speaker badge on every segment (one colour per speaker, in the order they first speak), a line "2 speakers: Speaker 0, Speaker 1"
+under the transcript, and the exports carry the speakers: `.txt` has one line per turn (consecutive segments of the same speaker joined) that starts with
+"Speaker 1: ", `.srt` prefixes each cue with the label, `.vtt` uses voice spans (`<v Speaker 1>text`). A bare number becomes "Speaker N"; other labels are
+shown as they are. `transcript.json` of a run stores the speaker, so *Show again* restores them. Models without speakers export as before.
+
+**Audio** (`audio-codec`, `voice-activity`, `audio-embedding`, `music-generation`, `audio-generation`, `audio-separation`). The mode follows the kind of the
+chosen model. In the music mode, a diffusion model (ACE-Step 1.5 turbo, kind `audio-generation`, `IAudioGenerator`) shows a *Lyrics* box (section tags
+such as `[verse]` and `[chorus]`; empty is an instrumental) next to the prompt, and the parameters *Duration* (limited by the model's `MaxDuration`),
+*Seed*, *Steps* and *Shift* (0 uses the model's own values: 8 steps for turbo), and *Lyrics language*. *Guidance* is shown only for models that are not
+distilled (an id with `turbo` hides it), and the token-sampling controls (*Greedy*, *Temperature*, *Top-k*) belong to MusicGen only and are hidden. The
+lyrics are kept in the run's history. The library recognizes the ACE-Step checkpoint folder, which has no `config.json` of its own: a folder with an
+`acestep-v15-*` transformer folder (with its `config.json`), a `vae` folder and a `Qwen3-Embedding*` text-encoder folder is an audio-generation model
+(`ModelInspector.IsAceStepFolder`); a `config.json` with `model_type` `vibevoice` is speech synthesis, or speech recognition when its architecture names
+ASR, and `csm` and `omnivoice` are speech synthesis.
+
+**Licence notices.** A verified-catalog entry whose licence is `other` or a non-commercial one (`cc-by-nc-*`, `*-non-commercial-*`: OmniVoice, XTTS,
+Depth Anything 3 large, FLUX dev) shows its notes prominently: in Discover's *Verified* detail as a warning callout "Read the licence before you use this
+model", on every inference page while that model is chosen (found through the model's catalog key or repository, `LicenseNotices.ForModelAsync`), and
+in the library's status line when it loads. An entry with such a licence and no notes shows a general line. There is no acceptance dialog; that waits on
+an owner decision.
 
 **Image** (image generation, `IImageGenerator`). Type a prompt and optionally a negative prompt; the parameters are the size, steps,
 guidance, sampler (`Samplers`: Euler, Euler Karras, Euler ancestral, DDIM, PNDM, DPM++ 2M, DPM++ 2M Karras), the seed (empty is random,
@@ -827,6 +862,10 @@ all-MiniLM-L6-v2 and reranking with ms-marco-MiniLM-L6-v2, and the embedded serv
 embeddings and rerank over HTTP. `StudioSpeechPagesRealTests`, `StudioVisionAudioRealTests`, `StudioImageVideoPagesRealTests` and `StudioModelsPageRealTests` do the same for the other inference pages
 (all skipped when a model is missing, driven through the view models on the real runtime and the fake audio device, with `jfk.wav` and the COCO picture of two cats and
 two remote controls as inputs):
+- Audio models of 2026-11-19 (`AudioModelsPageTests`, over fakes: ACE-Step, VibeVoice, CSM, OmniVoice and VibeVoice-ASR are too big for the suite): the diffusion music mode
+  and its visible parameters, the ACE-Step / VibeVoice / CSM / OmniVoice folder kinds on small fixture folders, the script speakers and per-speaker voices,
+  the CSM turn-by-turn path, the OmniVoice language and design controls, speakers in the Transcribe view and exports, and the licence notices.
+  `PageScreenshotTests.AudioModelPage_*` renders these states in both themes and at two sizes.
 - Transcribe: whisper-tiny.en, Qwen3-ASR-0.6B and Parakeet; segment timestamps are ordered and inside the recording, and the saved `.srt` / `.vtt` files and the
   gallery copy carry the same cues as the page.
 - Speak: Kokoro and Qwen3-TTS CustomVoice; the voice list, playing while generating through the fake speaker, and the WAV export.

@@ -109,7 +109,13 @@
             <Border Classes="callout warn" IsVisible="{Binding Gated}">
               <TextBlock TextWrapping="Wrap" Text="Gated on Hugging Face: accept the model's terms there and set an access token in Settings before installing." />
             </Border>
-            <Border Classes="callout" IsVisible="{Binding HasNotes}">
+            <Border Classes="callout warn" IsVisible="{Binding HasLicenseNotice}">
+              <StackPanel Spacing="4">
+                <TextBlock FontWeight="SemiBold" Text="Read the licence before you use this model" />
+                <TextBlock TextWrapping="Wrap" Text="{Binding LicenseNotice}" />
+              </StackPanel>
+            </Border>
+            <Border Classes="callout" IsVisible="{Binding HasPlainNotes}">
               <TextBlock TextWrapping="Wrap" Text="{Binding Notes}" />
             </Border>
           </StackPanel>

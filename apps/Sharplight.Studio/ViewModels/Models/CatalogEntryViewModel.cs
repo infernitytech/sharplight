@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Sharplight.Hub.Catalog;
 using Sharplight.Studio.Models;
+using Sharplight.Studio.Services.Library;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
@@ -53,6 +54,15 @@ internal sealed partial class CatalogEntryViewModel : ObservableObject
     public bool IsPartial => Entry.Level == CatalogLevel.Partial;
 
     public string? Notes => Entry.Notes;
+
+    /// <summary>The licence needs a prominent notice (<c>other</c>, non-commercial): the licence and the notes.</summary>
+    public string? LicenseNotice => LicenseNotices.For(Entry);
+
+    /// <summary>The entry has a licence notice.</summary>
+    public bool HasLicenseNotice => LicenseNotice is not null;
+
+    /// <summary>The notes are shown as the plain callout (the licence notice already carries them).</summary>
+    public bool HasPlainNotes => HasNotes && !HasLicenseNotice;
 
     public bool HasNotes => !string.IsNullOrEmpty(Entry.Notes);
 

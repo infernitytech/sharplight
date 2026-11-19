@@ -3,6 +3,7 @@ using Avalonia.Headless;
 using Avalonia.Logging;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Sharplight.Models;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Tests.FirstRun;
 using Sharplight.Studio.Platform;
@@ -208,6 +209,152 @@ public sealed class PageScreenshotTests
             Save(window, $"search-results-{theme}-{width}");
             Assert.True(problems.Count == 0, $"search results ({theme}, {width} px):\n" + string.Join("\n", problems));
             page.WatchFolder = false;
+        }
+        finally
+        {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            Logger.Sink = null;
+        }
+
+        Assert.True(sink.Messages.Count == 0, string.Join("\n", sink.Messages.Distinct()));
+    });
+
+    private static readonly string[] s_audioModelStates = ["audio-music-ace-step", "speak-vibevoice-script", "speak-csm-script", "speak-omnivoice-design", "transcribe-speakers", "speak-license-notice"];
+
+    public static TheoryData<string, string, int> AudioModelCases
+    {
+        get
+        {
+            var data = new TheoryData<string, string, int>();
+            foreach (string state in s_audioModelStates)
+            {
+                foreach (string theme in new[] { "light", "dark" })
+                {
+                    foreach (var (width, _) in s_sizes)
+                    {
+                        data.Add(state, theme, (int)width);
+                    }
+                }
+            }
+
+            return data;
+        }
+    }
+
+    /// <summary>The pages of the audio models of 2026-11-19: ACE-Step music with lyrics, VibeVoice and CSM scripts with a voice per speaker, OmniVoice languages and voice design, diarized transcripts and the licence notice.</summary>
+    [Theory]
+    [MemberData(nameof(AudioModelCases))]
+    public Task AudioModelPage_RendersWithoutBindingErrorsOrClippedControls(string state, string theme, int width) => HeadlessApp.RunAsync(async () =>
+    {
+        double height = s_sizes.Single(size => (int)size.Width == width).Height;
+        var sink = new BindingErrorSink();
+        Logger.Sink = sink;
+        using var rig = new FeedCatalogTests.Rig();
+        await DemoData.FillAsync(rig.Services);
+        new ThemeService(Application.Current!).Apply(theme == "dark" ? AppTheme.Dark : AppTheme.Light, "Violet");
+        var viewModel = new MainWindowViewModel(rig.All with { Dispatcher = new AvaloniaDispatcher() });
+        var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
+        window.Show();
+        try
+        {
+            string wav = rig.Services.Directory + "/talk.wav";
+            Sharplight.Audio.WavFile.Write(wav, new Sharplight.Audio.AudioBuffer(new float[16000 * 8], 16000));
+            switch (state)
+            {
+                case "audio-music-ace-step":
+                {
+                    var generator = new Fakes.FakeAudioGenerator();
+                    var model = new Fakes.FakeModel("ace-step-1.5-turbo") { Kind = ModelKinds.AudioGeneration };
+                    model.Clients[typeof(Sharplight.Audio.IAudioGenerator)] = generator;
+                    rig.Services.Runtime.Add(model);
+                    viewModel.OpenKind(ModelKinds.AudioGeneration, model);
+                    await HeadlessApp.RenderAsync(window);
+                    viewModel.Audio.Prompt = "upbeat synth pop, 120 bpm";
+                    viewModel.Audio.Lyrics = "[verse]\nWalking down the neon street\n[chorus]\nWe are alive tonight";
+                    viewModel.Audio.Panel.Apply(new Dictionary<string, string> { ["musiclanguage"] = "en", ["musicsteps"] = "8", ["shift"] = "3" });
+                    viewModel.Audio.RunCommand.Execute(null);
+                    await viewModel.Audio.Queue.Items.Single().Completion;
+                    await HeadlessApp.WaitForAsync(window, () => viewModel.Audio.HasResult);
+                    break;
+                }
+
+                case "speak-vibevoice-script":
+                case "speak-csm-script":
+                {
+                    bool csm = state == "speak-csm-script";
+                    var synthesizer = new Fakes.FakeSynthesizer(csm ? "csm" : "vibevoice") { Voices = csm ? ["0", "1"] : [] };
+                    var model = new Fakes.FakeModel(csm ? "csm-1b" : "vibevoice-1.5b") { Kind = ModelKinds.SpeechSynthesis };
+                    model.Clients[typeof(Sharplight.Speech.ISpeechSynthesizer)] = synthesizer;
+                    rig.Services.Runtime.Add(model);
+                    viewModel.OpenKind(ModelKinds.SpeechSynthesis, model);
+                    await HeadlessApp.WaitForAsync(window, () => viewModel.Speak.IsMultiSpeaker);
+                    viewModel.Speak.InputText = csm ? "Speaker 0: Did you hear that?\nSpeaker 1: Hear what?" : "Speaker 1: Welcome to the show.\nSpeaker 2: Thanks for having me.\nSpeaker 1: Let us begin.";
+                    break;
+                }
+
+                case "speak-omnivoice-design":
+                case "speak-license-notice":
+                {
+                    var synthesizer = new Fakes.FakeSynthesizer("omnivoice") { LanguageNames = ["abkhazian", "english", "german", "japanese"] };
+                    var model = new Fakes.FakeModel("omnivoice") { Kind = ModelKinds.SpeechSynthesis };
+                    model.Clients[typeof(Sharplight.Speech.ISpeechSynthesizer)] = synthesizer;
+                    rig.Services.Runtime.Add(model);
+                    rig.Services.Library.Entries.Add(new Services.Library.LibraryEntry
+                    {
+                        Id = "omnivoice",
+                        DisplayName = "k2-fsa/OmniVoice",
+                        Path = model.Path,
+                        Kind = ModelKinds.SpeechSynthesis,
+                        Manifest = new Sharplight.Hub.ModelManifest { Repository = "k2-fsa/OmniVoice", Tag = "latest", Alias = "omnivoice", Commit = "abc", Catalog = "omnivoice/safetensors" },
+                    });
+                    rig.Services.Hub.Catalog = new Sharplight.Hub.Catalog.VerifiedCatalog
+                    {
+                        Updated = "2026-11-19",
+                        Entries = [new Sharplight.Hub.Catalog.CatalogEntry
+                        {
+                            Id = "omnivoice",
+                            Name = "OmniVoice",
+                            Kind = ModelKinds.SpeechSynthesis,
+                            License = "other",
+                            Notes = "LICENSE TERMS, read before use: the weights are CC-BY-NC (non-commercial use only); the bundled audio tokenizer is under the Boson Higgs Audio 2 Community License.",
+                        }],
+                    };
+                    viewModel.OpenKind(ModelKinds.SpeechSynthesis, model);
+                    await HeadlessApp.WaitForAsync(window, () => viewModel.Speak.HasLicenseNotice && viewModel.Speak.Panel.Parameters.First(parameter => parameter.Key == "language").IsVisibleNow);
+                    viewModel.Speak.InputText = "Guten Tag, wie geht es Ihnen?";
+                    viewModel.Speak.Panel.Apply(new Dictionary<string, string> { ["language"] = "german", ["design"] = "female, young adult, british accent" });
+                    break;
+                }
+
+                case "transcribe-speakers":
+                {
+                    var recognizer = new Fakes.FakeRecognizer();
+                    recognizer.Script.Clear();
+                    recognizer.Script.AddRange(
+                    [
+                        new() { Start = TimeSpan.Zero, End = TimeSpan.FromSeconds(2), Text = " Hello, how are you?", Speaker = "0" },
+                        new() { Start = TimeSpan.FromSeconds(2), End = TimeSpan.FromSeconds(4), Text = " Fine, thanks. And you?", Speaker = "1" },
+                        new() { Start = TimeSpan.FromSeconds(4), End = TimeSpan.FromSeconds(7), Text = " Great, let us get started.", Speaker = "0" },
+                    ]);
+                    var model = new Fakes.FakeModel("vibevoice-asr") { Kind = ModelKinds.SpeechRecognition };
+                    model.Clients[typeof(Sharplight.Speech.ISpeechRecognizer)] = recognizer;
+                    rig.Services.Runtime.Add(model);
+                    viewModel.OpenKind(ModelKinds.SpeechRecognition, model);
+                    await viewModel.Transcribe.SetAudioAsync(wav);
+                    viewModel.Transcribe.RunCommand.Execute(null);
+                    await viewModel.Transcribe.Queue.Items.Single().Completion;
+                    await HeadlessApp.WaitForAsync(window, () => viewModel.Transcribe.Segments.Count == 3 && viewModel.Transcribe.HasSpeakers);
+                    break;
+                }
+            }
+
+            await HeadlessApp.RenderAsync(window);
+            await HeadlessApp.RenderAsync(window);
+
+            var problems = LayoutChecker.Find(window, IsChecked).Distinct().Take(8).ToList();
+            Save(window, $"{state}-{theme}-{width}");
+            Assert.True(problems.Count == 0, $"{state} ({theme}, {width} px):\n" + string.Join("\n", problems));
         }
         finally
         {

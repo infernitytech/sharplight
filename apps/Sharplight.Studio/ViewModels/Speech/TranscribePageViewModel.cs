@@ -84,6 +84,15 @@ internal sealed partial class TranscribePageViewModel : InferencePageViewModel
     /// <summary>The segments of the result, in order.</summary>
     public ObservableCollection<TranscriptSegmentViewModel> Segments { get; } = [];
 
+    /// <summary>The speakers of the result in order of first appearance (a diarizing model such as VibeVoice-ASR); empty for models that do not tell speakers apart.</summary>
+    public List<string> SpeakerLabels { get; } = [];
+
+    /// <summary>The segments carry speakers.</summary>
+    public bool HasSpeakers => SpeakerLabels.Count > 0;
+
+    /// <summary>The speakers in one line, for the result header.</summary>
+    public string SpeakerSummary => SpeakerLabels.Count == 0 ? "" : $"{SpeakerLabels.Count} speaker{(SpeakerLabels.Count == 1 ? "" : "s")}: {string.Join(", ", SpeakerLabels)}";
+
     /// <summary>The result's whole text.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasResult))]
@@ -245,6 +254,8 @@ internal sealed partial class TranscribePageViewModel : InferencePageViewModel
         Panel.Persist();
         Notice = "";
         Segments.Clear();
+        SpeakerLabels.Clear();
+        OnPropertyChanged(nameof(HasSpeakers));
         TranscriptText = "";
         ResultLanguage = "";
         ResultSummary = "";
@@ -269,10 +280,10 @@ internal sealed partial class TranscribePageViewModel : InferencePageViewModel
             double total = Math.Max(0.001, audio.Duration.TotalSeconds);
             await foreach (var segment in lease.Client.TranscribeStreamingAsync(audio, options, context.CancellationToken).ConfigureAwait(false))
             {
-                var record = new TranscriptSegmentRecord(segment.Start.TotalSeconds, segment.End.TotalSeconds, segment.Text);
+                var record = new TranscriptSegmentRecord(segment.Start.TotalSeconds, segment.End.TotalSeconds, segment.Text, segment.Speaker);
                 segments.Add(record);
                 language ??= segment.Language;
-                Services.Dispatcher.Post(() => Segments.Add(new TranscriptSegmentViewModel(record)));
+                Services.Dispatcher.Post(() => AddSegment(record));
                 context.Report(Math.Min(1, record.End / total), $"{TranscriptFile.Clock(record.End, '.')[3..8]} of {AudioFormat.Length(audio.Duration)}");
             }
         }
@@ -347,13 +358,34 @@ internal sealed partial class TranscribePageViewModel : InferencePageViewModel
         }
     }
 
+    private void AddSegment(TranscriptSegmentRecord record)
+    {
+        var view = new TranscriptSegmentViewModel(record);
+        if (view.HasSpeaker)
+        {
+            int index = SpeakerLabels.IndexOf(view.Speaker);
+            if (index < 0)
+            {
+                SpeakerLabels.Add(view.Speaker);
+                index = SpeakerLabels.Count - 1;
+            }
+
+            view.ColorIndex = index;
+        }
+
+        Segments.Add(view);
+        OnPropertyChanged(nameof(HasSpeakers));
+        OnPropertyChanged(nameof(SpeakerSummary));
+    }
+
     private void Show(TranscriptFile file)
     {
         _result = file;
         Segments.Clear();
+        SpeakerLabels.Clear();
         foreach (var segment in file.Segments)
         {
-            Segments.Add(new TranscriptSegmentViewModel(segment));
+            AddSegment(segment);
         }
 
         TranscriptText = file.ToText();
