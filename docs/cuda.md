@@ -532,7 +532,7 @@ Same GPU and procedure ([benchmarks.md §54](benchmarks.md)); only the FP8 paths
   at 64 streams is unchanged at 0.78x of vLLM (0.84x at 16, 0.92x at 4, 1.00x single), since its steps are pure decode steps or
   prompt batches of 1-2k rows.
 
-## Phase 4 status (checkpoint 2026-11-19)
+## Phase 4 status
 
 State of `cuda/provider-r4` (merged with `develop` at `47f9af79`, builds clean) when the session was interrupted:
 
@@ -541,14 +541,14 @@ State of `cuda/provider-r4` (merged with `develop` at `47f9af79`, builds clean) 
   `SHARPLIGHT_FP8_GROUPED`, `BatchBench --provider cuda`, `bench/s54_vllm_decode_profile.py`. Numbers in
   [phase 4 numbers](#phase-4-numbers) and [benchmarks.md §54](benchmarks.md): Qwen3-8B-FP8 prefill 12,688 / 12,819 / 10,494 tok/s at
   512 / 2048 / 8192 rows (0.85-0.87x vLLM, phase 3 0.79x), decode unchanged (1.00x), serving 0.78x at 64 streams (unchanged).
-- **Verified:** `Sharplight.Cuda.Tests` 17 / 17 (incl. the new `NativeFp8GemmMatchesTheCpu`); `Sharplight.Vulkan.Tests` on CUDA, one
-  process per class: 45 of 62 classes run before the stop, 1354 tests, 0 failed, 32 skipped (incl. `Fp8GemmTests` 31 / 31,
-  `MmqTests`, `RowInvarianceTests`); Vulkan SPIR-V of 225 kernels (Qwen3-8B-FP8, Qwen3-0.6B Q8_0) identical to `develop`; long-prompt
-  logits of Qwen3-8B-FP8 against Vulkan within the provider spread of phase 3.
-- **Not yet run:** the remaining 17 kernel-suite classes on CUDA (from `SampleTests` alphabetically on), `CudaParityTests`,
-  `FamilyGenerationTests.Generation_matches_reference_on_cuda`, the Vulkan suite on Vulkan (script:
-  `final-suites.sh` of the phase-3 work dir adapted to this branch; class list as in phase 3).
-- **Next steps:** finish those suites and fill benchmarks.md §54.8; then the open items of the roadmap's phase 4 (FP8 main loop
+- **Verified (one GPU, after merging `develop` with phase 3):** `Sharplight.Cuda.Tests` 17 / 17; `Sharplight.Vulkan.Tests` on CUDA,
+  one process per class, all 62 classes: 1624 tests, 0 failed, 46 skipped (as in phase 3); the Vulkan SPIR-V of the 225 kernels of
+  Qwen3-8B-FP8 and Qwen3-0.6B Q8_0 is byte-identical to `develop`; long-prompt logits of Qwen3-8B-FP8 against Vulkan within the
+  provider spread of phase 3. `Sharplight.Cuda` now depends on `Sharplight.Cuda.Runtime` as a package (see
+  [packaging](#packaging-and-licensing)).
+- **Run at hand-back, results in the hand-back report:** `CudaParityTests`, `FamilyGenerationTests.Generation_matches_reference_on_cuda`,
+  the Vulkan suite on Vulkan.
+- **Next steps:** the open items of the roadmap's phase 4 (FP8 main loop
   toward CUTLASS's ~290 TFLOPS; decode step: fused q / k / v GEMM, weight streaming, split-KV decode attention; FlashAttention-2
   prefill kernel; MXFP4 expert GEMM). Ideas measured and rejected are listed in §54.3 so they are not retried.
 
@@ -591,7 +591,7 @@ phase-1 kernels as the fallback, and each flips the default for a device class o
      contexts (`fe` was 5-8 % slower on CUDA than on Vulkan in phase 2; it is ~5 % of an 8B prefill at 2048 rows);
    - the 8B decode matvecs (1-2 % behind Vulkan) and the f16 copy of the dual GEMM's output written in its store;
    - gpt-oss-20b prefill (0.63-0.76x of vLLM; MoE).
-3. **Phase 4: dense FP8 scales and the batched decode step** (done in part, branch `cuda/provider-r4`): the 128-row FP8 weight
+3. **Phase 4: dense FP8 scales and the batched decode step** (done, branch `cuda/provider-r4`): the 128-row FP8 weight
    groups and the dense activation scale copies, 64-row FP8 tiles from 65 rows, the decode step and vLLM's measured kernel by kernel
    (`BatchBench --provider cuda`, `bench/s54_vllm_decode_profile.py`). Open from it:
    - FP8 GEMM at CUTLASS's ~290 TFLOPS (ours 225-240 in the model): a main loop that overlaps the promotion and the copies with

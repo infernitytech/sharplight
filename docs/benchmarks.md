@@ -7528,13 +7528,14 @@ stays off there.
 
 ### 54.8 Tests
 
-Interrupted by a machine relaunch (see [cuda.md, phase 4 status](cuda.md#phase-4-status-checkpoint-2026-11-19)). Run so far, GPU 1:
+Run on one GPU (index 0) after merging `develop` (with phase 3):
 
 | suite | result |
 |---|---|
 | Sharplight.Cuda.Tests (incl. `NativeFp8GemmMatchesTheCpu`: 100 / 300 / 700 rows, single and dual, against the CPU and the generated GEMM) | 17 / 0 failed / 0 skipped |
-| Sharplight.Vulkan.Tests on CUDA, one process per class (45 of 62 classes; `bench/results/s54/tests`) | 1354 / 0 failed / 32 skipped |
-| remaining kernel-suite classes, CudaParityTests, FamilyGenerationTests on CUDA, Vulkan suite on Vulkan | not run yet |
+| Sharplight.Vulkan.Tests on CUDA, one process per class (all 62 classes, cuBLASLt installed) | 1624 / 0 failed / 46 skipped (as in section 53) |
+| Vulkan SPIR-V of the 225 kernels of Qwen3-8B-FP8 and Qwen3-0.6B Q8_0 against `develop` (`slangc -g0 -target spirv`) | identical |
+| CudaParityTests, FamilyGenerationTests on CUDA, Vulkan suite on Vulkan | see [cuda.md, phase 4 status](cuda.md#phase-4-status) |
 
 ### 54.9 Reproduce
 
