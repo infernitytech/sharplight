@@ -86,6 +86,7 @@ public sealed class InferenceEngine : IDisposable
     private long _nextId, _tick;
     private int _rr, _transit;
     private bool _stop, _draining;
+    private bool _admissionPaused;   // tests: queued requests wait until ResumeAdmission (running ones keep stepping)
     private volatile int _kvTokens, _kvActiveTokens, _kvBlocksCached;
     private long _kvBlocksEvicted;
 
@@ -213,6 +214,28 @@ public sealed class InferenceEngine : IDisposable
 
         _thread = new Thread(Run) { Name = "sharplight-scheduler", IsBackground = true };
         _thread.Start();
+    }
+
+    /// <summary>
+    /// Tests: holds submitted requests in the queue (running sequences keep stepping) until <see cref="ResumeAdmission"/>, so that requests
+    /// submitted one after another are admitted in one pass, as if they had arrived together.
+    /// </summary>
+    internal void PauseAdmission()
+    {
+        lock (_gate)
+        {
+            _admissionPaused = true;
+        }
+    }
+
+    /// <summary>Tests: admits the requests queued since <see cref="PauseAdmission"/> (in one admission pass).</summary>
+    internal void ResumeAdmission()
+    {
+        lock (_gate)
+        {
+            _admissionPaused = false;
+            Monitor.PulseAll(_gate);
+        }
     }
 
     /// <summary>A consistent snapshot of queue depth, slot usage, token counters and latency histograms.</summary>
@@ -501,7 +524,7 @@ public sealed class InferenceEngine : IDisposable
         {
             lock (_gate)
             {
-                while (_queue.Count == 0 && _active.Count == 0 && !_stop)
+                while ((_queue.Count == 0 || _admissionPaused) && _active.Count == 0 && !_stop)
                 {
                     if (_draining)
                     {
@@ -518,7 +541,11 @@ public sealed class InferenceEngine : IDisposable
             try
             {
                 Reap();
-                Admit();
+                if (!Volatile.Read(ref _admissionPaused))
+                {
+                    Admit();
+                }
+
                 if (_active.Count > 0)
                 {
                     StepOnce();

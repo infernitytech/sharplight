@@ -103,11 +103,27 @@ public class PrefixCacheParityTests
             Assert.True(cached.GetMetrics().StateSnapshots >= 1);
         }
 
-        // Three samples of one prompt at once (n = 3): the second and third fork the first's context.
+        // Three samples of one prompt at once (n = 3): the second and third fork the first's context. They are admitted in one pass (the
+        // prompt is cached, so the first would otherwise finish its one-row prefill before a sample submitted a moment later arrives).
         long forks = cached.GetMetrics().ForkedSequences;
-        var samples = await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => Generate(cached, prompts[1], ct)));
+        cached.PauseAdmission();
+        var pending = Enumerable.Range(0, 3).Select(_ => Generate(cached, prompts[1], ct)).ToList();
+        Assert.True(await WaitForQueue(cached, 3, ct), "the samples were not queued");
+        cached.ResumeAdmission();
+        var samples = await Task.WhenAll(pending);
         Assert.All(samples, x => Assert.Equal(expected[1], x.Tokens));
         Assert.True(cached.GetMetrics().ForkedSequences - forks >= 1, "no sample forked the first one's context");
+    }
+
+    /// <summary>Waits until <paramref name="count"/> requests wait in the engine's queue (at most 10 s).</summary>
+    private static async Task<bool> WaitForQueue(InferenceEngine engine, int count, CancellationToken ct)
+    {
+        for (int i = 0; i < 1000 && engine.GetMetrics().QueueDepth < count; i++)
+        {
+            await Task.Delay(10, ct);
+        }
+
+        return engine.GetMetrics().QueueDepth >= count;
     }
 
     private static async Task<(int[] Tokens, int Cached)> Generate(InferenceEngine engine, int[] prompt, CancellationToken ct)
