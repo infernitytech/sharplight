@@ -17,6 +17,7 @@ internal sealed partial class LibraryViewModel : ObservableObject
     private static readonly FileFilter s_modelFiles = new("Models", ["*.slm", "*.gguf", "*.onnx", "*.bin"]);
     private static readonly FileFilter s_packageFiles = new("Sharplight packages", ["*.slm"]);
 
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly StudioServices _services;
     private readonly INavigator _navigator;
 
@@ -102,6 +103,9 @@ internal sealed partial class LibraryViewModel : ObservableObject
     [RelayCommand]
     public async Task RefreshAsync()
     {
+        // Refreshes run one at a time: callers off the UI thread (the welcome flow, feed installs) could otherwise clear the entries
+        // while another refresh enumerates them.
+        await _refreshGate.WaitAsync();
         IsRefreshing = true;
         try
         {
@@ -131,6 +135,7 @@ internal sealed partial class LibraryViewModel : ObservableObject
             OnPropertyChanged(nameof(IsEmpty));
             OnPropertyChanged(nameof(StoreRoot));
             OnPropertyChanged(nameof(StoreSource));
+            _refreshGate.Release();
         }
     }
 
