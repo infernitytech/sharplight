@@ -37,6 +37,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   serving benchmark, against vLLM's 8192); a 64-stream round is ~75 % decode-only steps and prompt waves at the budget, which is
   also why the 64-row FP8 tiles of round 9 never met their step sizes. Qwen3-8B-FP8 serving at 64 streams 0.74x → 0.79x of vLLM,
   0.83x at 16. Next: FP8 prefill GEMM, Qwen3-8B-FP8 decode steps at 16-64 sequences, TTFT at 16 streams (now 1.4x vLLM's).
+  Round 11 (§50): load-adaptive step budget (at least 768 rows, 32 per sequence holding a slot, the oldest prompt always whole,
+  `--min-step-tokens`): Qwen3-8B-FP8 TTFT at 16 streams 216 → 153 ms (vLLM 158) at equal throughput (0.83x / 0.78x of vLLM at 16 /
+  64 streams; 0.84x / 0.79x with the full budget). Decode steps -2 % (norms write the fp8 / f16 GEMM rows from 17 rows, decode
+  attention one key row per batch). FP8 GEMMs run at 180-195 TFLOPS in prefill; the down projection's activation quantization cannot
+  move into the gate / up store (its 128-value scale groups span two 64-column dual tiles). Next: FP8 prefill per row, a Q / K / V
+  multi-output GEMM for decode batches (K / V latency bound at ~270-450 GB/s).
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs
@@ -166,6 +172,13 @@ GPU (Vulkan):
   2244 tok/s at 16 / 64 streams, 0.90x / 0.70x of vLLM (was 0.83x / 0.62x). Tile-major expert grids (opt-in) and two skinny tiles
   per expert were no faster; cooperative vectors (f16 / int8 only) and cooperative matrix 2 offer no larger effective FP8 tile.
   Next: the grouped MXFP4 gemm_cm2 at 256 rows per expert (~90 TFLOPS against ~120 dense), the bf16 projections / LM head at 64 rows.
+  Round 11 (§50): load-adaptive serving steps take TTFT at 16 streams from 193 to 133 ms (vLLM 182) for 3 % of 16-stream
+  throughput (1253 against 1292 tok/s with round 10's fixed budget, `--min-step-tokens 0`; 0.89x / 0.72x of vLLM at 16 / 64 streams,
+  0.91x / 0.73x with the full budget). 64-row expert tiles up to 320 rows per expert (2048-row prompt step 171 → 165 ms, grouped
+  MXFP4 ~104 TFLOPS against ~117 dense), norm-written GEMM copies from 17 rows and one-row decode attention batches (64-sequence
+  decode step 18.0 → 17.4 ms). The LM head already reads at ~800 GB/s; the attention projections at 64 rows read at 580-650 GB/s and
+  K / V at ~270 GB/s (latency bound; the skinny GEMM at 64 rows and more K splits were no faster). Next: prefill per row (vLLM runs
+  a whole 16-prompt wave in ~180 ms), a Q / K / V multi-output GEMM, the expert-grouped skinny GEMMs (57 % of the decode step).
   Earlier next: an expert GEMM fetching at ~800 GB/s for 16-48 rows per expert (raw MXFP4 stages in shared memory, 3 workgroups per SM);
   Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's

@@ -78,6 +78,9 @@ public sealed record HostedModelSettings
     /// <summary>Token budget of one engine step, or null.</summary>
     public int? StepTokens { get; init; }
 
+    /// <summary>Smallest token budget of the load-adaptive engine step, or null (the engine's default).</summary>
+    public int? MinStepTokens { get; init; }
+
     /// <summary>Prompt-lookup draft length (0 = off).</summary>
     public int NgramDraftTokens { get; init; }
 
@@ -130,6 +133,7 @@ public sealed record HostedModelSettings
             PrefixCache = defaults.PrefixCache,
             KvStateSnapshots = defaults.KvStateSnapshots,
             StepTokens = defaults.StepTokens,
+            MinStepTokens = defaults.MinStepTokens,
             NgramDraftTokens = defaults.NgramDraftTokens,
             MtpDraftTokens = defaults.MtpDraftTokens,
             SpeculationMaxBatch = defaults.SpeculationMaxBatch,

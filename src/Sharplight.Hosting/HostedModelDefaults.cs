@@ -48,6 +48,12 @@ public sealed class HostedModelDefaults
     /// <summary>Token budget of one engine step; null = the model's batch size.</summary>
     public int? StepTokens { get; set; }
 
+    /// <summary>
+    /// Smallest token budget of the load-adaptive engine step (<see cref="Llm.Serving.EngineOptions.MinBatchTokens"/>); null = the
+    /// engine's default, 0 = every step uses the whole budget.
+    /// </summary>
+    public int? MinStepTokens { get; set; }
+
     /// <summary>Draft length of prompt-lookup speculation; 0 disables it.</summary>
     public int NgramDraftTokens { get; set; }
 
