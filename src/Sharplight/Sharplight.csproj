@@ -16,6 +16,7 @@
     <ProjectReference Include="../Sharplight.Import.WhisperCpp/Sharplight.Import.WhisperCpp.csproj" />
     <ProjectReference Include="../Sharplight.Import.Kokoro/Sharplight.Import.Kokoro.csproj" />
     <ProjectReference Include="../Sharplight.Import.AceStep/Sharplight.Import.AceStep.csproj" />
+    <ProjectReference Include="../Sharplight.Import.StableAudio/Sharplight.Import.StableAudio.csproj" />
     <ProjectReference Include="../Sharplight.Import.Chatterbox/Sharplight.Import.Chatterbox.csproj" />
     <ProjectReference Include="../Sharplight.Import.F5Tts/Sharplight.Import.F5Tts.csproj" />
     <ProjectReference Include="../Sharplight.Import.Xtts/Sharplight.Import.Xtts.csproj" />

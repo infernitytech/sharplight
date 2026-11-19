@@ -3,7 +3,7 @@ using Sharplight.Tasks;
 namespace Sharplight.Audio;
 
 /// <summary>
-/// Text-to-audio generation with a latent diffusion model (kind <see cref="Models.ModelKinds.AudioGeneration"/>: ACE-Step, Stable Audio Open): a prompt (and lyrics) in, music or sound
+/// Text-to-audio generation with a latent diffusion model (kind <see cref="Models.ModelKinds.AudioGeneration"/>: ACE-Step, Stable Audio Open, Stable Audio 3): a prompt (and lyrics) in, music or sound
 /// out. Follows the task-client pattern of every model kind (<see cref="ITaskClient"/>). Generation runs off the caller's thread, one request at a time per client.
 /// </summary>
 public interface IAudioGenerator : ITaskClient

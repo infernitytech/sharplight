@@ -21,7 +21,7 @@ public sealed record AudioGenerationRequest
     /// <summary>The duration of the audio (default 10 s; limited by <see cref="IAudioGenerator.MaxDuration"/>).</summary>
     public TimeSpan Duration { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>The number of denoising steps, or <see langword="null"/> for the model's default (<see cref="IAudioGenerator.DefaultSteps"/>: 8 for the distilled ACE-Step model, 100 for Stable Audio Open).</summary>
+    /// <summary>The number of denoising steps, or <see langword="null"/> for the model's default (<see cref="IAudioGenerator.DefaultSteps"/>: 8 for the distilled ACE-Step model, 100 for Stable Audio Open, 50 for the Stable Audio 3 base models).</summary>
     public int? Steps { get; init; }
 
     /// <summary>
@@ -45,6 +45,12 @@ public sealed record AudioGenerationRequest
     /// a deterministic sampler ignore it.
     /// </summary>
     public IReadOnlyList<ReadOnlyMemory<float>>? StepNoise { get; init; }
+
+    /// <summary>
+    /// Scales the random noise that some autoencoders add while they decode (Stable Audio 3's SAME decoder dithers its latents and the tokens it generates), or
+    /// <see langword="null"/> for the model's own amount; 0 decodes deterministically. Drawn from <see cref="Seed"/>. Other models ignore it.
+    /// </summary>
+    public float? DecoderNoise { get; init; }
 
     /// <summary>The shift of the timestep schedule (larger values spend more steps at high noise), or <see langword="null"/> for the model's default.</summary>
     public float? Shift { get; init; }

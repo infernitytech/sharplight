@@ -11,7 +11,8 @@ internal sealed class TimedAudioDiffusionFactory : ITaskClientFactory
     public Type ClientType => typeof(IAudioGenerator);
 
     public bool CanCreate(TaskModel model)
-        => model.Description.Components.Any(c => c.Role == ModelComponentRoles.Denoiser && c.Graphs.Contains(TimedAudioDiffusionGraphs.DenoiseGraph))
+        => model.Description.Components.Any(c => c.Role == ModelComponentRoles.Denoiser && c.Graphs.Contains(TimedAudioDiffusionGraphs.DenoiseGraph)
+                && c.ConfigValue(TimedAudioDiffusionGraphs.ObjectiveKey, "v") == "v")
             && model.Description.Components.Any(c => c.Role == ModelComponentRoles.TextEncoder && c.Graphs.Contains(TimedAudioDiffusionGraphs.TextGraph))
             && model.Description.Components.Any(c => c.Role == ModelComponentRoles.Encoder && c.Graphs.Contains(TimedAudioDiffusionGraphs.TimingGraph))
             && model.Description.Components.Any(c => c.Role == ModelComponentRoles.Vae && c.Graphs.Contains(AudioGenerationGraphs.DecodeGraph));
