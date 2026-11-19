@@ -610,9 +610,16 @@ using namespace linalg;
 #define CBN 128
 #define CBK 32
 #define SAS (CBK + 8)
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA = CuA16;
+typealias MatB = CuB16;
+typealias Acc = CuAccF;
+#else
 typealias MatA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared half cA[CBM * SAS];
 groupshared half cB[CBN * SAS];
@@ -879,10 +886,13 @@ using namespace linalg;
 #define SPLIT_LO 0
 #define SPLIT_HALVES 1
 #endif
+// GNBUF (macro): double-buffer the GBK = 64 tiles too where the shared memory allows it (CUDA's opt-in shared memory).
+#ifndef GNBUF
 #if GBK == 32 && !SPLIT_LO
 #define GNBUF 2
 #else
 #define GNBUF 1
+#endif
 #endif
 #define GQ (GBK / 8)
 #define GAS (GBK + 8)
@@ -901,9 +911,18 @@ using namespace linalg;
 #else
 #define GBN_OUT GBN
 #endif
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA2 = CuA16;
+typealias MatB2 = CuB16;
+typealias Acc2 = CuAccF;
+typealias AccH2 = CuAccH;
+#else
 typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+typealias AccH2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 #ifdef KERNEL_GEMM_CM2
 // Tiles hold packed halves, 8 per uint4, so staging is one 16-byte store per 8 values (offsets/strides in uint4s).
@@ -940,7 +959,7 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     uint8_t* r = rowStart(w, ROW_BYTES, row);
     uint d16 = uint(*(uint16_t*)(r + (g16 >> 1) * 2));
     half2 d = bit_cast<half2>(d16 * 0x10001u);
-    uint4 q = *(uint4*)(r + ROW_BYTES / 17 + uint64_t(g16) * 16);
+    uint4 q = LOAD_U4_ALIGNED(r + ROW_BYTES / 17 + uint64_t(g16) * 16, Q8R_ALIGN);
     lo = uint4(q8x4_h2(q.x, d, false), q8x4_h2(q.x, d, true), q8x4_h2(q.y, d, false), q8x4_h2(q.y, d, true));
     hi = uint4(q8x4_h2(q.z, d, false), q8x4_h2(q.z, d, true), q8x4_h2(q.w, d, false), q8x4_h2(q.w, d, true));
 #elif WFMT == FMT_Q4_K || WFMT == FMT_Q5_K
@@ -1082,7 +1101,7 @@ uint4 load8h(uint8_t* w, uint row, uint g)
     uint8_t* r = rowStart(w, ROW_BYTES, row);
     uint d16 = uint(*(uint16_t*)(r + (g >> 2) * 2));
     half2 d = bit_cast<half2>(d16 * 0x10001u);
-    uint2 q = *(uint2*)(r + ROW_BYTES / 17 + uint64_t(g) * 8);
+    uint2 q = LOAD_U2_ALIGNED(r + ROW_BYTES / 17 + uint64_t(g) * 8, Q8R_ALIGN);
     half2 off = half2(1152.0h, 1152.0h);
     uint4 o;
     uint u = q.x ^ 0x80808080u;
@@ -1689,7 +1708,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #endif
             if (tRow + 16 <= p.T && nCol + 16 <= N)
             {
-                CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator> h = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>(r);
+                AccH2 h = AccH2(r);
                 h.Store<CoopMatMatrixLayout.RowMajor>((half*)p.y16 + uint64_t(tRow) * N + nCol, 0u, N);
             }
             else

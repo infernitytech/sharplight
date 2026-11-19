@@ -46,10 +46,18 @@ using namespace linalg;
 #define CHUNK_MIN 0
 #endif
 
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MA = CuA16;
+typealias MB = CuB16;
+typealias MC = CuAccF;
+typealias MCH = CuAccH;
+#else
 typealias MA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias MC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
 typealias MCH = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 // Element offsets of the scratch planes.
 uint64_t qk_off(uint part, uint which, uint row, uint hk) { return ((uint64_t(part * 2 + which) * SROWS + row) * HK + hk) * DK; }

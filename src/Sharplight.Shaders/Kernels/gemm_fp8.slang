@@ -126,9 +126,16 @@ struct Params
 #define F8_WROW(n0, r) ((n0) + (r))
 #endif
 
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA8 = CuA8f;
+typealias MatB8 = CuB8f;
+typealias AccF = CuAccF;
+#else
 typealias MatA8 = CoopMat<FloatE4M3, MemoryScope.Subgroup, 16, 32, CoopMatMatrixUse.MatrixA>;
 typealias MatB8 = CoopMat<FloatE4M3, MemoryScope.Subgroup, 32, 16, CoopMatMatrixUse.MatrixB>;
 typealias AccF = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared uint sA[F8_BM * F8_RS];
 groupshared uint sB[F8_BN * F8_RS];
@@ -168,6 +175,21 @@ void fp8_step<let PAIR : bool>(inout float acc[F8_FM][F8_FN][8], uint wm, uint w
                 uint base = bs + wn + j * 16 + c0;
                 ws[j][0] = sBS[base]; ws[j][1] = sBS[base + 1]; ws[j][2] = sBS[base + 8]; ws[j][3] = sBS[base + 9];
             }
+#if SL_TARGET_CUDA
+            // CUDA: the B fragments of the weight block are loaded once for all row fragments. The shared-memory fragment loads are
+            // volatile there (ldmatrix in inline PTX), so the compiler cannot merge the reloads of the form below as the Vulkan
+            // driver does (33 % slower fp8 GEMMs).
+            MatB8 bw[F8_MMAS][F8_FN];
+            [ForceUnroll]
+            for (uint m = 0; m < F8_MMAS; m++)
+            {
+                [ForceUnroll]
+                for (int j = 0; j < F8_FN; j++)
+                {
+                    bw[m][j] = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + (wb * WBLOCK + m * 32) / 4, F8_RS);
+                }
+            }
+#endif
             [ForceUnroll]
             for (int i = 0; i < F8_FM; i++)
             {
@@ -181,8 +203,12 @@ void fp8_step<let PAIR : bool>(inout float acc[F8_FM][F8_FN][8], uint wm, uint w
                     [ForceUnroll]
                     for (int j = 0; j < F8_FN; j++)
                     {
+#if SL_TARGET_CUDA
+                        c[j] = coopMatMulAdd<float, false>(a, bw[m][j], c[j]);
+#else
                         MatB8 b = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + kw, F8_RS);
                         c[j] = coopMatMulAdd<float, false>(a, b, c[j]);
+#endif
                     }
                 }
                 [ForceUnroll]
@@ -266,7 +292,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 16), q = idx % (F8_BK / 16);               \
         uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));               \
-        if (idx < F8_BN * F8_BK / 16) wq[it] = *(uint4*)(row + (k0) + q * 16);                          \
+        if (idx < F8_BN * F8_BK / 16) wq[it] = LOAD_U4_ALIGNED(row + (k0) + q * 16, ALIGN_OF(ROW_BYTES)); \
     }
     #define F8_STAGE_W()                                                                                \
     [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
@@ -301,7 +327,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 16), q = idx % (F8_BK / 16);               \
         uint t = min(t0 + r, p.T - 1);                                                                  \
-        if (idx < F8_BM * F8_BK / 16) xa[it] = *(uint4*)byteAt(p.x, uint64_t(t) * F8ROW + (k0) + q * 16); \
+        if (idx < F8_BM * F8_BK / 16) xa[it] = LOAD_U4_ALIGNED(byteAt(p.x, uint64_t(t) * F8ROW + (k0) + q * 16), ALIGN_OF(F8ROW)); \
     }                                                                                                   \
     if (tid < F8_BM) xs = *(float*)byteAt(p.x, uint64_t(min(t0 + tid, p.T - 1)) * F8ROW + K + (k0) / 32); \
     F8_FETCH_W(k0)                                                                                      \

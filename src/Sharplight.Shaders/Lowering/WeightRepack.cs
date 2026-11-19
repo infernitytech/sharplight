@@ -29,4 +29,10 @@ public enum WeightRepack
     /// <see cref="ShaderTypes.F8E4M3_B128R"/>.
     /// </summary>
     Fp8B128Split,
+    /// <summary>
+    /// bf16 values → f16 values (same size), for the 16-bit library GEMM (<see cref="Runtime.DeviceFeatures.LibraryGemm"/>), which takes
+    /// both operands in one type: the f16 activation copies of the generated GEMMs and the weights rounded to f16 as those GEMMs round
+    /// them on load. Kernels see <see cref="DataType.F16"/>.
+    /// </summary>
+    Bf16ToF16,
 }

@@ -411,7 +411,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
                 continue;
             }
 
-            recorded.Add(new CudaRecordedLaunch(launch.Name, _dev.Kernel(variant.Kernel), grid.X, grid.Y, grid.Z, PackArguments(launch, bindings)));
+            recorded.Add(new CudaRecordedLaunch(launch.Name, ProfileName(launch.Name, variant.Kernel.EntryPoint), _dev.Kernel(variant.Kernel), grid.X, grid.Y, grid.Z, PackArguments(launch, bindings)));
         }
 
         return [.. recorded];
@@ -477,11 +477,25 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private void Launch(CudaRecordedLaunch launch)
     {
         var kernel = launch.Kernel;
+        if (kernel.Library is { } gemm)
+        {
+            // Library GEMM: arguments x, w, y (device addresses), then the row count.
+            var args = launch.Arguments;
+            _dev.Blas!.Gemm(_stream, gemm.Type, gemm.N, gemm.K, BitConverter.ToUInt32(args, 24),
+                BitConverter.ToUInt64(args, 0), BitConverter.ToUInt64(args, 8), BitConverter.ToUInt64(args, 16));
+            if (DiagnosticSwitches.SyncEachLaunch)
+            {
+                Synchronize(launch.Name);
+            }
+
+            return;
+        }
+
         fixed (byte* arguments = launch.Arguments)
         {
             void* parameter = arguments;
             int result = CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
-                0, _stream, &parameter, null);
+                (uint)kernel.SharedBytes, _stream, &parameter, null);
             if (result != 0)
             {
                 throw new CudaException(result, $"CUDA launch of {launch.Name} (grid {launch.GridX}x{launch.GridY}x{launch.GridZ}) failed: {CudaApi.ErrorText(result)}");
@@ -504,6 +518,16 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     }
 
     /// <summary>Runs each launch between its own pair of events and accumulates its GPU time in <see cref="ProfileData"/>.</summary>
+    /// <summary>
+    /// The launch name as profiles show it: without the node name (its second word), with the kernel's entry point, so launches of
+    /// the same kind add up as in the Vulkan provider's profile.
+    /// </summary>
+    private static string ProfileName(string name, string entryPoint)
+    {
+        var parts = name.Split(' ');
+        return $"{parts[0]}{(parts.Length > 2 ? " " + string.Join(" ", parts[2..]) : "")} {entryPoint}";
+    }
+
     private void RunProfiled(CudaRecordedLaunch[] launches, string key)
     {
         double total = 0;
@@ -511,7 +535,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         {
             double ms = Run(new ReadOnlySpan<CudaRecordedLaunch>(in launch));
             total += ms;
-            string name = $"{launch.Name} {key}";
+            string name = $"{launch.ProfileName} {key}";
             ProfileData[name] = ProfileData.TryGetValue(name, out var entry)
                 ? (entry.Ms + ms, entry.Count + 1, Math.Min(entry.MinMs, ms))
                 : (ms, 1, ms);

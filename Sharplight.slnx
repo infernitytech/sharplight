@@ -8,6 +8,7 @@
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <Project Path="src/Sharplight.Metal/Sharplight.Metal.csproj" />
     <Project Path="src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
+    <Project Path="src/Sharplight.Cuda.Blas/Sharplight.Cuda.Blas.csproj" />
     <Project Path="src/Sharplight.Cuda.Runtime/Sharplight.Cuda.Runtime.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <Project Path="src/Sharplight.Vulkan.MoltenVK/Sharplight.Vulkan.MoltenVK.csproj" />

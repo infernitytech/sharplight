@@ -8,6 +8,9 @@
     <!-- NVRTC and the headers it compiles against, copied next to the applications of this repository. Not a dependency of the
          Sharplight.Cuda package: applications add Sharplight.Cuda.Runtime unless they only load models precompiled for their GPUs. -->
     <ProjectReference Include="../Sharplight.Cuda.Runtime/Sharplight.Cuda.Runtime.csproj" ReferenceOutputAssembly="false" />
+    <!-- cuBLASLt for the library GEMMs (optional, about 500 MB): copied next to the applications of this repository only with
+         -p:SharplightBundleCudaBlas=true; elsewhere SHARPLIGHT_CUDA_BLAS_DIR can name a directory with it. -->
+    <ProjectReference Include="../Sharplight.Cuda.Blas/Sharplight.Cuda.Blas.csproj" ReferenceOutputAssembly="false" />
     <InternalsVisibleTo Include="Sharplight.Cuda.Tests" />
     <InternalsVisibleTo Include="Sharplight.Vulkan.Tests" />
   </ItemGroup>
