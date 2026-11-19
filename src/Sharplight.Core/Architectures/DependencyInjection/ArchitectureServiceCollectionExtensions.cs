@@ -57,6 +57,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<SileroVadAdapter>()
                 .AddModelAdapter<ClapAdapter>()
                 .AddModelAdapter<MusicGenAdapter>()
+                .AddModelAdapter<AceStepAdapter>()
                 .AddModelAdapter<DemucsAdapter>()
                 .AddTaskClientFactory<KokoroSynthesizerFactory>()
                 .AddCompositeModelAdapter<OrpheusAdapter>()

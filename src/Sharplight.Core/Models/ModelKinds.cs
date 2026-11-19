@@ -60,4 +60,7 @@ public static class ModelKinds
 
     /// <summary>Text in, music audio out (<c>Sharplight.Audio.IMusicGenerator</c>).</summary>
     public const string MusicGeneration = "music-generation";
+
+    /// <summary>Text (and lyrics) in, music or sound out with a latent diffusion model (<c>Sharplight.Audio.IAudioGenerator</c>).</summary>
+    public const string AudioGeneration = "audio-generation";
 }
