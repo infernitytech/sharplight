@@ -89,6 +89,10 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
 
     public int DefaultSteps { get; }
 
+    public bool SupportsLyrics => true;
+
+    public bool SupportsShift => true;
+
     public TimeSpan MaxDuration => TimeSpan.FromSeconds(_maxFrames / LatentFrameRate);
 
     public object? GetService(Type serviceType, object? serviceKey = null)
@@ -153,7 +157,8 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
         }
         else
         {
-            noise = GaussianNoise(frames * _latentChannels, request.Seed);
+            noise = new float[frames * _latentChannels];
+            AudioNoise.Fill(AudioNoise.Create(request.Seed), noise);
         }
 
         // Context: the silence latent as source audio and the chunk mask, zero rows for the padding.
@@ -279,58 +284,9 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
 
     private AudioBuffer Decode(AudioLatents latents, CancellationToken cancellationToken)
     {
-        int frames = latents.Frames;
-        var samples = new float[frames * _samplesPerFrame * Channels];
-        var input = _decode.Graph.Inputs.First(v => v.Input!.Name == AudioGenerationGraphs.LatentInput);
-        for (int start = 0; start < frames; start += _decodeFrames)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            int end = Math.Min(frames, start + _decodeFrames);
-            int from = Math.Max(0, start - _decodeOverlap);
-            int to = Math.Min(frames, end + _decodeOverlap);
-            var run = new RunParameters();
-            run.Symbols[WellKnown.TokenSymbol] = to - from;
-            _decode.SetInput<float>(input, latents.Values.AsSpan(from * _latentChannels, (to - from) * _latentChannels));
-            _decode.Run(run);
-            var window = new float[(to - from) * _samplesPerFrame * Channels];
-            _decode.GetOutput<float>(AudioGenerationGraphs.AudioOutput, window);
-            window.AsSpan((start - from) * _samplesPerFrame * Channels, (end - start) * _samplesPerFrame * Channels)
-                .CopyTo(samples.AsSpan(start * _samplesPerFrame * Channels));
-        }
-
-        float peak = 0f;
-        foreach (float v in samples)
-        {
-            peak = Math.Max(peak, Math.Abs(v));
-        }
-
-        if (peak > 1f)
-        {
-            for (int i = 0; i < samples.Length; i++)
-            {
-                samples[i] /= peak;
-            }
-        }
-
+        var samples = AudioLatentDecoder.Decode(_decode, latents.Values, latents.Frames, latents.Frames, _latentChannels, _samplesPerFrame, Channels, _decodeFrames, _decodeOverlap,
+            cancellationToken);
+        AudioLatentDecoder.LimitPeak(samples);
         return new AudioBuffer(samples, SampleRate, Channels);
-    }
-
-    private static float[] GaussianNoise(int count, int? seed)
-    {
-        var random = seed is { } s ? new Random(s) : new Random();
-        var values = new float[count];
-        for (int i = 0; i < count; i += 2)
-        {
-            double u1 = 1.0 - random.NextDouble();
-            double u2 = random.NextDouble();
-            double radius = Math.Sqrt(-2.0 * Math.Log(u1));
-            values[i] = (float)(radius * Math.Cos(2 * Math.PI * u2));
-            if (i + 1 < count)
-            {
-                values[i + 1] = (float)(radius * Math.Sin(2 * Math.PI * u2));
-            }
-        }
-
-        return values;
     }
 }

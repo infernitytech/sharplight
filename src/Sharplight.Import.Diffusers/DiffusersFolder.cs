@@ -19,7 +19,7 @@ internal static class DiffusersFolder
         => Directory.Exists(path) && File.Exists(Path.Combine(path, "vae", "config.json"))
            && (File.Exists(Path.Combine(path, "unet", "config.json")) || FluxFolder.IsFolder(path) || WanFolder.IsFolder(path) || LtxFolder.IsFolder(path) || HunyuanVideoFolder.IsFolder(path)
                || Sd3Folder.IsFolder(path) || ChromaFolder.IsFolder(path) || ZImageFolder.IsFolder(path) || QwenImageFolder.IsFolder(path) || QwenImage21Folder.IsFolder(path) || Flux2Folder.IsFolder(path)
-               || Krea2Folder.IsFolder(path));
+               || Krea2Folder.IsFolder(path) || StableAudioFolder.IsFolder(path));
 
     /// <summary>Opens the folder as a canonical source.</summary>
     /// <param name="path">The pipeline folder.</param>
@@ -29,6 +29,11 @@ internal static class DiffusersFolder
         if (FluxFolder.IsFolder(path))
         {
             return FluxFolder.Open(path);
+        }
+
+        if (StableAudioFolder.IsFolder(path))
+        {
+            return StableAudioFolder.Open(path);
         }
 
         if (Sd3Folder.IsFolder(path))
