@@ -62,6 +62,13 @@ optional: without room for it the products stay on the generated GEMMs.
 
 **Metal**: buffers are shared (unified) memory; a buffer beyond `maxBufferLength` fails clearly.
 
+**Host memory** is a limited resource too. The CPU device's figures (`Info.TotalMemory`, `AvailableMemory`) are bounded by the
+process's cgroup memory limit (v2, or v1) minus its usage plus reclaimable file cache: in a container `/proc/meminfo` and `free`
+show the whole machine while the OOM killer enforces the limit, so placement must not offload layers to memory the container does not
+have. The GPU providers' fallbacks into host memory are bounded: staging buffers (at most two of 128 MB on Vulkan, 64 MB on CUDA) and
+per-input/output staging; weights and state never move to host memory behind the caller's back (offloading is placement's decision,
+on the CPU device).
+
 **When nothing works**, the allocation throws `DeviceOutOfMemoryException` (an `OutOfMemoryException`): which allocation (e.g. "weight
 buffer blk.0.attn_q.weight", "weight upload staging"), its size, every attempt (memory type and result), every heap's size, budget,
 process usage and Sharplight's share, the largest allocation and the active limits, followed by what to do. Placement refuses a model
@@ -106,4 +113,6 @@ pinned memory; a 48 MB device refuses it clearly and a 96 MB one offloads layers
 - On Vulkan devices without `VK_EXT_memory_budget`, memory used by other processes is invisible; the default budget is 92 % of the
   device-local heap.
 - CUDA honours `MaxAllocation` only for staging (CUDA has no per-allocation limit of its own).
+- Vulkan's host-heap budget (`VK_EXT_memory_budget`) comes from the driver, which may not see a cgroup limit; host staging is small
+  enough that this has not mattered.
 - Studio's first-run starter recommendation still sizes from the GPU's total memory (with its configured fraction).
