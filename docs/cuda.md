@@ -96,10 +96,10 @@ target (`SL_TARGET_CUDA`, a macro `SlangCompiler` sets for `ShaderTarget.CudaSou
   once: the fp8 GEMM's B fragments of a weight block (`gemm_fp8.slang`, `#if SL_TARGET_CUDA`; its prefill GEMMs went from 1.5x
   slower than Vulkan to slightly faster).
 
-Nothing changes for SPIR-V and MSL: the `#else` branches are the former typealiases. The SPIR-V of the 778 kernels the Vulkan
-provider compiles for six models (Qwen3-0.6B Q8_0, Llama-3.2-1B Q8_0, gemma-3-1b Q8_0, Qwen3-0.6B HF, Qwen3.5-0.8B, OLMoE) is
-byte-identical before and after (`SHARPLIGHT_DUMP_KERNELS`, compiled with the libraries of both commits); MSL differs only in
-`#line` directives.
+Nothing changes for SPIR-V and MSL: the `#else` branches are the former typealiases. The SPIR-V of the 6472 kernels the Vulkan
+kernel suite compiles, and of the 778 kernels of six models (Qwen3-0.6B Q8_0, Llama-3.2-1B Q8_0, gemma-3-1b Q8_0, Qwen3-0.6B HF,
+Qwen3.5-0.8B, OLMoE), is byte-identical between this branch and `develop` (`SHARPLIGHT_DUMP_KERNELS`, then compiled with the kernel
+libraries of both commits); the models' MSL differs only in `#line` directives.
 
 **Wave operations.** Slang's CUDA backend makes the active mask of every wave operation explicit: a function with one
 `WaveReadLaneAt` gets a `__ballot_sync` per branch and loop iteration (664 in the decode attention), which made the decode

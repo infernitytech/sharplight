@@ -6910,10 +6910,11 @@ activations) are not supported on compute capability 12.0 (`CUBLAS_STATUS_NOT_SU
 
 ### 50.5 Vulkan unchanged
 
-The CUDA forms sit behind `SL_TARGET_CUDA`, which only the CUDA C++ target defines. The SPIR-V of the 778 kernels the Vulkan provider
-compiles for Qwen3-0.6B Q8_0, Llama-3.2-1B Q8_0, gemma-3-1b Q8_0, Qwen3-0.6B HF, Qwen3.5-0.8B and OLMoE-1B-7B is byte-identical between
-the branch start and this branch (compiled with the kernel libraries of both commits); their MSL differs only in `#line` directives.
-The "Vulkan before / after" columns of 50.1 agree within the run-to-run spread.
+The CUDA forms sit behind `SL_TARGET_CUDA`, which only the CUDA C++ target defines. The SPIR-V of the 6472 kernels the Vulkan kernel
+suite compiles (dumped with `SHARPLIGHT_DUMP_KERNELS` during its run) and of the 778 kernels the Vulkan provider compiles for
+Qwen3-0.6B Q8_0, Llama-3.2-1B Q8_0, gemma-3-1b Q8_0, Qwen3-0.6B HF, Qwen3.5-0.8B and OLMoE-1B-7B is byte-identical between `develop`
+(`a7b241b3`) and this branch, compiled with the kernel libraries of both commits; the models' MSL differs only in `#line` directives.
+The Vulkan columns of 50.1 agree within the run-to-run spread, and the Vulkan suite passes as on `develop`.
 
 ### 50.6 Library GEMM (cuBLASLt) and dynamic shared memory
 
