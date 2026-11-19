@@ -44,6 +44,7 @@ they need no extra `using`):
 | `Sharplight.Import.Kokoro` | `AddKokoroImporter()` | Kokoro-82M checkpoint folders (`config.json`, `.pth` with weight normalization, `voices/*.pt`, `lexicon/*.json`) |
 | `Sharplight.Import.Snac` | `AddSnacImporter()` | SNAC audio codec checkpoint folders (the decoding half; auxiliary `vocoder` of Orpheus) |
 | `Sharplight.Import.Diffusers` | `AddDiffusersImporter()` | diffusers folders and single-file Stable Diffusion checkpoints (ranks above the generic importers: `IModelImporter.Priority`) |
+| `Sharplight.Import.StableAudio` | `AddStableAudioImporter()` | Stable Audio 3 checkpoint folders (`model_config.json`, `model.safetensors`, the T5Gemma folder) |
 | `Sharplight.Import.Chatterbox`, `.CosyVoice`, `.F5Tts`, `.Xtts` | `AddChatterboxImporter()`, `AddCosyVoiceImporter()`, `AddF5TtsImporter()`, `AddXttsImporter()` | the text-to-speech checkpoint layouts (F5-TTS also its Vocos vocoder) |
 | `Sharplight.Import.SileroVad` | `AddSileroVadImporter()` | Silero VAD checkpoints (voice activity detection) |
 | `Sharplight.Import.Ultralytics` | `AddUltralyticsImporter()` | Ultralytics YOLO checkpoints and their graph adapter (AGPL-3.0 weights: see the model's license) |
