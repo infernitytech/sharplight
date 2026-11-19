@@ -34,6 +34,7 @@ public sealed class ModelService
     /// <summary>Compiled output constraints by request shape (format, tools, flags); cleared when it reaches <see cref="MaxCachedConstraints"/>.</summary>
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, GrammarConstraint> _constraints = new(StringComparer.Ordinal);
     private const int MaxCachedConstraints = 64;
+    private readonly ImagePrompts? _images;
 
     /// <summary>The engine requests are submitted to.</summary>
     public InferenceEngine Engine { get; }
@@ -43,6 +44,8 @@ public sealed class ModelService
     public ITokenizer Tokenizer => Engine.Tokenizer;
     /// <summary>Name reported by the APIs.</summary>
     public string ModelName => Options.ModelName;
+    /// <summary>Whether image parts are accepted: the engine's decoder takes media rows and an image prompt builder was given.</summary>
+    public bool SupportsImages => _images is not null;
     /// <summary>False when the model has no chat template and a plain <c>Role: text</c> transcript is used.</summary>
     public bool HasChatTemplate => _template is not null;
 
@@ -50,9 +53,14 @@ public sealed class ModelService
     /// <param name="engine">The scheduler that runs the generations.</param>
     /// <param name="chatTemplate">The model's Jinja chat template (<see cref="LlmModel.ChatTemplate"/>); <see cref="ModelServiceOptions.ChatTemplate"/> overrides it.</param>
     /// <param name="options">Name and defaults; library defaults when null.</param>
-    public ModelService(InferenceEngine engine, string? chatTemplate, ModelServiceOptions? options = null)
+    /// <param name="images">
+    /// Image prompts for a model whose engine takes media rows (<see cref="LlmModel.CreateBatchDecoder"/> with media input); null rejects image
+    /// parts. The caller keeps ownership.
+    /// </param>
+    public ModelService(InferenceEngine engine, string? chatTemplate, ModelServiceOptions? options = null, ImagePrompts? images = null)
     {
         Engine = engine;
+        _images = images;
         Options = options ?? new();
         var src = Options.ChatTemplate ?? chatTemplate;
         string? Tok(int? id) => id is int i ? engine.Tokenizer.TokenString(i) : null;
@@ -71,12 +79,10 @@ public sealed class ModelService
 
     internal ChatPrompt BuildPrompt(ChatRequest r)
     {
-        foreach (var m in r.Messages)
+        var images = r.Messages.SelectMany(m => m.Parts ?? []).Where(p => p.Type == "image").ToList();
+        if (images.Count > 0 && _images is null)
         {
-            if (m.Parts?.Any(p => p.Type == "image") == true)
-            {
-                throw new EngineException("Image inputs are not supported by this serving configuration.", "invalid_request");
-            }
+            throw new EngineException("Image inputs are not supported by this serving configuration.", "invalid_request");
         }
 
         bool useTools = r.Tools.Count > 0 && r.ToolChoice != ToolChoiceMode.None;
@@ -121,12 +127,54 @@ public sealed class ModelService
             : FallbackPrompt(msgs);
         bool addSpecial = Tokenizer.AddBos && _bos is not null && !text.StartsWith(_bos, StringComparison.Ordinal);
         var tokens = Tokenizer.Encode(text, addSpecial, parseSpecial: true);
-        return new ChatPrompt(text, tokens, ChatOutputParser.PromptEndsInReasoning(text));
+        return new ChatPrompt(text, tokens, ChatOutputParser.PromptEndsInReasoning(text)) { Images = [.. images.Select(p => DecodeImage(p.Image))] };
+    }
+
+    /// <summary>The pixels of an image part.</summary>
+    /// <exception cref="EngineException">The part has no inline image, or it cannot be decoded (code <c>invalid_request</c>).</exception>
+    private Vision.ImageInput DecodeImage(ImageData? image)
+    {
+        if (image?.Bytes is not { Length: > 0 })
+        {
+            throw new EngineException("Image parts must carry the image inline (base64 data); image URLs are not fetched.", "invalid_request");
+        }
+
+        try
+        {
+            return Options.ImageDecoder is { } decode ? decode(image) : Imaging.PngCodec.Decode(image.Bytes);
+        }
+        catch (Exception e) when (e is not EngineException and not OutOfMemoryException)
+        {
+            throw new EngineException($"The image could not be decoded ({image.MediaType ?? "unknown type"}): {e.Message}", "invalid_request");
+        }
+    }
+
+    /// <summary>The request with the prompt's image placeholders expanded into the images' rows (unchanged without images).</summary>
+    /// <exception cref="EngineException">The template rendered a different number of image placeholders than there are images.</exception>
+    private GenerationRequest WithImages(GenerationRequest request, ChatPrompt prompt)
+    {
+        if (prompt.Images.Count == 0)
+        {
+            return request;
+        }
+
+        try
+        {
+            return _images!.WithImages(request, prompt.Images);
+        }
+        catch (ArgumentException e)
+        {
+            throw new EngineException(e.Message, "invalid_request");
+        }
     }
 
     /// <summary>Number of prompt tokens the request would occupy after template rendering.</summary>
-    /// <exception cref="EngineException">The request contains images (not supported by this configuration).</exception>
-    public int CountTokens(ChatRequest r) => BuildPrompt(r).Tokens.Length;
+    /// <exception cref="EngineException">The request contains images and the model is served without image input.</exception>
+    public int CountTokens(ChatRequest r)
+    {
+        var prompt = BuildPrompt(r);
+        return prompt.Tokens.Length + prompt.Images.Sum(image => _images!.Encoder.Preprocess(image).TokenCount - 1);
+    }
 
     private static string FallbackPrompt(List<Templating.ChatMessage> msgs)
     {
@@ -186,6 +234,7 @@ public sealed class ModelService
             StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, CachePartition = r.CachePartition, CacheSalt = r.CacheSalt, Timeout = r.Timeout,
             Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs, Constraint = BuildConstraint(r, prompt), Diffusion = r.Diffusion,
         };
+        template = WithImages(template, prompt);
         var parserOptions = new ChatOutputParserOptions
         {
             ToolCallFormats = useTools ? _formats : [],

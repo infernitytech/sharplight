@@ -7162,3 +7162,36 @@ VLLM_VENV=<venv with vLLM 0.33.0> bench/s42_gap.sh bench/results/s51/vllm qwen3-
 SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/Qwen3-8B --provider cuda --bench 2048 --ctx 2304   # per-launch profiles (Vulkan: SHARPLIGHT_VK_PROFILE=1)
 nvcc -O2 -arch=sm_120 bench/s51_cublaslt_probe.cu -lcublasLt -o probe && ./probe
 ```
+
+## 52. Image chats on the batching engine (2026-11-19)
+
+Image and audio prompts now run on the serving engine (docs/kv-cache.md section 2.7): media embedding rows and M-RoPE positions in the
+batched decoder, an encoder stage before prefill, encoder outputs and KV blocks cached by content. Before, an image chat ran on its own
+single-sequence session with the vision encoder, one request at a time (Studio's former `VisionChat`; the OpenAI / Anthropic endpoints
+rejected images).
+
+Setup: RTX PRO 4500 Blackwell (dedicated), Vulkan; `bench/ImageChatBench` (16 image chats submitted at once, each a distinct synthetic
+448x448 image or a variant of the given one, greedy, 128 / 64 generated tokens, end-of-generation ignored; "single" = one session of the
+multimodal graph through `Generator`, the chats one after another; "engine" = `InferenceEngine` over `CreateBatchDecoder(16, mediaInput: true)`
+with `ImagePrompts`; round 2 repeats the same 16 chats on the same engine). Raw output: `bench/results/multimodal/`.
+
+| model | path | wall s | agg tok/s | TTFT p50 / p95 ms | ITL mean ms | images encoded | cached prompt tokens |
+|---|---|---|---|---|---|---|---|
+| Qwen3-VL-2B Q4_K_M + mmproj Q8_0 (196 image rows) | single session | 5.75 | 356 | 3042 / 5437 | 2.5 | 16 | – |
+| | engine, 16 slots | 1.03 | 1995 | 439 / 495 | 4.7 | 16 | 0 |
+| | engine, round 2 (same chats) | 0.56 | 3671 | 25 / 33 | 4.1 | 0 | 3328 |
+| GLM-OCR bf16 (138 image rows, "Text Recognition:") | single session | 2.57 | 399 | 1441 / 2442 | 2.0 | 16 | – |
+| | engine, 16 slots | 0.89 | 1155 | 698 / 726 | 2.9 | 16 | 0 |
+| | engine, 16 slots, MTP 3 drafts | 1.01 | 1009 | 820 / 868 | 3.0 | 16 | 0 (acceptance 78 %) |
+
+- 16 concurrent image chats: 5.6x (Qwen3-VL-2B) and 2.9x (GLM-OCR) the aggregate throughput of the single-session path, TTFT p50 7x / 2x
+  lower and p95 11x / 3.4x lower (the single path queues every chat behind the earlier ones). The inter-token latency of a stream rises
+  from 2-2.5 ms to 3-4.7 ms, as for text batching.
+- Repeated images: the second round's prompts attach their KV blocks (image rows included) from the prefix cache, so no image is encoded
+  or prefilled again (3328 of 3456 prompt tokens cached; the last block of each prompt is computed): TTFT p50 25 ms.
+- Encoding runs on the scheduler thread as a stage before the step (all 16 images of round 1 in the first steps); `EngineOptions.MediaEncodeRowsPerStep`
+  spreads a burst over steps where inter-token latency matters more than TTFT.
+- GLM-OCR's MTP head (its `layers.16`, now imported and run through `mtp_draft_multimodal`): with one stream (the Vision test
+  `Glm_ocr_mtp_head_speculates_on_image_prompts_with_identical_output`, 35 tokens of the reference sample) 96 % of the drafts are accepted and
+  decoding is 1.84x faster on Vulkan (498 → 917 tok/s) and 1.70x on the CPU, with token-identical output. At 16 concurrent streams the
+  step is compute bound and verification rows cost more than they save (1155 → 1009 tok/s), as for text models (section 46).

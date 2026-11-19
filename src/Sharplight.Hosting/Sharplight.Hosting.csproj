@@ -7,5 +7,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <PackageReference Include="StbImageSharp" />
   </ItemGroup>
 </Project>

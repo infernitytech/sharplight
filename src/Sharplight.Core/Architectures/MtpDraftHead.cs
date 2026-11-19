@@ -179,10 +179,15 @@ public static class MtpDraftHead
     /// <param name="layers">Number of MTP layers.</param>
     /// <param name="layer">Builds MTP layer <c>j</c> (weights below <c>mtp.layers.{j}.</c>) on <c>x</c> with the positions input and returns its output.</param>
     /// <param name="chainNormalized">Whether the <see cref="WellKnown.HiddenOutput"/> is taken after the output norm.</param>
+    /// <param name="mediaWidth">
+    /// Above 0: build the <see cref="WellKnown.DraftMultimodalGraph"/>, whose rows can take a media embedding (the first
+    /// <paramref name="hiddenSize"/> columns of an embeddings input [T, <paramref name="mediaWidth"/>], selected by a row mask [T, 1], as in the
+    /// <see cref="WellKnown.DecodeMultimodalGraph"/>) in place of their token's embedding.
+    /// </param>
     public static ComputeGraph Build(Func<string, WeightInfo?> lookup, int hiddenSize, int positionAxes, float eps, int layers,
-        Func<GraphBuilder, Value, int, Value, Value> layer, bool chainNormalized)
+        Func<GraphBuilder, Value, int, Value, Value> layer, bool chainNormalized, int mediaWidth = 0)
     {
-        var b = new GraphBuilder(WellKnown.DraftGraph, lookup);
+        var b = new GraphBuilder(mediaWidth > 0 ? WellKnown.DraftMultimodalGraph : WellKnown.DraftGraph, lookup);
         var T = Dim.Sym(WellKnown.TokenSymbol);
         Value x;
         using (b.Group("input"))
@@ -190,7 +195,17 @@ public static class MtpDraftHead
             var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
             var hidden = b.Input("hidden_states", InputRole.HiddenStates, DataType.F32, new Shape(T, hiddenSize));
             var table = b.TryWeight("mtp.token_embedding.weight") ?? b.Weight("token_embedding.weight");
-            var e = b.RmsNorm(b.Gather(table, tokens, "mtp_embd"), b.Weight("mtp.embedding_norm.weight"), eps, "mtp_embd_norm");
+            var embedded = b.Gather(table, tokens, "mtp_embd");
+            if (mediaWidth > 0)
+            {
+                // Media rows: x = tok·(1 − mask) + emb·mask.
+                var emb = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, mediaWidth));
+                var mask = b.Input("embedding_mask", InputRole.EmbeddingMask, DataType.F32, new Shape(T, 1));
+                var media = mediaWidth == hiddenSize ? emb : b.Slice(emb, 1, 0, hiddenSize);
+                embedded = b.Add(b.Mul(embedded, b.Scale(mask, -1f, 1f)), b.Mul(media, mask), "mtp_embd_mixed");
+            }
+
+            var e = b.RmsNorm(embedded, b.Weight("mtp.embedding_norm.weight"), eps, "mtp_embd_norm");
             var h = b.RmsNorm(hidden, b.Weight("mtp.hidden_norm.weight"), eps, "mtp_hidden_norm");
             x = b.Linear(b.Concat(1, e, h), "mtp.fc.weight", name: "mtp_fc");
         }

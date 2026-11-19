@@ -386,6 +386,63 @@ leader is cancelled), `CachePartitionTests`, `MultiTenantApiTests.AClientCacheSa
 on equals the cache off for shared prefixes, sequential and concurrent, on CPU and Vulkan, for attention-only, gated delta net, Mamba,
 Mamba-2, short-convolution and RWKV-7 tiny models and for Qwen3.5-0.8B and Qwen3-0.6B, and three samples of one prompt forking it).
 
+### 2.7 Image and audio prompts in the batched engine (implemented)
+
+Vision-language and audio-language requests run on the same engine, decoder and KV pool as text requests: they are batched with them,
+admitted by blocks, preempted and recomputed, prefix-cached and speculated like any other sequence.
+
+Decoder (`IBatchDecoder`):
+
+- `LlmModel.CreateBatchDecoder(..., mediaInput: true)` compiles the `decode_multimodal` graph (token ids, an embeddings input
+  `[T, H·(1 + DeepStack layers)]` and its row mask, the media weight mask of models with visual experts) instead of `decode`; text rows
+  get zero rows and mask 0, which leaves their input exactly the token embedding. `IBatchDecoder.EmbeddingWidth` (0 for token-only
+  decoders), `PositionAxes`, `TextPositionAxes`.
+- `SequenceInput` gains `Embeddings` (runs of rows of the input filled from encoder rows, `EmbeddingRun`, no copy of the encoder output),
+  `Positions` (explicit rope position ids `[rows, axes]`, M-RoPE / XD-RoPE prompts), `PositionOffset` (rope position minus cache position
+  of rows after an M-RoPE prompt, vLLM's `mrope_position_delta`) and `MediaWeights`. `MultiSequenceDecoder` packs them into the step's
+  inputs next to the token ids (cache rows stay at their cache positions; only the rope positions differ); `SessionBatchDecoder` feeds
+  such inputs to its session as a `MultimodalPrompt`.
+
+Requests (`GenerationRequest`):
+
+- `PromptMedia`: `PromptMedia(start, MediaContent)` per image or audio clip; the content has a hash, a row count and an `IMediaEncoder`.
+  `ImagePrompts` (over a `VisionEncoder`) builds image requests from a prompt with one placeholder per image: it runs the architecture's
+  prompt assembly (`IMultimodalArchitecture`), hashes the preprocessed pixels (128 bits of SHA-256 over the patches, grid and layout) and
+  sets `PromptPositions` / `NextPosition` / `PromptMediaWeights`. `EncodedMedia` carries rows computed elsewhere (the audio tower of an
+  audio-language model, a caller's encoder).
+- The engine validates the media (inside the prompt, not overlapping, rows of the decoder's width) and builds a `PromptLayout` per
+  request: it turns every input of the sequence (prompt chunks, recomputation after preemption, decode and verification rows) into the
+  decoder's form by cache position, so preemption, prefix reuse and speculation need no special cases.
+
+Encoder stage and caches:
+
+- Before each step the engine collects the media that the next prompt (or recomputation) chunk of each sequence can reach and that
+  have no rows yet, takes their rows from the encoder-output cache (`EngineOptions.MediaCacheBytes`, 256 MiB by default, LRU by content
+  hash) or encodes them: one `IMediaEncoder.Encode` call per encoder for all requests of the step, each distinct content once, up to
+  `EngineOptions.MediaEncodeRowsPerStep` rows (default the step budget; at least one content). A chunk stops before media whose rows are
+  not there yet (at a block boundary where it can). An encoder failure ends the requests that need the content, not the engine.
+- Prefix cache: the media hashes are part of the block hashes (`PromptContentKey`, section 2.6), so a prompt whose blocks up to and past
+  an image are cached attaches them at admission: the image is neither encoded (the encoder stage never reaches rows inside attached
+  blocks) nor prefilled. The per-slot prefix reuse and the n > 1 forks compare the same content keys.
+- Metrics: `EngineMetricsSnapshot.MediaEncoded`, `MediaCacheHits`, `MediaEncodeTime`.
+
+Speculation: the verification rows of an M-RoPE sequence carry its position offset. `ISpeculator.SetLayout` hands a draft head the
+sequence's layout; `MtpSpeculator` applies it to the head's rows (the target rows' positions, and for a row whose successor is an image
+or audio row that row's embedding, through the head's `mtp_draft_multimodal` graph, built next to `mtp_draft` for models with a vision or
+audio tower). N-gram speculation needs nothing. `BlockDraftSpeculator` does not apply layouts yet (its drafts are only less often accepted
+on M-RoPE prompts; verification keeps the output exact).
+
+Hosting: `ChatModelOptions.ImageInput` (default on) loads a model with a vision tower with the media decoder and its vision encoder
+(`LlmChatModelLoader`; `LlmModel.EstimateFootprint(..., mediaInput: true)` and `EstimateVisionFootprint` count both in the residency
+budget), and `ModelService` accepts image parts (decoded by `ModelServiceOptions.ImageDecoder`; the hosting loader and Studio decode
+PNG, JPEG and the other common formats), so the OpenAI `image_url` and Anthropic `image` inputs and Studio's image chats run batched.
+
+Tests: `BatchedMultimodalTests` (Vision: image and text requests decoded together equal the single-session path, and a repeated image
+prompt is served from the prefix cache without encoding, for tiny Qwen2-VL, Qwen2.5-VL, Qwen3-VL-MoE and GLM-4V checkpoints, Qwen3-VL-2B,
+Qwen3.5-0.8B and GLM-OCR, CPU and Vulkan; GLM-OCR's MTP head speculating on image prompts with identical output),
+`AudioLanguageBatchedTests` (Speech: Qwen3-ASR prompts with audio rows, batched, equal the recognizer's session path),
+`MultimodalEngineTests` (Serving: layout, positions, encoder stage, cache hits, preemption and validation on the fake decoder).
+
 ## 3. Steps
 
 1. Done: quantised KV in the contiguous layout (independent of paging): Q8_0 and Q4_0 `CacheWrite` + `CachedAttention` for

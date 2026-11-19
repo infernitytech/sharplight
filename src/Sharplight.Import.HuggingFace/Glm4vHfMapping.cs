@@ -4,7 +4,7 @@ using Sharplight.Models;
 namespace Sharplight.Import.HuggingFace;
 
 /// <summary>
-/// GLM-4.1V and GLM-OCR (HF <c>glm4v</c>, <c>glm4v_text</c>, <c>glm_ocr</c>, <c>glm_ocr_text</c>; the OCR model's multi-token-prediction layer is not read) → canonical <c>decoder</c>: the GLM-4 language model of <see cref="Glm4HfMapping"/> (q/k/v
+/// GLM-4.1V and GLM-OCR (HF <c>glm4v</c>, <c>glm4v_text</c>, <c>glm_ocr</c>, <c>glm_ocr_text</c>; the OCR model's multi-token-prediction layer <c>layers.16</c> becomes the NextN draft head) → canonical <c>decoder</c>: the GLM-4 language model of <see cref="Glm4HfMapping"/> (q/k/v
 /// biases, sandwich norms, rotary on interleaved pairs of the first <c>partial_rotary_factor</c> of each head) with sectioned, non-interleaved
 /// M-RoPE (<c>rope.sections</c> from <c>mrope_section</c>), plus the vision tower (<see cref="Glm4vVisionHfMapping"/>) when the checkpoint has a
 /// <c>vision_config</c>. Image prompts follow the Qwen-VL layout (<c>Qwen35Multimodal</c>) with <c>&lt;|image|&gt;</c> as the placeholder.

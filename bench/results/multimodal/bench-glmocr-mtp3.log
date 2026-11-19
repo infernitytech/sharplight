@@ -1,0 +1,2 @@
+glm-ocr: 16 streams x 64 tokens, image 640x170 -> 138 rows, prompt 119 chars, device NVIDIA RTX PRO 4500 Blackwell
+engine (16 slots, MTP 3), round 1: wall 1.01 s, 1009.4 tok/s aggregate, TTFT p50 820 ms p95 868 ms, ITL mean 3.0 ms, images encoded 16, cached prompt tokens 0, draft acceptance 78 %

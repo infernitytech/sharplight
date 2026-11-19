@@ -21,6 +21,12 @@ public sealed record ChatModelOptions
     /// 0: none). Each costs one slot's recurrent state.
     /// </summary>
     public int? KvStateSnapshots { get; set; }
+    /// <summary>
+    /// Serve image input through the engine for a model with a vision tower (default on): its decoder is compiled from the multimodal graph
+    /// (<see cref="LlmModel.CreateBatchDecoder"/> with media input) and its vision encoder is loaded with it (both counted in the model's
+    /// footprint), so image requests are batched with text requests and share the prefix cache. Off: text only (image parts are rejected).
+    /// </summary>
+    public bool ImageInput { get; set; } = true;
     /// <summary>Scheduler settings of the model's engine.</summary>
     public EngineOptions Engine { get; set; } = new();
     /// <summary>Name reported by the API is the registration name; the other settings (chat template override, tool formats, default max tokens) apply.</summary>
