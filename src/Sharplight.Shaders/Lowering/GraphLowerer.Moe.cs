@@ -16,6 +16,13 @@ public sealed partial class GraphLowerer
     private const int MoeSkinnyTile = 16;
 
     /// <summary>
+    /// Average routed rows per expert above which the grouped gemm_cm2 runs 128-row expert tiles instead of 64-row ones. RTX PRO
+    /// 4500, gpt-oss-20b 2048-row prompt step (256 rows per expert): 64-row tiles 163.8 ms against 170.1 ms with 128-row
+    /// tiles (per layer, mean of the profile: gate / up 2.70 → 2.61 ms, down 1.50 → 1.38 ms); the threshold was 160 until round 10.
+    /// </summary>
+    private const int MoeTallTileMinItems = 320;
+
+    /// <summary>
     /// (token, slot) items up to which the expert-grouped skinny GEMM serves a step of <paramref name="w"/> (<see cref="MoeSkinnyTile"/>-row
     /// tiles; above, gemm_cm2's 32-128-row tiles), or 0 when it does not serve the matrix: 12 per expert where the skinny GEMM loads
     /// the operands straight into the fragments (<see cref="UseDirectSkinny"/>), 1 per expert on its staged path.
@@ -584,7 +591,7 @@ public sealed partial class GraphLowerer
             : skinnyMoe && items(b) <= skinnyItems ? MoeSkinnyTile
             : isWide(b) ? wideTile
             : items(b) <= 24 * E ? 32
-            : !gemm2 || items(b) <= 160 * E ? 64 : 128;
+            : !gemm2 || items(b) <= MoeTallTileMinItems * E ? 64 : 128;
         Func<Bindings, uint> tiles = b => (uint)Math.Max(1, Math.Min(items(b), items(b) / tile(b) + E));
         var scratchArg = new PointerArg(_moeScratch, 0);
 

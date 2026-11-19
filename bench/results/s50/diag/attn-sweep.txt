@@ -1,0 +1,92 @@
+== SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64
+| 16 | 46.4 | 618 / 437 | 13.77 / 14.06, 13.67 |
+| 64 | 27.9 | 727 / 510 | 17.34 / 17.66, 17.23 |
+    87.920 ms  23.2%    720x  min    116.6 us  attention decode T=64,64,64
+     8.868 ms   2.3%    720x  min     12.2 us  attention combine decode_combine T=64,64,64
+== SHARPLIGHT_ATTN_DECODE_CFG=2048,128,64
+| 16 | 51.0 | 618 / 437 | 13.81 / 14.07, 13.69 |
+| 64 | 30.5 | 727 / 510 | 17.42 / 17.65, 17.27 |
+    85.546 ms  22.6%    720x  min    113.6 us  attention decode T=64,64,64
+    10.301 ms   2.7%    720x  min     12.3 us  attention combine decode_combine T=64,64,64
+== SHARPLIGHT_ATTN_DECODE_CFG=512,128,64
+| 16 | 59.0 | 618 / 437 | 13.80 / 14.12, 13.68 |
+| 64 | 28.2 | 727 / 510 | 17.25 / 17.45, 17.13 |
+    92.113 ms  24.5%    720x  min    121.7 us  attention decode T=64,64,64
+== SHARPLIGHT_ATTN_DECODE_CFG=1024,64,64
+| 16 | 55.1 | 618 / 437 | 13.73 / 14.05, 13.57 |
+| 64 | 28.5 | 727 / 510 | 17.44 / 17.71, 17.31 |
+    87.889 ms  23.2%    720x  min    116.6 us  attention decode T=64,64,64
+     8.890 ms   2.3%    720x  min     12.2 us  attention combine decode_combine T=64,64,64
+== SHARPLIGHT_ATTN_DECODE_CFG=1024,256,64
+| 16 | 52.8 | 618 / 437 | 13.63 / 13.94, 13.50 |
+| 64 | 28.0 | 727 / 510 | 17.62 / 17.87, 17.51 |
+    88.543 ms  23.2%    720x  min    118.7 us  attention decode T=64,64,64
+    10.184 ms   2.7%    720x  min     12.3 us  attention combine decode_combine T=64,64,64
+== SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64,1
+| 16 | 46.4 | 618 / 437 | 13.47 / 13.82, 13.37 |
+| 64 | 42.9 | 727 / 510 | 17.13 / 17.44, 17.04 |
+    81.707 ms  21.8%    720x  min    108.4 us  attention decode T=64,64,64
+    10.311 ms   2.8%    720x  min     12.3 us  attention combine decode_combine T=64,64,64
+== SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64,4
+| 16 | 68.1 | 618 / 437 | 13.77 / 14.12, 13.69 |
+| 64 | 28.0 | 727 / 510 | 17.44 / 17.70, 17.36 |
+    87.886 ms  23.2%    720x  min    115.6 us  attention decode T=64,64,64
+     8.870 ms   2.3%    720x  min     12.2 us  attention combine decode_combine T=64,64,64
+== ~/models/hf/gpt-oss-20b SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64
+| 1 | 45.5 | 485 / 340 | 5.36 / 5.37, 5.29 |
+| 16 | 40.0 | 654 / 485 | 9.96 / 10.07, 9.85 |
+| 64 | 30.3 | 679 / 510 | 17.04 / 17.42, 16.86 |
+    34.735 ms   9.6%    480x  min     47.0 us  attention decode T=64,64,64
+     7.391 ms   2.0%    480x  min      5.1 us  attention combine decode_combine T=64,64,64
+== ~/models/hf/gpt-oss-20b SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64,1
+| 1 | 66.9 | 485 / 340 | 5.38 / 5.39, 5.32 |
+| 16 | 38.9 | 654 / 485 | 9.94 / 10.11, 9.87 |
+| 64 | 34.2 | 679 / 510 | 16.69 / 17.13, 16.52 |
+    29.849 ms   8.3%    480x  min     40.8 us  attention decode T=64,64,64
+     7.445 ms   2.1%    480x  min      6.1 us  attention combine decode_combine T=64,64,64
+== ~/models/hf/gpt-oss-20b SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64,2
+| 1 | 45.6 | 485 / 340 | 5.36 / 5.38, 5.29 |
+| 16 | 38.5 | 654 / 485 | 9.92 / 10.05, 9.84 |
+| 64 | 30.6 | 679 / 510 | 16.84 / 17.33, 16.77 |
+    34.314 ms   9.5%    480x  min     46.9 us  attention decode T=64,64,64
+     7.389 ms   2.0%    480x  min      5.1 us  attention combine decode_combine T=64,64,64
+== ~/models/hf/gpt-oss-20b --slots 17 --ctx 4608 --depth 4096 SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64
+== ~/models/hf/Qwen3-8B-FP8 --slots 17 --ctx 4608 --depth 4096 SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64
+== ~/models/hf/gpt-oss-20b --slots 17 --ctx 4608 --depth 4096 SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64,1
+== ~/models/hf/Qwen3-8B-FP8 --slots 17 --ctx 4608 --depth 4096 SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64,1
+== 1024,128,64 ~/models/hf/gpt-oss-20b --slots 17 --ctx 4608 --depth 4096
+Unhandled exception. System.ArgumentException: Step has more than 2048 rows.
+== 1024,128,64 ~/models/hf/Qwen3-8B-FP8 --slots 17 --ctx 4608 --depth 4096
+Unhandled exception. System.ArgumentException: Step has more than 2048 rows.
+== 1024,128,64,1 ~/models/hf/gpt-oss-20b --slots 17 --ctx 4608 --depth 4096
+Unhandled exception. System.ArgumentException: Step has more than 2048 rows.
+== 1024,128,64,1 ~/models/hf/Qwen3-8B-FP8 --slots 17 --ctx 4608 --depth 4096
+Unhandled exception. System.ArgumentException: Step has more than 2048 rows.
+== 1024,128,64 ~/models/hf/gpt-oss-20b --slots 17 --ctx 2560 --depth 2048
+| 1 | 43.1 | 485 / 340 | 5.40 / 5.42, 5.33 |
+| 16 | 36.0 | 654 / 485 | 11.03 / 11.14, 10.91 |
+== 1024,128,64 ~/models/hf/Qwen3-8B-FP8 --slots 17 --ctx 2560 --depth 2048
+| 1 | 49.1 | 473 / 328 | 11.24 / 11.30, 11.17 |
+| 16 | 45.1 | 618 / 437 | 19.03 / 19.24, 18.83 |
+== 1024,128,64,1 ~/models/hf/gpt-oss-20b --slots 17 --ctx 2560 --depth 2048
+| 1 | 59.3 | 485 / 340 | 5.43 / 5.75, 5.35 |
+| 16 | 51.0 | 654 / 485 | 10.88 / 15.61, 10.68 |
+== 1024,128,64,1 ~/models/hf/Qwen3-8B-FP8 --slots 17 --ctx 2560 --depth 2048
+| 1 | 51.3 | 473 / 328 | 11.31 / 11.36, 11.22 |
+| 16 | 45.6 | 618 / 437 | 18.93 / 19.16, 18.86 |
+== 1024,128,64 ~/models/hf/Qwen3-0.6B --slots 68 --ctx 2560 --depth 2048
+| 1 | 33.7 | 341 / 228 | 2.29 / 2.30, 2.24 |
+| 16 | 38.5 | 650 / 425 | 7.07 / 7.08, 7.01 |
+| 64 | 46.2 | 651 / 426 | 22.30 / 22.40, 22.22 |
+== 1024,128,64,1 ~/models/hf/Qwen3-0.6B --slots 68 --ctx 2560 --depth 2048
+| 1 | 33.7 | 341 / 228 | 2.31 / 2.32, 2.25 |
+| 16 | 32.3 | 650 / 425 | 7.05 / 7.09, 6.98 |
+| 64 | 53.6 | 651 / 426 | 20.93 / 20.98, 20.80 |
+== 1024,128,64 ~/models/hf/gemma-3-1b-it --slots 68 --ctx 2560 --depth 2048
+| 1 | 24.6 | 395 / 290 | 3.15 / 3.15, 3.07 |
+| 16 | 27.2 | 578 / 421 | 4.34 / 4.36, 4.25 |
+| 64 | 34.7 | 683 / 474 | 6.92 / 6.95, 6.80 |
+== 1024,128,64,1 ~/models/hf/gemma-3-1b-it --slots 68 --ctx 2560 --depth 2048
+| 1 | 23.5 | 395 / 290 | 3.15 / 3.17, 3.09 |
+| 16 | 24.6 | 578 / 421 | 4.10 / 4.12, 4.02 |
+| 64 | 34.2 | 683 / 474 | 6.38 / 6.40, 6.28 |

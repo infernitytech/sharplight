@@ -87,6 +87,26 @@ public class EngineTests
     }
 
     [Fact]
+    public async Task AdaptiveStepBudget_SpreadsCompetingPrompts_ButNotALonePrompt()
+    {
+        var d = new FakeBatchDecoder(8, maxBatchTokens: 400) { StepDelay = TimeSpan.FromMilliseconds(3) };
+        d.Script("x", loop: true);
+        using var e = Engine(d, new EngineOptions { MinBatchTokens = 40, BatchTokensPerSequence = 10 });
+
+        // A lone prompt may take a whole step of the full budget.
+        int loneLength = T.Prompt(new string('a', 300)).Length;
+        await e.Submit(Req(new string('a', 300), max: 2)).CompleteAsync();
+        Assert.Contains(d.Steps, s => s.Sum(x => x.Rows) == loneLength);
+
+        // Four prompts at a light load: a step holds the oldest prompt's rest plus a row per sequence at most, never all prompts.
+        int start = d.Steps.Count;
+        int length = T.Prompt(new string('b', 50)).Length;
+        var hs = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('b' + i), 50), max: 2))).ToList();
+        await Task.WhenAll(hs.Select(h => h.CompleteAsync()));
+        Assert.All(d.Steps.Skip(start), s => Assert.True(s.Sum(x => x.Rows) <= 4 + length, $"step of {s.Sum(x => x.Rows)} rows"));
+    }
+
+    [Fact]
     public async Task Cancel_RunningRequest_FreesSlot()
     {
         var d = new FakeBatchDecoder(1) { StepDelay = TimeSpan.FromMilliseconds(2) };

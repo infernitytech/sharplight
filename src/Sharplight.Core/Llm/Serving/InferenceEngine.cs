@@ -77,6 +77,11 @@ public sealed class InferenceEngine : IDisposable
     private readonly HashSet<int> _eog;
     private readonly TaskCompletionSource _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly int _budget;
+    private readonly int _minBudget;
+    private int _load;
+    private long _loadTimestamp;
+    /// <summary>A step this long after the previous one sees the load of its own sequences only (see <see cref="StepTokens"/>).</summary>
+    private static readonly TimeSpan LoadHoldTime = TimeSpan.FromSeconds(1);
     private readonly int _prefillChunk;
     private long _nextId, _tick;
     private int _rr, _transit;
@@ -166,6 +171,7 @@ public sealed class InferenceEngine : IDisposable
         _queue = new RequestQueue(_opt.FairShareHalfLife);
         _eog = [.. tokenizer.EndOfGenerationIds];
         _budget = Math.Max(1, _opt.MaxBatchTokens > 0 ? Math.Min(_opt.MaxBatchTokens, decoder.MaxBatchTokens) : decoder.MaxBatchTokens);
+        _minBudget = _opt.MinBatchTokens > 0 ? Math.Min(_opt.MinBatchTokens, _budget) : _budget;
         _prefillChunk = _opt.PrefillChunk > 0 ? _opt.PrefillChunk : _budget;
         _cost = _opt.StepCost ?? new StepCostModel();
         _specRequests = new SpeculationRequest[decoder.SlotCount];
@@ -1311,6 +1317,46 @@ public sealed class InferenceEngine : IDisposable
         public int KvBlocks;
     }
 
+    /// <summary>
+    /// The token budget of the next step: <see cref="EngineOptions.BatchTokensPerSequence"/> rows per sequence holding a slot,
+    /// within <see cref="EngineOptions.MinBatchTokens"/> and the full budget. Few sequences: a wave of prompts is prefilled in
+    /// smaller steps and its first prompts stream sooner; many: full steps, whose larger GEMMs prefill more rows per second.
+    /// </summary>
+    private int StepTokens()
+    {
+        if (_minBudget >= _budget)
+        {
+            return _budget;
+        }
+
+        // The oldest prompt still prefilling may always take a whole step: a lone long prompt keeps the full budget, only prompts
+        // that compete with each other are spread over smaller steps.
+        long oldest = 0;
+        foreach (var s in _active)
+        {
+            if (s.Replay is { } replay)
+            {
+                oldest = replay.Length - s.ReplayPos;
+                break;
+            }
+
+            if (s.Prefilling)
+            {
+                oldest = s.Prompt.Length - s.PromptPos;
+                break;
+            }
+        }
+
+        // The load is the number of sequences holding a slot, held for a while when it drops (by one per step): a group of streams that
+        // finished together is replaced by new requests over the next few steps, which should not see the budget of a light load.
+        // (After a pause, e.g. an idle engine, the load starts over.)
+        long now = Stopwatch.GetTimestamp();
+        _load = Stopwatch.GetElapsedTime(_loadTimestamp, now) > LoadHoldTime ? _active.Count : Math.Max(_active.Count, _load - 1);
+        _loadTimestamp = now;
+        long rows = Math.Max((long)_load * Math.Max(1, _opt.BatchTokensPerSequence), _active.Count + oldest);
+        return (int)Math.Clamp(rows, _minBudget, _budget);
+    }
+
     private void StepOnce()
     {
         if (_diffusion is not null)
@@ -1328,7 +1374,8 @@ public sealed class InferenceEngine : IDisposable
             ProposeDrafts();
         }
 
-        var budget = new StepBudget { Tokens = _budget, LogitsRows = _decoder.MaxLogitsRows };
+        int stepTokens = StepTokens();
+        var budget = new StepBudget { Tokens = stepTokens, LogitsRows = _decoder.MaxLogitsRows };
         budget.KvBlocks = EnsureKvBlocksForDecode();
         ScheduleDecode(ref budget);
         ScheduleReplay(ref budget);
@@ -1357,11 +1404,11 @@ public sealed class InferenceEngine : IDisposable
             ? _deviceSampler!.Step(_inputs, _deviceRows, _sampledTokens, _sampledLogprobs)
             : _decoder.Step(_inputs);
         var elapsed = Stopwatch.GetElapsedTime(t0);
-        Metrics.Step(_budget - budget.Tokens, _inputs.Count, elapsed);
-        _cost.Observe(_budget - budget.Tokens, elapsed.TotalMilliseconds);
+        Metrics.Step(stepTokens - budget.Tokens, _inputs.Count, elapsed);
+        _cost.Observe(stepTokens - budget.Tokens, elapsed.TotalMilliseconds);
         if (DiagnosticSwitches.SchedulerTrace)
         {
-            TraceStep(elapsed, _budget - budget.Tokens);
+            TraceStep(elapsed, stepTokens - budget.Tokens);
         }
 
         ProcessResults(results);
