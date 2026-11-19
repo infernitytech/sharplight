@@ -179,20 +179,55 @@ public sealed class CudaCodeTests
         Assert.NotEqual(RunProjection(provider.OpenDevice(info, generated), rows, swiglu), actual);
     }
 
+    [Theory]
+    [InlineData(100, false)]
+    [InlineData(300, false)]
+    [InlineData(100, true)]
+    [InlineData(700, true)]
+    public void NativeFp8GemmMatchesTheCpu(int rows, bool swiglu)
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmFp8), "The GPU has no hand-written FP8 GEMM (compute capability below 8.9).");
+        var cpuProvider = new Cpu.CpuExecutionProvider();
+
+        // From 65 rows the hand-written GEMM serves (64-row tiles at 100 rows, 128-row tiles at 700 for these shapes), reading the
+        // 128-row weight groups and the dense scale copy of the E4M3 activations. The activations are values that the per-128 E4M3
+        // quantization represents exactly, so the CPU's f32 product differs by the summation order only.
+        var expected = RunProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows, swiglu, DataType.F8E4M3_B128);
+        var actual = RunProjection(provider.OpenDevice(info), rows, swiglu, DataType.F8E4M3_B128);
+        double scale = expected.Max(MathF.Abs);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.True(Math.Abs(expected[i] - actual[i]) <= 1e-3 * scale, $"y[{i}]: {actual[i]} vs {expected[i]}");
+        }
+
+        // The generated fp8 GEMM on the same layout (feature off: the split rows of the phase-2 kernels) gives the same products
+        // within the accumulation order.
+        var generated = new DeviceOptions();
+        generated.DisabledFeatures.Add(DeviceFeatures.NativeGemmFp8);
+        var reference = RunProjection(provider.OpenDevice(info, generated), rows, swiglu, DataType.F8E4M3_B128);
+        for (int i = 0; i < reference.Length; i++)
+        {
+            Assert.True(Math.Abs(reference[i] - actual[i]) <= 1e-4 * scale, $"y[{i}]: {actual[i]} vs the generated GEMM's {reference[i]}");
+        }
+    }
+
     /// <summary>
-    /// y = x · Wᵀ with bf16 W [512, 1024] on <paramref name="rows"/> rows, or with <paramref name="swiglu"/> the gated pair
-    /// silu(x · Wgᵀ) · (x · Wuᵀ).
+    /// y = x · Wᵀ with W [512, 1024] (bf16, or <paramref name="weightType"/>) on <paramref name="rows"/> rows, or with
+    /// <paramref name="swiglu"/> the gated pair silu(x · Wgᵀ) · (x · Wuᵀ).
     /// </summary>
-    private static float[] RunProjection(IComputeDevice device, int rows, bool swiglu = false)
+    private static float[] RunProjection(IComputeDevice device, int rows, bool swiglu = false, DataType? weightType = null)
     {
         using (device)
         {
             var tg = new TG("cuda-library-gemm");
             var x = tg.InF("x", TG.T, 1024);
-            var y = tg.B.MatMul(x, tg.RandW("w", DataType.BF16, 0.05f, 512, 1024));
+            var y = tg.B.MatMul(x, tg.RandW("w", weightType ?? DataType.BF16, 0.05f, 512, 1024));
             if (swiglu)
             {
-                y = tg.B.Mul(tg.B.Silu(y), tg.B.MatMul(x, tg.RandW("w2", DataType.BF16, 0.05f, 512, 1024)));
+                y = tg.B.Mul(tg.B.Silu(y), tg.B.MatMul(x, tg.RandW("w2", weightType ?? DataType.BF16, 0.05f, 512, 1024)));
             }
 
             tg.B.Output("y", y);
@@ -206,7 +241,8 @@ public sealed class CudaCodeTests
             var input = new float[rows * 1024];
             for (int i = 0; i < input.Length; i++)
             {
-                input[i] = MathF.Sin(i * 0.37f);
+                // FP8 weights: -1, -0.5, 0, 0.5, 1, a 1 in every 128 values, which E4M3 with a per-128 scale represents exactly.
+                input[i] = weightType is null ? MathF.Sin(i * 0.37f) : (i % 5 - 2) * 0.5f;
             }
 
             model.SetInput(graph.Inputs.Single(), System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
