@@ -9,10 +9,16 @@
 #include <cmath>
 #include <vector>
 
+#ifndef CHECK_T
+#define CHECK_T 512
+#endif
 #ifndef T_MAX
 #define T_MAX 8192
 #endif
 #define XCAP T_MAX
+#ifndef SPLITK
+#define SPLITK 1
+#endif
 #define Y_STRIDE N
 #if DUAL
 #define F8N_EPI2(a, b) ((a) / (1.0f + __expf(-(a))) * (b))
@@ -128,8 +134,16 @@ int main()
     unsigned char* dw = upload(groupedLayout(w, N));
     unsigned char* dw2 = upload(groupedLayout(w2, N));
 #endif
-    float* y; cudaMalloc(&y, (size_t)T_MAX * N * 4);
+    size_t flushBytes = 256u << 20;
+    void* flush; cudaMalloc(&flush, flushBytes);
+    float* y; cudaMalloc(&y, (size_t)T_MAX * N * 4 * SPLITK);
+#ifdef MS_A
+    int Ms[] = { MS_A, MS_B };   // nvcc splits -D values at commas
+#elif defined(MS_MID)
+    int Ms[] = { 80, 96, 128, 160, 192, 256, 320, 384 };
+#else
     int Ms[] = { 256, 512, 1024, 2048, 4096, 8192 };
+#endif
     for (int M : Ms)
     {
         if (M > T_MAX) continue;
@@ -139,11 +153,11 @@ int main()
         p.w2 = dw2;
 #endif
         p.y = y; p.T = M;
-        dim3 grid((M + F8N_BM - 1) / F8N_BM, (N + F8N_BOUT - 1) / F8N_BOUT);
+        dim3 grid((M + F8N_BM - 1) / F8N_BM, (N + F8N_BOUT - 1) / F8N_BOUT, SPLITK);
         gemm_fp8_native<<<grid, F8N_THREADS, F8N_STAGES * F8N_STAGE_BYTES>>>(p);
         cudaError_t e = cudaDeviceSynchronize();
         if (e) { printf("error %s\n", cudaGetErrorString(e)); return 1; }
-        if (M == 512)
+        if (M == CHECK_T)
         {
             unsigned char *rc = upload(std::vector<unsigned char>(x.c.begin(), x.c.begin() + (size_t)M * K)), *rw = upload(w.c), *rw2 = upload(w2.c);
             float *rs = upload(x.s), *rws = upload(w.s), *rws2 = upload(w2.s), *yr;
@@ -151,7 +165,12 @@ int main()
             ref<<<dim3((N + 127) / 128, M), 128>>>(rc, rs, rw, rws, rw2, rws2, yr, M);
             cudaDeviceSynchronize();
             std::vector<float> a((size_t)M * N), b((size_t)M * N);
-            cudaMemcpy(a.data(), y, a.size() * 4, cudaMemcpyDeviceToHost);
+            for (int z = 0; z < SPLITK; z++)
+            {
+                std::vector<float> part(a.size());
+                cudaMemcpy(part.data(), y + (size_t)z * M * N, a.size() * 4, cudaMemcpyDeviceToHost);
+                for (size_t i = 0; i < a.size(); i++) a[i] = z == 0 ? part[i] : a[i] + part[i];
+            }
             cudaMemcpy(b.data(), yr, b.size() * 4, cudaMemcpyDeviceToHost);
             double maxe = 0, maxv = 0;
             for (size_t i = 0; i < a.size(); i++) { maxe = fmax(maxe, fabs(a[i] - b[i])); maxv = fmax(maxv, fabs(b[i])); }
@@ -162,12 +181,14 @@ int main()
         float best = 1e9;
         for (int it = 0; it < 20; it++)
         {
+            cudaMemsetAsync(flush, it, flushBytes);   // evict the weights from L2: decode streams them from memory
             cudaEventRecord(e0);
             gemm_fp8_native<<<grid, F8N_THREADS, F8N_STAGES * F8N_STAGE_BYTES>>>(p);
             cudaEventRecord(e1); cudaEventSynchronize(e1);
             float ms; cudaEventElapsedTime(&ms, e0, e1); if (it > 2 && ms < best) best = ms;
         }
         double fl = 2.0 * M * N * K * (DUAL ? 2 : 1);
-        printf("T=%5d K=%5d N=%5d dual=%d: %.3f ms %.0f TFLOPS\n", M, K, N, DUAL, best, fl / best / 1e9);
+        double wbytes = (double)N * (K + K / 32) * (DUAL ? 2 : 1);
+        printf("T=%5d K=%5d N=%5d dual=%d split=%d: %.3f ms %.0f TFLOPS %.0f GB/s of weights\n", M, K, N, DUAL, SPLITK, best, fl / best / 1e9, wbytes / best / 1e6);
     }
 }
