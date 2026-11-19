@@ -699,6 +699,14 @@ public sealed partial class GraphLowerer
     /// contexts run one range and skip the combine). Needs subgroup shuffles/reductions and head sizes that are multiples
     /// of 8; returns null when it does not apply (the per-head kernels are the fallback).
     /// </summary>
+    /// <summary>
+    /// Key rows each lane group of the decode attention takes per batch (<c>DEC_R</c>) unless <c>SHARPLIGHT_ATTN_DECODE_CFG</c> sets
+    /// it: 1 on SPIR-V and MSL (batched decode spreads over more workgroups, see <see cref="DecodeAttention"/>), 4 on PTX, where the
+    /// CUDA form keeps more loads in flight per lane (RTX PRO 4500, Qwen3-0.6B single-sequence decode: 1.68 → 1.51 ms of GPU time
+    /// per step; batched steps see benchmarks section 53).
+    /// </summary>
+    private long DecodeRowsPerBatch => _opt.Target == ShaderTarget.Ptx ? 4 : 1;
+
     private DecodeAttentionPlan? DecodeAttention(AttentionPlan plan, bool flash, long sliceRows)
     {
         const long threads = 128;
@@ -725,7 +733,7 @@ public sealed partial class GraphLowerer
         long keyLanes = Math.Min((long)BitOperations.RoundUpToPowerOf2((ulong)Math.Max(plan.D, plan.DV) / 8), sg);
         long valueSlices = (plan.DV / 8 + keyLanes - 1) / keyLanes;
         int[] cfg = DiagnosticSwitches.AttentionDecodeConfig;
-        long rowsPerBatch = cfg.Length > 3 ? cfg[3] : 1;
+        long rowsPerBatch = cfg.Length > 3 ? cfg[3] : DecodeRowsPerBatch;
         long batch = rowsPerBatch * threads / keyLanes;
         // Fewer than 8 workgroups per key range (few KV heads, e.g. Gemma-3-1B's single one): shorter ranges, so short
         // (sliding-window) contexts still spread over enough workgroups.

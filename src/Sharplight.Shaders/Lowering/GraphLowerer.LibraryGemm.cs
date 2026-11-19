@@ -13,6 +13,12 @@ public sealed partial class GraphLowerer
     private static long LibraryGemmMinRows => DiagnosticSwitches.LibraryGemmMinRows ?? 256;
 
     /// <summary>
+    /// True when the f16 products of <see cref="UseLibraryGemm"/> have a GEMM to run on: the hand-written one of the provider
+    /// (<see cref="NativeGemmF16"/>) or the vendor library (<see cref="DeviceFeatures.LibraryGemm"/>).
+    /// </summary>
+    private bool LibraryGemmAvailable => NativeGemmF16 || _opt.Has(DeviceFeatures.LibraryGemm);
+
+    /// <summary>
     /// True when matmul <paramref name="p"/> runs on the vendor GEMM library (<see cref="DeviceFeatures.LibraryGemm"/>) for batches of
     /// <see cref="LibraryGemmMinRows"/> rows and more: f16 weights (bf16 weights are stored as f16 for it, see
     /// <see cref="LibraryHalfWeight"/>) in their plain [N, K] layout, one activation row per output row, no epilogue to fuse, and
@@ -26,8 +32,8 @@ public sealed partial class GraphLowerer
     /// <paramref name="maxRows"/> activation rows can run on the vendor GEMM library (see <see cref="UseLibraryGemm"/>).
     /// </summary>
     private bool LibraryGemmUsable(DataType type, long n, long k, long rowsPerLead, long maxRows)
-        => _opt.Has(DeviceFeatures.LibraryGemm) && _opt.Has(DeviceFeatures.MatrixF16) && type == DataType.F16 && rowsPerLead == 1
-           && k % 8 == 0 && n % 8 == 0 && maxRows >= LibraryGemmMinRows && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations;
+        => LibraryGemmAvailable && _opt.Has(DeviceFeatures.MatrixF16) && type == DataType.F16 && rowsPerLead == 1
+           && k % 8 == 0 && n % 8 == 0 && (!NativeGemmF16 || k % 64 == 0) && maxRows >= LibraryGemmMinRows && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations;
 
     /// <summary>
     /// True when bf16 weight <paramref name="weight"/> is stored as f16 for the library GEMM: the device has it, every consumer in the
@@ -37,7 +43,7 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool LibraryHalfWeight(Value weight)
     {
-        if (!_opt.Has(DeviceFeatures.LibraryGemm) || weight.Type != DataType.BF16 || weight.Shape.Rank != 2 || weight.Shape.Dims.Any(d => d.IsSymbolic)
+        if (!LibraryGemmAvailable || weight.Type != DataType.BF16 || weight.Shape.Rank != 2 || weight.Shape.Dims.Any(d => d.IsSymbolic)
             || weight.Shape[0].Fixed % 8 != 0 || weight.Shape[1].Fixed % 8 != 0)
         {
             return false;
@@ -73,9 +79,11 @@ public sealed partial class GraphLowerer
     {
         string label = MatMulLabel(p);
         var x = half ?? QuantizedActivations(label, [p.Node], p.Node.Inputs[0], p.X, p.XStride, 1, p.K, LibraryGemmMinRows, p.X.Shape[0], ActivationCode.F16);
-        var kernel = LibraryKernel.Gemm(_opt.Target, "f16", p.N, p.K);
-        Emit(label + " library", [p.Node],
-            [new KernelVariant(b => p.RowCount(b) >= LibraryGemmMinRows, kernel, _ => new Grid(1))],
+        // The provider's hand-written f16 GEMM where it has one, else the vendor library (same operands and output).
+        KernelVariant[] variants = NativeGemmF16
+            ? NativeF16Variants(p.N, p.K, p.X.Shape[0], null, b => p.RowCount(b), LibraryGemmMinRows)
+            : [new KernelVariant(b => p.RowCount(b) >= LibraryGemmMinRows, LibraryKernel.Gemm(_opt.Target, "f16", p.N, p.K), _ => new Grid(1))];
+        Emit(label + (NativeGemmF16 ? " native" : " library"), [p.Node], variants,
             [Pointer(x), Pointer(p.W), Pointer(p.Y), TokenArg(p.X)],
             [x, p.W], [p.Y]);
         if (_rangeScales.TryGetValue(x, out long scales))

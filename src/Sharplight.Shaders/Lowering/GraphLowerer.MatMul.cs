@@ -188,11 +188,30 @@ public sealed partial class GraphLowerer
         bool library = LibraryGemmUsable(weightA.Type, N, K, rowsPerLead, x.Shape[0]) && weightB.Type == weightA.Type;
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow;
         bool dualFp8 = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
-            xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "gemm_fp8.slang"));
+            xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "gemm_fp8.slang"),
+            UseNativeFp8Gemm(weightA.Type, N, K) ? DualEpilogueCudaSource(a, bNode, group, output) : null, out var dualFp8Serves);
+        // The hand-written f16 GEMM serves the pair from LibraryGemmMinRows rows as one dual launch with the group as its epilogue
+        // (instead of two GEMMs and the elementwise launch), unless x's f16 copy is row-ranged (its scaling must be undone before
+        // a nonlinear epilogue).
+        Func<long, bool> nativeDual = _ => false;
+        if (!dualFp8 && library && NativeGemmF16 && DualEpilogueCudaSource(a, bNode, group, output) is { } f16Epilogue)
+        {
+            long rowsMax = x.Shape[0] * rowsPerLead;
+            string label = $"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]";
+            var half = QuantizedActivations(label, [a, bNode, .. group], a.Inputs[0], x, xStride, rowsPerLead, K, LibraryGemmMinRows, rowsMax, ActivationCode.F16);
+            if (!_rangeScales.ContainsKey(half))
+            {
+                Emit($"{label} native", [a, bNode, .. group], NativeF16Variants(N, K, rowsMax, f16Epilogue, rows, LibraryGemmMinRows),
+                    [Pointer(half), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
+                    [half, weightA, weightB], [y]);
+                nativeDual = r => r >= LibraryGemmMinRows;
+            }
+        }
+
         var dualGemm2 = dualFp8 ? null : EmitDualGemm2($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
             a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "matmul.slang"), output,
             library ? LibraryGemmMinRows : long.MaxValue);
-        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && DualFp8Serves(rows(b), N, K))
+        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && dualFp8Serves(rows(b))) && !nativeDual(rows(b))
                                 && !(dualGemm2?.Invoke(rows(b)) ?? false);
         LowerMatMul(a);
         LowerMatMul(bNode);

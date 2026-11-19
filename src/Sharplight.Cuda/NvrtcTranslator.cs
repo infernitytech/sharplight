@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using Sharplight.Cuda.Interop;
@@ -74,11 +75,20 @@ internal sealed class NvrtcTranslator : KernelTranslator
         string source = Encoding.UTF8.GetString(code);
         int headerEnd = source.IndexOf('\n');
         string threadsLine = source.StartsWith(SlangCompiler.CudaThreadsHeader, StringComparison.Ordinal) && headerEnd > 0 ? source[..(headerEnd + 1)] : "";
+        // Kernels written in CUDA C++ (SlangCompiler.CompileCuda) state their dynamic shared memory in a second header line.
+        int declaredShared = 0;
+        if (headerEnd > 0 && source.AsSpan(headerEnd + 1).StartsWith(SlangCompiler.CudaSharedHeader, StringComparison.Ordinal))
+        {
+            int valueStart = headerEnd + 1 + SlangCompiler.CudaSharedHeader.Length;
+            declaredShared = int.Parse(source.AsSpan(valueStart, source.IndexOf('\n', valueStart) - valueStart), CultureInfo.InvariantCulture);
+        }
+
         byte[] ptx;
         int dynamicShared = 0;
         try
         {
             source = SharedMemoryRewriter.Rewrite(source, out dynamicShared);
+            dynamicShared = Math.Max(dynamicShared, declaredShared);
             ptx = Compile(source, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}.cu", Options(ComputeCapability), cubin: false);
         }
         catch (DllNotFoundException e)

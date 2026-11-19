@@ -134,7 +134,8 @@ internal sealed class CudaDeviceProperties
     /// packed int8 dot product (<c>dp4a</c>) and a fixed warp size of 32 (<see cref="DeviceFeatures.SubgroupSizeControl"/>). From 8.0
     /// (Ampere) the tensor cores run the cooperative-matrix kernels through their CUDA forms (<c>cuda_mma.slang</c>: <c>ldmatrix</c> and
     /// <c>mma.sync</c> on f16, bf16 and int8 with the MMA register layout, <see cref="DeviceFeatures.MatrixMmaLayout"/>), and bfloat16
-    /// is native; from 8.9 (Ada, Hopper, Blackwell) also E4M3 (<c>mma.sync ... e4m3</c>) and the 8-bit float types. Turing (7.5) has
+    /// is native; from 8.9 (Ada, Hopper, Blackwell) also E4M3 (<c>mma.sync ... e4m3</c>), the 8-bit float types and the hand-written
+    /// FP8 GEMM (<see cref="DeviceFeatures.NativeGemmFp8"/>). Turing (7.5) has
     /// <c>mma.sync</c> only in smaller shapes and keeps the SIMT kernels.
     /// </summary>
     public static IReadOnlySet<string> FeaturesFor(int computeCapability)
@@ -142,12 +143,14 @@ internal sealed class CudaDeviceProperties
         var features = new HashSet<string> { DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.IntDot, DeviceFeatures.SubgroupSizeControl };
         if (computeCapability >= 80)
         {
-            features.UnionWith([DeviceFeatures.MatrixF16, DeviceFeatures.MatrixBF16, DeviceFeatures.MatrixInt8, DeviceFeatures.MatrixMmaLayout, DeviceFeatures.BFloat16]);
+            features.UnionWith([DeviceFeatures.MatrixF16, DeviceFeatures.MatrixBF16, DeviceFeatures.MatrixInt8, DeviceFeatures.MatrixMmaLayout, DeviceFeatures.BFloat16,
+                DeviceFeatures.NativeGemmF16]);
         }
 
         if (computeCapability >= 89)
         {
-            features.UnionWith([DeviceFeatures.MatrixFp8, DeviceFeatures.Float8]);
+            // The hand-written FP8 GEMM (gemm_fp8_native.cu): 99 KB of dynamic shared memory, which every GPU from 8.9 has.
+            features.UnionWith([DeviceFeatures.MatrixFp8, DeviceFeatures.Float8, DeviceFeatures.NativeGemmFp8]);
         }
 
         return features;

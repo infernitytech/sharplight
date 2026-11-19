@@ -30,6 +30,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     /// <summary>Inputs copied from an earlier segment's output buffer instead of from <see cref="SetInput"/> (<see cref="TryForwardFrom"/>).</summary>
     private readonly Dictionary<BufferDecl, (CudaBuffer Source, long SourceOffset)> _forwarded = [];
     private readonly Dictionary<string, CudaRecordedLaunch[]> _recorded = [];
+    /// <summary>Executions of each recording so far, and its instantiated CUDA graph once it has repeated (see <see cref="RunStep"/>).</summary>
+    private readonly Dictionary<string, (int Runs, nint Graph, nint Exec)> _graphs = [];
     private readonly Queue<string> _recordOrder = new();
     private readonly nint _stream;
     private readonly nint _start;
@@ -293,7 +295,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         }
         else
         {
-            LastGpuMs = Run(recording);
+            LastGpuMs = RunStep(recording, key);
         }
 
         PublishProducedSymbols(parameters);
@@ -379,7 +381,85 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             return;
         }
 
-        _recorded.Remove(_recordOrder.Dequeue());
+        string key = _recordOrder.Dequeue();
+        _recorded.Remove(key);
+        DestroyGraph(key);
+    }
+
+    /// <summary>
+    /// Runs a recorded step. With <see cref="DeviceFeatures.LaunchGraphs"/> a step recording that runs a second time is captured into
+    /// a CUDA graph, and from then on replayed with one <c>cuGraphLaunch</c> instead of a host call per launch (decode steps repeat
+    /// their recording: positions and lengths are runtime scalars uploaded before the launches). Steps that run once (prefill
+    /// chunks of new lengths) are not captured, so they pay no instantiation.
+    /// </summary>
+    private double RunStep(CudaRecordedLaunch[] recording, string key)
+    {
+        if (!_dev.LaunchGraphs || DiagnosticSwitches.SyncEachLaunch || recording.Length < 2)
+        {
+            return Run(recording);
+        }
+
+        _graphs.TryGetValue(key, out var entry);
+        if (entry.Exec == 0 && entry.Runs >= 1)
+        {
+            entry = Capture(recording, entry.Runs);
+        }
+
+        entry.Runs++;
+        _graphs[key] = entry;
+        if (entry.Exec == 0)
+        {
+            return Run(recording);
+        }
+
+        CudaApi.Check(CudaApi.cuEventRecord(_start, _stream), "cuEventRecord");
+        CudaApi.Check(CudaApi.cuGraphLaunch(entry.Exec, _stream), "cuGraphLaunch");
+        CudaApi.Check(CudaApi.cuEventRecord(_end, _stream), "cuEventRecord");
+        Synchronize("the graph of segment " + Segment.Index);
+        float ms;
+        CudaApi.Check(CudaApi.cuEventElapsedTime(&ms, _start, _end), "cuEventElapsedTime");
+        return ms;
+    }
+
+    /// <summary>Captures the launches of a recording into an instantiated graph (or none, when the driver refuses the capture).</summary>
+    private (int Runs, nint Graph, nint Exec) Capture(CudaRecordedLaunch[] recording, int runs)
+    {
+        CudaApi.Check(CudaApi.cuStreamBeginCapture(_stream, CudaApi.CaptureModeThreadLocal), "cuStreamBeginCapture");
+        nint graph = 0;
+        try
+        {
+            foreach (var launch in recording)
+            {
+                Launch(launch);
+            }
+        }
+        finally
+        {
+            CudaApi.Check(CudaApi.cuStreamEndCapture(_stream, &graph), "cuStreamEndCapture");
+        }
+
+        nint exec;
+        if (CudaApi.cuGraphInstantiateWithFlags(&exec, graph, 0) != 0)
+        {
+            CudaApi.cuGraphDestroy(graph);
+            return (runs, 0, 0);
+        }
+
+        if (DiagnosticSwitches.Trace)
+        {
+            Console.Error.WriteLine($"[cuda] segment {Segment.Index}: captured a graph of {recording.Length} launches");
+        }
+
+        return (runs, graph, exec);
+    }
+
+    private void DestroyGraph(string key)
+    {
+        if (_graphs.Remove(key, out var entry) && entry.Exec != 0)
+        {
+            CudaApi.cuGraphExecDestroy(entry.Exec);
+            CudaApi.cuGraphDestroy(entry.Graph);
+        }
     }
 
     /// <inheritdoc />
@@ -584,6 +664,11 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         }
 
         _dev.Enter();
+        foreach (string key in _graphs.Keys.ToList())
+        {
+            DestroyGraph(key);
+        }
+
         if (_runtimeSlots != null)
         {
             CudaApi.cuMemFreeHost(_runtimeSlots);

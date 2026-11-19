@@ -10,5 +10,7 @@
     <InternalsVisibleTo Include="Sharplight.Metal" />
     <InternalsVisibleTo Include="Sharplight.Cuda" />
     <EmbeddedResource Include="Kernels/**/*.slang" LogicalName="Sharplight.Kernels.%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- Kernels written in CUDA C++ for the CUDA provider (SlangCompiler.CompileCuda). -->
+    <EmbeddedResource Include="Kernels/**/*.cu" LogicalName="Sharplight.Kernels.%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
