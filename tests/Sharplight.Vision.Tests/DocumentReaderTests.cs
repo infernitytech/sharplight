@@ -45,7 +45,7 @@ public class DocumentReaderTests
     {
         string layoutDir = Path.Combine(Home, "models/vision-r10/pp-doclayoutv3");
         string ocrDir = Path.Combine(Home, "models/vision-r10/glm-ocr");
-        Assert.SkipUnless(File.Exists(Path.Combine(layoutDir, "sharplight-sample.png")) && Directory.Exists(ocrDir), "PP-DocLayoutV3 or GLM-OCR is not available");
+        Assert.SkipUnless(File.Exists(Path.Combine(layoutDir, "sharplight-sample.png")) && File.Exists(Path.Combine(ocrDir, "model.safetensors")), "PP-DocLayoutV3 or GLM-OCR is not available");
         var slot = Env.Vulkan() ?? Env.Cpu();
         var page = PngCodec.Read(Path.Combine(layoutDir, "sharplight-sample.png"));
         using var layoutModel = TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = layoutDir, Devices = [slot] });

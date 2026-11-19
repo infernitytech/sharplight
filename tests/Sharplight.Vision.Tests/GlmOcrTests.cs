@@ -26,7 +26,7 @@ public class GlmOcrTests
     public void Greedy_text_matches_transformers(bool gpu, bool package)
     {
         string refPath = Path.Combine(Dir, "sharplight-reference.json");
-        Assert.SkipUnless(File.Exists(refPath), "GLM-OCR or its reference is not available");
+        Assert.SkipUnless(File.Exists(refPath) && File.Exists(Path.Combine(Dir, "model.safetensors")), "GLM-OCR or its reference is not available");
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
         var reference = JsonDocument.Parse(File.ReadAllText(refPath)).RootElement;
@@ -61,7 +61,7 @@ public class GlmOcrTests
     public async Task Recognizer_tasks_match_transformers(bool gpu, int maxTokens)
     {
         string refPath = Path.Combine(Dir, "sharplight-reference.json");
-        Assert.SkipUnless(File.Exists(refPath), "GLM-OCR or its reference is not available");
+        Assert.SkipUnless(File.Exists(refPath) && File.Exists(Path.Combine(Dir, "model.safetensors")), "GLM-OCR or its reference is not available");
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
         var reference = JsonDocument.Parse(File.ReadAllText(refPath)).RootElement;
