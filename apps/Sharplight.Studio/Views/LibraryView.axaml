@@ -191,8 +191,10 @@
                           <TextBlock Text="Local file" />
                         </Border>
                         <TextBlock Classes="caption" Text="{Binding Added}" VerticalAlignment="Center" Margin="4,0,0,0" />
-                        <TextBlock Classes="caption" Text="{Binding LastUsedText}" VerticalAlignment="Center" Margin="4,0,0,0" ToolTip.Tip="When the model was last loaded" />
-                        <Button Classes="ghost small" Content="Size details" Margin="4,0,0,0" Padding="6,0"
+                      </StackPanel>
+                      <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Classes="caption" Text="{Binding LastUsedText}" VerticalAlignment="Center" ToolTip.Tip="When the model was last loaded" />
+                        <Button Classes="ghost small" Content="Size details" Padding="6,0"
                                 Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).ToggleBreakdownCommand}" CommandParameter="{Binding}"
                                 ToolTip.Tip="Where the bytes are: weights, attachments and the precompiled artifacts per provider and device" />
                       </StackPanel>
