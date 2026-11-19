@@ -7042,7 +7042,10 @@ with cuBLASLt installed.
 | | 8192 | 6,980 / 50.2 | 7,016 / 50.3 | | 6,640 / 49.0 | **7,049 / 49.0** | 1.00 / 0.97 | 7,730 | 0.91 |
 
 (CUDA phase 1: section "First numbers" of cuda.md, same GPU. Decode of the 8B models against vLLM's tg128 at depth 16. An earlier run
-of the branch before the merge, `cuda-2.txt` / `cuda-2-nolib.txt` / `vulkan-new.txt`, agrees within 2 %.)
+of the branch before the merge, `cuda-2.txt` / `cuda-2-nolib.txt` / `vulkan-new.txt`, agrees within 2 %. The second merge of `develop`
+(`abbc4306`, round 11) sets the decode attention's rows per lane-group batch to 1 (`DEC_R`, for batched decode): single-sequence decode
+of Qwen3-0.6B Q8_0 then takes 1.68 ms of GPU time per step on both providers (CUDA 557, Vulkan 553 tok/s), against 1.51 ms on CUDA with
+the round-10 batch (`SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64,4`); a per-provider choice is a follow-up.)
 
 * **Prefill**: CUDA went from 0.18-0.20x of Vulkan (phase 1, SIMT kernels) to 0.96-1.12x: the tensor-core fragments bring the quantized
   and FP8 models to Vulkan's level (Qwen3-0.6B 0.96-0.99x, the others 1.00-1.07x), the library GEMM puts bf16 prefill 1-12 % above it.

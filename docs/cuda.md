@@ -411,7 +411,9 @@ phase-1 kernels as the fallback, and each flips the default for a device class o
      fuses them; ~3 % of a bf16 prefill), or one library GEMM over the concatenated gate / up weights;
    - FP8 at vLLM's level (0.77x): cuBLASLt has no 128x128 block-scaled FP8 on compute capability 12.0, so this needs a hand-written
      FP8 GEMM with larger tiles (the dynamic shared memory is in place) or the Blackwell block-scaled `mma.sync ... kind::mxf8f6f4`;
-   - the prefill attention `fe` is 5-8 % slower than its SPIR-V form on the NVIDIA Vulkan driver (same kernel).
+   - the prefill attention `fe` is 5-8 % slower than its SPIR-V form on the NVIDIA Vulkan driver (same kernel);
+   - the decode attention's rows per batch (`DEC_R`): `develop` round 11 set it to 1 for batched decode, which costs CUDA's
+     single-sequence decode 10 % (Qwen3-0.6B: 1.68 against 1.51 ms per step) and Vulkan about 2 %.
 2. **Phase 3: attention.** A flash-attention kernel for prefill with large shared memory, `cp.async` / TMA loads and warp-specialized
    producer / consumer pipelines (Hopper / Blackwell: `wgmma` / `tcgen05`), paged decode attention with split-K, written in CUDA C++ and
    compiled at build time to cubins for sm_80, sm_89, sm_90a, sm_100a, sm_120a plus PTX.
