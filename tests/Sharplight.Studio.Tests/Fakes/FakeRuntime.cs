@@ -14,7 +14,21 @@ internal sealed class FakeRuntime : IModelRuntime
 
     private readonly List<ILoadedModel> _models = [];
 
-    public IReadOnlyList<ComputeDeviceOption> Devices { get; set; } = [Gpu, Cpu];
+    private IReadOnlyList<ComputeDeviceOption> _devices = [Gpu, Cpu];
+
+    public IReadOnlyList<ComputeDeviceOption> Devices
+    {
+        get => DevicesSource?.Invoke() ?? _devices;
+        set => _devices = value;
+    }
+
+    /// <summary>Computes the devices on every read (a selector that follows the settings), when set.</summary>
+    public Func<IReadOnlyList<ComputeDeviceOption>>? DevicesSource { get; set; }
+
+    /// <summary>Computes the physical GPUs on every read, when set; none otherwise.</summary>
+    public Func<IReadOnlyList<PhysicalGpu>>? GpuSource { get; set; }
+
+    public IReadOnlyList<PhysicalGpu> Gpus => GpuSource?.Invoke() ?? [];
 
     /// <summary>The footprint estimates return (unless <see cref="Estimator"/> is set).</summary>
     public ModelFootprint Footprint { get; set; } = new(4L << 30, 1L << 30, 512L << 20);

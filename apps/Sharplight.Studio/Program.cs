@@ -47,7 +47,12 @@ internal static class Program
             Description = "With --smoke: where to write the JSON report (default: smoke-report.json in the log folder).",
             HelpName = "file",
         };
-        var root = new RootCommand("Sharplight Studio: find, download, convert, chat with and serve local models.") { modelsDir, printStorage, smoke, smokeReport };
+        var smokeProvider = new Option<string?>("--smoke-provider")
+        {
+            Description = "With --smoke: the execution provider to load the package on (cpu, the default; cuda or vulkan need a device of that provider, else the run fails).",
+            HelpName = "provider",
+        };
+        var root = new RootCommand("Sharplight Studio: find, download, convert, chat with and serve local models.") { modelsDir, printStorage, smoke, smokeReport, smokeProvider };
         var parsed = root.Parse(args);
         if (parsed.Errors.Count > 0 || args.Any(arg => arg is "--help" or "-h" or "-?" or "--version"))
         {
@@ -70,7 +75,7 @@ internal static class Program
             System.Runtime.InteropServices.RuntimeInformation.OSArchitecture, layout.Mode, layout.Description);
         if (parsed.GetValue(smoke))
         {
-            return SmokeCommand.Run(layout, Logs, parsed.GetValue(smokeReport));
+            return SmokeCommand.Run(layout, Logs, parsed.GetValue(smokeReport), parsed.GetValue(smokeProvider));
         }
 
         try

@@ -35,13 +35,16 @@
     <CudaCudartVersion>13.0.96</CudaCudartVersion>
     <CudaRedistUrl>https://developer.download.nvidia.com/compute/cuda/redist</CudaRedistUrl>
     <CudaRedistDirectory>$(MSBuildThisFileDirectory)obj/cuda-redist/$(CudaRedistVersion)/</CudaRedistDirectory>
-    <!-- The runtime of the build machine, whose files a build copies next to the application. -->
+    <!-- The runtime of the build machine, whose files a build copies next to the application; a build or publish for one of the three
+         runtimes (-r <rid>, as Studio's packaging does) takes that runtime's files instead, and fetches them even without a driver. -->
+    <CudaTargetRid Condition="'$(RuntimeIdentifier)' == 'linux-x64' Or '$(RuntimeIdentifier)' == 'linux-arm64' Or '$(RuntimeIdentifier)' == 'win-x64'">$(RuntimeIdentifier)</CudaTargetRid>
+    <CudaHostRid Condition="'$(CudaHostRid)' == '' And '$(CudaTargetRid)' != ''">$(CudaTargetRid)</CudaHostRid>
     <CudaHostRid Condition="'$(CudaHostRid)' == '' And $([MSBuild]::IsOSPlatform('Windows'))">win-x64</CudaHostRid>
     <CudaHostRid Condition="'$(CudaHostRid)' == '' And $([MSBuild]::IsOSPlatform('Linux')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">linux-arm64</CudaHostRid>
     <CudaHostRid Condition="'$(CudaHostRid)' == '' And $([MSBuild]::IsOSPlatform('Linux'))">linux-x64</CudaHostRid>
     <!-- Builds fetch only where an NVIDIA driver is installed (or on request); pack always fetches. -->
     <CudaDriverPresent Condition="Exists('/usr/lib/x86_64-linux-gnu/libcuda.so.1') Or Exists('/usr/lib/aarch64-linux-gnu/libcuda.so.1') Or Exists('/usr/lib64/libcuda.so.1') Or Exists('$(SystemRoot)\System32\nvcuda.dll')">true</CudaDriverPresent>
-    <CudaRedistFetch Condition="'$(CudaRedistFetch)' == '' And '$(CudaHostRid)' != '' And ('$(CudaDriverPresent)' == 'true' Or '$(SharplightBundleCudaRuntime)' == 'true')">true</CudaRedistFetch>
+    <CudaRedistFetch Condition="'$(CudaRedistFetch)' == '' And '$(CudaHostRid)' != '' And ('$(CudaDriverPresent)' == 'true' Or '$(SharplightBundleCudaRuntime)' == 'true' Or '$(CudaTargetRid)' != '')">true</CudaRedistFetch>
     <CudaHeaders>cuda_fp16.h;cuda_fp16.hpp;cuda_bf16.h;cuda_bf16.hpp;cuda_fp8.h;cuda_fp8.hpp</CudaHeaders>
   </PropertyGroup>
 

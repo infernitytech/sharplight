@@ -43,6 +43,12 @@ internal sealed record AppSettings
     /// <summary>Let reasoning models think before answering by default.</summary>
     public bool EnableThinking { get; init; } = true;
 
+    /// <summary>
+    /// The provider chosen per physical GPU (Settings &gt; Engine &gt; Compute devices), by GPU identity (<c>ComputeDeviceOption.GpuKey</c>).
+    /// A GPU without an entry is <see cref="ProviderChoice.Automatic"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, ProviderChoice> DeviceProviders { get; init; } = new Dictionary<string, ProviderChoice>();
+
     /// <summary>Device features never to use (provider-neutral names such as <c>matrix_f16</c>).</summary>
     public IReadOnlyList<string> DisabledFeatures { get; init; } = [];
 
