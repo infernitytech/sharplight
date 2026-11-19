@@ -133,8 +133,11 @@ public sealed class CudaCodeTests
         var cpuProvider = new Cpu.CpuExecutionProvider();
 
         // 300 rows (library from 256) of a bf16 projection (stored as f16 for the library); x is rounded to f16 as for the generated GEMMs.
+        // The hand-written f16 GEMM is preferred over the library where both exist: switch it off to reach the library.
+        var libraryOnly = new DeviceOptions();
+        libraryOnly.DisabledFeatures.Add(DeviceFeatures.NativeGemmF16);
         var expected = RunProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), 300);
-        var actual = RunProjection(provider.OpenDevice(info), 300);
+        var actual = RunProjection(provider.OpenDevice(info, libraryOnly), 300);
         for (int i = 0; i < expected.Length; i++)
         {
             Assert.True(Math.Abs(expected[i] - actual[i]) <= 3e-2 + 1e-2 * Math.Abs(expected[i]), $"y[{i}]: {actual[i]} vs {expected[i]}");
@@ -143,23 +146,61 @@ public sealed class CudaCodeTests
         // The library launch ran: the same rows without the feature give the generated GEMM's results, which sum in another order.
         var withoutLibrary = new DeviceOptions();
         withoutLibrary.DisabledFeatures.Add(DeviceFeatures.LibraryGemm);
+        withoutLibrary.DisabledFeatures.Add(DeviceFeatures.NativeGemmF16);
         var kernels = RunProjection(provider.OpenDevice(info, withoutLibrary), 300);
         Assert.NotEqual(kernels, actual);
     }
 
-    /// <summary>y = x · Wᵀ with bf16 W [512, 1024] on <paramref name="rows"/> rows.</summary>
-    private static float[] RunProjection(IComputeDevice device, int rows)
+    [Theory]
+    [InlineData(300, false)]
+    [InlineData(700, false)]
+    [InlineData(300, true)]
+    [InlineData(700, true)]
+    public void NativeF16GemmMatchesTheCpu(int rows, bool swiglu)
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmF16), "The GPU has no hand-written f16 GEMM (compute capability below 8.0).");
+        var cpuProvider = new Cpu.CpuExecutionProvider();
+
+        // Rows from 256 run the hand-written GEMM (single, or dual with the SiLU·mul epilogue) on the f16 copies of x and W.
+        var expected = RunProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows, swiglu);
+        var actual = RunProjection(provider.OpenDevice(info), rows, swiglu);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.True(Math.Abs(expected[i] - actual[i]) <= 3e-2 + 1e-2 * Math.Abs(expected[i]), $"y[{i}]: {actual[i]} vs {expected[i]}");
+        }
+
+        // The hand-written launch ran: without it (and without the library) the generated GEMMs sum in another order.
+        var generated = new DeviceOptions();
+        generated.DisabledFeatures.Add(DeviceFeatures.NativeGemmF16);
+        generated.DisabledFeatures.Add(DeviceFeatures.LibraryGemm);
+        Assert.NotEqual(RunProjection(provider.OpenDevice(info, generated), rows, swiglu), actual);
+    }
+
+    /// <summary>
+    /// y = x · Wᵀ with bf16 W [512, 1024] on <paramref name="rows"/> rows, or with <paramref name="swiglu"/> the gated pair
+    /// silu(x · Wgᵀ) · (x · Wuᵀ).
+    /// </summary>
+    private static float[] RunProjection(IComputeDevice device, int rows, bool swiglu = false)
     {
         using (device)
         {
             var tg = new TG("cuda-library-gemm");
             var x = tg.InF("x", TG.T, 1024);
-            tg.B.Output("y", tg.B.MatMul(x, tg.RandW("w", DataType.BF16, 0.05f, 512, 1024)));
+            var y = tg.B.MatMul(x, tg.RandW("w", DataType.BF16, 0.05f, 512, 1024));
+            if (swiglu)
+            {
+                y = tg.B.Mul(tg.B.Silu(y), tg.B.MatMul(x, tg.RandW("w2", DataType.BF16, 0.05f, 512, 1024)));
+            }
+
+            tg.B.Output("y", y);
             var graph = tg.B.Build();
             using var model = CompiledModel.Compile(graph, new PlacementOptions
             {
                 Devices = [new DeviceSlot { Device = device }],
-                Compile = new CompileOptions { MaxTokens = 512, ContextLength = 512 },
+                Compile = new CompileOptions { MaxTokens = 1024, ContextLength = 1024 },
                 ReservePerDevice = 0,
             });
             var input = new float[rows * 1024];

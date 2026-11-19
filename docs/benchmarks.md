@@ -7162,3 +7162,156 @@ VLLM_VENV=<venv with vLLM 0.33.0> bench/s42_gap.sh bench/results/s51/vllm qwen3-
 SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/Qwen3-8B --provider cuda --bench 2048 --ctx 2304   # per-launch profiles (Vulkan: SHARPLIGHT_VK_PROFILE=1)
 nvcc -O2 -arch=sm_120 bench/s51_cublaslt_probe.cu -lcublasLt -o probe && ./probe
 ```
+
+## 52. CUDA provider phase 3: hand-written f16 and FP8 GEMMs in CUDA C++, CUDA graphs, decode attention batch per target (2026-11-19)
+
+Branch `cuda/provider-r3` ([cuda.md](cuda.md#kernels-written-in-cuda-c)). GPU 1 of the RunPod machine (RTX PRO 4500 Blackwell, compute
+capability 12.0, 82 SMs, nothing else on it), driver 595.112.07, NVRTC 13.0.88, cuBLASLt 13.1.0.3 only for the "+ cuBLASLt" column.
+Procedure of section 51 (`bench/s52_providers.sh`, which adds gpt-oss-20b: one process per model and prompt length, `--bench N --ctx
+N+256`, prefill median of 5, decode median of 64 steps), identical weights for every engine. vLLM 0.33.0: the section 51 runs for the
+8B models (same GPU, same day), gpt-oss-20b fresh (`bench/s42_gap.sh`). Raw output in [`bench/results/s52/`](../bench/results/s52).
+All runs after merging `develop` at `79fccbd1`.
+
+### 52.1 Prefill and decode per provider (tok/s; prefill median of 5 / decode median)
+
+"CUDA" is the default: the hand-written GEMMs, no cuBLASLt needed. "CUDA + cuBLASLt" is the same build with
+`--disable-features native_gemm_f16,native_gemm_fp8` and the library installed (section 51's default).
+
+| model | rows | Vulkan | CUDA phase 2 (§51) | **CUDA** | CUDA / Vulkan | CUDA + cuBLASLt | vLLM | CUDA / vLLM |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Qwen3-0.6B Q8_0 | 512 | 61,169 / 554 | 58,889 / 623 | **60,416 / 645** | 0.99 / 1.16 | | | |
+| | 2048 | 77,676 / 530 | 81,565 / 573 | **81,615 / 589** | 1.05 / 1.11 | | | |
+| Llama-3.2-1B Q8_0 | 512 | 42,574 / 444 | 44,544 / 483 | **44,764 / 490** | 1.05 / 1.10 | | | |
+| | 2048 | 46,272 / 451 | 48,692 / 469 | **47,508 / 477** | 1.03 / 1.06 | | | |
+| gemma-3-1b Q8_0 | 512 | 44,280 / 454 | 43,677 / 457 | **44,199 / 468** | 1.00 / 1.03 | | | |
+| | 2048 | 56,994 / 450 | 58,022 / 453 | **57,310 / 464** | 1.01 / 1.03 | | | |
+| Qwen3-8B (bf16) | 512 | 7,317 / 52.3 | 8,194 / 51.2 | **8,581 / 51.6** | 1.17 / 0.99 | 8,096 / 51.6 | 8,086 / 51.7 | 1.06 / 1.00 |
+| | 2048 | 7,720 / 52.1 | 7,907 / 50.8 | **8,682 / 51.1** | 1.12 / 0.98 | 7,890 | 8,807 | 0.99 |
+| | 8192 | 6,830 / 48.7 | 6,940 / 48.0 | **7,528 / 48.2** | 1.10 / 0.99 | 6,940 | 7,678 | 0.98 |
+| Qwen3-8B-FP8 | 512 | 10,844 / 87.2 | 11,178 / 86.8 | **11,348 / 87.7** | 1.05 / 1.01 | 11,155 / 87.7 | 14,546 / 87.3 | 0.78 / 1.00 |
+| | 2048 | 10,983 / 86.4 | 11,458 / 85.3 | **11,808 / 86.2** | 1.08 / 1.00 | 11,437 | 14,948 | 0.79 |
+| | 8192 | 9,288 / 77.3 | 9,563 / 77.5 | **9,791 / 78.1** | 1.05 / 1.01 | 9,556 | 12,316 | 0.79 |
+| Llama-3.1-8B (bf16) | 512 | 7,498 / 53.4 | 8,056 / 52.1 | **8,434 / 52.3** | 1.12 / 0.98 | 8,014 / 52.4 | 8,513 / 52.5 | 0.99 / 1.00 |
+| | 2048 | 7,805 / 53.0 | 7,902 / 51.7 | **8,721 / 52.0** | 1.12 / 0.98 | 7,916 | 8,736 | 1.00 |
+| | 8192 | 6,978 / 49.8 | 7,049 / 49.0 | **7,692 / 49.3** | 1.10 / 0.99 | 7,053 | 7,730 | 1.00 |
+| gpt-oss-20b (MXFP4) | 512 | 10,430 / 178.1 | | **9,276 / 182.9** | 0.89 / 1.03 | | 12,159 / 172.9 | 0.76 / 1.06 |
+| | 2048 | 12,269 / 177.2 | | **12,205 / 181.9** | 0.99 / 1.03 | | 16,554 | 0.74 |
+| | 8192 | 10,056 / 170.9 | | **10,013 / 174.1** | 1.00 / 1.02 | | 15,918 | 0.63 |
+
+* **bf16 at vLLM's level without cuBLASLt** (0.98-1.06x), 6-10 % above CUDA with cuBLASLt: the hand-written f16 GEMM matches the
+  library per shape (52.3), and its dual form fuses the gate / up pair's SiLU·mul, which the library path ran as a separate launch.
+* **FP8 prefill** +2-3 % over phase 2 (the hand-written FP8 GEMM, 52.4), 1.05-1.08x of Vulkan, still 0.78-0.79x of vLLM.
+* **Decode**: the 1B models 3-16 % above Vulkan (CUDA graphs, `DEC_R` = 4 on CUDA, 52.5), the 8B models 1-2 % below Vulkan and at
+  vLLM's level; gpt-oss-20b 2-3 % above Vulkan and 6 % above vLLM.
+* **gpt-oss-20b prefill** (MoE; not part of this phase) is at Vulkan's level from 2048 rows, 11 % behind at 512, and 0.63-0.76x of
+  vLLM: the largest gap left.
+
+### 52.2 What changed
+
+* **Kernels written in CUDA C++** (`SlangCompiler.CompileCuda`, `.cu` files of the kernel library): NVRTC compiles them like the Slang
+  output, so they are PTX / cubins in the cache and in precompiled models; the lowering selects them only through device features
+  (`native_gemm_f16` from compute capability 8.0, `native_gemm_fp8` from 8.9), with the generated kernels as the fallback.
+* **`gemm_f16_native.cu`** serves the library-GEMM path (f16 copies of x, bf16 weights stored as f16) from 256 rows: `cp.async` into
+  a swizzled ring of 64-value K steps in 96 KB of dynamic shared memory, 128 x 256 or 128 x 128 tiles chosen per row count by waves,
+  grouped rasterization; its dual form takes a gate / up pair with the elementwise group as the epilogue.
+* **`gemm_fp8_native.cu`** serves the block-scaled E4M3 GEMM from 256 rows: a three-stage `cp.async` ring of 128-value K blocks (96 KB),
+  128 x 128 tiles, per-fragment block promotion, dual form.
+* **CUDA graphs** (`launch_graphs`) for recordings that run a second time; **`DEC_R` = 4** on PTX (1 on SPIR-V / MSL).
+
+### 52.3 Our f16 GEMM against cuBLASLt, per shape
+
+Qwen3-8B (bf16), GPU time per launch from the CUDA profiles (`SHARPLIGHT_CUDA_PROFILE=1`, `profiles/qwen3-8b-{native,library}-N.txt`;
+8192-row prompts run as four 2048-row chunks), TFLOPS. The library column for gate / up is its two GEMMs; the SiLU·mul launch the
+library path adds is listed separately.
+
+| shape [K → N] | rows | ours | cuBLASLt | ours / cuBLASLt |
+|---|---:|---:|---:|---:|
+| gate / up [4096 → 12288] x2 (dual, SiLU·mul fused) | 512 | 157 | 149 (+ 76 µs SiLU·mul) | 1.05 (1.18 with the launch) |
+| | 2048 | 157 | 145 (+ 378 µs) | 1.08 (1.29) |
+| | 8192 | 153 | 143 (+ 381 µs) | 1.07 (1.27) |
+| down [12288 → 4096] | 512 | 140 | 151 | 0.93 |
+| | 2048 | 131 | 132 | 1.00 |
+| | 8192 | 128 | 129 | 0.99 |
+| q / o [4096 → 4096] | 512 | 141 | 133 | 1.06 |
+| | 2048 | 136 | 136 | 1.00 |
+| | 8192 | 135 | 134 | 1.00 |
+| k / v [4096 → 1024] | 512 | 67 | 111 | 0.60 |
+| | 2048 | 133 | 122 | 1.09 |
+| | 8192 | 130 | 120 | 1.08 |
+
+Sum of the GEMM launches per prefill (ms): 512 rows 50.3 against 52.0 with the library (incl. the SiLU·mul launches), 2048 rows 196.5
+against 218.6, 8192 rows 804.7 against 888.9. cuBLASLt is no longer needed for the 16-bit models on this GPU: our kernel is within
+±1 % of it on the large shapes and ahead where the fusion applies. Where it trails: small grids, K / V at 512 rows (32 blocks for 82
+SMs: no K split yet) and the down projection at 512 rows (7 %). The standalone kernel against the cuBLASLt probe of section 51 on the
+same shapes (`bench/s52_gemm/bench_f16.cu`): 136-161 TFLOPS at 2048 rows against cuBLASLt's 144-165, 145-156 at 8192 rows (the
+grouped rasterization: 117-123 without it).
+
+### 52.4 The FP8 GEMM: what limits it
+
+In the model (Qwen3-8B-FP8, 2048 rows, `profiles/` of this section against section 51): gate / up dual 1.98 → 1.81 ms per layer
+(208 → 227 TFLOPS), down 1.03 → 0.98 ms (201 → 211), q / o 0.354 → 0.323 ms (194 → 213), k / v 0.103 → 0.092 ms (167 → 187); the
+prefill GPU time 172.9 → 167.7 ms. vLLM's 14,948 tok/s at 2048 rows put its GEMMs near 260-280 TFLOPS.
+
+Ablations of the standalone kernel (`bench/s52_gemm`, [4096 → 12288] at 2048 rows, TFLOPS):
+
+| variant | TFLOPS |
+|---|---:|
+| `mma.sync` E4M3 peak (register operands, 4-32 accumulators per warp) | 462-474 |
+| `ldmatrix` + `mma.sync` loop of 64 x 32 warp tiles, no copies | 445 |
+| kernel, compute only (no global loads, no promotion, no stores) | 368 |
+| + block-scale promotion (fresh accumulator per K block, one FMA per output) | 319 |
+| + output stores | 301 |
+| + global loads (the shipped form) | 224 |
+| loads only (no MMAs) | 435 equivalent |
+| 128 x 256 tiles, accumulator kept divided by the block's scale product: without the rescale, without the scale loads | 297 |
+| the same with the per-row scale loads (4 bytes from a separate 128-byte line per row and K block) | 229 |
+| the same with the rescale | 171 |
+
+The copies of the codes overlap with the MMAs only partly at 96 KB of stages (in flight: ~64 KB per SM, which the latency of L2 under
+load does not cover), and the per-row scale loads cost as much as the codes: each K block needs 256-384 scattered 4-byte loads. Tried
+and not kept: TMA (`cp.async.bulk.tensor.2d`, 128-byte swizzle, full / empty mbarriers, one issuing thread; 190-200 TFLOPS: the
+issue cost of `cp.async` was not the limit), mbarrier pipelines in place of `__syncthreads` (223), 16 warps of 32 x 32 (210), two
+blocks per SM with 64-value stages (200), 128 x 256 tiles with per-column or per-row promotion (spills: 120-150). Blackwell's
+block-scaled `mma.sync ... kind::mxf8f6f4.block_scale` needs UE8M0 (power-of-two) scales per 32 values and `sm_120a`, which the f32
+128-value scales of the checkpoints do not fit. The next step is a scale layout the GEMM can stream densely (a K block's scales for
+consecutive rows next to each other: the activation quantization can write it, the weights need a repack at load), which the
+ablation puts at ~300 TFLOPS before promotion.
+
+### 52.5 Decode: CUDA graphs and the attention batch
+
+| model (CUDA, 512-token prompt) | launch graphs off | on | GPU ms per step off / on |
+|---|---:|---:|---:|
+| Qwen3-0.6B Q8_0 | 622 | 645 | 1.51 / 1.46 |
+| Qwen3-8B (bf16) | 51.3 | 51.6 | 19.38 / 19.27 |
+
+The graph removes the gaps between ~300 launches on the GPU timeline (the event-timed GPU time includes them); host time per step
+(wall minus GPU) was already ~0.1 ms with the recordings of phase 1. `DEC_R` = 4 on CUDA (develop's round 11 set 1 for every target)
+gives the rest of the 1B decode gain (Qwen3-0.6B 1.68 ms per step on CUDA in section 51 with `DEC_R` = 1). Batched decode on CUDA
+with `DEC_R` = 4 is in the serving runs of 52.7.
+
+The 8B decode stays 1-2 % behind Vulkan (bf16 19.27 against 18.97 ms per step; the matvecs' weight streaming, section 51: 848 against
+875 GB/s), not addressed in this phase.
+
+### 52.7 Serving on CUDA (procedure of section 43, median of 2 rounds, same session)
+
+`bench/s16_serve.sh` with 64 slots of 512-token contexts, ~250-token prompts, 128 output tokens, 1 / 4 / 16 / 64 concurrent streams;
+Sharplight with `--provider cuda` / `--provider vulkan` (the adaptive step budget of section 50), vLLM 0.33.0 fresh in the same
+session (`bench/results/s52/serve-*`). Aggregate output tok/s / TTFT p50 ms / mean inter-token latency ms:
+
+| model | streams | CUDA | Vulkan | vLLM | CUDA / vLLM tok/s |
+|---|---:|---|---|---|---:|
+| gpt-oss-20b HF | 1 | 177 / 32 / 5.4 | 177 / 32 / 5.4 | 168 / 32 / 5.7 | 1.05 |
+| | 4 | 470 / 75 / 8.1 | 472 / 75 / 8.1 | 500 / 78 / 7.5 | 0.94 |
+| | 16 | 1275 / 138 / 11.5 | 1270 / 131 / 11.6 | 1417 / 178 / 9.9 | 0.90 |
+| | 64 | 2256 / 317 / 24.6 | 2249 / 318 / 24.7 | 3163 / 420 / 16.9 | 0.71 |
+| Qwen3-8B-FP8 HF | 1 | 86 / 35 / 11.4 | 86 / 35 / 11.4 | 86 / 43 / 11.4 | 1.00 |
+| | 4 | 299 / 88 / 12.9 | 300 / 88 / 12.9 | 325 / 75 / 11.8 | 0.92 |
+| | 16 | 938 / 159 / 15.8 | 938 / 154 / 15.9 | 1112 / 167 / 12.9 | 0.84 |
+| | 64 | 2090 / 390 / 26.2 | 2094 / 390 / 26.2 | 2697 / 398 / 20.2 | 0.77 |
+
+* CUDA serves at Vulkan's level at every concurrency (within 0.5 %): the serving steps are decode-dominated (64 rows plus prompt
+  chunks), where neither the hand-written GEMMs (from 256 rows) nor the graphs (a new recording per step size) apply; with `DEC_R` = 4
+  CUDA's batched steps keep the inter-token latency of Vulkan's `DEC_R` = 1 (11.5 / 24.6 against 11.6 / 24.7 ms for gpt-oss).
+* Against vLLM: single streams at or above vLLM (lower TTFT for Qwen3-8B-FP8), 0.90-0.94x at 4-16 streams, 0.71-0.77x at 64 (vLLM's
+  inter-token latency at 64 streams is 30 % lower). The serving gap is the batched decode step (the multi-row GEMMs and attention of
+  64 sequences), not prefill.

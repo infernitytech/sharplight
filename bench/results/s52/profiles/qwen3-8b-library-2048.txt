@@ -1,0 +1,21 @@
+--- prefill T=2048 profile, segment 0
+GPU time 254.39 ms
+   102.191 ms  40.2%     72x  min   1319.2 us  matmul [4096→12288] f16 library gemm T=2048,R=1
+    56.184 ms  22.1%     36x  min   1487.9 us  matmul [12288→4096] f16 library gemm T=2048,R=1
+    36.319 ms  14.3%     72x  min    476.2 us  matmul [4096→4096] f16 library gemm T=2048,R=1
+    13.707 ms   5.4%     36x  min    378.0 us  fused[Silu,Mul] main T=2048,R=1
+    12.929 ms   5.1%     36x  min    343.8 us  attention fe T=2048,R=1
+    10.166 ms   4.0%     72x  min    132.9 us  matmul [4096→1024] f16 library gemm T=2048,R=1
+     8.058 ms   3.2%     72x  min     85.4 us  fused[Add]+RmsNorm main T=2048,R=1
+     7.104 ms   2.8%     36x  min    194.1 us  matmul [12288→4096] f16 x→ranged f16 to_f16_ranged T=2048,R=1
+     3.192 ms   1.3%     36x  min     85.8 us  rope+norm rope_row T=2048,R=1
+     1.551 ms   0.6%      1x  min   1550.8 us  matmul [4096→151936] f16 matvec_sk T=2048,R=1
+     0.888 ms   0.3%     36x  min     22.3 us  rope+norm+cache_write rope_row T=2048,R=1
+     0.778 ms   0.3%     36x  min     19.9 us  matmul [4096→4096] f16 x→ranged f16 to_f16_ranged T=2048,R=1
+     0.713 ms   0.3%     36x  min     18.0 us  cache_write cache_write T=2048,R=1
+     0.250 ms   0.1%     36x  min      5.2 us  matmul [12288→4096] f16 f16 range f16_range_unscale T=2048,R=1
+     0.246 ms   0.1%     36x  min      5.0 us  matmul [4096→4096] f16 f16 range f16_range_unscale T=2048,R=1
+     0.098 ms   0.0%      2x  min      5.2 us  gather gather T=2048,R=1
+     0.017 ms   0.0%      1x  min     16.9 us  RmsNorm main T=2048,R=1
+     0.004 ms   0.0%      1x  min      4.1 us  sample sample T=2048,R=1
+
