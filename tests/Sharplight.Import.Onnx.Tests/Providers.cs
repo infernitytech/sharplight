@@ -1,34 +1,18 @@
 using Sharplight.Cpu;
 using Sharplight.Runtime;
-using Sharplight.Vulkan;
+using Sharplight.Tests;
 using Xunit;
 
 namespace Sharplight.Import.Onnx.Tests;
 
-/// <summary>Providers shared by the end-to-end tests (opened once, lazily).</summary>
+/// <summary>
+/// Devices shared by the end-to-end tests (opened once, lazily): the CPU and the GPU under test (<see cref="TestGpu"/>:
+/// <c>SHARPLIGHT_TEST_PROVIDER=vulkan|cuda|metal</c>, default Vulkan). Tests name them "cpu" and "gpu".
+/// </summary>
 internal static class Providers
 {
     private static readonly Lazy<IComputeDevice> s_cpu = new(OpenCpuDevice);
-    private static readonly Lazy<(IComputeDevice? Device, string Reason)> s_vk = new(() =>
-    {
-        try
-        {
-            var p = new VulkanProvider();
-            var a = p.CheckAvailability();
-            if (!a.IsAvailable)
-            {
-                return (null, a.Reason);
-            }
-
-            var d = p.GetDevices();
-            int idx = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE"), out var di) ? di : 0;
-            return d.Count <= idx ? (null, "no Vulkan device " + idx) : (p.OpenDevice(d[idx]), "");
-        }
-        catch (Exception e)
-        {
-            return (null, e.Message);
-        }
-    });
+    private static readonly Lazy<(IComputeDevice? Device, string Reason)> s_gpu = new(TestGpu.Open);
 
     public static IComputeDevice Cpu => s_cpu.Value;
 
@@ -38,16 +22,18 @@ internal static class Providers
         return provider.OpenDevice(provider.GetDevices()[0]);
     }
 
-    public static IComputeDevice VulkanOrSkip()
+    /// <summary>The GPU under test; skips the test when it is not available.</summary>
+    public static IComputeDevice GpuOrSkip()
     {
-        var (d, reason) = s_vk.Value;
+        var (d, reason) = s_gpu.Value;
         if (d is null)
         {
-            Assert.Skip("Vulkan unavailable: " + reason);
+            Assert.Skip($"{TestGpu.ProviderName} unavailable: {reason}");
         }
 
         return d;
     }
 
-    public static IComputeDevice Get(string provider) => provider == "cpu" ? Cpu : VulkanOrSkip();
+    /// <summary>The device a test names: "cpu" or "gpu" (the GPU under test).</summary>
+    public static IComputeDevice Get(string provider) => provider == "cpu" ? Cpu : GpuOrSkip();
 }

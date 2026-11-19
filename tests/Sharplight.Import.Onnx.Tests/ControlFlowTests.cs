@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Sharplight.Import.Onnx.Tests;
 
-/// <summary>Runtime Loop and Scan (the IR Loop node run by a host segment), executed on the CPU and on Vulkan.</summary>
+/// <summary>Runtime Loop and Scan (the IR Loop node run by a host segment), executed on the CPU and on the GPU under test.</summary>
 public class ControlFlowTests
 {
     private const int Float = 1;
@@ -15,7 +15,7 @@ public class ControlFlowTests
 
     [Theory]
     [InlineData("cpu")]
-    [InlineData("vulkan")]
+    [InlineData("gpu")]
     public void Loop_WithRuntimeTripCount_StacksScanOutputs(string provider)
     {
         // Range written as a Loop: out[k] = start + k·delta for k < trip; final = start + trip·delta.
@@ -42,7 +42,7 @@ public class ControlFlowTests
 
     [Theory]
     [InlineData("cpu")]
-    [InlineData("vulkan")]
+    [InlineData("gpu")]
     public void Loop_WithRuntimeCondition_RunsUntilTheBodyStops(string provider)
     {
         // while (cur < limit) cur += step; the scan output records every value, including the one that ends the loop.
@@ -69,7 +69,7 @@ public class ControlFlowTests
 
     [Theory]
     [InlineData("cpu")]
-    [InlineData("vulkan")]
+    [InlineData("gpu")]
     public void Scan_OverTheSymbolicBatchAxis_InReverse(string provider)
     {
         // Reverse cumulative sum of the rows of x[N, 3].
@@ -104,7 +104,7 @@ public class ControlFlowTests
 
     [Theory]
     [InlineData("cpu")]
-    [InlineData("vulkan")]
+    [InlineData("gpu")]
     public void Loop_BodyWithRuntimeIf_ReadsValuesOfBothEnclosingGraphs(string provider)
     {
         using var run = new Runner(IfInLoopModel().Build().Graph(OnnxGraphAdapter.MainGraph), provider);
@@ -114,7 +114,7 @@ public class ControlFlowTests
 
     [Theory]
     [InlineData("cpu")]
-    [InlineData("vulkan")]
+    [InlineData("gpu")]
     public void Package_StoresRuntimeControlFlowAndDynamicSymbols(string provider)
     {
         // The model has a runtime Loop whose body holds a runtime If, and a scan output with a data-dependent length.
@@ -175,7 +175,7 @@ public class ControlFlowTests
 
     [Theory]
     [InlineData("cpu")]
-    [InlineData("vulkan")]
+    [InlineData("gpu")]
     public void Loop_AppendingToASequence_GivesARuntimeLengthSequence(string provider)
     {
         // seq = []; for i < trip: seq.append(x * i); outputs: the sequence (stacked) and ConcatFromSequence(seq, axis 0).

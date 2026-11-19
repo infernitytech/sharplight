@@ -5,7 +5,7 @@ namespace Sharplight.Import.Onnx.Tests;
 
 /// <summary>
 /// Attention written out with elementary ops (MatMul → scale → [mask Add] → Softmax → MatMul) becomes one fused Attention op, and
-/// computes what the elementary form computes, on the CPU and (when present) Vulkan.
+/// computes what the elementary form computes, on the CPU and (when present) the GPU under test.
 /// </summary>
 public sealed class AttentionPatternTests
 {
@@ -118,10 +118,10 @@ public sealed class AttentionPatternTests
     [InlineData("cpu", 1)]
     [InlineData("cpu", 2)]
     [InlineData("cpu", 3)]
-    [InlineData("vulkan", 0)]
-    [InlineData("vulkan", 1)]
-    [InlineData("vulkan", 2)]
-    [InlineData("vulkan", 3)]
+    [InlineData("gpu", 0)]
+    [InlineData("gpu", 1)]
+    [InlineData("gpu", 2)]
+    [InlineData("gpu", 3)]
     public void FusedMatchesElementary(string provider, int form)
     {
         var device = Providers.Get(provider);

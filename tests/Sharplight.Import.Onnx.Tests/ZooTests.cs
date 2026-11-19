@@ -7,7 +7,7 @@ namespace Sharplight.Import.Onnx.Tests;
 /// Architecturally diverse real ONNX models (detection, super-resolution, SAM, diffusion VAE/UNet, whisper decoder, CLIP/SigLIP,
 /// ConvNeXt, Swin, wav2vec2, GPT-2, GANs, RAFT, OCR, quantized ...) compared against onnxruntime.
 /// References come from <c>scripts/make_zoo_refs.py</c> (models in ~/models/onnx/&lt;name&gt;/, refs in ~/models/onnx/ref/zoo); a case
-/// is skipped when its manifest or model file is absent. Environment: SHARPLIGHT_TEST_VK_DEVICE selects the Vulkan device,
+/// is skipped when its manifest or model file is absent. Environment: SHARPLIGHT_TEST_PROVIDER and SHARPLIGHT_TEST_DEVICE select the GPU (tests/Shared/TestGpu.cs),
 /// SHARPLIGHT_ZOO=a,b limits the run to the named models, SHARPLIGHT_ZOO_DUMP=dir writes every output as raw f32,
 /// SHARPLIGHT_ZOO_REPORT=file appends one TSV line per run (name, provider, maxAbs, scale, compile ms, run ms).
 /// </summary>
@@ -79,5 +79,5 @@ public class ZooTests(ITestOutputHelper output)
     }
 
     [Theory, MemberData(nameof(Names))] public void Zoo_Cpu(string name) => RunZoo(name, "cpu");
-    [Theory, MemberData(nameof(Names))] public void Zoo_Vulkan(string name) => RunZoo(name, "vulkan");
+    [Theory, MemberData(nameof(Names))] public void Zoo_Gpu(string name) => RunZoo(name, "gpu");
 }

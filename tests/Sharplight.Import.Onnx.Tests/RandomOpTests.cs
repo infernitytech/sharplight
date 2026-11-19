@@ -83,9 +83,9 @@ public class RandomOpTests
     }
 
     [Fact]
-    public void SeededGraph_GivesTheSameValuesOnVulkanAndCpu()
+    public void SeededGraph_GivesTheSameValuesOnGpuAndCpu()
     {
-        var device = Providers.VulkanOrSkip();
+        var device = Providers.GpuOrSkip();
         var model = new TestModel().Input("x", 1, Count).Output("y", 1, Count)
             .Node("RandomUniformLike", ["x"], ["u"], TestModel.AttrF("seed", 9f))
             .Node("Mul", ["u", "x"], ["y"]);
