@@ -3,46 +3,60 @@ using Sharplight.Hub.Catalog;
 namespace Sharplight.Studio.Services.Library;
 
 /// <summary>
-/// The licence notices of the verified catalog: models whose entry has the license <c>other</c> or a non-commercial licence (OmniVoice, XTTS, CC-BY-NC models such as
-/// Depth Anything 3 large, the FLUX non-commercial models) show the entry's notes prominently on their Discover page and while they are in use. There is no acceptance step.
+/// The licence notices of the verified catalog: models whose entry has a non-permissive licence (a custom agreement, non-commercial use, use restrictions: OmniVoice, XTTS,
+/// the CC-BY-NC models, Gemma, Llama, FLUX) show the entry's <c>licenseNotice</c>, or a generic line when it has none, as a callout once per model (until the user
+/// dismisses it) on its Discover page and on the page of its kind. There is no acceptance step.
 /// </summary>
 internal static class LicenseNotices
 {
-    /// <summary>Whether a licence needs a notice: <c>other</c> (a custom agreement) or a non-commercial one.</summary>
+    /// <summary>The line for a non-permissive licence whose entry has no <c>licenseNotice</c>.</summary>
+    public const string GenericLine = "This model has its own licence terms: read them on its page before you use it, especially for commercial use.";
+
+    /// <summary>Whether a licence needs a notice: any recorded licence that is not a known permissive one.</summary>
     /// <param name="license">The catalog entry's licence id, or null.</param>
-    public static bool Requires(string? license)
-    {
-        if (string.IsNullOrWhiteSpace(license))
-        {
-            return false;
-        }
+    public static bool Requires(string? license) => CatalogLicenses.NeedsNotice(license);
 
-        return license.Equals("other", StringComparison.OrdinalIgnoreCase) || license.Contains("non-commercial", StringComparison.OrdinalIgnoreCase)
-            || license.Contains("noncommercial", StringComparison.OrdinalIgnoreCase) || license.Contains("-nc", StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>The notice of an entry: its licence and its notes, or <see langword="null"/> when the licence needs none.</summary>
+    /// <summary>The notice of an entry: its <c>licenseNotice</c>, else a generic line naming the licence when that is not permissive, else <see langword="null"/>.</summary>
     /// <param name="entry">The catalog entry.</param>
     public static string? For(CatalogEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        if (!Requires(entry.License))
+        if (!string.IsNullOrWhiteSpace(entry.LicenseNotice))
         {
-            return null;
+            return entry.LicenseNotice.Trim();
         }
 
-        string notes = string.IsNullOrWhiteSpace(entry.Notes) ? "This model has its own licence terms: read them on its page before you use it, especially for commercial use." : entry.Notes.Trim();
-        return $"Licence: {entry.License}. {notes}";
+        return Requires(entry.License) ? $"Licence: {entry.License}. {GenericLine}" : null;
+    }
+
+    /// <summary>Whether the user dismissed the notice of the catalog entry <paramref name="entryId"/>.</summary>
+    /// <param name="services">The services.</param>
+    /// <param name="entryId">The catalog entry's id.</param>
+    public static bool IsDismissed(StudioServices services, string entryId)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.Settings.Current.DismissedLicenseNotices.Contains(entryId, StringComparer.Ordinal);
+    }
+
+    /// <summary>Remembers in the settings that the notice of <paramref name="entryId"/> was dismissed.</summary>
+    /// <param name="services">The services.</param>
+    /// <param name="entryId">The catalog entry's id.</param>
+    public static void Dismiss(StudioServices services, string entryId)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.Settings.Update(settings => settings.DismissedLicenseNotices.Contains(entryId, StringComparer.Ordinal)
+            ? settings
+            : settings with { DismissedLicenseNotices = [.. settings.DismissedLicenseNotices, entryId] });
     }
 
     /// <summary>
-    /// The notice of the catalog entry a model on disk was installed from (the manifest's catalog key, or the repository of one of its variants), or
-    /// <see langword="null"/> when there is none or the model did not come from the catalog.
+    /// The notice (and the key of its dismissal) of the catalog entry a model on disk was installed from (the manifest's catalog key, or the repository of one of its variants), or
+    /// <see langword="null"/> when there is none or the model did not come from the catalog. Its <see cref="LicenseNotice.EntryId"/> is the key of the dismissal.
     /// </summary>
     /// <param name="services">The services.</param>
     /// <param name="modelPath">The model's file or folder.</param>
     /// <param name="cancellationToken">Cancels the lookup.</param>
-    public static async Task<string?> ForModelAsync(StudioServices services, string modelPath, CancellationToken cancellationToken = default)
+    public static async Task<LicenseNotice?> FindAsync(StudioServices services, string modelPath, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(services);
         try
@@ -62,7 +76,7 @@ internal static class LicenseNotices
             }
 
             match ??= catalog.Entries.FirstOrDefault(entry => entry.Variants.Any(variant => string.Equals(variant.Repository, manifest.Repository, StringComparison.OrdinalIgnoreCase)));
-            return match is null ? null : For(match);
+            return match is not null && For(match) is { } text ? new LicenseNotice(match.Id, text) : null;
         }
         catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
         {

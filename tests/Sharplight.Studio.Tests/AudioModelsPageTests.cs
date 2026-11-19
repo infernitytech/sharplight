@@ -475,18 +475,25 @@ public sealed class AudioModelsPageTests
     [InlineData("apache-2.0", false)]
     [InlineData("mit", false)]
     [InlineData("cc-by-4.0", false)]
-    [InlineData("openrail++", false)]
+    [InlineData("openrail++", true)]
+    [InlineData("gemma", true)]
+    [InlineData("llama3.3", true)]
+    [InlineData("cdla-permissive-2.0", false)]
     [InlineData(null, false)]
-    public void LicenseNotices_AreRequiredForOtherAndNonCommercialLicences(string? license, bool required) => Assert.Equal(required, LicenseNotices.Requires(license));
+    public void LicenseNotices_AreRequiredForEveryNonPermissiveLicence(string? license, bool required) => Assert.Equal(required, LicenseNotices.Requires(license));
 
     [Fact]
-    public void LicenseNotices_CarryTheEntrysNotes_OrAGenericLine()
+    public void LicenseNotices_ShowOnlyTheLicenseNotice_NotTheGeneralNotes_OrAGenericLine()
     {
-        static Sharplight.Hub.Catalog.CatalogEntry Entry(string? license, string? notes) => new() { Id = "m", Name = "M", Kind = ModelKinds.SpeechSynthesis, License = license, Notes = notes };
+        static Sharplight.Hub.Catalog.CatalogEntry Entry(string? license, string? notes, string? notice = null) =>
+            new() { Id = "m", Name = "M", Kind = ModelKinds.SpeechSynthesis, License = license, Notes = notes, LicenseNotice = notice };
 
-        Assert.Equal("Licence: other. LICENSE TERMS: weights are CC-BY-NC.", LicenseNotices.For(Entry("other", "LICENSE TERMS: weights are CC-BY-NC.")));
-        Assert.Contains("own licence terms", LicenseNotices.For(Entry("other", null)), StringComparison.Ordinal);
+        Assert.Equal("Weights are CC-BY-NC.", LicenseNotices.For(Entry("other", "hybrid Mamba-2 / attention", "Weights are CC-BY-NC.")));
+        var generic = LicenseNotices.For(Entry("other", "hybrid Mamba-2 / attention"));
+        Assert.Equal($"Licence: other. {LicenseNotices.GenericLine}", generic);
+        Assert.DoesNotContain("Mamba", generic, StringComparison.Ordinal);
         Assert.Null(LicenseNotices.For(Entry("mit", "fast")));
+        Assert.Null(LicenseNotices.For(Entry(null, "fast")));
     }
 
     [Fact]
@@ -506,12 +513,19 @@ public sealed class AudioModelsPageTests
         services.Hub.Catalog = new Sharplight.Hub.Catalog.VerifiedCatalog
         {
             Updated = "2026-11-19",
-            Entries = [new Sharplight.Hub.Catalog.CatalogEntry { Id = "omnivoice", Name = "OmniVoice", Kind = ModelKinds.SpeechSynthesis, License = "other", Notes = "weights are CC-BY-NC (non-commercial)" }],
+            Entries = [new Sharplight.Hub.Catalog.CatalogEntry { Id = "omnivoice", Name = "OmniVoice", Kind = ModelKinds.SpeechSynthesis, License = "other", Notes = "unrelated remark", LicenseNotice = "weights are CC-BY-NC (non-commercial)" }],
         };
         var page = new SpeakPageViewModel(services.Services, new FakeNavigator());
         await page.ActivateAsync();
         await WaitFor(() => page.HasLicenseNotice);
 
-        Assert.Equal("Licence: other. weights are CC-BY-NC (non-commercial)", page.LicenseNotice);
+        Assert.Equal("weights are CC-BY-NC (non-commercial)", page.LicenseNotice);
+
+        // Dismissed once: it is remembered in the settings and does not come back when the model is chosen again.
+        page.License.DismissCommand.Execute(null);
+        Assert.False(page.HasLicenseNotice);
+        Assert.Equal(["omnivoice"], services.Settings.Current.DismissedLicenseNotices);
+        await page.License.RefreshAsync(model);
+        Assert.False(page.HasLicenseNotice);
     }
 }
