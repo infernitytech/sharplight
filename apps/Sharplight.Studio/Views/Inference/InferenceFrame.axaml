@@ -32,11 +32,15 @@
           <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" />
         </StackPanel>
       </Border>
-      <Border DockPanel.Dock="Top" Classes="warn" Margin="20,12,20,0" IsVisible="{Binding HasLicenseNotice}">
-        <StackPanel Spacing="4">
-          <TextBlock FontWeight="SemiBold" Text="Licence notice: read the terms before you use this model" />
-          <TextBlock Text="{Binding LicenseNotice}" TextWrapping="Wrap" />
-        </StackPanel>
+      <Border DockPanel.Dock="Top" Classes="warn" Margin="20,12,20,0" IsVisible="{Binding License.IsVisible}">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="small" Content="Dismiss" VerticalAlignment="Top" Margin="12,0,0,0"
+                  Command="{Binding License.DismissCommand}" ToolTip.Tip="Do not show this notice for this model again" />
+          <StackPanel Spacing="4">
+            <TextBlock FontWeight="SemiBold" Text="Licence notice: read the terms before you use this model" />
+            <TextBlock Text="{Binding License.Text}" TextWrapping="Wrap" />
+          </StackPanel>
+        </DockPanel>
       </Border>
       <iv:RunQueueView DockPanel.Dock="Bottom" DataContext="{Binding Queue}" Margin="20,0,20,16" />
       <ContentPresenter x:Name="WorkspacePresenter" Margin="20,16,20,16" />

@@ -52,11 +52,22 @@ JSON, schema version 1. The JSON schema is `catalog/verified-models.schema.json`
       ],
       "verification": { "reference": "diffusers", "summary": "...", "providers": ["CPU", "Vulkan"], "date": "2026-11-15", "tests": [] },
       "notes": "...",
+      "licenseNotice": "...",         // optional: what the user must know about a non-permissive licence (see below)
       "doc": [{ "section": "4", "cells": { "repositories": "..." } }]   // rows in compatible-models.md; cells override derived text
     }
   ]
 }
 ```
+
+### Licence notices
+
+`licenseNotice` is an optional one-to-two-sentence note (at most 600 characters) on the licence: non-commercial use, a custom agreement, a
+revenue or user limit, use restrictions, gated terms. `notes` stays for technical limitations and is never shown as a licence notice.
+Every entry whose `license` is recorded and not a known permissive id (`apache-2.0`, `mit`, `bsd-*`, `cc-by-4.0`, `cdla-permissive-2.0`...,
+see `CatalogLicenses`) must have one; `validate` reports the others. Read the model's licence on its Hub page when you write it. Studio
+shows the notice once per model (a dismissible callout remembered in the settings, on the page of the model's kind and in Chat) and on the
+Discover page of the entry; for a non-permissive licence without a notice (a catalog from another source) it shows a generic line.
+Readers that do not know the field ignore it (the schema does not forbid extra members), so the schema version stays 1.
 
 Formats: `gguf`, `safetensors`, `pytorch` (`.bin` / `.pth`), `diffusers`, `single-file`, `whisper-cpp`, `onnx`, `slm`. Companion roles
 are the auxiliary roles of `Sharplight.Vision.AuxiliaryRoles` (`mmproj`, `vocoder`, `text-encoder`, `text-encoder-2`, `text-encoder-3`,
