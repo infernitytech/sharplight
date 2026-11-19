@@ -269,7 +269,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     public bool CanCopyStateRows => true;
 
     /// <inheritdoc />
-    public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to)
+    public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to, int count)
     {
         foreach (var name in states)
         {
@@ -279,12 +279,12 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
             }
 
             long row = st.Bytes / st.Rows;
-            if ((ulong)from >= (ulong)st.Rows || (ulong)to >= (ulong)st.Rows)
+            if (from < 0 || to < 0 || (long)from + count > st.Rows || (long)to + count > st.Rows)
             {
                 throw new ArgumentOutOfRangeException(nameof(to), $"State '{name}' has {st.Rows} rows.");
             }
 
-            System.Runtime.InteropServices.NativeMemory.Copy(st.State.Ptr + from * row, st.State.Ptr + to * row, (nuint)row);
+            System.Runtime.InteropServices.NativeMemory.Copy(st.State.Ptr + from * row, st.State.Ptr + to * row, (nuint)(row * count));
         }
     }
 

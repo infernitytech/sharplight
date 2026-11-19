@@ -10,12 +10,17 @@ namespace Sharplight.Llm;
 /// <item><c>SHARPLIGHT_RECURRENT_STATE=f32|bf16|f16</c>: element type of 16-bit-capable recurrent states, overriding
 /// <see cref="LlmLoadOptions.RecurrentStateType"/> and the bf16 default of <see cref="Tasks.TaskLoadOptions.AllowReducedPrecision"/>
 /// (e.g. f32 isolates the other reduced-precision paths, bf16 without reduced precision isolates the state).</item>
+/// <item><c>SHARPLIGHT_SCHED_TRACE=1</c>: the serving scheduler writes one line per step to stderr (duration, rows, decode rows, prompt
+/// chunks with the reason they end, prefix-cache attaches and state snapshots).</item>
 /// </list>
 /// </summary>
 internal static class DiagnosticSwitches
 {
     /// <summary>False when device sampling is disabled for the process.</summary>
     public static bool DeviceSampling { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_DEVICE_SAMPLING") != "0";
+
+    /// <summary>True when the serving scheduler traces its steps.</summary>
+    public static bool SchedulerTrace { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_SCHED_TRACE") == "1";
 
     /// <summary>The recurrent state type forced for the process, or null.</summary>
     public static DataType? RecurrentState { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_RECURRENT_STATE")?.ToLowerInvariant() switch

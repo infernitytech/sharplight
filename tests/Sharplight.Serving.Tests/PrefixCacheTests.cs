@@ -17,6 +17,12 @@ public sealed class PrefixCacheTests
 
     private static readonly string System = new('s', 64);
 
+    /// <summary>A device where a pass is cheap next to the rows it computes (a large model): waiting and snapshots pay.</summary>
+    private static StepCostModel CostlyRows() => new(fixedMs: 1, perRowMs: 1, copyMs: 0, frozen: true);
+
+    /// <summary>A device where rows are nearly free next to a pass (a small model): recomputing pays.</summary>
+    private static StepCostModel CheapRows() => new(fixedMs: 100, perRowMs: 0.001, copyMs: 0.01, frozen: true);
+
     [Fact]
     public async Task CachedBlocks_OutliveTheSlotThatComputedThem()
     {
@@ -101,7 +107,7 @@ public sealed class PrefixCacheTests
         // prefix; the others attach its blocks as they are published.
         var d = new FakeBatchDecoder(8, kvBlockSize: 4, kvBlocks: 256, maxBatchTokens: 64);
         d.Script("0123");
-        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { PrefillChunk = 16 });
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { PrefillChunk = 16, StepCost = CostlyRows() });
         string prefix = new('s', 128);
         var hs = Enumerable.Range(0, 8).Select(i => e.Submit(Req(prefix + (char)('a' + i)))).ToList();
         var rs = await Task.WhenAll(hs.Select(h => h.CompleteAsync()));
@@ -109,6 +115,59 @@ public sealed class PrefixCacheTests
         Assert.Equal(7, rs.Count(r => r.Usage.CachedTokens >= 128));
         int promptRows = d.Steps.Sum(s => s.Where(x => x.Rows > 1 || !x.Logits).Sum(x => x.Rows));
         Assert.True(promptRows < 2 * 130, $"prompt rows {promptRows}: the prefix was computed more than once");
+    }
+
+    [Fact]
+    public async Task ConcurrentPrompts_RecomputeASharedPrefix_WhenThatCostsLessThanWaitingAPass()
+    {
+        // The same eight prompts where a pass costs far more than the rows: every prompt computes the prefix in the first step and
+        // gets its first token there, instead of waiting a pass for the first prompt's blocks.
+        var d = new FakeBatchDecoder(8, kvBlockSize: 4, kvBlocks: 512, maxBatchTokens: 2048);
+        d.Script("0123");
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { StepCost = CheapRows() });
+        string prefix = new('s', 128);
+        var hs = Enumerable.Range(0, 8).Select(i => e.Submit(Req(prefix + (char)('a' + i)))).ToList();
+        var rs = await Task.WhenAll(hs.Select(h => h.CompleteAsync()));
+        Assert.All(rs, r => Assert.Equal("0123", r.Text));
+        var prompts = d.Steps.SelectMany((s, i) => s.Where(x => x.Rows > 1).Select(x => i)).ToList();
+        Assert.True(prompts.Distinct().Count() <= 2, $"prompt chunks ran in steps {string.Join(",", prompts)}");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SamplesOfOnePrompt_ForkItsContext_CopyOnWrite(bool canTruncate)
+    {
+        // n = 4 samples of one prompt (as the chat API submits them): the prompt is computed once; the other three fork the context at
+        // the first token, sharing its blocks, and the partly filled last block is copied when the sequences write into it.
+        var d = new FakeBatchDecoder(4, canTruncate: canTruncate, kvBlockSize: 4, kvBlocks: 128, stateSnapshots: canTruncate ? 0 : 4);
+        d.Script("0123456789");
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { StepCost = CostlyRows() });
+        string prompt = new('p', 41);
+        var hs = Enumerable.Range(0, 4).Select(_ => e.Submit(Req(prompt, max: 10))).ToList();
+        var rs = await Task.WhenAll(hs.Select(h => h.CompleteAsync()));
+        Assert.All(rs, r => Assert.Equal("0123456789", r.Text));
+        Assert.Equal(3, d.Forks);
+        Assert.Equal(3, e.GetMetrics().ForkedSequences);
+        Assert.Equal(3, rs.Count(r => r.Usage.CachedTokens == r.Usage.PromptTokens));
+        int promptRows = d.Steps.Sum(s => s.Where(x => x.Rows > 1).Sum(x => x.Rows));
+        Assert.Equal(42, promptRows);
+        Assert.True(d.KvRowCopies > 0, "the shared partial block was never copied");
+    }
+
+    [Fact]
+    public async Task Followers_ComputeTheirPrompt_WhenTheLeaderIsCancelled()
+    {
+        var d = new FakeBatchDecoder(2, kvBlockSize: 4, kvBlocks: 128, maxBatchTokens: 8) { StepDelay = TimeSpan.FromMilliseconds(2) };
+        d.Script("0123");
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { StepCost = CostlyRows() });
+        string prompt = new('p', 80);
+        var leader = e.Submit(Req(prompt));
+        var follower = e.Submit(Req(prompt));
+        await Task.Delay(20);
+        leader.Cancel();
+        var r = await follower.CompleteAsync();
+        Assert.Equal("0123", r.Text);
     }
 
     [Fact]
@@ -157,7 +216,7 @@ public sealed class PrefixCacheTests
         // the shared prefix and snapshots its end; the third restores it and computes only its own suffix.
         var d = new FakeBatchDecoder(1, canTruncate: false, kvBlockSize: 4, kvBlocks: 128, stateSnapshots: 4);
         d.Script("0123");
-        using var e = new InferenceEngine(d, new FakeTokenizer());
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { StepCost = CostlyRows() });
         var first = await e.Submit(Req(System + "first prompt")).CompleteAsync();
         var second = await e.Submit(Req(System + "second one")).CompleteAsync();
         var third = await e.Submit(Req(System + "third")).CompleteAsync();
@@ -175,7 +234,7 @@ public sealed class PrefixCacheTests
         // snapshot taken at the end of turn one's prompt.
         var d = new FakeBatchDecoder(1, canTruncate: false, kvBlockSize: 4, kvBlocks: 128, stateSnapshots: 4);
         d.Script("0123");
-        using var e = new InferenceEngine(d, new FakeTokenizer());
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { StepCost = CostlyRows() });
         string turn1 = new('u', 47);
         var r1 = await e.Submit(Req(turn1)).CompleteAsync();
         await e.Submit(Req(new string('z', 30))).CompleteAsync();
@@ -185,12 +244,29 @@ public sealed class PrefixCacheTests
     }
 
     [Fact]
-    public async Task RecurrentModel_PeriodicSnapshots_ServeTheSecondPromptAlready()
+    public async Task RecurrentModel_SkipsSnapshotsThatCostAPass_WhenRecomputingIsCheaper()
     {
-        // Snapshots every 16 tokens of a prompt: the second prompt, sharing 22 tokens with the first, restores the one at 16.
+        // Where a pass costs more than recomputing the prompt, turn one runs in one pass (no cut at its end for a snapshot), and so
+        // does a prompt sharing a short prefix with an idle context.
+        var d = new FakeBatchDecoder(1, canTruncate: false, kvBlockSize: 4, kvBlocks: 128, stateSnapshots: 4);
+        d.Script("0123");
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { StepCost = CheapRows() });
+        string turn1 = new('u', 47);
+        await e.Submit(Req(turn1)).CompleteAsync();
+        await e.Submit(Req(new string('u', 20) + "other")).CompleteAsync();
+        var promptChunks = d.Steps.Count(s => s.Any(x => x.Rows > 1));
+        Assert.Equal(2, promptChunks);
+        Assert.Equal(0, e.GetMetrics().StateSnapshots);
+    }
+
+    [Fact]
+    public async Task RecurrentModel_ChunkEndSnapshots_ServeTheSecondPromptAlready()
+    {
+        // Prefill in chunks of 16 rows keeps the state at every chunk end (no extra pass): the second prompt, sharing 22 tokens with
+        // the first, restores the one at 16.
         var d = new FakeBatchDecoder(1, canTruncate: false, kvBlockSize: 4, kvBlocks: 128, stateSnapshots: 8);
         d.Script("0123");
-        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { StateSnapshotInterval = 16 });
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { PrefillChunk = 16, StepCost = CostlyRows() });
         string shared = new('s', 22);
         await e.Submit(Req(shared + new string('a', 40))).CompleteAsync();
         var second = await e.Submit(Req(shared + new string('b', 40))).CompleteAsync();

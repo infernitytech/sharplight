@@ -285,6 +285,20 @@ public sealed class CompiledModel : IDisposable
         }
     }
 
+    /// <summary>
+    /// Prepares every segment's work for a run with these symbol bindings and skipped outputs without running it (see
+    /// <see cref="ICompiledSegment.Prepare"/>): providers that record work per shape record it now instead of at the first such run.
+    /// Data-dependent symbols are prepared at their compile-time bounds, as runs record them.
+    /// </summary>
+    /// <param name="parameters">Symbol bindings and <see cref="RunParameters.SkipOutputs"/> of the runs to come; inputs are not read.</param>
+    public void Prepare(RunParameters parameters)
+    {
+        for (int i = 0; i < _segments.Length; i++)
+        {
+            _segments[i].Prepare(parameters, SkippedDownloads(i, parameters));
+        }
+    }
+
     private bool IsConsumedAfter(int segment, Value v) => _segments.Skip(segment + 1).Any(s => s.Segment.Inputs.Contains(v));
 
     /// <summary>
@@ -357,28 +371,36 @@ public sealed class CompiledModel : IDisposable
     public bool CanCopyStateRows => _segments.All(s => s.CanCopyStateRows);
 
     /// <summary>
-    /// Copies row <paramref name="from"/> of the outermost dimension of the named states to row <paramref name="to"/>, in order with
-    /// <see cref="Run"/> (e.g. a sequence slot's recurrent state into a spare row of a multi-sequence graph and back). Returns false,
-    /// copying nothing, when a segment cannot copy state.
+    /// Copies <paramref name="count"/> rows of the outermost dimension of the named states, from row <paramref name="from"/> on, to
+    /// the rows from <paramref name="to"/> on, in order with <see cref="Run"/> (e.g. a sequence slot's recurrent state into a spare row of
+    /// a multi-sequence graph and back, or one paged KV block's rows into another). Returns false, copying nothing, when a segment cannot
+    /// copy state.
     /// </summary>
     /// <param name="states">State names (<see cref="Models.StateDefinition.Name"/>); each must have a fixed outermost dimension.</param>
-    /// <param name="from">Source row.</param>
-    /// <param name="to">Destination row.</param>
-    public bool CopyStateRows(IReadOnlyCollection<string> states, int from, int to)
+    /// <param name="from">First source row.</param>
+    /// <param name="to">First destination row.</param>
+    /// <param name="count">Rows to copy (the source and destination ranges must not overlap).</param>
+    /// <exception cref="ArgumentException">The ranges overlap.</exception>
+    public bool CopyStateRows(IReadOnlyCollection<string> states, int from, int to, int count = 1)
     {
         if (!CanCopyStateRows)
         {
             return false;
         }
 
-        if (from == to || states.Count == 0)
+        if (from == to || states.Count == 0 || count <= 0)
         {
             return true;
         }
 
+        if (Math.Abs((long)from - to) < count)
+        {
+            throw new ArgumentException("The source and destination rows overlap.", nameof(count));
+        }
+
         foreach (var s in _segments)
         {
-            s.CopyStateRows(states, from, to);
+            s.CopyStateRows(states, from, to, count);
         }
 
         return true;

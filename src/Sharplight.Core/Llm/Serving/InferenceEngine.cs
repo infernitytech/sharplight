@@ -95,6 +95,14 @@ public sealed class InferenceEngine : IDisposable
     private readonly Dictionary<UInt128, EngineSequence> _computing = [];
     private readonly HashSet<UInt128> _wantSnapshot = [];     // ends of prefixes shared with other contexts
     private readonly HashSet<UInt128> _wantPromptEnd = [];    // ends of prompts (a conversation's next turn)
+    private readonly HashSet<UInt128> _takeSnapshot = [];     // boundaries a prompt's chunk was cut at to keep the state there
+    // Prompt-end snapshots taken and later restored (how often a prompt is continued by a later one), counted apart for prompts that
+    // continued an earlier prompt themselves (index 1: a conversation's later turns) and others (index 0); the keys not restored yet
+    // with the class of the prompt that left them.
+    private readonly Dictionary<UInt128, int> _promptEndKeys = [];
+    private readonly long[] _promptEndSaved = new long[2], _promptEndRestored = new long[2];
+    // What steps and state copies cost, learnt from the steps run (prices the prefix cache's waits, recomputations and snapshots).
+    private readonly StepCostModel _cost;
 
     // Scratch of the scheduler thread, reused every step.
     private readonly List<SequenceInput> _inputs = [];
@@ -121,6 +129,8 @@ public sealed class InferenceEngine : IDisposable
 
     /// <summary>The live counters; most callers want <see cref="GetMetrics"/>.</summary>
     public EngineMetrics Metrics { get; } = new();
+    /// <summary>How long preparing the decode steps took when the engine started (<see cref="EngineOptions.PrepareDecodeSteps"/>).</summary>
+    public TimeSpan PrepareTime { get; }
     /// <summary>The tokenizer of the served model, for encoding prompts.</summary>
     public ITokenizer Tokenizer => _tokenizer;
     /// <summary>Number of sequences that can run at the same time.</summary>
@@ -139,11 +149,6 @@ public sealed class InferenceEngine : IDisposable
     /// of a slot's share of the pool, so that a small pool still runs several sequences.
     /// </summary>
     private const int KvGrowthReserve = 64;
-    /// <summary>
-    /// Recurrent-state snapshot boundaries of one prompt closer than this many tokens (at most half the snapshot interval) are merged into
-    /// one: each costs the prompt a pass.
-    /// </summary>
-    private const int SnapshotMinGap = 256;
     /// <summary>Vocabulary size of the served model (length of a logits row; the domain of token masks).</summary>
     public int VocabSize => _decoder.VocabSize;
     /// <summary>True once <see cref="DrainAsync"/> or <see cref="Dispose"/> began: new requests are rejected.</summary>
@@ -168,6 +173,7 @@ public sealed class InferenceEngine : IDisposable
         _budget = Math.Max(1, _opt.MaxBatchTokens > 0 ? Math.Min(_opt.MaxBatchTokens, decoder.MaxBatchTokens) : decoder.MaxBatchTokens);
         _minBudget = _opt.MinBatchTokens > 0 ? Math.Min(_opt.MinBatchTokens, _budget) : _budget;
         _prefillChunk = _opt.PrefillChunk > 0 ? _opt.PrefillChunk : _budget;
+        _cost = _opt.StepCost ?? new StepCostModel();
         _specRequests = new SpeculationRequest[decoder.SlotCount];
         _specViews = new ContextView[decoder.SlotCount];
         if (_opt.Speculator is { } spec)
@@ -186,6 +192,17 @@ public sealed class InferenceEngine : IDisposable
                 // Without rollback of rejected drafts (recurrent state compiled without rollback rows) or spare logits rows nothing
                 // can be verified; a draft head needs the decoder's hidden states.
                 spec.Dispose();
+            }
+        }
+
+        if (_opt.PrepareDecodeSteps && decoder.BatchesSequences && _diffusion is null)
+        {
+            long t0 = Stopwatch.GetTimestamp();
+            int shapes = decoder.PrepareDecodeSteps(_deviceSampler is not null);
+            PrepareTime = Stopwatch.GetElapsedTime(t0);
+            if (DiagnosticSwitches.SchedulerTrace)
+            {
+                Console.Error.WriteLine($"[sched] prepared {shapes} decode step shapes in {PrepareTime.TotalMilliseconds:F0} ms");
             }
         }
 
@@ -563,7 +580,7 @@ public sealed class InferenceEngine : IDisposable
                 return false;
             }
 
-            int pending = a.Prefilling ? a.Prompt.Length - a.PromptPos : 0;
+            int pending = a.Prefilling && a.Leader is null ? a.Prompt.Length - a.PromptPos : 0;
             reserve += _decoder.KvBlocksNeeded(a.Slot!.Index, pending + Growth(a));
         }
 
@@ -577,7 +594,12 @@ public sealed class InferenceEngine : IDisposable
         }
 
         long need = (seq.Prompt.Length + Growth(seq) + _decoder.KvBlockSize - 1) / _decoder.KvBlockSize;
-        if (CachesBlocks && !seq.Request.BypassPrefixCache)
+        if (FindLeader(seq) is not null)
+        {
+            // Forked from the same prompt: its blocks are shared; only growth and the copy of the shared last block are new.
+            need = (Growth(seq) + _decoder.KvBlockSize - 1) / _decoder.KvBlockSize + 1;
+        }
+        else if (CachesBlocks && !seq.Request.BypassPrefixCache)
         {
             // Cached blocks other sequences hold are shared, not taken from the free ones (cached free blocks are counted as free).
             _decoder.FindKvBlocks(CollectionsMarshal.AsSpan(PromptHashes(seq)), out int inUse);
@@ -652,6 +674,12 @@ public sealed class InferenceEngine : IDisposable
             }
         }
         var slot = best!;
+        if (FindLeader(seq) is { } leader)
+        {
+            AssignFollower(seq, slot, leader);
+            return;
+        }
+
         int keep = Math.Max(0, bestReuse);
         // Recurrent state: the prefix shared with known contexts (including the chosen slot's before it is cut) gets a state snapshot.
         int sharedBlocks = SnapshotsState ? SharedBlocks(PromptHashes(seq)) : 0;
@@ -673,7 +701,7 @@ public sealed class InferenceEngine : IDisposable
                     keep = 0;
                 }
 
-                keep += AttachCached(slot, seq.Prompt, hashes, keep);
+                keep += AttachCached(seq, slot, seq.Prompt, hashes, keep);
             }
 
             RegisterComputing(seq, keep);
@@ -683,6 +711,12 @@ public sealed class InferenceEngine : IDisposable
             }
         }
 
+        Activate(seq, slot, keep);
+    }
+
+    /// <summary>Gives an admitted sequence its slot and per-request state; <paramref name="keep"/> prompt tokens are already in the slot.</summary>
+    private void Activate(EngineSequence seq, EngineSlot slot, int keep)
+    {
         seq.AdmitTick = ++_tick;
         seq.AdmitTicks = Stopwatch.GetTimestamp();
         seq.Slot = slot;
@@ -696,6 +730,126 @@ public sealed class InferenceEngine : IDisposable
         seq.Matcher = seq.Request.Constraint?.CreateMatcher();
         _active.Add(seq);
         Metrics.Admitted(seq.Prompt.Length, keep, TimeSpan.FromSeconds((Stopwatch.GetTimestamp() - seq.SubmitTicks) / (double)Stopwatch.Frequency));
+    }
+
+    /// <summary>
+    /// Another sampling of a prompt that a running sequence is still prefilling (n &gt; 1 choices, or the same prompt sent twice at once):
+    /// a sequence in the same cache namespace, with the same tokens and content, that is not itself waiting for another.
+    /// </summary>
+    private EngineSequence? FindLeader(EngineSequence seq)
+    {
+        var r = seq.Request;
+        if (!Paged || !_opt.PrefixCache || _diffusion is not null || r.BypassPrefixCache)
+        {
+            return null;
+        }
+
+        foreach (var a in _active)
+        {
+            if (a.Leader is null && a.Prefilling && a.Replay is null && !a.Request.BypassPrefixCache && a.Request.CachePartition == r.CachePartition
+                && a.Request.CacheSalt == r.CacheSalt && a.Prompt.AsSpan().SequenceEqual(seq.Prompt) && SameContentUntil(a.Request.PromptContent, r.PromptContent) == int.MaxValue)
+            {
+                return a;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Admits a sequence that will fork from <paramref name="leader"/> once the leader's prompt is computed (it computes nothing itself).</summary>
+    private void AssignFollower(EngineSequence seq, EngineSlot slot, EngineSequence leader)
+    {
+        TruncateSlot(slot, 0);
+        slot.Partition = seq.Request.CachePartition;
+        slot.Salt = seq.Request.CacheSalt;
+        slot.Content = seq.Request.PromptContent;
+        if (CachesBlocks)
+        {
+            slot.Seed = KvBlockHash.Seed(seq.Request.CachePartition, seq.Request.CacheSalt);
+            PromptHashes(seq);
+        }
+
+        seq.Leader = leader;
+        (leader.Followers ??= []).Add(seq);
+        Activate(seq, slot, 0);
+    }
+
+    /// <summary>The followers of <paramref name="leader"/> stop waiting for it (it ended or lost its context) and compute their prompts.</summary>
+    private void ReleaseFollowers(EngineSequence leader)
+    {
+        if (leader.Followers is not { } followers)
+        {
+            return;
+        }
+
+        leader.Followers = null;
+        foreach (var f in followers)
+        {
+            f.Leader = null;
+            f.ForkLogits = null;
+            if (CachesBlocks && f.PromptHashes is not null)
+            {
+                RegisterComputing(f, f.PromptPos);
+            }
+        }
+    }
+
+    /// <summary>
+    /// After the step that computed a leader's last prompt token: every follower takes the leader's context (shared KV blocks, a copy of
+    /// recurrent state) and samples its first token from its copy of the leader's logits.
+    /// </summary>
+    private void ForkFollowers()
+    {
+        for (int i = 0; i < _inputs.Count; i++)
+        {
+            var s = _stepSeqs[i];
+            if (s.Followers is not { } followers || s.Prefilling || !_inputs[i].WantLogits || _outcomes[i].Error is not null || s.Slot is not { } source)
+            {
+                continue;
+            }
+
+            s.Followers = null;
+            foreach (var f in followers)
+            {
+                f.Leader = null;
+                var logits = f.ForkLogits;
+                f.ForkLogits = null;
+                if (f.Finished != 0)
+                {
+                    continue;
+                }
+
+                var slot = f.Slot!;
+                if (logits is null || !_decoder.ForkKv(slot.Index, source.Index))
+                {
+                    if (CachesBlocks && f.PromptHashes is not null)
+                    {
+                        RegisterComputing(f, f.PromptPos);
+                    }
+
+                    continue;
+                }
+
+                slot.Tokens.AddRange(source.Tokens);
+                slot.BlockHashes.AddRange(source.BlockHashes);
+                f.PromptPos = f.Prompt.Length;
+                f.Cached = f.Prompt.Length;
+                f.SnapshotPos = s.SnapshotPos;
+                Metrics.Forked();
+                try
+                {
+                    int tok = SampleToken(f, logits);
+                    if (Emit(f, tok, logits, slot.Tokens.Count) is { } e)
+                    {
+                        Complete(f, e.Reason, null, e.StopSequence, flush: e.Flush);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Complete(f, FinishReason.Error, ex.Message, null);
+                }
+            }
+        }
     }
 
     /// <summary>Positions before the first content key in which two prompts' non-text content differs (<see cref="int.MaxValue"/>: none differs).</summary>
@@ -731,7 +885,7 @@ public sealed class InferenceEngine : IDisposable
     /// (a whole number of blocks; <paramref name="hashes"/>: the hashes of the blocks of <paramref name="tokens"/>) and returns the tokens added.
     /// Nothing is attached when that would take more than <paramref name="freeBudget"/> free (cached) blocks.
     /// </summary>
-    private int AttachCached(EngineSlot slot, IReadOnlyList<int> tokens, List<UInt128> hashes, int pos, int freeBudget = int.MaxValue)
+    private int AttachCached(EngineSequence seq, EngineSlot slot, IReadOnlyList<int> tokens, List<UInt128> hashes, int pos, int freeBudget = int.MaxValue)
     {
         int bs = _decoder.KvBlockSize;
         int first = pos / bs;
@@ -760,7 +914,7 @@ public sealed class InferenceEngine : IDisposable
         for (int j = 0; j < added / bs; j++)
         {
             slot.BlockHashes.Add(hashes[first + j]);
-            if (_computing.TryGetValue(hashes[first + j], out var owner) && owner == slot.Active)
+            if (_computing.TryGetValue(hashes[first + j], out var owner) && owner == seq)
             {
                 _computing.Remove(hashes[first + j]);
             }
@@ -769,6 +923,14 @@ public sealed class InferenceEngine : IDisposable
         if (added > 0)
         {
             Metrics.SharedPrefix(added, added / bs);
+            bool continues = _promptEndKeys.Remove(hashes[first + added / bs - 1], out int cls);
+            if (continues)
+            {
+                _promptEndRestored[cls]++;
+            }
+
+            seq.SnapshotPos = pos + added;
+            seq.Continues |= continues;
         }
 
         return added;
@@ -813,6 +975,7 @@ public sealed class InferenceEngine : IDisposable
         {
             _wantSnapshot.Clear();   // boundaries of requests that ended before reaching them
             _wantPromptEnd.Clear();
+            _takeSnapshot.Clear();
         }
 
         if (shared * bs > pos)
@@ -844,18 +1007,6 @@ public sealed class InferenceEngine : IDisposable
         }
 
         return shared;
-
-        static int CommonBlocks(List<UInt128> a, List<UInt128> b)
-        {
-            int n = Math.Min(a.Count, b.Count);
-            int k = 0;
-            while (k < n && a[k] == b[k])
-            {
-                k++;
-            }
-
-            return k;
-        }
     }
 
     /// <summary>
@@ -884,19 +1035,58 @@ public sealed class InferenceEngine : IDisposable
         }
 
         var last = slot.BlockHashes[^1];
-        if (SnapshotsState && slot.Tokens.Count == slot.BlockHashes.Count * _decoder.KvBlockSize && (_wantSnapshot.Contains(last) || _wantPromptEnd.Contains(last))
-            && _decoder.SaveKvStateSnapshot(slot.Index, last))
+        int length = slot.Tokens.Count;
+        if (!SnapshotsState || length != slot.BlockHashes.Count * _decoder.KvBlockSize)
         {
-            _wantSnapshot.Remove(last);
-            _wantPromptEnd.Remove(last);
-            Metrics.StateSnapshot();
+            return;
         }
+
+        bool chosen = _takeSnapshot.Remove(last);
+        bool promptEnd = _wantPromptEnd.Contains(last);
+        // A chunk that ended here anyway (the budget): the state is kept when recomputing the tokens since the previous snapshot would
+        // cost more than the copies, and no closer than the configured interval.
+        bool chunkEnd = slot.Active is { } s && (s.Prefilling || s.Replay is not null)
+            && length - s.SnapshotPos >= Math.Max(1, _opt.StateSnapshotInterval)
+            && RecomputeMs(length - s.SnapshotPos) > 2 * _cost.CopyMs;
+        if (!(chosen || promptEnd || _wantSnapshot.Contains(last) || chunkEnd))
+        {
+            return;
+        }
+
+        long t0 = Stopwatch.GetTimestamp();
+        if (!_decoder.SaveKvStateSnapshot(slot.Index, last, speculative: !(chosen || promptEnd || _wantSnapshot.Contains(last))))
+        {
+            return;
+        }
+
+        _cost.ObserveCopy(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
+        _wantSnapshot.Remove(last);
+        if (_wantPromptEnd.Remove(last))
+        {
+            int cls = slot.Active is { Continues: true } ? 1 : 0;
+            _promptEndSaved[cls]++;
+            if (_promptEndKeys.Count > 4 * _slots.Length + 256)
+            {
+                _promptEndKeys.Clear();
+            }
+
+            _promptEndKeys[last] = cls;
+        }
+
+        if (slot.Active is { } owner2)
+        {
+            owner2.SnapshotPos = length;
+        }
+
+        Metrics.StateSnapshot();
     }
 
     /// <summary>
-    /// Prompt rows of a chunk starting at the sequence's prompt position: stops before blocks another sequence is computing (they are
-    /// attached once published), at a block boundary whose recurrent state is to be snapshotted, and, when the prompt continues,
-    /// at a block boundary (so the next chunk can attach cached blocks).
+    /// Prompt rows of a chunk starting at the sequence's prompt position. Blocks another sequence is computing are waited for (and
+    /// attached once published) when waiting a pass costs less than computing them here; a recurrent model's chunk stops at a block
+    /// boundary whose state snapshot is worth the extra pass it costs this prompt (or costs none); and a chunk that does not end the
+    /// prompt ends on a block boundary (so the next chunk can attach cached blocks, and its state can be kept there for free).
+    /// All prices come from <see cref="StepCostModel"/>.
     /// </summary>
     private int ClipPrefillChunk(EngineSequence s, int chunk)
     {
@@ -914,50 +1104,29 @@ public sealed class InferenceEngine : IDisposable
             {
                 if (_computing.TryGetValue(hashes[j], out var owner) && owner != s)
                 {
-                    end = j * bs;
+                    if (WaitPays(s, owner, CommonBlocks(hashes, owner.PromptHashes!) * bs))
+                    {
+                        end = j * bs;
+                        s.TraceClip += " wait";
+                    }
+                    else
+                    {
+                        s.TraceClip += " recompute";
+                    }
+
                     break;
                 }
             }
         }
 
-        if (SnapshotsState)
+        if (SnapshotsState && end - pos > bs)
         {
-            // Snapshot boundaries: ends of prefixes shared with other contexts, and the cheaper-to-lose periodic ones (every
-            // StateSnapshotInterval tokens, like vLLM's block-aligned Mamba states) and prompt ends. Each costs this prompt one more pass, so
-            // boundaries closer than SnapshotMinGap are merged: a shared-prefix end wins, else the last of them.
-            int interval = _opt.StateSnapshotInterval >= bs ? _opt.StateSnapshotInterval / bs * bs : 0;
-            int gap = interval > 0 ? Math.Min(SnapshotMinGap, interval / 2) : SnapshotMinGap;
-            int first = -1, soft = -1, shared = -1;
-            for (int j = pos / bs; j < hashes.Count && (j + 1) * bs < end; j++)
-            {
-                int b = (j + 1) * bs;
-                bool isShared = _wantSnapshot.Contains(hashes[j]);
-                if (b <= pos || !(isShared || (interval > 0 && b % interval == 0) || _wantPromptEnd.Contains(hashes[j])))
-                {
-                    continue;
-                }
-
-                if (first >= 0 && b - first > gap)
-                {
-                    break;
-                }
-
-                first = first < 0 ? b : first;
-                if (isShared)
-                {
-                    shared = shared < 0 ? b : shared;
-                }
-                else
-                {
-                    soft = b;
-                }
-            }
-
-            int clip = shared > 0 ? shared : soft;
+            int clip = SnapshotClip(s, hashes, pos, end, chunk);
             if (clip > 0)
             {
                 end = clip;
-                _wantPromptEnd.Add(hashes[clip / bs - 1]);
+                _takeSnapshot.Add(hashes[clip / bs - 1]);
+                s.TraceClip += " snap";
             }
         }
 
@@ -967,6 +1136,143 @@ public sealed class InferenceEngine : IDisposable
         }
 
         return Math.Max(0, end - pos);
+    }
+
+    /// <summary>Running sequences, at least 1: how many requests a longer step delays (each step advances every one of them).</summary>
+    private int Concurrency => Math.Max(1, _active.Count);
+
+    /// <summary>Milliseconds that computing <paramref name="rows"/> more prompt rows in some step costs, summed over the requests it delays.</summary>
+    private double RecomputeMs(int rows) => _cost.PerRowMs * Math.Max(0, rows) * Concurrency;
+
+    /// <summary>
+    /// Milliseconds one more pass costs <paramref name="self"/> when it still has <paramref name="rows"/> rows to compute then: the next
+    /// step also carries the decode rows of the running requests and the prompt rows the current step's budget leaves of the others, and
+    /// the prompt waits for all of it.
+    /// </summary>
+    private double PassMs(EngineSequence self, int rows)
+    {
+        long decode = 0, prompts = 0;
+        foreach (var a in _active)
+        {
+            if (a == self)
+            {
+                continue;
+            }
+
+            if (a.Replay is { } replay)
+            {
+                prompts += replay.Length - a.ReplayPos;
+            }
+            else if (a.Prefilling)
+            {
+                prompts += a.Leader is null ? a.Prompt.Length - a.PromptPos : 0;
+            }
+            else
+            {
+                decode += a.InputLength;
+            }
+        }
+
+        long next = Math.Max(1, rows) + decode + Math.Max(0, prompts + decode - _budget);
+        return _cost.StepMs((int)Math.Min(_budget, next));
+    }
+
+    /// <summary>
+    /// Whether <paramref name="waiter"/> should wait for the blocks <paramref name="owner"/> is computing up to position
+    /// <paramref name="until"/> (where their prompts part) instead of computing them itself: waiting delays it by the passes the owner
+    /// still needs to get there; computing them makes this step longer for every running request.
+    /// </summary>
+    private bool WaitPays(EngineSequence waiter, EngineSequence owner, int until)
+    {
+        int rows = until - waiter.PromptPos;
+        if (rows <= 0)
+        {
+            return false;
+        }
+
+        int step = Math.Max(_decoder.KvBlockSize, _prefillChunk);
+        int passes = Math.Max(1, (until - owner.PromptPos + step - 1) / step);
+        return RecomputeMs(rows) > passes * PassMs(waiter, Math.Min(step, waiter.Prompt.Length - until));
+    }
+
+    /// <summary>
+    /// Recurrent state: the block boundary inside the chunk [<paramref name="pos"/>, <paramref name="end"/>) at which to stop and keep the
+    /// state, or 0 for none. A snapshot at boundary b saves later prompts recomputing the tokens since the previous snapshot of this
+    /// prompt: prompts running now that part from this one at b and wait for it, a prefix this prompt shares with an idle context (expected
+    /// to come again), and the prompt's end (the next turn of a conversation, weighted by how often such snapshots were used). It costs this
+    /// prompt one more pass, unless the chunk is cut short by the budget anyway and stopping at b adds no pass to the rest of the prompt.
+    /// </summary>
+    private int SnapshotClip(EngineSequence s, List<UInt128> hashes, int pos, int end, int chunk)
+    {
+        int bs = _decoder.KvBlockSize;
+        int length = s.Prompt.Length;
+        int cls = s.Continues ? 1 : 0;
+        double promptEndUse = (_promptEndRestored[cls] + 1.0) / (_promptEndSaved[cls] + 2.0);
+        int best = 0;
+        double bestGain = 0;
+        for (int j = pos / bs; j < hashes.Count && (j + 1) * bs < end; j++)
+        {
+            int b = (j + 1) * bs;
+            if (b <= pos)
+            {
+                continue;
+            }
+
+            double uses = (_wantSnapshot.Contains(hashes[j]) ? 1 : 0) + (_wantPromptEnd.Contains(hashes[j]) ? promptEndUse : 0);
+            double value = uses * RecomputeMs(b - s.SnapshotPos) + WaitingValue(s, b);
+            if (value <= 0)
+            {
+                continue;
+            }
+
+            // Free when the chunk ends early anyway (the budget) and the rest of the prompt needs no more passes from b than from end.
+            bool free = end < length && Passes(length - b, chunk) == Passes(length - end, chunk);
+            double gain = value - _cost.CopyMs - (free ? 0 : PassMs(s, end - b));
+            if (gain > bestGain)
+            {
+                best = b;
+                bestGain = gain;
+            }
+        }
+
+        return best;
+
+        static int Passes(int rows, int perPass) => (rows + Math.Max(1, perPass) - 1) / Math.Max(1, perPass);
+    }
+
+    /// <summary>
+    /// What a snapshot of <paramref name="owner"/>'s state at <paramref name="boundary"/> is worth to the prompts running now that part from
+    /// it exactly there and wait for its blocks: the rows each of them would otherwise compute.
+    /// </summary>
+    private double WaitingValue(EngineSequence owner, int boundary)
+    {
+        double value = 0;
+        int bs = _decoder.KvBlockSize;
+        foreach (var w in _active)
+        {
+            if (w == owner || !w.Prefilling || w.Replay is not null || w.Request.BypassPrefixCache || w.PromptHashes is not { } wh || w.PromptPos >= boundary
+                || CommonBlocks(wh, owner.PromptHashes!) * bs != boundary || !WaitPays(w, owner, boundary))
+            {
+                continue;
+            }
+
+            value += RecomputeMs(boundary - w.PromptPos);
+        }
+
+        return value;
+    }
+
+    /// <summary>Leading blocks two hash chains have in common.</summary>
+    private static int CommonBlocks(List<UInt128> a, List<UInt128> b)
+    {
+        int n = Math.Min(a.Count, b.Count);
+        int k = 0;
+        while (k < n && a[k] == b[k])
+        {
+            k++;
+        }
+
+        return k;
     }
 
     /// <summary>
@@ -1097,7 +1403,14 @@ public sealed class InferenceEngine : IDisposable
         var results = PrepareDeviceSampling()
             ? _deviceSampler!.Step(_inputs, _deviceRows, _sampledTokens, _sampledLogprobs)
             : _decoder.Step(_inputs);
-        Metrics.Step(stepTokens - budget.Tokens, _inputs.Count, Stopwatch.GetElapsedTime(t0));
+        var elapsed = Stopwatch.GetElapsedTime(t0);
+        Metrics.Step(stepTokens - budget.Tokens, _inputs.Count, elapsed);
+        _cost.Observe(stepTokens - budget.Tokens, elapsed.TotalMilliseconds);
+        if (DiagnosticSwitches.SchedulerTrace)
+        {
+            TraceStep(elapsed, stepTokens - budget.Tokens);
+        }
+
         ProcessResults(results);
         if (observe)
         {
@@ -1105,6 +1418,32 @@ public sealed class InferenceEngine : IDisposable
         }
 
         UpdateKvGauges();
+    }
+
+    /// <summary>Writes one line about the step that just ran (<see cref="DiagnosticSwitches.SchedulerTrace"/>).</summary>
+    private void TraceStep(TimeSpan elapsed, int rows)
+    {
+        var sb = new System.Text.StringBuilder();
+        int decode = 0;
+        for (int i = 0; i < _inputs.Count; i++)
+        {
+            var s = _stepSeqs[i];
+            int n = _inputs[i].Tokens.Length;
+            if (_stepReplay[i])
+            {
+                sb.Append($" R{s.Id}:{n}");
+            }
+            else if (s.Prefilling)
+            {
+                sb.Append($" P{s.Id}@{s.PromptPos}+{n}/{s.Prompt.Length}{s.TraceClip}");
+            }
+            else
+            {
+                decode += n;
+            }
+        }
+
+        Console.Error.WriteLine($"[sched] {elapsed.TotalMilliseconds,7:F2} ms rows {rows,5} decode {decode,3} active {_active.Count,3}{sb}");
     }
 
     /// <summary>
@@ -1250,7 +1589,7 @@ public sealed class InferenceEngine : IDisposable
             {
                 // Blocks of the preempted context that are still cached come back without recomputation (taking cached free blocks).
                 int free = _decoder.KvBlocksFree;
-                s.ReplayPos += AttachCached(s.Slot!, replay, rh, s.ReplayPos, budget.KvBlocks);
+                s.ReplayPos += AttachCached(s, s.Slot!, replay, rh, s.ReplayPos, budget.KvBlocks);
                 budget.KvBlocks -= free - _decoder.KvBlocksFree;
                 if (s.ReplayPos == replay.Length)
                 {
@@ -1277,19 +1616,22 @@ public sealed class InferenceEngine : IDisposable
     {
         foreach (var s in _active)
         {
-            if (!s.Prefilling || s.Replay is not null || budget.Tokens <= 0)
+            if (!s.Prefilling || s.Replay is not null || s.Leader is not null || budget.Tokens <= 0)
             {
                 continue;
             }
+
+            s.TraceClip = "";
 
             if (CachesBlocks && !s.Request.BypassPrefixCache && s.PromptHashes is { } hashes)
             {
                 // Blocks published since admission (another prompt computed them meanwhile) are attached mid-prompt.
                 int free = _decoder.KvBlocksFree;
-                int added = AttachCached(s.Slot!, s.Prompt, hashes, s.PromptPos, budget.KvBlocks);
+                int added = AttachCached(s, s.Slot!, s.Prompt, hashes, s.PromptPos, budget.KvBlocks);
                 budget.KvBlocks -= free - _decoder.KvBlocksFree;
                 if (added > 0)
                 {
+                    s.TraceClip = $" attach{added}";
                     Metrics.CachedLater(added, s.Cached == 0);
                     s.PromptPos += added;
                     s.Cached += added;
@@ -1347,6 +1689,7 @@ public sealed class InferenceEngine : IDisposable
             }
         }
 
+        ForkFollowers();
         ApplyOutcomes();
         if (CachesBlocks)
         {
@@ -1475,7 +1818,7 @@ public sealed class InferenceEngine : IDisposable
             var s = _stepSeqs[i];
             _deviceRowOffset[i] = row;
             row += _inputs[i].OutputRows;
-            _deviceRows[i] = _inputs[i].OutputRows >= 1 && s.Finished == 0 && s.Matcher is null && s.Generated >= s.Request.MinTokens
+            _deviceRows[i] = _inputs[i].OutputRows >= 1 && s.Finished == 0 && s.Matcher is null && s.Generated >= s.Request.MinTokens && s.Followers is null
                 ? s.Sampler.DeviceRow(s.Generated, s.Request.Logprobs, s.Request.TopLogprobs)
                 : null;
             any |= _deviceRows[i] is not null;
@@ -1523,6 +1866,15 @@ public sealed class InferenceEngine : IDisposable
                 }
 
                 return;
+            }
+
+            if (s.Followers is { } followers && !s.Prefilling && rows == 1)
+            {
+                // The leader's first token: its followers sample theirs from the same row (before this sequence masks it).
+                foreach (var f in followers)
+                {
+                    f.ForkLogits = logits.Span[..vocab].ToArray();
+                }
             }
 
             for (int j = 0; j < rows; j++)
@@ -1594,7 +1946,7 @@ public sealed class InferenceEngine : IDisposable
                 }
                 else if (s.Prefilling)
                 {
-                    chunks += _decoder.KvBlocksNeeded(slot, Math.Min(_prefillChunk, s.Prompt.Length - s.PromptPos));
+                    chunks += s.Leader is null ? _decoder.KvBlocksNeeded(slot, Math.Min(_prefillChunk, s.Prompt.Length - s.PromptPos)) : 0;
                 }
                 else
                 {
@@ -1675,6 +2027,7 @@ public sealed class InferenceEngine : IDisposable
 
         victim.ReplayPos = 0;
         UnregisterComputing(victim);
+        ReleaseFollowers(victim);
         slot.BlockHashes.Clear();
         victim.InputLength = 1;
         _speculator?.Release(slot.Index);
@@ -1926,6 +2279,9 @@ public sealed class InferenceEngine : IDisposable
         }
         var slot = s.Slot!;
         UnregisterComputing(s);
+        ReleaseFollowers(s);
+        s.Leader?.Followers?.Remove(s);
+        s.Leader = null;
         _active.Remove(s);
         slot.Active = null;
         slot.LastUsed = ++_tick;

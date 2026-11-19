@@ -34,11 +34,21 @@ public sealed record EngineOptions
     /// </summary>
     public bool PrefixCache { get; set; } = true;
     /// <summary>
-    /// Models with recurrent state: prompt tokens between recurrent-state snapshots during prefill (prefill chunks end at multiples of it
-    /// and the state there is kept for later prompts, least recently used first out), in addition to the snapshots at prefixes shared with
-    /// other contexts and at prompt ends. Rounded down to whole KV blocks; 0 turns the periodic snapshots off.
+    /// Models with recurrent state: least prompt tokens between two state snapshots kept where a prefill chunk ends anyway (the step
+    /// budget cut it; such snapshots cost no pass). Within that bound the engine keeps the state at every such chunk end where recomputing
+    /// the tokens since the previous snapshot would cost more than copying the state, by its estimate of step costs. Snapshots at prefixes
+    /// shared with other prompts and at prompt ends are priced the same way (one more pass for the prompt against the recomputation they
+    /// save). 0 (the default): the cost estimate alone decides.
     /// </summary>
-    public int StateSnapshotInterval { get; set; } = 512;
+    public int StateSnapshotInterval { get; set; }
+    /// <summary>
+    /// Prepare the decode steps of every batch size when the engine starts (<see cref="IBatchDecoder.PrepareDecodeSteps"/>; e.g. Vulkan
+    /// records their command buffers), so the first steps of a load do not wait for it. Costs start-up time (Qwen3.5-0.8B at 64 slots:
+    /// see docs/kv-cache.md section 2.6). Default on.
+    /// </summary>
+    public bool PrepareDecodeSteps { get; set; } = true;
+    /// <summary>The step cost estimate the engine starts from and keeps learning (null: defaults); tests pass a frozen one.</summary>
+    internal StepCostModel? StepCost { get; set; }
     /// <summary>Applied to requests without their own <see cref="GenerationRequest.Timeout"/>.</summary>
     public TimeSpan? DefaultTimeout { get; set; }
     /// <summary>Applied to requests without their own <see cref="GenerationRequest.QueueTimeout"/>.</summary>
