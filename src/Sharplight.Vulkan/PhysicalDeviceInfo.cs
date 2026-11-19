@@ -71,6 +71,10 @@ internal sealed unsafe class PhysicalDeviceInfo
     /// <summary>Provider-neutral features (<see cref="DeviceFeatures"/>) this device supports.</summary>
     public IReadOnlySet<string> Features { get; }
     public bool VulkanMemoryModel { get; }
+    /// <summary>8-bit access to uniform buffers and push constants (optional: enabled only where supported).</summary>
+    public bool UniformAndStorageBuffer8BitAccess { get; }
+    /// <summary>16-bit access to uniform buffers and push constants (optional: enabled only where supported).</summary>
+    public bool UniformAndStorageBuffer16BitAccess { get; }
     public List<string> MissingFeatures { get; } = [];
     public string? Uuid { get; }
     /// <summary>PCI device id (model) reported by the driver.</summary>
@@ -193,6 +197,8 @@ internal sealed unsafe class PhysicalDeviceInfo
         ComputeFullSubgroups = vulkan13 && f13.computeFullSubgroups;
         ShaderFloat16 = f12.shaderFloat16;
         VulkanMemoryModel = f12.vulkanMemoryModel;
+        UniformAndStorageBuffer8BitAccess = f12.uniformAndStorageBuffer8BitAccess;
+        UniformAndStorageBuffer16BitAccess = f11.uniformAndStorageBuffer16BitAccess;
         CooperativeMatrix = coop.cooperativeMatrix;
         if (CooperativeMatrix)
         {
@@ -342,6 +348,9 @@ internal sealed unsafe class PhysicalDeviceInfo
         Need((sub.supportedOperations & VkSubgroupFeatureFlags.Arithmetic) != 0, "subgroup arithmetic");
         Need((sub.supportedOperations & VkSubgroupFeatureFlags.Shuffle) != 0, "subgroup shuffle");
         Need(SubgroupSize >= 8, "subgroup size >= 8");
+        Need(f12.scalarBlockLayout, "scalarBlockLayout");
+        // Most kernels run 256-invocation workgroups (the Vulkan minimum guarantee is 128).
+        Need(p.limits.maxComputeWorkGroupInvocations >= 256 && p.limits.maxComputeWorkGroupSize[0] >= 256, "256-invocation workgroups");
 
         var mp = new VkPhysicalDeviceMemoryProperties();
         api.vkGetPhysicalDeviceMemoryProperties(pd, &mp);

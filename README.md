@@ -204,7 +204,8 @@ The libraries under `src/` ship as NuGet packages: `Sharplight` (the entry packa
 everything wired up), `Sharplight.Core` (engine and task layer, including text generation, tokenizers, chat templates, the
 architecture adapters and the `.slm` package format), `Sharplight.Cpu`, `Sharplight.Vulkan` (with `Sharplight.Shaders` and, for
 macOS, `Sharplight.Vulkan.MoltenVK`), `Sharplight.Metal` (Apple GPUs, preview), `Sharplight.Cuda` + `Sharplight.Cuda.Runtime` (NVIDIA GPUs through the driver API, preview, optional cuBLASLt in
-`Sharplight.Cuda.Blas.<rid>`, see docs/cuda.md), `Sharplight.Audio` (native audio I/O),
+`Sharplight.Cuda.Blas.<rid>`, see docs/cuda.md; hardware requirements and fallbacks of every provider:
+[docs/hardware.md](docs/hardware.md)), `Sharplight.Audio` (native audio I/O),
 `Sharplight.Video` (video encoding and decoding with an LGPL FFmpeg build), `Sharplight.Hub`, `Sharplight.Hosting` (model hosting
 for servers and apps, [docs/hosting.md](docs/hosting.md)), `Sharplight.AspNetCore`, `Sharplight.Extensions.AI`,
 `Sharplight.DesignTokens` (CSS and icons of the Sharplight look for web UIs, [docs/design-tokens.md](docs/design-tokens.md)), and

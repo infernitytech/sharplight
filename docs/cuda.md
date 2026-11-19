@@ -54,8 +54,10 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
 - **Lowering.** `CudaCodeGenerator` calls the shared `GraphLowerer` with warp size 32, the device's opt-in shared memory (see
   [shared memory](#shared-memory)), the SM count as compute units and the device's features, so the CUDA provider selects the same
   kernels as the Vulkan provider on the same NVIDIA GPU where both have the features. That keeps Vulkan the reference for parity.
-- **Memory.** Device memory per buffer (`cuMemAlloc`, zeroed), weights uploaded through two 64 MB pinned staging buffers that the CPU
-  fills (reading mapped files, repacking rows with the shared `WeightCopier`) while the GPU copies the other one. Shared weights,
+- **Memory.** Device memory per buffer (`cuMemAlloc`, zeroed), weights uploaded through two pinned staging buffers of up to 64 MB that the CPU
+  fills (reading mapped files, repacking rows with the shared `WeightCopier`) while the GPU copies the other one. When the system
+  refuses page-locked memory the staging halves down to 1 MB, then falls back to one pageable buffer with synchronous copies; an
+  allocation that fails throws `DeviceOutOfMemoryException` with the driver's free/total figures ([hardware.md](hardware.md)). Shared weights,
   per-graph states, device forwarding between segments and data-dependent symbols work as on Vulkan.
 - **Execution.** Each segment owns a CUDA stream and two timing events. Launches are recorded once per binding of the symbols (kernel,
   grid, packed arguments) and replayed with `cuLaunchKernel`; launches on one stream run in order, so the hazard tracker's barriers are

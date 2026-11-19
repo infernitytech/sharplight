@@ -207,15 +207,14 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             pNext = Phys.ApiVersion >= VkVersion.Version_1_3 ? &f13 : null,
             bufferDeviceAddress = true,
             storageBuffer8BitAccess = true,
-            uniformAndStorageBuffer8BitAccess = true,
+            uniformAndStorageBuffer8BitAccess = Phys.UniformAndStorageBuffer8BitAccess,
             shaderInt8 = true,
             shaderFloat16 = Has(DeviceFeatures.Float16),
             vulkanMemoryModel = Phys.VulkanMemoryModel,
             vulkanMemoryModelDeviceScope = Phys.VulkanMemoryModel,
             scalarBlockLayout = true,
-            timelineSemaphore = true,
         };
-        var f11 = new VkPhysicalDeviceVulkan11Features { pNext = &f12, storageBuffer16BitAccess = true, uniformAndStorageBuffer16BitAccess = true };
+        var f11 = new VkPhysicalDeviceVulkan11Features { pNext = &f12, storageBuffer16BitAccess = true, uniformAndStorageBuffer16BitAccess = Phys.UniformAndStorageBuffer16BitAccess };
         var coop = new VkPhysicalDeviceCooperativeMatrixFeaturesKHR { pNext = f13.pNext, cooperativeMatrix = true };
         bool coopMat = Has(DeviceFeatures.MatrixF16) || Has(DeviceFeatures.MatrixBF16) || Has(DeviceFeatures.MatrixInt8) || Has(DeviceFeatures.MatrixFp8);
         bool coopMat2 = coopMat && Has(DeviceFeatures.MatrixWorkgroup);
