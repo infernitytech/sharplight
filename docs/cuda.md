@@ -153,10 +153,13 @@ and hosts fall back as for any kernel. The CUDA provider reports the feature fro
 and runs the descriptors with `cublasLtMatmul` on the segment's stream (`CudaBlas`: one handle and a 32 MB workspace per device, a
 plan per shape, row count and operand alignment, the heuristic's first algorithm).
 
-Used where it beats the generated GEMMs on this GPU ([benchmarks.md §50](benchmarks.md)): bf16
-weights from 256 rows (`SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS`), x converted once per row set to dense bf16 rows (`to_bf16`, shared by the
-matmuls reading it), f32 output. A gate / up pair with its SiLU·mul group then runs as two library GEMMs and the group's own launch
-instead of the dual gemm_cm2. cuBLASLt measured 145-165 TFLOPS on the Qwen3-8B shapes against 112-128 for gemm_cm2 on CUDA (and
+Used where it beats the generated GEMMs on this GPU ([benchmarks.md §50](benchmarks.md)): 16-bit weights from 256 rows
+(`SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS`). cuBLASLt takes both operands in one type, so the operands are those of the generated tensor-core
+GEMMs: the f16 copy of x they read (row-ranged where x may exceed f16's range, with the same `f16_range_unscale` fix-up of the output
+rows), and the weights in f16: bf16 weights whose every consumer is a MatMul are stored as f16 (`WeightRepack.Bf16ToF16` at upload),
+which is the rounding the generated GEMMs apply when they load bf16 weights. The products therefore have the generated GEMMs'
+precision (an earlier form with bf16 activations failed the massive-activation tests of `F16RangeTests`). A gate / up pair with its
+SiLU·mul group runs as two library GEMMs and the group's own launch instead of the dual gemm_cm2. cuBLASLt measured 145-165 TFLOPS on the Qwen3-8B shapes against 112-128 for gemm_cm2 on CUDA (and
 118-125 on Vulkan); FP8 with per-tensor scales 250-336 TFLOPS, but the block-scaled FP8 of the checkpoints in use (128x128 weight
 blocks, `CUBLASLT_MATMUL_MATRIX_SCALE_BLK128x128_32F`) is not supported on compute capability 12.0 (`CUBLAS_STATUS_NOT_SUPPORTED`),
 so FP8 stays on the generated `gemm_fp8`.

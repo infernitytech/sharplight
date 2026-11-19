@@ -183,16 +183,17 @@ public sealed partial class GraphLowerer
         // separate GEMMs would not split K); otherwise the regular matmuls and the elementwise group, skipped while a fused
         // launch serves the rows.
         long fusedBelow = fusedMaxRows;
-        // bf16 weights with the vendor GEMM library: from LibraryGemmMinRows rows the two matmuls run on the library (LowerMatMul
+        // 16-bit weights with the vendor GEMM library: from LibraryGemmMinRows rows the two matmuls run on the library (LowerMatMul
         // below) and the group as its own launch, instead of the dual gemm_cm2.
         bool library = LibraryGemmUsable(weightA.Type, N, K, rowsPerLead, x.Shape[0]) && weightB.Type == weightA.Type;
-        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(library && rows(b) >= LibraryGemmMinRows);
+        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow;
         bool dualFp8 = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
             xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "gemm_fp8.slang"));
         var dualGemm2 = dualFp8 ? null : EmitDualGemm2($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
-            a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "matmul.slang"), output);
+            a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "matmul.slang"), output,
+            library ? LibraryGemmMinRows : long.MaxValue);
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && DualFp8Serves(rows(b), N, K))
-                                && !((dualGemm2?.Invoke(rows(b)) ?? false) && !(library && rows(b) >= LibraryGemmMinRows));
+                                && !(dualGemm2?.Invoke(rows(b)) ?? false);
         LowerMatMul(a);
         LowerMatMul(bNode);
         LowerElementwise(group, [output]);
@@ -437,7 +438,7 @@ public sealed partial class GraphLowerer
         bool skinnyHere = skinny && SkinnyMaxRowsFor(plan.N, plan.W.Type) >= skinnyMin;
         // One f16 copy of x for every f16 tensor-core launch of this matmul (skinny GEMM, gemm_cm2), emitted under the outer
         // condition so that the matmuls reading the same rows (Q/K/V, gate/up, ...) share it.
-        var half = SharedHalfActivations(plan, intDot, skinny && !intDot, mmq ? MmqMinRows : fp8Gemm ? Fp8GemmMinRows : library ? LibraryGemmMinRows : null);
+        var half = SharedHalfActivations(plan, intDot, skinny && !intDot, mmq ? MmqMinRows : fp8Gemm ? Fp8GemmMinRows : null);
         if (intDot)
         {
             EmitIntDotMatvec(MatMulLabel(plan), [n], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K,
@@ -465,7 +466,7 @@ public sealed partial class GraphLowerer
         {
             var beforeLibrary = _launchCondition;
             _launchCondition = outer;
-            EmitLibraryGemm(plan);
+            EmitLibraryGemm(plan, half);
             _launchCondition = b => (beforeLibrary?.Invoke(b) ?? true) && plan.RowCount(b) < LibraryGemmMinRows;
         }
 

@@ -57,9 +57,10 @@ public static class DeviceFeatures
     /// <summary>The kernel can pin the subgroup size.</summary>
     public const string SubgroupSizeControl = "subgroup_size_control";
     /// <summary>
-    /// Large matrix products of 16-bit float weights (bf16) run on the vendor's GEMM library where it is faster than the generated
-    /// kernels (CUDA: cuBLASLt from the optional <c>Sharplight.Cuda.Blas</c> package). Reported only when the library is installed;
-    /// disabling it keeps every product on the generated kernels.
+    /// Large matrix products of 16-bit float weights (f16, and bf16 stored as f16) run on the vendor's GEMM library where it is faster
+    /// than the generated kernels, with the generated tensor-core GEMMs' f16 activations and precision (CUDA: cuBLASLt from the optional
+    /// <c>Sharplight.Cuda.Blas</c> package). Reported only when the library is installed; disabling it keeps every product on the
+    /// generated kernels.
     /// </summary>
     public const string LibraryGemm = "library_gemm";
 

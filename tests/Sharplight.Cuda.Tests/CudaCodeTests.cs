@@ -132,7 +132,7 @@ public sealed class CudaCodeTests
         Assert.SkipUnless(info.Features.Contains(DeviceFeatures.LibraryGemm), "cuBLASLt is not installed (Sharplight.Cuda.Blas or SHARPLIGHT_CUDA_BLAS_DIR).");
         var cpuProvider = new Cpu.CpuExecutionProvider();
 
-        // 300 rows (library from 256) of a bf16 projection; the library product rounds x to bf16, the CPU keeps f32 x.
+        // 300 rows (library from 256) of a bf16 projection (stored as f16 for the library); x is rounded to f16 as for the generated GEMMs.
         var expected = RunProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), 300);
         var actual = RunProjection(provider.OpenDevice(info), 300);
         for (int i = 0; i < expected.Length; i++)
@@ -140,7 +140,7 @@ public sealed class CudaCodeTests
             Assert.True(Math.Abs(expected[i] - actual[i]) <= 3e-2 + 1e-2 * Math.Abs(expected[i]), $"y[{i}]: {actual[i]} vs {expected[i]}");
         }
 
-        // The library launch ran: the same rows without the feature give the generated GEMM's (f16 activation) results, which differ.
+        // The library launch ran: the same rows without the feature give the generated GEMM's results, which sum in another order.
         var withoutLibrary = new DeviceOptions();
         withoutLibrary.DisabledFeatures.Add(DeviceFeatures.LibraryGemm);
         var kernels = RunProjection(provider.OpenDevice(info, withoutLibrary), 300);

@@ -7,7 +7,7 @@ namespace Sharplight.Shaders;
 /// <summary>
 /// Kernels a provider runs with a vendor library instead of generated code (<see cref="Runtime.DeviceFeatures.LibraryGemm"/>). The
 /// lowering emits them like any kernel: their <see cref="CompiledKernel.Code"/> is a one-line descriptor
-/// (<c>// sharplight-library: gemm a=bf16 n=4096 k=12288</c>) that providers with the library execute, and providers without it reject
+/// (<c>// sharplight-library: gemm a=f16 n=4096 k=12288</c>) that providers with the library execute, and providers without it reject
 /// at load. A library GEMM's launch has the arguments <c>x</c> (dense activation rows of K values of the type <c>a</c>), <c>w</c>
 /// (N rows of K weights of that type), <c>y</c> (dense f32 rows of N values) and the row count.
 /// </summary>
