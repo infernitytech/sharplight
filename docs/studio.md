@@ -710,7 +710,7 @@ the difference is what CUDA adds), packed with vpk 1.2.161:
 | AppImage | 118.9 MB | 164.5 MB | 45.6 MB |
 | Velopack full package (`.nupkg`, also the Windows Setup.exe's payload) | 117.6 MB | 162.9 MB | 45.3 MB |
 | `tar.gz` | 115.9 MB | 161.1 MB | 45.2 MB |
-| installed folder | 261 MB | 376 MB | 115 MB |
+| installed folder (MiB) | 267 | 376 | 109 |
 
 The package cost is accepted (owner decision of 2026-11-19). The Windows x64 files are about 96 MB installed (NVRTC 91 MB); the ARM64 Linux ones about 105 MB
 ([cuda.md](cuda.md#package-sizes)).
