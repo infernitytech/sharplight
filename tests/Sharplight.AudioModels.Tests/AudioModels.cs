@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tasks;
+using Sharplight.Tests;
 
 namespace Sharplight.AudioModels.Tests;
 
@@ -56,7 +57,7 @@ internal static class AudioModels
     private static readonly Lazy<DeviceSlot?> s_gpu = new(() => OpenFirst(gpu: true));
 
     /// <summary>
-    /// The CPU device or the first GPU device, opened once and shared by every test of the assembly (skipping the test when there is
+    /// The CPU device or the GPU under test, opened once and shared by every test of the assembly (skipping the test when there is
     /// none). Models do not own their devices: a device per test would stay alive until the process exits, and the GPU driver refuses
     /// new devices after a few dozen live ones (<c>ErrorInitializationFailed</c>).
     /// </summary>
@@ -69,9 +70,16 @@ internal static class AudioModels
 
     private static DeviceSlot? OpenFirst(bool gpu)
     {
+        if (gpu)
+        {
+            // The GPU under test (SHARPLIGHT_TEST_PROVIDER=vulkan|cuda|metal, default Vulkan; tests/Shared/TestGpu.cs).
+            var (device, _) = TestGpu.Open();
+            return device is null ? null : new DeviceSlot { Device = device };
+        }
+
         foreach (var (provider, availability) in Services.GetRequiredService<ExecutionProviderCatalog>().Discover())
         {
-            if (availability.IsAvailable && (provider.Name == "cpu") != gpu)
+            if (availability.IsAvailable && provider.Name == "cpu")
             {
                 return new DeviceSlot { Device = provider.OpenDevice(provider.GetDevices()[0]) };
             }

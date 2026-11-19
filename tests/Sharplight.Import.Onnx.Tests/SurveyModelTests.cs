@@ -12,7 +12,7 @@ public class SurveyModelTests(ITestOutputHelper output)
 {
     /// <summary>Per-model settings on top of the manifest.</summary>
     /// <param name="Name">Manifest name in ref/survey, or a path relative to ref (e.g. "zoo/silero-vad").</param>
-    /// <param name="Providers">Providers to run on ("cpu", "vulkan").</param>
+    /// <param name="Providers">Providers to run on ("cpu", "gpu").</param>
     /// <param name="RmsTol">Relative RMS criterion instead of the element-wise tolerance (noisy fp16 references, near-tied detections).</param>
     /// <param name="FixBatch">Import with the concrete batch size.</param>
     /// <param name="Pins">Inputs pinned to their reference values at import (they decide output shapes).</param>
@@ -26,31 +26,31 @@ public class SurveyModelTests(ITestOutputHelper output)
     [
         // NonMaxSuppression + TopK over a data-dependent count; detections whose scores differ by float noise swap places
         // (5e-8 apart on CPU, 1e-6 on Vulkan), so the order is compared modulo tied scores.
-        new("ssd-10", ["cpu", "vulkan"], Detections: (0, 2)),
+        new("ssd-10", ["cpu", "gpu"], Detections: (0, 2)),
         // NonMaxSuppression + constant-folded TF "arange" Loops; concatenates along the batch axis.
-        new("yolov3-12", ["cpu", "vulkan"], FixBatch: true),
+        new("yolov3-12", ["cpu", "gpu"], FixBatch: true),
         // GroupQueryAttention (rotary, local window) and default-domain SimplifiedLayerNormalization.
-        new("gemma3-270m", ["cpu", "vulkan"]),
-        new("lfm2-350m", ["cpu", "vulkan"], Pins: ["num_logits_to_keep"]),
+        new("gemma3-270m", ["cpu", "gpu"]),
+        new("lfm2-350m", ["cpu", "gpu"], Pins: ["num_logits_to_keep"]),
         // RotaryEmbedding + MultiHeadAttention with past; fp16 reference noise. The CPU backend runs out of host memory on 3.8B weights.
-        new("phi35-mini-q4f16", ["vulkan"], RmsTol: 5e-2),
+        new("phi35-mini-q4f16", ["gpu"], RmsTol: 5e-2),
         // int64 graph input returned as an output.
-        new("bertsquad-12", ["cpu", "vulkan"], FixBatch: true),
+        new("bertsquad-12", ["cpu", "gpu"], FixBatch: true),
         // Tile by the batch size, reshapes to expression dims.
-        new("deberta-v3-small", ["cpu", "vulkan"]),
+        new("deberta-v3-small", ["cpu", "gpu"]),
         // MatMulInteger with a runtime B (dynamically quantized attention).
-        new("bertsquad-12-int8", ["cpu", "vulkan"], FixBatch: true),
+        new("bertsquad-12-int8", ["cpu", "gpu"], FixBatch: true),
         // BiT weight standardization: BatchNormalization over the constant conv weights, folded at import.
-        new("dpt-hybrid-midas", ["cpu", "vulkan"]),
+        new("dpt-hybrid-midas", ["cpu", "gpu"]),
         // RoiAlign, per-level NonMaxSuppression over data-dependent box counts concatenated along the outer axis, top-1000 prefix slices.
-        new("fasterrcnn-12", ["cpu", "vulkan"]),
+        new("fasterrcnn-12", ["cpu", "gpu"]),
         // QLinearConv chain feeding NonMaxSuppression: integer-exact requantization (any 1-LSB flip changes the selected boxes).
-        new("ssd-12-int8", ["cpu", "vulkan"]),
-        new("maskrcnn-12", ["cpu", "vulkan"]),
+        new("ssd-12-int8", ["cpu", "gpu"]),
+        new("maskrcnn-12", ["cpu", "gpu"]),
         // Runtime If on the sample rate; the branch for the other rate does not translate for these frame sizes and is left out.
-        new("zoo/silero-vad", ["cpu", "vulkan"], Unpins: ["sr"]),
+        new("zoo/silero-vad", ["cpu", "gpu"], Unpins: ["sr"]),
         // optimum merged decoder: runtime If between the with-past and without-past graphs.
-        new("zoo/gpt2-merged", ["cpu", "vulkan"], Unpins: ["use_cache_branch"]),
+        new("zoo/gpt2-merged", ["cpu", "gpu"], Unpins: ["use_cache_branch"]),
     ];
 
     public static IEnumerable<TheoryDataRow<string, string>> Cases()

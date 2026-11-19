@@ -5,7 +5,7 @@ namespace Sharplight.Import.Onnx.Tests;
 
 /// <summary>
 /// Several MatMuls of one activation by constant weights (with their bias Adds) become one MatMul over the concatenated weights,
-/// and compute what the separate products compute, on the CPU and (when present) Vulkan.
+/// and compute what the separate products compute, on the CPU and (when present) the GPU under test.
 /// </summary>
 public sealed class ProjectionFusionTests
 {
@@ -47,8 +47,8 @@ public sealed class ProjectionFusionTests
     [Theory]
     [InlineData("cpu", false)]
     [InlineData("cpu", true)]
-    [InlineData("vulkan", false)]
-    [InlineData("vulkan", true)]
+    [InlineData("gpu", false)]
+    [InlineData("gpu", true)]
     public void FusedMatchesSeparate(string provider, bool biases)
     {
         var device = Providers.Get(provider);

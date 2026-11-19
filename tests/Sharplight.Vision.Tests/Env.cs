@@ -1,6 +1,6 @@
 using Sharplight.Cpu;
 using Sharplight.Runtime;
-using Sharplight.Vulkan;
+using Sharplight.Tests;
 
 namespace Sharplight.Vision.Tests;
 
@@ -41,43 +41,26 @@ internal static class Env
         return new DeviceSlot { Device = p.OpenDevice(p.GetDevices()[0]) };
     }
 
-    private static readonly Lazy<DeviceSlot?> s_vulkan = new(OpenVulkan);
+    private static readonly Lazy<DeviceSlot?> s_vulkan = new(OpenGpu);
 
     /// <summary>
-    /// The Vulkan device slot shared by every test of the process (the discrete GPU if any, SHARPLIGHT_TEST_VK_DEVICE selects an index),
-    /// or null if none is available. It is opened once and never disposed by the tests: models do not own their devices, and a device
-    /// per test would leave one driver context alive per test until the process exits, which the driver refuses after a few dozen
-    /// (<c>VkException: ErrorInitializationFailed</c> from vkCreateDevice).
+    /// The GPU device slot shared by every test of the process, or null if none is available. Despite the name it is the GPU under
+    /// test (<see cref="TestGpu"/>: <c>SHARPLIGHT_TEST_PROVIDER=vulkan|cuda|metal</c>, default Vulkan; the discrete GPU if any,
+    /// <c>SHARPLIGHT_TEST_DEVICE</c> selects an index). It is opened once and never disposed by the tests: models do not own their
+    /// devices, and a device per test would leave one driver context alive per test until the process exits, which the driver refuses
+    /// after a few dozen (<c>VkException: ErrorInitializationFailed</c> from vkCreateDevice).
     /// </summary>
     public static DeviceSlot? Vulkan() => s_vulkan.Value;
 
-    private static DeviceSlot? OpenVulkan()
+    private static DeviceSlot? OpenGpu()
     {
-        var p = new VulkanProvider();
-        if (!p.CheckAvailability().IsAvailable)
+        var (device, reason) = TestGpu.Open();
+        if (device is null && reason.StartsWith(TestGpu.OpenFailedPrefix, StringComparison.Ordinal))
         {
-            return null;
+            throw new InvalidOperationException(reason);
         }
 
-        var devs = p.GetDevices();
-        var dev = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") is { } e && int.TryParse(e, out int i) && i < devs.Count ? devs[i]
-            : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault();
-        if (dev is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            return new DeviceSlot { Device = p.OpenDevice(dev) };
-        }
-        catch (Exception error)
-        {
-            throw new InvalidOperationException(
-                $"Opening the shared Vulkan test device {dev} failed ({error.Message}). The suite opens one device per process; if this "
-                + "fails, the driver has no free context for this process (another component opened devices without disposing them) or "
-                + "the GPU is unusable (check nvidia-smi and SHARPLIGHT_VK_DEVICES).", error);
-        }
+        return device is null ? null : new DeviceSlot { Device = device };
     }
 
     public static (float MaxAbs, float MaxRel, double Rms) Compare(float[] a, float[] b)

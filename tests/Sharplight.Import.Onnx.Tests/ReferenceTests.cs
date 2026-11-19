@@ -62,7 +62,7 @@ public class ReferenceTests(ITestOutputHelper output)
     }
 
     [Theory, MemberData(nameof(SyntheticCases))]
-    public void Synthetic_Vulkan(string name)
+    public void Synthetic_Gpu(string name)
     {
         var c = RefCase.Synthetic(name);
         if (c is null)
@@ -70,7 +70,7 @@ public class ReferenceTests(ITestOutputHelper output)
             Assert.Skip("reference data missing; run .work/onnx_ref/make_synthetic.py");
             return;
         }
-        RunCase(c, "vulkan");
+        RunCase(c, "gpu");
     }
 
     // ---- real models ---------------------------------------------------------------------------------
@@ -149,13 +149,13 @@ public class ReferenceTests(ITestOutputHelper output)
     }
 
     [Fact] public void ResNet50_Cpu() => RunModel("resnet50-v1-12", "resnet50-v1-12", "cpu");
-    [Fact] public void ResNet50_Vulkan() => RunModel("resnet50-v1-12", "resnet50-v1-12", "vulkan");
+    [Fact] public void ResNet50_Gpu() => RunModel("resnet50-v1-12", "resnet50-v1-12", "gpu");
     [Fact] public void MobileNetV2_Cpu() => RunModel("mobilenetv2-12", "mobilenetv2-12", "cpu");
-    [Fact] public void MobileNetV2_Vulkan() => RunModel("mobilenetv2-12", "mobilenetv2-12", "vulkan");
+    [Fact] public void MobileNetV2_Gpu() => RunModel("mobilenetv2-12", "mobilenetv2-12", "gpu");
     [Fact] public void DeiTTiny_Cpu() => RunModel("deit-tiny", "deit-tiny", "cpu");
-    [Fact] public void DeiTTiny_Vulkan() => RunModel("deit-tiny", "deit-tiny", "vulkan");
+    [Fact] public void DeiTTiny_Gpu() => RunModel("deit-tiny", "deit-tiny", "gpu");
     [Fact] public void ViTBase_Cpu() => RunModel("vit-base-patch16-224", "vit-base-patch16-224", "cpu");
-    [Fact] public void ViTBase_Vulkan() => RunModel("vit-base-patch16-224", "vit-base-patch16-224", "vulkan");
+    [Fact] public void ViTBase_Gpu() => RunModel("vit-base-patch16-224", "vit-base-patch16-224", "gpu");
 
     // ---- additional real models (best effort; each skips when its file/reference is absent) -----------------------
     public static IEnumerable<TheoryDataRow<string>> ExtraModels() => new[]
@@ -163,5 +163,5 @@ public class ReferenceTests(ITestOutputHelper output)
           "distilbert-base-uncased", "t5-small-encoder", "depth-anything-small", "efficientnet-lite4-11" }.Select(n => new TheoryDataRow<string>(n));
 
     [Theory, MemberData(nameof(ExtraModels))] public void ExtraModel_Cpu(string name) => RunModel(name, name, "cpu", top1: false);
-    [Theory, MemberData(nameof(ExtraModels))] public void ExtraModel_Vulkan(string name) => RunModel(name, name, "vulkan", top1: false);
+    [Theory, MemberData(nameof(ExtraModels))] public void ExtraModel_Gpu(string name) => RunModel(name, name, "gpu", top1: false);
 }
