@@ -114,7 +114,20 @@ internal sealed class CudaDeviceProperties
     }
 
     /// <summary>Device features with the neutral names of <see cref="DeviceFeatures"/>, see <see cref="FeaturesFor"/>.</summary>
-    public IReadOnlySet<string> Features() => FeaturesFor(ComputeCapability);
+    /// <remarks>
+    /// Adds <see cref="DeviceFeatures.LibraryGemm"/> from compute capability 8.0 when cuBLASLt (package <c>Sharplight.Cuda.Blas</c>) is
+    /// installed.
+    /// </remarks>
+    public IReadOnlySet<string> Features()
+    {
+        var features = new HashSet<string>(FeaturesFor(ComputeCapability));
+        if (ComputeCapability >= 80 && CudaBlas.Available)
+        {
+            features.Add(DeviceFeatures.LibraryGemm);
+        }
+
+        return features;
+    }
 
     /// <summary>
     /// Device features of a compute capability. Every listed GPU (7.5 and later) has half-precision arithmetic, warp collectives, the
@@ -166,6 +179,7 @@ internal sealed class CudaDeviceProperties
             ["cluster_launch"] = ClusterLaunch.ToString(),
             ["pci_bus_id"] = PciBusId,
             ["cuda_driver"] = DriverText,
+            ["cublaslt"] = CudaBlas.Version == 0 ? "none" : $"{CudaBlas.Version / 10000}.{CudaBlas.Version / 100 % 100}.{CudaBlas.Version % 100}",
         },
     };
 }

@@ -198,6 +198,35 @@ void to_f16(uint3 dtid : SV_DispatchThreadID, uniform ToF16Params p)
 }
 #endif
 
+#ifdef KERNEL_TO_BF16
+// Rows of f32 (row stride X_STRIDE elements) -> dense bf16 rows of K elements (round to nearest even), 8 per thread: the activations
+// of the matrix products a vendor GEMM library runs on bf16 weights (DeviceFeatures.LibraryGemm).
+#include "math_ext.slang"
+struct ToBf16Params
+{
+    float* x;
+    uint16_t* y;
+    uint T;
+};
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void to_bf16(uint3 dtid : SV_DispatchThreadID, uniform ToBf16Params p)
+{
+    uint64_t g = dtid.x;
+    uint64_t row = g / (K / 8), c = (g % (K / 8)) * 8;
+    if (row >= p.T) return;
+    float* xp = p.x + row * X_STRIDE + c;
+    uint w[4];
+    [ForceUnroll]
+    for (uint i = 0; i < 4; i++)
+    {
+        w[i] = uint(f2bf(xp[2 * i])) | (uint(f2bf(xp[2 * i + 1])) << 16);
+    }
+    ((uint4*)(p.y + row * K + c))[0] = uint4(w[0], w[1], w[2], w[3]);
+}
+#endif
+
 #ifdef KERNEL_TO_F16_RANGED
 // Rows of f32 (row stride X_STRIDE elements) -> a row-ranged f16 copy (common.slang, f16_range_scale): dense f16 rows of K
 // elements, then one scale word per row at byte offset Y_RS. One workgroup per row (f16_range_row).

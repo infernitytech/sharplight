@@ -23,4 +23,6 @@ internal enum ActivationCode
     /// SPLIT_PARTS 1, the single-product GEMM of fast matrix precision).
     /// </summary>
     ScaledF16,
+    /// <summary>Dense bf16 rows of K values (<c>to_bf16</c>, the products of a vendor GEMM library, <see cref="Runtime.DeviceFeatures.LibraryGemm"/>).</summary>
+    BF16,
 }

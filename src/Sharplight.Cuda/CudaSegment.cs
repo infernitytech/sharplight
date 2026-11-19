@@ -477,6 +477,20 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private void Launch(CudaRecordedLaunch launch)
     {
         var kernel = launch.Kernel;
+        if (kernel.Library is { } gemm)
+        {
+            // Library GEMM: arguments x, w, y (device addresses), then the row count.
+            var args = launch.Arguments;
+            _dev.Blas!.Gemm(_stream, gemm.Type, gemm.N, gemm.K, BitConverter.ToUInt32(args, 24),
+                BitConverter.ToUInt64(args, 0), BitConverter.ToUInt64(args, 8), BitConverter.ToUInt64(args, 16));
+            if (DiagnosticSwitches.SyncEachLaunch)
+            {
+                Synchronize(launch.Name);
+            }
+
+            return;
+        }
+
         fixed (byte* arguments = launch.Arguments)
         {
             void* parameter = arguments;
