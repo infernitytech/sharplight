@@ -14,5 +14,6 @@
     <InternalsVisibleTo Include="Sharplight.Import.F5Tts" />
     <InternalsVisibleTo Include="Sharplight.Import.Xtts" />
     <InternalsVisibleTo Include="Sharplight.Import.CosyVoice" />
+    <InternalsVisibleTo Include="Sharplight.Import.AceStep" />
   </ItemGroup>
 </Project>

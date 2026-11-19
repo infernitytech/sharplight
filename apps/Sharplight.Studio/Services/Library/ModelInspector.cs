@@ -134,6 +134,11 @@ internal static class ModelInspector
             return ModelKinds.VoiceActivity;
         }
 
+        if (IsAceStepFolder(path))
+        {
+            return ModelKinds.AudioGeneration;
+        }
+
         string config = System.IO.Path.Combine(path, "config.json");
         if (Directory.Exists(path) && File.Exists(config))
         {
@@ -141,6 +146,24 @@ internal static class ModelInspector
         }
 
         return ModelKindCatalog.Other;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="path"/> is an ACE-Step checkpoint folder: it has no <c>config.json</c> of its own (and so no <c>model_type</c>) but a diffusion transformer folder
+    /// <c>acestep-v15-*</c> with its <c>config.json</c>, a <c>vae</c> folder and a <c>Qwen3-Embedding*</c> text encoder folder.
+    /// </summary>
+    internal static bool IsAceStepFolder(string path)
+    {
+        try
+        {
+            return Directory.Exists(path) && Directory.Exists(System.IO.Path.Combine(path, "vae"))
+                && Directory.EnumerateDirectories(path, "acestep-v15-*").Any(dir => File.Exists(System.IO.Path.Combine(dir, "config.json")))
+                && Directory.EnumerateDirectories(path, "Qwen3-Embedding*").Any();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Whether <paramref name="path"/> is a Silero VAD ONNX file or a folder holding one.</summary>
@@ -263,12 +286,23 @@ internal static class ModelInspector
             return audioKind;
         }
 
+        if (modelType == "vibevoice")
+        {
+            // The synthesis and the recognition model share the model_type; the recognizer's architecture is VibeVoiceForASRTraining (or the transformers' VibeVoiceAsr...).
+            var names = root.TryGetProperty("architectures", out var declared) && declared.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? declared.EnumerateArray().Select(entry => entry.GetString() ?? "")
+                : [];
+            return names.Any(name => name.Contains("ASR", StringComparison.OrdinalIgnoreCase)) || folder.Contains("asr", StringComparison.OrdinalIgnoreCase)
+                ? ModelKinds.SpeechRecognition
+                : ModelKinds.SpeechSynthesis;
+        }
+
         if (folder.Contains("demucs", StringComparison.OrdinalIgnoreCase))
         {
             return ModelKinds.AudioSeparation;
         }
 
-        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts" or "omnivoice")
+        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts" or "omnivoice" or "csm")
         {
             return ModelKinds.SpeechSynthesis;
         }

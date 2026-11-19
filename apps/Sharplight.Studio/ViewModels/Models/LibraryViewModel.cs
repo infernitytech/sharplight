@@ -436,9 +436,19 @@ internal sealed partial class LibraryViewModel : ObservableObject
     {
         LoadPanel = null;
         Status = $"Loaded {model.Id} on {model.Device.Name}.";
+        _ = ShowLicenseNoticeAsync(model);
         if (!_navigator.OpenKind(model.Kind, model))
         {
             _navigator.OpenChat(model);
+        }
+    }
+
+    /// <summary>Adds the licence notice of a model that came from the catalog with a restrictive licence to the status (the model's page shows it too).</summary>
+    private async Task ShowLicenseNoticeAsync(ILoadedModel model)
+    {
+        if (await LicenseNotices.FindAsync(_services, model.Path).ConfigureAwait(true) is { } notice && !LicenseNotices.IsDismissed(_services, notice.EntryId))
+        {
+            Status = $"Loaded {model.Id} on {model.Device.Name}. {notice.Text}";
         }
     }
 

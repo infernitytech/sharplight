@@ -153,7 +153,7 @@ and hosts fall back as for any kernel. The CUDA provider reports the feature fro
 and runs the descriptors with `cublasLtMatmul` on the segment's stream (`CudaBlas`: one handle and a 32 MB workspace per device, a
 plan per shape, row count and operand alignment, the heuristic's first algorithm).
 
-Used where it beats the generated GEMMs on this GPU ([benchmarks.md §50](benchmarks.md)): 16-bit weights from 256 rows
+Used where it beats the generated GEMMs on this GPU ([benchmarks.md §51](benchmarks.md)): 16-bit weights from 256 rows
 (`SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS`). cuBLASLt takes both operands in one type, so the operands are those of the generated tensor-core
 GEMMs: the f16 copy of x they read (row-ranged where x may exceed f16's range, with the same `f16_range_unscale` fix-up of the output
 rows), and the weights in f16: bf16 weights whose every consumer is a MatMul are stored as f16 (`WeightRepack.Bf16ToF16` at upload),
@@ -371,7 +371,7 @@ compiles nothing: 3.3 s). Precompiled packages skip it entirely.
 
 ## Phase 2 numbers
 
-Same GPU and procedure ([benchmarks.md §50](benchmarks.md): GPU 1, prefill median of 5, decode median of 64 steps, identical weights
+Same GPU and procedure ([benchmarks.md §51](benchmarks.md): GPU 1, prefill median of 5, decode median of 64 steps, identical weights
 for every engine, vLLM 0.33.0 fresh on the same GPU). tok/s, prefill / decode:
 
 | model | rows | Vulkan | CUDA | CUDA / Vulkan | vLLM | CUDA / vLLM |

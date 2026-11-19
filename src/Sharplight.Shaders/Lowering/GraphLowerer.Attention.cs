@@ -717,12 +717,15 @@ public sealed partial class GraphLowerer
         }
 
         // KLANES lanes own one key row and the matching value row (8 dims per lane and 16-byte load); each lane group
-        // takes DEC_R rows per batch, about 8 loads per lane in flight.
+        // takes DEC_R rows per batch: one (until round 10: about 8 loads per lane in flight, e.g. 4 rows at D = 128). The
+        // smaller batch shortens the minimum key range per split, so batched decode spreads over more workgroups, and fewer
+        // registers stay live per lane (RTX PRO 4500, 2048-token contexts: Gemma-3-1B 4.25 / 6.80 → 4.02 / 6.28 ms per step at
+        // 16 / 64 sequences, Qwen3-0.6B 22.22 → 20.80 ms at 64; 256-token contexts at 64 sequences: gpt-oss-20b 16.86 → 16.52,
+        // Qwen3-8B-FP8 17.23 → 17.04 ms; single sequences unchanged).
         long keyLanes = Math.Min((long)BitOperations.RoundUpToPowerOf2((ulong)Math.Max(plan.D, plan.DV) / 8), sg);
-        long keySlices = (plan.D / 8 + keyLanes - 1) / keyLanes;
         long valueSlices = (plan.DV / 8 + keyLanes - 1) / keyLanes;
         int[] cfg = DiagnosticSwitches.AttentionDecodeConfig;
-        long rowsPerBatch = cfg.Length > 3 ? cfg[3] : Math.Max(1, 8 / (keySlices + valueSlices));
+        long rowsPerBatch = cfg.Length > 3 ? cfg[3] : 1;
         long batch = rowsPerBatch * threads / keyLanes;
         // Fewer than 8 workgroups per key range (few KV heads, e.g. Gemma-3-1B's single one): shorter ranges, so short
         // (sliding-window) contexts still spread over enough workgroups.

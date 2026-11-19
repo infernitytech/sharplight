@@ -17,7 +17,7 @@ namespace Sharplight.Architectures;
 /// each time revealing the positions it is most confident about (scores penalized by codebook index) under classifier-free guidance against the target alone; the tokenizer's decoder
 /// turns the codes into 24 kHz audio, which is trimmed of long silences, matched to the reference's loudness and faded. Long text is cut at punctuation and spoken chunk by chunk.
 /// </summary>
-internal sealed partial class OmniVoiceSynthesizer : ISpeechSynthesizer, IVoiceCloner, IDisposable
+internal sealed partial class OmniVoiceSynthesizer : ISpeechSynthesizer, IVoiceCloner, ISpeechLanguageList, IDisposable
 {
     private const double LongTextSeconds = 30;
     private const double ChunkSeconds = 15;

@@ -1,5 +1,5 @@
-// Section 50 of docs/benchmarks.md: cuBLASLt throughput on the Qwen3-8B prefill shapes (bf16 with f32 output, E4M3 per-tensor and
-// 128x128 block scales). Build: nvcc -O2 -arch=sm_120 s50_cublaslt_probe.cu -lcublasLt -o probe
+// Section 51 of docs/benchmarks.md: cuBLASLt throughput on the Qwen3-8B prefill shapes (bf16 with f32 output, E4M3 per-tensor and
+// 128x128 block scales). Build: nvcc -O2 -arch=sm_120 s51_cublaslt_probe.cu -lcublasLt -o probe
 // cuBLASLt probe: heuristics + timing for bf16 (f32 out) and E4M3 (per-tensor, VEC128 x BLK128x128 scales) on Qwen3-8B shapes.
 #include <cublasLt.h>
 #include <cuda_runtime.h>

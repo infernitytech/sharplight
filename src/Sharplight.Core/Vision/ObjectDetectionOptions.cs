@@ -17,4 +17,10 @@ public sealed class ObjectDetectionOptions
 
     /// <summary>Whether suppression also removes overlapping boxes of other classes.</summary>
     public bool ClassAgnosticNms { get; set; }
+
+    /// <summary>
+    /// Whether the objects of models that predict masks carry them (<see cref="DetectedObject.Mask"/>, at the size of the image: one bool per pixel). Turn it off when only
+    /// the boxes are needed (page-sized masks of many objects are large).
+    /// </summary>
+    public bool IncludeMasks { get; set; } = true;
 }

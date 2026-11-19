@@ -169,9 +169,9 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `image-classification` | `IImageClassifier` | `ClassifyAsync(ImageInput)` | - (one image, one result) | `ImageClassificationOptions` | `ImageClassification` |
 | `image-embedding` | `IImageEmbedder` | `EmbedImageAsync(ImageInput)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `ImageEmbeddingOptions` | `float[]`, `ImageClassification` |
 | `depth-estimation` | `IDepthEstimator` | `EstimateAsync(ImageInput)` | - | `DepthEstimationOptions` | `DepthMap` (per-pixel values, `ToGrayscale()`) |
-| `object-detection` | `IObjectDetector` | `DetectAsync(ImageInput)` | - | `ObjectDetectionOptions` (score threshold, max detections, optional NMS) | `ObjectDetection` (`DetectedObject`: class, label, score, `BoundingBox` in pixels, `Mask` for instance segmentation models) |
+| `object-detection` | `IObjectDetector` | `DetectAsync(ImageInput)` | - | `ObjectDetectionOptions` (score threshold, max detections, optional NMS) | `ObjectDetection` (`DetectedObject`: class, label, score, `BoundingBox` in pixels, `Mask` for instance segmentation models, `ReadingOrder` for document layout models: the objects then come back in reading order; `ObjectDetectionOptions.IncludeMasks`) |
 | `image-segmentation` | `IImageSegmenter` | `EncodeImageAsync(ImageInput)` once per image, then `SegmentAsync(SegmentationImage, SegmentationPrompt)` per prompt (or `SegmentAsync(ImageInput, SegmentationPrompt)`) | - | `SegmentationOptions` (all candidate masks or the best one) | `ImageSegmentation` (`SegmentMask`: per-pixel mask at the image size, predicted IoU, area; object score) |
-| `ocr` | `ITextRecognizer` | `RecognizeAsync(ImageInput)` | - | `TextRecognitionOptions` (max tokens) | `TextRecognition` (text, `TextRegion`s with optional boxes) |
+| `ocr` | `ITextRecognizer` | `RecognizeAsync(ImageInput)` | - | `TextRecognitionOptions` (max tokens, `Task`, `Input`) | `TextRecognition` (text, `TextRegion`s with optional boxes); also implemented by decoder-only vision-language recognizers (GLM-OCR: tasks `text`, `formula`, `table`). `DocumentReader(IObjectDetector layout, ITextRecognizer recognizer).ReadAsync(page)` runs layout, then OCR per region in reading order, and returns a `DocumentPage` of `DocumentRegion`s |
 | `image-upscaling` | `IImageUpscaler` | `UpscaleAsync(ImageInput)` | `UpscaleOptions.Progress` reports finished tiles | `UpscaleOptions` (tile size, tile padding, progress) | `ImageInput` at `Scale` times the size |
 | `audio-codec` | `IAudioCodec` | `EncodeAsync(AudioBuffer)` → codes, `DecodeAsync(CodecCodes)` → `AudioBuffer` | - | `AudioCodecOptions` (number of codebooks) | `CodecCodes` (codebook-major i32 codes) |
 | `voice-activity` | `IVoiceActivityDetector` | `DetectAsync(AudioBuffer)` → segments, `ProbabilitiesAsync` | - | `VoiceActivityOptions` (thresholds, minimum speech and silence, padding, maximum segment) | `SpeechSegment` (start and end sample, `Start`, `End`) |
@@ -374,6 +374,17 @@ of audio while the codes are being generated (windowed codec decoding with conte
 ```csharp
 using var generator = clients.Create<IMusicGenerator>(model);
 AudioBuffer music = await generator.GenerateAsync(new MusicGenerationRequest { Prompt = "calm piano with soft strings", Duration = TimeSpan.FromSeconds(10), Seed = 1 });
+```
+
+`audio-generation` models (ACE-Step 1.5 turbo; architecture `acestep`, imported by `Sharplight.Import.AceStep` from the release's folders) are latent-diffusion audio models: a tokenizer, a `text-encoder`
+component (graphs `text_encode` and `lyric_embed`), an `encoder` component (`condition_encode`: lyrics, timbre reference and caption packed into the rows the denoiser attends to), a `denoiser`
+(`denoise`: one evaluation of the diffusion transformer, the flow velocity) and a `vae` component (`audio_decode`: the Oobleck decoder, run in overlapping windows for long audio), see
+`AudioGenerationGraphs`. `IAudioGenerator.GenerateAsync` returns 48 kHz stereo audio, `GenerateLatentsAsync` the denoised latents (25 Hz, 64 channels); `AudioGenerationRequest` has the prompt, optional
+lyrics and language, duration, steps, shift, seed (or the initial noise itself) and guidance (ignored by the distilled model).
+
+```csharp
+using var generator = clients.Create<IAudioGenerator>(model);
+AudioBuffer song = await generator.GenerateAsync(new AudioGenerationRequest { Prompt = "calm acoustic guitar with soft piano", Lyrics = "[Instrumental]", Duration = TimeSpan.FromSeconds(30), Seed = 1 });
 ```
 
 `audio-separation` models (Demucs `htdemucs`; architecture `demucs`) have one component whose graph `separate` runs one fixed-length segment (the host computes the spectrogram and the

@@ -16,7 +16,7 @@ public static class TaskKindClients
     public static bool Handles(string kind) => kind is ModelKinds.SpeechRecognition or ModelKinds.SpeechSynthesis or ModelKinds.ImageGeneration
         or ModelKinds.VideoGeneration or ModelKinds.ImageClassification or ModelKinds.ImageEmbedding or ModelKinds.ObjectDetection
         or ModelKinds.DepthEstimation or ModelKinds.ImageSegmentation or ModelKinds.SemanticSegmentation or ModelKinds.Ocr or ModelKinds.ImageUpscaling
-        or ModelKinds.AudioCodec or ModelKinds.VoiceActivity or ModelKinds.AudioEmbedding or ModelKinds.MusicGeneration or ModelKinds.AudioSeparation;
+        or ModelKinds.AudioCodec or ModelKinds.VoiceActivity or ModelKinds.AudioEmbedding or ModelKinds.MusicGeneration or ModelKinds.AudioGeneration or ModelKinds.AudioSeparation;
 
     /// <summary>Creates the client of <paramref name="kind"/> for <paramref name="model"/>.</summary>
     /// <param name="provider">The registered task client factories.</param>
@@ -41,6 +41,7 @@ public static class TaskKindClients
         ModelKinds.VoiceActivity => provider.Create<IVoiceActivityDetector>(model),
         ModelKinds.AudioEmbedding => provider.Create<IAudioEmbedder>(model),
         ModelKinds.MusicGeneration => provider.Create<IMusicGenerator>(model),
+        ModelKinds.AudioGeneration => provider.Create<IAudioGenerator>(model),
         ModelKinds.AudioSeparation => provider.Create<IAudioSeparator>(model),
         _ => throw new NotSupportedException($"There is no task client for the kind '{kind}'."),
     };

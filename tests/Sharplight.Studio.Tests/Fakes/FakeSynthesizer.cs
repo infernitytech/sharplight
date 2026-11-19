@@ -6,9 +6,12 @@ using Sharplight.Tasks;
 namespace Sharplight.Studio.Tests.Fakes;
 
 /// <summary>A speech synthesizer that returns a sine tone and records what it was asked.</summary>
-internal sealed class FakeSynthesizer : ISpeechSynthesizer, IVoiceCloner
+internal sealed class FakeSynthesizer(string architecture = "outetts") : ISpeechSynthesizer, IVoiceCloner, ISpeechLanguageList
 {
-    public TaskClientMetadata Metadata { get; } = new(Sharplight.Models.ModelKinds.SpeechSynthesis, "fake-tts", "outetts");
+    public TaskClientMetadata Metadata { get; } = new(Sharplight.Models.ModelKinds.SpeechSynthesis, "fake-tts", architecture);
+
+    /// <summary>The language names the model takes (OmniVoice), empty for none.</summary>
+    public IReadOnlyList<string> LanguageNames { get; set; } = [];
 
     public int SampleRate => 24000;
 

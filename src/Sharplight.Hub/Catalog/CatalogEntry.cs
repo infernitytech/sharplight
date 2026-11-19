@@ -45,6 +45,12 @@ public sealed record CatalogEntry
     /// <summary>Limitations and remarks, or <see langword="null"/>.</summary>
     public string? Notes { get; init; }
 
+    /// <summary>
+    /// What a user must know about the licence before using the model (non-commercial use, a custom agreement, a revenue limit, gated terms), in one or two sentences;
+    /// Studio shows it once per model. <see langword="null"/> for permissive licences. Unknown to older readers, which ignore it.
+    /// </summary>
+    public string? LicenseNotice { get; init; }
+
     /// <summary>Its rows in the generated tables of docs/compatible-models.md.</summary>
     public IReadOnlyList<CatalogDocRow> Doc { get; init; } = [];
 

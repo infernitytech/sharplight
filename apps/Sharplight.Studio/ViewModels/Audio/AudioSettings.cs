@@ -8,4 +8,6 @@ namespace Sharplight.Studio.ViewModels.Audio;
 /// <param name="Tagging">The zero-shot tagging request.</param>
 /// <param name="Separation">The separation request.</param>
 /// <param name="Music">The music request without its prompt (the prompt is the page's text).</param>
-internal sealed record AudioSettings(AudioCodecOptions Codec, VoiceActivityOptions VoiceActivity, AudioClassificationOptions Tagging, AudioSeparationOptions Separation, MusicGenerationRequest Music);
+/// <param name="Generation">The diffusion music request without its prompt and lyrics (the page's texts).</param>
+internal sealed record AudioSettings(AudioCodecOptions Codec, VoiceActivityOptions VoiceActivity, AudioClassificationOptions Tagging, AudioSeparationOptions Separation, MusicGenerationRequest Music,
+    AudioGenerationRequest Generation);

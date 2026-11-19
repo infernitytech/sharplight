@@ -6833,19 +6833,193 @@ SHARPLIGHT_MOE_DUAL=0 SHARPLIGHT_MOE_BIAS_EPILOGUE=0 bench/BatchBench/bin/Releas
   --slots 68 --ctx 2560 --batch 2048 --depth 256 --sizes 16 --mixed 16+0,64+0,64+107x1,64+448x1,0+2048x1 --modes greedy --reps 12
 ```
 
-## 50. CUDA provider phase 2: tensor cores, decode, dynamic shared memory, cuBLASLt; CUDA against Vulkan and vLLM (2026-11-19)
+## 50. LLM round 11: load-adaptive serving steps, norm-written GEMM copies at decode sizes, decode attention batches, 64-row expert tiles (2026-11-19)
+
+Base: `develop` at `23231b18` (round 10), branch `perf/llm-r11`. GPU 2 (RTX PRO 4500 Blackwell, 32 GB, nothing else on it), vLLM
+0.33.0 in a virtualenv on local disk, checkpoints on local disk. "Before" is a build of `develop` at `23231b18`, run in the same
+session as "after". Raw output in [`bench/results/s50/`](../bench/results/s50).
+
+### 50.1 TTFT at 16 streams: why a step budget alone cannot buy it for free
+
+Round 10's 2048-row steps raised gpt-oss's 16-stream throughput but doubled TTFT: a closed-loop round's prompts arrive in waves
+(streams that started together finish together), and a wave of eight ~250-token prompts is prefilled in one 2048-row step, so every
+prompt of the wave waits for the whole step. A small simulator of the closed loop (step time interpolated from the BatchBench step
+times of 49.5 by rows, the engine's decode-first chunked prefill, the loadgen's 16 / 64 workers) reproduces the measured rounds
+(512-row budget: 1182 tok/s and 104 ms TTFT p50 against 1191 / 107 measured; 2048 rows: 1211 / 254 against 1240 / 235) and shows the
+trade-off directly:
+
+| fixed budget (simulated, gpt-oss, 16 streams) | 512 | 768 | 1024 | 1536 | 2048 |
+|---|---:|---:|---:|---:|---:|
+| tok/s | 1182 | 1194 | 1203 | 1207 | 1211 |
+| TTFT p50 (ms) | 104 | 142 | 180 | 219 | 254 |
+
+Per prompt row a 2048-row step is only ~10 % cheaper than a 768-row one (0.081 against 0.087 ms per row), but a wave in small steps
+also slows the decode rows that share those steps. vLLM gets both because its prefill is faster per row (its whole 16-prompt wave
+runs in one 8192-row-budget step and still streams the first token after ~180 ms); with our kernels a budget only moves along this
+curve. The policy below takes the TTFT and pays up to 3 % at 16 streams; under load it keeps the full steps.
+
+### 50.2 Load-adaptive step budget (kept)
+
+`EngineOptions.MinBatchTokens` (default 768) and `BatchTokensPerSequence` (default 32): a step carries at most 32 rows per sequence
+holding a slot, but at least 768 rows and at most the full budget (`MaxBatchTokens`, 2048 in serving). Two refinements were needed:
+
+* **The oldest prompt may always take a whole step** (the budget is at least the active sequences plus that prompt's remaining
+  rows): a lone long prompt keeps 2048-row steps; only prompts that compete with each other are spread over smaller steps.
+* **The load is held** (it falls by one per step, and starts over after a second without steps): without it a 64-stream group
+  that finished together was replaced by new requests over a few steps that each saw a light load, which broke the waves into
+  odd sizes (64-stream TTFT p50 325 ms with the full budget, `serve-full/`; 391 ms with the plain count, `serve-adaptive768/`;
+  306 ms with the held load, `serve-hold768/`).
+
+`sharplight serve --min-step-tokens N` (hosting: `HostedModelDefaults.MinStepTokens`) sets the floor; 0 restores round 10's fixed
+budget. A floor of 1024 instead of 768 gave the same throughput and a higher TTFT (16 streams: 166 against 131 ms, `serve-hold1024/`).
+The profiles and sweeps behind 50.3-50.5 and 50.8 are in `diag/`.
+
+### 50.3 Norms write the GEMMs' activations from 17 rows (kept)
+
+Above the skinny GEMM's 16 rows, the f16 copy of a norm's output was made by separate conversion launches up to 127 rows, one per
+row range of its readers (gpt-oss: Q, K, V and the router each had their own: four `to_f16` launches per layer at 64 rows). The norms
+already write only the GEMM's activations (the f16 copy, or the E4M3 rows of the fp8 GEMM) from 128 rows when every reader is a
+tensor-core GEMM; that threshold is now 17 (`SHARPLIGHT_NORM_COPY_MIN_ROWS=128` restores it). gpt-oss at 32 / 64 decode rows:
+72 launches fewer per step, 12.77 / 17.86 → 12.48 / 17.54 ms; Qwen3-8B-FP8 at 64 rows 17.39 → 17.31 ms (A/B with the switch).
+
+### 50.4 Decode attention: one key row per lane group and batch (kept)
+
+The split-K decode kernel's lane groups took 8 / (key + value slices) rows per batch (4 at head dim 64-256). One row per batch
+shortens the minimum key range per split (more workgroups for batched decode) and keeps fewer registers live. `SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64,4`
+restores 4 rows. GPU ms per step (minimum of 12), 4 rows → 1 row:
+
+| model, context | 1 sequence | 16 sequences | 64 sequences |
+|---|---:|---:|---:|
+| gpt-oss-20b, 256 | | | 16.86 → 16.52 |
+| gpt-oss-20b, 2048 | 5.33 → 5.35 | 10.91 → 10.68 | |
+| Qwen3-8B-FP8, 256 | | 13.67 → 13.37 | 17.23 → 17.04 |
+| Qwen3-8B-FP8, 2048 | 11.17 → 11.22 | 18.83 → 18.86 | |
+| Qwen3-0.6B, 2048 | 2.24 → 2.25 | 7.01 → 6.98 | 22.22 → 20.80 |
+| Gemma-3-1B, 2048 | 3.07 → 3.09 | 4.25 → 4.02 | 6.80 → 6.28 |
+
+Other settings of the same switch (target workgroups 512 / 2048, minimum keys 64 / 256) were within ±1 %.
+
+### 50.5 64-row expert tiles up to 320 rows per expert (kept)
+
+The grouped gemm_cm2 switched to 128-row expert tiles above 160 routed rows per expert, i.e. in gpt-oss's 2048-row prompt steps
+(256 per expert). 64-row tiles are faster there: 170.1 → 163.8 ms per step (profile means per layer: gate / up 2.70 → 2.61 ms, down
+1.50 → 1.38 ms); the threshold is now 320 (`MoeTallTileMinItems`). Neither 8-warp 128-row layouts, 64-row layouts other than the
+default, nor 32-value K blocks were faster in total (the gate / up dual GEMM alone gains 2-4 % on some of them, the down and dense
+GEMMs lose more); grouped MXFP4 at 256 rows per expert now runs at ~104 TFLOPS (gate / up) against ~117 for the dense bf16 GEMMs of
+the same step.
+
+### 50.6 Step times (BatchBench, GPU ms, minimum of 12, two alternating runs each)
+
+"Before" is the `develop` build, "after" this branch with its defaults; the two runs' minima, before → after:
+
+| model | step | before | after | after / before | dispatches before / after |
+|---|---|---:|---:|---:|---:|
+| gpt-oss-20b | 16 decode rows | 10.00 / 10.00 | 10.03 / 10.04 | 1.00x | 654 / 654 |
+| | 32 decode rows | 12.85 / 12.88 | 12.45 / 12.45 | 0.97x | 751 / 679 |
+| | 64 decode rows | 17.93 / 18.02 | 17.42 / 17.37 | 0.97x | 751 / 679 |
+| | 64 decode + 107 prompt rows | 29.42 / 29.45 | 29.50 / 29.48 | 1.00x | 678 / 678 |
+| | 64 decode + 448 prompt rows | 51.81 / 51.89 | 51.87 / 51.97 | 1.00x | 726 / 726 |
+| | 3 prompts of 256 rows (768) | 66.46 / 66.60 | 66.50 / 66.64 | 1.00x | 726 / 726 |
+| | 2048 prompt rows | 171.25 / 171.13 | 165.29 / 165.29 | 0.97x | 726 / 726 |
+| Qwen3-8B-FP8 | 16 decode rows | 13.70 / 13.70 | 13.37 / 13.38 | 0.98x | 618 / 618 |
+| | 64 decode rows | 17.22 / 17.22 | 16.92 / 16.93 | 0.98x | 799 / 727 |
+| | 64 decode + 107 prompt rows | 32.61 / 31.96 | 32.40 / 31.81 | 0.99x | 870 / 870 |
+| | 64 decode + 448 prompt rows | 53.73 / 53.77 | 53.47 / 53.62 | 1.00x | 618 / 618 |
+| | 3 prompts of 256 rows (768) | 73.74 / 73.93 | 73.77 / 73.94 | 1.00x | 726 / 726 |
+| | 8 prompts of 256 rows (2048) | 176.85 / 176.70 | 176.87 / 177.05 | 1.00x | 546 / 546 |
+
+The decode steps gain from 50.3 and 50.4 (the 16-row step from 50.4 only), gpt-oss's 2048-row step from 50.5. Mixed steps of 171
+and 512 rows already had the norm-written copies (from 128 rows) and their attention is the mixed-step kernel, so they are unchanged.
+
+### 50.7 Serving against vLLM (procedure of section 43, median of 3 rounds, same session)
+
+Tokens per second (median of 3), TTFT p50 and mean inter-token latency (ms). "after" runs the adaptive budget (the default),
+"after, full" the same build with `--min-step-tokens 0` (round 10's fixed 2048-row budget):
+
+| model | streams | before | after | after, full | vLLM | after / vLLM | TTFT p50 before / after / full / vLLM | ITL mean after / vLLM |
+|---|---:|---:|---:|---:|---:|---:|---|---|
+| gpt-oss-20b HF | 16 | 1282 | 1253 | 1292 | 1415 | 0.89x (full 0.91x) | 193 / **133** / 188 / 182 | 11.7 / 10.0 |
+| | 64 | 2233 | 2303 | 2321 | 3200 | 0.72x (full 0.73x) | 337 / 304 / 327 / 470 | 24.2 / 16.4 |
+| Qwen3-8B-FP8 HF | 16 | 932 | 937 | 945 | 1127 | 0.83x (full 0.84x) | 216 / **153** / 218 / 158 | 15.8 / 12.9 |
+| | 64 | 2138 | 2136 | 2165 | 2728 | 0.78x (full 0.79x) | 383 / 378 / 385 / 389 | 25.7 / 19.9 |
+
+* **TTFT at 16 streams is now below vLLM's** for both models (gpt-oss 193 → 133 ms against 182; Qwen3-8B-FP8 216 → 153 ms against
+  158), at a throughput cost against the full budget of 3.0 % (gpt-oss) / 0.8 % (Qwen3) at 16 streams and 0.8 % / 1.3 % at 64.
+  Against round 10 (before), gpt-oss at 16 streams is 2.3 % lower, the other three cells are equal or higher: the kernel gains of
+  50.3-50.5 pay for the smaller steps except where gpt-oss's 16-stream prompt waves are split.
+* With the full budget, this round's kernels give +0.8 / +3.9 % (gpt-oss) and +1.4 / +1.3 % (Qwen3-8B-FP8) at 16 / 64 streams.
+* The adaptive budget stays the default because TTFT was the stated target; `--min-step-tokens 0` is round 10's throughput-first
+  behaviour. vLLM was rerun in the same session (within 1 % of section 49).
+
+### 50.8 Looked at and not changed
+
+* **bf16 projections at 64 decode rows** (lever 2 of the brief): the LM head [2880 → 201088] already reads at ~800 GB/s (1.45 ms).
+  The attention projections' split-K gemm_cm2 run at 580-650 GB/s ([2880 → 4096] 36 µs, [4096 → 2880] 40 µs) and K / V at ~270 GB/s
+  (11 µs each, latency bound); the skinny GEMM at 64 rows (`SHARPLIGHT_SKINNY_MAX_ROWS=64`) is twice as slow (77 µs), and more K
+  splits (`SHARPLIGHT_GEMM_WAVE=192 / 384`) take 4 µs off each projection but add it back in the reduction (step unchanged). What
+  this round took from the projections is their conversion launches (50.3). A K / V (or Q / K / V) GEMM sharing one launch needs a
+  multi-output GEMM, which gemm_cm2 does not have (its dual form combines both products into one output).
+* **FP8 prefill** (lever 4): Qwen3-8B-FP8's 2048-row step is 177 ms; its FP8 GEMMs run at 180-195 TFLOPS (gate / up dual 2.0 ms,
+  down 1.05 ms, Q / O 0.36 ms per layer). The down projection's separate activation quantization (110 µs per layer at 2048 rows, 2.3 %
+  of the step) cannot move into the gate / up GEMM's store: its 128-value scale groups span two of that GEMM's 64-column dual tiles.
+  The 48 KB limits of 44.3 stand.
+* **Qwen3-8B-FP8 decode at 16 sequences** (13.4 ms after this round against a weight-read bound of ~9.2 ms): the skinny FP8 GEMMs
+  read at 690-760 GB/s (gate / up, down), Q / O at ~600 GB/s, K / V (split-K gemm_cm2 at 9-16 rows) at ~450 GB/s.
+
+### 50.9 Tests
+
+New test: `EngineTests.AdaptiveStepBudget_SpreadsCompetingPrompts_ButNotALonePrompt` (a lone 300-token prompt is prefilled in one
+step of the full budget; four concurrent prompts never share a step beyond the oldest prompt plus a row per sequence). The changed
+defaults (norm-written copies from 17 rows, one decode row per batch, 64-row expert tiles) are covered by the existing kernel tests
+(`F16RangeTests`, `MoeTests`, the attention decode tests) and by the batched greedy parity of the Families suite. On GPU 2, at
+`b29cb1ae`, and again after merging `develop` at `a7b241b3` (prefix cache round 2; its cost model and scheduler trace now see the
+adaptive step's rows):
+
+| suite | at `b29cb1ae`: total / failed / skipped | after merging `a7b241b3` |
+|---|---|---|
+| Sharplight.Vulkan.Tests (full) | 1624 / 0 / 26 | 1624 / 0 / 26 |
+| Sharplight.Families.Tests (full, batched greedy parity included) | 1340 / 0 / 683 (CUDA parity cases skipped here) | 1340 / 0 / 683 |
+| Sharplight.Serving.Tests (full) | 353 / 0 / 13 | 358 / 0 / 13 |
+| Sharplight.Hosting.Tests (full) | 27 / 0 / 0 | 27 / 0 / 0 |
+
+The serving figures of 50.7 were measured before that merge.
+
+### 50.10 Next levers
+
+* Prefill per row (both models, 16-stream TTFT and throughput together): gpt-oss's grouped MXFP4 GEMMs (~104 TFLOPS) and Qwen3's
+  FP8 GEMMs (~190 TFLOPS) against vLLM's whole 4000-row wave in ~180 ms.
+* A multi-output (Q / K / V) GEMM for decode-sized batches: K and V run latency bound at ~270 GB/s.
+* gpt-oss decode at 64 sequences: the expert-grouped skinny GEMMs are 57 % of the step.
+
+### 50.11 Reproduce
+
+```bash
+export SHARPLIGHT_VK_DEVICES=2 CUDA_VISIBLE_DEVICES=2 VLLM_VENV=<venv with vLLM 0.33.0> ROUNDS=3 SLOTS=64
+# serving (50.7): before = a build of develop at 23231b18 (SHARPLIGHT_SERVER=<its sharplight>)
+OUT_DIR=bench/results/s50/serve-after bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64"
+OUT_DIR=bench/results/s50/serve-after-full bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64" --min-step-tokens 0
+OUT_DIR=bench/results/s50/serve-vllm bench/s16_serve.sh vllm gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64"
+# step times (50.6)
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --slots 68 --ctx 2560 --batch 2048 --depth 256 --sizes 16 \
+  --mixed 16+0,32+0,64+0,64+107x1,64+448x1,0+256x3,0+2048x1 --modes greedy --reps 12
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3-8B-FP8 --slots 68 --ctx 512 --batch 2048 --depth 256 --sizes 16 \
+  --mixed 16+0,64+0,64+107x1,64+448x1,0+256x3,0+256x8 --modes greedy --reps 12
+# simulator of 50.1
+python3 bench/serve_sim.py
+
+## 51. CUDA provider phase 2: tensor cores, decode, dynamic shared memory, cuBLASLt; CUDA against Vulkan and vLLM (2026-11-19)
 
 Branch `cuda/provider-r2` ([cuda.md](cuda.md)). GPU 1 of the RunPod machine (RTX PRO 4500 Blackwell, compute capability 12.0, 82
 SMs, nothing else on it), driver 595.112.07 (CUDA 13.2), NVRTC 13.0.88, cuBLASLt 13.1.0.3 (`Sharplight.Cuda.Blas`). Identical weights
 for every engine (the GGUF files for the 1B models, the Hugging Face checkpoints for the 8B ones), procedure of section 42 for
-Sharplight (`bench/s50_providers.sh`: one process per model and prompt length, `--bench N --ctx N+256`, prefill median of 5, decode
+Sharplight (`bench/s51_providers.sh`: one process per model and prompt length, `--bench N --ctx N+256`, prefill median of 5, decode
 median of 64 steps after the prompt) and for vLLM 0.33.0 (`bench/s42_gap.sh ... vllm`, fresh on the same GPU: pp median of 5, tg128 at
-depth 16). Raw output in [`bench/results/s50/`](../bench/results/s50).
+depth 16). Raw output in [`bench/results/s51/`](../bench/results/s51).
 
-### 50.1 Prefill and decode per provider (tok/s; prefill median of 5 / decode median)
+### 51.1 Prefill and decode per provider (tok/s; prefill median of 5 / decode median)
 
 Final runs of this branch after merging `develop` at `a7b241b3` (`final-*.txt`). "Vulkan before" is the branch start (`develop` at the
-merge of phase 1, `vulkan-base.txt`), "Vulkan after" this branch: the Vulkan provider runs the same SPIR-V (50.5), so the two columns
+merge of phase 1, `vulkan-base.txt`), "Vulkan after" this branch: the Vulkan provider runs the same SPIR-V (51.5), so the two columns
 show the run-to-run spread. "CUDA kernels" is CUDA without the library GEMM (`--disable-features library_gemm`), "CUDA" the default
 with cuBLASLt installed.
 
@@ -6872,18 +7046,18 @@ of the branch before the merge, `cuda-2.txt` / `cuda-2-nolib.txt` / `vulkan-new.
 
 * **Prefill**: CUDA went from 0.18-0.20x of Vulkan (phase 1, SIMT kernels) to 0.96-1.12x: the tensor-core fragments bring the quantized
   and FP8 models to Vulkan's level (Qwen3-0.6B 0.96-0.99x, the others 1.00-1.07x), the library GEMM puts bf16 prefill 1-12 % above it.
-  Against vLLM: bf16 0.90-1.01x, FP8 0.77-0.78x (50.4).
-* **Decode**: the 1B models are 0-8 % faster on CUDA than on Vulkan (the active-mask fix, 50.2), the 8B models 2-3 % slower (GPU time
+  Against vLLM: bf16 0.90-1.01x, FP8 0.77-0.78x (51.4).
+* **Decode**: the 1B models are 0-8 % faster on CUDA than on Vulkan (the active-mask fix, 51.2), the 8B models 2-3 % slower (GPU time
   per step 19.35 against 18.75 ms for bf16: the matvecs stream the weights at 848 against 875 GB/s) and at vLLM's level (0.99x).
 
-### 50.2 Decode: Slang's active-mask tracking
+### 51.2 Decode: Slang's active-mask tracking
 
 Phase 1 measured the decode attention at 50 µs per layer on CUDA against 14 on Vulkan (cuda.md): Slang's CUDA backend tracks the
 active mask of every wave operation explicitly (a `__ballot_sync` per branch and loop iteration, 664 in the decode attention). With
 the wave operations mapped to their `WaveMask*` forms over `__activemask()` on CUDA (common.slang), Qwen3-0.6B Q8_0 decodes at 654
 tok/s (2.93 → 1.44 ms of GPU time per step), against 331 in phase 1 and 577 on Vulkan.
 
-### 50.3 Tensor cores on CUDA: what it took
+### 51.3 Tensor cores on CUDA: what it took
 
 | step (Qwen3-0.6B Q8_0, 512 rows) | prefill tok/s |
 |---|---:|
@@ -6896,7 +7070,7 @@ gemma-3-1b faulted with "misaligned address" on its Q8_0 rows at K = 1152 (1224-
 alignment): fixed with the compile-time aligned loads. Its prefill then gained 10 % (39.4 → 43.4k at 512 rows) when the `ldmatrix`
 alignment check left the inner loops (shared arrays declared 16-byte aligned).
 
-### 50.4 FP8: the volatile fragment loads, and why FP8 stays at 0.77x of vLLM
+### 51.4 FP8: the volatile fragment loads, and why FP8 stays at 0.77x of vLLM
 
 With the first CUDA fragments, Qwen3-8B-FP8 prefilled at 0.70x of Vulkan: its dual gate / up GEMM took 3.11 ms per layer at 2048
 rows against 2.09 on Vulkan. `gemm_fp8` reloads the B fragments for every row fragment (fewer registers; the Vulkan driver merges the
@@ -6906,19 +7080,19 @@ faster than Vulkan.
 
 The remaining gap to vLLM is the FP8 GEMM itself (~200 TFLOPS against vLLM's CUTLASS kernels). cuBLASLt cannot take it over: per-tensor
 E4M3 runs at 250-336 TFLOPS on these shapes, but the 128x128 block scales of the checkpoint (`BLK128x128_32F` with `VEC128_32F`
-activations) are not supported on compute capability 12.0 (`CUBLAS_STATUS_NOT_SUPPORTED`, `bench/s50_cublaslt_probe.cu`).
+activations) are not supported on compute capability 12.0 (`CUBLAS_STATUS_NOT_SUPPORTED`, `bench/s51_cublaslt_probe.cu`).
 
-### 50.5 Vulkan unchanged
+### 51.5 Vulkan unchanged
 
 The CUDA forms sit behind `SL_TARGET_CUDA`, which only the CUDA C++ target defines. The SPIR-V of the 6472 kernels the Vulkan kernel
 suite compiles (dumped with `SHARPLIGHT_DUMP_KERNELS` during its run) and of the 778 kernels the Vulkan provider compiles for
 Qwen3-0.6B Q8_0, Llama-3.2-1B Q8_0, gemma-3-1b Q8_0, Qwen3-0.6B HF, Qwen3.5-0.8B and OLMoE-1B-7B is byte-identical between `develop`
 (`a7b241b3`) and this branch, compiled with the kernel libraries of both commits; the models' MSL differs only in `#line` directives.
-The Vulkan columns of 50.1 agree within the run-to-run spread, and the Vulkan suite passes as on `develop`.
+The Vulkan columns of 51.1 agree within the run-to-run spread, and the Vulkan suite passes as on `develop`.
 
-### 50.6 Library GEMM (cuBLASLt) and dynamic shared memory
+### 51.6 Library GEMM (cuBLASLt) and dynamic shared memory
 
-cuBLASLt on the Qwen3-8B prefill shapes (16-bit operands, f32 output, `bench/s50_cublaslt_probe.cu`, random data, `final-cublaslt-probe.txt`):
+cuBLASLt on the Qwen3-8B prefill shapes (16-bit operands, f32 output, `bench/s51_cublaslt_probe.cu`, random data, `final-cublaslt-probe.txt`):
 141-163 TFLOPS, against 112-128 TFLOPS for gemm_cm2 on CUDA (and 118-125 on Vulkan, section 42). The library GEMM takes the generated
 GEMMs' operands: their row-ranged f16 copies of x and the bf16 weights stored as f16 (cuda.md). Qwen3-8B at 2048 rows, GPU ms of the
 prefill (profiles `qwen3-8b-cuda-kernels.log`, `qwen3-8b-cuda-library.log`, `qwen3-8b-vulkan.log`):
@@ -6945,7 +7119,7 @@ with double-buffered 64-value K blocks (80 KB, one workgroup per SM) is 21 % slo
 (`profiles/qwen3-8b-cuda-gemm-*`). `exp` as `__expf` (the precision of SPIR-V's `Exp` on NVIDIA) took `fe` from 13.3 to 12.7 ms; it is
 still 5-8 % slower than on Vulkan.
 
-### 50.7 Tests
+### 51.7 Tests
 
 After merging `develop` at `a7b241b3`, GPU 1 (logs on the machine; one process per class for the CUDA runs):
 
@@ -6964,7 +7138,7 @@ GEMM errors (bf16 activations too coarse for massive activations; the dual GEMM'
 With tensor cores on both providers `CudaParityTests` flipped one near tie (Llama-3.2-1B, top-2 logits 0.0009 apart), so the parity
 test compares the SIMT kernels; the tensor-core kernels are checked against the CPU.
 
-### 50.8 Next levers
+### 51.8 Next levers
 
 * The gate / up pair on the library: SiLU·mul and its f16 copy as one launch writing the down projection's operand (~8 ms of the 252
   at 2048 rows), and a single library GEMM over the concatenated gate / up weights.
@@ -6972,16 +7146,16 @@ test compares the SIMT kernels; the tensor-core kernels are checked against the 
   `mma.sync ... kind::mxf8f6f4`.
 * The prefill attention `fe` on CUDA (5-8 % behind its SPIR-V form) and the bf16 / FP8 decode matvecs (2-3 % behind).
 
-### 50.9 Reproduce
+### 51.9 Reproduce
 
 ```bash
 export CUDA_VISIBLE_DEVICES=1 SHARPLIGHT_VK_DEVICES=1
 dotnet build samples/Sharplight.Cli -c Release -p:SharplightBundleCudaBlas=true
 CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
-bench/s50_providers.sh bench/results/s50/vulkan.txt $CLI vulkan
-bench/s50_providers.sh bench/results/s50/cuda.txt $CLI cuda
-ONLY="qwen3-8b llama3.1-8b" bench/s50_providers.sh bench/results/s50/cuda-kernels.txt $CLI cuda --disable-features library_gemm
-VLLM_VENV=<venv with vLLM 0.33.0> bench/s42_gap.sh bench/results/s50/vllm qwen3-8b vllm ~/models/hf/Qwen3-8B   # likewise the others
+bench/s51_providers.sh bench/results/s51/vulkan.txt $CLI vulkan
+bench/s51_providers.sh bench/results/s51/cuda.txt $CLI cuda
+ONLY="qwen3-8b llama3.1-8b" bench/s51_providers.sh bench/results/s51/cuda-kernels.txt $CLI cuda --disable-features library_gemm
+VLLM_VENV=<venv with vLLM 0.33.0> bench/s42_gap.sh bench/results/s51/vllm qwen3-8b vllm ~/models/hf/Qwen3-8B   # likewise the others
 SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/Qwen3-8B --provider cuda --bench 2048 --ctx 2304   # per-launch profiles (Vulkan: SHARPLIGHT_VK_PROFILE=1)
-nvcc -O2 -arch=sm_120 bench/s50_cublaslt_probe.cu -lcublasLt -o probe && ./probe
+nvcc -O2 -arch=sm_120 bench/s51_cublaslt_probe.cu -lcublasLt -o probe && ./probe
 ```

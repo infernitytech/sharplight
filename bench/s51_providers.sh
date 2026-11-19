@@ -1,5 +1,5 @@
 #!/bin/bash
-# Section 50 of docs/benchmarks.md: the CUDA and the Vulkan provider on the same GPU and the same weights (procedure of section 42:
+# Section 51 of docs/benchmarks.md: the CUDA and the Vulkan provider on the same GPU and the same weights (procedure of section 42:
 # one process per model and prompt length, `--bench N --ctx N+256`, prefill median of 5, decode median of 64 steps after the prompt).
 # usage: s49_providers.sh <out file> <cli> <provider> [extra CLI arguments]
 # env: MODELS (directory with gguf/ and hf/, default ~/models), ONLY (space-separated subset of the model names below),

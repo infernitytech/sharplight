@@ -1,7 +1,7 @@
 {
   "$schema": "./verified-models.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-18",
+  "updated": "2026-11-19",
   "docSections": [
     {
       "id": "1.1",
@@ -1130,6 +1130,7 @@
         "tests": []
       },
       "notes": "111 GB file",
+      "licenseNotice": "Qwen community licence (qwen-community-1.0): custom terms from Alibaba Cloud, see the LICENSE file of the repository before you use it commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -1406,6 +1407,7 @@
         "date": "2026-11-15",
         "tests": []
       },
+      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \"Built with Llama\", the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -1516,6 +1518,7 @@
         "date": "2026-11-14",
         "tests": []
       },
+      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \"Built with Llama\", the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -2046,6 +2049,7 @@
         "tests": []
       },
       "notes": "4B UD-IQ2_M: Vulkan identical, CPU differs late",
+      "licenseNotice": "Gemma Terms of Use: use is allowed under Google's terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -2132,6 +2136,7 @@
         "tests": []
       },
       "notes": "4B UD-IQ2_M: Vulkan identical, CPU differs late",
+      "licenseNotice": "Gemma Terms of Use: use is allowed under Google's terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
       "doc": []
     },
     {
@@ -2222,6 +2227,7 @@
         "date": "2026-11-14",
         "tests": []
       },
+      "licenseNotice": "Gemma Terms of Use: use is allowed under Google's terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -2238,6 +2244,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "gemma",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -2251,6 +2258,7 @@
         "date": "2026-11-14",
         "tests": []
       },
+      "licenseNotice": "Gemma Terms of Use: use is allowed under Google's terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -3153,6 +3161,7 @@
         "date": "2026-11-15",
         "tests": []
       },
+      "licenseNotice": "DeepSeek Model License: commercial use is allowed, with use-based restrictions that also bind derived models. Read it before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -3377,6 +3386,7 @@
         "tests": []
       },
       "notes": "hybrid short-convolution architecture",
+      "licenseNotice": "LFM Open License v1.0: free for research and for commercial use only while your annual revenue is below 10 million US dollars; above that a commercial licence from Liquid AI is needed.",
       "doc": [
         {
           "section": "1.1",
@@ -3439,6 +3449,7 @@
         "tests": []
       },
       "notes": "UD-IQ2_XXS differs late",
+      "licenseNotice": "LFM Open License v1.0: free for research and for commercial use only while your annual revenue is below 10 million US dollars; above that a commercial licence from Liquid AI is needed.",
       "doc": [
         {
           "section": "1.1",
@@ -3559,6 +3570,7 @@
         "tests": []
       },
       "notes": "QAD-Q4_0 differs late",
+      "licenseNotice": "LFM Open License v1.0: free for research and for commercial use only while your annual revenue is below 10 million US dollars; above that a commercial licence from Liquid AI is needed.",
       "doc": [
         {
           "section": "1.1",
@@ -3908,6 +3920,7 @@
         "tests": []
       },
       "notes": "hybrid Mamba-2 / attention",
+      "licenseNotice": "NVIDIA Open Model License: commercial use is allowed under NVIDIA's terms (read them, they include conditions on redistribution and guardrails).",
       "doc": [
         {
           "section": "1.1",
@@ -4090,6 +4103,7 @@
         "date": "2026-11-14",
         "tests": []
       },
+      "licenseNotice": "Falcon LLM licence: based on Apache 2.0 with an acceptable use policy; read the terms on the model page before you use it commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -5497,6 +5511,7 @@
         "tests": []
       },
       "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
+      "licenseNotice": "Qwen Research License: for non-commercial research use only; commercial use needs a separate licence from Alibaba Cloud.",
       "doc": []
     },
     {
@@ -6566,6 +6581,7 @@
         "date": "2026-11-16",
         "tests": []
       },
+      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \"Built with Llama\", the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
       "doc": [
         {
           "section": "1.1.1",
@@ -6627,6 +6643,7 @@
         "date": "2026-11-16",
         "tests": []
       },
+      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \"Built with Llama\", the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
       "doc": [
         {
           "section": "1.1.1",
@@ -6856,6 +6873,7 @@
         "tests": []
       },
       "notes": "no GGUF (llama.cpp has no OPT); post-norm OPT-350m not supported",
+      "licenseNotice": "OPT licence: the model card marks it as not for commercial use (research use).",
       "doc": [
         {
           "section": "1.1.1",
@@ -6873,7 +6891,7 @@
       "family": "SmolLM2",
       "architecture": "llama",
       "level": "verified",
-      "license": "creativeml-openrail-m",
+      "license": "apache-2.0",
       "gated": false,
       "publisher": {
         "name": "Hugging Face",
@@ -7973,6 +7991,7 @@
       "kind": "embeddings",
       "family": "",
       "level": "loads",
+      "license": "gemma",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -7986,6 +8005,7 @@
         "date": "2026-11-15",
         "tests": []
       },
+      "licenseNotice": "Gemma Terms of Use: use is allowed under Google's terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
       "doc": [
         {
           "section": "1.5",
@@ -10300,6 +10320,7 @@
         "tests": []
       },
       "notes": "streaming chunked-attention settings read, but run with full context",
+      "licenseNotice": "NVIDIA Open Model License: commercial use is allowed under NVIDIA's terms (read them, they include conditions on redistribution and guardrails).",
       "doc": [
         {
           "section": "2",
@@ -11363,6 +11384,7 @@
         "tests": []
       },
       "notes": "no default speaker profile; OuteTTS 0.3 not supported",
+      "licenseNotice": "CC BY-NC 4.0: the OuteTTS weights are for non-commercial use only.",
       "doc": [
         {
           "section": "3",
@@ -11544,6 +11566,7 @@
         "tests": []
       },
       "notes": "speaks with the voice of a reference recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060 and \u0060ReferenceText\u0060); no Chinese pinyin conversion, no automatic transcription of the reference",
+      "licenseNotice": "CC BY-NC 4.0: the F5-TTS weights are for non-commercial use only.",
       "doc": [
         {
           "section": "3",
@@ -11647,6 +11670,7 @@
         "tests": []
       },
       "notes": "the 58 built-in speakers or the voice of a recording (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060; style latents within 3.7e-6, speaker embedding within 2.8e-6 vs coqui-tts); streams within a sentence (first audio after 12 codes); a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060); English text cleaning, plus numbers, dates and currency spelled for the request\u0027s language (EN, DE, FR, ES, IT, PT, ZH, JA)",
+      "licenseNotice": "Coqui Public Model License (CPML): non-commercial use only. Coqui has shut down, so there is no commercial licence to buy. Read the licence before you use the model.",
       "doc": [
         {
           "section": "3",
@@ -11934,6 +11958,7 @@
         "tests": []
       },
       "notes": "Q4_0 file produces a degenerate image in every implementation",
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4",
@@ -12089,6 +12114,7 @@
         "tests": []
       },
       "notes": "fp16 files: visually identical, 28 to 38 dB",
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4",
@@ -12314,6 +12340,7 @@
         "tests": []
       },
       "notes": "Q4_K: visually equivalent (17.3 dB); separate VAE / text-encoder files not supported",
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4",
@@ -12480,6 +12507,7 @@
         "tests": []
       },
       "notes": "4 steps, no guidance",
+      "licenseNotice": "Stability AI non-commercial community licence: the weights are free for non-commercial use only; commercial use needs a Stability AI membership (stability.ai/license).",
       "doc": [
         {
           "section": "4",
@@ -12632,6 +12660,7 @@
         "tests": []
       },
       "notes": "Distilled SD 2.1: 1 to 4 steps without guidance (the folder is recognized by its name)",
+      "licenseNotice": "Stability AI licence: free for non-commercial use; commercial use needs a Stability AI membership (stability.ai/license).",
       "doc": [
         {
           "section": "4",
@@ -13039,6 +13068,7 @@
         "tests": []
       },
       "notes": "FLUX.1-dev non-commercial license: accept its terms on the Hub",
+      "licenseNotice": "FLUX non-commercial licence: the weights are for non-commercial use only; commercial use needs a licence from Black Forest Labs.",
       "doc": [
         {
           "section": "4",
@@ -13164,6 +13194,7 @@
         ]
       },
       "notes": "recognized by the file name (kontext) or FluxKontextPipeline; the reference image is resized to the output size (default: its own size); Studio\u0027s Image page shows the edit input",
+      "licenseNotice": "FLUX non-commercial licence: the weights are for non-commercial use only; commercial use needs a licence from Black Forest Labs.",
       "doc": [
         {
           "section": "4",
@@ -13589,6 +13620,7 @@
         "tests": []
       },
       "notes": "28 steps, guidance 7; 1024x1024 in 12.6 s",
+      "licenseNotice": "Stability AI Community License: free for research and for commercial use while your annual revenue is below 1 million US dollars; above that you need an enterprise licence.",
       "doc": [
         {
           "section": "4",
@@ -14483,6 +14515,7 @@
         ]
       },
       "notes": "1024x1024 20 steps in 73 s on a 32 GB GPU (20 GB transformer and 25 GB text encoder alternate); the text encoder is exactly Mistral-Small-3.2-24B-Instruct-2506; editing with up to 10 reference images",
+      "licenseNotice": "FLUX non-commercial licence: the weights are for non-commercial use only; commercial use needs a licence from Black Forest Labs.",
       "doc": [
         {
           "section": "4",
@@ -14845,6 +14878,7 @@
         "tests": []
       },
       "notes": "FLUX non-commercial license (Klein 9B); unsloth mirror of the Black Forest Labs files (the official repository is gated)",
+      "licenseNotice": "FLUX non-commercial licence: the weights are for non-commercial use only; commercial use needs a licence from Black Forest Labs.",
       "doc": [
         {
           "section": "4",
@@ -15217,6 +15251,7 @@
         "tests": []
       },
       "notes": "8 steps at 1024x1024 in 14.8 s; the schedule comes from \u0060model_index.json\u0060 or the \u0060turbo\u0060 file name",
+      "licenseNotice": "Qwen Research License: for non-commercial research use only; commercial use needs a separate licence from Alibaba Cloud.",
       "doc": [
         {
           "section": "4",
@@ -15413,6 +15448,7 @@
         "tests": []
       },
       "notes": "1024x1024 20 steps in 36 s; text-to-image only (the editing path is not implemented)",
+      "licenseNotice": "Qwen Research License: for non-commercial research use only; commercial use needs a separate licence from Alibaba Cloud.",
       "doc": [
         {
           "section": "4",
@@ -15556,6 +15592,7 @@
         ]
       },
       "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (\u0060raw\u0060 / \u0060base\u0060 in the name) run 28 guided steps",
+      "licenseNotice": "Krea 2 community licence: custom terms, read the LICENSE file of the repository before you use the model commercially.",
       "doc": [
         {
           "section": "4",
@@ -15611,6 +15648,7 @@
         "date": "2026-11-16",
         "tests": []
       },
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4.1",
@@ -15668,6 +15706,7 @@
         "date": "2026-11-16",
         "tests": []
       },
+      "licenseNotice": "The repository declares a custom licence (other) without a text in its card: check the model page before you use it commercially.",
       "doc": [
         {
           "section": "4.1",
@@ -15725,6 +15764,7 @@
         "date": "2026-11-16",
         "tests": []
       },
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4.1",
@@ -15781,6 +15821,7 @@
         "date": "2026-11-16",
         "tests": []
       },
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4.1",
@@ -15842,6 +15883,7 @@
         "date": "2026-11-16",
         "tests": []
       },
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4.1",
@@ -16025,6 +16067,7 @@
         "date": "2026-11-16",
         "tests": []
       },
+      "licenseNotice": "Fair AI Public License 1.0-SD: commercial use is allowed, but changes to the model and what you build from it must be shared under the same terms.",
       "doc": [
         {
           "section": "4.1",
@@ -16086,6 +16129,7 @@
         "date": "2026-11-16",
         "tests": []
       },
+      "licenseNotice": "Fair AI Public License 1.0-SD: commercial use is allowed, but changes to the model and what you build from it must be shared under the same terms.",
       "doc": [
         {
           "section": "4.1",
@@ -16147,6 +16191,7 @@
         "date": "2026-11-16",
         "tests": []
       },
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4.1",
@@ -18503,6 +18548,7 @@
         "tests": []
       },
       "notes": "fixed 518 px canvas",
+      "licenseNotice": "CC BY-NC 4.0: the weights are for non-commercial use only.",
       "doc": [
         {
           "section": "5",
@@ -18577,6 +18623,7 @@
         "tests": []
       },
       "notes": "fixed 518 px canvas",
+      "licenseNotice": "CC BY-NC 4.0: the weights are for non-commercial use only.",
       "doc": []
     },
     {
@@ -18707,6 +18754,7 @@
         "tests": []
       },
       "notes": "fixed square input; \u0060pytorch_model.bin\u0060 read for b5",
+      "licenseNotice": "NVIDIA SegFormer licence (NVIDIA Source Code License): for non-commercial research use; read it on the SegFormer repository.",
       "doc": [
         {
           "section": "5",
@@ -18781,6 +18829,7 @@
         "tests": []
       },
       "notes": "fixed square input; \u0060pytorch_model.bin\u0060 read for b5",
+      "licenseNotice": "NVIDIA SegFormer licence (NVIDIA Source Code License): for non-commercial research use; read it on the SegFormer repository.",
       "doc": []
     },
     {
@@ -19035,6 +19084,7 @@
         "tests": []
       },
       "notes": "CC BY-NC 4.0, gated: accept the terms on the Hub",
+      "licenseNotice": "CC BY-NC 4.0: the weights are for non-commercial use only; commercial use needs a licence from Bria AI.",
       "doc": []
     },
     {
@@ -20200,6 +20250,7 @@
         ]
       },
       "notes": "2.4 s per step at 768\u00D7512\u00D7121 frames (8 steps, one pass), 12.3 GB peak, 34 s in all",
+      "licenseNotice": "LTX-Video open weights licence: free to use, but organisations with 10 million US dollars annual revenue or more need a paid commercial licence from Lightricks.",
       "doc": [
         {
           "section": "8",
@@ -21406,6 +21457,7 @@
         "tests": []
       },
       "notes": "5.7 s per step, 23.4 GB peak (tiled decode)",
+      "licenseNotice": "Tencent Hunyuan Community License: not valid in the European Union, the United Kingdom and South Korea; further terms apply above 100 million monthly active users. Read it before you use the model.",
       "doc": [
         {
           "section": "8",
@@ -22132,6 +22184,7 @@
         "tests": []
       },
       "notes": "DINOv3 license (gated, accept the terms and use a token); 4 registers, 2-D rotary positions, LayerScale",
+      "licenseNotice": "DINOv3 licence from Meta (gated): custom terms, accept them on the Hub and read them before you use the model commercially.",
       "doc": []
     },
     {
@@ -22197,6 +22250,7 @@
         "tests": []
       },
       "notes": "DINOv3 license (gated, accept the terms and use a token)",
+      "licenseNotice": "DINOv3 licence from Meta (gated): custom terms, accept them on the Hub and read them before you use the model commercially.",
       "doc": []
     },
     {
@@ -23191,6 +23245,7 @@
         "tests": []
       },
       "notes": "license OpenMDW 1.1; windows of 30 s; lookahead fixed at the checkpoint\u0027s default (3 rows); 128 language prompts via SpeechRecognitionOptions.Language; NVIDIA\u0027s q8_0 GGUF not supported",
+      "licenseNotice": "OpenMDW 1.1: a permissive open model licence (use, modify and share, with attribution and notices kept). Read it on the model page.",
       "doc": [
         {
           "section": "2",
@@ -23443,6 +23498,7 @@
           "SdEditTests"
         ]
       },
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4",
@@ -23601,6 +23657,7 @@
           "SdEditTests"
         ]
       },
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4",
@@ -23727,6 +23784,7 @@
         ]
       },
       "notes": "A refiner, not a text-to-image model on its own: load it next to the SDXL base and choose it as the refiner (Studio\u0027s Image page; ImageGenerationOptions.Refiner), or use it alone for image to image at a low strength (diffusers\u0027 default 0.3).",
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4",
@@ -24046,6 +24104,7 @@
         "tests": []
       },
       "notes": "fixed 504 px square canvas; single-image depth (the camera branch and rays are not read); DualDPT depth branch",
+      "licenseNotice": "CC BY-NC 4.0: the weights are for non-commercial use only.",
       "doc": [
         {
           "section": "5",
@@ -24062,7 +24121,7 @@
       "kind": "text-generation",
       "family": "GLM",
       "architecture": "glm4",
-      "level": "partial",
+      "level": "verified",
       "license": "mit",
       "gated": false,
       "publisher": {
@@ -24071,7 +24130,8 @@
         "url": "https://z.ai"
       },
       "tags": [
-        "vision"
+        "vision",
+        "ocr"
       ],
       "variants": [
         {
@@ -24142,7 +24202,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "greedy text of \u0022Text Recognition:\u0022 on a three-line document image identical to transformers (also from an .slm)",
+        "summary": "greedy text of \u0022Text Recognition:\u0022 on a three-line document image identical to transformers, also through ITextRecognizer (the formula and table tasks identical too; also from an .slm)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -24150,15 +24210,15 @@
         "date": "2026-11-18",
         "tests": []
       },
-      "notes": "image-to-text through the chat and generator path (the image goes through the CogViT-style tower); no ITextRecognizer wiring and the multi-token-prediction layer is not used",
+      "notes": "image-to-text through the chat and generator path and, as ITextRecognizer (page-level text, formulas as LaTeX, tables as markup), through the task layer; the multi-token-prediction layer is not used (the serving engine takes no image rows yet)",
       "doc": [
         {
           "section": "1.3",
           "cells": {
             "repositories": "zai-org/GLM-OCR",
             "formats": "safetensors",
-            "verification": "greedy text identical to transformers (CPU, Vulkan, .slm)",
-            "notes": "OCR prompt \u0022Text Recognition:\u0022; no multi-token prediction"
+            "verification": "greedy text and the formula and table tasks identical to transformers (CPU, Vulkan, .slm), ITextRecognizer",
+            "notes": "OCR prompts \u0022Text Recognition:\u0022, \u0022Formula Recognition:\u0022, \u0022Table Recognition:\u0022; no multi-token prediction"
           }
         }
       ]
@@ -24232,6 +24292,82 @@
           "cells": {
             "repositories": "Roboflow/rf-detr-large",
             "task": "detection"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pp-doclayout-v3",
+      "name": "PP-DocLayoutV3",
+      "kind": "object-detection",
+      "family": "PP-DocLayout",
+      "architecture": "pp_doclayout_v3",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Baidu (PaddlePaddle)",
+        "countryOfOrigin": "CN",
+        "url": "https://github.com/PaddlePaddle/PaddleX"
+      },
+      "tags": [
+        "vision",
+        "ocr"
+      ],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 400000000,
+          "companions": [],
+          "repository": "PaddlePaddle/PP-DocLayoutV3_safetensors",
+          "revision": "e4f489dc536556fc1be02b973ba06756e0d4a2ac",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 2460,
+              "gitOid": "5a22928c191950850cbc0e56e43f722073e7c8da"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 133270468,
+              "sha256": "5ea422c6cc5fe759a47e1357c35639b58173508e025a3131cbe4b6ac59e2b85e"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 575,
+              "gitOid": "ab66797648e5a3247eca2988e9fcd8af07a6a038"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "same ten detections in the same reading order as transformers on a synthetic page, boxes within a pixel, masks, CPU, Vulkan and .slm",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "document layout analysis: boxes, 25 layout classes, reading order (DetectedObject.ReadingOrder) and per-detection masks; fixed 800 px square canvas (the reference resizes without antialiasing, Sharplight with Pillow\u0027s antialiased bicubic); pairs with GLM-OCR through DocumentReader",
+      "doc": [
+        {
+          "section": "5",
+          "cells": {
+            "repositories": "PaddlePaddle/PP-DocLayoutV3_safetensors",
+            "task": "document layout detection"
           }
         }
       ]
@@ -24334,7 +24470,8 @@
         "date": "2026-11-18",
         "tests": []
       },
-      "notes": "LICENSE TERMS, read before use: the weights are CC-BY-NC (non-commercial use only, a constraint of the training data); the bundled audio tokenizer (audio_tokenizer/) is under the Boson Higgs Audio 2 Community License (based on the Meta Llama 3 license: attribution required, and a request for an expanded license from Boson AI above 100,000 annual active users; its text is installed with the model); the code is Apache-2.0. Speaks in 600\u002B languages with the voice of a recording and its transcript (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, \u0060ReferenceText\u0060), a designed voice (\u0060SpeechSynthesisOptions.Instructions\u0060: gender, age, pitch, whisper, accent or Chinese dialect) or one the model chooses; no built-in speakers; no automatic transcription of the reference; a voice can be saved (`IVoiceCloner`, `VoiceLibrary`).",
+      "notes": "LICENSE TERMS, read before use: the weights are CC-BY-NC (non-commercial use only, a constraint of the training data); the bundled audio tokenizer (audio_tokenizer/) is under the Boson Higgs Audio 2 Community License (based on the Meta Llama 3 license: attribution required, and a request for an expanded license from Boson AI above 100,000 annual active users; its text is installed with the model); the code is Apache-2.0. Speaks in 600\u002B languages with the voice of a recording and its transcript (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, \u0060ReferenceText\u0060), a designed voice (\u0060SpeechSynthesisOptions.Instructions\u0060: gender, age, pitch, whisper, accent or Chinese dialect) or one the model chooses; no built-in speakers; no automatic transcription of the reference; a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060).",
+      "licenseNotice": "The OmniVoice weights are CC-BY-NC (non-commercial use only, a constraint of its training data). The bundled audio tokenizer is under the Boson Higgs Audio 2 Community License (attribution; ask Boson AI for a licence above 100,000 annual active users). The code is Apache-2.0.",
       "doc": [
         {
           "section": "3",
@@ -24590,6 +24727,145 @@
             "model": "VibeVoice-ASR 7B (speaker-diarized long-form transcription)",
             "repositories": "microsoft/VibeVoice-ASR-HF, microsoft/VibeVoice-ASR (\u002B tokenizer files)",
             "formats": "safetensors (transformers and original layouts)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ace-step-1-5-turbo",
+      "name": "ACE-Step 1.5 (turbo)",
+      "kind": "audio-generation",
+      "family": "ACE-Step",
+      "architecture": "acestep",
+      "level": "verified",
+      "license": "mit",
+      "gated": false,
+      "publisher": {
+        "name": "ACE-Step",
+        "countryOfOrigin": "CN",
+        "url": "https://github.com/ace-step/ACE-Step-1.5"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors (diffusion transformer, VAE and Qwen3 text encoder folders)",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 7671440500,
+          "companions": [],
+          "repository": "ACE-Step/Ace-Step1.5",
+          "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+          "include": [
+            "README.md",
+            "acestep-v15-turbo/config.json",
+            "acestep-v15-turbo/model.safetensors",
+            "acestep-v15-turbo/silence_latent.pt",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.safetensors",
+            "Qwen3-Embedding-0.6B/config.json",
+            "Qwen3-Embedding-0.6B/model.safetensors",
+            "Qwen3-Embedding-0.6B/tokenizer.json",
+            "Qwen3-Embedding-0.6B/tokenizer_config.json",
+            "Qwen3-Embedding-0.6B/vocab.json",
+            "Qwen3-Embedding-0.6B/merges.txt",
+            "Qwen3-Embedding-0.6B/special_tokens_map.json",
+            "Qwen3-Embedding-0.6B/added_tokens.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "README.md",
+              "size": 5496,
+              "gitOid": "a3115cec283fbdc2d500aa50fdffac3c87e6689a"
+            },
+            {
+              "path": "acestep-v15-turbo/config.json",
+              "size": 1968,
+              "gitOid": "6a0b5c09a654614302947fd1d7041f7ed0764d8c"
+            },
+            {
+              "path": "acestep-v15-turbo/model.safetensors",
+              "size": 4787825604,
+              "sha256": "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7"
+            },
+            {
+              "path": "acestep-v15-turbo/silence_latent.pt",
+              "size": 3841215,
+              "sha256": "a778e9dd942f5e8b2c09c55370782d318834432b03dabbcdf70e6ed49ad6358b"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 425,
+              "gitOid": "f49eb7b261dde15ed29c0fa1e790251dcecbd280"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 337431388,
+              "sha256": "da17edb604c40deaf09e9b24974e590d1ca83a374070e5d0884cfa4bed9a99b0"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/config.json",
+              "size": 1359,
+              "gitOid": "21bd712c76114dc22587c6eeb84ab64186c9d245"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/model.safetensors",
+              "size": 1191586416,
+              "sha256": "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/tokenizer.json",
+              "size": 11423705,
+              "sha256": "def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/tokenizer_config.json",
+              "size": 5404,
+              "gitOid": "ddaf69808214a44fdd26d3785b66c1367c78277a"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/merges.txt",
+              "size": 1671853,
+              "gitOid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/special_tokens_map.json",
+              "size": 613,
+              "gitOid": "ac23c0aaa2434523c494330aeb79c58395378103"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/added_tokens.json",
+              "size": 707,
+              "gitOid": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "acestep",
+        "summary": "vs the checkpoint\u0027s own modeling code (fp32, CPU) with the same noise and 8 Euler steps for a 10 s instrumental: latents within 8.1e-6 (CPU) / 2.8e-4 (Vulkan) relative RMS, decoded 48 kHz stereo audio (diffusers AutoencoderOobleck) within 4.3e-5 (CPU) / 8.3e-4 (Vulkan)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "MIT license for the ACE-Step weights (the model card allows commercial use of the generated music); the bundled Qwen3-Embedding-0.6B text encoder is Apache-2.0. Text (caption) and optional lyrics to 48 kHz stereo music, \u0060IAudioGenerator\u0060: duration, seed, steps (default 8), shift. Distilled (turbo) transformer only: no guidance. Not covered: the 5 Hz language model planner (audio codes, metadata thinking), reference audio (timbre), cover, repaint and lego tasks, the base and SFT transformers; up to 120 s per request.",
+      "doc": [
+        {
+          "section": "6",
+          "cells": {
+            "repositories": "ACE-Step/Ace-Step1.5",
+            "kind": "audio generation (music)"
           }
         }
       ]

@@ -82,6 +82,7 @@
               "audio-separation",
               "audio-embedding",
               "music-generation",
+              "audio-generation",
               "embeddings",
               "reranker"
             ]
@@ -373,6 +374,12 @@
             }
           },
           "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "licenseNotice": {
             "type": [
               "string",
               "null"
