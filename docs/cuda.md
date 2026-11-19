@@ -546,8 +546,9 @@ State of `cuda/provider-r4` (merged with `develop` at `47f9af79`, builds clean) 
   Qwen3-8B-FP8 and Qwen3-0.6B Q8_0 is byte-identical to `develop`; long-prompt logits of Qwen3-8B-FP8 against Vulkan within the
   provider spread of phase 3. `Sharplight.Cuda` now depends on `Sharplight.Cuda.Runtime` as a package (see
   [packaging](#packaging-and-licensing)).
-- **Run at hand-back, results in the hand-back report:** `CudaParityTests`, `FamilyGenerationTests.Generation_matches_reference_on_cuda`,
-  the Vulkan suite on Vulkan.
+- **Also verified (after the Vulkan allocator fallback `43367d0e`):** `CudaParityTests` 4 / 4 identical;
+  `FamilyGenerationTests.Generation_matches_reference_on_cuda` 315 cases, 0 failed, 100 skipped (models not on the machine); the
+  Vulkan suite on Vulkan, one process per class, all 62 classes: 1624 tests, 0 failed, 26 skipped (as on `develop`).
 - **Next steps:** the open items of the roadmap's phase 4 (FP8 main loop
   toward CUTLASS's ~290 TFLOPS; decode step: fused q / k / v GEMM, weight streaming, split-KV decode attention; FlashAttention-2
   prefill kernel; MXFP4 expert GEMM). Ideas measured and rejected are listed in §54.3 so they are not retried.

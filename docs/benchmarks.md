@@ -7535,7 +7535,7 @@ Run on one GPU (index 0) after merging `develop` (with phase 3):
 | Sharplight.Cuda.Tests (incl. `NativeFp8GemmMatchesTheCpu`: 100 / 300 / 700 rows, single and dual, against the CPU and the generated GEMM) | 17 / 0 failed / 0 skipped |
 | Sharplight.Vulkan.Tests on CUDA, one process per class (all 62 classes, cuBLASLt installed) | 1624 / 0 failed / 46 skipped (as in section 53) |
 | Vulkan SPIR-V of the 225 kernels of Qwen3-8B-FP8 and Qwen3-0.6B Q8_0 against `develop` (`slangc -g0 -target spirv`) | identical |
-| CudaParityTests, FamilyGenerationTests on CUDA, Vulkan suite on Vulkan | see [cuda.md, phase 4 status](cuda.md#phase-4-status) |
+| CudaParityTests, FamilyGenerationTests on CUDA, Vulkan suite on Vulkan | parity 4 / 4 identical; reference generations 315, 0 failed, 100 skipped; Vulkan suite 1624, 0 failed, 26 skipped |
 
 ### 54.9 Reproduce
 
