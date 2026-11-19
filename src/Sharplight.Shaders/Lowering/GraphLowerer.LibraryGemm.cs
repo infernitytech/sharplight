@@ -79,9 +79,11 @@ public sealed partial class GraphLowerer
     {
         string label = MatMulLabel(p);
         var x = half ?? QuantizedActivations(label, [p.Node], p.Node.Inputs[0], p.X, p.XStride, 1, p.K, LibraryGemmMinRows, p.X.Shape[0], ActivationCode.F16);
-        var kernel = LibraryKernel.Gemm(_opt.Target, "f16", p.N, p.K);
-        Emit(label + " library", [p.Node],
-            [new KernelVariant(b => p.RowCount(b) >= LibraryGemmMinRows, kernel, _ => new Grid(1))],
+        // The provider's hand-written f16 GEMM where it has one, else the vendor library (same operands and output).
+        KernelVariant[] variants = NativeGemmF16
+            ? NativeF16Variants(p.N, p.K, p.X.Shape[0], null, b => p.RowCount(b), LibraryGemmMinRows)
+            : [new KernelVariant(b => p.RowCount(b) >= LibraryGemmMinRows, LibraryKernel.Gemm(_opt.Target, "f16", p.N, p.K), _ => new Grid(1))];
+        Emit(label + (NativeGemmF16 ? " native" : " library"), [p.Node], variants,
             [Pointer(x), Pointer(p.W), Pointer(p.Y), TokenArg(p.X)],
             [x, p.W], [p.Y]);
         if (_rangeScales.TryGetValue(x, out long scales))
