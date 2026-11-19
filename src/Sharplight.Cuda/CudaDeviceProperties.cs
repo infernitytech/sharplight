@@ -144,7 +144,7 @@ internal sealed class CudaDeviceProperties
         if (computeCapability >= 80)
         {
             features.UnionWith([DeviceFeatures.MatrixF16, DeviceFeatures.MatrixBF16, DeviceFeatures.MatrixInt8, DeviceFeatures.MatrixMmaLayout, DeviceFeatures.BFloat16,
-                DeviceFeatures.NativeGemmF16]);
+                DeviceFeatures.NativeGemmF16, DeviceFeatures.NativeGemmMoe]);
         }
 
         if (computeCapability >= 89)

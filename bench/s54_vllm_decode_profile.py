@@ -4,7 +4,11 @@
 the second, warm run. Kernels are summed by name over the decode steps (steps with one row per sequence), divided by the step
 count, and printed heaviest first with the step's total.
 
+With --prefill N (section 56) it profiles instead the prefill of --seqs prompts of N random tokens (one output token each): the
+ranges annotated "execute_context_<seqs>(<N * seqs>)_generation_0(0)", kernels summed per prefill step.
+
 usage: CUDA_VISIBLE_DEVICES=1 python s54_vllm_decode_profile.py <model dir> [--seqs 64] [--depth 256] [--steps 64] [--top 40]
+       [--prefill N]
 """
 import argparse
 import glob
@@ -24,9 +28,10 @@ def run_vllm(a):
     llm = LLM(a.model, max_model_len=a.ctx, gpu_memory_utilization=0.85, max_num_seqs=max(a.seqs, 64), enable_prefix_caching=False,
               profiler_config={"profiler": "torch", "torch_profiler_dir": trace_dir})
     rng = random.Random(1)
-    params = SamplingParams(max_tokens=a.steps, ignore_eos=True, temperature=0)
+    params = SamplingParams(max_tokens=1 if a.prefill else a.steps, ignore_eos=True, temperature=0)
+    depth = a.prefill or a.depth
     for profiled in (False, True):
-        prompts = [TokensPrompt(prompt_token_ids=[rng.randrange(1000, 30000) for _ in range(a.depth)]) for _ in range(a.seqs)]
+        prompts = [TokensPrompt(prompt_token_ids=[rng.randrange(1000, 30000) for _ in range(depth)]) for _ in range(a.seqs)]
         if profiled:
             llm.start_profile()
         llm.generate(prompts, params, use_tqdm=False)
@@ -45,6 +50,7 @@ def main():
     ap.add_argument("--top", type=int, default=40)
     ap.add_argument("--ctx", type=int, default=1024)
     ap.add_argument("--trace", help="parse this torch trace (.json.gz) instead of running vLLM")
+    ap.add_argument("--prefill", type=int, default=0, help="profile the prefill of --seqs prompts of this many tokens instead")
     a = ap.parse_args()
 
     if a.trace:
@@ -55,7 +61,8 @@ def main():
         trace = json.load(f)
     events = [e for e in trace["traceEvents"] if e.get("cat") == "kernel"]
     # Decode steps: the GPU ranges vLLM annotates "execute_context_0(0)_generation_<seqs>(<seqs>)" (no prompt rows).
-    marker = f"execute_context_0(0)_generation_{a.seqs}({a.seqs})"
+    marker = (f"execute_context_{a.seqs}({a.prefill * a.seqs})_generation_0(0)" if a.prefill
+              else f"execute_context_0(0)_generation_{a.seqs}({a.seqs})")
     steps = [e for e in trace["traceEvents"] if e.get("cat") == "gpu_user_annotation" and e.get("name") == marker]
     per = defaultdict(float)
     count = defaultdict(int)
@@ -67,7 +74,11 @@ def main():
     n = len(steps)
     total = sum(per.values()) / n
     span = sum(st["dur"] for st in steps) / n
-    print(f"{n} decode steps of {a.seqs} sequences: GPU time per step {span / 1000:.2f} ms (annotated range), kernel sum {total / 1000:.2f} ms")
+    if n == 0:
+        names = sorted({e.get("name") for e in trace["traceEvents"] if e.get("cat") == "gpu_user_annotation"})
+        print("no range named", marker, "; annotated ranges:", names[:20])
+        return
+    print(f"{n} {'prefill' if a.prefill else 'decode'} steps of {a.seqs} sequences: GPU time per step {span / 1000:.2f} ms (annotated range), kernel sum {total / 1000:.2f} ms")
     for name, us in sorted(per.items(), key=lambda kv: -kv[1])[: a.top]:
         print(f"{us / n / 1000:8.3f} ms {100 * us / n / total:5.1f}% {count[name] / n:6.1f}x  {name[:150]}")
 

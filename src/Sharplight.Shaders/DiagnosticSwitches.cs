@@ -236,6 +236,12 @@ internal static class DiagnosticSwitches
     /// <summary>Activation rows from which the hand-written provider GEMMs serve a matmul, or null for the default.</summary>
     public static long? NativeGemmMinRows { get; } = Read("SHARPLIGHT_NATIVE_GEMM_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary>
+    /// Average routed rows per expert from which the hand-written grouped MXFP4 expert GEMM serves an expert product
+    /// (<c>SHARPLIGHT_NATIVE_MOE_MIN_ROWS</c>), or null for the default.
+    /// </summary>
+    public static long? NativeMoeMinRows { get; } = Read("SHARPLIGHT_NATIVE_MOE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>False keeps E4M3-weight prefill matmuls off the fp8 tensor-core GEMM.</summary>
     public static bool Fp8Gemm { get; } = IsNotZero("SHARPLIGHT_FP8_GEMM");
 
