@@ -183,11 +183,15 @@ public sealed partial class GraphLowerer
         // separate GEMMs would not split K); otherwise the regular matmuls and the elementwise group, skipped while a fused
         // launch serves the rows.
         long fusedBelow = fusedMaxRows;
+        // 16-bit weights with the vendor GEMM library: from LibraryGemmMinRows rows the two matmuls run on the library (LowerMatMul
+        // below) and the group as its own launch, instead of the dual gemm_cm2.
+        bool library = LibraryGemmUsable(weightA.Type, N, K, rowsPerLead, x.Shape[0]) && weightB.Type == weightA.Type;
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow;
         bool dualFp8 = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
             xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "gemm_fp8.slang"));
         var dualGemm2 = dualFp8 ? null : EmitDualGemm2($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
-            a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "matmul.slang"), output);
+            a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "matmul.slang"), output,
+            library ? LibraryGemmMinRows : long.MaxValue);
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && DualFp8Serves(rows(b), N, K))
                                 && !(dualGemm2?.Invoke(rows(b)) ?? false);
         LowerMatMul(a);
@@ -428,6 +432,7 @@ public sealed partial class GraphLowerer
         bool intDot = UseIntDotMatvec(n, plan.W.Type, plan.K);
         bool mmq = QuantizedActivationsAllowed(n) && UseMmq(plan.W.Type, plan.N, plan.K);
         bool fp8Gemm = !mmq && UseFp8Gemm(plan.W.Type, plan.K);
+        bool library = !mmq && !fp8Gemm && UseLibraryGemm(plan, epilogue is not null);
         bool skinny = UseSkinnyGemm(plan);
         long skinnyMin = intDot ? IntDotSkinnyMinRows(plan.W.Type, plan.K, plan.N) : SkinnyMinRows;
         bool skinnyHere = skinny && SkinnyMaxRowsFor(plan.N, plan.W.Type) >= skinnyMin;
@@ -456,6 +461,13 @@ public sealed partial class GraphLowerer
             _launchCondition = outer;
             EmitFp8Gemm(plan);
             _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < Fp8GemmMinRows;
+        }
+        else if (library)
+        {
+            var beforeLibrary = _launchCondition;
+            _launchCondition = outer;
+            EmitLibraryGemm(plan, half);
+            _launchCondition = b => (beforeLibrary?.Invoke(b) ?? true) && plan.RowCount(b) < LibraryGemmMinRows;
         }
 
         if (skinnyHere)

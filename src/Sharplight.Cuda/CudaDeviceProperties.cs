@@ -12,7 +12,6 @@ internal sealed class CudaDeviceProperties
     /// Shared memory the kernels are specialized for at most. The Slang kernels declare their shared arrays statically, and CUDA limits
     /// static shared memory to 48 KB per block (more needs dynamic shared memory and an opt-in per kernel, phase 2 of docs/cuda.md).
     /// </summary>
-    private const long MaxKernelSharedMemory = 48 * 1024;
 
     /// <summary>Oldest compute capability the provider lists (Turing, the oldest the CUDA 13 compiler targets).</summary>
     public const int MinimumComputeCapability = 75;
@@ -56,8 +55,12 @@ internal sealed class CudaDeviceProperties
     /// <summary>The CUDA version the driver implements (e.g. 13020 for 13.2).</summary>
     public int DriverVersion { get; private init; }
 
-    /// <summary>Shared memory per block the kernels are specialized for.</summary>
-    public long KernelSharedMemory => Math.Min(MaxKernelSharedMemory, MaxSharedMemoryPerBlock);
+    /// <summary>
+    /// Shared memory per block the kernels are specialized for: the device's opt-in maximum (kernels above the 48 KB static limit
+    /// run with dynamic shared memory, see <see cref="SharedMemoryRewriter"/>), or <c>SHARPLIGHT_CUDA_MAX_SHARED</c> bytes
+    /// (49152 keeps the static limit, the shared memory of the Vulkan provider).
+    /// </summary>
+    public long KernelSharedMemory => Math.Max(MaxSharedMemoryPerBlock, Math.Min(DiagnosticSwitches.MaxSharedMemory ?? MaxSharedMemoryOptin, MaxSharedMemoryOptin));
 
     /// <summary>Why the device is not listed, or null when it is usable.</summary>
     public string? Unsupported => ComputeCapability < MinimumComputeCapability
@@ -110,14 +113,45 @@ internal sealed class CudaDeviceProperties
         };
     }
 
+    /// <summary>Device features with the neutral names of <see cref="DeviceFeatures"/>, see <see cref="FeaturesFor"/>.</summary>
+    /// <remarks>
+    /// Adds <see cref="DeviceFeatures.LibraryGemm"/> from compute capability 8.0 when cuBLASLt (package <c>Sharplight.Cuda.Blas</c>) is
+    /// installed.
+    /// </remarks>
+    public IReadOnlySet<string> Features()
+    {
+        var features = new HashSet<string>(FeaturesFor(ComputeCapability));
+        if (ComputeCapability >= 80 && CudaBlas.Available)
+        {
+            features.Add(DeviceFeatures.LibraryGemm);
+        }
+
+        return features;
+    }
+
     /// <summary>
-    /// Device features with the neutral names of <see cref="DeviceFeatures"/>. Every listed GPU (compute capability 7.5 and later) has
-    /// half-precision arithmetic, warp collectives and the packed int8 dot product (<c>dp4a</c>). The tensor-core features are not
-    /// reported yet: Slang's CUDA backend implements 16x16x16 cooperative matrices with <c>mma.sync</c>, but it cannot emit the
-    /// tensor-core GEMM <c>gemm_cm2</c> ("unexpected IR opcode during code emit", like its Metal backend), so those kernels keep their SIMT
-    /// fallbacks until they have CUDA forms (docs/cuda.md, phase 2).
+    /// Device features of a compute capability. Every listed GPU (7.5 and later) has half-precision arithmetic, warp collectives, the
+    /// packed int8 dot product (<c>dp4a</c>) and a fixed warp size of 32 (<see cref="DeviceFeatures.SubgroupSizeControl"/>). From 8.0
+    /// (Ampere) the tensor cores run the cooperative-matrix kernels through their CUDA forms (<c>cuda_mma.slang</c>: <c>ldmatrix</c> and
+    /// <c>mma.sync</c> on f16, bf16 and int8 with the MMA register layout, <see cref="DeviceFeatures.MatrixMmaLayout"/>), and bfloat16
+    /// is native; from 8.9 (Ada, Hopper, Blackwell) also E4M3 (<c>mma.sync ... e4m3</c>) and the 8-bit float types. Turing (7.5) has
+    /// <c>mma.sync</c> only in smaller shapes and keeps the SIMT kernels.
     /// </summary>
-    public IReadOnlySet<string> Features() => new HashSet<string> { DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.IntDot };
+    public static IReadOnlySet<string> FeaturesFor(int computeCapability)
+    {
+        var features = new HashSet<string> { DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.IntDot, DeviceFeatures.SubgroupSizeControl };
+        if (computeCapability >= 80)
+        {
+            features.UnionWith([DeviceFeatures.MatrixF16, DeviceFeatures.MatrixBF16, DeviceFeatures.MatrixInt8, DeviceFeatures.MatrixMmaLayout, DeviceFeatures.BFloat16]);
+        }
+
+        if (computeCapability >= 89)
+        {
+            features.UnionWith([DeviceFeatures.MatrixFp8, DeviceFeatures.Float8]);
+        }
+
+        return features;
+    }
 
     public DeviceInfo ToDeviceInfo(int index) => new()
     {
@@ -145,6 +179,7 @@ internal sealed class CudaDeviceProperties
             ["cluster_launch"] = ClusterLaunch.ToString(),
             ["pci_bus_id"] = PciBusId,
             ["cuda_driver"] = DriverText,
+            ["cublaslt"] = CudaBlas.Version == 0 ? "none" : $"{CudaBlas.Version / 10000}.{CudaBlas.Version / 100 % 100}.{CudaBlas.Version % 100}",
         },
     };
 }

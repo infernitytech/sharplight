@@ -6,4 +6,9 @@ namespace Sharplight.Cuda;
 /// <param name="ThreadsX">Block size, x.</param>
 /// <param name="ThreadsY">Block size, y.</param>
 /// <param name="ThreadsZ">Block size, z.</param>
-internal sealed record CudaKernel(nint Module, nint Function, uint ThreadsX, uint ThreadsY, uint ThreadsZ);
+/// <param name="SharedBytes">Dynamic shared memory per block (bytes), passed at launch.</param>
+internal sealed record CudaKernel(nint Module, nint Function, uint ThreadsX, uint ThreadsY, uint ThreadsZ, int SharedBytes)
+{
+    /// <summary>The library GEMM the launch runs instead of a kernel, or null for a kernel.</summary>
+    public CudaLibraryGemm? Library { get; init; }
+}

@@ -294,9 +294,16 @@ using namespace linalg;
 #define GAS (GBK + 8)
 #define GA_PER_T (GBM * GBK / 8 / GTHREADS)
 #define GB_PER_T (GBN * GBK / 8 / GTHREADS)
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA2 = CuA16;
+typealias MatB2 = CuB16;
+typealias Acc2 = CuAccF;
+#else
 typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 // MOE_FRAG8 (DeviceFeatures.MatrixF16Small, Metal simdgroup_matrix): each 16x16 accumulator is 2 x 2 fragments of 8x8 over K steps
 // of 8, and the tiles are staged as half arrays (Slang's Metal target cannot load fragments from packed uint4 arrays).
 #ifndef MOE_FRAG8

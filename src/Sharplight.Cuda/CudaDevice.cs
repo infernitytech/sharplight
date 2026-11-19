@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using Sharplight.Cuda.Interop;
 using Sharplight.Graph;
@@ -30,6 +31,7 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     private readonly bool _kernelBinaries;
     private readonly long _budget;
     private readonly nint _context;
+    private readonly Lazy<CudaBlas?> _blas;
     private long _used;
     private bool _disposed;
 
@@ -55,6 +57,7 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         _kernelBinaries = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
         ArtifactTargets = _kernelBinaries ? [Code.CreateCodeTarget(info.Provider), CreateCubinTarget()] : [Code.CreateCodeTarget(info.Provider)];
         _budget = options.MemoryBudget ?? info.TotalMemory;
+        _blas = new Lazy<CudaBlas?>(() => CudaBlas.TryCreate(this));
         nint context;
         CudaApi.Check(CudaApi.cuDevicePrimaryCtxRetain(&context, properties.Ordinal), "cuDevicePrimaryCtxRetain");
         _context = context;
@@ -219,8 +222,16 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     internal CudaKernel Kernel(CompiledKernel kernel, ICompilationCache? cache = null)
         => _kernels.GetOrAdd(kernel.CacheKey, _ => new Lazy<CudaKernel>(() => LoadKernel(kernel, cache))).Value;
 
+    /// <summary>The cuBLASLt handle of the library GEMMs, created on first use (null when cuBLASLt is not installed).</summary>
+    internal CudaBlas? Blas => _blas.Value;
+
     private CudaKernel LoadKernel(CompiledKernel kernel, ICompilationCache? cache)
     {
+        if (LibraryKernel.TryParse(kernel.Code, out string operation, out var parameters))
+        {
+            return LoadLibraryKernel(operation, parameters);
+        }
+
         var ptx = CudaPtx.Parse(kernel.Code, $"{kernel.Name}:{kernel.EntryPoint}");
         long start = Stopwatch.GetTimestamp();
         Enter();
@@ -263,13 +274,43 @@ internal sealed unsafe class CudaDevice : IComputeDevice
             throw new KernelCompilationException($"Kernel {kernel.Name}:{kernel.EntryPoint} needs {ptx.ThreadsX * ptx.ThreadsY * ptx.ThreadsZ} threads per block; its registers allow {maxThreads}.");
         }
 
+        if (ptx.SharedBytes > 0)
+        {
+            int result = CudaApi.cuFuncSetAttribute(function, CudaApi.FunctionMaxDynamicSharedSizeBytes, ptx.SharedBytes);
+            if (result != 0)
+            {
+                CudaApi.cuModuleUnload(module);
+                throw new KernelCompilationException($"Kernel {kernel.Name}:{kernel.EntryPoint} needs {ptx.SharedBytes} bytes of shared memory: {CudaApi.ErrorText(result)}");
+            }
+        }
+
         Interlocked.Add(ref KernelLoadTicks, Stopwatch.GetTimestamp() - start);
         if (DiagnosticSwitches.Trace)
         {
-            Console.Error.WriteLine($"[cuda] kernel {kernel.Name}:{kernel.EntryPoint} {kernel.CacheKey[..12]} block {ptx.ThreadsX}x{ptx.ThreadsY}x{ptx.ThreadsZ} (max {maxThreads}) in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:F1} ms");
+            Console.Error.WriteLine($"[cuda] kernel {kernel.Name}:{kernel.EntryPoint} {kernel.CacheKey[..12]} block {ptx.ThreadsX}x{ptx.ThreadsY}x{ptx.ThreadsZ} (max {maxThreads}), dynamic shared {ptx.SharedBytes} B in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:F1} ms");
         }
 
-        return new CudaKernel(module, function, ptx.ThreadsX, ptx.ThreadsY, ptx.ThreadsZ);
+        return new CudaKernel(module, function, ptx.ThreadsX, ptx.ThreadsY, ptx.ThreadsZ, ptx.SharedBytes);
+    }
+
+    /// <summary>A library kernel: the library GEMM on cuBLASLt (no module).</summary>
+    /// <exception cref="KernelCompilationException">The operation is not a library GEMM of a supported type, or cuBLASLt is not installed.</exception>
+    private CudaKernel LoadLibraryKernel(string operation, IReadOnlyDictionary<string, string> parameters)
+    {
+        if (operation != "gemm" || CudaBlas.DataType(parameters["a"]) is not { } type)
+        {
+            throw new KernelCompilationException($"Library kernel {operation} ({string.Join(' ', parameters.Select(p => $"{p.Key}={p.Value}"))}) is not supported by the CUDA provider.");
+        }
+
+        if (Blas is null)
+        {
+            throw new KernelCompilationException("The library GEMM needs cuBLASLt (package Sharplight.Cuda.Blas), which is not installed.");
+        }
+
+        return new CudaKernel(0, 0, 1, 1, 1, 0)
+        {
+            Library = new CudaLibraryGemm(type, long.Parse(parameters["n"], CultureInfo.InvariantCulture), long.Parse(parameters["k"], CultureInfo.InvariantCulture)),
+        };
     }
 
     /// <summary>Compiles PTX into a cubin for this GPU with the driver's JIT linker. The context must be current.</summary>
@@ -327,6 +368,12 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         foreach (var (key, code) in kernels)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (LibraryKernel.TryParse(code.Span, out _, out _))
+            {
+                // Library kernels have no device code.
+                continue;
+            }
+
             var ptx = CudaPtx.Parse(code.ToArray(), key);
             entries[CubinKeyPrefix + key[SlangCompiler.KernelKeyPrefix.Length..]] = Link(ptx, key);
         }
@@ -394,9 +441,14 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         }
 
         CudaApi.cuCtxSetCurrent(_context);
+        if (_blas.IsValueCreated)
+        {
+            _blas.Value?.Dispose();
+        }
+
         foreach (var kernel in _kernels.Values)
         {
-            if (kernel.IsValueCreated)
+            if (kernel.IsValueCreated && kernel.Value.Module != 0)
             {
                 CudaApi.cuModuleUnload(kernel.Value.Module);
             }

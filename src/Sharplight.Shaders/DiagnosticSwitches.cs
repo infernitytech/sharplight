@@ -48,6 +48,8 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_MMQ_CFG</c>, <c>SHARPLIGHT_MMQ_CFG64=wm,wn,fm,fn</c>: force the layout of the 128- and 64-token int8 GEMM
 /// tiles. <c>SHARPLIGHT_MMQ_GENERIC=1</c>: scale its accumulators through the per-element (layout independent) path.
 /// <c>SHARPLIGHT_MMQ_BK=32|64|128</c>: preferred K step of the int8 GEMM (default 128, 64 for Q6_K).</item>
+/// <item><c>SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS=n</c>: rows from which matmuls run on the vendor GEMM library (DeviceFeatures.LibraryGemm;
+/// default 256).</item>
 /// <item><c>SHARPLIGHT_FP8_GEMM=0</c>: run prefill matmuls with block-scaled E4M3 weights on the f16 tensor-core GEMM instead of the
 /// fp8 one (<c>gemm_fp8.slang</c>, E4M3 activations). Disabling <c>matrix_fp8</c> turns it off as well.
 /// <c>SHARPLIGHT_FP8_GEMM_MIN_ROWS=n</c>: activation rows from which the fp8 GEMM serves a matmul (default 17).
@@ -204,6 +206,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Activation rows from which the int8 GEMM serves a matmul.</summary>
     public static long? MmqMinRows { get; } = Read("SHARPLIGHT_MMQ_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>Activation rows from which the vendor GEMM library serves a matmul, or null for the default.</summary>
+    public static long? LibraryGemmMinRows { get; } = Read("SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS") is { } lv ? long.Parse(lv, CultureInfo.InvariantCulture) : null;
 
     /// <summary>Activation rows from which the fp8 GEMM serves a matmul, or null for the default.</summary>
     public static long? Fp8GemmMinRows { get; } = Read("SHARPLIGHT_FP8_GEMM_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;

@@ -17,6 +17,9 @@ internal static class CudaLibraries
     /// <summary>Library name of NVRTC in the <c>LibraryImport</c> declarations.</summary>
     public const string Nvrtc = "sharplight-cuda-nvrtc";
 
+    /// <summary>Library name of cuBLASLt (optional package <c>Sharplight.Cuda.Blas</c>) in the <c>LibraryImport</c> declarations.</summary>
+    public const string BlasLt = "sharplight-cuda-cublaslt";
+
     private static readonly Lock s_gate = new();
     private static bool s_registered;
     private static string? s_nvrtcDirectory;
@@ -53,6 +56,7 @@ internal static class CudaLibraries
         {
             Driver => LoadFirst(DriverNames.Select(n => (n, (string?)null))),
             Nvrtc => LoadNvrtc(),
+            BlasLt => LoadFirst(BlasDirectories().SelectMany(d => BlasLtNames.Select(n => (n, (string?)d)))),
             _ => 0,
         };
     }
@@ -69,6 +73,26 @@ internal static class CudaLibraries
         }
 
         return 0;
+    }
+
+    /// <summary>File names of cuBLASLt on this OS.</summary>
+    private static string[] BlasLtNames => OperatingSystem.IsWindows() ? ["cublasLt64_13.dll"] : ["libcublasLt.so.13"];
+
+    /// <summary>
+    /// Directories searched for cuBLASLt, in order: <c>SHARPLIGHT_CUDA_BLAS_DIR</c>, then those of the runtime package (the
+    /// <c>Sharplight.Cuda.Blas</c> package puts its files next to the application like <c>Sharplight.Cuda.Runtime</c>).
+    /// </summary>
+    public static IEnumerable<string> BlasDirectories()
+    {
+        if (Environment.GetEnvironmentVariable("SHARPLIGHT_CUDA_BLAS_DIR") is { Length: > 0 } configured)
+        {
+            yield return configured;
+        }
+
+        foreach (string directory in RuntimeDirectories())
+        {
+            yield return directory;
+        }
     }
 
     /// <summary>Directories searched for NVRTC, in order.</summary>

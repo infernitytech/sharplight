@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Sharplight.Shaders.Lowering;
 
 /// <summary>Host-side weight layout transforms, applied row by row during upload (backend-neutral).</summary>
@@ -14,6 +16,7 @@ public static class WeightRepacker
         WeightRepack.Mxfp4Split => Mxfp4GroupRows * (k / 32 * 17),
         WeightRepack.Fp8B32Split => k / 32 * 36,
         WeightRepack.Fp8B128Split => k / 128 * 132,
+        WeightRepack.Bf16ToF16 => 2 * k,
         _ => throw new ArgumentOutOfRangeException(nameof(r)),
     };
 
@@ -42,6 +45,12 @@ public static class WeightRepacker
             return;
         }
 
+        if (r == WeightRepack.Bf16ToF16)
+        {
+            ConvertBf16ToF16(MemoryMarshal.Cast<byte, ushort>(src), MemoryMarshal.Cast<byte, Half>(dst));
+            return;
+        }
+
         if (r is WeightRepack.Fp8B32Split or WeightRepack.Fp8B128Split)
         {
             int block = r == WeightRepack.Fp8B32Split ? 32 : 128;
@@ -66,6 +75,15 @@ public static class WeightRepacker
                 scales[b * 2 + 1] = blk[1];
                 blk[2..].CopyTo(quants.Slice(b * 32, 32));
             }
+        }
+    }
+
+    // bf16 → f32 (exact) → f16, rounded to nearest even like the kernels' f32tof16; overflow gives infinities, as there.
+    private static void ConvertBf16ToF16(ReadOnlySpan<ushort> src, Span<Half> dst)
+    {
+        for (int i = 0; i < src.Length; i++)
+        {
+            dst[i] = (Half)BitConverter.Int32BitsToSingle(src[i] << 16);
         }
     }
 

@@ -123,6 +123,61 @@ public sealed class CudaCodeTests
         }
     }
 
+    [Fact]
+    public void LibraryGemmMatchesTheCpu()
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.LibraryGemm), "cuBLASLt is not installed (Sharplight.Cuda.Blas or SHARPLIGHT_CUDA_BLAS_DIR).");
+        var cpuProvider = new Cpu.CpuExecutionProvider();
+
+        // 300 rows (library from 256) of a bf16 projection (stored as f16 for the library); x is rounded to f16 as for the generated GEMMs.
+        var expected = RunProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), 300);
+        var actual = RunProjection(provider.OpenDevice(info), 300);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.True(Math.Abs(expected[i] - actual[i]) <= 3e-2 + 1e-2 * Math.Abs(expected[i]), $"y[{i}]: {actual[i]} vs {expected[i]}");
+        }
+
+        // The library launch ran: the same rows without the feature give the generated GEMM's results, which sum in another order.
+        var withoutLibrary = new DeviceOptions();
+        withoutLibrary.DisabledFeatures.Add(DeviceFeatures.LibraryGemm);
+        var kernels = RunProjection(provider.OpenDevice(info, withoutLibrary), 300);
+        Assert.NotEqual(kernels, actual);
+    }
+
+    /// <summary>y = x · Wᵀ with bf16 W [512, 1024] on <paramref name="rows"/> rows.</summary>
+    private static float[] RunProjection(IComputeDevice device, int rows)
+    {
+        using (device)
+        {
+            var tg = new TG("cuda-library-gemm");
+            var x = tg.InF("x", TG.T, 1024);
+            tg.B.Output("y", tg.B.MatMul(x, tg.RandW("w", DataType.BF16, 0.05f, 512, 1024)));
+            var graph = tg.B.Build();
+            using var model = CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                Compile = new CompileOptions { MaxTokens = 512, ContextLength = 512 },
+                ReservePerDevice = 0,
+            });
+            var input = new float[rows * 1024];
+            for (int i = 0; i < input.Length; i++)
+            {
+                input[i] = MathF.Sin(i * 0.37f);
+            }
+
+            model.SetInput(graph.Inputs.Single(), System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
+            var parameters = new RunParameters();
+            parameters.Symbols["T"] = rows;
+            model.Run(parameters);
+            var output = new float[rows * 512];
+            model.GetOutput<float>("y", output);
+            return output;
+        }
+    }
+
     private static void RequireNvrtc() => Assert.SkipWhen(NvrtcTranslator.NvrtcVersion is null, "NVRTC is not installed (Sharplight.Cuda.Runtime).");
 
     private static Dictionary<string, string> NormMacros() => new()
@@ -169,7 +224,7 @@ public sealed class CudaCodeTests
         CodeTarget = CudaCodeGenerator.CodeTargetOf(computeCapability),
         SubgroupSize = 32,
         MaxSharedMemory = 48 * 1024,
-        Features = [DeviceFeatures.Float16, DeviceFeatures.SubgroupOps, DeviceFeatures.IntDot],
+        Features = [.. CudaDeviceProperties.FeaturesFor(computeCapability)],
     };
 
     private static void Workload(IComputeDevice device, CompilationArtifacts artifacts, CancellationToken cancellationToken)

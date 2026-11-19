@@ -8,7 +8,7 @@ namespace Sharplight.Families.Tests;
 
 /// <summary>
 /// Greedy generation on the CUDA provider against the Vulkan provider on the same GPU: both lower the graph with the same rules and run
-/// the same Slang kernels, so the tokens must agree. Opt-in with <c>SHARPLIGHT_TEST_CUDA=1</c> (<c>CUDA_VISIBLE_DEVICES</c> and
+/// the same Slang SIMT kernels, so the tokens must agree. Opt-in with <c>SHARPLIGHT_TEST_CUDA=1</c> (<c>CUDA_VISIBLE_DEVICES</c> and
 /// <c>SHARPLIGHT_VK_DEVICES</c> select the GPU); each case skips when its model is absent (under ~/models).
 /// </summary>
 public class CudaParityTests
@@ -36,10 +36,16 @@ public class CudaParityTests
         var vulkan = new VulkanProvider();
         Assert.SkipUnless(cuda.CheckAvailability().IsAvailable && vulkan.CheckAvailability().IsAvailable, "needs the CUDA and the Vulkan provider");
 
-        // Vulkan runs with the features the CUDA provider does not report switched off (tensor cores, bf16 and fp8 types), so both
-        // providers lower the model to the same kernels.
+        // Both providers run the same SIMT kernels: the features the CUDA provider does not report are switched off, and so are the
+        // tensor cores and the library GEMM. Their CUDA forms (mma.sync fragments, cuBLASLt) and the Vulkan driver's cooperative
+        // matrices round and order differently enough to flip near ties (Llama-3.2-1B: top-2 logits 0.0009 apart, providers 0.007);
+        // the kernel suite checks them against the CPU on CUDA instead.
         var cudaFeatures = cuda.GetDevices()[0].Features;
-        var disabled = new HashSet<string>(DeviceFeatures.All.Where(f => !cudaFeatures.Contains(f) && f is not (DeviceFeatures.KernelBinaries or DeviceFeatures.MemoryBudget))) { DeviceFeatures.IntDot };
+        var disabled = new HashSet<string>(DeviceFeatures.All.Where(f => !cudaFeatures.Contains(f) && f is not (DeviceFeatures.KernelBinaries or DeviceFeatures.MemoryBudget)))
+        {
+            DeviceFeatures.IntDot, DeviceFeatures.MatrixF16, DeviceFeatures.MatrixBF16, DeviceFeatures.MatrixInt8, DeviceFeatures.MatrixFp8,
+            DeviceFeatures.MatrixMmaLayout, DeviceFeatures.LibraryGemm,
+        };
         var expected = Generate(vulkan, path, disabled);
         var actual = Generate(cuda, path, disabled);
 

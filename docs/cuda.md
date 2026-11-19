@@ -7,9 +7,11 @@ clusters (see [benchmarks.md §44.3](benchmarks.md#443-tried-and-not-kept) and [
 The FP8 GEMM tiles that would cut L2 traffic, the flash-attention tiles that would hide K/V staging and the MoE GEMMs all need one of
 these.
 
-Phase 1 (this document's status, branch `cuda/provider-r1`) is the provider itself: every op of the shared kernel library runs on CUDA,
-correct and driver-only, with the same lowering as Vulkan. It is not faster than Vulkan yet ([first numbers](#first-numbers)); the
-speed comes with the CUDA-only kernels of the [roadmap](#roadmap).
+Phase 1 (branch `cuda/provider-r1`) is the provider itself: every op of the shared kernel library runs on CUDA, correct and
+driver-only, with the same lowering as Vulkan. Phase 2 (branch `cuda/provider-r2`, this document's status) brings the tensor cores
+to CUDA (CUDA forms of the cooperative-matrix fragments on `ldmatrix` / `mma.sync`), removes the active-mask tracking of Slang's
+CUDA output from the wave operations, lowers the tile kernels for the opt-in shared memory above 48 KB, and adds cuBLASLt as an
+optional library GEMM: CUDA now matches or beats Vulkan on the measured models ([phase 2 numbers](#phase-2-numbers)).
 
 ## Requirements
 
@@ -41,9 +43,9 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
   neutral, used only by CUDA) runs NVRTC on the Slang output before it is cached, so the cached and exported code of a kernel is its
   PTX: `NvrtcTranslator` compiles for the device's virtual architecture (`-arch=compute_XY`), with the floating-point headers passed
   in memory. Cache keys of SPIR-V and MSL kernels are unchanged.
-- **Lowering.** `CudaCodeGenerator` calls the shared `GraphLowerer` with warp size 32, 48 KB of shared memory (the static limit, see
-  below), the SM count as compute units and the device's features, so the CUDA provider selects the same kernels as the Vulkan provider
-  on the same NVIDIA GPU. That makes Vulkan the reference for parity and keeps phase 1 free of new tuning decisions.
+- **Lowering.** `CudaCodeGenerator` calls the shared `GraphLowerer` with warp size 32, the device's opt-in shared memory (see
+  [shared memory](#shared-memory)), the SM count as compute units and the device's features, so the CUDA provider selects the same
+  kernels as the Vulkan provider on the same NVIDIA GPU where both have the features. That keeps Vulkan the reference for parity.
 - **Memory.** Device memory per buffer (`cuMemAlloc`, zeroed), weights uploaded through two 64 MB pinned staging buffers that the CPU
   fills (reading mapped files, repacking rows with the shared `WeightCopier`) while the GPU copies the other one. Shared weights,
   per-graph states, device forwarding between segments and data-dependent symbols work as on Vulkan.
@@ -54,22 +56,63 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
 - **Module loading.** `CudaDevice` loads each kernel once: its cubin from the model-level cache (`cubin/<kernel hash>`) or the per-user
   artifact store when present, otherwise it links the PTX into a cubin with the driver's JIT (`cuLinkCreate` / `cuLinkAddData` /
   `cuLinkComplete`), records it in the cache (so the next load skips the JIT) and loads it with `cuModuleLoadData`.
-- **Device features** use the neutral names: `fp16`, `subgroup_ops` and `int_dot` (`dp4a`) on every listed GPU. The tensor-core
-  features (`matrix_f16`, `matrix_bf16`, `matrix_int8`, `matrix_fp8`, `matrix_mma_layout`) and the `bf16` / `fp8` types are not reported
-  in phase 1, so the kernels written for them take their SIMT fallbacks, exactly like the Vulkan provider on a GPU without cooperative
-  matrices. Slang's CUDA prelude does implement cooperative matrices (16x16x16 fragments on `mma.sync.m16n8k16`: f16 and bf16 with f32
-  accumulators, int8, fp8; the register layout is the MMA layout `matrix_mma_layout` describes), and reporting those features from
-  compute capability 8.0 was tried: Slang aborts the code generation of the tensor-core GEMM `gemm_cm2` ("internal error E99999:
-  unexpected IR opcode during code emit", the same failure as its Metal backend for fragment loads from `uint4` shared arrays, see
-  [macos.md](macos.md#slang-8x8-fragment-loads-from-uint4-shared-arrays-on-metal)). Giving those kernels CUDA forms is phase 2.
-  `SHARPLIGHT_DISABLE_FEATURES` and `DeviceOptions.DisabledFeatures` work as for every provider, and `kernel_binaries` turns off the
-  cubin tier (kernels then load from PTX, JIT-compiled by the driver on every load).
+- **Device features** use the neutral names: `fp16`, `subgroup_ops`, `int_dot` (`dp4a`) and `subgroup_size_control` (the warp size
+  is fixed at 32) on every listed GPU; from compute capability 8.0 the tensor-core features `matrix_f16`, `matrix_bf16`, `matrix_int8`,
+  `matrix_mma_layout` and the `bf16` type; from 8.9 (Ada, Hopper, Blackwell) `matrix_fp8` and `fp8`; `library_gemm` when cuBLASLt is
+  installed ([library GEMM](#library-gemm-cublaslt)). The CUDA provider then selects the same tensor-core kernels as the Vulkan
+  provider on the same GPU, except the `matrix_workgroup` ones (`VK_NV_cooperative_matrix2` has no CUDA counterpart in
+  `mma.sync`). `SHARPLIGHT_DISABLE_FEATURES` and `DeviceOptions.DisabledFeatures` work as for every provider, and `kernel_binaries`
+  turns off the cubin tier (kernels then load from PTX, JIT-compiled by the driver on every load).
 - **Alignment.** CUDA requires vector loads to be aligned to their size; SPIR-V and MSL pointer accesses only assume the element
   alignment. `LoweringOptions.AlignedVectorAccess` (set by the CUDA provider only) keeps kernels whose row strides would misalign their
   16-byte loads off such shapes: the int-dot matvec then needs K to be a multiple of 64 (its quantized activation rows are 1.25 K
   bytes), other K take the f32 matvec. Found by `MatMulTests.OddShapes` (Q8_0, K = 96: "misaligned address").
-- **Format-agnostic core.** Nothing outside `src/Sharplight.Cuda` (and the native package `Sharplight.Cuda.Runtime`) knows about CUDA.
-  The only shared change is the `KernelTranslator` hook and the CUDA block-size header in `Sharplight.Shaders`.
+- **Format-agnostic core.** Nothing outside `src/Sharplight.Cuda` (and the native packages `Sharplight.Cuda.Runtime` and
+  `Sharplight.Cuda.Blas`) knows about CUDA. The shared changes are provider-neutral: the `KernelTranslator` hook, the block-size header
+  and the `SL_TARGET_CUDA` target macro in `Sharplight.Shaders`, the `library_gemm` feature with its `LibraryKernel` descriptors, and
+  the CUDA forms inside the kernel library (`cuda_mma.slang`, `#if SL_TARGET_CUDA` blocks), which SPIR-V and MSL do not see.
+
+### Tensor cores
+
+Slang's own CUDA cooperative matrices were not usable for the tensor-core kernels: code generation of `gemm_cm2` aborts ("internal
+error E99999: unexpected IR opcode during code emit"), and the prelude's fragment loads are element-wise loads with up to 16 warp
+shuffles per fragment instead of `ldmatrix`. The kernels therefore name their fragment types through typealiases, and on the CUDA C++
+target (`SL_TARGET_CUDA`, a macro `SlangCompiler` sets for `ShaderTarget.CudaSource` only) those select the structs of
+`Kernels/cuda_mma.slang` instead of Slang's `CoopMat`:
+
+- `CuA16` / `CuB16` (f16), `CuA16bf` / `CuB16bf` (bf16): 16x16 operands, `CuA8i` / `CuB8i` (int8), `CuA8f` / `CuB8f` (E4M3): 16x32 /
+  32x16 operands, `CuAccF`, `CuAccI`, `CuAccH`: 16x16 accumulators. They hold their registers in the layout of `mma.sync.m16n8k16`
+  (16-bit) and `mma.sync.m16n8k32` (8-bit), and number their elements like the NVIDIA Vulkan driver (`matrix_mma_layout`: lane
+  `4g + c` holds row `g + 8 (e >> 2)`, column `2c + (e & 1) + 8 ((e >> 1) & 1)`), so the kernels that address fragment elements
+  (the register softmax of `fe`, the direct skinny GEMM, the fp8 and int8 GEMMs' scale epilogues) work unchanged; the kernels
+  verify the layout at run time as on Vulkan.
+- The same API as `CoopMat`: `T.Load<layout>(array or pointer, element, stride)`, `Store`, `coopMatMulAdd<float, false>` (overloads
+  for the fragment structs), construction from a scalar or from an f32 accumulator, element access and accumulator arithmetic.
+- Loads from shared memory are one `ldmatrix.x4` per fragment (`.trans` for the transposed layouts), from device memory element by
+  element. The PTX helpers come with the kernel through `__requirePrelude`, so the CUDA C++ of a kernel is self-contained.
+- The shared arrays are declared 16-byte aligned (`NvrtcTranslator` adds `__align__(16)`), so `ldmatrix` needs no run-time
+  alignment check for the packed-half tiles (`uint4` arrays); arrays of narrower elements are checked and fall back to loads.
+- Where the Vulkan driver merges repeated fragment loads and NVVM cannot (the inline `ldmatrix` is volatile), the CUDA form loads
+  once: the fp8 GEMM's B fragments of a weight block (`gemm_fp8.slang`, `#if SL_TARGET_CUDA`; its prefill GEMMs went from 1.5x
+  slower than Vulkan to slightly faster).
+
+Nothing changes for SPIR-V and MSL: the `#else` branches are the former typealiases. The SPIR-V of the 6472 kernels the Vulkan
+kernel suite compiles, and of the 778 kernels of six models (Qwen3-0.6B Q8_0, Llama-3.2-1B Q8_0, gemma-3-1b Q8_0, Qwen3-0.6B HF,
+Qwen3.5-0.8B, OLMoE), is byte-identical between this branch and `develop` (`SHARPLIGHT_DUMP_KERNELS`, then compiled with the kernel
+libraries of both commits); the models' MSL differs only in `#line` directives.
+
+**Wave operations.** Slang's CUDA backend makes the active mask of every wave operation explicit: a function with one
+`WaveReadLaneAt` gets a `__ballot_sync` per branch and loop iteration (664 in the decode attention), which made the decode
+attention 3.5x slower than its SPIR-V form. On CUDA `common.slang` maps the wave operations the kernels use (`WaveReadLaneAt`,
+`WaveActiveSum` / `Max` / `Min` / `Product` / `AllTrue` / `AnyTrue`, `WaveIsFirstLane`, `WavePrefixSum`) to their `WaveMask*` forms
+over `__activemask()`: the lanes executing the call, which is the semantics of subgroup operations on SPIR-V and MSL. The kernels
+call them in subgroup-uniform control flow (or in branches whose lanes are meant to take part), as SPIR-V requires.
+
+**Alignment.** CUDA faults on vector loads that are not aligned to their size; SPIR-V and MSL only assume the element alignment.
+Besides the lowering rule of phase 1, `common.slang` has `LOAD_U4_ALIGNED` / `LOAD_U2_ALIGNED` with a compile-time alignment
+(`ALIGN_OF` of the row pitch): on CUDA they split into the widest aligned loads, elsewhere they are the plain vector load. Used for
+the Q8_0R code rows (K = 1152: 1224-byte rows, gemma-3), the FP8 GEMM's weight rows (264-byte rows at K = 256) and activation rows,
+and the int8 GEMM's activation rows.
 
 ### Two-stage precompilation
 
@@ -87,11 +130,39 @@ as PTX and cubins, and nothing is compiled.
 
 ### Shared memory
 
-The Slang kernels declare their shared arrays statically, and CUDA limits static shared memory to 48 KB per block, the same limit the
-Vulkan driver reports. Phase 1 therefore lowers with 48 KB. Larger tiles (up to 99 KB per block on Ada / Hopper-class consumer parts,
-227 KB on H100 / B200, 99 KB on RTX PRO Blackwell: `max_shared_memory_optin` in `sharplight --devices`) need dynamic shared memory
-(`extern __shared__`) and `cuFuncSetAttribute(CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES)` per kernel; that comes with the
-hand-written kernels of phase 2, which are where the larger tiles pay off.
+The Slang kernels declare their shared arrays statically, and CUDA limits static shared memory to 48 KB per block, the same limit
+the Vulkan driver reports. `SharedMemoryRewriter` (in `NvrtcTranslator`) moves the shared arrays of a kernel that needs more into one
+`extern __shared__` buffer (16-byte aligned offsets, a `#define` per array), writes the size into the PTX header
+(`// sharplight-shared: <bytes>`), and the device opts the function into it (`CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES`) and
+launches it with that much dynamic shared memory. The lowering gets the device's opt-in maximum (99 KB on the RTX PRO 4500
+Blackwell, `max_shared_memory_optin`; 227 KB on H100 / B200), `SHARPLIGHT_CUDA_MAX_SHARED=49152` keeps the static limit.
+
+Measured on Qwen3-8B (bf16) at 2048 rows: the larger budget changes no default tile choice of the LLM kernels, and double-buffering
+gemm_cm2's 64-value K blocks (80 KB, `SHARPLIGHT_GEMM_MACROS=GNBUF=2`) is 21 % slower (one workgroup per SM instead of two), as are
+more register prefetch sets (`GPF=2`). What the budget changes is which forms pass their shared-memory fit checks (the lowering
+compares against `max_shared_memory`): the MQA attention over latent KV rows, the general flash attention, the two-row convolution
+tiles, the delta-rule chunk width, top-k and NMS sorting in shared memory; the kernel suite runs on CUDA with the 99 KB budget. New tile shapes
+for the GEMMs belong to the hand-written kernels of the roadmap.
+
+### Library GEMM (cuBLASLt)
+
+`DeviceFeatures.LibraryGemm` (`library_gemm`) lets a provider run matrix products on its vendor's GEMM library. The lowering emits
+them like kernels whose code is a one-line descriptor (`LibraryKernel`: `// sharplight-library: gemm a=bf16 n=4096 k=12288`) with
+the arguments x, w, y and the row count; a provider without the library rejects the descriptor at load (`KernelCompilationException`)
+and hosts fall back as for any kernel. The CUDA provider reports the feature from compute capability 8.0 when cuBLASLt can be loaded
+and runs the descriptors with `cublasLtMatmul` on the segment's stream (`CudaBlas`: one handle and a 32 MB workspace per device, a
+plan per shape, row count and operand alignment, the heuristic's first algorithm).
+
+Used where it beats the generated GEMMs on this GPU ([benchmarks.md §51](benchmarks.md)): 16-bit weights from 256 rows
+(`SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS`). cuBLASLt takes both operands in one type, so the operands are those of the generated tensor-core
+GEMMs: the f16 copy of x they read (row-ranged where x may exceed f16's range, with the same `f16_range_unscale` fix-up of the output
+rows), and the weights in f16: bf16 weights whose every consumer is a MatMul are stored as f16 (`WeightRepack.Bf16ToF16` at upload),
+which is the rounding the generated GEMMs apply when they load bf16 weights. The products therefore have the generated GEMMs'
+precision (an earlier form with bf16 activations failed the massive-activation tests of `F16RangeTests`). A gate / up pair with its
+SiLU·mul group runs as two library GEMMs and the group's own launch instead of the dual gemm_cm2. cuBLASLt measured 145-165 TFLOPS on the Qwen3-8B shapes against 112-128 for gemm_cm2 on CUDA (and
+118-125 on Vulkan); FP8 with per-tensor scales 250-336 TFLOPS, but the block-scaled FP8 of the checkpoints in use (128x128 weight
+blocks, `CUBLASLT_MATMUL_MATRIX_SCALE_BLK128x128_32F`) is not supported on compute capability 12.0 (`CUBLAS_STATUS_NOT_SUPPORTED`),
+so FP8 stays on the generated `gemm_fp8`.
 
 ## Provider selection
 
@@ -118,6 +189,7 @@ hand-written kernels of phase 2, which are where the larger tiles pay off.
 | --- | --- | --- |
 | `Sharplight.Cuda` | the managed provider (`Sharplight.Cuda.dll`), depends on `Sharplight.Shaders` | 72 KB |
 | `Sharplight.Cuda.Runtime` | native assets per RID: NVRTC with its builtins library and the six floating-point type headers, plus NVIDIA's license | see [sizes](#package-sizes) |
+| `Sharplight.Cuda.Blas.<rid>` (optional) | cuBLASLt (`libcublasLt.so.13` / `cublasLt64_13.dll`) for the [library GEMM](#library-gemm-cublaslt), plus NVIDIA's license | 541 MB unpacked (linux-x64) |
 
 `Sharplight.Cuda.Runtime` (`src/Sharplight.Cuda.Runtime`) follows the pattern of `Sharplight.Vulkan.MoltenVK`: nothing is committed;
 MSBuild downloads the pinned archives from NVIDIA's redistributable server
@@ -147,9 +219,16 @@ Not shipped, and why:
 - **The driver** (`libcuda.so.1`, `nvcuda.dll`, `libnvidia-ptxjitcompiler.so`): part of the user's driver installation. Attachment A
   lists them, but a driver library from another driver version must never be loaded.
 - **cudart**: the provider uses the driver API only, so the runtime library is not needed.
-- **cuBLAS / cuBLASLt** (phase 2): `libcublasLt.so.13` alone is 505 MB (all SASS for every architecture), `libcublas.so.13` 54 MB. They
-  are redistributable ("CUDA BLAS Library" in Attachment A) and will go into a separate optional package, `Sharplight.Cuda.Blas`, so
-  that neither `Sharplight.Cuda` nor the Studio download carries them unless the GEMM path is wanted.
+- **cuBLAS** (`libcublas.so.13`, 54 MB): the library GEMM calls cuBLASLt directly, which does not need it. cuBLASLt itself is the
+  optional `Sharplight.Cuda.Blas` package (`src/Sharplight.Cuda.Blas`, same pattern as the runtime package: the pinned `libcublas`
+  13.1.0.3 archive of the CUDA 13.0 Update 2 manifest, SHA-256 checked, only `libcublasLt` extracted; "CUDA BLAS Library" in
+  Attachment A). `libcublasLt.so.13` is 541 MB (SASS for every architecture; the archive is 839 MB with the static libraries) and
+  375 MB deflated, so it is packed per runtime (`dotnet pack -p:CudaBlasRid=linux-x64` gives `Sharplight.Cuda.Blas.linux-x64`;
+  likewise `linux-arm64`, `win-x64`), and even then exceeds nuget.org's 250 MB per package: it can be published to a feed without that
+  limit, or fetched on first use from NVIDIA's server into the storage location (the same pinned archive and SHA-256), which is the
+  plan for Studio. Builds of this repository copy it next to the application only
+  with `-p:SharplightBundleCudaBlas=true`; `SHARPLIGHT_CUDA_BLAS_DIR` names another directory with it. Neither `Sharplight.Cuda` nor
+  Studio depends on it.
 - **nvJitLink** is not needed: the driver's `cuLink*` API links PTX into a cubin.
 
 ### Why NVRTC ships
@@ -203,19 +282,26 @@ unnecessary for catalog models.
 - `tests/Sharplight.Families.Tests`: `FamilyGenerationTests.Generation_matches_reference_on_cuda` (the golden outputs of the reference
   implementations) and `CudaParityTests` (greedy tokens on CUDA against Vulkan on the same GPU), opt-in with `SHARPLIGHT_TEST_CUDA=1`.
 
-Results on `cuda/provider-r1` (RTX PRO 4500 Blackwell, compute capability 12.0, driver 595.112.07 / CUDA 13.2, NVRTC 13.0.88):
+Results on `cuda/provider-r2` after merging `develop` at `a7b241b3` (RTX PRO 4500 Blackwell, compute capability 12.0, driver
+595.112.07 / CUDA 13.2, NVRTC 13.0.88, cuBLASLt 13.1.0.3 through `SHARPLIGHT_CUDA_BLAS_DIR`):
 
 | suite | result |
 | --- | --- |
-| `Sharplight.Vulkan.Tests` on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class) | 1610 tests: 1564 pass, 0 fail, 46 skip (38 Vulkan internals, 5 workgroup-matrix GEMMs, 2 opt-in large tests, 1 diagnostic) |
-| `Sharplight.Cuda.Tests` | 8 / 8 pass |
-| `CudaParityTests` (greedy, 32 tokens, CUDA against Vulkan with the same feature set) | 4 / 4 identical: Qwen3-0.6B Q8_0, Llama-3.2-1B-Instruct Q8_0, gemma-3-1b-it Q8_0 (GGUF), Qwen3-0.6B (HF) |
-| `FamilyGenerationTests.Generation_matches_reference_on_cuda` (reference outputs) | 9 / 9 pass: gemma-4-E2B-it HF (Gemma), tiny Mixtral (MoE), tiny gemma4 MoE HF + GGUF, tiny Qwen2.5-VL HF + GGUF and tiny GLM-4V HF + GGUF (vision-language), tiny Nemotron-H (hybrid Mamba / MoE, with CPU fallback) |
+| `Sharplight.Vulkan.Tests` on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class, tensor cores, 99 KB shared memory, library GEMM) | 1624 tests: 1578 pass, 0 fail, 46 skip (Vulkan internals, 5 workgroup-matrix GEMMs, 2 opt-in large tests, benchmarks) |
+| `Sharplight.Vulkan.Tests` on Vulkan (GPU 1, unchanged provider) | 1624 tests: 1598 pass, 0 fail, 26 skip (as on `develop`) |
+| `Sharplight.Cuda.Tests` (incl. the library GEMM against the CPU, profiles of 7.5 / 8.9 / 12.0 with their tensor-core features) | 9 / 9 pass |
+| `CudaParityTests` (greedy, 32 tokens, CUDA against Vulkan, SIMT kernels on both) | 4 / 4 identical: Qwen3-0.6B Q8_0, Llama-3.2-1B-Instruct Q8_0, gemma-3-1b-it Q8_0 (GGUF), Qwen3-0.6B (HF) |
+| `FamilyGenerationTests.Generation_matches_reference_on_cuda` (reference outputs) | 315 cases: 214 pass, 0 fail, 101 skip (models not on the machine) |
 | `Sharplight.Metal.Tests` (MSL generation, Linux) | 7 tests: 4 pass, 3 skip (need macOS) |
 
+`CudaParityTests` switches the tensor cores off on both providers: with them, Llama-3.2-1B-Instruct Q8_0 diverged at token 6 of 32, at
+a near tie (top-2 logits 0.0009 apart, the providers' logits differ by up to 0.007), since the CUDA fragments and the Vulkan driver's
+cooperative matrices round and order the products differently. The tensor-core kernels are checked against the CPU on CUDA by the
+kernel suite and the reference generations.
+
 A kernel fault leaves a CUDA context unusable ("sticky" errors such as `misaligned address`), so every later test of the same process
-fails at its first driver call; running the suite one class per process isolates a fault to its class. The only fault found was the
-int-dot alignment above.
+fails at its first driver call; running the suite one class per process isolates a fault to its class. Faults found: the int-dot
+alignment (phase 1), and the Q8_0R, FP8 and int8 GEMM row alignments of phase 2 ([tensor cores](#tensor-cores)).
 
 ## Driver-only proof
 
@@ -252,6 +338,8 @@ driver's libraries and device nodes into a plain image.
 
 ## First numbers
 
+Phase 1 (SIMT kernels on CUDA); see [phase 2 numbers](#phase-2-numbers) for the current state.
+
 GPU 1 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs, nothing else running), `sharplight <model> --bench 512` (prefill of 512
 tokens: best of 5; decode: 64 steps after the prefill), three runs each, medians of the three shown (they agree within 2 %). Raw output
 of the runs in `/workspace/work/cuda-r1/logs/bench` on the machine. "Vulkan SIMT" is the Vulkan provider with the features the CUDA
@@ -281,12 +369,34 @@ Load: the first load compiles every kernel (Slang, then NVRTC: about 0.3-0.6 s p
 110-126 kernels took 31-67 s depending on the machine load (the per-user artifact store then serves PTX and cubins, and the next load
 compiles nothing: 3.3 s). Precompiled packages skip it entirely.
 
+## Phase 2 numbers
+
+Same GPU and procedure ([benchmarks.md §51](benchmarks.md): GPU 1, prefill median of 5, decode median of 64 steps, identical weights
+for every engine, vLLM 0.33.0 fresh on the same GPU). tok/s, prefill / decode:
+
+| model | rows | Vulkan | CUDA | CUDA / Vulkan | vLLM | CUDA / vLLM |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen3-0.6B Q8_0 | 512 | 61,120 / 575 | 58,889 / 623 | 0.96 / 1.08 | | |
+| Llama-3.2-1B Q8_0 | 512 | 42,373 / 448 | 44,544 / 483 | 1.05 / 1.08 | | |
+| gemma-3-1b Q8_0 | 2048 | 56,892 / 451 | 58,022 / 453 | 1.02 / 1.00 | | |
+| Qwen3-8B (bf16) | 512 | 7,286 / 52.7 | 8,194 / 51.2 | 1.12 / 0.97 | 8,086 / 51.7 | 1.01 / 0.99 |
+| | 2048 | 7,718 | 7,907 | 1.02 | 8,807 | 0.90 |
+| Qwen3-8B-FP8 | 2048 | 10,993 / 86.9 | 11,458 / 85.3 | 1.04 / 0.98 | 14,948 / 87.3 | 0.77 / 0.98 |
+| Llama-3.1-8B (bf16) | 2048 | 7,824 / 53.4 | 7,902 / 51.7 | 1.01 / 0.97 | 8,736 / 52.5 | 0.90 / 0.98 |
+
+Prefill went from 0.18-0.20x of Vulkan (phase 1) to 0.96-1.12x, decode of the 1B models from 0.57-0.78x to 1.00-1.08x. Where CUDA
+still trails: Qwen3-0.6B's prefill (4 %), the 8B decode matvecs (2-3 %, weights streamed at 848 against 875 GB/s), and the prefill
+attention `fe` (5-8 %). Against vLLM, FP8 prefill (0.77x) is the large gap; bf16 is at 0.90-1.01x.
+
 ## Diagnostics
 
 `DiagnosticSwitches` of `Sharplight.Cuda`: `SHARPLIGHT_CUDA_RUNTIME_DIR` (directory with NVRTC and the headers, searched first),
 `SHARPLIGHT_CUDA_DUMP_SOURCE=dir` (CUDA C++ and PTX of every kernel compiled), `SHARPLIGHT_CUDA_TRACE=1` (module loads, recordings),
-`SHARPLIGHT_CUDA_PROFILE=1` (per-launch event timing in `--bench`), `SHARPLIGHT_CUDA_SYNC=1` (synchronize after every launch, so a
-faulting kernel is named), plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
+`SHARPLIGHT_CUDA_PROFILE=1` (per-launch event timing in `--bench`, summed per launch kind like the Vulkan profile),
+`SHARPLIGHT_CUDA_SYNC=1` (synchronize after every launch, so a faulting kernel is named), `SHARPLIGHT_CUDA_MAX_SHARED=bytes` (shared
+memory the kernels are lowered for; 49152 keeps the static limit), `SHARPLIGHT_CUDA_BLAS_DIR` (directory with cuBLASLt, searched
+first); of `Sharplight.Shaders`: `SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS` (rows from which matmuls take the library GEMM, default 256),
+`SHARPLIGHT_GEMM_MACROS` (e.g. `GNBUF=2` for double-buffered 64-value K blocks of gemm_cm2); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
 `SHARPLIGHT_DEVICE_FORWARDING` as for Vulkan. `compute-sanitizer` works on the provider as on any CUDA application.
 
 ## Roadmap
@@ -294,17 +404,16 @@ faulting kernel is named), plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION
 Phase 1 is correctness on the shared kernels. The phases after it each add CUDA-only fast paths behind neutral device features with the
 phase-1 kernels as the fallback, and each flips the default for a device class only when measured faster and green.
 
-1. **Phase 2: tensor cores and decode.**
-   - `matrix_f16` / `matrix_bf16` / `matrix_int8` / `matrix_fp8` / `matrix_mma_layout` on CUDA. Slang's CUDA prelude already maps
-     16x16x16 cooperative matrices to `mma.sync.m16n8k16`; what fails is the code generation of some kernels (`gemm_cm2`: E99999).
-     Find the construct (most likely the fragment loads from `uint4` shared arrays, as on Metal), give those kernels a form Slang's
-     CUDA backend emits (as `*_FRAG8` did for Metal) without changing their SPIR-V, and report the features from compute
-     capability 8.0 (8.9 for FP8). That alone brings the prefill GEMMs to the Vulkan level.
-   - Decode: remove the explicit active-mask tracking of Slang's CUDA output from the hot kernels (decode attention first), see
-     [first numbers](#first-numbers).
-   - cuBLASLt for the large prefill GEMMs (bf16, FP8 E4M3 with per-tensor and per-block scales, MXFP8 / NVFP4 block-scaled on
-     Blackwell), in the optional `Sharplight.Cuda.Blas` package, chosen per shape against the Slang GEMMs with a small autotune cache.
-   - Dynamic shared memory above 48 KB for the existing tile kernels (larger GEMM tiles, two K/V tiles in flight in `fe`).
+1. **Phase 2: tensor cores and decode** (done, branch `cuda/provider-r2`): tensor-core fragments for CUDA (`cuda_mma.slang`), the
+   `matrix_*` features from compute capability 8.0 / 8.9, wave operations over `__activemask()`, `exp` as `__expf`, aligned vector
+   loads, dynamic shared memory above 48 KB, and cuBLASLt as the optional library GEMM for 16-bit weights. Open from it:
+   - the gate / up pair on the library GEMM with its SiLU·mul group and the f16 copy of its output in one launch (the dual gemm_cm2
+     fuses them; ~3 % of a bf16 prefill), or one library GEMM over the concatenated gate / up weights;
+   - FP8 at vLLM's level (0.77x): cuBLASLt has no 128x128 block-scaled FP8 on compute capability 12.0, so this needs a hand-written
+     FP8 GEMM with larger tiles (the dynamic shared memory is in place) or the Blackwell block-scaled `mma.sync ... kind::mxf8f6f4`;
+   - the prefill attention `fe` is 5-8 % slower than its SPIR-V form on the NVIDIA Vulkan driver (same kernel);
+   - the decode attention's rows per batch (`DEC_R`): `develop` round 11 set it to 1 for batched decode, which costs CUDA's
+     single-sequence decode 10 % (Qwen3-0.6B: 1.68 against 1.51 ms per step) and Vulkan about 2 %.
 2. **Phase 3: attention.** A flash-attention kernel for prefill with large shared memory, `cp.async` / TMA loads and warp-specialized
    producer / consumer pipelines (Hopper / Blackwell: `wgmma` / `tcgen05`), paged decode attention with split-K, written in CUDA C++ and
    compiled at build time to cubins for sm_80, sm_89, sm_90a, sm_100a, sm_120a plus PTX.

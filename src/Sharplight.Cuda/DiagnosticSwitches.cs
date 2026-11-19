@@ -10,6 +10,8 @@ namespace Sharplight.Cuda;
 /// <item><c>SHARPLIGHT_CUDA_DUMP_SOURCE=dir</c>: writes the CUDA C++ and the PTX of every kernel compiled with NVRTC into <c>dir</c>.</item>
 /// <item><c>SHARPLIGHT_CUDA_TRACE=1</c>: prints module loads and recordings.</item>
 /// <item><c>SHARPLIGHT_CUDA_PROFILE=1</c>: times every launch with events and accumulates per-kernel GPU times.</item>
+/// <item><c>SHARPLIGHT_CUDA_MAX_SHARED=bytes</c>: shared memory per block the kernels are lowered for (default: the device's opt-in
+/// maximum; 49152 keeps CUDA's static limit, the size the Vulkan provider has).</item>
 /// <item><c>SHARPLIGHT_CUDA_SYNC=1</c>: waits for the stream after every launch, so a faulting kernel is reported by name.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>, <c>SHARPLIGHT_SUBMISSION_BUDGET_MS</c>, <c>SHARPLIGHT_CONCURRENT_WORKGROUPS</c>,
 /// <c>SHARPLIGHT_DEVICE_FORWARDING=0</c>: as for the Vulkan provider.</item>
@@ -24,6 +26,9 @@ internal static class DiagnosticSwitches
 
     public static bool Profile { get; } = IsSet("SHARPLIGHT_CUDA_PROFILE");
 
+    public static long? MaxSharedMemory { get; } = Read("SHARPLIGHT_CUDA_MAX_SHARED") is { } v ? long.Parse(v, System.Globalization.CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_CUDA_SYNC=1</c>.</summary>
     public static bool SyncEachLaunch { get; } = IsSet("SHARPLIGHT_CUDA_SYNC");
 
     public static bool LoadTiming { get; } = IsSet("SHARPLIGHT_LOAD_TIMING");

@@ -88,9 +88,16 @@ using namespace linalg;
 #define SK_A_WORDS (SK_FM * 16 * SK_AS / 8)  // uint4 per subgroup
 #define SK_B_WORDS (SK_NB * 16 * SK_AS / 8)
 
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias SkA = CuA16;
+typealias SkB = CuB16;
+typealias SkC = CuAccF;
+#else
 typealias SkA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias SkB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias SkC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 #if SK_DIRECT
 // The subgroups' partial tiles of the final reduction (64 words per 16x16 f32 tile), and the layout probe (a 16x16 f16 matrix).

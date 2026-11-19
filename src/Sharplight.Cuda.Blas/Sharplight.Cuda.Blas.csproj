@@ -1,0 +1,131 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Optional native-only package: NVIDIA cuBLASLt (libcublasLt.so.13 / cublasLt64_13.dll), which the CUDA provider uses for the large
+    matrix products of bf16 weights where it is faster than the generated kernels (DeviceFeatures.LibraryGemm, docs/cuda.md). The file is
+    distributable per Attachment A of the CUDA Toolkit EULA ("CUDA BLAS Library"). Nothing is committed: the pinned archive of NVIDIA's
+    redistributable server is downloaded and checked against the SHA-256 of the release manifest the first time it is needed.
+    cuBLASLt alone is 541 MB per runtime (SASS for every architecture, 375 MB deflated), so the package is packed per runtime:
+    dotnet pack -p:CudaBlasRid=linux-x64 gives Sharplight.Cuda.Blas.linux-x64 (likewise linux-arm64, win-x64). Even so it exceeds
+    nuget.org's 250 MB limit; it is meant for feeds without that limit (see docs/cuda.md).
+    Builds copy the build machine's file next to the application only on request (SharplightBundleCudaBlas=true), since it is that large.
+  -->
+  <PropertyGroup>
+    <Description>NVIDIA cuBLASLt for the Sharplight CUDA provider (bf16 matrix products on the vendor GEMM library), as the native asset of one runtime. Redistributed under the NVIDIA CUDA Toolkit EULA (Attachment A); only the NVIDIA driver is needed besides.</Description>
+    <PackageTags>$(PackageTags);cuda;nvidia;cublas</PackageTags>
+    <PackageId Condition="'$(CudaBlasRid)' != ''">Sharplight.Cuda.Blas.$(CudaBlasRid)</PackageId>
+    <PackageLicenseExpression></PackageLicenseExpression>
+    <PackageLicenseFile>LICENSE-NVIDIA-CUDA.txt</PackageLicenseFile>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- NU5128: no lib/ folder by design (native assets only). -->
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      Pinned cuBLAS 13.1.0.3 of CUDA 13.0 Update 2 (manifest https://developer.download.nvidia.com/compute/cuda/redist/redistrib_13.0.2.json),
+      the release of the NVRTC in Sharplight.Cuda.Runtime. Update the version and the SHA-256 values from the manifest together.
+    -->
+    <CudaRedistVersion>13.0.2</CudaRedistVersion>
+    <CudaBlasVersion>13.1.0.3</CudaBlasVersion>
+    <CudaRedistUrl>https://developer.download.nvidia.com/compute/cuda/redist</CudaRedistUrl>
+    <CudaRedistDirectory>$(MSBuildThisFileDirectory)obj/cuda-redist/$(CudaRedistVersion)/</CudaRedistDirectory>
+    <CudaHostRid Condition="'$(CudaHostRid)' == '' And $([MSBuild]::IsOSPlatform('Windows'))">win-x64</CudaHostRid>
+    <CudaHostRid Condition="'$(CudaHostRid)' == '' And $([MSBuild]::IsOSPlatform('Linux')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">linux-arm64</CudaHostRid>
+    <CudaHostRid Condition="'$(CudaHostRid)' == '' And $([MSBuild]::IsOSPlatform('Linux'))">linux-x64</CudaHostRid>
+    <CudaRedistFetch Condition="'$(CudaRedistFetch)' == '' And '$(CudaHostRid)' != '' And '$(SharplightBundleCudaBlas)' == 'true'">true</CudaRedistFetch>
+    <CudaPackRid Condition="'$(CudaBlasRid)' != ''">$(CudaBlasRid)</CudaPackRid>
+    <CudaPackRid Condition="'$(CudaBlasRid)' == ''">$(CudaHostRid)</CudaPackRid>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- One archive per runtime: where it comes from, its SHA-256 and the files taken from it (archive path => file name). -->
+    <CudaRedistArchive Include="cublas-linux-x64">
+      <Rid>linux-x64</Rid>
+      <Path>libcublas/linux-x86_64/libcublas-linux-x86_64-$(CudaBlasVersion)-archive.tar.xz</Path>
+      <Sha256>88bc951efd906032a371153ca61975e0d9c4761e4012169169a6b3a47931606e</Sha256>
+      <Files>lib/libcublasLt.so.$(CudaBlasVersion)=libcublasLt.so.13|LICENSE=LICENSE-NVIDIA-CUDA.txt</Files>
+    </CudaRedistArchive>
+    <CudaRedistArchive Include="cublas-linux-arm64">
+      <Rid>linux-arm64</Rid>
+      <Path>libcublas/linux-sbsa/libcublas-linux-sbsa-$(CudaBlasVersion)-archive.tar.xz</Path>
+      <Sha256>18832d4798b0a4fc75fa90d58c1780203713ca2e35751a2492262e58f2620c50</Sha256>
+      <Files>lib/libcublasLt.so.$(CudaBlasVersion)=libcublasLt.so.13|LICENSE=LICENSE-NVIDIA-CUDA.txt</Files>
+    </CudaRedistArchive>
+    <CudaRedistArchive Include="cublas-win-x64">
+      <Rid>win-x64</Rid>
+      <Path>libcublas/windows-x86_64/libcublas-windows-x86_64-$(CudaBlasVersion)-archive.zip</Path>
+      <Sha256>4ac4847bbe4f7709b244956fcfc32197a2954ee70b155cb67eebd9ee26f7e339</Sha256>
+      <Files>bin/x64/cublasLt64_13.dll=cublasLt64_13.dll|LICENSE=LICENSE-NVIDIA-CUDA.txt</Files>
+    </CudaRedistArchive>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <!-- Downloads, verifies and extracts the archives this build or pack needs into $(CudaRedistDirectory)<rid>/. -->
+  <Target Name="FetchCudaRedist" BeforeTargets="PrepareForBuild" Condition="'$(CudaRedistFetch)' == 'true' Or '$(_IsPacking)' == 'true'">
+    <ItemGroup>
+      <_CudaFetch Include="@(CudaRedistArchive)" Condition="('$(_IsPacking)' == 'true' And '%(Rid)' == '$(CudaPackRid)') Or ('$(_IsPacking)' != 'true' And '%(Rid)' == '$(CudaHostRid)')">
+        <Archive>$([System.IO.Path]::GetFileName('%(Path)'))</Archive>
+        <Destination>$(CudaRedistDirectory)%(Rid)/</Destination>
+      </_CudaFetch>
+    </ItemGroup>
+    <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="_FetchCudaArchive" Properties="CudaArchiveId=%(_CudaFetch.Identity);CudaArchivePath=%(_CudaFetch.Path);CudaArchiveSha256=%(_CudaFetch.Sha256);CudaArchiveFiles=%(_CudaFetch.Files);CudaArchiveName=%(_CudaFetch.Archive);CudaArchiveDestination=%(_CudaFetch.Destination)" />
+  </Target>
+
+  <Target Name="_FetchCudaArchive">
+    <PropertyGroup>
+      <_Marker>$(CudaRedistDirectory)markers/$(CudaArchiveId).done</_Marker>
+      <_Download>$(CudaRedistDirectory)download/</_Download>
+    </PropertyGroup>
+    <ItemGroup>
+      <_Pair Include="$([MSBuild]::Unescape($(CudaArchiveFiles.Replace('|', ';'))))" />
+      <_Wanted Include="@(_Pair)">
+        <From>$([System.String]::Copy('%(Identity)').Split('=')[0])</From>
+        <To>$([System.String]::Copy('%(Identity)').Split('=')[1])</To>
+      </_Wanted>
+    </ItemGroup>
+    <PropertyGroup>
+      <_Root>$([System.IO.Path]::GetFileName('$(CudaArchiveName)').Replace('.tar.xz', '').Replace('.zip', ''))</_Root>
+    </PropertyGroup>
+    <DownloadFile Condition="!Exists('$(_Marker)')" SourceUrl="$(CudaRedistUrl)/$(CudaArchivePath)" DestinationFolder="$(_Download)" DestinationFileName="$(CudaArchiveName)" Retries="3" />
+    <GetFileHash Condition="!Exists('$(_Marker)')" Files="$(_Download)$(CudaArchiveName)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_Actual" />
+    </GetFileHash>
+    <Delete Condition="!Exists('$(_Marker)') And '$(_Actual.ToLowerInvariant())' != '$(CudaArchiveSha256)'" Files="$(_Download)$(CudaArchiveName)" />
+    <Error Condition="!Exists('$(_Marker)') And '$(_Actual.ToLowerInvariant())' != '$(CudaArchiveSha256)'"
+           Text="CUDA redistributable $(CudaArchiveName): the SHA-256 $(_Actual) does not match the pinned $(CudaArchiveSha256)." />
+    <MakeDir Condition="!Exists('$(_Marker)')" Directories="$(_Download)x;$(CudaArchiveDestination);$(CudaRedistDirectory)markers" />
+    <!-- GNU tar reads no zip archives (the Windows ones); Windows' bsdtar reads both. -->
+    <PropertyGroup>
+      <_UseUnzip Condition="$(CudaArchiveName.EndsWith('.zip')) And !$([MSBuild]::IsOSPlatform('Windows'))">true</_UseUnzip>
+    </PropertyGroup>
+    <Exec Condition="!Exists('$(_Marker)') And '$(_UseUnzip)' != 'true'" Command="tar --no-same-owner -xf &quot;$(CudaArchiveName)&quot; -C x @(_Wanted->'&quot;$(_Root)/%(From)&quot;', ' ')" WorkingDirectory="$(_Download)" />
+    <Exec Condition="!Exists('$(_Marker)') And '$(_UseUnzip)' == 'true'" Command="unzip -q -o &quot;$(CudaArchiveName)&quot; @(_Wanted->'&quot;$(_Root)/%(From)&quot;', ' ') -d x" WorkingDirectory="$(_Download)" />
+    <Copy Condition="!Exists('$(_Marker)')" SourceFiles="@(_Wanted->'$(_Download)x/$(_Root)/%(From)')" DestinationFiles="@(_Wanted->'$(CudaArchiveDestination)%(To)')" />
+    <RemoveDir Condition="!Exists('$(_Marker)')" Directories="$(_Download)x" />
+    <Delete Condition="!Exists('$(_Marker)')" Files="$(_Download)$(CudaArchiveName)" />
+    <Touch Condition="!Exists('$(_Marker)')" Files="$(_Marker)" AlwaysCreate="true" />
+  </Target>
+
+  <!-- The files of the build machine's runtime, copied next to every referencing application. -->
+  <Target Name="AddCudaRedistContent" AfterTargets="FetchCudaRedist" BeforeTargets="AssignTargetPaths" Condition="'$(CudaRedistFetch)' == 'true'">
+    <ItemGroup>
+      <_CudaRuntimeFile Include="$(CudaRedistDirectory)$(CudaHostRid)/*" Exclude="$(CudaRedistDirectory)$(CudaHostRid)/LICENSE-NVIDIA-CUDA.txt" />
+      <None Include="@(_CudaRuntimeFile)" Link="%(Filename)%(Extension)" Visible="false" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Pack: the runtime's file under runtimes/<rid>/native/, NVIDIA's license at the root. -->
+  <Target Name="AddCudaRedistPackFiles" BeforeTargets="_GetPackageFiles" DependsOnTargets="FetchCudaRedist">
+    <ItemGroup>
+      <None Include="$(CudaRedistDirectory)$(CudaPackRid)/*" Exclude="$(CudaRedistDirectory)$(CudaPackRid)/LICENSE-NVIDIA-CUDA.txt" Visible="false" Pack="true" PackagePath="runtimes/$(CudaPackRid)/native/" />
+      <None Include="$(CudaRedistDirectory)$(CudaPackRid)/LICENSE-NVIDIA-CUDA.txt" Visible="false" Pack="true" PackagePath="/" />
+    </ItemGroup>
+  </Target>
+</Project>

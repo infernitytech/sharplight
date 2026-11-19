@@ -9,13 +9,15 @@ namespace Sharplight.Cuda;
 /// <summary>
 /// Compiles the CUDA C++ Slang generates into PTX for one virtual architecture (<c>compute_XY</c>) with NVRTC, the portable code of the
 /// CUDA provider. The block size header of the source (<see cref="SlangCompiler.CudaThreadsHeader"/>) is kept as the first line of the PTX.
+/// Kernels whose shared arrays exceed CUDA's 48 KB static limit are moved to dynamic shared memory (<see cref="SharedMemoryRewriter"/>);
+/// their size follows the block size as a second header line (<see cref="CudaPtx.SharedHeader"/>).
 /// The floating-point headers the source may include (<c>cuda_fp16.h</c>, <c>cuda_bf16.h</c>, <c>cuda_fp8.h</c>) are passed from the files
 /// shipped next to NVRTC, so no CUDA toolkit is needed. Thread-safe.
 /// </summary>
 internal sealed class NvrtcTranslator : KernelTranslator
 {
     /// <summary>Version of the options and the PTX post-processing; part of every cache key.</summary>
-    private const string OptionsVersion = "3";
+    private const string OptionsVersion = "4";
 
     /// <summary>The headers NVRTC needs for the half, bfloat16 and 8-bit float types (redistributable, see docs/cuda.md).</summary>
     private static readonly string[] s_headerNames = ["cuda_fp16.h", "cuda_fp16.hpp", "cuda_bf16.h", "cuda_bf16.hpp", "cuda_fp8.h", "cuda_fp8.hpp"];
@@ -73,8 +75,10 @@ internal sealed class NvrtcTranslator : KernelTranslator
         int headerEnd = source.IndexOf('\n');
         string threadsLine = source.StartsWith(SlangCompiler.CudaThreadsHeader, StringComparison.Ordinal) && headerEnd > 0 ? source[..(headerEnd + 1)] : "";
         byte[] ptx;
+        int dynamicShared = 0;
         try
         {
+            source = SharedMemoryRewriter.Rewrite(source, out dynamicShared);
             ptx = Compile(source, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}.cu", Options(ComputeCapability), cubin: false);
         }
         catch (DllNotFoundException e)
@@ -92,7 +96,8 @@ internal sealed class NvrtcTranslator : KernelTranslator
             File.WriteAllBytes(stem + ".ptx", ptx);
         }
 
-        return [.. Encoding.UTF8.GetBytes(threadsLine), .. ptx];
+        string sharedLine = dynamicShared > 0 ? $"{CudaPtx.SharedHeader}{dynamicShared}\n" : "";
+        return [.. Encoding.UTF8.GetBytes(threadsLine + sharedLine), .. ptx];
     }
 
     /// <summary>

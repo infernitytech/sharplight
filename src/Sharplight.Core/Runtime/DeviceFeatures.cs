@@ -56,6 +56,13 @@ public static class DeviceFeatures
     public const string SubgroupOps = "subgroup_ops";
     /// <summary>The kernel can pin the subgroup size.</summary>
     public const string SubgroupSizeControl = "subgroup_size_control";
+    /// <summary>
+    /// Large matrix products of 16-bit float weights (f16, and bf16 stored as f16) run on the vendor's GEMM library where it is faster
+    /// than the generated kernels, with the generated tensor-core GEMMs' f16 activations and precision (CUDA: cuBLASLt from the optional
+    /// <c>Sharplight.Cuda.Blas</c> package). Reported only when the library is installed; disabling it keeps every product on the
+    /// generated kernels.
+    /// </summary>
+    public const string LibraryGemm = "library_gemm";
 
     /// <summary>The device reports a live memory budget / usage that accounts for other processes (Vulkan: VK_EXT_memory_budget); without it memory figures are estimates from our own allocations.</summary>
     public const string MemoryBudget = "memory_budget";
@@ -83,7 +90,7 @@ public static class DeviceFeatures
     public const string PagedKv = "paged_kv";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

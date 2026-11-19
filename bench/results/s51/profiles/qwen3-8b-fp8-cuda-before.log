@@ -1,0 +1,77 @@
+Graph optimization (sharplight-ir/1): decode 868 -> 868 nodes, decode_embeddings 867 -> 867 nodes, embed 796 -> 796 nodes, classify 796 -> 796 nodes [79 ms]
+Loaded Qwen3-8B-FP8 (decoder): 399 tensors, 9.65 GB, vocab 151936 [2759 ms]
+Rows per forward pass: 2048 (automatic, 30813 MiB available).
+Compiling 123 / 123, 123 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 9.65 / 9.65 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 34589 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 38 groups, 9.31 GiB weights+state
+1 segment(s): [0@0: 869 nodes]
+Ready (decode)
+segment 0: 473 launches per step (cuda, one stream)
+--- prefill T=2048 profile, segment 0
+GPU time 250.95 ms
+     7.980 ms   3.2%     72x  min     99.6 us  fused[Add]+RmsNorm T=2048,R=1
+     3.116 ms   1.2%      1x  min   3115.9 us  matmul2 mul_574 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.113 ms   1.2%      1x  min   3113.2 us  matmul2 mul_646 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.113 ms   1.2%      1x  min   3113.2 us  matmul2 mul_550 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.112 ms   1.2%      1x  min   3111.7 us  matmul2 mul_622 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.111 ms   1.2%      1x  min   3110.9 us  matmul2 mul_598 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.111 ms   1.2%      1x  min   3110.6 us  matmul2 mul_670 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.106 ms   1.2%      1x  min   3105.9 us  matmul2 mul_502 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.105 ms   1.2%      1x  min   3105.0 us  matmul2 mul_814 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.104 ms   1.2%      1x  min   3104.3 us  matmul2 mul_526 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.103 ms   1.2%      1x  min   3102.9 us  matmul2 mul_718 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.103 ms   1.2%      1x  min   3102.8 us  matmul2 mul_742 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.103 ms   1.2%      1x  min   3102.7 us  matmul2 mul_838 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.103 ms   1.2%      1x  min   3102.7 us  matmul2 mul_862 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.102 ms   1.2%      1x  min   3102.0 us  matmul2 mul_694 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.099 ms   1.2%      1x  min   3099.4 us  matmul2 mul_478 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.097 ms   1.2%      1x  min   3097.4 us  matmul2 mul_790 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.095 ms   1.2%      1x  min   3095.2 us  matmul2 mul_766 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.089 ms   1.2%      1x  min   3088.6 us  matmul2 mul_454 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.083 ms   1.2%      1x  min   3083.3 us  matmul2 mul_430 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.034 ms   1.2%      1x  min   3033.9 us  matmul2 mul_406 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.017 ms   1.2%      1x  min   3016.8 us  matmul2 mul_358 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     3.014 ms   1.2%      1x  min   3014.3 us  matmul2 mul_382 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     2.958 ms   1.2%      1x  min   2958.1 us  matmul2 mul_334 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     2.956 ms   1.2%      1x  min   2955.7 us  matmul2 mul_286 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     2.955 ms   1.2%      1x  min   2954.9 us  matmul2 mul_310 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     2.937 ms   1.2%      1x  min   2937.0 us  matmul2 mul_70 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     2.935 ms   1.2%      1x  min   2934.9 us  matmul2 mul_46 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     2.935 ms   1.2%      1x  min   2934.8 us  matmul2 mul_94 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+     2.934 ms   1.2%      1x  min   2933.6 us  matmul2 mul_190 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 T=2048,R=1
+
+--- decode x64 profile, segment 0
+GPU time 980.01 ms
+    96.735 ms   9.9%     64x  min   1506.8 us  matmul logits [4096→151936] bf16 T=1,R=1
+    46.979 ms   4.8%   4608x  min      2.8 us  fused[Add]+RmsNorm T=1,R=1
+     9.077 ms   0.9%     64x  min    129.3 us  matmul2 mul_622 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.955 ms   0.9%     64x  min    128.9 us  matmul2 mul_574 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.912 ms   0.9%     64x  min    129.4 us  matmul2 mul_814 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.806 ms   0.9%     64x  min    129.3 us  matmul2 mul_598 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.803 ms   0.9%     64x  min    128.6 us  matmul2 mul_670 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.759 ms   0.9%     64x  min    128.8 us  matmul2 mul_694 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.732 ms   0.9%     64x  min    129.5 us  matmul2 mul_862 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.731 ms   0.9%     64x  min    129.5 us  matmul2 mul_646 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.726 ms   0.9%     64x  min    129.3 us  matmul2 mul_766 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.723 ms   0.9%     64x  min    129.5 us  matmul2 mul_526 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.714 ms   0.9%     64x  min    128.9 us  matmul2 mul_838 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.691 ms   0.9%     64x  min    129.6 us  matmul2 mul_718 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.646 ms   0.9%     64x  min    129.4 us  matmul2 mul_214 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.642 ms   0.9%     64x  min    128.8 us  matmul2 mul_502 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.634 ms   0.9%     64x  min    129.4 us  matmul2 mul_742 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.630 ms   0.9%     64x  min    128.8 us  matmul2 mul_790 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.599 ms   0.9%     64x  min    129.5 us  matmul2 mul_238 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.591 ms   0.9%     64x  min    129.2 us  matmul2 mul_550 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.566 ms   0.9%     64x  min    129.3 us  matmul2 mul_430 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.561 ms   0.9%     64x  min    128.8 us  matmul2 mul_454 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.556 ms   0.9%     64x  min    129.4 us  matmul2 mul_94 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.556 ms   0.9%     64x  min    129.6 us  matmul2 mul_70 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.549 ms   0.9%     64x  min    129.4 us  matmul2 mul_382 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.524 ms   0.9%     64x  min    129.4 us  matmul2 mul_262 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.519 ms   0.9%     64x  min    129.5 us  matmul2 mul_46 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.504 ms   0.9%     64x  min    129.5 us  matmul2 mul_478 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.498 ms   0.9%     64x  min    128.6 us  matmul2 mul_310 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+     8.496 ms   0.9%     64x  min    128.7 us  matmul2 mul_406 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] T=1,R=1
+
+prefill 2048 tok: best 254 ms = 8066.3 tok/s | decode: best 67.60, median 67.01, mean 51.99 tok/s | GPU ms/step: best 12.50, median 12.56, wall best 14.79 | prefill median of 5: 267.0 ms = 7669.9 tok/s
