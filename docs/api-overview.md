@@ -387,6 +387,20 @@ using var generator = clients.Create<IAudioGenerator>(model);
 AudioBuffer song = await generator.GenerateAsync(new AudioGenerationRequest { Prompt = "calm acoustic guitar with soft piano", Lyrics = "[Instrumental]", Duration = TimeSpan.FromSeconds(30), Seed = 1 });
 ```
 
+Stable Audio Open 1.0 (architecture `stable_audio`, imported by `Sharplight.Import.Diffusers` from the diffusers `StableAudioPipeline` folders) is an `audio-generation` model with another graph contract,
+`TimedAudioDiffusionGraphs`: a `text-encoder` (`text_encode`, T5), an `encoder` (`timing_encode`: the start and total seconds as two conditioning rows), a `denoiser` (`denoise`: one v-prediction of the
+transformer on preconditioned latents) and the same `vae` graph (`audio_decode`). Its client samples with DPM-Solver++(2M) SDE and classifier-free guidance and returns 44.1 kHz stereo audio of up
+to 47.5 s; the request's `NegativePrompt` steers the unconditional side. `IAudioGenerator` tells what a model takes: `SupportsLyrics`, `SupportsNegativePrompt`, `SupportsShift` and
+`DefaultGuidanceScale` (null for a model without guidance).
+
+```csharp
+using var generator = clients.Create<IAudioGenerator>(model);   // stable-audio-open-1.0
+AudioBuffer rain = await generator.GenerateAsync(new AudioGenerationRequest
+{
+    Prompt = "heavy rain on a tin roof, distant thunder", NegativePrompt = "music", Duration = TimeSpan.FromSeconds(20), Steps = 100, GuidanceScale = 7, Seed = 1,
+});
+```
+
 `audio-separation` models (Demucs `htdemucs`; architecture `demucs`) have one component whose graph `separate` runs one fixed-length segment (the host computes the spectrogram and the
 normalizations and rebuilds the audio, see `SeparationGraphs`). `IAudioSeparator.SeparateAsync` converts the mixture to the model's rate and channels, runs overlapping segments with a
 triangular cross-fade (`AudioSeparationOptions.Overlap`) and returns one `SeparatedStem` per source.

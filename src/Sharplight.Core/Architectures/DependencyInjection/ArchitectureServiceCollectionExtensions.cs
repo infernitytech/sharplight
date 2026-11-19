@@ -59,6 +59,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<ClapAdapter>()
                 .AddModelAdapter<MusicGenAdapter>()
                 .AddModelAdapter<AceStepAdapter>()
+                .AddModelAdapter<StableAudioAdapter>()
                 .AddModelAdapter<DemucsAdapter>()
                 .AddTaskClientFactory<KokoroSynthesizerFactory>()
                 .AddCompositeModelAdapter<OrpheusAdapter>()

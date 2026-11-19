@@ -44,7 +44,7 @@ internal static class ImageModelProbe
         {
             if (IsDiffusersFolder(path))
             {
-                return IsVideoDiffusersFolder(path) ? ModelKinds.VideoGeneration : ModelKinds.ImageGeneration;
+                return IsAudioDiffusersFolder(path) ? ModelKinds.AudioGeneration : IsVideoDiffusersFolder(path) ? ModelKinds.VideoGeneration : ModelKinds.ImageGeneration;
             }
 
             if (File.Exists(Path.Combine(path, "config.json")))
@@ -148,6 +148,11 @@ internal static class ImageModelProbe
            || ClassNameOf(Path.Combine(path, "model_index.json")) is { } pipeline && s_videoPipelinePrefixes.Any(prefix => pipeline.StartsWith(prefix, StringComparison.Ordinal));
 
     private static readonly string[] s_videoPipelinePrefixes = ["Wan", "LTX", "HunyuanVideo"];
+
+    /// <summary>An audio pipeline (Stable Audio): the transformer is a Stable Audio transformer, or the pipeline's own <c>model_index.json</c> names the audio pipeline.</summary>
+    private static bool IsAudioDiffusersFolder(string path)
+        => ClassNameOf(Path.Combine(path, "transformer", "config.json")) is "StableAudioDiTModel"
+           || ClassNameOf(Path.Combine(path, "model_index.json")) is "StableAudioPipeline";
 
     /// <summary>The <c>_class_name</c> of a diffusers JSON file, or null when the file is missing, unreadable or names none.</summary>
     private static string? ClassNameOf(string file)
