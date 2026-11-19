@@ -78,6 +78,7 @@ jobs:
           failed=0
           for project in tests/*/; do
             name="$(basename "$project")"
+            ls "$project"*.csproj >/dev/null 2>&1 || continue  # shared sources (tests/Shared) are linked into the test projects
             case "$name" in
               Sharplight.Vulkan.Tests|Sharplight.Import.Onnx.Conformance|Sharplight.Cuda.Tests) continue ;;
             esac
