@@ -103,7 +103,7 @@ internal sealed class SmokeRunner
     {
         var devices = _runtime.Devices;
         _ = devices.FirstOrDefault(device => !device.IsGpu) ?? throw new InvalidOperationException("No CPU device is offered.");
-        _device = devices.FirstOrDefault(device => device.Provider == _provider && !device.IsSplit)
+        _device = devices.FirstOrDefault(device => string.Equals(device.Provider, _provider, StringComparison.OrdinalIgnoreCase) && !device.IsSplit)
             ?? throw new InvalidOperationException($"No device of the {_provider} provider is offered ({string.Join(", ", devices.Select(device => device.Provider).Distinct())} are).");
         return Task.FromResult($"{devices.Count} device(s): {string.Join("; ", devices.Select(device => device.Display + " via " + device.Provider))}");
     }

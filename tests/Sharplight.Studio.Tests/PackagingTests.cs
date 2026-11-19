@@ -105,7 +105,7 @@ public sealed class PackagingTests
         {
             var (exit, output) = Run(dotnet, "msbuild", project, "-getProperty:StudioCuda", $"-p:RuntimeIdentifier={rid}", "-nologo");
             Assert.True(exit == 0, output);
-            Assert.Equal(s_cudaRids.Contains(rid) ? "true" : "false", output.Trim());
+            Assert.Equal(s_cudaRids.Contains(rid) ? "true" : "false", output.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)[0]);
         }
     }
 
