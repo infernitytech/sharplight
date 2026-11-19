@@ -88,4 +88,10 @@ public enum InputRole
     /// encoder's <see cref="WellKnown.EncodeGraph"/>.
     /// </summary>
     AudioFeatures,
+    /// <summary>
+    /// Multi-sequence graphs with spare recurrent-state rows: per-run table [U, 2] i32 of (rows k, state row); a run with k &gt; 0 also
+    /// stores its slot's recurrent state as it is after its first k rows into that (spare) row of every recurrent state (see
+    /// <see cref="Graph.RecurrentSnapshots"/>).
+    /// </summary>
+    SequenceSnapshots,
 }

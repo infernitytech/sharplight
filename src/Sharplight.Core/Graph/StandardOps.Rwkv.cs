@@ -14,8 +14,11 @@ public static partial class StandardOps
     /// Output y [T, H, N] f32. Multi-sequence form (see <c>MultiSequence</c>): eighth input = sequence runs [U, 4] i32 and state [S, H, N, N]; each run continues
     /// its slot's state and a run starting at position 0 starts from zero state.
     /// </summary>
-    /// <remarks>Rollback form (<see cref="RecurrentRollback"/>): after the runs table, the commits table and the record state.</remarks>
-    public static readonly OpSchema Wkv7 = new("Wkv7", OpCategory.Composite, 7, 10, (i, a) => [new(DataType.F32, i[0].Shape)]);
+    /// <remarks>
+    /// Snapshot form (<see cref="RecurrentSnapshots"/>): after the runs table, the snapshots table. Rollback form (<see cref="RecurrentRollback"/>):
+    /// then the commits table and the record state.
+    /// </remarks>
+    public static readonly OpSchema Wkv7 = new("Wkv7", OpCategory.Composite, 7, 11, (i, a) => [new(DataType.F32, i[0].Shape)]);
 
     /// <summary>
     /// RWKV-6 recurrence (data-dependent decay with a "bonus" for the current token), one call per layer.
@@ -24,6 +27,9 @@ public static partial class StandardOps
     /// Per token and head, for every value channel i: <c>y[i] = Σⱼ r[j]·(u[j]·k[j]·v[i] + S[i,j])</c>; <c>S[i,j] = S[i,j]·w[j] + k[j]·v[i]</c>.
     /// Output y [T, H, N] f32. Multi-sequence form: seventh input = sequence runs [U, 4] i32 and state [S, H, N, N] (as for <c>Wkv7</c>).
     /// </summary>
-    /// <remarks>Rollback form (<see cref="RecurrentRollback"/>): after the runs table, the commits table and the record state.</remarks>
-    public static readonly OpSchema Wkv6 = new("Wkv6", OpCategory.Composite, 6, 9, (i, a) => [new(DataType.F32, i[0].Shape)]);
+    /// <remarks>
+    /// Snapshot form (<see cref="RecurrentSnapshots"/>): after the runs table, the snapshots table. Rollback form (<see cref="RecurrentRollback"/>):
+    /// then the commits table and the record state.
+    /// </remarks>
+    public static readonly OpSchema Wkv6 = new("Wkv6", OpCategory.Composite, 6, 10, (i, a) => [new(DataType.F32, i[0].Shape)]);
 }

@@ -7550,3 +7550,51 @@ $VLLM_VENV/bin/python bench/s54_vllm_decode_profile.py ~/models/hf/Qwen3-8B-FP8 
 OUT_DIR=bench/results/s54/serve-cuda ROUNDS=2 bench/s16_serve.sh sharplight qwen3-8b-fp8-hf ~/models/hf/Qwen3-8B-FP8 "1 4 16 64" --provider cuda   # and vllm
 # FP8 GEMM harness and ablations: bench/s54_gemm/README.md
 ```
+
+## 55. Hybrid prefix caching on CUDA and Metal, recurrent state kept inside a step (2026-11-19)
+
+Branch `engine/copy-state-rows`. Two changes for models with recurrent state (gated delta nets, Mamba, RWKV, short convolutions):
+
+- `CopyStateRows` on CUDA (`cuMemcpyDtoDAsync` on the segment's stream) and Metal (copies in shared storage): recurrent-state
+  snapshots for prefix caching and copy-on-write forks of `n` > 1 samples now work there too (before, such models ran without prefix
+  caching on CUDA and Metal). Metal is compiled and its test project builds; it has not run on Apple hardware.
+- In-step snapshots ([kv-cache.md](kv-cache.md), `Graph.RecurrentSnapshots`): the recurrent kernels store the state at a block boundary
+  inside a prompt chunk into a spare state row while they walk the run (the chunked delta rule starts such a run with a chunk of k mod 64
+  rows so that a chunk ends at k). A snapshot inside a chunk no longer cuts the chunk (one more pass), and no copy follows. 48.6 ended
+  with the conversations as the one load where the cache made TTFT worse than without it: each turn's prompt-end snapshot cost a pass.
+
+Qwen3.5-0.8B (HF bf16), `bench/prefix_bench.py` as in 48.3: 16 multi-turn conversations of 6 turns resending their history, and a
+1500-token shared system prompt at 16 chats; `sharplight serve --slots 64 --ctx 8192 --kv-tokens 73728`, GPU 0 (RTX PRO 4500, shared
+machine, other agents' CPU load ~10-14). Settings: in-step snapshots (default), copied after the step with the chunk cut
+(`SHARPLIGHT_STEP_SNAPSHOTS=0`, the behaviour of 48.6) and without prefix caching. TTFT p50 / p99 ms, output tok/s, hit rate. Raw
+results in [`bench/results/s55/`](../bench/results/s55).
+
+| provider | workload | round | in-step | copied, chunk cut | no prefix cache | in-step / copied TTFT p50 |
+|---|---|---:|---|---|---|---:|
+| Vulkan | multiturn 16 | 1 | 74 / 139, 3271, 50.2 % | 109 / 208, 3044, 50.9 % | 104 / 204, 1694, 0.0 % | 0.68x |
+| Vulkan | multiturn 16 | 2 | 64 / 144, 3400, 53.2 % | 96 / 168, 3207, 47.1 % | 75 / 136, 2929, 0.0 % | 0.67x |
+| Vulkan | shared 16 | 1 | 55 / 96, 3761, 95.1 % | 79 / 106, 3665, 95.1 % | 105 / 569, 1982, 0.0 % | 0.70x |
+| Vulkan | shared 16 | 2 | 51 / 81, 3793, 95.1 % | 75 / 97, 3662, 95.1 % | 105 / 537, 2005, 0.0 % | 0.68x |
+| CUDA | multiturn 16 | 1 | 67 / 145, 3271, 51.9 % | 102 / 189, 3098, 49.0 % | 81 / 167, 2797, 0.0 % | 0.66x |
+| CUDA | multiturn 16 | 2 | 72 / 130, 3212, 52.1 % | 99 / 213, 3191, 48.6 % | 54 / 154, 2908, 0.0 % | 0.73x |
+| CUDA | shared 16 | 1 | 51 / 98, 3771, 95.1 % | 75 / 117, 3643, 95.1 % | 73 / 565, 1980, 0.0 % | 0.68x |
+| CUDA | shared 16 | 2 | 50 / 83, 3443, 95.1 % | 75 / 108, 3680, 95.1 % | 106 / 537, 2000, 0.0 % | 0.66x |
+
+- In-step snapshots take 0.66-0.73x of the TTFT p50 of copied snapshots on both providers and both loads, at the same hit rates and
+  equal or higher throughput. On the conversations the cache-on TTFT is now at or below the cache-off TTFT in 3 of 4 rows (48.6:
+  1.2-1.3x above it); CUDA round 2 (72 against 54 ms) is the exception, and single rows vary by ~20 % between runs (48.6).
+- The CUDA column "copied, chunk cut" is what hybrid prefix caching on CUDA does with copies alone; before this branch CUDA had no
+  hybrid prefix caching (the "no prefix cache" column).
+
+Tests: `StepStateSnapshotTests` (Families, new: a state kept inside a step at 48 or 112 rows and restored in another slot continues like
+the whole prompt; 9 tiny models covering every recurrent op on CPU and GPU, Qwen3.5-0.8B with f32 and bf16 state on the chunked delta
+rule): 20 / 20 on Vulkan and 20 / 20 on CUDA. `PrefixCacheParityTests` 16 / 16 on Vulkan and on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`,
+now selectable), `PrefixCacheTests.RecurrentModel_InsideStepSnapshots_CostNoPass` (Serving).
+
+Reproduce:
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> PY=<python with httpx>
+bench/s55_step_snapshots.sh bench/results/s55 ~/models/hf/Qwen3.5-0.8B    # vulkan and cuda: in-step, copy, off
+bench/s55_summarize.py bench/results/s55
+```

@@ -33,14 +33,16 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     private int _pChunks;
     private int _pPer;
     private readonly RollbackTables? _rollback;
+    private readonly StateSnapshotTable? _snapshots;
     private float* _scratch;        // tentative runs: per task, a copy of its state rows
     private long _scratchFloats;
     public override string Name => "SelectiveScan";
 
     public SelectiveScanOp(TRef x, TRef dt, TRef dtBias, TRef a, TRef b, TRef c, TRef d, TRef state, TRef y, float dtMin, TRef? runs = null,
-        RollbackTables? rollback = null)
+        RollbackTables? rollback = null, StateSnapshotTable? snapshots = null)
     {
         _rollback = rollback;
+        _snapshots = snapshots;
         _x = x;
         _dt = dt;
         _dtBias = dtBias;
@@ -175,8 +177,14 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
                 S = copy - (long)p0 * _n;
             }
 
+            var (snapRows, snapRow) = plan.Tentative || _snapshots is null ? default : _snapshots.At(u, t1 - t0, _state.Dims[0], Name);
             for (long t = t0; t < t1; t++)
             {
+                if (snapRows > 0 && t == t0 + snapRows)
+                {
+                    StoreRows(S, snapRow, h, p0, p1);
+                }
+
                 float dtRaw = ((float*)_dt.P)[t * _dt.Strides[0] + h * _dt.Strides[1]];
                 float* B = (float*)_b.P + t * _b.Strides[0] + g * _b.Strides[1];
                 float* C = (float*)_c.P + t * _c.Strides[0] + g * _c.Strides[1];
@@ -198,7 +206,19 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
 
                 StepRow(S, dtRaw, B, C, x, (float*)_y.P + (t * _h + h) * _p, h, p0, p1, bias, A, D);
             }
+
+            if (snapRows > 0 && t1 == t0 + snapRows)
+            {
+                StoreRows(S, snapRow, h, p0, p1);
+            }
         }
+    }
+
+    /// <summary>Stores rows [p0, p1) of head h's working state <paramref name="S"/> (indexed like the state) into state row <paramref name="slot"/>.</summary>
+    private void StoreRows(float* S, long slot, int h, int p0, int p1)
+    {
+        long floats = (long)(p1 - p0) * _n;
+        Buffer.MemoryCopy(S + (long)p0 * _n, (float*)_state.P + ((slot * _h + h) * (long)_p + p0) * _n, floats * 4, floats * 4);
     }
 
     /// <summary>Advances rows [p0, p1) of head <paramref name="h"/> by one token; writes y unless <paramref name="y"/> is null (replay).</summary>

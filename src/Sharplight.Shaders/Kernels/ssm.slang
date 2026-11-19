@@ -11,6 +11,11 @@
 #ifndef ROLLBACK
 #define ROLLBACK 0
 #endif
+// SNAPSHOT (multi-sequence snapshot form, see RecurrentSnapshots): one more binding after the runs table and the rollback bindings,
+// snapshots [U, 2] i32 (k, row): a run with k > 0 also stores the state after its first k rows (after a replay) into state row `row`.
+#ifndef SNAPSHOT
+#define SNAPSHOT 0
+#endif
 
 #ifdef KERNEL_SSM_SCAN
 struct SsmParams
@@ -30,6 +35,9 @@ struct SsmParams
 #if ROLLBACK
     int* commits;
     float* records;
+#endif
+#if SNAPSHOT
+    int* snaps;
 #endif
     uint T;
 };
@@ -92,6 +100,12 @@ void ssm_scan(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Ssm
     const bool tentative = false;
 #endif
     uint rEnd = replay + (tEnd - tBeg);
+#if SNAPSHOT
+    // In-step snapshot: the state after the run's first k rows into state row snaps[z].y.
+    int snapK = tentative ? 0 : p.snaps[gid.z * 2];
+    uint snapEnd = snapK > 0 ? replay + uint(snapK) : 0u;
+    float* snapSt = p.state + ((uint64_t(p.snaps[gid.z * 2 + 1]) * H + h) * P + row) * N + part;
+#endif
 
     for (uint r0 = 0; r0 < rEnd; r0 += TB)
     {
@@ -174,6 +188,12 @@ void ssm_scan(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Ssm
             }
             float yd = row_sum((ya[0] + ya[1]) + (ya[2] + ya[3]));
             if (part == 0 && r0 + tt >= replay) p.y[(uint64_t(tBeg + r0 + tt - replay) * H + h) * P + row] = yd + Dh * xp;
+#if SNAPSHOT
+            if (r0 + tt + 1 == snapEnd)
+            {
+                [ForceUnroll] for (int e = 0; e < EPL; e++) snapSt[e * LPR] = M[e];
+            }
+#endif
         }
     }
     if (!tentative)

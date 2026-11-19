@@ -1123,6 +1123,22 @@ public sealed class InferenceEngine : IDisposable
 
         var last = slot.BlockHashes[^1];
         int length = slot.Tokens.Count;
+        if (SnapshotsState && slot.Active is { InsideSnapshot: > 0 } inside)
+        {
+            // The state the step kept at a boundary inside its prompt chunk.
+            int b = inside.InsideSnapshot;
+            int bs = _decoder.KvBlockSize;
+            if (b <= slot.BlockHashes.Count * bs)
+            {
+                inside.InsideSnapshot = 0;
+                var hash = slot.BlockHashes[b / bs - 1];
+                if (_decoder.SaveKvStateSnapshotAt(slot.Index, b, hash))
+                {
+                    NoteSnapshot(slot, hash, b);
+                }
+            }
+        }
+
         if (!SnapshotsState || length != slot.BlockHashes.Count * _decoder.KvBlockSize)
         {
             return;
@@ -1147,8 +1163,14 @@ public sealed class InferenceEngine : IDisposable
         }
 
         _cost.ObserveCopy(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
-        _wantSnapshot.Remove(last);
-        if (_wantPromptEnd.Remove(last))
+        NoteSnapshot(slot, last, length);
+    }
+
+    /// <summary>Bookkeeping of a snapshot taken of the slot's state after <paramref name="length"/> tokens, the block boundary <paramref name="hash"/>.</summary>
+    private void NoteSnapshot(EngineSlot slot, UInt128 hash, int length)
+    {
+        _wantSnapshot.Remove(hash);
+        if (_wantPromptEnd.Remove(hash))
         {
             int cls = slot.Active is { Continues: true } ? 1 : 0;
             _promptEndSaved[cls]++;
@@ -1157,12 +1179,12 @@ public sealed class InferenceEngine : IDisposable
                 _promptEndKeys.Clear();
             }
 
-            _promptEndKeys[last] = cls;
+            _promptEndKeys[hash] = cls;
         }
 
-        if (slot.Active is { } owner2)
+        if (slot.Active is { } owner && owner.SnapshotPos < length)
         {
-            owner2.SnapshotPos = length;
+            owner.SnapshotPos = length;
         }
 
         Metrics.StateSnapshot();
@@ -1185,6 +1207,7 @@ public sealed class InferenceEngine : IDisposable
         int bs = _decoder.KvBlockSize;
         int pos = s.PromptPos;
         int end = pos + chunk;
+        s.InsideSnapshot = 0;
         if (!s.Request.BypassPrefixCache)
         {
             for (int j = (pos + bs - 1) / bs; j < hashes.Count && j * bs < end; j++)
@@ -1206,9 +1229,10 @@ public sealed class InferenceEngine : IDisposable
             }
         }
 
-        if (SnapshotsState && end - pos > bs)
+        bool inside = _decoder.SnapshotsInsideSteps;
+        if (SnapshotsState && !inside && end - pos > bs)
         {
-            int clip = SnapshotClip(s, hashes, pos, end, chunk);
+            int clip = SnapshotClip(s, hashes, pos, end, chunk, inside: false);
             if (clip > 0)
             {
                 end = clip;
@@ -1222,7 +1246,42 @@ public sealed class InferenceEngine : IDisposable
             end = end / bs * bs;
         }
 
+        if (SnapshotsState && inside && end - pos > bs)
+        {
+            // The step keeps the state at the boundary itself: the chunk goes on.
+            int b = SnapshotClip(s, hashes, pos, end, chunk, inside: true);
+            if (b > 0)
+            {
+                s.InsideSnapshot = b;
+                s.TraceClip += " snap-in";
+            }
+        }
+
         return Math.Max(0, end - pos);
+    }
+
+    /// <summary>
+    /// Rows of the prompt chunk after which the step keeps the state for the snapshot <see cref="ClipPrefillChunk"/> chose inside it (0 for
+    /// none). A chunk that was shortened since to end exactly there takes the snapshot after the step instead; one that ends before it drops it.
+    /// </summary>
+    private int InsideSnapshotRows(EngineSequence s, int chunk)
+    {
+        int b = s.InsideSnapshot;
+        int end = s.PromptPos + chunk;
+        if (b <= s.PromptPos || b > end || s.Slot!.Tokens.Count != s.PromptPos)
+        {
+            s.InsideSnapshot = 0;
+            return 0;
+        }
+
+        if (b == end)
+        {
+            _takeSnapshot.Add(s.PromptHashes![b / _decoder.KvBlockSize - 1]);
+            s.InsideSnapshot = 0;
+            return 0;
+        }
+
+        return b - s.PromptPos;
     }
 
     /// <summary>Running sequences, at least 1: how many requests a longer step delays (each step advances every one of them).</summary>
@@ -1287,9 +1346,10 @@ public sealed class InferenceEngine : IDisposable
     /// state, or 0 for none. A snapshot at boundary b saves later prompts recomputing the tokens since the previous snapshot of this
     /// prompt: prompts running now that part from this one at b and wait for it, a prefix this prompt shares with an idle context (expected
     /// to come again), and the prompt's end (the next turn of a conversation, weighted by how often such snapshots were used). It costs this
-    /// prompt one more pass, unless the chunk is cut short by the budget anyway and stopping at b adds no pass to the rest of the prompt.
+    /// prompt one more pass, unless the chunk is cut short by the budget anyway and stopping at b adds no pass to the rest of the prompt, or
+    /// the step keeps the state at b itself (<paramref name="inside"/>: <see cref="IBatchDecoder.SnapshotsInsideSteps"/>; the chunk is not cut).
     /// </summary>
-    private int SnapshotClip(EngineSequence s, List<UInt128> hashes, int pos, int end, int chunk)
+    private int SnapshotClip(EngineSequence s, List<UInt128> hashes, int pos, int end, int chunk, bool inside)
     {
         int bs = _decoder.KvBlockSize;
         int length = s.Prompt.Length;
@@ -1313,7 +1373,7 @@ public sealed class InferenceEngine : IDisposable
             }
 
             // Free when the chunk ends early anyway (the budget) and the rest of the prompt needs no more passes from b than from end.
-            bool free = end < length && Passes(length - b, chunk) == Passes(length - end, chunk);
+            bool free = inside || (end < length && Passes(length - b, chunk) == Passes(length - end, chunk));
             double gain = value - _cost.CopyMs - (free ? 0 : PassMs(s, end - b));
             if (gain > bestGain)
             {
@@ -1748,7 +1808,8 @@ public sealed class InferenceEngine : IDisposable
             }
 
             budget.KvBlocks -= _decoder.KvBlocksNeeded(s.Slot!.Index, chunk);
-            AddInput(s, new SequenceInput(s.Slot!.Index, s.Prompt.AsMemory(s.PromptPos, chunk), last));
+            int insideRows = InsideSnapshotRows(s, chunk);
+            AddInput(s, new SequenceInput(s.Slot!.Index, s.Prompt.AsMemory(s.PromptPos, chunk), last) { StateSnapshotRows = insideRows });
             budget.Tokens -= chunk;
             budget.LogitsRows -= last ? 1 : 0;
         }
