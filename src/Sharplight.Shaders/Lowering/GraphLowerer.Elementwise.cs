@@ -168,6 +168,7 @@ public sealed partial class GraphLowerer
             Pass2Outputs = pass2Outputs,
             Pass2Guards = pass2Guards,
             Fp8Output = fp8Output is { } index ? (index, prefillRows) : null,
+            Fp8DenseScaleCapacity = fp8Output is { } dense ? DenseScaleCapacityOf(pass2Outputs[dense].Ref) : 0,
             HasWeight = w is not null,
             Mode = mode,
             Epsilon = eps,

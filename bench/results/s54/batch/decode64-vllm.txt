@@ -1,0 +1,26 @@
+61 decode steps of 64 sequences: GPU time per step 14.08 ms (annotated range), kernel sum 17.29 ms
+   4.733 ms  27.4%   36.0x  void deep_gemm::sm120_fp8_fp4_gemm_1d1d_impl<0u, 24576u, 4096u, 128u, 128u, 1u, 64u, 128u, 128u, 128u, 128u, 128u, 3u, 128u, 256u, 82u, (deep_gemm::Ge
+   3.645 ms  21.1%   36.0x  void flash::flash_fwd_splitkv_kernel<Flash_fwd_kernel_traits<128, 64, 64, 4, false, false, cutlass::bfloat16_t, Flash_kernel_traits<128, 64, 64, 4, cu
+   3.355 ms  19.4%   72.0x  void deep_gemm::sm120_split_k_reduce_impl<cutlass::bfloat16_t, 2u, deep_gemm::epilogue::operators::Identity>(cutlass::bfloat16_t*, float const*, unsig
+   2.452 ms  14.2%   36.0x  void deep_gemm::sm120_fp8_fp4_gemm_1d1d_impl<0u, 4096u, 12288u, 128u, 128u, 1u, 64u, 128u, 128u, 128u, 128u, 128u, 3u, 128u, 256u, 82u, (deep_gemm::Ge
+   1.345 ms   7.8%   36.0x  void deep_gemm::sm120_fp8_fp4_gemm_1d1d_impl<0u, 6144u, 4096u, 128u, 128u, 1u, 64u, 128u, 128u, 128u, 128u, 128u, 3u, 128u, 256u, 82u, (deep_gemm::Gem
+   0.877 ms   5.1%   36.0x  void deep_gemm::sm120_fp8_fp4_gemm_1d1d_impl<0u, 4096u, 4096u, 128u, 128u, 1u, 64u, 128u, 128u, 128u, 128u, 128u, 3u, 128u, 256u, 82u, (deep_gemm::Gem
+   0.236 ms   1.4%  144.0x  void per_token_group_quant_8bit_packed_register_kernel<c10::BFloat16, c10::Float8_e4m3fn, 128, 16, 1>(c10::BFloat16 const*, void*, unsigned int*, int,
+   0.152 ms   0.9%   72.0x  void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()
+   0.102 ms   0.6%   36.0x  triton_poi_fused_mul_per_token_group_fp8_quant_packed_silu_slice_1
+   0.074 ms   0.4%   35.0x  triton_red_fused_fused_add_rms_norm_per_token_group_fp8_quant_packed_2
+   0.068 ms   0.4%   35.0x  triton_per_fused_add_cat_index_select_mul_rms_norm_split_split_with_sizes_sub_unsqueeze_view_3
+   0.066 ms   0.4%   36.0x  triton_red_fused_fused_add_rms_norm_per_token_group_fp8_quant_packed_0
+   0.063 ms   0.4%   36.0x  void vllm::reshape_and_cache_flash_kernel<__nv_bfloat16, __nv_bfloat16, (vllm::Fp8KVCacheDataType)0>(__nv_bfloat16 const*, __nv_bfloat16 const*, __nv_
+   0.054 ms   0.3%   35.0x  triton_per_fused_add_cat_index_select_mul_rms_norm_split_split_with_sizes_sub_unsqueeze_view_4
+   0.044 ms   0.3%   36.0x  void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()
+   0.004 ms   0.0%    1.0x  triton_red_fused__to_copy_embedding_per_token_group_fp8_quant_packed_rms_norm_0
+   0.004 ms   0.0%    1.0x  _gather_block_tables_kernel
+   0.003 ms   0.0%    1.0x  triton_red_fused_fused_add_rms_norm_2
+   0.002 ms   0.0%    1.0x  _combine_sampled_and_draft_tokens_kernel
+   0.002 ms   0.0%    1.0x  _compute_slot_mappings_kernel
+   0.002 ms   0.0%    1.0x  triton_per_fused_add_cat_index_select_mul_rms_norm_split_split_with_sizes_sub_unsqueeze_view_1
+   0.001 ms   0.0%    1.0x  triton_per_fused_add_cat_index_select_mul_rms_norm_split_split_with_sizes_sub_unsqueeze_view_2
+   0.001 ms   0.0%    1.0x  memcpy32_post
+   0.001 ms   0.0%    1.0x  _prepare_pos_seq_lens_kernel
+   0.001 ms   0.0%    1.0x  void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<bool>, std::array<char*, 1ul>, false>(int, at::native::FillFunctor<bool>, st

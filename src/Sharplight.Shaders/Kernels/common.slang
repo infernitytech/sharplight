@@ -173,6 +173,8 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 // The same in the aligned split layout [K codes][K / B f32 scales] (WeightRepack.Fp8B32Split / Fp8B128Split).
 #define FMT_F8E4M3_B32R 152
 #define FMT_F8E4M3_B128R 153
+// f8e4m3_b128r rows in groups of 128 rows: [128 rows of K codes][K / 128 blocks of 128 f32 scales] (WeightRepack.Fp8B128Grouped).
+#define FMT_F8E4M3_B128G 154
 // Group-scaled formats of quantized Hugging Face checkpoints, decoded in quant_group.slang.
 #define FMT_NVFP4_GS 60
 #define FMT_Q4Z_G32 61
@@ -812,6 +814,9 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
     load8_fp8(base, rowBytes, row, g, 32, false, v);
 #elif WFMT == FMT_F8E4M3_B128 || WFMT == FMT_F8E4M3_B128R
     load8_fp8(base, rowBytes, row, g, 128, false, v);
+#elif WFMT == FMT_F8E4M3_B128G
+    // Rows of a 128-row group share the group's scale area: addressed from the table and its row.
+    load8_fp8(table, rowBytes, tableRow, g, 128, false, v);
 #else
 #error "unsupported WFMT"
 #endif

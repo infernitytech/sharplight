@@ -7390,3 +7390,163 @@ OUT_DIR=bench/results/s53/serve-cuda ROUNDS=2 bench/s16_serve.sh sharplight gpt-
 OUT_DIR=bench/results/s53/serve-vllm ROUNDS=2 bench/s16_serve.sh vllm gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "1 4 16 64"   # likewise Qwen3-8B-FP8
 # GEMM prototypes and ablations: bench/s53_gemm/README.md
 ```
+## 54. CUDA provider phase 4: dense FP8 scale layouts, 64-row FP8 tiles, the batched decode step against vLLM (2026-11-19)
+
+Branch `cuda/provider-r4` ([cuda.md](cuda.md#kernels-written-in-cuda-c)). GPU 1 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs,
+nothing else on it), driver 595.112.07, NVRTC 13.0.88, procedure of sections 51 / 53 (`bench/s53_providers.sh`, one process per
+prompt length, prefill median of 5, decode median of 64 steps). vLLM 0.33.0 fresh in the same session. Raw output in
+[`bench/results/s54/`](../bench/results/s54). This phase changes the FP8 paths only: models without block-scaled E4M3 weights run
+the kernels of section 53.
+
+### 54.1 Qwen3-8B-FP8 per provider (tok/s; prefill median of 5 / decode median)
+
+| rows | Vulkan | CUDA phase 3 (§53) | **CUDA** | CUDA / Vulkan | vLLM DeepGEMM (§51) | vLLM CUTLASS (today) | CUDA / vLLM |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 512 | 10,817 / 87.0 | 11,348 / 87.7 | **12,688 / 87.4** | 1.17 / 1.00 | 14,546 / 87.3 | 13,946 / 86.5 | 0.87-0.91 / 1.00 |
+| 2048 | 10,972 / 86.1 | 11,808 / 86.2 | **12,819 / 85.7** | 1.17 / 1.00 | 14,948 | 14,971 | 0.86 |
+| 8192 | 9,282 / 77.0 | 9,791 / 78.1 | **10,494 / 77.7** | 1.13 / 1.01 | 12,316 | 12,391 / 77.2 | 0.85 |
+
+* FP8 prefill +7-12 % over phase 3 (0.79x → 0.85-0.87x of vLLM), decode unchanged. The 1.0x target is not reached (54.3).
+* vLLM selects DeepGEMM on this GPU, which rounds the block scales up to powers of two (UE8M0) and requantizes the weights; with
+  `VLLM_USE_DEEP_GEMM=0` it takes CUTLASS's block-scaled kernel with the checkpoint's f32 scales and is just as fast (the "CUTLASS"
+  column, `bench/results/s54/vllm-nodg`). The exact scales are therefore not what separates us from vLLM.
+
+### 54.2 What changed
+
+* **Dense scale layouts for the hand-written FP8 GEMM.** Weights are repacked at upload into 128-row groups
+  (`WeightRepack.Fp8B128Grouped`, type `f8e4m3_b128g`, same bytes): [128 rows of K codes][K / 128 blocks of the 128 rows' f32
+  scales], so a tile's weight scales of a K block are 512 contiguous bytes. `quantize_fp8` and the norms that write E4M3 rows add a
+  dense copy of the activation scales ([K / 128][capacity] after the rows, `DENSE_XCAP`). A K block's scales are now 64 16-byte
+  `cp.async` copies instead of 256 4-byte loads from separate lines. Every generated kernel reading FP8 weights decodes the grouped
+  layout too (`FP8_GROUPED` in `quant_fp8.slang`, `F8_GROUPED` in `gemm_fp8.slang`), so decode and small batches keep their kernels.
+* **64-row tiles** of the hand-written FP8 GEMM (four `cp.async` stages in the same 99 KB), chosen per batch by estimated block waves
+  (a 128-row block costs 1.75 of a 64-row one), and the hand-written GEMM serves from 65 rows instead of 256
+  (`SHARPLIGHT_NATIVE_GEMM_MIN_ROWS`).
+* `SHARPLIGHT_FP8_GROUPED=1|0` forces the grouped weight layout on every target or none (54.7).
+* `bench/BatchBench --provider cuda` profiles the batched decode step on CUDA; `bench/s54_vllm_decode_profile.py` gives vLLM's
+  per-kernel decode step (torch profiler, CUPTI kernel records: no performance counters needed).
+
+### 54.3 The FP8 GEMM
+
+In the model (Qwen3-8B-FP8, 2048 rows, `SHARPLIGHT_CUDA_PROFILE=1`), GPU time per launch, phase 3 → phase 4: gate / up dual 1.81 →
+1.72 ms (227 → 240 TFLOPS), down 0.98 → 0.90 ms (211 → 228), q / o 0.323 → 0.306 ms (213 → 225), k / v 0.092 → 0.089 ms (187 → 192);
+the prefill's GPU time 167.7 → 155.3 ms, of which the GEMMs are 122.7 ms. vLLM's prefill GEMMs run at ~280-297 TFLOPS (its own
+8192-row profile: gate / up 5.91 ms = 279, down 2.85 ms = 289, qkv 1.40 ms = 294); at that speed ours would take ~98 ms, which is
+the whole remaining gap at 2048 rows (vLLM's 2048-row prefill: 137 ms).
+
+Standalone kernel (`bench/s54_gemm/bench_fp8.cu`, random data, TFLOPS at 2048 / 8192 rows):
+
+| shape | phase 3 (per-row scales) | dense scales | ablations of the dense kernel at 2048 rows: no scale loads / no promotion / no code loads / neither |
+|---|---:|---:|---|
+| q / o [4096 → 4096] | 202 / 211 | 236 / 250 | 232 / 253 / 272 / 295 |
+| k / v [4096 → 1024] | 163 / 194 | 214 / 232 | 213 / 232 / 243 / 259 |
+| gate / up [4096 → 12288] x2 | 201 / 190 | 233 / 223 | 234 / 247 / 280 / 308 |
+| down [12288 → 4096] | 199 / 212 | 241 / 258 | 238 / 259 / 287 / 311 |
+
+The scale loads now cost nothing (the "no scale loads" column equals the kernel). What is left: the per-block promotion (~6 %) and
+the copies of the codes that the MMAs do not hide (~15 %); with neither the loop runs at 295-311 TFLOPS. Tried and not kept:
+
+| variant | TFLOPS (2048 rows, q / o, gate / up) | why not |
+|---|---|---|
+| promotion with one weight scale per 128-row tile (128 x 128 checkpoints) | 250 / 247 | +6 %, but needs the scales uniform over each 128-row group, which the format does not guarantee (per-channel checkpoints) and the lowering cannot see before the weights are read |
+| warp specialization: a producer warp with `cp.async.mbarrier.arrive`, full / empty mbarriers, scales prefetched to registers | 230 / 217 | no `__syncthreads`, but not faster |
+| 256 x 128 or 128 x 256 tiles, 16 warps of 64 x 32 | 146 / 157 | 128 registers per thread: spills |
+| 64 x 128 or 128 x 64 tiles, four stages | 228 / 211 | more L2 traffic per MMA |
+| A fragments double-buffered in registers, the next stage's copies issued after the B fragments | 234 / 232 | ptxas already overlaps them |
+| `cp.async ... L2::256B` prefetch hints | unchanged | |
+
+CUTLASS's block-scaled sm120 kernel reaches ~290 TFLOPS with the same exact f32 scales (54.1), so there is headroom; reaching it
+needs a different main loop (likely TMA with warp-specialized ping-pong of two consumer groups, so that one group's promotion
+overlaps the other's MMAs), which did not fit this phase.
+
+### 54.4 The batched decode step (64 sequences)
+
+`BatchBench --slots 64 --ctx 512 --depth 256 --sizes 64 --modes greedy` (GPU ms per step; CUDA / Vulkan: minimum launch times from
+the per-launch profile, x 36 layers), vLLM: `s54_vllm_decode_profile.py` (64 sequences of 256-token prompts, the annotated
+`execute_context_0(0)_generation_64` ranges of the warm run; `bench/results/s54/batch`):
+
+| per step | CUDA | Vulkan | vLLM |
+|---|---:|---:|---:|
+| GPU time per step | 17.53 (wall 17.92) | 16.90 (wall 17.34) | 14.08 without LM head and sampling (+1.55 LM head) |
+| gate / up (dual, SiLU·mul) | 5.35 | 5.22 | 4.73 |
+| down | 2.68 (+ split-K reduce) | 2.50 | 2.45 |
+| q, k, v, o | 2.74 (4 launches) | 2.58 | 2.22 (qkv fused + o) |
+| attention (+ combine) | 3.89 + 0.41 | 3.98 + 0.44 | 3.65 |
+| split-K reduce, activation quantization, norms, rope, cache | ~1.9 | ~1.4 | 3.36 split-K reduce (overlapped through PDL) + 0.6 |
+| LM head [4096 → 151936] | 1.59 | 1.53 | 1.55 |
+
+* vLLM's weight GEMMs stream the weights at ~766 GB/s (the read limit of this GPU is ~780 GB/s); ours at 680-700 GB/s, plus 3 % more
+  bytes (one scale per row instead of per 128 x 128 block). A `cp.async` skinny GEMM prototype (64-row tiles, four stages, split-K
+  1-12) stayed at 600-700 GB/s: the generated kernels are not limited by how many copies are in flight.
+* The CUDA step is ~0.6 ms slower than Vulkan's (the same Slang kernels; the grouped layout costs the decode GEMMs ~2 %).
+
+**Mixed steps** (64 decode rows plus one prompt chunk, `BatchBench --mixed`, GPU ms) improved with the 64-row FP8 tiles and the lower
+row threshold:
+
+| prompt rows | 0 | 16 | 32 | 64 | 96 | 128 | 256 | 512 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| CUDA before (generated below 256 rows) | 17.53 | 20.99 | 21.90 | 23.64 | 30.98 | 32.21 | 40.63 | 63.73 |
+| **CUDA** | 17.52 | 19.64 | 19.73 | 20.08 | 25.59 | 25.63 | 33.75 | 65.32 |
+| Vulkan | 16.90 | | | | | 33.04 | 43.39 | 74.46 |
+
+### 54.5 Serving (procedure of section 43, median of 2 rounds, same session)
+
+Aggregate output tok/s / TTFT p50 ms / mean inter-token latency ms, Qwen3-8B-FP8 (`bench/results/s54/serve-*`):
+
+| streams | CUDA | vLLM | CUDA / vLLM |
+|---:|---|---|---:|
+| 1 | 86 / 35 / 11.4 | 86 / 38 / 11.4 | 1.00 |
+| 4 | 299 / 88 / 12.9 | 327 / 77 / 11.7 | 0.92 |
+| 16 | 938 / 151 / 15.9 | 1119 / 167 / 12.9 | 0.84 |
+| 64 | 2093 / 389 / 26.2 | 2692 / 464 / 19.9 | 0.78 |
+
+Unchanged from section 53 (0.77x at 64 streams): of the 396 steps of a 64-stream round, 364 are pure decode steps of up to 64 rows
+and 23 carry 1025-2048 rows (several prompts at once), so the mid-size steps that got faster hardly occur. The time splits into the
+decode steps (~364 x 17.5 ms = 6.4 s) and the prompt batches (~48,000 prompt rows at the prefill rate of 54.1, ~3.5 s); vLLM spends
+~5.7 s and ~3.2 s. Closing the gap needs both: the decode step at vLLM's 15.6 ms (54.4) and the FP8 GEMM at CUTLASS's speed (54.3).
+gpt-oss-20b is unchanged by this phase (MXFP4, no FP8 path).
+
+### 54.6 Not done in this phase
+
+* FP8 prefill at 1.0x of vLLM (0.85-0.87x reached), serving at 64 streams at 0.9x (0.78x): see 54.3-54.5 for what is measured.
+* The decode-step items beyond the measurement: a split-KV decode attention with `cp.async` (ours is within 7 % of vLLM's
+  FlashAttention split-KV), a fused q / k / v GEMM (~0.5 ms per step), graph capture of mixed steps (host time is ~0.4 ms per
+  decode step on both providers).
+* The FlashAttention-2-style prefill kernel in CUDA C++ (`fe` is 24 % of an 8192-token FP8 prefill, 105 TFLOPS), split-K for the
+  native f16 GEMM's small grids, the dual GEMM writing the f16 copy, the 8B decode matvec gap, and the MXFP4 expert GEMM for
+  gpt-oss.
+
+### 54.7 Vulkan unchanged
+
+The grouped layout is selected only where the hand-written FP8 GEMM runs (CUDA); on Vulkan the generated kernels keep the split
+rows. The kernel library changes are inert for them: of the 225 kernels the Vulkan provider compiles for Qwen3-8B-FP8 and
+Qwen3-0.6B Q8_0 (`SHARPLIGHT_DUMP_KERNELS`), 204 preprocess to identical text against `develop` (`48a7af26`) and the 21 fp8 GEMM /
+quantization kernels compile to byte-identical SPIR-V (`slangc -g0 -target spirv`, both kernel libraries). The Vulkan column of
+54.1 matches section 53 within 1-3 %. With `SHARPLIGHT_FP8_GROUPED=1` Vulkan's generated fp8 GEMM reads the coalesced weight scales:
+prefill +1-4 % (2048 rows 11,060 → 11,365 tok/s), decode -0.3 to -2 % (the matvecs' scale loads leave the row's DRAM page), so it
+stays off there.
+
+### 54.8 Tests
+
+Run on one GPU (index 0) after merging `develop` (with phase 3):
+
+| suite | result |
+|---|---|
+| Sharplight.Cuda.Tests (incl. `NativeFp8GemmMatchesTheCpu`: 100 / 300 / 700 rows, single and dual, against the CPU and the generated GEMM) | 17 / 0 failed / 0 skipped |
+| Sharplight.Vulkan.Tests on CUDA, one process per class (all 62 classes, cuBLASLt installed) | 1624 / 0 failed / 46 skipped (as in section 53) |
+| Vulkan SPIR-V of the 225 kernels of Qwen3-8B-FP8 and Qwen3-0.6B Q8_0 against `develop` (`slangc -g0 -target spirv`) | identical |
+| CudaParityTests, FamilyGenerationTests on CUDA, Vulkan suite on Vulkan | parity 4 / 4 identical; reference generations 315, 0 failed, 100 skipped; Vulkan suite 1624, 0 failed, 26 skipped |
+
+### 54.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=1 SHARPLIGHT_VK_DEVICES=1
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+ONLY=qwen3-8b-fp8 bench/s53_providers.sh bench/results/s54/cuda.txt $CLI cuda      # likewise vulkan
+VLLM_USE_DEEP_GEMM=0 LENS="2048 8192" bench/s42_gap.sh bench/results/s54/vllm-nodg qwen3-8b-fp8 vllm ~/models/hf/Qwen3-8B-FP8
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 64 --modes greedy --profile 64 --profile-mode greedy
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 68 --ctx 512 --batch 2048 --depth 256 --modes greedy --mixed 64+0,64+16,64+32,64+64,64+96,64+128,64+256,64+512
+$VLLM_VENV/bin/python bench/s54_vllm_decode_profile.py ~/models/hf/Qwen3-8B-FP8 --seqs 64
+OUT_DIR=bench/results/s54/serve-cuda ROUNDS=2 bench/s16_serve.sh sharplight qwen3-8b-fp8-hf ~/models/hf/Qwen3-8B-FP8 "1 4 16 64" --provider cuda   # and vllm
+# FP8 GEMM harness and ablations: bench/s54_gemm/README.md
+```

@@ -153,12 +153,24 @@ internal sealed unsafe class MemoryAllocator : IDisposable
         VkMemoryRequirements req;
         api.vkGetBufferMemoryRequirements(buf, &req);
 
-        var (typeIndex, flags) = PickType(req.memoryTypeBits, usage);
         var flagsInfo = new VkMemoryAllocateFlagsInfo { flags = VkMemoryAllocateFlags.DeviceAddress };
         var dedicatedInfo = new VkMemoryDedicatedAllocateInfo { buffer = buf, pNext = &flagsInfo };
-        var mai = new VkMemoryAllocateInfo { pNext = dedicated ? &dedicatedInfo : &flagsInfo, allocationSize = req.size, memoryTypeIndex = typeIndex };
-        VkDeviceMemory mem;
-        var r = api.vkAllocateMemory(&mai, null, &mem);
+        VkDeviceMemory mem = default;
+        VkMemoryPropertyFlags flags = default;
+        var r = VkResult.ErrorOutOfDeviceMemory;
+        // Memory types in order of preference: when the preferred heap is full, the next type serves (staging in device-local
+        // host-visible memory falls back to plain host memory, e.g. on GPUs without resizable BAR, whose 256 MiB BAR heap is
+        // shared by every process on the device).
+        foreach (var (typeIndex, typeFlags) in CandidateTypes(req.memoryTypeBits, usage))
+        {
+            var mai = new VkMemoryAllocateInfo { pNext = dedicated ? &dedicatedInfo : &flagsInfo, allocationSize = req.size, memoryTypeIndex = typeIndex };
+            r = api.vkAllocateMemory(&mai, null, &mem);
+            if (r == VkResult.Success)
+            {
+                flags = typeFlags;
+                break;
+            }
+        }
         if (r != VkResult.Success)
         {
             api.vkDestroyBuffer(buf, null);
@@ -193,44 +205,49 @@ internal sealed unsafe class MemoryAllocator : IDisposable
 
     private const ulong VkWholeSize = ulong.MaxValue;
 
-    private (uint, VkMemoryPropertyFlags) PickType(uint bits, MemoryUsage usage)
+    /// <summary>The memory types for <paramref name="usage"/> among <paramref name="bits"/>, most preferred first, each once.</summary>
+    private List<(uint Index, VkMemoryPropertyFlags Flags)> CandidateTypes(uint bits, MemoryUsage usage)
     {
-        VkMemoryPropertyFlags[][] prefs = usage switch
+        VkMemoryPropertyFlags[] prefs = usage switch
         {
-            MemoryUsage.Device => [[VkMemoryPropertyFlags.DeviceLocal]],
+            MemoryUsage.Device => [VkMemoryPropertyFlags.DeviceLocal],
             MemoryUsage.Upload =>
             [
-                [VkMemoryPropertyFlags.DeviceLocal | VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent],
-                [VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent],
+                VkMemoryPropertyFlags.DeviceLocal | VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent,
+                VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent,
             ],
             _ =>
             [
-                [VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent | VkMemoryPropertyFlags.HostCached],
-                [VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent],
+                VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent | VkMemoryPropertyFlags.HostCached,
+                VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent,
             ],
         };
-        foreach (var want in prefs[0..])
+        var types = new List<(uint, VkMemoryPropertyFlags)>();
+        foreach (var w in prefs)
         {
-            foreach (var w in want)
+            for (uint i = 0; i < _props.memoryTypeCount; i++)
             {
-                for (uint i = 0; i < _props.memoryTypeCount; i++)
+                var f = _props.memoryTypes[(int)i].propertyFlags;
+                if ((bits & (1u << (int)i)) == 0 || (f & w) != w || types.Exists(t => t.Item1 == i))
                 {
-                    var f = _props.memoryTypes[(int)i].propertyFlags;
-                    if ((bits & (1u << (int)i)) != 0 && (f & w) == w)
-                    {
-                        // For pure device memory avoid host-visible types if a plain one exists.
-                        if (usage == MemoryUsage.Device && (f & VkMemoryPropertyFlags.HostVisible) != 0 && HasPlainDeviceLocal(bits))
-                        {
-                            continue;
-                        }
-
-                        return (i, f);
-                    }
+                    continue;
                 }
+
+                // For pure device memory avoid host-visible types if a plain one exists.
+                if (usage == MemoryUsage.Device && (f & VkMemoryPropertyFlags.HostVisible) != 0 && HasPlainDeviceLocal(bits))
+                {
+                    continue;
+                }
+
+                types.Add((i, f));
             }
         }
+        if (types.Count == 0)
+        {
+            throw new NotSupportedException($"No memory type for {usage}.");
+        }
 
-        throw new NotSupportedException($"No memory type for {usage}.");
+        return types;
     }
 
     private bool HasPlainDeviceLocal(uint bits)

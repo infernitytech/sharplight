@@ -175,7 +175,7 @@ public sealed partial class GraphLowerer
     /// and the K-quants' decode is not tuned for it; they keep the staged path and its rounding.
     /// </summary>
     private static readonly HashSet<DataType> s_directSkinnyFormats =
-        [DataType.F8E4M3_B128, DataType.F8E4M3_B32, ShaderTypes.F8E4M3_B128R, ShaderTypes.F8E4M3_B32R, DataType.Q8_0, ShaderTypes.Q8_0R, ShaderTypes.MXFP4R];
+        [DataType.F8E4M3_B128, DataType.F8E4M3_B32, ShaderTypes.F8E4M3_B128R, ShaderTypes.F8E4M3_B128G, ShaderTypes.F8E4M3_B32R, DataType.Q8_0, ShaderTypes.Q8_0R, ShaderTypes.MXFP4R];
 
     /// <summary>
     /// Skinny GEMM configuration for <paramref name="fm"/> token fragments: weight fragments per workgroup, subgroups splitting

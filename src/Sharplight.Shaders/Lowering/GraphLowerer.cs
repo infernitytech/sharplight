@@ -352,6 +352,11 @@ public sealed partial class GraphLowerer
                         wb.Repack = WeightRepack.Mxfp4Split;
                         wb.RepackRowElements = w.Shape[-1].Fixed;
                     }
+                    else if (NativeFp8GroupedWeight(v))
+                    {
+                        wb.Repack = WeightRepack.Fp8B128Grouped;
+                        wb.RepackRowElements = w.Shape[-1].Fixed;
+                    }
                     else if (Fp8SplitRepack(w) is { } fp8Split)
                     {
                         wb.Repack = fp8Split;
@@ -379,6 +384,10 @@ public sealed partial class GraphLowerer
                 else if (wb.Repack == WeightRepack.Fp8B128Split)
                 {
                     r = r with { Type = ShaderTypes.F8E4M3_B128R };
+                }
+                else if (wb.Repack == WeightRepack.Fp8B128Grouped)
+                {
+                    r = r with { Type = ShaderTypes.F8E4M3_B128G };
                 }
                 else if (wb.Repack == WeightRepack.Bf16ToF16)
                 {

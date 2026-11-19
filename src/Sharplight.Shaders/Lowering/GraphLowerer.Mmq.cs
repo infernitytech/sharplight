@@ -154,11 +154,11 @@ public sealed partial class GraphLowerer
     /// <see cref="MmqLayout"/> layouts, <paramref name="blockK"/> K values per staged step) with its split-K variants and
     /// reduction for batches of at least <see cref="QuantizedGemmMinRows"/> rows. <paramref name="kernel"/> compiles the GEMM for a
     /// tile height and a K split; <paramref name="tokenTilesFirst"/> when it reads grid x as the token tile (see gemm_fp8);
-    /// <paramref name="native"/> is the hand-written provider GEMM serving rows from <see cref="NativeGemmMinRows"/> (same arguments,
-    /// grid <see cref="NativeFp8Grid"/>), or null.
+    /// <paramref name="native"/> gives the launch variants of the hand-written provider GEMM for the quantized activations and a
+    /// row range from <see cref="NativeGemmMinRows"/> (same arguments), or null.
     /// </summary>
     private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, CompiledKernel> kernel,
-        bool tokenTilesFirst = false, CompiledKernel? native = null)
+        bool tokenTilesFirst = false, Func<TensorRef, long, long, KernelVariant[]?>? native = null)
     {
 
         long n = p.N;
@@ -176,15 +176,21 @@ public sealed partial class GraphLowerer
 
         string label = MatMulLabel(p);
         var quantized = QuantizedActivations(label, [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, k, minRows, rowsMax, code);
-        long nativeMin = native is null ? long.MaxValue : Math.Max(minRows, NativeGemmMinRows);
+        long nativeMin = Math.Max(minRows, NativeGemmMinRows);
+        var nativeVariants = rowsMax >= nativeMin ? native?.Invoke(quantized, nativeMin, rowsMax) : null;
+        if (nativeVariants is null)
+        {
+            nativeMin = long.MaxValue;
+        }
+
         bool InRange(Bindings b) => p.RowCount(b) >= minRows && p.RowCount(b) < nativeMin;
         bool fp8 = code == ActivationCode.Fp8;
         int Split(Bindings b) => QuantizedGemmSplit(n, k, p.RowCount(b), blockK, fp8);
 
         var direct = new List<KernelVariant>();
-        if (native is not null && rowsMax >= nativeMin)
+        if (nativeVariants is not null)
         {
-            direct.Add(new KernelVariant(b => p.RowCount(b) >= nativeMin, native, b => NativeFp8Grid(p.RowCount(b), n, dual: false)));
+            direct.AddRange(nativeVariants);
         }
 
         foreach (int tileRows in new[] { 64, 128 })

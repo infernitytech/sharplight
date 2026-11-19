@@ -1,11 +1,17 @@
 // FP8 GEMM written in CUDA C++ for the CUDA provider (DeviceFeatures.NativeGemmFp8, compute capability 8.9 and later):
-// y[t, n] = sum_k x[t, k] * W[n, k] with E4M3 activations and weights in 128-value scale groups along K, the operands of
-// gemm_fp8.slang (quantize_fp8 rows: [K codes][K / 128 f32 scales]; weights in the split layout f8e4m3_b128r, the same row
-// format). Compiled by NVRTC from this file, not by Slang: it uses what the Slang kernels cannot express on CUDA, cp.async
-// copies into a three-stage ring of 32 KB K blocks in dynamic shared memory (96 KB, above the 48 KB static limit), with a 128-byte
-// XOR swizzle so that ldmatrix reads and the copies are free of bank conflicts.
+// y[t, n] = sum_k x[t, k] * W[n, k] with E4M3 activations and weights in 128-value scale groups along K. Compiled by NVRTC from
+// this file, not by Slang: it uses what the Slang kernels cannot express on CUDA, cp.async copies into a three-stage ring of
+// 32 KB K blocks in dynamic shared memory (96 KB, above the 48 KB static limit), with a 128-byte XOR swizzle so that ldmatrix
+// reads and the copies are free of bank conflicts.
 //
-// Tile: F8N_BM tokens x F8N_BN weight rows per block of F8N_WM x F8N_WN warps; a warp owns (F8N_BM / F8N_WM) x (F8N_BN / F8N_WN)
+// Operands, both with the scales of a K block for consecutive rows next to each other, so that a tile's scales are a few
+// 16-byte copies per K block instead of one 4-byte load from a separate line per row:
+//  * x: the rows of quantize_fp8 ([K codes][K / 128 f32 scales] per row, row capacity XCAP), followed by the dense copy of the
+//    scales that quantize_fp8 writes with DENSE_SCALES: [K / 128][XCAP] f32 at byte XCAP * (K + K / 32).
+//  * W (and W2): the 128-row groups of WeightRepack.Fp8B128Grouped (f8e4m3_b128g): per group [128 rows of K codes][K / 128
+//    blocks of 128 f32 scales], the same bytes per row as f8e4m3_b128r. Requires N % 128 == 0.
+//
+// Tile: F8N_BM (128 or 64) tokens x F8N_BN weight rows per block of F8N_WM x F8N_WN warps; a warp owns (F8N_BM / F8N_WM) x (F8N_BN / F8N_WN)
 // outputs as m16n8k32 E4M3 fragments with f32 accumulation. Per 128-value K block the warp loads its B fragments once and
 // then, one 16-row fragment at a time, sums the block's MMAs in a fresh accumulator and adds it scaled by
 // sx[t, block] * sw[n, block] (one fused multiply-add per output per block, as gemm_fp8.slang).
@@ -14,14 +20,21 @@
 // each thread holds both results of an output and stores F8N_EPI2(a, b) (the generated epilogue); a block covers F8N_BN / 2
 // outputs.
 //
-// Specialization macros: K, N, Y_STRIDE, DUAL, F8N_EPI2 (DUAL). Requires K % 512 == 0 (16-byte aligned rows of K + K / 32
-// bytes) and an even Y_STRIDE. Grid: x = token tiles, y = weight tiles.
+// Specialization macros: K, N, Y_STRIDE, XCAP, F8N_BM (default 128), DUAL, F8N_EPI2 (DUAL). Requires K % 512 == 0 (16-byte aligned rows of K + K / 32
+// bytes), N % 128 == 0, XCAP % 128 == 0 and an even Y_STRIDE. Grid: x = token tiles, y = weight tiles.
 #ifndef DUAL
 #define DUAL 0
 #endif
+#ifndef F8N_BM
 #define F8N_BM 128
+#endif
 #define F8N_BN 128
+// 64-row tiles (batches of 65 to a few hundred rows: twice the blocks) keep four stages in the same 99 KB.
+#if F8N_BM == 64
+#define F8N_STAGES 4
+#else
 #define F8N_STAGES 3
+#endif
 #define F8N_WM 2
 #define F8N_WN 4
 #define F8N_THREADS (F8N_WM * F8N_WN * 32)
@@ -31,6 +44,7 @@
 #define F8N_FN (F8N_TN / 8)
 #define F8N_STAGE_BYTES ((F8N_BM + F8N_BN) * 128 + (F8N_BM + F8N_BN) * 4)
 #define F8N_RS ((unsigned long long)K + K / 32)
+#define F8N_GROUP_BYTES (128ull * F8N_RS)
 #if DUAL
 #define F8N_BOUT (F8N_BN / 2)
 #else
@@ -62,11 +76,6 @@ static __device__ __forceinline__ void f8n_cp16(f8n_u32 dst, const void* src)
     asm volatile("cp.async.cg.shared.global [%0], [%1], 16;\n" :: "r"(dst), "l"(src));
 }
 
-static __device__ __forceinline__ void f8n_cp4(f8n_u32 dst, const void* src)
-{
-    asm volatile("cp.async.ca.shared.global [%0], [%1], 4;\n" :: "r"(dst), "l"(src));
-}
-
 static __device__ __forceinline__ void f8n_commit()
 {
     asm volatile("cp.async.commit_group;\n" ::);
@@ -96,6 +105,18 @@ static __device__ __forceinline__ f8n_u32 f8n_swz(f8n_u32 r, f8n_u32 c)
     return r * 128u + ((c ^ (r & 7u)) << 4);
 }
 
+// Codes of weight row n in the 128-row groups.
+static __device__ __forceinline__ const f8n_u8* f8n_wcodes(const f8n_u8* w, f8n_u32 n)
+{
+    return w + (n >> 7) * F8N_GROUP_BYTES + (f8n_u64)(n & 127) * K;
+}
+
+// Scale of weight row n for K block kb (the 128 rows of a group are adjacent per block).
+static __device__ __forceinline__ const f8n_u8* f8n_wscales(const f8n_u8* w, f8n_u32 n, f8n_u32 kb)
+{
+    return w + (n >> 7) * F8N_GROUP_BYTES + 128ull * K + kb * 512u + (n & 127) * 4u;
+}
+
 // Weight matrix and row of B tile row r (rows past N are clamped: their outputs are never stored).
 static __device__ __forceinline__ const f8n_u8* f8n_wrow(const F8nParams& p, f8n_u32 n0, f8n_u32 r)
 {
@@ -106,7 +127,7 @@ static __device__ __forceinline__ const f8n_u8* f8n_wrow(const F8nParams& p, f8n
     const f8n_u8* w = p.w;
     f8n_u32 n = min(n0 + r, (f8n_u32)N - 1);
 #endif
-    return w + (f8n_u64)n * F8N_RS;
+    return f8n_wcodes(w, n);
 }
 
 extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8nParams p)
@@ -120,8 +141,10 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
     const f8n_u32 t0 = (first + id % groupBlocks % groupRows) * F8N_BM;
     const f8n_u32 n0 = id % groupBlocks / groupRows * F8N_BOUT;
     const f8n_u32 nk = K / 128;
+    const f8n_u8* sx = p.x + (f8n_u64)XCAP * F8N_RS;
 
-    // Copies of K block kb into stage s: codes of both tiles (16 bytes per thread and item), then one scale per row.
+    // Copies of K block kb into stage s: codes of both tiles (16 bytes per thread and item), then the scales: 128 of x and the
+    // tile's 128 weight scales (DUAL: 64 of w, then 64 of w2), 16 bytes per copy.
     auto load = [&](f8n_u32 s, f8n_u32 kb) {
         f8n_u32 base = f8n_smem(smem + s * F8N_STAGE_BYTES);
         const f8n_u32 k0 = kb * 128;
@@ -139,10 +162,21 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
             f8n_cp16(base + F8N_BM * 128 + f8n_swz(r, c), f8n_wrow(p, n0, r) + k0 + c * 16);
         }
         f8n_u32 scales = base + (F8N_BM + F8N_BN) * 128;
-        for (f8n_u32 r = tid; r < F8N_BM + F8N_BN; r += F8N_THREADS)
+        if (tid < F8N_BM / 4)
         {
-            const f8n_u8* row = r < F8N_BM ? p.x + (f8n_u64)min(t0 + r, p.T - 1) * F8N_RS : f8n_wrow(p, n0, r - F8N_BM);
-            f8n_cp4(scales + r * 4, row + K + kb * 4);
+            f8n_cp16(scales + tid * 16, sx + ((f8n_u64)kb * XCAP + t0 + tid * 4) * 4);
+        }
+        else if (tid < (F8N_BM + F8N_BN) / 4)
+        {
+            f8n_u32 q = tid - F8N_BM / 4;
+#if DUAL
+            const f8n_u8* w = q < F8N_BN / 8 ? p.w : p.w2;
+            f8n_u32 n = n0 + (q % (F8N_BN / 8)) * 4;
+#else
+            const f8n_u8* w = p.w;
+            f8n_u32 n = n0 + q * 4;
+#endif
+            f8n_cp16(scales + F8N_BM * 4 + q * 16, f8n_wscales(w, n, kb));
         }
     };
 
@@ -202,8 +236,15 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
 #pragma unroll
         for (int j = 0; j < F8N_FN; j++)
         {
-            wb[j][0] = ws[wn * F8N_TN + j * 8 + c4 * 2];
-            wb[j][1] = ws[wn * F8N_TN + j * 8 + c4 * 2 + 1];
+            f8n_u32 r = wn * F8N_TN + j * 8 + c4 * 2;
+#if DUAL
+            // Tile row r: matrix (r / 8) % 2, output (r / 16) * 8 + r % 8 of the block's F8N_BN / 2.
+            f8n_u32 at = ((r >> 3) & 1) * (F8N_BN / 2) + (r >> 4) * 8 + (r & 7);
+#else
+            f8n_u32 at = r;
+#endif
+            wb[j][0] = ws[at];
+            wb[j][1] = ws[at + 1];
         }
 #pragma unroll
         for (int i = 0; i < F8N_FM; i++)

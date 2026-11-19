@@ -20,8 +20,8 @@
 // silu(a) * b); a workgroup covers F8_BN / 2 outputs.
 //
 // Specialization macros: KERNEL_GEMM_FP8 / KERNEL_QUANTIZE_FP8, WBLOCK (32 or 128), K, N, Y_STRIDE, ROW_BYTES, F8_WM, F8_WN,
-// F8_FM, F8_FN, SPLITK, DUAL, F8_SPLIT, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE (quantize_fp8). Requires K % 128 == 0
-// and 32-lane subgroups.
+// F8_FM, F8_FN, SPLITK, DUAL, F8_SPLIT, F8_GROUPED, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE and DENSE_XCAP
+// (quantize_fp8). Requires K % 128 == 0 and 32-lane subgroups.
 #include "common.slang"
 using namespace linalg;
 
@@ -52,6 +52,10 @@ void quantize_fp8(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
     uint8_t* row = p.q + uint64_t(t) * F8ROW;
     *(uint*)(row + k4 * 4) = e4m3_pack4(v, d);
     if ((k4 & 31) == 0) *(float*)(row + K + (k4 / 32) * 4) = d;
+#ifdef DENSE_XCAP
+    // The dense copy of the scales after DENSE_XCAP rows: [K / 128][DENSE_XCAP] f32 (gemm_fp8_native.cu).
+    if ((k4 & 31) == 0) *(float*)(p.q + uint64_t(DENSE_XCAP) * F8ROW + (uint64_t(k4 / 32) * DENSE_XCAP + t) * 4) = d;
+#endif
 }
 #endif
 
@@ -81,6 +85,11 @@ void quantize_fp8(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
 // Fp8B128Split), fetched with 16-byte loads; otherwise blocks of { f32 d; u8 q[WBLOCK] }, fetched a word at a time.
 #ifndef F8_SPLIT
 #define F8_SPLIT 0
+#endif
+// F8_GROUPED (with F8_SPLIT): the split rows in groups of 128 rows, [128 rows of K codes][K / 128 blocks of the 128 rows' f32
+// scales] (WeightRepack.Fp8B128Grouped).
+#ifndef F8_GROUPED
+#define F8_GROUPED 0
 #endif
 #if DUAL && (SPLITK != 1 || F8_FN % 2 != 0)
 #error "the dual fp8 GEMM needs SPLITK = 1 and an even F8_FN"
@@ -285,13 +294,22 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     float wsc[F8_BS_ITEMS];
 
 #if F8_SPLIT
+#if F8_GROUPED
+    // Codes of row n at its group + (n % 128) K; scale of block b at F8_WSCALES(n) + 512 b (its group + 128 K + 4 (n % 128)).
+    #define F8_WCODES(base, n) ((uint8_t*)(uint64_t(base) + ROW_BYTES * ((n) & ~127u) + uint64_t(K) * ((n) & 127u)))
+    #define F8_WSCALES(base, n) ((uint8_t*)(uint64_t(base) + ROW_BYTES * ((n) & ~127u) + uint64_t(K) * 128 + ((n) & 127u) * 4))
+    #define F8_SCALE_AT(b) (uint64_t(b) * 512)
+#else
     // Codes: 16 per item at row + k; scale of block b at row + K + 4 b.
+    #define F8_WCODES(base, n) rowStart(base, ROW_BYTES, n)
+    #define F8_WSCALES(base, n) rowStart(base, ROW_BYTES, n)
     #define F8_SCALE_AT(b) (uint64_t(K) + uint64_t(b) * 4)
+#endif
     #define F8_FETCH_W(k0)                                                                              \
     [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 16), q = idx % (F8_BK / 16);               \
-        uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));               \
+        uint8_t* row = F8_WCODES(F8_WPTR(r), min(F8_WROW(n0, r), uint(N) - 1));                         \
         if (idx < F8_BN * F8_BK / 16) wq[it] = LOAD_U4_ALIGNED(row + (k0) + q * 16, ALIGN_OF(ROW_BYTES)); \
     }
     #define F8_STAGE_W()                                                                                \
@@ -305,6 +323,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
         }                                                                                               \
     }
 #else
+    #define F8_WSCALES(base, n) rowStart(base, ROW_BYTES, n)
     #define F8_SCALE_AT(b) (uint64_t(b) * (WBLOCK + 4))
     #define F8_FETCH_W(k0)                                                                              \
     [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
@@ -334,7 +353,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     [ForceUnroll] for (uint it = 0; it < F8_BS_ITEMS; it++)                                             \
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx % F8_BN, bl = idx / F8_BN;                            \
-        uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));                              \
+        uint8_t* row = F8_WSCALES(F8_WPTR(r), min(F8_WROW(n0, r), uint(N) - 1));                                    \
         if (idx < F8_BN * F8_WBLOCKS) wsc[it] = *(float*)(row + F8_SCALE_AT((k0) / WBLOCK + bl));       \
     }
     #define STAGE()                                                                                     \
@@ -384,6 +403,10 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     #undef F8_FETCH_W
     #undef F8_STAGE_W
     #undef F8_SCALE_AT
+    #undef F8_WSCALES
+#if F8_SPLIT
+    #undef F8_WCODES
+#endif
 
     [ForceUnroll]
     for (int i = 0; i < F8_FM; i++)
