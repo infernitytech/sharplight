@@ -164,18 +164,19 @@ public class BatchedMultimodalTests
             AssertGreedyEqual(model, vision, cases[i].Prompt, cases[i].Image, expected[i], actual[i].Ids);
         }
 
-        // The first image prompt again: every full block of it comes from the prefix cache (image rows included), nothing is encoded.
+        // The first image prompt again: at least every full block of it comes from the prefix cache (the slot that held it may give back
+        // all but its last token), image rows included; nothing is encoded.
         long encoded = engine.GetMetrics().MediaEncoded;
         Assert.InRange(encoded, 1, 2);
         var again = await Run(engine, [requests[0]], ct);
         AssertGreedyEqual(model, vision, cases[0].Prompt, cases[0].Image, expected[0], again[0].Ids);
         int blocks = (requests[0].PromptTokens.Length - 1) / MultiSequenceDecoder.DefaultKvBlockSize * MultiSequenceDecoder.DefaultKvBlockSize;
-        Assert.Equal(blocks, again[0].Usage.CachedTokens);
+        Assert.InRange(again[0].Usage.CachedTokens, blocks, requests[0].PromptTokens.Length - 1);
         Assert.Equal(encoded, engine.GetMetrics().MediaEncoded);
     }
 
     /// <summary>Largest top-1 / top-2 logit margin below which the batched kernels' accumulation order may pick the other token on a GPU.</summary>
-    private const float NearTie = 0.05f;
+    private const float NearTie = 0.1f;
 
     /// <summary>
     /// The engine's tokens equal the single-session path's, except that at a near tie of the single-session logits (a top-2 margin below

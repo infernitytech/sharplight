@@ -4,7 +4,6 @@ using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Models;
 using Sharplight.Runtime;
-using Sharplight.Speech;
 using Sharplight.Tasks;
 using Sharplight.Vision;
 using Xunit;
@@ -76,7 +75,7 @@ public sealed class AudioLanguageBatchedTests
         Assert.True(again.Usage.CachedTokens >= requests[0].PromptMedia[0].End, $"cached {again.Usage.CachedTokens} prompt tokens");
     }
 
-    /// <summary>The session path of the recognizer: the prompt with its audio rows through the multimodal graph, then greedy tokens until the end of the turn.</summary>
+    /// <summary>The session path of the recognizer: the prompt with its audio rows through the multimodal graph, then greedy tokens until the end of the turn (not included).</summary>
     private static int[] SessionGreedy(LlmModel llm, int[] tokens, float[] embeddings, int start, int axes)
     {
         using var session = llm.CreateSession(WellKnown.DecodeMultimodalGraph);
@@ -95,11 +94,12 @@ public sealed class AudioLanguageBatchedTests
         while (ids.Count < MaxTokens)
         {
             int next = Enumerable.Range(0, logits.Length).MaxBy(i => logits[i]);
-            ids.Add(next);
             if (llm.Tokenizer.IsEndOfGeneration(next))
             {
-                break;
+                break;   // the engine ends there too, without reporting the token
             }
+
+            ids.Add(next);
 
             logits = session.Process([next]);
         }
