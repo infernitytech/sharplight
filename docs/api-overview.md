@@ -376,6 +376,17 @@ using var generator = clients.Create<IMusicGenerator>(model);
 AudioBuffer music = await generator.GenerateAsync(new MusicGenerationRequest { Prompt = "calm piano with soft strings", Duration = TimeSpan.FromSeconds(10), Seed = 1 });
 ```
 
+`audio-generation` models (ACE-Step 1.5 turbo; architecture `acestep`, imported by `Sharplight.Import.AceStep` from the release's folders) are latent-diffusion audio models: a tokenizer, a `text-encoder`
+component (graphs `text_encode` and `lyric_embed`), an `encoder` component (`condition_encode`: lyrics, timbre reference and caption packed into the rows the denoiser attends to), a `denoiser`
+(`denoise`: one evaluation of the diffusion transformer, the flow velocity) and a `vae` component (`audio_decode`: the Oobleck decoder, run in overlapping windows for long audio), see
+`AudioGenerationGraphs`. `IAudioGenerator.GenerateAsync` returns 48 kHz stereo audio, `GenerateLatentsAsync` the denoised latents (25 Hz, 64 channels); `AudioGenerationRequest` has the prompt, optional
+lyrics and language, duration, steps, shift, seed (or the initial noise itself) and guidance (ignored by the distilled model).
+
+```csharp
+using var generator = clients.Create<IAudioGenerator>(model);
+AudioBuffer song = await generator.GenerateAsync(new AudioGenerationRequest { Prompt = "calm acoustic guitar with soft piano", Lyrics = "[Instrumental]", Duration = TimeSpan.FromSeconds(30), Seed = 1 });
+```
+
 `audio-separation` models (Demucs `htdemucs`; architecture `demucs`) have one component whose graph `separate` runs one fixed-length segment (the host computes the spectrogram and the
 normalizations and rebuilds the audio, see `SeparationGraphs`). `IAudioSeparator.SeparateAsync` converts the mixture to the model's rate and channels, runs overlapping segments with a
 triangular cross-fade (`AudioSeparationOptions.Overlap`) and returns one `SeparatedStem` per source.

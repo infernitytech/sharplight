@@ -1,7 +1,7 @@
 {
   "$schema": "./verified-models.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-18",
+  "updated": "2026-11-19",
   "docSections": [
     {
       "id": "1.1",
@@ -24334,7 +24334,7 @@
         "date": "2026-11-18",
         "tests": []
       },
-      "notes": "LICENSE TERMS, read before use: the weights are CC-BY-NC (non-commercial use only, a constraint of the training data); the bundled audio tokenizer (audio_tokenizer/) is under the Boson Higgs Audio 2 Community License (based on the Meta Llama 3 license: attribution required, and a request for an expanded license from Boson AI above 100,000 annual active users; its text is installed with the model); the code is Apache-2.0. Speaks in 600\u002B languages with the voice of a recording and its transcript (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, \u0060ReferenceText\u0060), a designed voice (\u0060SpeechSynthesisOptions.Instructions\u0060: gender, age, pitch, whisper, accent or Chinese dialect) or one the model chooses; no built-in speakers; no automatic transcription of the reference; a voice can be saved (`IVoiceCloner`, `VoiceLibrary`).",
+      "notes": "LICENSE TERMS, read before use: the weights are CC-BY-NC (non-commercial use only, a constraint of the training data); the bundled audio tokenizer (audio_tokenizer/) is under the Boson Higgs Audio 2 Community License (based on the Meta Llama 3 license: attribution required, and a request for an expanded license from Boson AI above 100,000 annual active users; its text is installed with the model); the code is Apache-2.0. Speaks in 600\u002B languages with the voice of a recording and its transcript (\u0060SpeechSynthesisOptions.ReferenceAudio\u0060, \u0060ReferenceText\u0060), a designed voice (\u0060SpeechSynthesisOptions.Instructions\u0060: gender, age, pitch, whisper, accent or Chinese dialect) or one the model chooses; no built-in speakers; no automatic transcription of the reference; a voice can be saved (\u0060IVoiceCloner\u0060, \u0060VoiceLibrary\u0060).",
       "doc": [
         {
           "section": "3",
@@ -24590,6 +24590,145 @@
             "model": "VibeVoice-ASR 7B (speaker-diarized long-form transcription)",
             "repositories": "microsoft/VibeVoice-ASR-HF, microsoft/VibeVoice-ASR (\u002B tokenizer files)",
             "formats": "safetensors (transformers and original layouts)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ace-step-1-5-turbo",
+      "name": "ACE-Step 1.5 (turbo)",
+      "kind": "audio-generation",
+      "family": "ACE-Step",
+      "architecture": "acestep",
+      "level": "verified",
+      "license": "mit",
+      "gated": false,
+      "publisher": {
+        "name": "ACE-Step",
+        "countryOfOrigin": "CN",
+        "url": "https://github.com/ace-step/ACE-Step-1.5"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors (diffusion transformer, VAE and Qwen3 text encoder folders)",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 7671440500,
+          "companions": [],
+          "repository": "ACE-Step/Ace-Step1.5",
+          "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+          "include": [
+            "README.md",
+            "acestep-v15-turbo/config.json",
+            "acestep-v15-turbo/model.safetensors",
+            "acestep-v15-turbo/silence_latent.pt",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.safetensors",
+            "Qwen3-Embedding-0.6B/config.json",
+            "Qwen3-Embedding-0.6B/model.safetensors",
+            "Qwen3-Embedding-0.6B/tokenizer.json",
+            "Qwen3-Embedding-0.6B/tokenizer_config.json",
+            "Qwen3-Embedding-0.6B/vocab.json",
+            "Qwen3-Embedding-0.6B/merges.txt",
+            "Qwen3-Embedding-0.6B/special_tokens_map.json",
+            "Qwen3-Embedding-0.6B/added_tokens.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "README.md",
+              "size": 5496,
+              "gitOid": "a3115cec283fbdc2d500aa50fdffac3c87e6689a"
+            },
+            {
+              "path": "acestep-v15-turbo/config.json",
+              "size": 1968,
+              "gitOid": "6a0b5c09a654614302947fd1d7041f7ed0764d8c"
+            },
+            {
+              "path": "acestep-v15-turbo/model.safetensors",
+              "size": 4787825604,
+              "sha256": "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7"
+            },
+            {
+              "path": "acestep-v15-turbo/silence_latent.pt",
+              "size": 3841215,
+              "sha256": "a778e9dd942f5e8b2c09c55370782d318834432b03dabbcdf70e6ed49ad6358b"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 425,
+              "gitOid": "f49eb7b261dde15ed29c0fa1e790251dcecbd280"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 337431388,
+              "sha256": "da17edb604c40deaf09e9b24974e590d1ca83a374070e5d0884cfa4bed9a99b0"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/config.json",
+              "size": 1359,
+              "gitOid": "21bd712c76114dc22587c6eeb84ab64186c9d245"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/model.safetensors",
+              "size": 1191586416,
+              "sha256": "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/tokenizer.json",
+              "size": 11423705,
+              "sha256": "def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/tokenizer_config.json",
+              "size": 5404,
+              "gitOid": "ddaf69808214a44fdd26d3785b66c1367c78277a"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/merges.txt",
+              "size": 1671853,
+              "gitOid": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/special_tokens_map.json",
+              "size": 613,
+              "gitOid": "ac23c0aaa2434523c494330aeb79c58395378103"
+            },
+            {
+              "path": "Qwen3-Embedding-0.6B/added_tokens.json",
+              "size": 707,
+              "gitOid": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "acestep",
+        "summary": "vs the checkpoint\u0027s own modeling code (fp32, CPU) with the same noise and 8 Euler steps for a 10 s instrumental: latents within 8.1e-6 (CPU) / 2.8e-4 (Vulkan) relative RMS, decoded 48 kHz stereo audio (diffusers AutoencoderOobleck) within 4.3e-5 (CPU) / 8.3e-4 (Vulkan)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "MIT license for the ACE-Step weights (the model card allows commercial use of the generated music); the bundled Qwen3-Embedding-0.6B text encoder is Apache-2.0. Text (caption) and optional lyrics to 48 kHz stereo music, \u0060IAudioGenerator\u0060: duration, seed, steps (default 8), shift. Distilled (turbo) transformer only: no guidance. Not covered: the 5 Hz language model planner (audio codes, metadata thinking), reference audio (timbre), cover, repaint and lego tasks, the base and SFT transformers; up to 120 s per request.",
+      "doc": [
+        {
+          "section": "6",
+          "cells": {
+            "repositories": "ACE-Step/Ace-Step1.5",
+            "kind": "audio generation (music)"
           }
         }
       ]

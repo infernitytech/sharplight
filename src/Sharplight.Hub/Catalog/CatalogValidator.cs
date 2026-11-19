@@ -14,7 +14,7 @@ public static partial class CatalogValidator
         ModelKinds.TextGeneration, ModelKinds.SpeechRecognition, ModelKinds.SpeechSynthesis, ModelKinds.ImageGeneration, ModelKinds.VideoGeneration,
         ModelKinds.ImageClassification, ModelKinds.ImageEmbedding, ModelKinds.ObjectDetection, ModelKinds.ImageSegmentation,
         ModelKinds.SemanticSegmentation, ModelKinds.DepthEstimation, ModelKinds.Ocr, ModelKinds.ImageUpscaling, ModelKinds.AudioCodec,
-        ModelKinds.VoiceActivity, ModelKinds.AudioSeparation, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, EmbeddingsKind, RerankerKind,
+        ModelKinds.VoiceActivity, ModelKinds.AudioSeparation, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioGeneration, EmbeddingsKind, RerankerKind,
     ];
 
     /// <summary>The companion roles.</summary>

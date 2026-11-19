@@ -82,6 +82,7 @@
               "audio-separation",
               "audio-embedding",
               "music-generation",
+              "audio-generation",
               "embeddings",
               "reranker"
             ]
