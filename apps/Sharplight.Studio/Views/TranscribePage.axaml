@@ -69,14 +69,22 @@
                     <DataTemplate x:DataType="sp:TranscriptSegmentViewModel">
                       <Grid ColumnDefinitions="156,*" Margin="0,0,0,6">
                         <TextBlock Classes="caption mono" Text="{Binding Time}" VerticalAlignment="Top" Margin="0,3,0,0" />
-                        <SelectableTextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" />
+                        <StackPanel Grid.Column="1" Spacing="2">
+                          <Border Classes="badge" HorizontalAlignment="Left" IsVisible="{Binding HasSpeaker}" Background="{Binding Brush}">
+                            <TextBlock Text="{Binding Speaker}" Foreground="White" />
+                          </Border>
+                          <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                        </StackPanel>
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </ScrollViewer>
             </Panel>
-            <TextBlock Grid.Row="2" Classes="caption" Text="{Binding ResultSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
+            <StackPanel Grid.Row="2" Margin="0,8,0,0" Spacing="2">
+              <TextBlock Classes="caption" Text="{Binding SpeakerSummary}" IsVisible="{Binding HasSpeakers}" TextWrapping="Wrap" />
+              <TextBlock Classes="caption" Text="{Binding ResultSummary}" TextWrapping="Wrap" />
+            </StackPanel>
           </Grid>
         </Border>
       </Grid>

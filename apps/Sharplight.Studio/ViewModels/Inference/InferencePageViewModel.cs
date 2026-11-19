@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Runtime;
 
@@ -118,6 +119,37 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     /// <summary>There is a notice.</summary>
     public bool HasNotice => Notice.Length > 0;
 
+    /// <summary>
+    /// The licence notice of the chosen model when its catalog entry has the license <c>other</c> or a non-commercial one (OmniVoice, XTTS, Depth Anything 3 large): the
+    /// licence and the entry's notes, shown above the page's work area for as long as the model is chosen. Empty otherwise.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasLicenseNotice))]
+    public partial string LicenseNotice { get; set; } = "";
+
+    /// <summary>There is a licence notice.</summary>
+    public bool HasLicenseNotice => LicenseNotice.Length > 0;
+
+    private CancellationTokenSource? _licenseLookup;
+
+    private async Task RefreshLicenseNoticeAsync(ILoadedModel? model)
+    {
+        _licenseLookup?.Cancel();
+        _licenseLookup = new CancellationTokenSource();
+        var token = _licenseLookup.Token;
+        if (model is null)
+        {
+            LicenseNotice = "";
+            return;
+        }
+
+        string? notice = await LicenseNotices.ForModelAsync(Services, model.Path, token).ConfigureAwait(true);
+        if (!token.IsCancellationRequested)
+        {
+            LicenseNotice = notice ?? "";
+        }
+    }
+
     /// <summary>Which side tab is shown: 0 parameters, 1 history, 2 outputs.</summary>
     [ObservableProperty]
     public partial int SideTab { get; set; }
@@ -141,6 +173,7 @@ internal abstract partial class InferencePageViewModel : PageViewModel
         OnPropertyChanged(nameof(SelectedModel));
         OnPropertyChanged(nameof(HasModel));
         OnModelChanged(SelectedModel);
+        _ = RefreshLicenseNoticeAsync(SelectedModel);
     }
 
     /// <summary>Chooses <paramref name="model"/> in the picker.</summary>
