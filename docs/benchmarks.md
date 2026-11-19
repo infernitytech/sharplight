@@ -6972,14 +6972,17 @@ New test: `EngineTests.AdaptiveStepBudget_SpreadsCompetingPrompts_ButNotALonePro
 step of the full budget; four concurrent prompts never share a step beyond the oldest prompt plus a row per sequence). The changed
 defaults (norm-written copies from 17 rows, one decode row per batch, 64-row expert tiles) are covered by the existing kernel tests
 (`F16RangeTests`, `MoeTests`, the attention decode tests) and by the batched greedy parity of the Families suite. On GPU 2, at
-`b29cb1ae` (`develop` unchanged since `23231b18`):
+`b29cb1ae`, and again after merging `develop` at `a7b241b3` (prefix cache round 2; its cost model and scheduler trace now see the
+adaptive step's rows):
 
-| suite | total / failed / skipped |
-|---|---|
-| Sharplight.Vulkan.Tests (full) | 1624 / 0 / 26 |
-| Sharplight.Families.Tests (full, batched greedy parity included) | 1340 / 0 / 683 (CUDA parity cases skipped here) |
-| Sharplight.Serving.Tests (full) | 353 / 0 / 13 |
-| Sharplight.Hosting.Tests (full) | 27 / 0 / 0 |
+| suite | at `b29cb1ae`: total / failed / skipped | after merging `a7b241b3` |
+|---|---|---|
+| Sharplight.Vulkan.Tests (full) | 1624 / 0 / 26 | 1624 / 0 / 26 |
+| Sharplight.Families.Tests (full, batched greedy parity included) | 1340 / 0 / 683 (CUDA parity cases skipped here) | 1340 / 0 / 683 |
+| Sharplight.Serving.Tests (full) | 353 / 0 / 13 | 358 / 0 / 13 |
+| Sharplight.Hosting.Tests (full) | 27 / 0 / 0 | 27 / 0 / 0 |
+
+The serving figures of 50.7 were measured before that merge.
 
 ### 50.10 Next levers
 
