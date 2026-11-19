@@ -86,8 +86,9 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
             InferenceEngine? engine = null;
             try
             {
-                engine = new InferenceEngine(decoder, model.Tokenizer, options);
+                // The vision encoder before the engine starts its scheduler thread (which prepares the decode steps on the device).
                 images = media && decoder.EmbeddingWidth > 0 ? new ImagePrompts(model.CreateVisionEncoder(), model.Tokenizer, ownsEncoder: true) : null;
+                engine = new InferenceEngine(decoder, model.Tokenizer, options);
                 var service = new ModelService(engine, model.ChatTemplate, owner._chat.Service with { ModelName = owner.ModelName }, images);
                 _consumed = true;   // the instance owns the model now
                 long head = speculator?.DeviceMemoryBytes ?? 0;

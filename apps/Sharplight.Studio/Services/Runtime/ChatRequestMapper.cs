@@ -1,5 +1,4 @@
 using System.Text;
-using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
 using Sharplight.Studio.Models;

@@ -64,12 +64,19 @@ public class BatchedMultimodalTests
         string token = VisionParameters.Of(model.Definition)?.ImageToken ?? VisionParameters.DefaultImageToken;
         if (model.ChatTemplate is { } source)
         {
-            var template = new ChatTemplate(source, "", "");
-            string rendered = template.Render([new ChatMessage("user", Parts: [ChatContentPart.Image(), ChatContentPart.FromText(question)])], addGenerationPrompt: true,
-                new Dictionary<string, object?> { ["enable_thinking"] = false });
-            if (rendered.Contains(token, StringComparison.Ordinal))
+            try
             {
-                return rendered;
+                var template = new ChatTemplate(source, "", "");
+                string rendered = template.Render([new ChatMessage("user", Parts: [ChatContentPart.Image(), ChatContentPart.FromText(question)])], addGenerationPrompt: true,
+                    new Dictionary<string, object?> { ["enable_thinking"] = false });
+                if (rendered.Contains(token, StringComparison.Ordinal))
+                {
+                    return rendered;
+                }
+            }
+            catch (TemplateRuntimeException)
+            {
+                // A template that takes string content only.
             }
         }
 
@@ -154,17 +161,72 @@ public class BatchedMultimodalTests
         for (int i = 0; i < cases.Length; i++)
         {
             TestContext.Current.SendDiagnosticMessage($"{name} ({(gpu ? "Vulkan" : "CPU")}) request {i}: {string.Join(' ', actual[i].Ids)}");
-            Assert.Equal(expected[i], actual[i].Ids);
+            AssertGreedyEqual(model, vision, cases[i].Prompt, cases[i].Image, expected[i], actual[i].Ids);
         }
 
-        // The first image prompt again: its blocks come from the prefix cache (image rows included), nothing is encoded.
+        // The first image prompt again: every full block of it comes from the prefix cache (image rows included), nothing is encoded.
         long encoded = engine.GetMetrics().MediaEncoded;
         Assert.InRange(encoded, 1, 2);
         var again = await Run(engine, [requests[0]], ct);
-        Assert.Equal(expected[0], again[0].Ids);
-        var media = requests[0].PromptMedia[0];
-        Assert.True(again[0].Usage.CachedTokens >= media.End, $"cached {again[0].Usage.CachedTokens} prompt tokens, the image ends at {media.End}");
+        AssertGreedyEqual(model, vision, cases[0].Prompt, cases[0].Image, expected[0], again[0].Ids);
+        int blocks = (requests[0].PromptTokens.Length - 1) / MultiSequenceDecoder.DefaultKvBlockSize * MultiSequenceDecoder.DefaultKvBlockSize;
+        Assert.Equal(blocks, again[0].Usage.CachedTokens);
         Assert.Equal(encoded, engine.GetMetrics().MediaEncoded);
+    }
+
+    /// <summary>Largest top-1 / top-2 logit margin below which the batched kernels' accumulation order may pick the other token on a GPU.</summary>
+    private const float NearTie = 0.05f;
+
+    /// <summary>
+    /// The engine's tokens equal the single-session path's, except that at a near tie of the single-session logits (a top-2 margin below
+    /// <see cref="NearTie"/>, where the GPU's batched kernels may round the other way) the rest is not compared.
+    /// </summary>
+    private static void AssertGreedyEqual(LlmModel model, VisionEncoder vision, string prompt, ImageInput? image, int[] expected, int[] actual)
+    {
+        int at = 0;
+        while (at < expected.Length && at < actual.Length && expected[at] == actual[at])
+        {
+            at++;
+        }
+
+        if (at == expected.Length && at == actual.Length)
+        {
+            return;
+        }
+
+        float margin = SessionMargin(model, vision, prompt, image, at);
+        TestContext.Current.SendDiagnosticMessage($"first difference at token {at}: {expected.ElementAtOrDefault(at)} vs {actual.ElementAtOrDefault(at)}, single-session top-2 margin {margin:F4}");
+        Assert.True(margin < NearTie, $"the tokens differ at {at} (top-2 margin {margin:F4}): expected {string.Join(' ', expected)}, actual {string.Join(' ', actual)}");
+    }
+
+    /// <summary>The single-session path's top-1 minus top-2 logit at generated token <paramref name="index"/>.</summary>
+    private static float SessionMargin(LlmModel model, VisionEncoder vision, string prompt, ImageInput? image, int index)
+    {
+        using var session = model.CreateSession(image is null ? WellKnown.DecodeGraph : WellKnown.DecodeMultimodalGraph);
+        var tokens = model.Tokenizer.Encode(prompt, addSpecial: true, parseSpecial: true);
+        float[] logits;
+        if (image is null)
+        {
+            logits = session.Process(tokens);
+        }
+        else
+        {
+            var pre = vision.Preprocess(image);
+            var mm = vision.Multimodal!.Assemble(new MultimodalContext(model.Definition, t => model.Tokenizer.Encode(t, addSpecial: false, parseSpecial: true) is [var id] ? id : null),
+                tokens, [pre], 0);
+            logits = session.Process(mm, [vision.Encode(pre)]);
+        }
+
+        for (int i = 0; ; i++)
+        {
+            var order = Enumerable.Range(0, logits.Length).OrderByDescending(k => logits[k]).Take(2).ToArray();
+            if (i == index)
+            {
+                return logits[order[0]] - logits[order[1]];
+            }
+
+            logits = session.Process([order[0]]);
+        }
     }
 
     /// <summary>
