@@ -75,6 +75,18 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     private readonly Lock _poolLock = new();
     private readonly bool _budgetExt;
     private readonly long _budget;
+    /// <summary>The caps of <see cref="DeviceOptions.MemoryLimits"/> and the environment that apply to this device.</summary>
+    internal readonly DeviceMemoryLimits Limits;
+    /// <summary>
+    /// The compute queue writes timestamps (timestampValidBits &gt; 0). Without them <see cref="VulkanSegment.LastGpuMs"/> stays 0 and
+    /// launch costs are measured on the host.
+    /// </summary>
+    internal readonly bool Timestamps;
+    /// <summary>
+    /// Buffers can be bound to several allocations (sparseBinding on the compute queue): buffers larger than the largest allocation are
+    /// then split over several (<see cref="MemoryAllocator"/>).
+    /// </summary>
+    internal readonly bool SparseBinding;
     private long _used;
     private bool _disposed;
 
@@ -96,28 +108,34 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// <inheritdoc />
     public bool SharesWeights => true;
 
-    /// <summary>Live memory figures: VK_EXT_memory_budget when the driver has it (accounts for other processes), else our own tally against the configured budget.</summary>
+    /// <summary>
+    /// Live memory figures of the largest device-local heap: VK_EXT_memory_budget when the driver has it (accounts for other
+    /// processes), else our own tally against the configured budget. <see cref="DeviceMemoryLimits.DeviceMemory"/> caps the total.
+    /// </summary>
     public DeviceMemoryInfo GetMemoryInfo()
     {
         long ours = Interlocked.Read(ref _used);
-        long total = Phys.DeviceLocalBytes;
+        long total = DeviceMemoryLimits.Apply(Phys.DeviceLocalBytes, Limits.DeviceMemory);
+        long budget = Math.Min(_budget, total);
         if (!_budgetExt)
         {
-            return new DeviceMemoryInfo(total, _budget, ours, ours, false);
+            return new DeviceMemoryInfo(total, budget, ours, ours, false);
         }
 
-        var bp = new VkPhysicalDeviceMemoryBudgetPropertiesEXT();
-        var mp = new VkPhysicalDeviceMemoryProperties2 { pNext = &bp };
-        Inst.Api.vkGetPhysicalDeviceMemoryProperties2(Phys.Handle, &mp);
-        long heapBudget = (long)bp.heapBudget[Phys.DeviceLocalHeap];
-        long heapUsage = (long)bp.heapUsage[Phys.DeviceLocalHeap];
+        var heaps = Memory.ReadHeapBudgets();
+        long heapBudget = (long)heaps.Budget[Phys.DeviceLocalHeap];
+        long heapUsage = (long)heaps.Usage[Phys.DeviceLocalHeap];
         if (heapBudget <= 0)
         {
-            return new DeviceMemoryInfo(total, _budget, ours, ours, false);
+            return new DeviceMemoryInfo(total, budget, ours, ours, false);
         }
 
-        return new DeviceMemoryInfo(total, Math.Min(_budget, heapBudget), Math.Max(ours, heapUsage), ours, true);
+        return new DeviceMemoryInfo(total, Math.Min(budget, heapBudget), Math.Max(ours, heapUsage), ours, true);
     }
+
+    /// <summary>VK_EXT_memory_budget is enabled: <see cref="MemoryAllocator.ReadHeapBudgets"/> reports live per-heap figures.</summary>
+    internal bool MemoryBudgetEnabled => _budgetExt;
+
     /// <summary>Effective submission budget in ms (0 = unlimited): <see cref="DeviceInfo.SubmissionBudgetMs"/> unless overridden.</summary>
     public double SubmissionBudgetMs => Code.SubmissionBudgetMs;
 
@@ -136,7 +154,11 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         _kernelBinaries = phys.PipelineBinaries && !phys.PrefersInternalPipelineCache
             && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
 
+        Limits = DeviceMemoryLimits.For(options);
         QueueFamily = SelectComputeQueueFamily(inst.Api, phys);
+        var computeFamily = QueueFamilyProperties(inst.Api, phys)[QueueFamily];
+        Timestamps = computeFamily.timestampValidBits > 0;
+        SparseBinding = phys.SparseBinding && (computeFamily.queueFlags & VkQueueFlags.SparseBinding) != 0;
         TransferFamily = DiagnosticSwitches.TransferQueue ? SelectTransferQueueFamily(inst.Api, phys) : -1;
         SharingFamilies = TransferFamily >= 0 ? [QueueFamily, (uint)TransferFamily] : [];
         var device = CreateLogicalDevice(inst.Api, out _budgetExt, out _pipelineStats);
@@ -163,7 +185,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         ArtifactTargets = CreateArtifactTargets();
 
         Memory = new MemoryAllocator(this);
-        _budget = options.MemoryBudget ?? (long)(phys.DeviceLocalBytes * 0.92);
+        _budget = options.MemoryBudget ?? (long)(DeviceMemoryLimits.Apply(phys.DeviceLocalBytes, Limits.DeviceMemory) * 0.92);
     }
 
     /// <summary>Prefers a dedicated compute queue (async compute), else any queue with compute.</summary>
@@ -241,6 +263,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         var maintenance5 = new VkPhysicalDeviceMaintenance5Features { pNext = &pipelineBinary, maintenance5 = true };
         var f2 = new VkPhysicalDeviceFeatures2 { pNext = _kernelBinaries ? &maintenance5 : chain };
         f2.features.shaderInt64 = true;
+        f2.features.sparseBinding = SparseBinding;
         f2.features.shaderInt16 = true;
 
         float prio = 1f;
@@ -330,18 +353,11 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// <summary>A queue family with transfer but neither compute nor graphics (the copy engines), or -1.</summary>
     private static int SelectTransferQueueFamily(VkInstanceApi api, PhysicalDeviceInfo phys)
     {
-        uint count = 0;
-        api.vkGetPhysicalDeviceQueueFamilyProperties(phys.Handle, &count, null);
-        var families = new VkQueueFamilyProperties[count];
-        fixed (VkQueueFamilyProperties* p = families)
-        {
-            api.vkGetPhysicalDeviceQueueFamilyProperties(phys.Handle, &count, p);
-        }
-
+        var families = QueueFamilyProperties(api, phys);
         return Array.FindIndex(families, q => (q.queueFlags & VkQueueFlags.Transfer) != 0 && (q.queueFlags & (VkQueueFlags.Compute | VkQueueFlags.Graphics)) == 0);
     }
 
-    private static uint SelectComputeQueueFamily(VkInstanceApi api, PhysicalDeviceInfo phys)
+    private static VkQueueFamilyProperties[] QueueFamilyProperties(VkInstanceApi api, PhysicalDeviceInfo phys)
     {
         uint count = 0;
         api.vkGetPhysicalDeviceQueueFamilyProperties(phys.Handle, &count, null);
@@ -351,6 +367,12 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             api.vkGetPhysicalDeviceQueueFamilyProperties(phys.Handle, &count, p);
         }
 
+        return families;
+    }
+
+    private static uint SelectComputeQueueFamily(VkInstanceApi api, PhysicalDeviceInfo phys)
+    {
+        var families = QueueFamilyProperties(api, phys);
         int index = Array.FindIndex(families, q => (q.queueFlags & VkQueueFlags.Compute) != 0 && (q.queueFlags & VkQueueFlags.Graphics) == 0);
         if (index < 0)
         {
@@ -876,6 +898,27 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             lock (_queueLock)
             {
                 Api.vkQueueSubmit(Queue, 1, &si, fence).CheckResult();
+            }
+
+            Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
+        }
+        finally
+        {
+            Api.vkDestroyFence(fence, null);
+        }
+    }
+
+    /// <summary>Binds memory to sparse buffers on the compute queue (which needs the same external synchronization as submits) and waits.</summary>
+    internal void BindSparseAndWait(VkBindSparseInfo* info)
+    {
+        var fci = new VkFenceCreateInfo();
+        VkFence fence;
+        Api.vkCreateFence(&fci, null, &fence).CheckResult();
+        try
+        {
+            lock (_queueLock)
+            {
+                Api.vkQueueBindSparse(Queue, 1, info, fence).CheckResult();
             }
 
             Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();

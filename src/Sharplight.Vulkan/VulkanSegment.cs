@@ -129,7 +129,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                 {
                     // Weights shared with the other compiled models of this source on the device (e.g. a draft head's LM head).
                     var lease = shared.Acquire(dev, WeightBufferKey.For(w, LayoutName(b)), b.Bytes,
-                        () => dev.Memory.Allocate(size, MemoryUsage.Device), dev.Memory.Free);
+                        () => dev.Memory.Allocate(size, MemoryUsage.Device, Purpose(b)), dev.Memory.Free);
                     _leases[b] = lease;
                     _alloc[b] = lease.Buffer;
                     bytes += lease.MustFill ? b.Bytes : 0;
@@ -146,16 +146,16 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                     continue;
                 }
 
-                _alloc[b] = dev.Memory.Allocate(size, MemoryUsage.Device);
+                _alloc[b] = dev.Memory.Allocate(size, MemoryUsage.Device, Purpose(b));
                 sharedStates?.Add(b.State!, _alloc[b]);
                 bytes += b.Bytes;
                 if (b.Kind is BufferKind.Input or BufferKind.Runtime)
                 {
-                    _staging[b] = dev.Memory.Allocate(size, MemoryUsage.Upload);
+                    _staging[b] = dev.Memory.Allocate(size, MemoryUsage.Upload, "upload staging of " + Purpose(b));
                 }
                 else if (b.Kind == BufferKind.Output)
                 {
-                    _staging[b] = dev.Memory.Allocate(size, MemoryUsage.Readback);
+                    _staging[b] = dev.Memory.Allocate(size, MemoryUsage.Readback, "readback staging of " + Purpose(b));
                 }
             }
             DeviceMemoryBytes = bytes;
@@ -174,6 +174,9 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             throw;
         }
     }
+
+    /// <summary>What a buffer holds, for out-of-memory messages.</summary>
+    private static string Purpose(BufferDecl buffer) => $"{buffer.Kind.ToString().ToLowerInvariant()} buffer {buffer.Name}";
 
     private VkCommandBuffer AllocCb()
     {
@@ -221,7 +224,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         var ct = _options.CancellationToken;
         if (weights.Count > 0)
         {
-            using var uploader = new WeightUploader(_dev, _pool);
+            long largestRow = weights.Where(b => b.Repack != WeightRepack.None).Select(b => WeightRepacker.RowBytes(b.Repack, b.RepackRowElements)).DefaultIfEmpty(1).Max();
+            using var uploader = new WeightUploader(_dev, _pool, weights.Sum(b => b.Bytes), largestRow);
             var materialized = WeightCopier.MaterializeInBackground(weights, ct);
             var progress = new LoadProgressCounter(_options.Progress, LoadStage.Uploading, weights.Sum(b => b.Bytes), _dev.Info.Name);
             try
@@ -445,7 +449,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
 
         _dev.Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
         ulong* ts = stackalloc ulong[2];
-        if (_dev.Api.vkGetQueryPoolResults(_stepPool, 0, 2, 16, ts, 8, VkQueryResultFlags.Bit64) == VkResult.Success)
+        if (_dev.Timestamps && _dev.Api.vkGetQueryPoolResults(_stepPool, 0, 2, 16, ts, 8, VkQueryResultFlags.Bit64) == VkResult.Success)
         {
             LastGpuMs = (ts[1] - ts[0]) * _dev.Phys.TimestampPeriod * 1e-6;
         }
@@ -529,8 +533,12 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             _dev.Api.vkBeginCommandBuffer(cb, &beginInfo).CheckResult();
             if (i == 0)
             {
-                _dev.Api.vkCmdResetQueryPool(cb, _stepPool, 0, 2);
-                _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.TopOfPipe, _stepPool, 0);
+                if (_dev.Timestamps)
+                {
+                    _dev.Api.vkCmdResetQueryPool(cb, _stepPool, 0, 2);
+                    _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.TopOfPipe, _stepPool, 0);
+                }
+
                 RecordInputCopies(cb, bindings);
             }
             else
@@ -545,7 +553,10 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             if (i == count - 1)
             {
                 RecordOutputCopies(cb, bindings, skipDownloads);
-                _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.BottomOfPipe, _stepPool, 1);
+                if (_dev.Timestamps)
+                {
+                    _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.BottomOfPipe, _stepPool, 1);
+                }
             }
 
             _dev.Api.vkEndCommandBuffer(cb).CheckResult();
@@ -621,6 +632,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// </summary>
     private double[] MeasureLaunches(Bindings bindings, IReadOnlySet<Value> skipDownloads, int chunk, Action<int, KernelLaunch, KernelVariant>? onLaunch = null)
     {
+        if (!_dev.Timestamps)
+        {
+            return MeasureLaunchesOnHost(bindings, skipDownloads, chunk, onLaunch);
+        }
+
         var api = _dev.Api;
         var launches = _program.Launches;
         var result = new double[launches.Count];
@@ -687,6 +703,40 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                 api.vkDestroyQueryPool(pool, null);
             }
         }
+        _dev.Immediate(cb => RecordOutputCopies(cb, bindings, skipDownloads));
+        return result;
+    }
+
+    /// <summary>
+    /// <see cref="MeasureLaunches"/> on a queue without timestamps: each chunk is timed on the host from submission to completion and
+    /// its time spread evenly over its launches (with chunks of one launch, as in calibration, that is the launch's time plus the
+    /// submission overhead).
+    /// </summary>
+    private double[] MeasureLaunchesOnHost(Bindings bindings, IReadOnlySet<Value> skipDownloads, int chunk, Action<int, KernelLaunch, KernelVariant>? onLaunch)
+    {
+        var launches = _program.Launches;
+        var result = new double[launches.Count];
+        _dev.Immediate(cb => RecordInputCopies(cb, bindings));
+        for (int start = 0; start < launches.Count; start += chunk)
+        {
+            int count = Math.Min(chunk, launches.Count - start);
+            var slice = launches.Skip(start).Take(count).ToList();
+            int s0 = start;
+            long t0 = Stopwatch.GetTimestamp();
+            _dev.Immediate(cb => Record(cb, slice, bindings, (i, l, v) =>
+            {
+                if (i >= 0 && v is not null)
+                {
+                    onLaunch?.Invoke(s0 + i, l, v);
+                }
+            }, firstIndex: s0));
+            double ms = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+            for (int i = 0; i < count; i++)
+            {
+                result[start + i] = ms / count;
+            }
+        }
+
         _dev.Immediate(cb => RecordOutputCopies(cb, bindings, skipDownloads));
         return result;
     }

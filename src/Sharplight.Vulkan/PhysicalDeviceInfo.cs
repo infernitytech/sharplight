@@ -20,6 +20,14 @@ internal sealed unsafe class PhysicalDeviceInfo
     public int DeviceLocalHeap { get; }
     /// <summary>VK_EXT_memory_budget is available.</summary>
     public bool MemoryBudgetExt { get; }
+    /// <summary>Largest single memory allocation the driver accepts (maxMemoryAllocationSize).</summary>
+    public ulong MaxMemoryAllocationSize { get; }
+    /// <summary>Largest buffer the driver accepts (maxBufferSize of Vulkan 1.3; unlimited on older devices).</summary>
+    public ulong MaxBufferSize { get; }
+    /// <summary>Buffers can be bound to several memory allocations (sparseBinding), which splits buffers larger than one allocation.</summary>
+    public bool SparseBinding { get; }
+    /// <summary>Address space all sparse resources share (sparseAddressSpaceSize).</summary>
+    public ulong SparseAddressSpaceSize { get; }
     /// <summary>
     /// VK_KHR_pipeline_binary with the pipelineBinaries feature (and VK_KHR_maintenance5, which it needs) is available: compiled
     /// pipelines can be exported and imported as individual binaries (<see cref="DeviceFeatures.KernelBinaries"/>).
@@ -100,7 +108,13 @@ internal sealed unsafe class PhysicalDeviceInfo
 
         var sub = new VkPhysicalDeviceSubgroupProperties();
         var ssc = new VkPhysicalDeviceSubgroupSizeControlProperties { pNext = &sub };
-        var idp = new VkPhysicalDeviceIDProperties { pNext = &ssc };
+        var maintenance3 = new VkPhysicalDeviceMaintenance3Properties { pNext = &ssc };
+        // maintenance4 properties (maxBufferSize) may only be chained where Vulkan 1.3 or the extension provides them.
+        VkPhysicalDeviceProperties basic;
+        api.vkGetPhysicalDeviceProperties(pd, &basic);
+        bool hasMaintenance4 = new VkVersion(basic.apiVersion) >= VkVersion.Version_1_3 || Extensions.Contains("VK_KHR_maintenance4");
+        var maintenance4 = new VkPhysicalDeviceMaintenance4Properties { pNext = &maintenance3 };
+        var idp = new VkPhysicalDeviceIDProperties { pNext = hasMaintenance4 ? &maintenance4 : &maintenance3 };
         var props2 = new VkPhysicalDeviceProperties2 { pNext = &idp };
         var smBuiltins = new VkPhysicalDeviceShaderSMBuiltinsPropertiesNV();
         var amdCores = new VkPhysicalDeviceShaderCorePropertiesAMD();
@@ -137,6 +151,9 @@ internal sealed unsafe class PhysicalDeviceInfo
         MinSubgroupSize = ssc.minSubgroupSize;
         MaxSubgroupSize = ssc.maxSubgroupSize;
         MaxPushConstants = p.limits.maxPushConstantsSize;
+        MaxMemoryAllocationSize = maintenance3.maxMemoryAllocationSize > 0 ? maintenance3.maxMemoryAllocationSize : ulong.MaxValue;
+        MaxBufferSize = hasMaintenance4 && maintenance4.maxBufferSize > 0 ? maintenance4.maxBufferSize : ulong.MaxValue;
+        SparseAddressSpaceSize = p.limits.sparseAddressSpaceSize;
         TimestampPeriod = p.limits.timestampPeriod;
         MaxSharedMemory = p.limits.maxComputeSharedMemorySize;
         MaxWorkgroupCount = [p.limits.maxComputeWorkGroupCount[0], p.limits.maxComputeWorkGroupCount[1], p.limits.maxComputeWorkGroupCount[2]];
@@ -164,6 +181,7 @@ internal sealed unsafe class PhysicalDeviceInfo
         }
 
         api.vkGetPhysicalDeviceFeatures2(pd, &f2);
+        SparseBinding = f2.features.sparseBinding;
         if (PortabilitySubset)
         {
             PortabilityRestrictions = UnsupportedPortabilityFeatures(subset);
@@ -446,6 +464,9 @@ internal sealed unsafe class PhysicalDeviceInfo
             ["threads_per_compute_unit"] = ThreadsPerComputeUnit.ToString(),
             ["max_push_constants"] = MaxPushConstants.ToString(),
             ["memory_budget"] = MemoryBudgetExt.ToString(),
+            ["max_memory_allocation"] = MaxMemoryAllocationSize.ToString(),
+            ["max_buffer_size"] = MaxBufferSize.ToString(),
+            ["sparse_binding"] = SparseBinding.ToString(),
             ["kernel_binaries"] = PipelineBinaries.ToString(),
         };
         if (PortabilitySubset)
