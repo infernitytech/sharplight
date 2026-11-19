@@ -65,6 +65,9 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
     /// <summary>The model speaks a script with several speakers (VibeVoice, CSM).</summary>
     public bool IsMultiSpeaker => Traits.MultiSpeaker;
 
+    /// <summary>The model's text is a script (speaker labels or tags) that the hint under the text box explains.</summary>
+    public bool HasScriptHint => Traits.MultiSpeaker || Traits.SpeakerTags;
+
     /// <summary>The script names speakers, so a voice can be chosen for each.</summary>
     public bool HasSpeakers => Traits.MultiSpeaker && Speakers.Count > 0;
 
@@ -72,7 +75,9 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
     public ObservableCollection<SpeakerVoiceViewModel> Speakers { get; } = [];
 
     /// <summary>How the script is written, for the hint under the text box (empty for models without scripts).</summary>
-    public string ScriptHint => !Traits.MultiSpeaker ? "" : Traits.ScriptInOneRequest
+    public string ScriptHint => Traits.SpeakerTags
+        ? "Write the dialogue with the speaker tags [S1] and [S2] at the start of each turn, and non-verbal sounds in parentheses such as (laughs), (coughs) or (sighs). One voice recording with its transcript (written with the same tags) gives the voices of both speakers."
+        : !Traits.MultiSpeaker ? "" : Traits.ScriptInOneRequest
         ? "Write the conversation as lines \"Speaker 1: ...\", \"Speaker 2: ...\"; the model speaks the whole script in one pass, each speaker with the voice chosen below."
         : "Write the conversation as lines \"Speaker 0: ...\", \"Speaker 1: ...\"; the speakers are the model's voices 0 and 1, and the turns are spoken one after the other.";
 
@@ -156,6 +161,7 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         OnPropertyChanged(nameof(Traits));
         OnPropertyChanged(nameof(IsMultiSpeaker));
         OnPropertyChanged(nameof(ScriptHint));
+        OnPropertyChanged(nameof(HasScriptHint));
         OnPropertyChanged(nameof(HasSpeakers));
     }
 

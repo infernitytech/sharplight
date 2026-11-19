@@ -179,6 +179,8 @@ public sealed class AudioModelsPageTests
     [InlineData("VibeVoice-ASR-HF", """{"model_type":"vibevoice_asr","architectures":["VibeVoiceAsrForConditionalGeneration"]}""", ModelKinds.TextGeneration)]
     [InlineData("csm-1b", """{"model_type":"csm","architectures":["CsmForConditionalGeneration"]}""", ModelKinds.SpeechSynthesis)]
     [InlineData("OmniVoice", """{"model_type":"omnivoice"}""", ModelKinds.SpeechSynthesis)]
+    [InlineData("Dia-1.6B-0626", """{"model_type":"dia","architectures":["DiaForConditionalGeneration"]}""", ModelKinds.SpeechSynthesis)]
+    [InlineData("Dia-1.6B", """{"data":{"channels":9,"delay_pattern":[0,8,9,10,11,12,13,14,15]},"model":{"decoder":{"n_layer":18},"encoder":{"n_layer":12}},"version":"0.1"}""", ModelKinds.SpeechSynthesis)]
     public void Inspector_RecognizesTheNewSpeechFolders_ByTheirConfiguration(string folder, string config, string kind)
     {
         using var directory = new TempDir();
@@ -277,6 +279,21 @@ public sealed class AudioModelsPageTests
 
         Assert.Contains("Speaker 1 has no reference recording", page.Notice, StringComparison.Ordinal);
         Assert.Empty(client.Requests);
+    }
+
+    [Fact]
+    public async Task Speak_Dia_ExplainsTheSpeakerTags_WithoutPerSpeakerVoices()
+    {
+        using var services = new TestServices();
+        var client = new FakeSynthesizer("dia");
+        Synthesizer(services, "dia-1.6b", client);
+        var page = new SpeakPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        await WaitFor(() => page.HasScriptHint);
+
+        Assert.False(page.IsMultiSpeaker);
+        Assert.Contains("[S1]", page.ScriptHint, StringComparison.Ordinal);
+        Assert.Contains("(laughs)", page.ScriptHint, StringComparison.Ordinal);
     }
 
     [Fact]

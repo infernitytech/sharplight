@@ -302,7 +302,7 @@ internal static class ModelInspector
             return ModelKinds.AudioSeparation;
         }
 
-        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts" or "omnivoice" or "csm")
+        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts" or "omnivoice" or "csm" or "dia" || IsDiaOriginalConfig(root))
         {
             return ModelKinds.SpeechSynthesis;
         }
@@ -334,6 +334,11 @@ internal static class ModelInspector
     }
 
     /// <summary>The Hugging Face <c>model_type</c> values of the bidirectional encoders Sharplight imports as embedding models and cross-encoder rerankers.</summary>
+    // The original checkpoint of Dia (the dia package's layout): a data section with the delay pattern and a model section with the decoder, and no model_type.
+    private static bool IsDiaOriginalConfig(System.Text.Json.JsonElement root)
+        => root.TryGetProperty("data", out var data) && data.ValueKind == System.Text.Json.JsonValueKind.Object && data.TryGetProperty("delay_pattern", out _)
+           && root.TryGetProperty("model", out var model) && model.ValueKind == System.Text.Json.JsonValueKind.Object && model.TryGetProperty("decoder", out _);
+
     private static readonly HashSet<string> s_encoderModelTypes = new(StringComparer.Ordinal)
     {
         "bert", "xlm-roberta", "roberta", "modernbert", "nomic_bert", "distilbert", "electra", "eurobert", "jina_bert",
