@@ -20,6 +20,7 @@
     <Project Path="src/Sharplight.Import.AceStep/Sharplight.Import.AceStep.csproj" />
     <Project Path="src/Sharplight.Import.StableAudio/Sharplight.Import.StableAudio.csproj" />
     <Project Path="src/Sharplight.Import.Chatterbox/Sharplight.Import.Chatterbox.csproj" />
+    <Project Path="src/Sharplight.Import.VoxCpm/Sharplight.Import.VoxCpm.csproj" />
     <Project Path="src/Sharplight.Import.F5Tts/Sharplight.Import.F5Tts.csproj" />
     <Project Path="src/Sharplight.Import.Xtts/Sharplight.Import.Xtts.csproj" />
     <Project Path="src/Sharplight.Import.CosyVoice/Sharplight.Import.CosyVoice.csproj" />
