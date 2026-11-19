@@ -1,0 +1,4 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 14.48 W, 172 MHz, 405 MHz, 32, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 15 MiB, 12.76 W, 180 MHz, 405 MHz, 35, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 98 %, 14921 MiB, 199.98 W, 2392 MHz, 14001 MHz, 64, P0
+3238331, <develop checkout>/samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 14900 MiB

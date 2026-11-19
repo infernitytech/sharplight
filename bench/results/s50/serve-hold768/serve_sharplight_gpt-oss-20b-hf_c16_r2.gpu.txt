@@ -1,0 +1,5 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 12.96 W, 180 MHz, 405 MHz, 32, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 100 %, 19189 MiB, 199.91 W, 2092 MHz, 14001 MHz, 60, P0
+gpu util,memused,power,smclk,memclk,temp,pstate: 98 %, 15692 MiB, 199.99 W, 2520 MHz, 14001 MHz, 51, P0
+3051952, ~/sl-worktrees/cuda-r2-base/samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 19138 MiB
+3051025, ./bench/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 15672 MiB

@@ -1,0 +1,7 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 6651 MiB, 12.77 W, 180 MHz, 405 MHz, 35, P8
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 294 MiB, 30.45 W, 2400 MHz, 13365 MHz, 39, P1
+gpu util,memused,power,smclk,memclk,temp,pstate: 98 %, 16226 MiB, 200.01 W, 2287 MHz, 14001 MHz, 63, P0
+2990610, VLLM::EngineCore, 6640 MiB
+3000489, ~/sl-worktrees/cuda-r2/tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests,
+2942375, ~/sl-worktrees/verify/tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests, 
+2996866, ./bench/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 15756 MiB
