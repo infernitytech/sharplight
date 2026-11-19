@@ -11,4 +11,9 @@ public sealed record ModelServiceOptions
     public IReadOnlyList<IToolCallFormat>? ToolFormats { get; set; }
     /// <summary>Overrides the model's own chat template (Jinja source).</summary>
     public string? ChatTemplate { get; set; }
+    /// <summary>
+    /// Decodes the encoded image files of image parts (<see cref="ImageData.Bytes"/>, e.g. PNG or JPEG) for a model served with image input;
+    /// null: PNG only (<see cref="Imaging.PngCodec"/>). Hosts with a general image decoder set it.
+    /// </summary>
+    public Func<ImageData, Vision.ImageInput>? ImageDecoder { get; set; }
 }

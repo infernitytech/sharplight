@@ -319,7 +319,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
             return task;
         }
 
-        var model = new EngineLoadedModel(request, device, Host, pinned, request.Capabilities, OnVisionFinished, RaiseChanged);
+        var model = new EngineLoadedModel(request, device, Host, pinned, request.Capabilities, RaiseChanged);
         var loader = CreateLoader(request, device, model);
         registration = new ModelRegistration
         {
@@ -408,7 +408,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
             Engine = new EngineOptions { RequestFinished = finished => OnRequestFinished(id, device, finished) },
             Speculator = settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(settings.NgramDraftTokens) : null,
             MtpDraftTokens = settings.MtpDraftTokens,
-            Service = new ModelServiceOptions { DefaultMaxTokens = 0 },
+            Service = new ModelServiceOptions { DefaultMaxTokens = 0, ImageDecoder = ChatRequestMapper.DecodeImage },
         };
         return new LlmChatModelLoader(_engine.Loader, id, request.Path, load, chat);
     }
@@ -471,10 +471,5 @@ internal sealed class EngineModelRuntime : IModelRuntime
             Device = device.Name,
             Stats = ChatRequestMapper.ToStats(finished),
         });
-    }
-
-    private void OnVisionFinished(EngineLoadedModel model, MessageStats stats)
-    {
-        RequestCompleted?.Invoke(this, new RequestRecord { Model = model.Id, Source = RequestSource.Chat, Device = model.Device.Name, Stats = stats });
     }
 }

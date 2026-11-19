@@ -30,13 +30,16 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
             bool mtp = _chat.MtpDraftTokens > 0 && model.HasDraftHead;
             int drafts = mtp ? _chat.MtpDraftTokens : 0;
             int? rows = drafts > 0 ? _chat.Slots + Math.Min(_chat.Slots, _chat.Engine.SpeculationMaxBatch) * drafts : null;
-            var fp = model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens, drafts, mtp, rows, _chat.KvStateSnapshots);
-            long headBytes = mtp ? fp.Total - model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens, drafts, false, rows, _chat.KvStateSnapshots).Total : 0;
+            // Image input: the multimodal decode graph and the vision encoder, loaded with the model and counted in its footprint.
+            bool media = _chat.ImageInput && model.SupportsImages && model.SupportsMediaInput && model.Architectures.TryFindMultimodal(model.Definition.Architecture, out _);
+            var fp = model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens, drafts, mtp, rows, _chat.KvStateSnapshots, media);
+            long headBytes = mtp ? fp.Total - model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens, drafts, false, rows, _chat.KvStateSnapshots, media).Total : 0;
+            long visionBytes = media ? model.EstimateVisionFootprint().Total : 0;
             // The model is split over the pipeline devices in proportion to their weights (equal when unset).
             var devs = load.Devices;
             double sum = devs.Sum(d => d.Weight ?? 1);
             var reqs = devs.Select(d => new MemoryRequirement(new DeviceMemoryDomain(d.Device), (long)(fp.Total * ((d.Weight ?? 1) / sum)))).ToList();
-            return new Prepared(this, model, fp, headBytes, reqs);
+            return new Prepared(this, model, fp, headBytes, visionBytes, media, reqs);
         }
         catch
         {
@@ -45,7 +48,8 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
         }
     }
 
-    private sealed class Prepared(LlmChatModelLoader owner, LlmModel model, ModelFootprint fp, long headBytes, IReadOnlyList<MemoryRequirement> reqs) : IPreparedModel
+    private sealed class Prepared(LlmChatModelLoader owner, LlmModel model, ModelFootprint fp, long headBytes, long visionBytes, bool media,
+        IReadOnlyList<MemoryRequirement> reqs) : IPreparedModel
     {
         private bool _consumed;
         public IReadOnlyList<MemoryRequirement> Requirements => reqs;
@@ -55,22 +59,23 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
         public LoadedModel Load(long? primaryLimit)
         {
             // The limit covers the whole model on the primary device; placement only sees weights + state, so leave room for activations.
-            // The draft head (compiled first) takes its share of the limit too.
-            long? limit = primaryLimit is { } l ? Math.Max(0, l - fp.ActivationBytes - headBytes) : null;
+            // The draft head (compiled first) and the vision encoder take their shares of the limit too.
+            long? limit = primaryLimit is { } l ? Math.Max(0, l - fp.ActivationBytes - headBytes - visionBytes) : null;
             var chat = owner._chat;
             long? kvTokens = KvTokensFor(primaryLimit);
             var speculator = chat.MtpDraftTokens > 0 && model.HasDraftHead
-                ? model.CreateMtpSpeculator(chat.Slots, chat.MtpDraftTokens, owner.Load.ContextLength, kvTokens)
+                ? model.CreateMtpSpeculator(chat.Slots, chat.MtpDraftTokens, owner.Load.ContextLength, kvTokens, media)
                 : chat.Speculator?.Invoke(model);
             var options = owner._chat.Engine with { Speculator = speculator ?? owner._chat.Engine.Speculator };
             int? logitsRows = options.Speculator is { } spec
                 ? owner._chat.Slots + Math.Min(owner._chat.Slots, options.SpeculationMaxBatch) * spec.MaxDraftTokens
                 : null;
             IBatchDecoder decoder;
+            ImagePrompts? images = null;
             try
             {
                 decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit, logitsRows, kvTokens,
-                    options.Speculator?.MaxDraftTokens ?? 0, chat.KvStateSnapshots);
+                    options.Speculator?.MaxDraftTokens ?? 0, chat.KvStateSnapshots, media);
             }
             catch
             {
@@ -82,13 +87,15 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
             try
             {
                 engine = new InferenceEngine(decoder, model.Tokenizer, options);
-                var service = new ModelService(engine, model.ChatTemplate, owner._chat.Service with { ModelName = owner.ModelName });
+                images = media && decoder.EmbeddingWidth > 0 ? new ImagePrompts(model.CreateVisionEncoder(), model.Tokenizer, ownsEncoder: true) : null;
+                var service = new ModelService(engine, model.ChatTemplate, owner._chat.Service with { ModelName = owner.ModelName }, images);
                 _consumed = true;   // the instance owns the model now
                 long head = speculator?.DeviceMemoryBytes ?? 0;
-                return new ChatModelInstance(model, engine, service, decoder.DeviceMemoryBytes + head);
+                return new ChatModelInstance(model, engine, service, decoder.DeviceMemoryBytes + head + (images?.DeviceMemoryBytes ?? 0), images: images);
             }
             catch
             {
+                images?.Dispose();
                 if (engine is null)
                 {
                     decoder.Dispose();

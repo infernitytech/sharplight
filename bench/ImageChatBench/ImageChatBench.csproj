@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Image-chat serving benchmark (not part of Sharplight.slnx): concurrent image prompts through the batching engine vs one session. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <WarningsAsErrors></WarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
+  </ItemGroup>
+</Project>
