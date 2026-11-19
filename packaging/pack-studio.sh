@@ -59,7 +59,12 @@ fi
 case "$rid" in
     linux-x64|linux-arm64|win-x64)
         cp "$repo/src/Sharplight.Cuda.Runtime/THIRD-PARTY-NOTICES.md" "$publish/THIRD-PARTY-NOTICES-Cuda.md"
-        cp "$repo"/src/Sharplight.Cuda.Runtime/obj/cuda-redist/*/"$rid"/LICENSE-NVIDIA-CUDA.txt "$publish/LICENSE-NVIDIA-CUDA.txt"
+        license=("$repo"/src/Sharplight.Cuda.Runtime/obj/cuda-redist/*/"$rid"/LICENSE-NVIDIA-CUDA.txt)
+        if [ ! -f "${license[0]}" ]; then
+            echo "the NVIDIA CUDA redistributables for $rid were not fetched (expected src/Sharplight.Cuda.Runtime/obj/cuda-redist/<version>/$rid/LICENSE-NVIDIA-CUDA.txt): the publish must build Sharplight.Cuda.Runtime with CudaTargetRid=$rid (StudioCuda=true in Studio.csproj, no -p:StudioCuda=false)" >&2
+            exit 1
+        fi
+        cp "${license[0]}" "$publish/LICENSE-NVIDIA-CUDA.txt"
         ;;
 esac
 "$repo/packaging/check-cuda.sh" "$publish" "$rid"

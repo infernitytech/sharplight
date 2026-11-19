@@ -35,7 +35,10 @@
   <ItemGroup Condition="'$(StudioCuda)' == 'true'">
     <ProjectReference Include="../../src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
     <!-- NVRTC and the floating-point headers: native files next to the executable (and in the package), no assembly. -->
-    <ProjectReference Include="../../src/Sharplight.Cuda.Runtime/Sharplight.Cuda.Runtime.csproj" ReferenceOutputAssembly="false" />
+    <!-- The SDK does not pass -r <rid> on to the referenced project (it is RID-agnostic), so the target runtime goes as CudaTargetRid:
+         without it the redistributables of a build machine without an NVIDIA driver (CI) are never fetched. -->
+    <ProjectReference Include="../../src/Sharplight.Cuda.Runtime/Sharplight.Cuda.Runtime.csproj" ReferenceOutputAssembly="false"
+                      AdditionalProperties="CudaTargetRid=$(RuntimeIdentifier)" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
