@@ -339,8 +339,10 @@ Models with recurrent state (gated delta nets, Mamba, Mamba-2, RWKV, short convo
   page: 544-576 tokens for Qwen3.5-0.8B) at the end of scheduler steps, plus optionally at a shared-prefix junction seen with EAGLE / MTP, and does
   not cache attention-free models (pure Mamba / RWKV). Here the granularity is 16 tokens, junctions are found for every prompt, and pure
   recurrent models are cached the same way. Measured (benchmarks.md sections 48.3, 48.6): higher hit rates than vLLM on shared system
-  prompts and conversations; with the cost model (48.6) snapshots no longer cost passes where they do not pay, and TTFT with the cache is
-  below the cache-off TTFT and below vLLM's on the small hybrid model.
+  prompts and conversations; with the cost model (48.6) snapshots and waits no longer cost passes where they do not pay: TTFT p50 with
+  the cache is below vLLM's in 6 of 8 rows on the small hybrid model (all but the conversations, 1.16-1.19x) and below the cache-off TTFT
+  on shared prompts and RAG (0.24-0.91x); on conversations it stays 1.2-1.3x above the cache-off TTFT (a prompt-end snapshot still costs
+  most turns a pass, which the cost model judges worth the recomputation it saves at 16 concurrent chats).
 
 API and hosting:
 

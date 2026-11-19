@@ -6575,6 +6575,90 @@ bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/gguf/Llama-3.2-1B-Instr
   --batch 4096 --sizes 1,2 --modes greedy --reps 40 [--kv-tokens 0]
 ```
 
+### 48.6 Round 2: a cost model for waits and snapshots, step shapes prepared at start, copy-on-write forks (2026-11-19)
+
+Branch `serving/prefix-cache-r2` (design: [kv-cache.md](kv-cache.md) section 2.6). 48.3 left the hybrid model with higher hit rates
+than vLLM but a higher TTFT: every snapshot boundary cut a prompt's chunk (one more pass), and prompts waited a pass for blocks another
+prompt was computing even where computing them was cheaper. Changes:
+
+- `StepCostModel`: the engine fits `step ms = fixed + per-row × rows` to the steps it runs (exponentially weighted least squares,
+  first recordings of a step shape left out as outliers) and times its state copies. Waits, recomputations and snapshot cuts are priced
+  with it instead of constants (`SnapshotMinGap` and the 512-token snapshot interval are gone):
+  - a prompt waits for another prompt's blocks only when computing them (per-row × rows × running requests) costs more than the passes
+    it would wait (each priced by the next step's expected rows);
+  - a snapshot cut is taken where the recomputation it saves later prompts (waiting prompts that part there, one expected reuse for a
+    prefix shared with an idle context, the learnt reuse rate of prompt-end snapshots) exceeds a pass plus the copy; a cut that adds no
+    pass to the prompt (the step budget ends the chunk early anyway) costs only the copy;
+  - snapshots at chunk ends the budget makes anyway are kept (vLLM's step-end states) but marked speculative: they replace only free
+    rows and each other, never a snapshot a prompt asked for (without this, a conversation load lost its prompt-end snapshots to
+    chunk-end ones: hit rate 33 instead of 62 % in one run).
+- Decode steps of 1..64 sequences are prepared (Vulkan: recorded) when the engine starts.
+- Samples of one prompt (`n` > 1) fork the first one's context copy-on-write (below).
+
+Same procedure, models, KV budgets and vLLM 0.33.0 as 48.2 / 48.3, both engines re-run on GPU 0 alone (the machine's CPUs were shared
+with other agents' builds; a run during a load average above 100 halved Sharplight's throughput and was discarded and repeated at a
+load of 25-30). Raw results in [`bench/results/s48b/`](../bench/results/s48b).
+
+Qwen3.5-0.8B (gated delta net hybrid, HF bf16), TTFT p50 / p99 ms, output tok/s, hit rate:
+
+| workload | chats | round | Sharplight on (48.3) | Sharplight on | vLLM on | Sharplight off | vLLM off |
+|---|---:|---:|---|---|---|---|---|
+| shared | 16 | 1 | 237 / 547, 95.1 % | 111 / 209, 2481, 95.1 % | 117 / 144, 3422, 72.8 % | 122 / 591 | 141 / 322 |
+| shared | 16 | 2 | 125 / 192 | 67 / 113, 3564, 95.1 % | 108 / 134, 3482, 73.9 % | 119 / 475 | 139 / 317 |
+| shared | 64 | 1 | 499 / 627 | 282 / 349, 5660, 96.2 % | 303 / 557, 6442, 73.9 % | 872 / 3740 | 385 / 1391 |
+| shared | 64 | 2 | 588 / 714 | 215 / 298, 6243, 96.1 % | 284 / 482, 6615, 73.9 % | 879 / 3549 | 222 / 1402 |
+| multiturn | 16 | 1 | 178 / 297, 54.4 % | 118 / 142, 3363, 62.6 % | 99 / 230, 3356, 28.3 % | 97 / 179 | 117 / 307 |
+| multiturn | 16 | 2 | 161 / 289, 60.0 % | 119 / 147, 3339, 59.2 % | 102 / 228, 3359, 28.1 % | 91 / 154 | 105 / 220 |
+| rag | 16 | 1 | 254 / 429, 68.7 % | 62 / 468, 2731, 77.2 % | 118 / 357, 2998, 69.7 % | 171 / 681 | 179 / 426 |
+| rag | 16 | 2 | 279 / 339, 69.5 % | 90 / 359, 2711, 75.9 % | 116 / 149, 3376, 83.6 % | 132 / 681 | 186 / 421 |
+
+- With the cache on, Sharplight's TTFT p50 is now below vLLM's in 6 of 8 rows (48.3: 1 of 8): 0.52-0.95x on the shared prompt and RAG,
+  1.16-1.19x on the conversations. It is below its own cache-off TTFT on the shared prompt and RAG (0.24-0.91x; 48.3: above on
+  conversations and RAG) and 0.4-0.6x of 48.3's cache-on TTFT, with hit rates as high or higher (RAG round 1 77 vs 69 %).
+- Conversations remain the exception (1.2-1.3x the cache-off TTFT): each turn's prompt-end snapshot still costs most turns a pass.
+  The cost model takes it because the next turn's recomputation of ~250 rows at 16 concurrent chats is priced above one pass; the
+  measured TTFT says a pass is the dearer of the two on this load (the 16 chats arrive in lockstep, so their tails share one more full
+  step). A cheaper prompt-end snapshot needs the recurrent kernels to write the state at an inner row of a chunk (no extra pass), as
+  vLLM's align mode would need as well.
+- Run-to-run spread of single rows is large (rag round 2: 90 / 94 / 130 / 158 ms in four runs of this build, the last under load), so
+  differences under ~20 % are within the noise.
+
+Qwen3-8B-FP8 (attention only), same format:
+
+| workload | chats | round | Sharplight on (48.2) | Sharplight on | vLLM on | Sharplight off | vLLM off |
+|---|---:|---:|---|---|---|---|---|
+| shared | 16 | 1 | 134 / 491, 646 | 109 / 316, 894, 95.2 % | 106 / 200, 1071, 95.2 % | 577 / 2439 | 561 / 1673 |
+| shared | 16 | 2 | 122 / 133, 889 | 118 / 184, 794, 97.2 % | 89 / 124, 1079, 97.2 % | 517 / 2417 | 509 / 1681 |
+| shared | 64 | 1 | 418 / 559, 1747 | 344 / 417, 2251, 97.9 % | 200 / 433, 2782, 97.9 % | 4486 / 17596 | 3059 / 10235 |
+| shared | 64 | 2 | 312 / 360, 2224 | 320 / 363, 2264, 97.9 % | 184 / 412, 2770, 97.9 % | 4483 / 17701 | 3075 / 10333 |
+| multiturn | 16 | 1 | 288 / 440, 767 | 246 / 395, 848, 67.5 % | 167 / 265, 1039, 66.8 % | 449 / 801 | 303 / 813 |
+| multiturn | 16 | 2 | 243 / 395, 846 | 249 / 368, 865, 67.4 % | 210 / 264, 1023, 67.1 % | 422 / 797 | 326 / 817 |
+| rag | 16 | 1 | 93 / 1520, 689 | 93 / 1566, 658, 85.5 % | 130 / 1058, 872, 85.5 % | 644 / 4271 | 592 / 2315 |
+| rag | 16 | 2 | 167 / 616, 746 | 174 / 624, 734, 90.0 % | 115 / 789, 874, 85.5 % | 645 / 3334 | 594 / 2325 |
+
+- vLLM is faster here than in 48.2, where it shared its GPU with another agent's tests (shared 16 round 2: 1079 against 879 tok/s);
+  Sharplight's decode throughput is 0.74-0.85x of it on every load, with or without the cache (FP8 decode and prefill, sections 44 /
+  46), and its cache-on TTFT follows: 0.71-1.74x of vLLM's, with identical hit rates (higher on RAG round 2, 90 vs 86 %). The cache
+  itself does as much for both engines (TTFT cache on / off: Sharplight 0.07-0.59x, vLLM 0.06-0.65x).
+- First round at 64 chats: 344 against 320 ms in round 2 (48.2: 418 against 312). Preparing the decode steps at start removes the
+  recordings of the 64 decode shapes; the rest of the first-round cost is mixed decode / prefill steps, whose row counts take any
+  value and are recorded when first met (Qwen3.5-0.8B: 58 new recordings, 345 ms in total, over the first rounds of the four loads).
+
+Start-up cost of preparing the decode steps (`SHARPLIGHT_SCHED_TRACE=1` prints it, `InferenceEngine.PrepareTime`): Qwen3.5-0.8B at 64
+slots 246 ms for 64 shapes (model load 10.1 s).
+
+Copy-on-write for `n` > 1: a request whose prompt equals one still prefilling waits for it and, at its first token, forks its context
+(all KV blocks shared, the partly filled last one copied when first written, recurrent state copied) and samples from a copy of its
+logits row; the prompt is computed once for all n samples. `PrefixCacheTests.SamplesOfOnePrompt_ForkItsContext_CopyOnWrite` (4
+samples: 42 prompt rows computed instead of 168, the shared last block copied on write), `Followers_ComputeTheirPrompt_WhenTheLeaderIsCancelled`, and
+`PrefixCacheParityTests` (three samples of one prompt decode token-identically to the cache-off reference on CPU and Vulkan for all
+seven tiny families and the two real models).
+
+Tests: SUITES
+
+Reproduce: as 48.5 with `bench/results/s48b/...`; scheduler trace `SHARPLIGHT_SCHED_TRACE=1` (one line per step: duration, rows,
+decode rows, prompt chunks with `wait` / `recompute` / `snap` / `attachN`).
+
 ## 49. LLM round 10: serving steps as large as vLLM's, fused gate / up halves and expert epilogues in the grouped expert GEMMs (2026-11-18)
 
 Base: `develop` at `91942038` (round 9), branch `perf/llm-r10`. GPU 2 (RTX PRO 4500 Blackwell, 32 GB, nothing else on it), vLLM
