@@ -1,4 +1,5 @@
 using Sharplight.Cpu;
+using Sharplight.Cuda;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
@@ -12,13 +13,14 @@ namespace Sharplight.Families.Tests;
 /// models with recurrent state (gated delta nets, Mamba, Mamba-2, short convolutions, RWKV-7) together with a snapshot of the
 /// recurrent state taken at a block boundary. Several samples of one prompt submitted together fork the first one's context
 /// (copy-on-write) and decode identically as well. The engine prices waits and snapshots with a fixed cost model in which rows are
-/// expensive, so every cache path is taken whatever the device's timing.
+/// expensive, so every cache path is taken whatever the device's timing. The GPU cases run on Vulkan, or on CUDA with
+/// <c>SHARPLIGHT_TEST_PROVIDER=cuda</c>.
 /// </summary>
 public class PrefixCacheParityTests
 {
     private static readonly string Models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models");
 
-    /// <summary>Model paths under ~/models and whether they have recurrent state, each on the CPU and on Vulkan.</summary>
+    /// <summary>Model paths under ~/models and whether they have recurrent state, each on the CPU and on the GPU.</summary>
     public static TheoryData<string, bool, bool> Cases()
     {
         var data = new TheoryData<string, bool, bool>();
@@ -41,7 +43,7 @@ public class PrefixCacheParityTests
         return data;
     }
 
-    /// <summary>Real checkpoints (Vulkan only): Qwen3.5-0.8B (gated delta net hybrid) and Qwen3-0.6B.</summary>
+    /// <summary>Real checkpoints (GPU only): Qwen3.5-0.8B (gated delta net hybrid) and Qwen3-0.6B.</summary>
     public static TheoryData<string, bool> RealCases() => new()
     {
         { "hf/Qwen3.5-0.8B", true },
@@ -50,17 +52,17 @@ public class PrefixCacheParityTests
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public Task SharedPrefixes_DecodeIdentically_WithAndWithoutTheCache(string name, bool recurrent, bool vulkan) => Run(name, recurrent, vulkan, 16);
+    public Task SharedPrefixes_DecodeIdentically_WithAndWithoutTheCache(string name, bool recurrent, bool gpu) => Run(name, recurrent, gpu, 16);
 
     [Theory]
     [MemberData(nameof(RealCases))]
     public Task RealModels_DecodeIdentically_WithAndWithoutTheCache(string name, bool recurrent) => Run(name, recurrent, true, 512);
 
-    private static async Task Run(string name, bool recurrent, bool vulkan, int maxBatch)
+    private static async Task Run(string name, bool recurrent, bool gpu, int maxBatch)
     {
         string path = Path.Combine(Models, name);
         Assert.SkipUnless(Directory.Exists(path) || File.Exists(path), $"{path} not present");
-        using var device = OpenDevice(vulkan);
+        using var device = OpenDevice(gpu);
         using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 256, MaxBatchTokens = maxBatch });
         var rng = new Random(5);
         int vocab = Math.Min(1000, model.Tokenizer.VocabSize);
@@ -136,19 +138,21 @@ public class PrefixCacheParityTests
         return ([.. r.Logprobs.Select(l => l.TokenId)], r.Usage.CachedTokens);
     }
 
-    private static IComputeDevice OpenDevice(bool vulkan)
+    private static IComputeDevice OpenDevice(bool gpu)
     {
-        if (!vulkan)
+        if (!gpu)
         {
             var cpu = new CpuExecutionProvider();
             return cpu.OpenDevice(cpu.GetDevices()[0]);
         }
 
-        var p = new VulkanProvider();
-        Assert.SkipUnless(p.CheckAvailability().IsAvailable, "Vulkan is not available");
+        IExecutionProvider p = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_PROVIDER")?.ToLowerInvariant() == CudaProvider.ProviderName
+            ? new CudaProvider()
+            : new VulkanProvider();
+        Assert.SkipUnless(p.CheckAvailability().IsAvailable, $"{p.Name} is not available");
         var devs = p.GetDevices();
         var dev = devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault();
-        Assert.SkipWhen(dev is null, "no Vulkan device");
+        Assert.SkipWhen(dev is null, $"no {p.Name} device");
         return p.OpenDevice(dev!);
     }
 }

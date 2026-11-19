@@ -469,6 +469,29 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         RunLaunches(_program.ResetLaunches);
     }
 
+    /// <inheritdoc/>
+    public bool CanCopyStateRows => true;
+
+    /// <inheritdoc/>
+    /// <remarks>Device-to-device copies on the segment's stream, waited for (another segment's stream may read the state next).</remarks>
+    public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to, int count)
+    {
+        var regions = StateRowCopies.Regions(_program, _borrowedStates, states, from, to, count, b => _alloc[b].Bytes);
+        if (regions.Count == 0)
+        {
+            return;
+        }
+
+        _dev.Enter();
+        foreach (var (b, source, destination, bytes) in regions)
+        {
+            ulong pointer = _alloc[b].Pointer;
+            CudaApi.Check(CudaApi.cuMemcpyDtoDAsync(pointer + (ulong)destination, pointer + (ulong)source, (nuint)bytes, _stream), "cuMemcpyDtoDAsync");
+        }
+
+        Synchronize("the state copies of segment " + Segment.Index);
+    }
+
     private void RunLaunches(IReadOnlyList<KernelLaunch> launches)
     {
         if (launches.Count == 0)

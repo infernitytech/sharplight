@@ -26,6 +26,9 @@
 // STATE_THREADS (128 or 256: subgroups of delta_chunk_state), STATE_FMT (state16.slang: a 16-bit state is widened through the
 // f32 staging tile at the run start and rounded once at its end; within a run it stays f32, unlike the token-by-token kernel,
 // which rounds it after every row).
+// SNAPSHOT (multi-sequence snapshot form, see RecurrentSnapshots): one more binding after the runs table, snapshots [U, 2] i32 (k, row).
+// A run with k > 0 starts with a chunk of k mod 64 rows (when not 0), so that a chunk ends after its row k; delta_chunk_state stores
+// the state there into state row `row` as well.
 // Requires 32-wide subgroups, DK % 16 == 0, DV % BV == 0, BV % 16 == 0.
 #include "common.slang"
 #include "state16.slang"
@@ -44,6 +47,9 @@ using namespace linalg;
 #endif
 #ifndef CHUNK_MIN
 #define CHUNK_MIN 0
+#endif
+#ifndef SNAPSHOT
+#define SNAPSHOT 0
 #endif
 
 #if SL_TARGET_CUDA
@@ -97,8 +103,23 @@ struct ChunkParams
 #if MULTI_SEQ
     int* runs;   // [U, 4] (slot, first row, row count, first position); grid z = run; state [S, HV, DV, DK]
 #endif
+#if SNAPSHOT
+    int* snaps;
+#endif
     uint T;
 };
+
+// Rows the chunks of run z are shifted by: the first chunk has 64 - shift rows, so that a chunk ends after the run's row k when it
+// keeps a snapshot there (SNAPSHOT); 0 otherwise.
+uint chunk_shift(ChunkParams p, uint z)
+{
+#if SNAPSHOT
+    int k = p.snaps[z * 2];
+    return k > 0 ? (CH - uint(k) % CH) % CH : 0u;
+#else
+    return 0u;
+#endif
+}
 
 // (slot, first row, row count, fresh) of this workgroup's run.
 int4 chunk_run(ChunkParams p, uint z)
@@ -206,9 +227,12 @@ void delta_chunk_prep(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uni
     uint tid = ltid.x, sg = tid / 32;
     int4 run = chunk_run(p, gid.z);
     uint n = uint(run.z);
-    if (c * CH >= n || n < CHUNK_MIN) return;
-    uint row0 = uint(run.y) + c * CH;
-    uint nv = min(uint(CH), n - c * CH);
+    // Chunk c covers the run's rows [c * 64 - shift, (c + 1) * 64 - shift), the first one from row 0.
+    uint shift = chunk_shift(p, gid.z);
+    uint start = c == 0 ? 0u : c * CH - shift;
+    if (start >= n || n < CHUNK_MIN) return;
+    uint row0 = uint(run.y) + start;
+    uint nv = min((c + 1) * CH - shift, n) - start;
     const uint64_t qkStride = uint64_t(HK) * DK;
 
     // Chunk-local inclusive cumulative log decay (two 32-row subgroup scans) and beta.
@@ -351,10 +375,10 @@ groupshared float fG[CH];
 // Writes x as f16 parts into a planes array (plane stride `planeSize`).
 #define STORE_PARTS(arr, planeSize, idx, x) { half hi_, lo_; split2(x, hi_, lo_); arr[idx] = hi_; if (PARTS > 1) arr[(planeSize) + (idx)] = lo_; }
 
-// Loads G (thread t < 64: row t) and V (V_PER values per thread) of the chunk starting at run row c.
-#define LOAD_V_G(c)                                                                                                   \
+// Loads G (thread t < 64: row t) and V (V_PER values per thread) of the chunk of run rows [c, e).
+#define LOAD_V_G(c, e)                                                                                                \
     {                                                                                                                 \
-        uint r0_ = uint(run.y) + (c), nv_ = min(uint(CH), n - (c));                                                   \
+        uint r0_ = uint(run.y) + (c), nv_ = (e) - (c);                                                                \
         if (tid < CH) gNext = p.gc[uint64_t(r0_ + min(tid, nv_ - 1)) * HV + h];                                       \
         [ForceUnroll]                                                                                                 \
         for (uint i_ = 0; i_ < V_PER; i_++)                                                                          \
@@ -363,6 +387,41 @@ groupshared float fG[CH];
             vr[i_] = t_ < nv_ ? p.v[uint64_t(r0_ + t_) * VS0 + uint64_t(h) * VS1 + j0 + j_] : 0.0;                  \
         }                                                                                                             \
     }
+// Stores the state accumulators S^T into the state rows at dst (S^T(i, j) at dst[j * DK + i]); a 16-bit state goes through the f32
+// staging tile fX and is rounded once for the whole run.
+#if STATE_FMT
+#define STORE_STATE(dst)                                                                                              \
+    {                                                                                                                 \
+        [ForceUnroll]                                                                                                 \
+        for (uint m_ = 0; m_ < S_ROWS; m_++)                                                                          \
+        {                                                                                                             \
+            uint ri_ = sg + m_ * NSG;                                                                                 \
+            if (ri_ >= RB) continue;                                                                                  \
+            [ForceUnroll]                                                                                             \
+            for (uint ci_ = 0; ci_ < CB; ci_++)                                                                       \
+                S[m_][ci_].Store<CoopMatMatrixLayout.RowMajor>(fX, ri_ * 16 * XS + ci_ * 16, XS);                     \
+        }                                                                                                             \
+        GroupMemoryBarrierWithGroupSync();                                                                            \
+        for (uint e_ = tid; e_ < DK * BV; e_ += NTC)                                                                  \
+        {                                                                                                             \
+            uint i_ = e_ % DK, j_ = e_ / DK;                                                                          \
+            (dst)[j_ * DK + i_] = state_store(state_round(fX[i_ * XS + j_]));                                         \
+        }                                                                                                             \
+    }
+#else
+#define STORE_STATE(dst)                                                                                              \
+    {                                                                                                                 \
+        [ForceUnroll]                                                                                                 \
+        for (uint m_ = 0; m_ < S_ROWS; m_++)                                                                          \
+        {                                                                                                             \
+            uint ri_ = sg + m_ * NSG;                                                                                 \
+            if (ri_ >= RB) continue;                                                                                  \
+            [ForceUnroll]                                                                                             \
+            for (uint ci_ = 0; ci_ < CB; ci_++)                                                                       \
+                S[m_][ci_].Store<CoopMatMatrixLayout.ColumnMajor>(dst, ci_ * 16 * DK + ri_ * 16, DK);                 \
+        }                                                                                                             \
+    }
+#endif
 [shader("compute")]
 [numthreads(NTC, 1, 1)]
 void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform ChunkParams p)
@@ -411,12 +470,18 @@ void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, un
     // G and V of the next chunk are loaded while the current one is processed.
     float gNext = 0;
     float vr[V_PER];
-    LOAD_V_G(0)
-    for (uint c0 = 0; c0 < n; c0 += CH)
+#if SNAPSHOT
+    uint snapK = uint(max(p.snaps[gid.z * 2], 0));
+    STATE_T* snapSt = p.state + ((uint64_t(p.snaps[gid.z * 2 + 1]) * HV + h) * DV + j0) * DK;
+#endif
+    // Chunk [c0, c1) of the run; the first one is shorter when a snapshot row inside the run needs a chunk end (chunk_shift).
+    uint c0 = 0, c1 = min(n, CH - chunk_shift(p, gid.z));
+    LOAD_V_G(0, c1)
+    while (c0 < n)
     {
         uint row0 = uint(run.y) + c0;
-        uint nv = min(uint(CH), n - c0);
-        bool more = c0 + CH < n;
+        uint nv = c1 - c0;
+        bool more = c1 < n;
         if (tid < CH) fG[tid] = gNext;
 
         // 1. S^T -> f16 planes fA [DK][BV]. Two parts: staged in f32 and split in scalar code (a converted accumulator
@@ -508,7 +573,7 @@ void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, un
             float r = t < nv ? vr[i] - exp(fG[t]) * fX[t * XS + j] : 0.0;
             STORE_PARTS(fB, CH * FS, t * FS + j, r);
         }
-        if (more) LOAD_V_G(c0 + CH)
+        if (more) LOAD_V_G(c1, min(n, c1 + CH))
         GroupMemoryBarrierWithGroupSync();
 
         // 4. U = Tb R -> fX rows 0..63.
@@ -616,31 +681,19 @@ void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, un
             p.o[(uint64_t(row0 + t) * HV + h) * DV + j0 + j] = SCALE * exp(fG[t]) * fX[(CH + t) * XS + j] + fX[t * XS + j];
         }
         GroupMemoryBarrierWithGroupSync();   // fG and fX are rewritten by the next chunk
-    }
-
-    [ForceUnroll]
-    for (uint m = 0; m < S_ROWS; m++)
-    {
-        uint ri = sg + m * NSG;
-        if (ri >= RB) continue;
-        [ForceUnroll]
-        for (uint ci = 0; ci < CB; ci++)
+#if SNAPSHOT
+        if (c1 == snapK)
         {
+            STORE_STATE(snapSt)
 #if STATE_FMT
-            S[m][ci].Store<CoopMatMatrixLayout.RowMajor>(fX, ri * 16 * XS + ci * 16, XS);
-#else
-            S[m][ci].Store<CoopMatMatrixLayout.ColumnMajor>(st, ci * 16 * DK + ri * 16, DK);
+            GroupMemoryBarrierWithGroupSync();   // fX is rewritten by the next chunk
 #endif
         }
-    }
-#if STATE_FMT
-    // 16-bit state: narrowed from the staging tile, rounded once for the whole run.
-    GroupMemoryBarrierWithGroupSync();
-    for (uint e = tid; e < DK * BV; e += NTC)
-    {
-        uint i = e % DK, j = e / DK;
-        st[j * DK + i] = state_store(state_round(fX[i * XS + j]));
-    }
 #endif
+        c0 = c1;
+        c1 = min(n, c1 + CH);
+    }
+
+    STORE_STATE(st)
 }
 #endif

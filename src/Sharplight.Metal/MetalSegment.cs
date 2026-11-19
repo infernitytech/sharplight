@@ -376,6 +376,23 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
     /// <inheritdoc />
     public void ResetState() => RunLaunches(_program.ResetLaunches);
 
+    /// <inheritdoc/>
+    public bool CanCopyStateRows => true;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The buffers are in shared storage and every execution waits for its command buffers, so the rows are copied on the CPU, after the
+    /// work already submitted and before later work.
+    /// </remarks>
+    public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to, int count)
+    {
+        foreach (var (b, source, destination, bytes) in StateRowCopies.Regions(_program, _borrowedStates, states, from, to, count, b => _alloc[b].Bytes))
+        {
+            byte* contents = _alloc[b].Contents;
+            Buffer.MemoryCopy(contents + source, contents + destination, bytes, bytes);
+        }
+    }
+
     private void RunLaunches(IReadOnlyList<KernelLaunch> launches)
     {
         if (launches.Count == 0)

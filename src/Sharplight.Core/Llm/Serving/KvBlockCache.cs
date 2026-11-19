@@ -25,6 +25,7 @@ internal sealed class KvBlockCache
     private readonly bool[] _snapUsed;
     private readonly long[] _snapTick;
     private readonly bool[] _snapSpeculative;
+    private readonly bool[] _snapReserved;   // rows a step stores a state into before it is published (ReserveSnapshot)
     private readonly Dictionary<UInt128, int> _snapByKey = [];
     private long _tick;
 
@@ -58,6 +59,7 @@ internal sealed class KvBlockCache
         _snapUsed = new bool[SnapshotCapacity];
         _snapTick = new long[SnapshotCapacity];
         _snapSpeculative = new bool[SnapshotCapacity];
+        _snapReserved = new bool[SnapshotCapacity];
         TableDirty = true;
     }
 
@@ -340,9 +342,41 @@ internal sealed class KvBlockCache
             return true;
         }
 
-        row = -1;
+        row = TakeRow(speculative);
+        if (row < 0)
+        {
+            return false;
+        }
+
+        if (!_copyState!(slot, SlotCount + row))
+        {
+            SnapshotCapacity = 0;   // the device cannot copy state: recurrent prefix caching is off
+            _snapByKey.Clear();
+            return false;
+        }
+
+        _snapKey[row] = hash;
+        _snapUsed[row] = true;
+        _snapSpeculative[row] = speculative;
+        _snapTick[row] = ++_tick;
+        _snapByKey[hash] = row;
+        return true;
+    }
+
+    /// <summary>
+    /// Picks the snapshot row a new snapshot takes (free first, then least recently used, speculative snapshots before wanted ones; a
+    /// <paramref name="speculative"/> one replaces only another speculative one) and drops its snapshot; -1 when there is none.
+    /// </summary>
+    private int TakeRow(bool speculative)
+    {
+        int row = -1;
         for (int r = 0; r < SnapshotCapacity; r++)
         {
+            if (_snapReserved[r])
+            {
+                continue;
+            }
+
             if (!_snapUsed[r])
             {
                 row = r;
@@ -361,21 +395,55 @@ internal sealed class KvBlockCache
             }
         }
 
-        if (row < 0)
-        {
-            return false;
-        }
-
-        if (_snapUsed[row])
+        if (row >= 0 && _snapUsed[row])
         {
             _snapByKey.Remove(_snapKey[row]);
             _snapUsed[row] = false;
         }
 
-        if (!_copyState!(slot, SlotCount + row))
+        return row;
+    }
+
+    /// <summary>
+    /// Reserves a snapshot row for a state a step stores before its block is published (in-step snapshots,
+    /// <see cref="Graph.RecurrentSnapshots"/>): the row is taken as by <see cref="SaveSnapshot"/> (a wanted snapshot) and held until
+    /// <see cref="CommitSnapshot"/> or <see cref="ReleaseSnapshot"/>. Returns the state row (<see cref="SlotCount"/> and up), or -1.
+    /// </summary>
+    public int ReserveSnapshot()
+    {
+        int row = SnapshotCapacity == 0 ? -1 : TakeRow(speculative: false);
+        if (row < 0)
         {
-            SnapshotCapacity = 0;   // the device cannot copy state: recurrent prefix caching is off
-            _snapByKey.Clear();
+            return -1;
+        }
+
+        _snapReserved[row] = true;
+        return SlotCount + row;
+    }
+
+    /// <summary>
+    /// Keeps the state a step stored into the reserved <paramref name="stateRow"/> as the snapshot of the published block
+    /// <paramref name="hash"/>; when that block is not cached (any more) or already has a snapshot, the row is released instead (the
+    /// existing snapshot is refreshed). Returns whether a snapshot for <paramref name="hash"/> exists afterwards.
+    /// </summary>
+    public bool CommitSnapshot(int stateRow, UInt128 hash, bool speculative = false)
+    {
+        int row = stateRow - SlotCount;
+        if ((uint)row >= (uint)SnapshotCapacity || !_snapReserved[row])
+        {
+            return false;
+        }
+
+        _snapReserved[row] = false;
+        if (_snapByKey.TryGetValue(hash, out int existing))
+        {
+            _snapTick[existing] = ++_tick;
+            _snapSpeculative[existing] &= speculative;
+            return true;
+        }
+
+        if (!_pool.TryFind(hash, out _))
+        {
             return false;
         }
 
@@ -385,6 +453,16 @@ internal sealed class KvBlockCache
         _snapTick[row] = ++_tick;
         _snapByKey[hash] = row;
         return true;
+    }
+
+    /// <summary>Frees a row reserved by <see cref="ReserveSnapshot"/> that holds no wanted state.</summary>
+    public void ReleaseSnapshot(int stateRow)
+    {
+        int row = stateRow - SlotCount;
+        if ((uint)row < (uint)SnapshotCapacity)
+        {
+            _snapReserved[row] = false;
+        }
     }
 
     private bool RestoreSnapshot(int slot, UInt128 hash)

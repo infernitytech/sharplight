@@ -158,6 +158,17 @@ public interface IBatchDecoder : IDisposable
     /// </summary>
     public bool SaveKvStateSnapshot(int slot, UInt128 hash, bool speculative = false) => false;
     /// <summary>
+    /// Whether a step can keep the recurrent state at a block boundary inside an input (<see cref="SequenceInput.StateSnapshotRows"/>,
+    /// then <see cref="SaveKvStateSnapshotAt"/>), so that a snapshot there does not cost the prompt a pass of its own.
+    /// </summary>
+    public bool SnapshotsInsideSteps => false;
+    /// <summary>
+    /// Keeps the state the last step stored for the slot's input (<see cref="SequenceInput.StateSnapshotRows"/>), the state after the slot's
+    /// first <paramref name="length"/> tokens, as the snapshot of its block published as <paramref name="hash"/> (the block ending at
+    /// <paramref name="length"/>). Returns false when the step stored no such state (no snapshot row was free, or another length).
+    /// </summary>
+    public bool SaveKvStateSnapshotAt(int slot, int length, UInt128 hash) => false;
+    /// <summary>
     /// Makes the empty <paramref name="slot"/> continue <paramref name="source"/>'s context without computing it (several samples of one
     /// prompt): the slots share the source's KV blocks, a partly filled last block is copied when one of them first writes into it
     /// (copy-on-write), and recurrent state is copied. Returns false, changing nothing, when the decoder cannot (not paged, the device
