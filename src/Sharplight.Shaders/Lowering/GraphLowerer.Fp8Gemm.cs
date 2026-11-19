@@ -21,9 +21,8 @@ public sealed partial class GraphLowerer
     /// <summary>Emits the E4M3 activation quantization and the fp8 GEMM launches of a planned matmul (see <see cref="UseFp8Gemm"/>).</summary>
     private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
         (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
-        native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) && p.X.Shape[0] * p.RowsPerLead >= NativeGemmMinRows
-            ? quantized => DenseScaleCapacityOf(quantized) is > 0 and var xcap ? NativeFp8Kernel(p.N, p.K, null, xcap) : null
-            : null);
+        native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) ? (quantized, min, max) => DenseScaleCapacityOf(quantized) is > 0 and var xcap
+            ? NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount) : null : null);
 
     /// <summary>
     /// Largest batch for which the dual fp8 GEMM serves every row count (one 64-row tile). Larger batches use it only where the
@@ -86,7 +85,7 @@ public sealed partial class GraphLowerer
         var variants = new List<KernelVariant>();
         if (rowsMax >= nativeMin)
         {
-            variants.Add(new KernelVariant(b => rows(b) >= nativeMin, NativeFp8Kernel(n, k, cudaEpilogue, xcap), b => NativeFp8Grid(rows(b), n, dual: true)));
+            variants.AddRange(NativeFp8Variants(n, k, cudaEpilogue, xcap, nativeMin, rowsMax, rows));
         }
 
         foreach (int tileRows in tall ? new[] { 64, 128 } : [(int)DualFp8AlwaysMaxRows])

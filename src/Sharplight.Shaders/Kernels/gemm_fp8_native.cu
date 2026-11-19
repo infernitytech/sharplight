@@ -11,7 +11,7 @@
 //  * W (and W2): the 128-row groups of WeightRepack.Fp8B128Grouped (f8e4m3_b128g): per group [128 rows of K codes][K / 128
 //    blocks of 128 f32 scales], the same bytes per row as f8e4m3_b128r. Requires N % 128 == 0.
 //
-// Tile: F8N_BM tokens x F8N_BN weight rows per block of F8N_WM x F8N_WN warps; a warp owns (F8N_BM / F8N_WM) x (F8N_BN / F8N_WN)
+// Tile: F8N_BM (128 or 64) tokens x F8N_BN weight rows per block of F8N_WM x F8N_WN warps; a warp owns (F8N_BM / F8N_WM) x (F8N_BN / F8N_WN)
 // outputs as m16n8k32 E4M3 fragments with f32 accumulation. Per 128-value K block the warp loads its B fragments once and
 // then, one 16-row fragment at a time, sums the block's MMAs in a fresh accumulator and adds it scaled by
 // sx[t, block] * sw[n, block] (one fused multiply-add per output per block, as gemm_fp8.slang).
@@ -20,14 +20,21 @@
 // each thread holds both results of an output and stores F8N_EPI2(a, b) (the generated epilogue); a block covers F8N_BN / 2
 // outputs.
 //
-// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL). Requires K % 512 == 0 (16-byte aligned rows of K + K / 32
+// Specialization macros: K, N, Y_STRIDE, XCAP, F8N_BM (default 128), DUAL, F8N_EPI2 (DUAL). Requires K % 512 == 0 (16-byte aligned rows of K + K / 32
 // bytes), N % 128 == 0, XCAP % 128 == 0 and an even Y_STRIDE. Grid: x = token tiles, y = weight tiles.
 #ifndef DUAL
 #define DUAL 0
 #endif
+#ifndef F8N_BM
 #define F8N_BM 128
+#endif
 #define F8N_BN 128
+// 64-row tiles (batches of 65 to a few hundred rows: twice the blocks) keep four stages in the same 99 KB.
+#if F8N_BM == 64
+#define F8N_STAGES 4
+#else
 #define F8N_STAGES 3
+#endif
 #define F8N_WM 2
 #define F8N_WN 4
 #define F8N_THREADS (F8N_WM * F8N_WN * 32)
