@@ -10,7 +10,7 @@ using Sharplight.Templating;
 namespace Sharplight.Vision.Tests;
 
 /// <summary>
-/// GLM-OCR (<c>zai-org/GLM-OCR</c>: CogViT-style tower with query / key norms and a GLM decoder; its multi-token-prediction layer is not read) as an image-to-text model,
+/// GLM-OCR (<c>zai-org/GLM-OCR</c>: CogViT-style tower with query / key norms and a GLM decoder; its multi-token-prediction layer is the draft head, see BatchedMultimodalTests) as an image-to-text model,
 /// against transformers (<c>tools/glm-ocr-reference.py</c> writes <c>sharplight-sample.png</c> and <c>sharplight-reference.json</c> next to the checkpoint): the
 /// greedy text of "Text Recognition:" must be exactly the reference's. Skipped when the checkpoint or its reference is not present.
 /// </summary>
