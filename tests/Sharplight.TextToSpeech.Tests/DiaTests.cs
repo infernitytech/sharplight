@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Architectures;
 using Sharplight.Audio;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Package;
@@ -131,6 +132,43 @@ public class DiaTests
         Assert.Equal(info.GetProperty("end").GetInt32(), result.End);
         Assert.Equal(sequence.Count, result.Rows.Count);
         Assert.True(same >= (gpu ? sequence.Count / 2 : sequence.Count), $"the greedy sequence diverges at row {same} of {sequence.Count}");
+    }
+
+    /// <summary>The transformers layout of the same checkpoint (<c>tools/make_dia_hf_layout.py</c>) imports to the same canonical weights as the original layout.</summary>
+    [Fact]
+    public void Both_checkpoint_layouts_import_to_the_same_weights()
+    {
+        string transformers = Path.Combine(Path.GetDirectoryName(TtsModels.Dia)!, "Dia-1.6B-hf");
+        TtsModels.Require(Path.Combine(TtsModels.Dia, "model.safetensors"), Path.Combine(transformers, "model.safetensors"));
+        var original = HuggingFaceImporter.Open(TtsModels.Dia);
+        var converted = HuggingFaceImporter.Open(transformers);
+        try
+        {
+            Assert.Equal("dia", original.Architecture);
+            Assert.Equal("dia", converted.Architecture);
+            Assert.Equal(original.Weights.Keys.Order(StringComparer.Ordinal), converted.Weights.Keys.Order(StringComparer.Ordinal));
+            foreach (string key in original.Metadata.Keys.Where(k => k.StartsWith("dia.", StringComparison.Ordinal) && !k.StartsWith("dia.sampling.", StringComparison.Ordinal)))
+            {
+                Assert.Equal(original.Metadata[key] is long[] expected ? expected.Cast<object>() : [original.Metadata[key]],
+                    converted.Metadata[key] is long[] actual ? actual.Cast<object>() : [converted.Metadata[key]]);
+            }
+
+            foreach (string key in original.Weights.Keys.Where(k => !k.Contains(".layers.", StringComparison.Ordinal) || k.Contains(".layers.0.", StringComparison.Ordinal)
+                                                                    || k.Contains(".layers.11.", StringComparison.Ordinal) || k.Contains(".layers.17.", StringComparison.Ordinal)))
+            {
+                var a = original.Weights[key];
+                var b = converted.Weights[key];
+                Assert.Equal(a.Shape, b.Shape);
+                Assert.True(a.ReadAll().AsSpan().SequenceEqual(b.ReadAll()), $"weight '{key}' differs between the layouts");
+            }
+        }
+        finally
+        {
+            foreach (var resource in original.OwnedResources.Concat(converted.OwnedResources))
+            {
+                resource.Dispose();
+            }
+        }
     }
 
     [Fact]

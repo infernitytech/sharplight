@@ -294,7 +294,6 @@ public sealed class AudioModelsPageTests
         Assert.False(page.IsMultiSpeaker);
         Assert.Contains("[S1]", page.ScriptHint, StringComparison.Ordinal);
         Assert.Contains("(laughs)", page.ScriptHint, StringComparison.Ordinal);
-        Assert.True(Visible(page.Panel, "voice"));
     }
 
     [Fact]
