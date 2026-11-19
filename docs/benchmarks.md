@@ -6654,7 +6654,9 @@ samples: 42 prompt rows computed instead of 168, the shared last block copied on
 `PrefixCacheParityTests` (three samples of one prompt decode token-identically to the cache-off reference on CPU and Vulkan for all
 seven tiny families and the two real models).
 
-Tests: SUITES
+Tests after merging `develop` (at `23231b18`): Serving 357 (0 failed, 13 skipped: models not on this machine), Families full 1340 (0
+failed, 683 skipped; `PrefixCacheParityTests` 16 / 16 with the fork phase), Vulkan `PagedAttentionTests`, `StatefulTests`,
+`DeviceLifetimeTests`, `RecurrentRollback*` 70 (0 failed, 1 skipped).
 
 Reproduce: as 48.5 with `bench/results/s48b/...`; scheduler trace `SHARPLIGHT_SCHED_TRACE=1` (one line per step: duration, rows,
 decode rows, prompt chunks with `wait` / `recompute` / `snap` / `attachN`).
