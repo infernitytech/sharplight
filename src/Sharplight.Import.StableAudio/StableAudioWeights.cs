@@ -50,7 +50,7 @@ internal static partial class StableAudioWeights
         }
     }
 
-    /// <summary>Adds the encoder of the T5Gemma checkpoint under <c>text.</c> (the Gemma norms' <c>1 + w</c> folded into f32 weights).</summary>
+    /// <summary>Adds the encoder of the T5Gemma checkpoint under <c>text.</c> (the Gemma norms' <c>1 + w</c> folded, the layers' matrices f32).</summary>
     /// <param name="tensors">The tensors of the T5Gemma folder's <c>model.safetensors</c>.</param>
     /// <param name="weights">Receives the canonical weights.</param>
     public static void MapTextEncoder(IReadOnlyDictionary<string, SafetensorsTensor> tensors, Dictionary<string, WeightInfo> weights)
@@ -110,7 +110,9 @@ internal static partial class StableAudioWeights
                 "mlp.down_proj.weight" => "mlp.down.weight",
                 _ => throw new NotSupportedException($"T5Gemma encoder tensor '{name}' is not supported."),
             };
-            weights[canonical] = HfTransforms.Plain(info, canonical);
+
+            // f32 (the checkpoint is bf16): GPUs multiply bf16 weights with f16 activations, which costs the conditioning ~40 dB of precision that guidance amplifies.
+            weights[canonical] = HfTransforms.ToF32(info, canonical);
         }
     }
 

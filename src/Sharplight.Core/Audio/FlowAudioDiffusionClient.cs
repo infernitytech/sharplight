@@ -112,6 +112,17 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
         return BackgroundCompute.RunAsync(_gate, () => Denoise(request, progress, cancellationToken), cancellationToken);
     }
 
+    /// <summary>Denoises with the chosen sampler instead of the model's own (ping-pong steps on a base model, Euler steps on a post-trained one).</summary>
+    /// <param name="request">The request.</param>
+    /// <param name="pingPong">Whether to take ping-pong steps.</param>
+    /// <param name="cancellationToken">Stops generation between steps.</param>
+    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, bool pingPong, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return BackgroundCompute.RunAsync(_gate, () => Denoise(request, null, cancellationToken, pingPong), cancellationToken);
+    }
+
     public Task<AudioBuffer> GenerateAsync(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -145,7 +156,7 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
         return (int)Math.Min(samples / _samplesPerFrame, _maxFrames);
     }
 
-    private AudioLatents Denoise(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress, CancellationToken cancellationToken)
+    private AudioLatents Denoise(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress, CancellationToken cancellationToken, bool? sampler = null)
     {
         double seconds = request.Duration.TotalSeconds;
         if (seconds <= 0 || request.Duration > MaxDuration)
@@ -161,7 +172,7 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
 
         int frames = Frames(seconds);
         int count = frames * LatentChannels;
-        bool pingPong = _objective == PingPong;
+        bool pingPong = sampler ?? _objective == PingPong;
         if (pingPong && request.StepNoise is { } given && (given.Count < steps || given.Any(n => n.Length != count)))
         {
             throw new ArgumentException($"The step noise needs {steps} arrays of {count} values.", nameof(request));
@@ -325,7 +336,11 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
         return row;
     }
 
-    private AudioBuffer Decode(AudioLatents latents, AudioGenerationRequest request, CancellationToken cancellationToken)
+    /// <summary>Decodes latents to the request's duration (with the request's decoder noise and seed), as <see cref="GenerateAsync"/> does after denoising.</summary>
+    /// <param name="latents">The latents of <see cref="GenerateLatentsAsync"/>.</param>
+    /// <param name="request">The request (duration, seed, decoder noise).</param>
+    /// <param name="cancellationToken">Stops between decoder windows.</param>
+    public AudioBuffer Decode(AudioLatents latents, AudioGenerationRequest request, CancellationToken cancellationToken)
     {
         int length = (int)(request.Duration.TotalSeconds * SampleRate);
         int needed = Math.Min(latents.Frames, (length + _samplesPerFrame - 1) / _samplesPerFrame);

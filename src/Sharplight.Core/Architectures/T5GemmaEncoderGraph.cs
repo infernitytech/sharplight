@@ -51,7 +51,8 @@ internal static class T5GemmaEncoderGraph
                 attributes.Add(("softcap", p.Softcap));
             }
 
-            if (il < p.SlidingLayers.Length && p.SlidingLayers[il] != 0 && p.SlidingWindow > 0)
+            // A window at least as long as the prompt changes nothing (the GPU kernels do not combine windows with the padding mask).
+            if (il < p.SlidingLayers.Length && p.SlidingLayers[il] != 0 && p.SlidingWindow > 0 && p.SlidingWindow < rows)
             {
                 attributes.Add(("window", (long)p.SlidingWindow));
             }
