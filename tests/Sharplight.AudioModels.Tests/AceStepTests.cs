@@ -1,4 +1,7 @@
+using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Audio;
+using Sharplight.Models;
+using Sharplight.Package;
 
 namespace Sharplight.AudioModels.Tests;
 
@@ -63,5 +66,29 @@ public class AceStepTests
         Assert.Equal(48000 * 2.4, first.FrameCount, 1);
         Assert.Equal(first.Samples, second.Samples);
         Assert.Equal(2, first.Channels);
+    }
+
+    [Fact]
+    public async Task Package_generates_the_same_audio()
+    {
+        AudioModels.Require(AudioModels.Model(Model));
+        string folder = Path.Combine(Environment.GetEnvironmentVariable("SHARPLIGHT_WORK") ?? Path.GetTempPath(), "audio-tests");
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, $"acestep-{Guid.NewGuid():N}.slm");
+        try
+        {
+            AudioModels.Services.GetRequiredService<ModelConverter>().Convert(AudioModels.Model(Model), path);
+            Assert.Equal(ModelKinds.AudioGeneration, ModelPackageReader.Open(path).Definition.Description.Kind);
+            var request = new AudioGenerationRequest { Prompt = Caption, Duration = TimeSpan.FromSeconds(1.2), Steps = 2, Seed = 3 };
+            using var original = AudioModels.Load(AudioModels.Open(gpu: false), AudioModels.Model(Model));
+            using var packaged = AudioModels.Load(AudioModels.Open(gpu: false), path);
+            using var a = AudioModels.Client<IAudioGenerator>(original);
+            using var b = AudioModels.Client<IAudioGenerator>(packaged);
+            Assert.Equal((await a.GenerateAsync(request)).Samples, (await b.GenerateAsync(request)).Samples);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }
