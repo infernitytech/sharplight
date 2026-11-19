@@ -157,7 +157,7 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
         return (int)Math.Min(samples / _samplesPerFrame, _maxFrames);
     }
 
-    private AudioLatents Denoise(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress, CancellationToken cancellationToken, bool? sampler = null)
+    private AudioLatents Denoise(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress, CancellationToken cancellationToken, bool? pingPongOverride = null)
     {
         double seconds = request.Duration.TotalSeconds;
         if (seconds <= 0 || request.Duration > MaxDuration)
@@ -173,7 +173,7 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
 
         int frames = Frames(seconds);
         int count = frames * LatentChannels;
-        bool pingPong = sampler ?? _objective == PingPong;
+        bool pingPong = pingPongOverride ?? _objective == PingPong;
         if (pingPong && request.StepNoise is { } given && (given.Count < steps || given.Any(n => n.Length != count)))
         {
             throw new ArgumentException($"The step noise needs {steps} arrays of {count} values.", nameof(request));
