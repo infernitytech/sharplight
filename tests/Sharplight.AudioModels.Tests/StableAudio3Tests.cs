@@ -10,7 +10,8 @@ namespace Sharplight.AudioModels.Tests;
 /// Stable Audio 3 small-music-base (the checkpoint folder of <c>stabilityai/stable-audio-3-small-music-base</c>) against the stable-audio-3 package
 /// (<c>tools/audio-reference/reference_stable_audio_3.py</c>, fp32 on CPU): the prompt's T5Gemma rows, the seconds row, one transformer evaluation, and a 10 s clip with
 /// 8 Euler steps and adaptive projected guidance 7 from the reference's initial noise (latents and audio decoded without the autoencoder's dither), plus 8 ping-pong steps
-/// (the post-trained models' sampler) on the same weights from the reference's step noise.
+/// (the post-trained models' sampler) on the same weights from the reference's step noise; small-sfx-base and medium-base (differential attention, the sliding-window SAME-L
+/// decoder) with the same guided run.
 /// </summary>
 public class StableAudio3Tests
 {
@@ -23,11 +24,11 @@ public class StableAudio3Tests
         => AudioModels.Require(AudioModels.Model(Model), AudioModels.Reference($"{tag}_noise.f32"), AudioModels.Reference($"{tag}_latent.f32"),
             AudioModels.Reference($"{tag}_wav.f32"));
 
-    private static AudioGenerationRequest Request(string tag = "sa3", float guidance = 7)
+    private static AudioGenerationRequest Request(string tag = "sa3", float guidance = 7, string prompt = Prompt)
     {
         var request = new AudioGenerationRequest
         {
-            Prompt = Prompt,
+            Prompt = prompt,
             Duration = TimeSpan.FromSeconds(10),
             Steps = 8,
             GuidanceScale = guidance,
@@ -149,6 +150,29 @@ public class StableAudio3Tests
         var client = Assert.IsType<FlowAudioDiffusionClient>(generator);
         var latents = await client.GenerateLatentsAsync(Request("sa3pp", 1f), pingPong: true);
         Report(gpu, "ping-pong latents", latents.Values, AudioModels.Floats("sa3pp_latent.f32"), tolerance);
+    }
+
+    [Theory]
+    [InlineData("stable-audio-3-small-sfx-base", "sa3sfx", "Heavy rain on a tin roof with distant rolling thunder", 1300, false, 1e-2)]
+    [InlineData("stable-audio-3-small-sfx-base", "sa3sfx", "Heavy rain on a tin roof with distant rolling thunder", 1300, true, 5e-2)]
+    [InlineData("stable-audio-3-medium-base", "sa3m", Prompt, 4096, false, 1e-2)]
+    [InlineData("stable-audio-3-medium-base", "sa3m", Prompt, 4096, true, 5e-2)]
+    public async Task The_other_base_models_match_the_reference(string name, string tag, string prompt, int maxFrames, bool gpu, double tolerance)
+    {
+        AudioModels.Require(AudioModels.Model(name), AudioModels.Reference($"{tag}_noise.f32"), AudioModels.Reference($"{tag}_latent.f32"),
+            AudioModels.Reference($"{tag}_wav.f32"));
+        using var model = AudioModels.Load(AudioModels.Open(gpu), AudioModels.Model(name));
+        using var generator = AudioModels.Client<IAudioGenerator>(model);
+        Assert.Equal(maxFrames * 4096 / 44100.0, generator.MaxDuration.TotalSeconds, 3);
+        var request = Request(tag, prompt: prompt);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var latents = await generator.GenerateLatentsAsync(request);
+        ParityReport.Write($"{name} gpu={gpu} 8 Euler steps with APG in {watch.Elapsed.TotalSeconds:F1} s");
+        Report(gpu, $"{name} final latents", latents.Values, AudioModels.Floats($"{tag}_latent.f32"), tolerance);
+        var client = Assert.IsType<FlowAudioDiffusionClient>(generator);
+        Report(gpu, $"{name} audio", client.Decode(latents, request, CancellationToken.None).Samples, AudioModels.Floats($"{tag}_wav.f32"), tolerance * 2);
+        Report(gpu, $"{name} decoded reference latents", client.Decode(new AudioLatents(Frames, Channels, AudioModels.Floats($"{tag}_latent.f32")), request,
+            CancellationToken.None).Samples, AudioModels.Floats($"{tag}_wav.f32"), gpu ? 1e-2 : 1e-3);
     }
 
     [Fact]

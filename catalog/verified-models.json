@@ -25309,6 +25309,141 @@
           }
         }
       ]
+    },
+    {
+      "id": "stable-audio-3-small-sfx-base",
+      "name": "Stable Audio 3 small sound effects (base)",
+      "kind": "audio-generation",
+      "family": "Stable Audio",
+      "architecture": "stable_audio_3",
+      "level": "verified",
+      "license": "other",
+      "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "fp32-safetensors",
+          "label": "FP32 (diffusion transformer, SAME autoencoder, T5Gemma text encoder)",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 4374072250,
+          "companions": [],
+          "repository": "stabilityai/stable-audio-3-small-sfx-base",
+          "revision": "b332479a012f83c24c4381f331ce594284ec8a81",
+          "include": [
+            "LICENSE.md",
+            "LICENSE_GEMMA.md",
+            "NOTICE",
+            "README.md",
+            "model_config.json",
+            "model.safetensors",
+            "t5gemma-b-b-ul2/config.json",
+            "t5gemma-b-b-ul2/generation_config.json",
+            "t5gemma-b-b-ul2/model.safetensors",
+            "t5gemma-b-b-ul2/special_tokens_map.json",
+            "t5gemma-b-b-ul2/tokenizer.json",
+            "t5gemma-b-b-ul2/tokenizer.model",
+            "t5gemma-b-b-ul2/tokenizer_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "LICENSE.md",
+              "size": 11852,
+              "gitOid": "1d9ce2ee1067327543544de197291726e4fc57a4"
+            },
+            {
+              "path": "LICENSE_GEMMA.md",
+              "size": 10541,
+              "gitOid": "d483de1f58e5de355d8d184f6a7bf42f05875b63"
+            },
+            {
+              "path": "NOTICE",
+              "size": 97,
+              "gitOid": "27fe1d325f98f3f4643f3ba5735584cffd2553dd"
+            },
+            {
+              "path": "README.md",
+              "size": 5062,
+              "gitOid": "d0ecf652ceb51b09ec5bb0e2a05d33e1f303a1b2"
+            },
+            {
+              "path": "model_config.json",
+              "size": 8476,
+              "gitOid": "bcc43173b590e4ff34e995dff4201d1a0d164d43"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 2270384940,
+              "sha256": "0c7cddb22cd7bf5e8169c6731a9eb7690c27ef5b53e8a4f9b4b2aaf8afcdaea2"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/config.json",
+              "size": 2540,
+              "gitOid": "f5282e2a2964d231e0f19cb2a23f39e08de83128"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/generation_config.json",
+              "size": 156,
+              "gitOid": "a1afbdafc25667679ab591fc9aca56d4a0b91c3d"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/model.safetensors",
+              "size": 1183022944,
+              "sha256": "9b05ea5a4f211d023832f706fb2c0e83e4fc721b6da35ab69ceb0b55eb7800d3"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/special_tokens_map.json",
+              "size": 636,
+              "gitOid": "8d6368f7e735fbe4781bf6e956b7c6ad0586df80"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer.json",
+              "size": 34362429,
+              "sha256": "7794135caa3ea73918949c902a781cc61dab674a4b59c17d85931c77c1114cbd"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer.model",
+              "size": 4241003,
+              "sha256": "61a7b147390c64585d6c3543dd6fc636906c9af3865a5548f27f31aee1d4c8e2"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer_config.json",
+              "size": 46437,
+              "gitOid": "4d625a54ce31c6629f25dadcc7d878e771b40ef7"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "stable-audio-3",
+        "summary": "vs the stable-audio-3 package (fp32, CPU) with the same initial noise, 8 Euler steps with adaptive projected guidance 7, a 10 s clip (174 latent frames, prompt \u0022Heavy rain on a tin roof with distant rolling thunder\u0022): final latents 91.5 dB (CPU) / 92.6 dB (Vulkan) / 97.6 dB (CUDA) SNR, decoded 44.1 kHz stereo audio (autoencoder dither off) 86.1 / 82.1 / 84.4 dB; same architecture as small-music-base (see that entry for the per-stage numbers)",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "Text to 44.1 kHz stereo sound effects up to 120 s, \u0060IAudioGenerator\u0060: prompt, negative prompt, duration, steps (default 50), guidance (default 7, adaptive projected guidance), seed. The latent length follows the duration (plus 6 s of headroom); the SAME decoder adds its own small random dither unless \u0060DecoderNoise\u0060 is 0. Not covered: inpainting and audio-to-audio (the SAME encoder is not imported), LoRA (svd_bases.pt is not installed).",
+      "licenseNotice": "Stability AI Community License: free for research, non-commercial and commercial use while your annual revenue is below 1 million US dollars (commercial users register with Stability AI); above that you need an enterprise licence. Sharing the model or its outputs in a product requires the \u0022Powered by Stability AI\u0022 attribution. The bundled T5Gemma text encoder is subject to the Gemma Terms of Use.",
+      "doc": [
+        {
+          "section": "6",
+          "cells": {
+            "repositories": "stabilityai/stable-audio-3-small-sfx-base",
+            "kind": "audio generation (sound effects)"
+          }
+        }
+      ]
     }
   ]
 }
