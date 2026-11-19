@@ -82,6 +82,36 @@ public sealed class SpeechPackageTests : IDisposable
         Assert.Equal(expected.Segments.SelectMany(s => s.Tokens), actual.Segments.SelectMany(s => s.Tokens));
     }
 
+    /// <summary>
+    /// A Cohere Transcribe package keeps the waveform chunking (its metadata) and transcribes a two-chunk German recording like its source
+    /// (bf16 weights stored as they are).
+    /// </summary>
+    [Fact]
+    public async Task CohereTranscribePackageChunksLikeItsSource()
+    {
+        string source = SpeechEnvironment.HuggingFace("cohere-transcribe-03-2026");
+        string clip = SpeechEnvironment.Audio("mls-german-4");
+        if (!SpeechEnvironment.Available(source, "vulkan") || !File.Exists(clip))
+        {
+            Assert.Skip($"{source}, mls-german-4.wav or the GPU is missing.");
+        }
+
+        string package = Path.Combine(_directory, "cohere-transcribe.slm");
+        TestHost.Converter.Convert(source, package);
+        var definition = ModelPackageReader.Open(package).Definition;
+        Assert.Equal(ModelKinds.SpeechRecognition, definition.Description.Kind);
+        Assert.True(definition.Metadata.ContainsKey(SpeechKeys.ChunkSeconds));
+
+        var audio = WavFile.Read(clip);
+        var options = new SpeechRecognitionOptions { Language = "de" };
+        var expected = await Transcribe(source, "vulkan", audio, options);
+        var actual = await Transcribe(package, "vulkan", audio, options);
+        Assert.Equal(2, actual.Segments.Count);
+        Assert.Equal(expected.Text, actual.Text);
+        Assert.Equal(expected.Segments.SelectMany(s => s.Tokens), actual.Segments.SelectMany(s => s.Tokens));
+        Assert.Equal(expected.Segments.Select(s => s.Start), actual.Segments.Select(s => s.Start));
+    }
+
     /// <summary>Precompiling a speech package for the Vulkan device stores the kernels of both components; a load then compiles nothing new.</summary>
     [Fact]
     public async Task PrecompiledPackageLoadsWithStoredKernels()

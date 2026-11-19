@@ -69,7 +69,17 @@ internal sealed partial class CohereAsrHfMapping : IHfArchitectureMapping
     {
         if (!config.Root.TryGetProperty("encoder", out var encoder) || encoder.ValueKind != JsonValueKind.Object)
         {
-            yield return "cohere_asr: no encoder configuration.";
+            // transformers' own configuration (save_pretrained of the native class): a Parakeet encoder_config and the decoder at the top level.
+            foreach (string reason in ParakeetHfMapping.ValidateEncoder(config, "cohere_asr"))
+            {
+                yield return reason;
+            }
+
+            if (config.Root.TryGetProperty("encoder_config", out var native) && native.TryGetProperty("scale_input", out var scale) && scale.ValueKind == JsonValueKind.True)
+            {
+                yield return "cohere_asr: input scaling (scale_input) is not supported.";
+            }
+
             yield break;
         }
 
@@ -105,30 +115,46 @@ internal sealed partial class CohereAsrHfMapping : IHfArchitectureMapping
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
     {
         string a = Architecture + ".";
-        var encoder = c.Root.GetProperty("encoder");
-        var decoder = c.Root.GetProperty("transf_decoder").GetProperty("config_dict");
-        int encoderHidden = Int(encoder, "d_model", 1280);
-        var result = ParakeetHfMapping.EncoderHyperParameters(c, a, encoderHidden, Int(encoder, "n_layers", 48), Int(encoder, "n_heads", 8),
-            Int(encoder, "subsampling_conv_channels", 256), "silu", 1f, ChunkSeconds);
-        int hidden = Int(decoder, "hidden_size", 1024);
-        int heads = Int(decoder, "num_attention_heads", 8);
-        int headDim = hidden / heads;
-        result[a + "hidden_size"] = hidden;
-        result[a + "encoder.hidden_size"] = encoderHidden;
+        var shape = Shape(c);
+        var result = ParakeetHfMapping.EncoderHyperParameters(c, a, shape.EncoderHidden, shape.EncoderLayers, shape.EncoderHeads, shape.SubsamplingChannels,
+            "silu", 1f, ChunkSeconds);
+        int headDim = shape.Hidden / shape.Heads;
+        result[a + "hidden_size"] = shape.Hidden;
+        result[a + "encoder.hidden_size"] = shape.EncoderHidden;
         result[a + "encoder.type"] = "conformer";
         result[a + "encoder.input"] = "audio";
-        result[a + "decoder.layer_count"] = Int(decoder, "num_layers", 8);
-        result[a + "attention.head_count"] = heads;
+        result[a + "decoder.layer_count"] = shape.Layers;
+        result[a + "attention.head_count"] = shape.Heads;
         result[a + "attention.head_dim"] = headDim;
         result[a + "attention.scale"] = 1f / MathF.Sqrt(headDim);
         result[a + "norm"] = "layer";
         result[a + "norm_eps"] = 1e-5f;
         result[a + "pre_norm"] = true;
-        result[a + "mlp.activation"] = Text(decoder, "hidden_act", "relu");
+        result[a + "mlp.activation"] = shape.Activation;
         result[a + "decoder_start_token"] = DecoderStart(c);
-        result[a + "context_length"] = Int(decoder, "max_sequence_length", 1024);
+        result[a + "context_length"] = shape.Positions;
         result[a + "cross_attention.cached"] = true;
         return result;
+    }
+
+    // The encoder and decoder sizes from the checkpoint's NeMo-style configuration (encoder, transf_decoder.config_dict) or transformers' own
+    // (encoder_config, decoder keys at the top level).
+    private static (int EncoderHidden, int EncoderLayers, int EncoderHeads, int SubsamplingChannels, int Hidden, int Heads, int Layers, string Activation, int Positions)
+        Shape(HfConfig c)
+    {
+        var root = c.Root;
+        if (root.TryGetProperty("encoder", out var encoder) && encoder.ValueKind == JsonValueKind.Object)
+        {
+            var decoder = root.GetProperty("transf_decoder").GetProperty("config_dict");
+            return (Int(encoder, "d_model", 1280), Int(encoder, "n_layers", 48), Int(encoder, "n_heads", 8), Int(encoder, "subsampling_conv_channels", 256),
+                Int(decoder, "hidden_size", 1024), Int(decoder, "num_attention_heads", 8), Int(decoder, "num_layers", 8), Text(decoder, "hidden_act", "relu"),
+                Int(decoder, "max_sequence_length", 1024));
+        }
+
+        var native = root.GetProperty("encoder_config");
+        return (Int(native, "hidden_size", 1280), Int(native, "num_hidden_layers", 48), Int(native, "num_attention_heads", 8), Int(native, "subsampling_conv_channels", 256),
+            Int(root, "hidden_size", 1024), Int(root, "num_attention_heads", 8), Int(root, "num_hidden_layers", 8), Text(root, "hidden_act", "relu"),
+            Int(root, "max_position_embeddings", 1024));
     }
 
     [GeneratedRegex(@"^transf_decoder\._decoder\.layers\.(\d+)\.(.+)\.(weight|bias)$")]
@@ -141,9 +167,11 @@ internal sealed partial class CohereAsrHfMapping : IHfArchitectureMapping
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HuggingFaceImportOptions options)
     {
         var collector = new HfWeightCollector();
-        foreach (var (name, tensor) in tensors)
+        foreach (var (rawName, tensor) in tensors)
         {
             var info = tensor.ToWeightInfo();
+            // transformers' save_pretrained writes the NeMo names under its "model." module.
+            string name = rawName.StartsWith("model.", StringComparison.Ordinal) ? rawName["model.".Length..] : rawName;
             if (name.StartsWith("preprocessor.", StringComparison.Ordinal))
             {
                 // The exported filter bank and window: transformers computes its own (the slaney bank, a symmetric Hann window), as the importer does.
@@ -182,7 +210,7 @@ internal sealed partial class CohereAsrHfMapping : IHfArchitectureMapping
             var layer = DecoderLayerName().Match(name);
             if (!layer.Success || !s_decoderModules.TryGetValue(layer.Groups[2].Value, out var module))
             {
-                throw new NotSupportedException($"cohere_asr: tensor '{name}' has no canonical mapping.");
+                throw new NotSupportedException($"cohere_asr: tensor '{rawName}' has no canonical mapping.");
             }
 
             collector.Add(HfTransforms.Plain(info, $"decoder.layers.{layer.Groups[1].Value}.{module}.{layer.Groups[3].Value}"));
