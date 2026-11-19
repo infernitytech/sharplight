@@ -86,6 +86,7 @@ public sealed class InferenceEngine : IDisposable
     private long _nextId, _tick;
     private int _rr, _transit;
     private bool _stop, _draining;
+    private bool _admissionPaused;   // tests: queued requests wait until ResumeAdmission (running ones keep stepping)
     private volatile int _kvTokens, _kvActiveTokens, _kvBlocksCached;
     private long _kvBlocksEvicted;
 
@@ -103,6 +104,10 @@ public sealed class InferenceEngine : IDisposable
     private readonly long[] _promptEndSaved = new long[2], _promptEndRestored = new long[2];
     // What steps and state copies cost, learnt from the steps run (prices the prefix cache's waits, recomputations and snapshots).
     private readonly StepCostModel _cost;
+
+    // Image and audio prompts: encoder outputs by content hash, and the contents the next encode stage runs (scratch).
+    private readonly MediaEmbeddingCache _mediaCache;
+    private readonly List<(EngineSequence Sequence, int Index)> _mediaPending = [];
 
     // Scratch of the scheduler thread, reused every step.
     private readonly List<SequenceInput> _inputs = [];
@@ -174,6 +179,7 @@ public sealed class InferenceEngine : IDisposable
         _minBudget = _opt.MinBatchTokens > 0 ? Math.Min(_opt.MinBatchTokens, _budget) : _budget;
         _prefillChunk = _opt.PrefillChunk > 0 ? _opt.PrefillChunk : _budget;
         _cost = _opt.StepCost ?? new StepCostModel();
+        _mediaCache = new MediaEmbeddingCache(Math.Max(0, _opt.MediaCacheBytes));
         _specRequests = new SpeculationRequest[decoder.SlotCount];
         _specViews = new ContextView[decoder.SlotCount];
         if (_opt.Speculator is { } spec)
@@ -208,6 +214,28 @@ public sealed class InferenceEngine : IDisposable
 
         _thread = new Thread(Run) { Name = "sharplight-scheduler", IsBackground = true };
         _thread.Start();
+    }
+
+    /// <summary>
+    /// Tests: holds submitted requests in the queue (running sequences keep stepping) until <see cref="ResumeAdmission"/>, so that requests
+    /// submitted one after another are admitted in one pass, as if they had arrived together.
+    /// </summary>
+    internal void PauseAdmission()
+    {
+        lock (_gate)
+        {
+            _admissionPaused = true;
+        }
+    }
+
+    /// <summary>Tests: admits the requests queued since <see cref="PauseAdmission"/> (in one admission pass).</summary>
+    internal void ResumeAdmission()
+    {
+        lock (_gate)
+        {
+            _admissionPaused = false;
+            Monitor.PulseAll(_gate);
+        }
     }
 
     /// <summary>A consistent snapshot of queue depth, slot usage, token counters and latency histograms.</summary>
@@ -258,6 +286,7 @@ public sealed class InferenceEngine : IDisposable
             Metrics.Rejected();
             throw new PromptTooLongException(n, ContextLength - 1);
         }
+        var layout = MediaLayout(request);
         int room = ContextLength - n;
         int maxTokens = request.MaxTokens > 0 ? Math.Min(request.MaxTokens, room) : room;
         if (_diffusion is not null)
@@ -269,7 +298,7 @@ public sealed class InferenceEngine : IDisposable
         long now = Stopwatch.GetTimestamp();
         EngineSequence? seq = null;
         var handle = new GenerationHandle(Interlocked.Increment(ref _nextId), ch, () => RequestCancel(seq!));
-        seq = new EngineSequence(handle.Id, request, ch.Writer, maxTokens, now);
+        seq = new EngineSequence(handle.Id, request, ch.Writer, maxTokens, now, layout);
         if ((request.Timeout ?? _opt.DefaultTimeout) is { } to)
         {
             seq.DeadlineTicks = now + (long)(to.TotalSeconds * Stopwatch.Frequency);
@@ -302,6 +331,59 @@ public sealed class InferenceEngine : IDisposable
         }
 
         return handle;
+    }
+
+    /// <summary>
+    /// The layout of a request with media rows, prompt positions or media weights (validated against the decoder), or null for a plain
+    /// token prompt.
+    /// </summary>
+    /// <exception cref="EngineException">The request's media or positions do not fit the prompt or the decoder (code <c>invalid_request</c>).</exception>
+    private PromptLayout? MediaLayout(GenerationRequest request)
+    {
+        if (request.PromptMedia.Count == 0 && request.PromptPositions is null && request.PromptMediaWeights is null)
+        {
+            return null;
+        }
+
+        int n = request.PromptTokens.Length;
+        string? error = null;
+        int end = 0;
+        foreach (var m in request.PromptMedia.OrderBy(m => m.Start))
+        {
+            if (m.Content is null || m.Start < end || m.End > n)
+            {
+                error = "Prompt media must lie inside the prompt without overlapping.";
+                break;
+            }
+
+            if (m.Content.Encoder.EmbeddingWidth != _decoder.EmbeddingWidth)
+            {
+                error = _decoder.EmbeddingWidth == 0
+                    ? "This model is served without image or audio input."
+                    : $"Media rows of width {m.Content.Encoder.EmbeddingWidth} do not fit the model's embedding rows of width {_decoder.EmbeddingWidth}.";
+                break;
+            }
+
+            end = m.End;
+        }
+
+        if (error is null && request.PromptPositions is { } positions && positions.Length != n * _decoder.PositionAxes)
+        {
+            error = $"The prompt positions hold {positions.Length} values; the model takes {_decoder.PositionAxes} per prompt token ({n * _decoder.PositionAxes}).";
+        }
+
+        if (error is null && request.PromptMediaWeights is { } weights && weights.Length != n)
+        {
+            error = $"The prompt media weights hold {weights.Length} flags for {n} prompt tokens.";
+        }
+
+        if (error is not null)
+        {
+            Metrics.Rejected();
+            throw new EngineException(error, "invalid_request");
+        }
+
+        return new PromptLayout(request, _decoder.PositionAxes, _decoder.TextPositionAxes);
     }
 
     /// <summary>
@@ -442,7 +524,7 @@ public sealed class InferenceEngine : IDisposable
         {
             lock (_gate)
             {
-                while (_queue.Count == 0 && _active.Count == 0 && !_stop)
+                while ((_queue.Count == 0 || _admissionPaused) && _active.Count == 0 && !_stop)
                 {
                     if (_draining)
                     {
@@ -459,7 +541,11 @@ public sealed class InferenceEngine : IDisposable
             try
             {
                 Reap();
-                Admit();
+                if (!Volatile.Read(ref _admissionPaused))
+                {
+                    Admit();
+                }
+
                 if (_active.Count > 0)
                 {
                     StepOnce();
@@ -638,7 +724,7 @@ public sealed class InferenceEngine : IDisposable
 
         var prompt = seq.Prompt;
         int common = 0;
-        int max = Math.Min(Math.Min(slot.Tokens.Count, prompt.Length), SameContentUntil(slot.Content, r.PromptContent));
+        int max = Math.Min(Math.Min(slot.Tokens.Count, prompt.Length), SameContentUntil(slot.Content, seq.Content));
         while (common < max && slot.Tokens[common] == prompt[common])
         {
             common++;
@@ -686,7 +772,7 @@ public sealed class InferenceEngine : IDisposable
         TruncateSlot(slot, keep);
         slot.Partition = seq.Request.CachePartition;
         slot.Salt = seq.Request.CacheSalt;
-        slot.Content = seq.Request.PromptContent;
+        slot.Content = seq.Content;
         keep = slot.Tokens.Count;
         if (CachesBlocks)
         {
@@ -728,6 +814,7 @@ public sealed class InferenceEngine : IDisposable
         seq.Filter = new StopStringFilter(seq.Request.StopStrings);
         seq.StopIds = [.. seq.Request.StopTokenIds];
         seq.Matcher = seq.Request.Constraint?.CreateMatcher();
+        _speculator?.SetLayout(slot.Index, seq.Layout);
         _active.Add(seq);
         Metrics.Admitted(seq.Prompt.Length, keep, TimeSpan.FromSeconds((Stopwatch.GetTimestamp() - seq.SubmitTicks) / (double)Stopwatch.Frequency));
     }
@@ -747,7 +834,7 @@ public sealed class InferenceEngine : IDisposable
         foreach (var a in _active)
         {
             if (a.Leader is null && a.Prefilling && a.Replay is null && !a.Request.BypassPrefixCache && a.Request.CachePartition == r.CachePartition
-                && a.Request.CacheSalt == r.CacheSalt && a.Prompt.AsSpan().SequenceEqual(seq.Prompt) && SameContentUntil(a.Request.PromptContent, r.PromptContent) == int.MaxValue)
+                && a.Request.CacheSalt == r.CacheSalt && a.Prompt.AsSpan().SequenceEqual(seq.Prompt) && SameContentUntil(a.Content, seq.Content) == int.MaxValue)
             {
                 return a;
             }
@@ -762,7 +849,7 @@ public sealed class InferenceEngine : IDisposable
         TruncateSlot(slot, 0);
         slot.Partition = seq.Request.CachePartition;
         slot.Salt = seq.Request.CacheSalt;
-        slot.Content = seq.Request.PromptContent;
+        slot.Content = seq.Content;
         if (CachesBlocks)
         {
             slot.Seed = KvBlockHash.Seed(seq.Request.CachePartition, seq.Request.CacheSalt);
@@ -874,7 +961,7 @@ public sealed class InferenceEngine : IDisposable
         {
             var r = seq.Request;
             seq.PromptHashes = new List<UInt128>(seq.Prompt.Length / _decoder.KvBlockSize);
-            KvBlockHash.Extend(seq.PromptHashes, KvBlockHash.Seed(r.CachePartition, r.CacheSalt), seq.Prompt, seq.Prompt.Length - 1, _decoder.KvBlockSize, r.PromptContent);
+            KvBlockHash.Extend(seq.PromptHashes, KvBlockHash.Seed(r.CachePartition, r.CacheSalt), seq.Prompt, seq.Prompt.Length - 1, _decoder.KvBlockSize, seq.Content);
         }
 
         return seq.PromptHashes;
@@ -1375,6 +1462,7 @@ public sealed class InferenceEngine : IDisposable
         }
 
         int stepTokens = StepTokens();
+        EncodeMedia();
         var budget = new StepBudget { Tokens = stepTokens, LogitsRows = _decoder.MaxLogitsRows };
         budget.KvBlocks = EnsureKvBlocksForDecode();
         ScheduleDecode(ref budget);
@@ -1600,6 +1688,7 @@ public sealed class InferenceEngine : IDisposable
             }
 
             int chunk = Math.Min(Math.Min(Math.Min(_prefillChunk, replay.Length - s.ReplayPos), budget.Tokens), KvRoom(s.Slot!, budget.KvBlocks));
+            chunk = ClipToEncodedMedia(s, s.ReplayPos, chunk);
             if (chunk <= 0)
             {
                 continue;
@@ -1640,6 +1729,7 @@ public sealed class InferenceEngine : IDisposable
 
             int chunk = Math.Min(Math.Min(Math.Min(_prefillChunk, s.Prompt.Length - s.PromptPos), budget.Tokens), KvRoom(s.Slot!, budget.KvBlocks));
             chunk = ClipPrefillChunk(s, chunk);
+            chunk = ClipToEncodedMedia(s, s.PromptPos, chunk);
             if (chunk <= 0)
             {
                 continue;
@@ -1898,8 +1988,133 @@ public sealed class InferenceEngine : IDisposable
         }
     }
 
+    /// <summary>
+    /// The encoder stage before a step: the media that the next prompt (or recomputation) chunk of every sequence may reach and that have no
+    /// rows yet take them from the cache of encoder outputs, or are encoded, up to <see cref="EngineOptions.MediaEncodeRowsPerStep"/> rows, in
+    /// one call per encoder (batched across requests). Media inside KV blocks a prompt attached from the prefix cache are never reached.
+    /// </summary>
+    private void EncodeMedia()
+    {
+        _mediaPending.Clear();
+        int rows = 0;
+        int limit = _opt.MediaEncodeRowsPerStep > 0 ? _opt.MediaEncodeRowsPerStep : _budget;
+        foreach (var s in _active)
+        {
+            if (s.Layout is not { } layout || layout.Media.Count == 0 || s.Leader is not null)
+            {
+                continue;
+            }
+
+            int pos = s.Replay is not null ? s.ReplayPos : s.Prefilling ? s.PromptPos : -1;
+            if (pos < 0)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < layout.Media.Count; i++)
+            {
+                var m = layout.Media[i];
+                if (m.End <= pos || m.Start >= pos + _prefillChunk || layout.Rows(i) is not null)
+                {
+                    continue;
+                }
+
+                if (_mediaCache.Get(m.Content.Hash) is { } cached)
+                {
+                    layout.SetRows(i, cached);
+                    Metrics.MediaCacheHit();
+                    continue;
+                }
+
+                if (_mediaPending.Count > 0 && rows + m.Content.Rows > limit)
+                {
+                    continue;
+                }
+
+                _mediaPending.Add((s, i));
+                rows += m.Content.Rows;
+            }
+        }
+
+        if (_mediaPending.Count == 0)
+        {
+            return;
+        }
+
+        long t0 = Stopwatch.GetTimestamp();
+        int encodedCount = 0;
+        foreach (var group in _mediaPending.GroupBy(p => ContentOf(p).Encoder).ToList())
+        {
+            try
+            {
+                encodedCount += EncodeGroup(group.Key, [.. group]);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                // A content the encoder cannot take (or a failing encoder) ends the requests that need it, not the engine.
+                foreach (var (seq, _) in group)
+                {
+                    Complete(seq, FinishReason.Error, "Encoding the prompt's media failed: " + e.Message, null);
+                }
+            }
+        }
+
+        Metrics.MediaEncoded(encodedCount, Stopwatch.GetElapsedTime(t0));
+    }
+
+    private static MediaContent ContentOf((EngineSequence Sequence, int Index) pending) => pending.Sequence.Layout!.Media[pending.Index].Content;
+
+    /// <summary>Encodes the contents of one encoder (each distinct content once), caches the rows and hands them to the layouts; returns the contents encoded.</summary>
+    private int EncodeGroup(IMediaEncoder encoder, List<(EngineSequence Sequence, int Index)> group)
+    {
+        var distinct = group.Select(ContentOf).DistinctBy(c => c.Hash).ToList();
+        var encoded = encoder.Encode(distinct);
+        var byHash = new Dictionary<UInt128, float[]>();
+        for (int k = 0; k < distinct.Count; k++)
+        {
+            if (k >= encoded.Count || encoded[k].Length != (long)distinct[k].Rows * _decoder.EmbeddingWidth)
+            {
+                throw new InvalidOperationException($"The media encoder did not return {distinct[k].Rows} rows of width {_decoder.EmbeddingWidth}.");
+            }
+
+            byHash[distinct[k].Hash] = encoded[k];
+        }
+
+        foreach (var (hash, rows) in byHash)
+        {
+            _mediaCache.Add(hash, rows);
+        }
+
+        foreach (var pending in group)
+        {
+            pending.Sequence.Layout!.SetRows(pending.Index, byHash[ContentOf(pending).Hash]);
+        }
+
+        return distinct.Count;
+    }
+
+    /// <summary>A prompt or recomputation chunk from context row <paramref name="pos"/> cut before the first media whose rows are not encoded yet.</summary>
+    private int ClipToEncodedMedia(EngineSequence s, int pos, int chunk)
+    {
+        if (chunk <= 0 || s.Layout is not { } layout || layout.FirstMissing(pos, chunk) is not (>= 0 and var missing))
+        {
+            return chunk;
+        }
+
+        // A chunk that does not end the prompt ends on a block boundary where it can.
+        int start = layout.Media[missing].Start;
+        int bs = _decoder.KvBlockSize;
+        int aligned = bs > 0 ? start / bs * bs - pos : 0;
+        return Math.Max(0, aligned > 0 ? aligned : start - pos);
+    }
+
     private void AddInput(EngineSequence s, SequenceInput input, bool replay = false)
     {
+        if (s.Layout is { } layout)
+        {
+            input = layout.Apply(input, s.Slot!.Tokens.Count);
+        }
+
         _inputs.Add(input);
         _stepSeqs.Add(s);
         _stepBaseLength.Add(s.Slot!.Tokens.Count);

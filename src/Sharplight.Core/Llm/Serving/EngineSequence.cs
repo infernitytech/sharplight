@@ -11,7 +11,7 @@ namespace Sharplight.Llm.Serving;
 /// </summary>
 internal sealed class EngineSequence
 {
-    public EngineSequence(long id, GenerationRequest request, ChannelWriter<GenerationChunk> writer, int maxTokens, long submitTicks)
+    public EngineSequence(long id, GenerationRequest request, ChannelWriter<GenerationChunk> writer, int maxTokens, long submitTicks, PromptLayout? layout = null)
     {
         Id = id;
         Request = request;
@@ -19,7 +19,14 @@ internal sealed class EngineSequence
         Prompt = request.PromptTokens;
         MaxTokens = maxTokens;
         SubmitTicks = submitTicks;
+        Layout = layout;
+        Content = layout?.Content ?? request.PromptContent;
     }
+
+    /// <summary>Image or audio rows, M-RoPE positions or media weights of the request (null for a plain token prompt).</summary>
+    public PromptLayout? Layout { get; }
+    /// <summary>The prefix-cache keys of the prompt's non-text content (<see cref="GenerationRequest.PromptContent"/> plus the media's).</summary>
+    public IReadOnlyList<PromptContentKey> Content { get; }
 
     public long Id { get; }
     public GenerationRequest Request { get; }

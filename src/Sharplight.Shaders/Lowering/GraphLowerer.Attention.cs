@@ -703,7 +703,7 @@ public sealed partial class GraphLowerer
     /// Key rows each lane group of the decode attention takes per batch (<c>DEC_R</c>) unless <c>SHARPLIGHT_ATTN_DECODE_CFG</c> sets
     /// it: 1 on SPIR-V and MSL (batched decode spreads over more workgroups, see <see cref="DecodeAttention"/>), 4 on PTX, where the
     /// CUDA form keeps more loads in flight per lane (RTX PRO 4500, Qwen3-0.6B single-sequence decode: 1.68 → 1.51 ms of GPU time
-    /// per step; batched steps see benchmarks section 52).
+    /// per step; batched steps see benchmarks section 53).
     /// </summary>
     private long DecodeRowsPerBatch => _opt.Target == ShaderTarget.Ptx ? 4 : 1;
 

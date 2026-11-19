@@ -5,7 +5,7 @@ namespace Sharplight.Llm.Serving;
 /// <summary>Counters and histograms the engine updates; read them as an <see cref="EngineMetricsSnapshot"/>.</summary>
 public sealed class EngineMetrics
 {
-    private long _submitted, _rejected, _promptTokens, _cachedTokens, _completionTokens, _lookups, _hits, _steps, _drafted, _accepted, _preemptions, _sharedPrefixTokens, _sharedPrefixBlocks, _stateSnapshots, _forks;
+    private long _submitted, _rejected, _promptTokens, _cachedTokens, _completionTokens, _lookups, _hits, _steps, _drafted, _accepted, _preemptions, _sharedPrefixTokens, _sharedPrefixBlocks, _stateSnapshots, _forks, _mediaEncoded, _mediaCacheHits, _mediaEncodeTicks;
     private readonly long[] _finished = new long[Enum.GetValues<FinishReason>().Length];
     private readonly Histogram _ttft = new(Histogram.LatencyBuckets), _itl = new(Histogram.FineLatencyBuckets), _wait = new(Histogram.LatencyBuckets),
         _duration = new(Histogram.LatencyBuckets), _stepTime = new(Histogram.FineLatencyBuckets), _rows = new(Histogram.CountBuckets),
@@ -85,6 +85,16 @@ public sealed class EngineMetrics
 
     /// <summary>A sequence took another's computed prompt instead of computing it (several samples of one prompt).</summary>
     internal void Forked() => Interlocked.Increment(ref _forks);
+    /// <summary>Media contents encoded in one stage (<paramref name="count"/>) and how long the stage took.</summary>
+    internal void MediaEncoded(int count, TimeSpan time)
+    {
+        Interlocked.Add(ref _mediaEncoded, count);
+        Interlocked.Add(ref _mediaEncodeTicks, time.Ticks);
+    }
+
+    /// <summary>A media content's rows came from the encoder-output cache.</summary>
+    internal void MediaCacheHit() => Interlocked.Increment(ref _mediaCacheHits);
+
     internal void Speculation(int drafted, int accepted)
     {
         Interlocked.Add(ref _drafted, drafted);
@@ -128,6 +138,8 @@ public sealed class EngineMetrics
         Preemptions = Interlocked.Read(ref _preemptions), SharedPrefixTokens = Interlocked.Read(ref _sharedPrefixTokens),
         SharedPrefixBlocks = Interlocked.Read(ref _sharedPrefixBlocks), StateSnapshots = Interlocked.Read(ref _stateSnapshots),
         ForkedSequences = Interlocked.Read(ref _forks),
+        MediaEncoded = Interlocked.Read(ref _mediaEncoded), MediaCacheHits = Interlocked.Read(ref _mediaCacheHits),
+        MediaEncodeTime = TimeSpan.FromTicks(Interlocked.Read(ref _mediaEncodeTicks)),
         TimeToFirstToken = _ttft.Snapshot(), InterTokenLatency = _itl.Snapshot(), QueueWait = _wait.Snapshot(),
         RequestDuration = _duration.Snapshot(), StepDuration = _stepTime.Snapshot(), StepRows = _rows.Snapshot(),
         StepSequences = _sequences.Snapshot(),

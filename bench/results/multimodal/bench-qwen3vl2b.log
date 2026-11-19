@@ -1,0 +1,4 @@
+Qwen3VL-2B-Instruct-Q4_K_M.gguf: 16 streams x 128 tokens, image 448x448 -> 196 rows, prompt 123 chars, device NVIDIA RTX PRO 4500 Blackwell
+single session: wall 5.75 s, 356.1 tok/s aggregate, TTFT p50 3042 ms p95 5437 ms, ITL mean 2.5 ms, images encoded 0, cached prompt tokens 0
+engine (16 slots), round 1: wall 1.03 s, 1994.7 tok/s aggregate, TTFT p50 439 ms p95 495 ms, ITL mean 4.7 ms, images encoded 16, cached prompt tokens 0
+engine (16 slots), round 2: wall 0.56 s, 3670.6 tok/s aggregate, TTFT p50 25 ms p95 33 ms, ITL mean 4.1 ms, images encoded 0, cached prompt tokens 3328

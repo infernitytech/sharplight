@@ -119,12 +119,13 @@
     <Error Condition="!Exists('$(_Marker)') And '$(_Actual.ToLowerInvariant())' != '$(CudaArchiveSha256)'"
            Text="CUDA redistributable $(CudaArchiveName): the SHA-256 $(_Actual) does not match the pinned $(CudaArchiveSha256)." />
     <MakeDir Condition="!Exists('$(_Marker)')" Directories="$(_Download)x;$(CudaArchiveDestination);$(CudaRedistDirectory)markers" />
-    <!-- GNU tar reads no zip archives (the Windows ones); Windows' bsdtar reads both. -->
+    <!-- Zip archives (the Windows ones) go through MSBuild's own Unzip task: GNU tar reads no zip, and on CI runners Git's GNU tar
+         can shadow Windows' bsdtar on the PATH. -->
     <PropertyGroup>
-      <_UseUnzip Condition="$(CudaArchiveName.EndsWith('.zip')) And !$([MSBuild]::IsOSPlatform('Windows'))">true</_UseUnzip>
+      <_UseUnzip Condition="$(CudaArchiveName.EndsWith('.zip'))">true</_UseUnzip>
     </PropertyGroup>
     <Exec Condition="!Exists('$(_Marker)') And '$(_UseUnzip)' != 'true'" Command="tar --no-same-owner -xf &quot;$(CudaArchiveName)&quot; -C x @(_Wanted->'&quot;$(_Root)/%(From)&quot;', ' ')" WorkingDirectory="$(_Download)" />
-    <Exec Condition="!Exists('$(_Marker)') And '$(_UseUnzip)' == 'true'" Command="unzip -q -o &quot;$(CudaArchiveName)&quot; @(_Wanted->'&quot;$(_Root)/%(From)&quot;', ' ') -d x" WorkingDirectory="$(_Download)" />
+    <Unzip Condition="!Exists('$(_Marker)') And '$(_UseUnzip)' == 'true'" SourceFiles="$(_Download)$(CudaArchiveName)" DestinationFolder="$(_Download)x" OverwriteReadOnlyFiles="true" />
     <Copy Condition="!Exists('$(_Marker)')" SourceFiles="@(_Wanted->'$(_Download)x/$(_Root)/%(From)')" DestinationFiles="@(_Wanted->'$(CudaArchiveDestination)%(To)')" />
     <RemoveDir Condition="!Exists('$(_Marker)')" Directories="$(_Download)x" />
     <Delete Condition="!Exists('$(_Marker)')" Files="$(_Download)$(CudaArchiveName)" />

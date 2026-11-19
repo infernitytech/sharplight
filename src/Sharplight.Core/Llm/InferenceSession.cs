@@ -68,6 +68,12 @@ public sealed class InferenceSession : IDisposable
     /// <summary>The hidden states of the last forward pass's rows ([rows, width] row-major) when <see cref="CaptureHidden"/> is on, else empty.</summary>
     public ReadOnlySpan<float> LastHidden => _lastHidden.AsSpan(0, _lastHiddenLength);
 
+    /// <summary>Width of the media embedding rows the session's graph takes (0 without a multimodal graph).</summary>
+    internal int EmbeddingWidth => SupportsEmbeddings ? _hidden : 0;
+    /// <summary>Rope position axes per row (0 when the graph has no positions input).</summary>
+    internal int PositionAxes => _posAxes;
+    /// <summary>Leading position axes that carry a text row's position.</summary>
+    internal int TextPositionAxes => _textPositionAxes;
     /// <summary>Whether the session's graph accepts media embeddings (a <see cref="WellKnown.DecodeMultimodalGraph"/>).</summary>
     public bool SupportsEmbeddings => _embeddings is not null && _embeddingMask is not null;
     /// <summary>The compiled graph (placement plan, profiling and device state).</summary>

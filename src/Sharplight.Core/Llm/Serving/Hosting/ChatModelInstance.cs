@@ -12,10 +12,12 @@ public sealed class ChatModelInstance : LoadedModel, IChatModel
     /// <inheritdoc/>
     public ModelService Service { get; }
     private readonly long _resident;
+    private readonly ImagePrompts? _images;
 
-    internal ChatModelInstance(LlmModel? model, InferenceEngine engine, ModelService service, long resident, bool ownsEngine = true)
+    internal ChatModelInstance(LlmModel? model, InferenceEngine engine, ModelService service, long resident, bool ownsEngine = true, ImagePrompts? images = null)
     {
         _model = model;
+        _images = images;
         Engine = engine;
         Service = service;
         _resident = resident;
@@ -53,6 +55,7 @@ public sealed class ChatModelInstance : LoadedModel, IChatModel
         }
 
         Engine.Dispose();   // stops the scheduler thread and disposes the decoder (device memory)
+        _images?.Dispose();
         _model?.Dispose();
     }
 }

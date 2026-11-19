@@ -59,6 +59,12 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     public TimeSpan StepDelay { get; set; }
     public int FailAfterSteps { get; set; } = -1;
     public List<(int Slot, int Rows, bool Logits)[]> Steps { get; } = [];
+    /// <summary>Embedding width of a decoder with media input (0: token rows only).</summary>
+    public int EmbeddingWidth { get; set; }
+    /// <summary>Rope position axes per row.</summary>
+    public int PositionAxes { get; set; } = 1;
+    /// <summary>Every row fed, per step input: slot, cache position, rope position (first axis), first value of its embedding row or NaN.</summary>
+    public List<(int Slot, int Position, int Rope, float Embedding)> Rows { get; } = [];
     public List<int[]> LogitsRowsPerStep { get; } = [];
     public List<(int Slot, int Length)> Truncations { get; } = [];
     public List<int> Resets { get; } = [];
@@ -219,6 +225,37 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     }
     public IReadOnlyList<int> Context(int slot) => _ctx[slot];
 
+    private void RecordRows(SequenceInput input)
+    {
+        int n = input.Tokens.Length;
+        var embedding = new float[n];
+        embedding.AsSpan().Fill(float.NaN);
+        foreach (var run in input.Embeddings ?? [])
+        {
+            if (EmbeddingWidth == 0 || run.Values.Length % EmbeddingWidth != 0 || run.Row + run.Rows(EmbeddingWidth) > n)
+            {
+                throw new InvalidOperationException("embedding rows the decoder cannot take");
+            }
+
+            for (int j = 0; j < run.Rows(EmbeddingWidth); j++)
+            {
+                embedding[run.Row + j] = run.Values.Span[j * EmbeddingWidth];
+            }
+        }
+
+        if (!input.Positions.IsEmpty && input.Positions.Length != n * PositionAxes)
+        {
+            throw new InvalidOperationException("position ids of the wrong shape");
+        }
+
+        int start = _ctx[input.Slot].Count;
+        for (int k = 0; k < n; k++)
+        {
+            int rope = input.Positions.IsEmpty ? start + k + input.PositionOffset : input.Positions.Span[k * PositionAxes];
+            Rows.Add((input.Slot, start + k, rope, embedding[k]));
+        }
+    }
+
     public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs)
     {
         if (inputs.Select(i => i.Slot).Distinct().Count() != inputs.Count)
@@ -244,6 +281,11 @@ public sealed class FakeBatchDecoder : IBatchDecoder
             }
 
             Steps.Add([.. inputs.Select(i => (i.Slot, i.Tokens.Length, i.WantLogits))]);
+            foreach (var input in inputs)
+            {
+                RecordRows(input);
+            }
+
             LogitsRowsPerStep.Add([.. inputs.Select(i => i.OutputRows)]);
         }
         if (StepDelay > TimeSpan.Zero)

@@ -25,6 +25,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private readonly CompiledModel _compiled;
     private readonly Value _tokens, _rows, _runs;
     private readonly Value? _positions, _outputRows, _samplingParams, _blockTable, _commits, _hiddenInput, _runEndRows;
+    // Multimodal graph: embedding rows [T, width] and their row mask [T, 1]; the media weight mask [T, 1] of models with visual experts.
+    private readonly Value? _embeddings, _embeddingMask, _mediaWeightMask;
+    private readonly int _embeddingWidth;
+    private float[] _embBuf = [], _maskBuf = [], _mediaBuf = [];
+    private int _embRowsDirty;   // rows of _embBuf / _maskBuf / _mediaBuf at the start that may be non-zero
     private readonly KvBlockCache? _pool;          // paged: block tables, pool, content index, recurrent-state snapshots
     private readonly string[] _recurrentStates = [];   // states with a slot row (copied for snapshots)
     private readonly string[] _kvStates = [];          // paged KV caches with one row per token (copied for copy-on-write)
@@ -67,6 +72,12 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     public int MaxSpeculativeRows { get; }
     /// <inheritdoc/>
     public int HiddenSize => _hiddenSize;
+    /// <inheritdoc/>
+    public int EmbeddingWidth => _embeddingWidth;
+    /// <inheritdoc/>
+    public int PositionAxes => Math.Max(1, _posAxes);
+    /// <inheritdoc/>
+    public int TextPositionAxes => Math.Min(PositionAxes, _textPositionAxes);
     /// <inheritdoc/>
     public bool CaptureHiddenStates { get; set; }
     /// <summary>Width of the graph's <see cref="InputRole.HiddenStates"/> input (a draft head's), 0 when it has none.</summary>
@@ -141,11 +152,15 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
                 snapshots || (fork && hasRecurrentState) ? CopyStateRow : null, fork ? CopyKvRows : null);
         }
 
-        if (g.TryInput(InputRole.Embeddings) is not null)
+        _embeddings = g.TryInput(InputRole.Embeddings);
+        _embeddingMask = g.TryInput(InputRole.EmbeddingMask);
+        _mediaWeightMask = g.TryInput(InputRole.MediaWeightMask);
+        if ((_embeddings is null) != (_embeddingMask is null))
         {
-            throw new NotSupportedException("Multimodal graphs are not supported by the multi-sequence decoder.");
+            throw new NotSupportedException("A graph with an embeddings input needs its embedding mask (the multimodal decode graph), and the other way round.");
         }
 
+        _embeddingWidth = _embeddings is null ? 0 : (int)_embeddings.Shape[-1].Fixed;
         _posAxes = _positions is null ? 0 : _positions.Rank == 1 ? 1 : (int)_positions.Shape[-1].Fixed;
         _textPositionAxes = textPositionAxes;
         SlotCount = slots;
@@ -534,6 +549,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _compiled.SetInput<int>(_positions, _posBuf.AsSpan(0, T * _posAxes));
         }
 
+        if (_embeddings is not null)
+        {
+            UploadEmbeddings(T);
+        }
+
         _compiled.SetInput<int>(_rows, _rowBuf.AsSpan(0, T * 4));
         _compiled.SetInput<int>(_runs, _runBuf.AsSpan(0, count * 4));
         if (_runEndRows is not null)
@@ -685,6 +705,15 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         int count = inputs.Count;
         int T = 0;
         int R = 0;
+        if (_embRowsDirty > 0)
+        {
+            // Rows a previous step filled: token rows of this step read zeros there.
+            _embBuf.AsSpan(0, _embRowsDirty * _embeddingWidth).Clear();
+            _maskBuf.AsSpan(0, _embRowsDirty).Clear();
+            _mediaBuf.AsSpan(0, Math.Min(_mediaBuf.Length, _embRowsDirty)).Clear();
+            _embRowsDirty = 0;
+        }
+
         Span<bool> seen = stackalloc bool[SlotCount];
         for (int u = 0; u < count; u++)
         {
@@ -720,6 +749,12 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             }
 
             inp.Tokens.Span.CopyTo(_tokBuf.AsSpan(T));
+            var explicitPositions = inp.Positions.Span;
+            if (!explicitPositions.IsEmpty && explicitPositions.Length != n * Math.Max(1, _posAxes))
+            {
+                throw new ArgumentException($"Input of slot {inp.Slot} has {explicitPositions.Length} position ids for {n} rows of {Math.Max(1, _posAxes)} axes.");
+            }
+
             for (int i = 0; i < n; i++)
             {
                 int row = T + i;
@@ -734,12 +769,24 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
                     _runEndRowBuf[row * 4 + 1] = pos0 + n - 1;
                 }
 
+                if (!explicitPositions.IsEmpty)
+                {
+                    explicitPositions.Slice(i * _posAxes, _posAxes).CopyTo(_posBuf.AsSpan(row * _posAxes));
+                    continue;
+                }
+
                 // Text rows use the same position on the leading axes (M-RoPE: temporal/height/width), extra axes 0.
                 for (int a = 0; a < _posAxes; a++)
                 {
-                    _posBuf[row * _posAxes + a] = a < _textPositionAxes ? pos : 0;
+                    _posBuf[row * _posAxes + a] = a < _textPositionAxes ? pos + inp.PositionOffset : 0;
                 }
             }
+
+            if (inp.Embeddings is { Count: > 0 } || !inp.MediaWeights.IsEmpty)
+            {
+                PackEmbeddings(inp, T);
+            }
+
             _runBuf[u * 4] = inp.Slot;
             _runBuf[u * 4 + 1] = T;
             _runBuf[u * 4 + 2] = n;
@@ -758,6 +805,72 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         }
 
         return (T, R);
+    }
+
+    /// <summary>
+    /// Writes an input's embedding rows (and their row mask and media weights) at the step rows starting at <paramref name="first"/>.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The decoder was compiled without the multimodal graph.</exception>
+    /// <exception cref="ArgumentException">A run is not a whole number of rows or lies outside the input.</exception>
+    private void PackEmbeddings(SequenceInput input, int first)
+    {
+        if (_embeddings is null)
+        {
+            throw new NotSupportedException("This decoder takes token rows only; create it with media input (LlmModel.CreateBatchDecoder) for embedding rows.");
+        }
+
+        EnsureEmbeddingBuffers();
+        int n = input.Tokens.Length;
+        foreach (var run in input.Embeddings ?? [])
+        {
+            int rows = run.Rows(_embeddingWidth);
+            if (rows * _embeddingWidth != run.Values.Length || run.Row < 0 || run.Row + rows > n)
+            {
+                throw new ArgumentException($"An embedding run of slot {input.Slot} ({run.Values.Length} values at row {run.Row}) is not whole rows of width {_embeddingWidth} inside the input's {n} rows.");
+            }
+
+            run.Values.Span.CopyTo(_embBuf.AsSpan((first + run.Row) * _embeddingWidth));
+            _maskBuf.AsSpan(first + run.Row, rows).Fill(1);
+            _mediaBuf.AsSpan(first + run.Row, rows).Fill(run.MediaWeights ? 1 : 0);
+        }
+
+        var media = input.MediaWeights.Span;
+        if (!media.IsEmpty)
+        {
+            if (media.Length != n)
+            {
+                throw new ArgumentException($"Input of slot {input.Slot} has {media.Length} media weight flags for {n} rows.");
+            }
+
+            for (int i = 0; i < n; i++)
+            {
+                _mediaBuf[first + i] = media[i] ? 1 : 0;
+            }
+        }
+
+        _embRowsDirty = first + n;
+    }
+
+    private void EnsureEmbeddingBuffers()
+    {
+        if (_embBuf.Length == 0)
+        {
+            _embBuf = new float[(long)MaxBatchTokens * _embeddingWidth];
+            _maskBuf = new float[MaxBatchTokens];
+            _mediaBuf = new float[MaxBatchTokens];
+        }
+    }
+
+    /// <summary>Uploads the embedding rows, row mask and media weight mask of a step of <paramref name="rows"/> rows (zero for token rows).</summary>
+    private void UploadEmbeddings(int rows)
+    {
+        EnsureEmbeddingBuffers();
+        _compiled.SetInput<float>(_embeddings!, _embBuf.AsSpan(0, rows * _embeddingWidth));
+        _compiled.SetInput<float>(_embeddingMask!, _maskBuf.AsSpan(0, rows));
+        if (_mediaWeightMask is not null)
+        {
+            _compiled.SetInput<float>(_mediaWeightMask, _mediaBuf.AsSpan(0, rows));
+        }
     }
 
     /// <summary>The commits row of input <paramref name="u"/>: replay the slot's kept speculative rows, record this input if speculative.</summary>

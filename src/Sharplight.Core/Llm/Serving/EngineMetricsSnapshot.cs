@@ -65,6 +65,12 @@ public sealed record EngineMetricsSnapshot
     /// instead of computing it: their KV blocks are shared copy-on-write.
     /// </summary>
     public long ForkedSequences { get; init; }
+    /// <summary>Image and audio contents the engine encoded (<see cref="GenerationRequest.PromptMedia"/>).</summary>
+    public long MediaEncoded { get; init; }
+    /// <summary>Image and audio contents whose rows came from the engine's cache of encoder outputs instead of the encoder.</summary>
+    public long MediaCacheHits { get; init; }
+    /// <summary>Total time the scheduler spent encoding media.</summary>
+    public TimeSpan MediaEncodeTime { get; init; }
     /// <summary>Accepted divided by proposed draft tokens (0 without speculation).</summary>
     public double DraftAcceptanceRate => DraftTokens == 0 ? 0 : (double)AcceptedDraftTokens / DraftTokens;
     /// <summary>Seconds from submission to the first generated token.</summary>

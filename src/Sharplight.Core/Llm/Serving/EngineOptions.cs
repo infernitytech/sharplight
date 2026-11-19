@@ -47,6 +47,16 @@ public sealed record EngineOptions
     /// see docs/kv-cache.md section 2.6). Default on.
     /// </summary>
     public bool PrepareDecodeSteps { get; set; } = true;
+    /// <summary>
+    /// Image and audio prompts (<see cref="GenerationRequest.PromptMedia"/>): bytes of encoder outputs kept by content hash, so a repeated
+    /// image whose KV blocks are no longer cached skips the encoder (default 256 MiB; 0 keeps none).
+    /// </summary>
+    public long MediaCacheBytes { get; set; } = 256L << 20;
+    /// <summary>
+    /// Image and audio prompts: most embedding rows encoded before one step (at least one content, default 0: the step's token budget). The
+    /// encoder runs on the scheduler thread, so every running stream waits for it; a smaller budget spreads a burst of new images over steps.
+    /// </summary>
+    public int MediaEncodeRowsPerStep { get; set; }
     /// <summary>The step cost estimate the engine starts from and keeps learning (null: defaults); tests pass a frozen one.</summary>
     internal StepCostModel? StepCost { get; set; }
     /// <summary>Applied to requests without their own <see cref="GenerationRequest.Timeout"/>.</summary>

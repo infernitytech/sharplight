@@ -172,7 +172,7 @@ blocks, `CUBLASLT_MATMUL_MATRIX_SCALE_BLK128x128_32F`) is not supported on compu
 so FP8 stays on the generated `gemm_fp8`.
 
 Since phase 3 the same products run on the hand-written f16 GEMM (`native_gemm_f16`) wherever the GPU has it, which matches
-cuBLASLt per shape ([benchmarks.md §52.3](benchmarks.md)); the library is used only when `native_gemm_f16` is disabled. It stays an
+cuBLASLt per shape ([benchmarks.md §53.3](benchmarks.md)); the library is used only when `native_gemm_f16` is disabled. It stays an
 optional package that neither `Sharplight.Cuda` nor Studio depends on.
 
 ### Kernels written in CUDA C++
@@ -193,7 +193,7 @@ portable to newer GPUs through the driver's JIT.
 
 A lowering selects them only through device features, and every one has the generated kernel as its fallback: disabling the feature
 (or a GPU without it, or any provider other than CUDA) gives exactly the phase-2 kernels. Vulkan never sees them: its SPIR-V is
-byte-identical to `develop` ([benchmarks.md §52.6](benchmarks.md)).
+byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
 
 - **`gemm_f16_native.cu`** (`native_gemm_f16`, compute capability 8.0+): y = x · Wᵀ on the operands of the library GEMM (the f16 copy of
   x, bf16 weights stored as f16), f32 output. `cp.async` copies of 64-value K steps (128-byte rows, XOR swizzle so the copies and
@@ -211,7 +211,7 @@ byte-identical to `develop` ([benchmarks.md §52.6](benchmarks.md)).
   `sx · sw`; dual form with the generated epilogue; grouped rasterization. From `SHARPLIGHT_NATIVE_GEMM_MIN_ROWS` (256) rows, K a
   multiple of 512 (16-byte aligned rows). 187-227 TFLOPS on the Qwen3-8B shapes at 2048 rows against 167-208 for `gemm_fp8.slang`.
 
-Measured limits of the FP8 kernel (prototypes, [benchmarks.md §52.4](benchmarks.md)): with the MMAs and `ldmatrix` alone it runs at
+Measured limits of the FP8 kernel (prototypes, [benchmarks.md §53.4](benchmarks.md)): with the MMAs and `ldmatrix` alone it runs at
 ~350 TFLOPS (the `mma.sync` E4M3 peak of this GPU is 474), the per-block promotion costs ~15 %, and the global loads of the block
 scales cost the most: each row's scale sits in its own 128-byte line, and with the scale loads removed the same kernel reaches
 ~300 TFLOPS (no promotion) against 230. Tried and not kept: TMA (`cp.async.bulk.tensor` with 128-byte swizzle and mbarrier
@@ -466,7 +466,7 @@ attention `fe` (5-8 %). Against vLLM, FP8 prefill (0.77x) is the large gap; bf16
 
 ## Phase 3 numbers
 
-Same GPU and procedure ([benchmarks.md §52](benchmarks.md): GPU 1, prefill median of 5, decode median of 64 steps, identical weights
+Same GPU and procedure ([benchmarks.md §53](benchmarks.md): GPU 1, prefill median of 5, decode median of 64 steps, identical weights
 for every engine). vLLM 0.33.0: the section 51 runs for the 8B models, gpt-oss-20b fresh on the same GPU. "CUDA" is the default
 (hand-written GEMMs, no cuBLASLt needed), "CUDA + cuBLASLt" the same build with `--disable-features native_gemm_f16,native_gemm_fp8`
 and the library installed. tok/s, prefill / decode:

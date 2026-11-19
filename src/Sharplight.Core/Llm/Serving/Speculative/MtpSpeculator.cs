@@ -33,6 +33,7 @@ public sealed class MtpSpeculator : ISpeculator
     private readonly bool _anchored;
     private readonly float[] _anchor;      // anchored heads: the last observed row of each active sequence, the base of its chained rows
     private readonly MtpRowBuffer[] _buffers;
+    private readonly PromptLayout?[] _layouts;   // per slot: image or audio rows and M-RoPE positions of its sequence (null: plain tokens)
     private readonly int[] _verified;
     private readonly List<SpeculationRequest> _active = [];
     private readonly List<SequenceInput> _inputs = [];
@@ -63,6 +64,7 @@ public sealed class MtpSpeculator : ISpeculator
         _draft.CaptureHiddenStates = true;
         _buffers = [.. Enumerable.Range(0, draft.SlotCount).Select(_ => new MtpRowBuffer(_hidden))];
         _verified = new int[draft.SlotCount];
+        _layouts = new PromptLayout?[draft.SlotCount];
         _tokenScratch = new int[draft.SlotCount];
         _hiddenScratch = new float[_hidden * Math.Max(draft.SlotCount, 16)];
         _chain = new float[_chainWidth * draft.SlotCount];
@@ -112,6 +114,30 @@ public sealed class MtpSpeculator : ISpeculator
 
     /// <inheritdoc/>
     public bool UsesHiddenStates => true;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The head's rows then take the target rows' positions (explicit M-RoPE positions in the prompt, the offset after it), and a row whose
+    /// successor is an image or audio row combines that row's embedding with the hidden state when the head was compiled with media input
+    /// (<see cref="Models.WellKnown.DraftMultimodalGraph"/>), as the target's own rows do.
+    /// </remarks>
+    public void SetLayout(int slot, PromptLayout? layout) => _layouts[slot] = layout;
+
+    /// <summary>
+    /// A head input of <paramref name="slot"/> whose first row is at head position <paramref name="start"/>, with the sequence's positions and,
+    /// where the head takes them, the embeddings of the rows that follow its rows.
+    /// </summary>
+    private SequenceInput HeadInput(int slot, ReadOnlyMemory<int> tokens, int start, bool wantLogits = true)
+    {
+        var input = new SequenceInput(slot, tokens, wantLogits);
+        if (_layouts[slot] is not { } layout)
+        {
+            return input;
+        }
+
+        input = layout.Apply(input, start, start + 1);
+        return _draft.EmbeddingWidth > 0 ? input : input with { Embeddings = null, MediaWeights = default };
+    }
 
     /// <inheritdoc/>
     public void Observe(int slot, int position, ReadOnlySpan<int> successors, ReadOnlySpan<float> hidden)
@@ -190,7 +216,7 @@ public sealed class MtpSpeculator : ISpeculator
         {
             var buf = _buffers[r.Slot];
             SyncLength(r.Slot, buf.Start);
-            _inputs.Add(new SequenceInput(r.Slot, buf.Tokens.ToArray()));
+            _inputs.Add(HeadInput(r.Slot, buf.Tokens.ToArray(), buf.Start));
             buf.Hidden.CopyTo(_hiddenScratch.AsSpan(row * _hidden));
             row += buf.Count;
         }
@@ -228,7 +254,6 @@ public sealed class MtpSpeculator : ISpeculator
                 }
 
                 _tokenScratch[n] = r.Draft[j - 1];
-                _inputs.Add(new SequenceInput(r.Slot, _tokenScratch.AsMemory(n, 1)));
                 var chained = _hiddenScratch.AsSpan(n * _hidden, _hidden);
                 if (_anchored)
                 {
@@ -243,6 +268,7 @@ public sealed class MtpSpeculator : ISpeculator
                     _chain.AsSpan(u * _chainWidth, _chainWidth).CopyTo(chained[(_hidden - _chainWidth)..]);
                 }
 
+                _inputs.Add(HeadInput(r.Slot, _tokenScratch.AsMemory(n, 1), _draft.Length(r.Slot)));
                 n++;
             }
 
@@ -281,6 +307,7 @@ public sealed class MtpSpeculator : ISpeculator
     /// <inheritdoc/>
     public void Release(int slot)
     {
+        // The layout stays: a preempted sequence keeps its slot (the engine sets the layout again whenever a sequence takes the slot).
         _buffers[slot].Clear();
         _draft.Reset(slot);
     }
@@ -299,7 +326,7 @@ public sealed class MtpSpeculator : ISpeculator
             EnsureHiddenScratch(n);
             buf.Hidden[..(n * _hidden)].CopyTo(_hiddenScratch);
             _draft.SetHiddenInput(_hiddenScratch.AsSpan(0, n * _hidden));
-            _draft.Step([new SequenceInput(slot, buf.Tokens[..n].ToArray(), WantLogits: false)]);
+            _draft.Step([HeadInput(slot, buf.Tokens[..n].ToArray(), buf.Start, wantLogits: false)]);
             buf.RemoveFirst(n);
         }
     }

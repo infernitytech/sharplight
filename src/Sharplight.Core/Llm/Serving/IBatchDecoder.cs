@@ -45,6 +45,15 @@ public interface IBatchDecoder : IDisposable
     /// rows the decoder was compiled with (0: speculative decoding is not possible).
     /// </summary>
     public int MaxSpeculativeRows => CanTruncate ? int.MaxValue : 0;
+    /// <summary>
+    /// Width of the embedding rows <see cref="SequenceInput.Embeddings"/> carries (the language model's hidden size, times 1 + the DeepStack
+    /// layers where the model has them); 0 when the decoder takes token rows only (compiled without the multimodal graph).
+    /// </summary>
+    public int EmbeddingWidth => 0;
+    /// <summary>Rope position axes per row (<see cref="SequenceInput.Positions"/>): 1 for plain rope, 3 or 4 for M-RoPE / XD-RoPE models.</summary>
+    public int PositionAxes => 1;
+    /// <summary>Leading position axes that carry a text row's position (the others are 0 for text rows): 3 for M-RoPE, all axes otherwise.</summary>
+    public int TextPositionAxes => PositionAxes;
     /// <summary>Width H of the hidden states <see cref="HiddenStates"/> returns (0: the decoder does not expose them).</summary>
     public int HiddenSize => 0;
     /// <summary>

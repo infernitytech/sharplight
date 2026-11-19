@@ -70,7 +70,7 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
             },
             Speculator = settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(settings.NgramDraftTokens) : null,
             MtpDraftTokens = settings.MtpDraftTokens,
-            Service = new ModelServiceOptions { ChatTemplate = settings.ChatTemplate is { } path ? ReadTemplate(path) : null },
+            Service = new ModelServiceOptions { ChatTemplate = settings.ChatTemplate is { } path ? ReadTemplate(path) : null, ImageDecoder = ChatImageDecoder.Decode },
         };
         context.Options.ConfigureChat?.Invoke(settings, chat);
         return chat;

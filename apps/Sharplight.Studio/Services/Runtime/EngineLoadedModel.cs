@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Hosting;
 using Sharplight.Studio.Models;
@@ -9,28 +8,22 @@ namespace Sharplight.Studio.Services.Runtime;
 
 /// <summary>
 /// A model registered by <see cref="EngineModelRuntime"/> on its <see cref="ModelHost"/>. Each request takes a lease (loading the
-/// model when it sleeps). Text conversations run through the model's batching engine; conversations with images run through a
-/// single-sequence session with the model's vision encoder (<see cref="VisionChat"/>), because the batching engine has no image
-/// input yet.
+/// model when it sleeps). Every conversation runs through the model's batching engine: images too, for a model loaded with its vision
+/// encoder (they are batched with text requests and share the prefix cache).
 /// </summary>
 internal sealed class EngineLoadedModel : IEngineModel
 {
     private const int CharactersPerToken = 4;
 
     private readonly ModelHost _host;
-    private readonly Action<EngineLoadedModel, MessageStats> _visionFinished;
     private readonly Action _changed;
     private readonly UpdateThrottle _publish;
-    private readonly Lock _lock = new();
     private bool _reasoningTemplate;
     private Func<string, int>? _countTokens;
-    private ChatModelInstance? _visionOwner;
-    private VisionChat? _vision;
     private LoadProgressTracker _tracker = new();
     private bool _hasProgress;
 
-    public EngineLoadedModel(ModelLoadRequest request, ComputeDeviceOption device, ModelHost host, bool pinned, ModelCapabilities capabilities,
-        Action<EngineLoadedModel, MessageStats> visionFinished, Action changed)
+    public EngineLoadedModel(ModelLoadRequest request, ComputeDeviceOption device, ModelHost host, bool pinned, ModelCapabilities capabilities, Action changed)
     {
         Id = request.Id;
         Path = request.Path;
@@ -40,7 +33,6 @@ internal sealed class EngineLoadedModel : IEngineModel
         Capabilities = capabilities | ModelCapabilities.Chat;
         ContextLength = request.Settings.ContextLength;
         _host = host;
-        _visionFinished = visionFinished;
         _changed = changed;
         _publish = new UpdateThrottle(PublishNow);
         LoadedAt = DateTimeOffset.UtcNow;
@@ -147,7 +139,7 @@ internal sealed class EngineLoadedModel : IEngineModel
         _reasoningTemplate = template?.Contains("<think>", StringComparison.Ordinal) == true
             || template?.Contains("enable_thinking", StringComparison.Ordinal) == true;
         var capabilities = TemplateCapabilities.From(template) | ModelCapabilities.Chat;
-        if (instance.Model is { SupportsImages: true })
+        if (instance.Service.SupportsImages)
         {
             capabilities |= ModelCapabilities.Vision;
         }
@@ -209,7 +201,7 @@ internal sealed class EngineLoadedModel : IEngineModel
         _changed();
     }
 
-    /// <summary>Frees the vision session when its instance is gone.</summary>
+    /// <summary>Clears the load status when the instance is gone.</summary>
     public void OnHostChanged()
     {
         if (State is ResidentState.Ready or ResidentState.Busy or ResidentState.Loading)
@@ -220,25 +212,13 @@ internal sealed class EngineLoadedModel : IEngineModel
         LoadStatus = null;
         _tracker = new LoadProgressTracker();
         _hasProgress = false;
-        ReleaseVision();
     }
 
-    /// <summary>Abandons a load in progress and disposes the vision session.</summary>
+    /// <summary>Abandons a load in progress.</summary>
     public void Dispose()
     {
         Abandon.Cancel();
         _publish.Dispose();
-        ReleaseVision();
-    }
-
-    private void ReleaseVision()
-    {
-        lock (_lock)
-        {
-            _vision?.Dispose();
-            _vision = null;
-            _visionOwner = null;
-        }
     }
 
     private async IAsyncEnumerable<ChatStreamUpdate> StreamAsync(ChatInput input, [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -262,18 +242,23 @@ internal sealed class EngineLoadedModel : IEngineModel
         using (lease)
         {
             var instance = lease.As<ChatModelInstance>();
-            var updates = input.HasImages ? StreamVisionAsync(instance, input, cancellationToken) : StreamTextAsync(instance, input, cancellationToken);
-            await foreach (var update in updates.ConfigureAwait(false))
+            if (input.HasImages && !instance.Service.SupportsImages)
+            {
+                yield return ChatStreamUpdate.Finished(new MessageStats { Finish = "error" }, $"{Id} has no vision tower the engine can run, so it cannot read images.");
+                yield break;
+            }
+
+            await foreach (var update in StreamEngineAsync(instance, input, cancellationToken).ConfigureAwait(false))
             {
                 yield return update;
             }
         }
     }
 
-    private async IAsyncEnumerable<ChatStreamUpdate> StreamTextAsync(ChatModelInstance instance, ChatInput input, [EnumeratorCancellation] CancellationToken cancellationToken)
+    private async IAsyncEnumerable<ChatStreamUpdate> StreamEngineAsync(ChatModelInstance instance, ChatInput input, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var request = ChatRequestMapper.ToChatRequest(input, _reasoningTemplate);
-        // Building the prompt (template, tokenization, grammar) can take a while for long conversations: not on the caller's thread.
+        // Building the prompt (template, tokenization, grammar, image decoding and preprocessing) can take a while: not on the caller's thread.
         var run = await Task.Run(() => instance.Service.StartChat(request, cancellationToken), cancellationToken).ConfigureAwait(false);
         await foreach (var chatEvent in run.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))
         {
@@ -295,57 +280,5 @@ internal sealed class EngineLoadedModel : IEngineModel
                 yield return ChatStreamUpdate.Finished(stats, chatEvent.Error);
             }
         }
-    }
-
-    private VisionChat GetVision(ChatModelInstance instance)
-    {
-        lock (_lock)
-        {
-            if (_visionOwner != instance)
-            {
-                _vision?.Dispose();
-                _vision = instance.Model is { SupportsImages: true } model
-                    ? new VisionChat(model)
-                    : throw new NotSupportedException($"{Id} has no vision tower the engine can run, so it cannot read images.");
-                _visionOwner = instance;
-            }
-
-            return _vision!;
-        }
-    }
-
-    private async IAsyncEnumerable<ChatStreamUpdate> StreamVisionAsync(ChatModelInstance instance, ChatInput input, [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        // The session runs on its own thread (creating it compiles the vision tower); a channel hands its events to the caller.
-        var channel = Channel.CreateUnbounded<ChatStreamUpdate>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
-        var producer = Task.Run(async () =>
-        {
-            try
-            {
-                var vision = GetVision(instance);
-                var stats = await vision.RunAsync(input, _reasoningTemplate, update => channel.Writer.TryWrite(update), cancellationToken).ConfigureAwait(false);
-                channel.Writer.TryWrite(ChatStreamUpdate.Finished(stats));
-                _visionFinished(this, stats);
-            }
-            catch (OperationCanceledException)
-            {
-                channel.Writer.TryWrite(ChatStreamUpdate.Finished(new MessageStats { Finish = "cancelled" }));
-            }
-            catch (Exception error)
-            {
-                channel.Writer.TryWrite(ChatStreamUpdate.Finished(new MessageStats { Finish = "error" }, error.Message));
-            }
-            finally
-            {
-                channel.Writer.TryComplete();
-            }
-        }, CancellationToken.None);
-
-        await foreach (var update in channel.Reader.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))
-        {
-            yield return update;
-        }
-
-        await producer.ConfigureAwait(false);
     }
 }

@@ -1,6 +1,6 @@
-# Section 52 GEMM prototypes
+# Section 53 GEMM prototypes
 
-Standalone harnesses behind docs/benchmarks.md §52.3-52.4 (random data, timing with events, a reference kernel for the error check).
+Standalone harnesses behind docs/benchmarks.md §53.3-53.4 (random data, timing with events, a reference kernel for the error check).
 Build with the CUDA toolkit (`nvcc`, sm_120 here) and run with `CUDA_VISIBLE_DEVICES` pinned:
 
 ```bash

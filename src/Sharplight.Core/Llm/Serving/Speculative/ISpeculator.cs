@@ -49,6 +49,16 @@ public interface ISpeculator : IDisposable
     {
     }
 
+    /// <summary>
+    /// The sequence now in <paramref name="slot"/> has image or audio rows, M-RoPE positions or media weights (<paramref name="layout"/>), or
+    /// plain token rows (null). A draft model that runs the target's rows itself applies the layout to its inputs
+    /// (<see cref="PromptLayout.Apply"/>), so its rows see the same embeddings and positions; others ignore it (their drafts only get worse).
+    /// Called when a sequence gets a slot, before any <see cref="Observe"/> of it.
+    /// </summary>
+    public void SetLayout(int slot, PromptLayout? layout)
+    {
+    }
+
     /// <summary>Device memory the speculator holds (a draft model's own weights, KV cache and buffers); 0 for speculators without one.</summary>
     public long DeviceMemoryBytes => 0;
 }

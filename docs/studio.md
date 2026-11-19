@@ -42,7 +42,10 @@ lists) and reasoning is collapsible. You can regenerate an answer, edit a questi
 stop a generation, and set the system prompt, sampling, presets and thinking per conversation. Every conversation keeps its own
 model. Switching it mid-conversation applies to the next answer. Conversations keep generating in the background, so two chats on
 different models run at the same time. Images and documents can be attached by drag and drop, paste or the file picker:
-- Images need a model with the **Vision** badge; the others refuse them with an explanation.
+- Images need a model with the **Vision** badge; the others refuse them with an explanation. Image conversations run on the model's
+  batching engine like text ones: they are batched with every other request of the model (chat and API), their images are encoded once
+  and reused by content (a follow-up question about the same picture takes its KV blocks from the prefix cache), and the vision
+  encoder is loaded with the model and counted in its memory.
 - Documents (PDF, DOCX, HTML, text and code) are extracted to text and trimmed to the context window.
 
 *Voice and pictures.* Resident models of other kinds extend the chat; the *Voice and pictures* card of the chat settings picks which
@@ -942,13 +945,11 @@ packages in both themes.
 
 ## Limitations
 
-- **Images.** Image conversations run on a separate single-sequence session with the vision encoder, one request at a time. They
-  are not batched with the model's text engine, and this memory is not counted in the residency budget.
 - **Conversion progress.** Conversion during a download reports its log, not a percentage. Precompilation reports kernel counts
   per graph.
 - **Fit estimates.** The load panel's estimate is the engine's own, but free memory can change before the load (other
-  applications), and the vision tower of an image conversation is not counted. Download badges are approximate: they know the
-  file sizes and, where readable, the attention dimensions, not the exact graph.
+  applications). Download badges are approximate: they know the file sizes and, where readable, the attention dimensions, not the
+  exact graph.
 - **Compatibility checks.** They are likely verdicts, not guarantees: a GGUF header that maps can still fail on something only its
   tensor data shows. Quantizations other than the recommended one share the architecture's verdict until they are selected and
   their tensor tables are read. A tensor table beyond 64 MiB from the start of a file is not read (the verdict is *Unknown*). ONNX

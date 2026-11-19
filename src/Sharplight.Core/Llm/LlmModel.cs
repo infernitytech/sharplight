@@ -293,15 +293,21 @@ public sealed class LlmModel : IDisposable
     /// <c>draftTokens + 1</c> rows compute every row as a single-row step would (<see cref="CompileOptions.RowInvariantRows"/>),
     /// so verified greedy output is token-identical to decoding without speculation.
     /// </param>
+    /// <param name="mediaInput">
+    /// Compile the <see cref="WellKnown.DecodeMultimodalGraph"/> (<see cref="SupportsMediaInput"/>): inputs may carry image or audio embedding
+    /// rows (<see cref="Serving.SequenceInput.Embeddings"/>) and explicit M-RoPE positions, so image and audio requests are batched with text
+    /// ones. Each step then uploads an embedding row per token row (zeros for text). Ignored when the model has no such graph.
+    /// </param>
     public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null, int? maxLogitsRows = null,
-        long? kvCacheTokens = null, int draftTokens = 0, int? stateSnapshots = null)
+        long? kvCacheTokens = null, int draftTokens = 0, int? stateSnapshots = null, bool mediaInput = false)
     {
         if (IsDiffusion)
         {
             return CreateDiffusionDecoder(slots, DiffusionContext(contextLength));
         }
 
-        var graph = Definition.Graph(WellKnown.DecodeGraph);
+        string graphName = mediaInput && SupportsMediaInput ? WellKnown.DecodeMultimodalGraph : WellKnown.DecodeGraph;
+        var graph = Definition.Graph(graphName);
         string? why = null;
         if (IsEncoderDecoder)
         {
@@ -315,7 +321,7 @@ public sealed class LlmModel : IDisposable
                 _options.Log?.Invoke($"Multi-sequence decoding unavailable ({why}); serving one sequence at a time.");
             }
 
-            return new Serving.SessionBatchDecoder(CreateSession(memoryLimit: memoryLimit));
+            return new Serving.SessionBatchDecoder(CreateSession(graphName, memoryLimit: memoryLimit));
         }
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
@@ -327,8 +333,8 @@ public sealed class LlmModel : IDisposable
             rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0,
             stateSnapshots: snapshots);
         string kv = paged > 0 ? $", paged KV cache of {paged} tokens{(dec.KvStateSnapshots > 0 ? $" with {dec.KvStateSnapshots} recurrent-state snapshots" : "")}" : ", contiguous KV cache";
-        _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
-        ReportReady(WellKnown.DecodeGraph);
+        _options.Log?.Invoke($"Compiled '{graphName}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
+        ReportReady(graphName);
         return dec;
     }
 
@@ -440,8 +446,12 @@ public sealed class LlmModel : IDisposable
     /// <param name="draftTokens">Drafts proposed per sequence and step (1 to 4 are typical).</param>
     /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
     /// <param name="kvCacheTokens">The target decoder's paged KV cache size (null: <see cref="DefaultKvCacheTokens"/>; 0: contiguous).</param>
+    /// <param name="mediaInput">
+    /// The target decoder takes media rows (<see cref="CreateBatchDecoder"/> with media input): the head is compiled from
+    /// <see cref="WellKnown.DraftMultimodalGraph"/> where the model has it, so rows before an image or audio row see that row's embedding.
+    /// </param>
     /// <exception cref="NotSupportedException">The model has no draft head.</exception>
-    public Serving.Speculative.ISpeculator CreateMtpSpeculator(int slots, int draftTokens, int? contextLength = null, long? kvCacheTokens = null)
+    public Serving.Speculative.ISpeculator CreateMtpSpeculator(int slots, int draftTokens, int? contextLength = null, long? kvCacheTokens = null, bool mediaInput = false)
     {
         kvCacheTokens ??= DefaultKvCacheTokens(slots, contextLength);
         if (!HasDraftHead)
@@ -452,7 +462,8 @@ public sealed class LlmModel : IDisposable
         ArgumentOutOfRangeException.ThrowIfLessThan(draftTokens, 1);
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
-        var graph = Definition.Graph(WellKnown.DraftGraph);
+        string graphName = mediaInput && Definition.Graphs.ContainsKey(WellKnown.DraftMultimodalGraph) ? WellKnown.DraftMultimodalGraph : WellKnown.DraftGraph;
+        var graph = Definition.Graph(graphName);
         if (Definition.Property(WellKnown.DraftBlockSize, 0) is > 0 and var blockSize)
         {
             return CreateBlockDraftSpeculator(graph, slots, draftTokens, blockSize, ctx, kvCacheTokens, sw);
@@ -463,8 +474,8 @@ public sealed class LlmModel : IDisposable
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value + (long)slots * (draftTokens + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
         // With a device sampling head the draft tokens (greedy) are chosen on the device: only token ids come back.
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, BatchTokens, placement, UsesDeviceSampling, paged, textPositionAxes: TextPositionAxes);
-        _options.Log?.Invoke($"Compiled '{WellKnown.DraftGraph}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
-        ReportReady(WellKnown.DraftGraph);   // placement, compile and upload progress come through the compile options
+        _options.Log?.Invoke($"Compiled '{graphName}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
+        ReportReady(graphName);   // placement, compile and upload progress come through the compile options
         var tokenMap = Definition.Properties.TryGetValue(WellKnown.DraftTokenMap, out var map) ? map as int[] : null;
         bool anchored = Definition.Properties.TryGetValue(WellKnown.DraftAnchored, out var a) && a is true;
         return new Serving.Speculative.MtpSpeculator(dec, draftTokens, tokenMap, anchored);
@@ -622,9 +633,22 @@ public sealed class LlmModel : IDisposable
     /// <param name="draftHead">Also count the MTP draft head (<see cref="CreateMtpSpeculator"/>): its own weights (the ones it shares
     /// with the decoder are counted once), its KV cache and activations.</param>
     /// <param name="maxLogitsRows">Logits rows per step (default <paramref name="slots"/> · (<paramref name="draftTokens"/> + 1)).</param>
+    /// <param name="mediaInput">
+    /// Served with image input (<see cref="CreateBatchDecoder"/>'s <c>mediaInput</c>): the multimodal decode graph's activations plus the vision
+    /// encoder (<see cref="EstimateVisionFootprint"/>).
+    /// </param>
     public ModelFootprint EstimateFootprint(int slots = 1, int? contextLength = null, long? kvCacheTokens = null, int draftTokens = 0, bool draftHead = false,
-        int? maxLogitsRows = null, int? stateSnapshots = null)
+        int? maxLogitsRows = null, int? stateSnapshots = null, bool mediaInput = false)
     {
+        if (mediaInput && SupportsMediaInput && !IsDiffusion)
+        {
+            var text = EstimateFootprint(slots, contextLength, kvCacheTokens, draftTokens, draftHead, maxLogitsRows, stateSnapshots);
+            var vision = EstimateVisionFootprint();
+            // The embedding rows of a step: [batch tokens, width] f32 (the multimodal graph's one extra activation of note).
+            long width = Definition.Graph(WellKnown.DecodeMultimodalGraph).Inputs.FirstOrDefault(v => v.Input?.Role == InputRole.Embeddings)?.Shape[-1].Fixed ?? 0;
+            return new ModelFootprint(text.WeightBytes + vision.WeightBytes, text.StateBytes, text.ActivationBytes + vision.ActivationBytes + BatchTokens * width * sizeof(float));
+        }
+
         if (IsDiffusion)
         {
             // One denoising pass over up to the context's rows; no per-sequence state.
@@ -689,6 +713,47 @@ public sealed class LlmModel : IDisposable
     {
         long b = Serving.MultiSequenceDecoder.DefaultKvBlockSize;
         return (tokens + b - 1) / b * b;
+    }
+
+    /// <summary>
+    /// True when the model's decoder takes media embedding rows (a <see cref="WellKnown.DecodeMultimodalGraph"/> next to its decode graph, with a
+    /// vision or audio tower producing them): <see cref="CreateBatchDecoder"/> can then serve image and audio requests batched with text ones.
+    /// </summary>
+    public bool SupportsMediaInput => Definition.Graphs.ContainsKey(WellKnown.DecodeMultimodalGraph) && Definition.Graphs.ContainsKey(WellKnown.DecodeGraph);
+
+    /// <summary>
+    /// Device memory of the vision encoder (<see cref="CreateVisionEncoder"/>) for images of up to the load option's image tokens: its weights and
+    /// activations; zero when the model has no vision tower.
+    /// </summary>
+    public ModelFootprint EstimateVisionFootprint()
+    {
+        if (!SupportsImages || VisionParameters.Of(Definition) is not { } p)
+        {
+            return default;
+        }
+
+        int maxTokens = _options.ImageTokens?.MaxTokens ?? 1024;
+        var options = p.Sam is not null
+            ? new CompileOptions { MaxTokens = 1, ContextLength = 1 }
+            : new CompileOptions
+            {
+                MaxTokens = maxTokens * p.MergeUnit,
+                ContextLength = 1,
+                SymbolBounds = new Dictionary<string, long>
+                {
+                    [VisionParameters.PatchSymbol] = maxTokens * p.MergeUnit,
+                    [VisionParameters.MergedSymbol] = maxTokens,
+                    [VisionParameters.OutputSymbol] = 2L * maxTokens + 2,
+                },
+            };
+        var fp = PlacementPlanner.Estimate(Definition.Graph(WellKnown.VisionEncodeGraph), options, 1, 0);
+        if (p.Sam is not null && Definition.Graphs.TryGetValue(SamParameters.TileGraph, out var tile))
+        {
+            var tileFp = PlacementPlanner.Estimate(tile, options, 1, 0);
+            fp = new ModelFootprint(fp.WeightBytes + tileFp.WeightBytes, fp.StateBytes, Math.Max(fp.ActivationBytes, tileFp.ActivationBytes));
+        }
+
+        return fp;
     }
 
     /// <summary>True when the model has a vision tower (loaded from a file containing one, or together with a "mmproj" auxiliary file).</summary>
