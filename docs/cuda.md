@@ -359,17 +359,16 @@ test on a CUDA device. Details in [studio.md](studio.md#cuda-and-the-provider-pe
 - `tests/Sharplight.Families.Tests`: `FamilyGenerationTests.Generation_matches_reference_on_cuda` (the golden outputs of the reference
   implementations) and `CudaParityTests` (greedy tokens on CUDA against Vulkan on the same GPU), opt-in with `SHARPLIGHT_TEST_CUDA=1`.
 
-Results on `cuda/provider-r2` after merging `develop` at `a7b241b3` (RTX PRO 4500 Blackwell, compute capability 12.0, driver
-595.112.07 / CUDA 13.2, NVRTC 13.0.88, cuBLASLt 13.1.0.3 through `SHARPLIGHT_CUDA_BLAS_DIR`):
+Results on `cuda/provider-r3` after merging `develop` at `79fccbd1` (RTX PRO 4500 Blackwell, compute capability 12.0, driver
+595.112.07, NVRTC 13.0.88, cuBLASLt 13.1.0.3 through `SHARPLIGHT_CUDA_BLAS_DIR`):
 
 | suite | result |
 | --- | --- |
-| `Sharplight.Vulkan.Tests` on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class, tensor cores, 99 KB shared memory, library GEMM) | 1624 tests: 1578 pass, 0 fail, 46 skip (Vulkan internals, 5 workgroup-matrix GEMMs, 2 opt-in large tests, benchmarks) |
+| `Sharplight.Vulkan.Tests` on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class, hand-written GEMMs, 99 KB shared memory, library installed) | 1624 tests: 1578 pass, 0 fail, 46 skip (Vulkan internals, 5 workgroup-matrix GEMMs, 2 opt-in large tests, benchmarks) |
 | `Sharplight.Vulkan.Tests` on Vulkan (GPU 1, unchanged provider) | 1624 tests: 1598 pass, 0 fail, 26 skip (as on `develop`) |
-| `Sharplight.Cuda.Tests` (incl. the library GEMM against the CPU, profiles of 7.5 / 8.9 / 12.0 with their tensor-core features) | 9 / 9 pass |
-| `CudaParityTests` (greedy, 32 tokens, CUDA against Vulkan, SIMT kernels on both) | 4 / 4 identical: Qwen3-0.6B Q8_0, Llama-3.2-1B-Instruct Q8_0, gemma-3-1b-it Q8_0 (GGUF), Qwen3-0.6B (HF) |
-| `FamilyGenerationTests.Generation_matches_reference_on_cuda` (reference outputs) | 315 cases: 214 pass, 0 fail, 101 skip (models not on the machine) |
-| `Sharplight.Metal.Tests` (MSL generation, Linux) | 7 tests: 4 pass, 3 skip (need macOS) |
+| `Sharplight.Cuda.Tests` (library GEMM and the hand-written f16 GEMM, single and dual, against the CPU; profiles of 7.5 / 8.9 / 12.0) | 13 / 13 pass |
+| `CudaParityTests` (greedy, 32 tokens, CUDA against Vulkan, SIMT kernels on both) | 4 / 4 identical |
+| `FamilyGenerationTests.Generation_matches_reference_on_cuda` (reference outputs) | 315 cases: 215 pass, 0 fail, 100 skip (models not on the machine) |
 
 `CudaParityTests` switches the tensor cores off on both providers: with them, Llama-3.2-1B-Instruct Q8_0 diverged at token 6 of 32, at
 a near tie (top-2 logits 0.0009 apart, the providers' logits differ by up to 0.007), since the CUDA fragments and the Vulkan driver's

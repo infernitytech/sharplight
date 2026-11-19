@@ -7315,3 +7315,45 @@ session (`bench/results/s52/serve-*`). Aggregate output tok/s / TTFT p50 ms / me
 * Against vLLM: single streams at or above vLLM (lower TTFT for Qwen3-8B-FP8), 0.90-0.94x at 4-16 streams, 0.71-0.77x at 64 (vLLM's
   inter-token latency at 64 streams is 30 % lower). The serving gap is the batched decode step (the multi-row GEMMs and attention of
   64 sequences), not prefill.
+
+### 52.6 Vulkan unchanged
+
+The shared changes are inert for SPIR-V and MSL: the `.cu` kernels are compiled only by a compiler with a CUDA C++ translator, the
+lowering emits them only for the `native_gemm_*` features (reported by the CUDA provider alone), and `DEC_R` stays 1 off PTX. The
+kernel inputs (source and macros, `SHARPLIGHT_DUMP_KERNELS`) of the 642 kernels the Vulkan provider compiles for Qwen3-0.6B Q8_0,
+Llama-3.2-1B Q8_0, gemma-3-1b Q8_0, Qwen3-8B, Qwen3-8B-FP8 and gpt-oss-20b are byte-identical between `develop` (`79fccbd1`) and this
+branch, with the same Slang build, so their SPIR-V is too. The Vulkan columns of 52.1 agree with section 51 within 1-2 % except
+Qwen3-0.6B at 2048 rows (77.7k against 82.2k tok/s); with identical kernels that difference is not this branch's (not investigated).
+
+### 52.8 Tests
+
+After merging `develop` at `79fccbd1`, GPU 1:
+
+| suite | result |
+|---|---|
+| Sharplight.Vulkan.Tests on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class, hand-written GEMMs on, cuBLASLt installed) | 1624 / 0 failed / 46 skipped (as in section 51) |
+| Sharplight.Vulkan.Tests on Vulkan | 1624 / 0 failed / 26 skipped (as on `develop`) |
+| Sharplight.Cuda.Tests (incl. `NativeF16GemmMatchesTheCpu`: single and SiLU·mul dual at 300 / 700 rows against the CPU) | 13 / 0 / 0 |
+| CudaParityTests (SIMT kernels on both providers) | 4 / 0 / 0 |
+| FamilyGenerationTests.Generation_matches_reference_on_cuda | 315 / 0 failed / 100 skipped (models not on the machine) |
+
+`Fp8GemmTests.DualMatchesSeparateBitwise` (the dual FP8 GEMM against two GEMMs and the elementwise launch, bit for bit) failed at
+first on CUDA by one ulp: the fused epilogue called `expf`, the Slang elementwise kernel `__expf` (`common.slang`); the generated
+CUDA epilogue now maps `exp` to `__expf` as well. Long-prompt logits (600 tokens, top-5) of Qwen3-8B with the hand-written f16 GEMM
+agree with cuBLASLt within 0.006.
+
+### 52.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=1 SHARPLIGHT_VK_DEVICES=1
+dotnet build samples/Sharplight.Cli -c Release -p:SharplightBundleCudaBlas=true   # the library only for the "+ cuBLASLt" column
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+bench/s52_providers.sh bench/results/s52/cuda.txt $CLI cuda
+bench/s52_providers.sh bench/results/s52/vulkan.txt $CLI vulkan
+ONLY="qwen3-8b qwen3-8b-fp8 llama3.1-8b" bench/s52_providers.sh bench/results/s52/cuda-lib.txt $CLI cuda --disable-features native_gemm_f16,native_gemm_fp8
+VLLM_VENV=<venv with vLLM 0.33.0> bench/s42_gap.sh bench/results/s52/vllm gpt-oss-20b vllm ~/models/hf/gpt-oss-20b
+SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/Qwen3-8B --provider cuda --bench 2048 --ctx 2304 [--disable-features native_gemm_f16]
+OUT_DIR=bench/results/s52/serve-cuda ROUNDS=2 bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "1 4 16 64" --provider cuda
+OUT_DIR=bench/results/s52/serve-vllm ROUNDS=2 bench/s16_serve.sh vllm gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "1 4 16 64"   # likewise Qwen3-8B-FP8
+# GEMM prototypes and ablations: bench/s52_gemm/README.md
+```
