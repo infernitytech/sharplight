@@ -357,7 +357,7 @@ Anthropic endpoints switched on or off separately.
   |---|---|
   | Text generation | `/v1/chat/completions`, `/v1/completions` (OpenAI), `/v1/messages`, `/v1/messages/count_tokens` (Anthropic) |
   | Speech to text | `POST /v1/audio/transcriptions`, `POST /v1/audio/translations` (multipart WAV upload, `json`, `text`, `srt`, `vtt` or `verbose_json`) |
-  | Text to speech | `POST /v1/audio/speech` (`{"model", "input", "voice", "speed", "response_format"}`; `wav`, or `pcm` streamed while it is generated) |
+  | Text to speech | `POST /v1/audio/speech` (`{"model", "input", "voice", "speed", "instructions", "response_format"}`; `instructions` describes the voice or the style for models that take one (VoxCPM2, OmniVoice, CosyVoice 3); `wav`, or `pcm` streamed while it is generated) |
   | Image generation | `POST /v1/images/generations` (`prompt`, `n`, `size`, `steps`, `guidance_scale`, `seed`, `sampler`; base64 PNG) |
   | Embeddings | `POST /v1/embeddings` |
   | Reranking | `POST /v1/rerank` (also `/v2/rerank`, `/rerank`) for a reranking model on the host; Studio cannot load one yet |

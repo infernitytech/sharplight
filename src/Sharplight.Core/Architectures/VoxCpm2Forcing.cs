@@ -1,7 +1,7 @@
 namespace Sharplight.Architectures;
 
 /// <summary>Values that replace what VoxCPM2 generation would produce, for teacher-forced verification against a reference run.</summary>
-internal sealed class VoxCpm2Forcing
+internal sealed record VoxCpm2Forcing
 {
     /// <summary>The start noise of each patch's diffusion ([feature, patch] row-major, the reference's layout), or <see langword="null"/> for seeded noise.</summary>
     public IReadOnlyList<float[]>? Noise { get; init; }

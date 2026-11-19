@@ -11365,6 +11365,111 @@
       ]
     },
     {
+      "id": "voxcpm2",
+      "name": "VoxCPM2 (OpenBMB)",
+      "kind": "speech-synthesis",
+      "family": "VoxCPM",
+      "architecture": "voxcpm2",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "OpenBMB",
+        "countryOfOrigin": "CN",
+        "url": "https://github.com/OpenBMB/VoxCPM"
+      },
+      "tags": [
+        "voice-cloning",
+        "voice-design",
+        "multilingual"
+      ],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors with the AudioVAE V2 (audiovae.pth)",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 6103239655,
+          "companions": [],
+          "repository": "openbmb/VoxCPM2",
+          "revision": "7936080b41163874f38610f46f438e2c0757f9fd",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "audiovae.pth",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "README.md"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 4336,
+              "gitOid": "792f1c223ed607f9e508c0a0deb15dd9532483be"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 4580080592,
+              "sha256": "f7f964cfa9da23653baec6e6f7750719977ad944ed9f95fe52fe3a620506891d"
+            },
+            {
+              "path": "audiovae.pth",
+              "size": 376951122,
+              "sha256": "94b5d51e107e0507d4acc976cfdadb64edd6fd06d1f751dadbf2fd1594274bf1"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 3676772,
+              "gitOid": "41a5c2a8dba4058dd1ad73fb898abf5e4f64f0f9"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 5059,
+              "gitOid": "fecf4cdae73b57053cac2ad34c67febbe4e4f08b"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 1632,
+              "gitOid": "8619dda6f3eb6d60d0a1bb274820054e46f41699"
+            },
+            {
+              "path": "README.md",
+              "size": 7903,
+              "gitOid": "8d79f2bfb65aef510fe19cf67113bbaef976e8bf"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "the official voxcpm package 2.0.3 (VoxCPM2Model, CPU, float32; tests/Sharplight.TextToSpeech.Tests/tools/make_voxcpm2_reference.py), seeded diffusion noise, 10 Euler steps, guidance 2.0",
+        "summary": "prompt tokens identical (zero-shot, cloning, cloning with a continuation prompt); AudioVAE encoder patches 5e-6 (CPU) / 8e-6 (Vulkan) / 7e-6 (CUDA) relative RMS, decoder 1.6e-6 (115.8 dB SNR); teacher forced along the reference's patches with its noise (19-24 patches): stop decisions identical, language model states 1e-4 to 1e-2 (scalar-quantizer rounding flips), diffusion patches median 1e-4 to 6e-4, audio 113-116 dB SNR on CPU, Vulkan and CUDA; free running with the reference's noise: the reference's patch count; tiny random model within 1e-4; .slm round trip identical",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-19",
+        "tests": [
+          "VoxCpm2Tests",
+          "VoxCpm2TinyModelTests"
+        ]
+      },
+      "notes": "Apache-2.0 (commercial use allowed). 30 languages, 48 kHz output. Voice design: SpeechSynthesisOptions.Instructions (Studio\u0027s Voice design box, the instructions field of /v1/audio/speech) is the voice description the model reads in parentheses before the text; voice cloning from a 16 kHz-resampled reference recording (ReferenceAudio or a saved voice from IVoiceCloner), with its transcript (ReferenceText) also as a continuation prompt (the package\u0027s \u0022ultimate cloning\u0022); streaming in 320 ms buffers.",
+      "doc": [
+        {
+          "section": "3",
+          "cells": {
+            "repositories": "openbmb/VoxCPM2",
+            "formats": "safetensors \u002B \u0060audiovae.pth\u0060 (voxcpm package layout)"
+          }
+        }
+      ]
+    },
+    {
       "id": "csm-1b",
       "name": "CSM 1B (Sesame)",
       "kind": "speech-synthesis",
