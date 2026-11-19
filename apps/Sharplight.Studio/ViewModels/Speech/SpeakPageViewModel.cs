@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Threading.Channels;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -35,6 +36,7 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
     public SpeakPageViewModel(StudioServices services, INavigator navigator)
         : base(services, navigator, ModelKinds.SpeechSynthesis, "speak", CreateParameters(services))
     {
+        ApplyTraits(SpeechModelTraits.None, []);
     }
 
     /// <inheritdoc/>
@@ -54,6 +56,108 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
     [NotifyCanExecuteChangedFor(nameof(RunCommand))]
     [NotifyPropertyChangedFor(nameof(RunHint))]
     public partial string InputText { get; set; } = "";
+
+    partial void OnInputTextChanged(string value) => SyncSpeakers();
+
+    /// <summary>What the chosen model offers beyond text and a voice (a script with speakers, diffusion options, a language list, voice design).</summary>
+    public SpeechModelTraits Traits { get; private set; } = SpeechModelTraits.None;
+
+    /// <summary>The model speaks a script with several speakers (VibeVoice, CSM).</summary>
+    public bool IsMultiSpeaker => Traits.MultiSpeaker;
+
+    /// <summary>The script names speakers, so a voice can be chosen for each.</summary>
+    public bool HasSpeakers => Traits.MultiSpeaker && Speakers.Count > 0;
+
+    /// <summary>The speakers of the script, each with a voice choice.</summary>
+    public ObservableCollection<SpeakerVoiceViewModel> Speakers { get; } = [];
+
+    /// <summary>How the script is written, for the hint under the text box (empty for models without scripts).</summary>
+    public string ScriptHint => !Traits.MultiSpeaker ? "" : Traits.ScriptInOneRequest
+        ? "Write the conversation as lines \"Speaker 1: ...\", \"Speaker 2: ...\"; the model speaks the whole script in one pass, each speaker with the voice chosen below."
+        : "Write the conversation as lines \"Speaker 0: ...\", \"Speaker 1: ...\"; the speakers are the model's voices 0 and 1, and the turns are spoken one after the other.";
+
+    /// <summary>Appends the next speaker's label to the text, for writing a script without typing the labels.</summary>
+    [RelayCommand]
+    private void AddTurn()
+    {
+        var labels = SpeechScript.Speakers(InputText);
+        int next;
+        if (Traits.ScriptInOneRequest)
+        {
+            next = labels.Select(label => int.TryParse(label, out int number) ? number : 0).DefaultIfEmpty(0).Max() + 1;
+        }
+        else
+        {
+            // CSM has two speakers: alternate between them.
+            next = labels.Count == 0 || labels[^1] != "0" ? 0 : 1;
+        }
+
+        string separator = InputText.Length == 0 || InputText.EndsWith('\n') ? "" : "\n";
+        InputText += $"{separator}Speaker {next}: ";
+    }
+
+    private void SyncSpeakers()
+    {
+        if (!Traits.MultiSpeaker)
+        {
+            if (Speakers.Count > 0)
+            {
+                Speakers.Clear();
+                OnPropertyChanged(nameof(HasSpeakers));
+            }
+
+            return;
+        }
+
+        var labels = SpeechScript.Speakers(InputText);
+        for (int i = Speakers.Count - 1; i >= 0; i--)
+        {
+            if (!labels.Contains(Speakers[i].Speaker))
+            {
+                Speakers.RemoveAt(i);
+            }
+        }
+
+        foreach (string label in labels)
+        {
+            if (Speakers.All(existing => existing.Speaker != label))
+            {
+                var speaker = new SpeakerVoiceViewModel(label);
+                speaker.SetChoices(_builtInVoices, _savedVoiceNames, Traits.ScriptInOneRequest);
+                Speakers.Add(speaker);
+            }
+        }
+
+        OnPropertyChanged(nameof(HasSpeakers));
+    }
+
+    private IReadOnlyList<string> _builtInVoices = [];
+    private IReadOnlyList<string> _savedVoiceNames = [];
+
+    private void ApplyTraits(SpeechModelTraits traits, IReadOnlyList<string> voices)
+    {
+        Traits = traits;
+        _builtInVoices = voices;
+        Panel.SetVisible("diffsteps", traits.DiffusionOptions);
+        Panel.SetVisible("guidance", traits.DiffusionOptions);
+        Panel.SetVisible("language", traits.Languages.Count > 0);
+        Panel.SetVisible("design", traits.VoiceDesign);
+        Panel.SetVisible("instructions", !traits.VoiceDesign);
+        var language = Panel.Parameters.OfType<ChoiceParameterViewModel>().First(candidate => candidate.Key == "language");
+        language.SetChoices(traits.Languages.Count == 0
+            ? [new ParameterChoice("", "Automatic")]
+            : [new ParameterChoice("", "Automatic"), .. traits.Languages.Select(name => new ParameterChoice(name, name.Length == 0 ? name : char.ToUpperInvariant(name[0]) + name[1..]))]);
+        foreach (var speaker in Speakers)
+        {
+            speaker.SetChoices(voices, _savedVoiceNames, traits.ScriptInOneRequest);
+        }
+
+        SyncSpeakers();
+        OnPropertyChanged(nameof(Traits));
+        OnPropertyChanged(nameof(IsMultiSpeaker));
+        OnPropertyChanged(nameof(ScriptHint));
+        OnPropertyChanged(nameof(HasSpeakers));
+    }
 
     /// <summary>The page is synthesizing (a run is queued or running).</summary>
     public bool IsSynthesizing => Queue.IsBusy;
@@ -291,6 +395,11 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
 
         HasSavedVoices = names.Count > 0;
         Panel.SetVisible("savedvoice", names.Count > 0);
+        _savedVoiceNames = names;
+        foreach (var speaker in Speakers)
+        {
+            speaker.SetChoices(_builtInVoices, names, Traits.ScriptInOneRequest);
+        }
     }
 
     /// <summary>Lists the voices of the model when it is resident (asking a sleeping model would load it), and hides the voice choice when it has none.</summary>
@@ -299,17 +408,26 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
     internal async Task RefreshVoicesAsync(ILoadedModel? model)
     {
         IReadOnlyList<string> voices = [];
+        var traits = SpeechModelTraits.None;
         if (model is { State: ResidentState.Ready or ResidentState.Busy })
         {
             try
             {
                 using var lease = await model.AcquireClientAsync<ISpeechSynthesizer>(CancellationToken.None);
                 voices = lease.Client.Voices;
+                traits = SpeechModelTraits.For(lease.Client);
             }
             catch (Exception error) when (error is NotSupportedException or InvalidOperationException)
             {
                 voices = [];
             }
+        }
+
+        ApplyTraits(traits, voices);
+        // A multi-speaker model offers its voices in the script's speaker rows, not as one voice for the whole text.
+        if (traits.MultiSpeaker)
+        {
+            voices = [];
         }
 
         var parameter = Panel.Parameters.OfType<ChoiceParameterViewModel>().First(candidate => candidate.Key == "voice");
@@ -333,12 +451,14 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         StopPlayback();
         HasResult = false;
         ResultSummary = "";
-        Queue.Enqueue(text.Length > 60 ? text[..60] + "…" : text, model.Id, context => SynthesizeAsync(model, text, options, stream, values, context));
+        var script = Traits.MultiSpeaker && Speakers.Count > 0 ? new ScriptPlan(Traits.ScriptInOneRequest, [.. Speakers.Select(speaker => new SpeakerPlan(speaker.Speaker, speaker.Selected.Value,
+            speaker.ReferencePath.Trim(), speaker.ReferenceText.Trim()))]) : null;
+        Queue.Enqueue(text.Length > 60 ? text[..60] + "…" : text, model.Id, context => SynthesizeAsync(model, text, options, stream, values, script, context));
         OnPropertyChanged(nameof(IsSynthesizing));
         RunCommand.NotifyCanExecuteChanged();
     }
 
-    private async Task SynthesizeAsync(ILoadedModel model, string text, SpeechSynthesisOptions options, bool stream, Dictionary<string, string> values, RunContext context)
+    private async Task SynthesizeAsync(ILoadedModel model, string text, SpeechSynthesisOptions options, bool stream, Dictionary<string, string> values, ScriptPlan? script, RunContext context)
     {
         var watch = Stopwatch.StartNew();
         AudioBuffer? audio = null;
@@ -352,7 +472,16 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
             context.Report(null, "Loading the model");
             using var lease = await model.AcquireClientAsync<ISpeechSynthesizer>(context.CancellationToken).ConfigureAwait(false);
             context.Report(null, "Speaking");
-            if (stream)
+            if (script is { OneRequest: true })
+            {
+                options = options with { SpeakerVoices = await ResolveSpeakerVoicesAsync(lease.Client, script, context.CancellationToken).ConfigureAwait(false) };
+            }
+
+            if (script is { OneRequest: false })
+            {
+                audio = await SpeakTurnsAsync(lease.Client, text, options, script, context).ConfigureAwait(false);
+            }
+            else if (stream)
             {
                 var samples = new List<float>();
                 int segments = 0;
@@ -456,6 +585,64 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
             Services.Dispatcher.Post(() => Notice = error);
             throw new InvalidOperationException(error);
         }
+    }
+
+    private sealed record SpeakerPlan(string Speaker, string Voice, string ReferencePath, string ReferenceText);
+
+    private sealed record ScriptPlan(bool OneRequest, IReadOnlyList<SpeakerPlan> Speakers);
+
+    /// <summary>Makes the voice of every speaker that has a saved voice or a reference recording (a model that speaks the script in one request takes them as a map).</summary>
+    private async Task<IReadOnlyDictionary<string, VoiceProfile>?> ResolveSpeakerVoicesAsync(ISpeechSynthesizer client, ScriptPlan script, CancellationToken cancellationToken)
+    {
+        var voices = new Dictionary<string, VoiceProfile>(StringComparer.Ordinal);
+        foreach (var speaker in script.Speakers)
+        {
+            if (speaker.Voice.StartsWith("saved:", StringComparison.Ordinal))
+            {
+                voices[speaker.Speaker] = await Task.Run(() => VoiceLibrary.Load(speaker.Voice["saved:".Length..]), cancellationToken).ConfigureAwait(false);
+            }
+            else if (speaker.Voice == SpeakerVoiceViewModel.ReferenceFile)
+            {
+                if (speaker.ReferencePath.Length == 0 || !File.Exists(speaker.ReferencePath))
+                {
+                    throw new InvalidOperationException($"Speaker {speaker.Speaker} has no reference recording: choose a WAV file.");
+                }
+
+                if (client.GetService(typeof(IVoiceCloner)) is not IVoiceCloner cloner)
+                {
+                    throw new NotSupportedException("This model cannot make a voice from a recording.");
+                }
+
+                var recording = await Task.Run(() => WavFile.Read(speaker.ReferencePath), cancellationToken).ConfigureAwait(false);
+                voices[speaker.Speaker] = await cloner.CreateVoiceAsync($"speaker-{speaker.Speaker}", recording, speaker.ReferenceText.Length > 0 ? speaker.ReferenceText : null, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return voices.Count == 0 ? null : voices;
+    }
+
+    /// <summary>Speaks a script turn by turn with the voice of each speaker (a model that has no script input: CSM) and joins the turns with a short pause.</summary>
+    private static async Task<AudioBuffer> SpeakTurnsAsync(ISpeechSynthesizer client, string text, SpeechSynthesisOptions options, ScriptPlan script, RunContext context)
+    {
+        var turns = SpeechScript.Parse(text);
+        var samples = new List<float>();
+        for (int i = 0; i < turns.Count; i++)
+        {
+            context.CancellationToken.ThrowIfCancellationRequested();
+            var turn = turns[i];
+            var plan = script.Speakers.FirstOrDefault(speaker => speaker.Speaker == turn.Speaker);
+            string? voice = plan is not null && plan.Voice.StartsWith("voice:", StringComparison.Ordinal) ? plan.Voice["voice:".Length..] : client.Voices.Contains(turn.Speaker) ? turn.Speaker : null;
+            context.Report((double)i / turns.Count, $"Speaker {turn.Speaker}, turn {i + 1} of {turns.Count}");
+            var result = await client.SynthesizeAsync(turn.Text, options with { Voice = voice }, context.CancellationToken).ConfigureAwait(false);
+            if (i > 0)
+            {
+                samples.AddRange(new float[client.SampleRate * 3 / 10]);
+            }
+
+            samples.AddRange(result.Audio.Samples);
+        }
+
+        return new AudioBuffer([.. samples], client.SampleRate);
     }
 
     /// <summary>Plays the streamed chunks back to back on one output stream while they arrive, when the player exists.</summary>
@@ -585,9 +772,13 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
             new NumberParameterViewModel("topk", "Top-k", "Sample from the k most likely audio tokens (0 = all).", 0, 100, 1, 40),
             new NumberParameterViewModel("topp", "Top-p", "Sample from the smallest set of tokens with this probability.", 0.1, 1, 0.05, 0.9),
             new NumberParameterViewModel("repetition", "Repetition penalty", "Above 1 discourages repeating audio tokens.", 1, 1.5, 0.05, 1.1),
+            new ChoiceParameterViewModel("language", "Language", "The language of the text, for models that take one (OmniVoice speaks more than 600).", [new("", "Automatic")]),
+            new NumberParameterViewModel("diffsteps", "Diffusion steps", "Denoising steps per audio frame of models with a diffusion head (VibeVoice): more steps cost more time.", 1, 50, 1, 10),
+            new NumberParameterViewModel("guidance", "Guidance", "Classifier-free guidance of models with a diffusion head (VibeVoice); 1 turns it off.", 1, 5, 0.1, 1.3),
             new TextParameterViewModel("seed", "Seed", "A whole number for repeatable output; empty is random.", "Random"),
             new TextParameterViewModel("reference", "Reference recording", "A WAV file of the voice to speak with (CosyVoice 3, F5-TTS, Chatterbox, XTTS, OmniVoice).", "Path to a .wav file"),
             new TextParameterViewModel("referencetext", "Reference text", "The words spoken in the reference recording (CosyVoice 3 zero-shot, F5-TTS; OmniVoice needs them).", "Optional"),
+            new TextParameterViewModel("design", "Voice design", "Describes the voice to make instead of cloning one, e.g. \"female, young adult, british accent\" (OmniVoice); a reference recording or a saved voice replaces it.", "e.g. female, low pitch, british accent"),
             new TextParameterViewModel("instructions", "Instructions", "How to speak, e.g. \"Please speak as fast as possible.\" (CosyVoice 3); the voice to design, e.g. \"female, british accent\" (OmniVoice).", "Optional"),
             new BoolParameterViewModel("stream", "Play while generating", "Speak chunk by chunk as the model generates them, for a short wait before the first sound (CosyVoice 3 and XTTS stream within a sentence, Chatterbox per clause)."),
         ];
@@ -605,7 +796,10 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
                 ? new VoiceLibrary(services.StorageLocation.Current).Load(saved) : null,
             ReferenceAudio = panel.GetText("reference").Trim() is { Length: > 0 } reference && File.Exists(reference) ? WavFile.Read(reference) : null,
             ReferenceText = panel.GetText("referencetext").Trim() is { Length: > 0 } referenceText ? referenceText : null,
-            Instructions = panel.GetText("instructions").Trim() is { Length: > 0 } instructions ? instructions : null,
+            Instructions = (panel.Parameters.First(candidate => candidate.Key == "design").IsVisibleNow ? panel.GetText("design") : panel.GetText("instructions")).Trim() is { Length: > 0 } instructions ? instructions : null,
+            Language = panel.GetChoice("language") is { Length: > 0 } language ? language : null,
+            DiffusionSteps = panel.Parameters.First(candidate => candidate.Key == "diffsteps").IsVisibleNow ? panel.GetInt("diffsteps") : null,
+            GuidanceScale = panel.Parameters.First(candidate => candidate.Key == "guidance").IsVisibleNow ? (float)panel.GetNumber("guidance") : null,
             Sampling = new SamplingOptions
             {
                 Temperature = (float)panel.GetNumber("temperature"),
