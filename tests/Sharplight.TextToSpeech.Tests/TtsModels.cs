@@ -64,6 +64,12 @@ internal static class TtsModels
     /// <summary>Reference tokens, logits and audio of the official omnivoice package (raw arrays, see <c>OmniVoiceTests</c>).</summary>
     public static string OmniVoiceReference => Path.Combine(s_root, "omnivoice-ref");
 
+    /// <summary>Dia-1.6B (the original checkpoint directory, with the 44.1 kHz DAC codec in <c>dac/</c>).</summary>
+    public static string Dia => Path.Combine(s_root, "Dia-1.6B");
+
+    /// <summary>Reference sequences, logits and audio of transformers' Dia (raw arrays, see <c>DiaTests</c>); <c>dia-a</c> without and <c>dia-b</c> with an audio prompt.</summary>
+    public static string DiaReference => Path.Combine(s_root, "dia-ref");
+
     /// <summary>A fixture file next to the test assembly.</summary>
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
