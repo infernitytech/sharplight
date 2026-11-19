@@ -151,7 +151,7 @@ and hosts fall back as for any kernel. The CUDA provider reports the feature fro
 and runs the descriptors with `cublasLtMatmul` on the segment's stream (`CudaBlas`: one handle and a 32 MB workspace per device, a
 plan per shape, row count and operand alignment, the heuristic's first algorithm).
 
-Used where it beats the generated GEMMs on this GPU ([benchmarks.md §49](benchmarks.md)): bf16
+Used where it beats the generated GEMMs on this GPU ([benchmarks.md §50](benchmarks.md)): bf16
 weights from 256 rows (`SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS`), x converted once per row set to dense bf16 rows (`to_bf16`, shared by the
 matmuls reading it), f32 output. A gate / up pair with its SiLU·mul group then runs as two library GEMMs and the group's own launch
 instead of the dual gemm_cm2. cuBLASLt measured 145-165 TFLOPS on the Qwen3-8B shapes against 112-128 for gemm_cm2 on CUDA (and
