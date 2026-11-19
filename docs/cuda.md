@@ -379,6 +379,55 @@ A kernel fault leaves a CUDA context unusable ("sticky" errors such as `misalign
 fails at its first driver call; running the suite one class per process isolates a fault to its class. Faults found: the int-dot
 alignment (phase 1), and the Q8_0R, FP8 and int8 GEMM row alignments of phase 2 ([tensor cores](#tensor-cores)).
 
+### ONNX on CUDA
+
+ONNX models run on CUDA through the same importer, IR and `GraphLowerer` as on Vulkan; nothing in the CUDA provider is ONNX
+specific. The ONNX suites and the vision and audio suites take the kernel suite's switch through `tests/Shared/TestGpu.cs`:
+`SHARPLIGHT_TEST_PROVIDER=vulkan|cuda|metal` (default `vulkan`), `SHARPLIGHT_TEST_DEVICE` for the device index. The tests name their
+devices `cpu` and `gpu` (`ZooTests.Zoo_Gpu`, `NodeConformanceTests.Gpu`, ...); the conformance skip list and report use the
+provider's name. `bench/onnx/SurveyRunner` takes `cuda` as provider.
+
+```sh
+SHARPLIGHT_TEST_PROVIDER=cuda CUDA_VISIBLE_DEVICES=0 dotnet run --project tests/Sharplight.Import.Onnx.Conformance -c Release --no-build \
+  -- -method "*NodeConformanceTests.Gpu" -method "*ExtraConformanceTests.Gpu"
+SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Import.Onnx.Tests -c Release --no-build -- -class "*.ZooTests"
+dotnet bench/onnx/SurveyRunner/bin/Release/net11.0/SurveyRunner.dll ~/models/onnx/ref/zoo/convnext-tiny.json cuda
+```
+
+Results (2026-11-19, branch `cuda/onnx-parity`, RTX PRO 4500 Blackwell, driver 595.112.07; one class per process; cases whose
+model or onnxruntime reference is not on the machine skip, the same on both providers):
+
+| suite | Vulkan | CUDA |
+| --- | --- | --- |
+| `Import.Onnx.Conformance` (1884 backend node tests + 214 extra tests, GPU theories) | 2077 pass, 0 fail, 21 skip | 2077 pass, 0 fail, 21 skip |
+| conformance report: tests passing without the CPU fallback | 2037 | 2037 (the same ops fall back) |
+| `Import.Onnx.Tests` (16 classes, 181 tests incl. the CPU ones) | 153 pass, 0 fail, 28 skip | 153 pass, 0 fail, 28 skip |
+| `Vision.Tests` `YoloDetectorTests` (Ultralytics ONNX exports, also through a package) | 5 / 5 | 5 / 5 |
+| `AudioModels.Tests` `SileroVadTests`; `TextToSpeech.Tests` `CosyVoiceTests.Onnx_encoders_match_onnxruntime` | 4 / 4; 2 / 2 | 4 / 4; 2 / 2 |
+| `SurveyRunner` over the 23 reference manifests on the machine (ref, ref/zoo, ref/survey) | 22 run, 1 import failure | the same 22 run, the same import failure |
+
+The 21 conformance skips are the reviewed list in `conformance-skips.txt` (image decoder, Bernoulli and training Dropout, 64-bit
+BitCast), identical on both providers; the report's statuses (2077 pass, 6 wrong, 15 import failures, i.e. the skipped tests) and
+the CPU fallback placement are identical test by test. On every survey model the CUDA output's relative RMS against onnxruntime is
+within a few percent of the Vulkan one (resnet50 1.7e-6 / 1.7e-6, ViT-B/16 1.2e-6 / 1.2e-6, BERT-base 2.1e-6 / 2.3e-6, whisper-tiny
+encoder 3.0e-6 / 2.8e-6, convnext-tiny 3.3e-6 / 3.2e-6, fasterrcnn-12 1.9e-7 / 1.9e-7, phi-3.5-mini q4f16 1.2e-4 / 1.2e-4), so CUDA
+meets the same tolerances; no test needed a looser one. `ssd-10` differs from the reference by the same 2.1e-2 on both providers in
+`SurveyRunner`, which compares near-tied detections in order; `SurveyModelTests` aligns tied scores and passes on both.
+`gliner-small` fails at import on both (a runtime `ConstantOfShape` extent, [onnx-support.md](onnx-support.md)).
+
+Latency (batch 1, minimum of `Run` plus output read-back, same GPU, no ONNX-specific tuning; Vulkan / CUDA in ms): resnet50
+0.72 / 0.81, mobilenetv2 0.32 / 0.34, efficientnet-lite4 0.64 / 0.76, ViT-B/16 2.80 / 2.29, BERT-base (16 tokens) 1.38 / 1.18,
+whisper-tiny encoder 2.13 / 1.92, convnext-tiny 1.41 / 1.15, yolov10n 0.99 / 1.07, yolov8n 1.09 / 1.18, segformer-b0 2.96 / 2.87,
+mobilesam encoder 7.68 / 7.55, fasterrcnn-12 10.6 / 12.3, maskrcnn-12 11.1 / 12.7, ssd-10 15.3 / 15.2, gemma3-270m 3.49 / 3.17,
+qwen2.5-0.5b q4 3.53 / 3.00, phi-3.5-mini q4f16 4.90 / 4.65. Transformers and convnext are 5-18 % faster on CUDA; the small CNNs
+and the two-stage detectors are 5-18 % slower (not profiled: this round was correctness only). Compile times are lower on CUDA once
+the kernel cache is warm (convnext-tiny 0.7 s against 1.5 s).
+
+Gaps: none specific to CUDA in these suites. Not covered on this machine: the ZooTests / ReferenceTests / SurveyModelTests cases
+whose onnxruntime references are not present (18 + 10 skips, the same on Vulkan). Running the suites on a GPU without resizable BAR
+found a Vulkan bug: staging blocks did not fall back to host memory when the 256 MiB BAR heap was full, so on Vulkan 724 of the 2098
+conformance tests (every model with weights) failed to load; `MemoryAllocator` now retries such a block in host memory.
+
 ## Driver-only proof
 
 `packaging/smoke/cuda-driver-only.sh <published app> <model> [arguments]` runs a self-contained published CLI so that nothing of a
