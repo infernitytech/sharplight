@@ -282,19 +282,26 @@ unnecessary for catalog models.
 - `tests/Sharplight.Families.Tests`: `FamilyGenerationTests.Generation_matches_reference_on_cuda` (the golden outputs of the reference
   implementations) and `CudaParityTests` (greedy tokens on CUDA against Vulkan on the same GPU), opt-in with `SHARPLIGHT_TEST_CUDA=1`.
 
-Results on `cuda/provider-r1` (RTX PRO 4500 Blackwell, compute capability 12.0, driver 595.112.07 / CUDA 13.2, NVRTC 13.0.88):
+Results on `cuda/provider-r2` after merging `develop` at `a7b241b3` (RTX PRO 4500 Blackwell, compute capability 12.0, driver
+595.112.07 / CUDA 13.2, NVRTC 13.0.88, cuBLASLt 13.1.0.3 through `SHARPLIGHT_CUDA_BLAS_DIR`):
 
 | suite | result |
 | --- | --- |
-| `Sharplight.Vulkan.Tests` on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class) | 1610 tests: 1564 pass, 0 fail, 46 skip (38 Vulkan internals, 5 workgroup-matrix GEMMs, 2 opt-in large tests, 1 diagnostic) |
-| `Sharplight.Cuda.Tests` | 8 / 8 pass |
-| `CudaParityTests` (greedy, 32 tokens, CUDA against Vulkan with the same feature set) | 4 / 4 identical: Qwen3-0.6B Q8_0, Llama-3.2-1B-Instruct Q8_0, gemma-3-1b-it Q8_0 (GGUF), Qwen3-0.6B (HF) |
-| `FamilyGenerationTests.Generation_matches_reference_on_cuda` (reference outputs) | 9 / 9 pass: gemma-4-E2B-it HF (Gemma), tiny Mixtral (MoE), tiny gemma4 MoE HF + GGUF, tiny Qwen2.5-VL HF + GGUF and tiny GLM-4V HF + GGUF (vision-language), tiny Nemotron-H (hybrid Mamba / MoE, with CPU fallback) |
+| `Sharplight.Vulkan.Tests` on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class, tensor cores, 99 KB shared memory, library GEMM) | 1624 tests: 1578 pass, 0 fail, 46 skip (Vulkan internals, 5 workgroup-matrix GEMMs, 2 opt-in large tests, benchmarks) |
+| `Sharplight.Vulkan.Tests` on Vulkan (GPU 1, unchanged provider) | 1624 tests: 1598 pass, 0 fail, 26 skip (as on `develop`) |
+| `Sharplight.Cuda.Tests` (incl. the library GEMM against the CPU, profiles of 7.5 / 8.9 / 12.0 with their tensor-core features) | 9 / 9 pass |
+| `CudaParityTests` (greedy, 32 tokens, CUDA against Vulkan, SIMT kernels on both) | 4 / 4 identical: Qwen3-0.6B Q8_0, Llama-3.2-1B-Instruct Q8_0, gemma-3-1b-it Q8_0 (GGUF), Qwen3-0.6B (HF) |
+| `FamilyGenerationTests.Generation_matches_reference_on_cuda` (reference outputs) | 315 cases: 214 pass, 0 fail, 101 skip (models not on the machine) |
 | `Sharplight.Metal.Tests` (MSL generation, Linux) | 7 tests: 4 pass, 3 skip (need macOS) |
 
+`CudaParityTests` switches the tensor cores off on both providers: with them, Llama-3.2-1B-Instruct Q8_0 diverged at token 6 of 32, at
+a near tie (top-2 logits 0.0009 apart, the providers' logits differ by up to 0.007), since the CUDA fragments and the Vulkan driver's
+cooperative matrices round and order the products differently. The tensor-core kernels are checked against the CPU on CUDA by the
+kernel suite and the reference generations.
+
 A kernel fault leaves a CUDA context unusable ("sticky" errors such as `misaligned address`), so every later test of the same process
-fails at its first driver call; running the suite one class per process isolates a fault to its class. The only fault found was the
-int-dot alignment above.
+fails at its first driver call; running the suite one class per process isolates a fault to its class. Faults found: the int-dot
+alignment (phase 1), and the Q8_0R, FP8 and int8 GEMM row alignments of phase 2 ([tensor cores](#tensor-cores)).
 
 ## Driver-only proof
 
@@ -331,6 +338,8 @@ driver's libraries and device nodes into a plain image.
 
 ## First numbers
 
+Phase 1 (SIMT kernels on CUDA); see [phase 2 numbers](#phase-2-numbers) for the current state.
+
 GPU 1 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs, nothing else running), `sharplight <model> --bench 512` (prefill of 512
 tokens: best of 5; decode: 64 steps after the prefill), three runs each, medians of the three shown (they agree within 2 %). Raw output
 of the runs in `/workspace/work/cuda-r1/logs/bench` on the machine. "Vulkan SIMT" is the Vulkan provider with the features the CUDA
@@ -360,12 +369,34 @@ Load: the first load compiles every kernel (Slang, then NVRTC: about 0.3-0.6 s p
 110-126 kernels took 31-67 s depending on the machine load (the per-user artifact store then serves PTX and cubins, and the next load
 compiles nothing: 3.3 s). Precompiled packages skip it entirely.
 
+## Phase 2 numbers
+
+Same GPU and procedure ([benchmarks.md §50](benchmarks.md): GPU 1, prefill median of 5, decode median of 64 steps, identical weights
+for every engine, vLLM 0.33.0 fresh on the same GPU). tok/s, prefill / decode:
+
+| model | rows | Vulkan | CUDA | CUDA / Vulkan | vLLM | CUDA / vLLM |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen3-0.6B Q8_0 | 512 | 61,120 / 575 | 58,889 / 623 | 0.96 / 1.08 | | |
+| Llama-3.2-1B Q8_0 | 512 | 42,373 / 448 | 44,544 / 483 | 1.05 / 1.08 | | |
+| gemma-3-1b Q8_0 | 2048 | 56,892 / 451 | 58,022 / 453 | 1.02 / 1.00 | | |
+| Qwen3-8B (bf16) | 512 | 7,286 / 52.7 | 8,194 / 51.2 | 1.12 / 0.97 | 8,086 / 51.7 | 1.01 / 0.99 |
+| | 2048 | 7,718 | 7,907 | 1.02 | 8,807 | 0.90 |
+| Qwen3-8B-FP8 | 2048 | 10,993 / 86.9 | 11,458 / 85.3 | 1.04 / 0.98 | 14,948 / 87.3 | 0.77 / 0.98 |
+| Llama-3.1-8B (bf16) | 2048 | 7,824 / 53.4 | 7,902 / 51.7 | 1.01 / 0.97 | 8,736 / 52.5 | 0.90 / 0.98 |
+
+Prefill went from 0.18-0.20x of Vulkan (phase 1) to 0.96-1.12x, decode of the 1B models from 0.57-0.78x to 1.00-1.08x. Where CUDA
+still trails: Qwen3-0.6B's prefill (4 %), the 8B decode matvecs (2-3 %, weights streamed at 848 against 875 GB/s), and the prefill
+attention `fe` (5-8 %). Against vLLM, FP8 prefill (0.77x) is the large gap; bf16 is at 0.90-1.01x.
+
 ## Diagnostics
 
 `DiagnosticSwitches` of `Sharplight.Cuda`: `SHARPLIGHT_CUDA_RUNTIME_DIR` (directory with NVRTC and the headers, searched first),
 `SHARPLIGHT_CUDA_DUMP_SOURCE=dir` (CUDA C++ and PTX of every kernel compiled), `SHARPLIGHT_CUDA_TRACE=1` (module loads, recordings),
-`SHARPLIGHT_CUDA_PROFILE=1` (per-launch event timing in `--bench`), `SHARPLIGHT_CUDA_SYNC=1` (synchronize after every launch, so a
-faulting kernel is named), plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
+`SHARPLIGHT_CUDA_PROFILE=1` (per-launch event timing in `--bench`, summed per launch kind like the Vulkan profile),
+`SHARPLIGHT_CUDA_SYNC=1` (synchronize after every launch, so a faulting kernel is named), `SHARPLIGHT_CUDA_MAX_SHARED=bytes` (shared
+memory the kernels are lowered for; 49152 keeps the static limit), `SHARPLIGHT_CUDA_BLAS_DIR` (directory with cuBLASLt, searched
+first); of `Sharplight.Shaders`: `SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS` (rows from which matmuls take the library GEMM, default 256),
+`SHARPLIGHT_GEMM_MACROS` (e.g. `GNBUF=2` for double-buffered 64-value K blocks of gemm_cm2); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
 `SHARPLIGHT_DEVICE_FORWARDING` as for Vulkan. `compute-sanitizer` works on the provider as on any CUDA application.
 
 ## Roadmap
@@ -375,11 +406,10 @@ phase-1 kernels as the fallback, and each flips the default for a device class o
 
 1. **Phase 2: tensor cores and decode** (done, branch `cuda/provider-r2`): tensor-core fragments for CUDA (`cuda_mma.slang`), the
    `matrix_*` features from compute capability 8.0 / 8.9, wave operations over `__activemask()`, `exp` as `__expf`, aligned vector
-   loads, dynamic shared memory above 48 KB, and cuBLASLt as the optional library GEMM for bf16 weights. Open from it:
-   - the activations of library GEMMs in bf16 straight from their producers (the SiLU·mul group and the norms writing the bf16 rows
-     next to, or instead of, the f32 ones), which removes the `to_bf16` passes (3-4 % of a bf16 prefill) and the f32 round trip of
-     the gate / up products;
-   - FP8 at vLLM's level (0.76x): cuBLASLt has no 128x128 block-scaled FP8 on compute capability 12.0, so this needs a hand-written
+   loads, dynamic shared memory above 48 KB, and cuBLASLt as the optional library GEMM for 16-bit weights. Open from it:
+   - the gate / up pair on the library GEMM with its SiLU·mul group and the f16 copy of its output in one launch (the dual gemm_cm2
+     fuses them; ~3 % of a bf16 prefill), or one library GEMM over the concatenated gate / up weights;
+   - FP8 at vLLM's level (0.77x): cuBLASLt has no 128x128 block-scaled FP8 on compute capability 12.0, so this needs a hand-written
      FP8 GEMM with larger tiles (the dynamic shared memory is in place) or the Blackwell block-scaled `mma.sync ... kind::mxf8f6f4`;
    - the prefill attention `fe` is 5-8 % slower than its SPIR-V form on the NVIDIA Vulkan driver (same kernel).
 2. **Phase 3: attention.** A flash-attention kernel for prefill with large shared memory, `cp.async` / TMA loads and warp-specialized

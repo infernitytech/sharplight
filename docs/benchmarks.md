@@ -6844,36 +6844,37 @@ depth 16). Raw output in [`bench/results/s50/`](../bench/results/s50).
 
 ### 50.1 Prefill and decode per provider (tok/s; prefill median of 5 / decode median)
 
-"Vulkan before" is the branch start (`develop` at the merge of phase 1), "Vulkan after" this branch: the Vulkan provider runs the
-same SPIR-V (50.5), so the two columns show the run-to-run spread (up to 4 % on the 512-row medians, which ran while builds used the
-CPU). "CUDA kernels" is CUDA without the library GEMM (`--disable-features library_gemm`), "CUDA" the default with cuBLASLt installed.
+Final runs of this branch after merging `develop` at `a7b241b3` (`final-*.txt`). "Vulkan before" is the branch start (`develop` at the
+merge of phase 1, `vulkan-base.txt`), "Vulkan after" this branch: the Vulkan provider runs the same SPIR-V (50.5), so the two columns
+show the run-to-run spread. "CUDA kernels" is CUDA without the library GEMM (`--disable-features library_gemm`), "CUDA" the default
+with cuBLASLt installed.
 
-| model | rows | Vulkan before | Vulkan after | CUDA phase 1 | CUDA kernels | **CUDA** | CUDA / Vulkan | vLLM | CUDA / vLLM |
+| model | rows | Vulkan before | Vulkan after | CUDA phase 1 | CUDA kernels | **CUDA** | CUDA / Vulkan after | vLLM | CUDA / vLLM |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Qwen3-0.6B Q8_0 | 512 | 61,018 / 572 | 61,454 / 585 | 12,159 / 331 | | **59,254 / 649** | 0.97 / 1.13 | | |
-| | 2048 | 82,990 / 535 | 82,340 / 543 | | | **80,439 / 569** | 0.97 / 1.06 | | |
-| Llama-3.2-1B Q8_0 | 512 | 42,788 / 470 | 42,679 / 454 | 7,729 / 364 | | **44,374 / 480** | 1.04 / 1.02 | | |
-| | 2048 | 47,862 / 451 | 47,504 / 455 | | | **48,138 / 466** | 1.01 / 1.03 | | |
-| gemma-3-1b Q8_0 | 512 | 44,442 / 459 | 44,344 / 453 | | | **43,357 / 454** | 0.98 / 0.99 | | |
-| | 2048 | 56,936 / 451 | 54,689 / 448 | | | **57,645 / 450** | 1.01 / 1.00 | | |
-| Qwen3-8B (bf16) | 512 | 7,545 / 52.8 | 7,256 / 52.8 | | 6,969 / 51.1 | **8,301 / 51.4** | 1.10 / 0.97 | 8,086 / 51.7 | 1.03 / 0.99 |
-| | 2048 | 7,822 / 48.8 | 7,712 / 52.4 | | 7,304 / 50.7 | **7,888 / 50.8** | 1.01 / 0.97 | 8,807 | 0.90 |
-| | 8192 | 6,835 / 49.1 | 6,823 / 49.3 | | 6,405 / 48.0 | **6,862 / 48.0** | 1.00 / 0.98 | 7,678 | 0.89 |
-| Qwen3-8B-FP8 | 512 | 10,829 / 88.7 | 10,879 / 88.2 | | | **11,207 / 86.9** | 1.03 / 0.98 | 14,546 / 87.3 | 0.77 / 1.00 |
-| | 2048 | 10,959 / 87.3 | 10,967 / 86.6 | | | **11,368 / 85.3** | 1.04 / 0.98 | 14,948 | 0.76 |
-| | 8192 | 9,272 / 78.9 | 9,285 / 78.8 | | | **9,342 / 77.3** | 1.01 / 0.98 | 12,316 | 0.76 |
-| Llama-3.1-8B (bf16) | 512 | 7,493 / 51.5 | 7,399 / 53.7 | | 7,146 / 52.2 | **8,178 / 52.1** | 1.09 / 1.01 | 8,513 / 52.5 | 0.96 / 0.99 |
-| | 2048 | 7,805 / 53.1 | 7,806 / 53.3 | | 7,462 / 51.5 | **7,951 / 51.7** | 1.02 / 0.97 | 8,736 | 0.91 |
-| | 8192 | 6,980 / 50.2 | 6,980 / 50.5 | | 6,566 / 49.0 | **7,005 / 49.0** | 1.00 / 0.97 | 7,730 | 0.91 |
+| Qwen3-0.6B Q8_0 | 512 | 61,018 / 572 | 61,120 / 575 | 12,159 / 331 | | **58,889 / 623** | 0.96 / 1.08 | | |
+| | 2048 | 82,990 / 535 | 82,233 / 549 | | | **81,565 / 573** | 0.99 / 1.04 | | |
+| Llama-3.2-1B Q8_0 | 512 | 42,788 / 470 | 42,373 / 448 | 7,729 / 364 | | **44,544 / 483** | 1.05 / 1.08 | | |
+| | 2048 | 47,862 / 451 | 45,679 / 456 | | | **48,692 / 469** | 1.07 / 1.03 | | |
+| gemma-3-1b Q8_0 | 512 | 44,442 / 459 | 43,874 / 458 | | | **43,677 / 457** | 1.00 / 1.00 | | |
+| | 2048 | 56,936 / 451 | 56,892 / 451 | | | **58,022 / 453** | 1.02 / 1.00 | | |
+| Qwen3-8B (bf16) | 512 | 7,545 / 52.8 | 7,286 / 52.7 | | 6,987 / 51.3 | **8,194 / 51.2** | 1.12 / 0.97 | 8,086 / 51.7 | 1.01 / 0.99 |
+| | 2048 | 7,822 / 48.8 | 7,718 / 52.4 | | 7,335 / 50.8 | **7,907 / 50.8** | 1.02 / 0.97 | 8,807 | 0.90 |
+| | 8192 | 6,835 / 49.1 | 6,821 / 49.3 | | 6,504 / 47.9 | **6,940 / 48.0** | 1.02 / 0.97 | 7,678 | 0.90 |
+| Qwen3-8B-FP8 | 512 | 10,829 / 88.7 | 10,925 / 88.8 | | | **11,178 / 86.8** | 1.02 / 0.98 | 14,546 / 87.3 | 0.77 / 0.99 |
+| | 2048 | 10,959 / 87.3 | 10,993 / 86.9 | | | **11,458 / 85.3** | 1.04 / 0.98 | 14,948 | 0.77 |
+| | 8192 | 9,272 / 78.9 | 9,289 / 78.7 | | | **9,563 / 77.5** | 1.03 / 0.98 | 12,316 | 0.78 |
+| Llama-3.1-8B (bf16) | 512 | 7,493 / 51.5 | 7,534 / 53.6 | | 7,196 / 52.0 | **8,056 / 52.1** | 1.07 / 0.97 | 8,513 / 52.5 | 0.95 / 0.99 |
+| | 2048 | 7,805 / 53.1 | 7,824 / 53.4 | | 7,410 / 51.7 | **7,902 / 51.7** | 1.01 / 0.97 | 8,736 | 0.90 |
+| | 8192 | 6,980 / 50.2 | 7,016 / 50.3 | | 6,640 / 49.0 | **7,049 / 49.0** | 1.00 / 0.97 | 7,730 | 0.91 |
 
-(CUDA phase 1: section "First numbers" of cuda.md, same GPU. CUDA / Vulkan against "Vulkan before"; decode of the 8B models
-against vLLM's tg128 at depth 16.)
+(CUDA phase 1: section "First numbers" of cuda.md, same GPU. Decode of the 8B models against vLLM's tg128 at depth 16. An earlier run
+of the branch before the merge, `cuda-2.txt` / `cuda-2-nolib.txt` / `vulkan-new.txt`, agrees within 2 %.)
 
-* **Prefill**: CUDA went from 0.18-0.20x of Vulkan (phase 1, SIMT kernels) to 0.97-1.10x: tensor cores (`cuda_mma.slang`) bring the
-  quantized and FP8 models to Vulkan's level, the library GEMM puts bf16 prefill 0-10 % above it. Against vLLM: bf16 0.89-1.03x (the
-  512-row steps above vLLM), FP8 0.76-0.77x (50.4).
-* **Decode**: the small models are 2-13 % faster on CUDA than on Vulkan (the active-mask fix, 50.2), the 8B models 2-3 % slower
-  (GPU time per step 19.35 against 18.75 ms for bf16: the matvecs stream the weights at 848 against 875 GB/s) and at vLLM's level.
+* **Prefill**: CUDA went from 0.18-0.20x of Vulkan (phase 1, SIMT kernels) to 0.96-1.12x: the tensor-core fragments bring the quantized
+  and FP8 models to Vulkan's level (Qwen3-0.6B 0.96-0.99x, the others 1.00-1.07x), the library GEMM puts bf16 prefill 1-12 % above it.
+  Against vLLM: bf16 0.90-1.01x, FP8 0.77-0.78x (50.4).
+* **Decode**: the 1B models are 0-8 % faster on CUDA than on Vulkan (the active-mask fix, 50.2), the 8B models 2-3 % slower (GPU time
+  per step 19.35 against 18.75 ms for bf16: the matvecs stream the weights at 848 against 875 GB/s) and at vLLM's level (0.99x).
 
 ### 50.2 Decode: Slang's active-mask tracking
 
@@ -6895,7 +6896,7 @@ gemma-3-1b faulted with "misaligned address" on its Q8_0 rows at K = 1152 (1224-
 alignment): fixed with the compile-time aligned loads. Its prefill then gained 10 % (39.4 → 43.4k at 512 rows) when the `ldmatrix`
 alignment check left the inner loops (shared arrays declared 16-byte aligned).
 
-### 50.4 FP8: the volatile fragment loads, and why FP8 stays at 0.76x of vLLM
+### 50.4 FP8: the volatile fragment loads, and why FP8 stays at 0.77x of vLLM
 
 With the first CUDA fragments, Qwen3-8B-FP8 prefilled at 0.70x of Vulkan: its dual gate / up GEMM took 3.11 ms per layer at 2048
 rows against 2.09 on Vulkan. `gemm_fp8` reloads the B fragments for every row fragment (fewer registers; the Vulkan driver merges the
@@ -6916,21 +6917,27 @@ The "Vulkan before / after" columns of 50.1 agree within the run-to-run spread.
 
 ### 50.6 Library GEMM (cuBLASLt) and dynamic shared memory
 
-cuBLASLt on the Qwen3-8B prefill shapes (bf16 operands, f32 output, `bench/s50_cublaslt_probe.cu`, random data): 143-164 TFLOPS,
-against 112-128 TFLOPS for gemm_cm2 on CUDA (and 118-125 on Vulkan, section 42). Qwen3-8B at 2048 rows, GPU ms of the prefill
-(profiles `qwen3-8b-cuda-kernels.log`, `qwen3-8b-cuda-library.log`, `qwen3-8b-vulkan.log`):
+cuBLASLt on the Qwen3-8B prefill shapes (16-bit operands, f32 output, `bench/s50_cublaslt_probe.cu`, random data, `final-cublaslt-probe.txt`):
+141-163 TFLOPS, against 112-128 TFLOPS for gemm_cm2 on CUDA (and 118-125 on Vulkan, section 42). The library GEMM takes the generated
+GEMMs' operands: their row-ranged f16 copies of x and the bf16 weights stored as f16 (cuda.md). Qwen3-8B at 2048 rows, GPU ms of the
+prefill (profiles `qwen3-8b-cuda-kernels.log`, `qwen3-8b-cuda-library.log`, `qwen3-8b-vulkan.log`):
 
 | launches | CUDA kernels | CUDA library | Vulkan |
 |---|---:|---:|---:|
-| gate / up (dual gemm_cm2 with SiLU·mul, or 2 library GEMMs + SiLU·mul + x→bf16) | 120.2 | 98.2 + 13.6 + 2.3 | 111.3 |
-| down [12288 → 4096] (+ x→bf16) | 68.3 | 54.9 + 7.0 | 66.4 |
-| q / o [4096 → 4096] (+ x→bf16) | 42.7 | 35.1 + 2.3 | 41.3 |
-| k / v [4096 → 1024] | 12.6 | 9.9 | 10.6 |
-| attention `fe` | 13.3 | 12.7 | 11.8 |
-| total | 272.6 | 253.4 | 255.7 |
+| gate / up (dual gemm_cm2 with SiLU·mul, or 2 library GEMMs + SiLU·mul) | 120.2 | 100.9 + 13.6 | 111.3 |
+| down [12288 → 4096] (+ x→ranged f16, which the dual GEMM otherwise writes) | 68.3 | 55.7 + 7.2 | 66.4 |
+| q / o [4096 → 4096] | 42.7 | 36.1 | 41.3 |
+| k / v [4096 → 1024] | 12.6 | 10.1 | 10.6 |
+| attention `fe` | 13.3 | 12.8 | 11.8 |
+| total | 272.6 | 252.4 | 255.7 |
 
-The library GEMMs are 18-21 % faster than gemm_cm2; a third of that goes to the bf16 copies of x and the separate SiLU·mul launch
-(the next lever: producers writing the bf16 rows). At 512 rows the library is 19 % ahead of the kernels (vLLM: 1.03x).
+The library GEMMs are 16-20 % faster than gemm_cm2; part of that goes to the separate SiLU·mul launch and the f16 copy of its output,
+which the dual gemm_cm2 fuses (the next lever). At 512 rows the library puts CUDA 17 % ahead of its own kernels (8,194 against 6,987
+tok/s). Storing the bf16 weights as f16 adds about 1 s to the load of Qwen3-8B (4.3 s against 3.2 s, the conversion on the CPU).
+
+The first form of the library GEMM used bf16 activations (a `to_bf16` copy of x) with the bf16 weights as they are: as fast, but its
+error on rows with massive activations (`F16RangeTests`, a gated FFN's product of 1e4-scale values) was 1.3x over the tolerance the
+f16 path meets, so the operands follow the generated GEMMs' precision instead.
 
 Dynamic shared memory above 48 KB works (the kernel suite runs on CUDA with the 99 KB budget) but gives the LLM GEMMs nothing: gemm_cm2
 with double-buffered 64-value K blocks (80 KB, one workgroup per SM) is 21 % slower on Qwen3-8B, with two register prefetch sets 31 %
@@ -6939,12 +6946,27 @@ still 5-8 % slower than on Vulkan.
 
 ### 50.7 Tests
 
-TESTS_PLACEHOLDER
+After merging `develop` at `a7b241b3`, GPU 1 (logs on the machine; one process per class for the CUDA runs):
+
+| suite | result |
+|---|---|
+| Sharplight.Vulkan.Tests on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, cuBLASLt installed) | 1624 / 0 failed / 46 skipped (Vulkan internals, workgroup-matrix GEMMs, opt-in, benchmarks) |
+| Sharplight.Vulkan.Tests on Vulkan | 1624 / 0 failed / 26 skipped (as on `develop`) |
+| Sharplight.Cuda.Tests (library GEMM against the CPU, profiles 7.5 / 8.9 / 12.0) | 9 / 0 / 0 |
+| CudaParityTests (SIMT kernels on both providers) | 4 / 0 / 0 |
+| FamilyGenerationTests.Generation_matches_reference_on_cuda | 315 / 0 failed / 101 skipped (models not on the machine) |
+| Sharplight.Metal.Tests (MSL generation on Linux) | 7 / 0 / 3 |
+
+The kernel suite on CUDA found what the bring-up of the tensor-core forms had to fix: missing fragment arithmetic (`acc * scalar`,
+`acc + acc`: 41 conv_cm, 19 fe, 25 delta-rule, 14 gemm_cm2 compile errors), misaligned FP8 / Q8_0R / int8 row loads, and two library
+GEMM errors (bf16 activations too coarse for massive activations; the dual GEMM's f16 copy of y read stale for the library's rows).
+With tensor cores on both providers `CudaParityTests` flipped one near tie (Llama-3.2-1B, top-2 logits 0.0009 apart), so the parity
+test compares the SIMT kernels; the tensor-core kernels are checked against the CPU.
 
 ### 50.8 Next levers
 
-* bf16 activations straight from their producers for the library GEMMs (SiLU·mul and the norms writing bf16 rows): removes ~11 ms of
-  the 253 at 2048 rows; a single library GEMM over the concatenated gate / up weights.
+* The gate / up pair on the library: SiLU·mul and its f16 copy as one launch writing the down projection's operand (~8 ms of the 252
+  at 2048 rows), and a single library GEMM over the concatenated gate / up weights.
 * FP8 prefill (0.76x of vLLM): a hand-written FP8 GEMM with larger tiles in dynamic shared memory, or the Blackwell block-scaled
   `mma.sync ... kind::mxf8f6f4`.
 * The prefill attention `fe` on CUDA (5-8 % behind its SPIR-V form) and the bf16 / FP8 decode matvecs (2-3 % behind).

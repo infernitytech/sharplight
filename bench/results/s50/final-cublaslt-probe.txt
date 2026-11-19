@@ -1,0 +1,13 @@
+cublasLt version 130300
+M=512 qkv K=4096 N=6144: bf16 143 | fp8 tensor 281 [no algo: 15] [no algo: 15]
+M=512 o K=4096 N=4096: bf16 141 | fp8 tensor 239 [no algo: 15] [no algo: 15]
+M=512 gate_up K=4096 N=24576: bf16 146 | fp8 tensor 213 [no algo: 15] [no algo: 15]
+M=512 down K=12288 N=4096: bf16 155 | fp8 tensor 250 [no algo: 15] [no algo: 15]
+M=2048 qkv K=4096 N=6144: bf16 149 | fp8 tensor 321 [no algo: 15] [no algo: 15]
+M=2048 o K=4096 N=4096: bf16 147 | fp8 tensor 276 [no algo: 15] [no algo: 15]
+M=2048 gate_up K=4096 N=24576: bf16 163 | fp8 tensor 321 [no algo: 15] [no algo: 15]
+M=2048 down K=12288 N=4096: bf16 144 | fp8 tensor 274 [no algo: 15] [no algo: 15]
+M=8192 qkv K=4096 N=6144: bf16 154 | fp8 tensor 325 [no algo: 15] [no algo: 15]
+M=8192 o K=4096 N=4096: bf16 147 | fp8 tensor 312 [no algo: 15] [no algo: 15]
+M=8192 gate_up K=4096 N=24576: bf16 147 | fp8 tensor 300 [no algo: 15] [no algo: 15]
+M=8192 down K=12288 N=4096: bf16 150 | fp8 tensor 313 [no algo: 15] [no algo: 15]
