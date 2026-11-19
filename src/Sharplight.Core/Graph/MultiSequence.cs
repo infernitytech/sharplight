@@ -47,6 +47,11 @@ public static class MultiSequence
         public int BlocksPerSlot { get; init; }
         /// <summary>Rows of one tentative run the recurrent ops can roll back (0: no rollback form, or no recurrent op).</summary>
         public int RollbackRows { get; init; }
+        /// <summary>
+        /// Whether the recurrent ops are in snapshot form (<see cref="RecurrentSnapshots"/>): a step stores the state at a row inside a run
+        /// into a spare state row (the graph has the <see cref="InputRole.SequenceSnapshots"/> input).
+        /// </summary>
+        public bool StepSnapshots { get; init; }
     }
 
     private static readonly HashSet<string> s_supported = ["CacheWrite", "CachedAttention", "IndexerTopK", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "WindowPool"];
@@ -114,6 +119,8 @@ public static class MultiSequence
     /// Like <see cref="Transform(ComputeGraph, int, int, int, int)"/>, with <paramref name="spareStateRows"/> extra rows after the
     /// <paramref name="slots"/> slot rows of every recurrent state (<c>[slots + spare, ...]</c>). No run addresses them; a runtime copies
     /// slot rows into them and back (prefix-cache snapshots of recurrent state, see <see cref="Runtime.CompiledModel.CopyStateRows"/>).
+    /// When every op with per-slot state is a recurrent op with a snapshot form, the ops take it (<see cref="RecurrentSnapshots"/>,
+    /// <see cref="Result.StepSnapshots"/>), so a step can also store the state at a row inside a run into a spare row.
     /// </summary>
     /// <param name="g">The single-sequence graph.</param>
     /// <param name="slots">Number of sequences ("slots") the rewritten graph serves.</param>
@@ -167,6 +174,10 @@ public static class MultiSequence
         bool rollback = rollbackRows > 0 && g.Nodes.Any(n => RecurrentRollback.Ops.Contains(n.Op.Name));
         var commits = rollback
             ? b.Input(RecurrentRollback.CommitsInput, InputRole.SequenceCommits, DataType.I32, new Shape(Dim.Sym(WellKnown.RunSymbol), Dim.Of(RecurrentRollback.CommitColumns)))
+            : null;
+        bool stepSnapshots = spareStateRows > 0 && HasStepSnapshotForm(g);
+        var snapshots = stepSnapshots
+            ? b.Input(RecurrentSnapshots.Input, InputRole.SequenceSnapshots, DataType.I32, new Shape(Dim.Sym(WellKnown.RunSymbol), Dim.Of(RecurrentSnapshots.Columns)))
             : null;
         foreach (var s in g.RuntimeScalars)
         {
@@ -231,6 +242,12 @@ public static class MultiSequence
                     break;
                 case "CausalConv1d" or "GatedDeltaRule" or "SelectiveScan" or "Wkv7" or "Wkv6":
                     ins.Add(runs);
+                    if (snapshots is not null)
+                    {
+                        ins.Add(snapshots);
+                        attrs = attrs.With(RecurrentSnapshots.Attribute, true);
+                    }
+
                     if (commits is not null)
                     {
                         var records = b.State(RecordState(n, ins, slots, rollbackRows));
@@ -270,7 +287,28 @@ public static class MultiSequence
             BlockSize = blockSize,
             BlocksPerSlot = blockSize > 0 ? blocksPerSlot : 0,
             RollbackRows = rollback ? rollbackRows : 0,
+            StepSnapshots = stepSnapshots,
         };
+    }
+
+    /// <summary>
+    /// Whether the graph has a recurrent op and every op that uses per-slot state other than a KV cache is one with a snapshot form
+    /// (<see cref="RecurrentSnapshots"/>; e.g. not the compressor ring of <c>WindowPool</c>).
+    /// </summary>
+    private static bool HasStepSnapshotForm(ComputeGraph g)
+    {
+        bool any = false;
+        foreach (var n in g.Nodes)
+        {
+            bool recurrent = RecurrentRollback.Ops.Contains(n.Op.Name);
+            any |= recurrent;
+            if (!recurrent && n.Inputs.Concat(n.Writes).Any(v => v.Kind == ValueKind.State && !IsKvState(v.State!)))
+            {
+                return false;
+            }
+        }
+
+        return any;
     }
 
     /// <summary>

@@ -45,6 +45,11 @@ public readonly record struct SequenceInput(int Slot, ReadOnlyMemory<int> Tokens
     /// </summary>
     public ReadOnlyMemory<bool> MediaWeights { get; init; }
 
+    /// <summary>
+    /// Rows of the input after which the step keeps the slot's recurrent state for a prefix-cache snapshot (<see cref="IBatchDecoder.SaveKvStateSnapshotAt"/>);
+    /// the slot's length plus these rows must be a whole number of blocks. 0 for none; ignored unless <see cref="IBatchDecoder.SnapshotsInsideSteps"/>.
+    /// </summary>
+    public int StateSnapshotRows { get; init; }
     /// <summary>Whether the input carries anything besides token ids (embeddings, explicit positions, an offset or media weights).</summary>
     public bool HasMultimodalRows => Embeddings is { Count: > 0 } || !Positions.IsEmpty || PositionOffset != 0 || !MediaWeights.IsEmpty;
 }

@@ -28,10 +28,13 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
     private readonly long _slotStride;
     private long _u;
     private readonly RollbackTables? _rollback;
+    private readonly StateSnapshotTable? _snapshots;
     public override string Name => "CausalConv1d";
 
-    public CausalConv1dOp(TRef x, TRef w, TRef state, TRef y, bool silu, bool staticWeight, TRef? bias = null, TRef? runs = null, RollbackTables? rollback = null)
+    public CausalConv1dOp(TRef x, TRef w, TRef state, TRef y, bool silu, bool staticWeight, TRef? bias = null, TRef? runs = null, RollbackTables? rollback = null,
+        StateSnapshotTable? snapshots = null)
     {
+        _snapshots = snapshots;
         _rollback = rollback;
         _bias = bias;
         _x = x;
@@ -128,7 +131,17 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
             var plan = _rollback?.Plan(u, sl, cnt, ((int*)_runs!.P)[u * 4 + 3]) ?? default;
             if (!plan.Tentative)
             {
-                UpdateState((float*)_state.P + sl * _slotStride, r0, cnt);
+                float* st = (float*)_state.P + sl * _slotStride;
+                var (k, row) = _snapshots?.At(u, cnt, _state.Dims[0], Name) ?? default;
+                if (k > 0)
+                {
+                    // The window after the run's first k rows, from the state the run started with.
+                    float* snapshot = (float*)_state.P + row * _slotStride;
+                    Buffer.MemoryCopy(st, snapshot, _slotStride * 4, _slotStride * 4);
+                    UpdateState(snapshot, r0, k);
+                }
+
+                UpdateState(st, r0, cnt);
                 continue;
             }
 

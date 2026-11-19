@@ -87,6 +87,11 @@ internal sealed class EngineSequence
     /// </summary>
     public int SnapshotPos { get; set; }
     /// <summary>
+    /// Recurrent state with in-step snapshots (<see cref="IBatchDecoder.SnapshotsInsideSteps"/>): the block boundary inside the current prompt
+    /// chunk (a prompt position) whose state the step keeps for a snapshot, 0 for none.
+    /// </summary>
+    public int InsideSnapshot { get; set; }
+    /// <summary>
     /// Another sampling of the same prompt (n &gt; 1): the running sequence whose prompt this one waits for instead of computing it; at
     /// the leader's first token this one forks its context (shared blocks, copy-on-write) and samples from the same logits. Null otherwise.
     /// </summary>

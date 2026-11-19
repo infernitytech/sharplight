@@ -38,6 +38,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     private readonly TRef? _runs;   // multi-sequence: [U, 4] (slot, firstRow, count, firstPos); state [S, Hv, Dv, Dk]
     private long _u;
     private readonly RollbackTables? _rollback;
+    private readonly StateSnapshotTable? _snapshots;
     private float* _scratch;        // tentative runs and 16-bit states: per task, an f32 copy of its state rows
     private long _scratchFloats;
     private readonly int _stateBytes;   // bytes per state element: 4 (f32) or 2 (bf16, f16)
@@ -45,9 +46,10 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     public override string Name => "GatedDeltaRule";
 
     public GatedDeltaRuleOp(TRef q, TRef k, TRef v, TRef g, TRef beta, TRef state, TRef y, float scale, bool additive = false, TRef? runs = null,
-        RollbackTables? rollback = null)
+        RollbackTables? rollback = null, StateSnapshotTable? snapshots = null)
     {
         _rollback = rollback;
+        _snapshots = snapshots;
         _q = q;
         _k = k;
         _v = v;
@@ -207,8 +209,14 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
                 S = copy - (long)j0 * _dk;
             }
 
+            var (snapRows, snapRow) = plan.Tentative || _snapshots is null ? default : _snapshots.At(u, t1 - t0, _state.Dims[0], Name);
             for (long t = t0; t < t1; t++)
             {
+                if (snapRows > 0 && t == t0 + snapRows)
+                {
+                    StoreRows(S, snapRow, h, j0, j1);
+                }
+
                 float* q = _q.F(t * _hk + hq);
                 float* k = _k.F(t * _hk + hq);
                 float* v = _v.F(t * _hv + h);
@@ -223,10 +231,30 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
                 Rows(S, k, q, v, decay, decays, beta, j0, j1, (float*)_y.P + (t * _hv + h) * _dv);
             }
 
+            if (snapRows > 0 && t1 == t0 + snapRows)
+            {
+                StoreRows(S, snapRow, h, j0, j1);
+            }
+
             if (stored is not null && !plan.Tentative)
             {
                 Narrow(S + (long)j0 * _dk, stored, rowFloats);
             }
+        }
+    }
+
+    /// <summary>Stores rows [j0, j1) of head h's f32 working state <paramref name="S"/> (indexed like the state) into state row <paramref name="slot"/>.</summary>
+    private void StoreRows(float* S, long slot, int h, int j0, int j1)
+    {
+        long floats = (long)(j1 - j0) * _dk;
+        long at = ((slot * _hv + h) * (long)_dv + j0) * _dk;
+        if (_stateBytes != 4)
+        {
+            Narrow(S + (long)j0 * _dk, (ushort*)_state.P + at, floats);
+        }
+        else
+        {
+            Buffer.MemoryCopy(S + (long)j0 * _dk, (float*)_state.P + at, floats * 4, floats * 4);
         }
     }
 

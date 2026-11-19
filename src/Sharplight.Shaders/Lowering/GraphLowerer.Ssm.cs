@@ -33,6 +33,7 @@ public sealed partial class GraphLowerer
         var st = Ref(n.Inputs[7]);
         var runs = RecurrentRuns(n, 8);
         var (commits, records, rollback) = RollbackBindings(n);
+        var (snaps, snapshot) = SnapshotBindings(n);
         x = EnsureUnitInnerStride(x, 2, "ssm-x");
         dt = EnsureUnitInnerStride(dt, 1, "ssm-dt");
         b = EnsureUnitInnerStride(b, 2, "ssm-B");
@@ -62,12 +63,12 @@ public sealed partial class GraphLowerer
         long timeBlock = Math.Clamp(2048 / N, 1, 16);
         var k = Lib("ssm.slang", "ssm_scan", Macros([("H", H), ("P", P), ("G", G), ("N", N),
             ("XS0", x.Strides[0]), ("XS1", x.Strides[1]), ("DTS0", dt.Strides[0]), ("BS0", b.Strides[0]), ("BS1", b.Strides[1]), ("CS0", c.Strides[0]), ("CS1", c.Strides[1]),
-            ("LPR", lanesPerRow), ("PB", rowsPerBlock), ("TB", timeBlock), ("DT_MIN", n.Attributes.Get("dt_min", 0f)), ("MULTI_SEQ", runs is not null), ("A_STATE", a.Rank == 2), .. rollback]));
+            ("LPR", lanesPerRow), ("PB", rowsPerBlock), ("TB", timeBlock), ("DT_MIN", n.Attributes.Get("dt_min", 0f)), ("MULTI_SEQ", runs is not null), ("A_STATE", a.Rank == 2), .. rollback, .. snapshot]));
         Emit($"ssm_scan {n.Output.Name}", [n],
             [Always(k, b => new Grid((uint)H, (uint)(P / rowsPerBlock), runs is null ? 1u : (uint)Rows(b, runs)))],
             [Pointer(x), Pointer(dt), Pointer(dtb), Pointer(a),
              Pointer(b), Pointer(c), Pointer(d), Pointer(st),
-             Pointer(y), .. SeqArgs(runs, commits, records), TokenArg(x)],
-            [x, dt, dtb, a, b, c, d, st, .. SequenceTables(runs, commits, records)], [y, st, .. records is null ? [] : (TensorRef[])[records]]);
+             Pointer(y), .. SeqArgs(runs, commits, records, snaps), TokenArg(x)],
+            [x, dt, dtb, a, b, c, d, st, .. SequenceTables(runs, commits, records, snaps)], [y, st, .. records is null ? [] : (TensorRef[])[records]]);
     }
 }
