@@ -1,16 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>CUDA execution provider for Sharplight (NVIDIA GPUs): the Slang kernel library compiled to CUDA C++ and PTX, run through the CUDA driver API. Needs only the NVIDIA driver; the runtime compiler (NVRTC) comes with Sharplight.Cuda.Runtime.</Description>
+    <Description>CUDA execution provider for Sharplight (NVIDIA GPUs): the Slang kernel library compiled to CUDA C++ and PTX, run through the CUDA driver API. Needs only the NVIDIA driver; the runtime compiler (NVRTC) comes with the Sharplight.Cuda.Runtime dependency.</Description>
     <PackageTags>$(PackageTags);cuda;nvidia</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Shaders/Sharplight.Shaders.csproj" />
-    <!-- NVRTC and the headers it compiles against, copied next to the applications of this repository. Not a dependency of the
-         Sharplight.Cuda package: applications add Sharplight.Cuda.Runtime unless they only load models precompiled for their GPUs. -->
-    <ProjectReference Include="../Sharplight.Cuda.Runtime/Sharplight.Cuda.Runtime.csproj" ReferenceOutputAssembly="false" />
+    <!-- NVRTC and the headers it compiles against: copied next to the applications of this repository, and a dependency of the
+         Sharplight.Cuda package, so a PackageReference to the provider brings them along. A plain reference on purpose: NuGet leaves
+         references with ReferenceOutputAssembly="false" out of the restore graph and so out of the package's dependencies. The
+         runtime project's assembly is empty and nothing references it at run time (no lib/ folder in its package). An application
+         that only loads models precompiled for its GPUs can exclude the runtime package (ExcludeAssets="all" on a direct reference). -->
+    <ProjectReference Include="../Sharplight.Cuda.Runtime/Sharplight.Cuda.Runtime.csproj" />
     <!-- cuBLASLt for the library GEMMs (optional, about 500 MB): copied next to the applications of this repository only with
          -p:SharplightBundleCudaBlas=true; elsewhere SHARPLIGHT_CUDA_BLAS_DIR can name a directory with it. -->
-    <ProjectReference Include="../Sharplight.Cuda.Blas/Sharplight.Cuda.Blas.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Sharplight.Cuda.Blas/Sharplight.Cuda.Blas.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
     <InternalsVisibleTo Include="Sharplight.Cuda.Tests" />
     <InternalsVisibleTo Include="Sharplight.Vulkan.Tests" />
   </ItemGroup>

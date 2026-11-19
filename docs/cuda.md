@@ -268,7 +268,7 @@ flight (Qwen3-0.6B single-sequence decode 1.68 → 1.46 ms per step with graphs;
 
 | package | contents | size |
 | --- | --- | --- |
-| `Sharplight.Cuda` | the managed provider (`Sharplight.Cuda.dll`), depends on `Sharplight.Shaders` | 72 KB |
+| `Sharplight.Cuda` | the managed provider (`Sharplight.Cuda.dll`), depends on `Sharplight.Shaders` and `Sharplight.Cuda.Runtime` | 72 KB |
 | `Sharplight.Cuda.Runtime` | native assets per RID: NVRTC with its builtins library and the six floating-point type headers, plus NVIDIA's license | see [sizes](#package-sizes) |
 | `Sharplight.Cuda.Blas.<rid>` (optional) | cuBLASLt (`libcublasLt.so.13` / `cublasLt64_13.dll`) for the [library GEMM](#library-gemm-cublaslt), plus NVIDIA's license | 541 MB unpacked (linux-x64) |
 
@@ -322,10 +322,14 @@ with the driver alone. NVRTC is what lets an arbitrary model, or a precompile st
 toolkit, so it ships like PyTorch's wheels ship it (`nvidia-cuda-nvrtc`). Hand-written CUDA kernels of later phases with a fixed set of
 specializations will be compiled at build time with `nvcc` into cubins for the target SMs plus PTX, and embedded.
 
-`Sharplight.Cuda` does not depend on `Sharplight.Cuda.Runtime`: an application that only loads models precompiled for its GPUs (PTX and
-cubins in the `.slm`) needs no NVRTC, so it adds the runtime package only when it compiles kernels itself, which is the normal case. In
-this repository the provider project references the runtime project (`ReferenceOutputAssembly="false"`), so the CLI, the samples and
-the test projects get NVRTC next to their executables on machines with an NVIDIA driver.
+`Sharplight.Cuda` depends on `Sharplight.Cuda.Runtime`, so a `PackageReference` to the provider brings NVRTC and the headers along
+(`runtimes/<rid>/native/` of the output, where the provider looks for them). The provider project references the runtime project as a
+plain `ProjectReference`: NuGet leaves references with `ReferenceOutputAssembly="false"` out of the restore graph and therefore out of
+the package's dependencies (the runtime project's assembly is empty, nothing references it at run time, and its package has no `lib/`).
+In this repository that reference puts NVRTC next to the executables of the CLI, the samples and the test projects on machines with
+an NVIDIA driver. An application that only loads models precompiled for its GPUs (PTX and cubins in the `.slm`) needs no NVRTC and can
+leave the runtime package out with a direct `<PackageReference Include="Sharplight.Cuda.Runtime" ExcludeAssets="all" />`.
+`Sharplight.Cuda.Blas.<rid>` stays optional (`PrivateAssets="all"` on its reference).
 
 ### Package sizes
 
