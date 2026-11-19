@@ -12,7 +12,7 @@ namespace Sharplight.Architectures;
 /// half-step feed-forward, each pre-norm with LayerNorm, and a LayerNorm after the block.
 /// </summary>
 /// <remarks>
-/// Hyper-parameters (<c>{arch}.</c>): <c>hidden_size</c> (of the encoder), <c>encoder.layer_count</c>, <c>encoder.attention.head_count</c>,
+/// Hyper-parameters (<c>{arch}.</c>): <c>hidden_size</c> (of the encoder, or of the decoder when <c>encoder.hidden_size</c> gives the encoder's), <c>encoder.layer_count</c>, <c>encoder.attention.head_count</c>,
 /// <c>encoder.subsampling.strides</c>, <c>encoder.subsampling.groups</c> and <c>encoder.subsampling.activate</c> (one entry per convolution
 /// of the stack: time and feature stride, groups, whether a ReLU follows), optional <c>encoder.input_scale</c> (factor after the projection,
 /// default 1), <c>encoder.position.base</c> (default 10000), <c>encoder.mlp.activation</c> (default "silu", also the convolution module's),
@@ -60,7 +60,7 @@ internal sealed class ConformerEncoder
     public ConformerEncoder(ModelSource src, IDictionary<string, WeightInfo> weights)
     {
         _src = src;
-        _hidden = src.Arch<int>("hidden_size");
+        _hidden = src.Arch("encoder.hidden_size", src.Arch<int>("hidden_size"));
         _layers = src.Arch<int>("encoder.layer_count");
         _heads = src.Arch<int>("encoder.attention.head_count");
         _headDim = _hidden / _heads;

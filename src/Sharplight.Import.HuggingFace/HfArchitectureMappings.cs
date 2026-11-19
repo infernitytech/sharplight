@@ -72,6 +72,7 @@ internal static class HfArchitectureMappings
         Register(new ParakeetHfMapping());
         Register(new Wav2Vec2HfMapping());
         Register(new CanaryHfMapping());
+        Register(new CohereAsrHfMapping());
         Register(new Qwen3AsrHfMapping());
         Register(new VoxtralHfMapping());
         Register(new VoxtralRealtimeHfMapping());

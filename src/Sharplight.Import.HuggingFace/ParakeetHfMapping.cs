@@ -174,19 +174,37 @@ internal sealed partial class ParakeetHfMapping : IHfArchitectureMapping
     {
         var encoder = c.Root.GetProperty("encoder_config");
         int hidden = Int(encoder, "hidden_size", 1024);
-        int channels = Int(encoder, "subsampling_conv_channels", 256);
+        float inputScale = encoder.TryGetProperty("scale_input", out var scale) && scale.ValueKind == JsonValueKind.True ? MathF.Sqrt(hidden) : 1f;
+        string activation = encoder.TryGetProperty("hidden_act", out var act) && act.GetString() is { } name ? name : "silu";
+        return EncoderHyperParameters(c, a, hidden, Int(encoder, "num_hidden_layers", 17), Int(encoder, "num_attention_heads", 8),
+            Int(encoder, "subsampling_conv_channels", 256), activation, inputScale, WindowSeconds);
+    }
+
+    /// <summary>The canonical hyper-parameters of a FastConformer encoder of the given shape and its NeMo front end under the prefix <paramref name="a"/>.</summary>
+    /// <param name="c">The checkpoint's configuration (the front end comes from its preprocessor configuration).</param>
+    /// <param name="a">The canonical prefix, e.g. <c>conformer_asr.</c>.</param>
+    /// <param name="hidden">The encoder width.</param>
+    /// <param name="layers">The conformer blocks.</param>
+    /// <param name="heads">The attention heads.</param>
+    /// <param name="channels">The channels of the subsampling convolutions.</param>
+    /// <param name="activation">The feed-forward and convolution module activation.</param>
+    /// <param name="inputScale">The factor after the subsampling projection.</param>
+    /// <param name="windowSeconds">The longest encoder window, in seconds.</param>
+    internal static Dictionary<string, object> EncoderHyperParameters(HfConfig c, string a, int hidden, int layers, int heads, int channels, string activation,
+        float inputScale, int windowSeconds)
+    {
         var audio = Preprocessor(c);
         int sampleRate = audio.SampleRate;
         return new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [a + "hidden_size"] = hidden,
-            [a + "encoder.layer_count"] = Int(encoder, "num_hidden_layers", 17),
-            [a + "encoder.attention.head_count"] = Int(encoder, "num_attention_heads", 8),
+            [a + "encoder.layer_count"] = layers,
+            [a + "encoder.attention.head_count"] = heads,
             [a + "encoder.subsampling.strides"] = new long[] { 2, 2, 1, 2, 1 },
             [a + "encoder.subsampling.groups"] = new long[] { 1, channels, 1, channels, 1 },
             [a + "encoder.subsampling.activate"] = new[] { true, false, true, false, true },
-            [a + "encoder.input_scale"] = encoder.TryGetProperty("scale_input", out var scale) && scale.ValueKind == JsonValueKind.True ? MathF.Sqrt(hidden) : 1f,
-            [a + "encoder.mlp.activation"] = encoder.TryGetProperty("hidden_act", out var act) && act.GetString() is { } name ? name : "silu",
+            [a + "encoder.input_scale"] = inputScale,
+            [a + "encoder.mlp.activation"] = activation,
             [a + "encoder.norm_eps"] = 1e-5f,
             [a + "encoder.conv.norm_eps"] = 1e-5f,
             [a + "audio.features"] = "log-mel",
@@ -205,8 +223,8 @@ internal sealed partial class ParakeetHfMapping : IHfArchitectureMapping
             [a + "audio.log_scale"] = 1.0,
             [a + "audio.mel_normalize"] = "per-channel",
             [a + "audio.variable_length"] = true,
-            [a + "audio.max_frames"] = (long)WindowSeconds * sampleRate / audio.HopLength,
-            [a + "audio.chunk_samples"] = WindowSeconds * sampleRate,
+            [a + "audio.max_frames"] = (long)windowSeconds * sampleRate / audio.HopLength,
+            [a + "audio.chunk_samples"] = windowSeconds * sampleRate,
         };
     }
 
