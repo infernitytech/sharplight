@@ -6,7 +6,7 @@
              xmlns:conv="using:Sharplight.Studio.Converters"
              x:Class="Sharplight.Studio.Views.LibraryView"
              x:DataType="mvm:LibraryViewModel">
-  <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+  <Grid x:Name="DropArea" ColumnDefinitions="*,Auto" Margin="0,0,0,16" DragDrop.AllowDrop="True" Background="Transparent">
     <DockPanel>
       <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
@@ -39,6 +39,56 @@
           <TextBlock Classes="caption" Text="{Binding Status}" />
         </StackPanel>
       </DockPanel>
+      <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+        <ComboBox x:Name="SortBox" ItemsSource="{Binding SortChoices}" SelectedItem="{Binding SelectedSort}" MinWidth="170" Margin="0,0,8,6" ToolTip.Tip="Order the models">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="mvm:FilterOption">
+              <TextBlock Text="{Binding Name}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <ToggleButton x:Name="SelectToggle" Classes="small" Content="Select" IsChecked="{Binding IsSelecting}" Margin="0,0,8,6" ToolTip.Tip="Tick models for a bulk action" />
+        <Button x:Name="ImportFile" Classes="small" Content="Import .slm…" Command="{Binding ImportFileCommand}" Margin="0,0,8,6"
+                ToolTip.Tip="Add a .slm file to the model store after checking it (or drop files and folders on the library)" />
+        <Button x:Name="ImportFolder" Classes="small" Content="Import folder…" Command="{Binding ImportFolderCommand}" Margin="0,0,8,6" />
+        <Button x:Name="UpdateAll" Classes="small accent" Command="{Binding UpdateAllCommand}" IsVisible="{Binding HasUpdates}" Margin="0,0,8,6"
+                ToolTip.Tip="Download and verify every newer version; each model is replaced only when its update succeeded">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Path Classes="icon" Data="{StaticResource IconDownload}" Width="12" Height="12" />
+            <TextBlock Text="{Binding UpdateAllText}" />
+          </StackPanel>
+        </Button>
+        <Button x:Name="SelectAllButton" Classes="small" Content="Select all" Command="{Binding SelectAllCommand}" IsVisible="{Binding IsSelecting}" Margin="0,0,8,6" />
+        <Button x:Name="SelectNoneButton" Classes="small" Content="Select none" Command="{Binding SelectNoneCommand}" IsVisible="{Binding IsSelecting}" Margin="0,0,8,6" />
+        <Button x:Name="StripSelected" Classes="small" Content="Remove precompiled" Command="{Binding StripSelectedCommand}" IsVisible="{Binding IsSelecting}" IsEnabled="{Binding HasSelection}" Margin="0,0,8,6"
+                ToolTip.Tip="Remove the precompiled artifacts of the ticked models (the models stay)" />
+        <Button x:Name="DeleteSelected" Classes="small danger" Command="{Binding DeleteSelectedCommand}" IsVisible="{Binding IsSelecting}" IsEnabled="{Binding HasSelection}" Margin="0,0,8,6">
+          <TextBlock>
+            <Run Text="Delete" />
+            <Run Text="{Binding SelectedCount}" />
+            <Run Text="·" />
+            <Run Text="{Binding SelectedSize}" />
+          </TextBlock>
+        </Button>
+      </WrapPanel>
+      <views:ConfirmationView DockPanel.Dock="Top" DataContext="{Binding Confirmation}" IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      <views:FileOperationView DockPanel.Dock="Top" DataContext="{Binding Operation}" />
+      <Border DockPanel.Dock="Top" Classes="card" Padding="14,10" Margin="0,0,0,10" IsVisible="{Binding IsUpdatingAll}">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="small" Content="Cancel" Command="{Binding CancelUpdateAllCommand}" Margin="14,0,0,0" VerticalAlignment="Center" />
+          <StackPanel Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="{Binding UpdateAllStatus}" TextTrimming="CharacterEllipsis" />
+            <ProgressBar Classes="thin" Minimum="0" Maximum="1" Value="{Binding UpdateAllProgress}" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+      <Border DockPanel.Dock="Top" Classes="card" Padding="14,10" Margin="0,0,0,10" IsVisible="{Binding HasUnusedSuggestion}">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="small" Content="Review" Command="{Binding ReviewUnusedCommand}" Margin="14,0,0,0" VerticalAlignment="Center"
+                  ToolTip.Tip="Tick these models so you can delete them" />
+          <TextBlock Text="{Binding UnusedSuggestion}" TextWrapping="Wrap" VerticalAlignment="Center" />
+        </DockPanel>
+      </Border>
       <Panel>
         <Border Classes="card" IsVisible="{Binding IsEmpty}" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="32">
           <StackPanel Spacing="10" HorizontalAlignment="Center">
@@ -61,6 +111,12 @@
                                 Command="{Binding Library.InspectCommand}" CommandParameter="{Binding}" />
                       <MenuItem Header="Precompile for this machine" IsEnabled="{Binding CanPrecompile}"
                                 Command="{Binding Library.PrecompileCommand}" CommandParameter="{Binding}" />
+                      <MenuItem Header="Export .slm…" IsEnabled="{Binding IsPackage}"
+                                Command="{Binding Library.ExportCommand}" CommandParameter="{Binding}" />
+                      <MenuItem Header="Export .slm without precompiled…" IsEnabled="{Binding IsPackage}"
+                                Command="{Binding Library.ExportLeanCommand}" CommandParameter="{Binding}" />
+                      <MenuItem Header="Remove precompiled artifacts" IsEnabled="{Binding IsPrecompiled}"
+                                Command="{Binding Library.StripPrecompiledCommand}" CommandParameter="{Binding}" />
                       <MenuItem Header="Open containing folder" Command="{Binding Library.OpenEntryFolderCommand}" CommandParameter="{Binding}" />
                     </ContextMenu>
                   </Border.ContextMenu>
@@ -98,13 +154,12 @@
                           <TextBlock Text="Load" />
                         </StackPanel>
                       </Button>
-                      <Button Classes="ghost icon danger" ToolTip.Tip="Delete (click twice)" Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).DeleteCommand}" CommandParameter="{Binding}">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                          <Path Classes="icon" Data="{StaticResource IconTrash}" Width="13" Height="13" />
-                          <TextBlock Text="Confirm" FontSize="12" IsVisible="{Binding ConfirmDelete}" />
-                        </StackPanel>
+                      <Button Classes="ghost icon danger" ToolTip.Tip="Delete (asks first, says how much space it frees)" Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).DeleteCommand}" CommandParameter="{Binding}">
+                        <Path Classes="icon" Data="{StaticResource IconTrash}" Width="13" Height="13" />
                       </Button>
                     </StackPanel>
+                    <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsSelected}" IsVisible="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).IsSelecting}"
+                              VerticalAlignment="Top" Margin="0,6,10,0" MinWidth="0" />
                     <Border DockPanel.Dock="Left" Width="40" Height="40" CornerRadius="10" Background="{DynamicResource AccentSoftBrush}" Margin="0,0,14,0" VerticalAlignment="Top">
                       <Path Classes="icon accent" Data="{Binding KindIcon, Converter={x:Static conv:IconConverter.Instance}}" Width="18" Height="18" />
                     </Border>
@@ -136,7 +191,31 @@
                           <TextBlock Text="Local file" />
                         </Border>
                         <TextBlock Classes="caption" Text="{Binding Added}" VerticalAlignment="Center" Margin="4,0,0,0" />
+                        <TextBlock Classes="caption" Text="{Binding LastUsedText}" VerticalAlignment="Center" Margin="4,0,0,0" ToolTip.Tip="When the model was last loaded" />
+                        <Button Classes="ghost small" Content="Size details" Margin="4,0,0,0" Padding="6,0"
+                                Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).ToggleBreakdownCommand}" CommandParameter="{Binding}"
+                                ToolTip.Tip="Where the bytes are: weights, attachments and the precompiled artifacts per provider and device" />
                       </StackPanel>
+                      <Border IsVisible="{Binding IsBreakdownOpen}" Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"
+                              BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,6,0,0">
+                        <StackPanel Spacing="4">
+                          <TextBlock Classes="caption" Text="Reading the package…" IsVisible="{Binding IsLoadingBreakdown}" />
+                          <ItemsControl ItemsSource="{Binding BreakdownLines}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="mvm:BreakdownLineViewModel">
+                                <Grid ColumnDefinitions="260,70,*" Margin="0,2">
+                                  <TextBlock Classes="caption" Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,10,0" />
+                                  <TextBlock Grid.Column="1" Classes="caption" Text="{Binding Size}" />
+                                  <StackPanel Grid.Column="2" Spacing="2">
+                                    <ProgressBar Classes="thin" Minimum="0" Maximum="1" Value="{Binding Fraction}" />
+                                    <TextBlock Classes="caption" Text="{Binding Detail}" IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" TextWrapping="Wrap" />
+                                  </StackPanel>
+                                </Grid>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
+                      </Border>
                       <Border IsVisible="{Binding HasPrecompileDetails}" Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"
                               BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,6,0,0">
                         <StackPanel Spacing="6">

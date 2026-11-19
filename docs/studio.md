@@ -128,6 +128,34 @@ the engine gains a kind, its card opens a page of its own, built from the shared
   - All network and file work (listing, hashing, downloading, moving) runs off the UI thread; the services are `IFeedService` (`FeedService` over
     `Sharplight.ModelFeed`, registered with `AddStudioFeed()`) and the view models `FeedCatalogViewModel` and `FeedInstallViewModel`.
 
+- **Managing many models.** The Library and the *Storage* tab keep a large collection under control. All file work (measuring, deleting, copying,
+  exporting, importing) runs off the UI thread with a progress bar and a Cancel button, never follows links, stays inside the storage
+  location in effect (portable, system or custom), and leaves no half-written file when cancelled. The service is `IModelMaintenance`
+  (`ModelMaintenanceService`); the view models are `StorageViewModel` and the partial files of `LibraryViewModel`.
+  - **Disk usage.** *Storage* shows one card per location (model store, Studio data, caches, logs) with the volume's total and free space
+    (a warning below 10 % free) and what Studio uses there: models, precompiled artifacts stored in packages, downloads in progress, the kernel
+    cache (compiled kernels, CUDA PTX and cubin, SPIR-V device stages), shader sources, media and other caches, logs, outputs and run histories.
+    It also lists the biggest models. Each library card has *Size details*: weights, attachments, the precompiled artifacts per provider and
+    device, unused space and the definition. The library sorts by name, size, last used, or not used for longest.
+  - **Cleanup.** Delete a model, remove only its precompiled artifacts (the package is compacted, the model stays and rebuilds them when
+    precompiled), clear the kernel, shader or media cache, and remove failed or partial downloads. *Select* in the library ticks models for bulk
+    delete or bulk artifact removal. Every action first asks with a message that states the space it frees ("Delete 3 models? This frees
+    12.4 GB."). A resident model is never deleted or rewritten: the library says to unload it first (the service checks the runtime, not only the
+    card, and a model being precompiled counts the same); in a bulk action resident models are skipped and named. A file added from outside the
+    store is only removed from the list. Partial downloads are not removed while a download or feed install is running.
+  - **Updates.** *Update all (n · size)* updates every feed package that has a newer version, one after the other, with an overall progress bar
+    weighted by download size and Cancel; each update is the same verified atomic swap as a single update, a failed one leaves that model as it was
+    and the others continue. *Settings > Models* has an optional daily check of the feed (`CheckModelUpdates`, every
+    `ModelUpdateIntervalHours`, last check `LastModelUpdateCheck`); the number of models with a newer version is a badge on the Models item of the
+    navigation (added to the running downloads) and on the Library tab.
+  - **Last used.** Every load is recorded in `model-usage.json` next to `studio.db` (by model path, also loads by API clients); the card shows
+    *Used 3 days ago* or *Never loaded*. Models not loaded for 90 days (counted from the day they were added when never loaded) are suggested in the
+    library and on *Storage*; *Review* ticks them.
+  - **Export and import.** *Export .slm* (context menu of a card) copies the package to a standalone file, with or without its precompiled
+    artifacts (the lean file is stripped and compacted). *Import .slm…*, *Import folder…* and dropping files or folders on the library read each
+    package with the package reader first (a folder is searched two levels deep); valid ones are listed with their size and, after confirming,
+    copied into the model store (`imported/<name>`) and registered, broken or non-package files are reported with the reason and never added.
+
 ![Discover](images/studio/studio-discover.png)
 
 - **Filters.** The filter bar above the results picks the model type, format, quantization, size, license, gating and sort order.
@@ -799,7 +827,7 @@ platform is in [storage.md](storage.md)). `<config>`, `<data>` and `<cache>` are
 | What | Where |
 |---|---|
 | Settings (`settings.json`), including the download queue, and the optional `starter-models.json` | `<config>/studio` |
-| Conversations and statistics (`studio.db`), Discover's highlights (`discover-highlights.json`) and verified catalog (`verified-models.json`) | `<data>/studio` |
+| Conversations and statistics (`studio.db`), last-used times of models (`model-usage.json`), Discover's highlights (`discover-highlights.json`) and verified catalog (`verified-models.json`) | `<data>/studio` |
 | Inference pages: parameter presets, run history and output files (`pages/<page>/`) | `<data>/studio/pages` |
 | Models | The model store: `<data>/models` by default, else the folder chosen on the *Models* card; converted local models go to `converted/` in it by default |
 | Compiled kernels, extracted shader sources | `<cache>/artifacts`, `<cache>/shaders`, shared by every tool |
@@ -901,6 +929,12 @@ versions kept them.
   install of chat and speech with the voice detector, load, new chat with the example, skip, offline with and without a saved listing, a failed install
   that resumes, no GPU, the start page choice, the chat page's *Get a model*), and one test against the live feed that runs the flow with Qwen3-0.6B
   (skipped without network). The welcome page and the chat page without a model are in `PageScreenshotTests` too;
+- model management (`ModelMaintenanceTests`, `ModelUsageTests`, `LibraryCleanupViewModelTests`, `StorageViewModelTests`, `ModelUpdateTests`): on real files in temporary
+  stores, the usage overview and size breakdown, deletion safety (resident and precompiling models refused, files outside the store kept, nothing outside the
+  store removed), partial-download cleanup, cache clearing, artifact removal, the `.slm` export (with and without artifacts) and import round trip, import
+  validation of broken files and folders, cancellation without leftovers, last-used tracking, the confirmations and their freed-space text, bulk actions,
+  the unused-model suggestion, update all with a failing package, and the periodic check with its badge; `PageScreenshotTests` renders the Storage tab and
+  the library with selection, size details and a confirmation;
 - the package inspector: every tab of a small package, a view for every section kind the format defines, unknown sections
   listed raw, the linked graph, IR and node selection, the graph layout, and a 100,000-node graph that stays virtualized.
 

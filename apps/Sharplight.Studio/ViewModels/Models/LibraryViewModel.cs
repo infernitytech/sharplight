@@ -20,10 +20,14 @@ internal sealed partial class LibraryViewModel : ObservableObject
     private readonly StudioServices _services;
     private readonly INavigator _navigator;
 
-    public LibraryViewModel(StudioServices services, INavigator navigator)
+    public LibraryViewModel(StudioServices services, INavigator navigator, TimeProvider? time = null)
     {
         _services = services;
         _navigator = navigator;
+        Time = time ?? TimeProvider.System;
+        Operation = new FileOperationViewModel(services.Dispatcher);
+        SortChoices = [new("Name", LibrarySort.Name), new("Largest first", LibrarySort.Size), new("Recently used", LibrarySort.LastUsed), new("Not used for longest", LibrarySort.LeastRecentlyUsed)];
+        SelectedSort = SortChoices[0];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(MarkLoaded);
         services.Settings.Changed += (_, _) => services.Dispatcher.Post(() => OnPropertyChanged(nameof(StoreRoot)));
     }
@@ -106,11 +110,14 @@ internal sealed partial class LibraryViewModel : ObservableObject
             Entries.Clear();
             foreach (var entry in entries)
             {
-                Entries.Add(new LibraryEntryViewModel(entry) { IsLoaded = loadedPaths.Contains(entry.Path), Library = this });
+                var item = new LibraryEntryViewModel(entry) { IsLoaded = loadedPaths.Contains(entry.Path), Library = this, LastUsed = _services.Usage.LastUsed(entry.Path) };
+                item.PropertyChanged += OnEntryChanged;
+                Entries.Add(item);
             }
 
             RebuildKindFilters();
             ApplyFeedUpdates();
+            RefreshUnused();
 
             Status = Entries.Count == 1 ? "1 model" : $"{Entries.Count} models";
         }
@@ -134,6 +141,8 @@ internal sealed partial class LibraryViewModel : ObservableObject
         {
             entry.FeedUpdateVersion = entry.Entry.Manifest is { } manifest ? Feed?.NewerVersionOf(manifest) : null;
         }
+
+        NotifyUpdatesChanged();
     }
 
     /// <summary>Installs the newer feed version of <paramref name="entry"/>; the old package stays until the new one verified.</summary>
@@ -194,7 +203,7 @@ internal sealed partial class LibraryViewModel : ObservableObject
     private void ApplyKindFilter()
     {
         string? kind = SelectedKindFilter?.Kind;
-        var shown = Entries.Where(entry => kind is null || string.Equals(entry.KindInfo.Id, kind, StringComparison.OrdinalIgnoreCase)).ToList();
+        var shown = Sort(Entries.Where(entry => kind is null || string.Equals(entry.KindInfo.Id, kind, StringComparison.OrdinalIgnoreCase))).ToList();
         if (!shown.SequenceEqual(VisibleEntries))
         {
             VisibleEntries.Clear();
@@ -276,42 +285,6 @@ internal sealed partial class LibraryViewModel : ObservableObject
         {
             _services.Platform.Open(folder);
         }
-    }
-
-    [RelayCommand]
-    private async Task DeleteAsync(LibraryEntryViewModel entry)
-    {
-        if (!entry.ConfirmDelete)
-        {
-            foreach (var other in Entries)
-            {
-                other.ConfirmDelete = false;
-            }
-
-            entry.ConfirmDelete = true;
-            return;
-        }
-
-        if (entry.IsLoaded || entry.IsPrecompiling)
-        {
-            Status = entry.IsLoaded ? $"Unload {entry.Id} before deleting it." : $"{entry.Id} is being precompiled; cancel that first.";
-            entry.ConfirmDelete = false;
-            return;
-        }
-
-        try
-        {
-            await _services.Library.RemoveAsync(entry.Entry);
-            Entries.Remove(entry);
-            RebuildKindFilters();
-            Status = entry.IsLocalFile ? $"Removed {entry.Name} from the list (the file was kept)." : $"Deleted {entry.Name}.";
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or Sharplight.Hub.HubException)
-        {
-            Status = error.Message;
-        }
-
-        OnPropertyChanged(nameof(IsEmpty));
     }
 
     /// <summary>
@@ -457,7 +430,17 @@ internal sealed partial class LibraryViewModel : ObservableObject
         var paths = _services.Runtime.LoadedModels.Select(model => model.Path).ToHashSet();
         foreach (var entry in Entries)
         {
-            entry.IsLoaded = paths.Contains(entry.Entry.Path);
+            bool loaded = paths.Contains(entry.Entry.Path);
+            if (loaded && !entry.IsLoaded)
+            {
+                var now = Time.GetUtcNow();
+                _services.Usage.Record(entry.Entry.Path, now);
+                entry.LastUsed = now;
+            }
+
+            entry.IsLoaded = loaded;
         }
+
+        RefreshUnused();
     }
 }

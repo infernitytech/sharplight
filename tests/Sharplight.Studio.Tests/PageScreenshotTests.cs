@@ -63,6 +63,41 @@ public sealed class PageScreenshotTests
             await model.NavigateAsync(model.Models);
             model.Models.SelectedTab = ModelsPageViewModel.LibraryTab;
         }),
+        ("models-library-cleanup", async (model, window) =>
+        {
+            await model.NavigateAsync(model.Models);
+            model.Models.SelectedTab = ModelsPageViewModel.LibraryTab;
+            var library = model.Models.Library;
+            await library.RefreshAsync();
+            library.IsSelecting = true;
+            library.SelectAllCommand.Execute(null);
+            foreach (var entry in library.Entries.Take(2))
+            {
+                entry.FeedUpdateVersion = "1.1.0";
+            }
+
+            if (library.Entries.FirstOrDefault() is { } first)
+            {
+                first.ShowBreakdown(new Services.Maintenance.ModelSizeBreakdown(5_000_000_000, 4_600_000_000, 12_000_000, [new("vulkan", "NVIDIA RTX PRO 4500", "spirv, pipeline-cache", 310_000_000, 640), new("cuda", "sm_120", "ptx, cubin", 60_000_000, 120)], 8_000_000, true));
+                first.IsBreakdownOpen = true;
+            }
+
+            library.Confirmation = new ConfirmationViewModel("Delete 3 models? This frees 12.4 GB. 1 model is skipped because it is in use: qwen3. Unload first.", "Delete", true, () => Task.CompletedTask, _ => { });
+            await HeadlessApp.RenderAsync(window);
+        }),
+        ("models-library-importing", async (model, window) =>
+        {
+            await model.NavigateAsync(model.Models);
+            model.Models.SelectedTab = ModelsPageViewModel.LibraryTab;
+            model.Models.Library.Confirmation = new ConfirmationViewModel("Import 2 packages (3.1 GB) into the model store? They were checked and are valid: a, b. Not imported: broken.slm: Not a valid package.", "Import", false, () => Task.CompletedTask, _ => { });
+            await HeadlessApp.RenderAsync(window);
+        }),
+        ("models-storage", async (model, window) =>
+        {
+            await model.NavigateAsync(model.Models);
+            model.Models.SelectedTab = ModelsPageViewModel.StorageTab;
+            await HeadlessApp.WaitForAsync(window, () => model.Models.Storage.IsMeasured);
+        }),
         ("models-resident", async (model, _) =>
         {
             await model.NavigateAsync(model.Models);
