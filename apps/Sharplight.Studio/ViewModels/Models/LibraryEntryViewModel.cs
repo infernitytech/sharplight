@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using Sharplight.Package;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services.Library;
+using Sharplight.Studio.Services.Maintenance;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
@@ -37,7 +38,7 @@ internal sealed partial class LibraryEntryViewModel : ObservableObject
 
     /// <summary>The model; replaced when it is read again from disk (after precompiling).</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(Size), nameof(IsPrecompiled), nameof(PrecompiledTip))]
+    [NotifyPropertyChangedFor(nameof(Size), nameof(SizeBytes), nameof(IsPrecompiled), nameof(PrecompiledTip), nameof(LastUsedOrAdded))]
     public partial LibraryEntry Entry { get; set; }
 
     /// <summary>The library listing the entry, for the commands of its context menu.</summary>
@@ -106,9 +107,79 @@ internal sealed partial class LibraryEntryViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanPrecompile), nameof(PrecompileHint))]
     public partial bool IsLoaded { get; set; }
 
-    /// <summary>The delete button was pressed once (press again to confirm).</summary>
+
+    /// <summary>Chosen in the selection mode for a bulk action.</summary>
     [ObservableProperty]
-    public partial bool ConfirmDelete { get; set; }
+    public partial bool IsSelected { get; set; }
+
+    /// <summary>When the model was last loaded, or null when it was not since tracking began.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LastUsedText), nameof(LastUsedOrAdded))]
+    public partial DateTimeOffset? LastUsed { get; set; }
+
+    /// <summary>When it was last loaded; for a model never loaded, when it was added (so a new download is not "unused").</summary>
+    public DateTimeOffset? LastUsedOrAdded => LastUsed ?? Entry.AddedAt;
+
+    /// <summary><c>Used 3 days ago</c>, or <c>Never loaded</c>.</summary>
+    public string LastUsedText => LastUsed is { } used ? $"Used {RelativeTime.Format(used, DateTimeOffset.UtcNow)}" : "Never loaded";
+
+    /// <summary>The size in bytes.</summary>
+    public long SizeBytes => Entry.SizeBytes;
+
+    /// <summary>Where the bytes are, once read (the size details of the card).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBreakdown))]
+    public partial ModelSizeBreakdown? Breakdown { get; set; }
+
+    /// <summary>The breakdown is shown.</summary>
+    [ObservableProperty]
+    public partial bool IsBreakdownOpen { get; set; }
+
+    /// <summary>The breakdown is being read.</summary>
+    [ObservableProperty]
+    public partial bool IsLoadingBreakdown { get; set; }
+
+    /// <summary>The breakdown was read.</summary>
+    public bool HasBreakdown => Breakdown is not null;
+
+    /// <summary>The lines of <see cref="Breakdown"/>: weights, attachments, precompiled artifacts per provider and device, the rest.</summary>
+    public ObservableCollection<BreakdownLineViewModel> BreakdownLines { get; } = [];
+
+    /// <summary>The model's package is exported with or without artifacts, imported or deleted right now.</summary>
+    [ObservableProperty]
+    public partial bool IsBusy { get; set; }
+
+    /// <summary>Fills <see cref="BreakdownLines"/> from <see cref="Breakdown"/>.</summary>
+    public void ShowBreakdown(ModelSizeBreakdown breakdown)
+    {
+        Breakdown = breakdown;
+        BreakdownLines.Clear();
+        if (!breakdown.IsPackage)
+        {
+            BreakdownLines.Add(new BreakdownLineViewModel("Files", "not a .slm package: only the total is known", breakdown.TotalBytes, breakdown.TotalBytes));
+            return;
+        }
+
+        BreakdownLines.Add(new BreakdownLineViewModel("Weights", "", breakdown.WeightBytes, breakdown.TotalBytes));
+        if (breakdown.AttachmentBytes > 0)
+        {
+            BreakdownLines.Add(new BreakdownLineViewModel("Attachments", "tokenizer, scheduler and other files", breakdown.AttachmentBytes, breakdown.TotalBytes));
+        }
+
+        foreach (var artifact in breakdown.Artifacts)
+        {
+            string title = artifact.Device.Length == 0 ? $"Precompiled · {artifact.Provider}" : $"Precompiled · {artifact.Provider} · {artifact.Device}";
+            string detail = $"{ByteFormat.Count(artifact.Entries, "entry", "entries")}{(artifact.Description.Length == 0 ? "" : " · " + artifact.Description)}";
+            BreakdownLines.Add(new BreakdownLineViewModel(title, detail, artifact.Bytes, breakdown.TotalBytes));
+        }
+
+        if (breakdown.ReclaimableBytes > 0)
+        {
+            BreakdownLines.Add(new BreakdownLineViewModel("Unused space", "replaced artifacts, removed by compacting", breakdown.ReclaimableBytes, breakdown.TotalBytes));
+        }
+
+        BreakdownLines.Add(new BreakdownLineViewModel("Definition and index", "graphs, weight index, padding", breakdown.OtherBytes, breakdown.TotalBytes));
+    }
 
     /// <summary>Being precompiled right now.</summary>
     [ObservableProperty]

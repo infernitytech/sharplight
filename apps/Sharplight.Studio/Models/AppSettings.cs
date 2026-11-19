@@ -132,4 +132,13 @@ internal sealed record AppSettings
 
     /// <summary>The model feed channel, <c>stable</c> or <c>unstable</c>; null is <c>stable</c>.</summary>
     public string? FeedChannel { get; init; }
+
+    /// <summary>Check the model feed for newer versions of installed packages now and then, and show their number on the Models item of the navigation.</summary>
+    public bool CheckModelUpdates { get; init; }
+
+    /// <summary>Hours between two checks of <see cref="CheckModelUpdates"/>.</summary>
+    public int ModelUpdateIntervalHours { get; init; } = 24;
+
+    /// <summary>When the model feed was last checked for newer versions; null when it never was.</summary>
+    public DateTimeOffset? LastModelUpdateCheck { get; init; }
 }

@@ -3,6 +3,7 @@ using Sharplight.Storage;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Documents;
+using Sharplight.Studio.Services.Maintenance;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Platform;
 using Sharplight.Studio.Services.Settings;
@@ -22,9 +23,12 @@ internal sealed class TestServices : IDisposable
         var database = new StudioDatabase(_dir.File("studio.db"));
         Conversations = new SqliteConversationStore(database);
         Stats = new SqliteStatsStore(database);
+        Storage = CreateStorage(Settings, _dir.File("app"), _dir.File("home"));
+        Usage = new JsonModelUsageStore(_dir.File("model-usage.json"));
+        Maintenance = new ModelMaintenanceService(Settings, Storage, Runtime, Library, Usage, Precompiler);
         Services = new StudioServices(Settings, Runtime, Hub, Library, Conversations, Stats, Server, new DocumentExtractor(), Platform,
             Platform, dispatcher ?? Platform, Platform, Updates, Precompiler, new FilePageStorage(_dir.File("pages")), Audio, Audio, decoder ?? new WavAudioDecoder(), AudioDevices,
-            CreateStorage(Settings, _dir.File("app"), _dir.File("home")), Feed);
+            Storage, Feed, Usage, Maintenance);
     }
 
     /// <summary>A custom storage layout in <paramref name="root"/>, for services that need one.</summary>
@@ -48,6 +52,12 @@ internal sealed class TestServices : IDisposable
         };
         return new StorageLocationService(environment, StorageLayout.Resolve(environment), settings);
     }
+
+    public StorageLocationService Storage { get; }
+
+    public JsonModelUsageStore Usage { get; }
+
+    public ModelMaintenanceService Maintenance { get; }
 
     public FakeSettings Settings { get; }
 
