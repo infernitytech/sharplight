@@ -1130,7 +1130,7 @@
         "tests": []
       },
       "notes": "111 GB file",
-      "licenseNotice": "Qwen community licence (qwen-community-1.0): custom terms from Alibaba Cloud, see the LICENSE file of the repository before you use it commercially.",
+      "licenseNotice": "Qwen Community License 1.0 (MIT style): free to use, also commercially, keeping the licence notice. Products with over 100 million monthly active users or 20 million US dollars monthly revenue must show the model name in the interface; Model-as-a-Service and AI work assistant (coding, office) businesses need a separate Qwen licence for commercial use.",
       "doc": [
         {
           "section": "1.1",
@@ -2276,6 +2276,7 @@
       "family": "Phi",
       "architecture": "phi3",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "publisher": {
         "name": "Microsoft",
@@ -2457,6 +2458,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -2771,6 +2773,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -2963,6 +2966,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -3088,6 +3092,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "other",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -3100,6 +3105,7 @@
         "date": "2026-11-14",
         "tests": []
       },
+      "licenseNotice": "DeepSeek Model License (OpenRAIL style): free to use, also commercially, with no royalties. Its Attachment A bans uses such as military use, breaking the law, harming minors, fully automated decisions with legal effect and discrimination; you must pass these restrictions on to users and to derived models (distillation counts) and include the licence text.",
       "doc": [
         {
           "section": "1.1",
@@ -3161,7 +3167,7 @@
         "date": "2026-11-15",
         "tests": []
       },
-      "licenseNotice": "DeepSeek Model License: commercial use is allowed, with use-based restrictions that also bind derived models. Read it before you use the model commercially.",
+      "licenseNotice": "DeepSeek Model License (OpenRAIL style): free to use, also commercially, with no royalties. Its Attachment A bans uses such as military use, breaking the law, harming minors, fully automated decisions with legal effect and discrimination; you must pass these restrictions on to users and to derived models (distillation counts) and include the licence text.",
       "doc": [
         {
           "section": "1.1",
@@ -3178,6 +3184,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "other",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -3190,6 +3197,7 @@
         "date": "2026-11-14",
         "tests": []
       },
+      "licenseNotice": "MiniCPM3 weights: the model card tags Apache-2.0 but says the weights follow the MiniCPM Model License (its text is no longer in the OpenBMB repository, so read the model card): free for research; commercial use is free after registering with OpenBMB.",
       "doc": [
         {
           "section": "1.1",
@@ -3206,6 +3214,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -3235,6 +3244,7 @@
       "kind": "text-generation",
       "family": "MiMo",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "publisher": {
         "name": "Xiaomi",
@@ -3920,7 +3930,7 @@
         "tests": []
       },
       "notes": "hybrid Mamba-2 / attention",
-      "licenseNotice": "NVIDIA Open Model License: commercial use is allowed under NVIDIA's terms (read them, they include conditions on redistribution and guardrails).",
+      "licenseNotice": "NVIDIA Nemotron Open Model License: commercially usable, you may create and distribute derivative works, and NVIDIA claims no ownership of outputs. When you redistribute, include the licence and keep the notices (Notice file: \"Licensed by NVIDIA Corporation under the NVIDIA Nemotron Model License\"). A patent or copyright suit against the model ends your licence.",
       "doc": [
         {
           "section": "1.1",
@@ -3948,6 +3958,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "other",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -3961,6 +3972,7 @@
         "date": "2026-11-14",
         "tests": []
       },
+      "licenseNotice": "OpenMDW 1.1: permissive. You may use, modify and share the model, also commercially, with no restrictions on outputs; when you distribute it, keep a copy of the agreement and the origin notices. Filing a patent or copyright suit over the model ends your rights.",
       "doc": [
         {
           "section": "1.1",
@@ -4103,7 +4115,7 @@
         "date": "2026-11-14",
         "tests": []
       },
-      "licenseNotice": "Falcon LLM licence: based on Apache 2.0 with an acceptable use policy; read the terms on the model page before you use it commercially.",
+      "licenseNotice": "Falcon LLM licence (TII Falcon License, based on Apache 2.0): free to use, also commercially, with no royalties. You must follow TII's Acceptable Use Policy, which can change and must be passed on to anyone you give a derivative to, and public statements about a derivative must say it is built using AI technology from the Technology Innovation Institute.",
       "doc": [
         {
           "section": "1.1",
@@ -4213,6 +4225,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -4243,6 +4256,7 @@
       "family": "Mamba",
       "architecture": "mamba",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "publisher": {
         "name": "Cartesia / state-spaces",
@@ -4390,6 +4404,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -4667,6 +4682,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -5511,7 +5527,7 @@
         "tests": []
       },
       "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
-      "licenseNotice": "Qwen Research License: for non-commercial research use only; commercial use needs a separate licence from Alibaba Cloud.",
+      "licenseNotice": "Qwen Research License: the weights are free for non-commercial use (research or evaluation) only; any commercial use needs a separate licence from Alibaba Cloud. If you use the model or its outputs to train a model you release, you must show \"Built with Qwen\" or \"Improved using Qwen\".",
       "doc": []
     },
     {
@@ -7193,6 +7209,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified",
+      "license": "other",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -7206,6 +7223,7 @@
         "date": "2026-11-14",
         "tests": []
       },
+      "licenseNotice": "Three licences: Ministral 3 is Apache-2.0 (no conditions); Gemma 3 is under the Gemma Terms of Use (Prohibited Use Policy, binds derived work); LFM2-VL is under the LFM Open License v1.0 (commercial use only below 10 million US dollars annual revenue).",
       "doc": [
         {
           "section": "1.3",
@@ -7222,6 +7240,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "loads",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -7250,6 +7269,7 @@
       "kind": "text-generation",
       "family": "",
       "level": "verified-tiny",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -8022,6 +8042,7 @@
       "kind": "embeddings",
       "family": "",
       "level": "loads",
+      "license": "mit",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -10320,7 +10341,7 @@
         "tests": []
       },
       "notes": "streaming chunked-attention settings read, but run with full context",
-      "licenseNotice": "NVIDIA Open Model License: commercial use is allowed under NVIDIA's terms (read them, they include conditions on redistribution and guardrails).",
+      "licenseNotice": "NVIDIA Open Model License: commercially usable, derivative models are allowed, no claim on outputs. Use must follow NVIDIA's Trustworthy AI terms, bypassing the model's guardrails without a similar one ends your rights, and you must ship the licence and the Notice \"Licensed by NVIDIA Corporation under the NVIDIA Open Model License\". NVIDIA may update the terms.",
       "doc": [
         {
           "section": "2",
@@ -10338,6 +10359,7 @@
       "kind": "speech-recognition",
       "family": "",
       "level": "partial",
+      "license": "cc-by-4.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -12524,6 +12546,7 @@
       "kind": "image-generation",
       "family": "",
       "level": "partial",
+      "license": "openrail\u002B\u002B",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -12537,6 +12560,7 @@
         "date": "",
         "tests": []
       },
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
           "section": "4",
@@ -15251,7 +15275,7 @@
         "tests": []
       },
       "notes": "8 steps at 1024x1024 in 14.8 s; the schedule comes from \u0060model_index.json\u0060 or the \u0060turbo\u0060 file name",
-      "licenseNotice": "Qwen Research License: for non-commercial research use only; commercial use needs a separate licence from Alibaba Cloud.",
+      "licenseNotice": "Qwen Research License (2026 version): the weights are free for non-commercial use (research or evaluation) only; any commercial use needs a separate licence from the Qwen team. If you use the model or its outputs to train a model you release, you must show \"Built with Qwen\" or \"Improved using Qwen\".",
       "doc": [
         {
           "section": "4",
@@ -15448,7 +15472,7 @@
         "tests": []
       },
       "notes": "1024x1024 20 steps in 36 s; text-to-image only (the editing path is not implemented)",
-      "licenseNotice": "Qwen Research License: for non-commercial research use only; commercial use needs a separate licence from Alibaba Cloud.",
+      "licenseNotice": "Qwen Research License (2026 version): the weights are free for non-commercial use (research or evaluation) only; any commercial use needs a separate licence from the Qwen team. If you use the model or its outputs to train a model you release, you must show \"Built with Qwen\" or \"Improved using Qwen\".",
       "doc": [
         {
           "section": "4",
@@ -15592,7 +15616,7 @@
         ]
       },
       "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (\u0060raw\u0060 / \u0060base\u0060 in the name) run 28 guided steps",
-      "licenseNotice": "Krea 2 community licence: custom terms, read the LICENSE file of the repository before you use the model commercially.",
+      "licenseNotice": "Krea 2 Community License: free below 1 million US dollars total annual company revenue; at or above that, commercial use needs an enterprise licence from Krea. You must run content filters on your deployments, follow Krea's Acceptable Use Policy, keep the licence and attribution when you distribute, and start derived model names with \"Krea\".",
       "doc": [
         {
           "section": "4",
@@ -16537,6 +16561,7 @@
       "family": "CLIP",
       "architecture": "clip",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "publisher": {
         "name": "OpenAI",
@@ -17044,6 +17069,7 @@
       "family": "TrOCR",
       "architecture": "trocr",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "publisher": {
         "name": "Microsoft",
@@ -17146,6 +17172,7 @@
       "family": "Real-ESRGAN",
       "architecture": "rrdbnet",
       "level": "verified",
+      "license": "bsd-3-clause",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -17176,6 +17203,7 @@
       "kind": "image-upscaling",
       "family": "",
       "level": "verified",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -17521,6 +17549,7 @@
       "family": "CLIP",
       "architecture": "clip",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "publisher": {
         "name": "OpenAI",
@@ -17624,6 +17653,7 @@
       "family": "CLIP",
       "architecture": "clip",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "publisher": {
         "name": "OpenAI",
@@ -19215,6 +19245,7 @@
       "family": "YOLO",
       "architecture": "yolo",
       "level": "verified",
+      "license": "agpl-3.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -19232,6 +19263,7 @@
         ]
       },
       "notes": "detection and segmentation heads only (pose, obb and classification heads are not read); \u0060.pt\u0060 checkpoints are not read (they pickle Ultralytics code), export to ONNX first; the export\u0027s fixed input size is used (letterboxed). Not installable from the catalog: the ONNX files are exports users make themselves with \u0060yolo export format=onnx\u0060; Ultralytics weights are AGPL-3.0.",
+      "licenseNotice": "Ultralytics YOLO is under the GNU AGPL-3.0 (or a paid Ultralytics Enterprise licence): you can use it freely, but a product or network service built on it must offer its complete source under the AGPL, so check this before commercial use.",
       "doc": [
         {
           "section": "5",
@@ -19386,6 +19418,7 @@
       "family": "EnCodec",
       "architecture": "encodec",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "publisher": {
         "name": "Meta",
@@ -19458,6 +19491,7 @@
       "family": "DAC",
       "architecture": "dac",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "publisher": {
         "name": "Descript",
@@ -19673,6 +19707,7 @@
       "family": "Silero VAD",
       "architecture": "silero_vad",
       "level": "verified",
+      "license": "mit",
       "gated": false,
       "publisher": {
         "name": "Silero",
@@ -20032,6 +20067,7 @@
       "kind": "video-generation",
       "family": "",
       "level": "verified",
+      "license": "other",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -20045,6 +20081,7 @@
         "tests": []
       },
       "notes": "LTX-Video 0.9.1\u002B (causal / timestep-conditioned VAE) not yet",
+      "licenseNotice": "LTX-Video 0.9.0 licence: the weights may be used for academic or research purposes only, which excludes commercialisation (selling the model or derivatives); use-based restrictions apply and pass on to derivatives.",
       "doc": [
         {
           "section": "8",
@@ -20061,6 +20098,7 @@
       "kind": "video-generation",
       "family": "LTX-Video",
       "level": "verified",
+      "license": "other",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -20075,6 +20113,7 @@
         "tests": []
       },
       "notes": "0.75 s per step at 768\u00D7512\u00D797 frames, 10.0 GB",
+      "licenseNotice": "Open RAIL-M licence from Lightricks: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to derivatives and to anyone you distribute the model to.",
       "doc": [
         {
           "section": "8",
@@ -22184,7 +22223,7 @@
         "tests": []
       },
       "notes": "DINOv3 license (gated, accept the terms and use a token); 4 registers, 2-D rotary positions, LayerScale",
-      "licenseNotice": "DINOv3 licence from Meta (gated): custom terms, accept them on the Hub and read them before you use the model commercially.",
+      "licenseNotice": "DINOv3 licence from Meta (gated, accept it on the Hub): commercial use is allowed and royalty free. It bans use for military or warfare, nuclear, espionage or weapons purposes and anything prohibited by export or sanctions rules, bans reverse engineering, requires you to acknowledge the model in published research and to pass the licence on.",
       "doc": []
     },
     {
@@ -22250,7 +22289,7 @@
         "tests": []
       },
       "notes": "DINOv3 license (gated, accept the terms and use a token)",
-      "licenseNotice": "DINOv3 licence from Meta (gated): custom terms, accept them on the Hub and read them before you use the model commercially.",
+      "licenseNotice": "DINOv3 licence from Meta (gated, accept it on the Hub): commercial use is allowed and royalty free. It bans use for military or warfare, nuclear, espionage or weapons purposes and anything prohibited by export or sanctions rules, bans reverse engineering, requires you to acknowledge the model in published research and to pass the licence on.",
       "doc": []
     },
     {
@@ -23245,7 +23284,7 @@
         "tests": []
       },
       "notes": "license OpenMDW 1.1; windows of 30 s; lookahead fixed at the checkpoint\u0027s default (3 rows); 128 language prompts via SpeechRecognitionOptions.Language; NVIDIA\u0027s q8_0 GGUF not supported",
-      "licenseNotice": "OpenMDW 1.1: a permissive open model licence (use, modify and share, with attribution and notices kept). Read it on the model page.",
+      "licenseNotice": "OpenMDW 1.1: permissive. You may use, modify and share the model, also commercially, with no restrictions on outputs; when you distribute it, keep a copy of the agreement and the origin notices. Filing a patent or copyright suit over the model ends your rights.",
       "doc": [
         {
           "section": "2",

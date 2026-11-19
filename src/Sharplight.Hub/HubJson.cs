@@ -12,7 +12,7 @@ internal static class HubJson
         using var document = Parse(json);
         var root = document.RootElement;
         var commit = String(root, "sha") ?? throw new HubException("The Hub's answer has no commit sha.");
-        return new HubRevisionInfo(String(root, "id"), commit, IsGated(root), Architecture(root), CardLicense(root));
+        return new HubRevisionInfo(String(root, "id"), commit, IsGated(root), Architecture(root), CardLicense(root), BaseModel(root));
     }
 
     /// <summary>The model family the Hub derived from the files: <c>gguf.architecture</c>, else <c>config.model_type</c>.</summary>
@@ -34,6 +34,26 @@ internal static class HubJson
         => root.TryGetProperty("cardData", out var card) && card.ValueKind == JsonValueKind.Object && String(card, "license") is { Length: > 0 } license
             ? license
             : License(root);
+
+    /// <summary>The model this repository was quantized from (the first <c>base_model:quantized:</c> tag), which marks it as a repackaging of that model; null otherwise.</summary>
+    private static string? BaseModel(JsonElement root)
+    {
+        const string prefix = "base_model:quantized:";
+        if (!root.TryGetProperty("tags", out var tags) || tags.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var tag in tags.EnumerateArray())
+        {
+            if (tag.ValueKind == JsonValueKind.String && tag.GetString() is { } text && text.StartsWith(prefix, StringComparison.Ordinal) && text.Length > prefix.Length)
+            {
+                return text[prefix.Length..];
+            }
+        }
+
+        return null;
+    }
 
     public static IReadOnlyList<HubFile> ParseTree(string json)
     {

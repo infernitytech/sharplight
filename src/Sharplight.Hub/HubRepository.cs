@@ -11,5 +11,9 @@ namespace Sharplight.Hub;
 /// <see langword="null"/>.
 /// </param>
 /// <param name="License">The license id the model card declares (e.g. <c>apache-2.0</c>), or <see langword="null"/>.</param>
+/// <param name="BaseModel">
+/// The repository the Hub lists as the model this one was quantized from (a <c>base_model:quantized:</c> tag), i.e. the original model of a
+/// repackaging, or <see langword="null"/>.
+/// </param>
 public sealed record HubRepository(string Id, string Revision, string Commit, bool Gated, IReadOnlyList<HubFile> Files, string? Architecture = null,
-    string? License = null);
+    string? License = null, string? BaseModel = null);

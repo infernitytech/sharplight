@@ -46,6 +46,66 @@ public sealed class CatalogResolverTests : IDisposable
     }
 
     [Fact]
+    public async Task RepackagingTakesTheLicenseOfTheOriginalModel()
+    {
+        _hub.Add("owner/Base", commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").With("config.json", "{}").License = "apache-2.0";
+        var repack = _hub.Add("repackager/Model-GGUF", commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").WithSize("Model-Q8_0.gguf", 40_000);
+        repack.License = "creativeml-openrail-m";
+        repack.BaseModel = "owner/Base";
+
+        var resolved = await ResolveAsync(CatalogSamples.Entry("model", Variant("repackager/Model-GGUF")));
+
+        Assert.Equal("apache-2.0", Assert.Single(resolved.Entries).License);
+    }
+
+    [Fact]
+    public async Task RepackagingFallsBackToItsOwnLicenseWhenTheOriginalIsUnreadable()
+    {
+        var repack = _hub.Add("repackager/Model-GGUF", commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").WithSize("Model-Q8_0.gguf", 40_000);
+        repack.License = "mit";
+        repack.BaseModel = "owner/Gone";
+
+        var resolved = await ResolveAsync(CatalogSamples.Entry("model", Variant("repackager/Model-GGUF")));
+
+        Assert.Equal("mit", Assert.Single(resolved.Entries).License);
+    }
+
+    [Fact]
+    public async Task ARepositoryThatIsNotARepackagingKeepsItsOwnLicense()
+    {
+        _hub.Add("owner/Own", commit: "cccccccccccccccccccccccccccccccccccccccc").WithSize("Model-Q8_0.gguf", 40_000).License = "mit";
+
+        var resolved = await ResolveAsync(CatalogSamples.Entry("model", Variant("owner/Own")));
+
+        Assert.Equal("mit", Assert.Single(resolved.Entries).License);
+    }
+
+    [Theory]
+    [InlineData("Missing")]
+    [InlineData("Refresh")]
+    [InlineData("Update")]
+    public async Task ALicenseSetByHandIsNeverOverwritten(string modeName)
+    {
+        _hub.Add("owner/Base", commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").With("config.json", "{}").License = "other";
+        var repack = _hub.Add("repackager/Model-GGUF", commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").WithSize("Model-Q8_0.gguf", 40_000);
+        repack.License = "creativeml-openrail-m";
+        repack.BaseModel = "owner/Base";
+
+        var resolved = await ResolveAsync(CatalogSamples.Entry("model", Variant("repackager/Model-GGUF")) with { License = "apache-2.0" }, Enum.Parse<ResolveMode>(modeName));
+
+        Assert.Equal("apache-2.0", Assert.Single(resolved.Entries).License);
+    }
+
+    private static CatalogVariant Variant(string repository)
+        => new() { Id = "q8-0-gguf", Label = "Q8_0 GGUF", Format = "gguf", Repository = repository, Include = ["*.gguf"] };
+
+    private async Task<VerifiedCatalog> ResolveAsync(CatalogEntry entry, ResolveMode mode = ResolveMode.Missing)
+    {
+        var resolver = new CatalogResolver(new HubClient(_http, _hub.Options()), _ => { });
+        return await resolver.ResolveAsync(CatalogSamples.Catalog(entry), mode, null, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task UnmatchedPatternIsReportedAndLeavesTheSetUnresolved()
     {
         var variant = new CatalogVariant { Id = "x", Label = "X", Format = "gguf", Repository = "owner/Model-GGUF", Include = ["*.missing"] };

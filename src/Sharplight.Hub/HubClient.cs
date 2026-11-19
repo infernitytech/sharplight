@@ -127,7 +127,7 @@ public sealed partial class HubClient
             page = next;
         }
 
-        return new HubRepository(id, revision, info.Commit, info.Gated, files, info.Architecture, info.License);
+        return new HubRepository(id, revision, info.Commit, info.Gated, files, info.Architecture, info.License, info.BaseModel);
     }
 
     /// <summary>Downloads a small text file (e.g. a safetensors index) of a resolved repository.</summary>
