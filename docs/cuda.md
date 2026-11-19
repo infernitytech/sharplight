@@ -174,10 +174,11 @@ so FP8 stays on the generated `gemm_fp8`.
   (`sharplight --provider cuda`, `ExecutionProviderCatalog.TryFind("cuda", ...)`), and becomes the GPU provider when Vulkan is
   unavailable (no Vulkan loader, e.g. a headless container with only the CUDA driver libraries mounted).
 - **Per device, later.** Both providers list the same GPU; the CUDA device reports the same UUID as the Vulkan one (`DeviceInfo.Uuid`),
-  so a host can match them. The plan for making CUDA the default is per device and per measured win: a provider-preference policy in
+  so a host can match them (Vulkan writes it as 32 hex digits, CUDA as a dashed GUID: compare them without dashes and case, as Studio does). The plan for making CUDA the default is per device and per measured win: a provider-preference policy in
   the catalog keyed by vendor and compute capability (e.g. "cuda first for compute capability ≥ 8.9 once the FP8 GEMMs land"), applied
   by the samples and Studio, with `--provider` and a Studio setting as overrides. It flips only for a device class after CUDA is shown
-  faster and the Families and kernel suites are green on it. Phase 1 changes no default.
+  faster and the Families and kernel suites are green on it. Phase 1 changes no default. Studio has the setting and the hook
+  ([below](#studio)): a provider per GPU, `IProviderPerformanceHints` for the policy.
 - **Disable switch.** Not registering the provider, `CudaProviderOptions`, or hiding GPUs with `CUDA_VISIBLE_DEVICES=""`. Features
   are switched off per device like everywhere (`SHARPLIGHT_DISABLE_FEATURES`).
 - **Fallback.** A kernel NVRTC or the driver rejects fails the segment's compilation with a `KernelCompilationException`, as on Vulkan;
@@ -263,13 +264,19 @@ A self-contained linux-x64 publish of the CLI with the CUDA provider is 278 MB, 
 
 ### Studio
 
-Studio does not include the CUDA provider in phase 1: Vulkan stays its GPU provider, and nothing a Studio user runs would take the
-CUDA path. Including it would add about 115 MB installed per platform, about 34 MB to the AppImage and about 45 MB to each full
-Velopack package (deltas carry it only when NVRTC changes). The plan is to add it when CUDA becomes the default for a device class, as
-an optional component: the managed provider always (72 KB), NVRTC either in the package or downloaded on first use of an NVIDIA GPU
-into the storage location (the same pinned archive and SHA-256 as the build, from NVIDIA's server). Packages precompiled for the
-common GPUs (the verified catalog's models, PTX for `ptx_86` / `ptx_89` / `ptx_120` plus cubins) would make even that download
-unnecessary for catalog models.
+Studio ships with the CUDA provider (decision of 2026-11-19; the package cost below is accepted): `Sharplight.Cuda` and the NVRTC redistributables
+of `Sharplight.Cuda.Runtime` are part of the Linux packages (AppImage and tar.gz, x64 and ARM64) and the Windows x64 packages (Velopack Setup.exe
+and the portable zip), with `THIRD-PARTY-NOTICES-Cuda.md` and NVIDIA's `LICENSE-NVIDIA-CUDA.txt` next to the executable. macOS and Windows on
+ARM have no NVIDIA driver and carry none of it (`StudioCuda` in `Sharplight.Studio.csproj`; `packaging/check-cuda.sh` fails the packaging when a
+runtime has the wrong set). The package cost is about 115 MB installed per platform, about 34 MB in the AppImage and about 45 MB in each full
+Velopack package (deltas carry it only when NVRTC changes); measured sizes are in [studio.md](studio.md#installing-and-updating).
+
+Studio registers the provider after Vulkan (`AddStudioProviders`), so Vulkan stays the default on every NVIDIA GPU. Settings > Engine > Compute
+devices has a provider per GPU (Automatic, Vulkan, CUDA); Automatic is Vulkan until `IProviderPerformanceHints` (the hook for the per-device policy
+above: a catalog keyed by vendor and compute capability) names CUDA for the GPU. A driver older than CUDA 13.0, a CUDA that does not initialize or
+a load that fails on CUDA hands the GPU to Vulkan, with a note in the device list and a line in `studio.log`. Precompilation covers CUDA devices
+(PTX, then a cubin for the device), and the package inspector lists both stages. `sharplight-studio --smoke --smoke-provider cuda` runs the smoke
+test on a CUDA device. Details in [studio.md](studio.md#cuda-and-the-provider-per-gpu).
 
 ## Tests
 

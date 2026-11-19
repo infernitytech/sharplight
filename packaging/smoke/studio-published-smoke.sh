@@ -9,8 +9,10 @@
 #   STUDIO_UPDATE_URL   feed folder (default https://download.sharplight.dev/studio)
 #   SMOKE_CHANNEL       unstable (default) or stable
 #   EXPECTED_SHA        commit that was just published; the downloaded version must be built from it (or from a newer commit on it)
+#   SMOKE_CUDA          auto (default): also run `--smoke --smoke-provider cuda` where nvidia-smi finds a GPU (linux-x64, win-x64; skipped with a
+#                       note otherwise), 0: never, 1: a missing GPU fails the run
 #   GITHUB_STEP_SUMMARY optional: a Markdown summary is appended
-# Writes <out-dir>/report.json, <out-dir>/storage.txt, <out-dir>/logs/ (the Studio log folder) and <out-dir>/run.txt; exit 0 = passed.
+# Writes <out-dir>/report.json (report-cuda.json for the CUDA run), <out-dir>/storage.txt, <out-dir>/logs/ (the Studio log folder) and <out-dir>/run.txt; exit 0 = passed.
 # Needs bash, curl, jq; Linux also xvfb-run; Windows 7-Zip or PowerShell; macOS ditto (all present on the GitHub runners).
 set -euo pipefail
 
@@ -156,4 +158,38 @@ fi
 if [ "$passed" != "true" ] || [ "$status" -ne 0 ]; then
     fail "smoke run failed (exit $status): $(jq -r '.Error' "$out/report.json")"
 fi
+# 7. The same run on CUDA, where the machine has an NVIDIA GPU (the builds of linux-x64 and win-x64 carry the CUDA provider and NVRTC). The GitHub
+#    runners have none: the step is then skipped with a note, not failed. SMOKE_CUDA=0 skips it, SMOKE_CUDA=1 makes a missing GPU a failure.
+cuda="${SMOKE_CUDA:-auto}"
+case "$rid" in
+    linux-x64|win-x64) ;;
+    *) cuda=0 ;;
+esac
+if [ "$cuda" != "0" ]; then
+    if command -v nvidia-smi > /dev/null && nvidia-smi -L > "$out/nvidia-smi.txt" 2>&1; then
+        echo "NVIDIA GPU found ($(head -n 1 "$out/nvidia-smi.txt")): running the smoke test on CUDA"
+        cuda_report="$out/report-cuda.json"
+        report_arg="$cuda_report"
+        if [ "$rid" = "win-x64" ]; then
+            report_arg="$(cygpath -m "$report_arg")"
+        fi
+        cuda_status=0
+        ${runner[@]+"${runner[@]}"} "${studio[@]}" --smoke --smoke-provider cuda --smoke-report "$report_arg" > "$out/run-cuda.txt" 2>&1 || cuda_status=$?
+        echo "Studio --smoke --smoke-provider cuda exited with $cuda_status"
+        tail -n 20 "$out/run-cuda.txt" || true
+        [ -f "$cuda_report" ] || fail "the CUDA smoke run exited with $cuda_status and wrote no report"
+        summary "### $rid CUDA"
+        summary "$(jq -r '"- devices: " + (.Devices | join("; ")) + "\n" + ([.Steps[] | "- " + (if .Passed then "pass" else "FAIL" end) + " " + .Name + " (" + (.Seconds | tostring) + " s): " + .Detail] | join("\n"))' "$cuda_report")"
+        if [ "$(jq -r '.Passed' "$cuda_report")" != "true" ] || [ "$cuda_status" -ne 0 ]; then
+            fail "the CUDA smoke run failed (exit $cuda_status): $(jq -r '.Error' "$cuda_report")"
+        fi
+        echo "Studio smoke ($rid, CUDA) passed"
+    elif [ "$cuda" = "1" ]; then
+        fail "SMOKE_CUDA=1 but this machine has no NVIDIA GPU (nvidia-smi)"
+    else
+        echo "::notice title=Studio smoke ($rid)::CUDA smoke skipped: this runner has no NVIDIA GPU (the CPU smoke run above passed)"
+        summary "- CUDA smoke skipped: no NVIDIA GPU on this runner"
+    fi
+fi
+
 echo "Studio smoke ($rid) passed: $version"

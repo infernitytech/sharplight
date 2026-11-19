@@ -3,7 +3,9 @@ using Avalonia.Headless;
 using Avalonia.Logging;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Sharplight.Models;
+using Sharplight.Runtime;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Tests.FirstRun;
 using Sharplight.Studio.Platform;
@@ -131,6 +133,80 @@ public sealed class PageScreenshotTests
             var problems = LayoutChecker.Find(window, IsChecked).Distinct().Take(8).ToList();
             Save(window, $"{page}-{theme}-{width}");
             Assert.True(problems.Count == 0, $"{page} ({theme}, {width} px):\n" + string.Join("\n", problems));
+        }
+        finally
+        {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            Logger.Sink = null;
+        }
+
+        Assert.True(sink.Messages.Count == 0, string.Join("\n", sink.Messages.Distinct()));
+    });
+
+    public static TheoryData<string, int, string> EngineCudaCases
+    {
+        get
+        {
+            var data = new TheoryData<string, int, string>();
+            foreach (string variant in new[] { "cuda-chosen", "cuda-fallback", "cuda-unavailable" })
+            {
+                foreach (string theme in new[] { "light", "dark" })
+                {
+                    foreach (var (width, _) in s_sizes)
+                    {
+                        data.Add(theme, (int)width, variant);
+                    }
+                }
+            }
+
+            return data;
+        }
+    }
+
+    /// <summary>
+    /// Settings &gt; Engine on an NVIDIA GPU that Vulkan and CUDA both drive: the provider picker with CUDA chosen, the same with a driver too old for
+    /// CUDA (the note and Vulkan in use), and a machine where CUDA is not available at all (no picker, the note).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EngineCudaCases))]
+    public Task EngineSettings_WithCudaDevices_RendersWithoutBindingErrorsOrClippedControls(string theme, int width, string variant) => HeadlessApp.RunAsync(async () =>
+    {
+        double height = s_sizes.Single(size => (int)size.Width == width).Height;
+        var sink = new BindingErrorSink();
+        Logger.Sink = sink;
+        using var rig = new FeedCatalogTests.Rig();
+        var discovery = variant switch
+        {
+            "cuda-fallback" => ProviderFixtures.Discover(cudaDriver: "12.8"),
+            "cuda-unavailable" => ProviderFixtures.Discover(cudaAvailability: ProviderAvailability.Unavailable("libcuda.so.1 was not found: no NVIDIA driver is installed"), cudaListed: false),
+            _ => ProviderFixtures.Discover(),
+        };
+        ProviderFixtures.Wire(rig.Services, discovery);
+        if (variant != "cuda-unavailable")
+        {
+            string key = rig.Services.Runtime.Gpus[0].Key;
+            rig.Services.Settings.Update(current => current with { DeviceProviders = new Dictionary<string, ProviderChoice> { [key] = ProviderChoice.Cuda } });
+        }
+
+        new ThemeService(Application.Current!).Apply(theme == "dark" ? AppTheme.Dark : AppTheme.Light, "Violet");
+        var viewModel = new MainWindowViewModel(rig.All);
+        var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
+        window.Show();
+        try
+        {
+            await ShowSettingsAsync(viewModel, SettingsTab.Engine);
+            await HeadlessApp.RenderAsync(window);
+            await HeadlessApp.RenderAsync(window);
+
+            var texts = window.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>().Where(block => block.IsEffectivelyVisible).Select(block => block.Text ?? "").ToList();
+            Assert.Contains("Compute devices", texts);
+            Assert.Contains(texts, text => text.StartsWith("Runs on ", StringComparison.Ordinal));
+            Assert.Equal(variant != "cuda-chosen", texts.Any(text => text.Contains("Vulkan is used", StringComparison.Ordinal)));
+            Assert.Equal(variant == "cuda-chosen", texts.Contains("Runs on CUDA"));
+            var problems = LayoutChecker.Find(window, IsChecked).Distinct().Take(8).ToList();
+            Save(window, $"settings-engine-{variant}-{theme}-{width}");
+            Assert.True(problems.Count == 0, $"settings-engine {variant} ({theme}, {width} px):\n" + string.Join("\n", problems));
         }
         finally
         {

@@ -37,6 +37,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private readonly Func<bool> _useCompilationCache;
     private readonly Func<string, ModelLoadRequest?>? _resolve;
     private readonly IReadOnlyList<ComputeDeviceOption> _physical;
+    private readonly DeviceProviderSelector _selector;
     private readonly FootprintEstimator _estimator;
     private readonly EngineServices _engine;
     private readonly UpdateThrottle _changed;
@@ -47,22 +48,31 @@ internal sealed class EngineModelRuntime : IModelRuntime
     /// <param name="resolve">Turns a name requested by a chat or API client into a library model to load on demand, or null.</param>
     /// <param name="useCompilationCache">Whether devices use the per-user artifact store (read when a device is opened); default yes.</param>
     /// <param name="logger">Receives the device list and load events (never prompts or other content), or null.</param>
+    /// <param name="providerChoices">The per-GPU provider choices of the settings (read when a device list or a load is resolved); null: all automatic.</param>
+    /// <param name="hints">Per-device knowledge that <see cref="ProviderChoice.Automatic"/> consults; null: none, so Vulkan.</param>
     public EngineModelRuntime(EngineServices engine, Func<ResidencySettings> residency, Func<string, ModelLoadRequest?>? resolve = null, Func<bool>? useCompilationCache = null,
-        ILogger? logger = null)
+        ILogger? logger = null, Func<IReadOnlyDictionary<string, ProviderChoice>>? providerChoices = null, IProviderPerformanceHints? hints = null)
     {
         _logger = logger ?? NullLogger.Instance;
         _engine = engine;
         _estimator = new FootprintEstimator(engine.Loader);
         _useCompilationCache = useCompilationCache ?? (() => true);
-        var discovered = DeviceCatalog.Discover(engine.Providers);
-        _physical = [.. discovered.Select(entry => entry.Option)];
+        var discovery = DeviceCatalog.Discover(engine.Providers);
+        _physical = discovery.Options;
+        _selector = new DeviceProviderSelector(discovery, providerChoices, hints, _logger);
         _logger.LogInformation("Compute devices: {Devices}", _physical.Count == 0 ? "none"
-            : string.Join("; ", _physical.Select(device => $"{device.Name} [{device.Provider}{(device.IsGpu ? ", GPU" : "")}]")));
-        // Only GPUs of the preferred provider are split over: on a Mac the Metal and the Vulkan (MoltenVK) device are the same GPU.
-        var gpus = _physical.Where(device => device.IsGpu).ToList();
-        var splittable = gpus.Where(device => device.Provider == gpus[0].Provider).ToList();
-        Devices = splittable.Count > 1 ? [.. gpus, ComputeDeviceOption.AllGpus(splittable), .. _physical.Where(device => !device.IsGpu)] : _physical;
-        _devices = discovered.ToDictionary(entry => entry.Option.Id, entry => (entry.Provider, entry.Info));
+            : string.Join("; ", _selector.Devices.Select(device => $"{device.Name} [{device.Provider}{(device.IsGpu ? ", GPU" : "")}]")));
+        foreach (var (provider, reason) in discovery.Unavailable)
+        {
+            _logger.LogInformation("Execution provider {Provider} is not available: {Reason}", provider, reason);
+        }
+
+        foreach (var note in _selector.Notes)
+        {
+            _logger.LogWarning("{Note}", note);
+        }
+
+        _devices = discovery.Entries.ToDictionary(entry => entry.Option.Id, entry => (entry.Provider, entry.Info));
         _residency = residency;
         _resolve = resolve;
         var settings = residency();
@@ -81,7 +91,20 @@ internal sealed class EngineModelRuntime : IModelRuntime
     public ModelHost Host { get; }
 
     /// <inheritdoc/>
-    public IReadOnlyList<ComputeDeviceOption> Devices { get; }
+    public IReadOnlyList<ComputeDeviceOption> Devices
+    {
+        get
+        {
+            // Only GPUs of the preferred provider are split over: on a Mac the Metal and the Vulkan (MoltenVK) device are the same GPU,
+            // and on an NVIDIA GPU the Vulkan and the CUDA entry are.
+            var devices = _selector.Devices;
+            var splittable = SplittableGpus();
+            return splittable.Count > 1 ? [.. devices.Where(device => device.IsGpu), ComputeDeviceOption.AllGpus(splittable), .. devices.Where(device => !device.IsGpu)] : devices;
+        }
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<PhysicalGpu> Gpus => _selector.Gpus;
 
     /// <inheritdoc/>
     public IReadOnlyList<ILoadedModel> LoadedModels
@@ -138,26 +161,37 @@ internal sealed class EngineModelRuntime : IModelRuntime
 
         // Opening the devices (driver initialization, pipeline caches) can take seconds: never on the caller's (UI) thread.
         bool pinned = _residency().PinManualLoads;
-        var model = await Task.Run(() => Add(request, pinned), cancellationToken).ConfigureAwait(false);
-        model.LoadListener = progress;
-        try
+        while (true)
         {
-            _logger.LogInformation("Loading a {Kind} model on {Device}", request.Kind, model.Device.Name);
-            progress?.Report(LoadStatus.Message($"Loading {Path.GetFileName(request.Path)} on {model.Device.Name}"));
-            await Host.LoadAsync(request.Id, cancellationToken).ConfigureAwait(false);
-            return model;
-        }
-        catch (Exception loadError)
-        {
-            // Cancelled or failed: abandon a load still running and forget the model.
-            _logger.LogWarning(loadError, "Loading a {Kind} model failed", request.Kind);
-            AbandonLoad(request.Id);
-            _ = RemoveAsync(request.Id, force: true);
-            throw;
-        }
-        finally
-        {
-            model.LoadListener = null;
+            var model = await Task.Run(() => Add(request, pinned), cancellationToken).ConfigureAwait(false);
+            model.LoadListener = progress;
+            try
+            {
+                _logger.LogInformation("Loading a {Kind} model on {Device} ({Provider})", request.Kind, model.Device.Name, ProviderTitles.Of(model.Device.Provider));
+                progress?.Report(LoadStatus.Message($"Loading {Path.GetFileName(request.Path)} on {model.Device.Name}"));
+                await Host.LoadAsync(request.Id, cancellationToken).ConfigureAwait(false);
+                return model;
+            }
+            catch (Exception loadError)
+            {
+                // Cancelled or failed: abandon a load still running and forget the model.
+                _logger.LogWarning(loadError, "Loading a {Kind} model failed", request.Kind);
+                AbandonLoad(request.Id);
+                await RemoveAsync(request.Id, force: true).ConfigureAwait(false);
+
+                // A GPU another provider can drive (CUDA failing at its kernels, an old driver): load again on that one, once per failing provider.
+                if (_selector.Failover(model.Device, loadError) is not { } fallback)
+                {
+                    throw;
+                }
+
+                progress?.Report(LoadStatus.Message($"{ProviderTitles.Of(model.Device.Provider)} failed on {model.Device.Name}; loading with {ProviderTitles.Of(fallback.Provider)}"));
+                request = request with { Settings = request.Settings with { DeviceId = fallback.Id } };
+            }
+            finally
+            {
+                model.LoadListener = null;
+            }
         }
     }
 
@@ -190,7 +224,8 @@ internal sealed class EngineModelRuntime : IModelRuntime
         return Task.Run<IReadOnlyList<DeviceMemory>>(() =>
         {
             var memory = new List<DeviceMemory>();
-            foreach (var option in _physical)
+            var inUse = _selector.Gpus.Select(gpu => gpu.Effective.Id).ToHashSet(StringComparer.Ordinal);
+            foreach (var option in _physical.Where(option => !option.IsGpu || option.GpuKey is null || inUse.Contains(option.Id)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 IComputeDevice device;
@@ -207,6 +242,14 @@ internal sealed class EngineModelRuntime : IModelRuntime
                 var info = device.GetMemoryInfo();
                 long total = info.Total > 0 ? info.Total : option.TotalMemory;
                 memory.Add(new DeviceMemory(option.Id, option.Name, option.IsGpu, total, Math.Min(total, info.Available), info.IsExact));
+                if (option.GpuKey is not null)
+                {
+                    // The same GPU through another provider shares its memory: no second context is opened just to ask.
+                    foreach (var sibling in _physical.Where(other => other.GpuKey == option.GpuKey && other.Id != option.Id))
+                    {
+                        memory.Add(new DeviceMemory(sibling.Id, sibling.Name, true, total, Math.Min(total, info.Available), info.IsExact));
+                    }
+                }
             }
 
             return memory;
@@ -299,6 +342,19 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private IEngineModel CreateModel(ModelLoadRequest request, bool pinned, out ModelRegistration registration)
     {
         var device = ResolveDevice(request.Settings.DeviceId);
+        try
+        {
+            return BuildModel(request, device, pinned, out registration);
+        }
+        catch (Exception error) when (_selector.Failover(device, error) is { } fallback)
+        {
+            // Opening the device failed (the CUDA driver does not initialize): the GPU's next provider takes over.
+            return BuildModel(request, fallback, pinned, out registration);
+        }
+    }
+
+    private IEngineModel BuildModel(ModelLoadRequest request, ComputeDeviceOption device, bool pinned, out ModelRegistration registration)
+    {
         var idle = _residency().IdleUnloadMinutes;
         if (TaskKindClients.Handles(request.Kind) || request.Kind is ModelKindCatalog.Embeddings or ModelKindCatalog.Reranker)
         {
@@ -334,12 +390,19 @@ internal sealed class EngineModelRuntime : IModelRuntime
 
     private ComputeDeviceOption ResolveDevice(string? deviceId)
     {
-        if (deviceId is not null && Devices.FirstOrDefault(device => device.Id == deviceId) is { } chosen)
-        {
-            return chosen;
-        }
+        var devices = Devices;
+        var chosen = deviceId is not null && devices.FirstOrDefault(device => device.Id == deviceId) is { } named ? named : devices.FirstOrDefault()
+            ?? throw new InvalidOperationException("No execution provider is available on this machine.");
 
-        return Devices.FirstOrDefault() ?? throw new InvalidOperationException("No execution provider is available on this machine.");
+        // A provider that cannot be used on the GPU (CUDA with an old driver) hands the load to the GPU's next provider.
+        return _selector.Usable(chosen);
+    }
+
+    /// <summary>The GPUs a model can be split over: one entry per GPU, all of the first GPU's provider.</summary>
+    private List<ComputeDeviceOption> SplittableGpus()
+    {
+        var gpus = _selector.Gpus.Select(gpu => gpu.Effective).ToList();
+        return gpus.Count == 0 ? [] : [.. gpus.Where(device => device.Provider == gpus[0].Provider)];
     }
 
     private RetrievalModelLoader CreateRetrievalLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model, bool reranker)
@@ -420,7 +483,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private List<DeviceSlot> SplitSlots(IReadOnlySet<string> disabled)
     {
         long reserve = Math.Max(0, _residency().ReserveMiB) * (1L << 20);
-        return [.. _physical.Where(option => option.IsGpu).Select(option =>
+        return [.. SplittableGpus().Select(option =>
         {
             var device = Open(option, disabled);
             return new DeviceSlot { Device = device, Weight = FitPlanner.SplitWeight(device.GetMemoryInfo().Available, reserve) };

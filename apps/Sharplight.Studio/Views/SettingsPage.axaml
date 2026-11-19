@@ -303,6 +303,39 @@
             <ColumnDefinition Width="*" MaxWidth="980" />
           </Grid.ColumnDefinitions>
           <StackPanel Spacing="16">
+          <!-- Compute devices: the provider per GPU -->
+          <Border Classes="card" IsVisible="{Binding HasGpus}">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="h3" Text="Compute devices" />
+              <TextBlock Classes="caption" TextWrapping="Wrap"
+                         Text="An NVIDIA GPU can run models through Vulkan or CUDA. Automatic uses Vulkan until Studio knows CUDA is faster on your GPU. The choice applies to loads that do not name a provider; a model's load options can still pick one." />
+              <ItemsControl ItemsSource="{Binding GpuProviders}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="setvm:GpuProviderViewModel">
+                    <StackPanel Spacing="4" Margin="0,4">
+                      <Grid ColumnDefinitions="*,12,Auto">
+                        <StackPanel>
+                          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Classes="caption" Text="{Binding MemoryText}" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Text="{Binding InUse}" Classes="caption" VerticalAlignment="Center" IsVisible="{Binding !HasChoice}" />
+                        <ComboBox Grid.Column="2" ItemsSource="{Binding Choices}" SelectedItem="{Binding Selected}" MinWidth="160" IsVisible="{Binding HasChoice}"
+                                  AutomationProperties.Name="Provider">
+                          <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="setvm:ProviderChoiceItem">
+                              <TextBlock Text="{Binding Title}" />
+                            </DataTemplate>
+                          </ComboBox.ItemTemplate>
+                        </ComboBox>
+                      </Grid>
+                      <TextBlock Classes="caption" Text="{Binding InUse}" IsVisible="{Binding HasChoice}" />
+                      <TextBlock Classes="caption" Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
           <!-- Load defaults -->
           <Border Classes="card">
             <StackPanel Spacing="12">
