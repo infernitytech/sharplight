@@ -9962,6 +9962,116 @@
       ]
     },
     {
+      "id": "cohere-transcribe-03-2026",
+      "name": "Cohere Transcribe 03-2026",
+      "kind": "speech-recognition",
+      "family": "Cohere Transcribe",
+      "architecture": "cohere_asr",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": true,
+      "publisher": {
+        "name": "Cohere Labs",
+        "countryOfOrigin": "CA",
+        "url": "https://cohere.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 5154295606,
+          "companions": [],
+          "repository": "CohereLabs/cohere-transcribe-03-2026",
+          "revision": "d552dadc2922ba6f6c1f994f8db904d52dcaf942",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "model.safetensors",
+            "preprocessor_config.json",
+            "processor_config.json",
+            "special_tokens_map.json",
+            "tokenizer.json",
+            "tokenizer.model",
+            "tokenizer_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 3998,
+              "gitOid": "69c9fbe224fa4027f6ee5c563ea5da4a584d9458"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 234,
+              "gitOid": "cec3eb17ebf2cd5bdac57101163d4b16bc8c912b"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 4131862976,
+              "sha256": "987bd3e141c7bfdb5a78f5db11397ee7737308357e6cc0a3f36a4979b158137a"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 420,
+              "gitOid": "4f261dcb01c6cf62f7bb12a8debc54495d9a0dc6"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 131,
+              "gitOid": "fc14ee1e20351f89d07da5e15897444ee4c12818"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 4091,
+              "gitOid": "2554feeb7e14e1ce26fc28afc358df1ac7e67727"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 1816694,
+              "gitOid": "1f12795ce362a755e87b129659019dacab0b5898"
+            },
+            {
+              "path": "tokenizer.model",
+              "size": 492827,
+              "sha256": "6d21e6a83b2d0d3e1241a7817e4bef8eb63bcb7cfe4a2675af9a35ff3bbf0e14"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 48138,
+              "gitOid": "c689b7808900e860e4229fcb666792d311423c1a"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "ids identical to transformers\u0027 native cohere_asr (greedy, punctuation) on 7 recordings in English, German, French, Spanish and Japanese, incl. 45-60 s recordings split into 35 s chunks",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "14 languages, no language detection (requests without a language are English); punctuation always on; no timestamps",
+      "doc": [
+        {
+          "section": "2",
+          "cells": {
+            "repositories": "CohereLabs/cohere-transcribe-03-2026",
+            "formats": "HF, \u0060.slm\u0060"
+          }
+        }
+      ]
+    },
+    {
       "id": "whisper-large-v3",
       "name": "Whisper large-v3",
       "kind": "speech-recognition",

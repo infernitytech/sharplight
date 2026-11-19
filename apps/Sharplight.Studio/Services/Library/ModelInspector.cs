@@ -224,7 +224,7 @@ internal static class ModelInspector
     /// <summary>The Hugging Face <c>model_type</c> values of the speech-recognition checkpoints Sharplight imports.</summary>
     private static readonly HashSet<string> s_speechRecognitionModelTypes = new(StringComparer.Ordinal)
     {
-        "whisper", "moonshine", "parakeet_ctc", "parakeet_tdt", "parakeet_rnnt", "canary", "voxtral",
+        "whisper", "moonshine", "parakeet_ctc", "parakeet_tdt", "parakeet_rnnt", "canary", "cohere_asr", "voxtral",
     };
 
     /// <summary>The <c>general.architecture</c> values of llama.cpp's bidirectional encoders (embedding models and cross-encoder rerankers).</summary>

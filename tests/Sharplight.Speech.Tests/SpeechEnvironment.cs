@@ -2,13 +2,13 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Cpu;
 using Sharplight.Runtime;
-using Sharplight.Vulkan;
+using Sharplight.Tests;
 
 namespace Sharplight.Speech.Tests;
 
 /// <summary>
 /// Models, audio and devices of the speech tests. Real checkpoints live under <c>~/models</c> (not in git): tests skip when they are
-/// missing. <c>SHARPLIGHT_VK_DEVICES</c> pins the Vulkan device.
+/// missing. <c>SHARPLIGHT_VK_DEVICES</c> pins the Vulkan device; <c>SHARPLIGHT_TEST_PROVIDER=cuda</c> runs the GPU cases on CUDA.
 /// </summary>
 internal static class SpeechEnvironment
 {
@@ -19,16 +19,8 @@ internal static class SpeechEnvironment
         return provider.OpenDevice(provider.GetDevices()[0]);
     });
 
-    private static readonly Lazy<IComputeDevice?> s_vulkan = new(() =>
-    {
-        var provider = new VulkanProvider();
-        if (!provider.CheckAvailability().IsAvailable || provider.GetDevices().Count == 0)
-        {
-            return null;
-        }
-
-        return provider.OpenDevice(provider.GetDevices()[0]);
-    });
+    // The GPU under test: Vulkan unless SHARPLIGHT_TEST_PROVIDER names another provider (tests/Shared/TestGpu.cs).
+    private static readonly Lazy<IComputeDevice?> s_gpu = new(() => TestGpu.Open().Device);
 
     static SpeechEnvironment() => new ServiceCollection().AddSharplight();
 
@@ -64,9 +56,12 @@ internal static class SpeechEnvironment
     /// <param name="name">The name without extension, e.g. <c>ggml-tiny.en</c>.</param>
     public static string WhisperCpp(string name) => Path.Combine(s_models, "whisper.cpp", name + ".bin");
 
-    /// <summary>A device by name (<c>cpu</c> or <c>vulkan</c>), or null when it is not available.</summary>
+    /// <summary>
+    /// A device by name (<c>cpu</c>, or <c>vulkan</c> for the GPU under test: Vulkan, or the provider <c>SHARPLIGHT_TEST_PROVIDER</c> names), or null
+    /// when it is not available.
+    /// </summary>
     /// <param name="name">The device name.</param>
-    public static IComputeDevice? Device(string name) => name == "cpu" ? s_cpu.Value : s_vulkan.Value;
+    public static IComputeDevice? Device(string name) => name == "cpu" ? s_cpu.Value : s_gpu.Value;
 
     /// <summary>Reads a fixture file of the test assembly.</summary>
     /// <param name="name">The file name under Fixtures.</param>

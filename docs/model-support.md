@@ -1355,6 +1355,7 @@ adapter, the model knowledge lives in the importers, and only the feature extrac
 | Moonshine tiny, base | Hugging Face `moonshine`; `.slm` | **supported** (CPU and Vulkan) | transformers (encoder output, token-exact greedy ids) | hf/moonshine-{tiny,base}, audio/jfk.wav, audio/librispeech-1272-128104-0004.wav |
 | Parakeet CTC (parakeet-ctc-0.6b; 1.1b maps the same way) and TDT (parakeet-tdt-0.6b-v3); RNN-T maps but is not verified | Hugging Face `parakeet_ctc`, `parakeet_tdt`, `parakeet_rnnt` (transformers format); `.slm` | **supported** (CPU and Vulkan) | transformers (NeMo log-mel features, encoder output, token-exact greedy CTC / TDT ids) | hf/parakeet-ctc-0.6b, hf/parakeet-tdt-0.6b-v3 |
 | Canary (canary-1b-v2) | Hugging Face `canary` (transformers format); `.slm` | **supported** (CPU and Vulkan; transcription and translation prompts, no timestamps) | transformers (encoder output, token-exact greedy ids of an English transcription with punctuation) | hf/canary-1b-v2 |
+| Cohere Transcribe (cohere-transcribe-03-2026, 14 languages) | Hugging Face `cohere_asr` (the Hub layout with NeMo tensor names and transformers' own `save_pretrained` layout); `.slm` | **supported** (CPU, Vulkan, CUDA; transcription with punctuation, recordings over 35 s split on the waveform, no timestamps; section 13.5) | transformers' native `cohere_asr` (features, projected encoder output, token-exact greedy ids on 7 recordings in 5 languages incl. chunked 45-60 s recordings) | hf/cohere-transcribe-03-2026, hf/tiny-random-cohere-asr |
 | Qwen3-ASR (1.7B), Voxtral Mini 3B: audio language models | Hugging Face (`qwen3_asr` original and `-hf` layouts, `voxtral` with `tekken.json`); transcribe.cpp `qwen3_asr` GGUF | **supported** (CPU and Vulkan), section 13.2 | transformers (token-exact greedy ids) | hf/Qwen3-ASR-1.7B[-hf], speech-gguf/Qwen3-ASR-1.7B-F16.gguf, hf/Voxtral-Mini-3B-2507 |
 | Nemotron 3.5 ASR streaming 0.6B (`nemotron3_5_asr`) | Hugging Face (transformers format); `.slm` | **supported** (CPU and Vulkan; offline, default lookahead of 3 rows, 128 language prompts); round 5, section 13.3 | transformers (log-mel, encoder output, token-exact greedy RNN-T ids) | hf/nemotron-3.5-asr-streaming-0.6b |
 | Voxtral Mini 4B Realtime (`voxtral_realtime`) | Hugging Face (`tekken.json`; the `consolidated.safetensors` copy is ignored); `.slm` | **supported** (CPU and Vulkan; offline mode, one window of up to about 55 s per request); round 5, section 13.3 | transformers (projected audio embeddings, token-exact greedy ids incl. pad / word markers) | hf/Voxtral-Mini-4B-Realtime-2602 |
@@ -1467,7 +1468,7 @@ LibriSpeech 1272-128104-0004, and FLEURS test clips in German, Spanish and Japan
 | handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf | GGUF | rejected with a reason: layer-norm convolution module, causal convolutions, chunked-limited attention (cache-aware streaming FastConformer); the Hugging Face checkpoint is supported since round 5 (section 13.3), the GGUF mapping is not written |
 | Qwen/Qwen3-ASR-1.7B (+ transcribe.cpp GGUF) | HF, GGUF | **supported since 2026-11-16** (section 13.2): greedy ids identical to transformers |
 | mistralai/Voxtral-Mini-4B-Realtime-2602 | HF | **supported since round 5** (section 13.3); the offline mistralai/Voxtral-Mini-3B-2507 since 2026-11-16 (section 13.2) |
-| handy-computer/cohere-transcribe-03-2026-gguf | GGUF | unsupported architecture `cohere_asr` |
+| handy-computer/cohere-transcribe-03-2026-gguf | GGUF | unsupported: the GGUF mapping of `cohere_asr` is not written (the Hugging Face checkpoint is supported since 2026-11-19, section 13.5) |
 | Systran/faster-whisper-* | CTranslate2 | unsupported format (no importer) |
 | Xenova/whisper-* | ONNX | graphs run through the ONNX runner (section 9), no speech-recognition task on ONNX graphs |
 | coqui/XTTS-v2, ResembleAI/chatterbox, SWivid/F5-TTS | PyTorch / safetensors folders | **supported since 2026-11-16** (section 12) |
@@ -1558,7 +1559,7 @@ Not done: NVIDIA's own q8_0 GGUF, the other lookaheads, feeding audio incrementa
 
 Tests: `VoxtralRealtimeParityTests`, `NemotronAsrParityTests`, and the two models in `SpeechPackageTests` (a `.slm` round trip transcribes like
 the source); fixtures from `tools/make_voxtral_realtime_fixtures.py` and `tools/make_nemotron_fixtures.py`. CohereLabs/cohere-transcribe-03-2026 was
-not reached: the Hub repository is gated and the machine's token has not been approved for it (the reference could not be downloaded).
+not reached in round 5 (the gate was not accepted yet); it is supported since 2026-11-19 (section 13.5).
 
 ### 13.4 VibeVoice-ASR (2026-11-18)
 
@@ -1585,6 +1586,54 @@ transcribe it with these keys: Start time, End time, Speaker ID, Content"); the 
   `.slm` package transcribes identically. End to end: a four-turn two-speaker script spoken by this repository's VibeVoice-1.5B synthesizer on Vulkan (11.9 s, no voice prompts) is
   transcribed with two speakers and a word error rate of 3.4 % ("I'm doing well" for "I am doing well").
 - Layouts and catalog: both import to the same canonical model (`VibeVoiceLayoutTests`); the catalog's variant is `microsoft/VibeVoice-ASR-HF` (transformers' conversion with the Qwen2.5 tokenizer, 16 GB); the original `microsoft/VibeVoice-ASR` ships no tokenizer files (copy `tokenizer.json` and `tokenizer_config.json` next to it).
+
+### 13.5 Cohere Transcribe (2026-11-19)
+
+CohereLabs/cohere-transcribe-03-2026 (2 B parameters, bf16, Apache-2.0, gated with automatic approval) is NeMo's Canary design at a larger
+scale: a 48-block FastConformer (width 1280, 8 heads of 160, relative-position attention, 8x depthwise-striding subsampling, batch norm) whose
+output a linear layer projects to the 1024-wide pre-norm transformer decoder (8 layers, ReLU MLPs, a fixed sinusoidal position table, an
+embedding LayerNorm, the head ending in a log-softmax). It transcribes 14 languages (ar, de, el, en, es, fr, it, ja, ko, nl, pl, pt, vi, zh),
+cannot detect the language and has no timestamps or translation. transformers supports it natively (`CohereAsrForConditionalGeneration`,
+transformers >= 5.4); the Hub repository also ships remote code, which is not needed.
+
+- **Importer** (`CohereAsrHfMapping` → `encoder_decoder` with `encoder.type` "conformer"): the Hub checkpoint keeps NeMo's tensor names and
+  configuration (`encoder`, `transf_decoder.config_dict`), which transformers renames when it loads; the mapping translates them to Parakeet's
+  encoder names (`ParakeetHfMapping.TryMapEncoder`) and the decoder to the Canary layout. A checkpoint written by transformers' `save_pretrained`
+  (the same names under `model.`, transformers' own `encoder_config` and decoder keys) imports the same way. The exported `preprocessor.featurizer.fb`
+  / `window` tensors are skipped: transformers computes the slaney filter bank and the symmetric Hann window itself, as the importer does.
+- **Core**: `encoder.hidden_size` (the conformer's width when it differs from the decoder's, read by `ConformerEncoder`) and the optional
+  `encoder.projection.{weight,bias}` applied at the end of the encode graph (`EncoderDecoderAdapter`); no new ops.
+- **Prompt**: the processor's template as `speech.prompt_template_ids`: "▁" (the decoder start token), `<|startofcontext|>`,
+  `<|startoftranscript|>`, `<|emo:undefined|>`, source and target language, `<|pnc|>`, `<|noitn|>`, `<|notimestamp|>`, `<|nodiarize|>`. Requests
+  without a language are English. Punctuation is always on (`<|nopnc|>` is not exposed: `SpeechRecognitionOptions` has no switch for it).
+- **Long recordings** (new, generic: `SpeechKeys.ChunkSeconds`, `ChunkSearchSeconds`, `ChunkEnergyWindow`, `UnspacedLanguages`, implemented by
+  `WaveformChunking` in `EncoderDecoderSpeechRecognizer`): as transformers' feature extractor does, a recording longer than 35 s is cut on the
+  waveform, each cut at the start of the quietest 0.1 s (lowest RMS) in the last 5 s before the limit, and every chunk gets its own features
+  (the per-channel normalization is per chunk) and is decoded on its own; chunk texts join with a space, Japanese and Chinese without one.
+- **Front end**: NeMo's log-mel of Parakeet (pre-emphasis 0.97, 512-point FFT over a 400-sample symmetric window, 128 slaney mels, ln(x + 2^-24),
+  per-channel normalization). transformers adds a deterministic dither (1e-5 Gaussian noise from torch's generator seeded with the length);
+  Sharplight adds none. The reference fixtures are made with dither off; with the default dither and the model card's batched call the
+  reference texts are the same on all 7 recordings.
+
+Parity against transformers 5.23 (CPU, float32 upcast of the bf16 weights; `tests/Sharplight.Speech.Tests/tools/make_cohere_transcribe_fixtures.py`,
+recordings from `make_cohere_transcribe_clips.py`):
+
+| Check | Result |
+|---|---|
+| log-mel features (jfk.wav, LibriSpeech 1272-128104-0004) | max abs error 1.9e-4 of values up to 4.4, 6.3e-5 of 2.9 |
+| projected encoder output, same clips | CPU 3.3e-6 / 4.6e-6 of max 3.6 / 4.5; Vulkan 7.2e-4 / 8.0e-4; CUDA 1.0e-3 / 8.3e-4 (bf16 weights, ≤ 2.7e-4 relative) |
+| energy-based chunk boundaries (7 recordings) | identical sample positions |
+| greedy ids and text: jfk.wav (11 s), LibriSpeech (29 s), Obama weekly address (45 s, 2 chunks), MLS German (60 s, 2 chunks), MLS French (49 s, 2 chunks), MLS Spanish (16 s), JSUT Japanese (55 s, 2 chunks, joined without a space) | identical on CPU, Vulkan and CUDA (21 of 21) |
+| tiny random checkpoint in transformers' layout (`tools/make-tiny-cohere-asr.py`): features, encoder output, decoder logits after the prompt and 6 forced tokens | ≤ 2.8e-5 relative, CPU and Vulkan |
+| `.slm` package (60 s German recording, 2 chunks) | tokens, text and segment times identical to the source |
+| `/v1/audio/transcriptions` (jfk.wav, `verbose_json`) and Studio's Transcribe page | the reference text |
+
+Against the MLS reference transcripts (lower case, no punctuation) the model writes German and Spanish in the same style; the French output
+has punctuation and capitals. Tests: `CohereTranscribeParityTests` (encoder, chunks, greedy ids; the GPU cases run on CUDA with
+`SHARPLIGHT_TEST_PROVIDER=cuda`), `CohereTranscribeTinyModelTests`, `SpeechPackageTests.CohereTranscribePackageChunksLikeItsSource`,
+`Sharplight.Serving.Tests` `SpeechRecognitionRealTests`, Studio `SpeechRealModelTests` (kind detection and the Transcribe page). Not done: the
+handy-computer GGUF conversion, the `<|nopnc|>` / `<|itn|>` prompt options, beam search parity, and the Arabic fine-tune
+(`CohereLabs/cohere-transcribe-arabic-07-2026`: its gate is not approved for the machine's token, HTTP 403).
 
 ## 14. Vision models (task layer)
 
@@ -2580,7 +2629,7 @@ column says what is missing), **community only**, **not run** (selected, not rea
 | 7 | nvidia/parakeet-tdt-0.6b-v3 | NVIDIA | 2025-08-04 | 529k / 1.3k | HF `parakeet_tdt`, GGUF | verified (section 13) |
 | 8 | microsoft/VibeVoice-ASR | Microsoft | 2026-01-21 | 719k / 1.3k | safetensors (`vibevoice`, 8.7 B) | **verified (2026-11-18)**: acoustic + semantic tokenizers (conv encoders) feeding a Qwen2 decoder with speaker-diarized, timestamped long-form output; token-exact greedy vs transformers on jfk.wav and a two-speaker conversation, CPU and Vulkan (section 13.4); MIT |
 | 9 | mistralai/Voxtral-Mini-4B-Realtime-2602 | Mistral AI | 2026-01-21 | 1.5M / 1.1k | safetensors (`voxtral_realtime`, 4.4 B) | **verified (round 5)**: causal streaming audio tower and delayed-token decoder, token-exact vs transformers on CPU and Vulkan (section 13.3) |
-| 10 | CohereLabs/cohere-transcribe-03-2026 | Cohere Labs | 2026-03-24 | 94k / 1.2k | HF `cohere_asr` (gated, auto), handy-computer GGUF | needs arch `cohere_asr` (conformer encoder + autoregressive decoder, close to the Canary path); not attempted in round 5: the gate needs accepted terms and the machine's token is not approved for it |
+| 10 | CohereLabs/cohere-transcribe-03-2026 | Cohere Labs | 2026-03-24 | 94k / 1.2k | HF `cohere_asr` (gated, auto), handy-computer GGUF | **verified (2026-11-19)**: FastConformer encoder projected to a transformer decoder, token-exact greedy vs transformers on CPU, Vulkan and CUDA, 35 s waveform chunking (section 13.5); Apache-2.0. The `cohere-transcribe-arabic-07-2026` variant could not be checked (the gate is not approved for the machine's token: HTTP 403) |
 | 11 | ibm-granite/granite-speech-5.0-2b | IBM | 2026-10-07 | 11k / 85 | HF `granite_speech` (2.3 B) | needs arch: conformer encoder + window Q-former projector + Granite LLM (the Granite text model is supported) |
 | 12 | google/medasr | Google | 2025-12-18 | 7k / 389 | HF `lasr_ctc` (105 M, gated, auto) | needs arch: LASR conformer CTC; Health AI license |
 | 13 | ai-sage/GigaAM-v3 | Sber | 2025-11-19 | 342k / 210 | `pytorch_model.bin` (`gigaam`, MIT) | needs arch: GigaAM conformer (RNN-T / CTC heads, custom code) |
@@ -2714,8 +2763,8 @@ New verifications (catalog entries added, publisher recorded):
 | microsoft/table-transformer-structure-recognition | Microsoft | safetensors | detections, boxes, scores vs transformers on a table image (640 px canvas) | identical detections, boxes within 2 px, scores within 0.02; CPU and Vulkan |
 
 Not reached in this round, in the order they would be taken next (each is a new architecture, none is a quick check): DINOv3 (ViT with RoPE: the
-DINOv2 path plus a rotary position op), Cohere Transcribe and Granite Speech (conformer encoder, section 13's `ConformerEncoder`, plus an
-autoregressive decoder), MobileNetV3 / EfficientNet (depthwise + squeeze-excite blocks on the existing `Conv` ops), GLM-OCR, ViTPose (needs a
+DINOv2 path plus a rotary position op), Granite Speech (conformer encoder, section 13's `ConformerEncoder`, plus an autoregressive decoder;
+Cohere Transcribe was done on 2026-11-19, section 13.5), MobileNetV3 / EfficientNet (depthwise + squeeze-excite blocks on the existing `Conv` ops), GLM-OCR, ViTPose (needs a
 `keypoint-detection` task kind), Moonshine streaming (the other streaming ASR models, Nemotron 3.5 ASR streaming and Voxtral
 Realtime, were done in round 5, section 13.3).
 
