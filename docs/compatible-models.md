@@ -448,7 +448,7 @@ Popular models tried that do not work today, with the reason. These are tracked;
 | Gated repositories | meta-llama/Llama-3.1-8B-Instruct, google/medgemma-1.5-4b-it, nvidia/Cosmos-Reason2-2B | could not be downloaded without a token; not tested |
 | SDXL refiner, Qwen-Image 2.1 editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3 | various | not implemented yet (rejected with a clear message) |
 | ControlNet, TAESD, LyCORIS / DoRA LoRAs | | not implemented (plain LoRAs: section 4) |
-| CSM-1B, Dia-1.6B, Qwen3-TTS, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
+| Qwen3-TTS Base and VoiceDesign, PocketTTS, OuteTTS 0.3 | | text to speech, not implemented |
 | Mask2Former | | vision model not implemented (Florence-2, SegFormer, BiRefNet, YOLO detection and segmentation are native task models, see model-support.md section 14) |
 | MusicGen medium/large/stereo, Demucs multi-band models and the original `.th` pickles, CLAP fusion variants | | not implemented (CLAP `laion/clap-htsat-unfused`, MusicGen small and `htdemucs` are supported: model-support.md section 16; not yet in the verified catalog) |
 | Mamba / RWKV real checkpoints beyond those above | | not covered by a model test |

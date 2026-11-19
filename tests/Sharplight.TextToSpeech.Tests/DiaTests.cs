@@ -175,6 +175,7 @@ public class DiaTests
         RequireFiles("b");
         using var model = TtsModels.Load(TtsModels.Open(false), TtsModels.Dia);
         using var synthesizer = TtsModels.Synthesizer(model);
+        ((DiaSynthesizer)synthesizer).MaxLength = 560;
         var cloner = (IVoiceCloner)synthesizer.GetService(typeof(IVoiceCloner))!;
         var recording = new AudioBuffer(Floats("b", "prompt_audio.bin"), 44100);
         var voice = await cloner.CreateVoiceAsync("jfk", recording, "[S1] And so my fellow Americans.", TestContext.Current.CancellationToken);
@@ -192,6 +193,7 @@ public class DiaTests
         RequireFiles("a");
         using var model = TtsModels.Load(TtsModels.Open(false), TtsModels.Dia);
         using var synthesizer = TtsModels.Synthesizer(model);
+        ((DiaSynthesizer)synthesizer).MaxLength = 200;
         var options = new SpeechSynthesisOptions { Sampling = new SamplingOptions { Temperature = 0f, TopK = 50 }, GuidanceScale = 3f };
         var whole = await synthesizer.SynthesizeAsync("[S1] Hi.", options, TestContext.Current.CancellationToken);
         var streamed = new List<float>();

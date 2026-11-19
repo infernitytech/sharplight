@@ -34,7 +34,7 @@ internal sealed class DiaSynthesizer : ISpeechSynthesizer, IVoiceCloner
     private readonly int[] _delays;
     private readonly int _frameSamples;
     private readonly int _codecSize;
-    private readonly int _maxLength;
+    private int _maxLength;
     private readonly float _guidance;
     private readonly SamplingOptions _defaults;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -75,6 +75,13 @@ internal sealed class DiaSynthesizer : ISpeechSynthesizer, IVoiceCloner
 
     /// <inheritdoc/>
     public TaskClientMetadata Metadata { get; }
+
+    /// <summary>The most rows of a request's decoder sequence (the model's context by default); tests lower it to bound a run.</summary>
+    internal int MaxLength
+    {
+        get => _maxLength;
+        set => _maxLength = Math.Clamp(value, 32, _maxLength);
+    }
 
     /// <inheritdoc/>
     public int SampleRate { get; }
@@ -318,6 +325,12 @@ internal sealed class DiaSynthesizer : ISpeechSynthesizer, IVoiceCloner
         if (tokens.Length > _maxText)
         {
             throw new ArgumentException($"Dia takes at most {_maxText} text tokens (bytes), the text has {tokens.Length}; split it into shorter requests.", nameof(text));
+        }
+
+        int promptRows = (prompt?.Count ?? 0) + 1;
+        if (promptRows + _delays.Max() + 1 >= settings.MaxLength)
+        {
+            throw new ArgumentException($"The audio prompt ({promptRows - 1} frames) leaves no room for speech in a sequence of {settings.MaxLength} rows.", nameof(prompt));
         }
 
         bool guide = settings.Guidance > 1f;
