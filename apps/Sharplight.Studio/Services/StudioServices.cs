@@ -41,4 +41,5 @@ internal sealed record StudioServices(
     IStorageLocationService StorageLocation,
     IFeedService Feed,
     IModelUsageStore Usage,
-    IModelMaintenance Maintenance);
+    IModelMaintenance Maintenance,
+    ILicenseGate Licenses);

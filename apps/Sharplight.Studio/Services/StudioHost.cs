@@ -78,7 +78,7 @@ internal sealed class StudioHost : IDisposable
             container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(paths.PagesDirectory, paths.GenerationsDirectory),
             new EngineAudioPlayer(audioDecoder, audioDevices, settings), new EngineAudioRecorder(audioDevices, audioEncoder, settings),
             audioDecoder, audioDevices, storage, container.GetRequiredService<IFeedService>(), usage,
-            new ModelMaintenanceService(settings, storage, runtime, library, usage, precompiler));
+            new ModelMaintenanceService(settings, storage, runtime, library, usage, precompiler), new LicenseGate(settings));
         return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), new ModelUsageRecorder(runtime, usage), server, container);
     }
 

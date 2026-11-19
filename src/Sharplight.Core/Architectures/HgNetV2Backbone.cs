@@ -2,18 +2,6 @@ using Sharplight.Graph;
 
 namespace Sharplight.Architectures;
 
-/// <summary>The stage tables of an HGNetV2 backbone (PP-HGNetV2 L by default).</summary>
-/// <param name="StemChannels">Stem channels (input, first, last).</param>
-/// <param name="InChannels">Input channels per stage.</param>
-/// <param name="MidChannels">Channels of the layers inside a block, per stage.</param>
-/// <param name="OutChannels">Output channels per stage.</param>
-/// <param name="Blocks">Blocks per stage.</param>
-/// <param name="Layers">Layers per block, per stage.</param>
-/// <param name="Downsample">Whether a stage starts with a depthwise stride-2 convolution.</param>
-/// <param name="Light">Whether a stage uses light layers (1x1 then depthwise).</param>
-/// <param name="Kernels">Layer kernel size per stage.</param>
-internal sealed record HgNetV2Options(int[] StemChannels, int[] InChannels, int[] MidChannels, int[] OutChannels, int[] Blocks, int[] Layers, bool[] Downsample, bool[] Light, int[] Kernels);
-
 /// <summary>
 /// HGNetV2 backbones over [1, C, H, W] with batch normalization folded into every convolution (<c>.weight</c> and <c>.bias</c>): the stem
 /// <c>{prefix}stem.{stem1,stem2a,stem2b,stem3,stem4}</c> (2x2 convolutions on bottom/right padded maps, a 2x2 stride-1 max pool of the first, channel concatenation),
