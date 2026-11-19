@@ -242,9 +242,11 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Routed items (token, slot) from which the hand-written grouped MXFP4 GEMM serves a step of <paramref name="experts"/> experts:
-    /// 24 rows per expert on average (where gemm_cm2 leaves its 32-row tiles), or <c>SHARPLIGHT_NATIVE_MOE_MIN_ROWS</c> per expert.
+    /// 12 rows per expert on average (where the expert-grouped skinny GEMM hands over), or <c>SHARPLIGHT_NATIVE_MOE_MIN_ROWS</c> per
+    /// expert. RTX PRO 4500, gpt-oss-20b mixed serving steps (64 decode rows plus a prompt, GPU ms): 171 rows 33.7 → 25.8, 256 rows
+    /// 40.2 → 29.6, 512 rows 58.2 → 45.6, 2048 rows 172.2 → 147.0 against gemm_cm2.
     /// </summary>
-    private static long NativeMoeMinItems(long experts) => (DiagnosticSwitches.NativeMoeMinRows ?? 24) * experts;
+    private static long NativeMoeMinItems(long experts) => (DiagnosticSwitches.NativeMoeMinRows ?? 12) * experts;
 
     /// <summary>Bytes of one stage of <c>gemm_moe_native.cu</c>: activation rows, codes and scales of its weight rows.</summary>
     private static int NativeMoeStageBytes(int columns, bool dual)
