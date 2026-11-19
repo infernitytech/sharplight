@@ -22,7 +22,7 @@
                 <Button DockPanel.Dock="Right" Classes="small" Content="Add a turn" Command="{Binding AddTurnCommand}" IsVisible="{Binding IsMultiSpeaker}" />
                 <TextBlock Classes="h2" Text="Text" />
               </DockPanel>
-              <TextBlock Classes="muted" Text="{Binding ScriptHint}" IsVisible="{Binding IsMultiSpeaker}" TextWrapping="Wrap" />
+              <TextBlock Classes="muted" Text="{Binding ScriptHint}" IsVisible="{Binding HasScriptHint}" TextWrapping="Wrap" />
             </StackPanel>
             <TextBox x:Name="Input" MinHeight="140" Text="{Binding InputText}" AcceptsReturn="True" TextWrapping="Wrap" PlaceholderText="Type or paste the text to speak" VerticalContentAlignment="Top" />
           </DockPanel>
