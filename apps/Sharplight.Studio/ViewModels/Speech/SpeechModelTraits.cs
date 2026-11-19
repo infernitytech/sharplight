@@ -12,6 +12,9 @@ namespace Sharplight.Studio.ViewModels.Speech;
 /// <param name="Languages">The language names the model takes, or empty when it has no language choice.</param>
 internal sealed record SpeechModelTraits(bool MultiSpeaker, bool ScriptInOneRequest, bool DiffusionOptions, bool VoiceDesign, IReadOnlyList<string> Languages)
 {
+    /// <summary>The text is a dialogue written with speaker tags (<c>[S1]</c>, <c>[S2]</c>) and non-verbal sounds in parentheses (Dia); the model has no separate voice per speaker.</summary>
+    public bool SpeakerTags { get; init; }
+
     /// <summary>A model with no special features.</summary>
     public static SpeechModelTraits None { get; } = new(false, false, false, false, []);
 
@@ -26,6 +29,7 @@ internal sealed record SpeechModelTraits(bool MultiSpeaker, bool ScriptInOneRequ
             "vibevoice" => new SpeechModelTraits(true, true, true, false, languages),
             "csm" => new SpeechModelTraits(true, false, false, false, languages),
             "omnivoice" => new SpeechModelTraits(false, false, false, true, languages),
+            "dia" => None with { SpeakerTags = true },
             _ => languages.Count > 0 ? None with { Languages = languages } : None,
         };
     }

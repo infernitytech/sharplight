@@ -67,6 +67,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddTaskClientFactory<Qwen3TtsSynthesizerFactory>()
                 .AddCompositeModelAdapter<OmniVoiceAdapter>()
                 .AddTaskClientFactory<OmniVoiceSynthesizerFactory>()
+                .AddCompositeModelAdapter<DiaAdapter>()
+                .AddTaskClientFactory<DiaSynthesizerFactory>()
                 .AddModelAdapter<CsmAdapter>()
                 .AddTaskClientFactory<CsmSynthesizerFactory>()
                 .AddModelAdapter<VibeVoiceAdapter>()

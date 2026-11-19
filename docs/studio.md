@@ -518,6 +518,8 @@ What the page offers follows what the chosen model's client says it can do (`Spe
 - *OmniVoice* shows a *Language* picker with its 600+ languages (the names of `ISpeechLanguageList`) and a *Voice design* box (for example
   "female, young adult, british accent", sent as `Instructions`; a reference recording or a saved voice replaces it). Its licence notice is
   shown above the page (see *Licence notices*).
+- *Dia* is written as a dialogue with the tags `[S1]` and `[S2]` at the start of each turn and non-verbal sounds in parentheses (`(laughs)`); the hint under the text box says so
+  (`SpeechModelTraits.SpeakerTags`). It has no separate voice per speaker: one *Reference recording* with its words (written with the same tags) gives the voices of both speakers.
 
 ![Speak](images/studio/studio-speak.png)
 
@@ -535,7 +537,7 @@ distilled (an id with `turbo` hides it), and the token-sampling controls (*Greed
 lyrics are kept in the run's history. The library recognizes the ACE-Step checkpoint folder, which has no `config.json` of its own: a folder with an
 `acestep-v15-*` transformer folder (with its `config.json`), a `vae` folder and a `Qwen3-Embedding*` text-encoder folder is an audio-generation model
 (`ModelInspector.IsAceStepFolder`); a `config.json` with `model_type` `vibevoice` is speech synthesis, or speech recognition when its architecture names
-ASR, and `csm` and `omnivoice` are speech synthesis.
+ASR, and `csm`, `omnivoice` and `dia` (also the original Dia checkpoint's `config.json`, which has no `model_type` but a `data` section with the delay pattern) are speech synthesis.
 
 **Licence notices.** A verified-catalog entry whose licence is `other` or a non-commercial one (`cc-by-nc-*`, `*-non-commercial-*`: OmniVoice, XTTS,
 Depth Anything 3 large, FLUX dev) shows its notes prominently: in Discover's *Verified* detail as a warning callout "Read the licence before you use this

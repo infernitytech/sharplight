@@ -1407,7 +1407,7 @@
         "date": "2026-11-15",
         "tests": []
       },
-      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \"Built with Llama\", the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
+      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \u0022Built with Llama\u0022, the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -1518,7 +1518,7 @@
         "date": "2026-11-14",
         "tests": []
       },
-      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \"Built with Llama\", the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
+      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \u0022Built with Llama\u0022, the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -2049,7 +2049,7 @@
         "tests": []
       },
       "notes": "4B UD-IQ2_M: Vulkan identical, CPU differs late",
-      "licenseNotice": "Gemma Terms of Use: use is allowed under Google's terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
+      "licenseNotice": "Gemma Terms of Use: use is allowed under Google\u0027s terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -2136,7 +2136,7 @@
         "tests": []
       },
       "notes": "4B UD-IQ2_M: Vulkan identical, CPU differs late",
-      "licenseNotice": "Gemma Terms of Use: use is allowed under Google's terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
+      "licenseNotice": "Gemma Terms of Use: use is allowed under Google\u0027s terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
       "doc": []
     },
     {
@@ -2227,7 +2227,7 @@
         "date": "2026-11-14",
         "tests": []
       },
-      "licenseNotice": "Gemma Terms of Use: use is allowed under Google's terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
+      "licenseNotice": "Gemma Terms of Use: use is allowed under Google\u0027s terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -2258,7 +2258,7 @@
         "date": "2026-11-14",
         "tests": []
       },
-      "licenseNotice": "Gemma Terms of Use: use is allowed under Google's terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
+      "licenseNotice": "Gemma Terms of Use: use is allowed under Google\u0027s terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
       "doc": [
         {
           "section": "1.1",
@@ -3930,7 +3930,7 @@
         "tests": []
       },
       "notes": "hybrid Mamba-2 / attention",
-      "licenseNotice": "NVIDIA Nemotron Open Model License: commercially usable, you may create and distribute derivative works, and NVIDIA claims no ownership of outputs. When you redistribute, include the licence and keep the notices (Notice file: \"Licensed by NVIDIA Corporation under the NVIDIA Nemotron Model License\"). A patent or copyright suit against the model ends your licence.",
+      "licenseNotice": "NVIDIA Nemotron Open Model License: commercially usable, you may create and distribute derivative works, and NVIDIA claims no ownership of outputs. When you redistribute, include the licence and keep the notices (Notice file: \u0022Licensed by NVIDIA Corporation under the NVIDIA Nemotron Model License\u0022). A patent or copyright suit against the model ends your licence.",
       "doc": [
         {
           "section": "1.1",
@@ -4115,7 +4115,7 @@
         "date": "2026-11-14",
         "tests": []
       },
-      "licenseNotice": "Falcon LLM licence (TII Falcon License, based on Apache 2.0): free to use, also commercially, with no royalties. You must follow TII's Acceptable Use Policy, which can change and must be passed on to anyone you give a derivative to, and public statements about a derivative must say it is built using AI technology from the Technology Innovation Institute.",
+      "licenseNotice": "Falcon LLM licence (TII Falcon License, based on Apache 2.0): free to use, also commercially, with no royalties. You must follow TII\u0027s Acceptable Use Policy, which can change and must be passed on to anyone you give a derivative to, and public statements about a derivative must say it is built using AI technology from the Technology Innovation Institute.",
       "doc": [
         {
           "section": "1.1",
@@ -5527,7 +5527,7 @@
         "tests": []
       },
       "notes": "the official GGUFs embed an older tool-call template (literal \u0060{{\u0022name\u0022: ...}}\u0060), rendered exactly as transformers renders it",
-      "licenseNotice": "Qwen Research License: the weights are free for non-commercial use (research or evaluation) only; any commercial use needs a separate licence from Alibaba Cloud. If you use the model or its outputs to train a model you release, you must show \"Built with Qwen\" or \"Improved using Qwen\".",
+      "licenseNotice": "Qwen Research License: the weights are free for non-commercial use (research or evaluation) only; any commercial use needs a separate licence from Alibaba Cloud. If you use the model or its outputs to train a model you release, you must show \u0022Built with Qwen\u0022 or \u0022Improved using Qwen\u0022.",
       "doc": []
     },
     {
@@ -6597,7 +6597,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \"Built with Llama\", the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
+      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \u0022Built with Llama\u0022, the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
       "doc": [
         {
           "section": "1.1.1",
@@ -6659,7 +6659,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \"Built with Llama\", the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
+      "licenseNotice": "Llama Community License: commercial use is allowed under its conditions (attribution such as \u0022Built with Llama\u0022, the Acceptable Use Policy, and a separate licence from Meta above 700 million monthly active users). Read it before you use the model commercially.",
       "doc": [
         {
           "section": "1.1.1",
@@ -8025,7 +8025,7 @@
         "date": "2026-11-15",
         "tests": []
       },
-      "licenseNotice": "Gemma Terms of Use: use is allowed under Google's terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
+      "licenseNotice": "Gemma Terms of Use: use is allowed under Google\u0027s terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
       "doc": [
         {
           "section": "1.5",
@@ -10341,7 +10341,7 @@
         "tests": []
       },
       "notes": "streaming chunked-attention settings read, but run with full context",
-      "licenseNotice": "NVIDIA Open Model License: commercially usable, derivative models are allowed, no claim on outputs. Use must follow NVIDIA's Trustworthy AI terms, bypassing the model's guardrails without a similar one ends your rights, and you must ship the licence and the Notice \"Licensed by NVIDIA Corporation under the NVIDIA Open Model License\". NVIDIA may update the terms.",
+      "licenseNotice": "NVIDIA Open Model License: commercially usable, derivative models are allowed, no claim on outputs. Use must follow NVIDIA\u0027s Trustworthy AI terms, bypassing the model\u0027s guardrails without a similar one ends your rights, and you must ship the licence and the Notice \u0022Licensed by NVIDIA Corporation under the NVIDIA Open Model License\u0022. NVIDIA may update the terms.",
       "doc": [
         {
           "section": "2",
@@ -11137,6 +11137,119 @@
           "cells": {
             "repositories": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
             "formats": "safetensors"
+          }
+        }
+      ]
+    },
+    {
+      "id": "dia-1.6b",
+      "name": "Dia 1.6B (Nari Labs)",
+      "kind": "speech-synthesis",
+      "family": "Dia",
+      "architecture": "dia",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Nari Labs",
+        "countryOfOrigin": "KR",
+        "url": "https://github.com/nari-labs/dia"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors (original layout, with the 44.1 kHz DAC codec)",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 7000000000,
+          "companions": [
+            "dac"
+          ],
+          "repository": "nari-labs/Dia-1.6B",
+          "revision": "257bc72f9b78182ccc6fa07675a9ae4c1a44e2cd",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json",
+            "README.md"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 941,
+              "gitOid": "0a586180c3246fefa312c5e3977a6e419a7a113d"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 6444682848,
+              "sha256": "caba289b60f6d7d1e58fc744f4dc25aae88995fcca46be3d05e220b971486a26"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 172,
+              "gitOid": "a812a82c392c511dc04417b8f8bcde9411347af0"
+            },
+            {
+              "path": "README.md",
+              "size": 6551,
+              "gitOid": "146916d420c1f14cf794a171811ac56e42d13dbd"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "dac",
+          "role": "vocoder",
+          "additionalRoles": [],
+          "label": "Descript Audio Codec 44.1 kHz",
+          "repository": "descript/dac_44khz",
+          "revision": "c1bc521685adf9cfe247bc39a5ca58917eda1ac4",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 541,
+              "gitOid": "20887784bad88bfaf4dfd10c096f031136ac6e79"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 306507276,
+              "sha256": "6128ebff483a41422b0164d079a3773b0d8d82e64c4293d775994cbf8baf913a"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 206,
+              "gitOid": "6a86814ebf860588057d969d67d7a3e1adacf636"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "transformers 5.23 DiaForConditionalGeneration (CPU, f32, the original checkpoint renamed to its layout; greedy with classifier-free guidance 3.0, top-k 50) and its DiaProcessor",
+        "summary": "text ids and the delay table identical; teacher forced over 160 steps (no prompt) and 100 steps (5.5 s audio prompt), conditional and unconditional logits of the nine codebooks: 0 argmax disagreements beyond a 0.05 margin, worst logits relative RMS 1.9e-4 (CPU) / 2.0e-4 (Vulkan), 2.2e-4 with the prompt (CPU); greedy sequences identical to the reference (161 rows on CPU and Vulkan, 575 rows with the prompt on CPU) including the end tokens forced by the delay pattern; audio prompt codes 0 of 4266 differ; DAC decode of the reference frames relative RMS 3.8e-5 (CPU) / 5.9e-5 (Vulkan); .slm round trip identical",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "Apache-2.0 weights and code; the DAC codec (descript/dac_44khz, MIT) is installed with it. English dialogue: write [S1] and [S2] for the speakers, non-verbal sounds in parentheses ((laughs), (coughs), (sighs)...); a voice is an audio prompt with its transcript (SpeechSynthesisOptions.ReferenceAudio and ReferenceText, or a saved voice from IVoiceCloner) and the text starts with its [S1]/[S2] tags. A request holds at most 1024 text bytes and about 35 s of audio.",
+      "doc": [
+        {
+          "section": "3",
+          "cells": {
+            "repositories": "nari-labs/Dia-1.6B \u002B descript/dac_44khz",
+            "formats": "safetensors (\u0060dia\u0060 original layout \u002B DAC codec companion)"
           }
         }
       ]
@@ -15275,7 +15388,7 @@
         "tests": []
       },
       "notes": "8 steps at 1024x1024 in 14.8 s; the schedule comes from \u0060model_index.json\u0060 or the \u0060turbo\u0060 file name",
-      "licenseNotice": "Qwen Research License (2026 version): the weights are free for non-commercial use (research or evaluation) only; any commercial use needs a separate licence from the Qwen team. If you use the model or its outputs to train a model you release, you must show \"Built with Qwen\" or \"Improved using Qwen\".",
+      "licenseNotice": "Qwen Research License (2026 version): the weights are free for non-commercial use (research or evaluation) only; any commercial use needs a separate licence from the Qwen team. If you use the model or its outputs to train a model you release, you must show \u0022Built with Qwen\u0022 or \u0022Improved using Qwen\u0022.",
       "doc": [
         {
           "section": "4",
@@ -15472,7 +15585,7 @@
         "tests": []
       },
       "notes": "1024x1024 20 steps in 36 s; text-to-image only (the editing path is not implemented)",
-      "licenseNotice": "Qwen Research License (2026 version): the weights are free for non-commercial use (research or evaluation) only; any commercial use needs a separate licence from the Qwen team. If you use the model or its outputs to train a model you release, you must show \"Built with Qwen\" or \"Improved using Qwen\".",
+      "licenseNotice": "Qwen Research License (2026 version): the weights are free for non-commercial use (research or evaluation) only; any commercial use needs a separate licence from the Qwen team. If you use the model or its outputs to train a model you release, you must show \u0022Built with Qwen\u0022 or \u0022Improved using Qwen\u0022.",
       "doc": [
         {
           "section": "4",
@@ -15616,7 +15729,7 @@
         ]
       },
       "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (\u0060raw\u0060 / \u0060base\u0060 in the name) run 28 guided steps",
-      "licenseNotice": "Krea 2 Community License: free below 1 million US dollars total annual company revenue; at or above that, commercial use needs an enterprise licence from Krea. You must run content filters on your deployments, follow Krea's Acceptable Use Policy, keep the licence and attribution when you distribute, and start derived model names with \"Krea\".",
+      "licenseNotice": "Krea 2 Community License: free below 1 million US dollars total annual company revenue; at or above that, commercial use needs an enterprise licence from Krea. You must run content filters on your deployments, follow Krea\u0027s Acceptable Use Policy, keep the licence and attribution when you distribute, and start derived model names with \u0022Krea\u0022.",
       "doc": [
         {
           "section": "4",
