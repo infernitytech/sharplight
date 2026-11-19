@@ -15,6 +15,9 @@ internal sealed record SmokeReport
     /// <summary>The storage mode in effect (<c>Portable</c>, <c>System</c> or <c>Custom</c>) and where.</summary>
     public required string Storage { get; init; }
 
+    /// <summary>The execution provider the package was loaded on (<c>cpu</c> unless <c>--smoke-provider</c> said otherwise).</summary>
+    public string Provider { get; init; } = "cpu";
+
     /// <summary>The devices models can be loaded on.</summary>
     public IReadOnlyList<string> Devices { get; init; } = [];
 

@@ -11,7 +11,7 @@ namespace Sharplight.Studio.Services.Smoke;
 
 /// <summary>
 /// The smoke run of <c>--smoke</c>: lists the devices, installs a tiny package (Whisper tiny, with its Silero VAD companion) from the live Sharplight feed into the
-/// model store, decodes a short WAV with the native audio library, loads the package on the CPU and transcribes the WAV once. The first failing
+/// model store, decodes a short WAV with the native audio library, loads the package on the CPU (or the provider the run was asked for) and transcribes the WAV once. The first failing
 /// step ends the run. It only uses the service interfaces, so tests run it over fakes.
 /// </summary>
 internal sealed class SmokeRunner
@@ -24,8 +24,9 @@ internal sealed class SmokeRunner
     private readonly IAudioDecoder _decoder;
     private readonly string _workDirectory;
     private readonly ILogger _logger;
+    private readonly string _provider;
     private readonly List<SmokeStep> _steps = [];
-    private ComputeDeviceOption? _cpu;
+    private ComputeDeviceOption? _device;
     private string? _package;
     private string? _packagePath;
     private AudioBuffer? _audio;
@@ -36,8 +37,11 @@ internal sealed class SmokeRunner
     /// <param name="decoder">Decodes the WAV file.</param>
     /// <param name="workDirectory">Where the WAV file is written.</param>
     /// <param name="logger">Receives a line per step.</param>
-    public SmokeRunner(IFeedService feed, IModelRuntime runtime, IAudioDecoder decoder, string workDirectory, ILogger logger)
+    /// <param name="provider">The execution provider the package is loaded on: <c>cpu</c> (the default), or a GPU provider such as <c>cuda</c> or <c>vulkan</c>
+    /// (the run fails when the machine has no device of it).</param>
+    public SmokeRunner(IFeedService feed, IModelRuntime runtime, IAudioDecoder decoder, string workDirectory, ILogger logger, string provider = "cpu")
     {
+        _provider = provider.Trim().ToLowerInvariant();
         _feed = feed;
         _runtime = runtime;
         _decoder = decoder;
@@ -69,6 +73,7 @@ internal sealed class SmokeRunner
             Os = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
             Architecture = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString(),
             Storage = storage,
+            Provider = _provider,
             Devices = [.. _runtime.Devices.Select(device => $"{device.Provider}: {device.Name} ({device.Id})")],
             Package = _package,
             Steps = _steps,
@@ -97,7 +102,9 @@ internal sealed class SmokeRunner
     private Task<string> ListDevices(CancellationToken cancellationToken)
     {
         var devices = _runtime.Devices;
-        _cpu = devices.FirstOrDefault(device => !device.IsGpu) ?? throw new InvalidOperationException("No CPU device is offered.");
+        _ = devices.FirstOrDefault(device => !device.IsGpu) ?? throw new InvalidOperationException("No CPU device is offered.");
+        _device = devices.FirstOrDefault(device => string.Equals(device.Provider, _provider, StringComparison.OrdinalIgnoreCase) && !device.IsSplit)
+            ?? throw new InvalidOperationException($"No device of the {_provider} provider is offered ({string.Join(", ", devices.Select(device => device.Provider).Distinct())} are).");
         return Task.FromResult($"{devices.Count} device(s): {string.Join("; ", devices.Select(device => device.Display + " via " + device.Provider))}");
     }
 
@@ -148,7 +155,7 @@ internal sealed class SmokeRunner
 
     private async Task<string> LoadAsync(CancellationToken cancellationToken)
     {
-        var settings = new LoadSettings { DeviceId = _cpu!.Id, ContextLength = 1024, BatchTokens = 128, Slots = 1 };
+        var settings = new LoadSettings { DeviceId = _device!.Id, ContextLength = 1024, BatchTokens = 128, Slots = 1 };
         _model = await _runtime.LoadAsync(new ModelLoadRequest("smoke-whisper", _packagePath!, settings, [], Kind: ModelKinds.SpeechRecognition), null, cancellationToken);
         return $"loaded on {_model.Device.Name} ({_model.Device.Id})";
     }

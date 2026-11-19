@@ -385,6 +385,8 @@ compilation-cache options), *Engine* (load defaults, residency, device features)
   - on-demand loading.
 - New-chat defaults.
 - *Use the system title bar* (see [Window](#window)).
+- **Compute devices** (on a machine with a GPU): one row per physical GPU with its memory, the provider in use and, on an NVIDIA GPU that Vulkan
+  and CUDA both drive, a picker: *Automatic*, *Vulkan* or *CUDA*. See [CUDA and the provider per GPU](#cuda-and-the-provider-per-gpu).
 - The engine's device features, each of which can be switched off to fall back to a portable path.
 - **Reduced precision** (off by default) opts in to faster f16 kernel paths where the default keeps near-f32 accuracy. Outputs may
   differ slightly.
@@ -694,6 +696,25 @@ The macOS and Windows packages are not signed yet (Windows SmartScreen and macOS
 `packaging/pack-studio.sh` and `.github/workflows/studio.yml`. On macOS the Vulkan provider needs MoltenVK, which is not part of
 the package yet, so the app runs on the CPU provider.
 
+**CUDA.** The Linux packages (x64 and ARM64) and the Windows x64 packages include the CUDA execution provider (`Sharplight.Cuda`) and NVIDIA's runtime
+compiler (NVRTC, redistributed under the CUDA Toolkit EULA, `Sharplight.Cuda.Runtime`) with the floating-point headers it compiles against, NVIDIA's
+`LICENSE-NVIDIA-CUDA.txt` and `THIRD-PARTY-NOTICES-Cuda.md`; the NVIDIA driver supplies the rest. macOS and Windows on ARM have no NVIDIA driver and
+get none of it. `packaging/pack-studio.sh` publishes with the runtime identifier (`StudioCuda` in the project file decides, `-p:StudioCuda=false` leaves it
+out), copies the license and the notice and runs `packaging/check-cuda.sh`, which fails when a CUDA runtime lacks a file or another runtime carries one.
+
+Measured on a linux-x64 publish of this branch (the publish without the native audio and FFmpeg libraries, so the absolute sizes are lower than a release's;
+the difference is what CUDA adds), packed with vpk 1.2.161:
+
+| | without CUDA | with CUDA | CUDA adds |
+|---|---:|---:|---:|
+| AppImage | 118.9 MB | 164.5 MB | 45.6 MB |
+| Velopack full package (`.nupkg`, also the Windows Setup.exe's payload) | 117.6 MB | 162.9 MB | 45.3 MB |
+| `tar.gz` | 115.9 MB | 161.1 MB | 45.2 MB |
+| installed folder (MiB) | 267 | 376 | 109 |
+
+The package cost is accepted (owner decision of 2026-11-19). The Windows x64 files are about 96 MB installed (NVRTC 91 MB); the ARM64 Linux ones about 105 MB
+([cuda.md](cuda.md#package-sizes)).
+
 **Channels.** Every build belongs to one of ten update channels, `<rid>-stable` (built from `release/*` branches) and `<rid>-unstable`
 (built from `develop`), for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64` and `osx-arm64`, for example `win-x64-stable` or
 `osx-arm64-unstable`. An installed app checks the channel it was installed from until you pick another one: *Settings > Updates > Update
@@ -725,17 +746,45 @@ own `releases.<channel>.json` feed.
 `sharplight-studio --smoke [--smoke-report FILE]` starts the real services without a window (settings, storage, the log file, the update
 and feed services, the engine with every provider and format), then runs `Services/Smoke/SmokeRunner`:
 
-1. lists the devices (a CPU device must exist);
+1. lists the devices (a CPU device must exist; with `--smoke-provider`, also a device of that provider);
 2. lists the Sharplight model feed (verified, not from the cache) and finds `whisper-tiny`;
 3. installs it with its Silero VAD companion into the model store of the storage in effect;
 4. writes a short synthetic WAV and decodes it with the native audio library;
-5. loads the package on the CPU;
+5. loads the package on the CPU, or on a device of the provider `--smoke-provider <name>` names (`cuda`, `vulkan`; the report's `Provider`);
 6. transcribes the WAV once (the text is not checked, the whole path must run), then unloads.
 
 The first failing step ends the run. The JSON report (`Version`, `Os`, `Storage`, `Devices`, `Package`, `Steps`, `Passed`, `Error`)
 goes to the file, to standard output and, by default, to `smoke-report.json` in the log folder; the steps are in `studio.log`. Exit code 0
 means passed, 1 failed; a run is limited to ten minutes. CI runs it against the published packages of every OS
-([releasing.md](releasing.md#published-build-smoke-test)); `SmokeRunnerTests` runs the runner over fakes.
+([releasing.md](releasing.md#published-build-smoke-test)); `SmokeRunnerTests` runs the runner over fakes. The published-build smoke script repeats the run with
+`--smoke-provider cuda` where `nvidia-smi` finds a GPU (the Linux x64 and Windows x64 builds); the GitHub-hosted runners have none, so the step prints a
+notice and is skipped there (`SMOKE_CUDA=1` makes a missing GPU a failure, `0` skips the step).
+
+## CUDA and the provider per GPU
+
+An NVIDIA GPU is listed twice, once by the Vulkan provider and once by the CUDA provider (where the package has it and the driver is usable). The two
+entries share one identity (the device UUID: Vulkan writes it as hex, CUDA as a dashed GUID, both are compared without dashes and case), so Studio treats
+them as one physical GPU with two providers:
+
+- The device lists (load options, Settings > Engine > Load defaults) show both, told apart by the provider: *NVIDIA RTX ... (Vulkan)* and
+  *NVIDIA RTX ... (CUDA)*. A GPU with a single provider is listed as before.
+- **Vulkan is the default.** Providers register in the order Vulkan, CPU, CUDA, and the device list puts the entry of the chosen provider first, so the first
+  entry, the default device and every load that names no provider run on Vulkan.
+- **Settings > Engine > Compute devices** has a picker per GPU: *Automatic* (Vulkan until per-device data says CUDA is faster: `IProviderPerformanceHints`
+  is the hook, `NoProviderHints` the current implementation), *Vulkan* or *CUDA*. The choice is saved by GPU identity (`DeviceProviders` in the settings), moves
+  the default device to that GPU's entry of the chosen provider, and applies at once to loads that do not pick a device entry themselves. The load options
+  of a model can still pick either entry. A model split over all GPUs uses one entry per GPU, all of the first GPU's provider.
+- **Fallback.** CUDA is skipped, and Vulkan used, with a note on the GPU's row (and a warning line in `studio.log`), when: the NVIDIA driver supports an
+  older CUDA than 13.0 (the PTX of the shipped NVRTC needs driver R580 or newer: "update the NVIDIA driver"); the CUDA provider is unavailable on this
+  machine (no `libcuda.so.1` / `nvcuda.dll`, a failed `cuInit`, no GPU of compute capability 7.5 or later), noted on NVIDIA GPUs only; opening the CUDA
+  device fails; or a load on CUDA fails (kernel compilation or loading: the model is loaded again on Vulkan and the load panel says so). A failed CUDA is
+  not tried again for that GPU until Studio restarts.
+- **Memory.** The fit estimates and the device memory list ask the provider in use; the entry of the other provider shows the same memory and opens no
+  second context.
+- **Precompile.** The library's *Precompile* (and the option after a download) runs the providers' two-stage contract for the CUDA devices as for the
+  others: PTX for the GPU's compute capability (needs NVRTC, no GPU), then a cubin from the driver's JIT for the device. The package inspector's
+  *Artifacts* tab lists the stages as `provider=cuda`: `kind=ptx` (code tier, target `ptx_<compute capability>`) and `kind=cubin` (binary tier, matched on GPU
+  name and CUDA driver version). A package precompiled for CUDA loads on a machine without NVRTC.
 
 ## Where things are kept
 
@@ -877,6 +926,15 @@ two remote controls as inputs):
 - Models: installs the five feed packages (chat, embedding, reranker, speech, voice activity) from the live feed, checks the library kind of each (a chat
   package is never a reranker; a cross-encoder declared `embeddings` by an older package is refined to a reranker because it has a classify graph and no decode
   graph), the kind filter, load and unload through the load panel, and the residency list; a theory checks the inspector's kind for 20 real model folders.
+The CUDA provider in Studio: `ProviderSelectionTests` (the selector and the Engine settings view model over fake Vulkan / CUDA / CPU providers: one physical GPU
+from two UUID spellings, Automatic is Vulkan, the performance-hint hook, an explicit choice beating it, a driver older than CUDA 13, an unavailable CUDA on NVIDIA and
+on other vendors, failover and "not tried again", the picker saving by GPU and the default device following), `CudaRealModelTests` (Qwen3-0.6B loaded and chatting
+on the CUDA device of a headless runtime, Vulkan first in the list; and a fake CUDA provider whose device fails to open, which hands the load to the provider behind
+it, notes it and is not tried again; skipped without the model or a CUDA device), `PackagingTests` (the project references the CUDA provider for linux-x64,
+linux-arm64 and win-x64 only, `StudioCuda` evaluates to true / false for the five runtimes, `packaging/check-cuda.sh` accepts the right file set for the three runtimes,
+names each missing file and rejects any CUDA file for osx-arm64 and win-arm64; `SHARPLIGHT_STUDIO_PUBLISH` and `SHARPLIGHT_STUDIO_PUBLISH_RID` point it at a real publish
+directory), `PageScreenshotTests.EngineSettings_WithCudaDevices_*` (the Compute devices card with CUDA chosen, with a driver too old, and with CUDA unavailable, both
+themes, two sizes).
 `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
 calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here. With
 `SHARPLIGHT_INSPECTOR_PACKAGES` (a list of `.slm` paths, separated like `PATH`), the inspector renders every tab of those
