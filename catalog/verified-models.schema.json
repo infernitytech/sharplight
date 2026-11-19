@@ -379,6 +379,12 @@
               "null"
             ]
           },
+          "licenseNotice": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "doc": {
             "type": "array",
             "items": {

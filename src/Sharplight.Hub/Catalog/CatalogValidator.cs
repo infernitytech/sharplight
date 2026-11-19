@@ -30,6 +30,9 @@ public static partial class CatalogValidator
     /// <summary>The kind of reranking models, cross-encoders and decoder rerankers (not a <see cref="ModelKinds"/> value).</summary>
     public const string RerankerKind = "reranker";
 
+    /// <summary>The longest <see cref="CatalogEntry.LicenseNotice"/>: it is shown as a callout, not a licence text.</summary>
+    public const int MaxLicenseNoticeLength = 600;
+
     /// <summary>Every problem found; empty when the catalog is consistent.</summary>
     /// <param name="catalog">The catalog to check.</param>
     public static IReadOnlyList<string> Validate(VerifiedCatalog catalog)
@@ -85,6 +88,16 @@ public static partial class CatalogValidator
         if (string.IsNullOrWhiteSpace(entry.Name))
         {
             Problem("the name is empty");
+        }
+
+        if (entry.LicenseNotice is { } licenseNotice && (string.IsNullOrWhiteSpace(licenseNotice) || licenseNotice.Length > MaxLicenseNoticeLength))
+        {
+            Problem($"licenseNotice must be one to {MaxLicenseNoticeLength} characters");
+        }
+
+        if (CatalogLicenses.NeedsNotice(entry.License) && string.IsNullOrWhiteSpace(entry.LicenseNotice))
+        {
+            Problem($"the license '{entry.License}' is not permissive: add a licenseNotice");
         }
 
         if (!Kinds.Contains(entry.Kind))

@@ -68,7 +68,7 @@ public class TaskClientProviderTests
         var factories = services.GetServices<ITaskClientFactory>().ToList();
         Assert.Equal(once.GetServices<ITaskClientFactory>().Count(), factories.Count);
         Assert.Equal(factories.Count, factories.Select(f => (f.Kind, f.ClientType, f.GetType())).Distinct().Count());
-        Assert.Single(factories, f => f.Kind == ModelKinds.TextGeneration);
+        Assert.Single(factories, f => f.Kind == ModelKinds.TextGeneration && f.ClientType == typeof(ITextGenerator));
         Assert.Equal(4, factories.Count(f => f.Kind == ModelKinds.SpeechRecognition));
         Assert.Single(factories, f => f.Kind == ModelKinds.ImageGeneration);
         using var decoder = Model(null, "llama", WellKnown.DecodeGraph);
