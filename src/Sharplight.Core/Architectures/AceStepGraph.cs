@@ -24,13 +24,14 @@ internal static class AceStepGraph
         var rows = Dim.Sym(WellKnown.TokenSymbol);
         var tokens = b.Input(AudioGenerationGraphs.TokensInput, InputRole.TokenIds, DataType.I32, new Shape(rows));
         var positions = b.Input(AudioGenerationGraphs.PositionsInput, InputRole.Positions, DataType.I32, new Shape(rows, 1));
+        var spans = b.Input(AudioGenerationGraphs.SpansInput, InputRole.RowSpans, DataType.I32, new Shape(rows, 2));
         var x = b.Gather(b.Weight("text.embed_tokens.weight"), tokens);
         var rope = Rope(p.TextHeadDim, p.TextRopeBase);
         var attention = Attention(p.TextHeadDim, causal: true, window: 0);
         for (int il = 0; il < p.TextLayers; il++)
         {
             using var _ = b.Group($"text.layers.{il}");
-            x = Layer(b, x, $"text.layers.{il}.", positions, p.TextHeads, p.TextKvHeads, p.TextHeadDim, p.TextEps, rope, attention);
+            x = Layer(b, x, $"text.layers.{il}.", positions, p.TextHeads, p.TextKvHeads, p.TextHeadDim, p.TextEps, rope, attention, spans);
         }
 
         b.Output(AudioGenerationGraphs.HiddenOutput, b.RmsNorm(x, b.Weight("text.norm.weight"), p.TextEps));
@@ -177,22 +178,24 @@ internal static class AceStepGraph
     private static Value Linear(GraphBuilder b, Value x, string name) => b.Linear(x, name + ".weight", name + ".bias");
 
     // A Qwen3 layer: pre-norm self-attention with per-head query and key norms, then a SwiGLU feed-forward layer.
-    private static Value Layer(GraphBuilder b, Value x, string n, Value positions, int heads, int kvHeads, int headDim, float eps, Attributes rope, Attributes attention)
+    private static Value Layer(GraphBuilder b, Value x, string n, Value positions, int heads, int kvHeads, int headDim, float eps, Attributes rope, Attributes attention,
+        Value? spans = null)
     {
         var h = b.RmsNorm(x, b.Weight(n + "input_layernorm.weight"), eps);
-        x = b.Add(x, SelfAttention(b, h, n + "self_attn.", positions, heads, kvHeads, headDim, eps, rope, attention));
+        x = b.Add(x, SelfAttention(b, h, n + "self_attn.", positions, heads, kvHeads, headDim, eps, rope, attention, spans));
         h = b.RmsNorm(x, b.Weight(n + "post_attention_layernorm.weight"), eps);
         return b.Add(x, Mlp(b, h, n + "mlp."));
     }
 
-    private static Value SelfAttention(GraphBuilder b, Value h, string n, Value positions, int heads, int kvHeads, int headDim, float eps, Attributes rope, Attributes attention)
+    private static Value SelfAttention(GraphBuilder b, Value h, string n, Value positions, int heads, int kvHeads, int headDim, float eps, Attributes rope, Attributes attention,
+        Value? spans = null)
     {
         var q = b.RmsNorm(b.Reshape(b.MatMul(h, b.Weight(n + "q_proj.weight")), 0, heads, headDim), b.Weight(n + "q_norm.weight"), eps);
         var k = b.RmsNorm(b.Reshape(b.MatMul(h, b.Weight(n + "k_proj.weight")), 0, kvHeads, headDim), b.Weight(n + "k_norm.weight"), eps);
         var v = b.Reshape(b.MatMul(h, b.Weight(n + "v_proj.weight")), 0, kvHeads, headDim);
         q = b.Emit1("Rope", [q, positions], rope);
         k = b.Emit1("Rope", [k, positions], rope);
-        var attended = b.Emit1("Attention", [q, k, v], attention);
+        var attended = b.Emit1("Attention", spans is null ? [q, k, v] : [q, k, v, spans], attention);
         return b.MatMul(b.Reshape(attended, 0, heads * headDim), b.Weight(n + "o_proj.weight"));
     }
 

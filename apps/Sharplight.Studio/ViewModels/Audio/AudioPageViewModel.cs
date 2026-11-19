@@ -38,7 +38,7 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
     public AudioPageViewModel(StudioServices services, INavigator navigator)
-        : base(services, navigator, [ModelKinds.AudioCodec, ModelKinds.VoiceActivity, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioSeparation], "audio", CreateParameters(services))
+        : base(services, navigator, [ModelKinds.AudioCodec, ModelKinds.VoiceActivity, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioGeneration, ModelKinds.AudioSeparation], "audio", CreateParameters(services))
     {
         ApplyMode();
     }
@@ -249,7 +249,7 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             ModelKinds.AudioCodec => AudioMode.Codec,
             ModelKinds.VoiceActivity => AudioMode.VoiceActivity,
             ModelKinds.AudioEmbedding => AudioMode.Tagging,
-            ModelKinds.MusicGeneration => AudioMode.Music,
+            ModelKinds.MusicGeneration or ModelKinds.AudioGeneration => AudioMode.Music,
             ModelKinds.AudioSeparation => AudioMode.Separation,
             _ => AudioMode.None,
         };
@@ -368,9 +368,23 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             context.Report(null, "Loading the model");
             if (mode == AudioMode.Music)
             {
-                using var lease = await model.AcquireClientAsync<IMusicGenerator>(context.CancellationToken).ConfigureAwait(false);
-                context.Report(null, "Generating");
-                var music = await lease.Client.GenerateAsync(settings.Music with { Prompt = prompt }, context.CancellationToken).ConfigureAwait(false);
+                AudioBuffer music;
+                if (model.Kind == ModelKinds.AudioGeneration)
+                {
+                    // Diffusion music models (ACE-Step): duration and seed apply; guidance, sampling and lyrics are not offered by the page yet.
+                    using var lease = await model.AcquireClientAsync<IAudioGenerator>(context.CancellationToken).ConfigureAwait(false);
+                    var request = new AudioGenerationRequest { Prompt = prompt, Duration = settings.Music.Duration, Seed = settings.Music.Seed };
+                    var progress = new Progress<(int Step, int Steps)>(p => context.Report((double)p.Step / p.Steps, "Generating"));
+                    context.Report(null, "Generating");
+                    music = await lease.Client.GenerateAsync(request, progress, context.CancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    using var lease = await model.AcquireClientAsync<IMusicGenerator>(context.CancellationToken).ConfigureAwait(false);
+                    context.Report(null, "Generating");
+                    music = await lease.Client.GenerateAsync(settings.Music with { Prompt = prompt }, context.CancellationToken).ConfigureAwait(false);
+                }
+
                 using var stored = new MemoryStream();
                 WavFile.Write(stored, music);
                 files = new Dictionary<string, byte[]> { [MusicName] = stored.ToArray() };

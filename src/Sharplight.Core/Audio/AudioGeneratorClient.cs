@@ -243,6 +243,13 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
         textRun.Symbols[WellKnown.TokenSymbol] = textIds.Length;
         _text.SetInput<int>(_text.Graph.Inputs.First(v => v.Input!.Name == AudioGenerationGraphs.TokensInput), textIds);
         _text.SetInput<int>(_text.Graph.Inputs.First(v => v.Input!.Name == AudioGenerationGraphs.PositionsInput), Enumerable.Range(0, textIds.Length).ToArray());
+        var spans = new int[textIds.Length * 2];
+        for (int i = 0; i < textIds.Length; i++)
+        {
+            spans[(i * 2) + 1] = textIds.Length;
+        }
+
+        _text.SetInput<int>(_text.Graph.Inputs.First(v => v.Input!.Name == AudioGenerationGraphs.SpansInput), spans);
         _text.Run(textRun);
         _text.GetOutput<float>(AudioGenerationGraphs.HiddenOutput, textHidden);
 

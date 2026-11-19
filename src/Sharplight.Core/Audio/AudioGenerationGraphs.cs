@@ -10,7 +10,7 @@ namespace Sharplight.Audio;
 /// </summary>
 /// <remarks>
 /// All signals are time-major. <see cref="TextGraph"/> / <see cref="LyricGraph"/>: <see cref="TokensInput"/> i32 <c>[T]</c> (and <see cref="PositionsInput"/> i32
-/// <c>[T, 1]</c> for the text graph) to <see cref="HiddenOutput"/> f32 <c>[T, width]</c>. <see cref="ConditionGraph"/>: <see cref="TextInput"/> f32 <c>[S, width]</c>
+/// <c>[T, 1]</c> and <see cref="SpansInput"/> for the text graph) to <see cref="HiddenOutput"/> f32 <c>[T, width]</c>. <see cref="ConditionGraph"/>: <see cref="TextInput"/> f32 <c>[S, width]</c>
 /// (symbol <c>S</c>), <see cref="LyricInput"/> f32 <c>[L, width]</c> (symbol <c>L</c>), <see cref="ReferenceInput"/> f32 <c>[R, latent]</c> (the timbre reference, the
 /// silence latent for no reference), the positions of the three (<see cref="LyricPositionsInput"/>, <see cref="ReferencePositionsInput"/>) to
 /// <see cref="ConditionOutput"/> f32 <c>[L + 1 + S, D]</c>. <see cref="DenoiseGraph"/>: <see cref="LatentInput"/> f32 <c>[T, C]</c>, <see cref="ContextInput"/> f32
@@ -40,6 +40,9 @@ public static class AudioGenerationGraphs
 
     /// <summary>Row positions (0, 1, 2, ...) of a graph with rotary attention: i32 <c>[rows, 1]</c>.</summary>
     public const string PositionsInput = "positions";
+
+    /// <summary>Row spans of the text graph's causal attention: i32 <c>[rows, 2]</c>, every row <c>(0, rows)</c>.</summary>
+    public const string SpansInput = "spans";
 
     /// <summary>Row positions of the lyric rows of the condition graph.</summary>
     public const string LyricPositionsInput = "lyric_positions";
