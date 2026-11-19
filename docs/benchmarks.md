@@ -7163,7 +7163,7 @@ SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/Qwen3-8B --provider cuda --bench 2048
 nvcc -O2 -arch=sm_120 bench/s51_cublaslt_probe.cu -lcublasLt -o probe && ./probe
 ```
 
-## 51. Image chats on the batching engine (2026-11-19)
+## 52. Image chats on the batching engine (2026-11-19)
 
 Image and audio prompts now run on the serving engine (docs/kv-cache.md section 2.7): media embedding rows and M-RoPE positions in the
 batched decoder, an encoder stage before prefill, encoder outputs and KV blocks cached by content. Before, an image chat ran on its own
