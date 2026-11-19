@@ -10,7 +10,9 @@ namespace Sharplight.Families.Tests;
 /// Prefix caching on real model graphs (paged decoders, the default for several slots): prompts sharing a 40-token prefix decode
 /// token-identically with the cache on and off, and later prompts reuse cached blocks: attention-only models attach them directly,
 /// models with recurrent state (gated delta nets, Mamba, Mamba-2, short convolutions, RWKV-7) together with a snapshot of the
-/// recurrent state taken at a block boundary.
+/// recurrent state taken at a block boundary. Several samples of one prompt submitted together fork the first one's context
+/// (copy-on-write) and decode identically as well. The engine prices waits and snapshots with a fixed cost model in which rows are
+/// expensive, so every cache path is taken whatever the device's timing.
 /// </summary>
 public class PrefixCacheParityTests
 {
@@ -79,7 +81,7 @@ public class PrefixCacheParityTests
         var decoder = model.CreateBatchDecoder(slots: 2);
         Assert.True(decoder.KvBlockSize > 0, "the decoder is not paged by default");
         Assert.True(decoder.CachesKvBlocks, "the decoder does not cache blocks");
-        using var cached = new InferenceEngine(decoder, model.Tokenizer);
+        using var cached = new InferenceEngine(decoder, model.Tokenizer, new EngineOptions { StepCost = new StepCostModel(fixedMs: 1, perRowMs: 1, copyMs: 0, frozen: true) });
         var hits = new int[prompts.Length];
         // One after another: the first leaves blocks, the second (recurrent: a state snapshot at the shared prefix), the rest reuse them.
         for (int i = 0; i < 4; i++)
@@ -100,6 +102,12 @@ public class PrefixCacheParityTests
         {
             Assert.True(cached.GetMetrics().StateSnapshots >= 1);
         }
+
+        // Three samples of one prompt at once (n = 3): the second and third fork the first's context.
+        long forks = cached.GetMetrics().ForkedSequences;
+        var samples = await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => Generate(cached, prompts[1], ct)));
+        Assert.All(samples, x => Assert.Equal(expected[1], x.Tokens));
+        Assert.True(cached.GetMetrics().ForkedSequences - forks >= 1, "no sample forked the first one's context");
     }
 
     private static async Task<(int[] Tokens, int Cached)> Generate(InferenceEngine engine, int[] prompt, CancellationToken ct)

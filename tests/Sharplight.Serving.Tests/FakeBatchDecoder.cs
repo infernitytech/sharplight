@@ -27,7 +27,12 @@ public sealed class FakeBatchDecoder : IBatchDecoder
         _snapshotContext = [.. Enumerable.Range(0, stateSnapshots).Select(_ => new List<int>())];
         if (kvBlockSize > 0)
         {
-            _kv = new KvBlockCache(slots, kvBlockSize, kvBlocks, (contextLength + kvBlockSize - 1) / kvBlockSize, !canTruncate, stateSnapshots, CopyState);
+            _kv = new KvBlockCache(slots, kvBlockSize, kvBlocks, (contextLength + kvBlockSize - 1) / kvBlockSize, !canTruncate, stateSnapshots, CopyState,
+                (from, to, count) =>
+                {
+                    KvRowCopies += count;
+                    return true;
+                });
         }
 
         SlotCount = slots;
@@ -93,6 +98,10 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     public int KvStateSnapshots => _kv?.SnapshotCapacity ?? 0;
     /// <summary>Most blocks held at once.</summary>
     public int PeakBlocksHeld { get; private set; }
+    /// <summary>KV rows copied (copy-on-write of a block shared by forked slots).</summary>
+    public int KvRowCopies { get; private set; }
+    /// <summary>Slots forked from another slot.</summary>
+    public int Forks { get; private set; }
     /// <summary>Recurrent-state snapshots restored (attached blocks of a model with recurrent state).</summary>
     public int SnapshotRestores { get; private set; }
     public int KvBlocksNeeded(int slot, int tokens) => _kv?.Needed(slot, _ctx[slot].Count, tokens) ?? 0;
@@ -139,12 +148,30 @@ public sealed class FakeBatchDecoder : IBatchDecoder
         }
     }
 
-    public bool SaveKvStateSnapshot(int slot, UInt128 hash) => _kv is not null && _ctx[slot].Count % KvBlockSize == 0 && _kv.SaveSnapshot(slot, hash);
+    public bool ForkKv(int slot, int source)
+    {
+        if (_kv is null || _ctx[slot].Count != 0 || !_kv.Fork(slot, source))
+        {
+            return false;
+        }
+
+        _ctx[slot].AddRange(_ctx[source]);
+        Forks++;
+        return true;
+    }
+
+    public bool SaveKvStateSnapshot(int slot, UInt128 hash, bool speculative = false)
+        => _kv is not null && _ctx[slot].Count % KvBlockSize == 0 && _kv.SaveSnapshot(slot, hash, speculative);
 
     /// <summary>"Copies recurrent state" between slot rows and snapshot rows: the fake state is the context it belongs to.</summary>
     private bool CopyState(int from, int to)
     {
         int slots = SlotCount;
+        if (from < slots && to < slots)
+        {
+            return true;   // a fork: the context is copied by ForkKv
+        }
+
         if (to >= slots)
         {
             _snapshotContext[to - slots].Clear();
@@ -239,6 +266,7 @@ public sealed class FakeBatchDecoder : IBatchDecoder
 
             foreach (var i in inputs)
             {
+                _kv.Unshare(i.Slot, _ctx[i.Slot].Count);
                 _kv.Grow(i.Slot, _ctx[i.Slot].Count + i.Tokens.Length);
             }
 

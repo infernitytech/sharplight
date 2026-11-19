@@ -5,7 +5,7 @@ namespace Sharplight.Llm.Serving;
 /// <summary>Counters and histograms the engine updates; read them as an <see cref="EngineMetricsSnapshot"/>.</summary>
 public sealed class EngineMetrics
 {
-    private long _submitted, _rejected, _promptTokens, _cachedTokens, _completionTokens, _lookups, _hits, _steps, _drafted, _accepted, _preemptions, _sharedPrefixTokens, _sharedPrefixBlocks, _stateSnapshots;
+    private long _submitted, _rejected, _promptTokens, _cachedTokens, _completionTokens, _lookups, _hits, _steps, _drafted, _accepted, _preemptions, _sharedPrefixTokens, _sharedPrefixBlocks, _stateSnapshots, _forks;
     private readonly long[] _finished = new long[Enum.GetValues<FinishReason>().Length];
     private readonly Histogram _ttft = new(Histogram.LatencyBuckets), _itl = new(Histogram.FineLatencyBuckets), _wait = new(Histogram.LatencyBuckets),
         _duration = new(Histogram.LatencyBuckets), _stepTime = new(Histogram.FineLatencyBuckets), _rows = new(Histogram.CountBuckets),
@@ -82,6 +82,9 @@ public sealed class EngineMetrics
         }
     }
     internal void StateSnapshot() => Interlocked.Increment(ref _stateSnapshots);
+
+    /// <summary>A sequence took another's computed prompt instead of computing it (several samples of one prompt).</summary>
+    internal void Forked() => Interlocked.Increment(ref _forks);
     internal void Speculation(int drafted, int accepted)
     {
         Interlocked.Add(ref _drafted, drafted);
@@ -124,6 +127,7 @@ public sealed class EngineMetrics
         DraftTokens = Interlocked.Read(ref _drafted), AcceptedDraftTokens = Interlocked.Read(ref _accepted),
         Preemptions = Interlocked.Read(ref _preemptions), SharedPrefixTokens = Interlocked.Read(ref _sharedPrefixTokens),
         SharedPrefixBlocks = Interlocked.Read(ref _sharedPrefixBlocks), StateSnapshots = Interlocked.Read(ref _stateSnapshots),
+        ForkedSequences = Interlocked.Read(ref _forks),
         TimeToFirstToken = _ttft.Snapshot(), InterTokenLatency = _itl.Snapshot(), QueueWait = _wait.Snapshot(),
         RequestDuration = _duration.Snapshot(), StepDuration = _stepTime.Snapshot(), StepRows = _rows.Snapshot(),
         StepSequences = _sequences.Snapshot(),
