@@ -25559,10 +25559,11 @@
       "companions": [],
       "verification": {
         "reference": "stable-audio-3",
-        "summary": "vs the stable-audio-3 package (fp32, CPU) with the same initial noise, 8 Euler steps with adaptive projected guidance 7, a 10 s clip (174 latent frames): final latents 85.6 dB (CPU) / 81.1 dB (Vulkan) SNR, decoded 44.1 kHz stereo audio (autoencoder dither off) 81.3 / 75.9 dB, the SAME-L decoder alone 104.1 / 97.0 dB; the differential attention and the sliding-window, sine-gated decoder are also checked on a tiny random checkpoint (CPU, Vulkan, CUDA)",
+        "summary": "vs the stable-audio-3 package (fp32, CPU) with the same initial noise, 8 Euler steps with adaptive projected guidance 7, a 10 s clip (174 latent frames): final latents 85.6 dB (CPU) / 81.1 dB (Vulkan) / 84.6 dB (CUDA) SNR, decoded 44.1 kHz stereo audio (autoencoder dither off) 81.3 / 75.9 / 79.6 dB, the SAME-L decoder alone 104.1 / 97.0 / 103.2 dB; the differential attention and the sliding-window, sine-gated decoder are also checked on a tiny random checkpoint (CPU, Vulkan, CUDA)",
         "providers": [
           "CPU",
-          "Vulkan"
+          "Vulkan",
+          "CUDA"
         ],
         "date": "2026-11-19",
         "tests": []
