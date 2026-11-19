@@ -19,6 +19,12 @@ internal sealed class FakeRepository(string id, string commit, bool gated)
     /// <summary>The family the revision API reports as <c>gguf.architecture</c>, or null.</summary>
     public string? Architecture { get; set; }
 
+    /// <summary>The licence the model card declares (<c>cardData.license</c>), or null.</summary>
+    public string? License { get; set; }
+
+    /// <summary>The model this repository is quantized from (reported as a <c>base_model:quantized:</c> tag), or null.</summary>
+    public string? BaseModel { get; set; }
+
     public Dictionary<string, byte[]> Files { get; } = new(StringComparer.Ordinal);
 
     /// <summary>Overrides the SHA-256 the tree reports for a file (checksum mismatch tests).</summary>
