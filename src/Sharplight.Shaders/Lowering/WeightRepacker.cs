@@ -8,7 +8,13 @@ public static class WeightRepacker
     /// <summary>Rows repacked together by <see cref="WeightRepack.Mxfp4Split"/>.</summary>
     public const int Mxfp4GroupRows = 16;
 
-    /// <summary>Bytes of one repacked unit (a row, or a row group for <see cref="WeightRepack.Mxfp4Split"/>) of rows with <paramref name="k"/> logical elements.</summary>
+    /// <summary>Rows repacked together by <see cref="WeightRepack.Fp8B128Grouped"/>.</summary>
+    public const int Fp8GroupRows = 128;
+
+    /// <summary>
+    /// Bytes of one repacked unit (a row, or a row group for <see cref="WeightRepack.Mxfp4Split"/> and
+    /// <see cref="WeightRepack.Fp8B128Grouped"/>) of rows with <paramref name="k"/> logical elements.
+    /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Unknown layout.</exception>
     public static long RowBytes(WeightRepack r, long k) => r switch
     {
@@ -16,6 +22,7 @@ public static class WeightRepacker
         WeightRepack.Mxfp4Split => Mxfp4GroupRows * (k / 32 * 17),
         WeightRepack.Fp8B32Split => k / 32 * 36,
         WeightRepack.Fp8B128Split => k / 128 * 132,
+        WeightRepack.Fp8B128Grouped => Fp8GroupRows * (k / 128 * 132),
         WeightRepack.Bf16ToF16 => 2 * k,
         _ => throw new ArgumentOutOfRangeException(nameof(r)),
     };
@@ -40,6 +47,16 @@ public static class WeightRepacker
             for (int group = 0; group < src.Length / rowBytes; group++)
             {
                 SplitMxfp4Group(src.Slice((int)(group * rowBytes), (int)rowBytes), dst.Slice((int)(group * rowBytes), (int)rowBytes), blocks);
+            }
+
+            return;
+        }
+
+        if (r == WeightRepack.Fp8B128Grouped)
+        {
+            for (int group = 0; group < src.Length / rowBytes; group++)
+            {
+                GroupFp8Rows(src.Slice((int)(group * rowBytes), (int)rowBytes), dst.Slice((int)(group * rowBytes), (int)rowBytes), (int)(k / 128));
             }
 
             return;
@@ -97,6 +114,23 @@ public static class WeightRepacker
             var blk = src.Slice(b * (block + 4), block + 4);
             blk[..4].CopyTo(scales.Slice(b * 4, 4));
             blk[4..].CopyTo(codes.Slice(b * block, block));
+        }
+    }
+
+    // One 128-row group of rows of { f32 d; u8 q[128] } blocks → the codes of every row (128 bytes per block), then the scales
+    // block by block (the 128 rows' scales of a block are adjacent).
+    private static void GroupFp8Rows(ReadOnlySpan<byte> src, Span<byte> dst, int blocks)
+    {
+        var codes = dst[..(Fp8GroupRows * blocks * 128)];
+        var scales = dst[(Fp8GroupRows * blocks * 128)..];
+        for (int row = 0; row < Fp8GroupRows; row++)
+        {
+            for (int b = 0; b < blocks; b++)
+            {
+                var blk = src.Slice((row * blocks + b) * 132, 132);
+                blk[..4].CopyTo(scales.Slice((b * Fp8GroupRows + row) * 4, 4));
+                blk[4..].CopyTo(codes.Slice((row * blocks + b) * 128, 128));
+            }
         }
     }
 

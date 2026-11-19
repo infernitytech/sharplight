@@ -16,4 +16,7 @@ public static class ShaderTypes
 
     /// <summary>F8E4M3_B128 in <see cref="WeightRepack.Fp8B128Split"/> layout (same 132 bytes per 128 values).</summary>
     public static readonly DataType F8E4M3_B128R = DataType.Register("f8e4m3_b128r", DataTypeKind.Quantized, 128, 132);
+
+    /// <summary>F8E4M3_B128 in <see cref="WeightRepack.Fp8B128Grouped"/> layout (same 132 bytes per 128 values, in groups of 128 rows).</summary>
+    public static readonly DataType F8E4M3_B128G = DataType.Register("f8e4m3_b128g", DataTypeKind.Quantized, 128, 132);
 }

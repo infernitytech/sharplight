@@ -111,10 +111,12 @@ internal static unsafe class WeightCopier
         long rows = bytes / rowBytes;
         nint source = (nint)src;
         nint destination = (nint)dst;
-        Parallel.For(0, (rows + RepackRowsPerTask - 1) / RepackRowsPerTask, task =>
+        // Units of whole row groups (megabytes for Fp8B128Grouped) are repacked one per task.
+        long rowsPerTask = rowBytes > 65536 ? 1 : RepackRowsPerTask;
+        Parallel.For(0, (rows + rowsPerTask - 1) / rowsPerTask, task =>
         {
-            long firstRow = task * RepackRowsPerTask;
-            long taskBytes = Math.Min(RepackRowsPerTask, rows - firstRow) * rowBytes;
+            long firstRow = task * rowsPerTask;
+            long taskBytes = Math.Min(rowsPerTask, rows - firstRow) * rowBytes;
             WeightRepacker.Apply(b.Repack, b.RepackRowElements,
                 new ReadOnlySpan<byte>((byte*)source + firstRow * rowBytes, (int)taskBytes),
                 new Span<byte>((byte*)destination + firstRow * rowBytes, (int)taskBytes));

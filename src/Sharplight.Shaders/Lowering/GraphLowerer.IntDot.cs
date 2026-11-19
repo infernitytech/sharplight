@@ -190,6 +190,12 @@ public sealed partial class GraphLowerer
 
         long rowsMax = x.Shape[0] * rowsPerLead;
         long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.F16 => 2 * k, ActivationCode.SplitF16 => 4 * k + 16, ActivationCode.ScaledF16 => 2 * k + 16, _ => k + k / 4 }];
+        if (code == ActivationCode.Fp8)
+        {
+            // With the hand-written FP8 GEMM, room for the dense copy of the scales after the rows.
+            shape[0] = Fp8ActivationRows(rowsMax, shape[1]);
+        }
+
         if (code == ActivationCode.F16 && DiagnosticSwitches.F16RangeGuard)
         {
             // A row-ranged copy (x is no norm output, so its rows may exceed f16's range): the scale words follow the rows.
@@ -215,6 +221,11 @@ public sealed partial class GraphLowerer
             quantized = Temp(DataType.U8, shape, x.Symbol);
         }
 
+        if (code == ActivationCode.Fp8)
+        {
+            NoteDenseScales(quantized, rowsMax);
+        }
+
         if (code == ActivationCode.F16 && DiagnosticSwitches.F16RangeGuard)
         {
             _rangeScales[quantized] = rowsMax * k * 2;
@@ -235,7 +246,7 @@ public sealed partial class GraphLowerer
         bool ranged = code == ActivationCode.F16 && _rangeScales.ContainsKey(quantized);
         var kernel = code switch
         {
-            ActivationCode.Fp8 => Lib("gemm_fp8.slang", "quantize_fp8", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_FP8", 1))),
+            ActivationCode.Fp8 => Lib("gemm_fp8.slang", "quantize_fp8", QuantizeFp8Macros(k, xStride, quantized)),
             ActivationCode.F16 when ranged => Lib("data.slang", "to_f16_ranged", Macros(("K", k), ("X_STRIDE", xStride), ("Y_RS", _rangeScales[quantized] + "ull"))),
             ActivationCode.F16 => Lib("data.slang", "to_f16", Macros(("K", k), ("X_STRIDE", xStride))),
             ActivationCode.SplitF16 => Lib("data.slang", "split_rows", Macros(("K", k), ("X_STRIDE", xStride))),
@@ -251,6 +262,18 @@ public sealed partial class GraphLowerer
             [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows && !(written?.Invoke(rows(b)) ?? false), kernel, grid)],
             [Pointer(x), Pointer(quantized), TokenArg(x, rowsPerLead)],
             [x], [quantized]);
+    }
+
+    /// <summary>Macros of <c>quantize_fp8</c> writing <paramref name="quantized"/> (with its dense scale copy when it has one).</summary>
+    private Dictionary<string, string> QuantizeFp8Macros(long k, long xStride, TensorRef quantized)
+    {
+        var macros = Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_FP8", 1));
+        if (DenseScaleCapacityOf(quantized) is > 0 and var cap)
+        {
+            macros["DENSE_XCAP"] = cap.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return macros;
     }
 
     /// <summary>

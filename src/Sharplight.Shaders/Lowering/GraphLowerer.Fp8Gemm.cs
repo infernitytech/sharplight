@@ -14,13 +14,16 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool UseFp8Gemm(DataType type, long k)
         => DiagnosticSwitches.Fp8Gemm && _opt.Has(DeviceFeatures.MatrixFp8) && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32
-           && (type == DataType.F8E4M3_B128 || type == DataType.F8E4M3_B32 || type == ShaderTypes.F8E4M3_B128R || type == ShaderTypes.F8E4M3_B32R)
+           && (type == DataType.F8E4M3_B128 || type == DataType.F8E4M3_B32 || type == ShaderTypes.F8E4M3_B128R || type == ShaderTypes.F8E4M3_B32R
+               || type == ShaderTypes.F8E4M3_B128G)
            && k % 128 == 0;
 
     /// <summary>Emits the E4M3 activation quantization and the fp8 GEMM launches of a planned matmul (see <see cref="UseFp8Gemm"/>).</summary>
     private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
         (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
-        native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) && p.X.Shape[0] * p.RowsPerLead >= NativeGemmMinRows ? NativeFp8Kernel(p.N, p.K, null) : null);
+        native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) && p.X.Shape[0] * p.RowsPerLead >= NativeGemmMinRows
+            ? quantized => DenseScaleCapacityOf(quantized) is > 0 and var xcap ? NativeFp8Kernel(p.N, p.K, null, xcap) : null
+            : null);
 
     /// <summary>
     /// Largest batch for which the dual fp8 GEMM serves every row count (one 64-row tile). Larger batches use it only where the
@@ -73,7 +76,8 @@ public sealed partial class GraphLowerer
         var quantized = QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, minRows, rowsMax, ActivationCode.Fp8);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
         // From NativeGemmMinRows rows the hand-written dual GEMM serves every batch (no K split needed at that size).
-        long nativeMin = cudaEpilogue is not null && UseNativeFp8Gemm(weightA.Type, n, k) && weightB.Type == weightA.Type
+        long xcap = DenseScaleCapacityOf(quantized);
+        long nativeMin = cudaEpilogue is not null && UseNativeFp8Gemm(weightA.Type, n, k) && weightB.Type == weightA.Type && xcap > 0
             ? Math.Max(minRows, NativeGemmMinRows) : long.MaxValue;
         bool Generated(long r) => r < nativeMin && DualFp8Serves(r, n, k);
         serves = r => r >= nativeMin || Generated(r);
@@ -82,7 +86,7 @@ public sealed partial class GraphLowerer
         var variants = new List<KernelVariant>();
         if (rowsMax >= nativeMin)
         {
-            variants.Add(new KernelVariant(b => rows(b) >= nativeMin, NativeFp8Kernel(n, k, cudaEpilogue), b => NativeFp8Grid(rows(b), n, dual: true)));
+            variants.Add(new KernelVariant(b => rows(b) >= nativeMin, NativeFp8Kernel(n, k, cudaEpilogue, xcap), b => NativeFp8Grid(rows(b), n, dual: true)));
         }
 
         foreach (int tileRows in tall ? new[] { 64, 128 } : [(int)DualFp8AlwaysMaxRows])
@@ -112,7 +116,12 @@ public sealed partial class GraphLowerer
         var macros = Macros(("KERNEL_GEMM_FP8", 1), ("WBLOCK", type.BlockSize), ("K", k), ("N", n), ("Y_STRIDE", n), ("ROW_BYTES", type.ByteSize(k) + "ull"),
             ("F8_WM", layout[0]), ("F8_WN", layout[1]), ("F8_FM", layout[2]), ("F8_FN", layout[3]), ("SPLITK", split),
             ("F8_GENERIC_LAYOUT", DiagnosticSwitches.MmqGenericLayout),
-            ("F8_SPLIT", type == ShaderTypes.F8E4M3_B128R || type == ShaderTypes.F8E4M3_B32R ? 1 : 0));
+            ("F8_SPLIT", type == ShaderTypes.F8E4M3_B128R || type == ShaderTypes.F8E4M3_B32R || type == ShaderTypes.F8E4M3_B128G ? 1 : 0));
+        if (type == ShaderTypes.F8E4M3_B128G)
+        {
+            macros["F8_GROUPED"] = "1";
+        }
+
         foreach (var (name, value) in DiagnosticSwitches.GemmExtraMacros)
         {
             macros[name] = value;

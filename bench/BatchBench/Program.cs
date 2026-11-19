@@ -12,6 +12,8 @@
 // --mixed D+P,... times steps that mix D decode rows (slots 0..D-1) with prompt chunks of P rows (a fresh sequence from position 0
 // in each of the last slots, as the serving engine's chunked prefill feeds them); "D+PxN" splits P*N prompt rows over N sequences.
 // --batch sets the decoder's rows per step (default 512). With --mixed, --profile takes the index of the mixed entry instead.
+// --provider vulkan|cuda picks the GPU provider (default: the first available one, Vulkan); profiles of CUDA steps need
+// SHARPLIGHT_CUDA_PROFILE-style per-launch timing, which --profile switches on per segment like on Vulkan.
 using System.Diagnostics;
 using Sharplight;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +23,7 @@ using Sharplight.Models;
 using Sharplight.Llm.Serving;
 using Sharplight.Package;
 using Sharplight.Runtime;
+using Sharplight.Cuda;
 using Sharplight.Vulkan;
 
 var argv = args.ToList();
@@ -30,14 +33,16 @@ string? Opt(string n, string? d = null)
     return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d;
 }
 
-using var services = SharplightDefaults.CreateServiceProvider();
+using var services = SharplightDefaults.CreateServiceProvider(s => s.AddCudaProvider());
 var loader = services.GetRequiredService<ModelLoader>();
 int slots = int.Parse(Opt("--slots", "64")!);
 int ctx = int.Parse(Opt("--ctx", "512")!);
 int depth = int.Parse(Opt("--depth", "256")!);
 int reps = int.Parse(Opt("--reps", "30")!);
 var sizes = Opt("--sizes", "1,2,4,8,16,32,64")!.Split(',').Select(int.Parse).Where(s => s <= slots).ToArray();
-var provider = services.GetRequiredService<ExecutionProviderCatalog>().Discover().First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu").Provider;
+string? providerName = Opt("--provider");
+var provider = services.GetRequiredService<ExecutionProviderCatalog>().Discover()
+    .First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu" && (providerName is null || x.Provider.Name == providerName)).Provider;
 using var device = provider.OpenDevice(provider.GetDevices()[0], new DeviceOptions());
 using var model = LlmModel.Load(loader, argv[0], new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = int.Parse(Opt("--batch", "512")!) });
 // --kv-tokens N: paged pool size (0: the contiguous per-slot cache; default: the paged default of slots x ctx).
@@ -55,7 +60,11 @@ double Median(List<double> l)
     return l[l.Count / 2];
 }
 
-var segments = dec.Compiled.Segments.OfType<VulkanSegment>().ToList();
+var segments = dec.Compiled.Segments.OfType<VulkanSegment>()
+    .Select(v => new SegmentView(() => v.LastGpuMs, on => v.Profile = on, v.ResetProfile, v.ProfileReport, v.Stats))
+    .Concat(dec.Compiled.Segments.OfType<CudaSegment>()
+        .Select(c => new SegmentView(() => c.LastGpuMs, on => c.Profile = on, c.ResetProfile, c.ProfileReport, c.Stats)))
+    .ToList();
 var tokens = new int[slots];
 var logprobs = new float[slots];
 uint counter = 0;
@@ -87,7 +96,7 @@ void Step(string mode, List<SequenceInput> inputs)
         var sw = Stopwatch.StartNew();
         Step(mode, inputs);
         wall.Add(sw.Elapsed.TotalMilliseconds);
-        gpu = Math.Min(gpu, segments.Sum(s => s.LastGpuMs));
+        gpu = Math.Min(gpu, segments.Sum(s => s.Gpu()));
     }
     return (wall.Min(), Median(wall), gpu);
 }
@@ -140,7 +149,7 @@ if (mixed is not null)
             var sw = Stopwatch.StartNew();
             Step(mode, inputs);
             wall.Add(sw.Elapsed.TotalMilliseconds);
-            gpu = Math.Min(gpu, segments.Sum(s => s.LastGpuMs));
+            gpu = Math.Min(gpu, segments.Sum(s => s.Gpu()));
         }
 
         if (n == 0) baseline[d] = gpu;
@@ -150,15 +159,15 @@ if (mixed is not null)
         {
             foreach (var seg in segments)
             {
-                seg.Profile = true;
-                seg.ResetProfile();
+                seg.SetProfile(true);
+                seg.Reset();
             }
 
             for (int i = 0; i < 10; i++) Step(mode, Inputs());
             foreach (var seg in segments)
             {
-                Console.WriteLine($"--- profile mixed {spec} ({mode})\n{seg.ProfileReport(profileTop)}");
-                seg.Profile = false;
+                Console.WriteLine($"--- profile mixed {spec} ({mode})\n{seg.Report(profileTop)}");
+                seg.SetProfile(false);
             }
         }
 
@@ -182,15 +191,18 @@ foreach (int b in sizes)
         string mode = Opt("--profile-mode", "logits")!;
         foreach (var seg in segments)
         {
-            seg.Profile = true;
-            seg.ResetProfile();
+            seg.SetProfile(true);
+            seg.Reset();
         }
 
         for (int i = 0; i < 20; i++) Step(mode, inputs);
         foreach (var seg in segments)
         {
-            Console.WriteLine($"--- profile batch {b} ({mode})\n{seg.ProfileReport(profileTop)}");
-            seg.Profile = false;
+            Console.WriteLine($"--- profile batch {b} ({mode})\n{seg.Report(profileTop)}");
+            seg.SetProfile(false);
         }
     }
 }
+
+/// <summary>The members of a provider's compiled segment the benchmark uses (Vulkan and CUDA segments).</summary>
+internal sealed record SegmentView(Func<double> Gpu, Action<bool> SetProfile, Action Reset, Func<int, string> Report, Func<long, (int Dispatches, int Barriers)> Stats);

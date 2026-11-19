@@ -56,6 +56,12 @@ internal sealed class RowNormKernelSource
     /// </summary>
     public (int Index, long MinRows)? Fp8Output { get; init; }
 
+    /// <summary>
+    /// Row capacity of the dense copy of the <see cref="Fp8Output"/> scales (<c>[row length / 128][capacity]</c> f32 after that many
+    /// rows, read by the hand-written FP8 GEMM), or 0 for none.
+    /// </summary>
+    public long Fp8DenseScaleCapacity { get; init; }
+
     /// <summary>True when a per-column f32 weight scales the normalized value.</summary>
     public required bool HasWeight { get; init; }
 
@@ -123,6 +129,11 @@ internal sealed class RowNormKernelSource
         _sb.AppendLine("      float d = e4m3_group_scale(v);");
         _sb.AppendLine("      qr[c] = e4m3_pack4(v, d);");
         _sb.AppendLine($"      if ((c & 31u) == 0) qr[{_rowLength / 4}u + c / 32u] = asuint(d);");
+        if (Fp8DenseScaleCapacity > 0)
+        {
+            long dense = Fp8DenseScaleCapacity * words;
+            _sb.AppendLine($"      if ((c & 31u) == 0) ((uint*)p.out{output})[{dense}u + (c / 32u) * {Fp8DenseScaleCapacity}u + row] = asuint(d);");
+        }
         _sb.AppendLine("    }");
         _sb.AppendLine("  }");
     }

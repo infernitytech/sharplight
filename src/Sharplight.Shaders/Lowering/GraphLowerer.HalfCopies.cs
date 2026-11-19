@@ -187,18 +187,24 @@ public sealed partial class GraphLowerer
             }
 
             long rows = y.Shape.Aggregate(1L, (a, d) => a * d) / k;
+            // With the hand-written FP8 GEMM, room for the dense copy of the scales after the rows.
+            long allocatedRows = Fp8ActivationRows(rows, k + k / 32);
             var allocation = new object();
-            long offset = _alloc.Allocate(allocation, rows * (k + k / 32));
+            long offset = _alloc.Allocate(allocation, allocatedRows * (k + k / 32));
             if (!_rootScratch.TryGetValue(value, out var list))
             {
                 _rootScratch[value] = list = [];
             }
 
             list.Add(allocation);
-            long[] shape = [rows, k + k / 32];
-            _fp8Copies[value] = (new TensorRef(_arena, offset, DataType.U8, shape, TensorRef.DenseStrides(shape), y.Symbol), NormCopyPrefillMinRows);
-            long[] words = [rows, (k + k / 32) / 4];
-            pass2Outputs.Add((new TensorRef(_arena, offset, DataType.U32, words, TensorRef.DenseStrides(words), y.Symbol), pass2Outputs[i].Expr));
+            long[] shape = [allocatedRows, k + k / 32];
+            var copy = new TensorRef(_arena, offset, DataType.U8, shape, TensorRef.DenseStrides(shape), y.Symbol);
+            NoteDenseScales(copy, rows);
+            _fp8Copies[value] = (copy, NormCopyPrefillMinRows);
+            long[] words = [allocatedRows, (k + k / 32) / 4];
+            var wordRef = new TensorRef(_arena, offset, DataType.U32, words, TensorRef.DenseStrides(words), y.Symbol);
+            NoteDenseScales(wordRef, rows);
+            pass2Outputs.Add((wordRef, pass2Outputs[i].Expr));
             prefill.Add(value);
             return pass2Outputs.Count - 1;
         }

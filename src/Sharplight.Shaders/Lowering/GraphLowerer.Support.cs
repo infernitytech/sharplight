@@ -59,6 +59,7 @@ public sealed partial class GraphLowerer
         [DataType.F8E4M3_B128] = 53,
         [ShaderTypes.F8E4M3_B32R] = 152,
         [ShaderTypes.F8E4M3_B128R] = 153,
+        [ShaderTypes.F8E4M3_B128G] = 154,
         [DataType.NVFP4_GS] = 60,
         [DataType.Q4Z_G32] = 61,
         [DataType.Q4Z_G128] = 62,

@@ -3,27 +3,34 @@
 //  * f8e4m3 / f8e5m2: one code per byte, rows of K bytes.
 //  * f8e4m3_b32 / f8e4m3_b128: blocks of { f32 d; u8 q[B] } (36 / 132 bytes, 4-byte aligned) along the row, value = d * e4m3(q).
 //  * f8e4m3_b32r / f8e4m3_b128r (FP8_SPLIT): the same rows repacked on upload to [K codes][K / B f32 scales].
+//  * f8e4m3_b128g (FP8_SPLIT, FP8_GROUPED): groups of 128 rows, [128 rows of K codes][K / 128 blocks of the 128 rows' f32 scales].
 //
 // Decoding goes through half bits, exact for every code: an E4M3 code's sign moved to bit 15 and its 7 exponent/mantissa bits
 // to bits 7..13 is the half code * 2^-8 (the exponent biases differ by 8; E4M3 subnormals m * 2^-9 become the half subnormals
 // m * 2^-17). E5M2 is the upper byte of a half. One multiply by 256 * d then applies the block scale. NaN codes stay NaN.
 
 #if defined(WFMT) && (WFMT == FMT_F8E4M3 || WFMT == FMT_F8E5M2 || WFMT == FMT_F8E4M3_B32 || WFMT == FMT_F8E4M3_B128 \
-                      || WFMT == FMT_F8E4M3_B32R || WFMT == FMT_F8E4M3_B128R)
+                      || WFMT == FMT_F8E4M3_B32R || WFMT == FMT_F8E4M3_B128R || WFMT == FMT_F8E4M3_B128G)
 #define WFMT_FP8 1
 #if WFMT == FMT_F8E4M3_B32 || WFMT == FMT_F8E4M3_B32R
 #define FP8_BLOCK 32
-#elif WFMT == FMT_F8E4M3_B128 || WFMT == FMT_F8E4M3_B128R
+#elif WFMT == FMT_F8E4M3_B128 || WFMT == FMT_F8E4M3_B128R || WFMT == FMT_F8E4M3_B128G
 #define FP8_BLOCK 128
 #else
 #define FP8_BLOCK 0
 #endif
 #endif
 // FP8_SPLIT: rows in the aligned split layout [K codes][K / B f32 scales] (16-byte aligned codes).
-#if defined(WFMT) && (WFMT == FMT_F8E4M3_B32R || WFMT == FMT_F8E4M3_B128R)
+#if defined(WFMT) && (WFMT == FMT_F8E4M3_B32R || WFMT == FMT_F8E4M3_B128R || WFMT == FMT_F8E4M3_B128G)
 #define FP8_SPLIT 1
 #else
 #define FP8_SPLIT 0
+#endif
+// FP8_GROUPED: the split layout in groups of 128 rows (f8e4m3_b128g).
+#if defined(WFMT) && WFMT == FMT_F8E4M3_B128G
+#define FP8_GROUPED 1
+#else
+#define FP8_GROUPED 0
 #endif
 
 // Two FP8 codes (bytes 0,1 of u, or bytes 2,3 when hi) as packed half bits: E4M3 as value * 2^-8, E5M2 exactly.
@@ -49,7 +56,13 @@ uint64_t fp8_group(uint8_t* base, uint64_t rowBytes, uint row, uint g, uint bloc
     }
 
     uint groupsPerBlock = blockValues / 8;
-#if FP8_SPLIT
+#if FP8_GROUPED
+    // Group of 128 rows: the rows' codes (K = rowBytes * B / (B + 4) each), then per block the 128 rows' scales.
+    uint64_t kCodes = rowBytes / (blockValues + 4) * blockValues;
+    uint64_t group = uint64_t(base) + rowBytes * (row & ~127u);
+    multiplier *= asfloat(*(uint*)(group + 128 * kCodes + (g / groupsPerBlock) * 512 + (row & 127u) * 4));
+    return group + kCodes * (row & 127u) + uint64_t(g) * 8;
+#elif FP8_SPLIT
     // Codes first (rowBytes * B / (B + 4) of them), then one f32 scale per block.
     multiplier *= asfloat(*(uint*)(at + rowBytes / (blockValues + 4) * blockValues + (g / groupsPerBlock) * 4));
     return at + uint64_t(g) * 8;
