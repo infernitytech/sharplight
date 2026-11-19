@@ -43,6 +43,7 @@ internal static class HfArchitectureMappings
         Register(new MbConvHfMapping());
         Register(new DetrHfMapping());
         Register(new RtDetrHfMapping());
+        Register(new PpDocLayoutHfMapping());
         Register(new YolosHfMapping());
         Register(new DepthAnythingHfMapping());
         Register(new SegformerHfMapping());

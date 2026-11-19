@@ -24062,7 +24062,7 @@
       "kind": "text-generation",
       "family": "GLM",
       "architecture": "glm4",
-      "level": "partial",
+      "level": "verified",
       "license": "mit",
       "gated": false,
       "publisher": {
@@ -24071,7 +24071,8 @@
         "url": "https://z.ai"
       },
       "tags": [
-        "vision"
+        "vision",
+        "ocr"
       ],
       "variants": [
         {
@@ -24142,7 +24143,7 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "greedy text of \u0022Text Recognition:\u0022 on a three-line document image identical to transformers (also from an .slm)",
+        "summary": "greedy text of \u0022Text Recognition:\u0022 on a three-line document image identical to transformers, also through ITextRecognizer (the formula and table tasks identical too; also from an .slm)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -24150,15 +24151,15 @@
         "date": "2026-11-18",
         "tests": []
       },
-      "notes": "image-to-text through the chat and generator path (the image goes through the CogViT-style tower); no ITextRecognizer wiring and the multi-token-prediction layer is not used",
+      "notes": "image-to-text through the chat and generator path and, as ITextRecognizer (page-level text, formulas as LaTeX, tables as markup), through the task layer; the multi-token-prediction layer is not used (the serving engine takes no image rows yet)",
       "doc": [
         {
           "section": "1.3",
           "cells": {
             "repositories": "zai-org/GLM-OCR",
             "formats": "safetensors",
-            "verification": "greedy text identical to transformers (CPU, Vulkan, .slm)",
-            "notes": "OCR prompt \u0022Text Recognition:\u0022; no multi-token prediction"
+            "verification": "greedy text and the formula and table tasks identical to transformers (CPU, Vulkan, .slm), ITextRecognizer",
+            "notes": "OCR prompts \u0022Text Recognition:\u0022, \u0022Formula Recognition:\u0022, \u0022Table Recognition:\u0022; no multi-token prediction"
           }
         }
       ]
@@ -24232,6 +24233,82 @@
           "cells": {
             "repositories": "Roboflow/rf-detr-large",
             "task": "detection"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pp-doclayout-v3",
+      "name": "PP-DocLayoutV3",
+      "kind": "object-detection",
+      "family": "PP-DocLayout",
+      "architecture": "pp_doclayout_v3",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Baidu (PaddlePaddle)",
+        "countryOfOrigin": "CN",
+        "url": "https://github.com/PaddlePaddle/PaddleX"
+      },
+      "tags": [
+        "vision",
+        "ocr"
+      ],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 400000000,
+          "companions": [],
+          "repository": "PaddlePaddle/PP-DocLayoutV3_safetensors",
+          "revision": "e4f489dc536556fc1be02b973ba06756e0d4a2ac",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 2460,
+              "gitOid": "5a22928c191950850cbc0e56e43f722073e7c8da"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 133270468,
+              "sha256": "5ea422c6cc5fe759a47e1357c35639b58173508e025a3131cbe4b6ac59e2b85e"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 575,
+              "gitOid": "ab66797648e5a3247eca2988e9fcd8af07a6a038"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "same ten detections in the same reading order as transformers on a synthetic page, boxes within a pixel, masks, CPU, Vulkan and .slm",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "document layout analysis: boxes, 25 layout classes, reading order (DetectedObject.ReadingOrder) and per-detection masks; fixed 800 px square canvas (the reference resizes without antialiasing, Sharplight with Pillow\u0027s antialiased bicubic); pairs with GLM-OCR through DocumentReader",
+      "doc": [
+        {
+          "section": "5",
+          "cells": {
+            "repositories": "PaddlePaddle/PP-DocLayoutV3_safetensors",
+            "task": "document layout detection"
           }
         }
       ]

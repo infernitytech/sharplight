@@ -50,7 +50,16 @@ def main() -> None:
         "token_ids": new,
         "text": text,
     }
-    print(repr(text), new, result["grid"])
+    # The other recognition tasks of the model card, same image (greedy).
+    result["tasks"] = {}
+    for name, prompt in [("formula", "Formula Recognition:"), ("table", "Table Recognition:")]:
+        msg = [{"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt}]}]
+        task_inputs = processor.apply_chat_template(msg, add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt")
+        task_inputs.pop("token_type_ids", None)
+        with torch.no_grad():
+            out = model.generate(**task_inputs, max_new_tokens=64, do_sample=False)
+        result["tasks"][name] = processor.decode(out[0, task_inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+    print(repr(text), new, result["grid"], result["tasks"])
     with open(os.path.join(model_dir, "sharplight-reference.json"), "w") as f:
         json.dump(result, f)
 

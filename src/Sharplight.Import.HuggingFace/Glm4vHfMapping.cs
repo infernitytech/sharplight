@@ -38,6 +38,12 @@ internal sealed class Glm4vHfMapping : IHfArchitectureMapping
 
         Glm4vVisionHfMapping.AddVisionHyperParameters(config, md, Architecture);
         AddEndOfTurn(config, md);
+        if (config.ModelType is "glm_ocr" or "glm_ocr_text")
+        {
+            // The prompts of the model card's recognition tasks (the image comes first in the user turn).
+            md[CanonicalKeys.RecognitionTasks] = new[] { "text=Text Recognition:", "formula=Formula Recognition:", "table=Table Recognition:" };
+        }
+
         return md;
     }
 
