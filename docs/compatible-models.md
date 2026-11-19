@@ -378,6 +378,7 @@ Reference: transformers (EnCodec, DAC, Mimi), onnxruntime and the `silero-vad` p
 | Mimi | kyutai/mimi | codec | codes token-exact for 8 and 32 stages | | 2026-11-16 |
 | Qwen3-TTS Tokenizer 12Hz | Qwen/Qwen3-TTS-Tokenizer-12Hz | codec | 16-codebook codes token-exact (2000 of 2000), decoded audio relative RMS 6e-6 | | 2026-11-18 |
 | Silero VAD v5 | snakers4/silero-vad (16 kHz ONNX) | voice activity | probabilities within 1e-3 of onnxruntime, segments identical | 8 kHz branch not imported; also used to pre-segment long speech recognition | 2026-11-16 |
+| ACE-Step 1.5 (turbo) | ACE-Step/Ace-Step1.5 | audio generation (music) | vs the checkpoint's own modeling code (fp32, CPU) with the same noise and 8 Euler steps for a 10 s instrumental: latents within 8.1e-6 (CPU) / 2.8e-4 (Vulkan) relative RMS, decoded 48 kHz stereo audio (diffusers AutoencoderOobleck) within 4.3e-5 (CPU) / 8.3e-4 (Vulkan) | MIT license for the ACE-Step weights (the model card allows commercial use of the generated music); the bundled Qwen3-Embedding-0.6B text encoder is Apache-2.0. Text (caption) and optional lyrics to 48 kHz stereo music, `IAudioGenerator`: duration, seed, steps (default 8), shift. Distilled (turbo) transformer only: no guidance. Not covered: the 5 Hz language model planner (audio codes, metadata thinking), reference audio (timbre), cover, repaint and lego tasks, the base and SFT transformers; up to 120 s per request. | 2026-11-19 |
 <!-- verified-catalog:end -->
 
 ## 7. ONNX models
