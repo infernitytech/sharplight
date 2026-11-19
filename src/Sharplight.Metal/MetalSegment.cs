@@ -125,7 +125,7 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
             return 0;
         }
 
-        _alloc[b] = b.Kind == BufferKind.Weight ? AllocateWeight(b) : _dev.Allocate(b.Bytes);
+        _alloc[b] = b.Kind == BufferKind.Weight ? AllocateWeight(b) : _dev.Allocate(b.Bytes, $"{b.Kind.ToString().ToLowerInvariant()} buffer {b.Name}");
         sharedStates?.Add(b.State!, _alloc[b]);
         return _alloc[b].WrapsHostMemory ? 0 : b.Bytes;
     }
@@ -146,7 +146,7 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
             }
         }
 
-        return _dev.Allocate(b.Bytes);
+        return _dev.Allocate(b.Bytes, $"weight buffer {b.Name}");
     }
 
     /// <summary>Device layout of a weight buffer in <see cref="WeightBufferKey"/>: empty for the bytes as stored, else the repack.</summary>

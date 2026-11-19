@@ -38,6 +38,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private readonly nint _end;
     /// <summary>Pinned host copy of the runtime scalar slots, uploaded at the start of every execution.</summary>
     private readonly uint* _runtimeSlots;
+    /// <summary>Whether <see cref="_runtimeSlots"/> is page-locked (see <see cref="CudaDevice.AllocateHost"/>).</summary>
+    private readonly bool _runtimeSlotsPinned;
     private bool _disposed;
 
     internal CudaSegment(CudaDevice dev, GraphSegment segment, KernelProgram program, CompileOptions options)
@@ -58,9 +60,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             _start = start;
             CudaApi.Check(CudaApi.cuEventCreate(&end, CudaApi.EventDefault), "cuEventCreate");
             _end = end;
-            void* slots;
-            CudaApi.Check(CudaApi.cuMemAllocHost(&slots, RuntimeSlots * sizeof(uint)), "cuMemAllocHost");
-            _runtimeSlots = (uint*)slots;
+            _runtimeSlots = (uint*)dev.AllocateHost(RuntimeSlots * sizeof(uint), out _runtimeSlotsPinned);
             new Span<uint>(_runtimeSlots, RuntimeSlots).Clear();
 
             long bytes = 0;
@@ -120,13 +120,16 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         return sb.ToString();
     }
 
+    /// <summary>What a buffer holds, for out-of-memory messages.</summary>
+    private static string Purpose(BufferDecl buffer) => $"{buffer.Kind.ToString().ToLowerInvariant()} buffer {buffer.Name}";
+
     /// <summary>Allocates (or borrows) the buffer of <paramref name="b"/>; returns the bytes this segment newly holds.</summary>
     private long AllocateBuffer(BufferDecl b)
     {
         if (b.Kind == BufferKind.Weight && b.Weight is { } w && _options.SharedWeights is { } shared)
         {
             // Weights shared with the other compiled models of this source on the device (e.g. a draft head's LM head).
-            var lease = shared.Acquire(_dev, WeightBufferKey.For(w, LayoutName(b)), b.Bytes, () => _dev.Allocate(b.Bytes), _dev.Free);
+            var lease = shared.Acquire(_dev, WeightBufferKey.For(w, LayoutName(b)), b.Bytes, () => _dev.Allocate(b.Bytes, Purpose(b)), _dev.Free);
             _leases[b] = lease;
             _alloc[b] = lease.Buffer;
             return lease.MustFill ? b.Bytes : 0;
@@ -142,7 +145,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             return 0;
         }
 
-        _alloc[b] = _dev.Allocate(b.Bytes);
+        _alloc[b] = _dev.Allocate(b.Bytes, Purpose(b));
         sharedStates?.Add(b.State!, _alloc[b]);
         return b.Bytes;
     }
@@ -161,7 +164,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             var progress = new LoadProgressCounter(_options.Progress, LoadStage.Uploading, weights.Sum(b => b.Bytes), _dev.Info.Name);
             try
             {
-                using var uploader = new CudaWeightUploader(_dev);
+                long largestRow = weights.Where(b => b.Repack != WeightRepack.None).Select(b => WeightRepacker.RowBytes(b.Repack, b.RepackRowElements)).DefaultIfEmpty(1).Max();
+                using var uploader = new CudaWeightUploader(_dev, weights.Sum(b => b.Bytes), largestRow);
                 foreach (var buffer in weights)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -671,7 +675,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
 
         if (_runtimeSlots != null)
         {
-            CudaApi.cuMemFreeHost(_runtimeSlots);
+            _dev.FreeHost((byte*)_runtimeSlots, RuntimeSlots * sizeof(uint), _runtimeSlotsPinned);
         }
 
         if (_start != 0)

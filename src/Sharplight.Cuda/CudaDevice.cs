@@ -33,6 +33,7 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     private readonly nint _context;
     private readonly Lazy<CudaBlas?> _blas;
     private long _used;
+    private long _pinnedUsed;
     private bool _disposed;
 
     /// <summary>Kernels whose cubin came from the device stage or the artifact store (diagnostics, tests).</summary>
@@ -57,7 +58,8 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         _kernelBinaries = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
         LaunchGraphs = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.LaunchGraphs) && !options.DisabledFeatures.Contains(DeviceFeatures.LaunchGraphs);
         ArtifactTargets = _kernelBinaries ? [Code.CreateCodeTarget(info.Provider), CreateCubinTarget()] : [Code.CreateCodeTarget(info.Provider)];
-        _budget = options.MemoryBudget ?? info.TotalMemory;
+        Limits = DeviceMemoryLimits.For(options);
+        _budget = options.MemoryBudget ?? DeviceMemoryLimits.Apply(info.TotalMemory, Limits.DeviceMemory);
         _blas = new Lazy<CudaBlas?>(() => CudaBlas.TryCreate(this));
         nint context;
         CudaApi.Check(CudaApi.cuDevicePrimaryCtxRetain(&context, properties.Ordinal), "cuDevicePrimaryCtxRetain");
@@ -77,6 +79,13 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     }
 
     internal CudaDeviceProperties Properties { get; }
+
+    /// <summary>
+    /// The caps of <see cref="DeviceOptions.MemoryLimits"/> and the environment that apply to this device: the device memory cap fails
+    /// allocations beyond it, the pinned host memory cap bounds page-locked staging (0: pageable copies). CUDA has no BAR window to
+    /// cap and no per-allocation limit of its own; <see cref="DeviceMemoryLimits.MaxAllocation"/> only bounds staging buffers here.
+    /// </summary>
+    internal DeviceMemoryLimits Limits { get; }
 
     /// <summary>The stream of uploads and buffer initialization (each segment executes on a stream of its own).</summary>
     internal nint Stream { get; }
@@ -117,7 +126,11 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         CudaApi.Check(CudaApi.cuCtxSetCurrent(_context), "cuCtxSetCurrent");
     }
 
-    /// <summary>Free and total memory of the GPU as the driver reports it (every process), the device's own allocations as ours.</summary>
+    /// <summary>
+    /// Free and total memory of the GPU as the driver reports it (every process), the device's own allocations as ours. A configured
+    /// budget or device memory cap bounds what this device may hold, so what is still available is the smaller of the driver's free
+    /// memory and the cap minus our own use.
+    /// </summary>
     public DeviceMemoryInfo GetMemoryInfo()
     {
         Enter();
@@ -125,8 +138,11 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         nuint total;
         CudaApi.Check(CudaApi.cuMemGetInfo(&free, &total), "cuMemGetInfo");
         long ours = Interlocked.Read(ref _used);
-        long usage = (long)total - (long)free;
-        return new DeviceMemoryInfo((long)total, Math.Min(_budget, (long)total), Math.Max(ours, usage), ours, true);
+        long capacity = DeviceMemoryLimits.Apply((long)total, Limits.DeviceMemory);
+        // Usage stays the device-wide figure (what a memory bar shows); the budget is set so that Available = Budget - Usage.
+        long usage = Math.Max(ours, (long)total - (long)free);
+        long available = Math.Max(0, Math.Min((long)free, Math.Min(_budget, capacity) - ours));
+        return new DeviceMemoryInfo(capacity, usage + available, usage, ours, true);
     }
 
     public OpSupport Supports(Node node) => GraphLowerer.Supports(node);
@@ -404,21 +420,95 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         [CubinKeyPrefix]);
 
     /// <summary>Allocates a zero-filled device buffer of at least 16 bytes (zeroed on <see cref="Stream"/>).</summary>
-    /// <exception cref="OutOfMemoryException">The driver could not allocate the buffer.</exception>
-    internal CudaBuffer Allocate(long bytes)
+    /// <param name="bytes">The size.</param>
+    /// <param name="purpose">What the buffer holds, for the error message.</param>
+    /// <exception cref="DeviceOutOfMemoryException">The driver could not allocate the buffer, or it would exceed <see cref="DeviceMemoryLimits.DeviceMemory"/>.</exception>
+    internal CudaBuffer Allocate(long bytes, string? purpose = null)
     {
         long size = Math.Max(16, (bytes + 15) & ~15L);
         Enter();
+        if (Limits.DeviceMemory is { } cap && Interlocked.Read(ref _used) + size > cap)
+        {
+            throw OutOfMemory(size, purpose, "The device memory limit is reached.");
+        }
+
         ulong pointer;
         int result = CudaApi.cuMemAlloc(&pointer, (nuint)size);
         if (result != 0)
         {
-            throw new OutOfMemoryException($"CUDA device {Info.Name}: cannot allocate {size} bytes: {CudaApi.ErrorText(result)}");
+            throw OutOfMemory(size, purpose, $"cuMemAlloc: {CudaApi.ErrorText(result)}.");
         }
 
         CudaApi.Check(CudaApi.cuMemsetD8Async(pointer, 0, (nuint)size, Stream), "cuMemsetD8Async");
         Interlocked.Add(ref _used, size);
         return new CudaBuffer(pointer, size);
+    }
+
+    private DeviceOutOfMemoryException OutOfMemory(long size, string? purpose, string reason)
+    {
+        nuint free = 0;
+        nuint total = 0;
+        CudaApi.cuMemGetInfo(&free, &total);
+        var details = new StringBuilder(reason);
+        details.Append(CultureInfo.InvariantCulture,
+            $" Device: {total / 1048576} MiB, free {free / 1048576} MiB (all processes), Sharplight {Interlocked.Read(ref _used) / 1048576} MiB.");
+        if (!Limits.IsEmpty)
+        {
+            details.Append(CultureInfo.InvariantCulture, $" Limits: {Limits}.");
+        }
+
+        return new DeviceOutOfMemoryException(Info.Name, purpose ?? "device memory", size, details.ToString());
+    }
+
+    /// <summary>
+    /// Host memory for staging copies: page-locked (fast asynchronous copies) while <see cref="DeviceMemoryLimits.PinnedHostMemory"/> and
+    /// the system allow it, else pageable memory (the driver then copies through its own staging; still correct, slower).
+    /// </summary>
+    /// <param name="bytes">The size.</param>
+    /// <param name="pinned">Whether the memory is page-locked; pass it to <see cref="FreeHost"/>.</param>
+    internal byte* AllocateHost(long bytes, out bool pinned)
+    {
+        byte* memory = TryAllocatePinned(bytes);
+        pinned = memory != null;
+        return pinned ? memory : (byte*)System.Runtime.InteropServices.NativeMemory.AlignedAlloc((nuint)bytes, 4096);
+    }
+
+    /// <summary>Page-locked host memory within <see cref="DeviceMemoryLimits.PinnedHostMemory"/>, or null when the cap or the system refuses it.</summary>
+    internal byte* TryAllocatePinned(long bytes)
+    {
+        Enter();
+        if (Limits.PinnedHostMemory is { } cap && Interlocked.Read(ref _pinnedUsed) + bytes > cap)
+        {
+            return null;
+        }
+
+        void* memory;
+        if (CudaApi.cuMemAllocHost(&memory, (nuint)bytes) != 0)
+        {
+            return null;
+        }
+
+        Interlocked.Add(ref _pinnedUsed, bytes);
+        return (byte*)memory;
+    }
+
+    /// <summary>Frees memory from <see cref="AllocateHost"/>.</summary>
+    internal void FreeHost(byte* memory, long bytes, bool pinned)
+    {
+        if (memory == null)
+        {
+            return;
+        }
+
+        if (pinned)
+        {
+            CudaApi.cuMemFreeHost(memory);
+            Interlocked.Add(ref _pinnedUsed, -bytes);
+        }
+        else
+        {
+            System.Runtime.InteropServices.NativeMemory.AlignedFree(memory);
+        }
     }
 
     internal void Free(CudaBuffer buffer)
