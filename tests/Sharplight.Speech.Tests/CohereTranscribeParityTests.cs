@@ -13,7 +13,8 @@ namespace Sharplight.Speech.Tests;
 /// features and projected encoder output of the first chunk, the energy-based chunk boundaries, and token-exact greedy decoding with
 /// punctuation through the speech-recognition task client of the service container, on the CPU and on Vulkan. Recordings: jfk.wav, the 29 s
 /// LibriSpeech utterance, and from <c>tools/make_cohere_transcribe_clips.py</c> the first 45 s of a public-domain Obama address (two chunks)
-/// and Multilingual LibriSpeech test utterances joined to 60 s of German, 49 s of French (two chunks each) and 16 s of Spanish.
+/// and Multilingual LibriSpeech test utterances joined to 60 s of German, 49 s of French (two chunks each) and 16 s of Spanish, and 55 s of
+/// JSUT basic5000 Japanese (two chunks joined without a space).
 /// </summary>
 public sealed class CohereTranscribeParityTests
 {
@@ -21,7 +22,7 @@ public sealed class CohereTranscribeParityTests
     private const string Fixture = Model + ".json";
 
     private static readonly string[] s_clips =
-        [SpeechEnvironment.JfkName, SpeechEnvironment.LibriSpeechName, "obama-45s", "mls-german-4", "mls-french-3", "mls-spanish-1"];
+        [SpeechEnvironment.JfkName, SpeechEnvironment.LibriSpeechName, "obama-45s", "mls-german-4", "mls-french-3", "mls-spanish-1", "jsut-japanese-14"];
 
     /// <summary>The single-chunk recordings and devices (encoder parity).</summary>
     public static TheoryData<string, string> EncoderCases()
