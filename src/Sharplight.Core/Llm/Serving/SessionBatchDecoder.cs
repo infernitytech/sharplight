@@ -31,7 +31,7 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     /// <inheritdoc/>
     public bool ReusesPrefixes => !session.IsEncoderDecoder;
     /// <inheritdoc/>
-    public long DeviceMemoryBytes => session.Compiled.AcceleratorMemoryBytes;
+    public long DeviceMemoryBytes => session.Compiled.ResidentMemoryBytes;
     /// <inheritdoc/>
     public int EmbeddingWidth => session.EmbeddingWidth;
     /// <inheritdoc/>

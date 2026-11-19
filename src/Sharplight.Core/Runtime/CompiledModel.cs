@@ -175,6 +175,12 @@ public sealed class CompiledModel : IDisposable
     public long AcceleratorMemoryBytes
         => _segments.Where(s => Plan.Slots[s.Segment.DeviceSlot].Device.Info.Kind != DeviceKind.Cpu).Sum(s => s.DeviceMemoryBytes);
 
+    /// <summary>
+    /// Memory held by all segments on whatever device they run: weights (a memory-mapped CPU weight counts as resident), activation arenas and
+    /// state such as KV caches. Unlike <see cref="AcceleratorMemoryBytes"/> it includes CPU segments, so a model loaded on the CPU reports what it occupies.
+    /// </summary>
+    public long ResidentMemoryBytes => _segments.Sum(s => s.DeviceMemoryBytes);
+
     /// <summary>Supplies a graph input for the next <see cref="Run"/> (dense logical layout).</summary>
     public void SetInput(Value input, ReadOnlySpan<byte> data)
     {

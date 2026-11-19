@@ -90,7 +90,7 @@ public interface IBatchDecoder : IDisposable
     /// </summary>
     /// <param name="deviceSampling">Whether the steps sample on the device (their logits are not downloaded).</param>
     public int PrepareDecodeSteps(bool deviceSampling) => 0;
-    /// <summary>Accelerator (GPU) memory held by this decoder's compiled model: weights, state, activations (0 when unknown or all on the CPU).</summary>
+    /// <summary>Memory held by this decoder's compiled model on whatever device it runs (GPU or CPU): weights, state, activations (0 when unknown).</summary>
     public long DeviceMemoryBytes => 0;
 
     // ---- paged KV cache (all members are trivial for a decoder whose slots own fixed cache ranges) ----------------------

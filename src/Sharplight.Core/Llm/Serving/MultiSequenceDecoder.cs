@@ -86,7 +86,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <inheritdoc/>
     bool IDeviceSamplingDecoder.SamplesOnDevice => _samplingParams is not null;
     /// <inheritdoc/>
-    public long DeviceMemoryBytes => _compiled.AcceleratorMemoryBytes;
+    public long DeviceMemoryBytes => _compiled.ResidentMemoryBytes;
     /// <inheritdoc/>
     public int KvBlockSize { get; }
     /// <inheritdoc/>
