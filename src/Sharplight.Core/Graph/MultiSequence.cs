@@ -24,6 +24,9 @@ namespace Sharplight.Graph;
 /// <item>With rollback rows (<see cref="Transform(ComputeGraph, int, int, int, int)"/>): the recurrent ops take their rollback form
 /// (<see cref="RecurrentRollback"/>): the <see cref="InputRole.SequenceCommits"/> input and one record state per op, so a slot's
 /// tentative (speculative) rows can be rolled back.</item>
+/// <item>With spare state rows (<see cref="Transform(ComputeGraph, int, int, int, int, int)"/>): the recurrent ops take their snapshot form
+/// when every op with per-slot state has one (<see cref="RecurrentSnapshots"/>): the <see cref="InputRole.SequenceSnapshots"/> input, so a
+/// step can keep the state at a row inside a run in a spare row.</item>
 /// </list>
 /// The <c>n_past</c> scalar is no longer used by the rewritten ops. A slot is cleared by zeroing its recurrent state rows
 /// (KV rows need no clearing: attention only reads rows up to each query's position).

@@ -60,7 +60,9 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
 - **Execution.** Each segment owns a CUDA stream and two timing events. Launches are recorded once per binding of the symbols (kernel,
   grid, packed arguments) and replayed with `cuLaunchKernel`; launches on one stream run in order, so the hazard tracker's barriers are
   not needed. Runtime scalars go through a pinned buffer with one asynchronous copy per step; inputs and outputs are synchronous copies.
-  Every driver call first makes the device's primary context current on the calling thread.
+  Every driver call first makes the device's primary context current on the calling thread. Copies of state rows
+  (`ICompiledSegment.CopyStateRows`: recurrent-state snapshots for prefix caching, copy-on-write of a forked slot's KV block) are
+  `cuMemcpyDtoDAsync` on the segment's stream, waited for, so hybrid prefix caching and `n` > 1 forks work as on Vulkan.
 - **Module loading.** `CudaDevice` loads each kernel once: its cubin from the model-level cache (`cubin/<kernel hash>`) or the per-user
   artifact store when present, otherwise it links the PTX into a cubin with the driver's JIT (`cuLinkCreate` / `cuLinkAddData` /
   `cuLinkComplete`), records it in the cache (so the next load skips the JIT) and loads it with `cuModuleLoadData`.

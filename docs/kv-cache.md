@@ -312,9 +312,17 @@ Models with recurrent state (gated delta nets, Mamba, Mamba-2, RWKV, short convo
   copied with `CompiledModel.CopyStateRows` (CPU: memcpy; Vulkan: `vkCmdCopyBuffer` ordered with the steps; a device without it,
   falls back to no prefix caching for such models; CUDA: `cuMemcpyDtoDAsync` on the segment stream; Metal: a copy in shared storage between command buffers). A snapshot is keyed by the hash of the block it ends with;
   blocks are attached only up to the last block with a snapshot, which is restored into the slot's row.
-- Where snapshots are taken (bounded memory instead of one per block). A snapshot is the state after a step, so a boundary inside a
-  prompt chunk costs that prompt one more pass (the chunk is cut there), while a boundary where the chunk ends anyway costs only the copy.
-  The engine therefore prices each candidate boundary b of a chunk with the cost model: the value is what later prompts save by restoring
+- In-step snapshots (`Graph.RecurrentSnapshots`): when every op with per-slot state has a snapshot form (CausalConv1d, GatedDeltaRule,
+  SelectiveScan, Wkv7, Wkv6; not the compressor ring of compressed caches), the multi-sequence graph takes a snapshots table [U, 2]
+  (rows k, spare row) and the recurrent kernels also store the state after a run's first k rows into a spare row while they walk it (the
+  chunked delta rule starts such a run with a chunk of k mod 64 rows, so a chunk ends at k). The decoder reserves the row before the step
+  (`KvBlockCache.ReserveSnapshot`) and keeps it once the block is published (`IBatchDecoder.SnapshotsInsideSteps`,
+  `SequenceInput.StateSnapshotRows`, `SaveKvStateSnapshotAt`): a snapshot inside a prompt chunk then costs neither a pass nor a copy.
+  CPU and the Slang kernels (Vulkan, CUDA, Metal); `SHARPLIGHT_STEP_SNAPSHOTS=0` turns it off. Measured in benchmarks.md section 55.
+- Where snapshots are taken (bounded memory instead of one per block). Without in-step snapshots a snapshot is the state after a step,
+  so a boundary inside a prompt chunk costs that prompt one more pass (the chunk is cut there), while a boundary where the chunk ends
+  anyway costs only the copy. The engine therefore prices each candidate boundary b of a chunk with the cost model (with in-step
+  snapshots every inner boundary is free and the best one is kept without cutting the chunk): the value is what later prompts save by restoring
   it instead of recomputing from the prompt's previous snapshot (per-row × (b - previous snapshot) × running requests, times the expected
   uses), the cost is the copy plus, unless the cut is free, one pass; the best positive boundary wins, else the chunk is not cut. A cut is
   free when the step budget ends the chunk early anyway and the rest of the prompt needs no more passes from b than from the chunk's end.
@@ -381,10 +389,12 @@ waiting for each other's blocks instead of computing the prefix twice where rows
 preempted contexts reattached, tail-first eviction, published blocks never rewritten, recurrent models restoring snapshots for shared
 prefixes, the next turn of a conversation and chunk ends, skipping snapshots that cost a pass when recomputing is cheaper, none without
 snapshots, samples of one prompt forking it copy-on-write with and without recurrent state, followers computing their prompt when the
-leader is cancelled), `CachePartitionTests`, `MultiTenantApiTests.AClientCacheSaltIsRefusedUnlessTheServerAllowsIt`,
+leader is cancelled, in-step snapshots costing no pass), `CachePartitionTests`, `MultiTenantApiTests.AClientCacheSaltIsRefusedUnlessTheServerAllowsIt`,
 `ServingChatClientTests.TheCacheSaltNarrowsSharingWithinAPartition`, and `PrefixCacheParityTests` (Families: greedy output with the cache
-on equals the cache off for shared prefixes, sequential and concurrent, on CPU and Vulkan, for attention-only, gated delta net, Mamba,
-Mamba-2, short-convolution and RWKV-7 tiny models and for Qwen3.5-0.8B and Qwen3-0.6B, and three samples of one prompt forking it).
+on equals the cache off for shared prefixes, sequential and concurrent, on CPU and Vulkan or CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`), for attention-only, gated delta net, Mamba,
+Mamba-2, short-convolution and RWKV-7 tiny models and for Qwen3.5-0.8B and Qwen3-0.6B, and three samples of one prompt forking it), and
+`StepStateSnapshotTests` (Families: a state kept inside a step at 48 or 112 rows, restored in another slot, continues like the whole
+prompt, for every recurrent op on CPU and GPU and for Qwen3.5-0.8B with f32 and bf16 state on the chunked delta rule).
 
 ### 2.7 Image and audio prompts in the batched engine (implemented)
 

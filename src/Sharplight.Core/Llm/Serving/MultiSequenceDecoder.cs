@@ -99,7 +99,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <inheritdoc/>
     public int KvStateSnapshots => _pool?.SnapshotCapacity ?? 0;
     /// <inheritdoc/>
-    public bool SnapshotsInsideSteps => _snapshots is not null && _pool is { SnapshotCapacity: > 0 };
+    public bool SnapshotsInsideSteps => _snapshots is not null && _pool is { SnapshotCapacity: > 0 } && DiagnosticSwitches.StepSnapshots;
     /// <inheritdoc/>
     public int KvBlocksCached => _pool?.Cached ?? 0;
     /// <inheritdoc/>
