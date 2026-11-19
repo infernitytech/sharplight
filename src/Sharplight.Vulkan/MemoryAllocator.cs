@@ -159,6 +159,15 @@ internal sealed unsafe class MemoryAllocator : IDisposable
         var mai = new VkMemoryAllocateInfo { pNext = dedicated ? &dedicatedInfo : &flagsInfo, allocationSize = req.size, memoryTypeIndex = typeIndex };
         VkDeviceMemory mem;
         var r = api.vkAllocateMemory(&mai, null, &mem);
+        if (r == VkResult.ErrorOutOfDeviceMemory && usage == MemoryUsage.Upload && (flags & VkMemoryPropertyFlags.DeviceLocal) != 0)
+        {
+            // Device-local host-visible memory is only the 256 MiB BAR window on GPUs without resizable BAR; staging then falls back to
+            // host memory.
+            (typeIndex, flags) = PickType(req.memoryTypeBits, usage, hostOnly: true);
+            mai.memoryTypeIndex = typeIndex;
+            r = api.vkAllocateMemory(&mai, null, &mem);
+        }
+
         if (r != VkResult.Success)
         {
             api.vkDestroyBuffer(buf, null);
@@ -193,7 +202,8 @@ internal sealed unsafe class MemoryAllocator : IDisposable
 
     private const ulong VkWholeSize = ulong.MaxValue;
 
-    private (uint, VkMemoryPropertyFlags) PickType(uint bits, MemoryUsage usage)
+    /// <summary>The memory type of a block; <paramref name="hostOnly"/> skips device-local types (the fallback when the BAR is full).</summary>
+    private (uint, VkMemoryPropertyFlags) PickType(uint bits, MemoryUsage usage, bool hostOnly = false)
     {
         VkMemoryPropertyFlags[][] prefs = usage switch
         {
@@ -216,7 +226,7 @@ internal sealed unsafe class MemoryAllocator : IDisposable
                 for (uint i = 0; i < _props.memoryTypeCount; i++)
                 {
                     var f = _props.memoryTypes[(int)i].propertyFlags;
-                    if ((bits & (1u << (int)i)) != 0 && (f & w) == w)
+                    if ((bits & (1u << (int)i)) != 0 && (f & w) == w && !(hostOnly && (f & VkMemoryPropertyFlags.DeviceLocal) != 0))
                     {
                         // For pure device memory avoid host-visible types if a plain one exists.
                         if (usage == MemoryUsage.Device && (f & VkMemoryPropertyFlags.HostVisible) != 0 && HasPlainDeviceLocal(bits))
