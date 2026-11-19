@@ -87,6 +87,27 @@ internal static unsafe partial class CudaApi
     [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuStreamSynchronize(nint stream);
 
+    /// <summary><c>CU_STREAM_CAPTURE_MODE_THREAD_LOCAL</c>: only this thread's unsafe calls are prohibited during a capture.</summary>
+    public const int CaptureModeThreadLocal = 1;
+
+    [LibraryImport(CudaLibraries.Driver, EntryPoint = "cuStreamBeginCapture_v2")]
+    public static partial int cuStreamBeginCapture(nint stream, int mode);
+
+    [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuStreamEndCapture(nint stream, nint* graph);
+
+    [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuGraphInstantiateWithFlags(nint* exec, nint graph, ulong flags);
+
+    [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuGraphLaunch(nint exec, nint stream);
+
+    [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuGraphExecDestroy(nint exec);
+
+    [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuGraphDestroy(nint graph);
+
     [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuEventCreate(nint* evt, uint flags);
 

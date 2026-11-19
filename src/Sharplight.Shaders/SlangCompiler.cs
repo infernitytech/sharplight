@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -98,6 +99,86 @@ public sealed class SlangCompiler : IDisposable
     public CompiledKernel Compile(string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
         Runtime.ICompilationCache? cache = null)
         => Compile(name, source, KernelLibrary.Digest(source), entryPoint, target, macros, cache);
+
+    /// <summary>
+    /// True when <paramref name="target"/> takes kernels written in CUDA C++ (<see cref="CompileCuda"/>): the compiler translates
+    /// CUDA C++ for it (the CUDA provider's NVRTC, see <see cref="KernelTranslator"/>).
+    /// </summary>
+    public bool CompilesCuda(ShaderTarget target) => _translator is { SourceTarget: ShaderTarget.CudaSource } t && t.Target == target;
+
+    /// <summary>
+    /// Compiles a kernel written in CUDA C++ (a <c>.cu</c> file of the kernel library) for a target that takes CUDA C++
+    /// (<see cref="CompilesCuda"/>): the file with <paramref name="macros"/> as <c>#define</c> lines and <paramref name="prefix"/>
+    /// in front goes to the translator directly, without Slang. Kernels of this kind exist only where Slang cannot express what a
+    /// provider offers (asynchronous copies, dynamic shared memory layouts); the lowering selects them through device features.
+    /// </summary>
+    /// <param name="file">Kernel file name in the embedded library (<c>.cu</c>).</param>
+    /// <param name="prefix">Generated source placed after the macros and before the file (e.g. an epilogue function), or empty.</param>
+    /// <param name="entryPoint">The <c>extern "C"</c> kernel function.</param>
+    /// <param name="threads">Threads per block (x).</param>
+    /// <param name="dynamicSharedBytes">Dynamic shared memory the kernel takes at launch (0 for none).</param>
+    /// <param name="target">Code generation target.</param>
+    /// <param name="macros">Preprocessor macros specializing the kernel.</param>
+    /// <param name="cache">Optional model-level cache, consulted first and given the kernel once compiled.</param>
+    /// <exception cref="NotSupportedException">The target does not take CUDA C++.</exception>
+    public CompiledKernel CompileCuda(string file, string prefix, string entryPoint, int threads, int dynamicSharedBytes, ShaderTarget target,
+        IReadOnlyDictionary<string, string> macros, Runtime.ICompilationCache? cache = null)
+    {
+        if (!CompilesCuda(target))
+        {
+            throw new NotSupportedException($"Kernel {file} is CUDA C++, which target {target} does not take.");
+        }
+
+        var translator = _translator!;
+        var text = new StringBuilder();
+        text.Append(CultureInfo.InvariantCulture, $"{CudaThreadsHeader}{threads} 1 1\n");
+        if (dynamicSharedBytes > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"{CudaSharedHeader}{dynamicSharedBytes}\n");
+        }
+
+        foreach (var (name, value) in macros.OrderBy(m => m.Key, StringComparer.Ordinal))
+        {
+            text.Append("#define ").Append(name).Append(' ').Append(value).Append('\n');
+        }
+
+        text.Append(prefix).Append('\n').Append(KernelLibrary.ReadSource(file));
+        string source = text.ToString();
+        string key = CacheKey(KernelLibrary.Digest(source), entryPoint, target, new Dictionary<string, string>(), translator.Id);
+        var fresh = new CompiledKernel(file, entryPoint, target, key);
+        var kernel = _memCache.GetOrAdd(key, fresh);
+        string ckey = KernelKeyPrefix + key;
+        if (kernel == fresh)
+        {
+            if (cache is not null && cache.TryGet(ckey, out var stored))
+            {
+                fresh.CompleteFromCache(stored.ToArray());
+            }
+            else
+            {
+                SlangWorkerPool.Shared.Enqueue(
+                    _ => fresh.Complete(translator.Translate(file, entryPoint, Encoding.UTF8.GetBytes(source))),
+                    error =>
+                    {
+                        _memCache.TryRemove(new KeyValuePair<string, CompiledKernel>(key, fresh));
+                        fresh.Fail(error);
+                    });
+            }
+        }
+
+        if (cache is not null && !cache.TryGet(ckey, out _))
+        {
+            kernel.WhenReady(code => cache.Put(ckey, code));
+        }
+
+        return kernel;
+    }
+
+    /// <summary>
+    /// Start of the second header line of a CUDA C++ kernel that takes dynamic shared memory, followed by its bytes
+    /// (<c>// sharplight-shared: 101376</c>); the translator keeps it in front of the PTX.
+    /// </summary>
+    public const string CudaSharedHeader = "// sharplight-shared: ";
 
     private CompiledKernel Compile(string name, string source, string sourceDigest, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
         Runtime.ICompilationCache? cache)

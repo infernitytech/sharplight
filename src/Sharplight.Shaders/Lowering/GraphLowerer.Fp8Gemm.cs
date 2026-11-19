@@ -19,7 +19,8 @@ public sealed partial class GraphLowerer
 
     /// <summary>Emits the E4M3 activation quantization and the fp8 GEMM launches of a planned matmul (see <see cref="UseFp8Gemm"/>).</summary>
     private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
-        (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true);
+        (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
+        native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) && p.X.Shape[0] * p.RowsPerLead >= NativeGemmMinRows ? NativeFp8Kernel(p.N, p.K, null) : null);
 
     /// <summary>
     /// Largest batch for which the dual fp8 GEMM serves every row count (one 64-row tile). Larger batches use it only where the
@@ -53,11 +54,14 @@ public sealed partial class GraphLowerer
     /// many outputs, so the grid has twice the column tiles of a single matmul. Above <see cref="DualFp8TallMinRows"/> rows it
     /// uses 128-row tiles where they pad no more rows than 64-row tiles (half the weight passes; each output still sums its K
     /// blocks in the same order, so the result does not depend on the tile height; <c>SHARPLIGHT_FP8_DUAL_TALL=0</c> keeps
-    /// 64-row tiles). Returns false when it does not apply.
+    /// 64-row tiles). Returns false when it does not apply. With <c>cudaEpilogue</c> (the CUDA C++ form of the epilogue,
+    /// <see cref="DualEpilogueCudaSource"/>) the hand-written dual GEMM serves batches from <see cref="NativeGemmMinRows"/> rows;
+    /// <c>serves</c> tells the row counts the emitted launches cover.
     /// </summary>
     private bool EmitDualFp8Gemm(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef weightA,
-        TensorRef weightB, TensorRef y, long n, long k, string epilogueSource)
+        TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, string? cudaEpilogue, out Func<long, bool> serves)
     {
+        serves = _ => false;
         long minRows = Fp8GemmMinRows;
         long rowsMax = x.Shape[0] * rowsPerLead;
         if (!DiagnosticSwitches.Fp8DualGemm || !UseFp8Gemm(weightA.Type, k) || UseMmq(weightA.Type, n, k) || rowsMax < minRows
@@ -68,9 +72,19 @@ public sealed partial class GraphLowerer
 
         var quantized = QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, minRows, rowsMax, ActivationCode.Fp8);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
+        // From NativeGemmMinRows rows the hand-written dual GEMM serves every batch (no K split needed at that size).
+        long nativeMin = cudaEpilogue is not null && UseNativeFp8Gemm(weightA.Type, n, k) && weightB.Type == weightA.Type
+            ? Math.Max(minRows, NativeGemmMinRows) : long.MaxValue;
+        bool Generated(long r) => r < nativeMin && DualFp8Serves(r, n, k);
+        serves = r => r >= nativeMin || Generated(r);
         bool tall = DiagnosticSwitches.Fp8DualGemmTall && rowsMax > DualFp8AlwaysMaxRows && MmqLayout(128)[3] % 2 == 0;
         int TileRows(long r) => tall && r > DualFp8TallMinRows && (r + 127) / 128 * 2 == (r + 63) / 64 ? 128 : (int)DualFp8AlwaysMaxRows;
         var variants = new List<KernelVariant>();
+        if (rowsMax >= nativeMin)
+        {
+            variants.Add(new KernelVariant(b => rows(b) >= nativeMin, NativeFp8Kernel(n, k, cudaEpilogue), b => NativeFp8Grid(rows(b), n, dual: true)));
+        }
+
         foreach (int tileRows in tall ? new[] { 64, 128 } : [(int)DualFp8AlwaysMaxRows])
         {
             int outputs = MmqColumns(tileRows) / 2;
@@ -78,7 +92,7 @@ public sealed partial class GraphLowerer
             macros["DUAL"] = "1";
             macros["KERNEL_GEMM_FP8"] = "1";
             var kernel = _compiler.Compile("gemm_fp8_dual.slang", epilogueSource, "gemm_fp8", _opt.Target, macros, _opt.Cache);
-            variants.Add(new KernelVariant(b => DualFp8Serves(rows(b), n, k) && TileRows(rows(b)) == tileRows, kernel,
+            variants.Add(new KernelVariant(b => Generated(rows(b)) && TileRows(rows(b)) == tileRows, kernel,
                 b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, outputs))));
         }
 

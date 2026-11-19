@@ -64,6 +64,29 @@ public static class DeviceFeatures
     /// </summary>
     public const string LibraryGemm = "library_gemm";
 
+    /// <summary>
+    /// Large matrix products of block-scaled 8-bit float weights (E4M3 in 128-value scale groups) run on a hand-written GEMM of the
+    /// provider instead of the generated tensor-core GEMM (CUDA, compute capability 8.9 and later: a CUDA C++ kernel with
+    /// asynchronous copies into a multi-stage ring of dynamic shared memory). Disabling it keeps the generated kernel.
+    /// </summary>
+    public const string NativeGemmFp8 = "native_gemm_fp8";
+
+    /// <summary>
+    /// Large matrix products of 16-bit float weights (f16, and bf16 stored as f16) run on a hand-written f16 tensor-core GEMM of the
+    /// provider, with the operands and precision of <see cref="LibraryGemm"/> but without the vendor library (CUDA, compute capability
+    /// 8.0 and later); preferred over the library where both exist. Disabling it leaves those products to the library or the
+    /// generated GEMMs.
+    /// </summary>
+    public const string NativeGemmF16 = "native_gemm_f16";
+
+    /// <summary>
+    /// A step whose launches repeat (the same kernels, grids and arguments, e.g. every decode step of a sequence) is recorded once
+    /// into a device-side launch graph and replayed with one submission (CUDA graphs), instead of one host call per launch. Like
+    /// <see cref="KernelBinaries"/> it does not change generated code, so it is not part of <see cref="DeviceInfo.Features"/>;
+    /// disabling it launches every kernel from the host.
+    /// </summary>
+    public const string LaunchGraphs = "launch_graphs";
+
     /// <summary>The device reports a live memory budget / usage that accounts for other processes (Vulkan: VK_EXT_memory_budget); without it memory figures are estimates from our own allocations.</summary>
     public const string MemoryBudget = "memory_budget";
 
@@ -90,7 +113,7 @@ public static class DeviceFeatures
     public const string PagedKv = "paged_kv";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, LaunchGraphs];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

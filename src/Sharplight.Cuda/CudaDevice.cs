@@ -55,6 +55,7 @@ internal sealed unsafe class CudaDevice : IComputeDevice
             CudaCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options),
             CudaCodeGenerator.EffectiveConcurrentWorkgroups(info.ConcurrentWorkgroups, options), properties.Multiprocessors);
         _kernelBinaries = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
+        LaunchGraphs = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.LaunchGraphs) && !options.DisabledFeatures.Contains(DeviceFeatures.LaunchGraphs);
         ArtifactTargets = _kernelBinaries ? [Code.CreateCodeTarget(info.Provider), CreateCubinTarget()] : [Code.CreateCodeTarget(info.Provider)];
         _budget = options.MemoryBudget ?? info.TotalMemory;
         _blas = new Lazy<CudaBlas?>(() => CudaBlas.TryCreate(this));
@@ -221,6 +222,12 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     /// <param name="cache">The model-level cache the cubin is looked up in and recorded into, or null.</param>
     internal CudaKernel Kernel(CompiledKernel kernel, ICompilationCache? cache = null)
         => _kernels.GetOrAdd(kernel.CacheKey, _ => new Lazy<CudaKernel>(() => LoadKernel(kernel, cache))).Value;
+
+    /// <summary>
+    /// True when segments replay repeated steps as CUDA graphs (<see cref="DeviceFeatures.LaunchGraphs"/>, on unless disabled with
+    /// <c>SHARPLIGHT_DISABLE_FEATURES</c> or the device options).
+    /// </summary>
+    internal bool LaunchGraphs { get; }
 
     /// <summary>The cuBLASLt handle of the library GEMMs, created on first use (null when cuBLASLt is not installed).</summary>
     internal CudaBlas? Blas => _blas.Value;

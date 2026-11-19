@@ -56,6 +56,8 @@ namespace Sharplight.Shaders;
 /// <c>SHARPLIGHT_FP8_DUAL=0</c>: run gate/up style matmul pairs as two fp8 GEMMs plus the elementwise launch instead of one
 /// dual fp8 GEMM with the elementwise group as its epilogue. <c>SHARPLIGHT_FP8_DUAL_MAX_ROWS=n</c>: largest batch it serves
 /// (default: every batch for which the separate GEMMs would not split K, and 17-64 rows).</item>
+/// <item><c>SHARPLIGHT_NATIVE_GEMM_MIN_ROWS=n</c>: activation rows from which the hand-written provider GEMMs serve a matmul
+/// (DeviceFeatures.NativeGemmFp8; default 256).</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM_WIDE=0</c>: keep large SIMT (f32) matmuls on the 64 x 64 gemm tile instead of the 128 x 128 gemm_wide;
 /// <c>=force</c> also uses gemm_wide on devices whose workgroup memory it would fill.</item>
@@ -224,6 +226,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when the int8 GEMM always scales its accumulators per element.</summary>
     public static bool MmqGenericLayout { get; } = IsSet("SHARPLIGHT_MMQ_GENERIC");
+
+    /// <summary>Activation rows from which the hand-written provider GEMMs serve a matmul, or null for the default.</summary>
+    public static long? NativeGemmMinRows { get; } = Read("SHARPLIGHT_NATIVE_GEMM_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>False keeps E4M3-weight prefill matmuls off the fp8 tensor-core GEMM.</summary>
     public static bool Fp8Gemm { get; } = IsNotZero("SHARPLIGHT_FP8_GEMM");
