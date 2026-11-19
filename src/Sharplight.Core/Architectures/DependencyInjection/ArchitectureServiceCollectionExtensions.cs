@@ -36,6 +36,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<ImageTextAdapter>()
                 .AddModelAdapter<DetrAdapter>()
                 .AddModelAdapter<RtDetrAdapter>()
+                .AddModelAdapter<PpDocLayoutAdapter>()
                 .AddModelAdapter<YolosAdapter>()
                 .AddModelAdapter<DepthEstimationAdapter>()
                 .AddModelAdapter<Da3DepthAdapter>()

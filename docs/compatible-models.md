@@ -177,7 +177,7 @@ In all, 1,080 of 1,138 GGUF files across 88 repositories and 49 of 72 Hub checkp
 | Qwen3.8 27B | Qwen/Qwen3.8-27B | GGUF mmproj (BF16) | CPU, Vulkan | projector output vs llama.cpp | | 2026-11-14 |
 | Ministral 3 3B, Gemma 3 4B, LFM2-VL 450M | mistralai / google / LiquidAI | GGUF + mmproj | CPU, Vulkan | text vs llama.cpp (see 1.1); projector files load | | 2026-11-14 |
 | PaddleOCR-VL 1.6, Unlimited-OCR | PaddlePaddle/PaddleOCR-VL-1.6, baidu/Unlimited-OCR | safetensors | CPU | Loads | | 2026-11-15 |
-| GLM-OCR | zai-org/GLM-OCR | safetensors | CPU, Vulkan | greedy text identical to transformers (CPU, Vulkan, .slm) | OCR prompt "Text Recognition:"; no multi-token prediction | 2026-11-18 |
+| GLM-OCR | zai-org/GLM-OCR | safetensors | CPU, Vulkan | greedy text and the formula and table tasks identical to transformers (CPU, Vulkan, .slm), ITextRecognizer | OCR prompts "Text Recognition:", "Formula Recognition:", "Table Recognition:"; no multi-token prediction | 2026-11-18 |
 <!-- verified-catalog:end -->
 
 ### 1.4 Diffusion language models
@@ -364,6 +364,7 @@ Reference: transformers (relative RMS of the outputs, CPU and Vulkan identical u
 | Depth Anything 3 small | depth-anything/DA3-SMALL | depth | depth map 3.1e-5 (CPU) / 3.0e-5 (Vulkan) | fixed 504 px square canvas; single-image depth (the camera branch and rays are not read); DualDPT depth branch | 2026-11-18 |
 | Depth Anything 3 large | depth-anything/DA3-LARGE | depth | depth map 1.8e-5 (CPU and Vulkan); CC-BY-NC-4.0 | fixed 504 px square canvas; single-image depth (the camera branch and rays are not read); DualDPT depth branch | 2026-11-18 |
 | RF-DETR large | Roboflow/rf-detr-large | detection | same five detections as transformers, boxes within 0.3 px, scores within 3.3e-3 | fixed 704 px square canvas; detection model only (the instance-segmentation models are not supported) | 2026-11-18 |
+| PP-DocLayoutV3 | PaddlePaddle/PP-DocLayoutV3_safetensors | document layout detection | same ten detections in the same reading order as transformers on a synthetic page, boxes within a pixel, masks, CPU, Vulkan and .slm | document layout analysis: boxes, 25 layout classes, reading order (DetectedObject.ReadingOrder) and per-detection masks; fixed 800 px square canvas (the reference resizes without antialiasing, Sharplight with Pillow's antialiased bicubic); pairs with GLM-OCR through DocumentReader | 2026-11-19 |
 <!-- verified-catalog:end -->
 
 ## 6. Audio

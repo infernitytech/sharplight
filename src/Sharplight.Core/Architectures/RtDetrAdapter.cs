@@ -65,20 +65,21 @@ public sealed class RtDetrAdapter : IModelAdapter
         };
     }
 
-    private sealed class Builder
+    /// <summary>The graph builder; the PP-DocLayout builder derives from it and reuses the encoder and decoder blocks.</summary>
+    internal class Builder
     {
-        private readonly ModelSource _src;
-        private readonly GraphBuilder _b;
-        private readonly int _d;
-        private readonly int _e;
-        private readonly int _heads;
-        private readonly int _size;
-        private readonly int _levels;
-        private readonly int _points;
-        private readonly int[] _strides;
-        private readonly string _convAct;
-        private readonly int _blocks;
-        private readonly float _eps;
+        protected readonly ModelSource _src;
+        protected readonly GraphBuilder _b;
+        protected readonly int _d;
+        protected readonly int _e;
+        protected readonly int _heads;
+        protected readonly int _size;
+        protected readonly int _levels;
+        protected readonly int _points;
+        protected readonly int[] _strides;
+        protected readonly string _convAct;
+        protected readonly int _blocks;
+        protected readonly float _eps;
 
         public Builder(ModelSource src)
         {
@@ -96,7 +97,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             _eps = src.Arch("norm_eps", 1e-5f);
         }
 
-        public ComputeGraph Build()
+        public virtual ComputeGraph Build()
         {
             var b = _b;
             var pixels = b.Input("pixels", InputRole.Media, DataType.F32, new Shape(1, 3, _size, _size));
@@ -134,13 +135,13 @@ public sealed class RtDetrAdapter : IModelAdapter
             return b.Build();
         }
 
-        private Value Conv(Value x, string name, int stride, int pad, bool act)
+        protected Value Conv(Value x, string name, int stride, int pad, bool act)
         {
             var y = ResNetBackbone.Conv(_b, x, name, stride, pad, relu: false);
             return act ? TowerBlocks.Activation(_b, y, _convAct) : y;
         }
 
-        private Value CspRep(Value x, string p)
+        protected Value CspRep(Value x, string p)
         {
             var h1 = Conv(x, p + "conv1", 1, 0, true);
             for (int j = 0; j < _blocks; j++)
@@ -154,7 +155,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             return _b.HasWeight(p + "conv3.weight") ? Conv(sum, p + "conv3", 1, 0, true) : sum;
         }
 
-        private Value[] HybridEncoder(Value[] maps, (int H, int W)[] shapes)
+        protected Value[] HybridEncoder(Value[] maps, (int H, int W)[] shapes)
         {
             var b = _b;
             int stages = _levels - 1;
@@ -180,7 +181,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             return [.. pan];
         }
 
-        private Value Aifi(Value map, (int H, int W) shape)
+        protected Value Aifi(Value map, (int H, int W) shape)
         {
             var b = _b;
             int n = shape.H * shape.W;
@@ -200,7 +201,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             return b.Reshape(b.Contiguous(b.Permute(x, 1, 0)), 1, _e, shape.H, shape.W);
         }
 
-        private void Decode(Value source, (int H, int W)[] shapes, int total)
+        protected void Decode(Value source, (int H, int W)[] shapes, int total)
         {
             var b = _b;
             var (anchors, valid) = Anchors(shapes);
@@ -241,7 +242,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             b.Output(WellKnown.BoxesOutput, reference);
         }
 
-        private Value Deformable(Value query, Value source, Value reference, string p, (int H, int W)[] shapes, int queries)
+        protected Value Deformable(Value query, Value source, Value reference, string p, (int H, int W)[] shapes, int queries)
         {
             var b = _b;
             int hd = _d / _heads;
@@ -272,7 +273,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             return b.Linear(merged, p + "output_proj.weight", p + "output_proj.bias");
         }
 
-        private Value InverseSigmoid(Value x)
+        protected Value InverseSigmoid(Value x)
         {
             var b = _b;
             var x1 = b.Emit1("Clip", [x], Attributes.From(("min", 1e-5f)));
@@ -280,7 +281,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             return b.Unary("Log", b.Binary("Div", x1, x2));
         }
 
-        private Value Attention(Value query, Value key, Value value, string p, int qRows, int kRows, int? width = null)
+        protected Value Attention(Value query, Value key, Value value, string p, int qRows, int kRows, int? width = null)
         {
             var b = _b;
             int d = width ?? _d;
@@ -292,7 +293,7 @@ public sealed class RtDetrAdapter : IModelAdapter
             return b.Linear(b.Reshape(a, qRows, d), p + "o.weight", p + "o.bias");
         }
 
-        private Value Mlp(Value x, string p, int layers)
+        protected Value Mlp(Value x, string p, int layers)
         {
             for (int i = 0; i < layers; i++)
             {
@@ -306,10 +307,10 @@ public sealed class RtDetrAdapter : IModelAdapter
             return x;
         }
 
-        private Value LayerNorm(Value x, string name) => TowerBlocks.LayerNorm(_b, x, name, _eps);
+        protected Value LayerNorm(Value x, string name) => TowerBlocks.LayerNorm(_b, x, name, _eps);
 
         // [sin(h) | cos(h) | sin(w) | cos(w)] with geometric frequencies, row-major over the grid.
-        private static float[] Position(int height, int width, int channels)
+        protected static float[] Position(int height, int width, int channels)
         {
             int dim = channels / 4;
             var result = new float[height * width * channels];
@@ -333,7 +334,7 @@ public sealed class RtDetrAdapter : IModelAdapter
         }
 
         // Anchor boxes (as logits) of every feature position, and the mask of anchors inside (0.01, 0.99).
-        private static (float[] Anchors, float[] Valid) Anchors((int H, int W)[] shapes)
+        protected static (float[] Anchors, float[] Valid) Anchors((int H, int W)[] shapes)
         {
             var anchors = new List<float>();
             var valid = new List<float>();
@@ -355,6 +356,6 @@ public sealed class RtDetrAdapter : IModelAdapter
             return ([.. anchors], [.. valid]);
         }
 
-        private static byte[] Bytes(float[] values) => MemoryMarshal.AsBytes(values.AsSpan()).ToArray();
+        protected static byte[] Bytes(float[] values) => MemoryMarshal.AsBytes(values.AsSpan()).ToArray();
     }
 }
